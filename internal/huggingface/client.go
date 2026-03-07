@@ -51,7 +51,7 @@ func NewClient(token string) *Client {
 
 // Search queries HuggingFace for GGUF models.
 func (c *Client) Search(ctx context.Context, query string) ([]ModelSearchResult, error) {
-	u := fmt.Sprintf("%s/models?search=%s&filter=gguf&sort=downloads&direction=-1&limit=20",
+	u := fmt.Sprintf("%s/models?search=%s&filter=gguf&sort=downloads&direction=-1&limit=50",
 		baseURL, url.QueryEscape(query))
 
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)

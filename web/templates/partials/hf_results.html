@@ -1,28 +1,27 @@
 {{define "hf_results"}}
 {{if .Results}}
-<table role="grid">
-    <thead>
-        <tr><th>Model</th><th>Downloads</th><th>Likes</th><th>License</th><th></th></tr>
-    </thead>
-    <tbody>
-        {{range .Results}}
-        <tr>
-            <td>{{.ID}}</td>
-            <td>{{.Downloads}}</td>
-            <td>{{.Likes}}</td>
-            <td>{{.License}}</td>
-            <td>
-                <button hx-get="/api/hf/model?id={{.ID}}"
-                        hx-target="#hf-detail"
-                        hx-swap="innerHTML"
-                        class="outline">
-                    Files
-                </button>
-            </td>
-        </tr>
-        {{end}}
-    </tbody>
-</table>
+{{range $i, $m := .Results}}
+<article>
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <strong>{{$m.ID}}</strong>
+            {{if $m.License}}<small> — {{$m.License}}</small>{{end}}
+            <br>
+            <small>{{$m.Downloads}} downloads · {{$m.Likes}} likes</small>
+        </div>
+        <button type="button"
+                hx-get="/api/hf/model?id={{$m.ID}}"
+                hx-target="#hf-files-{{$i}}"
+                hx-swap="innerHTML"
+                class="outline"
+                style="width: auto;"
+                hx-on::before-request="let t=document.getElementById('hf-files-{{$i}}'); if(t.innerHTML.trim()){t.innerHTML=''; event.preventDefault();}">
+            Files
+        </button>
+    </div>
+    <div id="hf-files-{{$i}}"></div>
+</article>
+{{end}}
 {{else}}
 <p>No GGUF models found.</p>
 {{end}}
