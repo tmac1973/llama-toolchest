@@ -17,6 +17,7 @@ type Backend struct {
 func DetectBackends() []Backend {
 	backends := []Backend{
 		detectROCm(),
+		detectCUDA(),
 		detectVulkan(),
 		{Name: "cpu", Available: true, Info: "CPU fallback (always available)"},
 	}
@@ -50,6 +51,33 @@ func detectROCm() Backend {
 		b.Info = strings.Join(b.GPUs, ", ")
 	} else {
 		b.Info = "rocminfo found but no GPU agents detected"
+	}
+	return b
+}
+
+func detectCUDA() Backend {
+	b := Backend{Name: "cuda"}
+
+	out, err := exec.Command("nvidia-smi",
+		"--query-gpu=name",
+		"--format=csv,noheader,nounits").Output()
+	if err != nil {
+		b.Info = "nvidia-smi not found or failed"
+		return b
+	}
+
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		name := strings.TrimSpace(line)
+		if name != "" {
+			b.GPUs = append(b.GPUs, name)
+		}
+	}
+
+	if len(b.GPUs) > 0 {
+		b.Available = true
+		b.Info = strings.Join(b.GPUs, ", ")
+	} else {
+		b.Info = "nvidia-smi found but no GPUs detected"
 	}
 	return b
 }

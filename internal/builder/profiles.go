@@ -32,6 +32,14 @@ func DefaultProfiles() []BuildProfile {
 			},
 		},
 		{
+			Name:    "cuda",
+			Backend: "cuda",
+			CMakeFlags: map[string]string{
+				"GGML_CUDA":        "ON",
+				"CMAKE_BUILD_TYPE": "Release",
+			},
+		},
+		{
 			Name:    "vulkan",
 			Backend: "vulkan",
 			CMakeFlags: map[string]string{

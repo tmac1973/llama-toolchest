@@ -1,0 +1,21 @@
+services:
+  llamactl:
+    build:
+      context: .
+      dockerfile: Dockerfile.cuda
+    ports:
+      - "3000:3000"
+      - "8080:8080"
+    volumes:
+      - llamactl-data:/data:z
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  llamactl-data:

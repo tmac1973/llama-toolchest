@@ -1,7 +1,11 @@
 .PHONY: build run dev start stop restart clean \
-       docker docker-rebuild docker-run docker-compose-up docker-compose-down docker-compose-logs
+       docker docker-rebuild docker-compose-up docker-compose-down docker-compose-logs
 
 PID_FILE = bin/llamactl.pid
+
+# Auto-detect GPU vendor (override with: make docker-rebuild GPU=cuda)
+GPU ?= $(shell ./setup.sh detect 2>/dev/null || echo "rocm")
+COMPOSE_FILE = docker-compose.$(GPU).yml
 
 # Local development
 build:
@@ -30,34 +34,20 @@ restart: stop start
 clean: stop
 	rm -rf bin/
 
-# Container builds
+# Container builds (vendor-aware)
 docker:
-	docker build -t llamactl .
+	docker compose -f $(COMPOSE_FILE) build
 
 docker-rebuild:
-	docker compose down
-	docker compose build --no-cache
-	docker compose up -d
-
-docker-run: docker
-	docker run -it --rm \
-		-p 3000:3000 \
-		-p 8080:8080 \
-		-v llamactl-data:/data \
-		-v /etc/vulkan:/etc/vulkan:ro \
-		-v /usr/share/vulkan:/usr/share/vulkan:ro \
-		--device /dev/kfd \
-		--device /dev/dri \
-		--group-add video \
-		--group-add render \
-		--security-opt seccomp=unconfined \
-		llamactl
+	docker compose -f $(COMPOSE_FILE) down
+	docker compose -f $(COMPOSE_FILE) build --no-cache
+	docker compose -f $(COMPOSE_FILE) up -d
 
 docker-compose-up:
-	docker compose up -d
+	docker compose -f $(COMPOSE_FILE) up -d
 
 docker-compose-down:
-	docker compose down
+	docker compose -f $(COMPOSE_FILE) down
 
 docker-compose-logs:
-	docker compose logs -f
+	docker compose -f $(COMPOSE_FILE) logs -f
