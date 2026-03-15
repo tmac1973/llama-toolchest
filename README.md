@@ -148,7 +148,7 @@ For Intel-only machines, `setup.sh` auto-detects the Intel GPU and selects the `
 
 ### ROCm
 
-The `HSA_OVERRIDE_GFX_VERSION` environment variable in `docker-compose.rocm.yml` is set to `11.0.0` (RDNA 3). Adjust this for your GPU architecture if needed.
+The setup script auto-detects the AMD GPU architecture and sets `HSA_OVERRIDE_GFX_VERSION` in a `.env` file when needed. This override is only required for GPUs not natively supported by ROCm 7.2 (e.g., RDNA 4 maps to `11.0.0`, RDNA 1 maps to `10.1.0`). Natively supported architectures (RDNA 2, RDNA 3) don't need the override.
 
 ### CUDA
 
@@ -254,4 +254,4 @@ curl http://localhost:3000/v1/chat/completions \
 
 ## License
 
-MIT
+[GNU Affero General Public License v3.0](LICENSE)

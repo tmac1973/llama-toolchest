@@ -17,7 +17,7 @@ services:
     security_opt:
       - seccomp=unconfined      # required for ROCm
     environment:
-      - HSA_OVERRIDE_GFX_VERSION=11.0.0
+      - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-}
     restart: unless-stopped
 
 volumes:

@@ -11,8 +11,9 @@ readonly CDI_USER_DIR="${HOME}/.config/containers/cdi"
 
 # ─── Global state (populated by detect_* functions) ──────────────────────────
 
-GPU_VENDOR=""           # cuda, rocm, intel, cpu
+GPU_VENDOR=""           # cuda, rocm, vulkan, cpu
 GPU_INFO=""             # human-readable GPU description
+AMD_GFX_VERSION=""      # HSA_OVERRIDE_GFX_VERSION value (empty = not needed)
 
 CONTAINER_CMD=""        # docker or podman
 COMPOSE_CMD=""          # "docker compose" or "podman-compose" or "podman compose"
@@ -57,6 +58,60 @@ run_sudo() {
 
 # ─── Detection: GPU ──────────────────────────────────────────────────────────
 
+# Detect the AMD GPU gfx target from sysfs and determine if
+# HSA_OVERRIDE_GFX_VERSION is needed for ROCm compatibility.
+detect_amd_gfx_version() {
+    local gfx_target=""
+
+    # Try rocminfo first (may not be installed on host)
+    if need_cmd rocminfo; then
+        gfx_target="$(rocminfo 2>/dev/null | grep -oP 'gfx\d+' | head -1)" || true
+    fi
+
+    # Fallback: read from sysfs ip_discovery or amdgpu firmware
+    if [[ -z "$gfx_target" && -d /sys/class/drm ]]; then
+        for card_dir in /sys/class/drm/card[0-9]*/device; do
+            if [[ -f "$card_dir/vendor" && "$(cat "$card_dir/vendor")" == "0x1002" ]]; then
+                # Try to read gfx target from pp_dpm_sclk or firmware info
+                local fw_ver
+                fw_ver="$(cat "$card_dir/gpu_id" 2>/dev/null)" || true
+                break
+            fi
+        done
+    fi
+
+    [[ -z "$gfx_target" ]] && return
+
+    # Map gfx target to HSA_OVERRIDE_GFX_VERSION
+    # Only set the override for GPUs not natively supported by ROCm 7.2
+    case "$gfx_target" in
+        # RDNA 4 — not yet in ROCm 7.2, map to RDNA 3
+        gfx1200|gfx1201)
+            AMD_GFX_VERSION="11.0.0"
+            ;;
+        # RDNA 3 — natively supported
+        gfx1100|gfx1101|gfx1102|gfx1103)
+            AMD_GFX_VERSION=""
+            ;;
+        # RDNA 2 — natively supported
+        gfx1030|gfx1031|gfx1032|gfx1033|gfx1034|gfx1035|gfx1036)
+            AMD_GFX_VERSION=""
+            ;;
+        # RDNA 1 — needs override
+        gfx1010|gfx1011|gfx1012|gfx1013)
+            AMD_GFX_VERSION="10.1.0"
+            ;;
+        # Vega — needs override
+        gfx900|gfx902|gfx904|gfx906|gfx908|gfx909)
+            AMD_GFX_VERSION="9.0.0"
+            ;;
+        *)
+            # Unknown target — leave empty, let ROCm try natively
+            AMD_GFX_VERSION=""
+            ;;
+    esac
+}
+
 detect_gpu() {
     # NVIDIA: check for nvidia-smi AND that it can talk to a GPU
     if need_cmd nvidia-smi; then
@@ -90,6 +145,7 @@ detect_gpu() {
                 fi
             done
         fi
+        detect_amd_gfx_version
         return
     fi
 
@@ -402,6 +458,15 @@ has_quadlet() {
         && [[ -f "${QUADLET_USER_DIR}/${PODMAN_SERVICE_NAME}.container" ]]
 }
 
+# Write .env file for docker-compose variable substitution
+write_env_file() {
+    local env_file="${SCRIPT_DIR}/.env"
+    : > "$env_file"
+    if [[ -n "$AMD_GFX_VERSION" ]]; then
+        echo "HSA_OVERRIDE_GFX_VERSION=${AMD_GFX_VERSION}" >> "$env_file"
+    fi
+}
+
 container_up() {
     if has_quadlet; then
         log "Starting llamactl via systemd (Quadlet)..."
@@ -421,6 +486,7 @@ container_down() {
 }
 
 container_install() {
+    write_env_file
     $COMPOSE_CMD -f "$(compose_file)" up -d --build
 }
 
@@ -430,6 +496,7 @@ container_rebuild() {
 
     container_down
     $CONTAINER_CMD rm llamactl 2>/dev/null || true
+    write_env_file
     $COMPOSE_CMD -f "$(compose_file)" build --no-cache
 
     if [[ "$quadlet_active" == true ]]; then
@@ -510,12 +577,16 @@ generate_quadlet() {
         gpu_args="AddDevice=nvidia.com/gpu=all
 Volume=/usr/share/vulkan:/usr/share/vulkan:ro"
     elif [[ "$GPU_VENDOR" == "rocm" ]]; then
+        local hsa_env=""
+        if [[ -n "$AMD_GFX_VERSION" ]]; then
+            hsa_env="Environment=HSA_OVERRIDE_GFX_VERSION=${AMD_GFX_VERSION}"
+        fi
         gpu_args="AddDevice=/dev/kfd
 AddDevice=/dev/dri
 SecurityLabelDisable=true
 GroupAdd=video
 GroupAdd=render
-Environment=HSA_OVERRIDE_GFX_VERSION=11.0.0
+${hsa_env}
 Volume=/usr/share/vulkan:/usr/share/vulkan:ro"
     elif [[ "$GPU_VENDOR" == "vulkan" ]]; then
         gpu_args="AddDevice=/dev/dri
@@ -745,6 +816,9 @@ print_summary() {
     echo -e "  ${CYAN}Distro${NC}        ${DISTRO_NAME}"
     echo -e "  ${CYAN}Dockerfile${NC}    ${df}"
     echo -e "  ${CYAN}Compose file${NC}  ${cf}"
+    if [[ -n "$AMD_GFX_VERSION" ]]; then
+        echo -e "  ${CYAN}HSA Override${NC}  ${AMD_GFX_VERSION}"
+    fi
 
     local autostart_status="disabled"
     if is_autostart_enabled; then
