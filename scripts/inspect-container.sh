@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Compare container config between compose-started and expected values
+NAME="${1:-llamactl}"
+echo "=== Container: $NAME ==="
+echo ""
+echo "IpcMode:     $(docker inspect "$NAME" --format '{{.HostConfig.IpcMode}}')"
+echo "SecurityOpt: $(docker inspect "$NAME" --format '{{json .HostConfig.SecurityOpt}}')"
+echo "GroupAdd:    $(docker inspect "$NAME" --format '{{json .HostConfig.GroupAdd}}')"
+echo "Ulimits:     $(docker inspect "$NAME" --format '{{json .HostConfig.Ulimits}}')"
+echo "Devices:     $(docker inspect "$NAME" --format '{{json .HostConfig.Devices}}')"
+echo "Privileged:  $(docker inspect "$NAME" --format '{{.HostConfig.Privileged}}')"
+echo "CapAdd:      $(docker inspect "$NAME" --format '{{json .HostConfig.CapAdd}}')"
+echo "CapDrop:     $(docker inspect "$NAME" --format '{{json .HostConfig.CapDrop}}')"
+echo "Binds:       $(docker inspect "$NAME" --format '{{json .HostConfig.Binds}}')"
+echo ""
+echo "=== Process 1 limits ==="
+docker exec "$NAME" cat /proc/1/limits 2>/dev/null | grep -E "locked|open|processes"
+echo ""
+echo "=== rocminfo test ==="
+docker exec "$NAME" rocminfo 2>&1 | head -5
