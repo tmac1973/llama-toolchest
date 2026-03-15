@@ -30,15 +30,30 @@ The setup script will:
 
 The management UI will be available at `http://localhost:3000`.
 
-### Supported Platforms
+### Supported GPUs
 
-| GPU | Backend | Docker | Podman |
-|-----|---------|--------|--------|
-| NVIDIA | CUDA 12.8 | Yes | Yes |
-| AMD | ROCm 7.2 | Yes | Yes |
-| Intel | Vulkan | Yes | Yes |
-| Any | Vulkan | Yes | Yes |
-| None | CPU-only | Yes | Yes |
+| GPU | Backend | Build Profiles | Notes |
+|-----|---------|---------------|-------|
+| NVIDIA (Maxwell+) | CUDA 12.8 | cuda, vulkan, cpu | GTX 900 series and newer. Requires driver >= 570. |
+| AMD | ROCm 7.2 | rocm, vulkan, cpu | RDNA and newer. |
+| Intel | Vulkan | vulkan, cpu | Any Intel GPU with Vulkan drivers. |
+| None | CPU-only | cpu | No GPU required. |
+
+**NVIDIA generation support (CUDA 12.8):**
+
+| Generation | Example Cards | Supported |
+|------------|--------------|-----------|
+| Blackwell (50xx) | RTX 5080, 5090 | Yes |
+| Ada Lovelace (40xx) | RTX 4060–4090 | Yes |
+| Ampere (30xx) | RTX 3060–3090 | Yes |
+| Turing (20xx) | RTX 2060–2080 | Yes |
+| Pascal (10xx) | GTX 1060–1080 Ti | Yes (driver >= 570) |
+| Maxwell (900) | GTX 970–980 | Yes (driver >= 570) |
+| Kepler and older | GTX 700 and below | No (dropped in CUDA 12) |
+
+**Backend performance:** CUDA and ROCm provide native GPU compute and are significantly faster than Vulkan. Use Vulkan as a fallback for GPUs without native SDK support (e.g., Intel) or for cross-platform portability. Each container image supports multiple build profiles — an NVIDIA user can build with CUDA, Vulkan, or CPU from the same container.
+
+### Supported Distros
 
 | Distro Family | Package Manager | Tested |
 |---------------|-----------------|--------|
@@ -46,6 +61,8 @@ The management UI will be available at `http://localhost:3000`.
 | Fedora / RHEL | dnf | Yes |
 | Arch / CachyOS | pacman | Yes |
 | openSUSE | zypper | Planned |
+
+Both Docker and Podman (including rootless) are supported on all distros.
 
 ### Setup Script Reference
 
@@ -116,18 +133,26 @@ When `api_key` is set, all requests to `/v1/*` require a `Authorization: Bearer 
 | 3000 | LlamaCtl management UI + OpenAI proxy (`/v1`) |
 | 8080 | llama-server inference + built-in chat UI |
 
-## Vulkan Support
+## GPU Backend Notes
 
-To enable Vulkan backend builds, uncomment the host Vulkan mounts in your compose file:
+### Vulkan
 
-```yaml
-volumes:
-  - /usr/share/vulkan:/usr/share/vulkan:ro
-```
+Vulkan support is included in all GPU container images (CUDA, ROCm, and the dedicated Vulkan image). The setup script automatically mounts the host's Vulkan ICD configuration (`/usr/share/vulkan`) into the container so that `vulkaninfo` and Vulkan-compiled llama.cpp builds can access the GPU.
 
-## ROCm Notes
+The Vulkan backend is significantly slower than native CUDA or ROCm but works on any GPU with Vulkan drivers, making it useful for:
+- Intel GPUs (auto-detected by `setup.sh`)
+- Older AMD GPUs without ROCm support
+- Cross-platform testing
+
+For Intel-only machines, `setup.sh` auto-detects the Intel GPU and selects the `vulkan` container image.
+
+### ROCm
 
 The `HSA_OVERRIDE_GFX_VERSION` environment variable in `docker-compose.rocm.yml` is set to `11.0.0` (RDNA 3). Adjust this for your GPU architecture if needed.
+
+### CUDA
+
+CUDA 12.8 requires an NVIDIA driver >= 570. The llama.cpp CUDA build auto-detects the GPU architecture at compile time — no manual target configuration is needed (unlike ROCm's `AMDGPU_TARGETS`).
 
 ## Architecture
 
