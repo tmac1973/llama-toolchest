@@ -30,7 +30,7 @@ EOF
 
 # Dev tools + ROCm SDK
 RUN --mount=type=cache,target=/var/cache/dnf \
-    dnf -y --nodocs --setopt=install_weak_deps=False \
+    dnf -y --nodocs --setopt=install_weak_deps=False --setopt=keepcache=True \
   --exclude='*sdk*' --exclude='*samples*' --exclude='*-doc*' --exclude='*-docs*' \
   install \
   make gcc cmake lld clang clang-devel compiler-rt ninja-build \
