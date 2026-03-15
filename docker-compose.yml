@@ -17,6 +17,10 @@ services:
     ipc: host                    # ROCm needs shared memory for GPU communication
     security_opt:
       - seccomp=unconfined      # required for ROCm
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
     environment:
       - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-}
     restart: unless-stopped
