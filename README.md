@@ -2,7 +2,7 @@
 
 A web-based management interface for [llama.cpp](https://github.com/ggerganov/llama.cpp) inference servers. Build llama.cpp from source, download models from HuggingFace, configure and run inference, and expose an OpenAI-compatible API — all from a single containerized application.
 
-Supports NVIDIA CUDA, AMD ROCm, and CPU backends. Works with Docker and Podman on all major Linux distributions.
+**Linux only.** Supports NVIDIA CUDA, AMD ROCm, Intel/Vulkan, and CPU backends. Works with Docker and Podman on all major Linux distributions. GPU passthrough to containers is not available on macOS or Windows.
 
 ## Features
 
