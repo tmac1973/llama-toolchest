@@ -85,9 +85,9 @@ detect_amd_gfx_version() {
     # Map gfx target to HSA_OVERRIDE_GFX_VERSION
     # Only set the override for GPUs not natively supported by ROCm 7.2
     case "$gfx_target" in
-        # RDNA 4 — not yet in ROCm 7.2, map to RDNA 3
+        # RDNA 4 — natively supported in ROCm 7.2
         gfx1200|gfx1201)
-            AMD_GFX_VERSION="11.0.0"
+            AMD_GFX_VERSION=""
             ;;
         # RDNA 3 — natively supported
         gfx1100|gfx1101|gfx1102|gfx1103)

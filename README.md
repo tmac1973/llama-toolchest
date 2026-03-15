@@ -148,7 +148,7 @@ For Intel-only machines, `setup.sh` auto-detects the Intel GPU and selects the `
 
 ### ROCm
 
-The setup script auto-detects the AMD GPU architecture and sets `HSA_OVERRIDE_GFX_VERSION` in a `.env` file when needed. This override is only required for GPUs not natively supported by ROCm 7.2 (e.g., RDNA 4 maps to `11.0.0`, RDNA 1 maps to `10.1.0`). Natively supported architectures (RDNA 2, RDNA 3) don't need the override.
+The setup script auto-detects the AMD GPU architecture and sets `HSA_OVERRIDE_GFX_VERSION` in a `.env` file when needed. This override is only required for older GPUs not natively supported by ROCm 7.2 (e.g., RDNA 1 maps to `10.1.0`, Vega maps to `9.0.0`). Natively supported architectures (RDNA 2, RDNA 3, RDNA 4) don't need the override.
 
 ### CUDA
 
