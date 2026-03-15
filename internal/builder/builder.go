@@ -210,6 +210,7 @@ func (b *Builder) runBuild(ctx context.Context, prof BuildProfile, srcDir string
 	}
 
 	buildDir := filepath.Join(srcDir, "build-"+prof.Name)
+	os.RemoveAll(buildDir) // clean stale cmake state from previous builds
 	os.MkdirAll(buildDir, 0o755)
 
 	// cmake
