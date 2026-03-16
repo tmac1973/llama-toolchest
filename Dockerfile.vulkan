@@ -25,7 +25,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     vulkan-tools \
     libvulkan-dev \
     glslang-tools \
-    libxext6
+    libxext6 \
+    mesa-vulkan-drivers
 
 # glslc (Vulkan shader compiler) — not packaged in Ubuntu 24.04,
 # extract single binary from LunarG Vulkan SDK
