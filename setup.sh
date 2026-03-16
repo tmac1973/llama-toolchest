@@ -17,6 +17,9 @@ AMD_GFX_VERSION=""      # HSA_OVERRIDE_GFX_VERSION value (empty = not needed)
 HOST_VIDEO_GID=""       # host video group GID
 HOST_RENDER_GID=""      # host render group GID
 
+LLAMACTL_PORT="3000"            # host port for management UI
+LLAMACTL_INFERENCE_PORT="8080"  # host port for inference API
+
 CONTAINER_CMD=""        # docker or podman
 COMPOSE_CMD=""          # "docker compose" or "podman-compose" or "podman compose"
 CONTAINER_VERSION=""
@@ -452,6 +455,88 @@ install_prerequisites() {
     done
 }
 
+# ─── Port configuration ───────────────────────────────────────────────────────
+
+is_port_available() {
+    local port="$1"
+    # Check if something is already listening on the port
+    if need_cmd ss; then
+        ! ss -tlnH "sport = :${port}" 2>/dev/null | grep -q .
+    elif need_cmd netstat; then
+        ! netstat -tln 2>/dev/null | grep -q ":${port} "
+    else
+        # Can't check — assume available
+        return 0
+    fi
+}
+
+prompt_ports() {
+    echo ""
+    echo -e "${BOLD}Port configuration${NC}"
+    echo ""
+    echo "  Current ports:"
+    echo "    Management UI:  ${LLAMACTL_PORT}"
+    echo "    Inference API:  ${LLAMACTL_INFERENCE_PORT}"
+    echo ""
+
+    # Check if current ports are available
+    local ports_ok=true
+    if ! is_port_available "$LLAMACTL_PORT"; then
+        warn "Port ${LLAMACTL_PORT} is already in use"
+        ports_ok=false
+    fi
+    if ! is_port_available "$LLAMACTL_INFERENCE_PORT"; then
+        warn "Port ${LLAMACTL_INFERENCE_PORT} is already in use"
+        ports_ok=false
+    fi
+
+    if [[ "$ports_ok" == true ]]; then
+        if prompt_confirm "Use these ports?"; then
+            return
+        fi
+    else
+        echo ""
+        echo "  One or more ports are in use. Please choose alternative ports."
+    fi
+
+    echo ""
+    local port
+    while true; do
+        read -rp "$(echo -e "  ${BOLD}Management UI port${NC} [${LLAMACTL_PORT}]: ")" port
+        port="${port:-$LLAMACTL_PORT}"
+        if [[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1 && port <= 65535 )); then
+            LLAMACTL_PORT="$port"
+            break
+        fi
+        err "Invalid port number: $port"
+    done
+
+    while true; do
+        read -rp "$(echo -e "  ${BOLD}Inference API port${NC} [${LLAMACTL_INFERENCE_PORT}]: ")" port
+        port="${port:-$LLAMACTL_INFERENCE_PORT}"
+        if [[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1 && port <= 65535 )); then
+            if [[ "$port" == "$LLAMACTL_PORT" ]]; then
+                err "Cannot use the same port as management UI ($LLAMACTL_PORT)"
+                continue
+            fi
+            LLAMACTL_INFERENCE_PORT="$port"
+            break
+        fi
+        err "Invalid port number: $port"
+    done
+}
+
+load_env_ports() {
+    local env_file="${SCRIPT_DIR}/.env"
+    if [[ -f "$env_file" ]]; then
+        local val
+        val="$(grep '^LLAMACTL_PORT=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
+        [[ -n "$val" ]] && LLAMACTL_PORT="$val"
+        val="$(grep '^LLAMACTL_INFERENCE_PORT=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
+        [[ -n "$val" ]] && LLAMACTL_INFERENCE_PORT="$val"
+    fi
+}
+
 # ─── Container operations ────────────────────────────────────────────────────
 
 compose_file() {
@@ -471,6 +556,12 @@ has_quadlet() {
 write_env_file() {
     local env_file="${SCRIPT_DIR}/.env"
     : > "$env_file"
+
+    # Port configuration
+    echo "LLAMACTL_PORT=${LLAMACTL_PORT}" >> "$env_file"
+    echo "LLAMACTL_INFERENCE_PORT=${LLAMACTL_INFERENCE_PORT}" >> "$env_file"
+
+    # GPU-specific settings
     if [[ -n "$AMD_GFX_VERSION" ]]; then
         echo "HSA_OVERRIDE_GFX_VERSION=${AMD_GFX_VERSION}" >> "$env_file"
     fi
@@ -616,8 +707,8 @@ After=network-online.target
 [Container]
 Image=${image_name}
 ContainerName=llamactl
-PublishPort=3000:3000
-PublishPort=8080:8080
+PublishPort=${LLAMACTL_PORT}:3000
+PublishPort=${LLAMACTL_INFERENCE_PORT}:8080
 Volume=${volume_name}:/data:z
 ${gpu_args}
 
@@ -825,6 +916,8 @@ print_summary() {
     echo -e "  ${CYAN}Distro${NC}        ${DISTRO_NAME}"
     echo -e "  ${CYAN}Dockerfile${NC}    ${df}"
     echo -e "  ${CYAN}Compose file${NC}  ${cf}"
+    echo -e "  ${CYAN}UI port${NC}       ${LLAMACTL_PORT}"
+    echo -e "  ${CYAN}Inference port${NC} ${LLAMACTL_INFERENCE_PORT}"
     if [[ -n "$AMD_GFX_VERSION" ]]; then
         echo -e "  ${CYAN}HSA Override${NC}  ${AMD_GFX_VERSION}"
     fi
@@ -910,6 +1003,9 @@ Environment variables:
   GPU=cuda|rocm|cpu        Override GPU auto-detection
   RUNTIME=docker|podman   Override container runtime auto-detection
 
+Port configuration is stored in .env (see .env.example for details).
+You can edit .env directly instead of using the interactive setup.
+
 Examples:
   ./setup.sh install              # detect everything, install prereqs, build & run
   ./setup.sh status               # dry run — show what would happen
@@ -958,6 +1054,7 @@ main() {
 
     detect_container_runtime
     detect_distro
+    load_env_ports
 
     # ── Commands that don't need prerequisite checks ──
     case "$command" in
@@ -997,6 +1094,9 @@ main() {
         exit 0
     fi
 
+    # ── Configure ports ──
+    prompt_ports
+
     # ── Install prerequisites if needed ──
     if [[ ${#PREREQS[@]} -gt 0 ]]; then
         if ! prompt_confirm "Install prerequisites?"; then
@@ -1023,8 +1123,8 @@ main() {
     echo ""
     ok "llamactl is running"
     echo ""
-    echo "  Web UI:     http://localhost:3000"
-    echo "  Inference:  http://localhost:8080"
+    echo "  Web UI:     http://localhost:${LLAMACTL_PORT}"
+    echo "  Inference:  http://localhost:${LLAMACTL_INFERENCE_PORT}"
     echo ""
     echo "  Logs:       ./setup.sh logs"
     echo "  Stop:       ./setup.sh down"

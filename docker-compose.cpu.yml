@@ -5,10 +5,13 @@ services:
       dockerfile: Dockerfile.cpu
     container_name: llamactl
     ports:
-      - "3000:3000"   # LlamaCtl management UI
-      - "8080:8080"   # llama-server inference + chat UI
+      - "${LLAMACTL_PORT:-3000}:3000"   # LlamaCtl management UI
+      - "${LLAMACTL_INFERENCE_PORT:-8080}:8080"   # llama-server inference + chat UI
     volumes:
       - llamactl-data:/data:z
+    env_file:
+      - path: .env
+        required: false
     restart: unless-stopped
 
 volumes:
