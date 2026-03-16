@@ -1,6 +1,6 @@
 {{define "layout"}}
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="dark" id="html-root">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -43,6 +43,140 @@
             color: var(--pico-primary-inverse);
         }
         main { flex: 1; padding: 1.5rem; max-width: 1200px; overflow-y: auto; max-height: 100vh; }
+
+        /* ── Theme: Terminal Green ── */
+        [data-theme="terminal-green"] {
+            --pico-background-color: #0a0a0a;
+            --pico-color: #33ff33;
+            --pico-h1-color: #33ff33;
+            --pico-h2-color: #33ff33;
+            --pico-h3-color: #33ff33;
+            --pico-h4-color: #33ff33;
+            --pico-muted-color: #1a9a1a;
+            --pico-muted-border-color: #1a5a1a;
+            --pico-primary: #33ff33;
+            --pico-primary-hover: #66ff66;
+            --pico-primary-background: #1a5a1a;
+            --pico-primary-inverse: #0a0a0a;
+            --pico-card-background-color: #0f1a0f;
+            --pico-card-border-color: #1a5a1a;
+            --pico-card-sectioning-background-color: #0a140a;
+            --pico-form-element-background-color: #0a140a;
+            --pico-form-element-border-color: #1a5a1a;
+            --pico-form-element-color: #33ff33;
+            --pico-form-element-focus-color: #66ff66;
+            --pico-switch-color: #1a5a1a;
+            --pico-switch-checked-background-color: #33ff33;
+            --pico-table-border-color: #1a5a1a;
+            --pico-table-row-stripped-background-color: #0f1a0f;
+            --pico-code-background-color: #0f1a0f;
+            --pico-code-color: #66ff66;
+            --pico-kbd-background-color: #1a3a1a;
+            --pico-kbd-color: #33ff33;
+            --pico-mark-background-color: #1a5a1a;
+            --pico-mark-color: #33ff33;
+            --pico-ins-color: #66ff66;
+            --pico-del-color: #ff3333;
+            --pico-secondary: #1a9a1a;
+            --pico-secondary-hover: #33bb33;
+            --pico-contrast: #33ff33;
+            --pico-contrast-hover: #66ff66;
+            color-scheme: dark;
+        }
+        [data-theme="terminal-green"] * {
+            font-family: "Courier New", "Lucida Console", monospace !important;
+            text-shadow: 0 0 3px rgba(51, 255, 51, 0.3);
+        }
+        [data-theme="terminal-green"] progress::-webkit-progress-value { background-color: #33ff33; }
+        [data-theme="terminal-green"] progress::-moz-progress-bar { background-color: #33ff33; }
+
+        /* ── Theme: Terminal Amber ── */
+        [data-theme="terminal-amber"] {
+            --pico-background-color: #0a0800;
+            --pico-color: #ffb000;
+            --pico-h1-color: #ffb000;
+            --pico-h2-color: #ffb000;
+            --pico-h3-color: #ffb000;
+            --pico-h4-color: #ffb000;
+            --pico-muted-color: #996a00;
+            --pico-muted-border-color: #5a3f00;
+            --pico-primary: #ffb000;
+            --pico-primary-hover: #ffc633;
+            --pico-primary-background: #5a3f00;
+            --pico-primary-inverse: #0a0800;
+            --pico-card-background-color: #1a1400;
+            --pico-card-border-color: #5a3f00;
+            --pico-card-sectioning-background-color: #140f00;
+            --pico-form-element-background-color: #140f00;
+            --pico-form-element-border-color: #5a3f00;
+            --pico-form-element-color: #ffb000;
+            --pico-form-element-focus-color: #ffc633;
+            --pico-switch-color: #5a3f00;
+            --pico-switch-checked-background-color: #ffb000;
+            --pico-table-border-color: #5a3f00;
+            --pico-table-row-stripped-background-color: #1a1400;
+            --pico-code-background-color: #1a1400;
+            --pico-code-color: #ffc633;
+            --pico-kbd-background-color: #3a2a00;
+            --pico-kbd-color: #ffb000;
+            --pico-mark-background-color: #5a3f00;
+            --pico-mark-color: #ffb000;
+            --pico-ins-color: #ffc633;
+            --pico-del-color: #ff3333;
+            --pico-secondary: #996a00;
+            --pico-secondary-hover: #bb8800;
+            --pico-contrast: #ffb000;
+            --pico-contrast-hover: #ffc633;
+            color-scheme: dark;
+        }
+        [data-theme="terminal-amber"] * {
+            font-family: "Courier New", "Lucida Console", monospace !important;
+            text-shadow: 0 0 3px rgba(255, 176, 0, 0.3);
+        }
+        [data-theme="terminal-amber"] progress::-webkit-progress-value { background-color: #ffb000; }
+        [data-theme="terminal-amber"] progress::-moz-progress-bar { background-color: #ffb000; }
+
+        /* ── Theme: Cyberpunk ── */
+        [data-theme="cyberpunk"] {
+            --pico-background-color: #0a0014;
+            --pico-color: #e0d0ff;
+            --pico-h1-color: #ff00ff;
+            --pico-h2-color: #ff00ff;
+            --pico-h3-color: #ff00ff;
+            --pico-h4-color: #ff00ff;
+            --pico-muted-color: #8866aa;
+            --pico-muted-border-color: #4a2a6a;
+            --pico-primary: #ff00ff;
+            --pico-primary-hover: #ff66ff;
+            --pico-primary-background: #5a005a;
+            --pico-primary-inverse: #0a0014;
+            --pico-card-background-color: #140020;
+            --pico-card-border-color: #4a2a6a;
+            --pico-card-sectioning-background-color: #0f001a;
+            --pico-form-element-background-color: #0f001a;
+            --pico-form-element-border-color: #4a2a6a;
+            --pico-form-element-color: #e0d0ff;
+            --pico-form-element-focus-color: #ff66ff;
+            --pico-switch-color: #4a2a6a;
+            --pico-switch-checked-background-color: #ff00ff;
+            --pico-table-border-color: #4a2a6a;
+            --pico-table-row-stripped-background-color: #140020;
+            --pico-code-background-color: #140020;
+            --pico-code-color: #00ffff;
+            --pico-kbd-background-color: #2a0040;
+            --pico-kbd-color: #00ffff;
+            --pico-mark-background-color: #5a005a;
+            --pico-mark-color: #ff00ff;
+            --pico-ins-color: #00ffff;
+            --pico-del-color: #ff3366;
+            --pico-secondary: #00bbcc;
+            --pico-secondary-hover: #00ddee;
+            --pico-contrast: #00ffff;
+            --pico-contrast-hover: #66ffff;
+            color-scheme: dark;
+        }
+        [data-theme="cyberpunk"] progress::-webkit-progress-value { background-color: #ff00ff; }
+        [data-theme="cyberpunk"] progress::-moz-progress-bar { background-color: #ff00ff; }
     </style>
 </head>
 <body>
@@ -68,6 +202,16 @@
     <main class="container">
         {{template "content" .}}
     </main>
+<script>
+(function() {
+    var saved = localStorage.getItem('llamactl-theme');
+    if (saved) document.getElementById('html-root').setAttribute('data-theme', saved);
+})();
+function setTheme(theme) {
+    document.getElementById('html-root').setAttribute('data-theme', theme);
+    localStorage.setItem('llamactl-theme', theme);
+}
+</script>
 </body>
 </html>
 {{end}}
