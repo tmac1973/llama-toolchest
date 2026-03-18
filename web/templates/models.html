@@ -236,6 +236,14 @@
             });
         }
     });
+    // --- VRAM estimate update from config save ---
+    document.body.addEventListener('vramUpdated', function(e) {
+        var detail = e.detail;
+        if (detail && detail.id && detail.vram) {
+            var cell = document.getElementById('vram-' + detail.id);
+            if (cell) cell.textContent = detail.vram;
+        }
+    });
 })();
 </script>
 {{end}}
