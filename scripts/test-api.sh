@@ -116,7 +116,28 @@ try:
 except:
     print(0)
 " 2>/dev/null)
-echo "  ${DIM}Active models: $active_count${NC}"
+
+# Cross-check: count active instances from management API
+mgmt_active=$(curl -s "$BASE/api/service/status" | python3 -c "
+import json,sys
+try:
+    d = json.load(sys.stdin)
+    # Returns a list of active statuses
+    if isinstance(d, list):
+        print(len(d))
+    else:
+        print(1 if d.get('state') in ('running','starting') else 0)
+except:
+    print(0)
+" 2>/dev/null)
+
+echo "  ${DIM}Models in /v1/models: $active_count | Active instances: $mgmt_active${NC}"
+
+if [[ "$active_count" -eq "$mgmt_active" ]]; then
+    pass "/v1/models lists all $active_count active model(s)"
+else
+    fail "/v1/models lists $active_count models but $mgmt_active instances are active"
+fi
 
 # Get the first model name for targeted tests
 first_model=$(echo "$v1_body" | python3 -c "
@@ -143,7 +164,9 @@ fi
 
 # ─── Routing behavior depends on how many models are loaded ──────────────────
 
-if [[ "$active_count" -le 1 ]]; then
+# Use management API count for routing mode (more reliable than /v1/models count
+# which depends on the aggregation code being deployed)
+if [[ "$mgmt_active" -le 1 ]]; then
     echo ""
     echo "--- Single-model routing (permissive) ---"
 

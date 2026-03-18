@@ -9,6 +9,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -22,6 +23,12 @@ import (
 //     available model list if no match
 func (s *Server) newProxyHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// GET /v1/models — aggregate from all active instances
+		if r.Method == http.MethodGet && (r.URL.Path == "/models" || r.URL.Path == "/v1/models") {
+			s.handleAggregatedModels(w, r)
+			return
+		}
+
 		// Read body once for routing + injection
 		body, err := io.ReadAll(r.Body)
 		r.Body.Close()
@@ -67,6 +74,90 @@ func (s *Server) newProxyHandler() http.Handler {
 		}
 		proxy.ServeHTTP(w, r)
 	})
+}
+
+// handleAggregatedModels fetches /v1/models from every active llama-server
+// instance and returns a merged response containing all loaded models.
+func (s *Server) handleAggregatedModels(w http.ResponseWriter, r *http.Request) {
+	active := s.process.ListActive()
+	if len(active) == 0 {
+		writeProxyError(w, http.StatusServiceUnavailable, "no active model instance")
+		return
+	}
+
+	// Single instance — just proxy directly for efficiency
+	if len(active) == 1 {
+		target := &url.URL{
+			Scheme: "http",
+			Host:   fmt.Sprintf("localhost:%d", active[0].Port),
+		}
+		proxy := httputil.NewSingleHostReverseProxy(target)
+		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+			writeProxyError(w, http.StatusServiceUnavailable, "llama-server is not running")
+		}
+		proxy.ServeHTTP(w, r)
+		return
+	}
+
+	// Multiple instances — fan out, collect, merge
+	type instanceResult struct {
+		data   []json.RawMessage // "data" array entries
+		models []json.RawMessage // "models" array entries (llama.cpp extension)
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	results := make([]instanceResult, len(active))
+	var wg sync.WaitGroup
+
+	for i, st := range active {
+		wg.Add(1)
+		go func(idx int, port int) {
+			defer wg.Done()
+			resp, err := client.Get(fmt.Sprintf("http://localhost:%d/v1/models", port))
+			if err != nil {
+				return
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				return
+			}
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return
+			}
+			var parsed struct {
+				Data   []json.RawMessage `json:"data"`
+				Models []json.RawMessage `json:"models"`
+			}
+			if json.Unmarshal(body, &parsed) == nil {
+				results[idx] = instanceResult{
+					data:   parsed.Data,
+					models: parsed.Models,
+				}
+			}
+		}(i, st.Port)
+	}
+	wg.Wait()
+
+	// Merge all entries
+	var allData []json.RawMessage
+	var allModels []json.RawMessage
+	for _, res := range results {
+		allData = append(allData, res.data...)
+		allModels = append(allModels, res.models...)
+	}
+
+	merged := map[string]any{
+		"object": "list",
+		"data":   allData,
+	}
+	// Include the llama.cpp "models" extension if any instance returned it
+	if len(allModels) > 0 {
+		merged["models"] = allModels
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(merged)
 }
 
 // resolveInstance finds the right backend port for a request.
