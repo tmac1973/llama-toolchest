@@ -243,6 +243,40 @@ func (s *Server) handleActivateModel(w http.ResponseWriter, r *http.Request) {
 		extraFlags = strings.Fields(cfg.ExtraFlags)
 	}
 
+	// VRAM budget check — warn but don't block (estimates aren't exact).
+	// Skip check if force=true query param is set, or if no GPU info available.
+	vramWarning := ""
+	if r.URL.Query().Get("force") != "true" {
+		vramWarning = s.checkVRAMBudget(id, model, cfg)
+	}
+
+	// If htmx request with a VRAM warning, return a confirmation dialog.
+	// HX-Retarget + HX-Reswap tell htmx to append the dialog to <body>
+	// instead of replacing the model list.
+	if vramWarning != "" && r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("HX-Retarget", "body")
+		w.Header().Set("HX-Reswap", "beforeend")
+		fmt.Fprintf(w, `<dialog open style="max-width:500px;">
+			<article>
+				<header>VRAM Warning</header>
+				<p>%s</p>
+				<footer>
+					<div role="group">
+						<button type="button" class="secondary"
+							onclick="this.closest('dialog').remove();">Cancel</button>
+						<button type="button"
+							hx-put="/api/models/%s/activate?force=true"
+							hx-target="#model-list"
+							hx-swap="innerHTML"
+							onclick="this.closest('dialog').remove();">Start Anyway</button>
+					</div>
+				</footer>
+			</article>
+		</dialog>`, html.EscapeString(vramWarning), html.EscapeString(id))
+		return
+	}
+
 	launchCfg := process.LaunchConfig{
 		BinaryPath:     binaryPath,
 		ModelPath:      model.FilePath,
@@ -273,6 +307,95 @@ func (s *Server) handleActivateModel(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(status)
+}
+
+// checkVRAMBudget estimates whether adding a model would exceed GPU VRAM.
+// Returns a warning message if over budget, or empty string if OK.
+func (s *Server) checkVRAMBudget(newModelID string, newModel *models.Model, newCfg *models.ModelConfig) string {
+	metrics := s.monitor.Current()
+	if len(metrics.GPU) == 0 {
+		return "" // no GPU info available, skip check
+	}
+
+	// Determine which GPUs the new model will use
+	targetGPUs := gpuIndicesForDevices(newCfg.GPUDevices, len(metrics.GPU))
+
+	// Compute total VRAM available across target GPUs
+	var totalVRAM float64
+	for _, idx := range targetGPUs {
+		if idx < len(metrics.GPU) {
+			totalVRAM += float64(metrics.GPU[idx].VRAMTotalMB) / 1024.0
+		}
+	}
+	if totalVRAM == 0 {
+		return ""
+	}
+
+	// Sum VRAM estimates for already-active models on the same GPUs
+	var usedVRAM float64
+	for _, st := range s.process.ListActive() {
+		activeModel, err := s.registry.Get(st.ID)
+		if err != nil {
+			continue
+		}
+		activeCfg, err := s.registry.GetConfig(st.ID)
+		if err != nil {
+			continue
+		}
+		activeGPUs := gpuIndicesForDevices(activeCfg.GPUDevices, len(metrics.GPU))
+		// Check if this active model shares any GPU with the new model
+		if gpuOverlap(targetGPUs, activeGPUs) {
+			usedVRAM += models.VRAMEstimateForConfig(activeModel, activeCfg)
+		}
+	}
+
+	newModelVRAM := models.VRAMEstimateForConfig(newModel, newCfg)
+	projected := usedVRAM + newModelVRAM
+
+	if projected > totalVRAM {
+		return fmt.Sprintf(
+			"Estimated total VRAM usage (%.1f GB) would exceed available GPU memory (%.1f GB). "+
+				"Currently loaded: %.1f GB, this model: %.1f GB. "+
+				"The model may fail to load or performance may degrade.",
+			projected, totalVRAM, usedVRAM, newModelVRAM,
+		)
+	}
+
+	return ""
+}
+
+// gpuIndicesForDevices returns the GPU indices a model targets.
+// Empty devices string means all GPUs.
+func gpuIndicesForDevices(devices string, numGPUs int) []int {
+	if devices == "" {
+		indices := make([]int, numGPUs)
+		for i := range indices {
+			indices[i] = i
+		}
+		return indices
+	}
+	var indices []int
+	for _, s := range strings.Split(devices, ",") {
+		s = strings.TrimSpace(s)
+		if idx, err := strconv.Atoi(s); err == nil && idx >= 0 {
+			indices = append(indices, idx)
+		}
+	}
+	return indices
+}
+
+// gpuOverlap returns true if the two GPU index lists share any GPU.
+func gpuOverlap(a, b []int) bool {
+	set := make(map[int]struct{}, len(a))
+	for _, idx := range a {
+		set[idx] = struct{}{}
+	}
+	for _, idx := range b {
+		if _, ok := set[idx]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // handleDeactivateModel stops a specific model instance.
