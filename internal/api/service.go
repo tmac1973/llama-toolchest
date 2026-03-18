@@ -524,6 +524,9 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Tell htmx to also refresh the model list (updates VRAM estimate column)
+	w.Header().Set("HX-Trigger", "configSaved")
+
 	// Return updated config form
 	s.handleGetModelConfig(w, r)
 }
