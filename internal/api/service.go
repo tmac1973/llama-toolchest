@@ -465,18 +465,28 @@ func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	model, _ := s.registry.Get(id)
+
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+		maxContext := 0
+		if model != nil {
+			maxContext = model.ContextLength
+		}
+
 		data := struct {
 			ModelID         string
 			Config          *models.ModelConfig
 			AvailableBuilds interface{}
 			EffectiveFlags  string
+			MaxContext      int
 		}{
 			ModelID:         id,
 			Config:          cfg,
 			AvailableBuilds: s.builder.List(),
 			EffectiveFlags:  cfg.EffectiveFlags(),
+			MaxContext:      maxContext,
 		}
 		s.renderPartial(w, "model_config", data)
 		return
@@ -524,14 +534,15 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Compute updated VRAM estimate and send it via HX-Trigger so the
+	// Compute updated VRAM range and send it via HX-Trigger so the
 	// client-side JS can update the VRAM cell without refreshing the model list.
 	if r.Header.Get("HX-Request") == "true" {
 		if model, err := s.registry.Get(id); err == nil {
-			vramGB := models.VRAMEstimateForConfig(model, &cfg)
+			baseVRAM := models.EstimateVRAM(model.SizeBytes)
+			peakVRAM := models.VRAMEstimateForConfig(model, &cfg)
 			w.Header().Set("HX-Trigger", fmt.Sprintf(
-				`{"vramUpdated":{"id":%q,"vram":"%.1f GB"}}`,
-				id, vramGB))
+				`{"vramUpdated":{"id":%q,"vram":"%.1f – %.1f GB"}}`,
+				id, baseVRAM, peakVRAM))
 		}
 	}
 

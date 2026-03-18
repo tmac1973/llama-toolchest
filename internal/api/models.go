@@ -24,26 +24,29 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			activeSet[st.ID] = st.State
 		}
 
-		w.Write([]byte(`<table role="grid"><thead><tr><th>Model</th><th>Quant</th><th>VRAM Est.</th><th>Size</th><th></th></tr></thead>`))
+		w.Write([]byte(`<table role="grid"><thead><tr><th>Model</th><th>Quant</th><th title="Base (weights) – Peak (full KV cache)">VRAM Est.</th><th>Size</th><th></th></tr></thead>`))
 		for _, m := range modelList {
 			state := activeSet[m.ID]
 
-			// Compute config-aware VRAM estimate
-			vramGB := m.VRAMEstGB // fallback
+			// Compute VRAM range: base (weights + overhead) and peak (+ full KV cache)
+			baseVRAM := models.EstimateVRAM(m.SizeBytes) // weights + overhead
+			peakVRAM := baseVRAM                          // fallback if no GGUF metadata
 			if cfg, err := s.registry.GetConfig(m.ID); err == nil {
-				vramGB = models.VRAMEstimateForConfig(m, cfg)
+				peakVRAM = models.VRAMEstimateForConfig(m, cfg)
 			}
 
 			data := struct {
 				models.Model
 				IsActive     bool
 				ServiceState string
-				VRAMEstGB    float64
+				BaseVRAMGB   float64
+				PeakVRAMGB   float64
 			}{
 				Model:        *m,
 				IsActive:     state == "running" || state == "starting",
 				ServiceState: state,
-				VRAMEstGB:    vramGB,
+				BaseVRAMGB:   baseVRAM,
+				PeakVRAMGB:   peakVRAM,
 			}
 			s.renderPartial(w, "model_card", data)
 		}

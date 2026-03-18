@@ -9,11 +9,12 @@ import (
 
 // GGUFMeta holds architecture parameters extracted from a GGUF file header.
 type GGUFMeta struct {
-	Architecture string `json:"architecture"`
-	NLayers      int    `json:"n_layers"`
-	NEmbd        int    `json:"n_embd"`
-	NHead        int    `json:"n_head"`
-	NKVHead      int    `json:"n_kv_head"`
+	Architecture  string `json:"architecture"`
+	NLayers       int    `json:"n_layers"`
+	NEmbd         int    `json:"n_embd"`
+	NHead         int    `json:"n_head"`
+	NKVHead       int    `json:"n_kv_head"`
+	ContextLength int    `json:"context_length"` // max trained context size
 }
 
 // HeadDim returns the dimension per attention head.
@@ -61,7 +62,7 @@ func ParseGGUFMeta(path string) (*GGUFMeta, error) {
 	}
 
 	meta := &GGUFMeta{}
-	needed := 5 // architecture + 4 params
+	needed := 6 // architecture + 4 params + context_length
 	found := 0
 
 	for i := uint64(0); i < kvCount && found < needed; i++ {
@@ -110,6 +111,13 @@ func ParseGGUFMeta(path string) (*GGUFMeta, error) {
 		case meta.Architecture != "" && key == meta.Architecture+".attention.head_count_kv":
 			if v, err := readGGUFUint32OrInt32(f, valueType); err == nil {
 				meta.NKVHead = int(v)
+				found++
+				continue
+			}
+
+		case meta.Architecture != "" && key == meta.Architecture+".context_length":
+			if v, err := readGGUFUint32OrInt32(f, valueType); err == nil {
+				meta.ContextLength = int(v)
 				found++
 				continue
 			}

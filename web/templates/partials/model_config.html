@@ -24,27 +24,29 @@
                    min="0" max="999" placeholder="999 = all layers">
         </label>
         {{$cs := .Config.ContextSize}}
+        {{$mc := .MaxContext}}
         {{$isCustom := and (ne $cs 0) (ne $cs 2048) (ne $cs 4096) (ne $cs 8192) (ne $cs 16384) (ne $cs 32768) (ne $cs 65536) (ne $cs 131072) (ne $cs 262144)}}
-        <label title="Maximum token context window. Larger values use more VRAM. 'Model Default' uses the model's trained context size.">
-            Context Size
+        <label title="Maximum token context window. Larger values use more VRAM.{{if gt $mc 0}} This model supports up to {{$mc}} tokens.{{end}}">
+            Context Size{{if gt $mc 0}} <small>(max {{$mc}})</small>{{end}}
             <div class="ctx-size-picker">
                 <select {{if not $isCustom}}name="context_size"{{end}}
                         {{if $isCustom}}style="display:none;"{{end}}
                         onchange="if(this.value==='custom'){this.removeAttribute('name');this.style.display='none';var w=this.closest('.ctx-size-picker');w.querySelector('.ctx-custom-row').style.display='flex';w.querySelector('input').name='context_size';w.querySelector('input').focus();this.closest('form').classList.add('ctx-editing');}">
-                    <option value="0" {{if eq $cs 0}}selected{{end}}>Model Default</option>
-                    <option value="2048" {{if eq $cs 2048}}selected{{end}}>2K</option>
-                    <option value="4096" {{if eq $cs 4096}}selected{{end}}>4K</option>
-                    <option value="8192" {{if eq $cs 8192}}selected{{end}}>8K</option>
-                    <option value="16384" {{if eq $cs 16384}}selected{{end}}>16K</option>
-                    <option value="32768" {{if eq $cs 32768}}selected{{end}}>32K</option>
-                    <option value="65536" {{if eq $cs 65536}}selected{{end}}>64K</option>
-                    <option value="131072" {{if eq $cs 131072}}selected{{end}}>128K</option>
-                    <option value="262144" {{if eq $cs 262144}}selected{{end}}>256K</option>
+                    <option value="0" {{if eq $cs 0}}selected{{end}}>Model Default{{if gt $mc 0}} ({{$mc}}){{end}}</option>
+                    <option value="2048" {{if eq $cs 2048}}selected{{end}} {{if and (gt $mc 0) (lt $mc 2048)}}disabled{{end}}>2K</option>
+                    <option value="4096" {{if eq $cs 4096}}selected{{end}} {{if and (gt $mc 0) (lt $mc 4096)}}disabled{{end}}>4K</option>
+                    <option value="8192" {{if eq $cs 8192}}selected{{end}} {{if and (gt $mc 0) (lt $mc 8192)}}disabled{{end}}>8K</option>
+                    <option value="16384" {{if eq $cs 16384}}selected{{end}} {{if and (gt $mc 0) (lt $mc 16384)}}disabled{{end}}>16K</option>
+                    <option value="32768" {{if eq $cs 32768}}selected{{end}} {{if and (gt $mc 0) (lt $mc 32768)}}disabled{{end}}>32K</option>
+                    <option value="65536" {{if eq $cs 65536}}selected{{end}} {{if and (gt $mc 0) (lt $mc 65536)}}disabled{{end}}>64K</option>
+                    <option value="131072" {{if eq $cs 131072}}selected{{end}} {{if and (gt $mc 0) (lt $mc 131072)}}disabled{{end}}>128K</option>
+                    <option value="262144" {{if eq $cs 262144}}selected{{end}} {{if and (gt $mc 0) (lt $mc 262144)}}disabled{{end}}>256K</option>
                     <option value="custom" {{if $isCustom}}selected{{end}}>Custom...</option>
                 </select>
                 <div style="display:flex;gap:0.5rem;align-items:center;{{if not $isCustom}}display:none;{{end}}"
                      class="ctx-custom-row">
                     <input type="number" min="512" step="512"
+                           {{if gt $mc 0}}max="{{$mc}}"{{end}}
                            {{if $isCustom}}name="context_size" value="{{$cs}}"{{end}}
                            style="margin:0;"
                            placeholder="e.g. 16384"

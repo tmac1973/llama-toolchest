@@ -25,11 +25,12 @@ type Model struct {
 	DownloadedAt time.Time `json:"downloaded_at"`
 
 	// Architecture parameters parsed from GGUF header.
-	Arch    string `json:"arch,omitempty"`
-	NLayers int    `json:"n_layers,omitempty"`
-	NEmbd   int    `json:"n_embd,omitempty"`
-	NHead   int    `json:"n_head,omitempty"`
-	NKVHead int    `json:"n_kv_head,omitempty"`
+	Arch          string `json:"arch,omitempty"`
+	NLayers       int    `json:"n_layers,omitempty"`
+	NEmbd         int    `json:"n_embd,omitempty"`
+	NHead         int    `json:"n_head,omitempty"`
+	NKVHead       int    `json:"n_kv_head,omitempty"`
+	ContextLength int    `json:"context_length,omitempty"` // max trained context
 }
 
 // ModelConfig holds per-model launch configuration for llama-server.
@@ -238,9 +239,10 @@ func (r *Registry) BackfillGGUFMeta() {
 		m.NEmbd = meta.NEmbd
 		m.NHead = meta.NHead
 		m.NKVHead = meta.NKVHead
+		m.ContextLength = meta.ContextLength
 		changed = true
 		slog.Info("backfilled GGUF metadata", "model", m.ID, "arch", meta.Architecture,
-			"layers", meta.NLayers, "kv_heads", meta.NKVHead)
+			"layers", meta.NLayers, "kv_heads", meta.NKVHead, "ctx", meta.ContextLength)
 	}
 	if changed {
 		r.save()
