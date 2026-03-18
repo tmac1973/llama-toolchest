@@ -3,7 +3,7 @@
 <tr{{if .IsActive}} style="background: var(--pico-primary-background); color: var(--pico-primary-inverse);"{{end}}>
     <td>{{.ModelID}}{{if .IsActive}} <ins>active</ins>{{end}}</td>
     <td><kbd>{{.Quant}}</kbd></td>
-    <td>{{printf "%.1f" .VRAMEstGB}} GB</td>
+    <td id="vram-{{.ID}}">{{printf "%.1f" .VRAMEstGB}} GB</td>
     <td>{{printf "%.1f" (divGB .SizeBytes)}} GB</td>
     <td>
         <div role="group">

@@ -7,10 +7,16 @@ A web-based management interface for [llama.cpp](https://github.com/ggerganov/ll
 ## Features
 
 - **Build Management** — Clone and compile llama.cpp inside the container with CUDA, ROCm, or CPU backends. View real-time build logs via SSE streaming.
-- **Model Management** — Download GGUF models directly from HuggingFace. Search repos, browse available quantizations, and track download progress. Configure per-model inference parameters (GPU layers, context size, threads, tensor split).
-- **Service Control** — Start, stop, and restart the llama-server process. Live health monitoring and streaming server logs.
-- **OpenAI-Compatible Proxy** — Reverse proxy at `/v1` forwards to llama-server's OpenAI API. Works with any client that supports the OpenAI chat completions format (Goose, Continue, Open WebUI, etc.). Optional Bearer token authentication.
-- **Dashboard** — At-a-glance view of service status, active model, build/model inventory, and API endpoint URL.
+- **Model Management** — Download GGUF models directly from HuggingFace. Search repos, browse available quantizations, and track download progress. Configure per-model inference parameters (GPU layers, context size, threads, tensor split, sampling).
+- **Multi-Model Loading** — Run multiple models simultaneously, each in its own llama-server process with independent lifecycle, logs, and configuration. Models can be started and stopped independently.
+- **Smart Proxy Routing** — The `/v1` proxy routes requests to the correct model based on the `model` field. With one model loaded, any value is accepted for maximum compatibility. With multiple models, requests must specify a valid model name.
+- **Per-Model Sampling** — Configure default sampling parameters (temperature, top_p, top_k, min_p, presence_penalty, repeat_penalty) per model. The proxy injects these defaults into requests that don't specify them.
+- **GPU Pinning** — Assign specific GPUs to each model via `ROCR_VISIBLE_DEVICES` / `CUDA_VISIBLE_DEVICES`. Pin small models to one GPU while spreading larger ones across multiple.
+- **VRAM Budget Tracking** — Architecture-aware VRAM estimation using GGUF metadata (layers, KV heads, embedding dimensions). Estimates account for model weights, KV cache at configured context size, and cache quantization. Warns before starting a model that would exceed GPU memory.
+- **Service Control** — Start, stop, and restart model instances. Per-model log streaming with tabbed viewer. Live health monitoring.
+- **OpenAI-Compatible Proxy** — Reverse proxy at `/v1` forwards to llama-server's OpenAI API. Works with any client that supports the OpenAI chat completions format (Goose, Continue, Open WebUI, etc.). Optional Bearer token authentication. `/v1/models` aggregates across all loaded instances.
+- **Dashboard** — At-a-glance view of service status, active models, build/model inventory, and API endpoint URL.
+- **Agent CLI** — Lightweight terminal chat client (`cmd/agent`) that connects to the API with tool-use support for filesystem exploration.
 - **Built-in Chat UI** — llama.cpp's native chat interface is accessible on port 8080 when the server is running.
 
 ## Quick Start
@@ -100,8 +106,9 @@ RUNTIME=podman ./setup.sh install   # force Podman runtime
 1. Open `http://localhost:3000`
 2. Go to **Builds** and compile llama.cpp (select the appropriate backend for your GPU)
 3. Go to **Browse** to search HuggingFace and download a GGUF model
-4. Go to **Models**, click **Configure** on your model to set GPU layers and context size, then **Activate**
-5. The service will start and the OpenAI API becomes available at `http://localhost:3000/v1`
+4. Go to **Models**, click **Configure** on your model to set GPU layers, context size, and sampling parameters, then **Start**
+5. The model will load and the OpenAI API becomes available at `http://localhost:3000/v1`
+6. Optionally start additional models — the proxy routes requests by the `model` field
 
 ## Configuration
 
@@ -130,7 +137,9 @@ When `api_key` is set, all requests to `/v1/*` require a `Authorization: Bearer 
 | Port | Service |
 |------|---------|
 | 3000 | LlamaCtl management UI + OpenAI proxy (`/v1`) |
-| 8080 | llama-server inference + built-in chat UI |
+| 8080–8099 | llama-server instances (internal, auto-assigned per model) |
+
+The proxy on port 3000 handles all external traffic. Internal llama-server ports are auto-assigned and not exposed outside the container.
 
 ## GPU Backend Notes
 
@@ -147,14 +156,17 @@ CUDA 12.8 requires an NVIDIA driver >= 570. The llama.cpp CUDA build auto-detect
 LlamaCtl is a single Go binary that serves a web UI and manages the llama-server subprocess.
 
 ```
-cmd/llamactl/          Entry point
+cmd/
+  llamactl/            Server entry point
+  agent/               Terminal chat client with tool use
 internal/
-  api/                 HTTP handlers, SSE streaming, reverse proxy
+  api/                 HTTP handlers, SSE streaming, routing proxy
   builder/             llama.cpp build pipeline (git clone, cmake, ninja)
   config/              YAML configuration
   huggingface/         HF API client and model downloader
-  models/              Local model registry and VRAM estimation
-  process/             llama-server process lifecycle manager
+  models/              Model registry, GGUF parser, VRAM estimation
+  monitor/             GPU/CPU/memory metrics collection (ROCm + NVIDIA)
+  process/             Multi-instance llama-server lifecycle manager
 web/
   static/              htmx, Pico CSS
   templates/           Go html/template pages and partials
@@ -180,8 +192,22 @@ The UI uses server-rendered HTML with [htmx](https://htmx.org/) for interactivit
 
 ```bash
 make dev          # go run with hot reload
-make build        # compile to bin/llamactl
+make build        # compile bin/llamactl + bin/agent
 make run          # build and run
+make agent        # compile just the agent CLI
+```
+
+### Agent CLI
+
+The agent is a lightweight terminal chat client that connects to the OpenAI-compatible API:
+
+```bash
+agent                                     # connect to localhost:3000
+agent -host 192.168.1.50                  # remote server
+agent -host gpu-box -port 8080            # custom port
+agent -model qwen3-32b                    # target a specific model
+agent -no-tools                           # plain chat mode (no filesystem tools)
+agent -api-key sk-xxx                     # authenticate
 ```
 
 ### API Smoke Test
@@ -190,7 +216,7 @@ make run          # build and run
 ./scripts/test-api.sh http://localhost:3000
 ```
 
-Tests all management API endpoints and optionally runs a chat completion if the server is running.
+Tests page routes, management API, OpenAI proxy, model routing (permissive single-model vs strict multi-model), and chat completions.
 
 ## API Endpoints
 
@@ -207,9 +233,11 @@ Tests all management API endpoints and optionally runs a chat completion if the 
 | GET | `/api/models/` | List models |
 | GET | `/api/models/{id}` | Get model details |
 | DELETE | `/api/models/{id}` | Delete a model |
-| PUT | `/api/models/{id}/activate` | Activate model (start serving) |
+| PUT | `/api/models/{id}/activate` | Start model instance |
+| DELETE | `/api/models/{id}/activate` | Stop model instance |
 | GET | `/api/models/{id}/config` | Get model config |
 | PUT | `/api/models/{id}/config` | Update model config |
+| GET | `/api/models/{id}/vram-estimate` | VRAM estimate for given config |
 | GET | `/api/hf/search` | Search HuggingFace |
 | GET | `/api/hf/model` | Get HF model details |
 | POST | `/api/hf/download` | Start model download |
@@ -217,26 +245,47 @@ Tests all management API endpoints and optionally runs a chat completion if the 
 | DELETE | `/api/hf/download/{id}` | Cancel download |
 | GET | `/api/service/status` | Service status |
 | POST | `/api/service/start` | Start llama-server |
-| POST | `/api/service/stop` | Stop llama-server |
-| POST | `/api/service/restart` | Restart llama-server |
-| GET | `/api/service/logs` | Stream server logs (SSE) |
-| GET | `/api/service/health` | Health check |
+| POST | `/api/service/stop` | Stop all model instances |
+| POST | `/api/service/restart` | Restart all model instances |
+| GET | `/api/service/logs` | Stream server logs (SSE, `?model=` to select) |
+| GET | `/api/service/log-tabs` | Active model tabs for log viewer |
+| GET | `/api/service/health` | Health check (any instance healthy) |
 | GET | `/api/settings/` | Get settings |
 | PUT | `/api/settings/` | Update settings |
 
 ### OpenAI-Compatible Proxy
 
-All requests to `/v1/*` are forwarded to the running llama-server. Supports streaming chat completions via SSE.
+All requests to `/v1/*` are routed to the appropriate llama-server instance. Supports streaming chat completions via SSE.
+
+With **one model loaded**, the `model` field is ignored (any value works):
 
 ```bash
 curl http://localhost:3000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "any",
+    "model": "anything",
     "messages": [{"role": "user", "content": "Hello!"}],
     "max_tokens": 64
   }'
 ```
+
+With **multiple models loaded**, specify which model to use:
+
+```bash
+# List available models
+curl http://localhost:3000/v1/models
+
+# Route to a specific model
+curl http://localhost:3000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "unsloth--Qwen3-8B-GGUF--Qwen3-8B-Q4_K_M",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "max_tokens": 64
+  }'
+```
+
+Per-model sampling defaults (configured in the UI) are injected into requests that don't specify them.
 
 ## License
 

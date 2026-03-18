@@ -524,9 +524,15 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Tell htmx to also refresh the model list (updates VRAM estimate column)
-	w.Header().Set("HX-Trigger", "configSaved")
-
-	// Return updated config form
+	// Render the updated config form
 	s.handleGetModelConfig(w, r)
+
+	// Append an out-of-band swap to update the VRAM estimate cell in the model list
+	if r.Header.Get("HX-Request") == "true" {
+		if model, err := s.registry.Get(id); err == nil {
+			vramGB := models.VRAMEstimateForConfig(model, &cfg)
+			fmt.Fprintf(w, `<td id="vram-%s" hx-swap-oob="true">%.1f GB</td>`,
+				html.EscapeString(id), vramGB)
+		}
+	}
 }
