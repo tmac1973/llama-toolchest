@@ -1,4 +1,4 @@
-.PHONY: build run dev start stop restart clean \
+.PHONY: build agent run dev start stop restart clean \
        docker docker-rebuild docker-compose-up docker-compose-down docker-compose-logs
 
 PID_FILE = bin/llamactl.pid
@@ -10,6 +10,10 @@ COMPOSE_FILE = docker-compose.$(GPU).yml
 # Local development
 build:
 	go build -o bin/llamactl ./cmd/llamactl
+	go build -o bin/agent ./cmd/agent
+
+agent:
+	go build -o bin/agent ./cmd/agent
 
 run: build
 	./bin/llamactl --config config.yaml

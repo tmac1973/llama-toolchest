@@ -160,14 +160,74 @@ func executeTool(name, argsJSON, workDir string) string {
 
 // --- Main ---
 
+func usage() {
+	fmt.Fprintf(os.Stderr, `Usage: agent [flags]
+
+A simple agentic chat client that connects to an OpenAI-compatible API
+endpoint and can use tools to explore the local filesystem.
+
+Connection flags (pick one style):
+  -host HOST        Server hostname or IP (default: localhost)
+  -port PORT        Server port (default: 3000)
+  -url  URL         Full endpoint URL — overrides -host/-port
+                    (default: http://localhost:3000/v1/chat/completions)
+
+Request flags:
+  -model MODEL      Model name to send in requests (optional)
+  -api-key KEY      API key for Authorization header (or set LLAMA_API_KEY)
+  -system PROMPT    Override the default system prompt
+
+Tool flags:
+  -no-tools         Disable tool use (plain chat mode)
+  -work-dir DIR     Working directory for tool execution (default: cwd)
+
+Examples:
+  agent                                     # connect to localhost:3000
+  agent -host 192.168.1.50                  # remote server, default port
+  agent -host gpu-box -port 8080            # remote server, custom port
+  agent -url https://my-server/v1/chat/completions  # full URL
+  agent -model qwen3-32b -no-tools          # plain chat with specific model
+  agent -api-key sk-xxx -host api.example.com -port 443
+`)
+	os.Exit(0)
+}
+
 func main() {
-	apiURL := flag.String("url", "http://localhost:3000/v1/chat/completions", "API endpoint")
+	host := flag.String("host", "localhost", "server hostname or IP")
+	port := flag.Int("port", 3000, "server port")
+	urlFlag := flag.String("url", "", "full API endpoint URL (overrides -host/-port)")
 	model := flag.String("model", "", "model name (optional)")
+	apiKey := flag.String("api-key", "", "API key (or set LLAMA_API_KEY env var)")
 	system := flag.String("system", "", "system prompt")
 	noTools := flag.Bool("no-tools", false, "disable tool use")
+	workDirFlag := flag.String("work-dir", "", "working directory for tools (default: cwd)")
+	showHelp := flag.Bool("help", false, "show help")
+	flag.BoolVar(showHelp, "h", false, "show help")
+	flag.Usage = func() { usage() }
 	flag.Parse()
 
-	workDir, _ := os.Getwd()
+	if *showHelp {
+		usage()
+	}
+
+	// Build the endpoint URL
+	apiURL := *urlFlag
+	if apiURL == "" {
+		apiURL = fmt.Sprintf("http://%s:%d/v1/chat/completions", *host, *port)
+	}
+
+	// Resolve API key: flag > env
+	authKey := *apiKey
+	if authKey == "" {
+		authKey = os.Getenv("LLAMA_API_KEY")
+	}
+
+	workDir := *workDirFlag
+	if workDir == "" {
+		workDir, _ = os.Getwd()
+	}
+
+	fmt.Fprintf(os.Stderr, "Connecting to %s\n", apiURL)
 
 	var history []message
 
@@ -207,7 +267,7 @@ func main() {
 
 		// Loop to handle tool calls (max 10 rounds to prevent infinite loops)
 		for round := 0; round < 10; round++ {
-			reply, pendingCalls, err := chat(*apiURL, *model, history, activeTools)
+			reply, pendingCalls, err := chat(apiURL, *model, authKey, history, activeTools)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "\nerror: %v\n", err)
 				// Only remove the user message on the first round
@@ -310,7 +370,7 @@ func truncate(s string, n int) string {
 
 // --- Chat with streaming ---
 
-func chat(url, model string, messages []message, activeTools []tool) (string, []toolCall, error) {
+func chat(url, model, apiKey string, messages []message, activeTools []tool) (string, []toolCall, error) {
 	reqBody := request{
 		Model:    model,
 		Messages: messages,
@@ -319,7 +379,15 @@ func chat(url, model string, messages []message, activeTools []tool) (string, []
 	}
 	body, _ := json.Marshal(reqBody)
 
-	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	if err != nil {
+		return "", nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", nil, err
 	}

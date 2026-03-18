@@ -1,4 +1,7 @@
 bin/
 /llamactl
+/agent
 *.pid
 .env
+.claude/
+debug_output.txt
