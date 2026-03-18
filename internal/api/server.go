@@ -22,15 +22,16 @@ import (
 )
 
 type Server struct {
-	cfg        *config.Config
-	pages      map[string]*template.Template
-	router     chi.Router
-	builder    *builder.Builder
-	hfClient   *huggingface.Client
-	downloader *huggingface.Downloader
-	registry   *models.Registry
-	process    *process.Manager
-	monitor    *monitor.Monitor
+	cfg            *config.Config
+	pages          map[string]*template.Template
+	router         chi.Router
+	builder        *builder.Builder
+	hfClient       *huggingface.Client
+	downloader     *huggingface.Downloader
+	registry       *models.Registry
+	process        *process.Manager
+	monitor        *monitor.Monitor
+	activeModelID  string
 }
 
 func NewServer(cfg *config.Config) *Server {

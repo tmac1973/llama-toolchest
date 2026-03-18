@@ -35,6 +35,39 @@ type ModelConfig struct {
 	KVCacheQuant   string `json:"kv_cache_quant"` // "", "q8_0", "q4_0"
 	ExtraFlags     string `json:"extra_flags"`
 	BuildID        string `json:"build_id"`
+
+	// Sampling parameters — nil means use llama.cpp server default.
+	Temperature     *float64 `json:"temperature,omitempty"`
+	TopP            *float64 `json:"top_p,omitempty"`
+	TopK            *int     `json:"top_k,omitempty"`
+	MinP            *float64 `json:"min_p,omitempty"`
+	PresencePenalty *float64 `json:"presence_penalty,omitempty"`
+	RepeatPenalty   *float64 `json:"repeat_penalty,omitempty"`
+}
+
+// SamplingOverrides returns a map of non-nil sampling parameters suitable
+// for merging into an OpenAI-compatible request body.
+func (c *ModelConfig) SamplingOverrides() map[string]any {
+	m := make(map[string]any)
+	if c.Temperature != nil {
+		m["temperature"] = *c.Temperature
+	}
+	if c.TopP != nil {
+		m["top_p"] = *c.TopP
+	}
+	if c.TopK != nil {
+		m["top_k"] = *c.TopK
+	}
+	if c.MinP != nil {
+		m["min_p"] = *c.MinP
+	}
+	if c.PresencePenalty != nil {
+		m["presence_penalty"] = *c.PresencePenalty
+	}
+	if c.RepeatPenalty != nil {
+		m["repeat_penalty"] = *c.RepeatPenalty
+	}
+	return m
 }
 
 // EffectiveFlags returns the full set of llama-server flags (excluding

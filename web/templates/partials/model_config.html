@@ -93,6 +93,53 @@
         </label>
     </div>
 
+    <details>
+        <summary>Sampling Parameters</summary>
+        <p><small>Leave blank to use llama.cpp server defaults.</small></p>
+        <div class="grid">
+            <label title="Controls randomness. Lower values make output more deterministic. Server default: 0.8">
+                Temperature
+                <input type="number" name="temperature" step="0.05" min="0" max="2"
+                       value="{{with .Config.Temperature}}{{.}}{{end}}"
+                       placeholder="Default (0.8)">
+            </label>
+            <label title="Nucleus sampling: only consider tokens whose cumulative probability exceeds this value. Server default: 0.95">
+                Top P
+                <input type="number" name="top_p" step="0.05" min="0" max="1"
+                       value="{{with .Config.TopP}}{{.}}{{end}}"
+                       placeholder="Default (0.95)">
+            </label>
+        </div>
+        <div class="grid">
+            <label title="Only consider the top K most likely tokens. Server default: 40">
+                Top K
+                <input type="number" name="top_k" step="1" min="0"
+                       value="{{with .Config.TopK}}{{.}}{{end}}"
+                       placeholder="Default (40)">
+            </label>
+            <label title="Minimum probability threshold relative to the top token. Adapts to model confidence. Server default: 0.05">
+                Min P
+                <input type="number" name="min_p" step="0.01" min="0" max="1"
+                       value="{{with .Config.MinP}}{{.}}{{end}}"
+                       placeholder="Default (0.05)">
+            </label>
+        </div>
+        <div class="grid">
+            <label title="Additive bias against tokens that have appeared. Positive values reduce repetition. Server default: 0.0">
+                Presence Penalty
+                <input type="number" name="presence_penalty" step="0.1" min="-2" max="2"
+                       value="{{with .Config.PresencePenalty}}{{.}}{{end}}"
+                       placeholder="Default (0.0)">
+            </label>
+            <label title="Multiplicative penalty for repeated tokens (llama.cpp extension). 1.0 = disabled. Server default: 1.0">
+                Repeat Penalty
+                <input type="number" name="repeat_penalty" step="0.05" min="0" max="3"
+                       value="{{with .Config.RepeatPenalty}}{{.}}{{end}}"
+                       placeholder="Default (1.0)">
+            </label>
+        </div>
+    </details>
+
     <label title="Additional command-line flags passed directly to llama-server. See llama.cpp docs for available options.">
         Extra Flags
         <input type="text" name="extra_flags" value="{{.Config.ExtraFlags}}"

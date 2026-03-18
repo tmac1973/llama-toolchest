@@ -11,6 +11,32 @@ import (
 	"github.com/tmlabonte/llamactl/internal/process"
 )
 
+// parseOptionalFloat returns a *float64 if s is non-empty and valid, else nil.
+func parseOptionalFloat(s string) *float64 {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return nil
+	}
+	return &v
+}
+
+// parseOptionalInt returns a *int if s is non-empty and valid, else nil.
+func parseOptionalInt(s string) *int {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return nil
+	}
+	return &v
+}
+
 func (s *Server) handleServiceStatus(w http.ResponseWriter, r *http.Request) {
 	status := s.process.GetStatus()
 
@@ -45,6 +71,7 @@ func (s *Server) handleServiceStop(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	s.activeModelID = ""
 
 	status := s.process.GetStatus()
 	if r.Header.Get("HX-Request") == "true" {
@@ -171,6 +198,8 @@ func (s *Server) handleActivateModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.activeModelID = id
+
 	status := s.process.GetStatus()
 	status.Model = model.ModelID
 	status.BuildID = cfg.BuildID
@@ -238,6 +267,14 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		cfg.KVCacheQuant = r.FormValue("kv_cache_quant")
 		cfg.ExtraFlags = r.FormValue("extra_flags")
 		cfg.BuildID = r.FormValue("build_id")
+
+		// Sampling parameters — empty string means "default" (nil pointer).
+		cfg.Temperature = parseOptionalFloat(r.FormValue("temperature"))
+		cfg.TopP = parseOptionalFloat(r.FormValue("top_p"))
+		cfg.TopK = parseOptionalInt(r.FormValue("top_k"))
+		cfg.MinP = parseOptionalFloat(r.FormValue("min_p"))
+		cfg.PresencePenalty = parseOptionalFloat(r.FormValue("presence_penalty"))
+		cfg.RepeatPenalty = parseOptionalFloat(r.FormValue("repeat_penalty"))
 	}
 
 	if err := s.registry.SetConfig(id, &cfg); err != nil {
