@@ -160,6 +160,7 @@ func (s *Server) handleHFDownloadCancel(w http.ResponseWriter, r *http.Request) 
 // onDownloadComplete is called by the downloader when a file finishes.
 func (s *Server) onDownloadComplete(downloadID, modelID, filename string, sizeBytes int64) {
 	safeName := strings.ReplaceAll(modelID, "/", "--")
+	filePath := fmt.Sprintf("%s/models/%s/%s", s.cfg.DataDir, safeName, filename)
 
 	m := &models.Model{
 		ID:           fmt.Sprintf("%s--%s", safeName, strings.TrimSuffix(filename, ".gguf")),
@@ -167,10 +168,20 @@ func (s *Server) onDownloadComplete(downloadID, modelID, filename string, sizeBy
 		Filename:     filename,
 		Quant:        parseQuantFromFilename(filename),
 		SizeBytes:    sizeBytes,
-		FilePath:     fmt.Sprintf("%s/models/%s/%s", s.cfg.DataDir, safeName, filename),
+		FilePath:     filePath,
 		VRAMEstGB:    models.EstimateVRAM(sizeBytes),
 		DownloadedAt: time.Now(),
 	}
+
+	// Parse GGUF metadata for architecture-aware VRAM estimation
+	if meta, err := models.ParseGGUFMeta(filePath); err == nil {
+		m.Arch = meta.Architecture
+		m.NLayers = meta.NLayers
+		m.NEmbd = meta.NEmbd
+		m.NHead = meta.NHead
+		m.NKVHead = meta.NKVHead
+	}
+
 	s.registry.Add(m)
 }
 

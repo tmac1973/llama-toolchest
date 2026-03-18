@@ -292,6 +292,46 @@ func (s *Server) handleDeactivateModel(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleModelVRAMEstimate returns a VRAM estimate for a model with given config params.
+// Used by the UI for live VRAM updates as settings change.
+func (s *Server) handleModelVRAMEstimate(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	model, err := s.registry.Get(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	r.ParseForm()
+	contextSize, _ := strconv.Atoi(r.FormValue("context_size"))
+	kvCacheQuant := r.FormValue("kv_cache_quant")
+
+	// Build a temporary config for estimation
+	cfg := &models.ModelConfig{
+		ContextSize:  contextSize,
+		KVCacheQuant: kvCacheQuant,
+	}
+
+	total := models.VRAMEstimateForConfig(model, cfg)
+	kvGB := models.EstimateKVCacheGB(model.NLayers, model.NKVHead, model.NHead, model.NEmbd, contextSize, kvCacheQuant)
+	weightsGB := float64(model.SizeBytes) / (1024 * 1024 * 1024)
+
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprintf(w, `<strong>%.1f GB</strong> <small>(weights: %.1f GB + KV cache: %.1f GB + overhead)</small>`,
+			total, weightsGB, kvGB)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"total_gb":   total,
+		"weights_gb": weightsGB,
+		"kv_cache_gb": kvGB,
+	})
+}
+
 // handleGetModelConfig returns the launch config for a model.
 func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
@@ -302,18 +342,30 @@ func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	model, _ := s.registry.Get(id)
+
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+		var vramEstimate float64
+		if model != nil {
+			vramEstimate = models.VRAMEstimateForConfig(model, cfg)
+		}
+
 		data := struct {
 			ModelID         string
 			Config          *models.ModelConfig
 			AvailableBuilds interface{}
 			EffectiveFlags  string
+			VRAMEstimateGB  float64
+			HasGGUFMeta     bool
 		}{
 			ModelID:         id,
 			Config:          cfg,
 			AvailableBuilds: s.builder.List(),
 			EffectiveFlags:  cfg.EffectiveFlags(),
+			VRAMEstimateGB:  vramEstimate,
+			HasGGUFMeta:     model != nil && model.NLayers > 0,
 		}
 		s.renderPartial(w, "model_config", data)
 		return

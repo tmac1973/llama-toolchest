@@ -47,6 +47,7 @@ func NewServer(cfg *config.Config) *Server {
 		monitor:    mon,
 	}
 	s.downloader.SetOnComplete(s.onDownloadComplete)
+	s.registry.BackfillGGUFMeta()
 	s.pages = s.parseTemplates()
 	s.router = s.buildRouter()
 	return s
@@ -60,6 +61,9 @@ func (s *Server) parseTemplates() map[string]*template.Template {
 			return float64(bytes) / (1024 * 1024 * 1024)
 		},
 		"vramFit": models.VRAMFitCategory,
+		"fmtVRAM": func(gb float64) string {
+			return fmt.Sprintf("%.1f", gb)
+		},
 	}
 
 	base := template.Must(template.New("").Funcs(funcMap).ParseFS(web.Templates,
@@ -130,6 +134,7 @@ func (s *Server) buildRouter() chi.Router {
 			r.Delete("/{id}/activate", s.handleDeactivateModel)
 			r.Get("/{id}/config", s.handleGetModelConfig)
 			r.Put("/{id}/config", s.handleUpdateModelConfig)
+			r.Get("/{id}/vram-estimate", s.handleModelVRAMEstimate)
 		})
 		r.Route("/hf", func(r chi.Router) {
 			r.Get("/search", s.handleHFSearch)

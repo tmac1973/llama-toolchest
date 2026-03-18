@@ -23,6 +23,13 @@ type Model struct {
 	FilePath     string    `json:"file_path"`
 	VRAMEstGB    float64   `json:"vram_est_gb"`
 	DownloadedAt time.Time `json:"downloaded_at"`
+
+	// Architecture parameters parsed from GGUF header.
+	Arch    string `json:"arch,omitempty"`
+	NLayers int    `json:"n_layers,omitempty"`
+	NEmbd   int    `json:"n_embd,omitempty"`
+	NHead   int    `json:"n_head,omitempty"`
+	NKVHead int    `json:"n_kv_head,omitempty"`
 }
 
 // ModelConfig holds per-model launch configuration for llama-server.
@@ -208,6 +215,36 @@ func (r *Registry) SetConfig(id string, cfg *ModelConfig) error {
 	r.data.Configs[id] = cfg
 	r.save()
 	return nil
+}
+
+// BackfillGGUFMeta parses GGUF metadata for any models missing architecture
+// info. Called at startup to handle models downloaded before GGUF parsing existed.
+func (r *Registry) BackfillGGUFMeta() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	changed := false
+	for _, m := range r.data.Models {
+		if m.NLayers > 0 {
+			continue // already has metadata
+		}
+		meta, err := ParseGGUFMeta(m.FilePath)
+		if err != nil {
+			slog.Warn("failed to parse GGUF metadata", "model", m.ID, "error", err)
+			continue
+		}
+		m.Arch = meta.Architecture
+		m.NLayers = meta.NLayers
+		m.NEmbd = meta.NEmbd
+		m.NHead = meta.NHead
+		m.NKVHead = meta.NKVHead
+		changed = true
+		slog.Info("backfilled GGUF metadata", "model", m.ID, "arch", meta.Architecture,
+			"layers", meta.NLayers, "kv_heads", meta.NKVHead)
+	}
+	if changed {
+		r.save()
+	}
 }
 
 func (r *Registry) registryPath() string {
