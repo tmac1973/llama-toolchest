@@ -60,7 +60,17 @@ func (s *Server) parseTemplates() map[string]*template.Template {
 		"divGB": func(bytes int64) float64 {
 			return float64(bytes) / (1024 * 1024 * 1024)
 		},
-		"vramFit": models.VRAMFitCategory,
+		"vramFit": func(estimatedGB float64) string {
+			metrics := s.monitor.Current()
+			numGPUs := len(metrics.GPU)
+			perGPU := 32.0 // fallback
+			if numGPUs > 0 {
+				perGPU = float64(metrics.GPU[0].VRAMTotalMB) / 1024.0
+			} else {
+				numGPUs = 1
+			}
+			return models.VRAMFitLabel(estimatedGB, perGPU, numGPUs)
+		},
 	}
 
 	base := template.Must(template.New("").Funcs(funcMap).ParseFS(web.Templates,

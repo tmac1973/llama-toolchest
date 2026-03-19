@@ -12,12 +12,15 @@
             <td>{{printf "%.1f" (divGB $f.Size)}} GB</td>
             <td>{{printf "%.1f" $f.VRAMEstGB}} GB</td>
             <td>
-                {{if eq (vramFit $f.VRAMEstGB) "single"}}
-                    <ins>1 GPU</ins>
-                {{else if eq (vramFit $f.VRAMEstGB) "dual"}}
-                    <mark>2 GPU</mark>
-                {{else}}
+                {{$fit := vramFit $f.VRAMEstGB}}
+                {{if eq $fit "too_large"}}
                     <del>Too Large</del>
+                {{else if eq $fit "fits"}}
+                    <ins>Fits</ins>
+                {{else if eq $fit ""}}
+                    —
+                {{else}}
+                    <mark>{{$fit}}</mark>
                 {{end}}
             </td>
             <td>

@@ -92,20 +92,27 @@ func VRAMEstimateForConfig(m *Model, cfg *ModelConfig) float64 {
 	)
 }
 
-// VRAMFitCategory returns the minimum number of 32GB GPUs needed as a label.
-func VRAMFitCategory(estimatedGB float64) string {
-	const gpuSize = 32.0
-	gpus := int(math.Ceil(estimatedGB / gpuSize))
-	switch {
-	case gpus <= 0:
-		return "single"
-	case gpus == 1:
-		return "single"
-	case gpus == 2:
-		return "dual"
-	default:
-		return fmt.Sprintf("%d_gpu", gpus)
+// VRAMFitLabel returns a human-readable label for how a model fits
+// relative to the available VRAM. perGPU is the size of one GPU in GB,
+// numGPUs is how many are available.
+// Returns: "fits" (single GPU), "2 GPU", "3 GPU", etc., or "too_large".
+func VRAMFitLabel(estimatedGB float64, perGPU float64, numGPUs int) string {
+	if perGPU <= 0 || numGPUs <= 0 {
+		return ""
 	}
+	totalVRAM := perGPU * float64(numGPUs)
+	needed := int(math.Ceil(estimatedGB / perGPU))
+	if needed <= 0 {
+		needed = 1
+	}
+
+	if estimatedGB > totalVRAM {
+		return "too_large"
+	}
+	if needed == 1 {
+		return "fits"
+	}
+	return fmt.Sprintf("%d GPU", needed)
 }
 
 // FormatVRAM formats a VRAM estimate as a human-readable string.
