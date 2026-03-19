@@ -531,6 +531,52 @@ prompt_ports() {
     done
 }
 
+prompt_models_dir() {
+    echo ""
+    echo -e "${BOLD}Model storage${NC}"
+    echo ""
+    if [[ -n "$LLAMACTL_MODELS_DIR" ]]; then
+        echo "  Current: ${LLAMACTL_MODELS_DIR} (host directory)"
+    else
+        echo "  Current: Docker volume (default)"
+    fi
+    echo ""
+    echo "  Mount a host directory so models persist even if the"
+    echo "  container volume is removed."
+    echo ""
+
+    local path
+    read -rp "$(echo -e "  ${BOLD}Host path${NC} [${LLAMACTL_MODELS_DIR:-none}]: ")" path
+
+    if [[ -z "$path" ]]; then
+        # Keep current setting (or none)
+        return
+    fi
+
+    if [[ "$path" == "none" || "$path" == "-" ]]; then
+        LLAMACTL_MODELS_DIR=""
+        echo "  → Models will use Docker volume"
+        return
+    fi
+
+    # Expand ~ to home directory
+    path="${path/#\~/$HOME}"
+
+    # Resolve to absolute path
+    if [[ "$path" != /* ]]; then
+        path="$(cd "$SCRIPT_DIR" && realpath -m "$path" 2>/dev/null || echo "$SCRIPT_DIR/$path")"
+    fi
+
+    # Create if it doesn't exist
+    if [[ ! -d "$path" ]]; then
+        log "Creating directory: $path"
+        mkdir -p "$path" || { err "Cannot create $path"; return; }
+    fi
+
+    LLAMACTL_MODELS_DIR="$path"
+    echo "  → Models will be stored at: $path"
+}
+
 load_env_ports() {
     local env_file="${SCRIPT_DIR}/.env"
     if [[ -f "$env_file" ]]; then
@@ -1119,8 +1165,9 @@ main() {
         exit 0
     fi
 
-    # ── Configure ports ──
+    # ── Configure ports and storage ──
     prompt_ports
+    prompt_models_dir
 
     # ── Install prerequisites if needed ──
     if [[ ${#PREREQS[@]} -gt 0 ]]; then
