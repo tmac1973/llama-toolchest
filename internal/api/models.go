@@ -24,7 +24,13 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			activeSet[st.ID] = st.State
 		}
 
-		w.Write([]byte(`<table role="grid"><thead><tr><th>Model</th><th>Quant</th><th title="Base (weights) – Peak (full KV cache)">VRAM Est.</th><th>Size</th><th></th></tr></thead>`))
+		// Build set of orphaned model IDs (file missing on disk)
+		orphanSet := make(map[string]bool)
+		for _, m := range s.registry.FindOrphans() {
+			orphanSet[m.ID] = true
+		}
+
+		w.Write([]byte(`<table role="grid"><thead><tr><th>Model</th><th>Quant</th><th title="Base (weights) - Peak (full KV cache)">VRAM Est.</th><th>Size</th><th></th></tr></thead>`))
 		for _, m := range modelList {
 			state := activeSet[m.ID]
 
@@ -42,12 +48,14 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 				ServiceState string
 				BaseVRAMGB   float64
 				PeakVRAMGB   float64
+				IsOrphan     bool
 			}{
 				Model:        *m,
 				IsActive:     state == "running" || state == "starting",
 				ServiceState: state,
 				BaseVRAMGB:   baseVRAM,
 				PeakVRAMGB:   peakVRAM,
+				IsOrphan:     orphanSet[m.ID],
 			}
 			s.renderPartial(w, "model_card", data)
 		}

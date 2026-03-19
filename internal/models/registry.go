@@ -250,6 +250,20 @@ func (r *Registry) BackfillGGUFMeta() {
 	}
 }
 
+// FindOrphans returns registry entries whose model files no longer exist on disk.
+func (r *Registry) FindOrphans() []*Model {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var orphans []*Model
+	for _, m := range r.data.Models {
+		if _, err := os.Stat(m.FilePath); os.IsNotExist(err) {
+			orphans = append(orphans, m)
+		}
+	}
+	return orphans
+}
+
 // ScanModels walks the models directory for GGUF files not already in the
 // registry and adds them. Returns the number of new models found.
 func (r *Registry) ScanModels() int {

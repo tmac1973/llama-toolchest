@@ -2,7 +2,6 @@ package huggingface
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -222,20 +221,6 @@ func (d *Downloader) run(ctx context.Context, downloadID, modelID, filename stri
 		}
 		totalDownloaded += downloaded
 	}
-
-	// Write meta.json
-	meta := map[string]any{
-		"model_id":      modelID,
-		"filename":      filenames[0],
-		"size_bytes":    totalDownloaded,
-		"downloaded_at": time.Now().Format(time.RFC3339),
-		"quant":         parseQuant(filenames[0]),
-	}
-	if len(filenames) > 1 {
-		meta["shards"] = filenames
-	}
-	metaData, _ := json.MarshalIndent(meta, "", "  ")
-	os.WriteFile(filepath.Join(modelDir, "meta.json"), metaData, 0o644)
 
 	sendProgress(DownloadStatus{
 		ID:              downloadID,

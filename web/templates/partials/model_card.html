@@ -1,11 +1,33 @@
 {{define "model_card"}}
 <tbody class="model-row-group">
-<tr{{if .IsActive}} style="background: var(--pico-primary-background); color: var(--pico-primary-inverse);"{{end}}>
-    <td>{{.ModelID}}{{if .IsActive}} <ins>active</ins>{{end}}</td>
+<tr{{if .IsOrphan}} style="opacity: 0.6;"{{else if .IsActive}} style="background: var(--pico-primary-background); color: var(--pico-primary-inverse);"{{end}}>
+    <td>
+        {{.ModelID}}
+        {{if .IsActive}} <ins>active</ins>{{end}}
+        {{if .IsOrphan}} <del>missing</del>{{end}}
+    </td>
     <td><kbd>{{.Quant}}</kbd></td>
     <td id="vram-{{.ID}}" title="Base (weights + overhead) - Peak (full KV cache)">{{printf "%.1f" .BaseVRAMGB}} - {{printf "%.1f" .PeakVRAMGB}} GB</td>
     <td>{{printf "%.1f" (divGB .SizeBytes)}} GB</td>
     <td>
+        {{if .IsOrphan}}
+        <div role="group">
+            <button type="button" class="outline secondary"
+                    hx-delete="/api/models/{{.ID}}"
+                    hx-confirm="Remove this entry? The model file is missing from disk."
+                    hx-target="closest .model-row-group"
+                    hx-swap="outerHTML">
+                Remove Entry
+            </button>
+            <button type="button" class="outline"
+                    hx-post="/api/hf/download"
+                    hx-vals='{"model_id":"{{.ModelID}}","filename":"{{.Filename}}"}'
+                    hx-target="closest .model-row-group"
+                    hx-swap="afterend">
+                Re-download
+            </button>
+        </div>
+        {{else}}
         <div role="group">
             <button type="button" class="outline"
                     hx-get="/api/models/{{.ID}}/config"
@@ -30,13 +52,14 @@
             </button>
             <button type="button" class="outline secondary"
                     hx-delete="/api/models/{{.ID}}"
-                    hx-confirm="Delete this model?"
+                    hx-confirm="Delete this model and its files?"
                     hx-target="closest .model-row-group"
                     hx-swap="outerHTML">
                 Delete
             </button>
             {{end}}
         </div>
+        {{end}}
     </td>
 </tr>
 <tr><td colspan="5" class="config-cell"></td></tr>
