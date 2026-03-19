@@ -39,7 +39,7 @@ VOLUME ["/data"]
 
 # LlamaCtl web UI
 EXPOSE 3000
-# llama-server inference + chat UI
-EXPOSE 8080
+# llama-server instances (chat UI + inference)
+EXPOSE 8080-8099
 
 ENTRYPOINT ["llamactl", "--config", "/data/config/llamactl.yaml"]

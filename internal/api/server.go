@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"html"
 	"html/template"
 	"io/fs"
 	"log/slog"
@@ -260,9 +261,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	apiURL := strings.TrimRight(s.cfg.ExternalURL, "/") + "/v1"
-	chatURL := ""
-	if u, err := url.Parse(s.cfg.ExternalURL); err == nil {
-		chatURL = fmt.Sprintf("%s://%s:%d", u.Scheme, u.Hostname(), s.cfg.LlamaPort)
+
+	// Build chat base URL from external URL (scheme + hostname, no port)
+	chatBaseURL := ""
+	if u, err := url.Parse(s.cfg.ExternalURL); err == nil && u.Hostname() != "" {
+		chatBaseURL = fmt.Sprintf("%s://%s", u.Scheme, u.Hostname())
 	}
 
 	// Aggregate state badge from all instances
@@ -296,17 +299,38 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		stateBadge = `Stopped`
 	}
 
+	// Build active models HTML with per-model chat links
+	activeModelsHTML := "None"
+	if len(active) > 0 {
+		var buf strings.Builder
+		for _, st := range active {
+			label := st.ID
+			if len(label) > 40 {
+				label = label[:40] + "..."
+			}
+			buf.WriteString(`<div style="margin-bottom: 0.25rem;">`)
+			buf.WriteString(fmt.Sprintf(`<strong>%s</strong>`, html.EscapeString(label)))
+			if st.State == "running" && chatBaseURL != "" && st.Port > 0 {
+				chatURL := fmt.Sprintf("%s:%d", chatBaseURL, st.Port)
+				buf.WriteString(fmt.Sprintf(` <small><a href="%s" target="_blank">Chat UI</a></small>`, chatURL))
+			} else if st.State == "starting" {
+				buf.WriteString(` <small><mark>starting...</mark></small>`)
+			}
+			buf.WriteString(`</div>`)
+		}
+		activeModelsHTML = buf.String()
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<div class="grid">
     <article>
         <header>Service</header>
         <p>%s</p>
-        %s
         <p><a href="/models">Manage →</a></p>
     </article>
     <article>
         <header>Active Models</header>
-        <p>%s</p>
+        %s
         <p><a href="/models">Models →</a></p>
     </article>
     <article>
@@ -322,22 +346,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
     </article>
 </div>`,
 		stateBadge,
-		func() string {
-			if chatURL != "" && hasRunning {
-				return fmt.Sprintf(`<p><a href="%s" target="_blank">Open Chat UI →</a></p>`, chatURL)
-			}
-			return ""
-		}(),
-		func() string {
-			if len(active) == 0 {
-				return "None"
-			}
-			var parts []string
-			for _, st := range active {
-				parts = append(parts, `<strong>`+st.ID+`</strong>`)
-			}
-			return strings.Join(parts, "<br>")
-		}(),
+		activeModelsHTML,
 		successBuilds,
 		len(models),
 		apiURL,
