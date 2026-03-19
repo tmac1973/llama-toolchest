@@ -574,6 +574,7 @@ prompt_models_dir() {
     fi
 
     LLAMACTL_MODELS_DIR="$path"
+    export LLAMACTL_MODELS_DIR
     echo "  → Models will be stored at: $path"
 }
 
