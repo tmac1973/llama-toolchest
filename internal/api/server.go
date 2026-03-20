@@ -329,7 +329,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
     <article>
         <header>Service</header>
         <p>%s</p>
-        <p><a href="/models">Manage →</a></p>
+        <p><a href="/server">Manage →</a></p>
     </article>
     <article>
         <header>Active Models</header>
