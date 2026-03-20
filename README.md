@@ -7,17 +7,15 @@ A web-based management interface for [llama.cpp](https://github.com/ggerganov/ll
 ## Features
 
 - **Build Management** — Clone and compile llama.cpp inside the container with CUDA, ROCm, or CPU backends. View real-time build logs via SSE streaming.
-- **Model Management** — Download GGUF models directly from HuggingFace. Search repos, browse available quantizations, and track download progress. Configure per-model inference parameters (GPU layers, context size, threads, tensor split, sampling).
-- **Multi-Model Loading** — Run multiple models simultaneously, each in its own llama-server process with independent lifecycle, logs, and configuration. Models can be started and stopped independently.
-- **Smart Proxy Routing** — The `/v1` proxy routes requests to the correct model based on the `model` field. With one model loaded, any value is accepted for maximum compatibility. With multiple models, requests must specify a valid model name.
-- **Per-Model Sampling** — Configure default sampling parameters (temperature, top_p, top_k, min_p, presence_penalty, repeat_penalty) per model. The proxy injects these defaults into requests that don't specify them.
-- **GPU Pinning** — Assign specific GPUs to each model via `ROCR_VISIBLE_DEVICES` / `CUDA_VISIBLE_DEVICES`. Pin small models to one GPU while spreading larger ones across multiple.
-- **VRAM Budget Tracking** — Architecture-aware VRAM estimation using GGUF metadata (layers, KV heads, embedding dimensions). Estimates account for model weights, KV cache at configured context size, and cache quantization. Warns before starting a model that would exceed GPU memory.
-- **Service Control** — Start, stop, and restart model instances. Per-model log streaming with tabbed viewer. Live health monitoring.
-- **OpenAI-Compatible Proxy** — Reverse proxy at `/v1` forwards to llama-server's OpenAI API. Works with any client that supports the OpenAI chat completions format (Goose, Continue, Open WebUI, etc.). Optional Bearer token authentication. `/v1/models` aggregates across all loaded instances.
+- **Model Management** — Download GGUF models directly from HuggingFace. Search repos, browse available quantizations, and track download progress. Configure per-model inference parameters (GPU layers, context size, threads, tensor split, sampling). Scan directories for existing GGUF files.
+- **Multi-Model Loading** — Run multiple models simultaneously via llama.cpp's native router mode. Each model runs in its own isolated subprocess with per-model configuration. LRU eviction automatically unloads least-used models when VRAM limits are reached.
+- **Per-Model Configuration** — Each model can have its own context size, KV cache quantization, GPU layers, tensor split, flash attention, direct I/O, and sampling parameters. Settings are stored in the llamactl registry and translated to llama.cpp preset INI format.
+- **VRAM Estimation** — Architecture-aware VRAM estimation using GGUF metadata (layers, KV heads, embedding dimensions). Estimates account for model weights, KV cache at configured context size, and cache quantization.
+- **Service Control** — Start, stop, and restart the inference server. Load and unload individual models. Live server log streaming. Health monitoring.
+- **OpenAI-Compatible Proxy** — Reverse proxy at `/v1` forwards to the llama.cpp router. Works with any client that supports the OpenAI chat completions format (Goose, Continue, Open WebUI, etc.). Optional Bearer token authentication. Per-model sampling defaults injected automatically.
 - **Dashboard** — At-a-glance view of service status, active models, build/model inventory, and API endpoint URL.
 - **Agent CLI** — Lightweight terminal chat client (`cmd/agent`) that connects to the API with tool-use support for filesystem exploration.
-- **Built-in Chat UI** — llama.cpp's native chat interface is accessible on port 8080 when the server is running.
+- **Built-in Chat UI** — llama.cpp's native chat interface at port 8080 with model selector dropdown for switching between loaded models.
 
 ## Quick Start
 
@@ -149,9 +147,7 @@ When `api_key` is set, all requests to `/v1/*` require a `Authorization: Bearer 
 | Port | Service |
 |------|---------|
 | 3000 | LlamaCtl management UI + OpenAI proxy (`/v1`) |
-| 8080–8099 | llama-server instances (internal, auto-assigned per model) |
-
-The proxy on port 3000 handles all external traffic. Internal llama-server ports are auto-assigned and not exposed outside the container.
+| 8080 | llama.cpp router + built-in chat UI with model dropdown |
 
 ## GPU Backend Notes
 
@@ -176,9 +172,9 @@ internal/
   builder/             llama.cpp build pipeline (git clone, cmake, ninja)
   config/              YAML configuration
   huggingface/         HF API client and model downloader
-  models/              Model registry, GGUF parser, VRAM estimation
+  models/              Model registry, GGUF parser, VRAM estimation, preset INI generator
   monitor/             GPU/CPU/memory metrics collection (ROCm + NVIDIA)
-  process/             Multi-instance llama-server lifecycle manager
+  process/             llama-server router lifecycle manager
 web/
   static/              htmx, Pico CSS
   templates/           Go html/template pages and partials
@@ -267,37 +263,23 @@ Tests page routes, management API, OpenAI proxy, model routing (permissive singl
 
 ### OpenAI-Compatible Proxy
 
-All requests to `/v1/*` are routed to the appropriate llama-server instance. Supports streaming chat completions via SSE.
-
-With **one model loaded**, the `model` field is ignored (any value works):
-
-```bash
-curl http://localhost:3000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "anything",
-    "messages": [{"role": "user", "content": "Hello!"}],
-    "max_tokens": 64
-  }'
-```
-
-With **multiple models loaded**, specify which model to use:
+All requests to `/v1/*` are forwarded to the llama.cpp router which handles model routing. Supports streaming chat completions via SSE.
 
 ```bash
 # List available models
 curl http://localhost:3000/v1/models
 
-# Route to a specific model
+# Chat with a specific model
 curl http://localhost:3000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "unsloth--Qwen3-8B-GGUF--Qwen3-8B-Q4_K_M",
+    "model": "unsloth--Qwen3.5-27B-GGUF",
     "messages": [{"role": "user", "content": "Hello!"}],
     "max_tokens": 64
   }'
 ```
 
-Per-model sampling defaults (configured in the UI) are injected into requests that don't specify them.
+The router auto-loads models on first request if they're in the models directory. Per-model sampling defaults (configured in the UI) are injected by the proxy into requests that don't specify them.
 
 ## License
 
