@@ -18,10 +18,16 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Build set of active model IDs
-		activeSet := make(map[string]string) // model registry ID → state
-		for _, st := range s.process.ListActive() {
-			activeSet[st.ID] = st.State
+		// Build set of active model IDs from the router
+		activeSet := make(map[string]string) // model ID → status value
+		if loaded, err := s.process.ListModels(); err == nil {
+			for _, m := range loaded {
+				activeSet[m.ID] = m.Status.Value
+				// Also map by model field (may differ from ID)
+				if m.Model != "" && m.Model != m.ID {
+					activeSet[m.Model] = m.Status.Value
+				}
+			}
 		}
 
 		// Build set of orphaned model IDs (file missing on disk)
@@ -51,7 +57,7 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 				IsOrphan     bool
 			}{
 				Model:        *m,
-				IsActive:     state == "running" || state == "starting",
+				IsActive:     state == "loaded" || state == "loading",
 				ServiceState: state,
 				BaseVRAMGB:   baseVRAM,
 				PeakVRAMGB:   peakVRAM,

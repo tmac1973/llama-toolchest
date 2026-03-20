@@ -5,18 +5,6 @@
       hx-swap="outerHTML"
       hx-trigger="submit, change[!this.classList.contains('ctx-editing')] delay:500ms">
 
-    <label title="Which llama.cpp build to use for this model. 'Auto' picks the first successful build.">
-        Build
-        <select name="build_id">
-            <option value="">Auto (first available)</option>
-            {{range .AvailableBuilds}}
-            <option value="{{.ID}}" {{if eq .ID $.Config.BuildID}}selected{{end}}>
-                {{.ID}} ({{.Profile}})
-            </option>
-            {{end}}
-        </select>
-    </label>
-
     <div class="grid">
         <label title="Number of model layers to offload to the GPU. 999 offloads all layers. Lower values keep some layers on CPU, reducing VRAM usage at the cost of speed.">
             GPU Layers
@@ -72,19 +60,6 @@
             <input type="number" name="threads" value="{{.Config.Threads}}"
                    min="1" placeholder="8">
         </label>
-    </div>
-
-    <div class="grid">
-        <label title="Restrict this model to specific GPU(s). Uses ROCR_VISIBLE_DEVICES (AMD) or CUDA_VISIBLE_DEVICES (NVIDIA). Empty = all GPUs.">
-            GPU Devices
-            <select name="gpu_devices">
-                <option value="" {{if eq .Config.GPUDevices ""}}selected{{end}}>All GPUs</option>
-                {{range .GPUOptions}}
-                <option value="{{.Value}}" {{if eq .Value $.Config.GPUDevices}}selected{{end}}>{{.Label}}</option>
-                {{end}}
-            </select>
-        </label>
-        <div></div>
     </div>
 
     <div class="grid">

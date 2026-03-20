@@ -43,10 +43,8 @@ type ModelConfig struct {
 	FlashAttention bool   `json:"flash_attention"`
 	Jinja          bool   `json:"jinja"`
 	KVCacheQuant   string `json:"kv_cache_quant"` // "", "q8_0", "q4_0"
-	DirectIO       bool   `json:"direct_io"`     // bypass page cache, load straight to VRAM
+	DirectIO       bool   `json:"direct_io"` // bypass page cache, load straight to VRAM
 	ExtraFlags     string `json:"extra_flags"`
-	BuildID        string `json:"build_id"`
-	GPUDevices     string `json:"gpu_devices"` // "", "0", "1", "0,1" — empty = all GPUs
 
 	// Sampling parameters — nil means use llama.cpp server default.
 	Temperature     *float64 `json:"temperature,omitempty"`

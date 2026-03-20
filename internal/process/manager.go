@@ -2,187 +2,117 @@ package process
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
-	"sort"
 	"path/filepath"
-	"strconv"
 	"sync"
 	"syscall"
 	"time"
 )
 
-// Status represents the current state of a llama-server instance.
+// ModelStatus represents the state of a model in the router.
+type ModelStatus struct {
+	ID     string `json:"id"`
+	Model  string `json:"model"`
+	Status struct {
+		Value string `json:"value"` // "loaded", "loading", "unloaded"
+	} `json:"status"`
+}
+
+// Status represents the state of the router process itself.
 type Status struct {
-	ID        string    `json:"id"`
 	State     string    `json:"state"` // "stopped", "starting", "running", "failed"
 	PID       int       `json:"pid,omitempty"`
-	Port      int       `json:"port,omitempty"`
-	Model     string    `json:"model,omitempty"`
-	BuildID   string    `json:"build_id,omitempty"`
 	Uptime    string    `json:"uptime,omitempty"`
 	StartedAt time.Time `json:"started_at,omitempty"`
 	Error     string    `json:"error,omitempty"`
 	HealthOK  bool      `json:"health_ok"`
 }
 
-// LaunchConfig defines how to start a llama-server instance.
-type LaunchConfig struct {
-	BinaryPath     string
-	ModelPath      string
-	GPULayers      int
-	TensorSplit    string
-	ContextSize    int
-	Threads        int
-	FlashAttention bool
-	Jinja          bool
-	KVCacheQuant   string // "", "q8_0", "q4_0"
-	DirectIO       bool
-	Host           string
-	Port           int      // assigned by Manager if 0
-	ExtraFlags     []string
-	VisibleDevices string // GPU pinning: "0", "1", "0,1" — maps to ROCR_VISIBLE_DEVICES
+// RouterConfig defines how to start the llama-server router.
+type RouterConfig struct {
+	BinaryPath string
+	ModelsDir  string
+	PresetPath string
+	ModelsMax  int
+	Host       string
+	Port       int
 }
 
-const logHistorySize = 200
+const logHistorySize = 500
 
-// instance holds the state for a single llama-server process.
-type instance struct {
-	id        string
+// Manager manages a single llama-server router process.
+type Manager struct {
+	mu        sync.Mutex
 	cmd       *exec.Cmd
 	cancel    context.CancelFunc
-	config    *LaunchConfig
 	status    Status
-	healthURL string
+	config    *RouterConfig
+	routerURL string
 	done      chan struct{}
 
-	// Per-instance log broadcasting
+	// Log broadcasting
 	logMu       sync.Mutex
 	subscribers map[chan string]struct{}
 	logHistory  []string
 }
 
-func (inst *instance) broadcast(line string) {
-	inst.logMu.Lock()
-	defer inst.logMu.Unlock()
-
-	if len(inst.logHistory) >= logHistorySize {
-		inst.logHistory = inst.logHistory[1:]
-	}
-	inst.logHistory = append(inst.logHistory, line)
-
-	for ch := range inst.subscribers {
-		select {
-		case ch <- line:
-		default:
-		}
-	}
-}
-
-// Manager manages multiple concurrent llama-server instances.
-type Manager struct {
-	mu        sync.Mutex
-	instances map[string]*instance // keyed by model registry ID
-	portMin   int
-	portMax   int
-	usedPorts map[int]string // port → instance ID
-}
-
-// NewManager creates a new multi-instance process manager.
-// Instances are assigned ports from the range [portMin, portMax].
 func NewManager() *Manager {
 	return &Manager{
-		instances: make(map[string]*instance),
-		portMin:   8080,
-		portMax:   8099,
-		usedPorts: make(map[int]string),
+		status:      Status{State: "stopped"},
+		subscribers: make(map[chan string]struct{}),
 	}
 }
 
-// allocatePort finds the next available port in the range.
-// Must be called with mu held.
-func (m *Manager) allocatePort() (int, error) {
-	for p := m.portMin; p <= m.portMax; p++ {
-		if _, used := m.usedPorts[p]; !used {
-			return p, nil
-		}
-	}
-	return 0, fmt.Errorf("no available ports in range %d-%d", m.portMin, m.portMax)
-}
-
-// Start spawns a llama-server instance for the given model ID.
-func (m *Manager) Start(id string, cfg LaunchConfig) error {
+// Start launches the llama-server in router mode.
+func (m *Manager) Start(cfg RouterConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check if this model is already running
-	if inst, exists := m.instances[id]; exists {
-		if inst.status.State == "running" || inst.status.State == "starting" {
-			return fmt.Errorf("model %s already %s", id, inst.status.State)
-		}
-		// Clean up stale instance
-		delete(m.instances, id)
-		if inst.config != nil {
-			delete(m.usedPorts, inst.config.Port)
-		}
+	if m.status.State == "running" || m.status.State == "starting" {
+		return fmt.Errorf("router already %s", m.status.State)
 	}
+
+	// Clear log history
+	m.logMu.Lock()
+	m.logHistory = nil
+	m.logMu.Unlock()
 
 	if cfg.Host == "" {
 		cfg.Host = "0.0.0.0"
 	}
-
-	// Assign port if not explicitly set
 	if cfg.Port == 0 {
-		port, err := m.allocatePort()
-		if err != nil {
-			return err
-		}
-		cfg.Port = port
+		cfg.Port = 8080
 	}
 
-	// Build command args
+	// Build command args — no --model flag means router mode
 	args := []string{
-		"--model", cfg.ModelPath,
-		"--n-gpu-layers", strconv.Itoa(cfg.GPULayers),
-		"--ctx-size", strconv.Itoa(cfg.ContextSize),
-		"--threads", strconv.Itoa(cfg.Threads),
 		"--host", cfg.Host,
-		"--port", strconv.Itoa(cfg.Port),
+		"--port", fmt.Sprintf("%d", cfg.Port),
 	}
-	if cfg.TensorSplit != "" {
-		args = append(args, "--tensor-split", cfg.TensorSplit)
+	if cfg.ModelsDir != "" {
+		args = append(args, "--models-dir", cfg.ModelsDir)
 	}
-	if cfg.FlashAttention {
-		args = append(args, "--flash-attn", "on")
+	if cfg.PresetPath != "" {
+		args = append(args, "--models-preset", cfg.PresetPath)
 	}
-	if cfg.Jinja {
-		args = append(args, "--jinja")
+	if cfg.ModelsMax >= 0 {
+		args = append(args, "--models-max", fmt.Sprintf("%d", cfg.ModelsMax))
 	}
-	if cfg.KVCacheQuant != "" {
-		args = append(args, "--cache-type-k", cfg.KVCacheQuant, "--cache-type-v", cfg.KVCacheQuant)
-	}
-	if cfg.DirectIO {
-		args = append(args, "--direct-io")
-	}
-	args = append(args, cfg.ExtraFlags...)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, cfg.BinaryPath, args...)
 
-	// Set LD_LIBRARY_PATH so the binary finds its co-located shared libs
+	// Set LD_LIBRARY_PATH for co-located shared libs
 	binDir := filepath.Dir(cfg.BinaryPath)
-	env := append(os.Environ(), "LD_LIBRARY_PATH="+binDir)
-
-	// GPU pinning
-	if cfg.VisibleDevices != "" {
-		env = append(env, "ROCR_VISIBLE_DEVICES="+cfg.VisibleDevices)
-		env = append(env, "CUDA_VISIBLE_DEVICES="+cfg.VisibleDevices)
-	}
-	cmd.Env = env
+	cmd.Env = append(os.Environ(), "LD_LIBRARY_PATH="+binDir)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -197,64 +127,49 @@ func (m *Manager) Start(id string, cfg LaunchConfig) error {
 	}
 
 	done := make(chan struct{})
-	inst := &instance{
-		id:          id,
-		cmd:         cmd,
-		cancel:      cancel,
-		config:      &cfg,
-		done:        done,
-		healthURL:   fmt.Sprintf("http://localhost:%d/health", cfg.Port),
-		subscribers: make(map[chan string]struct{}),
-		status: Status{
-			ID:        id,
-			State:     "starting",
-			PID:       cmd.Process.Pid,
-			Port:      cfg.Port,
-			Model:     cfg.ModelPath,
-			StartedAt: time.Now(),
-		},
+	m.cmd = cmd
+	m.cancel = cancel
+	m.config = &cfg
+	m.done = done
+	m.routerURL = fmt.Sprintf("http://localhost:%d", cfg.Port)
+	m.status = Status{
+		State:     "starting",
+		PID:       cmd.Process.Pid,
+		StartedAt: time.Now(),
 	}
 
-	m.instances[id] = inst
-	m.usedPorts[cfg.Port] = id
-
-	// Stream stdout/stderr
 	go func() {
 		scanner := bufio.NewScanner(stdout)
+		scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
 		for scanner.Scan() {
-			inst.broadcast(scanner.Text())
+			m.broadcast(scanner.Text())
 		}
 	}()
 
-	go m.monitorProcess(inst, cmd, done)
-	go m.pollHealth(inst)
+	go m.monitorProcess(cmd, done)
+	go m.pollHealth()
 
-	slog.Info("llama-server started", "id", id, "pid", cmd.Process.Pid, "port", cfg.Port, "model", cfg.ModelPath)
+	slog.Info("llama-server router started", "pid", cmd.Process.Pid, "port", cfg.Port)
 	return nil
 }
 
-// Stop sends SIGTERM to a specific instance, waits up to 10s, then SIGKILL.
-func (m *Manager) Stop(id string) error {
+// Stop sends SIGTERM to the router, waits up to 30s, then SIGKILL.
+func (m *Manager) Stop() error {
 	m.mu.Lock()
-	inst, exists := m.instances[id]
-	if !exists {
+	if m.cmd == nil || m.cmd.Process == nil {
 		m.mu.Unlock()
-		return fmt.Errorf("instance not found: %s", id)
+		return fmt.Errorf("router not running")
 	}
-	if inst.cmd == nil || inst.cmd.Process == nil {
-		m.mu.Unlock()
-		return fmt.Errorf("instance not running: %s", id)
-	}
-	cmd := inst.cmd
-	cancel := inst.cancel
-	done := inst.done
+	cmd := m.cmd
+	cancel := m.cancel
+	done := m.done
 	m.mu.Unlock()
 
 	cmd.Process.Signal(syscall.SIGTERM)
 
 	select {
 	case <-done:
-	case <-time.After(10 * time.Second):
+	case <-time.After(30 * time.Second):
 		cmd.Process.Signal(syscall.SIGKILL)
 		<-done
 	}
@@ -262,168 +177,233 @@ func (m *Manager) Stop(id string) error {
 	cancel()
 
 	m.mu.Lock()
-	if inst.config != nil {
-		delete(m.usedPorts, inst.config.Port)
-	}
-	delete(m.instances, id)
+	m.status = Status{State: "stopped"}
+	m.cmd = nil
+	m.cancel = nil
+	m.config = nil
 	m.mu.Unlock()
 
-	inst.broadcast("==> Process stopped")
-	slog.Info("llama-server stopped", "id", id)
+	m.broadcast("==> Router stopped")
+	slog.Info("llama-server router stopped")
 	return nil
 }
 
-// StopAll stops every running instance.
-func (m *Manager) StopAll() error {
+// Restart stops then starts with the current config.
+func (m *Manager) Restart() error {
 	m.mu.Lock()
-	ids := make([]string, 0, len(m.instances))
-	for id := range m.instances {
-		ids = append(ids, id)
-	}
+	cfg := m.config
 	m.mu.Unlock()
 
-	var lastErr error
-	for _, id := range ids {
-		if err := m.Stop(id); err != nil {
-			slog.Debug("stop during StopAll", "id", id, "error", err)
-			lastErr = err
-		}
-	}
-	return lastErr
-}
-
-// Restart stops then starts a specific instance with its current config.
-func (m *Manager) Restart(id string) error {
-	m.mu.Lock()
-	inst, exists := m.instances[id]
-	if !exists {
-		m.mu.Unlock()
-		return fmt.Errorf("instance not found: %s", id)
-	}
-	cfg := inst.config
 	if cfg == nil {
-		m.mu.Unlock()
-		return fmt.Errorf("no config to restart with: %s", id)
+		return fmt.Errorf("no config to restart with")
 	}
 	cfgCopy := *cfg
-	cfgCopy.Port = 0 // let manager reassign
-	m.mu.Unlock()
 
-	if err := m.Stop(id); err != nil {
-		slog.Debug("stop during restart", "id", id, "error", err)
+	if err := m.Stop(); err != nil {
+		slog.Debug("stop during restart", "error", err)
 	}
 
 	time.Sleep(500 * time.Millisecond)
-	return m.Start(id, cfgCopy)
+	return m.Start(cfgCopy)
 }
 
-// GetStatus returns the status of a specific instance.
-// Returns a stopped status if the instance doesn't exist.
-func (m *Manager) GetStatus(id string) Status {
+// GetStatus returns the router process status.
+func (m *Manager) GetStatus() Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	inst, exists := m.instances[id]
-	if !exists {
-		return Status{ID: id, State: "stopped"}
-	}
-
-	s := inst.status
+	s := m.status
 	if s.State == "running" && !s.StartedAt.IsZero() {
 		s.Uptime = time.Since(s.StartedAt).Truncate(time.Second).String()
 	}
 	return s
 }
 
-// ListActive returns the status of all running/starting instances,
-// sorted by ID for stable ordering.
-func (m *Manager) ListActive() []Status {
+// IsRunning returns true if the router is running.
+func (m *Manager) IsRunning() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	out := make([]Status, 0, len(m.instances))
-	for _, inst := range m.instances {
-		s := inst.status
-		if s.State == "running" && !s.StartedAt.IsZero() {
-			s.Uptime = time.Since(s.StartedAt).Truncate(time.Second).String()
-		}
-		out = append(out, s)
-	}
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].ID < out[j].ID
-	})
-	return out
+	return m.status.State == "running"
 }
 
-// IsActive returns true if the given model ID has a running or starting instance.
-func (m *Manager) IsActive(id string) bool {
+// LoadModel tells the router to load a model by name.
+func (m *Manager) LoadModel(name string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	inst, exists := m.instances[id]
-	if !exists {
-		return false
-	}
-	return inst.status.State == "running" || inst.status.State == "starting"
-}
-
-// GetPort returns the port for a running instance, or 0 if not active.
-func (m *Manager) GetPort(id string) int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	inst, exists := m.instances[id]
-	if !exists {
-		return 0
-	}
-	return inst.status.Port
-}
-
-// Subscribe returns a channel that receives log lines for a specific instance.
-func (m *Manager) Subscribe(id string) (chan string, error) {
-	m.mu.Lock()
-	inst, exists := m.instances[id]
+	url := m.routerURL
 	m.mu.Unlock()
 
-	if !exists {
-		return nil, fmt.Errorf("instance not found: %s", id)
+	if url == "" {
+		return fmt.Errorf("router not running")
 	}
 
+	body, _ := json.Marshal(map[string]string{"model": name})
+	resp, err := http.Post(url+"/models/load", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("load model: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("load model: HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
+// UnloadModel tells the router to unload a model by name.
+func (m *Manager) UnloadModel(name string) error {
+	m.mu.Lock()
+	url := m.routerURL
+	m.mu.Unlock()
+
+	if url == "" {
+		return fmt.Errorf("router not running")
+	}
+
+	body, _ := json.Marshal(map[string]string{"model": name})
+	resp, err := http.Post(url+"/models/unload", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("unload model: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("unload model: HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
+// ListModels queries the router for all known models and their status.
+func (m *Manager) ListModels() ([]ModelStatus, error) {
+	m.mu.Lock()
+	url := m.routerURL
+	m.mu.Unlock()
+
+	if url == "" {
+		return nil, fmt.Errorf("router not running")
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(url + "/models")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Data []ModelStatus `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	return result.Data, nil
+}
+
+// Subscribe returns a channel that receives log lines.
+func (m *Manager) Subscribe() chan string {
 	ch := make(chan string, 256)
-	inst.logMu.Lock()
-	for _, line := range inst.logHistory {
+	m.logMu.Lock()
+	for _, line := range m.logHistory {
 		select {
 		case ch <- line:
 		default:
 		}
 	}
-	inst.subscribers[ch] = struct{}{}
-	inst.logMu.Unlock()
-	return ch, nil
+	m.subscribers[ch] = struct{}{}
+	m.logMu.Unlock()
+	return ch
 }
 
-// Unsubscribe removes a subscriber from a specific instance.
-func (m *Manager) Unsubscribe(id string, ch chan string) {
-	m.mu.Lock()
-	inst, exists := m.instances[id]
-	m.mu.Unlock()
+// Unsubscribe removes a log subscriber.
+func (m *Manager) Unsubscribe(ch chan string) {
+	m.logMu.Lock()
+	delete(m.subscribers, ch)
+	m.logMu.Unlock()
+}
 
-	if !exists {
+func (m *Manager) broadcast(line string) {
+	m.logMu.Lock()
+	defer m.logMu.Unlock()
+
+	if len(m.logHistory) >= logHistorySize {
+		m.logHistory = m.logHistory[1:]
+	}
+	m.logHistory = append(m.logHistory, line)
+
+	for ch := range m.subscribers {
+		select {
+		case ch <- line:
+		default:
+		}
+	}
+}
+
+func (m *Manager) monitorProcess(cmd *exec.Cmd, done chan struct{}) {
+	err := cmd.Wait()
+	close(done)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.cmd != cmd {
 		return
 	}
 
-	inst.logMu.Lock()
-	delete(inst.subscribers, ch)
-	inst.logMu.Unlock()
+	if err != nil {
+		m.status.State = "failed"
+		m.status.Error = err.Error()
+		m.broadcast(fmt.Sprintf("==> Router exited with error: %v", err))
+	} else {
+		m.status.State = "stopped"
+		m.broadcast("==> Router exited normally")
+	}
+	m.status.HealthOK = false
 }
 
-// CheckHealth pings the health endpoint of a specific instance.
-func (m *Manager) CheckHealth(id string) bool {
-	m.mu.Lock()
-	inst, exists := m.instances[id]
-	if !exists {
+func (m *Manager) pollHealth() {
+	client := &http.Client{Timeout: 2 * time.Second}
+	deadline := time.Now().Add(5 * time.Minute)
+
+	for time.Now().Before(deadline) {
+		time.Sleep(2 * time.Second)
+
+		m.mu.Lock()
+		if m.status.State != "starting" && m.status.State != "running" {
+			m.mu.Unlock()
+			return
+		}
+		url := m.routerURL
 		m.mu.Unlock()
-		return false
+
+		resp, err := client.Get(url + "/health")
+		if err != nil {
+			continue
+		}
+		resp.Body.Close()
+
+		if resp.StatusCode == http.StatusOK {
+			m.mu.Lock()
+			m.status.State = "running"
+			m.status.HealthOK = true
+			m.mu.Unlock()
+			m.broadcast("==> Router health check passed — ready")
+			return
+		}
 	}
-	url := inst.healthURL
+
+	m.mu.Lock()
+	if m.status.State == "starting" {
+		m.status.State = "failed"
+		m.status.Error = "health check timeout"
+	}
+	m.mu.Unlock()
+}
+
+// CheckHealth pings the router's health endpoint.
+func (m *Manager) CheckHealth() bool {
+	m.mu.Lock()
+	url := m.routerURL
 	m.mu.Unlock()
 
 	if url == "" {
@@ -431,7 +411,7 @@ func (m *Manager) CheckHealth(id string) bool {
 	}
 
 	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get(url)
+	resp, err := client.Get(url + "/health")
 	if err != nil {
 		return false
 	}
@@ -440,78 +420,8 @@ func (m *Manager) CheckHealth(id string) bool {
 	healthy := resp.StatusCode == http.StatusOK
 
 	m.mu.Lock()
-	if inst2, ok := m.instances[id]; ok {
-		inst2.status.HealthOK = healthy
-	}
+	m.status.HealthOK = healthy
 	m.mu.Unlock()
 
 	return healthy
-}
-
-// monitorProcess waits for a process to exit and updates instance state.
-func (m *Manager) monitorProcess(inst *instance, cmd *exec.Cmd, done chan struct{}) {
-	err := cmd.Wait()
-	close(done)
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Only update if this instance is still tracked and has the same cmd
-	tracked, exists := m.instances[inst.id]
-	if !exists || tracked.cmd != cmd {
-		return
-	}
-
-	if err != nil {
-		tracked.status.State = "failed"
-		tracked.status.Error = err.Error()
-		inst.broadcast(fmt.Sprintf("==> Process exited with error: %v", err))
-	} else {
-		tracked.status.State = "stopped"
-		inst.broadcast("==> Process exited normally")
-	}
-	tracked.status.HealthOK = false
-}
-
-func (m *Manager) pollHealth(inst *instance) {
-	client := &http.Client{Timeout: 2 * time.Second}
-	// Allow longer startup for large models — 5 minutes base + extra for large context
-	deadline := time.Now().Add(5 * time.Minute)
-
-	for time.Now().Before(deadline) {
-		time.Sleep(2 * time.Second)
-
-		m.mu.Lock()
-		tracked, exists := m.instances[inst.id]
-		if !exists || (tracked.status.State != "starting" && tracked.status.State != "running") {
-			m.mu.Unlock()
-			return
-		}
-		url := tracked.healthURL
-		m.mu.Unlock()
-
-		resp, err := client.Get(url)
-		if err != nil {
-			continue
-		}
-		resp.Body.Close()
-
-		if resp.StatusCode == http.StatusOK {
-			m.mu.Lock()
-			if tracked, ok := m.instances[inst.id]; ok {
-				tracked.status.State = "running"
-				tracked.status.HealthOK = true
-			}
-			m.mu.Unlock()
-			inst.broadcast("==> Health check passed — server is ready")
-			return
-		}
-	}
-
-	m.mu.Lock()
-	if tracked, ok := m.instances[inst.id]; ok && tracked.status.State == "starting" {
-		tracked.status.State = "failed"
-		tracked.status.Error = "health check timeout"
-	}
-	m.mu.Unlock()
 }

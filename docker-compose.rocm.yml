@@ -6,7 +6,7 @@ services:
     container_name: llamactl
     ports:
       - "${LLAMACTL_PORT:-3000}:3000"   # LlamaCtl management UI
-      - "8080-8099:8080-8099"           # llama-server instances (chat UI + inference)
+      - "${LLAMACTL_INFERENCE_PORT:-8080}:8080"   # llama-server router (chat UI + inference)
     volumes:
       - llamactl-data:/data:z
     devices:

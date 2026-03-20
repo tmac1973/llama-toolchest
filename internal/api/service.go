@@ -3,10 +3,11 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"html"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tmlabonte/llamactl/internal/models"
@@ -40,49 +41,54 @@ func parseOptionalInt(s string) *int {
 }
 
 func (s *Server) handleServiceStatus(w http.ResponseWriter, r *http.Request) {
-	active := s.process.ListActive()
+	status := s.process.GetStatus()
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		// For htmx, render the first active instance status (backward compat)
-		// or a stopped status if nothing is running.
-		var status process.Status
-		if len(active) > 0 {
-			status = active[0]
-		} else {
-			status = process.Status{State: "stopped"}
-		}
 		s.renderPartial(w, "service_status", status)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(active)
+	json.NewEncoder(w).Encode(status)
 }
 
 func (s *Server) handleServiceStart(w http.ResponseWriter, r *http.Request) {
-	active := s.process.ListActive()
-	if len(active) > 0 {
+	if s.process.IsRunning() {
+		status := s.process.GetStatus()
 		if r.Header.Get("HX-Request") == "true" {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			s.renderPartial(w, "service_status", active[0])
+			s.renderPartial(w, "service_status", status)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(active)
+		json.NewEncoder(w).Encode(status)
 		return
 	}
 
-	http.Error(w, "No model active. Activate a model from the Models page first.", http.StatusBadRequest)
+	if err := s.startRouter(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	status := s.process.GetStatus()
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		s.renderPartial(w, "service_status", status)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(status)
 }
 
 func (s *Server) handleServiceStop(w http.ResponseWriter, r *http.Request) {
-	if err := s.process.StopAll(); err != nil {
+	if err := s.process.Stop(); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	status := process.Status{State: "stopped"}
+	status := s.process.GetStatus()
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		s.renderPartial(w, "service_status", status)
@@ -94,72 +100,37 @@ func (s *Server) handleServiceStop(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleServiceRestart(w http.ResponseWriter, r *http.Request) {
-	// Restart all active instances
-	active := s.process.ListActive()
-	if len(active) == 0 {
-		http.Error(w, "no active instances to restart", http.StatusBadRequest)
+	if err := s.process.Restart(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	var lastErr error
-	for _, st := range active {
-		if err := s.process.Restart(st.ID); err != nil {
-			lastErr = err
-		}
-	}
-	if lastErr != nil {
-		http.Error(w, lastErr.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	updated := s.process.ListActive()
+	status := s.process.GetStatus()
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		var status process.Status
-		if len(updated) > 0 {
-			status = updated[0]
-		} else {
-			status = process.Status{State: "stopped"}
-		}
 		s.renderPartial(w, "service_status", status)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(updated)
+	json.NewEncoder(w).Encode(status)
 }
 
 func (s *Server) handleServiceLogs(w http.ResponseWriter, r *http.Request) {
-	// Accept optional ?model= query param to select instance.
-	// If not provided, use the first active instance.
-	modelID := r.URL.Query().Get("model")
-	if modelID == "" {
-		active := s.process.ListActive()
-		if len(active) == 0 {
-			http.Error(w, "no active instances", http.StatusBadRequest)
-			return
-		}
-		modelID = active[0].ID
-	}
-
 	sse, err := NewSSEWriter(w)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	ch, err := s.process.Subscribe(modelID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	}
-	defer s.process.Unsubscribe(modelID, ch)
+	ch := s.process.Subscribe()
+	defer s.process.Unsubscribe(ch)
 
 	for {
 		select {
 		case line, ok := <-ch:
 			if !ok {
-				sse.SendEvent("done", "Process exited")
+				sse.SendEvent("done", "Router exited")
 				return
 			}
 			sse.SendLine(line)
@@ -170,136 +141,45 @@ func (s *Server) handleServiceLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleServiceLogTabs(w http.ResponseWriter, r *http.Request) {
-	active := s.process.ListActive()
+	// With the native router, logs are combined — no tabs needed.
+	// Return empty to hide the tab bar.
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	for _, st := range active {
-		// Use the model registry ID as the tab label, truncated for display
-		label := st.ID
-		if len(label) > 30 {
-			label = label[:30] + "..."
-		}
-		escaped := html.EscapeString(st.ID)
-		fmt.Fprintf(w, `<li><a href="#" data-model="%s" onclick="event.preventDefault();switchLogTab('%s')">%s</a></li>`,
-			escaped, escaped, html.EscapeString(label))
-	}
 }
 
 func (s *Server) handleServiceHealth(w http.ResponseWriter, r *http.Request) {
-	// Check if any instance is healthy
-	active := s.process.ListActive()
-	healthy := false
-	for _, st := range active {
-		if st.HealthOK {
-			healthy = true
-			break
-		}
-	}
+	healthy := s.process.CheckHealth()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"healthy": healthy})
 }
 
-// handleActivateModel starts a model instance (without stopping others).
+// handleActivateModel loads a model via the router.
 func (s *Server) handleActivateModel(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	model, err := s.registry.Get(id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	}
-
-	cfg, err := s.registry.GetConfig(id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	}
-
-	// Find the build binary
-	binaryPath := ""
-	if cfg.BuildID != "" {
-		for _, b := range s.builder.List() {
-			if b.ID == cfg.BuildID && b.Status == "success" {
-				binaryPath = b.BinaryPath
+	// Ensure router is running
+	if !s.process.IsRunning() {
+		if err := s.startRouter(); err != nil {
+			http.Error(w, "Failed to start router: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// Wait for router to be ready (up to 10 seconds)
+		for i := 0; i < 20; i++ {
+			time.Sleep(500 * time.Millisecond)
+			if s.process.CheckHealth() {
 				break
 			}
 		}
-	}
-	if binaryPath == "" {
-		// Try to find any successful build
-		for _, b := range s.builder.List() {
-			if b.Status == "success" {
-				binaryPath = b.BinaryPath
-				break
-			}
+		if !s.process.IsRunning() {
+			http.Error(w, "Router failed to start", http.StatusInternalServerError)
+			return
 		}
 	}
-	if binaryPath == "" {
-		http.Error(w, "No compiled build available. Build llama.cpp first.", http.StatusBadRequest)
-		return
-	}
 
-	var extraFlags []string
-	if cfg.ExtraFlags != "" {
-		extraFlags = strings.Fields(cfg.ExtraFlags)
-	}
-
-	// VRAM budget check — warn but don't block (estimates aren't exact).
-	// Skip check if force=true query param is set, or if no GPU info available.
-	vramWarning := ""
-	if r.URL.Query().Get("force") != "true" {
-		vramWarning = s.checkVRAMBudget(id, model, cfg)
-	}
-
-	// If htmx request with a VRAM warning, return a confirmation dialog.
-	// HX-Retarget + HX-Reswap tell htmx to append the dialog to <body>
-	// instead of replacing the model list.
-	if vramWarning != "" && r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("HX-Retarget", "body")
-		w.Header().Set("HX-Reswap", "beforeend")
-		fmt.Fprintf(w, `<dialog open style="max-width:500px;">
-			<article>
-				<header>VRAM Warning</header>
-				<p>%s</p>
-				<footer>
-					<div role="group">
-						<button type="button" class="secondary"
-							onclick="this.closest('dialog').remove();">Cancel</button>
-						<button type="button"
-							hx-put="/api/models/%s/activate?force=true"
-							hx-target="#model-list"
-							hx-swap="innerHTML"
-							onclick="this.closest('dialog').remove();">Start Anyway</button>
-					</div>
-				</footer>
-			</article>
-		</dialog>`, html.EscapeString(vramWarning), html.EscapeString(id))
-		return
-	}
-
-	launchCfg := process.LaunchConfig{
-		BinaryPath:     binaryPath,
-		ModelPath:      model.FilePath,
-		GPULayers:      cfg.GPULayers,
-		TensorSplit:    cfg.TensorSplit,
-		ContextSize:    cfg.ContextSize,
-		Threads:        cfg.Threads,
-		FlashAttention: cfg.FlashAttention,
-		Jinja:          cfg.Jinja,
-		KVCacheQuant:   cfg.KVCacheQuant,
-		DirectIO:       cfg.DirectIO,
-		ExtraFlags:     extraFlags,
-		VisibleDevices: cfg.GPUDevices,
-	}
-
-	if err := s.process.Start(id, launchCfg); err != nil {
+	// Load the model via the router API
+	if err := s.process.LoadModel(id); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	status := s.process.GetStatus(id)
-	status.Model = model.ModelID
-	status.BuildID = cfg.BuildID
 
 	if r.Header.Get("HX-Request") == "true" {
 		s.handleListModels(w, r)
@@ -307,165 +187,14 @@ func (s *Server) handleActivateModel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
+	json.NewEncoder(w).Encode(map[string]string{"status": "loading", "model": id})
 }
 
-// checkVRAMBudget estimates whether adding a model would exceed GPU VRAM.
-// Returns a warning message if over budget, or empty string if OK.
-func (s *Server) checkVRAMBudget(newModelID string, newModel *models.Model, newCfg *models.ModelConfig) string {
-	metrics := s.monitor.Current()
-	if len(metrics.GPU) == 0 {
-		return "" // no GPU info available, skip check
-	}
-
-	// Determine which GPUs the new model will use
-	targetGPUs := gpuIndicesForDevices(newCfg.GPUDevices, len(metrics.GPU))
-
-	// Compute total VRAM available across target GPUs
-	var totalVRAM float64
-	for _, idx := range targetGPUs {
-		if idx < len(metrics.GPU) {
-			totalVRAM += float64(metrics.GPU[idx].VRAMTotalMB) / 1024.0
-		}
-	}
-	if totalVRAM == 0 {
-		return ""
-	}
-
-	// Sum VRAM estimates for already-active models on the same GPUs
-	var usedVRAM float64
-	for _, st := range s.process.ListActive() {
-		activeModel, err := s.registry.Get(st.ID)
-		if err != nil {
-			continue
-		}
-		activeCfg, err := s.registry.GetConfig(st.ID)
-		if err != nil {
-			continue
-		}
-		activeGPUs := gpuIndicesForDevices(activeCfg.GPUDevices, len(metrics.GPU))
-		// Check if this active model shares any GPU with the new model
-		if gpuOverlap(targetGPUs, activeGPUs) {
-			usedVRAM += models.VRAMEstimateForConfig(activeModel, activeCfg)
-		}
-	}
-
-	newModelVRAM := models.VRAMEstimateForConfig(newModel, newCfg)
-	projected := usedVRAM + newModelVRAM
-
-	if projected > totalVRAM {
-		return fmt.Sprintf(
-			"Estimated total VRAM usage (%.1f GB) would exceed available GPU memory (%.1f GB). "+
-				"Currently loaded: %.1f GB, this model: %.1f GB. "+
-				"The model may fail to load or performance may degrade.",
-			projected, totalVRAM, usedVRAM, newModelVRAM,
-		)
-	}
-
-	return ""
-}
-
-// gpuIndicesForDevices returns the GPU indices a model targets.
-// Empty devices string means all GPUs.
-func gpuIndicesForDevices(devices string, numGPUs int) []int {
-	if devices == "" {
-		indices := make([]int, numGPUs)
-		for i := range indices {
-			indices[i] = i
-		}
-		return indices
-	}
-	var indices []int
-	for _, s := range strings.Split(devices, ",") {
-		s = strings.TrimSpace(s)
-		if idx, err := strconv.Atoi(s); err == nil && idx >= 0 {
-			indices = append(indices, idx)
-		}
-	}
-	return indices
-}
-
-// gpuOverlap returns true if the two GPU index lists share any GPU.
-func gpuOverlap(a, b []int) bool {
-	set := make(map[int]struct{}, len(a))
-	for _, idx := range a {
-		set[idx] = struct{}{}
-	}
-	for _, idx := range b {
-		if _, ok := set[idx]; ok {
-			return true
-		}
-	}
-	return false
-}
-
-type gpuOption struct {
-	Value string
-	Label string
-}
-
-// buildGPUOptions returns GPU device options based on detected hardware.
-func (s *Server) buildGPUOptions() []gpuOption {
-	metrics := s.monitor.Current()
-	numGPUs := len(metrics.GPU)
-	if numGPUs == 0 {
-		numGPUs = 1 // fallback: assume at least 1 GPU
-	}
-
-	var opts []gpuOption
-
-	// Individual GPU options
-	for i := 0; i < numGPUs; i++ {
-		label := fmt.Sprintf("GPU %d only", i)
-		if i < len(metrics.GPU) && metrics.GPU[i].Name != "" {
-			label = fmt.Sprintf("GPU %d (%s)", i, metrics.GPU[i].Name)
-		}
-		opts = append(opts, gpuOption{
-			Value: strconv.Itoa(i),
-			Label: label,
-		})
-	}
-
-	// Multi-GPU combination options (only if >1 GPU)
-	if numGPUs >= 2 {
-		// Pairs
-		for i := 0; i < numGPUs-1; i++ {
-			for j := i + 1; j < numGPUs; j++ {
-				opts = append(opts, gpuOption{
-					Value: fmt.Sprintf("%d,%d", i, j),
-					Label: fmt.Sprintf("GPU %d + %d", i, j),
-				})
-			}
-		}
-	}
-
-	// All-but-one combinations for 3+ GPUs
-	if numGPUs >= 3 {
-		for skip := 0; skip < numGPUs; skip++ {
-			var indices []string
-			var labels []string
-			for i := 0; i < numGPUs; i++ {
-				if i == skip {
-					continue
-				}
-				indices = append(indices, strconv.Itoa(i))
-				labels = append(labels, strconv.Itoa(i))
-			}
-			opts = append(opts, gpuOption{
-				Value: strings.Join(indices, ","),
-				Label: fmt.Sprintf("GPU %s", strings.Join(labels, " + ")),
-			})
-		}
-	}
-
-	return opts
-}
-
-// handleDeactivateModel stops a specific model instance.
+// handleDeactivateModel unloads a model via the router.
 func (s *Server) handleDeactivateModel(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	if err := s.process.Stop(id); err != nil {
+	if err := s.process.UnloadModel(id); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -478,8 +207,48 @@ func (s *Server) handleDeactivateModel(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// startRouter starts the llama-server in router mode using the active build.
+func (s *Server) startRouter() error {
+	// Find the build binary
+	binaryPath := ""
+	if s.cfg.ActiveBuild != "" {
+		for _, b := range s.builder.List() {
+			if b.ID == s.cfg.ActiveBuild && b.Status == "success" {
+				binaryPath = b.BinaryPath
+				break
+			}
+		}
+	}
+	if binaryPath == "" {
+		for _, b := range s.builder.List() {
+			if b.Status == "success" {
+				binaryPath = b.BinaryPath
+				break
+			}
+		}
+	}
+	if binaryPath == "" {
+		return fmt.Errorf("no compiled build available — build llama.cpp first")
+	}
+
+	// Generate preset INI from model configs
+	presetPath, err := s.registry.WritePresetINI()
+	if err != nil {
+		slog.Warn("failed to write preset INI", "error", err)
+	}
+
+	modelsDir := s.cfg.DataDir + "/models"
+
+	return s.process.Start(process.RouterConfig{
+		BinaryPath: binaryPath,
+		ModelsDir:  modelsDir,
+		PresetPath: presetPath,
+		ModelsMax:  s.cfg.ModelsMax,
+		Port:       s.cfg.LlamaPort,
+	})
+}
+
 // handleModelVRAMEstimate returns a VRAM estimate for a model with given config params.
-// Used by the UI for live VRAM updates as settings change.
 func (s *Server) handleModelVRAMEstimate(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
@@ -493,7 +262,6 @@ func (s *Server) handleModelVRAMEstimate(w http.ResponseWriter, r *http.Request)
 	contextSize, _ := strconv.Atoi(r.FormValue("context_size"))
 	kvCacheQuant := r.FormValue("kv_cache_quant")
 
-	// Build a temporary config for estimation
 	cfg := &models.ModelConfig{
 		ContextSize:  contextSize,
 		KVCacheQuant: kvCacheQuant,
@@ -512,8 +280,8 @@ func (s *Server) handleModelVRAMEstimate(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"total_gb":   total,
-		"weights_gb": weightsGB,
+		"total_gb":    total,
+		"weights_gb":  weightsGB,
 		"kv_cache_gb": kvGB,
 	})
 }
@@ -539,19 +307,15 @@ func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 		}
 
 		data := struct {
-			ModelID         string
-			Config          *models.ModelConfig
-			AvailableBuilds interface{}
-			EffectiveFlags  string
-			MaxContext      int
-			GPUOptions      []gpuOption
+			ModelID        string
+			Config         *models.ModelConfig
+			EffectiveFlags string
+			MaxContext     int
 		}{
-			ModelID:         id,
-			Config:          cfg,
-			AvailableBuilds: s.builder.List(),
-			EffectiveFlags:  cfg.EffectiveFlags(),
-			MaxContext:      maxContext,
-			GPUOptions:      s.buildGPUOptions(),
+			ModelID:        id,
+			Config:         cfg,
+			EffectiveFlags: cfg.EffectiveFlags(),
+			MaxContext:     maxContext,
 		}
 		s.renderPartial(w, "model_config", data)
 		return
@@ -583,10 +347,7 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		cfg.KVCacheQuant = r.FormValue("kv_cache_quant")
 		cfg.DirectIO = r.FormValue("direct_io") == "on"
 		cfg.ExtraFlags = r.FormValue("extra_flags")
-		cfg.BuildID = r.FormValue("build_id")
-		cfg.GPUDevices = r.FormValue("gpu_devices")
 
-		// Sampling parameters — empty string means "default" (nil pointer).
 		cfg.Temperature = parseOptionalFloat(r.FormValue("temperature"))
 		cfg.TopP = parseOptionalFloat(r.FormValue("top_p"))
 		cfg.TopK = parseOptionalInt(r.FormValue("top_k"))
@@ -600,8 +361,12 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Compute updated VRAM range and send it via HX-Trigger so the
-	// client-side JS can update the VRAM cell without refreshing the model list.
+	// Regenerate preset INI so the router picks up changes on next load
+	if _, err := s.registry.WritePresetINI(); err != nil {
+		slog.Warn("failed to regenerate preset INI", "error", err)
+	}
+
+	// Update VRAM estimate in model list
 	if r.Header.Get("HX-Request") == "true" {
 		if model, err := s.registry.Get(id); err == nil {
 			baseVRAM := float64(model.SizeBytes)/(1024*1024*1024) + 0.2
@@ -612,6 +377,6 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	// Return updated config form
 	s.handleGetModelConfig(w, r)
 }
+
