@@ -341,9 +341,11 @@ func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 
 		maxContext := 0
 		detectedMMProj := ""
+		isEmbedding := false
 		if model != nil {
 			maxContext = model.ContextLength
 			detectedMMProj = models.FindMMProj(model.FilePath)
+			isEmbedding = models.IsEmbeddingModel(model.ModelID) || models.IsEmbeddingModel(model.ID)
 		}
 
 		data := struct {
@@ -352,12 +354,14 @@ func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 			EffectiveFlags string
 			MaxContext     int
 			HasMMProj      bool
+			IsEmbedding    bool
 		}{
 			ModelID:        id,
 			Config:         cfg,
-			EffectiveFlags: cfg.EffectiveFlags(),
+			EffectiveFlags: cfg.EffectiveFlagsFor(isEmbedding),
 			MaxContext:     maxContext,
 			HasMMProj:      cfg.MmprojPath != "" || detectedMMProj != "",
+			IsEmbedding:    isEmbedding,
 		}
 		s.renderPartial(w, "model_config", data)
 		return

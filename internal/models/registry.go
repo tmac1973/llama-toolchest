@@ -84,33 +84,47 @@ func (c *ModelConfig) SamplingOverrides() map[string]any {
 
 // EffectiveFlags returns the full set of llama-server flags (excluding
 // binary, model path, host, and port) that will be used at launch.
-func (c *ModelConfig) EffectiveFlags() string {
+// EffectiveFlagsFor returns the flags that will be used at launch, filtering
+// out chat-specific flags for embedding models.
+func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool) string {
 	var parts []string
 	parts = append(parts, "--n-gpu-layers", strconv.Itoa(c.GPULayers))
-	parts = append(parts, "--ctx-size", strconv.Itoa(c.ContextSize))
+	if isEmbedding {
+		parts = append(parts, "--embeddings")
+	}
+	if !isEmbedding && c.ContextSize > 0 {
+		parts = append(parts, "--ctx-size", strconv.Itoa(c.ContextSize))
+	}
 	parts = append(parts, "--threads", strconv.Itoa(c.Threads))
 	if c.TensorSplit != "" {
 		parts = append(parts, "--tensor-split", c.TensorSplit)
 	}
-	if c.FlashAttention {
-		parts = append(parts, "--flash-attn", "on")
-	}
-	if c.Jinja {
-		parts = append(parts, "--jinja")
-	}
-	if c.KVCacheQuant != "" {
-		parts = append(parts, "--cache-type-k", c.KVCacheQuant, "--cache-type-v", c.KVCacheQuant)
-	}
-	if c.DirectIO {
-		parts = append(parts, "--direct-io")
-	}
-	if c.MmprojPath != "" {
-		parts = append(parts, "--mmproj", c.MmprojPath)
+	if !isEmbedding {
+		if c.FlashAttention {
+			parts = append(parts, "--flash-attn", "on")
+		}
+		if c.Jinja {
+			parts = append(parts, "--jinja")
+		}
+		if c.KVCacheQuant != "" {
+			parts = append(parts, "--cache-type-k", c.KVCacheQuant, "--cache-type-v", c.KVCacheQuant)
+		}
+		if c.DirectIO {
+			parts = append(parts, "--direct-io")
+		}
+		if c.MmprojPath != "" {
+			parts = append(parts, "--mmproj", c.MmprojPath)
+		}
 	}
 	if c.ExtraFlags != "" {
 		parts = append(parts, strings.Fields(c.ExtraFlags)...)
 	}
 	return strings.Join(parts, " ")
+}
+
+// EffectiveFlags returns the flags for a chat model (backward compat).
+func (c *ModelConfig) EffectiveFlags() string {
+	return c.EffectiveFlagsFor(false)
 }
 
 type registryData struct {
@@ -461,6 +475,14 @@ func (r *Registry) ScanModels() int {
 // IsMMProjFile returns true if the filename looks like a multimodal projector.
 func IsMMProjFile(filename string) bool {
 	return strings.Contains(strings.ToLower(filename), "mmproj")
+}
+
+// embeddingPattern matches common embedding model name patterns.
+var embeddingPattern = regexp.MustCompile(`(?i)([-/]embed[-/]|[-/]embed$|nomic-embed|^bge-|[-/]bge[-/]|[-/]e5[-/]|[-/]gte[-/]|snowflake-arctic-embed|mxbai-embed|jina-embed)`)
+
+// IsEmbeddingModel returns true if the model name/ID suggests it's an embedding model.
+func IsEmbeddingModel(name string) bool {
+	return embeddingPattern.MatchString(name)
 }
 
 // FindMMProj looks for mmproj GGUF files in the same directory as the model.

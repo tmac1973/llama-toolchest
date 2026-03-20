@@ -54,7 +54,8 @@ func GeneratePresetINI(dataDir string, models []*Model, configs map[string]*Mode
 		}
 		b.WriteString(fmt.Sprintf("alias = %s\n", aliases))
 
-		writeConfigParams(&b, cfg)
+		isEmbed := IsEmbeddingModel(m.ModelID) || IsEmbeddingModel(m.ID)
+		writeConfigParams(&b, cfg, isEmbed)
 		b.WriteString("\n")
 	}
 
@@ -77,8 +78,8 @@ func autoDiscoveryName(modelsDir, filePath string) string {
 	return parts[0]
 }
 
-func writeConfigParams(b *strings.Builder, cfg *ModelConfig) {
-	if cfg.ContextSize > 0 {
+func writeConfigParams(b *strings.Builder, cfg *ModelConfig, isEmbedding bool) {
+	if !isEmbedding && cfg.ContextSize > 0 {
 		b.WriteString(fmt.Sprintf("ctx-size = %d\n", cfg.ContextSize))
 	}
 	if cfg.GPULayers > 0 {
@@ -90,21 +91,26 @@ func writeConfigParams(b *strings.Builder, cfg *ModelConfig) {
 	if cfg.TensorSplit != "" {
 		b.WriteString(fmt.Sprintf("tensor-split = %s\n", cfg.TensorSplit))
 	}
-	if cfg.FlashAttention {
-		b.WriteString("flash-attn = on\n")
+	if isEmbedding {
+		b.WriteString("embeddings = true\n")
 	}
-	if cfg.Jinja {
-		b.WriteString("jinja = true\n")
-	}
-	if cfg.KVCacheQuant != "" {
-		b.WriteString(fmt.Sprintf("cache-type-k = %s\n", cfg.KVCacheQuant))
-		b.WriteString(fmt.Sprintf("cache-type-v = %s\n", cfg.KVCacheQuant))
-	}
-	if cfg.DirectIO {
-		b.WriteString("direct-io = true\n")
-	}
-	if cfg.MmprojPath != "" {
-		b.WriteString(fmt.Sprintf("mmproj = %s\n", cfg.MmprojPath))
+	if !isEmbedding {
+		if cfg.FlashAttention {
+			b.WriteString("flash-attn = on\n")
+		}
+		if cfg.Jinja {
+			b.WriteString("jinja = true\n")
+		}
+		if cfg.KVCacheQuant != "" {
+			b.WriteString(fmt.Sprintf("cache-type-k = %s\n", cfg.KVCacheQuant))
+			b.WriteString(fmt.Sprintf("cache-type-v = %s\n", cfg.KVCacheQuant))
+		}
+		if cfg.DirectIO {
+			b.WriteString("direct-io = true\n")
+		}
+		if cfg.MmprojPath != "" {
+			b.WriteString(fmt.Sprintf("mmproj = %s\n", cfg.MmprojPath))
+		}
 	}
 
 	// Sampling parameters
