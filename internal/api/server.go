@@ -32,6 +32,7 @@ type Server struct {
 	registry       *models.Registry
 	process        *process.Manager
 	monitor        *monitor.Monitor
+	dirtyModels    map[string]bool // models whose config changed since last load
 }
 
 func NewServer(cfg *config.Config) *Server {
@@ -39,13 +40,14 @@ func NewServer(cfg *config.Config) *Server {
 	mon.Start()
 
 	s := &Server{
-		cfg:        cfg,
-		builder:    builder.NewBuilder(cfg.DataDir),
-		hfClient:   huggingface.NewClient(cfg.HFToken),
-		downloader: huggingface.NewDownloader(cfg.DataDir, cfg.HFToken),
-		registry:   models.NewRegistry(cfg.DataDir),
-		process:    process.NewManager(),
-		monitor:    mon,
+		cfg:         cfg,
+		builder:     builder.NewBuilder(cfg.DataDir),
+		hfClient:    huggingface.NewClient(cfg.HFToken),
+		downloader:  huggingface.NewDownloader(cfg.DataDir, cfg.HFToken),
+		registry:    models.NewRegistry(cfg.DataDir),
+		process:     process.NewManager(),
+		monitor:     mon,
+		dirtyModels: make(map[string]bool),
 	}
 	s.downloader.SetOnComplete(s.onDownloadComplete)
 	s.registry.BackfillGGUFMeta()
@@ -69,9 +71,7 @@ func NewServer(cfg *config.Config) *Server {
 // per page so each page's {{define "content"}} doesn't collide.
 func (s *Server) parseTemplates() map[string]*template.Template {
 	funcMap := template.FuncMap{
-		"divGB": func(bytes int64) float64 {
-			return float64(bytes) / (1024 * 1024 * 1024)
-		},
+		"divGB": models.BytesToGB,
 		"vramFit": func(estimatedGB float64) string {
 			metrics := s.monitor.Current()
 			numGPUs := len(metrics.GPU)
@@ -172,6 +172,8 @@ func (s *Server) buildRouter() chi.Router {
 			r.Get("/logs", s.handleServiceLogs)
 			r.Get("/log-tabs", s.handleServiceLogTabs)
 			r.Get("/health", s.handleServiceHealth)
+			r.Get("/loaded-models", s.handleLoadedModels)
+			r.Get("/debug/router-models", s.handleDebugRouterModels)
 		})
 		r.Route("/settings", func(r chi.Router) {
 			r.Get("/", s.handleGetSettings)
@@ -270,7 +272,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 	successBuilds := 0
 	for _, b := range builds {
-		if b.Status == "success" {
+		if b.Status == builder.BuildStatusSuccess {
 			successBuilds++
 		}
 	}
@@ -284,11 +286,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	// Router state badge
 	var stateBadge string
 	switch routerStatus.State {
-	case "running":
+	case process.StateRunning:
 		stateBadge = `<ins>Running</ins>`
-	case "starting":
+	case process.StateStarting:
 		stateBadge = `<mark>Starting</mark>`
-	case "failed":
+	case process.StateFailed:
 		stateBadge = `<del>Failed</del>`
 	default:
 		stateBadge = `Stopped`
@@ -296,7 +298,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 	// List loaded models from the router
 	activeModelsHTML := "None"
-	if routerStatus.State == "running" {
+	if routerStatus.State == process.StateRunning {
 		if loaded, err := s.process.ListModels(); err == nil {
 			var buf strings.Builder
 			for _, m := range loaded {
@@ -324,7 +326,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	respondHTML(w)
 	fmt.Fprintf(w, `<div class="grid">
     <article>
         <header>Service</header>
@@ -364,7 +366,7 @@ func (s *Server) render(w http.ResponseWriter, name string, data any) {
 		http.Error(w, "page not found", http.StatusNotFound)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	respondHTML(w)
 	if err := tmpl.ExecuteTemplate(w, "layout", data); err != nil {
 		slog.Error("template render error", "name", name, "error", err)
 		http.Error(w, "template error", http.StatusInternalServerError)

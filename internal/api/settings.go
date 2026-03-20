@@ -38,14 +38,13 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		DataDir:       s.cfg.DataDir,
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if isHTMX(r) {
+		respondHTML(w)
 		w.Write([]byte("<p>Settings saved.</p>"))
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	respondJSON(w, resp)
 }
 
 func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
@@ -92,8 +91,8 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	// Persist config
 	s.saveConfig()
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if isHTMX(r) {
+		respondHTML(w)
 		proxyEndpoint := strings.TrimRight(s.cfg.ExternalURL, "/") + "/v1"
 		// Out-of-band swap to update the proxy endpoint display
 		fmt.Fprintf(w, `<p>Settings saved.</p><pre id="proxy-endpoint" hx-swap-oob="true">%s</pre>`, proxyEndpoint)
@@ -126,14 +125,13 @@ func (s *Server) handleTestConnection(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if isHTMX(r) {
+		respondHTML(w)
 		s.renderPartial(w, "connection_result", result)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	respondJSON(w, result)
 }
 
 func (s *Server) saveConfig() {

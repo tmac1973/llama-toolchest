@@ -25,14 +25,13 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// htmx: return HTML partial
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if isHTMX(r) {
+		respondHTML(w)
 		s.renderPartial(w, "hf_results", struct{ Results any }{Results: results})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(results)
+	respondJSON(w, results)
 }
 
 func (s *Server) handleHFModel(w http.ResponseWriter, r *http.Request) {
@@ -48,14 +47,13 @@ func (s *Server) handleHFModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if isHTMX(r) {
+		respondHTML(w)
 		s.renderPartial(w, "hf_files", detail)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(detail)
+	respondJSON(w, detail)
 }
 
 func (s *Server) handleHFDownload(w http.ResponseWriter, r *http.Request) {
@@ -81,8 +79,8 @@ func (s *Server) handleHFDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if isHTMX(r) {
+		respondHTML(w)
 		s.renderPartial(w, "download_progress", struct {
 			DownloadID string
 			Filename   string
@@ -90,9 +88,8 @@ func (s *Server) handleHFDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]string{"download_id": downloadID})
+	respondJSON(w, map[string]string{"download_id": downloadID})
 }
 
 func (s *Server) handleHFDownloadProgress(w http.ResponseWriter, r *http.Request) {
@@ -120,8 +117,8 @@ func (s *Server) handleHFDownloadProgress(w http.ResponseWriter, r *http.Request
 				pct = float64(status.BytesDownloaded) / float64(status.TotalBytes) * 100
 			}
 			speedMB := float64(status.SpeedBPS) / (1024 * 1024)
-			downloadedGB := float64(status.BytesDownloaded) / (1024 * 1024 * 1024)
-			totalGB := float64(status.TotalBytes) / (1024 * 1024 * 1024)
+			downloadedGB := models.BytesToGB(status.BytesDownloaded)
+			totalGB := models.BytesToGB(status.TotalBytes)
 
 			var html string
 			switch status.Status {
@@ -152,8 +149,8 @@ func (s *Server) handleHFDownloadProgress(w http.ResponseWriter, r *http.Request
 func (s *Server) handleHFActiveDownloads(w http.ResponseWriter, r *http.Request) {
 	active := s.downloader.ListActive()
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if isHTMX(r) {
+		respondHTML(w)
 		if len(active) == 0 {
 			return // empty response — nothing to show
 		}
@@ -163,8 +160,8 @@ func (s *Server) handleHFActiveDownloads(w http.ResponseWriter, r *http.Request)
 				pct = float64(dl.BytesDownloaded) / float64(dl.TotalBytes) * 100
 			}
 			speedMB := float64(dl.SpeedBPS) / (1024 * 1024)
-			downloadedGB := float64(dl.BytesDownloaded) / (1024 * 1024 * 1024)
-			totalGB := float64(dl.TotalBytes) / (1024 * 1024 * 1024)
+			downloadedGB := models.BytesToGB(dl.BytesDownloaded)
+			totalGB := models.BytesToGB(dl.TotalBytes)
 			fmt.Fprintf(w, `<div style="padding: 0.25rem 0.5rem; font-size: 0.85rem;">
 				<strong>%s</strong> — <small>%s</small>
 				<progress value="%.0f" max="100" style="margin: 0.25rem 0;"></progress>
@@ -174,8 +171,7 @@ func (s *Server) handleHFActiveDownloads(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(active)
+	respondJSON(w, active)
 }
 
 func (s *Server) handleHFDownloadCancel(w http.ResponseWriter, r *http.Request) {

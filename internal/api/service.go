@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/tmlabonte/llamactl/internal/builder"
 	"github.com/tmlabonte/llamactl/internal/models"
 	"github.com/tmlabonte/llamactl/internal/process"
 )
@@ -43,15 +45,15 @@ func parseOptionalInt(s string) *int {
 func (s *Server) handleServiceStatus(w http.ResponseWriter, r *http.Request) {
 	status := s.process.GetStatus()
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if isHTMX(r) {
+		respondHTML(w)
 		var badge string
 		switch status.State {
-		case "running":
+		case process.StateRunning:
 			badge = `<ins>Running</ins>`
-		case "starting":
+		case process.StateStarting:
 			badge = `<mark>Starting...</mark>`
-		case "failed":
+		case process.StateFailed:
 			badge = fmt.Sprintf(`<del>Failed</del> <small style="color:var(--pico-del-color)">%s</small>`, status.Error)
 		default:
 			badge = `Stopped`
@@ -63,8 +65,7 @@ func (s *Server) handleServiceStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
+	respondJSON(w, status)
 }
 
 func (s *Server) handleServiceStart(w http.ResponseWriter, r *http.Request) {
@@ -94,39 +95,62 @@ func (s *Server) handleServiceRestart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleServiceLogs(w http.ResponseWriter, r *http.Request) {
-	sse, err := NewSSEWriter(w)
+	ch := s.process.Subscribe()
+	defer s.process.Unsubscribe(ch)
+	StreamLines(w, r.Context(), ch, "Router exited")
+}
+
+// handleLoadedModels returns a list of models known to the router for the server page.
+func (s *Server) handleLoadedModels(w http.ResponseWriter, r *http.Request) {
+	respondHTML(w)
+	if !s.process.IsRunning() {
+		return
+	}
+
+	routerModels, err := s.process.ListModels()
+	if err != nil {
+		slog.Debug("failed to list router models", "error", err)
+		return
+	}
+	if len(routerModels) == 0 {
+		return
+	}
+
+	fmt.Fprint(w, `<div style="margin-top: 0.5rem;"><small><strong>Models:</strong></small>`)
+	for _, m := range routerModels {
+		name := html.EscapeString(m.ID)
+		switch m.Status.Value {
+		case "loaded":
+			fmt.Fprintf(w, `<br><small>&nbsp;&nbsp;● %s</small>`, name)
+		case "loading":
+			fmt.Fprintf(w, `<br><small>&nbsp;&nbsp;● %s <mark style="padding:0 0.2rem;">loading</mark></small>`, name)
+		default: // "unloaded" or empty
+			fmt.Fprintf(w, `<br><small>&nbsp;&nbsp;○ %s</small>`, name)
+		}
+	}
+	fmt.Fprint(w, `</div>`)
+}
+
+// handleDebugRouterModels dumps the raw JSON from the router's /models endpoint.
+func (s *Server) handleDebugRouterModels(w http.ResponseWriter, r *http.Request) {
+	raw, err := s.process.ListModelsRaw()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	ch := s.process.Subscribe()
-	defer s.process.Unsubscribe(ch)
-
-	for {
-		select {
-		case line, ok := <-ch:
-			if !ok {
-				sse.SendEvent("done", "Router exited")
-				return
-			}
-			sse.SendLine(line)
-		case <-r.Context().Done():
-			return
-		}
-	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(raw)
 }
 
 func (s *Server) handleServiceLogTabs(w http.ResponseWriter, r *http.Request) {
 	// With the native router, logs are combined — no tabs needed.
 	// Return empty to hide the tab bar.
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	respondHTML(w)
 }
 
 func (s *Server) handleServiceHealth(w http.ResponseWriter, r *http.Request) {
 	healthy := s.process.CheckHealth()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]bool{"healthy": healthy})
+	respondJSON(w, map[string]bool{"healthy": healthy})
 }
 
 // handleActivateModel loads a model via the router.
@@ -152,31 +176,34 @@ func (s *Server) handleActivateModel(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Load the model via the router API
-	if err := s.process.LoadModel(id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	// Try router name, fall back to file path
+	routerName := s.registry.RouterName(id)
+	if err := s.process.LoadModel(routerName); err != nil {
+		filePath := s.registry.ModelFilePath(id)
+		if filePath == "" || s.process.LoadModel(filePath) != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
+	if isHTMX(r) {
 		s.handleListModels(w, r)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "loading", "model": id})
+	respondJSON(w, map[string]string{"status": "loading", "model": id})
 }
 
 // handleDeactivateModel unloads a model via the router.
 func (s *Server) handleDeactivateModel(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	if err := s.process.UnloadModel(id); err != nil {
+	if err := s.process.UnloadModel(s.registry.RouterName(id)); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
+	if isHTMX(r) {
 		s.handleListModels(w, r)
 		return
 	}
@@ -190,7 +217,7 @@ func (s *Server) startRouter() error {
 	binaryPath := ""
 	if s.cfg.ActiveBuild != "" {
 		for _, b := range s.builder.List() {
-			if b.ID == s.cfg.ActiveBuild && b.Status == "success" {
+			if b.ID == s.cfg.ActiveBuild && b.Status == builder.BuildStatusSuccess {
 				binaryPath = b.BinaryPath
 				break
 			}
@@ -198,7 +225,7 @@ func (s *Server) startRouter() error {
 	}
 	if binaryPath == "" {
 		for _, b := range s.builder.List() {
-			if b.Status == "success" {
+			if b.Status == builder.BuildStatusSuccess {
 				binaryPath = b.BinaryPath
 				break
 			}
@@ -246,18 +273,18 @@ func (s *Server) handleModelEnable(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("failed to regenerate preset INI", "error", err)
 	}
 
-	// If disabling and router is running, unload the model
-	if !enabled && s.process.IsRunning() {
-		s.process.UnloadModel(id)
-	}
+	// The router reads preset.ini at startup only. Changing which models
+	// are available requires a restart. If the router is running, mark
+	// that a restart is needed so the UI can show an indicator.
+	// Note: /models/load and /models/unload control VRAM, not the
+	// available list, so we don't call them here.
 
-	if r.Header.Get("HX-Request") == "true" {
+	if isHTMX(r) {
 		s.handleListModels(w, r)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]bool{"enabled": enabled})
+	respondJSON(w, map[string]bool{"enabled": enabled})
 }
 
 // handleModelVRAMEstimate returns a VRAM estimate for a model with given config params.
@@ -281,17 +308,16 @@ func (s *Server) handleModelVRAMEstimate(w http.ResponseWriter, r *http.Request)
 
 	total := models.VRAMEstimateForConfig(model, cfg)
 	kvGB := models.EstimateKVCacheGB(model.NLayers, model.NKVHead, model.NHead, model.NEmbd, contextSize, kvCacheQuant)
-	weightsGB := float64(model.SizeBytes) / (1024 * 1024 * 1024)
+	weightsGB := models.BytesToGB(model.SizeBytes)
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if isHTMX(r) {
+		respondHTML(w)
 		fmt.Fprintf(w, `<strong>%.1f GB</strong> <small>(weights: %.1f GB + KV cache: %.1f GB + overhead)</small>`,
 			total, weightsGB, kvGB)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	respondJSON(w, map[string]any{
 		"total_gb":    total,
 		"weights_gb":  weightsGB,
 		"kv_cache_gb": kvGB,
@@ -310,8 +336,8 @@ func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 
 	model, _ := s.registry.Get(id)
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if isHTMX(r) {
+		respondHTML(w)
 
 		maxContext := 0
 		if model != nil {
@@ -333,18 +359,22 @@ func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(cfg)
+	respondJSON(w, cfg)
 }
 
 // handleUpdateModelConfig updates the launch config for a model.
 func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	var cfg models.ModelConfig
+	// Fetch existing config to preserve fields not in the form (e.g. Enabled).
+	cfg, err := s.registry.GetConfig(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
 
 	if r.Header.Get("Content-Type") == "application/json" {
-		if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		if err := json.NewDecoder(r.Body).Decode(cfg); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -368,21 +398,27 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		cfg.RepeatPenalty = parseOptionalFloat(r.FormValue("repeat_penalty"))
 	}
 
-	if err := s.registry.SetConfig(id, &cfg); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+	if err := s.registry.SetConfig(id, cfg); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Regenerate preset INI so the router picks up changes on next load
+	// Regenerate preset INI so the router picks up changes on next load/reload
 	if _, err := s.registry.WritePresetINI(); err != nil {
 		slog.Warn("failed to regenerate preset INI", "error", err)
 	}
 
+	// Mark model as needing reload (config changed but model not reloaded yet).
+	// Sampling params are injected at the proxy layer and don't need a reload.
+	if cfg.Enabled && s.process.IsRunning() {
+		s.dirtyModels[id] = true
+	}
+
 	// Update VRAM estimate in model list
-	if r.Header.Get("HX-Request") == "true" {
+	if isHTMX(r) {
 		if model, err := s.registry.Get(id); err == nil {
-			baseVRAM := float64(model.SizeBytes)/(1024*1024*1024) + 0.2
-			peakVRAM := models.VRAMEstimateForConfig(model, &cfg)
+			baseVRAM := models.BytesToGB(model.SizeBytes) + 0.2
+			peakVRAM := models.VRAMEstimateForConfig(model, cfg)
 			w.Header().Set("HX-Trigger", fmt.Sprintf(
 				`{"vramUpdated":{"id":%q,"vram":"%.1f - %.1f GB"}}`,
 				id, baseVRAM, peakVRAM))

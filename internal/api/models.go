@@ -1,7 +1,7 @@
 package api
 
 import (
-	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -11,8 +11,8 @@ import (
 func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 	modelList := s.registry.List()
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if isHTMX(r) {
+		respondHTML(w)
 		if len(modelList) == 0 {
 			w.Write([]byte(`<p>No models downloaded yet. <a href="/models/browse">Browse HuggingFace</a> to download models.</p>`))
 			return
@@ -43,7 +43,7 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			state := routerKnown[m.ID]
 
 			// Compute VRAM range: base (weights + overhead) and peak (+ full KV cache)
-			weightsGB := float64(m.SizeBytes)/(1024*1024*1024) + 0.2
+			weightsGB := models.BytesToGB(m.SizeBytes) + 0.2
 			peakVRAM := weightsGB // fallback if no config
 			enabled := true
 			if cfg, err := s.registry.GetConfig(m.ID); err == nil {
@@ -52,11 +52,14 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			}
 			baseVRAM := weightsGB
 
-			// Restart indicators:
-			// - pendingEnable: enabled in registry but router doesn't know about it
-			// - pendingDisable: disabled in registry but router still has it
+			// Restart indicators: the router caches preset.ini at startup.
+			// All preset changes (enable/disable/config) require a restart.
+			// pendingEnable: enabled in registry but router doesn't know about it
+			// pendingDisable: disabled in registry but router still has it
+			// configChanged: config modified since router started
 			pendingEnable := enabled && state == "" && s.process.IsRunning()
 			pendingDisable := !enabled && state != "" && s.process.IsRunning()
+			configChanged := s.dirtyModels[m.ID] && state != "" && s.process.IsRunning()
 
 			data := struct {
 				models.Model
@@ -64,20 +67,22 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 				IsEnabled      bool
 				PendingEnable  bool
 				PendingDisable bool
+				NeedsReload    bool
 				ServiceState   string
-				BaseVRAMGB   float64
-				PeakVRAMGB   float64
-				IsOrphan     bool
+				BaseVRAMGB     float64
+				PeakVRAMGB     float64
+				IsOrphan       bool
 			}{
-				Model:        *m,
-				IsActive:     state == "loaded" || state == "loading",
+				Model:          *m,
+				IsActive:       state == "loaded" || state == "loading",
 				IsEnabled:      enabled,
 				PendingEnable:  pendingEnable,
 				PendingDisable: pendingDisable,
-				ServiceState: state,
-				BaseVRAMGB:   baseVRAM,
-				PeakVRAMGB:   peakVRAM,
-				IsOrphan:     orphanSet[m.ID],
+				NeedsReload:    configChanged,
+				ServiceState:   state,
+				BaseVRAMGB:     baseVRAM,
+				PeakVRAMGB:     peakVRAM,
+				IsOrphan:       orphanSet[m.ID],
 			}
 			s.renderPartial(w, "model_card", data)
 		}
@@ -85,21 +90,19 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(modelList)
+	respondJSON(w, modelList)
 }
 
 func (s *Server) handleScanModels(w http.ResponseWriter, r *http.Request) {
 	found := s.registry.ScanModels()
 
-	if r.Header.Get("HX-Request") == "true" {
+	if isHTMX(r) {
 		// Re-render the model list with any newly discovered models
 		s.handleListModels(w, r)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]int{"new_models": found})
+	respondJSON(w, map[string]int{"new_models": found})
 }
 
 func (s *Server) handleGetModel(w http.ResponseWriter, r *http.Request) {
@@ -110,8 +113,7 @@ func (s *Server) handleGetModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(m)
+	respondJSON(w, m)
 }
 
 func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
@@ -128,7 +130,12 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
+	// Regenerate preset INI so the router doesn't reference a deleted model
+	if _, err := s.registry.WritePresetINI(); err != nil {
+		slog.Warn("failed to regenerate preset INI after delete", "error", err)
+	}
+
+	if isHTMX(r) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
