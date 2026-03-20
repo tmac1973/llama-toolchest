@@ -24,9 +24,16 @@
             <label>
                 Git Ref
                 <div style="display:flex;gap:0.5rem;align-items:center;">
-                    <select name="git_ref" id="git-ref-select" style="margin:0;">
+                    <select name="git_ref" id="git-ref-select" style="margin:0;"
+                            onchange="var a=document.getElementById('ref-link');var v=this.value;if(v&&v!=='latest'){a.href='https://github.com/ggerganov/llama.cpp/releases/tag/'+v;a.style.display='';}else{a.style.display='none';}">
                         <option value="latest" selected>latest</option>
                     </select>
+                    <a id="ref-link" href="#" target="_blank" rel="noopener"
+                       style="display:none;margin:0;padding:0.25rem 0.75rem;font-size:0.85rem;white-space:nowrap;"
+                       class="outline"
+                       title="View release notes on GitHub">
+                        Release Notes
+                    </a>
                     <button type="button" class="outline secondary"
                             style="margin:0;padding:0.25rem 0.75rem;font-size:0.85rem;white-space:nowrap;"
                             hx-get="/api/builds/refs?refresh=1"
