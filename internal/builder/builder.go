@@ -17,6 +17,11 @@ import (
 
 const (
 	llamaCppRepo = "https://github.com/ggml-org/llama.cpp"
+
+	// Build statuses.
+	BuildStatusBuilding = "building"
+	BuildStatusSuccess  = "success"
+	BuildStatusFailed   = "failed"
 )
 
 // BuildResult records the outcome of a build.
@@ -25,7 +30,7 @@ type BuildResult struct {
 	Profile    string    `json:"profile"`
 	GitSHA     string    `json:"git_sha"`
 	GitRef     string    `json:"git_ref"`
-	Status     string    `json:"status"` // "building", "success", "failed"
+	Status     string    `json:"status"` // BuildStatusBuilding, BuildStatusSuccess, BuildStatusFailed
 	BinaryPath string   `json:"binary_path"`
 	StartedAt  time.Time `json:"started_at"`
 	FinishedAt time.Time `json:"finished_at,omitempty"`
@@ -125,7 +130,7 @@ func (b *Builder) Build(ctx context.Context, profile string, gitRef string, forc
 	result := &BuildResult{
 		Profile:   prof.Name,
 		GitRef:    gitRef,
-		Status:    "building",
+		Status:    BuildStatusBuilding,
 		StartedAt: time.Now(),
 	}
 
@@ -225,7 +230,7 @@ func (b *Builder) runBuild(ctx context.Context, prof BuildProfile, srcDir string
 	}
 
 	if err := b.runCmd(ctx, buildDir, logCh, "cmake", cmakeArgs...); err != nil {
-		b.finishBuild(result, "failed", fmt.Sprintf("cmake failed: %v", err))
+		b.finishBuild(result, BuildStatusFailed, fmt.Sprintf("cmake failed: %v", err))
 		sendLog(fmt.Sprintf("==> cmake FAILED: %v", err))
 		return
 	}
@@ -233,7 +238,7 @@ func (b *Builder) runBuild(ctx context.Context, prof BuildProfile, srcDir string
 	// ninja — build all targets (target names vary across llama.cpp versions)
 	sendLog("==> Running ninja...")
 	if err := b.runCmd(ctx, buildDir, logCh, "ninja", "-j", fmt.Sprintf("%d", numCPU())); err != nil {
-		b.finishBuild(result, "failed", fmt.Sprintf("ninja failed: %v", err))
+		b.finishBuild(result, BuildStatusFailed, fmt.Sprintf("ninja failed: %v", err))
 		sendLog(fmt.Sprintf("==> ninja FAILED: %v", err))
 		return
 	}
@@ -253,14 +258,14 @@ func (b *Builder) runBuild(ctx context.Context, prof BuildProfile, srcDir string
 		}
 	}
 	if srcBin == "" {
-		b.finishBuild(result, "failed", "llama-server binary not found in build output")
+		b.finishBuild(result, BuildStatusFailed, "llama-server binary not found in build output")
 		sendLog(fmt.Sprintf("==> Install FAILED: llama-server binary not found"))
 		return
 	}
 	dstBin := filepath.Join(outDir, "llama-server")
 
 	if err := copyFile(srcBin, dstBin); err != nil {
-		b.finishBuild(result, "failed", fmt.Sprintf("install failed: %v", err))
+		b.finishBuild(result, BuildStatusFailed, fmt.Sprintf("install failed: %v", err))
 		sendLog(fmt.Sprintf("==> Install FAILED: %v", err))
 		return
 	}
@@ -299,7 +304,7 @@ func (b *Builder) runBuild(ctx context.Context, prof BuildProfile, srcDir string
 	os.RemoveAll(buildDir)
 
 	result.BinaryPath = dstBin
-	b.finishBuild(result, "success", "")
+	b.finishBuild(result, BuildStatusSuccess, "")
 	sendLog(fmt.Sprintf("==> Build complete: %s", dstBin))
 }
 
@@ -460,7 +465,7 @@ func (b *Builder) loadBuilds() {
 	// Clean up stale "building" entries — they can't recover after restart.
 	cleaned := b.builds[:0]
 	for _, br := range b.builds {
-		if br.Status != "building" {
+		if br.Status != BuildStatusBuilding {
 			cleaned = append(cleaned, br)
 		}
 	}

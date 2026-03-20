@@ -27,9 +27,17 @@ type ModelStatus struct {
 	} `json:"status"`
 }
 
+// Process states.
+const (
+	StateStopped  = "stopped"
+	StateStarting = "starting"
+	StateRunning  = "running"
+	StateFailed   = "failed"
+)
+
 // Status represents the state of the router process itself.
 type Status struct {
-	State     string    `json:"state"` // "stopped", "starting", "running", "failed"
+	State     string    `json:"state"` // StateStopped, StateStarting, StateRunning, StateFailed
 	PID       int       `json:"pid,omitempty"`
 	Uptime    string    `json:"uptime,omitempty"`
 	StartedAt time.Time `json:"started_at,omitempty"`
@@ -67,7 +75,7 @@ type Manager struct {
 
 func NewManager() *Manager {
 	return &Manager{
-		status:      Status{State: "stopped"},
+		status:      Status{State: StateStopped},
 		subscribers: make(map[chan string]struct{}),
 	}
 }
@@ -77,7 +85,7 @@ func (m *Manager) Start(cfg RouterConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if m.status.State == "running" || m.status.State == "starting" {
+	if m.status.State == StateRunning || m.status.State == StateStarting {
 		return fmt.Errorf("router already %s", m.status.State)
 	}
 
@@ -134,7 +142,7 @@ func (m *Manager) Start(cfg RouterConfig) error {
 	m.done = done
 	m.routerURL = fmt.Sprintf("http://localhost:%d", cfg.Port)
 	m.status = Status{
-		State:     "starting",
+		State:     StateStarting,
 		PID:       cmd.Process.Pid,
 		StartedAt: time.Now(),
 	}
@@ -178,7 +186,7 @@ func (m *Manager) Stop() error {
 	cancel()
 
 	m.mu.Lock()
-	m.status = Status{State: "stopped"}
+	m.status = Status{State: StateStopped}
 	m.cmd = nil
 	m.cancel = nil
 	m.config = nil
@@ -214,7 +222,7 @@ func (m *Manager) GetStatus() Status {
 	defer m.mu.Unlock()
 
 	s := m.status
-	if s.State == "running" && !s.StartedAt.IsZero() {
+	if s.State == StateRunning && !s.StartedAt.IsZero() {
 		s.Uptime = time.Since(s.StartedAt).Truncate(time.Second).String()
 	}
 	return s
@@ -224,7 +232,7 @@ func (m *Manager) GetStatus() Status {
 func (m *Manager) IsRunning() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.status.State == "running"
+	return m.status.State == StateRunning
 }
 
 // LoadModel tells the router to load a model by name.
@@ -237,17 +245,19 @@ func (m *Manager) LoadModel(name string) error {
 		return fmt.Errorf("router not running")
 	}
 
+	slog.Info("router: loading model", "name", name)
 	body, _ := json.Marshal(map[string]string{"model": name})
 	resp, err := http.Post(url+"/models/load", "application/json", bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("load model: %w", err)
+		return fmt.Errorf("load model %q: %w", name, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("load model: HTTP %d: %s", resp.StatusCode, string(respBody))
+		return fmt.Errorf("load model %q: HTTP %d: %s", name, resp.StatusCode, string(respBody))
 	}
+	slog.Info("router: model loaded", "name", name)
 	return nil
 }
 
@@ -275,8 +285,8 @@ func (m *Manager) UnloadModel(name string) error {
 	return nil
 }
 
-// ListModels queries the router for all known models and their status.
-func (m *Manager) ListModels() ([]ModelStatus, error) {
+// ListModelsRaw returns the raw JSON from the router's /models endpoint.
+func (m *Manager) ListModelsRaw() ([]byte, error) {
 	m.mu.Lock()
 	url := m.routerURL
 	m.mu.Unlock()
@@ -291,12 +301,21 @@ func (m *Manager) ListModels() ([]ModelStatus, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	return io.ReadAll(resp.Body)
+}
+
+// ListModels queries the router for all known models and their status.
+func (m *Manager) ListModels() ([]ModelStatus, error) {
+	raw, err := m.ListModelsRaw()
+	if err != nil {
+		return nil, err
+	}
 
 	var result struct {
 		Data []ModelStatus `json:"data"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, fmt.Errorf("decode models: %w (raw: %s)", err, string(raw))
 	}
 	return result.Data, nil
 }
@@ -352,11 +371,11 @@ func (m *Manager) monitorProcess(cmd *exec.Cmd, done chan struct{}) {
 	}
 
 	if err != nil {
-		m.status.State = "failed"
+		m.status.State = StateFailed
 		m.status.Error = err.Error()
 		m.broadcast(fmt.Sprintf("==> Router exited with error: %v", err))
 	} else {
-		m.status.State = "stopped"
+		m.status.State = StateStopped
 		m.broadcast("==> Router exited normally")
 	}
 	m.status.HealthOK = false
@@ -370,7 +389,7 @@ func (m *Manager) pollHealth() {
 		time.Sleep(2 * time.Second)
 
 		m.mu.Lock()
-		if m.status.State != "starting" && m.status.State != "running" {
+		if m.status.State != StateStarting && m.status.State != StateRunning {
 			m.mu.Unlock()
 			return
 		}
@@ -385,7 +404,7 @@ func (m *Manager) pollHealth() {
 
 		if resp.StatusCode == http.StatusOK {
 			m.mu.Lock()
-			m.status.State = "running"
+			m.status.State = StateRunning
 			m.status.HealthOK = true
 			m.mu.Unlock()
 			m.broadcast("==> Router health check passed — ready")
@@ -394,8 +413,8 @@ func (m *Manager) pollHealth() {
 	}
 
 	m.mu.Lock()
-	if m.status.State == "starting" {
-		m.status.State = "failed"
+	if m.status.State == StateStarting {
+		m.status.State = StateFailed
 		m.status.Error = "health check timeout"
 	}
 	m.mu.Unlock()

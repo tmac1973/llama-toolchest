@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 )
@@ -44,4 +45,28 @@ func (s *SSEWriter) SendLine(data string) error {
 	fmt.Fprintf(s.w, "data: %s\ndata:\n\n", data)
 	s.flusher.Flush()
 	return nil
+}
+
+// StreamLines streams log lines from a channel, sending each as an SSE line
+// event. When the channel closes, a "done" event is sent with the given message.
+// Exits when the channel closes or the context is cancelled.
+func StreamLines(w http.ResponseWriter, ctx context.Context, ch <-chan string, doneMsg string) {
+	sse, err := NewSSEWriter(w)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	for {
+		select {
+		case line, ok := <-ch:
+			if !ok {
+				sse.SendEvent("done", doneMsg)
+				return
+			}
+			sse.SendLine(line)
+		case <-ctx.Done():
+			return
+		}
+	}
 }
