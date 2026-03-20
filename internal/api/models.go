@@ -43,14 +43,17 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			// Compute VRAM range: base (weights + overhead) and peak (+ full KV cache)
 			weightsGB := float64(m.SizeBytes)/(1024*1024*1024) + 0.2
 			peakVRAM := weightsGB // fallback if no config
+			enabled := true
 			if cfg, err := s.registry.GetConfig(m.ID); err == nil {
 				peakVRAM = models.VRAMEstimateForConfig(m, cfg)
+				enabled = cfg.Enabled
 			}
 			baseVRAM := weightsGB
 
 			data := struct {
 				models.Model
 				IsActive     bool
+				IsEnabled    bool
 				ServiceState string
 				BaseVRAMGB   float64
 				PeakVRAMGB   float64
@@ -58,6 +61,7 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			}{
 				Model:        *m,
 				IsActive:     state == "loaded" || state == "loading",
+				IsEnabled:    enabled,
 				ServiceState: state,
 				BaseVRAMGB:   baseVRAM,
 				PeakVRAMGB:   peakVRAM,

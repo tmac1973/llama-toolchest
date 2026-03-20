@@ -26,7 +26,7 @@ func GeneratePresetINI(dataDir string, models []*Model, configs map[string]*Mode
 
 	for _, m := range models {
 		cfg, ok := configs[m.ID]
-		if !ok {
+		if !ok || !cfg.Enabled {
 			continue
 		}
 

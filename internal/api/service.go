@@ -248,6 +248,44 @@ func (s *Server) startRouter() error {
 	})
 }
 
+// handleModelEnable toggles a model's enabled state and updates the preset.
+func (s *Server) handleModelEnable(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	r.ParseForm()
+	enabled := r.FormValue("enabled") == "true"
+
+	cfg, err := s.registry.GetConfig(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	cfg.Enabled = enabled
+	if err := s.registry.SetConfig(id, cfg); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Regenerate preset so the router picks up the change
+	if _, err := s.registry.WritePresetINI(); err != nil {
+		slog.Warn("failed to regenerate preset INI", "error", err)
+	}
+
+	// If disabling and router is running, unload the model
+	if !enabled && s.process.IsRunning() {
+		s.process.UnloadModel(id)
+	}
+
+	if r.Header.Get("HX-Request") == "true" {
+		s.handleListModels(w, r)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"enabled": enabled})
+}
+
 // handleModelVRAMEstimate returns a VRAM estimate for a model with given config params.
 func (s *Server) handleModelVRAMEstimate(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")

@@ -97,6 +97,7 @@ func (s *Server) parseTemplates() map[string]*template.Template {
 		"models.html",
 		"models_browse.html",
 		"service.html",
+		"server.html",
 		"settings.html",
 	}
 	for _, pf := range pageFiles {
@@ -126,9 +127,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/builds", s.handleBuildsPage)
 	r.Get("/models", s.handleModelsPage)
 	r.Get("/models/browse", s.handleModelsBrowsePage)
-	r.Get("/service", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/models", http.StatusMovedPermanently)
-	})
+	r.Get("/server", s.handleServerPage)
 	r.Get("/settings", s.handleSettingsPage)
 
 	// Dashboard API (outside /api group, htmx-only)
@@ -152,6 +151,7 @@ func (s *Server) buildRouter() chi.Router {
 			r.Delete("/{id}", s.handleDeleteModel)
 			r.Put("/{id}/activate", s.handleActivateModel)
 			r.Delete("/{id}/activate", s.handleDeactivateModel)
+			r.Put("/{id}/enable", s.handleModelEnable)
 			r.Get("/{id}/config", s.handleGetModelConfig)
 			r.Put("/{id}/config", s.handleUpdateModelConfig)
 			r.Get("/{id}/vram-estimate", s.handleModelVRAMEstimate)
@@ -224,32 +224,41 @@ func (s *Server) handleServicePage(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "service.html", pageData{Title: "Service", Nav: "service"})
 }
 
-func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
-	proxyEndpoint := strings.TrimRight(s.cfg.ExternalURL, "/") + "/v1"
+func (s *Server) handleServerPage(w http.ResponseWriter, r *http.Request) {
 	data := struct {
 		pageData
-		ProxyEndpoint   string
-		LlamaPort       int
-		HasAPIKey       bool
-		HasHFToken      bool
-		HasExtURL       bool
-		ExternalURL     string
-		DataDir         string
 		ActiveBuild     string
 		ModelsMax       int
 		AvailableBuilds interface{}
 	}{
-		pageData:        pageData{Title: "Settings", Nav: "settings"},
-		ProxyEndpoint:   proxyEndpoint,
-		LlamaPort:       s.cfg.LlamaPort,
-		HasAPIKey:       s.cfg.APIKey != "",
-		HasHFToken:      s.cfg.HFToken != "",
-		HasExtURL:       s.cfg.ExternalURL != "",
-		ExternalURL:     s.cfg.ExternalURL,
-		DataDir:         s.cfg.DataDir,
+		pageData:        pageData{Title: "Server", Nav: "server"},
 		ActiveBuild:     s.cfg.ActiveBuild,
 		ModelsMax:       s.cfg.ModelsMax,
 		AvailableBuilds: s.builder.List(),
+	}
+	s.render(w, "server.html", data)
+}
+
+func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
+	proxyEndpoint := strings.TrimRight(s.cfg.ExternalURL, "/") + "/v1"
+	data := struct {
+		pageData
+		ProxyEndpoint string
+		LlamaPort     int
+		HasAPIKey     bool
+		HasHFToken    bool
+		HasExtURL     bool
+		ExternalURL   string
+		DataDir       string
+	}{
+		pageData:      pageData{Title: "Settings", Nav: "settings"},
+		ProxyEndpoint: proxyEndpoint,
+		LlamaPort:     s.cfg.LlamaPort,
+		HasAPIKey:     s.cfg.APIKey != "",
+		HasHFToken:    s.cfg.HFToken != "",
+		HasExtURL:     s.cfg.ExternalURL != "",
+		ExternalURL:   s.cfg.ExternalURL,
+		DataDir:       s.cfg.DataDir,
 	}
 	s.render(w, "settings.html", data)
 }

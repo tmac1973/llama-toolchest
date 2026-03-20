@@ -67,46 +67,6 @@
 </article>
 
 <article>
-    <header>llama.cpp Build</header>
-    <p>Select which llama.cpp build to use for the inference server. Changing this requires a server restart.</p>
-    <form hx-put="/api/settings"
-          hx-target="#build-status"
-          hx-swap="innerHTML">
-        <label>
-            Active Build
-            <select name="active_build">
-                <option value="" {{if eq .ActiveBuild ""}}selected{{end}}>Auto (first available)</option>
-                {{range .AvailableBuilds}}
-                <option value="{{.ID}}" {{if eq .ID $.ActiveBuild}}selected{{end}}>
-                    {{.ID}} ({{.Profile}})
-                </option>
-                {{end}}
-            </select>
-        </label>
-        <button type="submit">Save</button>
-    </form>
-    <div id="build-status"></div>
-</article>
-
-<article>
-    <header>Max Loaded Models</header>
-    <p>Maximum number of models loaded simultaneously. When the limit is reached,
-       the least-recently-used model is automatically unloaded to free VRAM.
-       Set to 0 for unlimited.</p>
-    <form hx-put="/api/settings"
-          hx-target="#models-max-status"
-          hx-swap="innerHTML">
-        <label>
-            Max Models
-            <input type="number" name="models_max" value="{{.ModelsMax}}"
-                   min="0" placeholder="0 = unlimited">
-        </label>
-        <button type="submit">Save</button>
-    </form>
-    <div id="models-max-status"></div>
-</article>
-
-<article>
     <header>Theme</header>
     <p>Change the look of the UI. Theme preference is saved in your browser.</p>
     <div class="grid" style="grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));">

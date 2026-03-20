@@ -36,6 +36,7 @@ type Model struct {
 
 // ModelConfig holds per-model launch configuration for llama-server.
 type ModelConfig struct {
+	Enabled        bool   `json:"enabled"`
 	GPULayers      int    `json:"gpu_layers"`
 	TensorSplit    string `json:"tensor_split"`
 	ContextSize    int    `json:"context_size"`
@@ -141,6 +142,7 @@ func (r *Registry) Add(m *Model) error {
 	// Set default config
 	if _, exists := r.data.Configs[m.ID]; !exists {
 		r.data.Configs[m.ID] = &ModelConfig{
+			Enabled:        true,
 			GPULayers:      999,
 			TensorSplit:    "",
 			ContextSize:    8192,
