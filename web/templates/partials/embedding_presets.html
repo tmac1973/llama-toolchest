@@ -1,0 +1,33 @@
+{{define "embedding_presets"}}
+<table role="grid">
+    <thead>
+        <tr><th>Model</th><th>Dims</th><th>Size</th><th></th></tr>
+    </thead>
+    <tbody>
+        {{range .Presets}}
+        <tr>
+            <td>
+                <strong>{{.Name}}</strong>
+                <br><small style="opacity: 0.7;">{{.Desc}}</small>
+            </td>
+            <td>{{.Dims}}</td>
+            <td>{{.SizeMB}} MB</td>
+            <td>
+                {{if index $.Downloaded .Repo}}
+                    <small><ins>Downloaded</ins></small>
+                {{else}}
+                    <button type="button"
+                            hx-post="/api/models/embedding-presets/download"
+                            hx-vals='{"repo":"{{.Repo}}","filename":"{{.Filename}}"}'
+                            hx-target="closest tr"
+                            hx-swap="afterend"
+                            style="margin:0;padding:0.2rem 0.6rem;font-size:0.8rem;">
+                        Download
+                    </button>
+                {{end}}
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{end}}

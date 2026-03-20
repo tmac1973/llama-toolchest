@@ -1,5 +1,5 @@
 {{define "content"}}
-<div style="display: flex; justify-content: flex-end; padding: 0 0.25rem 0.5rem 0;">
+<div style="display: flex; justify-content: flex-end; gap: 0.5rem; padding: 0 0.25rem 0.5rem 0;">
     <button type="button" class="outline secondary"
             style="margin: 0; padding: 0.2rem 0.6rem; font-size: 0.8rem;"
             hx-post="/api/models/scan"
@@ -19,6 +19,19 @@
 
 <div id="model-list" hx-get="/api/models" hx-trigger="load" hx-swap="innerHTML">
     Loading...
+</div>
+
+<hr>
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 0 0.25rem 0.5rem 0;">
+    <h4 style="margin:0;">Embedding Models</h4>
+    <button type="button" class="outline" id="embedding-presets-btn"
+            style="margin: 0; padding: 0.2rem 0.6rem; font-size: 0.8rem;"
+            onclick="var t=document.getElementById('embedding-presets'); if(t.innerHTML.trim()){t.innerHTML='';} else {htmx.ajax('GET','/api/models/embedding-presets',{target:'#embedding-presets',swap:'innerHTML'});}">
+        Get Embedding Models
+    </button>
+</div>
+<div id="embedding-presets"></div>
+<div id="embedding-list" hx-get="/api/models/embeddings" hx-trigger="load" hx-swap="innerHTML">
 </div>
 
 <script>

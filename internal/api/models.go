@@ -8,8 +8,36 @@ import (
 	"github.com/tmlabonte/llamactl/internal/models"
 )
 
+func (s *Server) handleListEmbeddingModels(w http.ResponseWriter, r *http.Request) {
+	all := s.registry.List()
+	var embeddingModels []*models.Model
+	for _, m := range all {
+		if models.IsEmbeddingModel(m.ModelID) || models.IsEmbeddingModel(m.ID) {
+			embeddingModels = append(embeddingModels, m)
+		}
+	}
+
+	if isHTMX(r) {
+		respondHTML(w)
+		if len(embeddingModels) == 0 {
+			return
+		}
+		s.renderModelTable(w, r, embeddingModels)
+		return
+	}
+
+	respondJSON(w, embeddingModels)
+}
+
 func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
-	modelList := s.registry.List()
+	all := s.registry.List()
+	// Filter out embedding models — they have their own section
+	var modelList []*models.Model
+	for _, m := range all {
+		if !models.IsEmbeddingModel(m.ModelID) && !models.IsEmbeddingModel(m.ID) {
+			modelList = append(modelList, m)
+		}
+	}
 
 	if isHTMX(r) {
 		respondHTML(w)
@@ -18,83 +46,61 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Build set of models the router knows about (any status)
-		routerKnown := make(map[string]string) // name/alias → status value
-		if routerModels, err := s.process.ListModels(); err == nil {
-			for _, rm := range routerModels {
-				routerKnown[rm.ID] = rm.Status.Value
-				if rm.Model != "" {
-					routerKnown[rm.Model] = rm.Status.Value
-				}
-				for _, alias := range rm.Aliases {
-					routerKnown[alias] = rm.Status.Value
-				}
-			}
-		}
-
-		// Build set of orphaned model IDs (file missing on disk)
-		orphanSet := make(map[string]bool)
-		for _, m := range s.registry.FindOrphans() {
-			orphanSet[m.ID] = true
-		}
-
-		w.Write([]byte(`<table role="grid"><thead><tr><th title="Enable model for the inference server">On</th><th>Model</th><th>Quant</th><th title="Base (weights) - Peak (full KV cache)">VRAM Est.</th><th>Size</th><th></th></tr></thead>`))
-		for _, m := range modelList {
-			state := routerKnown[m.ID]
-
-			// Compute VRAM range: base (weights + overhead) and peak (+ full KV cache)
-			weightsGB := models.BytesToGB(m.SizeBytes) + 0.2
-			peakVRAM := weightsGB // fallback if no config
-			enabled := true
-			hasVision := false
-			if cfg, err := s.registry.GetConfig(m.ID); err == nil {
-				peakVRAM = models.VRAMEstimateForConfig(m, cfg)
-				enabled = cfg.Enabled
-				hasVision = cfg.MmprojPath != ""
-			}
-			baseVRAM := weightsGB
-
-			// Restart indicators: the router caches preset.ini at startup.
-			// All preset changes (enable/disable/config) require a restart.
-			// pendingEnable: enabled in registry but router doesn't know about it
-			// pendingDisable: disabled in registry but router still has it
-			// configChanged: config modified since router started
-			pendingEnable := enabled && state == "" && s.process.IsRunning()
-			pendingDisable := !enabled && state != "" && s.process.IsRunning()
-			configChanged := s.dirtyModels[m.ID] && state != "" && s.process.IsRunning()
-
-			data := struct {
-				models.Model
-				IsActive       bool
-				IsEnabled      bool
-				PendingEnable  bool
-				PendingDisable bool
-				NeedsReload    bool
-				HasVision      bool
-				ServiceState   string
-				BaseVRAMGB     float64
-				PeakVRAMGB     float64
-				IsOrphan       bool
-			}{
-				Model:          *m,
-				IsActive:       state == "loaded" || state == "loading",
-				IsEnabled:      enabled,
-				PendingEnable:  pendingEnable,
-				PendingDisable: pendingDisable,
-				NeedsReload:    configChanged,
-				HasVision:      hasVision,
-				ServiceState:   state,
-				BaseVRAMGB:     baseVRAM,
-				PeakVRAMGB:     peakVRAM,
-				IsOrphan:       orphanSet[m.ID],
-			}
-			s.renderPartial(w, "model_card", data)
-		}
-		w.Write([]byte(`</table>`))
+		s.renderModelTable(w, r, modelList)
 		return
 	}
 
 	respondJSON(w, modelList)
+}
+
+func (s *Server) handleEmbeddingPresets(w http.ResponseWriter, r *http.Request) {
+	presets := models.CuratedEmbeddingModels()
+
+	// Mark which ones are already downloaded
+	allModels := s.registry.List()
+	downloaded := make(map[string]bool)
+	for _, m := range allModels {
+		downloaded[m.ModelID] = true
+	}
+
+	if isHTMX(r) {
+		respondHTML(w)
+		s.renderPartial(w, "embedding_presets", struct {
+			Presets    []models.EmbeddingModelPreset
+			Downloaded map[string]bool
+		}{Presets: presets, Downloaded: downloaded})
+		return
+	}
+
+	respondJSON(w, presets)
+}
+
+func (s *Server) handleDownloadEmbeddingPreset(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	repo := r.FormValue("repo")
+	filename := r.FormValue("filename")
+
+	if repo == "" || filename == "" {
+		http.Error(w, "missing repo or filename", http.StatusBadRequest)
+		return
+	}
+
+	downloadID, err := s.downloader.Start(r.Context(), repo, filename)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if isHTMX(r) {
+		respondHTML(w)
+		s.renderPartial(w, "download_progress", struct {
+			DownloadID string
+			Filename   string
+		}{DownloadID: downloadID, Filename: filename})
+		return
+	}
+
+	respondJSON(w, map[string]string{"download_id": downloadID})
 }
 
 func (s *Server) handleScanModels(w http.ResponseWriter, r *http.Request) {
@@ -145,4 +151,74 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// renderModelTable renders the shared model table used by both chat and embedding lists.
+func (s *Server) renderModelTable(w http.ResponseWriter, r *http.Request, modelList []*models.Model) {
+	// Build set of models the router knows about (any status)
+	routerKnown := make(map[string]string)
+	if routerModels, err := s.process.ListModels(); err == nil {
+		for _, rm := range routerModels {
+			routerKnown[rm.ID] = rm.Status.Value
+			if rm.Model != "" {
+				routerKnown[rm.Model] = rm.Status.Value
+			}
+			for _, alias := range rm.Aliases {
+				routerKnown[alias] = rm.Status.Value
+			}
+		}
+	}
+
+	orphanSet := make(map[string]bool)
+	for _, m := range s.registry.FindOrphans() {
+		orphanSet[m.ID] = true
+	}
+
+	w.Write([]byte(`<table role="grid"><thead><tr><th title="Enable model for the inference server">On</th><th>Model</th><th>Quant</th><th title="Base (weights) - Peak (full KV cache)">VRAM Est.</th><th>Size</th><th></th></tr></thead>`))
+	for _, m := range modelList {
+		state := routerKnown[m.ID]
+
+		weightsGB := models.BytesToGB(m.SizeBytes) + 0.2
+		peakVRAM := weightsGB
+		enabled := true
+		hasVision := false
+		if cfg, err := s.registry.GetConfig(m.ID); err == nil {
+			peakVRAM = models.VRAMEstimateForConfig(m, cfg)
+			enabled = cfg.Enabled
+			hasVision = cfg.MmprojPath != ""
+		}
+		baseVRAM := weightsGB
+
+		pendingEnable := enabled && state == "" && s.process.IsRunning()
+		pendingDisable := !enabled && state != "" && s.process.IsRunning()
+		configChanged := s.dirtyModels[m.ID] && state != "" && s.process.IsRunning()
+
+		data := struct {
+			models.Model
+			IsActive       bool
+			IsEnabled      bool
+			PendingEnable  bool
+			PendingDisable bool
+			NeedsReload    bool
+			HasVision      bool
+			ServiceState   string
+			BaseVRAMGB     float64
+			PeakVRAMGB     float64
+			IsOrphan       bool
+		}{
+			Model:          *m,
+			IsActive:       state == "loaded" || state == "loading",
+			IsEnabled:      enabled,
+			PendingEnable:  pendingEnable,
+			PendingDisable: pendingDisable,
+			NeedsReload:    configChanged,
+			HasVision:      hasVision,
+			ServiceState:   state,
+			BaseVRAMGB:     baseVRAM,
+			PeakVRAMGB:     peakVRAM,
+			IsOrphan:       orphanSet[m.ID],
+		}
+		s.renderPartial(w, "model_card", data)
+	}
+	w.Write([]byte(`</table>`))
 }

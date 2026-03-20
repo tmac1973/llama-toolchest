@@ -149,7 +149,10 @@ func (s *Server) buildRouter() chi.Router {
 		})
 		r.Route("/models", func(r chi.Router) {
 			r.Get("/", s.handleListModels)
+			r.Get("/embeddings", s.handleListEmbeddingModels)
 			r.Post("/scan", s.handleScanModels)
+			r.Get("/embedding-presets", s.handleEmbeddingPresets)
+			r.Post("/embedding-presets/download", s.handleDownloadEmbeddingPreset)
 			r.Get("/{id}", s.handleGetModel)
 			r.Delete("/{id}", s.handleDeleteModel)
 			r.Put("/{id}/activate", s.handleActivateModel)

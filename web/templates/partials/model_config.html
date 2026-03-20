@@ -11,6 +11,7 @@
             <input type="number" name="gpu_layers" value="{{.Config.GPULayers}}"
                    min="0" max="999" placeholder="999 = all layers">
         </label>
+        {{if not .IsEmbedding}}
         {{$cs := .Config.ContextSize}}
         {{$mc := .MaxContext}}
         {{$isCustom := and (ne $cs 0) (ne $cs 2048) (ne $cs 4096) (ne $cs 8192) (ne $cs 16384) (ne $cs 32768) (ne $cs 65536) (ne $cs 131072) (ne $cs 262144)}}
@@ -47,6 +48,7 @@
                 </div>
             </div>
         </label>
+        {{end}}
     </div>
 
     <div class="grid">
@@ -62,6 +64,7 @@
         </label>
     </div>
 
+    {{if not .IsEmbedding}}
     <div class="grid">
         <label title="Use flash attention for faster inference and lower VRAM usage. Recommended for most models. Disable if you experience compatibility issues.">
             Flash Attention
@@ -145,6 +148,7 @@
                    placeholder="Default (1.0)">
         </label>
     </div>
+    {{end}}
 
     <label title="Additional command-line flags passed directly to llama-server. See llama.cpp docs for available options.">
         Extra Flags
