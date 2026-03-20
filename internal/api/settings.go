@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -77,6 +78,14 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if r.Form.Has("external_url") {
 			s.cfg.ExternalURL = r.FormValue("external_url")
+		}
+		if r.Form.Has("active_build") {
+			s.cfg.ActiveBuild = r.FormValue("active_build")
+		}
+		if r.Form.Has("models_max") {
+			if v, err := strconv.Atoi(r.FormValue("models_max")); err == nil {
+				s.cfg.ModelsMax = v
+			}
 		}
 	}
 

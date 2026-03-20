@@ -228,22 +228,28 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 	proxyEndpoint := strings.TrimRight(s.cfg.ExternalURL, "/") + "/v1"
 	data := struct {
 		pageData
-		ProxyEndpoint string
-		LlamaPort     int
-		HasAPIKey     bool
-		HasHFToken    bool
-		HasExtURL     bool
-		ExternalURL   string
-		DataDir       string
+		ProxyEndpoint   string
+		LlamaPort       int
+		HasAPIKey       bool
+		HasHFToken      bool
+		HasExtURL       bool
+		ExternalURL     string
+		DataDir         string
+		ActiveBuild     string
+		ModelsMax       int
+		AvailableBuilds interface{}
 	}{
-		pageData:      pageData{Title: "Settings", Nav: "settings"},
-		ProxyEndpoint: proxyEndpoint,
-		LlamaPort:     s.cfg.LlamaPort,
-		HasAPIKey:     s.cfg.APIKey != "",
-		HasHFToken:    s.cfg.HFToken != "",
-		HasExtURL:     s.cfg.ExternalURL != "",
-		ExternalURL:   s.cfg.ExternalURL,
-		DataDir:       s.cfg.DataDir,
+		pageData:        pageData{Title: "Settings", Nav: "settings"},
+		ProxyEndpoint:   proxyEndpoint,
+		LlamaPort:       s.cfg.LlamaPort,
+		HasAPIKey:       s.cfg.APIKey != "",
+		HasHFToken:      s.cfg.HFToken != "",
+		HasExtURL:       s.cfg.ExternalURL != "",
+		ExternalURL:     s.cfg.ExternalURL,
+		DataDir:         s.cfg.DataDir,
+		ActiveBuild:     s.cfg.ActiveBuild,
+		ModelsMax:       s.cfg.ModelsMax,
+		AvailableBuilds: s.builder.List(),
 	}
 	s.render(w, "settings.html", data)
 }
