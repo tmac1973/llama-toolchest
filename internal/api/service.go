@@ -68,32 +68,13 @@ func (s *Server) handleServiceStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleServiceStart(w http.ResponseWriter, r *http.Request) {
-	if s.process.IsRunning() {
-		status := s.process.GetStatus()
-		if r.Header.Get("HX-Request") == "true" {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			s.renderPartial(w, "service_status", status)
+	if !s.process.IsRunning() {
+		if err := s.startRouter(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(status)
-		return
 	}
-
-	if err := s.startRouter(); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	status := s.process.GetStatus()
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		s.renderPartial(w, "service_status", status)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
+	s.handleServiceStatus(w, r)
 }
 
 func (s *Server) handleServiceStop(w http.ResponseWriter, r *http.Request) {
@@ -101,16 +82,7 @@ func (s *Server) handleServiceStop(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	status := s.process.GetStatus()
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		s.renderPartial(w, "service_status", status)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
+	s.handleServiceStatus(w, r)
 }
 
 func (s *Server) handleServiceRestart(w http.ResponseWriter, r *http.Request) {
@@ -118,16 +90,7 @@ func (s *Server) handleServiceRestart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	status := s.process.GetStatus()
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		s.renderPartial(w, "service_status", status)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
+	s.handleServiceStatus(w, r)
 }
 
 func (s *Server) handleServiceLogs(w http.ResponseWriter, r *http.Request) {
