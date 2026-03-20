@@ -43,6 +43,7 @@ type ModelConfig struct {
 	FlashAttention bool   `json:"flash_attention"`
 	Jinja          bool   `json:"jinja"`
 	KVCacheQuant   string `json:"kv_cache_quant"` // "", "q8_0", "q4_0"
+	DirectIO       bool   `json:"direct_io"`     // bypass page cache, load straight to VRAM
 	ExtraFlags     string `json:"extra_flags"`
 	BuildID        string `json:"build_id"`
 	GPUDevices     string `json:"gpu_devices"` // "", "0", "1", "0,1" — empty = all GPUs
@@ -99,6 +100,9 @@ func (c *ModelConfig) EffectiveFlags() string {
 	}
 	if c.KVCacheQuant != "" {
 		parts = append(parts, "--cache-type-k", c.KVCacheQuant, "--cache-type-v", c.KVCacheQuant)
+	}
+	if c.DirectIO {
+		parts = append(parts, "--direct-io")
 	}
 	if c.ExtraFlags != "" {
 		parts = append(parts, strings.Fields(c.ExtraFlags)...)

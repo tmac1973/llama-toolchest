@@ -98,10 +98,17 @@
             <input type="checkbox" name="jinja" role="switch"
                    {{if .Config.Jinja}}checked{{end}}>
         </label>
+        <label title="Bypass the OS page cache and load model weights directly to VRAM. Useful when VRAM exceeds system RAM, avoiding double-buffering through RAM.">
+            Direct I/O
+            <input type="checkbox" name="direct_io" role="switch"
+                   {{if .Config.DirectIO}}checked{{end}}>
+        </label>
+    </div>
+
+    <div class="grid">
         <label title="Quantize the KV cache to reduce VRAM usage. q8_0 saves ~50% KV memory with minimal quality loss. q4_0 saves ~75% but may affect output quality.">
             KV Cache Quantization
-            <select name="kv_cache_quant"
->
+            <select name="kv_cache_quant">
                 <option value="" {{if eq .Config.KVCacheQuant ""}}selected{{end}}>Off (f16)</option>
                 <option value="q8_0" {{if eq .Config.KVCacheQuant "q8_0"}}selected{{end}}>q8_0</option>
                 <option value="q4_0" {{if eq .Config.KVCacheQuant "q4_0"}}selected{{end}}>q4_0</option>

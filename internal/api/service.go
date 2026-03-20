@@ -287,6 +287,7 @@ func (s *Server) handleActivateModel(w http.ResponseWriter, r *http.Request) {
 		FlashAttention: cfg.FlashAttention,
 		Jinja:          cfg.Jinja,
 		KVCacheQuant:   cfg.KVCacheQuant,
+		DirectIO:       cfg.DirectIO,
 		ExtraFlags:     extraFlags,
 		VisibleDevices: cfg.GPUDevices,
 	}
@@ -580,6 +581,7 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		cfg.FlashAttention = r.FormValue("flash_attention") == "on"
 		cfg.Jinja = r.FormValue("jinja") == "on"
 		cfg.KVCacheQuant = r.FormValue("kv_cache_quant")
+		cfg.DirectIO = r.FormValue("direct_io") == "on"
 		cfg.ExtraFlags = r.FormValue("extra_flags")
 		cfg.BuildID = r.FormValue("build_id")
 		cfg.GPUDevices = r.FormValue("gpu_devices")

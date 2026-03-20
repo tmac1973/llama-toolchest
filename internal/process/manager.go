@@ -41,6 +41,7 @@ type LaunchConfig struct {
 	FlashAttention bool
 	Jinja          bool
 	KVCacheQuant   string // "", "q8_0", "q4_0"
+	DirectIO       bool
 	Host           string
 	Port           int      // assigned by Manager if 0
 	ExtraFlags     []string
@@ -163,6 +164,9 @@ func (m *Manager) Start(id string, cfg LaunchConfig) error {
 	}
 	if cfg.KVCacheQuant != "" {
 		args = append(args, "--cache-type-k", cfg.KVCacheQuant, "--cache-type-v", cfg.KVCacheQuant)
+	}
+	if cfg.DirectIO {
+		args = append(args, "--direct-io")
 	}
 	args = append(args, cfg.ExtraFlags...)
 
