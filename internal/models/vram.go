@@ -7,6 +7,11 @@ import (
 
 const vramOverheadGB = 0.2 // fixed overhead for compute buffers, scratch space, etc.
 
+// BytesToGB converts bytes to gigabytes.
+func BytesToGB(b int64) float64 {
+	return float64(b) / (1024 * 1024 * 1024)
+}
+
 // EstimateVRAM returns a rough VRAM estimate in GB based on file size alone.
 // Used as a fallback when GGUF metadata isn't available.
 func EstimateVRAM(sizeBytes int64) float64 {
@@ -23,7 +28,7 @@ func EstimateVRAM(sizeBytes int64) float64 {
 //   - kvCacheQuant: "", "q8_0", "q4_0"
 func EstimateVRAMDetailed(sizeBytes int64, nLayers, nKVHead, nHead, nEmbd, contextSize int, kvCacheQuant string) float64 {
 	// Weight memory: file size is a good proxy for quantized weights in VRAM.
-	weightsGB := float64(sizeBytes) / (1024 * 1024 * 1024)
+	weightsGB := BytesToGB(sizeBytes)
 
 	// KV cache estimate
 	kvGB := EstimateKVCacheGB(nLayers, nKVHead, nHead, nEmbd, contextSize, kvCacheQuant)

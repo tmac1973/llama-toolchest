@@ -15,8 +15,7 @@ import (
 
 func (s *Server) handleListBackends(w http.ResponseWriter, r *http.Request) {
 	backends := builder.DetectBackends()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(backends)
+	respondJSON(w, backends)
 }
 
 func (s *Server) handleProfileOptions(w http.ResponseWriter, r *http.Request) {
@@ -35,8 +34,8 @@ func (s *Server) handleProfileOptions(w http.ResponseWriter, r *http.Request) {
 	}
 	extraCMake := r.URL.Query().Get("extra_cmake")
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if isHTMX(r) {
+		respondHTML(w)
 		if len(options) == 0 {
 			return
 		}
@@ -95,8 +94,7 @@ func (s *Server) handleProfileOptions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(options)
+	respondJSON(w, options)
 }
 
 func effectiveCMakeFlags(prof builder.BuildProfile, options []builder.BuildOption, overrides map[string]bool) string {
@@ -139,8 +137,8 @@ func (s *Server) handleListRefs(w http.ResponseWriter, r *http.Request) {
 		refs = s.builder.CachedRefs()
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if isHTMX(r) {
+		respondHTML(w)
 		w.Write([]byte(`<option value="latest">latest</option>`))
 		for _, ref := range refs {
 			w.Write([]byte(`<option value="` + ref + `">` + ref + `</option>`))
@@ -148,20 +146,19 @@ func (s *Server) handleListRefs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(refs)
+	respondJSON(w, refs)
 }
 
 func (s *Server) handleListBuilds(w http.ResponseWriter, r *http.Request) {
 	builds := s.builder.List()
 
 	// If request is from htmx, return HTML partial
-	if r.Header.Get("HX-Request") == "true" {
+	if isHTMX(r) {
 		if len(builds) == 0 {
 			w.Write([]byte("<p>No builds yet.</p>"))
 			return
 		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		respondHTML(w)
 		w.Write([]byte(`<table role="grid"><thead><tr><th>Build</th><th>SHA</th><th>Status</th><th>Date</th><th></th></tr></thead><tbody>`))
 		for _, b := range builds {
 			s.renderPartial(w, "build_card", b)
@@ -170,8 +167,7 @@ func (s *Server) handleListBuilds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(builds)
+	respondJSON(w, builds)
 }
 
 func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
@@ -211,8 +207,8 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 	result, err := s.builder.Build(context.Background(), req.Profile, req.GitRef, req.Force, optionOverrides, extraCMake)
 	if err != nil {
 		if dup, ok := err.(*builder.DuplicateBuildError); ok {
-			if r.Header.Get("HX-Request") == "true" {
-				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if isHTMX(r) {
+				respondHTML(w)
 				fmt.Fprintf(w, `<article>
 					<p>Build <strong>%s</strong> already exists. Rebuild it?</p>
 					<form hx-post="/api/builds" hx-target="#build-output" hx-swap="innerHTML">
@@ -236,15 +232,14 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return the log streaming partial for htmx to swap in
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if isHTMX(r) {
+		respondHTML(w)
 		s.renderPartial(w, "build_log", result)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(result)
+	respondJSON(w, result)
 }
 
 func (s *Server) handleBuildLogs(w http.ResponseWriter, r *http.Request) {
@@ -254,25 +249,7 @@ func (s *Server) handleBuildLogs(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-
-	sse, err := NewSSEWriter(w)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	for {
-		select {
-		case line, ok := <-ch:
-			if !ok {
-				sse.SendEvent("done", "Build complete")
-				return
-			}
-			sse.SendLine(line)
-		case <-r.Context().Done():
-			return
-		}
-	}
+	StreamLines(w, r.Context(), ch, "Build complete")
 }
 
 func (s *Server) handleDeleteBuild(w http.ResponseWriter, r *http.Request) {
@@ -283,7 +260,7 @@ func (s *Server) handleDeleteBuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// htmx: return empty to remove the row
-	if r.Header.Get("HX-Request") == "true" {
+	if isHTMX(r) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}

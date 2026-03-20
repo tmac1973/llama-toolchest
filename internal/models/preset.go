@@ -137,6 +137,36 @@ func writeConfigParams(b *strings.Builder, cfg *ModelConfig) {
 	}
 }
 
+// RouterName returns the model name that the llama.cpp router uses for
+// load/unload operations. This is the INI section name (the auto-discovery
+// directory name), NOT the registry ID. Aliases work for inference requests
+// but NOT for /models/load and /models/unload.
+func (r *Registry) RouterName(id string) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	m, ok := r.data.Models[id]
+	if !ok {
+		return id // fallback to registry ID
+	}
+	modelsDir := filepath.Join(r.dataDir, "models")
+	name := autoDiscoveryName(modelsDir, m.FilePath)
+	if name == "" {
+		return id
+	}
+	return name
+}
+
+// ModelFilePath returns the GGUF file path for a model.
+func (r *Registry) ModelFilePath(id string) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	m, ok := r.data.Models[id]
+	if !ok {
+		return ""
+	}
+	return m.FilePath
+}
+
 // WritePresetINI generates and writes the preset INI file to the data directory.
 func (r *Registry) WritePresetINI() (string, error) {
 	r.mu.RLock()

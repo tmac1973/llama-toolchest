@@ -101,6 +101,12 @@
                         Restart
                     </button>
                 </div>
+
+                <div id="loaded-models"
+                     hx-get="/api/service/loaded-models"
+                     hx-trigger="load, every 5s"
+                     hx-swap="innerHTML">
+                </div>
             </article>
         </div>
     </div>
