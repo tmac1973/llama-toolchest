@@ -97,6 +97,7 @@ func (s *Server) parseTemplates() map[string]*template.Template {
 		"models.html",
 		"models_browse.html",
 		"service.html",
+		"server.html",
 		"settings.html",
 	}
 	for _, pf := range pageFiles {
@@ -126,9 +127,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/builds", s.handleBuildsPage)
 	r.Get("/models", s.handleModelsPage)
 	r.Get("/models/browse", s.handleModelsBrowsePage)
-	r.Get("/service", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/models", http.StatusMovedPermanently)
-	})
+	r.Get("/server", s.handleServerPage)
 	r.Get("/settings", s.handleSettingsPage)
 
 	// Dashboard API (outside /api group, htmx-only)
@@ -152,6 +151,7 @@ func (s *Server) buildRouter() chi.Router {
 			r.Delete("/{id}", s.handleDeleteModel)
 			r.Put("/{id}/activate", s.handleActivateModel)
 			r.Delete("/{id}/activate", s.handleDeactivateModel)
+			r.Put("/{id}/enable", s.handleModelEnable)
 			r.Get("/{id}/config", s.handleGetModelConfig)
 			r.Put("/{id}/config", s.handleUpdateModelConfig)
 			r.Get("/{id}/vram-estimate", s.handleModelVRAMEstimate)
@@ -224,6 +224,21 @@ func (s *Server) handleServicePage(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "service.html", pageData{Title: "Service", Nav: "service"})
 }
 
+func (s *Server) handleServerPage(w http.ResponseWriter, r *http.Request) {
+	data := struct {
+		pageData
+		ActiveBuild     string
+		ModelsMax       int
+		AvailableBuilds interface{}
+	}{
+		pageData:        pageData{Title: "Server", Nav: "server"},
+		ActiveBuild:     s.cfg.ActiveBuild,
+		ModelsMax:       s.cfg.ModelsMax,
+		AvailableBuilds: s.builder.List(),
+	}
+	s.render(w, "server.html", data)
+}
+
 func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 	proxyEndpoint := strings.TrimRight(s.cfg.ExternalURL, "/") + "/v1"
 	data := struct {
@@ -249,9 +264,9 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	active := s.process.ListActive()
+	routerStatus := s.process.GetStatus()
 	builds := s.builder.List()
-	models := s.registry.List()
+	registeredModels := s.registry.List()
 
 	successBuilds := 0
 	for _, b := range builds {
@@ -261,64 +276,52 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	apiURL := strings.TrimRight(s.cfg.ExternalURL, "/") + "/v1"
-
-	// Build chat base URL from external URL (scheme + hostname, no port)
-	chatBaseURL := ""
+	chatURL := ""
 	if u, err := url.Parse(s.cfg.ExternalURL); err == nil && u.Hostname() != "" {
-		chatBaseURL = fmt.Sprintf("%s://%s", u.Scheme, u.Hostname())
+		chatURL = fmt.Sprintf("%s://%s:%d", u.Scheme, u.Hostname(), s.cfg.LlamaPort)
 	}
 
-	// Aggregate state badge from all instances
+	// Router state badge
 	var stateBadge string
-	activeCount := len(active)
-	hasRunning := false
-	hasStarting := false
-	hasFailed := false
-	for _, st := range active {
-		switch st.State {
-		case "running":
-			hasRunning = true
-		case "starting":
-			hasStarting = true
-		case "failed":
-			hasFailed = true
-		}
-	}
-	switch {
-	case hasRunning:
-		label := "Running"
-		if activeCount > 1 {
-			label = fmt.Sprintf("Running (%d models)", activeCount)
-		}
-		stateBadge = `<ins>` + label + `</ins>`
-	case hasStarting:
+	switch routerStatus.State {
+	case "running":
+		stateBadge = `<ins>Running</ins>`
+	case "starting":
 		stateBadge = `<mark>Starting</mark>`
-	case hasFailed:
+	case "failed":
 		stateBadge = `<del>Failed</del>`
 	default:
 		stateBadge = `Stopped`
 	}
 
-	// Build active models HTML with per-model chat links
+	// List loaded models from the router
 	activeModelsHTML := "None"
-	if len(active) > 0 {
-		var buf strings.Builder
-		for _, st := range active {
-			label := st.ID
-			if len(label) > 40 {
-				label = label[:40] + "..."
+	if routerStatus.State == "running" {
+		if loaded, err := s.process.ListModels(); err == nil {
+			var buf strings.Builder
+			for _, m := range loaded {
+				if m.Status.Value != "loaded" && m.Status.Value != "loading" {
+					continue
+				}
+				label := m.ID
+				if len(label) > 50 {
+					label = label[:50] + "..."
+				}
+				status := ""
+				if m.Status.Value == "loading" {
+					status = ` <small><mark>loading...</mark></small>`
+				}
+				buf.WriteString(fmt.Sprintf(`<div style="margin-bottom: 0.25rem;"><strong>%s</strong>%s</div>`,
+					html.EscapeString(label), status))
 			}
-			buf.WriteString(`<div style="margin-bottom: 0.25rem;">`)
-			buf.WriteString(fmt.Sprintf(`<strong>%s</strong>`, html.EscapeString(label)))
-			if st.State == "running" && chatBaseURL != "" && st.Port > 0 {
-				chatURL := fmt.Sprintf("%s:%d", chatBaseURL, st.Port)
-				buf.WriteString(fmt.Sprintf(` <small><a href="%s" target="_blank">Chat UI</a></small>`, chatURL))
-			} else if st.State == "starting" {
-				buf.WriteString(` <small><mark>starting...</mark></small>`)
+			if buf.Len() > 0 {
+				activeModelsHTML = buf.String()
 			}
-			buf.WriteString(`</div>`)
 		}
-		activeModelsHTML = buf.String()
+
+		if chatURL != "" {
+			activeModelsHTML += fmt.Sprintf(`<p><a href="%s" target="_blank">Open Chat UI →</a></p>`, chatURL)
+		}
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -326,7 +329,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
     <article>
         <header>Service</header>
         <p>%s</p>
-        <p><a href="/models">Manage →</a></p>
+        <p><a href="/server">Manage →</a></p>
     </article>
     <article>
         <header>Active Models</header>
@@ -348,7 +351,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		stateBadge,
 		activeModelsHTML,
 		successBuilds,
-		len(models),
+		len(registeredModels),
 		apiURL,
 	)
 }

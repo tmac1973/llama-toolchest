@@ -14,6 +14,8 @@ type Config struct {
 	HFToken     string `yaml:"hf_token"`     // optional HuggingFace token
 	APIKey      string `yaml:"api_key"`      // optional API key for /v1/* proxy
 	LogLevel    string `yaml:"log_level"`    // default "info"
+	ActiveBuild string `yaml:"active_build"` // which llama.cpp build to use
+	ModelsMax   int    `yaml:"models_max"`   // max loaded models, 0 = unlimited
 }
 
 func Load(path string) (*Config, error) {

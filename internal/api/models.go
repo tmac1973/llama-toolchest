@@ -18,10 +18,18 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Build set of active model IDs
-		activeSet := make(map[string]string) // model registry ID → state
-		for _, st := range s.process.ListActive() {
-			activeSet[st.ID] = st.State
+		// Build set of models the router knows about (any status)
+		routerKnown := make(map[string]string) // name/alias → status value
+		if routerModels, err := s.process.ListModels(); err == nil {
+			for _, rm := range routerModels {
+				routerKnown[rm.ID] = rm.Status.Value
+				if rm.Model != "" {
+					routerKnown[rm.Model] = rm.Status.Value
+				}
+				for _, alias := range rm.Aliases {
+					routerKnown[alias] = rm.Status.Value
+				}
+			}
 		}
 
 		// Build set of orphaned model IDs (file missing on disk)
@@ -30,28 +38,42 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			orphanSet[m.ID] = true
 		}
 
-		w.Write([]byte(`<table role="grid"><thead><tr><th>Model</th><th>Quant</th><th title="Base (weights) - Peak (full KV cache)">VRAM Est.</th><th>Size</th><th></th></tr></thead>`))
+		w.Write([]byte(`<table role="grid"><thead><tr><th title="Enable model for the inference server">On</th><th>Model</th><th>Quant</th><th title="Base (weights) - Peak (full KV cache)">VRAM Est.</th><th>Size</th><th></th></tr></thead>`))
 		for _, m := range modelList {
-			state := activeSet[m.ID]
+			state := routerKnown[m.ID]
 
 			// Compute VRAM range: base (weights + overhead) and peak (+ full KV cache)
 			weightsGB := float64(m.SizeBytes)/(1024*1024*1024) + 0.2
 			peakVRAM := weightsGB // fallback if no config
+			enabled := true
 			if cfg, err := s.registry.GetConfig(m.ID); err == nil {
 				peakVRAM = models.VRAMEstimateForConfig(m, cfg)
+				enabled = cfg.Enabled
 			}
 			baseVRAM := weightsGB
 
+			// Restart indicators:
+			// - pendingEnable: enabled in registry but router doesn't know about it
+			// - pendingDisable: disabled in registry but router still has it
+			pendingEnable := enabled && state == "" && s.process.IsRunning()
+			pendingDisable := !enabled && state != "" && s.process.IsRunning()
+
 			data := struct {
 				models.Model
-				IsActive     bool
-				ServiceState string
+				IsActive       bool
+				IsEnabled      bool
+				PendingEnable  bool
+				PendingDisable bool
+				ServiceState   string
 				BaseVRAMGB   float64
 				PeakVRAMGB   float64
 				IsOrphan     bool
 			}{
 				Model:        *m,
-				IsActive:     state == "running" || state == "starting",
+				IsActive:     state == "loaded" || state == "loading",
+				IsEnabled:      enabled,
+				PendingEnable:  pendingEnable,
+				PendingDisable: pendingDisable,
 				ServiceState: state,
 				BaseVRAMGB:   baseVRAM,
 				PeakVRAMGB:   peakVRAM,
