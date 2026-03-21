@@ -321,6 +321,12 @@ func (r *Runner) runLlamaBench(ctx context.Context, cfg RunConfig) (*LlamaBenchR
 	if cfg.Run.Config.TensorSplit != "" {
 		args = append(args, "-ts", cfg.Run.Config.TensorSplit)
 	}
+	if cfg.Run.Config.DirectIO {
+		args = append(args, "--direct-io")
+	}
+	if cfg.Run.Config.KVCacheQuant != "" {
+		args = append(args, "-ctk", cfg.Run.Config.KVCacheQuant, "-ctv", cfg.Run.Config.KVCacheQuant)
+	}
 
 	// Set LD_LIBRARY_PATH for shared libs co-located with the binary
 	cmd := exec.CommandContext(ctx, benchBinary, args...)

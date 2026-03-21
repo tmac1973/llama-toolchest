@@ -71,6 +71,7 @@ type ConfigSnapshot struct {
 	TensorSplit    string `json:"tensor_split,omitempty"`
 	FlashAttention bool   `json:"flash_attention"`
 	KVCacheQuant   string `json:"kv_cache_quant,omitempty"`
+	DirectIO       bool   `json:"direct_io,omitempty"`
 	Threads        int    `json:"threads"`
 	SpecType       string `json:"spec_type,omitempty"`
 }

@@ -121,6 +121,7 @@ func (s *Server) handleStartBenchmark(w http.ResponseWriter, r *http.Request) {
 			TensorSplit:    cfg.TensorSplit,
 			FlashAttention: cfg.FlashAttention,
 			KVCacheQuant:   cfg.KVCacheQuant,
+			DirectIO:       cfg.DirectIO,
 			Threads:        cfg.Threads,
 			SpecType:       cfg.SpecType,
 		},

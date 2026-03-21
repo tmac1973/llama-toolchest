@@ -15,6 +15,7 @@
                 {{if .Config.TensorSplit}}Tensor Split: {{.Config.TensorSplit}} | {{end}}
                 Flash Attn: {{if .Config.FlashAttention}}on{{else}}off{{end}}
                 {{if .Config.KVCacheQuant}} | KV Quant: {{.Config.KVCacheQuant}}{{end}}
+                {{if .Config.DirectIO}} | Direct I/O: on{{end}}
                 {{if .Config.SpecType}} | Spec: {{.Config.SpecType}}{{end}}
             </small>
         </div>
