@@ -247,17 +247,17 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleBuildLogs(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	// Try the live channel first (original SSE connection during build)
-	ch, ok := s.builder.LogChannel(id)
-	if ok {
-		StreamLines(w, r.Context(), ch, "Build complete")
-		return
-	}
-
-	// Fall back to subscribe (replays history + streams new lines)
+	// Always use SubscribeLogs which replays history and streams new lines.
+	// This handles both in-progress builds and reconnections after tab switches.
 	sub := s.builder.SubscribeLogs(id)
 	if sub == nil {
-		http.NotFound(w, r)
+		// No history — try the raw channel as last resort (shouldn't happen normally)
+		ch, ok := s.builder.LogChannel(id)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		StreamLines(w, r.Context(), ch, "Build complete")
 		return
 	}
 	defer s.builder.UnsubscribeLogs(id, sub)

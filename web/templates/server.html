@@ -162,6 +162,7 @@
     function onDrag(e) {
         const delta = startY - e.clientY;
         const newH = Math.max(80, Math.min(startH + delta, page.offsetHeight - 200));
+        logSection.style.flex = 'none';
         logSection.style.height = newH + 'px';
     }
 
