@@ -1,21 +1,22 @@
 {{define "benchmark_progress"}}
 {{if eq .Status "running"}}
-<div style="padding:0.75rem 1rem;border:1px solid var(--pico-muted-border-color);border-radius:0.25rem;margin-bottom:1rem;"
+<div id="bench-progress-poll"
+     style="padding:0.75rem 1rem;border:1px solid var(--pico-muted-border-color);border-radius:0.25rem;margin-bottom:1rem;"
      hx-get="/api/benchmarks/{{.ID}}/progress"
      hx-trigger="every 2s"
-     hx-target="#benchmark-progress"
-     hx-swap="innerHTML">
+     hx-target="#bench-progress-poll"
+     hx-swap="outerHTML">
     &#x23F3; {{if .Detail}}{{.Detail}}{{else}}Benchmark starting...{{end}}
 </div>
 {{else if eq .Status "completed"}}
 <div style="padding:0.75rem 1rem;border:1px solid var(--pico-ins-color);border-radius:0.25rem;margin-bottom:1rem;"
      hx-trigger="load" hx-get="/api/benchmarks" hx-target="#benchmark-list" hx-swap="innerHTML">
-    <ins>Benchmark complete!</ins>
+    Benchmark complete!
 </div>
 {{else if eq .Status "failed"}}
 <div style="padding:0.75rem 1rem;border:1px solid var(--pico-del-color);border-radius:0.25rem;margin-bottom:1rem;"
      hx-trigger="load" hx-get="/api/benchmarks" hx-target="#benchmark-list" hx-swap="innerHTML">
-    <del>Benchmark failed:</del> {{.Error}}
+    Benchmark failed: {{.Error}}
 </div>
 {{end}}
 {{end}}
