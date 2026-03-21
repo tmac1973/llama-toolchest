@@ -110,13 +110,18 @@
     </div>
     {{end}}
 
-    {{if .DraftCandidates}}
+    {{if or .DraftCandidates (ne .Config.DraftModelPath "")}}
     <hr style="margin: 1rem 0 0.5rem;">
     <small><strong>Speculative Decoding</strong> — use a small draft model to speed up generation. Restart required.</small>
     <div class="grid">
         <label title="A smaller model of the same architecture proposes tokens that the main model verifies in parallel. Typically 2-3x speedup.">
             Draft Model
-            <select name="draft_model_path">
+            <select name="draft_model_path"
+                    hx-put="/api/models/{{$.ModelID}}/config"
+                    hx-target="#model-config-form"
+                    hx-swap="outerHTML"
+                    hx-include="#model-config-form"
+                    hx-trigger="change delay:500ms">
                 <option value="" {{if eq .Config.DraftModelPath ""}}selected{{end}}>None (disabled)</option>
                 {{range .DraftCandidates}}
                 <option value="{{.FilePath}}" {{if eq $.Config.DraftModelPath .FilePath}}selected{{end}}>
