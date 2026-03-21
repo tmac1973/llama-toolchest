@@ -331,13 +331,6 @@ func (r *Runner) runOneTest(ctx context.Context, routerURL, model string, prompt
 func (r *Runner) runLlamaBench(ctx context.Context, cfg RunConfig) (*LlamaBenchResult, error) {
 	benchBinary := filepath.Join(cfg.BinaryDir, "llama-bench")
 
-	// Use a small context to minimize VRAM usage since the server already
-	// has the model loaded. llama-bench only needs enough context for the
-	// test prompt + generation.
-	benchCtx := cfg.Preset.PromptTokens[0] + cfg.Preset.GenTokens + 256
-	if benchCtx < 2048 {
-		benchCtx = 2048
-	}
 	args := []string{
 		"-m", cfg.ModelPath,
 		"-p", fmt.Sprintf("%d", cfg.Preset.PromptTokens[0]),
@@ -346,7 +339,6 @@ func (r *Runner) runLlamaBench(ctx context.Context, cfg RunConfig) (*LlamaBenchR
 		"-o", "json",
 		"-ngl", fmt.Sprintf("%d", cfg.Run.Config.GPULayers),
 		"-t", fmt.Sprintf("%d", cfg.Run.Config.Threads),
-		"-c", fmt.Sprintf("%d", benchCtx),
 	}
 	if cfg.Run.Config.FlashAttention {
 		args = append(args, "-fa", "1")
