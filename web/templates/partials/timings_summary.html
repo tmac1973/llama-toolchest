@@ -1,0 +1,26 @@
+{{define "timings_summary"}}
+{{if not .Summary}}
+<p><small>No timing data yet. Performance stats will appear here as you use the API.</small></p>
+{{else}}
+<table role="grid" style="font-size:0.85rem;">
+    <thead>
+        <tr>
+            <th>Model</th>
+            <th title="Average generation tokens/sec">Avg TG t/s</th>
+            <th title="Average prompt processing tokens/sec">Avg PP t/s</th>
+            <th title="Number of requests observed">Requests</th>
+        </tr>
+    </thead>
+    <tbody>
+    {{range .Summary}}
+    <tr>
+        <td>{{.ModelID}}</td>
+        <td><strong>{{printf "%.1f" .AvgGenTokPerSec}}</strong></td>
+        <td>{{printf "%.0f" .AvgPromptTokPerSec}}</td>
+        <td>{{.Count}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+</table>
+{{end}}
+{{end}}

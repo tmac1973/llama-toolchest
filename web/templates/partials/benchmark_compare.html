@@ -1,0 +1,95 @@
+{{define "benchmark_compare"}}
+<div style="margin-bottom: 1rem;">
+    <h5 style="margin-bottom: 0.5rem;">Comparison: {{len .Runs}} runs</h5>
+
+    {{if gt .MaxGenTPS 0}}
+    <small><strong>Generation Speed (tokens/sec)</strong></small>
+    <div style="margin-bottom: 0.75rem;">
+        {{range .Runs}}
+        {{if .Summary}}
+        <div style="display:flex;align-items:center;gap:0.5rem;margin:0.25rem 0;">
+            <div style="width:150px;font-size:0.8rem;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{.ModelName}} ({{.Quant}})</div>
+            <div style="flex:1;background:var(--pico-muted-border-color);border-radius:4px;height:1.2rem;">
+                <div style="width:{{printf "%.1f" (pctOf .Summary.AvgGenTokPerSec $.MaxGenTPS)}}%;background:var(--pico-primary);border-radius:4px;height:100%;min-width:2px;"></div>
+            </div>
+            <div style="width:60px;font-size:0.85rem;"><strong>{{printf "%.1f" .Summary.AvgGenTokPerSec}}</strong></div>
+        </div>
+        {{end}}
+        {{end}}
+    </div>
+    {{end}}
+
+    {{if gt .MaxPromptTPS 0}}
+    <small><strong>Prompt Processing (tokens/sec)</strong></small>
+    <div style="margin-bottom: 0.75rem;">
+        {{range .Runs}}
+        {{if .Summary}}
+        <div style="display:flex;align-items:center;gap:0.5rem;margin:0.25rem 0;">
+            <div style="width:150px;font-size:0.8rem;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{.ModelName}} ({{.Quant}})</div>
+            <div style="flex:1;background:var(--pico-muted-border-color);border-radius:4px;height:1.2rem;">
+                <div style="width:{{printf "%.1f" (pctOf .Summary.AvgPromptTokPerSec $.MaxPromptTPS)}}%;background:var(--pico-ins-color);border-radius:4px;height:100%;min-width:2px;"></div>
+            </div>
+            <div style="width:60px;font-size:0.85rem;"><strong>{{printf "%.0f" .Summary.AvgPromptTokPerSec}}</strong></div>
+        </div>
+        {{end}}
+        {{end}}
+    </div>
+    {{end}}
+
+    <small><strong>Details</strong></small>
+    <div style="overflow-x:auto;">
+    <table role="grid" style="font-size:0.85rem;">
+        <thead>
+            <tr>
+                <th></th>
+                {{range .Runs}}<th>{{.ModelName}}<br><small>{{.Quant}}</small></th>{{end}}
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>PP t/s</td>
+                {{range .Runs}}<td>{{if .Summary}}{{printf "%.0f" .Summary.AvgPromptTokPerSec}}{{else}}—{{end}}</td>{{end}}
+            </tr>
+            <tr>
+                <td>TG t/s</td>
+                {{range .Runs}}<td>{{if .Summary}}<strong>{{printf "%.1f" .Summary.AvgGenTokPerSec}}</strong>{{else}}—{{end}}</td>{{end}}
+            </tr>
+            <tr>
+                <td>TTFT (ms)</td>
+                {{range .Runs}}<td>{{if .Summary}}{{printf "%.0f" .Summary.AvgTTFTMs}}{{else}}—{{end}}</td>{{end}}
+            </tr>
+            <tr>
+                <td>Size</td>
+                {{range .Runs}}<td>{{printf "%.1f" .SizeGB}} GB</td>{{end}}
+            </tr>
+            <tr>
+                <td>GPUs</td>
+                {{range .Runs}}<td>{{if .Config.GPUAssign}}{{.Config.GPUAssign}}{{else}}all{{end}}</td>{{end}}
+            </tr>
+            <tr>
+                <td>Context</td>
+                {{range .Runs}}<td>{{.Config.ContextSize}}</td>{{end}}
+            </tr>
+            <tr>
+                <td>KV Quant</td>
+                {{range .Runs}}<td>{{if .Config.KVCacheQuant}}{{.Config.KVCacheQuant}}{{else}}—{{end}}</td>{{end}}
+            </tr>
+            <tr>
+                <td>Flash Attn</td>
+                {{range .Runs}}<td>{{if .Config.FlashAttention}}yes{{else}}no{{end}}</td>{{end}}
+            </tr>
+            <tr>
+                <td>Build</td>
+                {{range .Runs}}<td>{{if .BuildRef}}{{.BuildRef}}{{else}}—{{end}}</td>{{end}}
+            </tr>
+            {{if .HasLlamaBench}}
+            <tr>
+                <td>llama-bench TG</td>
+                {{range .Runs}}<td>{{if .LlamaBench}}{{printf "%.1f" .LlamaBench.GenTokPerSec}}{{else}}—{{end}}</td>{{end}}
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+    </div>
+</div>
+{{end}}

@@ -9,10 +9,12 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/tmlabonte/llamactl/internal/benchmark"
 	"github.com/tmlabonte/llamactl/internal/builder"
 	"github.com/tmlabonte/llamactl/internal/config"
 	"github.com/tmlabonte/llamactl/internal/huggingface"
@@ -32,6 +34,9 @@ type Server struct {
 	registry       *models.Registry
 	process        *process.Manager
 	monitor        *monitor.Monitor
+	bench          *benchmark.Store
+	benchProgress  map[string]chan benchmark.ProgressUpdate
+	benchProgressMu sync.RWMutex
 	dirtyModels    map[string]bool // models whose config changed since last load
 }
 
@@ -44,10 +49,12 @@ func NewServer(cfg *config.Config) *Server {
 		builder:     builder.NewBuilder(cfg.DataDir),
 		hfClient:    huggingface.NewClient(cfg.HFToken),
 		downloader:  huggingface.NewDownloader(cfg.DataDir, cfg.HFToken),
-		registry:    models.NewRegistry(cfg.DataDir),
-		process:     process.NewManager(),
-		monitor:     mon,
-		dirtyModels: make(map[string]bool),
+		registry:      models.NewRegistry(cfg.DataDir),
+		process:       process.NewManager(),
+		monitor:       mon,
+		bench:         benchmark.NewStore(cfg.DataDir),
+		benchProgress: make(map[string]chan benchmark.ProgressUpdate),
+		dirtyModels:   make(map[string]bool),
 	}
 	s.downloader.SetOnComplete(s.onDownloadComplete)
 	s.registry.BackfillGGUFMeta()
@@ -75,6 +82,19 @@ func NewServer(cfg *config.Config) *Server {
 func (s *Server) parseTemplates() map[string]*template.Template {
 	funcMap := template.FuncMap{
 		"divGB": models.BytesToGB,
+		"divf": func(a, b interface{}) float64 {
+			af, bf := toFloat64(a), toFloat64(b)
+			if bf == 0 {
+				return 0
+			}
+			return af / bf
+		},
+		"pctOf": func(value, max float64) float64 {
+			if max == 0 {
+				return 0
+			}
+			return (value / max) * 100
+		},
 		"vramFit": func(estimatedGB float64) string {
 			metrics := s.monitor.Current()
 			numGPUs := len(metrics.GPU)
@@ -99,6 +119,7 @@ func (s *Server) parseTemplates() map[string]*template.Template {
 		"builds.html",
 		"models.html",
 		"models_browse.html",
+		"benchmarks.html",
 		"service.html",
 		"server.html",
 		"settings.html",
@@ -130,6 +151,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/builds", s.handleBuildsPage)
 	r.Get("/models", s.handleModelsPage)
 	r.Get("/models/browse", s.handleModelsBrowsePage)
+	r.Get("/benchmarks", s.handleBenchmarksPage)
 	r.Get("/server", s.handleServerPage)
 	r.Get("/settings", s.handleSettingsPage)
 
@@ -148,6 +170,17 @@ func (s *Server) buildRouter() chi.Router {
 			r.Delete("/{id}", s.handleDeleteBuild)
 		})
 		r.Get("/gpu-map", s.handleGPUMap)
+		r.Route("/benchmarks", func(r chi.Router) {
+			r.Get("/", s.handleListBenchmarks)
+			r.Post("/", s.handleStartBenchmark)
+			r.Get("/form", s.handleBenchmarkForm)
+			r.Get("/compare", s.handleCompareBenchmarks)
+			r.Get("/{id}", s.handleGetBenchmark)
+			r.Delete("/{id}", s.handleDeleteBenchmark)
+			r.Get("/{id}/progress", s.handleBenchmarkProgress)
+		})
+		r.Get("/timings", s.handleTimings)
+		r.Get("/timings/{model_id}", s.handleTimings)
 		r.Route("/models", func(r chi.Router) {
 			r.Get("/", s.handleListModels)
 			r.Get("/embeddings", s.handleListEmbeddingModels)
@@ -230,6 +263,10 @@ func (s *Server) handleBuildsPage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleModelsPage(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "models.html", pageData{Title: "Models", Nav: "models"})
+}
+
+func (s *Server) handleBenchmarksPage(w http.ResponseWriter, r *http.Request) {
+	s.render(w, "benchmarks.html", pageData{Title: "Benchmarks", Nav: "benchmarks"})
 }
 
 func (s *Server) handleModelsBrowsePage(w http.ResponseWriter, r *http.Request) {

@@ -34,6 +34,36 @@ func (s *Server) newProxyHandler() http.Handler {
 		})
 	}
 
+	// Capture timings from non-streaming chat completion responses.
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		if resp.Request == nil || resp.StatusCode != http.StatusOK {
+			return nil
+		}
+		if !strings.HasSuffix(resp.Request.URL.Path, "/chat/completions") {
+			return nil
+		}
+		ct := resp.Header.Get("Content-Type")
+		if strings.Contains(ct, "text/event-stream") {
+			return nil // streaming — skip for now
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil
+		}
+		resp.Body = io.NopCloser(bytes.NewReader(body))
+
+		var result struct {
+			Model   string         `json:"model"`
+			Timings map[string]any `json:"timings"`
+		}
+		if json.Unmarshal(body, &result) == nil && result.Timings != nil && result.Model != "" {
+			go s.captureTimings(result.Model, result.Timings)
+		}
+		return nil
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Inject sampling defaults for chat completions
 		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/chat/completions") {

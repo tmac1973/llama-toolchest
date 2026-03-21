@@ -1,0 +1,19 @@
+{{define "benchmark_progress"}}
+{{if eq .Status "running"}}
+<article aria-busy="true"
+         hx-get="/api/benchmarks/{{.ID}}/progress"
+         hx-trigger="every 2s"
+         hx-target="#benchmark-progress"
+         hx-swap="innerHTML">
+    <p>Benchmark running... <small>Results will appear when complete.</small></p>
+</article>
+{{else if eq .Status "completed"}}
+<article hx-trigger="load" hx-get="/api/benchmarks" hx-target="#benchmark-list" hx-swap="innerHTML">
+    <p><ins>Benchmark complete!</ins></p>
+</article>
+{{else if eq .Status "failed"}}
+<article hx-trigger="load" hx-get="/api/benchmarks" hx-target="#benchmark-list" hx-swap="innerHTML">
+    <p><del>Benchmark failed:</del> {{.Error}}</p>
+</article>
+{{end}}
+{{end}}

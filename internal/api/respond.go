@@ -20,3 +20,21 @@ func respondJSON(w http.ResponseWriter, v any) {
 func respondHTML(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 }
+
+// toFloat64 converts int or float types to float64 for template math.
+func toFloat64(v interface{}) float64 {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case float32:
+		return float64(n)
+	case int:
+		return float64(n)
+	case int64:
+		return float64(n)
+	case int32:
+		return float64(n)
+	default:
+		return 0
+	}
+}

@@ -1,0 +1,75 @@
+{{define "benchmark_detail"}}
+<div style="padding: 0.5rem 0;">
+    {{if eq .Status "failed"}}
+    <p style="color:var(--pico-del-color);">Failed: {{.Error}}</p>
+    {{end}}
+
+    <div class="grid" style="margin-bottom:0.5rem;">
+        <div>
+            <small><strong>Configuration</strong></small><br>
+            <small>
+                GPU Layers: {{.Config.GPULayers}} |
+                Context: {{.Config.ContextSize}} |
+                Threads: {{.Config.Threads}}<br>
+                {{if .Config.GPUAssign}}GPU Assign: {{.Config.GPUAssign}} | {{end}}
+                {{if .Config.TensorSplit}}Tensor Split: {{.Config.TensorSplit}} | {{end}}
+                Flash Attn: {{if .Config.FlashAttention}}on{{else}}off{{end}}
+                {{if .Config.KVCacheQuant}} | KV Quant: {{.Config.KVCacheQuant}}{{end}}
+                {{if .Config.SpecType}} | Spec: {{.Config.SpecType}}{{end}}
+            </small>
+        </div>
+        <div>
+            <small><strong>Hardware</strong></small><br>
+            <small>
+                {{range .GPUs}}GPU {{.Index}}: {{.Name}} ({{printf "%.0f" (divf .VRAMTotalMB 1024.0)}} GB)<br>{{end}}
+            </small>
+        </div>
+    </div>
+
+    {{if .Results}}
+    <small><strong>Results by Prompt Size</strong></small>
+    <table role="grid" style="font-size:0.85rem;">
+        <thead>
+            <tr>
+                <th>Prompt Tokens</th>
+                <th>Gen Tokens</th>
+                <th>Rep</th>
+                <th>PP t/s</th>
+                <th>TG t/s</th>
+                <th>TTFT (ms)</th>
+                <th>Total (ms)</th>
+            </tr>
+        </thead>
+        <tbody>
+        {{range .Results}}
+        <tr>
+            <td>{{.PromptTokens}}</td>
+            <td>{{.GenTokens}}</td>
+            <td>{{.Repetition}}</td>
+            <td>{{printf "%.0f" .PromptTokPerSec}}</td>
+            <td>{{printf "%.1f" .GenTokPerSec}}</td>
+            <td>{{printf "%.0f" .TTFTMs}}</td>
+            <td>{{printf "%.0f" .TotalMs}}</td>
+        </tr>
+        {{end}}
+        </tbody>
+    </table>
+    {{end}}
+
+    {{if .LlamaBench}}
+    <small><strong>Raw Inference (llama-bench)</strong></small>
+    <table role="grid" style="font-size:0.85rem;">
+        <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+        <tbody>
+            <tr><td>Prompt Processing</td><td><strong>{{printf "%.0f" .LlamaBench.PromptTokPerSec}}</strong> t/s ({{.LlamaBench.PromptTokens}} tokens)</td></tr>
+            <tr><td>Token Generation</td><td><strong>{{printf "%.1f" .LlamaBench.GenTokPerSec}}</strong> t/s ({{.LlamaBench.GenTokens}} tokens)</td></tr>
+            <tr><td>Repetitions</td><td>{{.LlamaBench.Repetitions}}</td></tr>
+        </tbody>
+    </table>
+    {{end}}
+
+    {{if .DurationMs}}
+    <small>Total duration: {{printf "%.1f" (divf .DurationMs 1000.0)}}s</small>
+    {{end}}
+</div>
+{{end}}

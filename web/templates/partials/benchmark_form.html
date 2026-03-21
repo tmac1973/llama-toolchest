@@ -1,0 +1,34 @@
+{{define "benchmark_form"}}
+<article>
+    <header>Run Benchmark</header>
+    {{if not .Running}}
+    <p>Start the server before running benchmarks.</p>
+    {{else}}
+    <form hx-post="/api/benchmarks"
+          hx-target="#benchmark-progress"
+          hx-swap="innerHTML">
+        <div class="grid">
+            <label>
+                Model
+                <select name="model_id" required>
+                    {{range .Models}}
+                    <option value="{{.ID}}">{{.ModelID}} ({{.Quant}}, {{printf "%.1f" (divGB .SizeBytes)}} GB)</option>
+                    {{end}}
+                </select>
+            </label>
+            <label>
+                Preset
+                <select name="preset">
+                    {{range .Presets}}
+                    <option value="{{.Name}}">{{.Label}}</option>
+                    {{end}}
+                </select>
+            </label>
+            <label style="display:flex;align-items:flex-end;">
+                <button type="submit" style="margin:0;white-space:nowrap;">Run Benchmark</button>
+            </label>
+        </div>
+    </form>
+    {{end}}
+</article>
+{{end}}
