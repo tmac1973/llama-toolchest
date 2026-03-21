@@ -456,7 +456,9 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		cfg.PresencePenalty = parseOptionalFloat(r.FormValue("presence_penalty"))
 		cfg.RepeatPenalty = parseOptionalFloat(r.FormValue("repeat_penalty"))
 
-		cfg.MmprojPath = r.FormValue("mmproj_path")
+		if r.Form.Has("mmproj_path") {
+			cfg.MmprojPath = r.FormValue("mmproj_path")
+		}
 		// Parse aliases (comma-separated, trimmed)
 		if aliasStr := strings.TrimSpace(r.FormValue("aliases")); aliasStr != "" {
 			var aliases []string
@@ -471,12 +473,25 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 			cfg.Aliases = nil
 		}
 
-		cfg.DraftModelPath = r.FormValue("draft_model_path")
-		if v, err := strconv.Atoi(r.FormValue("draft_max")); err == nil && v > 0 {
-			cfg.DraftMax = v
+		// Only update draft/mmproj/alias fields if they're present in the form.
+		// These sections are conditionally rendered, so missing fields
+		// should not overwrite saved values (same pattern as Enabled).
+		if r.Form.Has("draft_model_path") {
+			cfg.DraftModelPath = r.FormValue("draft_model_path")
 		}
-		if v, err := strconv.Atoi(r.FormValue("draft_min")); err == nil && v > 0 {
-			cfg.DraftMin = v
+		if r.Form.Has("draft_max") {
+			if v, err := strconv.Atoi(r.FormValue("draft_max")); err == nil && v > 0 {
+				cfg.DraftMax = v
+			} else {
+				cfg.DraftMax = 0
+			}
+		}
+		if r.Form.Has("draft_min") {
+			if v, err := strconv.Atoi(r.FormValue("draft_min")); err == nil && v > 0 {
+				cfg.DraftMin = v
+			} else {
+				cfg.DraftMin = 0
+			}
 		}
 	}
 
