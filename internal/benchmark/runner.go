@@ -151,13 +151,12 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 	}
 
 	// Step 4: llama-bench (if preset says so and binary exists)
-	isSplitModel := strings.Contains(cfg.ModelPath, "-00001-of-")
-	if cfg.Preset.RunLlamaBench && cfg.BinaryDir != "" && cfg.ModelPath != "" && !isSplitModel {
+	if cfg.Preset.RunLlamaBench && cfg.BinaryDir != "" && cfg.ModelPath != "" {
 		benchBinary := filepath.Join(cfg.BinaryDir, "llama-bench")
 		if _, err := os.Stat(benchBinary); err == nil {
-			// Unload model from server to free VRAM for llama-bench
+			// Unload all models from server to free VRAM for llama-bench
 			send("llama-bench", "Unloading model from server for raw benchmark...", 88)
-			r.unloadModel(cfg.RouterURL, cfg.RouterName)
+			r.unloadAllModels(cfg.RouterURL)
 
 			send("llama-bench", "Running llama-bench — raw inference without server overhead...", 90)
 			lb, benchErr := r.runLlamaBench(ctx, cfg)
@@ -173,8 +172,6 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 		} else {
 			run.Warnings = append(run.Warnings, "llama-bench binary not found — rebuild llama.cpp to include it")
 		}
-	} else if isSplitModel {
-		run.Warnings = append(run.Warnings, "llama-bench skipped — not supported for split GGUF models")
 	}
 
 	// Step 5: Compute summary
