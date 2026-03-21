@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -270,9 +271,12 @@ func (s *Server) handleDeleteBuild(w http.ResponseWriter, r *http.Request) {
 
 // renderPartial executes a partial template, writing directly to w.
 func (s *Server) renderPartial(w http.ResponseWriter, name string, data any) {
-	// Partials are defined in the first page's template set; use any page clone
+	// Partials are shared across all page clones. Try each until one
+	// succeeds. Buffer output to avoid writing partial results on error.
 	for _, tmpl := range s.pages {
-		if err := tmpl.ExecuteTemplate(w, name, data); err == nil {
+		var buf bytes.Buffer
+		if err := tmpl.ExecuteTemplate(&buf, name, data); err == nil {
+			buf.WriteTo(w)
 			return
 		}
 	}
