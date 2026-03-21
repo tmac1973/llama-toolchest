@@ -33,8 +33,13 @@ func (s *Server) openAIModel(m *models.Model, cfg *models.ModelConfig) map[strin
 		"size":         m.SizeBytes,
 		"capabilities": capabilities,
 	}
-	if cfg != nil && cfg.ContextSize > 0 {
-		meta["context_size"] = cfg.ContextSize
+	if cfg != nil {
+		// 0 means "use model default" (n_ctx_train)
+		if cfg.ContextSize > 0 {
+			meta["context_size"] = cfg.ContextSize
+		} else {
+			meta["context_size"] = m.ContextLength
+		}
 	}
 
 	return map[string]any{
