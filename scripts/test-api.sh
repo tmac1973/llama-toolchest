@@ -18,8 +18,8 @@ CYAN=$'\033[36m'
 DIM=$'\033[2m'
 NC=$'\033[0m'
 
-pass() { ((PASS++)); echo "    ${GREEN}✓${NC} $1"; }
-fail() { ((FAIL++)); echo "    ${RED}✗${NC} $1"; }
+pass() { PASS=$((PASS + 1)); echo "    ${GREEN}✓${NC} $1"; }
+fail() { FAIL=$((FAIL + 1)); echo "    ${RED}✗${NC} $1"; }
 
 # test_status METHOD URL EXPECTED_CODE [DESCRIPTION]
 test_status() {
