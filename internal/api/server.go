@@ -154,6 +154,7 @@ func (s *Server) buildRouter() chi.Router {
 			r.Get("/embedding-presets", s.handleEmbeddingPresets)
 			r.Post("/embedding-presets/download", s.handleDownloadEmbeddingPreset)
 			r.Get("/{id}", s.handleGetModel)
+			r.Get("/{id}/info", s.handleModelInfo)
 			r.Delete("/{id}", s.handleDeleteModel)
 			r.Put("/{id}/activate", s.handleActivateModel)
 			r.Delete("/{id}/activate", s.handleDeactivateModel)
@@ -181,6 +182,7 @@ func (s *Server) buildRouter() chi.Router {
 			r.Get("/loaded-models", s.handleLoadedModels)
 			r.Get("/debug/router-models", s.handleDebugRouterModels)
 		})
+		r.Get("/ps", s.handlePS)
 		r.Route("/settings", func(r chi.Router) {
 			r.Get("/", s.handleGetSettings)
 			r.Put("/", s.handleUpdateSettings)

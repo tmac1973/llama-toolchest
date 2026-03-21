@@ -42,6 +42,51 @@ func parseOptionalInt(s string) *int {
 	return &v
 }
 
+// handlePS returns currently loaded models with resource info, similar to Ollama's /api/ps.
+func (s *Server) handlePS(w http.ResponseWriter, r *http.Request) {
+	type psModel struct {
+		Name        string  `json:"name"`
+		Status      string  `json:"status"`
+		VRAMEstGB   float64 `json:"vram_est_gb,omitempty"`
+		ContextSize int     `json:"context_size,omitempty"`
+		Arch        string  `json:"arch,omitempty"`
+	}
+
+	var result []psModel
+
+	if s.process.IsRunning() {
+		routerModels, err := s.process.ListModels()
+		if err == nil {
+			for _, rm := range routerModels {
+				pm := psModel{
+					Name:   rm.ID,
+					Status: rm.Status.Value,
+				}
+				// Enrich with registry metadata if available
+				// Try matching by router ID, then by aliases
+				var regModel *models.Model
+				for _, alias := range append([]string{rm.ID}, rm.Aliases...) {
+					if m, err := s.registry.Get(alias); err == nil {
+						regModel = m
+						break
+					}
+				}
+				if regModel != nil {
+					pm.Arch = regModel.Arch
+					pm.VRAMEstGB = regModel.VRAMEstGB
+					if cfg, err := s.registry.GetConfig(regModel.ID); err == nil {
+						pm.ContextSize = cfg.ContextSize
+						pm.VRAMEstGB = models.VRAMEstimateForConfig(regModel, cfg)
+					}
+				}
+				result = append(result, pm)
+			}
+		}
+	}
+
+	respondJSON(w, map[string]any{"models": result})
+}
+
 func (s *Server) handleServiceStatus(w http.ResponseWriter, r *http.Request) {
 	status := s.process.GetStatus()
 
@@ -342,26 +387,32 @@ func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 		maxContext := 0
 		detectedMMProj := ""
 		isEmbedding := false
+		var draftCandidates []models.DraftCandidate
 		if model != nil {
 			maxContext = model.ContextLength
 			detectedMMProj = models.FindMMProj(model.FilePath)
 			isEmbedding = models.IsEmbeddingModel(model.ModelID) || models.IsEmbeddingModel(model.ID)
+			if !isEmbedding {
+				draftCandidates = s.registry.FindDraftCandidates(id)
+			}
 		}
 
 		data := struct {
-			ModelID        string
-			Config         *models.ModelConfig
-			EffectiveFlags string
-			MaxContext     int
-			HasMMProj      bool
-			IsEmbedding    bool
+			ModelID         string
+			Config          *models.ModelConfig
+			EffectiveFlags  string
+			MaxContext      int
+			HasMMProj       bool
+			IsEmbedding     bool
+			DraftCandidates []models.DraftCandidate
 		}{
-			ModelID:        id,
-			Config:         cfg,
-			EffectiveFlags: cfg.EffectiveFlagsFor(isEmbedding),
-			MaxContext:     maxContext,
-			HasMMProj:      cfg.MmprojPath != "" || detectedMMProj != "",
-			IsEmbedding:    isEmbedding,
+			ModelID:         id,
+			Config:          cfg,
+			EffectiveFlags:  cfg.EffectiveFlagsFor(isEmbedding),
+			MaxContext:      maxContext,
+			HasMMProj:       cfg.MmprojPath != "" || detectedMMProj != "",
+			IsEmbedding:     isEmbedding,
+			DraftCandidates: draftCandidates,
 		}
 		s.renderPartial(w, "model_config", data)
 		return
@@ -406,6 +457,27 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		cfg.RepeatPenalty = parseOptionalFloat(r.FormValue("repeat_penalty"))
 
 		cfg.MmprojPath = r.FormValue("mmproj_path")
+		// Parse aliases (comma-separated, trimmed)
+		if aliasStr := strings.TrimSpace(r.FormValue("aliases")); aliasStr != "" {
+			var aliases []string
+			for _, a := range strings.Split(aliasStr, ",") {
+				a = strings.TrimSpace(a)
+				if a != "" {
+					aliases = append(aliases, a)
+				}
+			}
+			cfg.Aliases = aliases
+		} else {
+			cfg.Aliases = nil
+		}
+
+		cfg.DraftModelPath = r.FormValue("draft_model_path")
+		if v, err := strconv.Atoi(r.FormValue("draft_max")); err == nil && v > 0 {
+			cfg.DraftMax = v
+		}
+		if v, err := strconv.Atoi(r.FormValue("draft_min")); err == nil && v > 0 {
+			cfg.DraftMin = v
+		}
 	}
 
 	if err := s.registry.SetConfig(id, cfg); err != nil {
