@@ -16,4 +16,5 @@ services:
 
 volumes:
   llamactl-data:
+    name: llamactl-data
     driver: local
