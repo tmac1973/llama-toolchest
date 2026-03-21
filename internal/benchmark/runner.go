@@ -150,12 +150,23 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 	if cfg.Preset.RunLlamaBench && cfg.BinaryDir != "" && cfg.ModelPath != "" {
 		benchBinary := filepath.Join(cfg.BinaryDir, "llama-bench")
 		if _, err := os.Stat(benchBinary); err == nil {
+			// Unload model from server to free VRAM for llama-bench
+			send("llama-bench", "Unloading model from server for raw benchmark...", 88)
+			r.unloadModel(cfg.RouterURL, cfg.RouterName)
+
 			send("llama-bench", "Running llama-bench — raw inference without server overhead...", 90)
-			if lb, err := r.runLlamaBench(ctx, cfg); err != nil {
-				slog.Warn("llama-bench failed", "error", err)
-				run.Warnings = append(run.Warnings, fmt.Sprintf("llama-bench failed: %v", err))
+			lb, benchErr := r.runLlamaBench(ctx, cfg)
+			if benchErr != nil {
+				slog.Warn("llama-bench failed", "error", benchErr)
+				run.Warnings = append(run.Warnings, fmt.Sprintf("llama-bench failed: %v", benchErr))
 			} else {
 				run.LlamaBench = lb
+			}
+
+			// Reload model so the server is ready for use again
+			send("llama-bench", "Reloading model into server...", 95)
+			if err := r.ensureModelLoaded(ctx, cfg.RouterURL, cfg.RouterName); err != nil {
+				slog.Warn("failed to reload model after llama-bench", "error", err)
 			}
 		} else {
 			run.Warnings = append(run.Warnings, "llama-bench binary not found — rebuild llama.cpp to include it")
@@ -198,6 +209,20 @@ func (r *Runner) ensureModelLoaded(ctx context.Context, routerURL, modelName str
 		return nil
 	}
 	return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
+}
+
+// unloadModel tells the router to unload a model, freeing VRAM.
+func (r *Runner) unloadModel(routerURL, modelName string) {
+	body, _ := json.Marshal(map[string]string{"model": modelName})
+	resp, err := http.Post(routerURL+"/models/unload", "application/json", bytes.NewReader(body))
+	if err != nil {
+		slog.Warn("benchmark: failed to unload model", "error", err)
+		return
+	}
+	resp.Body.Close()
+	slog.Info("benchmark: unloaded model for llama-bench", "name", modelName)
+	// Give the server a moment to release VRAM
+	time.Sleep(2 * time.Second)
 }
 
 // benchPromptText is a fixed, deterministic text used for benchmarking.
@@ -306,6 +331,13 @@ func (r *Runner) runOneTest(ctx context.Context, routerURL, model string, prompt
 func (r *Runner) runLlamaBench(ctx context.Context, cfg RunConfig) (*LlamaBenchResult, error) {
 	benchBinary := filepath.Join(cfg.BinaryDir, "llama-bench")
 
+	// Use a small context to minimize VRAM usage since the server already
+	// has the model loaded. llama-bench only needs enough context for the
+	// test prompt + generation.
+	benchCtx := cfg.Preset.PromptTokens[0] + cfg.Preset.GenTokens + 256
+	if benchCtx < 2048 {
+		benchCtx = 2048
+	}
 	args := []string{
 		"-m", cfg.ModelPath,
 		"-p", fmt.Sprintf("%d", cfg.Preset.PromptTokens[0]),
@@ -314,6 +346,7 @@ func (r *Runner) runLlamaBench(ctx context.Context, cfg RunConfig) (*LlamaBenchR
 		"-o", "json",
 		"-ngl", fmt.Sprintf("%d", cfg.Run.Config.GPULayers),
 		"-t", fmt.Sprintf("%d", cfg.Run.Config.Threads),
+		"-c", fmt.Sprintf("%d", benchCtx),
 	}
 	if cfg.Run.Config.FlashAttention {
 		args = append(args, "-fa", "1")
