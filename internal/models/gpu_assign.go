@@ -144,7 +144,15 @@ var allocationColors = []string{
 	"#9c755f", "#bab0ac",
 }
 
+// ModelWeightsGB returns the VRAM used by model weights alone (no KV cache),
+// which represents the persistent footprint when a model is loaded.
+func ModelWeightsGB(m *Model) float64 {
+	return BytesToGB(m.SizeBytes) + vramOverheadGB
+}
+
 // ComputeAllocations builds the GPU allocation list from enabled models.
+// Uses weights-only VRAM (not peak with KV cache) since the router
+// dynamically loads/unloads models and they won't all be active at once.
 func ComputeAllocations(modelList []*Model, configs map[string]*ModelConfig, numGPUs int) []GPUAllocation {
 	if numGPUs <= 0 {
 		return nil
@@ -159,7 +167,7 @@ func ComputeAllocations(modelList []*Model, configs map[string]*ModelConfig, num
 			continue
 		}
 
-		totalGB := VRAMEstimateForConfig(m, cfg)
+		totalGB := ModelWeightsGB(m)
 		gpus := resolveModelGPUs(cfg, numGPUs)
 		perGPU := totalGB
 		if len(gpus) > 0 {
@@ -220,14 +228,16 @@ func GPUAssignLabel(assign string) string {
 	}
 }
 
-// MarkRecommended marks the best GPU option: fewest GPUs that fit,
-// preferring least-allocated GPUs.
+// MarkRecommended marks the best GPU option: fewest GPUs where the model
+// weights fit, preferring least-allocated GPUs. Does not disable any options
+// since the router dynamically loads/unloads models — all enabled models
+// won't be loaded simultaneously.
 func MarkRecommended(options []GPUOption, modelVRAMGB float64, perGPUGB float64, existing []GPUAllocation) {
 	if len(options) == 0 || perGPUGB <= 0 {
 		return
 	}
 
-	// Calculate current usage per GPU
+	// Calculate current weights usage per GPU
 	gpuUsed := make(map[int]float64)
 	for _, a := range existing {
 		for _, g := range a.GPUs {
@@ -251,7 +261,7 @@ func MarkRecommended(options []GPUOption, modelVRAMGB float64, perGPUGB float64,
 
 		perGPUNeed := modelVRAMGB / float64(gpuCount)
 
-		// Check if model fits on these GPUs
+		// Check if model weights fit on these GPUs
 		fits := true
 		totalFree := 0.0
 		for _, g := range opt.GPUs {
@@ -263,7 +273,6 @@ func MarkRecommended(options []GPUOption, modelVRAMGB float64, perGPUGB float64,
 		}
 
 		if !fits {
-			opt.Disabled = true
 			continue
 		}
 

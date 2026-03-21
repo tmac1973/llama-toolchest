@@ -407,7 +407,7 @@ func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 		// Mark disabled/recommended options
 		if numGPUs > 0 && model != nil {
 			perGPUGB := float64(metrics.GPU[0].VRAMTotalMB) / 1024.0
-			modelVRAM := models.VRAMEstimateForConfig(model, cfg)
+			modelVRAM := models.ModelWeightsGB(model)
 			allModels := s.registry.List()
 			allConfigs := make(map[string]*models.ModelConfig)
 			for _, m := range allModels {
