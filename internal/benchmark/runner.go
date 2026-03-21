@@ -215,12 +215,36 @@ func (r *Runner) ensureModelLoaded(ctx context.Context, routerURL, modelName str
 	return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
 }
 
-// unloadAllModels unloads every loaded model from the router to free VRAM.
+// unloadAllModels unloads every loaded model from the router and waits
+// until all are confirmed unloaded before returning.
 func (r *Runner) unloadAllModels(routerURL string) {
+	loaded := r.listLoadedModels(routerURL)
+	if len(loaded) == 0 {
+		return
+	}
+
+	for _, name := range loaded {
+		r.unloadModel(routerURL, name)
+	}
+
+	// Wait for all models to be confirmed unloaded (up to 30s)
+	for i := 0; i < 15; i++ {
+		time.Sleep(2 * time.Second)
+		remaining := r.listLoadedModels(routerURL)
+		if len(remaining) == 0 {
+			slog.Info("benchmark: all models unloaded")
+			return
+		}
+		slog.Info("benchmark: waiting for models to unload", "remaining", len(remaining))
+	}
+	slog.Warn("benchmark: timeout waiting for all models to unload")
+}
+
+// listLoadedModels returns the IDs of models currently loaded in the router.
+func (r *Runner) listLoadedModels(routerURL string) []string {
 	resp, err := http.Get(routerURL + "/models")
 	if err != nil {
-		slog.Warn("benchmark: failed to list models for unload", "error", err)
-		return
+		return nil
 	}
 	defer resp.Body.Close()
 
@@ -231,28 +255,28 @@ func (r *Runner) unloadAllModels(routerURL string) {
 		} `json:"status"`
 	}
 	if json.NewDecoder(resp.Body).Decode(&models) != nil {
-		return
+		return nil
 	}
 
+	var loaded []string
 	for _, m := range models {
 		if m.Status.Value == "loaded" || m.Status.Value == "loading" {
-			r.unloadModel(routerURL, m.ID)
+			loaded = append(loaded, m.ID)
 		}
 	}
+	return loaded
 }
 
-// unloadModel tells the router to unload a model, freeing VRAM.
+// unloadModel tells the router to unload a single model.
 func (r *Runner) unloadModel(routerURL, modelName string) {
 	body, _ := json.Marshal(map[string]string{"model": modelName})
 	resp, err := http.Post(routerURL+"/models/unload", "application/json", bytes.NewReader(body))
 	if err != nil {
-		slog.Warn("benchmark: failed to unload model", "error", err)
+		slog.Warn("benchmark: failed to unload model", "name", modelName, "error", err)
 		return
 	}
 	resp.Body.Close()
-	slog.Info("benchmark: unloaded model for llama-bench", "name", modelName)
-	// Give the server a moment to release VRAM
-	time.Sleep(2 * time.Second)
+	slog.Info("benchmark: unload requested", "name", modelName)
 }
 
 // benchPromptText is a fixed, deterministic text used for benchmarking.
