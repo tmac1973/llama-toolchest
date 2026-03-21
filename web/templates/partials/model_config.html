@@ -144,7 +144,76 @@
     {{end}}
 
     <hr style="margin: 1rem 0 0.5rem;">
-    <small><strong>Speculative Decoding</strong> — predict multiple tokens per step for faster generation. Restart required.</small>
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+        <small><strong>Speculative Decoding</strong> — predict multiple tokens per step for faster generation. Restart required.</small>
+        <button type="button" class="outline secondary"
+                style="margin:0;padding:0.1rem 0.5rem;font-size:0.8rem;width:auto;flex-shrink:0;"
+                onclick="document.getElementById('spec-help').showModal();">
+            ?
+        </button>
+    </div>
+    <dialog id="spec-help" style="max-width:650px;">
+        <article>
+            <header>
+                <button type="button" aria-label="Close" rel="prev" onclick="this.closest('dialog').close();"></button>
+                Speculative Decoding
+            </header>
+            <p>Speculative decoding predicts multiple tokens ahead, then verifies them in one batch. Correct predictions are accepted for free. <strong>Output quality is never affected</strong> — the result is identical to normal generation.</p>
+
+            <h5>Modes</h5>
+            <dl>
+                <dt><strong>Draft Model</strong></dt>
+                <dd>Uses a separate smaller model of the same architecture to propose tokens. Highest and most consistent speedups (1.5-2.5x typical). Requires a compatible model — download one with the same architecture but smaller size (e.g., 0.5B-1B) and it will appear in the dropdown. Uses extra VRAM for the draft model.</dd>
+
+                <dt><strong>N-gram Simple</strong></dt>
+                <dd>Searches the generation history for matching token patterns and reuses what followed. Zero overhead, no extra VRAM. Works best when the model repeats patterns (code refactoring, structured output). No benefit for entirely novel text.</dd>
+
+                <dt><strong>N-gram Cache</strong></dt>
+                <dd>Maintains probability statistics about token sequences and uses them for drafting. Can load pre-computed statistics from a corpus. More sophisticated than Simple but requires more setup.</dd>
+
+                <dt><strong>N-gram Map-K</strong></dt>
+                <dd>Tracks n-gram patterns with a confidence threshold — only drafts when a pattern has been seen multiple times. More conservative than Simple (fewer drafts, but higher acceptance rate). Good when you want selective, high-confidence speculation.</dd>
+
+                <dt><strong>N-gram Map-K4V</strong></dt>
+                <dd>Experimental variant that tracks up to 4 different continuations per pattern and picks the most frequent one. Useful for patterns that lead to a few different outputs.</dd>
+
+                <dt><strong>N-gram Mod</strong> (recommended draftless)</dt>
+                <dd>Uses a lightweight shared hash pool (~16 MB) to learn patterns across requests. Patterns from one conversation benefit the next. Best general-purpose draftless mode — especially good for reasoning models, code, and multi-turn chat. Cold start is slow but improves over time.</dd>
+            </dl>
+
+            <h5>Parameters</h5>
+            <dl>
+                <dt><strong>Draft Max</strong> (default: 16)</dt>
+                <dd>Maximum tokens to draft per step. Higher = more aggressive speculation. Use 32-64 for MoE models. Reduce for dense models if acceptance is low.</dd>
+
+                <dt><strong>Draft Min</strong> (default: 0)</dt>
+                <dd>Minimum tokens to always draft before verification. For N-gram Mod with dense models, try 48.</dd>
+
+                <dt><strong>Min Probability</strong> (default: 0.75)</dt>
+                <dd>Only for Draft Model mode. Stops drafting when token probability drops below this threshold. Lower = more aggressive (more tokens drafted, lower acceptance). Higher = conservative (fewer but more accurate drafts).</dd>
+
+                <dt><strong>N-gram Lookup Size</strong> (default: 12)</dt>
+                <dd>How many recent tokens to use as the search key. Larger = fewer but more precise matches. For N-gram Mod, use 24.</dd>
+
+                <dt><strong>N-gram Draft Size</strong> (default: 48)</dt>
+                <dd>How many tokens following a match to propose as the draft. Larger values give bigger speedups when patterns repeat extensively.</dd>
+            </dl>
+
+            <h5>When to use it</h5>
+            <ul>
+                <li>Large models where generation is the bottleneck</li>
+                <li>Repetitive workloads: code, structured output, reasoning traces</li>
+                <li>Multi-turn chat (N-gram Mod learns across requests)</li>
+            </ul>
+            <h5>When to skip it</h5>
+            <ul>
+                <li>Small/fast models — overhead exceeds gains</li>
+                <li>VRAM-constrained and no draft model — try N-gram Mod instead</li>
+                <li>Very short completions (few tokens) — not enough to amortize</li>
+                <li>Acceptance rate consistently below ~50% — will slow things down</li>
+            </ul>
+        </article>
+    </dialog>
     <div class="grid">
         <label title="Speculative decoding mode. Draft model uses a smaller model to propose tokens. N-gram modes use pattern matching from the prompt — no extra model needed.">
             Mode
