@@ -100,7 +100,15 @@
         </label>
     </div>
 
-    {{if .HasMMProj}}
+    {{if .HasBuiltinVision}}
+    <div class="grid">
+        <label>
+            Vision
+            <input type="text" value="Built-in (no projector needed)" readonly
+                   style="opacity: 0.7; cursor: default;">
+        </label>
+    </div>
+    {{else if .HasMMProj}}
     <div class="grid">
         <label title="Path to the multimodal projector GGUF file. Enables vision/image understanding for this model. Auto-detected from the model directory.">
             Vision Projector (mmproj)

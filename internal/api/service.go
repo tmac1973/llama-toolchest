@@ -119,6 +119,8 @@ func (s *Server) handleServiceStart(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		// Clear dirty flags — fresh start uses the latest preset.ini
+		s.dirtyModels = make(map[string]bool)
 	}
 	s.handleServiceStatus(w, r)
 }
@@ -136,6 +138,8 @@ func (s *Server) handleServiceRestart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	// Clear dirty flags — the router just reloaded with the latest preset.ini
+	s.dirtyModels = make(map[string]bool)
 	s.handleServiceStatus(w, r)
 }
 
@@ -387,22 +391,26 @@ func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		hasBuiltinVision := model != nil && model.HasBuiltinVision
+
 		data := struct {
-			ModelID         string
-			Config          *models.ModelConfig
-			EffectiveFlags  string
-			MaxContext      int
-			HasMMProj       bool
-			IsEmbedding     bool
-			DraftCandidates []models.DraftCandidate
+			ModelID          string
+			Config           *models.ModelConfig
+			EffectiveFlags   string
+			MaxContext       int
+			HasMMProj        bool
+			HasBuiltinVision bool
+			IsEmbedding      bool
+			DraftCandidates  []models.DraftCandidate
 		}{
-			ModelID:         id,
-			Config:          cfg,
-			EffectiveFlags:  cfg.EffectiveFlagsFor(isEmbedding),
-			MaxContext:      maxContext,
-			HasMMProj:       cfg.MmprojPath != "" || detectedMMProj != "",
-			IsEmbedding:     isEmbedding,
-			DraftCandidates: draftCandidates,
+			ModelID:          id,
+			Config:           cfg,
+			EffectiveFlags:   cfg.EffectiveFlagsFor(isEmbedding),
+			MaxContext:       maxContext,
+			HasMMProj:        cfg.MmprojPath != "" || detectedMMProj != "",
+			HasBuiltinVision: hasBuiltinVision,
+			IsEmbedding:      isEmbedding,
+			DraftCandidates:  draftCandidates,
 		}
 		s.renderPartial(w, "model_config", data)
 		return

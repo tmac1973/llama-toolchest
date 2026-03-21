@@ -17,6 +17,7 @@ type GGUFMeta struct {
 	NKVHead       int    `json:"n_kv_head"`
 	ContextLength int    `json:"context_length"`  // max trained context size
 	SupportsTools bool   `json:"supports_tools"`  // chat template references tools
+	HasVision     bool   `json:"has_vision"`       // model has a built-in vision encoder
 }
 
 // HeadDim returns the dimension per attention head.
@@ -76,6 +77,11 @@ func ParseGGUFMeta(path string) (*GGUFMeta, error) {
 		valueType, err := readUint32(f)
 		if err != nil {
 			return meta, nil
+		}
+
+		// Detect built-in vision encoder from keys like "{arch}.vision.block_count"
+		if strings.Contains(key, ".vision.") {
+			meta.HasVision = true
 		}
 
 		// Check if this is a key we want

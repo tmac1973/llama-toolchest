@@ -26,13 +26,14 @@ type Model struct {
 	DownloadedAt time.Time `json:"downloaded_at"`
 
 	// Architecture parameters parsed from GGUF header.
-	Arch          string `json:"arch,omitempty"`
-	NLayers       int    `json:"n_layers,omitempty"`
-	NEmbd         int    `json:"n_embd,omitempty"`
-	NHead         int    `json:"n_head,omitempty"`
-	NKVHead       int    `json:"n_kv_head,omitempty"`
-	ContextLength int    `json:"context_length,omitempty"` // max trained context
-	SupportsTools bool   `json:"supports_tools,omitempty"` // chat template handles tools
+	Arch             string `json:"arch,omitempty"`
+	NLayers          int    `json:"n_layers,omitempty"`
+	NEmbd            int    `json:"n_embd,omitempty"`
+	NHead            int    `json:"n_head,omitempty"`
+	NKVHead          int    `json:"n_kv_head,omitempty"`
+	ContextLength    int    `json:"context_length,omitempty"`     // max trained context
+	SupportsTools    bool   `json:"supports_tools,omitempty"`     // chat template handles tools
+	HasBuiltinVision bool   `json:"has_builtin_vision,omitempty"` // vision encoder baked into model
 }
 
 // ModelConfig holds per-model launch configuration for llama-server.
@@ -322,24 +323,37 @@ func (r *Registry) BackfillGGUFMeta() {
 
 	changed := false
 	for _, m := range r.data.Models {
-		if m.NLayers > 0 {
-			continue // already has metadata
+		needsFull := m.NLayers == 0
+		needsVision := m.NLayers > 0 && !m.HasBuiltinVision // re-check for vision field
+
+		if !needsFull && !needsVision {
+			continue
 		}
 		meta, err := ParseGGUFMeta(m.FilePath)
 		if err != nil {
-			slog.Warn("failed to parse GGUF metadata", "model", m.ID, "error", err)
+			if needsFull {
+				slog.Warn("failed to parse GGUF metadata", "model", m.ID, "error", err)
+			}
 			continue
 		}
-		m.Arch = meta.Architecture
-		m.NLayers = meta.NLayers
-		m.NEmbd = meta.NEmbd
-		m.NHead = meta.NHead
-		m.NKVHead = meta.NKVHead
-		m.ContextLength = meta.ContextLength
-		m.SupportsTools = meta.SupportsTools
-		changed = true
-		slog.Info("backfilled GGUF metadata", "model", m.ID, "arch", meta.Architecture,
-			"layers", meta.NLayers, "kv_heads", meta.NKVHead, "ctx", meta.ContextLength)
+		if needsFull {
+			m.Arch = meta.Architecture
+			m.NLayers = meta.NLayers
+			m.NEmbd = meta.NEmbd
+			m.NHead = meta.NHead
+			m.NKVHead = meta.NKVHead
+			m.ContextLength = meta.ContextLength
+			m.SupportsTools = meta.SupportsTools
+			m.HasBuiltinVision = meta.HasVision
+			changed = true
+			slog.Info("backfilled GGUF metadata", "model", m.ID, "arch", meta.Architecture,
+				"layers", meta.NLayers, "kv_heads", meta.NKVHead, "ctx", meta.ContextLength,
+				"vision", meta.HasVision)
+		} else if meta.HasVision {
+			m.HasBuiltinVision = true
+			changed = true
+			slog.Info("detected built-in vision", "model", m.ID)
+		}
 	}
 	if changed {
 		r.save()
@@ -493,6 +507,7 @@ func (r *Registry) ScanModels() int {
 			m.NKVHead = meta.NKVHead
 			m.ContextLength = meta.ContextLength
 			m.SupportsTools = meta.SupportsTools
+			m.HasBuiltinVision = meta.HasVision
 		}
 
 		found = append(found, m)
@@ -527,10 +542,26 @@ func IsEmbeddingModel(name string) bool {
 	return embeddingPattern.MatchString(name)
 }
 
-// FindMMProj looks for mmproj GGUF files in the same directory as the model.
+// FindMMProj looks for mmproj GGUF files in the same directory as the model,
+// then checks the parent directory (for repos where mmproj is at the root
+// and model GGUFs are in subdirectories, e.g. Mistral-Small-4-119B).
 // Returns the path to the first one found, or empty string.
 func FindMMProj(modelFilePath string) string {
 	dir := filepath.Dir(modelFilePath)
+	if found := findMMProjInDir(dir); found != "" {
+		return found
+	}
+	// Check parent directory — handles repos where mmproj lives at the
+	// repo root while model files are in quant subdirectories.
+	parent := filepath.Dir(dir)
+	if parent != dir {
+		return findMMProjInDir(parent)
+	}
+	return ""
+}
+
+// findMMProjInDir scans a single directory for mmproj GGUF files.
+func findMMProjInDir(dir string) string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return ""

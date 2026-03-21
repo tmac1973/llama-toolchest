@@ -147,7 +147,7 @@ func (s *Server) handleModelInfo(w http.ResponseWriter, r *http.Request) {
 	if m.SupportsTools {
 		capabilities = append(capabilities, "tools")
 	}
-	if cfg != nil && cfg.MmprojPath != "" {
+	if m.HasBuiltinVision || (cfg != nil && cfg.MmprojPath != "") {
 		capabilities = append(capabilities, "vision")
 	}
 
@@ -242,11 +242,13 @@ func (s *Server) renderModelTable(w http.ResponseWriter, r *http.Request, modelL
 		weightsGB := models.BytesToGB(m.SizeBytes) + 0.2
 		peakVRAM := weightsGB
 		enabled := true
-		hasVision := false
+		hasVision := m.HasBuiltinVision
 		if cfg, err := s.registry.GetConfig(m.ID); err == nil {
 			peakVRAM = models.VRAMEstimateForConfig(m, cfg)
 			enabled = cfg.Enabled
-			hasVision = cfg.MmprojPath != ""
+			if cfg.MmprojPath != "" {
+				hasVision = true
+			}
 		}
 		baseVRAM := weightsGB
 
