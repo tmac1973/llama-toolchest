@@ -53,6 +53,9 @@ type BenchmarkRun struct {
 	Summary    *BenchmarkSummary  `json:"summary,omitempty"`
 	LlamaBench *LlamaBenchResult  `json:"llama_bench,omitempty"`
 
+	// Warnings (non-fatal issues during the run)
+	Warnings []string `json:"warnings,omitempty"`
+
 	// Progress (transient, not persisted — only meaningful while running)
 	ProgressDetail string `json:"progress_detail,omitempty"`
 

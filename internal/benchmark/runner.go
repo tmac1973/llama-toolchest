@@ -153,11 +153,12 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 			send("llama-bench", "Running llama-bench — raw inference without server overhead...", 90)
 			if lb, err := r.runLlamaBench(ctx, cfg); err != nil {
 				slog.Warn("llama-bench failed", "error", err)
+				run.Warnings = append(run.Warnings, fmt.Sprintf("llama-bench failed: %v", err))
 			} else {
 				run.LlamaBench = lb
 			}
 		} else {
-			slog.Info("llama-bench not found in build directory, skipping", "path", benchBinary)
+			run.Warnings = append(run.Warnings, "llama-bench binary not found — rebuild llama.cpp to include it")
 		}
 	}
 

@@ -68,7 +68,13 @@
     </table>
     {{end}}
 
-    {{if not .LlamaBench}}{{if .Results}}
+    {{if .Warnings}}
+    <div style="margin-top:0.5rem;">
+    {{range .Warnings}}
+    <small style="color:var(--pico-del-color);">&#x26A0; {{.}}</small><br>
+    {{end}}
+    </div>
+    {{else if not .LlamaBench}}{{if .Results}}
     <small style="color:var(--pico-muted-color);">No llama-bench results — use Standard or Thorough preset to include raw inference benchmarks.</small>
     {{end}}{{end}}
 
