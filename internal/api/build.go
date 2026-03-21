@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strings"
@@ -273,11 +274,17 @@ func (s *Server) handleDeleteBuild(w http.ResponseWriter, r *http.Request) {
 func (s *Server) renderPartial(w http.ResponseWriter, name string, data any) {
 	// Partials are shared across all page clones. Try each until one
 	// succeeds. Buffer output to avoid writing partial results on error.
+	var lastErr error
 	for _, tmpl := range s.pages {
 		var buf bytes.Buffer
 		if err := tmpl.ExecuteTemplate(&buf, name, data); err == nil {
 			buf.WriteTo(w)
 			return
+		} else {
+			lastErr = err
 		}
+	}
+	if lastErr != nil {
+		slog.Error("renderPartial failed on all page templates", "name", name, "error", lastErr)
 	}
 }
