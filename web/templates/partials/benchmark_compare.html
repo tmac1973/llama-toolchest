@@ -1,6 +1,13 @@
 {{define "benchmark_compare"}}
 <div style="margin-bottom: 1rem;">
-    <h5 style="margin-bottom: 0.5rem;">Comparison: {{len .Runs}} runs</h5>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+        <h5 style="margin:0;">Comparison: {{len .Runs}} runs</h5>
+        <button type="button" class="outline secondary"
+                style="margin:0;padding:0.1rem 0.5rem;font-size:0.8rem;width:auto;"
+                onclick="this.closest('#comparison-view').innerHTML='';">
+            Close
+        </button>
+    </div>
 
     {{if gt .MaxGenTPS 0.0}}
     <small><strong>Generation Speed (tokens/sec)</strong></small>
