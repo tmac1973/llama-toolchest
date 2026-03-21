@@ -42,6 +42,51 @@ func parseOptionalInt(s string) *int {
 	return &v
 }
 
+// handlePS returns currently loaded models with resource info, similar to Ollama's /api/ps.
+func (s *Server) handlePS(w http.ResponseWriter, r *http.Request) {
+	type psModel struct {
+		Name        string  `json:"name"`
+		Status      string  `json:"status"`
+		VRAMEstGB   float64 `json:"vram_est_gb,omitempty"`
+		ContextSize int     `json:"context_size,omitempty"`
+		Arch        string  `json:"arch,omitempty"`
+	}
+
+	var result []psModel
+
+	if s.process.IsRunning() {
+		routerModels, err := s.process.ListModels()
+		if err == nil {
+			for _, rm := range routerModels {
+				pm := psModel{
+					Name:   rm.ID,
+					Status: rm.Status.Value,
+				}
+				// Enrich with registry metadata if available
+				// Try matching by router ID, then by aliases
+				var regModel *models.Model
+				for _, alias := range append([]string{rm.ID}, rm.Aliases...) {
+					if m, err := s.registry.Get(alias); err == nil {
+						regModel = m
+						break
+					}
+				}
+				if regModel != nil {
+					pm.Arch = regModel.Arch
+					pm.VRAMEstGB = regModel.VRAMEstGB
+					if cfg, err := s.registry.GetConfig(regModel.ID); err == nil {
+						pm.ContextSize = cfg.ContextSize
+						pm.VRAMEstGB = models.VRAMEstimateForConfig(regModel, cfg)
+					}
+				}
+				result = append(result, pm)
+			}
+		}
+	}
+
+	respondJSON(w, map[string]any{"models": result})
+}
+
 func (s *Server) handleServiceStatus(w http.ResponseWriter, r *http.Request) {
 	status := s.process.GetStatus()
 

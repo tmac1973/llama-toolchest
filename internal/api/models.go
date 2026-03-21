@@ -126,6 +126,67 @@ func (s *Server) handleGetModel(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, m)
 }
 
+// handleModelInfo returns enriched model metadata with capabilities and config.
+func (s *Server) handleModelInfo(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	m, err := s.registry.Get(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	cfg, _ := s.registry.GetConfig(id)
+
+	// Build capabilities list
+	var capabilities []string
+	if models.IsEmbeddingModel(m.ModelID) || models.IsEmbeddingModel(m.ID) {
+		capabilities = append(capabilities, "embedding")
+	} else {
+		capabilities = append(capabilities, "chat")
+	}
+	if m.SupportsTools {
+		capabilities = append(capabilities, "tools")
+	}
+	if cfg != nil && cfg.MmprojPath != "" {
+		capabilities = append(capabilities, "vision")
+	}
+
+	info := map[string]any{
+		"id":             m.ID,
+		"model_id":       m.ModelID,
+		"filename":       m.Filename,
+		"arch":           m.Arch,
+		"quant":          m.Quant,
+		"context_length": m.ContextLength,
+		"size_bytes":     m.SizeBytes,
+		"vram_est_gb":    m.VRAMEstGB,
+		"capabilities":   capabilities,
+		"downloaded_at":  m.DownloadedAt,
+	}
+
+	if cfg != nil {
+		configMap := map[string]any{
+			"enabled":         cfg.Enabled,
+			"gpu_layers":      cfg.GPULayers,
+			"context_size":    cfg.ContextSize,
+			"threads":         cfg.Threads,
+			"flash_attention": cfg.FlashAttention,
+		}
+		if cfg.TensorSplit != "" {
+			configMap["tensor_split"] = cfg.TensorSplit
+		}
+		if cfg.KVCacheQuant != "" {
+			configMap["kv_cache_quant"] = cfg.KVCacheQuant
+		}
+		if cfg.MmprojPath != "" {
+			configMap["mmproj_path"] = cfg.MmprojPath
+		}
+		info["config"] = configMap
+	}
+
+	respondJSON(w, info)
+}
+
 func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
