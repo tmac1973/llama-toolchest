@@ -6,13 +6,25 @@ A web-based management interface for [llama.cpp](https://github.com/ggerganov/ll
 
 ## Features
 
-- **Build Management** — Clone and compile llama.cpp inside the container with CUDA, ROCm, or CPU backends. View real-time build logs via SSE streaming.
-- **Model Management** — Download GGUF models directly from HuggingFace. Search repos, browse available quantizations, and track download progress. Configure per-model inference parameters (GPU layers, context size, threads, tensor split, sampling). Scan directories for existing GGUF files.
+- **Build Management** — Clone and compile llama.cpp inside the container with CUDA, ROCm, or CPU backends. Toggleable build options including OpenSSL for HTTPS support. View real-time build logs via SSE streaming.
+- **Model Management** — Download GGUF models directly from HuggingFace. Search repos, browse available quantizations, and track download progress. Configure per-model inference parameters. Scan directories for existing GGUF files.
 - **Multi-Model Loading** — Run multiple models simultaneously via llama.cpp's native router mode. Each model runs in its own isolated subprocess with per-model configuration. LRU eviction automatically unloads least-used models when VRAM limits are reached.
-- **Per-Model Configuration** — Each model can have its own context size, KV cache quantization, GPU layers, tensor split, flash attention, direct I/O, and sampling parameters. Settings are stored in the llamactl registry and translated to llama.cpp preset INI format.
+- **Per-Model Configuration** — Each model can have its own context size, KV cache quantization, GPU layers, tensor split, flash attention, direct I/O, sampling parameters, user-defined aliases, and speculative decoding draft model. Settings are stored in the llamactl registry and translated to llama.cpp preset INI format.
+- **Vision / Multimodal** — Automatic detection and association of mmproj (multimodal projector) files for vision-capable models. Vision badge shown on model cards. Send images via the OpenAI-compatible chat API using base64 or URL (requires OpenSSL build).
+- **Embedding Models** — Separate embedding model section with curated one-click downloads (nomic-embed, bge, mxbai-embed, snowflake-arctic-embed). Simplified config for embedding models. Automatic `--embeddings` flag injection.
+- **Speculative Decoding** — Pair a small draft model with a large model for faster inference. Draft model picker auto-filters by architecture and size. Config generates `model-draft` in the preset INI.
+- **Model Capabilities** — Automatic detection of tool calling support from GGUF chat template. Vision and tools badges shown on model cards. Model info endpoint exposes capabilities for client discovery.
 - **VRAM Estimation** — Architecture-aware VRAM estimation using GGUF metadata (layers, KV heads, embedding dimensions). Estimates account for model weights, KV cache at configured context size, and cache quantization.
-- **Service Control** — Start, stop, and restart the inference server. Load and unload individual models. Live server log streaming. Health monitoring.
-- **OpenAI-Compatible Proxy** — Reverse proxy at `/v1` forwards to the llama.cpp router. Works with any client that supports the OpenAI chat completions format (Goose, Continue, Open WebUI, etc.). Optional Bearer token authentication. Per-model sampling defaults injected automatically.
+- **Service Control** — Start, stop, and restart the inference server. Load and unload individual models. Live server log streaming. Health monitoring. Loaded models list with status indicators on the server page.
+- **OpenAI-Compatible API** — Full OpenAI API compatibility at `/v1` including:
+  - Chat completions (streaming, tool/function calling, structured output / JSON schema)
+  - Completions
+  - Embeddings
+  - Model listing
+  - Per-model sampling defaults injected automatically
+  - Optional Bearer token authentication
+- **Model Info & Status** — `/api/models/{id}/info` returns enriched metadata with capabilities list. `/api/ps` returns loaded models with status, similar to Ollama's ps endpoint.
+- **Model Aliases** — Assign friendly names like `qwen3:latest` or `my-chat-model` to models. Clients can use aliases in the `model` field of API requests.
 - **Dashboard** — At-a-glance view of service status, active models, build/model inventory, and API endpoint URL.
 - **Agent CLI** — Lightweight terminal chat client (`cmd/agent`) that connects to the API with tool-use support for filesystem exploration.
 - **Built-in Chat UI** — llama.cpp's native chat interface at port 8080 with model selector dropdown for switching between loaded models.
@@ -105,8 +117,8 @@ RUNTIME=podman ./setup.sh install   # force Podman runtime
 1. Open `http://localhost:3000`
 2. Go to **Builds** and compile llama.cpp (select the appropriate backend for your GPU)
 3. Go to **Browse** to search HuggingFace and download a GGUF model
-4. Go to **Models**, click **Configure** on your model to set GPU layers, context size, and sampling parameters, then **Start**
-5. The model will load and the OpenAI API becomes available at `http://localhost:3000/v1`
+4. Go to **Models**, click **Configure** on your model to set GPU layers, context size, and sampling parameters, then enable it and restart the server
+5. The model will load on first request and the OpenAI API becomes available at `http://localhost:3000/v1`
 6. Optionally start additional models — the proxy routes requests by the `model` field
 
 ## Configuration
@@ -178,6 +190,13 @@ internal/
 web/
   static/              htmx, Pico CSS
   templates/           Go html/template pages and partials
+scripts/
+  test-api.sh          API smoke test
+  test-embeddings.sh   Embedding model test (dimensions + similarity)
+  test-info.sh         Model info and PS endpoint test
+  test-structured.sh   JSON schema / structured output test
+  test-tools.sh        Tool/function calling test
+  test-vision.sh       Vision / multimodal test
 ```
 
 The UI uses server-rendered HTML with [htmx](https://htmx.org/) for interactivity and [Pico CSS](https://picocss.com/) for styling. No JavaScript build step required.
@@ -218,13 +237,18 @@ agent -no-tools                           # plain chat mode (no filesystem tools
 agent -api-key sk-xxx                     # authenticate
 ```
 
-### API Smoke Test
+### Test Scripts
+
+All test scripts include an interactive model picker. Pass a model name to skip selection.
 
 ```bash
-./scripts/test-api.sh http://localhost:3000
+./scripts/test-api.sh                     # API smoke test (pages, management, proxy)
+./scripts/test-embeddings.sh              # Embedding dimensions + cosine similarity
+./scripts/test-info.sh                    # Model info endpoint + PS (loaded models)
+./scripts/test-structured.sh              # JSON schema + json_object response format
+./scripts/test-tools.sh                   # Tool/function calling + multi-turn
+./scripts/test-vision.sh                  # Vision with remote URL or local image
 ```
-
-Tests page routes, management API, OpenAI proxy, model routing (permissive single-model vs strict multi-model), and chat completions.
 
 ## API Endpoints
 
@@ -233,16 +257,22 @@ Tests page routes, management API, OpenAI proxy, model routing (permissive singl
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/dashboard` | Dashboard HTML fragment |
+| GET | `/api/ps` | Loaded models with status and resource info |
 | GET | `/api/builds/` | List builds |
 | POST | `/api/builds/` | Trigger new build |
 | GET | `/api/builds/backends` | List available backends |
 | GET | `/api/builds/{id}/logs` | Stream build logs (SSE) |
 | DELETE | `/api/builds/{id}` | Delete a build |
 | GET | `/api/models/` | List models |
+| GET | `/api/models/embeddings` | List embedding models |
+| GET | `/api/models/embedding-presets` | Curated embedding model presets |
+| POST | `/api/models/embedding-presets/download` | Download curated embedding model |
 | GET | `/api/models/{id}` | Get model details |
+| GET | `/api/models/{id}/info` | Get enriched model metadata with capabilities |
 | DELETE | `/api/models/{id}` | Delete a model |
-| PUT | `/api/models/{id}/activate` | Start model instance |
-| DELETE | `/api/models/{id}/activate` | Stop model instance |
+| PUT | `/api/models/{id}/activate` | Load model into VRAM |
+| DELETE | `/api/models/{id}/activate` | Unload model from VRAM |
+| PUT | `/api/models/{id}/enable` | Enable model in preset (restart required) |
 | GET | `/api/models/{id}/config` | Get model config |
 | PUT | `/api/models/{id}/config` | Update model config |
 | GET | `/api/models/{id}/vram-estimate` | VRAM estimate for given config |
@@ -255,31 +285,50 @@ Tests page routes, management API, OpenAI proxy, model routing (permissive singl
 | POST | `/api/service/start` | Start llama-server |
 | POST | `/api/service/stop` | Stop all model instances |
 | POST | `/api/service/restart` | Restart all model instances |
-| GET | `/api/service/logs` | Stream server logs (SSE, `?model=` to select) |
-| GET | `/api/service/log-tabs` | Active model tabs for log viewer |
-| GET | `/api/service/health` | Health check (any instance healthy) |
+| GET | `/api/service/logs` | Stream server logs (SSE) |
+| GET | `/api/service/health` | Health check |
+| GET | `/api/service/loaded-models` | Models available to router with status |
 | GET | `/api/settings/` | Get settings |
 | PUT | `/api/settings/` | Update settings |
 
-### OpenAI-Compatible Proxy
+### OpenAI-Compatible API
 
-All requests to `/v1/*` are forwarded to the llama.cpp router which handles model routing. Supports streaming chat completions via SSE.
+All requests to `/v1/*` are forwarded to the llama.cpp router. Supports:
+
+- **Chat completions** — streaming, tool/function calling, structured output (JSON schema, json_object)
+- **Completions** — text generation
+- **Embeddings** — vector embeddings (requires embedding model with `--embeddings` flag, auto-configured)
+- **Models** — list available models
 
 ```bash
 # List available models
 curl http://localhost:3000/v1/models
 
-# Chat with a specific model
+# Chat completion
 curl http://localhost:3000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "unsloth--Qwen3.5-27B-GGUF",
+    "model": "qwen35",
     "messages": [{"role": "user", "content": "Hello!"}],
     "max_tokens": 64
   }'
+
+# Embeddings
+curl http://localhost:3000/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{"model": "nomic-ai--nomic-embed-text-v1.5-GGUF", "input": "Hello world"}'
+
+# Structured output
+curl http://localhost:3000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen35",
+    "messages": [{"role": "user", "content": "List 3 colors"}],
+    "response_format": {"type": "json_schema", "json_schema": {"name": "colors", "schema": {"type": "object", "properties": {"colors": {"type": "array", "items": {"type": "string"}}}}}}
+  }'
 ```
 
-The router auto-loads models on first request if they're in the models directory. Per-model sampling defaults (configured in the UI) are injected by the proxy into requests that don't specify them.
+The router auto-loads models on first request. Per-model sampling defaults (configured in the UI) are injected by the proxy into requests that don't specify them. User-defined model aliases (e.g., `qwen35`) work in the `model` field.
 
 ## License
 
