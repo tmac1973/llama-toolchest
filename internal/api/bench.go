@@ -232,19 +232,10 @@ func (s *Server) handleExportBenchmarks(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Content-Type", "text/csv")
 	w.Header().Set("Content-Disposition", "attachment; filename=benchmarks.csv")
 
-	// Header row
-	fmt.Fprintln(w, "Model,Quant,Size (GB),Preset,PP t/s,TG t/s,TTFT (ms),GPU Layers,Context,GPU Assign,Tensor Split,Flash Attn,KV Quant,Direct IO,Threads,Spec Type,Build,Build Ref,GPUs,Date,llama-bench PP t/s,llama-bench TG t/s")
+	// Header — one row per test point, with run metadata repeated
+	fmt.Fprintln(w, "Model,Quant,Size (GB),Preset,Row Type,Prompt Tokens,Gen Tokens,Rep,PP t/s,TG t/s,TTFT (ms),Total (ms),GPU Layers,Context,GPU Assign,Tensor Split,Flash Attn,KV Quant,Direct IO,Threads,Spec Type,Build,Build Ref,GPUs,Date")
 
 	for _, run := range runs {
-		ppTPS := 0.0
-		tgTPS := 0.0
-		ttft := 0.0
-		if run.Summary != nil {
-			ppTPS = run.Summary.AvgPromptTokPerSec
-			tgTPS = run.Summary.AvgGenTokPerSec
-			ttft = run.Summary.AvgTTFTMs
-		}
-
 		gpuNames := ""
 		for i, g := range run.GPUs {
 			if i > 0 {
@@ -253,21 +244,9 @@ func (s *Server) handleExportBenchmarks(w http.ResponseWriter, r *http.Request) 
 			gpuNames += g.Name
 		}
 
-		lbPP := ""
-		lbTG := ""
-		if run.LlamaBench != nil {
-			lbPP = fmt.Sprintf("%.0f", run.LlamaBench.PromptTokPerSec)
-			lbTG = fmt.Sprintf("%.1f", run.LlamaBench.GenTokPerSec)
-		}
-
-		fmt.Fprintf(w, "%s,%s,%.1f,%s,%.0f,%.1f,%.0f,%d,%d,%s,%s,%t,%s,%t,%d,%s,%s,%s,\"%s\",%s,%s,%s\n",
-			run.ModelName,
-			run.Quant,
-			run.SizeGB,
-			run.Preset,
-			ppTPS,
-			tgTPS,
-			ttft,
+		common := fmt.Sprintf("%s,%s,%.1f,%s",
+			run.ModelName, run.Quant, run.SizeGB, run.Preset)
+		config := fmt.Sprintf("%d,%d,%s,%s,%t,%s,%t,%d,%s,%s,%s,\"%s\",%s",
 			run.Config.GPULayers,
 			run.Config.ContextSize,
 			run.Config.GPUAssign,
@@ -280,10 +259,32 @@ func (s *Server) handleExportBenchmarks(w http.ResponseWriter, r *http.Request) 
 			run.BuildID,
 			run.BuildRef,
 			gpuNames,
-			run.CreatedAt.Format("2006-01-02 15:04"),
-			lbPP,
-			lbTG,
-		)
+			run.CreatedAt.Format("2006-01-02 15:04"))
+
+		// Individual test results
+		for _, r := range run.Results {
+			fmt.Fprintf(w, "%s,api,%d,%d,%d,%.0f,%.1f,%.0f,%.0f,%s\n",
+				common, r.PromptTokens, r.GenTokens, r.Repetition,
+				r.PromptTokPerSec, r.GenTokPerSec, r.TTFTMs, r.TotalMs,
+				config)
+		}
+
+		// Summary row
+		if run.Summary != nil {
+			fmt.Fprintf(w, "%s,api-avg,,,,%.0f,%.1f,%.0f,,%s\n",
+				common,
+				run.Summary.AvgPromptTokPerSec, run.Summary.AvgGenTokPerSec, run.Summary.AvgTTFTMs,
+				config)
+		}
+
+		// llama-bench results
+		if run.LlamaBench != nil {
+			fmt.Fprintf(w, "%s,llama-bench,%d,%d,%d,%.0f,%.1f,,,%s\n",
+				common,
+				run.LlamaBench.PromptTokens, run.LlamaBench.GenTokens, run.LlamaBench.Repetitions,
+				run.LlamaBench.PromptTokPerSec, run.LlamaBench.GenTokPerSec,
+				config)
+		}
 	}
 }
 
