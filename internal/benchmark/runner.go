@@ -167,11 +167,8 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 				run.LlamaBench = lb
 			}
 
-			// Reload model so the server is ready for use again
-			send("llama-bench", "Reloading model into server...", 95)
-			if err := r.ensureModelLoaded(ctx, cfg.RouterURL, cfg.RouterName); err != nil {
-				slog.Warn("failed to reload model after llama-bench", "error", err)
-			}
+			// Don't reload — the router will auto-load on next request,
+			// and reloading here causes conflicts with back-to-back benchmarks.
 		} else {
 			run.Warnings = append(run.Warnings, "llama-bench binary not found — rebuild llama.cpp to include it")
 		}
