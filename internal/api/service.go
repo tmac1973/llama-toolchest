@@ -16,60 +16,35 @@ import (
 	"github.com/tmlabonte/llamactl/internal/process"
 )
 
-// applySpecDefaults fills in recommended parameter values when a speculative
-// decoding mode is selected and the fields are at zero/empty defaults.
+// applySpecDefaults resets speculative decoding parameters to recommended
+// values for the selected mode. Always overwrites — switching modes should
+// give you a clean set of defaults for that mode.
 func applySpecDefaults(cfg *models.ModelConfig) {
 	switch cfg.SpecType {
+	case "":
+		cfg.DraftMax = 0
+		cfg.DraftMin = 0
+		cfg.DraftPMin = ""
+		cfg.NgramSizeN = 0
+		cfg.NgramSizeM = 0
 	case "draft":
-		if cfg.DraftMax == 0 {
-			cfg.DraftMax = 16
-		}
-		if cfg.DraftPMin == "" {
-			cfg.DraftPMin = "0.75"
-		}
-	case "ngram-simple":
-		if cfg.DraftMax == 0 {
-			cfg.DraftMax = 16
-		}
-		if cfg.NgramSizeN == 0 {
-			cfg.NgramSizeN = 12
-		}
-		if cfg.NgramSizeM == 0 {
-			cfg.NgramSizeM = 48
-		}
-	case "ngram-cache":
-		if cfg.DraftMax == 0 {
-			cfg.DraftMax = 16
-		}
-		if cfg.NgramSizeN == 0 {
-			cfg.NgramSizeN = 12
-		}
-		if cfg.NgramSizeM == 0 {
-			cfg.NgramSizeM = 48
-		}
-	case "ngram-map-k", "ngram-map-k4v":
-		if cfg.DraftMax == 0 {
-			cfg.DraftMax = 16
-		}
-		if cfg.NgramSizeN == 0 {
-			cfg.NgramSizeN = 12
-		}
-		if cfg.NgramSizeM == 0 {
-			cfg.NgramSizeM = 48
-		}
+		cfg.DraftMax = 16
+		cfg.DraftMin = 0
+		cfg.DraftPMin = "0.75"
+		cfg.NgramSizeN = 0
+		cfg.NgramSizeM = 0
+	case "ngram-simple", "ngram-cache", "ngram-map-k", "ngram-map-k4v":
+		cfg.DraftMax = 16
+		cfg.DraftMin = 0
+		cfg.DraftPMin = ""
+		cfg.NgramSizeN = 12
+		cfg.NgramSizeM = 48
 	case "ngram-mod":
-		if cfg.DraftMax == 0 {
-			cfg.DraftMax = 64
-		}
-		if cfg.DraftMin == 0 {
-			cfg.DraftMin = 48
-		}
-		if cfg.NgramSizeN == 0 {
-			cfg.NgramSizeN = 24
-		}
-		if cfg.NgramSizeM == 0 {
-			cfg.NgramSizeM = 48
-		}
+		cfg.DraftMax = 64
+		cfg.DraftMin = 48
+		cfg.DraftPMin = ""
+		cfg.NgramSizeN = 24
+		cfg.NgramSizeM = 48
 	}
 }
 
