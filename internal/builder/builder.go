@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -76,6 +78,55 @@ func (b *Builder) List() []BuildResult {
 	out := make([]BuildResult, len(b.builds))
 	copy(out, b.builds)
 	return out
+}
+
+// LatestSuccessfulBuild returns the successful build with the newest GitRef
+// (e.g. "b8779" > "b8778"). Non-numeric refs like branch names or SHAs
+// are ranked below numeric b-tags; among them, newest StartedAt wins.
+// Returns nil if no successful build exists.
+func (b *Builder) LatestSuccessfulBuild() *BuildResult {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	var ok []BuildResult
+	for _, br := range b.builds {
+		if br.Status == BuildStatusSuccess {
+			ok = append(ok, br)
+		}
+	}
+	if len(ok) == 0 {
+		return nil
+	}
+	sort.SliceStable(ok, func(i, j int) bool {
+		ni, oki := refTagNumber(ok[i].GitRef)
+		nj, okj := refTagNumber(ok[j].GitRef)
+		switch {
+		case oki && okj:
+			if ni != nj {
+				return ni > nj
+			}
+		case oki && !okj:
+			return true
+		case !oki && okj:
+			return false
+		}
+		return ok[i].StartedAt.After(ok[j].StartedAt)
+	})
+	res := ok[0]
+	return &res
+}
+
+// refTagNumber extracts N from refs shaped like "bN" (llama.cpp's release
+// tag format). Returns (0, false) for non-matching refs.
+func refTagNumber(ref string) (int, bool) {
+	if len(ref) < 2 || ref[0] != 'b' {
+		return 0, false
+	}
+	n, err := strconv.Atoi(ref[1:])
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 // LogChannel returns the log channel for a build in progress.

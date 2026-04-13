@@ -77,7 +77,8 @@ func (s *Server) handleStartBenchmark(w http.ResponseWriter, r *http.Request) {
 	preset := benchmark.GetPreset(presetName)
 	metrics := s.monitor.Current()
 
-	// Find active build info
+	// Find active build info. Explicit selection wins; otherwise fall back
+	// to the successful build with the newest GitRef.
 	var activeBuild builder.BuildResult
 	if s.cfg.ActiveBuild != "" {
 		for _, b := range s.builder.List() {
@@ -88,11 +89,8 @@ func (s *Server) handleStartBenchmark(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if activeBuild.ID == "" {
-		for _, b := range s.builder.List() {
-			if b.Status == builder.BuildStatusSuccess {
-				activeBuild = b
-				break
-			}
+		if b := s.builder.LatestSuccessfulBuild(); b != nil {
+			activeBuild = *b
 		}
 	}
 

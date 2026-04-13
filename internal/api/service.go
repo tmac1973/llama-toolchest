@@ -299,7 +299,8 @@ func (s *Server) handleDeactivateModel(w http.ResponseWriter, r *http.Request) {
 
 // startRouter starts the llama-server in router mode using the active build.
 func (s *Server) startRouter() error {
-	// Find the build binary
+	// Find the build binary. Explicit selection wins; otherwise fall back
+	// to the successful build with the newest GitRef.
 	binaryPath := ""
 	if s.cfg.ActiveBuild != "" {
 		for _, b := range s.builder.List() {
@@ -310,11 +311,8 @@ func (s *Server) startRouter() error {
 		}
 	}
 	if binaryPath == "" {
-		for _, b := range s.builder.List() {
-			if b.Status == builder.BuildStatusSuccess {
-				binaryPath = b.BinaryPath
-				break
-			}
+		if b := s.builder.LatestSuccessfulBuild(); b != nil {
+			binaryPath = b.BinaryPath
 		}
 	}
 	if binaryPath == "" {

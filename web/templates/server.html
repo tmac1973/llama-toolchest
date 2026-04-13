@@ -53,7 +53,7 @@
                         <label>
                             Build
                             <select name="active_build">
-                                <option value="" {{if eq .ActiveBuild ""}}selected{{end}}>Auto (first available)</option>
+                                <option value="" {{if eq .ActiveBuild ""}}selected{{end}}>Auto (newest ref)</option>
                                 {{range .AvailableBuilds}}
                                 <option value="{{.ID}}" {{if eq .ID $.ActiveBuild}}selected{{end}}>
                                     {{.ID}} ({{.Profile}})
