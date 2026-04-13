@@ -24,13 +24,8 @@
     {{range .Runs}}
     <tr>
         <td>
-            {{if eq .Status "completed"}}
-            <input type="checkbox" class="bench-check" value="{{.ID}}" style="margin:0;">
-            {{else if eq .Status "running"}}
-            <span title="Running...">...</span>
-            {{else}}
-            <input type="checkbox" class="bench-check" value="{{.ID}}" style="margin:0;">
-            {{end}}
+            <input type="checkbox" class="bench-check" value="{{.ID}}" style="margin:0;"
+                   {{if eq .Status "running"}}title="Running — select to delete anyway"{{end}}>
         </td>
         <td>
             {{.ModelName}}

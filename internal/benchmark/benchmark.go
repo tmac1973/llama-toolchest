@@ -318,6 +318,22 @@ func (s *Store) load() {
 	}
 	if err := json.Unmarshal(data, &s.runs); err != nil {
 		slog.Error("failed to load benchmarks", "error", err)
+		return
+	}
+	// Any benchmark still marked running at startup belongs to a previous
+	// process that died mid-run — surface it as failed so it's deletable.
+	dirty := false
+	for i := range s.runs {
+		if s.runs[i].Status == StatusRunning {
+			s.runs[i].Status = StatusFailed
+			if s.runs[i].Error == "" {
+				s.runs[i].Error = "interrupted: server restarted before benchmark finished"
+			}
+			dirty = true
+		}
+	}
+	if dirty {
+		s.persist()
 	}
 }
 
