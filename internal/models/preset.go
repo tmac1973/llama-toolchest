@@ -46,13 +46,22 @@ func GeneratePresetINI(dataDir string, models []*Model, configs map[string]*Mode
 		// that auto-discovery can't find, and harmless for ones it can.
 		b.WriteString(fmt.Sprintf("model = %s\n", m.FilePath))
 
-		// Set aliases: section name, registry ID, plus any user-defined aliases
-		aliasList := []string{sectionName}
-		if m.ID != sectionName {
-			aliasList = append(aliasList, m.ID)
+		// Set aliases: section name, registry ID, public short name, plus
+		// any user-defined aliases. Deduplicate so the same name isn't listed twice.
+		seen := map[string]bool{}
+		aliasList := []string{}
+		add := func(a string) {
+			if a == "" || seen[a] {
+				return
+			}
+			seen[a] = true
+			aliasList = append(aliasList, a)
 		}
-		if cfg.Aliases != nil {
-			aliasList = append(aliasList, cfg.Aliases...)
+		add(sectionName)
+		add(m.ID)
+		add(m.PublicName())
+		for _, a := range cfg.Aliases {
+			add(a)
 		}
 		b.WriteString(fmt.Sprintf("alias = %s\n", strings.Join(aliasList, ",")))
 

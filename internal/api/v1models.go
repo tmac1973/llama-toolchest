@@ -43,7 +43,7 @@ func (s *Server) openAIModel(m *models.Model, cfg *models.ModelConfig) map[strin
 	}
 
 	obj := map[string]any{
-		"id":       m.ID,
+		"id":       m.PublicName(),
 		"object":   "model",
 		"created":  m.DownloadedAt.Unix(),
 		"owned_by": "llamactl",
@@ -95,7 +95,8 @@ func (s *Server) handleV1Model(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, s.openAIModel(m, cfg))
 }
 
-// findModelByAny looks up a model by registry ID, router name, or alias.
+// findModelByAny looks up a model by registry ID, public name, router name,
+// or user-defined alias.
 func (s *Server) findModelByAny(name string) (*models.Model, *models.ModelConfig) {
 	// Direct registry ID match
 	if m, err := s.registry.Get(name); err == nil {
@@ -103,9 +104,9 @@ func (s *Server) findModelByAny(name string) (*models.Model, *models.ModelConfig
 		return m, cfg
 	}
 
-	// Search by router name or alias
+	// Search by public name, router name, or alias
 	for _, m := range s.registry.List() {
-		if s.registry.RouterName(m.ID) == name {
+		if m.PublicName() == name || s.registry.RouterName(m.ID) == name {
 			cfg, _ := s.registry.GetConfig(m.ID)
 			return m, cfg
 		}

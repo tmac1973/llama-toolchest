@@ -14,6 +14,49 @@ import (
 	"time"
 )
 
+// OrgAndBase returns the HuggingFace organization and base model name
+// (the repo name with any "-GGUF" suffix stripped).
+func (m *Model) OrgAndBase() (org, base string) {
+	base = m.ModelID
+	if i := strings.Index(m.ModelID, "/"); i >= 0 {
+		org = m.ModelID[:i]
+		base = m.ModelID[i+1:]
+	}
+	base = strings.TrimSuffix(base, "-GGUF")
+	base = strings.TrimSuffix(base, "-gguf")
+	return org, base
+}
+
+// PublicName returns a short, human-friendly model identifier for the
+// /v1/models API and preset aliases. It strips the redundant "-GGUF" suffix,
+// collapses any dash-segmented prefix shared between the HuggingFace org
+// and repo name (e.g. "nomic-ai" + "nomic-embed-text-v1.5" → "nomic-ai-embed-text-v1.5"),
+// and appends the quant. Multi-file shard suffixes are dropped because the
+// name is derived from ModelID, not the on-disk filename.
+func (m *Model) PublicName() string {
+	org, base := m.OrgAndBase()
+
+	var name string
+	if org == "" {
+		name = base
+	} else {
+		orgParts := strings.Split(org, "-")
+		baseParts := strings.Split(base, "-")
+		k := 0
+		for k < len(orgParts) && k < len(baseParts) && strings.EqualFold(orgParts[k], baseParts[k]) {
+			k++
+		}
+		combined := append([]string{}, orgParts...)
+		combined = append(combined, baseParts[k:]...)
+		name = strings.Join(combined, "-")
+	}
+
+	if m.Quant != "" {
+		name += "." + m.Quant
+	}
+	return name
+}
+
 // Model represents a locally downloaded GGUF model.
 type Model struct {
 	ID           string    `json:"id"`
