@@ -7,15 +7,16 @@ import (
 
 // GPUOption represents one selectable GPU assignment choice for the dropdown.
 type GPUOption struct {
-	Value     string // "all", "0", "0-1", "2-3", "custom"
+	Value     string // "all", "0", "0-1", "2-3", "tensor", "custom"
 	Label     string // "All GPUs", "GPU 0", "GPUs 0-1"
 	GPUs      []int  // which GPU indices (e.g., [0,1])
+	IsTensor  bool   // true for tensor parallelism mode
 	Disabled  bool   // model doesn't fit
 	Recommend bool   // suggested option
 }
 
 // GPUAssignOptions generates all GPU assignment options for a given number of GPUs.
-// Returns single GPUs, contiguous pairs, triples (for 4+ GPUs), "all", and "custom".
+// Returns tensor parallelism, single GPUs, contiguous pairs, triples (for 4+ GPUs), "all", and "custom".
 func GPUAssignOptions(numGPUs int) []GPUOption {
 	if numGPUs <= 0 {
 		return nil
@@ -23,7 +24,15 @@ func GPUAssignOptions(numGPUs int) []GPUOption {
 
 	var opts []GPUOption
 
-	// "All GPUs" is always first
+	// "Tensor" mode (tensor parallelism) is first
+	opts = append(opts, GPUOption{
+		Value:    "tensor",
+		Label:    "Tensor Parallelism (all GPUs)",
+		GPUs:     nil,
+		IsTensor: true,
+	})
+
+	// "All GPUs" is second
 	allGPUs := make([]int, numGPUs)
 	for i := range allGPUs {
 		allGPUs[i] = i
@@ -75,22 +84,27 @@ func GPUAssignOptions(numGPUs int) []GPUOption {
 }
 
 // ResolveGPUAssign converts a GPU assignment string into tensor-split, split-mode,
-// and main-gpu values for llama-server.
+// number-processors, and main-gpu values for llama-server.
 //
-//	"all"    → ("", "", 0)         — default behavior
-//	"0"      → ("1,0,0,0", "layer", 0)
-//	"0-1"    → ("1,1,0,0", "layer", 0)
-//	"2-3"    → ("0,0,1,1", "layer", 2)
-//	"custom" → ("", "", 0)        — caller preserves raw TensorSplit
-func ResolveGPUAssign(assign string, numGPUs int) (tensorSplit, splitMode string, mainGPU int) {
-	if assign == "" || assign == "all" || assign == "custom" || numGPUs <= 0 {
-		return "", "", 0
+//	"all"    → ("", "tensor", numGPUs, 0)     — tensor parallelism on all GPUs
+//	"0"      → ("1,0,0,0", "layer", 0, 0)      — single GPU (layer mode)
+//	"0-1"    → ("1,1,0,0", "layer", 0, 0)      — two GPUs (layer mode)
+//	"2-3"    → ("0,0,1,1", "layer", 0, 2)      — GPUs 2-3 (layer mode)
+//	"custom" → ("", "", 0, 0)                  — caller preserves raw TensorSplit
+func ResolveGPUAssign(assign string, numGPUs int) (tensorSplit, splitMode string, numberProcessors, mainGPU int) {
+	if assign == "" || assign == "custom" || numGPUs <= 0 {
+		return "", "", 0, 0
+	}
+
+	// "all" always uses tensor parallelism on all GPUs
+	if assign == "all" {
+		return "", "tensor", numGPUs, 0
 	}
 
 	// Parse the assignment to get GPU indices
 	gpus := parseGPURange(assign)
 	if len(gpus) == 0 {
-		return "", "", 0
+		return "", "", 0, 0
 	}
 
 	// Build tensor-split string: 1 for active GPUs, 0 for inactive
@@ -104,7 +118,7 @@ func ResolveGPUAssign(assign string, numGPUs int) (tensorSplit, splitMode string
 		}
 	}
 
-	return strings.Join(parts, ","), "layer", gpus[0]
+	return strings.Join(parts, ","), "layer", len(gpus), gpus[0]
 }
 
 // parseGPURange parses GPU assignment values like "0", "0-1", "2-3" into indices.

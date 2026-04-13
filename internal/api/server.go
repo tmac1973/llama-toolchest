@@ -25,19 +25,19 @@ import (
 )
 
 type Server struct {
-	cfg            *config.Config
-	pages          map[string]*template.Template
-	router         chi.Router
-	builder        *builder.Builder
-	hfClient       *huggingface.Client
-	downloader     *huggingface.Downloader
-	registry       *models.Registry
-	process        *process.Manager
-	monitor        *monitor.Monitor
-	bench          *benchmark.Store
-	benchProgress  map[string]chan benchmark.ProgressUpdate
+	cfg             *config.Config
+	pages           map[string]*template.Template
+	router          chi.Router
+	builder         *builder.Builder
+	hfClient        *huggingface.Client
+	downloader      *huggingface.Downloader
+	registry        *models.Registry
+	process         *process.Manager
+	monitor         *monitor.Monitor
+	bench           *benchmark.Store
+	benchProgress   map[string]chan benchmark.ProgressUpdate
 	benchProgressMu sync.RWMutex
-	dirtyModels    map[string]bool // models whose config changed since last load
+	dirtyModels     map[string]bool // models whose config changed since last load
 }
 
 func NewServer(cfg *config.Config) *Server {
@@ -45,10 +45,10 @@ func NewServer(cfg *config.Config) *Server {
 	mon.Start()
 
 	s := &Server{
-		cfg:         cfg,
-		builder:     builder.NewBuilder(cfg.DataDir),
-		hfClient:    huggingface.NewClient(cfg.HFToken),
-		downloader:  huggingface.NewDownloader(cfg.DataDir, cfg.HFToken),
+		cfg:           cfg,
+		builder:       builder.NewBuilder(cfg.DataDir),
+		hfClient:      huggingface.NewClient(cfg.HFToken),
+		downloader:    huggingface.NewDownloader(cfg.DataDir, cfg.HFToken),
 		registry:      models.NewRegistry(cfg.DataDir),
 		process:       process.NewManager(),
 		monitor:       mon,
@@ -104,7 +104,8 @@ func (s *Server) parseTemplates() map[string]*template.Template {
 			} else {
 				numGPUs = 1
 			}
-			return models.VRAMFitLabel(estimatedGB, perGPU, numGPUs)
+			// Default to layer mode (no tensor parallelism) for rough estimates
+			return models.VRAMFitLabel(estimatedGB, perGPU, numGPUs, 0)
 		},
 	}
 

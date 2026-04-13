@@ -62,17 +62,33 @@
         <label title="Assign this model to specific GPUs. Controls tensor-split, split-mode, and main-gpu automatically.">
             GPU Assignment
             <select name="gpu_assign"
-                    onchange="var c=this.closest('form').querySelector('.tensor-split-custom'); if(this.value==='custom'){c.style.display='';c.querySelector('input').name='tensor_split';}else{c.style.display='none';c.querySelector('input').removeAttribute('name');}">
+                    onchange="var c=this.closest('form').querySelector('.tensor-split-custom'); var s=this.closest('form').querySelector('.split-mode-options'); if(this.value==='custom'){c.style.display='';c.querySelector('input').name='tensor_split';}else{c.style.display='none';c.querySelector('input').removeAttribute('name');} if(this.value==='tensor'||this.value==='all'){s.style.display='';}else{s.style.display='none';}">
                 {{range .GPUOptions}}
                 <option value="{{.Value}}"
                         {{if eq $.Config.GPUAssign .Value}}selected{{end}}
                         {{if and (eq $.Config.GPUAssign "") (eq .Value "all")}}selected{{end}}
+                        {{if and (eq $.Config.GPUAssign "") (eq .Value "tensor") (eq $.Config.SplitMode "tensor")}}selected{{end}}
                         {{if .Disabled}}disabled{{end}}>
                     {{.Label}}{{if .Recommend}} ★{{end}}
                 </option>
                 {{end}}
             </select>
         </label>
+        <div class="split-mode-options" style="{{if or (eq .Config.SplitMode "tensor") (eq .Config.GPUAssign "all") (eq .Config.GPUAssign "tensor")}}display:flex;gap:0.5rem;{{else}}display:none;{{end}}">
+            <label title="Split mode: 'layer' splits layers sequentially across GPUs, 'tensor' splits tensors across all GPUs simultaneously (experimental).">
+                Split Mode
+                <select name="split_mode" onchange="this.closest('form').querySelector('.number-processors-row').style.display=(this.value==='tensor'? 'flex':'none')">
+                    <option value="layer" {{if eq .Config.SplitMode "layer"}}selected{{end}}>Layer</option>
+                    <option value="tensor" {{if eq .Config.SplitMode "tensor"}}selected{{end}}>Tensor (parallel)</option>
+                </select>
+            </label>
+            <div class="number-processors-row" style="{{if ne .Config.SplitMode "tensor"}}display:none;{{end}}">
+                <label title="Number of GPUs for tensor parallelism. For layer mode, this is auto-calculated.">
+                    Processors
+                    <input type="number" name="number_processors" value="{{.Config.NumberProcessors}}" min="1">
+                </label>
+            </div>
+        </div>
         <div class="tensor-split-custom" style="{{if ne .Config.GPUAssign "custom"}}display:none;{{end}}">
             <label title="Manual tensor-split ratios. Comma-separated values for each GPU.">
                 Tensor Split
@@ -111,6 +127,10 @@
             Direct I/O
             <input type="checkbox" name="direct_io" role="switch"
                    {{if .Config.DirectIO}}checked{{end}}>
+        </label>
+        <label title="Experimental: Tensor parallelism requires fast GPU interconnect (NVLink/PCIe 4.0+). Some features like KV offloading may have bugs.">
+            <input type="checkbox" class="tensor-parallelism-warning" style="display:none;"
+                   disabled checked>⚠️ Tensor parallelism warning
         </label>
     </div>
 

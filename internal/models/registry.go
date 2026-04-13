@@ -7,9 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
-	"sort"
 	"sync"
 	"time"
 )
@@ -38,19 +38,20 @@ type Model struct {
 
 // ModelConfig holds per-model launch configuration for llama-server.
 type ModelConfig struct {
-	Enabled        bool   `json:"enabled"`
-	GPULayers      int    `json:"gpu_layers"`
-	TensorSplit    string `json:"tensor_split"`
-	SplitMode      string `json:"split_mode,omitempty"`  // "layer" or ""
-	MainGPU        int    `json:"main_gpu,omitempty"`
-	GPUAssign      string `json:"gpu_assign,omitempty"`  // "all", "0", "0-1", "custom", etc.
-	ContextSize    int    `json:"context_size"`
-	Threads        int    `json:"threads"`
-	FlashAttention bool   `json:"flash_attention"`
-	Jinja          bool   `json:"jinja"`
-	KVCacheQuant   string `json:"kv_cache_quant"` // "", "q8_0", "q4_0"
-	DirectIO       bool   `json:"direct_io"`       // bypass page cache, load straight to VRAM
-	MmprojPath     string `json:"mmproj_path,omitempty"` // path to mmproj GGUF for vision models
+	Enabled          bool   `json:"enabled"`
+	GPULayers        int    `json:"gpu_layers"`
+	TensorSplit      string `json:"tensor_split"`
+	SplitMode        string `json:"split_mode,omitempty"`        // "layer", "tensor", or ""
+	NumberProcessors int    `json:"number_processors,omitempty"` // N for --number-processors (tensor parallelism)
+	MainGPU          int    `json:"main_gpu,omitempty"`
+	GPUAssign        string `json:"gpu_assign,omitempty"` // "all", "0", "0-1", "custom", etc.
+	ContextSize      int    `json:"context_size"`
+	Threads          int    `json:"threads"`
+	FlashAttention   bool   `json:"flash_attention"`
+	Jinja            bool   `json:"jinja"`
+	KVCacheQuant     string `json:"kv_cache_quant"`        // "", "q8_0", "q4_0"
+	DirectIO         bool   `json:"direct_io"`             // bypass page cache, load straight to VRAM
+	MmprojPath       string `json:"mmproj_path,omitempty"` // path to mmproj GGUF for vision models
 
 	// Speculative decoding
 	SpecType       string `json:"spec_type,omitempty"`        // "", "draft", "ngram-simple", "ngram-cache", etc.
@@ -61,8 +62,8 @@ type ModelConfig struct {
 	NgramSizeN     int    `json:"ngram_size_n,omitempty"`     // n-gram lookup length
 	NgramSizeM     int    `json:"ngram_size_m,omitempty"`     // n-gram draft length
 
-	Aliases []string `json:"aliases,omitempty"` // user-defined friendly names
-	ExtraFlags     string   `json:"extra_flags"`
+	Aliases    []string `json:"aliases,omitempty"` // user-defined friendly names
+	ExtraFlags string   `json:"extra_flags"`
 
 	// Sampling parameters — nil means use llama.cpp server default.
 	Temperature     *float64 `json:"temperature,omitempty"`
@@ -117,6 +118,9 @@ func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool) string {
 	}
 	if c.SplitMode != "" {
 		parts = append(parts, "--split-mode", c.SplitMode)
+		if c.SplitMode == "tensor" && c.NumberProcessors > 0 {
+			parts = append(parts, "--number-processors", strconv.Itoa(c.NumberProcessors))
+		}
 	}
 	if c.MainGPU > 0 {
 		parts = append(parts, "--main-gpu", strconv.Itoa(c.MainGPU))
@@ -205,13 +209,15 @@ func (r *Registry) Add(m *Model) error {
 	// Set default config
 	if _, exists := r.data.Configs[m.ID]; !exists {
 		r.data.Configs[m.ID] = &ModelConfig{
-			Enabled:        true,
-			GPULayers:      999,
-			TensorSplit:    "",
-			ContextSize:    8192,
-			Threads:        8,
-			FlashAttention: true,
-			Jinja:          true,
+			Enabled:          true,
+			GPULayers:        999,
+			TensorSplit:      "",
+			SplitMode:        "",
+			NumberProcessors: 0,
+			ContextSize:      8192,
+			Threads:          8,
+			FlashAttention:   true,
+			Jinja:            true,
 		}
 	}
 	r.save()
@@ -468,8 +474,8 @@ func (r *Registry) ScanModels() int {
 		rel, _ := filepath.Rel(modelsDir, path)
 		parts := strings.SplitN(rel, string(filepath.Separator), 2)
 
-		dirName := parts[0]                              // e.g., "unsloth--Qwen3.5-27B-GGUF"
-		filename := info.Name()                          // e.g., "Qwen3.5-27B-Q4_K_M.gguf"
+		dirName := parts[0]                               // e.g., "unsloth--Qwen3.5-27B-GGUF"
+		filename := info.Name()                           // e.g., "Qwen3.5-27B-Q4_K_M.gguf"
 		modelID := strings.ReplaceAll(dirName, "--", "/") // e.g., "unsloth/Qwen3.5-27B-GGUF"
 
 		safeName := dirName
@@ -755,6 +761,15 @@ func (r *Registry) load() {
 	}
 	if r.data.Configs == nil {
 		r.data.Configs = make(map[string]*ModelConfig)
+	}
+	for id, cfg := range r.data.Configs {
+		if cfg.SplitMode == "" {
+			cfg.SplitMode = ""
+		}
+		if cfg.NumberProcessors == 0 {
+			cfg.NumberProcessors = 0
+		}
+		r.data.Configs[id] = cfg
 	}
 }
 

@@ -99,11 +99,18 @@ func VRAMEstimateForConfig(m *Model, cfg *ModelConfig) float64 {
 
 // VRAMFitLabel returns a human-readable label for how a model fits
 // relative to the available VRAM. perGPU is the size of one GPU in GB,
-// numGPUs is how many are available.
+// numGPUs is how many are available. For tensor parallelism, estimatedGB
+// is automatically divided by numberProcessors.
 // Returns: "fits" (single GPU), "2 GPU", "3 GPU", etc., or "too_large".
-func VRAMFitLabel(estimatedGB float64, perGPU float64, numGPUs int) string {
+func VRAMFitLabel(estimatedGB float64, perGPU float64, numGPUs int, numberProcessors int) string {
 	if perGPU <= 0 || numGPUs <= 0 {
 		return ""
+	}
+
+	// For tensor parallelism, divide estimated VRAM by number of processors
+	// since tensors are split across all GPUs
+	if numberProcessors > 0 && numberProcessors < numGPUs {
+		numGPUs = numberProcessors
 	}
 	totalVRAM := perGPU * float64(numGPUs)
 	needed := int(math.Ceil(estimatedGB / perGPU))

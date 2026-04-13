@@ -212,7 +212,6 @@ func (s *Server) handleLoadedModels(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `</div>`)
 }
 
-
 func (s *Server) handleServiceLogTabs(w http.ResponseWriter, r *http.Request) {
 	// With the native router, logs are combined — no tabs needed.
 	// Return empty to hide the tab bar.
@@ -513,18 +512,30 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		cfg.GPUAssign = gpuAssign
 		if gpuAssign != "" && gpuAssign != "custom" && gpuAssign != "all" {
 			numGPUs := len(s.monitor.Current().GPU)
-			ts, sm, mg := models.ResolveGPUAssign(gpuAssign, numGPUs)
+			ts, sm, np, mg := models.ResolveGPUAssign(gpuAssign, numGPUs)
 			cfg.TensorSplit = ts
 			cfg.SplitMode = sm
+			cfg.NumberProcessors = np
 			cfg.MainGPU = mg
-		} else if gpuAssign == "all" {
+		} else if gpuAssign == "tensor" {
+			// Tensor parallelism mode - use all GPUs
+			numGPUs := len(s.monitor.Current().GPU)
 			cfg.TensorSplit = ""
-			cfg.SplitMode = ""
+			cfg.SplitMode = "tensor"
+			cfg.NumberProcessors = numGPUs
+			cfg.MainGPU = 0
+		} else if gpuAssign == "all" {
+			// All GPUs - uses tensor parallelism
+			numGPUs := len(s.monitor.Current().GPU)
+			cfg.TensorSplit = ""
+			cfg.SplitMode = "tensor"
+			cfg.NumberProcessors = numGPUs
 			cfg.MainGPU = 0
 		} else {
 			// "custom" — preserve the raw tensor_split from form
 			cfg.TensorSplit = r.FormValue("tensor_split")
 			cfg.SplitMode = ""
+			cfg.NumberProcessors = 0
 			cfg.MainGPU = 0
 		}
 		cfg.ContextSize, _ = strconv.Atoi(r.FormValue("context_size"))
@@ -619,4 +630,3 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 
 	s.handleGetModelConfig(w, r)
 }
-
