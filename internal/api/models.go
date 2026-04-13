@@ -1,8 +1,12 @@
 package api
 
 import (
+	"fmt"
+	"html"
 	"log/slog"
 	"net/http"
+	"sort"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tmlabonte/llamactl/internal/models"
@@ -22,7 +26,7 @@ func (s *Server) handleListEmbeddingModels(w http.ResponseWriter, r *http.Reques
 		if len(embeddingModels) == 0 {
 			return
 		}
-		s.renderModelTable(w, r, embeddingModels)
+		s.renderModelTable(w, r, embeddingModels, false)
 		return
 	}
 
@@ -46,7 +50,7 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		s.renderModelTable(w, r, modelList)
+		s.renderModelTable(w, r, modelList, true)
 		return
 	}
 
@@ -215,8 +219,10 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// renderModelTable renders the shared model table used by both chat and embedding lists.
-func (s *Server) renderModelTable(w http.ResponseWriter, r *http.Request, modelList []*models.Model) {
+// renderModelTable renders the shared model table used by both chat and embedding
+// lists. When grouped is true, a filter input and collapsible org/base-model
+// sections are emitted around the table.
+func (s *Server) renderModelTable(w http.ResponseWriter, r *http.Request, modelList []*models.Model, grouped bool) {
 	// Build set of models the router knows about (any status)
 	routerKnown := make(map[string]string)
 	if routerModels, err := s.process.ListModels(); err == nil {
@@ -236,8 +242,7 @@ func (s *Server) renderModelTable(w http.ResponseWriter, r *http.Request, modelL
 		orphanSet[m.ID] = true
 	}
 
-	w.Write([]byte(`<table role="grid"><thead><tr><th title="Enable model for the inference server">On</th><th>Model</th><th>Quant</th><th title="Base (weights) - Peak (full KV cache)">VRAM Est.</th><th>Size</th><th></th></tr></thead>`))
-	for _, m := range modelList {
+	renderOne := func(m *models.Model, org, base string) {
 		state := routerKnown[m.ID]
 
 		weightsGB := models.BytesToGB(m.SizeBytes) + 0.2
@@ -245,6 +250,7 @@ func (s *Server) renderModelTable(w http.ResponseWriter, r *http.Request, modelL
 		enabled := true
 		hasVision := m.HasBuiltinVision
 		gpuLabel := ""
+		var aliases []string
 		if cfg, err := s.registry.GetConfig(m.ID); err == nil {
 			peakVRAM = models.VRAMEstimateForConfig(m, cfg)
 			enabled = cfg.Enabled
@@ -254,12 +260,18 @@ func (s *Server) renderModelTable(w http.ResponseWriter, r *http.Request, modelL
 			if cfg.GPUAssign != "" && cfg.GPUAssign != "all" {
 				gpuLabel = models.GPUAssignLabel(cfg.GPUAssign)
 			}
+			aliases = cfg.Aliases
 		}
 		baseVRAM := weightsGB
 
 		pendingEnable := enabled && state == "" && s.process.IsRunning()
 		pendingDisable := !enabled && state != "" && s.process.IsRunning()
 		configChanged := s.dirtyModels[m.ID] && state != "" && s.process.IsRunning()
+
+		searchText := strings.ToLower(strings.Join([]string{
+			org, base, m.Quant, m.PublicName(), m.ModelID, m.Arch,
+			strings.Join(aliases, " "),
+		}, " "))
 
 		data := struct {
 			models.Model
@@ -274,6 +286,9 @@ func (s *Server) renderModelTable(w http.ResponseWriter, r *http.Request, modelL
 			BaseVRAMGB     float64
 			PeakVRAMGB     float64
 			IsOrphan       bool
+			Org            string
+			BaseName       string
+			SearchText     string
 		}{
 			Model:          *m,
 			IsActive:       state == "loaded" || state == "loading",
@@ -287,8 +302,89 @@ func (s *Server) renderModelTable(w http.ResponseWriter, r *http.Request, modelL
 			BaseVRAMGB:     baseVRAM,
 			PeakVRAMGB:     peakVRAM,
 			IsOrphan:       orphanSet[m.ID],
+			Org:            org,
+			BaseName:       base,
+			SearchText:     searchText,
 		}
 		s.renderPartial(w, "model_card", data)
 	}
+
+	if !grouped {
+		w.Write([]byte(`<table role="grid"><thead><tr><th title="Enable model for the inference server">On</th><th>Model</th><th>Quant</th><th title="Base (weights) - Peak (full KV cache)">VRAM Est.</th><th>Size</th><th></th></tr></thead>`))
+		for _, m := range modelList {
+			renderOne(m, "", "")
+		}
+		w.Write([]byte(`</table>`))
+		return
+	}
+
+	// Group by org → base model.
+	type baseGroup struct {
+		name   string
+		models []*models.Model
+	}
+	type orgGroup struct {
+		name  string
+		bases []*baseGroup
+		total int
+	}
+	orgIdx := map[string]*orgGroup{}
+	var orgs []string
+	for _, m := range modelList {
+		org, base := m.OrgAndBase()
+		if org == "" {
+			org = "(local)"
+		}
+		og, ok := orgIdx[org]
+		if !ok {
+			og = &orgGroup{name: org}
+			orgIdx[org] = og
+			orgs = append(orgs, org)
+		}
+		var bg *baseGroup
+		for _, b := range og.bases {
+			if b.name == base {
+				bg = b
+				break
+			}
+		}
+		if bg == nil {
+			bg = &baseGroup{name: base}
+			og.bases = append(og.bases, bg)
+		}
+		bg.models = append(bg.models, m)
+		og.total++
+	}
+	sort.Slice(orgs, func(i, j int) bool { return strings.ToLower(orgs[i]) < strings.ToLower(orgs[j]) })
+	for _, og := range orgIdx {
+		sort.Slice(og.bases, func(i, j int) bool { return strings.ToLower(og.bases[i].name) < strings.ToLower(og.bases[j].name) })
+	}
+
+	w.Write([]byte(`<input type="search" class="model-filter" placeholder="Filter by name, quant, architecture…" oninput="filterModels(this.value)" autocomplete="off" style="margin-bottom:0.5rem;">`))
+	w.Write([]byte(`<table role="grid">`))
+
+	for _, orgName := range orgs {
+		og := orgIdx[orgName]
+		fmt.Fprintf(w,
+			`<tbody class="group-header org-header" data-org="%s"><tr onclick="toggleGroup(this.parentElement)"><td colspan="6" class="org-cell"><span class="caret">▾</span> <strong>%s</strong> <small>(%d)</small></td></tr></tbody>`,
+			html.EscapeString(orgName), html.EscapeString(orgName), og.total)
+
+		for _, bg := range og.bases {
+			fmt.Fprintf(w,
+				`<tbody class="group-header base-header" data-org="%s" data-base="%s"><tr onclick="toggleGroup(this.parentElement)"><td colspan="6" class="base-cell"><span class="caret">▾</span> %s <small>(%d)</small></td></tr></tbody>`,
+				html.EscapeString(orgName), html.EscapeString(bg.name), html.EscapeString(bg.name), len(bg.models))
+
+			// Column header row scoped to this base group — visibility
+			// follows the base group's collapse state.
+			fmt.Fprintf(w,
+				`<tbody class="base-col-header" data-org="%s" data-base="%s"><tr><th title="Enable model for the inference server">On</th><th>Model</th><th>Quant</th><th title="Base (weights) - Peak (full KV cache)">VRAM Est.</th><th>Size</th><th></th></tr></tbody>`,
+				html.EscapeString(orgName), html.EscapeString(bg.name))
+
+			for _, m := range bg.models {
+				renderOne(m, orgName, bg.name)
+			}
+		}
+	}
+
 	w.Write([]byte(`</table>`))
 }

@@ -51,5 +51,89 @@
         }
     });
 })();
+
+// --- Model list: toggle org/base-model groups ---
+function toggleGroup(header) {
+    if (!header) return;
+    var collapsed = header.classList.toggle('collapsed');
+    var caret = header.querySelector('.caret');
+    if (caret) caret.textContent = collapsed ? '▸' : '▾';
+
+    var org = header.dataset.org;
+    var base = header.dataset.base;
+    var root = header.parentElement;
+    if (!root) return;
+
+    var orgSel = '[data-org="' + CSS.escape(org) + '"]';
+
+    if (header.classList.contains('base-header')) {
+        var baseSel = orgSel + '[data-base="' + CSS.escape(base) + '"]';
+        root.querySelectorAll('tbody.base-col-header' + baseSel + ', tbody.model-row-group' + baseSel).forEach(function(tb) {
+            tb.style.display = collapsed ? 'none' : '';
+        });
+        return;
+    }
+
+    if (header.classList.contains('org-header')) {
+        // Base headers follow the org's state directly.
+        root.querySelectorAll('tbody.base-header' + orgSel).forEach(function(bh) {
+            bh.style.display = collapsed ? 'none' : '';
+        });
+        // Column headers + model rows: hide everything when collapsing;
+        // when expanding, only reveal those whose base-header is NOT collapsed.
+        root.querySelectorAll('tbody.base-col-header' + orgSel + ', tbody.model-row-group' + orgSel).forEach(function(tb) {
+            if (collapsed) {
+                tb.style.display = 'none';
+                return;
+            }
+            var bh = root.querySelector('tbody.base-header' + orgSel +
+                '[data-base="' + CSS.escape(tb.dataset.base) + '"]');
+            var baseCollapsed = bh && bh.classList.contains('collapsed');
+            tb.style.display = baseCollapsed ? 'none' : '';
+        });
+    }
+}
+
+// --- Model list: text filter ---
+function filterModels(q) {
+    q = (q || '').trim().toLowerCase();
+    var root = document.getElementById('model-list');
+    if (!root) return;
+
+    var rows = root.querySelectorAll('tbody.model-row-group');
+    var visibleByBase = {}; // org||base -> count
+    var visibleByOrg = {};  // org -> count
+
+    rows.forEach(function(tb) {
+        var show = !q || (tb.dataset.search || '').indexOf(q) !== -1;
+        tb.style.display = show ? '' : 'none';
+        if (show) {
+            var key = (tb.dataset.org || '') + '||' + (tb.dataset.base || '');
+            visibleByBase[key] = (visibleByBase[key] || 0) + 1;
+            visibleByOrg[tb.dataset.org || ''] = (visibleByOrg[tb.dataset.org || ''] || 0) + 1;
+        }
+    });
+
+    // Show/hide group headers + per-group column headers; auto-expand on filter
+    root.querySelectorAll('tbody.base-header').forEach(function(bh) {
+        var key = (bh.dataset.org || '') + '||' + (bh.dataset.base || '');
+        var has = !!visibleByBase[key];
+        bh.style.display = has ? '' : 'none';
+        if (q && has && bh.classList.contains('collapsed')) {
+            toggleGroup(bh);
+        }
+    });
+    root.querySelectorAll('tbody.base-col-header').forEach(function(ch) {
+        var key = (ch.dataset.org || '') + '||' + (ch.dataset.base || '');
+        ch.style.display = visibleByBase[key] ? '' : 'none';
+    });
+    root.querySelectorAll('tbody.org-header').forEach(function(oh) {
+        var has = !!visibleByOrg[oh.dataset.org || ''];
+        oh.style.display = has ? '' : 'none';
+        if (q && has && oh.classList.contains('collapsed')) {
+            toggleGroup(oh);
+        }
+    });
+}
 </script>
 {{end}}
