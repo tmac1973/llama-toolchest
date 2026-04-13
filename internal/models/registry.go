@@ -41,8 +41,7 @@ type ModelConfig struct {
 	Enabled          bool   `json:"enabled"`
 	GPULayers        int    `json:"gpu_layers"`
 	TensorSplit      string `json:"tensor_split"`
-	SplitMode        string `json:"split_mode,omitempty"`        // "layer", "tensor", or ""
-	NumberProcessors int    `json:"number_processors,omitempty"` // N for --number-processors (tensor parallelism)
+	SplitMode        string `json:"split_mode,omitempty"` // "layer", "tensor", or ""
 	MainGPU          int    `json:"main_gpu,omitempty"`
 	GPUAssign        string `json:"gpu_assign,omitempty"` // "all", "0", "0-1", "custom", etc.
 	ContextSize      int    `json:"context_size"`
@@ -118,9 +117,6 @@ func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool) string {
 	}
 	if c.SplitMode != "" {
 		parts = append(parts, "--split-mode", c.SplitMode)
-		if c.SplitMode == "tensor" && c.NumberProcessors > 0 {
-			parts = append(parts, "--number-processors", strconv.Itoa(c.NumberProcessors))
-		}
 	}
 	if c.MainGPU > 0 {
 		parts = append(parts, "--main-gpu", strconv.Itoa(c.MainGPU))
@@ -209,15 +205,14 @@ func (r *Registry) Add(m *Model) error {
 	// Set default config
 	if _, exists := r.data.Configs[m.ID]; !exists {
 		r.data.Configs[m.ID] = &ModelConfig{
-			Enabled:          true,
-			GPULayers:        999,
-			TensorSplit:      "",
-			SplitMode:        "",
-			NumberProcessors: 0,
-			ContextSize:      8192,
-			Threads:          8,
-			FlashAttention:   true,
-			Jinja:            true,
+			Enabled:        true,
+			GPULayers:      999,
+			TensorSplit:    "",
+			SplitMode:      "",
+			ContextSize:    8192,
+			Threads:        8,
+			FlashAttention: true,
+			Jinja:          true,
 		}
 	}
 	r.save()

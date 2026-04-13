@@ -68,7 +68,7 @@ func GPUAssignOptions(numGPUs int) []GPUOption {
 	})
 
 	// Tensor parallelism variants — one per GPU count (2..numGPUs).
-	// --number-processors N takes the first N GPUs (indices 0..N-1).
+	// For partial counts, tensor-split restricts to the first N GPUs.
 	for n := 2; n <= numGPUs; n++ {
 		tpGPUs := make([]int, n)
 		for i := range tpGPUs {
@@ -95,41 +95,50 @@ func GPUAssignOptions(numGPUs int) []GPUOption {
 	return opts
 }
 
-// ResolveGPUAssign converts a GPU assignment string into tensor-split, split-mode,
-// number-processors, and main-gpu values for llama-server.
+// ResolveGPUAssign converts a GPU assignment string into tensor-split,
+// split-mode, and main-gpu values for llama-server.
 //
-//	"all"      → ("", "layer", 0, 0)             — layer split across all GPUs
-//	"tensor-N" → ("", "tensor", N, 0)            — tensor parallelism on first N GPUs
-//	"0"        → ("1,0,0,0", "layer", 0, 0)      — single GPU
-//	"0-1"      → ("1,1,0,0", "layer", 0, 0)      — two GPUs (layer)
-//	"2-3"      → ("0,0,1,1", "layer", 0, 2)      — GPUs 2-3 (layer)
-//	"custom"   → ("", "", 0, 0)                  — caller preserves raw TensorSplit
-func ResolveGPUAssign(assign string, numGPUs int) (tensorSplit, splitMode string, numberProcessors, mainGPU int) {
+//	"all"      → ("", "layer", 0)          — layer split across all GPUs
+//	"tensor-N" → tensor parallelism: split-mode=tensor; tensor-split="1,...,0"
+//	             restricts to first N GPUs when N<numGPUs, else no split
+//	"0"        → ("1,0,0,0", "layer", 0)   — single GPU
+//	"0-1"      → ("1,1,0,0", "layer", 0)   — two GPUs (layer)
+//	"2-3"      → ("0,0,1,1", "layer", 2)   — GPUs 2-3 (layer)
+//	"custom"   → ("", "", 0)               — caller preserves raw TensorSplit
+func ResolveGPUAssign(assign string, numGPUs int) (tensorSplit, splitMode string, mainGPU int) {
 	if assign == "" || assign == "custom" || numGPUs <= 0 {
-		return "", "", 0, 0
+		return "", "", 0
 	}
 
 	// "all" — layer split across all GPUs
 	if assign == "all" {
-		return "", "layer", 0, 0
+		return "", "layer", 0
 	}
 
 	// "tensor-N" — tensor parallelism on first N GPUs
 	if strings.HasPrefix(assign, "tensor-") {
 		var n int
 		if _, err := fmt.Sscanf(assign, "tensor-%d", &n); err == nil && n > 0 {
-			if n > numGPUs {
-				n = numGPUs
+			if n >= numGPUs {
+				return "", "tensor", 0
 			}
-			return "", "tensor", n, 0
+			parts := make([]string, numGPUs)
+			for i := range parts {
+				if i < n {
+					parts[i] = "1"
+				} else {
+					parts[i] = "0"
+				}
+			}
+			return strings.Join(parts, ","), "tensor", 0
 		}
-		return "", "", 0, 0
+		return "", "", 0
 	}
 
 	// Parse the assignment to get GPU indices
 	gpus := parseGPURange(assign)
 	if len(gpus) == 0 {
-		return "", "", 0, 0
+		return "", "", 0
 	}
 
 	// Build tensor-split string: 1 for active GPUs, 0 for inactive
@@ -143,7 +152,7 @@ func ResolveGPUAssign(assign string, numGPUs int) (tensorSplit, splitMode string
 		}
 	}
 
-	return strings.Join(parts, ","), "layer", len(gpus), gpus[0]
+	return strings.Join(parts, ","), "layer", gpus[0]
 }
 
 // parseGPURange parses GPU assignment values like "0", "0-1", "2-3" into indices.

@@ -74,6 +74,22 @@ func parseOptionalInt(s string) *int {
 	return &v
 }
 
+// countNonZeroSplit counts the non-zero comma-separated entries in a
+// tensor-split string. Used to derive GPU count from legacy configs.
+func countNonZeroSplit(s string) int {
+	if s == "" {
+		return 0
+	}
+	n := 0
+	for _, p := range strings.Split(s, ",") {
+		p = strings.TrimSpace(p)
+		if p != "" && p != "0" && p != "0.0" {
+			n++
+		}
+	}
+	return n
+}
+
 // handlePS returns currently loaded models with resource info, similar to Ollama's /api/ps.
 func (s *Server) handlePS(w http.ResponseWriter, r *http.Request) {
 	type psModel struct {
@@ -434,14 +450,16 @@ func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 		if cfg.GPUAssign == "" || cfg.GPUAssign == "tensor" {
 			switch {
 			case cfg.SplitMode == "tensor":
-				n := cfg.NumberProcessors
+				// Derive N from tensor-split (count of non-zero entries); fall
+				// back to all GPUs if not set.
+				n := countNonZeroSplit(cfg.TensorSplit)
 				if n <= 0 || n > numGPUs {
 					n = numGPUs
 				}
-				if n >= 2 {
+				if n >= 2 && n < numGPUs {
 					cfg.GPUAssign = fmt.Sprintf("tensor-%d", n)
 				} else {
-					cfg.GPUAssign = "all"
+					cfg.GPUAssign = fmt.Sprintf("tensor-%d", numGPUs)
 				}
 			case cfg.TensorSplit != "":
 				cfg.GPUAssign = "custom"
@@ -521,20 +539,18 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		cfg.GPULayers, _ = strconv.Atoi(r.FormValue("gpu_layers"))
 
 		// GPU assignment — single dropdown drives tensor-split, split-mode,
-		// number-processors, and main-gpu. "custom" preserves the raw tensor_split.
+		// and main-gpu. "custom" preserves the raw tensor_split.
 		gpuAssign := r.FormValue("gpu_assign")
 		cfg.GPUAssign = gpuAssign
 		numGPUs := len(s.monitor.Current().GPU)
 		if gpuAssign == "custom" {
 			cfg.TensorSplit = r.FormValue("tensor_split")
 			cfg.SplitMode = ""
-			cfg.NumberProcessors = 0
 			cfg.MainGPU = 0
 		} else {
-			ts, sm, np, mg := models.ResolveGPUAssign(gpuAssign, numGPUs)
+			ts, sm, mg := models.ResolveGPUAssign(gpuAssign, numGPUs)
 			cfg.TensorSplit = ts
 			cfg.SplitMode = sm
-			cfg.NumberProcessors = np
 			cfg.MainGPU = mg
 		}
 		cfg.ContextSize, _ = strconv.Atoi(r.FormValue("context_size"))
