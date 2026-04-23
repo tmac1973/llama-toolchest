@@ -2,7 +2,8 @@
 <tbody class="model-row-group"
        {{if .Org}}data-org="{{.Org}}"{{end}}
        {{if .BaseName}}data-base="{{.BaseName}}"{{end}}
-       data-search="{{.SearchText}}">
+       data-search="{{.SearchText}}"
+       {{if .BaseName}}style="display:none;"{{end}}>
 <tr{{if .IsOrphan}} style="opacity: 0.6;"{{end}}>
     <td style="width: 3rem; text-align: center;">
         {{if not .IsOrphan}}

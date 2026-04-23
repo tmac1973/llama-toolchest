@@ -124,8 +124,7 @@
                             hx-on::after-request="onServerAction(event)">
                         Stop
                     </button>
-                    <button type="button" class="outline"
-                            onclick="htmx.ajax('PUT','/api/settings',{source:document.getElementById('server-settings-form')}).then(function(){htmx.ajax('POST','/api/service/restart',{swap:'none'});});">
+                    <button type="button" class="outline" onclick="restartServer(this)">
                         Restart
                     </button>
                 </div>
@@ -226,6 +225,44 @@ function onServerAction(e) {
         var msg = (e.detail && e.detail.xhr && e.detail.xhr.responseText) || 'Request failed';
         box.textContent = msg.trim();
         box.style.display = 'block';
+    }
+}
+
+// --- Restart: save pending form changes, then restart, with error feedback ---
+async function restartServer(btn) {
+    var box = document.getElementById('server-action-error');
+    var showErr = function(msg) {
+        if (box) { box.textContent = (msg || '').trim() || 'Request failed'; box.style.display = 'block'; }
+    };
+    var hideErr = function() {
+        if (box) { box.style.display = 'none'; box.textContent = ''; }
+    };
+    hideErr();
+    if (btn) btn.disabled = true;
+    try {
+        var form = document.getElementById('server-settings-form');
+        var saveResp = await fetch('/api/settings', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'HX-Request': 'true',
+            },
+            body: new URLSearchParams(new FormData(form)).toString(),
+        });
+        if (!saveResp.ok) { showErr(await saveResp.text()); return; }
+
+        var restartResp = await fetch('/api/service/restart', {
+            method: 'POST',
+            headers: { 'HX-Request': 'true' },
+        });
+        if (!restartResp.ok) { showErr(await restartResp.text()); return; }
+
+        htmx.trigger('#dashboard-cards', 'load');
+        htmx.trigger('#server-status-badge', 'load');
+    } catch (e) {
+        showErr(String((e && e.message) || e));
+    } finally {
+        if (btn) btn.disabled = false;
     }
 }
 

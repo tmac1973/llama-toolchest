@@ -366,18 +366,18 @@ func (s *Server) renderModelTable(w http.ResponseWriter, r *http.Request, modelL
 	for _, orgName := range orgs {
 		og := orgIdx[orgName]
 		fmt.Fprintf(w,
-			`<tbody class="group-header org-header" data-org="%s"><tr onclick="toggleGroup(this.parentElement)"><td colspan="6" class="org-cell"><span class="caret">▾</span> <strong>%s</strong> <small>(%d)</small></td></tr></tbody>`,
+			`<tbody class="group-header org-header collapsed" data-org="%s"><tr onclick="toggleGroup(this.parentElement)"><td colspan="6" class="org-cell"><span class="caret">▸</span> <strong>%s</strong> <small>(%d)</small></td></tr></tbody>`,
 			html.EscapeString(orgName), html.EscapeString(orgName), og.total)
 
 		for _, bg := range og.bases {
 			fmt.Fprintf(w,
-				`<tbody class="group-header base-header" data-org="%s" data-base="%s"><tr onclick="toggleGroup(this.parentElement)"><td colspan="6" class="base-cell"><span class="caret">▾</span> %s <small>(%d)</small></td></tr></tbody>`,
+				`<tbody class="group-header base-header collapsed" data-org="%s" data-base="%s" style="display:none;"><tr onclick="toggleGroup(this.parentElement)"><td colspan="6" class="base-cell"><span class="caret">▸</span> %s <small>(%d)</small></td></tr></tbody>`,
 				html.EscapeString(orgName), html.EscapeString(bg.name), html.EscapeString(bg.name), len(bg.models))
 
 			// Column header row scoped to this base group — visibility
 			// follows the base group's collapse state.
 			fmt.Fprintf(w,
-				`<tbody class="base-col-header" data-org="%s" data-base="%s"><tr><th title="Enable model for the inference server">On</th><th>Model</th><th>Quant</th><th title="Base (weights) - Peak (full KV cache)">VRAM Est.</th><th>Size</th><th></th></tr></tbody>`,
+				`<tbody class="base-col-header" data-org="%s" data-base="%s" style="display:none;"><tr><th title="Enable model for the inference server">On</th><th>Model</th><th>Quant</th><th title="Base (weights) - Peak (full KV cache)">VRAM Est.</th><th>Size</th><th></th></tr></tbody>`,
 				html.EscapeString(orgName), html.EscapeString(bg.name))
 
 			for _, m := range bg.models {
