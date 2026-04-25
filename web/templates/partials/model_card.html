@@ -3,7 +3,7 @@
        {{if .Org}}data-org="{{.Org}}"{{end}}
        {{if .BaseName}}data-base="{{.BaseName}}"{{end}}
        data-search="{{.SearchText}}"
-       {{if .BaseName}}style="display:none;"{{end}}>
+       {{if and .BaseName .Initial}}style="display:none;"{{end}}>
 <tr{{if .IsOrphan}} style="opacity: 0.6;"{{end}}>
     <td style="width: 3rem; text-align: center;">
         {{if not .IsOrphan}}
@@ -12,8 +12,8 @@
                    {{if .IsEnabled}}checked{{end}}
                    title="Enable this model for the inference server"
                    hx-put="/api/models/{{.ID}}/enable"
-                   hx-target="#model-list"
-                   hx-swap="innerHTML"
+                   hx-target="closest .model-row-group"
+                   hx-swap="outerHTML"
                    hx-vals='js:{"enabled": event.target.checked ? "true" : "false"}'>
             {{if .PendingEnable}}<span title="Restart server to make this model available" style="cursor: help; color: var(--pico-primary);">&#x21bb;</span>{{end}}
             {{if .PendingDisable}}<span title="Restart server to remove this model" style="cursor: help; color: var(--pico-del-color);">&#x2298;</span>{{end}}

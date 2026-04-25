@@ -364,8 +364,31 @@ func (s *Server) handleModelEnable(w http.ResponseWriter, r *http.Request) {
 	// available list, so we don't call them here.
 
 	if isHTMX(r) {
+		// Re-render only the toggled row so the rest of the list keeps its
+		// expand/collapse state. Initial=false omits display:none so the new
+		// row stays visible (the user's click proves the row was visible).
+		m, err := s.registry.Get(id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		org, base := "", ""
+		if !models.IsEmbeddingModel(m.ModelID) && !models.IsEmbeddingModel(m.ID) {
+			org, base = m.OrgAndBase()
+			if org == "" {
+				org = "(local)"
+			}
+		}
+		isOrphan := false
+		for _, om := range s.registry.FindOrphans() {
+			if om.ID == id {
+				isOrphan = true
+				break
+			}
+		}
 		w.Header().Set("HX-Trigger-After-Swap", `{"gpuMapChanged":true}`)
-		s.handleListModels(w, r)
+		respondHTML(w)
+		s.renderModelCard(w, m, org, base, s.routerKnownStates(), isOrphan, false)
 		return
 	}
 

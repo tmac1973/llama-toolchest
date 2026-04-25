@@ -219,23 +219,104 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// routerKnownStates queries the router for all known models and returns a map
+// from {model ID, name, alias} → status value. Empty map if the router is down.
+func (s *Server) routerKnownStates() map[string]string {
+	routerKnown := make(map[string]string)
+	routerModels, err := s.process.ListModels()
+	if err != nil {
+		return routerKnown
+	}
+	for _, rm := range routerModels {
+		routerKnown[rm.ID] = rm.Status.Value
+		if rm.Model != "" {
+			routerKnown[rm.Model] = rm.Status.Value
+		}
+		for _, alias := range rm.Aliases {
+			routerKnown[alias] = rm.Status.Value
+		}
+	}
+	return routerKnown
+}
+
+// renderModelCard writes one model_card partial. initial=true emits the
+// style="display:none" used to start grouped rows collapsed; for in-place row
+// updates after a state change, pass false so the new row keeps its current
+// visibility instead of snapping back to hidden.
+func (s *Server) renderModelCard(w http.ResponseWriter, m *models.Model, org, base string, routerKnown map[string]string, isOrphan, initial bool) {
+	state := routerKnown[m.ID]
+
+	weightsGB := models.BytesToGB(m.SizeBytes) + 0.2
+	peakVRAM := weightsGB
+	enabled := true
+	hasVision := m.HasBuiltinVision
+	gpuLabel := ""
+	var aliases []string
+	if cfg, err := s.registry.GetConfig(m.ID); err == nil {
+		peakVRAM = models.VRAMEstimateForConfig(m, cfg)
+		enabled = cfg.Enabled
+		if cfg.MmprojPath != "" {
+			hasVision = true
+		}
+		if cfg.GPUAssign != "" && cfg.GPUAssign != "all" {
+			gpuLabel = models.GPUAssignLabel(cfg.GPUAssign)
+		}
+		aliases = cfg.Aliases
+	}
+	baseVRAM := weightsGB
+
+	pendingEnable := enabled && state == "" && s.process.IsRunning()
+	pendingDisable := !enabled && state != "" && s.process.IsRunning()
+	configChanged := s.dirtyModels[m.ID] && state != "" && s.process.IsRunning()
+
+	searchText := strings.ToLower(strings.Join([]string{
+		org, base, m.Quant, m.PublicName(), m.ModelID, m.Arch,
+		strings.Join(aliases, " "),
+	}, " "))
+
+	data := struct {
+		models.Model
+		IsActive       bool
+		IsEnabled      bool
+		PendingEnable  bool
+		PendingDisable bool
+		NeedsReload    bool
+		HasVision      bool
+		GPULabel       string
+		ServiceState   string
+		BaseVRAMGB     float64
+		PeakVRAMGB     float64
+		IsOrphan       bool
+		Org            string
+		BaseName       string
+		SearchText     string
+		Initial        bool
+	}{
+		Model:          *m,
+		IsActive:       state == "loaded" || state == "loading",
+		IsEnabled:      enabled,
+		PendingEnable:  pendingEnable,
+		PendingDisable: pendingDisable,
+		NeedsReload:    configChanged,
+		HasVision:      hasVision,
+		GPULabel:       gpuLabel,
+		ServiceState:   state,
+		BaseVRAMGB:     baseVRAM,
+		PeakVRAMGB:     peakVRAM,
+		IsOrphan:       isOrphan,
+		Org:            org,
+		BaseName:       base,
+		SearchText:     searchText,
+		Initial:        initial,
+	}
+	s.renderPartial(w, "model_card", data)
+}
+
 // renderModelTable renders the shared model table used by both chat and embedding
 // lists. When grouped is true, a filter input and collapsible org/base-model
 // sections are emitted around the table.
 func (s *Server) renderModelTable(w http.ResponseWriter, r *http.Request, modelList []*models.Model, grouped bool) {
-	// Build set of models the router knows about (any status)
-	routerKnown := make(map[string]string)
-	if routerModels, err := s.process.ListModels(); err == nil {
-		for _, rm := range routerModels {
-			routerKnown[rm.ID] = rm.Status.Value
-			if rm.Model != "" {
-				routerKnown[rm.Model] = rm.Status.Value
-			}
-			for _, alias := range rm.Aliases {
-				routerKnown[alias] = rm.Status.Value
-			}
-		}
-	}
+	routerKnown := s.routerKnownStates()
 
 	orphanSet := make(map[string]bool)
 	for _, m := range s.registry.FindOrphans() {
@@ -243,70 +324,7 @@ func (s *Server) renderModelTable(w http.ResponseWriter, r *http.Request, modelL
 	}
 
 	renderOne := func(m *models.Model, org, base string) {
-		state := routerKnown[m.ID]
-
-		weightsGB := models.BytesToGB(m.SizeBytes) + 0.2
-		peakVRAM := weightsGB
-		enabled := true
-		hasVision := m.HasBuiltinVision
-		gpuLabel := ""
-		var aliases []string
-		if cfg, err := s.registry.GetConfig(m.ID); err == nil {
-			peakVRAM = models.VRAMEstimateForConfig(m, cfg)
-			enabled = cfg.Enabled
-			if cfg.MmprojPath != "" {
-				hasVision = true
-			}
-			if cfg.GPUAssign != "" && cfg.GPUAssign != "all" {
-				gpuLabel = models.GPUAssignLabel(cfg.GPUAssign)
-			}
-			aliases = cfg.Aliases
-		}
-		baseVRAM := weightsGB
-
-		pendingEnable := enabled && state == "" && s.process.IsRunning()
-		pendingDisable := !enabled && state != "" && s.process.IsRunning()
-		configChanged := s.dirtyModels[m.ID] && state != "" && s.process.IsRunning()
-
-		searchText := strings.ToLower(strings.Join([]string{
-			org, base, m.Quant, m.PublicName(), m.ModelID, m.Arch,
-			strings.Join(aliases, " "),
-		}, " "))
-
-		data := struct {
-			models.Model
-			IsActive       bool
-			IsEnabled      bool
-			PendingEnable  bool
-			PendingDisable bool
-			NeedsReload    bool
-			HasVision      bool
-			GPULabel       string
-			ServiceState   string
-			BaseVRAMGB     float64
-			PeakVRAMGB     float64
-			IsOrphan       bool
-			Org            string
-			BaseName       string
-			SearchText     string
-		}{
-			Model:          *m,
-			IsActive:       state == "loaded" || state == "loading",
-			IsEnabled:      enabled,
-			PendingEnable:  pendingEnable,
-			PendingDisable: pendingDisable,
-			NeedsReload:    configChanged,
-			HasVision:      hasVision,
-			GPULabel:       gpuLabel,
-			ServiceState:   state,
-			BaseVRAMGB:     baseVRAM,
-			PeakVRAMGB:     peakVRAM,
-			IsOrphan:       orphanSet[m.ID],
-			Org:            org,
-			BaseName:       base,
-			SearchText:     searchText,
-		}
-		s.renderPartial(w, "model_card", data)
+		s.renderModelCard(w, m, org, base, routerKnown, orphanSet[m.ID], true)
 	}
 
 	if !grouped {
