@@ -68,6 +68,12 @@ func ProfileOptions(profile string) []BuildOption {
 				Description: "Allow models larger than VRAM to overflow into system RAM. Slower but lets you run bigger models.",
 				Default:     false,
 			},
+			{
+				Flag:        "GGML_HIP_ROCWMMA_FATTN",
+				Label:       "rocWMMA FlashAttention",
+				Description: "Build the FlashAttention kernel against rocWMMA so attention dispatches through the AI matrix accelerators (FP16 WMMA). Recommended for RDNA3+ (gfx1100/1101/1151) and RDNA4 (gfx1200/1201) on ROCm 7.x — speeds up prefill noticeably. Requires --flash-attn at runtime to take effect. Needs rocwmma-devel installed.",
+				Default:     false,
+			},
 		}...)
 	case "cpu":
 		return common

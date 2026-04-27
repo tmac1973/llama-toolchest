@@ -176,6 +176,7 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Profile string `json:"profile"`
 		GitRef  string `json:"git_ref"`
+		Tag     string `json:"tag"`
 		Force   bool   `json:"force"`
 	}
 
@@ -189,6 +190,7 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 		r.ParseForm()
 		req.Profile = r.FormValue("profile")
 		req.GitRef = r.FormValue("git_ref")
+		req.Tag = r.FormValue("tag")
 		req.Force = r.FormValue("force") == "1"
 	}
 
@@ -206,7 +208,7 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Use background context — the build must outlive the HTTP request.
-	result, err := s.builder.Build(context.Background(), req.Profile, req.GitRef, req.Force, optionOverrides, extraCMake)
+	result, err := s.builder.Build(context.Background(), req.Profile, req.GitRef, req.Tag, req.Force, optionOverrides, extraCMake)
 	if err != nil {
 		if dup, ok := err.(*builder.DuplicateBuildError); ok {
 			if isHTMX(r) {
@@ -216,6 +218,7 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 					<form hx-post="/api/builds" hx-target="#build-output" hx-swap="innerHTML">
 						<input type="hidden" name="profile" value="%s">
 						<input type="hidden" name="git_ref" value="%s">
+						<input type="hidden" name="tag" value="%s">
 						<input type="hidden" name="force" value="1">
 						<div role="group">
 							<button type="submit">Rebuild</button>
@@ -223,7 +226,7 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 								onclick="this.closest('article').remove()">Cancel</button>
 						</div>
 					</form>
-				</article>`, dup.ID, req.Profile, req.GitRef)
+				</article>`, html.EscapeString(dup.ID), html.EscapeString(req.Profile), html.EscapeString(req.GitRef), html.EscapeString(req.Tag))
 				return
 			}
 			http.Error(w, err.Error(), http.StatusConflict)
@@ -280,6 +283,71 @@ func (s *Server) handleActiveBuildLog(w http.ResponseWriter, r *http.Request) {
 
 	// Show the log panel for running or recently completed builds
 	s.renderPartial(w, "build_log", &builder.BuildResult{ID: lastID, Status: status})
+}
+
+func (s *Server) handleBuildInfo(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var found *builder.BuildResult
+	for _, b := range s.builder.List() {
+		if b.ID == id {
+			bb := b
+			found = &bb
+			break
+		}
+	}
+	if found == nil {
+		http.Error(w, "build not found", http.StatusNotFound)
+		return
+	}
+
+	if !isHTMX(r) {
+		respondJSON(w, found)
+		return
+	}
+
+	respondHTML(w)
+	fmt.Fprintf(w, `<dl style="margin:0;">
+		<dt><strong>ID</strong></dt><dd><kbd>%s</kbd></dd>
+		<dt><strong>Profile</strong></dt><dd>%s</dd>
+		<dt><strong>Git ref</strong></dt><dd>%s <small>(<code>%s</code>)</small></dd>`,
+		html.EscapeString(found.ID),
+		html.EscapeString(found.Profile),
+		html.EscapeString(found.GitRef), html.EscapeString(safeShortSHA(found.GitSHA)))
+	if found.Tag != "" {
+		fmt.Fprintf(w, `<dt><strong>Tag</strong></dt><dd>%s</dd>`, html.EscapeString(found.Tag))
+	}
+	fmt.Fprintf(w, `<dt><strong>Status</strong></dt><dd>%s</dd>
+		<dt><strong>Started</strong></dt><dd>%s</dd>
+	</dl>`,
+		html.EscapeString(found.Status),
+		found.StartedAt.Format("2006-01-02 15:04:05"))
+
+	if len(found.CMakeFlags) == 0 {
+		w.Write([]byte(`<p style="margin-top:1rem;"><em>cmake flags not recorded — this build predates flag tracking.</em></p>`))
+		return
+	}
+
+	keys := make([]string, 0, len(found.CMakeFlags))
+	for k := range found.CMakeFlags {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	w.Write([]byte(`<h6 style="margin-top:1rem;">CMake flags</h6><pre style="font-size:0.8rem;white-space:pre-wrap;word-break:break-all;">`))
+	for i, k := range keys {
+		if i > 0 {
+			w.Write([]byte(" \\\n  "))
+		}
+		fmt.Fprintf(w, "-D%s=%s", html.EscapeString(k), html.EscapeString(found.CMakeFlags[k]))
+	}
+	w.Write([]byte(`</pre>`))
+}
+
+func safeShortSHA(sha string) string {
+	if len(sha) < 7 {
+		return sha
+	}
+	return sha[:7]
 }
 
 func (s *Server) handleDeleteBuild(w http.ResponseWriter, r *http.Request) {

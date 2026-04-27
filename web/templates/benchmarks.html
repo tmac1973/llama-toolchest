@@ -87,6 +87,83 @@
 </dialog>
 
 <script>
+// --- Benchmark list: collapse/expand a single model group ---
+function toggleBenchGroup(header) {
+    if (!header) return;
+    var collapsed = header.classList.toggle('collapsed');
+    var caret = header.querySelector('.caret');
+    if (caret) caret.textContent = collapsed ? '▸' : '▾';
+    var root = header.parentElement;
+    if (!root) return;
+    var name = header.dataset.model || '';
+    root.querySelectorAll('tbody.bench-row-group').forEach(function(tb) {
+        if ((tb.dataset.model || '') === name) {
+            tb.style.display = collapsed ? 'none' : '';
+        }
+    });
+}
+
+function collapseAllBenchGroups() {
+    var root = document.getElementById('benchmark-list');
+    if (!root) return;
+    root.querySelectorAll('tbody.bench-group-header').forEach(function(h) {
+        if (!h.classList.contains('collapsed')) toggleBenchGroup(h);
+    });
+}
+
+function expandAllBenchGroups() {
+    var root = document.getElementById('benchmark-list');
+    if (!root) return;
+    root.querySelectorAll('tbody.bench-group-header').forEach(function(h) {
+        if (h.classList.contains('collapsed')) toggleBenchGroup(h);
+    });
+}
+
+function filterBenchmarks(q) {
+    q = (q || '').trim().toLowerCase();
+    var root = document.getElementById('benchmark-list');
+    if (!root) return;
+
+    var rows = root.querySelectorAll('tbody.bench-row-group');
+    var headers = root.querySelectorAll('tbody.bench-group-header');
+
+    var matchingByModel = {};
+    rows.forEach(function(tb) {
+        var matches = !q || (tb.dataset.search || '').indexOf(q) !== -1;
+        tb._matches = matches;
+        if (matches) matchingByModel[tb.dataset.model || ''] = true;
+    });
+
+    var setExpanded = function(header, expanded) {
+        if (expanded) header.classList.remove('collapsed');
+        else header.classList.add('collapsed');
+        var caret = header.querySelector('.caret');
+        if (caret) caret.textContent = expanded ? '▾' : '▸';
+    };
+
+    // While filtering, expand matching groups so hits are visible. On
+    // clear, leave the user's manual collapse state alone.
+    if (q) {
+        headers.forEach(function(h) {
+            setExpanded(h, !!matchingByModel[h.dataset.model || '']);
+        });
+    }
+
+    var collapsed = {};
+    headers.forEach(function(h) {
+        collapsed[h.dataset.model || ''] = h.classList.contains('collapsed');
+    });
+
+    headers.forEach(function(h) {
+        var name = h.dataset.model || '';
+        h.style.display = (!q || matchingByModel[name]) ? '' : 'none';
+    });
+    rows.forEach(function(tb) {
+        var name = tb.dataset.model || '';
+        tb.style.display = (tb._matches && !collapsed[name]) ? '' : 'none';
+    });
+}
+
 (function() {
     var pollTimer = null;
     document.body.addEventListener('benchmarkStarted', function(e) {

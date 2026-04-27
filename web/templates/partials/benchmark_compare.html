@@ -87,7 +87,7 @@
             </tr>
             <tr>
                 <td>Build</td>
-                {{range .Runs}}<td>{{if .BuildRef}}{{.BuildRef}}{{else}}—{{end}}</td>{{end}}
+                {{range .Runs}}<td>{{if .BuildID}}<small><kbd>{{.BuildID}}</kbd></small>{{else if .BuildRef}}{{.BuildRef}}{{else}}—{{end}}</td>{{end}}
             </tr>
             {{if .HasLlamaBench}}
             <tr>

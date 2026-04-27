@@ -47,6 +47,11 @@
             </label>
         </div>
 
+        <label title="Optional label appended to the build ID so multiple builds of the same ref+profile can coexist (e.g. 'rocwmma' or 'no-fattn'). Lowercase letters, digits, and hyphens. If left blank and a build with the same ref+profile already exists with different flags, a short hash of the flags is appended automatically.">
+            Build Tag <small>(optional)</small>
+            <input type="text" name="tag" placeholder="e.g. rocwmma" pattern="[a-z0-9][a-z0-9-]*" autocomplete="off">
+        </label>
+
         <div id="build-options">
             <!-- Populated by htmx when profile changes -->
         </div>
@@ -67,4 +72,15 @@
         Loading...
     </div>
 </article>
+
+<dialog id="build-info-modal" style="max-width:640px;">
+    <article>
+        <header>
+            <button type="button" aria-label="Close" rel="prev"
+                    onclick="this.closest('dialog').close();"></button>
+            Build Info
+        </header>
+        <div id="build-info-modal-body">Loading...</div>
+    </article>
+</dialog>
 {{end}}

@@ -5,13 +5,23 @@
     <td>{{.Status}}</td>
     <td>{{.StartedAt.Format "2006-01-02 15:04"}}</td>
     <td>
-        <button class="outline secondary"
-                hx-delete="/api/builds/{{.ID}}"
-                hx-confirm="Delete this build?"
-                hx-target="closest tr"
-                hx-swap="outerHTML">
-            Delete
-        </button>
+        <span style="display:flex;gap:0.5rem;">
+            <button type="button" class="outline secondary"
+                    hx-get="/api/builds/{{.ID}}/info"
+                    hx-target="#build-info-modal-body"
+                    hx-swap="innerHTML"
+                    onclick="document.getElementById('build-info-modal').showModal();"
+                    title="Show cmake flags used for this build">
+                Info
+            </button>
+            <button class="outline secondary"
+                    hx-delete="/api/builds/{{.ID}}"
+                    hx-confirm="Delete this build?"
+                    hx-target="closest tr"
+                    hx-swap="outerHTML">
+                Delete
+            </button>
+        </span>
     </td>
 </tr>
 {{end}}

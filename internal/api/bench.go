@@ -3,8 +3,10 @@ package api
 import (
 	"context"
 	"fmt"
+	"html"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -20,13 +22,125 @@ func (s *Server) handleListBenchmarks(w http.ResponseWriter, r *http.Request) {
 
 	if isHTMX(r) {
 		respondHTML(w)
-		s.renderPartial(w, "benchmark_list", struct {
-			Runs []benchmark.BenchmarkRun
-		}{Runs: runs})
+		s.renderBenchmarkList(w, runs)
 		return
 	}
 
 	respondJSON(w, runs)
+}
+
+// renderBenchmarkList emits the grouped, searchable benchmarks table.
+// Groups by ModelName; each group is collapsed by default. The wrapping
+// JS in benchmarks.html drives toggle/filter using data-model and
+// data-search attributes — same pattern as the models page.
+func (s *Server) renderBenchmarkList(w http.ResponseWriter, runs []benchmark.BenchmarkRun) {
+	if len(runs) == 0 {
+		w.Write([]byte("<p>No benchmarks yet. Run one above to get started.</p>"))
+		return
+	}
+
+	type modelGroup struct {
+		name string
+		runs []benchmark.BenchmarkRun
+	}
+	idx := map[string]*modelGroup{}
+	var names []string
+	for _, r := range runs {
+		key := r.ModelName
+		if key == "" {
+			key = "(unknown)"
+		}
+		g, ok := idx[key]
+		if !ok {
+			g = &modelGroup{name: key}
+			idx[key] = g
+			names = append(names, key)
+		}
+		g.runs = append(g.runs, r)
+	}
+	sort.Slice(names, func(i, j int) bool { return strings.ToLower(names[i]) < strings.ToLower(names[j]) })
+
+	w.Write([]byte(`<div class="model-list-controls">
+		<input type="search" class="model-filter" placeholder="Filter by model, quant, build, preset…" oninput="filterBenchmarks(this.value)" autocomplete="off">
+		<button type="button" class="outline secondary" onclick="collapseAllBenchGroups()">Collapse All</button>
+		<button type="button" class="outline secondary" onclick="expandAllBenchGroups()">Expand All</button>
+	</div>`))
+
+	w.Write([]byte(`<table role="grid">
+		<thead><tr>
+			<th style="width:2rem;"><input type="checkbox" style="margin:0;" title="Select all" onchange="document.querySelectorAll('.bench-check').forEach(function(c){c.checked=this.checked}.bind(this));"></th>
+			<th>Model</th>
+			<th>Quant</th>
+			<th title="Prompt Processing tokens/sec — higher is better.">PP t/s</th>
+			<th title="Token Generation tokens/sec — the speed you feel during chat.">TG t/s</th>
+			<th title="Time To First Token — lower is better.">TTFT</th>
+			<th>Build</th>
+			<th>Preset</th>
+			<th>Date</th>
+			<th></th>
+		</tr></thead>`))
+
+	for _, name := range names {
+		g := idx[name]
+		fmt.Fprintf(w,
+			`<tbody class="bench-group-header collapsed" data-model="%s"><tr onclick="toggleBenchGroup(this.parentElement)"><td colspan="10" class="org-cell"><span class="caret">▸</span> <strong>%s</strong> <small>(%d)</small></td></tr></tbody>`,
+			html.EscapeString(name), html.EscapeString(name), len(g.runs))
+
+		for _, run := range g.runs {
+			search := strings.ToLower(strings.Join([]string{run.ModelName, run.Quant, run.BuildID, run.BuildRef, run.Preset}, " "))
+			pp, tg, ttft := "—", "—", "—"
+			if run.Summary != nil {
+				pp = fmt.Sprintf("%.0f", run.Summary.AvgPromptTokPerSec)
+				tg = fmt.Sprintf("<strong>%.1f</strong>", run.Summary.AvgGenTokPerSec)
+				ttft = fmt.Sprintf("%.0f ms", run.Summary.AvgTTFTMs)
+			}
+			benchTag := ""
+			if run.LlamaBench != nil {
+				benchTag = ` <mark style="padding:0 0.3rem;font-size:0.75rem;">bench</mark>`
+			}
+			runningTitle := ""
+			if run.Status == "running" {
+				runningTitle = `title="Running — select to delete anyway"`
+			}
+			buildCell := "—"
+			if run.BuildID != "" {
+				buildCell = `<small><kbd>` + html.EscapeString(run.BuildID) + `</kbd></small>`
+			} else if run.BuildRef != "" {
+				buildCell = "<small>" + html.EscapeString(run.BuildRef) + "</small>"
+			}
+
+			fmt.Fprintf(w, `<tbody class="bench-row-group" data-model="%s" data-search="%s" style="display:none;">
+				<tr>
+					<td><input type="checkbox" class="bench-check" value="%s" style="margin:0;" %s></td>
+					<td>%s%s</td>
+					<td><kbd>%s</kbd></td>
+					<td>%s</td>
+					<td>%s</td>
+					<td>%s</td>
+					<td>%s</td>
+					<td><small>%s</small></td>
+					<td><small>%s</small></td>
+					<td>
+						<span style="display:flex;gap:0.25rem;">
+							<button type="button" class="outline secondary" style="padding:0.2rem 0.5rem;font-size:0.8rem;width:auto;" hx-get="/api/benchmarks/%s" hx-target="next .bench-detail" hx-swap="innerHTML" hx-on::before-request="var d=this.closest('tr').nextElementSibling.querySelector('td');if(d.innerHTML.trim()){d.innerHTML='';event.preventDefault();}">Detail</button>
+						</span>
+					</td>
+				</tr>
+				<tr><td colspan="10" class="bench-detail"></td></tr>
+			</tbody>`,
+				html.EscapeString(name), html.EscapeString(search),
+				html.EscapeString(run.ID), runningTitle,
+				html.EscapeString(run.ModelName), benchTag,
+				html.EscapeString(run.Quant),
+				pp, tg, ttft,
+				buildCell,
+				html.EscapeString(run.Preset),
+				run.CreatedAt.Format("Jan 2 15:04"),
+				html.EscapeString(run.ID))
+		}
+	}
+
+	w.Write([]byte(`</table>`))
 }
 
 // handleGetBenchmark returns a single benchmark run.

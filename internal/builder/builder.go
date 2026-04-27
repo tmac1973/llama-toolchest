@@ -3,6 +3,8 @@ package builder
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,15 +31,17 @@ const (
 
 // BuildResult records the outcome of a build.
 type BuildResult struct {
-	ID         string    `json:"id"`
-	Profile    string    `json:"profile"`
-	GitSHA     string    `json:"git_sha"`
-	GitRef     string    `json:"git_ref"`
-	Status     string    `json:"status"` // BuildStatusBuilding, BuildStatusSuccess, BuildStatusFailed
-	BinaryPath string   `json:"binary_path"`
-	StartedAt  time.Time `json:"started_at"`
-	FinishedAt time.Time `json:"finished_at,omitempty"`
-	Error      string    `json:"error,omitempty"`
+	ID         string            `json:"id"`
+	Tag        string            `json:"tag,omitempty"`
+	Profile    string            `json:"profile"`
+	GitSHA     string            `json:"git_sha"`
+	GitRef     string            `json:"git_ref"`
+	Status     string            `json:"status"` // BuildStatusBuilding, BuildStatusSuccess, BuildStatusFailed
+	BinaryPath string            `json:"binary_path"`
+	CMakeFlags map[string]string `json:"cmake_flags,omitempty"`
+	StartedAt  time.Time         `json:"started_at"`
+	FinishedAt time.Time         `json:"finished_at,omitempty"`
+	Error      string            `json:"error,omitempty"`
 }
 
 const buildLogHistorySize = 2000
@@ -224,12 +229,19 @@ func (e *DuplicateBuildError) Error() string {
 // Build runs the full build pipeline asynchronously.
 // It returns the initial BuildResult immediately; logs stream via LogChannel.
 // If force is true, an existing build with the same ID will be replaced.
+// tag is an optional user-supplied label; when non-empty it becomes part of
+// the build ID so multiple builds of the same ref+profile can coexist.
 // optionOverrides allows toggling profile-specific cmake flags.
 // extraCMake allows passing additional raw cmake flags.
-func (b *Builder) Build(ctx context.Context, profile string, gitRef string, force bool, optionOverrides map[string]bool, extraCMake string) (*BuildResult, error) {
+func (b *Builder) Build(ctx context.Context, profile string, gitRef string, tag string, force bool, optionOverrides map[string]bool, extraCMake string) (*BuildResult, error) {
 	prof, ok := FindProfile(profile)
 	if !ok {
 		return nil, fmt.Errorf("unknown profile: %s", profile)
+	}
+
+	tag = strings.ToLower(strings.TrimSpace(tag))
+	if tag != "" && !validTagRE.MatchString(tag) {
+		return nil, fmt.Errorf("invalid tag %q: only lowercase letters, digits, and hyphens are allowed", tag)
 	}
 
 	// Apply option overrides to the profile's cmake flags
@@ -264,10 +276,12 @@ func (b *Builder) Build(ctx context.Context, profile string, gitRef string, forc
 	}
 
 	result := &BuildResult{
-		Profile:   prof.Name,
-		GitRef:    gitRef,
-		Status:    BuildStatusBuilding,
-		StartedAt: time.Now(),
+		Profile:    prof.Name,
+		GitRef:     gitRef,
+		Tag:        tag,
+		Status:     BuildStatusBuilding,
+		StartedAt:  time.Now(),
+		CMakeFlags: copyFlags(prof.CMakeFlags),
 	}
 
 	logCh := make(chan string, 256)
@@ -287,7 +301,25 @@ func (b *Builder) Build(ctx context.Context, profile string, gitRef string, forc
 
 	result.GitRef = resolvedRef
 	result.GitSHA = sha
-	result.ID = fmt.Sprintf("%s-%s", resolvedRef, prof.Name)
+
+	// Compute ID. Tag wins. If untagged and the bare ID is already taken
+	// by a build with different flags, auto-suffix a short hash of this
+	// build's flags so it can coexist. If flags are identical, fall through
+	// to DuplicateBuildError so the user sees the rebuild prompt.
+	baseID := fmt.Sprintf("%s-%s", resolvedRef, prof.Name)
+	if tag != "" {
+		result.ID = baseID + "-" + tag
+	} else {
+		result.ID = baseID
+		b.mu.Lock()
+		for _, br := range b.builds {
+			if br.ID == baseID && !flagsEqual(br.CMakeFlags, result.CMakeFlags) {
+				result.ID = baseID + "-" + hashFlags(result.CMakeFlags)
+				break
+			}
+		}
+		b.mu.Unlock()
+	}
 
 	// Check for duplicate build
 	b.mu.Lock()
@@ -653,6 +685,50 @@ func (b *Builder) saveBuilds() {
 		return
 	}
 	os.WriteFile(b.buildsPath(), data, 0o644)
+}
+
+var validTagRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+
+// hashFlags returns a short stable hash of a cmake flag set, used to
+// disambiguate untagged builds whose flags differ from an existing one.
+func hashFlags(flags map[string]string) string {
+	keys := make([]string, 0, len(flags))
+	for k := range flags {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	h := sha256.New()
+	for _, k := range keys {
+		h.Write([]byte(k))
+		h.Write([]byte{'='})
+		h.Write([]byte(flags[k]))
+		h.Write([]byte{'\n'})
+	}
+	return hex.EncodeToString(h.Sum(nil))[:6]
+}
+
+// flagsEqual reports whether two flag maps have identical contents.
+// A nil map (legacy builds predating flag persistence) compares unequal
+// to any non-empty map, which is the conservative choice — we'd rather
+// hash-suffix an unknown legacy build than collide with it.
+func flagsEqual(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, va := range a {
+		if vb, ok := b[k]; !ok || vb != va {
+			return false
+		}
+	}
+	return true
+}
+
+func copyFlags(in map[string]string) map[string]string {
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 func copyFile(src, dst string) error {
