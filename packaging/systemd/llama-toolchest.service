@@ -1,0 +1,25 @@
+[Unit]
+Description=llama-toolchest — local LLM management
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/llama-toolchest
+Restart=on-failure
+RestartSec=5
+
+# Drop-in overrides go in /etc/systemd/system/llama-toolchest.service.d/
+# (system) or ~/.config/systemd/user/llama-toolchest.service.d/ (user) —
+# put per-deployment env vars like HSA_OVERRIDE_GFX_VERSION there rather
+# than editing this unit.
+
+# Hardening — relaxed because llama.cpp builds need to spawn cmake/ninja
+# and write into the data dir.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target

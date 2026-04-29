@@ -1,0 +1,39 @@
+# llama-toolchest configuration. Copy to:
+#   Linux user install:   ~/.config/llama-toolchest/llama-toolchest.yaml
+#   Linux system install: /etc/llama-toolchest/llama-toolchest.yaml
+#   macOS:                ~/Library/Application Support/llama-toolchest/llama-toolchest.yaml
+#
+# All values are optional; sensible defaults are picked per platform when
+# this file (or a value within it) is missing.
+
+# HTTP listen address for the management UI and OpenAI-compatible /v1 proxy.
+listen_addr: ":3000"
+
+# Where llama.cpp builds, downloaded models, and runtime state are stored.
+# Defaults per OS:
+#   Linux:   $XDG_DATA_HOME/llama-toolchest or ~/.local/share/llama-toolchest
+#   macOS:   ~/Library/Application Support/llama-toolchest
+#   Windows: %LOCALAPPDATA%\llama-toolchest
+# data_dir: "/var/lib/llama-toolchest"
+
+# Port for the llama-server router that manages model subprocesses.
+llama_port: 8080
+
+# Public URL — set when accessing from another machine so generated links
+# (chat UI, /v1 proxy) point at the right host.
+external_url: "http://localhost:3000"
+
+# HuggingFace token for downloading gated/private models. Optional.
+hf_token: ""
+
+# Bearer token required to hit /v1 endpoints. Empty = no auth (LAN only).
+api_key: ""
+
+log_level: "info"
+
+# Maximum number of models loaded simultaneously. 0 = unlimited.
+models_max: 1
+
+# If true, start the llama-server router on app startup. Otherwise the user
+# starts it from the UI.
+auto_start: false

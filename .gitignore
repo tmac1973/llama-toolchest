@@ -1,4 +1,5 @@
 bin/
+dist/
 /llama-toolchest
 /agent
 *.pid

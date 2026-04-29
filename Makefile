@@ -1,5 +1,6 @@
 .PHONY: build agent run dev start stop restart clean \
-       docker docker-rebuild docker-compose-up docker-compose-down docker-compose-logs
+       docker docker-rebuild docker-compose-up docker-compose-down docker-compose-logs \
+       package package-snapshot
 
 PID_FILE = bin/llama-toolchest.pid
 
@@ -55,3 +56,14 @@ docker-compose-down:
 
 docker-compose-logs:
 	docker compose -f $(COMPOSE_FILE) logs -f
+
+# Release packaging via GoReleaser. `package-snapshot` builds dist/ artifacts
+# from the current commit without publishing — used by the dev container
+# rebuild flow and for verifying the release config before tagging.
+# `package` is reserved for the CI workflow (it expects a clean tag);
+# locally you almost always want package-snapshot.
+package-snapshot:
+	goreleaser release --snapshot --clean --skip=publish
+
+package:
+	goreleaser release --clean
