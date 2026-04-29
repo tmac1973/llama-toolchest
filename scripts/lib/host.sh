@@ -88,6 +88,112 @@ host_check_build_toolchain() {
     return 0
 }
 
+# Map a GPU backend to the package list needed for llama.cpp to compile
+# against it on this distro family. Echoes a space-separated list (empty
+# if everything is already present, or if we don't know how to detect
+# packages on this distro). Returns 0 always.
+host_missing_gpu_sdk_packages() {
+    local backend="$1"
+    local -a need=()
+
+    case "$backend" in
+        rocm)
+            case "$DISTRO_FAMILY" in
+                fedora)
+                    # Fedora's native ROCm packages. Versioned together by
+                    # the distro, so dnf resolves a consistent set.
+                    for pkg in rocm-hip-devel rocblas-devel hipblas-devel rocm-cmake rocwmma-devel; do
+                        rpm -q "$pkg" >/dev/null 2>&1 || need+=("$pkg")
+                    done
+                    ;;
+                debian)
+                    # Debian/Ubuntu don't ship ROCm in default repos —
+                    # users add AMD's apt repo first. Names below match
+                    # AMD's repo (https://repo.radeon.com).
+                    for pkg in rocm-hip-runtime-dev rocblas-dev hipblas-dev rocm-cmake rocwmma-dev; do
+                        dpkg -s "$pkg" >/dev/null 2>&1 || need+=("$pkg")
+                    done
+                    ;;
+            esac
+            ;;
+        cuda)
+            # Detect by binary presence — CUDA toolkit ships nvcc; if it's
+            # on PATH we have what we need to compile.
+            command -v nvcc >/dev/null 2>&1 || need+=("cuda-toolkit")
+            ;;
+        vulkan)
+            # The shader compiler is the only build-time piece we strictly
+            # need; the Vulkan headers + loader are usually already
+            # installed by the GPU driver package.
+            command -v glslc >/dev/null 2>&1 || need+=("glslc")
+            ;;
+        cpu|metal)
+            : # nothing extra
+            ;;
+    esac
+
+    echo "${need[*]}"
+}
+
+# Offer to install missing GPU SDK packages for the chosen backend.
+# Returns 0 if everything is in place (or user declined), 1 on install
+# failure. Distro-aware: fedora and debian get auto-install; others get
+# instructions and a continue/abort prompt.
+host_install_gpu_sdk() {
+    local backend="$1"
+    local missing
+    missing="$(host_missing_gpu_sdk_packages "$backend")"
+
+    if [[ -z "$missing" ]]; then
+        case "$backend" in
+            cpu|metal) ;;
+            *) ok "GPU SDK ($backend): all required packages installed" ;;
+        esac
+        return 0
+    fi
+
+    warn "Missing $backend SDK packages on host: $missing"
+    log "These are required for llama.cpp to compile against the $backend backend from the UI."
+
+    case "$DISTRO_FAMILY" in
+        fedora)
+            log "Run: sudo dnf install $missing"
+            if prompt_confirm "Install now?"; then
+                # shellcheck disable=SC2086
+                sudo dnf install -y $missing || return 1
+                ok "$backend SDK packages installed"
+            else
+                warn "Skipped — first llama.cpp build with the $backend profile will fail until these are installed."
+            fi
+            ;;
+        debian)
+            log "Run: sudo apt-get install $missing"
+            if [[ "$backend" == "rocm" ]]; then
+                log "Note: ROCm is not in Debian/Ubuntu default repos. If apt can't find these, follow:"
+                echo "    https://rocm.docs.amd.com/projects/install-on-linux/en/latest/install/quick-start.html"
+                echo "    to add AMD's apt repo first, then re-run setup.sh install --host."
+            fi
+            if [[ "$backend" == "cuda" ]]; then
+                log "Note: CUDA toolkit comes from NVIDIA's apt repo, not the distro default. See:"
+                echo "    https://developer.nvidia.com/cuda-downloads?target_os=Linux"
+            fi
+            if prompt_confirm "Install now?"; then
+                # shellcheck disable=SC2086
+                sudo apt-get install -y $missing || return 1
+                ok "$backend SDK packages installed"
+            else
+                warn "Skipped — first llama.cpp build with the $backend profile will fail until these are installed."
+            fi
+            ;;
+        *)
+            warn "Auto-install of $backend SDK is not implemented for distro family '$DISTRO_FAMILY'."
+            log "Install manually using your package manager, then re-run setup.sh install --host."
+            return 1
+            ;;
+    esac
+    return 0
+}
+
 host_build_binary() {
     local out; out="$(host_binary_path)"
     local commit; commit="$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
@@ -162,11 +268,19 @@ host_write_unit_override() {
 
 host_install() {
     log "Host install — scope: $(host_scope)"
+    log "GPU backend: ${GPU_VENDOR:-unknown} (${GPU_INFO:-no description})"
     echo ""
 
     if ! host_check_build_toolchain; then
         err "Resolve missing build prerequisites and re-run."
         return 1
+    fi
+
+    # Offer to install GPU SDK packages for the detected backend so the
+    # first llama.cpp build doesn't fail with a missing-cmake-config error.
+    if [[ -n "${GPU_VENDOR:-}" ]]; then
+        host_install_gpu_sdk "$GPU_VENDOR" || \
+            warn "GPU SDK install reported issues; continuing with binary install."
     fi
 
     # Build + install the binary.
