@@ -80,8 +80,6 @@ nfpms:
           - git
           - gcc-c++
           - make
-        recommends:
-          - openblas-devel
       deb:
         dependencies:
           - cmake
@@ -89,8 +87,11 @@ nfpms:
           - git
           - build-essential
           - pkg-config
-        recommends:
-          - libopenblas-dev
+    # No BLAS recommend: the CPU build profile doesn't pass -DGGML_BLAS=ON
+    # and GPU builds (cuda/rocm/vulkan/metal) don't use BLAS at all, so
+    # pulling in openblas-devel/libopenblas-dev would just waste ~270 MiB
+    # of disk for libs nothing links against. If we ever expose a
+    # GGML_BLAS toggle on the Builds page, re-add the recommend then.
     contents:
       - src: ./packaging/systemd/llama-toolchest.service
         dst: /usr/lib/systemd/system/llama-toolchest.service
