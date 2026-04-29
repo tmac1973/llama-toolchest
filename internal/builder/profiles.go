@@ -3,7 +3,7 @@ package builder
 // BuildProfile defines cmake flags for a build configuration.
 type BuildProfile struct {
 	Name       string            `json:"name"`
-	Backend    string            `json:"backend"` // "rocm", "cuda", "cpu"
+	Backend    string            `json:"backend"` // "rocm", "cuda", "vulkan", "metal", "cpu"
 	CMakeFlags map[string]string `json:"cmake_flags"`
 }
 
@@ -75,6 +75,23 @@ func ProfileOptions(profile string) []BuildOption {
 				Default:     false,
 			},
 		}...)
+	case "vulkan":
+		return append(common, []BuildOption{
+			{
+				Flag:        "GGML_VULKAN_CHECK_RESULTS",
+				Label:       "Vulkan: Check Results",
+				Description: "Cross-check Vulkan kernel outputs against the CPU backend. Significant slowdown — debug only.",
+				Default:     false,
+			},
+			{
+				Flag:        "GGML_VULKAN_VALIDATE",
+				Label:       "Vulkan: Validation Layers",
+				Description: "Enable Vulkan validation layers. Requires the Vulkan SDK; useful for development.",
+				Default:     false,
+			},
+		}...)
+	case "metal":
+		return common
 	case "cpu":
 		return common
 	default:
@@ -110,6 +127,23 @@ func DefaultProfiles() []BuildProfile {
 			CMakeFlags: map[string]string{
 				"GGML_CUDA":        "ON",
 				"CMAKE_BUILD_TYPE": "Release",
+			},
+		},
+		{
+			Name:    "vulkan",
+			Backend: "vulkan",
+			CMakeFlags: map[string]string{
+				"GGML_VULKAN":      "ON",
+				"CMAKE_BUILD_TYPE": "Release",
+			},
+		},
+		{
+			Name:    "metal",
+			Backend: "metal",
+			CMakeFlags: map[string]string{
+				"GGML_METAL":               "ON",
+				"GGML_METAL_EMBED_LIBRARY": "ON",
+				"CMAKE_BUILD_TYPE":         "Release",
 			},
 		},
 		{

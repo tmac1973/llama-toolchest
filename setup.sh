@@ -17,14 +17,16 @@ AMD_GFX_VERSION=""      # HSA_OVERRIDE_GFX_VERSION value (empty = not needed)
 HOST_VIDEO_GID=""       # host video group GID
 HOST_RENDER_GID=""      # host render group GID
 
-LLAMACTL_PORT="3000"            # host port for management UI
-LLAMACTL_INFERENCE_PORT="8080"  # host port for inference API
-LLAMACTL_MODELS_DIR=""          # host path for model storage (empty = use docker volume)
+LLAMA_TOOLCHEST_PORT="3000"            # host port for management UI
+LLAMA_TOOLCHEST_INFERENCE_PORT="8080"  # host port for inference API
+LLAMA_TOOLCHEST_MODELS_DIR=""          # host path for model storage (empty = use docker volume)
 
 CONTAINER_CMD=""        # docker or podman
 COMPOSE_CMD=""          # "docker compose" or "podman-compose" or "podman compose"
 CONTAINER_VERSION=""
 COMPOSE_VERSION=""
+
+INSTALL_MODE="${INSTALL_MODE:-container}"  # host or container; default container preserves existing behavior
 
 DISTRO_ID=""            # debian, ubuntu, fedora, arch, cachyos, opensuse-leap, etc.
 DISTRO_NAME=""          # Pretty name from os-release
@@ -480,18 +482,18 @@ prompt_ports() {
     echo -e "${BOLD}Port configuration${NC}"
     echo ""
     echo "  Current ports:"
-    echo "    Management UI:  ${LLAMACTL_PORT}"
-    echo "    Inference API:  ${LLAMACTL_INFERENCE_PORT}"
+    echo "    Management UI:  ${LLAMA_TOOLCHEST_PORT}"
+    echo "    Inference API:  ${LLAMA_TOOLCHEST_INFERENCE_PORT}"
     echo ""
 
     # Check if current ports are available
     local ports_ok=true
-    if ! is_port_available "$LLAMACTL_PORT"; then
-        warn "Port ${LLAMACTL_PORT} is already in use"
+    if ! is_port_available "$LLAMA_TOOLCHEST_PORT"; then
+        warn "Port ${LLAMA_TOOLCHEST_PORT} is already in use"
         ports_ok=false
     fi
-    if ! is_port_available "$LLAMACTL_INFERENCE_PORT"; then
-        warn "Port ${LLAMACTL_INFERENCE_PORT} is already in use"
+    if ! is_port_available "$LLAMA_TOOLCHEST_INFERENCE_PORT"; then
+        warn "Port ${LLAMA_TOOLCHEST_INFERENCE_PORT} is already in use"
         ports_ok=false
     fi
 
@@ -507,24 +509,24 @@ prompt_ports() {
     echo ""
     local port
     while true; do
-        read -rp "$(echo -e "  ${BOLD}Management UI port${NC} [${LLAMACTL_PORT}]: ")" port
-        port="${port:-$LLAMACTL_PORT}"
+        read -rp "$(echo -e "  ${BOLD}Management UI port${NC} [${LLAMA_TOOLCHEST_PORT}]: ")" port
+        port="${port:-$LLAMA_TOOLCHEST_PORT}"
         if [[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1 && port <= 65535 )); then
-            LLAMACTL_PORT="$port"
+            LLAMA_TOOLCHEST_PORT="$port"
             break
         fi
         err "Invalid port number: $port"
     done
 
     while true; do
-        read -rp "$(echo -e "  ${BOLD}Inference API port${NC} [${LLAMACTL_INFERENCE_PORT}]: ")" port
-        port="${port:-$LLAMACTL_INFERENCE_PORT}"
+        read -rp "$(echo -e "  ${BOLD}Inference API port${NC} [${LLAMA_TOOLCHEST_INFERENCE_PORT}]: ")" port
+        port="${port:-$LLAMA_TOOLCHEST_INFERENCE_PORT}"
         if [[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1 && port <= 65535 )); then
-            if [[ "$port" == "$LLAMACTL_PORT" ]]; then
-                err "Cannot use the same port as management UI ($LLAMACTL_PORT)"
+            if [[ "$port" == "$LLAMA_TOOLCHEST_PORT" ]]; then
+                err "Cannot use the same port as management UI ($LLAMA_TOOLCHEST_PORT)"
                 continue
             fi
-            LLAMACTL_INFERENCE_PORT="$port"
+            LLAMA_TOOLCHEST_INFERENCE_PORT="$port"
             break
         fi
         err "Invalid port number: $port"
@@ -535,8 +537,8 @@ prompt_models_dir() {
     echo ""
     echo -e "${BOLD}Model storage${NC}"
     echo ""
-    if [[ -n "$LLAMACTL_MODELS_DIR" ]]; then
-        echo "  Current: ${LLAMACTL_MODELS_DIR} (host directory)"
+    if [[ -n "$LLAMA_TOOLCHEST_MODELS_DIR" ]]; then
+        echo "  Current: ${LLAMA_TOOLCHEST_MODELS_DIR} (host directory)"
     else
         echo "  Current: Docker volume (default)"
     fi
@@ -546,7 +548,7 @@ prompt_models_dir() {
     echo ""
 
     local path
-    read -rp "$(echo -e "  ${BOLD}Host path${NC} [${LLAMACTL_MODELS_DIR:-none}]: ")" path
+    read -rp "$(echo -e "  ${BOLD}Host path${NC} [${LLAMA_TOOLCHEST_MODELS_DIR:-none}]: ")" path
 
     if [[ -z "$path" ]]; then
         # Keep current setting (or none)
@@ -554,7 +556,7 @@ prompt_models_dir() {
     fi
 
     if [[ "$path" == "none" || "$path" == "-" ]]; then
-        LLAMACTL_MODELS_DIR=""
+        LLAMA_TOOLCHEST_MODELS_DIR=""
         echo "  → Models will use Docker volume"
         return
     fi
@@ -573,22 +575,97 @@ prompt_models_dir() {
         mkdir -p "$path" || { err "Cannot create $path"; return; }
     fi
 
-    LLAMACTL_MODELS_DIR="$path"
-    export LLAMACTL_MODELS_DIR
+    LLAMA_TOOLCHEST_MODELS_DIR="$path"
+    export LLAMA_TOOLCHEST_MODELS_DIR
     echo "  → Models will be stored at: $path"
 }
 
 load_env_ports() {
     local env_file="${SCRIPT_DIR}/.env"
-    if [[ -f "$env_file" ]]; then
-        local val
-        val="$(grep '^LLAMACTL_PORT=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
-        [[ -n "$val" ]] && LLAMACTL_PORT="$val" || true
-        val="$(grep '^LLAMACTL_INFERENCE_PORT=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
-        [[ -n "$val" ]] && LLAMACTL_INFERENCE_PORT="$val" || true
-        val="$(grep '^LLAMACTL_MODELS_DIR=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
-        [[ -n "$val" ]] && LLAMACTL_MODELS_DIR="$val" || true
+    [[ ! -f "$env_file" ]] && return 0
+
+    # Legacy rename: pre-rebrand .env files used LLAMACTL_*. Detect and rewrite
+    # in place so the user's port and models-dir customizations carry over.
+    if grep -qE '^LLAMACTL_(PORT|INFERENCE_PORT|MODELS_DIR|HOST)=' "$env_file" 2>/dev/null; then
+        log "Migrating legacy LLAMACTL_* vars in .env to LLAMA_TOOLCHEST_*..."
+        sed -i \
+            -e 's/^LLAMACTL_PORT=/LLAMA_TOOLCHEST_PORT=/' \
+            -e 's/^LLAMACTL_INFERENCE_PORT=/LLAMA_TOOLCHEST_INFERENCE_PORT=/' \
+            -e 's/^LLAMACTL_MODELS_DIR=/LLAMA_TOOLCHEST_MODELS_DIR=/' \
+            -e 's/^LLAMACTL_HOST=/LLAMA_TOOLCHEST_HOST=/' \
+            "$env_file"
     fi
+
+    local val
+    val="$(grep '^LLAMA_TOOLCHEST_PORT=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
+    [[ -n "$val" ]] && LLAMA_TOOLCHEST_PORT="$val" || true
+    val="$(grep '^LLAMA_TOOLCHEST_INFERENCE_PORT=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
+    [[ -n "$val" ]] && LLAMA_TOOLCHEST_INFERENCE_PORT="$val" || true
+    val="$(grep '^LLAMA_TOOLCHEST_MODELS_DIR=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
+    [[ -n "$val" ]] && LLAMA_TOOLCHEST_MODELS_DIR="$val" || true
+}
+
+# Legacy rename: copy contents of pre-rebrand 'llamactl-data' Docker volume
+# into the new 'llama-toolchest-data' volume so the renamed container starts
+# with the user's existing models, builds, and config. No-op once the new
+# volume exists. Called from install/rebuild/quick before the new container
+# is started.
+migrate_legacy_volume() {
+    local old_vol="llamactl-data"
+    local new_vol="llama-toolchest-data"
+
+    [[ -z "$CONTAINER_CMD" ]] && return 0
+
+    # Old volume gone → nothing to do (fresh install or already migrated).
+    if ! $CONTAINER_CMD volume inspect "$old_vol" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    # New volume already there → assume migration happened previously, or the
+    # user has both manually. Leave both alone; warn so they know.
+    if $CONTAINER_CMD volume inspect "$new_vol" >/dev/null 2>&1; then
+        warn "Both '$old_vol' and '$new_vol' volumes exist; using '$new_vol' as-is and leaving '$old_vol' untouched."
+        return 0
+    fi
+
+    echo ""
+    warn "Detected legacy Docker volume '$old_vol' from the pre-rename project."
+    log "Will copy its contents into '$new_vol' so the renamed container keeps your existing models, builds, and configs."
+    log "Disk usage will roughly double during the copy. The old volume stays in place — remove it manually after confirming the new install works."
+    echo ""
+    if ! prompt_confirm "Migrate volume now?"; then
+        err "Migration is required to continue. Run './setup.sh install' again when ready, or remove '$old_vol' manually if you don't need its contents."
+        exit 1
+    fi
+
+    # Stop any container that may be holding the volume open.
+    if $CONTAINER_CMD container exists llama-toolchest 2>/dev/null; then
+        $CONTAINER_CMD stop llama-toolchest >/dev/null 2>&1 || true
+    fi
+
+    log "Creating new volume $new_vol..."
+    $CONTAINER_CMD volume create "$new_vol" >/dev/null
+
+    log "Copying contents (can take several minutes for large model collections)..."
+    if ! $CONTAINER_CMD run --rm \
+        -v "${old_vol}:/from:ro" \
+        -v "${new_vol}:/to" \
+        docker.io/library/alpine:3 \
+        sh -c "set -e; \
+               cp -a /from/. /to/; \
+               if [ -f /to/config/llamactl.yaml ] && [ ! -f /to/config/llama-toolchest.yaml ]; then \
+                   mv /to/config/llamactl.yaml /to/config/llama-toolchest.yaml; \
+                   echo 'Renamed config llamactl.yaml -> llama-toolchest.yaml'; \
+               fi"; then
+        err "Volume copy failed. The partially-populated '$new_vol' can be removed with:"
+        echo "    $CONTAINER_CMD volume rm $new_vol"
+        exit 1
+    fi
+
+    ok "Volume migrated."
+    log "The old volume '$old_vol' is preserved. Once you've confirmed the new install works, reclaim its disk with:"
+    echo "    $CONTAINER_CMD volume rm $old_vol"
+    echo ""
 }
 
 # ─── Container operations ────────────────────────────────────────────────────
@@ -601,7 +678,7 @@ compose_file() {
 compose_cmd() {
     local cmd="$COMPOSE_CMD -f $(compose_file)"
     # Add models volume override if a host directory is configured
-    if [[ -n "${LLAMACTL_MODELS_DIR:-}" ]]; then
+    if [[ -n "${LLAMA_TOOLCHEST_MODELS_DIR:-}" ]]; then
         cmd+=" -f docker-compose.models.yml"
     fi
     echo "$cmd"
@@ -622,13 +699,13 @@ write_env_file() {
     : > "$env_file"
 
     # Port configuration
-    echo "LLAMACTL_PORT=${LLAMACTL_PORT}" >> "$env_file"
-    echo "LLAMACTL_INFERENCE_PORT=${LLAMACTL_INFERENCE_PORT}" >> "$env_file"
+    echo "LLAMA_TOOLCHEST_PORT=${LLAMA_TOOLCHEST_PORT}" >> "$env_file"
+    echo "LLAMA_TOOLCHEST_INFERENCE_PORT=${LLAMA_TOOLCHEST_INFERENCE_PORT}" >> "$env_file"
 
     # Model storage — bind-mount a host directory so models survive volume removal
-    if [[ -n "$LLAMACTL_MODELS_DIR" ]]; then
-        echo "LLAMACTL_MODELS_DIR=${LLAMACTL_MODELS_DIR}" >> "$env_file"
-        export LLAMACTL_MODELS_DIR
+    if [[ -n "$LLAMA_TOOLCHEST_MODELS_DIR" ]]; then
+        echo "LLAMA_TOOLCHEST_MODELS_DIR=${LLAMA_TOOLCHEST_MODELS_DIR}" >> "$env_file"
+        export LLAMA_TOOLCHEST_MODELS_DIR
     fi
 
     # GPU-specific settings
@@ -662,6 +739,7 @@ container_down() {
 }
 
 container_install() {
+    migrate_legacy_volume
     write_env_file
     $(compose_cmd) up -d --build
 }
@@ -670,6 +748,7 @@ container_rebuild() {
     local quadlet_active=false
     has_quadlet && quadlet_active=true
 
+    migrate_legacy_volume
     container_down
     $CONTAINER_CMD rm llama-toolchest 2>/dev/null || true
     write_env_file
@@ -685,6 +764,7 @@ container_rebuild() {
 
 # Quick rebuild: only rebuild layers that changed (Go code), reuse cached base layers.
 container_quick_rebuild() {
+    migrate_legacy_volume
     container_down
     write_env_file
     $(compose_cmd) up -d --build
@@ -747,7 +827,7 @@ is_autostart_enabled() {
 get_volume_name() {
     # Get the actual volume name from the running container, or fall back to compose default
     $CONTAINER_CMD inspect --format '{{range .Mounts}}{{.Name}}{{end}}' llama-toolchest 2>/dev/null \
-        || echo "llamactl-data"
+        || echo "llama-toolchest-data"
 }
 
 generate_quadlet() {
@@ -784,8 +864,8 @@ After=network-online.target
 [Container]
 Image=${image_name}
 ContainerName=llama-toolchest
-PublishPort=${LLAMACTL_PORT}:3000
-PublishPort=${LLAMACTL_INFERENCE_PORT}:8080
+PublishPort=${LLAMA_TOOLCHEST_PORT}:3000
+PublishPort=${LLAMA_TOOLCHEST_INFERENCE_PORT}:8080
 Volume=${volume_name}:/data:z
 ${gpu_args}
 
@@ -941,7 +1021,7 @@ container_uninstall() {
     echo ""
     # Compose prefixes volume names with the project directory name
     local volume_name
-    volume_name="$($CONTAINER_CMD inspect --format '{{range .Mounts}}{{.Name}}{{end}}' llama-toolchest 2>/dev/null || echo "llamactl-data")"
+    volume_name="$($CONTAINER_CMD inspect --format '{{range .Mounts}}{{.Name}}{{end}}' llama-toolchest 2>/dev/null || echo "llama-toolchest-data")"
     echo -e "  ${YELLOW}Note:${NC} The data volume (models, builds, config) will be kept."
     echo -e "        To remove it: ${CONTAINER_CMD} volume rm ${volume_name}"
     echo ""
@@ -971,7 +1051,7 @@ container_uninstall() {
     fi
 
     echo ""
-    ok "llamactl uninstalled"
+    ok "llama-toolchest uninstalled"
 }
 
 # ─── Summary and confirmation ─────────────────────────────────────────────────
@@ -993,10 +1073,10 @@ print_summary() {
     echo -e "  ${CYAN}Distro${NC}        ${DISTRO_NAME}"
     echo -e "  ${CYAN}Dockerfile${NC}    ${df}"
     echo -e "  ${CYAN}Compose file${NC}  ${cf}"
-    echo -e "  ${CYAN}UI port${NC}       ${LLAMACTL_PORT}"
-    echo -e "  ${CYAN}Inference port${NC} ${LLAMACTL_INFERENCE_PORT}"
-    if [[ -n "$LLAMACTL_MODELS_DIR" ]]; then
-        echo -e "  ${CYAN}Models dir${NC}    ${LLAMACTL_MODELS_DIR}"
+    echo -e "  ${CYAN}UI port${NC}       ${LLAMA_TOOLCHEST_PORT}"
+    echo -e "  ${CYAN}Inference port${NC} ${LLAMA_TOOLCHEST_INFERENCE_PORT}"
+    if [[ -n "$LLAMA_TOOLCHEST_MODELS_DIR" ]]; then
+        echo -e "  ${CYAN}Models dir${NC}    ${LLAMA_TOOLCHEST_MODELS_DIR}"
     fi
     if [[ -n "$AMD_GFX_VERSION" ]]; then
         echo -e "  ${CYAN}HSA Override${NC}  ${AMD_GFX_VERSION}"
@@ -1044,68 +1124,97 @@ prompt_confirm() {
     esac
 }
 
+# ─── Library: host install + service helpers ─────────────────────────────────
+
+# shellcheck source=scripts/lib/service.sh
+source "${SCRIPT_DIR}/scripts/lib/service.sh"
+# shellcheck source=scripts/lib/host.sh
+source "${SCRIPT_DIR}/scripts/lib/host.sh"
+
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 usage() {
     cat <<'USAGE'
 llama-toolchest setup — auto-detect GPU + container runtime, build & run
 
-Usage: ./setup.sh <command>
+Usage: ./setup.sh <command> [--host|--container]
+
+Install modes:
+  --container   (default) Run llama-toolchest inside a Docker/Podman
+                container. Isolates the GPU SDK install; works with the
+                existing flow.
+  --host        Run llama-toolchest directly on the host system. Builds
+                from source today; future tagged releases will switch
+                to fetching prebuilt packages.
 
 Lifecycle:
-  install     Detect GPU/runtime/distro, install prerequisites, build image,
-              and start the container
-  uninstall   Stop container, disable auto-start, and remove container + image
-  quick       Fast rebuild — only recompile Go code, reuse cached base layers
-  rebuild     Full rebuild with no cache, then start
+  install     Detect, install prerequisites, build, and start
+  uninstall   Stop and remove (container or host install)
+  quick       Container only: fast rebuild — only recompile Go code,
+              reuse cached base layers
+  rebuild     Container only: full rebuild with no cache, then start
 
-Runtime:
+Runtime (container only):
   up          Start a stopped container
   down        Stop the container
   logs        Follow container logs (Ctrl-C to stop)
 
-Auto-start:
+Auto-start (container only):
   enable      Enable auto-start on boot
-                Docker:       sets restart policy to 'unless-stopped'
-                Podman root:  sets restart policy to 'unless-stopped'
-                Podman user:  installs a Quadlet systemd unit and enables
-                              loginctl linger so the service survives logout
   disable     Disable auto-start on boot
-                Docker:       sets restart policy to 'no'
-                Podman root:  sets restart policy to 'no'
-                Podman user:  removes the Quadlet systemd unit
 
 Info:
   status      Show detected environment and planned actions, then exit
-  detect      Print detected GPU backend (cuda/rocm/cpu) and exit
+              (works for both modes)
+  detect      Print detected GPU backend (cuda/rocm/cpu/vulkan/metal) and exit
   help        Show this help message
 
+Host-mode lifecycle is managed via systemd directly:
+  systemctl --user start|stop|status llama-toolchest    (user install)
+  sudo systemctl start|stop|status llama-toolchest      (system install, when run as root)
+
 Environment variables:
-  GPU=cuda|rocm|cpu        Override GPU auto-detection
-  RUNTIME=docker|podman   Override container runtime auto-detection
+  GPU=cuda|rocm|vulkan|cpu      Override GPU auto-detection
+  RUNTIME=docker|podman         Override container runtime auto-detection
+  INSTALL_MODE=host|container   Same as --host / --container
 
 Port configuration is stored in .env (see .env.example for details).
 You can edit .env directly instead of using the interactive setup.
 
 Examples:
-  ./setup.sh install              # detect everything, install prereqs, build & run
-  ./setup.sh status               # dry run — show what would happen
-  ./setup.sh enable               # start on boot
-  ./setup.sh disable              # stop starting on boot
-  ./setup.sh uninstall            # remove everything
-  ./setup.sh quick                # fast rebuild (code changes only)
-  ./setup.sh rebuild              # full clean rebuild (no cache)
-  GPU=cpu ./setup.sh install      # force CPU-only backend
-  RUNTIME=podman ./setup.sh install  # force Podman runtime
+  ./setup.sh install                    # detect, install prereqs, build & run (container)
+  ./setup.sh install --host             # build from source, install on host
+  ./setup.sh status --host              # show host install status
+  ./setup.sh uninstall --host           # remove host install
+  ./setup.sh status                     # container dry run
+  ./setup.sh quick                      # fast container rebuild
+  GPU=cpu ./setup.sh install            # force CPU-only backend (container)
 USAGE
 }
 
 main() {
     local command="${1:-help}"
+    shift || true
 
     cd "$SCRIPT_DIR"
 
-    # ── Parse args ──
+    # ── Parse flags after the command ──
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --host)      INSTALL_MODE="host" ;;
+            --container) INSTALL_MODE="container" ;;
+            -h|--help)   usage; exit 0 ;;
+            *)
+                err "Unknown flag: $1"
+                echo ""
+                usage
+                exit 1
+                ;;
+        esac
+        shift
+    done
+
+    # ── Validate command ──
     case "$command" in
         install|uninstall|up|down|rebuild|quick|logs|detect|status|enable|disable) ;;
         -h|--help|help)
@@ -1119,6 +1228,38 @@ main() {
             exit 1
             ;;
     esac
+
+    # ── Host mode: short circuit before any container detection ──
+    if [[ "$INSTALL_MODE" == "host" ]]; then
+        # Detect GPU so HSA_OVERRIDE_GFX_VERSION etc. are populated for the
+        # unit override; everything else is host-mode-specific.
+        if [[ -n "${GPU:-}" ]]; then
+            GPU_VENDOR="$GPU"
+            GPU_INFO="(manually set: $GPU)"
+        else
+            detect_gpu
+        fi
+
+        case "$command" in
+            install)   host_install ;;
+            uninstall) host_uninstall ;;
+            status)    host_status ;;
+            detect)    echo "$GPU_VENDOR" ;;
+            up|down|logs|enable|disable|rebuild|quick)
+                err "'$command' is not supported in --host mode."
+                log "For host installs, manage the service via systemd directly:"
+                if [[ "$(host_scope 2>/dev/null)" == "system" ]]; then
+                    echo "    sudo systemctl start|stop|status|enable|disable llama-toolchest"
+                    echo "    sudo journalctl -u llama-toolchest -f      # logs"
+                else
+                    echo "    systemctl --user start|stop|status|enable|disable llama-toolchest"
+                    echo "    journalctl --user -u llama-toolchest -f    # logs"
+                fi
+                exit 1
+                ;;
+        esac
+        exit 0
+    fi
 
     # ── Detect everything ──
     if [[ -n "${GPU:-}" ]]; then
@@ -1142,12 +1283,12 @@ main() {
     case "$command" in
         up)
             container_up
-            ok "llamactl started"
+            ok "llama-toolchest started"
             exit 0
             ;;
         down)
             container_down
-            ok "llamactl stopped"
+            ok "llama-toolchest stopped"
             exit 0
             ;;
         logs)
@@ -1169,9 +1310,9 @@ main() {
         quick)
             log "Quick rebuild (cached)..."
             container_quick_rebuild
-            ok "llamactl is running"
+            ok "llama-toolchest is running"
             echo ""
-            echo "  Web UI:     http://localhost:${LLAMACTL_PORT}"
+            echo "  Web UI:     http://localhost:${LLAMA_TOOLCHEST_PORT}"
             echo ""
             exit 0
             ;;
@@ -1201,7 +1342,7 @@ main() {
     fi
 
     # ── Build and run ──
-    if ! prompt_confirm "Build and start llamactl?"; then
+    if ! prompt_confirm "Build and start llama-toolchest?"; then
         echo "Aborted."
         exit 0
     fi
@@ -1213,10 +1354,10 @@ main() {
     esac
 
     echo ""
-    ok "llamactl is running"
+    ok "llama-toolchest is running"
     echo ""
-    echo "  Web UI:     http://localhost:${LLAMACTL_PORT}"
-    echo "  Inference:  http://localhost:${LLAMACTL_INFERENCE_PORT}"
+    echo "  Web UI:     http://localhost:${LLAMA_TOOLCHEST_PORT}"
+    echo "  Inference:  http://localhost:${LLAMA_TOOLCHEST_INFERENCE_PORT}"
     echo ""
     echo "  Logs:       ./setup.sh logs"
     echo "  Stop:       ./setup.sh down"

@@ -38,17 +38,27 @@ A web-based management interface for [llama.cpp](https://github.com/ggerganov/ll
 ```bash
 git clone https://github.com/tmac1973/llama-toolchest.git
 cd llama-toolchest
-./setup.sh install
+./setup.sh install              # default: container install
+# or, for a containerless install on the host:
+./setup.sh install --host
 ```
 
 The setup script will:
 1. Detect your GPU (NVIDIA, AMD, or CPU-only)
-2. Detect your container runtime (Docker or Podman)
-3. Install any missing prerequisites (e.g., NVIDIA Container Toolkit)
-4. Show a summary and ask for confirmation
-5. Build and start the container
+2. (Container mode) detect your container runtime (Docker or Podman) and install any missing prerequisites
+3. Show a summary and ask for confirmation
+4. Build and start
 
 The management UI will be available at `http://localhost:3000`.
+
+### Install modes
+
+| Mode | When to use | What it does |
+|------|-------------|--------------|
+| `--container` (default) | Most users — keeps GPU SDKs and the build toolchain isolated from the host. | Builds a Docker/Podman image and runs llama-toolchest inside it. |
+| `--host` | You already have a working GPU driver/toolchain and want a leaner setup, faster startup, or Vulkan support. | Builds the binary from source via `go build`, installs to `~/.local/bin` (or `/usr/local/bin` as root), writes a config and a systemd unit, and optionally enables the service. |
+
+Host mode is managed via `systemctl --user start|stop|status llama-toolchest` (user install) or `sudo systemctl ...` (system install). The container `up`/`down`/`logs`/`enable`/`disable` commands are container-mode-only.
 
 ### Supported GPUs
 
@@ -100,7 +110,7 @@ Runtime:
   logs        Follow container logs
 
 Auto-start:
-  enable      Start llamactl on boot
+  enable      Start llama-toolchest on boot
   disable     Stop starting on boot
 
 Info:
@@ -127,7 +137,7 @@ RUNTIME=podman ./setup.sh install   # force Podman runtime
 
 ## Configuration
 
-Llama Toolchest uses a YAML config file at `/data/config/llamactl.yaml` inside the container. Settings can also be changed from the Settings page in the UI.
+Llama Toolchest uses a YAML config file at `/data/config/llama-toolchest.yaml` inside the container. Settings can also be changed from the Settings page in the UI.
 
 ```yaml
 listen_addr: ":3000"       # Management UI listen address
@@ -141,18 +151,18 @@ log_level: "info"
 
 ### Model Storage
 
-By default, models are stored in the Docker volume (`llamactl-data`). To persist models on the host filesystem (so they survive volume removal):
+By default, models are stored in the Docker volume (`llama-toolchest-data`). To persist models on the host filesystem (so they survive volume removal):
 
 ```bash
 # Add to .env (or set before running setup.sh)
-LLAMACTL_MODELS_DIR=/path/to/your/models
+LLAMA_TOOLCHEST_MODELS_DIR=/path/to/your/models
 ```
 
 The host directory is bind-mounted to `/data/models` inside the container. Existing models in the volume will not be visible when a host directory is mounted — move them first if needed.
 
 ### External URL
 
-Set `external_url` when accessing LlamaCtl from a remote machine. This configures the displayed API endpoint URL and Chat UI link on the dashboard. Can be set from the Settings page.
+Set `external_url` when accessing Llama Toolchest from a remote machine. This configures the displayed API endpoint URL and Chat UI link on the dashboard. Can be set from the Settings page.
 
 ### API Key Authentication
 
@@ -162,7 +172,7 @@ When `api_key` is set, all requests to `/v1/*` require a `Authorization: Bearer 
 
 | Port | Service |
 |------|---------|
-| 3000 | LlamaCtl management UI + OpenAI proxy (`/v1`) |
+| 3000 | Llama Toolchest management UI + OpenAI proxy (`/v1`) |
 | 8080 | llama.cpp router + built-in chat UI with model dropdown |
 
 ## GPU Backend Notes
@@ -192,11 +202,11 @@ In tensor parallelism mode, the `Processors` field selects which GPUs (0, 1, ...
 
 ## Architecture
 
-LlamaCtl is a single Go binary that serves a web UI and manages the llama-server subprocess.
+Llama Toolchest is a single Go binary that serves a web UI and manages the llama-server subprocess.
 
 ```
 cmd/
-  llamactl/            Server entry point
+  llama-toolchest/     Server entry point
   agent/               Terminal chat client with tool use
 internal/
   api/                 HTTP handlers, SSE streaming, routing proxy
@@ -238,7 +248,7 @@ The UI uses server-rendered HTML with [htmx](https://htmx.org/) for interactivit
 
 ```bash
 make dev          # go run with hot reload
-make build        # compile bin/llamactl + bin/agent
+make build        # compile bin/llama-toolchest + bin/agent
 make run          # build and run
 make agent        # compile just the agent CLI
 ```

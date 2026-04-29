@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -421,7 +422,7 @@ func (b *Builder) runBuild(ctx context.Context, prof BuildProfile, srcDir string
 
 	// ninja — build all targets (target names vary across llama.cpp versions)
 	sendLog("==> Running ninja...")
-	if err := b.runCmd(ctx, buildDir, logCh, result.ID, "ninja", "-j", fmt.Sprintf("%d", numCPU())); err != nil {
+	if err := b.runCmd(ctx, buildDir, logCh, result.ID, "ninja", "-j", fmt.Sprintf("%d", runtime.NumCPU())); err != nil {
 		b.finishBuild(result, BuildStatusFailed, fmt.Sprintf("ninja failed: %v", err))
 		sendLog(fmt.Sprintf("==> ninja FAILED: %v", err))
 		return
@@ -565,12 +566,25 @@ func (b *Builder) checkoutRef(ctx context.Context, srcDir string, ref string, lo
 	return ref, strings.TrimSpace(string(out)), nil
 }
 
-// FetchRefs fetches available tags from the llama.cpp repo (requires repo to be cloned).
-// Results are cached; call this to refresh.
+// FetchRefs pulls the latest tags from the llama.cpp remote and returns the
+// available b* release tags. Results are cached; call this to refresh.
+//
+// The remote fetch is best-effort: if it fails (no network, transient error,
+// timeout), we still return whatever tags are already in the local clone so
+// the user can pick from cached tags rather than seeing an error.
 func (b *Builder) FetchRefs() ([]string, error) {
 	srcDir := filepath.Join(b.dataDir, "llama.cpp")
 	if _, err := os.Stat(filepath.Join(srcDir, ".git")); err != nil {
 		return nil, fmt.Errorf("llama.cpp repo not cloned yet — run a build first")
+	}
+
+	// Fetch from origin so newly-pushed upstream tags become visible to
+	// the subsequent `git tag` listing. Bounded timeout so a slow or
+	// unreachable remote doesn't hang the UI request.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := exec.CommandContext(ctx, "git", "-C", srcDir, "fetch", "--tags", "--prune", "origin").Run(); err != nil {
+		slog.Warn("git fetch failed; returning cached tags", "error", err)
 	}
 
 	out, err := exec.Command("git", "-C", srcDir, "tag", "--sort=-v:refname", "-l", "b*").Output()
@@ -748,16 +762,3 @@ func copyFile(src, dst string) error {
 	return err
 }
 
-func numCPU() int {
-	// Use nproc if available, fallback to 4
-	out, err := exec.Command("nproc").Output()
-	if err != nil {
-		return 4
-	}
-	var n int
-	fmt.Sscanf(strings.TrimSpace(string(out)), "%d", &n)
-	if n < 1 {
-		return 4
-	}
-	return n
-}

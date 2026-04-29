@@ -1,0 +1,15 @@
+[Unit]
+Description=llama-toolchest — local LLM management (user)
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/llama-toolchest
+Restart=on-failure
+RestartSec=5
+
+# Drop-in overrides go in ~/.config/systemd/user/llama-toolchest.service.d/.
+# Put per-deployment env vars like HSA_OVERRIDE_GFX_VERSION there.
+
+[Install]
+WantedBy=default.target

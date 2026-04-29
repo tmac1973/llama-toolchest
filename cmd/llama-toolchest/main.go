@@ -15,9 +15,22 @@ import (
 	"github.com/tmlabonte/llamactl/internal/config"
 )
 
+// Build info, populated via -ldflags by goreleaser.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
-	configPath := flag.String("config", "/data/config/llamactl.yaml", "config file path")
+	configPath := flag.String("config", config.DefaultConfigPath(), "config file path")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("llama-toolchest %s (commit %s, built %s)\n", version, commit, date)
+		return
+	}
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {

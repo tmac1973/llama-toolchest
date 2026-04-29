@@ -1,0 +1,153 @@
+# GoReleaser config — produces native packages on tag push.
+# Triggered by .github/workflows/release.yml; for local dev use:
+#   make package-snapshot
+#
+# Project: llama-toolchest. Module path is github.com/tmlabonte/llamactl
+# for legacy reasons; the binary, package, and brand name are
+# llama-toolchest.
+
+version: 2
+
+project_name: llama-toolchest
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: llama-toolchest
+    main: ./cmd/llama-toolchest
+    binary: llama-toolchest
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.CommitDate}}
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: default
+    ids:
+      - llama-toolchest
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_
+      {{- if eq .Os "darwin" }}macos{{ else }}{{ .Os }}{{ end }}_
+      {{- .Arch }}
+    formats:
+      - tar.gz
+    files:
+      - LICENSE*
+      - README.md
+      - packaging/config/llama-toolchest.yaml.example
+
+# Native Linux packages. nfpm builds .deb and .rpm from the same template.
+nfpms:
+  - id: linux-packages
+    package_name: llama-toolchest
+    file_name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    vendor: tmac1973
+    homepage: https://github.com/tmac1973/llama-toolchest
+    maintainer: Tim MacDonald <tbaxmacdonald@gmail.com>
+    description: |
+      llama-toolchest is a self-hosted web app for managing llama.cpp
+      inference: download GGUF models from HuggingFace, build llama.cpp
+      against your GPU backend, and serve an OpenAI-compatible /v1 API.
+    license: MIT
+    formats:
+      - deb
+      - rpm
+    # Build toolchain is a hard runtime dep because llama.cpp building is
+    # a core feature of the app, not optional.
+    dependencies:
+      - cmake
+      - ninja-build
+      - git
+    overrides:
+      rpm:
+        dependencies:
+          - cmake
+          - ninja-build
+          - git
+          - gcc-c++
+          - make
+        recommends:
+          - openblas-devel
+      deb:
+        dependencies:
+          - cmake
+          - ninja-build
+          - git
+          - build-essential
+          - pkg-config
+        recommends:
+          - libopenblas-dev
+    contents:
+      - src: ./packaging/systemd/llama-toolchest.service
+        dst: /usr/lib/systemd/system/llama-toolchest.service
+      - src: ./packaging/systemd/llama-toolchest.user.service
+        dst: /usr/lib/systemd/user/llama-toolchest.service
+      - src: ./packaging/config/llama-toolchest.yaml.example
+        dst: /etc/llama-toolchest/llama-toolchest.yaml.example
+        type: config
+      - src: ./LICENSE
+        dst: /usr/share/doc/llama-toolchest/LICENSE
+      - src: ./README.md
+        dst: /usr/share/doc/llama-toolchest/README.md
+    scripts:
+      postinstall: ./packaging/scripts/postinstall.sh
+      preremove: ./packaging/scripts/preremove.sh
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ .Version }}-snapshot+{{ .ShortCommit }}"
+
+# release-please owns the changelog (CHANGELOG.md + GitHub Release body),
+# so we tell GoReleaser to skip its own changelog generation and to leave
+# the existing release alone — just attach artifacts.
+changelog:
+  disable: true
+
+release:
+  mode: keep-existing
+
+# Homebrew tap — disabled until the tap repo
+# (github.com/tmac1973/homebrew-llama-toolchest) is created. To enable:
+#   1. Create that repo (empty init is fine; goreleaser pushes the formula).
+#   2. Add a HOMEBREW_TAP_TOKEN repo secret with a PAT that has write access
+#      to the tap repo.
+#   3. Uncomment the brews block below.
+#
+# brews:
+#   - name: llama-toolchest
+#     ids:
+#       - default
+#     repository:
+#       owner: tmac1973
+#       name: homebrew-llama-toolchest
+#       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+#     homepage: https://github.com/tmac1973/llama-toolchest
+#     description: Self-hosted web UI for managing llama.cpp inference.
+#     license: MIT
+#     dependencies:
+#       - name: cmake
+#       - name: ninja
+#       - name: git
+#     install: |
+#       bin.install "llama-toolchest"
+#     service: |
+#       run [opt_bin/"llama-toolchest"]
+#       keep_alive true
+#       log_path var/"log/llama-toolchest.log"
+#       error_log_path var/"log/llama-toolchest.log"

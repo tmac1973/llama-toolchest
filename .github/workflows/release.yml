@@ -1,0 +1,61 @@
+name: release
+
+# Fires when a GitHub Release is published. The typical path:
+#   merge release-please PR → release-please creates the tag + GitHub
+#   Release → this workflow runs goreleaser → goreleaser uploads
+#   .deb/.rpm/tarballs as assets to the existing release.
+#
+# We intentionally do NOT trigger on `push: tags: v*`. The default
+# GITHUB_TOKEN can't trigger other workflows when it pushes a tag, so
+# release-please's tag push wouldn't fire goreleaser without a PAT.
+# Triggering on the release event sidesteps that — release-please
+# publishing the release fires this workflow under the release-please
+# action's own credentials, which works.
+#
+# Manual fallback: if you need to ship outside release-please, create a
+# release manually (`gh release create vX.Y.Z`) and this workflow runs.
+# Or use the workflow_dispatch button in the Actions UI for a re-run.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    name: GoReleaser
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # On a release event, GITHUB_REF is refs/tags/<tag>. On manual
+          # dispatch, check out the tag the user supplied.
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          # Uncomment the line above and the brews block in
+          # .goreleaser.yaml once the tap repo
+          # (github.com/tmac1973/homebrew-llama-toolchest) exists and a
+          # HOMEBREW_TAP_TOKEN PAT is set as a repo secret.
