@@ -1246,13 +1246,17 @@ main() {
     # ── Host mode: short circuit before any container detection ──
     if [[ "$INSTALL_MODE" == "host" ]]; then
         # Detect GPU so HSA_OVERRIDE_GFX_VERSION etc. are populated for the
-        # unit override; everything else is host-mode-specific.
+        # unit override.
         if [[ -n "${GPU:-}" ]]; then
             GPU_VENDOR="$GPU"
             GPU_INFO="(manually set: $GPU)"
         else
             detect_gpu
         fi
+        # Detect distro family so host_install_from_package knows which
+        # package manager + extension to use, and host_install_gpu_sdk
+        # knows which package names to install.
+        detect_distro
 
         case "$command" in
             install)   host_install ;;
