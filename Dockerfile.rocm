@@ -1,19 +1,22 @@
-# Stage 1: Build the Go binary
-FROM golang:1.25-bookworm AS builder
+# Runtime image — AMD ROCm 7.2 on Fedora 43.
+#
+# Default: install the released .rpm from the GitHub releases page. The
+# package's hard deps come along automatically. ROCm SDK comes from
+# repo.radeon.com, configured below.
+#
+# To install a locally-built snapshot package instead (dev iteration):
+#   make package-snapshot
+#   docker build --build-arg INSTALL_PACKAGE=dist/llama-toolchest_<ver>_linux_amd64.rpm \
+#                -f Dockerfile.rocm .
+#
+# To pin a specific release version (avoid hitting the GH API at build time):
+#   docker build --build-arg LLAMA_TOOLCHEST_VERSION=1.0.0 -f Dockerfile.rocm .
 
-WORKDIR /app
-COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod \
-    go mod download
-COPY . .
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -o llama-toolchest ./cmd/llama-toolchest
-
-# Stage 2: Runtime — Fedora 43 + ROCm 7.2
-# Using full dev toolchain because llama.cpp builds happen inside
-# the container and need cmake, hipcc, ROCm headers, etc.
 FROM registry.fedoraproject.org/fedora:43
+
+ARG INSTALL_PACKAGE=""
+ARG LLAMA_TOOLCHEST_VERSION="latest"
+ARG TARGETARCH=amd64
 
 # ROCm 7.2 repo
 RUN <<'EOF'
@@ -28,16 +31,16 @@ gpgkey=https://repo.radeon.com/rocm/rocm.gpg.key
 REPO
 EOF
 
-# Dev tools + ROCm SDK
+# ROCm SDK + curl/openssl for runtime. Build toolchain comes via the
+# llama-toolchest package's Requires.
 RUN --mount=type=cache,target=/var/cache/dnf \
     dnf -y --nodocs --setopt=install_weak_deps=False --setopt=keepcache=True \
   --exclude='*sdk*' --exclude='*samples*' --exclude='*-doc*' --exclude='*-docs*' \
   install \
-  make gcc cmake lld clang clang-devel compiler-rt ninja-build \
   rocm-llvm rocm-device-libs hip-runtime-amd hip-devel \
   rocblas rocblas-devel hipblas hipblas-devel rocwmma-devel rocm-cmake libomp-devel libomp \
   rocminfo \
-  git-core curl openssl-devel
+  curl ca-certificates openssl-devel
 
 # ROCm environment
 ENV ROCM_PATH=/opt/rocm \
@@ -46,16 +49,24 @@ ENV ROCM_PATH=/opt/rocm \
   HIP_DEVICE_LIB_PATH=/opt/rocm/amdgcn/bitcode \
   PATH=/opt/rocm/bin:/opt/rocm/llvm/bin:$PATH
 
-COPY --from=builder /app/llama-toolchest /usr/local/bin/llama-toolchest
-
-# Optional package install: rocm image is fedora 43 — RPM, not DEB.
-# Pass `--build-arg INSTALL_PACKAGE=dist/llama-toolchest_X.Y.Z_linux_amd64.rpm`
-# to install the prebuilt package on top of the source-built binary.
-ARG INSTALL_PACKAGE=""
 RUN --mount=type=bind,target=/build_context \
+    --mount=type=cache,target=/var/cache/dnf \
+    set -e; \
     if [ -n "${INSTALL_PACKAGE}" ]; then \
-        echo "Installing package: /build_context/${INSTALL_PACKAGE}"; \
+        echo "Installing local snapshot: /build_context/${INSTALL_PACKAGE}"; \
         dnf install -y "/build_context/${INSTALL_PACKAGE}"; \
+    else \
+        if [ "${LLAMA_TOOLCHEST_VERSION}" = "latest" ]; then \
+            VERSION=$(curl -fsSL https://api.github.com/repos/tmac1973/llama-toolchest/releases/latest \
+                | grep -m1 '"tag_name"' | sed 's/.*"v\?\([^"]*\)".*/\1/'); \
+        else \
+            VERSION="${LLAMA_TOOLCHEST_VERSION}"; \
+        fi; \
+        echo "Installing release v${VERSION} (linux/${TARGETARCH})"; \
+        curl -fsSL -o /tmp/llama-toolchest.rpm \
+            "https://github.com/tmac1973/llama-toolchest/releases/download/v${VERSION}/llama-toolchest_${VERSION}_linux_${TARGETARCH}.rpm"; \
+        dnf install -y /tmp/llama-toolchest.rpm; \
+        rm /tmp/llama-toolchest.rpm; \
     fi
 
 RUN mkdir -p /data/config /data/builds /data/models /data/llama.cpp

@@ -1,41 +1,50 @@
-# Stage 1: Build the Go binary
-FROM golang:1.25-bookworm AS builder
+# Runtime image — CPU-only (Debian bookworm).
+#
+# Default: install the released .deb from the GitHub releases page. The
+# package's hard deps (cmake, ninja-build, git, build-essential, pkg-config)
+# come along automatically — that's what llama.cpp builds need at runtime.
+#
+# To install a locally-built snapshot package instead (dev iteration):
+#   make package-snapshot
+#   docker build --build-arg INSTALL_PACKAGE=dist/llama-toolchest_<ver>_linux_amd64.deb \
+#                -f Dockerfile.cpu .
+#
+# To pin a specific release version (avoid hitting the GH API at build time):
+#   docker build --build-arg LLAMA_TOOLCHEST_VERSION=1.0.0 -f Dockerfile.cpu .
 
-WORKDIR /app
-COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod \
-    go mod download
-COPY . .
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -o llama-toolchest ./cmd/llama-toolchest
-
-# Stage 2: Runtime — lightweight CPU-only image
-# No GPU SDK needed; llama.cpp will build with CPU backends only
 FROM docker.io/library/debian:bookworm-slim
 
+ARG INSTALL_PACKAGE=""
+ARG LLAMA_TOOLCHEST_VERSION="latest"
+ARG TARGETARCH=amd64
+
+# curl + ca-certificates for the package download; libssl-dev for OpenSSL-
+# enabled llama.cpp builds (recommended but not a hard package dep). Build
+# toolchain comes via the .deb's Depends.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
-    cmake \
-    ninja-build \
-    git \
-    curl \
-    build-essential \
-    libssl-dev
+    curl ca-certificates libssl-dev
 
-COPY --from=builder /app/llama-toolchest /usr/local/bin/llama-toolchest
-
-# Optional package install: if INSTALL_PACKAGE is set (e.g. via
-# `docker build --build-arg INSTALL_PACKAGE=dist/llama-toolchest_X.Y.Z_linux_amd64.deb`),
-# install the .deb on top of the source-built binary. This switches the
-# image to consuming the same artifact host installs use. Default: unset,
-# so behavior is identical to a pure from-source build.
-ARG INSTALL_PACKAGE=""
 RUN --mount=type=bind,target=/build_context \
+    --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    set -e; \
     if [ -n "${INSTALL_PACKAGE}" ]; then \
-        echo "Installing package: /build_context/${INSTALL_PACKAGE}"; \
+        echo "Installing local snapshot: /build_context/${INSTALL_PACKAGE}"; \
         apt-get install -y --no-install-recommends "/build_context/${INSTALL_PACKAGE}"; \
+    else \
+        if [ "${LLAMA_TOOLCHEST_VERSION}" = "latest" ]; then \
+            VERSION=$(curl -fsSL https://api.github.com/repos/tmac1973/llama-toolchest/releases/latest \
+                | grep -m1 '"tag_name"' | sed 's/.*"v\?\([^"]*\)".*/\1/'); \
+        else \
+            VERSION="${LLAMA_TOOLCHEST_VERSION}"; \
+        fi; \
+        echo "Installing release v${VERSION} (linux/${TARGETARCH})"; \
+        curl -fsSL -o /tmp/llama-toolchest.deb \
+            "https://github.com/tmac1973/llama-toolchest/releases/download/v${VERSION}/llama-toolchest_${VERSION}_linux_${TARGETARCH}.deb"; \
+        apt-get install -y --no-install-recommends /tmp/llama-toolchest.deb; \
+        rm /tmp/llama-toolchest.deb; \
     fi
 
 RUN mkdir -p /data/config /data/builds /data/models /data/llama.cpp
