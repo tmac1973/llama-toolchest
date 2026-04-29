@@ -580,15 +580,90 @@ prompt_models_dir() {
 
 load_env_ports() {
     local env_file="${SCRIPT_DIR}/.env"
-    if [[ -f "$env_file" ]]; then
-        local val
-        val="$(grep '^LLAMA_TOOLCHEST_PORT=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
-        [[ -n "$val" ]] && LLAMA_TOOLCHEST_PORT="$val" || true
-        val="$(grep '^LLAMA_TOOLCHEST_INFERENCE_PORT=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
-        [[ -n "$val" ]] && LLAMA_TOOLCHEST_INFERENCE_PORT="$val" || true
-        val="$(grep '^LLAMA_TOOLCHEST_MODELS_DIR=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
-        [[ -n "$val" ]] && LLAMA_TOOLCHEST_MODELS_DIR="$val" || true
+    [[ ! -f "$env_file" ]] && return 0
+
+    # Legacy rename: pre-rebrand .env files used LLAMACTL_*. Detect and rewrite
+    # in place so the user's port and models-dir customizations carry over.
+    if grep -qE '^LLAMACTL_(PORT|INFERENCE_PORT|MODELS_DIR|HOST)=' "$env_file" 2>/dev/null; then
+        log "Migrating legacy LLAMACTL_* vars in .env to LLAMA_TOOLCHEST_*..."
+        sed -i \
+            -e 's/^LLAMACTL_PORT=/LLAMA_TOOLCHEST_PORT=/' \
+            -e 's/^LLAMACTL_INFERENCE_PORT=/LLAMA_TOOLCHEST_INFERENCE_PORT=/' \
+            -e 's/^LLAMACTL_MODELS_DIR=/LLAMA_TOOLCHEST_MODELS_DIR=/' \
+            -e 's/^LLAMACTL_HOST=/LLAMA_TOOLCHEST_HOST=/' \
+            "$env_file"
     fi
+
+    local val
+    val="$(grep '^LLAMA_TOOLCHEST_PORT=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
+    [[ -n "$val" ]] && LLAMA_TOOLCHEST_PORT="$val" || true
+    val="$(grep '^LLAMA_TOOLCHEST_INFERENCE_PORT=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
+    [[ -n "$val" ]] && LLAMA_TOOLCHEST_INFERENCE_PORT="$val" || true
+    val="$(grep '^LLAMA_TOOLCHEST_MODELS_DIR=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
+    [[ -n "$val" ]] && LLAMA_TOOLCHEST_MODELS_DIR="$val" || true
+}
+
+# Legacy rename: copy contents of pre-rebrand 'llamactl-data' Docker volume
+# into the new 'llama-toolchest-data' volume so the renamed container starts
+# with the user's existing models, builds, and config. No-op once the new
+# volume exists. Called from install/rebuild/quick before the new container
+# is started.
+migrate_legacy_volume() {
+    local old_vol="llamactl-data"
+    local new_vol="llama-toolchest-data"
+
+    [[ -z "$CONTAINER_CMD" ]] && return 0
+
+    # Old volume gone → nothing to do (fresh install or already migrated).
+    if ! $CONTAINER_CMD volume inspect "$old_vol" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    # New volume already there → assume migration happened previously, or the
+    # user has both manually. Leave both alone; warn so they know.
+    if $CONTAINER_CMD volume inspect "$new_vol" >/dev/null 2>&1; then
+        warn "Both '$old_vol' and '$new_vol' volumes exist; using '$new_vol' as-is and leaving '$old_vol' untouched."
+        return 0
+    fi
+
+    echo ""
+    warn "Detected legacy Docker volume '$old_vol' from the pre-rename project."
+    log "Will copy its contents into '$new_vol' so the renamed container keeps your existing models, builds, and configs."
+    log "Disk usage will roughly double during the copy. The old volume stays in place — remove it manually after confirming the new install works."
+    echo ""
+    if ! prompt_confirm "Migrate volume now?"; then
+        err "Migration is required to continue. Run './setup.sh install' again when ready, or remove '$old_vol' manually if you don't need its contents."
+        exit 1
+    fi
+
+    # Stop any container that may be holding the volume open.
+    if $CONTAINER_CMD container exists llama-toolchest 2>/dev/null; then
+        $CONTAINER_CMD stop llama-toolchest >/dev/null 2>&1 || true
+    fi
+
+    log "Creating new volume $new_vol..."
+    $CONTAINER_CMD volume create "$new_vol" >/dev/null
+
+    log "Copying contents (can take several minutes for large model collections)..."
+    if ! $CONTAINER_CMD run --rm \
+        -v "${old_vol}:/from:ro" \
+        -v "${new_vol}:/to" \
+        docker.io/library/alpine:3 \
+        sh -c "set -e; \
+               cp -a /from/. /to/; \
+               if [ -f /to/config/llamactl.yaml ] && [ ! -f /to/config/llama-toolchest.yaml ]; then \
+                   mv /to/config/llamactl.yaml /to/config/llama-toolchest.yaml; \
+                   echo 'Renamed config llamactl.yaml -> llama-toolchest.yaml'; \
+               fi"; then
+        err "Volume copy failed. The partially-populated '$new_vol' can be removed with:"
+        echo "    $CONTAINER_CMD volume rm $new_vol"
+        exit 1
+    fi
+
+    ok "Volume migrated."
+    log "The old volume '$old_vol' is preserved. Once you've confirmed the new install works, reclaim its disk with:"
+    echo "    $CONTAINER_CMD volume rm $old_vol"
+    echo ""
 }
 
 # ─── Container operations ────────────────────────────────────────────────────
@@ -662,6 +737,7 @@ container_down() {
 }
 
 container_install() {
+    migrate_legacy_volume
     write_env_file
     $(compose_cmd) up -d --build
 }
@@ -670,6 +746,7 @@ container_rebuild() {
     local quadlet_active=false
     has_quadlet && quadlet_active=true
 
+    migrate_legacy_volume
     container_down
     $CONTAINER_CMD rm llama-toolchest 2>/dev/null || true
     write_env_file
@@ -685,6 +762,7 @@ container_rebuild() {
 
 # Quick rebuild: only rebuild layers that changed (Go code), reuse cached base layers.
 container_quick_rebuild() {
+    migrate_legacy_volume
     container_down
     write_env_file
     $(compose_cmd) up -d --build
