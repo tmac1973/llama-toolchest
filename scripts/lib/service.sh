@@ -93,6 +93,10 @@ service_disable() {
     _systemctl disable --now "$SERVICE_NAME"
 }
 
+service_restart() {
+    _systemctl restart "$SERVICE_NAME"
+}
+
 service_status() {
     _systemctl status "$SERVICE_NAME" --no-pager 2>&1 || true
 }

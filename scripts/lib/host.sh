@@ -192,7 +192,21 @@ host_install() {
     service_install "$unit_src"
     host_write_unit_override
 
-    if prompt_confirm "Enable and start the service now?"; then
+    # If the service is already running, this is a re-install — restart so
+    # the new binary takes effect. Otherwise prompt to enable+start fresh.
+    if service_is_active; then
+        if prompt_confirm "Service is already running. Restart to pick up the new binary?"; then
+            service_restart
+            ok "llama-toolchest service restarted"
+        else
+            warn "New binary on disk but service still running the old version. Restart manually with:"
+            if [[ "$(host_scope)" == "user" ]]; then
+                echo "    systemctl --user restart llama-toolchest"
+            else
+                echo "    sudo systemctl restart llama-toolchest"
+            fi
+        fi
+    elif prompt_confirm "Enable and start the service now?"; then
         service_enable
         ok "llama-toolchest service enabled and started"
     else
