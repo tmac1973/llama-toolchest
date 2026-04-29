@@ -192,20 +192,15 @@ host_install() {
     service_install "$unit_src"
     host_write_unit_override
 
-    # If the service is already running, this is a re-install — restart so
-    # the new binary takes effect. Otherwise prompt to enable+start fresh.
+    # If the service is already running, restart so the new binary takes
+    # effect — running install --host is a clear signal that the user wants
+    # the just-built binary to be the live one. We don't prompt: a stray
+    # keystroke or buffered Enter from the previous step's output can flip a
+    # Y/n prompt's meaning silently.
     if service_is_active; then
-        if prompt_confirm "Service is already running. Restart to pick up the new binary?"; then
-            service_restart
-            ok "llama-toolchest service restarted"
-        else
-            warn "New binary on disk but service still running the old version. Restart manually with:"
-            if [[ "$(host_scope)" == "user" ]]; then
-                echo "    systemctl --user restart llama-toolchest"
-            else
-                echo "    sudo systemctl restart llama-toolchest"
-            fi
-        fi
+        log "Service is running; restarting to pick up the new binary..."
+        service_restart
+        ok "llama-toolchest service restarted"
     elif prompt_confirm "Enable and start the service now?"; then
         service_enable
         ok "llama-toolchest service enabled and started"
