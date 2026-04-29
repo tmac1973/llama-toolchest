@@ -26,6 +26,8 @@ COMPOSE_CMD=""          # "docker compose" or "podman-compose" or "podman compos
 CONTAINER_VERSION=""
 COMPOSE_VERSION=""
 
+INSTALL_MODE="${INSTALL_MODE:-container}"  # host or container; default container preserves existing behavior
+
 DISTRO_ID=""            # debian, ubuntu, fedora, arch, cachyos, opensuse-leap, etc.
 DISTRO_NAME=""          # Pretty name from os-release
 DISTRO_FAMILY=""        # debian, fedora, arch, suse
@@ -1122,68 +1124,97 @@ prompt_confirm() {
     esac
 }
 
+# ─── Library: host install + service helpers ─────────────────────────────────
+
+# shellcheck source=scripts/lib/service.sh
+source "${SCRIPT_DIR}/scripts/lib/service.sh"
+# shellcheck source=scripts/lib/host.sh
+source "${SCRIPT_DIR}/scripts/lib/host.sh"
+
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 usage() {
     cat <<'USAGE'
 llama-toolchest setup — auto-detect GPU + container runtime, build & run
 
-Usage: ./setup.sh <command>
+Usage: ./setup.sh <command> [--host|--container]
+
+Install modes:
+  --container   (default) Run llama-toolchest inside a Docker/Podman
+                container. Isolates the GPU SDK install; works with the
+                existing flow.
+  --host        Run llama-toolchest directly on the host system. Builds
+                from source today; future tagged releases will switch
+                to fetching prebuilt packages.
 
 Lifecycle:
-  install     Detect GPU/runtime/distro, install prerequisites, build image,
-              and start the container
-  uninstall   Stop container, disable auto-start, and remove container + image
-  quick       Fast rebuild — only recompile Go code, reuse cached base layers
-  rebuild     Full rebuild with no cache, then start
+  install     Detect, install prerequisites, build, and start
+  uninstall   Stop and remove (container or host install)
+  quick       Container only: fast rebuild — only recompile Go code,
+              reuse cached base layers
+  rebuild     Container only: full rebuild with no cache, then start
 
-Runtime:
+Runtime (container only):
   up          Start a stopped container
   down        Stop the container
   logs        Follow container logs (Ctrl-C to stop)
 
-Auto-start:
+Auto-start (container only):
   enable      Enable auto-start on boot
-                Docker:       sets restart policy to 'unless-stopped'
-                Podman root:  sets restart policy to 'unless-stopped'
-                Podman user:  installs a Quadlet systemd unit and enables
-                              loginctl linger so the service survives logout
   disable     Disable auto-start on boot
-                Docker:       sets restart policy to 'no'
-                Podman root:  sets restart policy to 'no'
-                Podman user:  removes the Quadlet systemd unit
 
 Info:
   status      Show detected environment and planned actions, then exit
-  detect      Print detected GPU backend (cuda/rocm/cpu) and exit
+              (works for both modes)
+  detect      Print detected GPU backend (cuda/rocm/cpu/vulkan/metal) and exit
   help        Show this help message
 
+Host-mode lifecycle is managed via systemd directly:
+  systemctl --user start|stop|status llama-toolchest    (user install)
+  sudo systemctl start|stop|status llama-toolchest      (system install, when run as root)
+
 Environment variables:
-  GPU=cuda|rocm|cpu        Override GPU auto-detection
-  RUNTIME=docker|podman   Override container runtime auto-detection
+  GPU=cuda|rocm|vulkan|cpu      Override GPU auto-detection
+  RUNTIME=docker|podman         Override container runtime auto-detection
+  INSTALL_MODE=host|container   Same as --host / --container
 
 Port configuration is stored in .env (see .env.example for details).
 You can edit .env directly instead of using the interactive setup.
 
 Examples:
-  ./setup.sh install              # detect everything, install prereqs, build & run
-  ./setup.sh status               # dry run — show what would happen
-  ./setup.sh enable               # start on boot
-  ./setup.sh disable              # stop starting on boot
-  ./setup.sh uninstall            # remove everything
-  ./setup.sh quick                # fast rebuild (code changes only)
-  ./setup.sh rebuild              # full clean rebuild (no cache)
-  GPU=cpu ./setup.sh install      # force CPU-only backend
-  RUNTIME=podman ./setup.sh install  # force Podman runtime
+  ./setup.sh install                    # detect, install prereqs, build & run (container)
+  ./setup.sh install --host             # build from source, install on host
+  ./setup.sh status --host              # show host install status
+  ./setup.sh uninstall --host           # remove host install
+  ./setup.sh status                     # container dry run
+  ./setup.sh quick                      # fast container rebuild
+  GPU=cpu ./setup.sh install            # force CPU-only backend (container)
 USAGE
 }
 
 main() {
     local command="${1:-help}"
+    shift || true
 
     cd "$SCRIPT_DIR"
 
-    # ── Parse args ──
+    # ── Parse flags after the command ──
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --host)      INSTALL_MODE="host" ;;
+            --container) INSTALL_MODE="container" ;;
+            -h|--help)   usage; exit 0 ;;
+            *)
+                err "Unknown flag: $1"
+                echo ""
+                usage
+                exit 1
+                ;;
+        esac
+        shift
+    done
+
+    # ── Validate command ──
     case "$command" in
         install|uninstall|up|down|rebuild|quick|logs|detect|status|enable|disable) ;;
         -h|--help|help)
@@ -1197,6 +1228,38 @@ main() {
             exit 1
             ;;
     esac
+
+    # ── Host mode: short circuit before any container detection ──
+    if [[ "$INSTALL_MODE" == "host" ]]; then
+        # Detect GPU so HSA_OVERRIDE_GFX_VERSION etc. are populated for the
+        # unit override; everything else is host-mode-specific.
+        if [[ -n "${GPU:-}" ]]; then
+            GPU_VENDOR="$GPU"
+            GPU_INFO="(manually set: $GPU)"
+        else
+            detect_gpu
+        fi
+
+        case "$command" in
+            install)   host_install ;;
+            uninstall) host_uninstall ;;
+            status)    host_status ;;
+            detect)    echo "$GPU_VENDOR" ;;
+            up|down|logs|enable|disable|rebuild|quick)
+                err "'$command' is not supported in --host mode."
+                log "For host installs, manage the service via systemd directly:"
+                if [[ "$(host_scope 2>/dev/null)" == "system" ]]; then
+                    echo "    sudo systemctl start|stop|status|enable|disable llama-toolchest"
+                    echo "    sudo journalctl -u llama-toolchest -f      # logs"
+                else
+                    echo "    systemctl --user start|stop|status|enable|disable llama-toolchest"
+                    echo "    journalctl --user -u llama-toolchest -f    # logs"
+                fi
+                exit 1
+                ;;
+        esac
+        exit 0
+    fi
 
     # ── Detect everything ──
     if [[ -n "${GPU:-}" ]]; then

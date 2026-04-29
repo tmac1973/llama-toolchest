@@ -38,17 +38,27 @@ A web-based management interface for [llama.cpp](https://github.com/ggerganov/ll
 ```bash
 git clone https://github.com/tmac1973/llama-toolchest.git
 cd llama-toolchest
-./setup.sh install
+./setup.sh install              # default: container install
+# or, for a containerless install on the host:
+./setup.sh install --host
 ```
 
 The setup script will:
 1. Detect your GPU (NVIDIA, AMD, or CPU-only)
-2. Detect your container runtime (Docker or Podman)
-3. Install any missing prerequisites (e.g., NVIDIA Container Toolkit)
-4. Show a summary and ask for confirmation
-5. Build and start the container
+2. (Container mode) detect your container runtime (Docker or Podman) and install any missing prerequisites
+3. Show a summary and ask for confirmation
+4. Build and start
 
 The management UI will be available at `http://localhost:3000`.
+
+### Install modes
+
+| Mode | When to use | What it does |
+|------|-------------|--------------|
+| `--container` (default) | Most users — keeps GPU SDKs and the build toolchain isolated from the host. | Builds a Docker/Podman image and runs llama-toolchest inside it. |
+| `--host` | You already have a working GPU driver/toolchain and want a leaner setup, faster startup, or Vulkan support. | Builds the binary from source via `go build`, installs to `~/.local/bin` (or `/usr/local/bin` as root), writes a config and a systemd unit, and optionally enables the service. |
+
+Host mode is managed via `systemctl --user start|stop|status llama-toolchest` (user install) or `sudo systemctl ...` (system install). The container `up`/`down`/`logs`/`enable`/`disable` commands are container-mode-only.
 
 ### Supported GPUs
 
