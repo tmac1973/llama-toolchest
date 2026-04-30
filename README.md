@@ -55,10 +55,57 @@ The management UI will be available at `http://localhost:3000`.
 
 | Mode | When to use | What it does |
 |------|-------------|--------------|
-| `--container` (default) | Most users — keeps GPU SDKs and the build toolchain isolated from the host. | Builds a Docker/Podman image and runs llama-toolchest inside it. |
-| `--host` | You already have a working GPU driver/toolchain and want a leaner setup, faster startup, or Vulkan support. | Builds the binary from source via `go build`, installs to `~/.local/bin` (or `/usr/local/bin` as root), writes a config and a systemd unit, and optionally enables the service. |
+| `--container` (default) | Most users — keeps GPU SDKs and the build toolchain isolated from the host. | Builds a Docker/Podman image and runs llama-toolchest inside it. The image installs the released `.deb`/`.rpm`, so the binary inside is byte-identical to a host install. |
+| `--host` (default: `--from-package`) | You already have a working GPU driver and want a leaner setup, faster startup, or Vulkan support. | Downloads the latest released `.deb`/`.rpm` for your distro from the GitHub release, verifies its checksum, and installs via `dnf`/`apt`. Writes a config, registers a systemd user unit, and (optionally) enables the service. |
+| `--host --from-source` | You're testing uncommitted changes from the source tree. | Builds the binary via `go build` and drops it in `~/.local/bin/llama-toolchest`. Otherwise the same flow. |
 
 Host mode is managed via `systemctl --user start|stop|status llama-toolchest` (user install) or `sudo systemctl ...` (system install). The container `up`/`down`/`logs`/`enable`/`disable` commands are container-mode-only.
+
+### Manual install (no setup.sh)
+
+If you'd rather skip the setup script entirely, the released `.deb`/`.rpm` packages are self-contained:
+
+```bash
+# Fedora / RHEL
+curl -LO https://github.com/tmac1973/llama-toolchest/releases/latest/download/llama-toolchest_<VERSION>_linux_amd64.rpm
+sudo dnf install ./llama-toolchest_<VERSION>_linux_amd64.rpm
+
+# Debian / Ubuntu
+curl -LO https://github.com/tmac1973/llama-toolchest/releases/latest/download/llama-toolchest_<VERSION>_linux_amd64.deb
+sudo apt-get install ./llama-toolchest_<VERSION>_linux_amd64.deb
+```
+
+The package installs:
+
+- `/usr/bin/llama-toolchest` — the binary
+- `/usr/lib/systemd/{system,user}/llama-toolchest.service` — systemd unit (not enabled by default)
+- `/etc/llama-toolchest/llama-toolchest.yaml.example` — example config
+- Hard deps on the build toolchain (`cmake`, `ninja-build`, `git`, etc.) so llama.cpp can compile inside the UI
+
+After install, you'll need to configure and start the service yourself. **User-scope (recommended for single-user setups):**
+
+```bash
+# Create a user config
+mkdir -p ~/.config/llama-toolchest
+cp /etc/llama-toolchest/llama-toolchest.yaml.example ~/.config/llama-toolchest/llama-toolchest.yaml
+$EDITOR ~/.config/llama-toolchest/llama-toolchest.yaml    # set data_dir, optional models_dir, etc.
+
+# Enable + start
+systemctl --user enable --now llama-toolchest
+loginctl enable-linger $USER    # so the service survives logout
+```
+
+**System-scope (multi-user or root-managed):**
+
+```bash
+sudo cp /etc/llama-toolchest/llama-toolchest.yaml.example /etc/llama-toolchest/llama-toolchest.yaml
+sudoedit /etc/llama-toolchest/llama-toolchest.yaml          # set data_dir to /var/lib/llama-toolchest etc.
+sudo systemctl enable --now llama-toolchest
+```
+
+Open `http://localhost:3000`. To install the GPU SDK packages needed for compiling llama.cpp against your hardware (ROCm `rocm-hip-devel`, CUDA `cuda-toolkit`, Vulkan `glslc`), see the GPU Backend Notes section below.
+
+You can rerun `./setup.sh install --host` later if you'd rather have the script manage the config and service for you — it's safe to run on top of a manual install.
 
 ### Supported GPUs
 
