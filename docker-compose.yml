@@ -1,6 +1,10 @@
 services:
   llama-toolchest:
-    build: .
+    build:
+      context: .
+      args:
+        # See docker-compose.rocm.yml for the rationale.
+        LLAMA_TOOLCHEST_VERSION: "${LLAMA_TOOLCHEST_VERSION:-latest}"
     container_name: llama-toolchest
     ports:
       - "${LLAMA_TOOLCHEST_PORT:-3000}:3000"   # llama-toolchest management UI

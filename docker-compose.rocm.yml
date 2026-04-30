@@ -3,6 +3,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.rocm
+      args:
+        # setup.sh resolves the latest release tag from GH and exports
+        # LLAMA_TOOLCHEST_VERSION before invoking compose, so this build
+        # arg pins the .rpm being installed. Only the package-install
+        # layer's cache invalidates when the version changes — ROCm SDK
+        # layers stay cached. Falls back to "latest" if unset, in which
+        # case the Dockerfile resolves it at build time itself.
+        LLAMA_TOOLCHEST_VERSION: "${LLAMA_TOOLCHEST_VERSION:-latest}"
     container_name: llama-toolchest
     ports:
       - "${LLAMA_TOOLCHEST_PORT:-3000}:3000"   # llama-toolchest management UI

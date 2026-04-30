@@ -842,11 +842,31 @@ container_rebuild() {
     fi
 }
 
-# Quick rebuild: only rebuild layers that changed (Go code), reuse cached base layers.
+# Quick: pull the latest released llama-toolchest package and reinstall
+# it inside the existing image, reusing every other cached layer (ROCm
+# SDK, base OS install, etc.). The Dockerfile's package-install RUN
+# step takes LLAMA_TOOLCHEST_VERSION as a build arg via the compose
+# file; passing a different version invalidates only that layer's
+# cache. If we can't reach the GH API we fall back to "latest" (the
+# Dockerfile resolves it at build time, but layer caching still
+# works — same arg → cache hit, different actual remote version → no
+# refresh).
 container_quick_rebuild() {
     migrate_legacy_volume
     container_down
     write_env_file
+
+    local latest=""
+    if declare -F host_latest_release_version >/dev/null 2>&1; then
+        latest="$(host_latest_release_version 2>/dev/null || true)"
+    fi
+    if [[ -n "$latest" ]]; then
+        log "Resolved latest release: v${latest}"
+        export LLAMA_TOOLCHEST_VERSION="$latest"
+    else
+        warn "Couldn't resolve latest release tag; falling back to 'latest' (build-time resolution)."
+    fi
+
     $(compose_cmd) up -d --build
 }
 
@@ -1246,9 +1266,13 @@ install --host` to avoid hitting the GH API for the latest tag.
 Lifecycle:
   install     Detect, install prerequisites, build, and start
   uninstall   Stop and remove (container or host install)
-  quick       Container only: fast rebuild — only recompile Go code,
-              reuse cached base layers
-  rebuild     Container only: full rebuild with no cache, then start
+  quick       Container only: pull the latest released package and
+              reinstall it inside the existing image. Reuses the GPU
+              SDK / base-OS layers — only the package-install layer
+              re-runs. Use this for routine upgrades to a new release.
+  rebuild     Container only: full rebuild with no cache, then start.
+              Use this when you've changed the Dockerfile or want to
+              refresh the GPU SDK layers as well.
 
 Runtime (container only):
   up          Start a stopped container

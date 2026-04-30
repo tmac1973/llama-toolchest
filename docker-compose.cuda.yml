@@ -3,6 +3,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.cuda
+      args:
+        # See docker-compose.rocm.yml for the rationale — setup.sh's
+        # quick path uses this to invalidate just the package-install
+        # layer when a newer release is available.
+        LLAMA_TOOLCHEST_VERSION: "${LLAMA_TOOLCHEST_VERSION:-latest}"
     container_name: llama-toolchest
     ports:
       - "${LLAMA_TOOLCHEST_PORT:-3000}:3000"   # llama-toolchest management UI
