@@ -17,8 +17,9 @@ import (
 )
 
 // applySpecDefaults resets speculative decoding parameters to recommended
-// values for the selected mode. Always overwrites — switching modes should
-// give you a clean set of defaults for that mode.
+// values for the selected mode. Call this only on a mode *change* — calling
+// it on every save would clobber user-tuned values within an existing mode
+// (the form parser already loaded them from the request into cfg).
 func applySpecDefaults(cfg *models.ModelConfig) {
 	switch cfg.SpecType {
 	case "":
@@ -606,7 +607,11 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 			cfg.Aliases = nil
 		}
 
-		// Speculative decoding
+		// Speculative decoding. Capture the previous SpecType so we can tell
+		// whether the user just switched modes vs. is saving an existing one
+		// — applySpecDefaults wipes user-tuned values, so we only want to
+		// run it on a mode change.
+		prevSpecType := cfg.SpecType
 		cfg.SpecType = r.FormValue("spec_type")
 		if r.Form.Has("draft_model_path") {
 			cfg.DraftModelPath = r.FormValue("draft_model_path")
@@ -633,8 +638,12 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 			cfg.NgramSizeM = 0
 		}
 
-		// Apply recommended defaults when switching modes and fields are empty
-		applySpecDefaults(cfg)
+		// Populate recommended defaults only when the user actually switched
+		// modes — preserves any custom values they tuned within an existing
+		// mode (e.g. lowering ngram-mod's draft_min from 48 to 12).
+		if cfg.SpecType != prevSpecType {
+			applySpecDefaults(cfg)
+		}
 	}
 
 	if err := s.registry.SetConfig(id, cfg); err != nil {
