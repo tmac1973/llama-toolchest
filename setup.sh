@@ -478,6 +478,16 @@ is_port_available() {
     fi
 }
 
+# Portable container-existence check. Podman has `container exists`; Docker
+# does NOT — it only works via `container inspect` exiting non-zero. Use
+# this helper everywhere instead of the podman-specific subcommand so the
+# logic behaves the same on both runtimes.
+container_exists() {
+    local name="$1"
+    [[ -z "$CONTAINER_CMD" ]] && return 1
+    $CONTAINER_CMD container inspect "$name" >/dev/null 2>&1
+}
+
 # Returns 0 if the host port is bound by one of our own containers — i.e.,
 # a llamactl (pre-rename) or llama-toolchest container that the install
 # flow is going to stop and replace anyway. Lets prompt_ports treat such
@@ -487,7 +497,7 @@ is_port_held_by_our_container() {
     local port="$1"
     [[ -z "$CONTAINER_CMD" ]] && return 1
     for cname in llamactl llama-toolchest; do
-        $CONTAINER_CMD container exists "$cname" 2>/dev/null || continue
+        container_exists "$cname" || continue
         # `docker/podman port <c>` outputs lines like "3000/tcp -> 0.0.0.0:3001".
         # Match the trailing :PORT to confirm this container is the binder.
         local mappings
@@ -695,7 +705,7 @@ migrate_legacy_volume() {
     done
 
     for cname in llamactl llama-toolchest; do
-        if $CONTAINER_CMD container exists "$cname" 2>/dev/null; then
+        if container_exists "$cname"; then
             log "Stopping and removing existing container '$cname'..."
             $CONTAINER_CMD stop "$cname" >/dev/null 2>&1 || true
             $CONTAINER_CMD rm "$cname" >/dev/null 2>&1 || true
@@ -1054,12 +1064,19 @@ container_uninstall() {
         actions+=("Disable auto-start on boot")
     fi
 
-    if $CONTAINER_CMD container exists llama-toolchest 2>/dev/null; then
+    if container_exists llama-toolchest; then
         has_container=true
         actions+=("Stop and remove container 'llama-toolchest'")
     fi
 
-    if $CONTAINER_CMD image exists "$image_name" 2>/dev/null; then
+    # `image exists` is podman-specific; on Docker we use inspect.
+    local image_check
+    if [[ "$CONTAINER_CMD" == "docker" ]]; then
+        image_check="docker image inspect"
+    else
+        image_check="$CONTAINER_CMD image exists"
+    fi
+    if $image_check "$image_name" >/dev/null 2>&1; then
         has_image=true
         actions+=("Remove image '${image_name}'")
     fi
