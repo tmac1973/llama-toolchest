@@ -9,4 +9,9 @@
 services:
   llama-toolchest:
     volumes:
-      - ${LLAMA_TOOLCHEST_MODELS_DIR}:/data/models:z
+      - type: bind
+        source: ${LLAMA_TOOLCHEST_MODELS_DIR}
+        target: /data/models
+        bind:
+          # SELinux relabel for Fedora/RHEL hosts; harmless no-op elsewhere.
+          selinux: z

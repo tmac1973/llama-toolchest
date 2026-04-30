@@ -712,8 +712,19 @@ migrate_legacy_volume() {
         fi
     done
 
+    # Compose recognizes "its own" volumes by the labels it stamps on them.
+    # If we create the volume bare, the next `docker compose up` warns:
+    #   volume "X" already exists but was not created by Docker Compose
+    # Pre-stamp the labels so the next compose run treats it as its own.
+    # Project name defaults to the lowercase basename of the compose-file
+    # directory (where setup.sh is being run from).
+    local compose_project; compose_project="$(basename "$SCRIPT_DIR" | tr '[:upper:]' '[:lower:]')"
+
     log "Creating new volume $new_vol..."
-    $CONTAINER_CMD volume create "$new_vol" >/dev/null
+    $CONTAINER_CMD volume create \
+        --label "com.docker.compose.project=${compose_project}" \
+        --label "com.docker.compose.volume=${new_vol}" \
+        "$new_vol" >/dev/null
 
     log "Copying contents (can take several minutes for large model collections)..."
     if ! $CONTAINER_CMD run --rm \
