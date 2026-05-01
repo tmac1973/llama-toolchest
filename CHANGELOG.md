@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/tmac1973/llama-toolchest/compare/v1.4.2...v1.5.0) (2026-05-01)
+
+
+### Features
+
+* GPU allocation map uses peak VRAM (weights + KV cache) ([728c8e5](https://github.com/tmac1973/llama-toolchest/commit/728c8e5131bdf3caaea964a7d64c0b019ce56464))
+
 ## [1.4.2](https://github.com/tmac1973/llama-toolchest/compare/v1.4.1...v1.4.2) (2026-05-01)
 
 
