@@ -192,15 +192,9 @@ var allocationColors = []string{
 	"#9c755f", "#bab0ac",
 }
 
-// ModelWeightsGB returns the VRAM used by model weights alone (no KV cache),
-// which represents the persistent footprint when a model is loaded.
-func ModelWeightsGB(m *Model) float64 {
-	return BytesToGB(m.SizeBytes) + vramOverheadGB
-}
-
 // ComputeAllocations builds the GPU allocation list from enabled models.
-// Uses weights-only VRAM (not peak with KV cache) since the router
-// dynamically loads/unloads models and they won't all be active at once.
+// Uses peak VRAM (weights + KV cache at the configured context size and KV
+// quantization) so the map reflects actual fit when a model is loaded.
 func ComputeAllocations(modelList []*Model, configs map[string]*ModelConfig, numGPUs int) []GPUAllocation {
 	if numGPUs <= 0 {
 		return nil
@@ -215,7 +209,7 @@ func ComputeAllocations(modelList []*Model, configs map[string]*ModelConfig, num
 			continue
 		}
 
-		totalGB := ModelWeightsGB(m)
+		totalGB := VRAMEstimateForConfig(m, cfg)
 		gpus := resolveModelGPUs(cfg, numGPUs)
 		perGPU := totalGB
 		if len(gpus) > 0 {

@@ -165,7 +165,7 @@
     </dl>
 
     <h3>VRAM Est. column</h3>
-    <p>Shows <em>base</em> (weights + small overhead) and <em>peak</em> (weights + full KV cache at configured context size). The dashboard's GPU allocation map uses the base number because the router only ever loads a subset at once.</p>
+    <p>Shows <em>base</em> (weights + small overhead) and <em>peak</em> (weights + full KV cache at configured context size). The GPU allocation map uses the peak number so the bars reflect actual VRAM use when a model is loaded.</p>
 
     <h2 id="model-config">Model config (Configure dialog)</h2>
 
