@@ -20,15 +20,27 @@ ARG TARGETARCH=amd64
 
 # curl + ca-certificates for the package download; libssl-dev for OpenSSL-
 # enabled llama.cpp builds. Build toolchain comes via the .deb's Depends.
+#
 # libnccl-dev wires up llama.cpp's optimized AllReduce path for tensor
 # parallelism (-sm tensor) — without it GGML_CUDA_NCCL still defaults ON
 # but the build silently falls back to a slower shfl_tensor_async path.
-# The CUDA devel base image usually ships NCCL already; installing
-# explicitly is a no-op there and guarantees it's present otherwise.
+# The CUDA devel base ships the runtime (libnccl2) but not the headers,
+# and the configured NVIDIA repo carries a newer cuda13.x NCCL that
+# refuses to co-install with the base's cuda12.x libnccl2. Pin the dev
+# headers to whatever libnccl2 is already on disk so the versions match.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates libssl-dev libnccl-dev
+    set -e; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends curl ca-certificates libssl-dev; \
+    if ! dpkg -s libnccl-dev >/dev/null 2>&1; then \
+        NCCL_VER="$(dpkg-query -W -f='${Version}' libnccl2 2>/dev/null || true)"; \
+        if [ -n "$NCCL_VER" ]; then \
+            apt-get install -y --no-install-recommends "libnccl-dev=${NCCL_VER}"; \
+        else \
+            apt-get install -y --no-install-recommends libnccl-dev; \
+        fi; \
+    fi
 
 # uv is required by the llama-benchy benchmark integration — the
 # benchmark runner shells out to `uvx llama-benchy`. Install
