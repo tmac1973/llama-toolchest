@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.13.1](https://github.com/tmac1973/llama-toolchest/compare/v2.13.0...v2.13.1) (2026-06-27)
+
+
+### Bug Fixes
+
+* **dashboard:** only list router-known models as available ([#77](https://github.com/tmac1973/llama-toolchest/issues/77)) ([5ad4c35](https://github.com/tmac1973/llama-toolchest/commit/5ad4c3503f7d3db250405e33c9f69a89ee5d8585))
+
 ## [2.13.0](https://github.com/tmac1973/llama-toolchest/compare/v2.12.0...v2.13.0) (2026-06-22)
 
 
