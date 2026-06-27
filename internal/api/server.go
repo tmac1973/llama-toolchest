@@ -479,19 +479,26 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	// a load icon and a loaded/loading tag when the router has them resident.
 	availableHTML := "<p>None</p>"
 	if routerStatus.State == process.StateRunning {
-		// Build lookup: router-known name → status
+		// Build two lookups from the running router's /models endpoint:
+		//   routerKnown — every model the router actually serves (i.e. is in
+		//                 its current preset), regardless of load state.
+		//   loadedState — those currently loaded/loading, for the status tag.
+		// The router reads preset.ini only at startup, so a model enabled in
+		// config but absent from routerKnown isn't truly available yet — it
+		// needs a restart. Such models are excluded below so "Available"
+		// reflects what the running server can actually serve.
+		routerKnown := map[string]bool{}
 		loadedState := map[string]string{}
 		if loaded, err := s.process.ListModels(); err == nil {
 			for _, lm := range loaded {
-				if lm.Status.Value != "loaded" && lm.Status.Value != "loading" {
-					continue
-				}
-				loadedState[lm.ID] = lm.Status.Value
-				if lm.Model != "" {
-					loadedState[lm.Model] = lm.Status.Value
-				}
-				for _, a := range lm.Aliases {
-					loadedState[a] = lm.Status.Value
+				for _, name := range append([]string{lm.ID, lm.Model}, lm.Aliases...) {
+					if name == "" {
+						continue
+					}
+					routerKnown[name] = true
+					if lm.Status.Value == "loaded" || lm.Status.Value == "loading" {
+						loadedState[name] = lm.Status.Value
+					}
 				}
 			}
 		}
@@ -508,6 +515,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			}
 
 			routerName := s.registry.RouterName(m.ID)
+			if !routerKnown[routerName] && !routerKnown[m.ID] && !routerKnown[m.PublicName()] {
+				// Enabled in config but not in the running router's preset:
+				// not available until the router is restarted. Don't list it.
+				continue
+			}
 			state := loadedState[routerName]
 			if state == "" {
 				state = loadedState[m.ID]
