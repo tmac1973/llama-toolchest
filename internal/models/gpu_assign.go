@@ -117,8 +117,7 @@ func ResolveGPUAssign(assign string, numGPUs int) (tensorSplit, splitMode string
 
 	// "tensor-N" — tensor parallelism on first N GPUs
 	if strings.HasPrefix(assign, "tensor-") {
-		var n int
-		if _, err := fmt.Sscanf(assign, "tensor-%d", &n); err == nil && n > 0 {
+		if n, ok := parseTensorAssign(assign); ok {
 			if n >= numGPUs {
 				return "", "tensor", 0
 			}
@@ -153,6 +152,16 @@ func ResolveGPUAssign(assign string, numGPUs int) (tensorSplit, splitMode string
 	}
 
 	return strings.Join(parts, ","), "layer", gpus[0]
+}
+
+// parseTensorAssign parses a "tensor-N" GPU assignment, returning N and
+// whether the value was a valid tensor assignment (N > 0).
+func parseTensorAssign(assign string) (int, bool) {
+	var n int
+	if _, err := fmt.Sscanf(assign, "tensor-%d", &n); err == nil && n > 0 {
+		return n, true
+	}
+	return 0, false
 }
 
 // parseGPURange parses GPU assignment values like "0", "0-1", "2-3" into indices.
@@ -218,7 +227,7 @@ func ComputeAllocations(modelList []*Model, configs map[string]*ModelConfig, num
 
 		allocs = append(allocs, GPUAllocation{
 			ModelID:   m.ID,
-			ModelName: shortModelName(m.ModelID),
+			ModelName: ShortModelName(m.ModelID),
 			GPUs:      gpus,
 			PerGPUGB:  perGPU,
 			TotalGB:   totalGB,
@@ -233,8 +242,7 @@ func ComputeAllocations(modelList []*Model, configs map[string]*ModelConfig, num
 // resolveModelGPUs determines which GPUs a model is assigned to.
 func resolveModelGPUs(cfg *ModelConfig, numGPUs int) []int {
 	if strings.HasPrefix(cfg.GPUAssign, "tensor-") {
-		var n int
-		if _, err := fmt.Sscanf(cfg.GPUAssign, "tensor-%d", &n); err == nil && n > 0 {
+		if n, ok := parseTensorAssign(cfg.GPUAssign); ok {
 			if n > numGPUs {
 				n = numGPUs
 			}
@@ -260,8 +268,9 @@ func resolveModelGPUs(cfg *ModelConfig, numGPUs int) []int {
 	return all
 }
 
-// shortModelName extracts a short display name from a model ID like "org/repo-GGUF".
-func shortModelName(modelID string) string {
+// ShortModelName extracts a short display name from a model ID like
+// "org/repo-GGUF": strips the org prefix and common GGUF suffixes.
+func ShortModelName(modelID string) string {
 	// Strip org prefix
 	if idx := strings.LastIndex(modelID, "/"); idx >= 0 {
 		modelID = modelID[idx+1:]

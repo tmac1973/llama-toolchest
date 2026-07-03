@@ -99,19 +99,26 @@ func (r *rocmBackend) collectROCmSMI() ([]GPUInfo, error) {
 	return gpus, nil
 }
 
-func (r *rocmBackend) collectSysfs() ([]GPUInfo, error) {
-	var gpus []GPUInfo
-
-	// Iterate over render nodes
+// listAMDGPUDirs returns the sysfs device directories of AMD GPUs
+// (vendor 0x1002) in card order. Shared by collectSysfs and readVRAMSysfs
+// so the card enumeration lives in one place.
+func listAMDGPUDirs() []string {
 	cards, _ := filepath.Glob("/sys/class/drm/card[0-9]*/device/vendor")
-	idx := 0
+	var dirs []string
 	for _, vendorFile := range cards {
 		vendor, _ := os.ReadFile(vendorFile)
 		if strings.TrimSpace(string(vendor)) != "0x1002" {
 			continue
 		}
+		dirs = append(dirs, filepath.Dir(vendorFile))
+	}
+	return dirs
+}
 
-		deviceDir := filepath.Dir(vendorFile)
+func (r *rocmBackend) collectSysfs() ([]GPUInfo, error) {
+	var gpus []GPUInfo
+
+	for idx, deviceDir := range listAMDGPUDirs() {
 		gpu := GPUInfo{Index: idx}
 
 		// GPU utilization
@@ -120,7 +127,7 @@ func (r *rocmBackend) collectSysfs() ([]GPUInfo, error) {
 		}
 
 		// VRAM
-		gpu.VRAMUsedMB, gpu.VRAMTotalMB = readVRAMSysfs(idx)
+		gpu.VRAMUsedMB, gpu.VRAMTotalMB = readVRAMFromDir(deviceDir)
 
 		// Temperature from hwmon
 		hwmonDirs, _ := filepath.Glob(filepath.Join(deviceDir, "hwmon", "hwmon*"))
@@ -143,7 +150,6 @@ func (r *rocmBackend) collectSysfs() ([]GPUInfo, error) {
 
 		gpu.Name = readGPUNameSysfs(idx)
 		gpus = append(gpus, gpu)
-		idx++
 	}
 
 	if len(gpus) == 0 {
@@ -152,32 +158,28 @@ func (r *rocmBackend) collectSysfs() ([]GPUInfo, error) {
 	return gpus, nil
 }
 
+// readVRAMSysfs reads VRAM usage for the Nth AMD GPU. Used by the rocm-smi
+// path, which only knows the GPU index.
 func readVRAMSysfs(gpuIdx int) (usedMB, totalMB int) {
-	// Try /sys/class/drm/card*/device/mem_info_vram_*
-	cards, _ := filepath.Glob("/sys/class/drm/card[0-9]*/device/vendor")
-	idx := 0
-	for _, vendorFile := range cards {
-		vendor, _ := os.ReadFile(vendorFile)
-		if strings.TrimSpace(string(vendor)) != "0x1002" {
-			continue
-		}
-		if idx != gpuIdx {
-			idx++
-			continue
-		}
-
-		deviceDir := filepath.Dir(vendorFile)
-		if data, err := os.ReadFile(filepath.Join(deviceDir, "mem_info_vram_used")); err == nil {
-			bytes, _ := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
-			usedMB = int(bytes / (1024 * 1024))
-		}
-		if data, err := os.ReadFile(filepath.Join(deviceDir, "mem_info_vram_total")); err == nil {
-			bytes, _ := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
-			totalMB = int(bytes / (1024 * 1024))
-		}
-		return
+	dirs := listAMDGPUDirs()
+	if gpuIdx < 0 || gpuIdx >= len(dirs) {
+		return 0, 0
 	}
-	return 0, 0
+	return readVRAMFromDir(dirs[gpuIdx])
+}
+
+// readVRAMFromDir reads /sys/class/drm/card*/device/mem_info_vram_* from an
+// already-resolved device directory.
+func readVRAMFromDir(deviceDir string) (usedMB, totalMB int) {
+	if data, err := os.ReadFile(filepath.Join(deviceDir, "mem_info_vram_used")); err == nil {
+		bytes, _ := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+		usedMB = int(bytes / (1024 * 1024))
+	}
+	if data, err := os.ReadFile(filepath.Join(deviceDir, "mem_info_vram_total")); err == nil {
+		bytes, _ := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+		totalMB = int(bytes / (1024 * 1024))
+	}
+	return
 }
 
 func readGPUNameSysfs(gpuIdx int) string {

@@ -104,17 +104,7 @@ func effectiveCMakeFlags(prof builder.BuildProfile, options []builder.BuildOptio
 	for k, v := range prof.CMakeFlags {
 		flags[k] = v
 	}
-	for _, opt := range options {
-		enabled := opt.Default
-		if overrides != nil {
-			if v, ok := overrides[opt.Flag]; ok {
-				enabled = v
-			}
-		}
-		if enabled {
-			flags[opt.Flag] = "ON"
-		}
-	}
+	builder.ApplyOptionOverrides(flags, options, overrides)
 	var parts []string
 	for k, v := range flags {
 		parts = append(parts, fmt.Sprintf("-D%s=%s", k, v))
@@ -285,17 +275,23 @@ func (s *Server) handleActiveBuildLog(w http.ResponseWriter, r *http.Request) {
 	s.renderPartial(w, "build_log", &builder.BuildResult{ID: lastID, Status: status})
 }
 
-func (s *Server) handleBuildInfo(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	var found *builder.BuildResult
-	for _, b := range s.builder.List() {
-		if b.ID == id {
-			bb := b
-			found = &bb
-			break
+// resolveActiveBuild returns the build the router should run: the explicitly
+// selected cfg.ActiveBuild when it exists and built successfully, otherwise
+// the successful build with the newest GitRef. Returns nil when no runnable
+// build exists.
+func (s *Server) resolveActiveBuild() *builder.BuildResult {
+	if s.cfg.ActiveBuild != "" {
+		if b, ok := s.builder.Find(s.cfg.ActiveBuild); ok && b.Status == builder.BuildStatusSuccess {
+			return b
 		}
 	}
-	if found == nil {
+	return s.builder.LatestSuccessfulBuild()
+}
+
+func (s *Server) handleBuildInfo(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	found, ok := s.builder.Find(id)
+	if !ok {
 		http.Error(w, "build not found", http.StatusNotFound)
 		return
 	}

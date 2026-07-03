@@ -124,18 +124,8 @@ func (s *Server) parseTemplates() map[string]*template.Template {
 	funcMap := template.FuncMap{
 		"divGB": models.BytesToGB,
 		// cssID sanitizes a string so it's safe to use as both an HTML id
-		// attribute and a CSS selector. Model IDs can contain '.' (e.g.
-		// "Qwen3.6"), which CSS parses as a class separator and errors on.
-		"cssID": func(s string) string {
-			return strings.Map(func(r rune) rune {
-				switch {
-				case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
-					return r
-				default:
-					return '_'
-				}
-			}, s)
-		},
+		// attribute and a CSS selector (see domID in hf.go).
+		"cssID": domID,
 		// deref turns a pointer like *int / *bool / *string / *float64
 		// into its underlying value for templates. Non-pointers pass
 		// through; nil pointers return empty string.
@@ -479,34 +469,18 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	// a load icon and a loaded/loading tag when the router has them resident.
 	availableHTML := "<p>None</p>"
 	if routerStatus.State == process.StateRunning {
-		// Build two lookups from the running router's /models endpoint:
-		//   routerKnown — every model the router actually serves (i.e. is in
-		//                 its current preset), regardless of load state.
-		//   loadedState — those currently loaded/loading, for the status tag.
-		// The router reads preset.ini only at startup, so a model enabled in
-		// config but absent from routerKnown isn't truly available yet — it
-		// needs a restart. Such models are excluded below so "Available"
-		// reflects what the running server can actually serve.
-		routerKnown := map[string]bool{}
-		loadedState := map[string]string{}
-		if loaded, err := s.process.ListModels(); err == nil {
-			for _, lm := range loaded {
-				for _, name := range append([]string{lm.ID, lm.Model}, lm.Aliases...) {
-					if name == "" {
-						continue
-					}
-					routerKnown[name] = true
-					if lm.Status.Value == "loaded" || lm.Status.Value == "loading" {
-						loadedState[name] = lm.Status.Value
-					}
-				}
-			}
-		}
+		// routerKnownStates maps every name the running router serves (i.e.
+		// is in its current preset) to its status. The router reads
+		// preset.ini only at startup, so a model enabled in config but
+		// absent from the map isn't truly available yet — it needs a
+		// restart. Such models are excluded below so "Available" reflects
+		// what the running server can actually serve.
+		routerStates := s.routerKnownStates()
 
 		var buf strings.Builder
 		shown := 0
 		for _, m := range registeredModels {
-			if models.IsEmbeddingModel(m.ModelID) || models.IsEmbeddingModel(m.ID) {
+			if m.IsEmbedding() {
 				continue
 			}
 			cfg, err := s.registry.GetConfig(m.ID)
@@ -515,17 +489,15 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			}
 
 			routerName := s.registry.RouterName(m.ID)
-			if !routerKnown[routerName] && !routerKnown[m.ID] && !routerKnown[m.PublicName()] {
+			state, known := routerStateFor(routerStates, routerName, m.ID, m.PublicName())
+			if !known {
 				// Enabled in config but not in the running router's preset:
 				// not available until the router is restarted. Don't list it.
 				continue
 			}
-			state := loadedState[routerName]
-			if state == "" {
-				state = loadedState[m.ID]
-			}
-			if state == "" {
-				state = loadedState[m.PublicName()]
+			if state != "loaded" && state != "loading" {
+				// Idle states render no tag and offer the load button.
+				state = ""
 			}
 
 			tag := ""

@@ -223,102 +223,9 @@ func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool) string {
 		if c.MmprojPath != "" && !c.MmprojDisabled {
 			parts = append(parts, "--mmproj", c.MmprojPath)
 		}
-		// Speculative decoding. llama.cpp split the legacy mode-agnostic
-		// flags (--draft-max, --draft-min, --spec-ngram-size-n/m) into
-		// mode-specific flags. Emit the right name based on SpecType.
-		switch c.SpecType {
-		case "draft":
-			// Internal value is still "draft" (legacy config compat) but
-			// llama.cpp renamed the spec-type enum value to "draft-simple"
-			// alongside the introduction of "draft-mtp" and "draft-eagle3".
-			// Without --spec-type, the draft model loads but isn't used —
-			// the default is "none".
-			parts = append(parts, "--spec-type", "draft-simple")
-			if c.DraftModelPath != "" {
-				parts = append(parts, "--model-draft", c.DraftModelPath)
-			}
-			if c.DraftMax > 0 {
-				parts = append(parts, "--spec-draft-n-max", strconv.Itoa(c.DraftMax))
-			}
-			if c.DraftMin > 0 {
-				parts = append(parts, "--spec-draft-n-min", strconv.Itoa(c.DraftMin))
-			}
-			if c.DraftPMin != "" {
-				parts = append(parts, "--spec-draft-p-min", c.DraftPMin)
-			}
-			// Draft model resource overrides. Without these, the draft model
-			// inherits llama-server defaults — which on a large MoE main
-			// model often means no GPU offload for the draft.
-			if c.DraftCtxSize > 0 {
-				parts = append(parts, "--ctx-size-draft", strconv.Itoa(c.DraftCtxSize))
-			}
-			if c.DraftGPULayers > 0 {
-				parts = append(parts, "--gpu-layers-draft", strconv.Itoa(c.DraftGPULayers))
-			}
-			if c.DraftDevice != "" {
-				parts = append(parts, "--device-draft", c.DraftDevice)
-			}
-			if c.DraftCPUMoE > 0 {
-				parts = append(parts, "--n-cpu-moe-draft", strconv.Itoa(c.DraftCPUMoE))
-			}
-			if c.DraftKVCacheQuant != "" {
-				parts = append(parts, "--cache-type-k-draft", c.DraftKVCacheQuant, "--cache-type-v-draft", c.DraftKVCacheQuant)
-			}
-		case "draft-mtp":
-			// Two MTP flavors share this spec-type:
-			//   • Self-speculation (Qwen3.6, DeepSeek-V3): the MTP head is baked
-			//     into the main GGUF, so MtpPath is empty — no --model-draft and
-			//     the draft-resource flags don't apply. Only the sampling knobs do.
-			//   • Separate drafter (gemma-4's "gemma4-assistant" head): the head
-			//     ships as its own GGUF in MtpPath, loaded via --model-draft just
-			//     like a draft-simple model, including the draft-resource overrides.
-			parts = append(parts, "--spec-type", "draft-mtp")
-			if c.MtpPath != "" && !c.MtpDisabled {
-				parts = append(parts, "--model-draft", c.MtpPath)
-				if c.DraftCtxSize > 0 {
-					parts = append(parts, "--ctx-size-draft", strconv.Itoa(c.DraftCtxSize))
-				}
-				if c.DraftGPULayers > 0 {
-					parts = append(parts, "--gpu-layers-draft", strconv.Itoa(c.DraftGPULayers))
-				}
-				if c.DraftDevice != "" {
-					parts = append(parts, "--device-draft", c.DraftDevice)
-				}
-				if c.DraftCPUMoE > 0 {
-					parts = append(parts, "--n-cpu-moe-draft", strconv.Itoa(c.DraftCPUMoE))
-				}
-				if c.DraftKVCacheQuant != "" {
-					parts = append(parts, "--cache-type-k-draft", c.DraftKVCacheQuant, "--cache-type-v-draft", c.DraftKVCacheQuant)
-				}
-			}
-			if c.DraftMax > 0 {
-				parts = append(parts, "--spec-draft-n-max", strconv.Itoa(c.DraftMax))
-			}
-			if c.DraftMin > 0 {
-				parts = append(parts, "--spec-draft-n-min", strconv.Itoa(c.DraftMin))
-			}
-			if c.DraftPMin != "" {
-				parts = append(parts, "--spec-draft-p-min", c.DraftPMin)
-			}
-		case "ngram-mod":
-			parts = append(parts, "--spec-type", c.SpecType)
-			if c.DraftMax > 0 {
-				parts = append(parts, "--spec-ngram-mod-n-max", strconv.Itoa(c.DraftMax))
-			}
-			if c.DraftMin > 0 {
-				parts = append(parts, "--spec-ngram-mod-n-min", strconv.Itoa(c.DraftMin))
-			}
-		case "ngram-simple", "ngram-map-k", "ngram-map-k4v":
-			parts = append(parts, "--spec-type", c.SpecType)
-			prefix := "--spec-" + c.SpecType
-			if c.NgramSizeN > 0 {
-				parts = append(parts, prefix+"-size-n", strconv.Itoa(c.NgramSizeN))
-			}
-			if c.NgramSizeM > 0 {
-				parts = append(parts, prefix+"-size-m", strconv.Itoa(c.NgramSizeM))
-			}
-		case "ngram-cache":
-			parts = append(parts, "--spec-type", c.SpecType)
+		// Speculative decoding (see specDecodingParams for the SpecType rules).
+		for _, p := range specDecodingParams(c) {
+			parts = append(parts, "--"+p.Name, p.Value)
 		}
 	}
 	if c.ExtraFlags != "" {
@@ -942,6 +849,37 @@ func IsEmbeddingModel(name string) bool {
 	return embeddingPattern.MatchString(name)
 }
 
+// IsEmbedding reports whether the model looks like an embedding model.
+// It checks both the HF repo ID and the registry ID because legacy records
+// may have only one populated.
+func (m *Model) IsEmbedding() bool {
+	return IsEmbeddingModel(m.ModelID) || IsEmbeddingModel(m.ID)
+}
+
+// HasVision reports whether the model can accept images — either built-in
+// or via a configured mmproj projector.
+func (m *Model) HasVision(cfg *ModelConfig) bool {
+	return m.HasBuiltinVision || (cfg != nil && cfg.MmprojPath != "")
+}
+
+// Capabilities returns the capability list for a model: "chat" or
+// "embedding", plus "tools" and "vision" when supported.
+func (m *Model) Capabilities(cfg *ModelConfig) []string {
+	var caps []string
+	if m.IsEmbedding() {
+		caps = append(caps, "embedding")
+	} else {
+		caps = append(caps, "chat")
+	}
+	if m.SupportsTools {
+		caps = append(caps, "tools")
+	}
+	if m.HasVision(cfg) {
+		caps = append(caps, "vision")
+	}
+	return caps
+}
+
 // FindMMProj looks for mmproj GGUF files in the same directory as the model,
 // then checks the parent directory (for repos where mmproj is at the root
 // and model GGUFs are in subdirectories, e.g. Mistral-Small-4-119B).
@@ -1130,7 +1068,7 @@ func (r *Registry) FindDraftCandidates(id string) []DraftCandidate {
 			continue
 		}
 		// Skip embedding models
-		if IsEmbeddingModel(m.ModelID) || IsEmbeddingModel(m.ID) {
+		if m.IsEmbedding() {
 			continue
 		}
 		candidates = append(candidates, DraftCandidate{

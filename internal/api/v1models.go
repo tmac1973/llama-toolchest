@@ -9,21 +9,6 @@ import (
 
 // openAIModel builds an OpenAI-compatible Model object with a meta extension.
 func (s *Server) openAIModel(m *models.Model, cfg *models.ModelConfig) map[string]any {
-	// Capabilities
-	var capabilities []string
-	isEmbedding := models.IsEmbeddingModel(m.ModelID) || models.IsEmbeddingModel(m.ID)
-	if isEmbedding {
-		capabilities = append(capabilities, "embedding")
-	} else {
-		capabilities = append(capabilities, "chat")
-	}
-	if m.SupportsTools {
-		capabilities = append(capabilities, "tools")
-	}
-	if m.HasBuiltinVision || (cfg != nil && cfg.MmprojPath != "") {
-		capabilities = append(capabilities, "vision")
-	}
-
 	meta := map[string]any{
 		"arch":         m.Arch,
 		"quant":        m.Quant,
@@ -31,7 +16,7 @@ func (s *Server) openAIModel(m *models.Model, cfg *models.ModelConfig) map[strin
 		"n_embd":       m.NEmbd,
 		"n_ctx_train":  m.ContextLength,
 		"size":         m.SizeBytes,
-		"capabilities": capabilities,
+		"capabilities": m.Capabilities(cfg),
 	}
 	if cfg != nil {
 		// 0 means "use model default" (n_ctx_train)
@@ -80,9 +65,7 @@ func (s *Server) handleV1Model(w http.ResponseWriter, r *http.Request) {
 
 	m, cfg := s.findModelByAny(id)
 	if m == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		respondJSON(w, map[string]any{
+		respondJSONStatus(w, http.StatusNotFound, map[string]any{
 			"error": map[string]any{
 				"message": "model not found: " + id,
 				"type":    "invalid_request_error",

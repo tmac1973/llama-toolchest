@@ -23,21 +23,20 @@ import (
 // fields."
 func builderResolver(b *builder.Builder) benchmark.BuildResolver {
 	return func(buildID string) benchmark.BuildSnapshot {
-		for _, br := range b.List() {
-			if br.ID == buildID {
-				return benchmark.BuildSnapshot{
-					ID:         br.ID,
-					Tag:        br.Tag,
-					Profile:    br.Profile,
-					Vendor:     br.Profile,
-					GitSHA:     br.GitSHA,
-					GitRef:     br.GitRef,
-					CMakeFlags: br.CMakeFlags,
-					BinaryPath: br.BinaryPath,
-				}
-			}
+		br, ok := b.Find(buildID)
+		if !ok {
+			return benchmark.BuildSnapshot{}
 		}
-		return benchmark.BuildSnapshot{}
+		return benchmark.BuildSnapshot{
+			ID:         br.ID,
+			Tag:        br.Tag,
+			Profile:    br.Profile,
+			Vendor:     br.Profile,
+			GitSHA:     br.GitSHA,
+			GitRef:     br.GitRef,
+			CMakeFlags: br.CMakeFlags,
+			BinaryPath: br.BinaryPath,
+		}
 	}
 }
 
@@ -263,12 +262,12 @@ func (s *Server) handleStartBenchmark(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve active build the same way startRouter does.
-	buildID := s.cfg.ActiveBuild
-	if buildID == "" {
-		if b := s.builder.LatestSuccessfulBuild(); b != nil {
-			buildID = b.ID
-		}
+	// Resolve active build the same way startRouter does. resolveActiveBuild
+	// also validates the selected build actually succeeded, falling back to
+	// the latest successful one otherwise.
+	buildID := ""
+	if b := s.resolveActiveBuild(); b != nil {
+		buildID = b.ID
 	}
 	if buildID == "" {
 		http.Error(w, "no compiled build available — build llama.cpp first", http.StatusBadRequest)

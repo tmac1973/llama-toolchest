@@ -8,25 +8,41 @@ import (
 
 const appName = "llama-toolchest"
 
-// DefaultDataDir returns the platform-appropriate data directory for a host
-// install. Containers override this via the YAML's data_dir field.
-func DefaultDataDir() string {
+// platformAppDirs returns the candidate app-scoped directories for the
+// current OS in priority order: ~/Library/Application Support on darwin,
+// %LOCALAPPDATA% on windows, and on other systems the given XDG env var
+// followed by the home-relative fallback (e.g. ".local/share"). Empty when
+// neither the env var nor a home directory is resolvable. Shared by
+// DefaultDataDir and configSearchPaths so the per-OS resolution lives in
+// one place.
+func platformAppDirs(xdgVar, homeRel string) []string {
 	switch runtime.GOOS {
 	case "darwin":
 		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, "Library", "Application Support", appName)
+			return []string{filepath.Join(home, "Library", "Application Support", appName)}
 		}
 	case "windows":
 		if dir := os.Getenv("LOCALAPPDATA"); dir != "" {
-			return filepath.Join(dir, appName)
+			return []string{filepath.Join(dir, appName)}
 		}
 	default:
-		if dir := os.Getenv("XDG_DATA_HOME"); dir != "" {
-			return filepath.Join(dir, appName)
+		var dirs []string
+		if dir := os.Getenv(xdgVar); dir != "" {
+			dirs = append(dirs, filepath.Join(dir, appName))
 		}
 		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, ".local", "share", appName)
+			dirs = append(dirs, filepath.Join(home, homeRel, appName))
 		}
+		return dirs
+	}
+	return nil
+}
+
+// DefaultDataDir returns the platform-appropriate data directory for a host
+// install. Containers override this via the YAML's data_dir field.
+func DefaultDataDir() string {
+	if dirs := platformAppDirs("XDG_DATA_HOME", filepath.Join(".local", "share")); len(dirs) > 0 {
+		return dirs[0]
 	}
 	return "/data"
 }
@@ -63,27 +79,21 @@ func DefaultConfigPath() string {
 // in priority order. The first existing one wins in DefaultConfigPath.
 func configSearchPaths() []string {
 	const file = "llama-toolchest.yaml"
+	var paths []string
+	for _, dir := range platformAppDirs("XDG_CONFIG_HOME", ".config") {
+		paths = append(paths, filepath.Join(dir, file))
+	}
 	switch runtime.GOOS {
-	case "darwin":
-		if home, err := os.UserHomeDir(); err == nil {
-			return []string{filepath.Join(home, "Library", "Application Support", appName, file)}
-		}
-	case "windows":
-		if dir := os.Getenv("LOCALAPPDATA"); dir != "" {
-			return []string{filepath.Join(dir, appName, file)}
+	case "darwin", "windows":
+		if len(paths) == 0 {
+			return []string{"/data/config/llama-toolchest.yaml"}
 		}
 	default:
-		var paths []string
-		if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
-			paths = append(paths, filepath.Join(dir, appName, file))
-		}
-		if home, err := os.UserHomeDir(); err == nil {
-			paths = append(paths, filepath.Join(home, ".config", appName, file))
-		}
 		// System-scope install location, checked after the per-user paths so a
-		// user config still takes precedence when both are present.
+		// user config still takes precedence when both are present. Appended
+		// even when no per-user dir resolves (e.g. a root service without
+		// HOME), so /etc configs are still found — see issue #61.
 		paths = append(paths, filepath.Join("/etc", appName, file))
-		return paths
 	}
-	return []string{"/data/config/llama-toolchest.yaml"}
+	return paths
 }

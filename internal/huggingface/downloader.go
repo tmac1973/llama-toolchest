@@ -8,9 +8,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
+
+	"github.com/tmlabonte/llamactl/internal/broadcast"
 )
 
 // DownloadStatus tracks progress of a model download.
@@ -26,45 +27,30 @@ type DownloadStatus struct {
 }
 
 type download struct {
-	cancel     context.CancelFunc
-	lastStatus DownloadStatus
+	cancel context.CancelFunc
 
-	// Fan-out to multiple subscribers
-	subMu sync.Mutex
-	subs  map[chan DownloadStatus]struct{}
+	// Fan-out to multiple subscribers. History size 1 means the current
+	// state is retained: replayed to new subscribers (so they see where we
+	// are immediately) and queryable via last() for ListActive/PendingBytes.
+	bc *broadcast.Broadcaster[DownloadStatus]
 }
 
 func (dl *download) broadcast(status DownloadStatus) {
-	dl.subMu.Lock()
-	dl.lastStatus = status
-	for ch := range dl.subs {
-		select {
-		case ch <- status:
-		default:
-		}
-	}
-	dl.subMu.Unlock()
+	dl.bc.Broadcast(status)
 }
 
 func (dl *download) subscribe() chan DownloadStatus {
-	ch := make(chan DownloadStatus, 16)
-	dl.subMu.Lock()
-	dl.subs[ch] = struct{}{}
-	// Send current state immediately so subscriber sees where we are
-	if dl.lastStatus.Status != "" {
-		select {
-		case ch <- dl.lastStatus:
-		default:
-		}
-	}
-	dl.subMu.Unlock()
-	return ch
+	return dl.bc.Subscribe()
 }
 
 func (dl *download) unsubscribe(ch chan DownloadStatus) {
-	dl.subMu.Lock()
-	delete(dl.subs, ch)
-	dl.subMu.Unlock()
+	dl.bc.Unsubscribe(ch)
+}
+
+// last returns the most recent status (zero value before the first broadcast).
+func (dl *download) last() DownloadStatus {
+	s, _ := dl.bc.Last()
+	return s
 }
 
 // CompletionFunc is called when a download finishes successfully.
@@ -102,8 +88,8 @@ func (d *Downloader) SetOnComplete(fn CompletionFunc) {
 // when the size is unknown.
 func (d *Downloader) Start(ctx context.Context, modelID, filename string, expectedBytes int64) (string, error) {
 	// Create a stable download ID — replace all slashes to keep it URL-safe
-	safeName := strings.ReplaceAll(modelID, "/", "--")
-	safeFilename := strings.ReplaceAll(strings.TrimSuffix(filename, ".gguf"), "/", "--")
+	safeName := SafeModelID(modelID)
+	safeFilename := SafeFileID(filename)
 	downloadID := fmt.Sprintf("%s--%s", safeName, safeFilename)
 
 	d.mu.Lock()
@@ -115,17 +101,17 @@ func (d *Downloader) Start(ctx context.Context, modelID, filename string, expect
 	dlCtx, cancel := context.WithCancel(context.Background())
 	dl := &download{
 		cancel: cancel,
-		subs:   make(map[chan DownloadStatus]struct{}),
-		// Seed lastStatus so PendingBytes counts this download immediately,
-		// before run() reports its first progress tick.
-		lastStatus: DownloadStatus{
-			ID:         downloadID,
-			ModelID:    modelID,
-			Filename:   filename,
-			TotalBytes: expectedBytes,
-			Status:     "downloading",
-		},
+		bc:     broadcast.New[DownloadStatus](1, 16),
 	}
+	// Seed the status so PendingBytes counts this download immediately,
+	// before run() reports its first progress tick.
+	dl.broadcast(DownloadStatus{
+		ID:         downloadID,
+		ModelID:    modelID,
+		Filename:   filename,
+		TotalBytes: expectedBytes,
+		Status:     "downloading",
+	})
 	d.active[downloadID] = dl
 	d.mu.Unlock()
 
@@ -162,11 +148,9 @@ func (d *Downloader) ListActive() []DownloadStatus {
 	defer d.mu.Unlock()
 	var out []DownloadStatus
 	for _, dl := range d.active {
-		dl.subMu.Lock()
-		if dl.lastStatus.Status == "downloading" {
-			out = append(out, dl.lastStatus)
+		if s := dl.last(); s.Status == "downloading" {
+			out = append(out, s)
 		}
-		dl.subMu.Unlock()
 	}
 	return out
 }
@@ -180,9 +164,7 @@ func (d *Downloader) PendingBytes() int64 {
 	defer d.mu.Unlock()
 	var pending int64
 	for _, dl := range d.active {
-		dl.subMu.Lock()
-		s := dl.lastStatus
-		dl.subMu.Unlock()
+		s := dl.last()
 		if s.Status != "downloading" {
 			continue
 		}
@@ -251,7 +233,7 @@ func (d *Downloader) run(ctx context.Context, downloadID, modelID, filename stri
 
 	// Setup directory under the configured models dir (which may live
 	// outside dataDir if ModelsDir is set).
-	safeName := strings.ReplaceAll(modelID, "/", "--")
+	safeName := SafeModelID(modelID)
 	modelDir := filepath.Join(d.modelsDir, safeName)
 	os.MkdirAll(modelDir, 0o755)
 

@@ -34,8 +34,6 @@ func (s *Server) buildCapabilities(m *models.Model, cfg *models.ModelConfig) map
 		}
 	}
 
-	isEmbedding := models.IsEmbeddingModel(m.ModelID) || models.IsEmbeddingModel(m.ID)
-
 	return map[string]any{
 		"schema_version": CapabilitiesSchemaVersion,
 
@@ -46,9 +44,9 @@ func (s *Server) buildCapabilities(m *models.Model, cfg *models.ModelConfig) map
 		"context_per_request": servedCtx / parallel,
 
 		// modalities / tools
-		"vision":    m.HasBuiltinVision || (cfg != nil && cfg.MmprojPath != ""),
+		"vision":    m.HasVision(cfg),
 		"tools":     m.SupportsTools,
-		"embedding": isEmbedding,
+		"embedding": m.IsEmbedding(),
 
 		// reasoning / thinking
 		"reasoning": m.EffectiveReasoning(cfg),

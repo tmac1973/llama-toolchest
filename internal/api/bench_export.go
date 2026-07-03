@@ -224,28 +224,26 @@ func metricStd(m *benchmark.LlamaBenchyMetric) string {
 	return ftoa(m.Std)
 }
 
-// parseExportFormat normalizes the format query param. Defaults to csv
-// because the typical browser flow downloads a spreadsheet-friendly file.
-func parseExportFormat(r *http.Request) (string, error) {
-	v := strings.ToLower(r.URL.Query().Get("format"))
-	switch v {
+// parseEnumParam normalizes a two-valued enum query param: empty → the
+// first valid value, either valid value → itself (lowercased), anything
+// else → an error naming the valid values.
+func parseEnumParam(r *http.Request, key, valid1, valid2 string) (string, error) {
+	switch v := strings.ToLower(r.URL.Query().Get(key)); v {
 	case "":
-		return exportFormatCSV, nil
-	case exportFormatCSV, exportFormatJSON:
+		return valid1, nil
+	case valid1, valid2:
 		return v, nil
 	default:
-		return "", fmt.Errorf("format must be %q or %q", exportFormatCSV, exportFormatJSON)
+		return "", fmt.Errorf("%s must be %q or %q", key, valid1, valid2)
 	}
 }
 
+// parseExportFormat normalizes the format query param. Defaults to csv
+// because the typical browser flow downloads a spreadsheet-friendly file.
+func parseExportFormat(r *http.Request) (string, error) {
+	return parseEnumParam(r, "format", exportFormatCSV, exportFormatJSON)
+}
+
 func parseExportScope(r *http.Request) (string, error) {
-	v := strings.ToLower(r.URL.Query().Get("scope"))
-	switch v {
-	case "":
-		return exportScopeCells, nil
-	case exportScopeCells, exportScopeSum:
-		return v, nil
-	default:
-		return "", fmt.Errorf("scope must be %q or %q", exportScopeCells, exportScopeSum)
-	}
+	return parseEnumParam(r, "scope", exportScopeCells, exportScopeSum)
 }

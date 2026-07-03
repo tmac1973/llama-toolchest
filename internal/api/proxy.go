@@ -38,15 +38,8 @@ func (s *Server) newProxyHandler() http.Handler {
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	proxy.FlushInterval = 50 * time.Millisecond
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]any{
-			"error": map[string]any{
-				"message": "llama-server router is not running",
-				"type":    "server_error",
-				"code":    "service_unavailable",
-			},
-		})
+		writeProxyError(w, http.StatusServiceUnavailable, "service_unavailable",
+			"llama-server router is not running")
 	}
 
 	// Capture timings from chat completion responses — both JSON and SSE streams.
@@ -94,7 +87,7 @@ func (s *Server) newProxyHandler() http.Handler {
 			r.Body.Close()
 			if err == nil {
 				if loadErr := s.ensureModelLoadedForRequest(r.Context(), body); loadErr != nil {
-					writeProxyError(w, http.StatusServiceUnavailable, loadErr.Error())
+					writeProxyError(w, http.StatusServiceUnavailable, "auto_load_failed", loadErr.Error())
 					return
 				}
 				if strings.HasSuffix(r.URL.Path, "/chat/completions") {
@@ -211,14 +204,13 @@ func (s *Server) waitForModelLoaded(ctx context.Context, routerName string, m *m
 	}
 }
 
-func writeProxyError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]any{
+// writeProxyError writes an OpenAI-shaped error object with the given code.
+func writeProxyError(w http.ResponseWriter, status int, code, message string) {
+	respondJSONStatus(w, status, map[string]any{
 		"error": map[string]any{
 			"message": message,
 			"type":    "server_error",
-			"code":    "auto_load_failed",
+			"code":    code,
 		},
 	})
 }

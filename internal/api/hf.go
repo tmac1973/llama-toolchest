@@ -153,6 +153,22 @@ func (s *Server) handleHFDownload(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, map[string]string{"download_id": downloadID})
 }
 
+// downloadProgressHTML renders the progress-bar + stats fragment shared by
+// the SSE progress stream and the active-downloads panel. progressStyle is
+// an optional style attribute for the <progress> element.
+func downloadProgressHTML(status huggingface.DownloadStatus, progressStyle string) string {
+	pct := float64(0)
+	if status.TotalBytes > 0 {
+		pct = float64(status.BytesDownloaded) / float64(status.TotalBytes) * 100
+	}
+	speedMB := float64(status.SpeedBPS) / (1024 * 1024)
+	downloadedGB := models.BytesToGB(status.BytesDownloaded)
+	totalGB := models.BytesToGB(status.TotalBytes)
+	return fmt.Sprintf(
+		`<progress value="%.0f" max="100"%s></progress><small>%.1f / %.1f GB (%.1f MB/s) — %.0f%%</small>`,
+		pct, progressStyle, downloadedGB, totalGB, speedMB, pct)
+}
+
 func (s *Server) handleHFDownloadProgress(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	ch, ok := s.downloader.Subscribe(id)
@@ -173,20 +189,10 @@ func (s *Server) handleHFDownloadProgress(w http.ResponseWriter, r *http.Request
 		case status := <-ch:
 			data, _ := json.Marshal(status)
 			// Send HTML progress update
-			pct := float64(0)
-			if status.TotalBytes > 0 {
-				pct = float64(status.BytesDownloaded) / float64(status.TotalBytes) * 100
-			}
-			speedMB := float64(status.SpeedBPS) / (1024 * 1024)
-			downloadedGB := models.BytesToGB(status.BytesDownloaded)
-			totalGB := models.BytesToGB(status.TotalBytes)
-
 			var html string
 			switch status.Status {
 			case "downloading":
-				html = fmt.Sprintf(
-					`<progress value="%.0f" max="100"></progress><small>%.1f / %.1f GB (%.1f MB/s) — %.0f%%</small>`,
-					pct, downloadedGB, totalGB, speedMB, pct)
+				html = downloadProgressHTML(status, "")
 			case "complete":
 				html = `<p>Download complete!</p>`
 			case "failed":
@@ -216,18 +222,11 @@ func (s *Server) handleHFActiveDownloads(w http.ResponseWriter, r *http.Request)
 			return // empty response — nothing to show
 		}
 		for _, dl := range active {
-			pct := float64(0)
-			if dl.TotalBytes > 0 {
-				pct = float64(dl.BytesDownloaded) / float64(dl.TotalBytes) * 100
-			}
-			speedMB := float64(dl.SpeedBPS) / (1024 * 1024)
-			downloadedGB := models.BytesToGB(dl.BytesDownloaded)
-			totalGB := models.BytesToGB(dl.TotalBytes)
 			fmt.Fprintf(w, `<div style="padding: 0.25rem 0.5rem; font-size: 0.85rem;">
 				<strong>%s</strong> — <small>%s</small>
-				<progress value="%.0f" max="100" style="margin: 0.25rem 0;"></progress>
-				<small>%.1f / %.1f GB (%.1f MB/s) — %.0f%%</small>
-			</div>`, dl.ModelID, dl.Filename, pct, downloadedGB, totalGB, speedMB, pct)
+				%s
+			</div>`, dl.ModelID, dl.Filename,
+				downloadProgressHTML(dl, ` style="margin: 0.25rem 0;"`))
 		}
 		return
 	}
@@ -235,7 +234,9 @@ func (s *Server) handleHFActiveDownloads(w http.ResponseWriter, r *http.Request)
 	respondJSON(w, active)
 }
 
-// domID sanitizes a string for use as an HTML id / CSS selector fragment.
+// domID sanitizes a string for use as an HTML id attribute or CSS selector
+// fragment. Model IDs can contain '.' (e.g. "Qwen3.6"), which CSS parses as
+// a class separator and errors on. Also exposed to templates as "cssID".
 func domID(s string) string {
 	return strings.Map(func(r rune) rune {
 		switch {
@@ -310,7 +311,7 @@ func (s *Server) handleIncompleteDiscard(w http.ResponseWriter, r *http.Request)
 	}
 
 	root := s.cfg.ModelsPath()
-	safeName := strings.ReplaceAll(modelID, "/", "--")
+	safeName := huggingface.SafeModelID(modelID)
 	modelDir := filepath.Join(root, safeName)
 
 	removed := 0
@@ -344,7 +345,7 @@ func (s *Server) handleHFDownloadCancel(w http.ResponseWriter, r *http.Request) 
 
 // onDownloadComplete is called by the downloader when a file finishes.
 func (s *Server) onDownloadComplete(downloadID, modelID, filename string, sizeBytes int64) {
-	safeName := strings.ReplaceAll(modelID, "/", "--")
+	safeName := huggingface.SafeModelID(modelID)
 	filePath := filepath.Join(s.cfg.ModelsPath(), safeName, filename)
 
 	// mmproj files are vision projectors — don't register as models.
@@ -366,7 +367,7 @@ func (s *Server) onDownloadComplete(downloadID, modelID, filename string, sizeBy
 		return
 	}
 
-	safeFilename := strings.ReplaceAll(strings.TrimSuffix(filename, ".gguf"), "/", "--")
+	safeFilename := huggingface.SafeFileID(filename)
 	m := &models.Model{
 		ID:           fmt.Sprintf("%s--%s", safeName, safeFilename),
 		ModelID:      modelID,

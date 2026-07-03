@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/tmlabonte/llamactl/internal/broadcast"
 )
 
 // ModelStatus represents the state of a model in the router.
@@ -69,15 +71,13 @@ type Manager struct {
 	done      chan struct{}
 
 	// Log broadcasting
-	logMu       sync.Mutex
-	subscribers map[chan string]struct{}
-	logHistory  []string
+	logs *broadcast.Broadcaster[string]
 }
 
 func NewManager() *Manager {
 	return &Manager{
-		status:      Status{State: StateStopped},
-		subscribers: make(map[chan string]struct{}),
+		status: Status{State: StateStopped},
+		logs:   broadcast.New[string](logHistorySize, 256),
 	}
 }
 
@@ -91,9 +91,7 @@ func (m *Manager) Start(cfg RouterConfig) error {
 	}
 
 	// Clear log history
-	m.logMu.Lock()
-	m.logHistory = nil
-	m.logMu.Unlock()
+	m.logs.ClearHistory()
 
 	if cfg.Host == "" {
 		cfg.Host = "0.0.0.0"
@@ -314,50 +312,24 @@ func (m *Manager) ListModels() ([]ModelStatus, error) {
 	return result.Data, nil
 }
 
-// Subscribe returns a channel that receives log lines.
+// Subscribe returns a channel that receives log lines, starting with the
+// buffered history.
 func (m *Manager) Subscribe() chan string {
-	ch := make(chan string, 256)
-	m.logMu.Lock()
-	for _, line := range m.logHistory {
-		select {
-		case ch <- line:
-		default:
-		}
-	}
-	m.subscribers[ch] = struct{}{}
-	m.logMu.Unlock()
-	return ch
+	return m.logs.Subscribe()
 }
 
 // Unsubscribe removes a log subscriber.
 func (m *Manager) Unsubscribe(ch chan string) {
-	m.logMu.Lock()
-	delete(m.subscribers, ch)
-	m.logMu.Unlock()
+	m.logs.Unsubscribe(ch)
 }
 
 // ClearLogs discards the buffered log history so it won't be replayed to new subscribers.
 func (m *Manager) ClearLogs() {
-	m.logMu.Lock()
-	m.logHistory = nil
-	m.logMu.Unlock()
+	m.logs.ClearHistory()
 }
 
 func (m *Manager) broadcast(line string) {
-	m.logMu.Lock()
-	defer m.logMu.Unlock()
-
-	if len(m.logHistory) >= logHistorySize {
-		m.logHistory = m.logHistory[1:]
-	}
-	m.logHistory = append(m.logHistory, line)
-
-	for ch := range m.subscribers {
-		select {
-		case ch <- line:
-		default:
-		}
-	}
+	m.logs.Broadcast(line)
 }
 
 func (m *Manager) monitorProcess(cmd *exec.Cmd, done chan struct{}) {

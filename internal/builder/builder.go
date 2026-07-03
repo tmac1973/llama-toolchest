@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/tmlabonte/llamactl/internal/broadcast"
 )
 
 const (
@@ -56,22 +58,20 @@ type Builder struct {
 	logChs map[string]chan string
 
 	// Log history and broadcasting per build
-	logMu         sync.Mutex
-	logHistory    map[string][]string              // build ID → log lines
-	logSubs       map[string]map[chan string]struct{} // build ID → subscribers
-	lastBuildID   string                           // most recent build ID
+	logMu       sync.Mutex
+	logBcasts   map[string]*broadcast.Broadcaster[string] // build ID → log stream
+	lastBuildID string                                    // most recent build ID
 
-	refsMu    sync.Mutex
+	refsMu     sync.Mutex
 	cachedRefs []string
 }
 
 // NewBuilder creates a Builder and loads persisted build state.
 func NewBuilder(dataDir string) *Builder {
 	b := &Builder{
-		dataDir:    dataDir,
-		logChs:     make(map[string]chan string),
-		logHistory: make(map[string][]string),
-		logSubs:    make(map[string]map[chan string]struct{}),
+		dataDir:   dataDir,
+		logChs:    make(map[string]chan string),
+		logBcasts: make(map[string]*broadcast.Broadcaster[string]),
 	}
 	b.loadBuilds()
 	return b
@@ -84,6 +84,19 @@ func (b *Builder) List() []BuildResult {
 	out := make([]BuildResult, len(b.builds))
 	copy(out, b.builds)
 	return out
+}
+
+// Find returns a copy of the build with the given ID, or false if unknown.
+func (b *Builder) Find(id string) (*BuildResult, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, br := range b.builds {
+		if br.ID == id {
+			out := br
+			return &out, true
+		}
+	}
+	return nil, false
 }
 
 // LatestSuccessfulBuild returns the successful build with the newest GitRef
@@ -143,59 +156,35 @@ func (b *Builder) LogChannel(buildID string) (<-chan string, bool) {
 	return ch, ok
 }
 
+// logBcast returns the log broadcaster for a build, or nil if the build has
+// no logs this process run.
+func (b *Builder) logBcast(buildID string) *broadcast.Broadcaster[string] {
+	b.logMu.Lock()
+	defer b.logMu.Unlock()
+	return b.logBcasts[buildID]
+}
+
 // SubscribeLogs returns a channel that receives log lines for a build,
 // starting with any existing history. Returns nil if the build has no logs.
 func (b *Builder) SubscribeLogs(buildID string) chan string {
-	b.logMu.Lock()
-	defer b.logMu.Unlock()
-
-	history := b.logHistory[buildID]
-	if history == nil {
-		// No log history — check if build is still running with old channel
+	bc := b.logBcast(buildID)
+	if bc == nil {
 		return nil
 	}
-
-	ch := make(chan string, buildLogHistorySize)
-	// Replay history
-	for _, line := range history {
-		select {
-		case ch <- line:
-		default:
-		}
-	}
-
-	// Register as subscriber for new lines
-	if b.logSubs[buildID] == nil {
-		b.logSubs[buildID] = make(map[chan string]struct{})
-	}
-	b.logSubs[buildID][ch] = struct{}{}
-	return ch
+	return bc.Subscribe()
 }
 
 // UnsubscribeLogs removes a log subscriber.
 func (b *Builder) UnsubscribeLogs(buildID string, ch chan string) {
-	b.logMu.Lock()
-	defer b.logMu.Unlock()
-	if subs := b.logSubs[buildID]; subs != nil {
-		delete(subs, ch)
+	if bc := b.logBcast(buildID); bc != nil {
+		bc.Unsubscribe(ch)
 	}
 }
 
 // broadcastLog stores a log line and sends it to all subscribers.
 func (b *Builder) broadcastLog(buildID, line string) {
-	b.logMu.Lock()
-	defer b.logMu.Unlock()
-
-	if len(b.logHistory[buildID]) >= buildLogHistorySize {
-		b.logHistory[buildID] = b.logHistory[buildID][1:]
-	}
-	b.logHistory[buildID] = append(b.logHistory[buildID], line)
-
-	for ch := range b.logSubs[buildID] {
-		select {
-		case ch <- line:
-		default:
-		}
+	if bc := b.logBcast(buildID); bc != nil {
+		bc.Broadcast(line)
 	}
 }
 
@@ -249,22 +238,9 @@ func (b *Builder) Build(ctx context.Context, profile string, gitRef string, tag 
 		return nil, fmt.Errorf("invalid tag %q: only lowercase letters, digits, and hyphens are allowed", tag)
 	}
 
-	// Apply option overrides to the profile's cmake flags
-	if optionOverrides != nil {
-		options := ProfileOptions(profile)
-		for _, opt := range options {
-			if enabled, ok := optionOverrides[opt.Flag]; ok && enabled {
-				prof.CMakeFlags[opt.Flag] = "ON"
-			}
-		}
-	} else {
-		// Apply defaults when no overrides specified (e.g. JSON API)
-		for _, opt := range ProfileOptions(profile) {
-			if opt.Default {
-				prof.CMakeFlags[opt.Flag] = "ON"
-			}
-		}
-	}
+	// Apply option overrides (or defaults) to the profile's cmake flags,
+	// using the same resolution as the API's flag preview.
+	ApplyOptionOverrides(prof.CMakeFlags, ProfileOptions(profile), optionOverrides)
 
 	// Parse extra cmake flags (e.g. "-DFOO=BAR -DBAZ=ON")
 	if extraCMake != "" {
@@ -347,9 +323,10 @@ func (b *Builder) Build(ctx context.Context, profile string, gitRef string, tag 
 	b.lastBuildID = result.ID
 	b.mu.Unlock()
 
-	// Initialize log history for this build
+	// (Re)create the log stream for this build, discarding any history
+	// from a previous build with the same ID.
 	b.logMu.Lock()
-	b.logHistory[result.ID] = nil
+	b.logBcasts[result.ID] = broadcast.New[string](buildLogHistorySize, buildLogHistorySize)
 	b.logMu.Unlock()
 
 	// Run the actual build asynchronously
@@ -386,13 +363,11 @@ func (b *Builder) Delete(id string) error {
 func (b *Builder) runBuild(ctx context.Context, prof BuildProfile, srcDir string, result *BuildResult, logCh chan string) {
 	defer func() {
 		close(logCh)
-		// Close all subscriber channels for this build
-		b.logMu.Lock()
-		for ch := range b.logSubs[result.ID] {
-			close(ch)
+		// Close all subscriber channels for this build; history is kept so
+		// later subscribers still get a replay.
+		if bc := b.logBcast(result.ID); bc != nil {
+			bc.CloseSubscribers()
 		}
-		delete(b.logSubs, result.ID)
-		b.logMu.Unlock()
 	}()
 
 	sendLog := func(msg string) {

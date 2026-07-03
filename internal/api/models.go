@@ -11,13 +11,7 @@ import (
 )
 
 func (s *Server) handleListEmbeddingModels(w http.ResponseWriter, r *http.Request) {
-	all := s.registry.List()
-	var embeddingModels []*models.Model
-	for _, m := range all {
-		if models.IsEmbeddingModel(m.ModelID) || models.IsEmbeddingModel(m.ID) {
-			embeddingModels = append(embeddingModels, m)
-		}
-	}
+	embeddingModels := filterModels(s.registry.List(), true)
 
 	if isHTMX(r) {
 		respondHTML(w)
@@ -32,14 +26,8 @@ func (s *Server) handleListEmbeddingModels(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
-	all := s.registry.List()
 	// Filter out embedding models — they have their own section
-	var modelList []*models.Model
-	for _, m := range all {
-		if !models.IsEmbeddingModel(m.ModelID) && !models.IsEmbeddingModel(m.ID) {
-			modelList = append(modelList, m)
-		}
-	}
+	modelList := filterModels(s.registry.List(), false)
 
 	if isHTMX(r) {
 		respondHTML(w)
@@ -53,6 +41,18 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, withPublicNames(modelList))
+}
+
+// filterModels splits the registry list by model kind: embedding=true keeps
+// only embedding models, embedding=false keeps only chat models.
+func filterModels(all []*models.Model, embedding bool) []*models.Model {
+	var out []*models.Model
+	for _, m := range all {
+		if m.IsEmbedding() == embedding {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // withPublicNames wraps each model with its OpenAI-style public name so
@@ -170,20 +170,6 @@ func (s *Server) handleModelInfo(w http.ResponseWriter, r *http.Request) {
 
 	cfg, _ := s.registry.GetConfig(id)
 
-	// Build capabilities list
-	var capabilities []string
-	if models.IsEmbeddingModel(m.ModelID) || models.IsEmbeddingModel(m.ID) {
-		capabilities = append(capabilities, "embedding")
-	} else {
-		capabilities = append(capabilities, "chat")
-	}
-	if m.SupportsTools {
-		capabilities = append(capabilities, "tools")
-	}
-	if m.HasBuiltinVision || (cfg != nil && cfg.MmprojPath != "") {
-		capabilities = append(capabilities, "vision")
-	}
-
 	info := map[string]any{
 		"id":             m.ID,
 		"public_name":    m.PublicName(),
@@ -194,7 +180,7 @@ func (s *Server) handleModelInfo(w http.ResponseWriter, r *http.Request) {
 		"context_length": m.ContextLength,
 		"size_bytes":     m.SizeBytes,
 		"vram_est_gb":    m.VRAMEstGB,
-		"capabilities":   capabilities,
+		"capabilities":   m.Capabilities(cfg),
 		"downloaded_at":  m.DownloadedAt,
 	}
 
@@ -345,6 +331,17 @@ func (s *Server) routerKnownStates() map[string]string {
 		}
 	}
 	return routerKnown
+}
+
+// routerStateFor returns the status for the first of names present in a
+// routerKnownStates() map, and whether any of the names was found.
+func routerStateFor(states map[string]string, names ...string) (string, bool) {
+	for _, n := range names {
+		if st, ok := states[n]; ok {
+			return st, true
+		}
+	}
+	return "", false
 }
 
 // renderModelCard writes one model_card partial.

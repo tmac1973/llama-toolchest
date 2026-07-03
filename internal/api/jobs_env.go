@@ -34,11 +34,8 @@ func (e *jobEnv) CheckBuildRunnable(ctx context.Context, buildID string) error {
 		return nil
 	}
 	var binary string
-	for _, b := range e.s.builder.List() {
-		if b.ID == buildID {
-			binary = b.BinaryPath
-			break
-		}
+	if b, ok := e.s.builder.Find(buildID); ok {
+		binary = b.BinaryPath
 	}
 	if binary == "" {
 		return fmt.Errorf("build %s not found", buildID)
@@ -85,15 +82,8 @@ func (e *jobEnv) EnsureBuildActive(ctx context.Context, buildID string) error {
 	}
 
 	// Find the build and verify it's a successful one we can run.
-	var target *builder.BuildResult
-	for _, b := range e.s.builder.List() {
-		if b.ID == buildID {
-			b := b
-			target = &b
-			break
-		}
-	}
-	if target == nil {
+	target, ok := e.s.builder.Find(buildID)
+	if !ok {
 		return fmt.Errorf("build %s not found", buildID)
 	}
 	if target.Status != builder.BuildStatusSuccess {
@@ -182,11 +172,5 @@ func (e *jobEnv) HFCacheDir() string {
 // shortenModelName mirrors the trim done in handleStartBenchmark so cell
 // runs label the same way as the existing single-run path.
 func shortenModelName(modelID string) string {
-	name := modelID
-	if idx := strings.LastIndex(name, "/"); idx >= 0 {
-		name = name[idx+1:]
-	}
-	name = strings.TrimSuffix(name, "-GGUF")
-	name = strings.TrimSuffix(name, "-gguf")
-	return name
+	return models.ShortModelName(modelID)
 }

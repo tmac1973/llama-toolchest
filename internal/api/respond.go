@@ -16,6 +16,15 @@ func respondJSON(w http.ResponseWriter, v any) {
 	json.NewEncoder(w).Encode(v)
 }
 
+// respondJSONStatus writes v as JSON with an explicit HTTP status. The
+// Content-Type header must be set before WriteHeader, so callers can't
+// compose this from respondJSON themselves.
+func respondJSONStatus(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(v)
+}
+
 // respondHTML sets the Content-Type header for HTML responses.
 func respondHTML(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/tmlabonte/llamactl/internal/builder"
 	"github.com/tmlabonte/llamactl/internal/models"
 	"github.com/tmlabonte/llamactl/internal/process"
 )
@@ -100,6 +99,22 @@ func countNonZeroSplit(s string) int {
 	return n
 }
 
+// resolveRouterModel finds the registry model (and config) behind a router
+// entry, matching the router-section ID first, then each alias. The router's
+// primary ID may not equal the registry ID, so both are tried. Shared by
+// handlePS and renderLoadedModelsJSON.
+func (s *Server) resolveRouterModel(rm process.ModelStatus) (*models.Model, *models.ModelConfig) {
+	reg, cfg := s.findModelByAny(rm.ID)
+	if reg == nil {
+		for _, a := range rm.Aliases {
+			if reg, cfg = s.findModelByAny(a); reg != nil {
+				break
+			}
+		}
+	}
+	return reg, cfg
+}
+
 // handlePS returns currently loaded models with resource info, similar to Ollama's /api/ps.
 func (s *Server) handlePS(w http.ResponseWriter, r *http.Request) {
 	type psModel struct {
@@ -121,18 +136,10 @@ func (s *Server) handlePS(w http.ResponseWriter, r *http.Request) {
 					Status: rm.Status.Value,
 				}
 				// Enrich with registry metadata if available
-				// Try matching by router ID, then by aliases
-				var regModel *models.Model
-				for _, alias := range append([]string{rm.ID}, rm.Aliases...) {
-					if m, err := s.registry.Get(alias); err == nil {
-						regModel = m
-						break
-					}
-				}
-				if regModel != nil {
+				if regModel, cfg := s.resolveRouterModel(rm); regModel != nil {
 					pm.Arch = regModel.Arch
 					pm.VRAMEstGB = regModel.VRAMEstGB
-					if cfg, err := s.registry.GetConfig(regModel.ID); err == nil {
+					if cfg != nil {
 						pm.ContextSize = cfg.ContextSize
 						pm.VRAMEstGB = models.VRAMEstimateForConfig(regModel, cfg)
 					}
@@ -272,18 +279,10 @@ func (s *Server) renderLoadedModelsJSON(w http.ResponseWriter) {
 			Aliases: rm.Aliases,
 		}
 		// Find the registry model behind this router entry so we can surface
-		// its canonical IDs and capability block. Match by router-section name
-		// first, then by alias (the router's primary ID may not equal m.ID).
-		// Folding capabilities in here lets a client auto-configure from this
-		// single request instead of fanning out to /info per model.
-		reg, cfg := s.findModelByAny(rm.ID)
-		if reg == nil {
-			for _, a := range rm.Aliases {
-				if reg, cfg = s.findModelByAny(a); reg != nil {
-					break
-				}
-			}
-		}
+		// its canonical IDs and capability block. Folding capabilities in
+		// here lets a client auto-configure from this single request instead
+		// of fanning out to /info per model.
+		reg, cfg := s.resolveRouterModel(rm)
 		if reg != nil {
 			entry.RegistryID = reg.ID
 			entry.PublicName = reg.PublicName()
@@ -399,23 +398,11 @@ func (s *Server) handleDeactivateModel(w http.ResponseWriter, r *http.Request) {
 func (s *Server) startRouter() error {
 	// Find the build binary. Explicit selection wins; otherwise fall back
 	// to the successful build with the newest GitRef.
-	binaryPath := ""
-	if s.cfg.ActiveBuild != "" {
-		for _, b := range s.builder.List() {
-			if b.ID == s.cfg.ActiveBuild && b.Status == builder.BuildStatusSuccess {
-				binaryPath = b.BinaryPath
-				break
-			}
-		}
-	}
-	if binaryPath == "" {
-		if b := s.builder.LatestSuccessfulBuild(); b != nil {
-			binaryPath = b.BinaryPath
-		}
-	}
-	if binaryPath == "" {
+	build := s.resolveActiveBuild()
+	if build == nil || build.BinaryPath == "" {
 		return fmt.Errorf("no compiled build available — build llama.cpp first")
 	}
+	binaryPath := build.BinaryPath
 
 	// Generate preset INI from model configs
 	presetPath, err := s.registry.WritePresetINI()
@@ -586,7 +573,7 @@ func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 			maxContext = model.ContextLength
 			detectedMMProj = models.FindMMProj(model.FilePath)
 			detectedMTP = models.FindMTP(model.FilePath)
-			isEmbedding = models.IsEmbeddingModel(model.ModelID) || models.IsEmbeddingModel(model.ID)
+			isEmbedding = model.IsEmbedding()
 			if !isEmbedding {
 				draftCandidates = s.registry.FindDraftCandidates(id)
 			}

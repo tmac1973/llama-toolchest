@@ -73,7 +73,7 @@ func GeneratePresetINI(modelsDir string, models []*Model, configs map[string]*Mo
 		}
 		b.WriteString(fmt.Sprintf("alias = %s\n", strings.Join(aliasList, ",")))
 
-		isEmbed := IsEmbeddingModel(m.ModelID) || IsEmbeddingModel(m.ID)
+		isEmbed := m.IsEmbedding()
 		writeConfigParams(&b, cfg, isEmbed)
 		b.WriteString("\n")
 	}
@@ -139,90 +139,9 @@ func writeConfigParams(b *strings.Builder, cfg *ModelConfig, isEmbedding bool) {
 		if cfg.MmprojPath != "" && !cfg.MmprojDisabled {
 			b.WriteString(fmt.Sprintf("mmproj = %s\n", cfg.MmprojPath))
 		}
-		// Speculative decoding. llama.cpp split the legacy mode-agnostic
-		// flags (--draft-max, --draft-min, --spec-ngram-size-n/m) into
-		// mode-specific flags. Emit the right name based on SpecType.
-		switch cfg.SpecType {
-		case "draft":
-			b.WriteString("spec-type = draft-simple\n")
-			if cfg.DraftModelPath != "" {
-				b.WriteString(fmt.Sprintf("model-draft = %s\n", cfg.DraftModelPath))
-			}
-			if cfg.DraftMax > 0 {
-				b.WriteString(fmt.Sprintf("spec-draft-n-max = %d\n", cfg.DraftMax))
-			}
-			if cfg.DraftMin > 0 {
-				b.WriteString(fmt.Sprintf("spec-draft-n-min = %d\n", cfg.DraftMin))
-			}
-			if cfg.DraftPMin != "" {
-				b.WriteString(fmt.Sprintf("spec-draft-p-min = %s\n", cfg.DraftPMin))
-			}
-			if cfg.DraftCtxSize > 0 {
-				b.WriteString(fmt.Sprintf("ctx-size-draft = %d\n", cfg.DraftCtxSize))
-			}
-			if cfg.DraftGPULayers > 0 {
-				b.WriteString(fmt.Sprintf("gpu-layers-draft = %d\n", cfg.DraftGPULayers))
-			}
-			if cfg.DraftDevice != "" {
-				b.WriteString(fmt.Sprintf("device-draft = %s\n", cfg.DraftDevice))
-			}
-			if cfg.DraftCPUMoE > 0 {
-				b.WriteString(fmt.Sprintf("n-cpu-moe-draft = %d\n", cfg.DraftCPUMoE))
-			}
-			if cfg.DraftKVCacheQuant != "" {
-				b.WriteString(fmt.Sprintf("cache-type-k-draft = %s\n", cfg.DraftKVCacheQuant))
-				b.WriteString(fmt.Sprintf("cache-type-v-draft = %s\n", cfg.DraftKVCacheQuant))
-			}
-		case "draft-mtp":
-			b.WriteString("spec-type = draft-mtp\n")
-			// Separate drafter head (gemma-4); empty for self-speculation MTP.
-			if cfg.MtpPath != "" && !cfg.MtpDisabled {
-				b.WriteString(fmt.Sprintf("model-draft = %s\n", cfg.MtpPath))
-				if cfg.DraftCtxSize > 0 {
-					b.WriteString(fmt.Sprintf("ctx-size-draft = %d\n", cfg.DraftCtxSize))
-				}
-				if cfg.DraftGPULayers > 0 {
-					b.WriteString(fmt.Sprintf("gpu-layers-draft = %d\n", cfg.DraftGPULayers))
-				}
-				if cfg.DraftDevice != "" {
-					b.WriteString(fmt.Sprintf("device-draft = %s\n", cfg.DraftDevice))
-				}
-				if cfg.DraftCPUMoE > 0 {
-					b.WriteString(fmt.Sprintf("n-cpu-moe-draft = %d\n", cfg.DraftCPUMoE))
-				}
-				if cfg.DraftKVCacheQuant != "" {
-					b.WriteString(fmt.Sprintf("cache-type-k-draft = %s\n", cfg.DraftKVCacheQuant))
-					b.WriteString(fmt.Sprintf("cache-type-v-draft = %s\n", cfg.DraftKVCacheQuant))
-				}
-			}
-			if cfg.DraftMax > 0 {
-				b.WriteString(fmt.Sprintf("spec-draft-n-max = %d\n", cfg.DraftMax))
-			}
-			if cfg.DraftMin > 0 {
-				b.WriteString(fmt.Sprintf("spec-draft-n-min = %d\n", cfg.DraftMin))
-			}
-			if cfg.DraftPMin != "" {
-				b.WriteString(fmt.Sprintf("spec-draft-p-min = %s\n", cfg.DraftPMin))
-			}
-		case "ngram-mod":
-			b.WriteString(fmt.Sprintf("spec-type = %s\n", cfg.SpecType))
-			if cfg.DraftMax > 0 {
-				b.WriteString(fmt.Sprintf("spec-ngram-mod-n-max = %d\n", cfg.DraftMax))
-			}
-			if cfg.DraftMin > 0 {
-				b.WriteString(fmt.Sprintf("spec-ngram-mod-n-min = %d\n", cfg.DraftMin))
-			}
-		case "ngram-simple", "ngram-map-k", "ngram-map-k4v":
-			b.WriteString(fmt.Sprintf("spec-type = %s\n", cfg.SpecType))
-			prefix := "spec-" + cfg.SpecType
-			if cfg.NgramSizeN > 0 {
-				b.WriteString(fmt.Sprintf("%s-size-n = %d\n", prefix, cfg.NgramSizeN))
-			}
-			if cfg.NgramSizeM > 0 {
-				b.WriteString(fmt.Sprintf("%s-size-m = %d\n", prefix, cfg.NgramSizeM))
-			}
-		case "ngram-cache":
-			b.WriteString(fmt.Sprintf("spec-type = %s\n", cfg.SpecType))
+		// Speculative decoding (see specDecodingParams for the SpecType rules).
+		for _, p := range specDecodingParams(cfg) {
+			b.WriteString(fmt.Sprintf("%s = %s\n", p.Name, p.Value))
 		}
 	}
 
