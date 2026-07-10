@@ -8,11 +8,21 @@ type BuildProfile struct {
 }
 
 // BuildOption describes a toggleable cmake flag for a profile.
+// Value is the cmake value set when the option is enabled; empty means "ON".
 type BuildOption struct {
 	Flag        string `json:"flag"`
 	Label       string `json:"label"`
 	Description string `json:"description"`
 	Default     bool   `json:"default"`
+	Value       string `json:"value,omitempty"`
+}
+
+// CMakeValue returns the value assigned to Flag when the option is enabled.
+func (o BuildOption) CMakeValue() string {
+	if o.Value != "" {
+		return o.Value
+	}
+	return "ON"
 }
 
 // ProfileOptions returns the toggleable build options for a given profile.
@@ -78,6 +88,13 @@ func ProfileOptions(profile string) []BuildOption {
 				Flag:        "GGML_HIP_ROCWMMA_FATTN",
 				Label:       "rocWMMA FlashAttention",
 				Description: "Build the FlashAttention kernel against rocWMMA so attention dispatches through the AI matrix accelerators (FP16 WMMA). Recommended for RDNA3+ (gfx1100/1101/1151) and RDNA4 (gfx1200/1201) on ROCm 7.x — speeds up prefill noticeably. Requires --flash-attn at runtime to take effect. Needs rocwmma-devel installed.",
+				Default:     false,
+			},
+			{
+				Flag:        "CMAKE_HIP_FLAGS",
+				Value:       "-funsafe-math-optimizations",
+				Label:       "HIP Fast Math",
+				Description: "Compile HIP kernels with -funsafe-math-optimizations, matching CUDA's fast-math behavior. Noticeable speedup with minor accuracy tradeoff. Built into llama.cpp after 2026-07-09 (commit ccb0c34), so this toggle only matters for older refs; enabling it on newer refs is harmless.",
 				Default:     false,
 			},
 			{

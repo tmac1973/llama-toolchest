@@ -254,14 +254,14 @@ func (b *Builder) Build(ctx context.Context, profile string, gitRef string, tag 
 		options := ProfileOptions(profile)
 		for _, opt := range options {
 			if enabled, ok := optionOverrides[opt.Flag]; ok && enabled {
-				prof.CMakeFlags[opt.Flag] = "ON"
+				prof.CMakeFlags[opt.Flag] = opt.CMakeValue()
 			}
 		}
 	} else {
 		// Apply defaults when no overrides specified (e.g. JSON API)
 		for _, opt := range ProfileOptions(profile) {
 			if opt.Default {
-				prof.CMakeFlags[opt.Flag] = "ON"
+				prof.CMakeFlags[opt.Flag] = opt.CMakeValue()
 			}
 		}
 	}

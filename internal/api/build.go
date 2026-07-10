@@ -112,7 +112,7 @@ func effectiveCMakeFlags(prof builder.BuildProfile, options []builder.BuildOptio
 			}
 		}
 		if enabled {
-			flags[opt.Flag] = "ON"
+			flags[opt.Flag] = opt.CMakeValue()
 		}
 	}
 	var parts []string
