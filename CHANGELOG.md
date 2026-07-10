@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.14.0](https://github.com/tmac1973/llama-toolchest/compare/v2.13.1...v2.14.0) (2026-07-10)
+
+
+### Features
+
+* **builder:** add HIP Fast Math toggle to ROCm build options ([#80](https://github.com/tmac1973/llama-toolchest/issues/80)) ([2decf1c](https://github.com/tmac1973/llama-toolchest/commit/2decf1c07f3976ea83db46d21e11f9efdf8c5d40))
+
+
+### Refactors
+
+* eliminate code duplication found by the duplication audit ([#79](https://github.com/tmac1973/llama-toolchest/issues/79)) ([0a01e47](https://github.com/tmac1973/llama-toolchest/commit/0a01e47f520ad65a11ceb45ceed8f0e219c40da9))
+
 ## [2.13.1](https://github.com/tmac1973/llama-toolchest/compare/v2.13.0...v2.13.1) (2026-06-27)
 
 
