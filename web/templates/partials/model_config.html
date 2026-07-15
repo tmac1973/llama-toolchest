@@ -7,6 +7,11 @@
       hx-on::before-request="window._cfgScrollY=window.scrollY"
       hx-on::after-settle="window.scrollTo({top:window._cfgScrollY,behavior:'instant'})">
 
+    <div class="model-config-header">
+        <span>Configure <span class="mc-owner">— {{.ModelID}}</span></span>
+        <span class="mc-restart">Restart required</span>
+    </div>
+
     <label title="Friendly names for this model. Clients can use these instead of the full ID. Comma-separated, e.g. qwen3:latest, my-chat-model">
         Aliases
         <input type="text" name="aliases" value="{{range $i, $a := .Config.Aliases}}{{if $i}}, {{end}}{{$a}}{{end}}"
