@@ -1125,8 +1125,9 @@ func findShards(dir, filename string) []string {
 // optional suffix groups absorb variants generically (e.g. Q2_K_XL, Q3_K_L),
 // which the previous hand-maintained list dropped. Ordering keeps longer
 // tokens ahead of their prefixes where alternation could otherwise short-cut
-// (e.g. BF16 before F16).
-var quantRe = regexp.MustCompile(`(UD_)?(MXFP4|BF16|F16|F32|TQ[1-4]_[01]|IQ[1-4]_(?:XXS|XS|NL|S|M|L)|Q[2-8]_K(?:_(?:XL|XS|S|M|L))?|Q[2-8]_[01])`)
+// (e.g. BF16 before F16, MXFP4 before the bare FP4 that also matches vendor
+// names like ROCmFP4 / NVFP4).
+var quantRe = regexp.MustCompile(`(UD_)?(MXFP4|FP4|BF16|F16|F32|TQ[1-4]_[01]|IQ[1-4]_(?:XXS|XS|NL|S|M|L)|Q[2-8]_K(?:_(?:XL|XS|S|M|L))?|Q[2-8]_[01])`)
 
 // ParseQuant extracts the quantization type from a GGUF filename. It preserves
 // the "UD_" (Unsloth ultra-dynamic) prefix when present so UD quants are

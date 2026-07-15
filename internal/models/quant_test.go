@@ -24,9 +24,16 @@ func TestParseQuant(t *testing.T) {
 		{"UD-Q5_K_XL/MiniMax-M2.5-UD-Q5_K_XL-00001-of-00005.gguf", "UD_Q5_K_XL"},
 		{"UD-Q6_K_XL/MiniMax-M2.5-UD-Q6_K_XL-00001-of-00005.gguf", "UD_Q6_K_XL"},
 
-		// MXFP4 — previously reported "unknown".
+		// MXFP4 — previously reported "unknown". The bare-FP4 alternative
+		// must not steal these: MXFP4 starts earlier, so leftmost-first wins.
 		{"gpt-oss-20b-MXFP4.gguf", "MXFP4"},
 		{"openai-gpt-oss-120b-UD-MXFP4.gguf", "UD_MXFP4"},
+
+		// FP4 family — vendor-prefixed and bare, previously "unknown".
+		{"Qwen3.5-122B-A10B-Heretic-ROCmFP4-iMatrix.gguf", "FP4"},
+		{"Qwen3.5-122B-A10B-Heretic-ROCmFP4-MTP.gguf", "FP4"},
+		{"model-NVFP4.gguf", "FP4"},
+		{"model-FP4.gguf", "FP4"},
 
 		// Plain (non-UD) quants.
 		{"model-Q4_K_M.gguf", "Q4_K_M"},
