@@ -97,7 +97,7 @@
             padding: 8px 11px;
             border-radius: 9px;
             text-decoration: none;
-            font-size: 14px;
+            font-size: 15px;
             color: var(--pico-color);
         }
         nav.sidebar a:hover { background: var(--pico-card-background-color); }
@@ -194,8 +194,14 @@
             --pico-font-family-monospace: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
             --pico-font-family: var(--pico-font-family-sans-serif);
         }
-        body { font-size: 14px; }
+        /* Base plain-text size. Buttons, inputs and selects size in root-
+           relative rem, so they're unaffected by this — only inherited card
+           text (names, stats, table cells, file lists) scales up. */
+        body { font-size: 15px; }
         h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+        /* <small> is used across the app for readable sub-text (HF stats,
+           file names, hints), not just fine print — keep it legible. */
+        small { font-size: 0.9em; }
         code, kbd, pre, .mono { font-family: var(--pico-font-family-monospace); }
 
         /* ── Theme: Terminal Green ── */
@@ -454,7 +460,7 @@
         }
         .model-card-row {
             padding: 0.5rem 0.75rem;
-            font-size: 0.9rem;
+            font-size: 0.95rem;
         }
         .model-card-header {
             padding: 0 0.75rem 0.25rem 0.75rem;
@@ -550,7 +556,7 @@
             font-size: 0.85rem;
         }
         .model-card-config small {
-            font-size: 0.75rem;
+            font-size: 0.8rem;
         }
 
         /* ── Shared component touch-ups ── */
