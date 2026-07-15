@@ -1,6 +1,6 @@
 {{define "layout"}}
 <!DOCTYPE html>
-<html lang="en" data-theme="dark" data-custom-theme="graphite" id="html-root">
+<html lang="en" data-theme="dark" id="html-root">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -109,7 +109,7 @@
         #monitor-bar { flex-shrink: 0; }
         main { flex: 1; padding: 22px 26px; max-width: 1200px; overflow-y: auto; max-height: 100vh; }
 
-        /* ── Graphite theme (new default dark appearance) ── */
+        /* ── Graphite theme (opt-in via Settings; stock Dark is the default) ── */
         [data-custom-theme="graphite"] {
             --sidebar-bg: #141619;
             --accent-soft: #262a3a;
