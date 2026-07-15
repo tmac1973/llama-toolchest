@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.15.1](https://github.com/tmac1973/llama-toolchest/compare/v2.15.0...v2.15.1) (2026-07-15)
+
+
+### Bug Fixes
+
+* **ui:** drop sidebar brand badge, enlarge sidebar text ([#86](https://github.com/tmac1973/llama-toolchest/issues/86)) ([74c2949](https://github.com/tmac1973/llama-toolchest/commit/74c29493a7344fb60c29bd0081dbbb1886640916))
+
 ## [2.15.0](https://github.com/tmac1973/llama-toolchest/compare/v2.14.0...v2.15.0) (2026-07-15)
 
 
