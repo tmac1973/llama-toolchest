@@ -26,20 +26,20 @@ import (
 )
 
 type Server struct {
-	cfg             *config.Config
-	configPath      string // path the cfg was loaded from; saveConfig writes back here
-	version         string // injected by main via SetVersion; "" = dev build
-	pages           map[string]*template.Template
-	router          chi.Router
-	builder         *builder.Builder
-	hfClient        *huggingface.Client
-	downloader      *huggingface.Downloader
-	registry        *models.Registry
-	process         *process.Manager
-	monitor         *monitor.Monitor
-	bench *benchmark.Store
-	jobs  *benchmark.JobQueue
-	dirtyModels     map[string]bool // models whose config changed since last load
+	cfg         *config.Config
+	configPath  string // path the cfg was loaded from; saveConfig writes back here
+	version     string // injected by main via SetVersion; "" = dev build
+	pages       map[string]*template.Template
+	router      chi.Router
+	builder     *builder.Builder
+	hfClient    *huggingface.Client
+	downloader  *huggingface.Downloader
+	registry    *models.Registry
+	process     *process.Manager
+	monitor     *monitor.Monitor
+	bench       *benchmark.Store
+	jobs        *benchmark.JobQueue
+	dirtyModels map[string]bool // models whose config changed since last load
 	// runningConfigs holds a value-copy of each model's launch config at the
 	// time the router last started, so /api/models/{id}/info can report the
 	// live value of any restart-requiring field separately from a config
@@ -70,15 +70,15 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 
 	bld := builder.NewBuilder(cfg.DataDir)
 	s := &Server{
-		cfg:           cfg,
-		configPath:    configPath,
-		builder:       bld,
-		hfClient:      huggingface.NewClient(cfg.HFToken),
-		downloader:    huggingface.NewDownloader(cfg.DataDir, cfg.ModelsPath(), cfg.HFToken),
-		registry:      models.NewRegistry(cfg.DataDir, cfg.ModelsPath()),
-		process:       process.NewManager(),
-		monitor:       mon,
-		bench:         benchmark.NewStore(cfg.DataDir, builderResolver(bld)),
+		cfg:            cfg,
+		configPath:     configPath,
+		builder:        bld,
+		hfClient:       huggingface.NewClient(cfg.HFToken),
+		downloader:     huggingface.NewDownloader(cfg.DataDir, cfg.ModelsPath(), cfg.HFToken),
+		registry:       models.NewRegistry(cfg.DataDir, cfg.ModelsPath()),
+		process:        process.NewManager(),
+		monitor:        mon,
+		bench:          benchmark.NewStore(cfg.DataDir, builderResolver(bld)),
 		dirtyModels:    make(map[string]bool),
 		runningConfigs: make(map[string]*models.ModelConfig),
 	}
@@ -465,8 +465,12 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		stateBadge = `Stopped`
 	}
 
-	// "Available Models" card: all enabled chat models by public name, with
-	// a load icon and a loaded/loading tag when the router has them resident.
+	// "Available Models" card: every chat model the running router actually
+	// serves, by public name, with a load icon and a loaded/loading tag when
+	// resident. Membership is driven solely by router-known state (the running
+	// router's startup preset), NOT the live cfg.Enabled toggle — so toggling a
+	// model on or off in the Models tab doesn't change this list until the
+	// router is restarted, matching what the server can genuinely serve.
 	availableHTML := "<p>None</p>"
 	if routerStatus.State == process.StateRunning {
 		// routerKnownStates maps every name the running router serves (i.e.
@@ -481,10 +485,6 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		shown := 0
 		for _, m := range registeredModels {
 			if m.IsEmbedding() {
-				continue
-			}
-			cfg, err := s.registry.GetConfig(m.ID)
-			if err != nil || !cfg.Enabled {
 				continue
 			}
 
