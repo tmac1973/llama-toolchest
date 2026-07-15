@@ -197,11 +197,12 @@
         /* Base plain-text size. Buttons, inputs and selects size in root-
            relative rem, so they're unaffected by this — only inherited card
            text (names, stats, table cells, file lists) scales up. */
-        body { font-size: 15px; }
-        h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+        body { font-size: 16px; }
+        h1 { font-size: 21px; font-weight: 600; letter-spacing: -0.01em; }
         /* <small> is used across the app for readable sub-text (HF stats,
-           file names, hints), not just fine print — keep it legible. */
-        small { font-size: 0.9em; }
+           file names, hints), not just fine print — keep it close to body
+           size so e.g. a file name doesn't read tiny beside its button. */
+        small { font-size: 0.95em; }
         code, kbd, pre, .mono { font-family: var(--pico-font-family-monospace); }
 
         /* ── Theme: Terminal Green ── */
@@ -460,7 +461,7 @@
         }
         .model-card-row {
             padding: 0.5rem 0.75rem;
-            font-size: 0.95rem;
+            font-size: 1rem;
         }
         .model-card-header {
             padding: 0 0.75rem 0.25rem 0.75rem;
