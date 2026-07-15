@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.15.0](https://github.com/tmac1973/llama-toolchest/compare/v2.14.0...v2.15.0) (2026-07-15)
+
+
+### Features
+
+* **models:** recognize FP4 quants (ROCmFP4, NVFP4, bare FP4) ([#83](https://github.com/tmac1973/llama-toolchest/issues/83)) ([53d2d8a](https://github.com/tmac1973/llama-toolchest/commit/53d2d8a30168f33f8f7865ece80056e46b128580))
+* **ui:** shared UI refresh + optional Graphite theme ([#85](https://github.com/tmac1973/llama-toolchest/issues/85)) ([bc64754](https://github.com/tmac1973/llama-toolchest/commit/bc64754d7ddf269ebadc3ddf81dfd3ecbf73d94a))
+
+
+### Bug Fixes
+
+* **dashboard:** keep toggled-off models in the Available list until restart ([#82](https://github.com/tmac1973/llama-toolchest/issues/82)) ([220315d](https://github.com/tmac1973/llama-toolchest/commit/220315d19fd9cf632f465ce5920443565f0e9ca0))
+
 ## [2.14.0](https://github.com/tmac1973/llama-toolchest/compare/v2.13.1...v2.14.0) (2026-07-10)
 
 
