@@ -280,8 +280,16 @@ func (s *Server) handleActiveBuildLog(w http.ResponseWriter, r *http.Request) {
 // the successful build with the newest GitRef. Returns nil when no runnable
 // build exists.
 func (s *Server) resolveActiveBuild() *builder.BuildResult {
-	if s.cfg.ActiveBuild != "" {
-		if b, ok := s.builder.Find(s.cfg.ActiveBuild); ok && b.Status == builder.BuildStatusSuccess {
+	return s.resolveBuild(s.activeBuild())
+}
+
+// resolveBuild returns the build to launch for an explicit id, falling
+// back to the newest successful build when the id is empty or unusable.
+// Takes the id as a parameter so callers that already read cfg under the
+// lock don't read it again unguarded.
+func (s *Server) resolveBuild(id string) *builder.BuildResult {
+	if id != "" {
+		if b, ok := s.builder.Find(id); ok && b.Status == builder.BuildStatusSuccess {
 			return b
 		}
 	}

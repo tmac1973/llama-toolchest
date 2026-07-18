@@ -178,7 +178,20 @@ func (s *Server) handleServiceStatus(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, status)
 }
 
+// routerBusyWithJob reports whether a benchmark job currently controls
+// the router. Interactive start/restart refuses rather than fighting it:
+// restarting would drop the job onto the user's config mid-cell, so that
+// cell would measure something other than what it reports.
+func (s *Server) routerBusyWithJob() bool {
+	env, ok := s.jobEnv()
+	return ok && env.routerOwnedByJob()
+}
+
 func (s *Server) handleServiceStart(w http.ResponseWriter, r *http.Request) {
+	if s.routerBusyWithJob() {
+		http.Error(w, "a benchmark job is currently running the router — cancel it first", http.StatusConflict)
+		return
+	}
 	if !s.process.IsRunning() {
 		if err := s.startRouter(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -200,6 +213,10 @@ func (s *Server) handleServiceStop(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleServiceRestart(w http.ResponseWriter, r *http.Request) {
+	if s.routerBusyWithJob() {
+		http.Error(w, "a benchmark job is currently running the router — cancel it first", http.StatusConflict)
+		return
+	}
 	// Stop + startRouter rather than process.Restart(): the latter relaunches
 	// with the RouterConfig captured at the original Start, so a build
 	// switched in the UI between Start and Restart would be ignored. Going
@@ -394,23 +411,61 @@ func (s *Server) handleDeactivateModel(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// startRouter starts the llama-server in router mode using the active build.
+// routerOptions describes what one particular router start should run.
+//
+// The zero value means "the user's saved build and config", which is
+// what every interactive path wants. A benchmark job passes its own
+// build and config explicitly.
+//
+// This used to be ambient server state that startRouter consulted, and
+// that design was the root of a family of bugs: a user hitting Restart
+// during a job got the benchmark's config, the job's build selection was
+// persisted to disk, and the launch snapshot had to be suppressed by a
+// flag. Making it a parameter means an interactive start structurally
+// cannot pick up a job's settings.
+type routerOptions struct {
+	// buildID overrides which build to launch. Empty uses the user's
+	// saved selection. Deliberately not persisted: a job's build choice
+	// is transient, so a crash mid-job can't rewrite the user's config.
+	buildID string
+	// overrides substitutes model configs for this start only. Nil uses
+	// the user's saved config, written to the normal preset.
+	overrides map[string]*models.ModelConfig
+}
+
+// startRouter starts the llama-server on the user's saved build and
+// config. Interactive callers use this.
 func (s *Server) startRouter() error {
+	return s.startRouterWith(routerOptions{})
+}
+
+// startRouterWith starts the llama-server under the given options.
+func (s *Server) startRouterWith(opt routerOptions) error {
+	// Read config under the lock: the benchmark queue and the settings
+	// handler both write these fields from other goroutines.
+	s.cfgMu.Lock()
+	buildID := opt.buildID
+	if buildID == "" {
+		buildID = s.cfg.ActiveBuild
+	}
+	modelsMax := s.cfg.ModelsMax
+	port := s.cfg.LlamaPort
+	extraEnv := s.cfg.RuntimeEnvPairs()
+	s.cfgMu.Unlock()
+
 	// Find the build binary. Explicit selection wins; otherwise fall back
 	// to the successful build with the newest GitRef.
-	build := s.resolveActiveBuild()
+	build := s.resolveBuild(buildID)
 	if build == nil || build.BinaryPath == "" {
 		return fmt.Errorf("no compiled build available — build llama.cpp first")
 	}
-	binaryPath := build.BinaryPath
 
-	// Generate preset INI from model configs. A benchmark cell running
-	// under substitute config swaps in an ephemeral preset here; every
-	// other caller gets the user's saved settings.
+	// A benchmark start writes its substitute config to a separate preset
+	// file; everything else regenerates the user's.
 	var presetPath string
 	var err error
-	if overrides := s.benchOverridesSnapshot(); len(overrides) > 0 {
-		presetPath, err = s.registry.WriteBenchPresetINI(overrides)
+	if opt.overrides != nil {
+		presetPath, err = s.registry.WriteBenchPresetINI(opt.overrides)
 		if err != nil {
 			// Falling back to the saved preset would silently benchmark
 			// the wrong config — the exact failure this mechanism exists
@@ -425,28 +480,26 @@ func (s *Server) startRouter() error {
 	}
 
 	if err := s.process.Start(process.RouterConfig{
-		BinaryPath: binaryPath,
+		BinaryPath: build.BinaryPath,
 		PresetPath: presetPath,
-		ModelsMax:  s.cfg.ModelsMax,
-		Port:       s.cfg.LlamaPort,
-		ExtraEnv:   s.cfg.RuntimeEnvPairs(),
+		ModelsMax:  modelsMax,
+		Port:       port,
+		ExtraEnv:   extraEnv,
 	}); err != nil {
 		return err
 	}
 
-	// The router has just (re)read preset.ini. Snapshot each model's launch
+	// The router has just read a preset. Snapshot each model's launch
 	// config so /api/models/{id}/info can report live values for
 	// restart-requiring fields vs. a subsequent edit. Value-copy (not a
-	// shared pointer) because handleUpdateModelConfig mutates the registry's
-	// config struct in place.
+	// shared pointer) because handleUpdateModelConfig mutates the
+	// registry's config struct in place.
 	//
-	// Skipped entirely when the router came up on a benchmark preset: the
-	// live config is the job's, not the user's, so recording saved values
-	// would misreport what is running and clearing dirtyModels would drop
-	// the "restart required" badge from edits the user has not applied.
-	// The job restores the real preset when it finishes, and that restart
-	// takes this path properly.
-	if s.benchJobActive() {
+	// Keyed off which preset was actually used, not off whether a job is
+	// running: a job that has only switched builds is still running the
+	// user's config, and its snapshot is correct. Only a substitute
+	// config makes the saved values a lie.
+	if opt.overrides != nil {
 		return nil
 	}
 

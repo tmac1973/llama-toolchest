@@ -139,6 +139,9 @@ func validateJobRequest(req jobCreateRequest) error {
 	if err := benchmark.ValidateSweeps(req.Sweeps); err != nil {
 		return err
 	}
+	if err := benchmark.ValidateSamplingSupport(req.Presets, req.Overrides, req.Sweeps); err != nil {
+		return err
+	}
 	// A sweep of every axis multiplies fast. Refuse obviously runaway
 	// matrices rather than letting someone queue a week of work by
 	// pasting a long list.

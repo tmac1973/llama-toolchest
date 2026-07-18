@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/benchmark"
@@ -21,6 +22,31 @@ import (
 // startup and handed to the JobQueue; carries no state of its own.
 type jobEnv struct {
 	s *Server
+
+	// Transient state for the job that currently owns the router. Held
+	// here rather than on Server because it is job-scoped and must never
+	// influence an interactive router start; startRouterWith takes it as
+	// an explicit parameter. The JobQueue runs one job at a time, and the
+	// mutex covers the HTTP goroutine reading ownsRouter.
+	mu         sync.Mutex
+	jobBuildID string                         // build this job wants; "" = user's
+	jobConfigs map[string]*models.ModelConfig // substitute configs; nil = user's
+	ownsRouter bool                           // a job has taken over the router
+}
+
+// routerOwnedByJob reports whether a benchmark job currently controls the
+// router, so interactive start/restart can refuse rather than fight it.
+func (e *jobEnv) routerOwnedByJob() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.ownsRouter
+}
+
+// jobRouterOptions renders the job's current intent.
+func (e *jobEnv) jobRouterOptions() routerOptions {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return routerOptions{buildID: e.jobBuildID, overrides: e.jobConfigs}
 }
 
 func newJobEnv(s *Server) *jobEnv { return &jobEnv{s: s} }
@@ -91,59 +117,32 @@ func (e *jobEnv) EnsureBuildActive(ctx context.Context, buildID string) error {
 		return fmt.Errorf("build %s is %s, not success", buildID, target.Status)
 	}
 
-	// Record the user's selection before the first switch, so the job can
-	// restore it. Done before the early return: when the first cell's
-	// build is already active, that is still the selection to go back to.
-	e.s.captureActiveBuild(e.s.activeBuild())
+	e.mu.Lock()
+	unchanged := e.jobBuildID == buildID && e.ownsRouter
+	e.jobBuildID = buildID
+	e.ownsRouter = true
+	e.mu.Unlock()
 
-	if e.s.activeBuild() == buildID && e.s.process.IsRunning() {
-		e.s.noteBuildActivated(buildID)
+	// The build is never written to the user's config. It travels as a
+	// start parameter, so a crash mid-job leaves the saved selection
+	// untouched and there is nothing to restore.
+	if unchanged && e.s.process.IsRunning() {
 		return nil
 	}
 
-	e.s.withConfig(func() {
-		e.s.cfg.ActiveBuild = buildID
-		e.s.saveConfigLocked()
-	})
-	e.s.noteBuildActivated(buildID)
-
-	if e.s.process.IsRunning() {
-		if err := e.s.process.Stop(); err != nil {
-			return fmt.Errorf("stop router: %w", err)
-		}
-	}
-	if err := e.s.startRouter(); err != nil {
-		return fmt.Errorf("start router with %s: %w", buildID, err)
-	}
-
-	deadline := time.Now().Add(2 * time.Minute)
-	for time.Now().Before(deadline) {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if e.s.process.IsRunning() {
-			return nil
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	return fmt.Errorf("timed out waiting for router to come up on build %s", buildID)
+	return e.restartRouter(ctx, "build "+buildID)
 }
 
 // restartRouter stops the router (if up) and starts it again, blocking
 // until it is running or the deadline passes. Factored out of
 // EnsureBuildActive so config swaps reuse the same wait semantics.
 func (e *jobEnv) restartRouter(ctx context.Context, what string) error {
-	if e.s.benchOverridesSnapshot() != nil {
-		// Record before starting: if the start half-succeeds we still
-		// have to restore afterwards.
-		e.s.markBenchRouterDirty()
-	}
 	if e.s.process.IsRunning() {
 		if err := e.s.process.Stop(); err != nil {
 			return fmt.Errorf("stop router: %w", err)
 		}
 	}
-	if err := e.s.startRouter(); err != nil {
+	if err := e.s.startRouterWith(e.jobRouterOptions()); err != nil {
 		return fmt.Errorf("start router for %s: %w", what, err)
 	}
 	deadline := time.Now().Add(2 * time.Minute)
@@ -162,84 +161,75 @@ func (e *jobEnv) restartRouter(ctx context.Context, what string) error {
 // ApplyEphemeralConfig makes modelID run under cfg for the next
 // benchmark cell, restarting the router so it re-reads the preset.
 //
-// The substitute config is written to a separate preset file and held
-// only in memory — the user's models.json and preset.ini are never
-// modified, so an interrupted job cannot leave a model misconfigured.
-// Callers must pair this with ClearEphemeralConfig.
+// The substitute config travels as a start parameter and is written to a
+// separate preset file — the user's models.json and preset.ini are never
+// modified, and an interactive restart cannot pick it up. Callers must
+// pair this with ClearEphemeralConfig.
 func (e *jobEnv) ApplyEphemeralConfig(ctx context.Context, modelID string, cfg benchmark.ConfigSnapshot) error {
 	base, err := e.s.registry.GetConfig(modelID)
 	if err != nil {
 		return fmt.Errorf("resolve config for %s: %w", modelID, err)
 	}
 	merged := applySnapshotToConfig(*base, cfg)
+	resolveGPUAssignment(&merged, *base, len(e.s.monitor.Current().GPU))
 	if err := merged.ValidateBatchSizes(); err != nil {
 		// The model-config form rejects an unusable batch pair; the
 		// benchmark path has to as well, or a -ub sweep past the batch
 		// size either measures the same clamped value under several
-		// labels or fails every cell mid-job.
+		// labels or fails the cell with a confusing loader error.
 		return fmt.Errorf("%s: %w", modelID, err)
 	}
 
-	e.s.setBenchOverrides(map[string]*models.ModelConfig{modelID: &merged})
+	e.mu.Lock()
+	e.jobConfigs = map[string]*models.ModelConfig{modelID: &merged}
+	e.ownsRouter = true
+	e.mu.Unlock()
 
-	// Deliberately left armed when the restart fails. restartRouter can
-	// fail *after* llama-server came up on the benchmark preset (e.g.
+	// Deliberately left in place when the restart fails. restartRouter
+	// can fail after llama-server came up on the benchmark preset (e.g.
 	// cancelled during the health poll), and clearing here would make the
-	// deferred ClearEphemeralConfig a no-op — leaving the router serving
-	// normal traffic under benchmark config with nothing to restore it.
+	// deferred cleanup a no-op, leaving the router serving normal traffic
+	// under benchmark config.
 	return e.restartRouter(ctx, "benchmark config override")
 }
 
-// ClearEphemeralConfig drops any benchmark config override and restarts
-// the router back onto the user's saved config. Safe to call when no
-// override is active, in which case it does nothing.
+// ClearEphemeralConfig hands the router back to the user's saved build
+// and config. A no-op when no job took it over.
 func (e *jobEnv) ClearEphemeralConfig(ctx context.Context) error {
-	// Config half, keyed off "did we ever start the router for a
-	// benchmark" rather than off the override still being armed: a failed
-	// apply can leave the router running on the benchmark preset with the
-	// override already dropped, and that is precisely the case that must
-	// still be restored.
-	configDirty := e.s.consumeBenchRouterDirty()
+	e.mu.Lock()
+	owned := e.ownsRouter
+	e.jobBuildID = ""
+	e.jobConfigs = nil
+	e.mu.Unlock()
 
-	// Build half. A job that switches builds rewrites the user's saved
-	// ActiveBuild, so restore that too — the same leak the ephemeral
-	// preset avoids for model config.
-	buildDirty := false
-	if prev, ok := e.s.consumeActiveBuild(); ok {
-		current := e.s.activeBuild()
-		switch {
-		case prev == current:
-			// Never left the user's selection.
-		case !e.s.buildStillOurs(current):
-			// The user picked a different build while the job ran. Their
-			// choice is newer than ours, so leave it alone.
-			slog.Info("not restoring pre-benchmark build; the selection changed during the job",
-				"pre_job", prev, "current", current)
-		default:
-			e.s.withConfig(func() {
-				e.s.cfg.ActiveBuild = prev
-				e.s.saveConfigLocked()
-			})
-			buildDirty = true
-		}
-	}
-
-	e.s.setBenchOverrides(nil)
-	if !configDirty && !buildDirty {
+	if !owned {
 		return nil
 	}
 
-	// Don't resurrect a router the user deliberately stopped mid-job.
-	// The saved config and build are restored either way, so the next
-	// manual start picks them up.
+	// Nothing was persisted, so there is no saved state to repair — the
+	// only thing to undo is which build and preset the process is
+	// running. If the user stopped the router mid-job, leave it stopped:
+	// their next start already picks up their own settings.
 	if !e.s.process.IsRunning() {
-		slog.Info("router is stopped; restored saved config and build without restarting")
+		e.releaseRouter()
+		slog.Info("router is stopped; benchmark job released it without restarting")
 		return nil
 	}
 
-	// One restart covers both: startRouter re-resolves the active build
-	// and rewrites the preset from saved config.
-	return e.restartRouter(ctx, "restore saved config and build")
+	if err := e.restartRouter(ctx, "restore the user's build and config"); err != nil {
+		// Ownership stays set so a retry (or the next job's cleanup) can
+		// still see that the router needs handing back.
+		return err
+	}
+	e.releaseRouter()
+	return nil
+}
+
+// releaseRouter marks the router as no longer job-controlled.
+func (e *jobEnv) releaseRouter() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.ownsRouter = false
 }
 
 // applySnapshotToConfig overlays a benchmark ConfigSnapshot onto a copy
@@ -271,6 +261,23 @@ func applySnapshotToConfig(base models.ModelConfig, snap benchmark.ConfigSnapsho
 	out.FlashAttention = snap.FlashAttention
 	out.DirectIO = snap.DirectIO
 	return out
+}
+
+// resolveGPUAssignment turns a gpu_assign selection into the fields the
+// preset actually emits. writeConfigParams never reads GPUAssign — it
+// emits tensor-split, split-mode and main-gpu — so without this a
+// gpu_assign sweep generates byte-identical presets for every point and
+// reports one measurement under several labels.
+//
+// Only applied when the snapshot's assignment differs from the base's,
+// so a job that doesn't touch gpu_assign leaves the model's saved
+// split-mode and main-gpu alone.
+func resolveGPUAssignment(out *models.ModelConfig, base models.ModelConfig, numGPUs int) {
+	if out.GPUAssign == base.GPUAssign || out.GPUAssign == "" || out.GPUAssign == "custom" {
+		return
+	}
+	ts, sm, mg := models.ResolveGPUAssign(out.GPUAssign, numGPUs)
+	out.TensorSplit, out.SplitMode, out.MainGPU = ts, sm, mg
 }
 
 // ResolveModel pulls registry data into the shape the JobRunner expects.

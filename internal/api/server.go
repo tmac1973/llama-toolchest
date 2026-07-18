@@ -53,100 +53,20 @@ type Server struct {
 	// the whole process down rather than failing one request.
 	stateMu        sync.RWMutex
 	runningConfigs map[string]*models.ModelConfig
-	// benchOverrides substitutes model configs for the duration of a
-	// benchmark cell, keyed by registry ID. When non-empty, startRouter
-	// builds the router's preset from these instead of the saved config,
-	// writing to a separate file so models.json and preset.ini are never
-	// touched. Deliberately in-memory only: if the process dies mid-job
-	// the overrides vanish and the next start is back on saved config.
-	// Guarded because the job queue writes these from its own goroutine
-	// while HTTP-triggered restarts read them via startRouter.
-	benchMu          sync.Mutex
-	benchOverrides   map[string]*models.ModelConfig
-	benchRouterDirty bool
-	// benchPrevBuild remembers which build the user had selected before a
-	// job started switching builds, so the job can put it back. Without
-	// it, a multi-build job permanently leaves the router on whichever
-	// build happened to run last.
-	benchPrevBuild    string
-	benchPrevBuildSet bool
-	// benchLastSetBuild is the build the job most recently activated.
-	// Restore only happens when the live selection still matches it — if
-	// it doesn't, the user changed builds mid-job and their choice wins.
-	benchLastSetBuild string
-
 	// cfgMu serializes access to cfg and its persistence. The benchmark
-	// queue writes cfg.ActiveBuild from its own goroutine while Settings
-	// handlers write other fields from HTTP goroutines; without this the
-	// two saveConfig calls can serialize a half-updated struct and lose
-	// whichever setting was written last.
+	// queue and the Settings handlers both write config fields, and two
+	// interleaved saveConfig calls could otherwise serialize a
+	// half-updated struct and lose one side's changes.
 	cfgMu sync.Mutex
+
+	// env is the JobEnv handed to the queue, kept so interactive handlers
+	// can ask whether a job currently controls the router.
+	env *jobEnv
 }
 
-// benchRouterDirty records that the router was (re)started for a
-// benchmark, so cleanup knows a restore is owed even if the override was
-// already dropped by a failed apply.
-func (s *Server) markBenchRouterDirty() {
-	s.benchMu.Lock()
-	defer s.benchMu.Unlock()
-	s.benchRouterDirty = true
-}
-
-// consumeBenchRouterDirty reports whether a restore is owed and clears
-// the flag, so a second cleanup pass doesn't restart again.
-func (s *Server) consumeBenchRouterDirty() bool {
-	s.benchMu.Lock()
-	defer s.benchMu.Unlock()
-	was := s.benchRouterDirty
-	s.benchRouterDirty = false
-	return was
-}
-
-// captureActiveBuild records the pre-job build selection, once per job.
-// Called on every EnsureBuildActive so the first cell wins, including
-// when that cell's build is already active and nothing switches.
-func (s *Server) captureActiveBuild(current string) {
-	s.benchMu.Lock()
-	defer s.benchMu.Unlock()
-	if s.benchPrevBuildSet {
-		return
-	}
-	s.benchPrevBuild = current
-	s.benchPrevBuildSet = true
-}
-
-// consumeActiveBuild returns the build to restore and clears the record.
-func (s *Server) consumeActiveBuild() (string, bool) {
-	s.benchMu.Lock()
-	defer s.benchMu.Unlock()
-	prev, ok := s.benchPrevBuild, s.benchPrevBuildSet
-	s.benchPrevBuild, s.benchPrevBuildSet = "", false
-	return prev, ok
-}
-
-// benchJobActive reports whether a benchmark job currently owns the
-// router. True from the job's first build activation until cleanup, so
-// it covers the window before any config override is armed — during
-// which the router is already being restarted on the job's behalf.
-func (s *Server) benchJobActive() bool {
-	s.benchMu.Lock()
-	defer s.benchMu.Unlock()
-	return s.benchPrevBuildSet || len(s.benchOverrides) > 0
-}
-
-// noteBuildActivated records the build a job just switched to, so
-// cleanup can tell its own change from a later one by the user.
-func (s *Server) noteBuildActivated(id string) {
-	s.benchMu.Lock()
-	defer s.benchMu.Unlock()
-	s.benchLastSetBuild = id
-}
-
-// buildStillOurs reports whether current is the build this job last set.
-func (s *Server) buildStillOurs(current string) bool {
-	s.benchMu.Lock()
-	defer s.benchMu.Unlock()
-	return s.benchLastSetBuild == current
+// jobEnv returns the benchmark job environment, if wired.
+func (s *Server) jobEnv() (*jobEnv, bool) {
+	return s.env, s.env != nil
 }
 
 // withConfig runs fn with the config lock held, so a mutation and its
@@ -198,28 +118,6 @@ func (s *Server) clearDirty() {
 	s.dirtyModels = make(map[string]bool)
 }
 
-// setBenchOverrides replaces the ephemeral benchmark config set. Pass
-// nil to go back to the user's saved config.
-func (s *Server) setBenchOverrides(m map[string]*models.ModelConfig) {
-	s.benchMu.Lock()
-	defer s.benchMu.Unlock()
-	s.benchOverrides = m
-}
-
-// benchOverridesSnapshot returns a copy safe to read outside the lock.
-func (s *Server) benchOverridesSnapshot() map[string]*models.ModelConfig {
-	s.benchMu.Lock()
-	defer s.benchMu.Unlock()
-	if len(s.benchOverrides) == 0 {
-		return nil
-	}
-	out := make(map[string]*models.ModelConfig, len(s.benchOverrides))
-	for k, v := range s.benchOverrides {
-		out[k] = v
-	}
-	return out
-}
-
 // SetVersion records the build's version string. main.go calls this with
 // the ldflags-injected `version` package var so the sidebar can display
 // "v1.2.3" or "dev-<sha>" depending on the build. Must be called before
@@ -254,7 +152,8 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 		dirtyModels:    make(map[string]bool),
 		runningConfigs: make(map[string]*models.ModelConfig),
 	}
-	s.jobs = benchmark.NewJobQueue(s.bench, newJobEnv(s))
+	s.env = newJobEnv(s)
+	s.jobs = benchmark.NewJobQueue(s.bench, s.env)
 	s.downloader.SetOnComplete(s.onDownloadComplete)
 	s.registry.BackfillGGUFMeta()
 	if n := s.registry.DeduplicateModels(); n > 0 {

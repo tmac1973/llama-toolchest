@@ -339,6 +339,14 @@ type benchmarkFile struct {
 //
 // We cannot recover what actually ran, so flag every run belonging to a
 // job that declared overrides and let the UI say so.
+//
+// Known gap: runs whose job was deleted before this upgrade were
+// re-parented to the synthetic Ad-Hoc job, which has no Overrides, so
+// they cannot be identified here and stay unflagged. They are also
+// indistinguishable from genuine ad-hoc runs, whose recorded config was
+// always accurate — flagging the whole Ad-Hoc job would mislabel those
+// instead. Affected runs are limited to pre-v3 override jobs the user
+// deleted while keeping results.
 func markUnverifiedConfigs(jobs []BenchmarkJob, runs []BenchmarkRun) bool {
 	overridden := make(map[string]bool, len(jobs))
 	for _, j := range jobs {

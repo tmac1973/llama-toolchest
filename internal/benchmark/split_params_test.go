@@ -327,3 +327,70 @@ func TestKeepUnsweepableNilWhenNothingRemains(t *testing.T) {
 		t.Error("nil in, nil out")
 	}
 }
+
+// Reload-affecting axes must vary slowest so cheap axes cycle inside
+// them. Alphabetical ordering put temperature before ubatch_size, making
+// ubatch alternate every cell — one llama-server reload per cell instead
+// of one per ubatch value.
+func TestSweepAxisOrderMinimizesReloads(t *testing.T) {
+	combos := sweepCombinations([]SweepAxis{
+		{Field: "temperature", Values: []string{"0", "0.7", "1.0"}},
+		{Field: "ubatch_size", Values: []string{"512", "1024"}},
+	})
+	if len(combos) != 6 {
+		t.Fatalf("got %d combinations, want 6", len(combos))
+	}
+
+	changes := 0
+	for i := 1; i < len(combos); i++ {
+		if combos[i]["ubatch_size"] != combos[i-1]["ubatch_size"] {
+			changes++
+		}
+	}
+	// Two ubatch values means one transition when it varies slowest.
+	if changes != 1 {
+		t.Errorf("ubatch_size changed %d times across the matrix, want 1 — it is the reload-expensive axis and must vary slowest", changes)
+	}
+}
+
+// llama-benchy shells out with a fixed argument list and never sees
+// sampling settings, so those cells would measure the same thing under
+// different labels.
+func TestValidateSamplingSupportRejectsBenchyCombination(t *testing.T) {
+	err := ValidateSamplingSupport(
+		[]string{"benchy-quick"}, nil,
+		[]SweepAxis{{Field: "temperature", Values: []string{"0", "1"}}})
+	if err == nil {
+		t.Fatal("expected a sampling sweep against a benchy preset to be rejected")
+	}
+	if !strings.Contains(err.Error(), "Temperature") {
+		t.Errorf("error should name the offending parameter, got: %v", err)
+	}
+}
+
+func TestValidateSamplingSupportRejectsFixedSamplingOverride(t *testing.T) {
+	temp := 0.7
+	err := ValidateSamplingSupport(
+		[]string{"benchy-standard"}, &ConfigOverrides{Temperature: &temp}, nil)
+	if err == nil {
+		t.Error("a fixed sampling override is equally ignored by benchy and must be rejected")
+	}
+}
+
+func TestValidateSamplingSupportAllowsInternalPresets(t *testing.T) {
+	if err := ValidateSamplingSupport(
+		[]string{"internal-quick", "internal-long-ctx"}, nil,
+		[]SweepAxis{{Field: "temperature", Values: []string{"0", "1"}}}); err != nil {
+		t.Errorf("internal presets apply sampling per request: %v", err)
+	}
+}
+
+// A benchy preset with only router-config parameters is fine — those
+// reach llama-server through the preset, which benchy runs against.
+func TestValidateSamplingSupportAllowsConfigSweepWithBenchy(t *testing.T) {
+	if err := ValidateSamplingSupport(
+		[]string{"benchy-quick"}, nil,
+		[]SweepAxis{{Field: "ubatch_size", Values: []string{"512", "1024"}}}); err != nil {
+		t.Errorf("config parameters do reach benchy runs: %v", err)
+	}
+}

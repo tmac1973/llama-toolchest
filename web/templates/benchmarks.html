@@ -333,31 +333,16 @@ function prefillJobForm(job) {
         // a curated choice into a spurious custom entry — and ticking
         // the visible one too would sweep "1" against "1.0", two cells
         // measuring the same thing.
-        // Compare numerically only when *both* strings are entirely
-        // numeric. parseFloat would accept a prefix, so "0-1" (both GPUs)
-        // parsed as 0 and matched the "GPU 0" choice, silently rewriting
-        // a dual-GPU job to single-GPU on edit. Number() returns NaN
-        // unless the whole string is a number.
-        var sameValue = function(a, b) {
-            if (a === b) return true;
-            if (a === '' || b === '') return false;
-            var na = Number(a), nb = Number(b);
-            return !isNaN(na) && !isNaN(nb) && na === nb;
-        };
         var wanted = values.slice();
         row.querySelectorAll('.param-value').forEach(function(c){
-            var hit = wanted.findIndex(function(v){ return sameValue(v, c.value); });
+            var hit = wanted.findIndex(function(v){ return numEq(v, c.value); });
             c.checked = hit !== -1;
             if (hit !== -1) wanted.splice(hit, 1);
         });
-        // Anything the job used that isn't a curated choice was entered
-        // as a custom value; recreate it so editing doesn't drop it.
-        wanted.forEach(function(v){
-            var input = row.querySelector('.param-custom-input');
-            if (!input) return;
-            input.value = v;
-            addParamCustom(input);
-        });
+        // Values the curated list doesn't offer. These must still appear
+        // and stay selected — dropping them silently deleted the setting
+        // from the job when the user edited anything else.
+        wanted.forEach(function(v){ addParamValue(row, v); });
         var inherit = row.querySelector('.param-inherit');
         if (inherit) inherit.checked = values.length === 0;
         syncParamRow(row);
@@ -418,21 +403,33 @@ function onParamValueToggle(cb) {
     syncParamRow(row);
 }
 
+// Numeric equality that requires the *whole* string to be a number.
+// parseFloat would accept a prefix, making gpu_assign "0-1" equal to the
+// "0" choice and silently rewriting a dual-GPU job to single-GPU.
+function numEq(a, b) {
+    if (a === b) return true;
+    if (a === '' || b === '') return false;
+    var na = Number(a), nb = Number(b);
+    return !isNaN(na) && !isNaN(nb) && na === nb;
+}
+
 function addParamCustom(el) {
     var row = el.closest('.param-row');
     var input = row.querySelector('.param-custom-input');
     var raw = (input.value || '').trim();
     if (!raw) return;
+    addParamValue(row, raw);
+    input.value = '';
+}
 
-    // Reuse an existing checkbox when the typed value is already offered,
-    // so a custom entry can't create a duplicate the server would reject.
-    // Same strictness as sameValue: a custom "0-1" must not tick "0".
-    var numEq = function(a, b) {
-        if (a === b) return true;
-        if (a === '' || b === '') return false;
-        var na = Number(a), nb = Number(b);
-        return !isNaN(na) && !isNaN(nb) && na === nb;
-    };
+// addParamValue selects `raw` in a row, creating a checkbox when the
+// curated list doesn't offer one. Works whether or not the row has a
+// custom-entry box: parameters registered without one (spec_type, the
+// booleans) previously dropped any stored value the list didn't cover,
+// silently deleting the setting when the job was edited.
+function addParamValue(row, raw) {
+    // Reuse an existing checkbox when the value is already offered, so
+    // this can't create a duplicate the server would reject.
     var existing = Array.from(row.querySelectorAll('.param-value'))
         .find(function(c){ return numEq(c.value, raw); });
     if (existing) {
@@ -448,11 +445,16 @@ function addParamCustom(el) {
         cb.onchange = function(){ onParamValueToggle(cb); };
         label.appendChild(cb);
         label.appendChild(document.createTextNode(' ' + raw + ' (custom)'));
-        row.querySelector('.param-custom').before(label);
+        var custom = row.querySelector('.param-custom');
+        if (custom) {
+            custom.before(label);
+        } else {
+            var opts = row.querySelector('.param-options');
+            if (opts) opts.appendChild(label);
+        }
     }
     var inherit = row.querySelector('.param-inherit');
     if (inherit) inherit.checked = false;
-    input.value = '';
     syncParamRow(row);
 }
 

@@ -621,3 +621,52 @@ func KeepUnsweepable(o *ConfigOverrides) *ConfigOverrides {
 	}
 	return &out
 }
+
+// ValidateSamplingSupport refuses a job that sets sampling parameters
+// against a preset that cannot apply them.
+//
+// The llama-benchy path shells out with a fixed argument list and never
+// sees RunConfig.Sampling, so a temperature sweep there would run three
+// identical benchmarks and store them under three different labels —
+// the mislabeled-results failure this package exists to avoid. Better to
+// refuse than to silently measure the same thing repeatedly.
+func ValidateSamplingSupport(presets []string, overrides *ConfigOverrides, sweeps []SweepAxis) error {
+	var benchy []string
+	for _, name := range presets {
+		if GetPreset(name).EffectiveSource() == PresetSourceBenchy {
+			benchy = append(benchy, name)
+		}
+	}
+	if len(benchy) == 0 {
+		return nil
+	}
+
+	var used []string
+	seen := map[string]bool{}
+	note := func(field string) {
+		if f, ok := sweepFields[field]; ok && !f.RestartsRouter && !seen[field] {
+			seen[field] = true
+			used = append(used, f.Label)
+		}
+	}
+	for _, sw := range sweeps {
+		note(sw.Field)
+	}
+	if overrides != nil {
+		v := reflect.ValueOf(*overrides)
+		t := v.Type()
+		for i := 0; i < v.NumField(); i++ {
+			if v.Field(i).IsNil() {
+				continue
+			}
+			note(strings.Split(t.Field(i).Tag.Get("json"), ",")[0])
+		}
+	}
+	if len(used) == 0 {
+		return nil
+	}
+
+	sort.Strings(used)
+	return fmt.Errorf("%s cannot apply sampling settings (%s) — llama-benchy runs with a fixed argument list, so those cells would measure the same thing under different labels. Use an internal-* preset, or drop the sampling parameters",
+		strings.Join(benchy, ", "), strings.Join(used, ", "))
+}

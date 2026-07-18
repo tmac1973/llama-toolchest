@@ -505,7 +505,19 @@ func sweepCombinations(sweeps []SweepAxis) []map[string]string {
 			ordered = append(ordered, s)
 		}
 	}
-	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Field < ordered[j].Field })
+	// Axes processed first vary slowest. Put the reload-affecting ones
+	// there so a cheap sampling axis cycles inside them rather than
+	// forcing a reload on every cell: sweeping temperature × ubatch_size
+	// alphabetically made ubatch alternate every cell, costing one reload
+	// per cell instead of one per ubatch value.
+	sort.Slice(ordered, func(i, j int) bool {
+		ri := SweepRestartsRouter([]SweepAxis{ordered[i]})
+		rj := SweepRestartsRouter([]SweepAxis{ordered[j]})
+		if ri != rj {
+			return ri
+		}
+		return ordered[i].Field < ordered[j].Field
+	})
 
 	combos := []map[string]string{{}}
 	for _, axis := range ordered {
