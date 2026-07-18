@@ -443,7 +443,14 @@ func applyExtraEnv(env []string, extra []string) []string {
 	}
 	for _, kv := range extra {
 		i := strings.IndexByte(kv, '=')
-		if i <= 0 || existing[kv[:i]] {
+		if i <= 0 {
+			continue
+		}
+		if existing[kv[:i]] {
+			// Inherited values win, but silently ignoring a setting the
+			// user made in Settings looks like the setting doesn't work.
+			slog.Warn("runtime environment variable ignored: already set in the service environment",
+				"name", kv[:i], "configured", kv[i+1:])
 			continue
 		}
 		env = append(env, kv)

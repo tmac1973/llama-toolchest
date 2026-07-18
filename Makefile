@@ -73,3 +73,12 @@ package:
 # in new presets (e.g. after a popular model release).
 scrape-sampling-presets:
 	go run ./scripts/scrape-sampling-presets
+
+# Runs the benchmark job form's parameter-control JavaScript against a
+# DOM stub. Part of `go test ./...`, but skipped when node is missing —
+# this target fails loudly instead, so CI can't quietly lose the
+# coverage.
+.PHONY: js-test
+js-test:
+	@command -v node >/dev/null || { echo "node is required for js-test"; exit 1; }
+	go test ./internal/api/ -run TestParameterControlsJS -v

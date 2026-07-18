@@ -247,6 +247,43 @@ func (s *Server) validateBatchMatrix(modelIDs []string, overrides *benchmark.Con
 	return nil
 }
 
+// validateGPUAssignment refuses jobs whose GPU placement cannot produce
+// distinct, correctly-labelled cells.
+//
+// gpu_assign and tensor_split are two ways to express the same thing:
+// only tensor_split / split_mode / main_gpu reach llama-server, and
+// gpu_assign is resolved into them. Setting both is contradictory, and
+// whichever way it was resolved silently, some cells ended up
+// byte-identical while being reported under different labels.
+//
+// A gpu_assign job also needs a GPU count to resolve against. Refusing
+// here beats failing every cell partway through a run.
+func (s *Server) validateGPUAssignment(overrides *benchmark.ConfigOverrides, sweeps []benchmark.SweepAxis) error {
+	set := func(field string, fixed *string) bool {
+		for _, sw := range sweeps {
+			if sw.Field == field {
+				return true
+			}
+		}
+		return fixed != nil && *fixed != ""
+	}
+	var fixedAssign, fixedSplit *string
+	if overrides != nil {
+		fixedAssign, fixedSplit = overrides.GPUAssign, overrides.TensorSplit
+	}
+	assign := set("gpu_assign", fixedAssign)
+	if !assign {
+		return nil
+	}
+	if set("tensor_split", fixedSplit) {
+		return errors.New("set GPU Assignment or Tensor Split, not both — GPU Assignment is resolved into a tensor split, so setting both makes some cells identical while reporting different values")
+	}
+	if len(s.monitor.Current().GPU) == 0 {
+		return errors.New("cannot use GPU Assignment: no GPUs detected, so every value would resolve to the same configuration. Use Tensor Split directly, or check that GPU monitoring is working")
+	}
+	return nil
+}
+
 // handleCreateJob expands the matrix and submits the job to the queue.
 // Returns 409 when another job is already running.
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
@@ -264,6 +301,10 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.validateBatchMatrix(req.ModelIDs, req.Overrides, req.Sweeps); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.validateGPUAssignment(req.Overrides, req.Sweeps); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -320,6 +361,10 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.validateBatchMatrix(req.ModelIDs, req.Overrides, req.Sweeps); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.validateGPUAssignment(req.Overrides, req.Sweeps); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -490,6 +535,14 @@ func (s *Server) handleJobForm(w http.ResponseWriter, r *http.Request) {
 //   - orphan: runs reassigned to the synthetic adhoc job
 func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+
+	// Deleting the record does not stop the run — the queue holds the job
+	// in memory — so the job would keep driving the router while every
+	// lookup by id failed. Cancel first.
+	if cur, running := s.jobs.Status(); running && cur != nil && cur.ID == id {
+		http.Error(w, "this job is running — cancel it before deleting", http.StatusConflict)
+		return
+	}
 	disposition := benchmark.DeleteCascade
 	if v := r.URL.Query().Get("runs"); v != "" {
 		switch v {

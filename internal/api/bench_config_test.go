@@ -2,9 +2,11 @@ package api
 
 import (
 	"testing"
+	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/benchmark"
 	"github.com/tmac1973/llama-toolchest/internal/models"
+	"github.com/tmac1973/llama-toolchest/internal/monitor"
 )
 
 func baseConfig() models.ModelConfig {
@@ -217,19 +219,47 @@ func TestGPUAssignUnchangedLeavesDerivedFields(t *testing.T) {
 	}
 }
 
-// An explicit tensor_split is the more specific instruction. Deriving
-// one from gpu_assign on top of it made the run record a split it never
-// used — a mislabeled measurement.
-func TestGPUAssignDoesNotClobberExplicitTensorSplit(t *testing.T) {
-	base := models.ModelConfig{GPUAssign: "all", TensorSplit: "", SplitMode: "layer"}
-	out := applySnapshotToConfig(base, benchmark.ConfigSnapshot{
-		GPUAssign: "0-1", TensorSplit: "70,30",
-	})
-	if err := resolveGPUAssignment(&out, base, 2); err != nil {
-		t.Fatalf("resolve: %v", err)
+// gpu_assign and tensor_split are two ways to say the same thing, and
+// only tensor_split reaches llama-server. Setting both is contradictory:
+// honouring either one silently made some cells identical while
+// reporting different values. The combination is refused when the job is
+// defined, so resolution never has to guess.
+func TestContradictoryGPUPlacementIsRefused(t *testing.T) {
+	assign, split := "0-1", "70,30"
+	s := &Server{monitor: monitor.New(time.Hour)}
+
+	err := s.validateGPUAssignment(
+		&benchmark.ConfigOverrides{GPUAssign: &assign, TensorSplit: &split}, nil)
+	if err == nil {
+		t.Error("setting both GPU Assignment and Tensor Split must be refused")
 	}
-	if out.TensorSplit != "70,30" {
-		t.Errorf("TensorSplit = %q, want the explicitly swept 70,30", out.TensorSplit)
+
+	// Sweeping one against a fixed other is the same contradiction.
+	err = s.validateGPUAssignment(
+		&benchmark.ConfigOverrides{TensorSplit: &split},
+		[]benchmark.SweepAxis{{Field: "gpu_assign", Values: []string{"all", "0"}}})
+	if err == nil {
+		t.Error("sweeping gpu_assign against a fixed tensor_split must be refused")
+	}
+}
+
+// A gpu_assign job needs a GPU count to resolve against; without one
+// every value collapses to the same configuration.
+func TestGPUAssignRefusedWithoutGPUCount(t *testing.T) {
+	assign := "0-1"
+	s := &Server{monitor: monitor.New(time.Hour)} // never polled: no GPUs
+	if err := s.validateGPUAssignment(&benchmark.ConfigOverrides{GPUAssign: &assign}, nil); err == nil {
+		t.Error("a gpu_assign job with no detected GPUs must be refused up front")
+	}
+}
+
+// Jobs that don't touch GPU placement are unaffected.
+func TestGPUPlacementValidationIgnoresUnrelatedJobs(t *testing.T) {
+	s := &Server{monitor: monitor.New(time.Hour)}
+	if err := s.validateGPUAssignment(nil, []benchmark.SweepAxis{
+		{Field: "ubatch_size", Values: []string{"512", "1024"}},
+	}); err != nil {
+		t.Errorf("unrelated sweep refused: %v", err)
 	}
 }
 
@@ -244,19 +274,48 @@ func TestGPUAssignFailsWhenGPUCountUnknown(t *testing.T) {
 	}
 }
 
-// The interactive guard must be sourced from the queue, not from
-// jobEnv's sticky ownership flag: a failed restore leaves that flag set
-// deliberately, and reading it here locked the user out of starting the
-// router with no job left to cancel.
-func TestRouterBusyGuardIsNotStrandedByFailedRestore(t *testing.T) {
+// The interactive guard reads two signals because each is blind alone:
+// the queue's view goes false if a running job's record is deleted, and
+// ownership covers that window. Ownership can no longer strand the
+// guard, because cleanup releases it even when the restore fails.
+func TestRouterBusyGuardUsesOwnershipWhenQueueIsBlind(t *testing.T) {
 	s := &Server{}
 	if s.routerBusyWithJob() {
-		t.Error("no queue wired; nothing is busy")
+		t.Error("nothing wired; nothing is busy")
 	}
 
-	// Ownership stranded true, as a failed restore leaves it.
+	// A job is driving the router even though the queue can't see it
+	// (its record was deleted mid-run).
 	s.env = &jobEnv{s: s, ownsRouter: true}
+	if !s.routerBusyWithJob() {
+		t.Error("a job still holding the router must keep the guards armed")
+	}
+
+	// Cleanup releases ownership unconditionally, so the guard clears
+	// even when the restore restart failed — otherwise a single failure
+	// locks the user out with no job left to cancel.
+	s.env.releaseRouter()
 	if s.routerBusyWithJob() {
-		t.Error("a stranded ownership flag must not block interactive start")
+		t.Error("released ownership must not block interactive start")
+	}
+}
+
+// A job that changes nothing about the router must not restart it — not
+// at the start, and not at the end either. Latching ownership on the
+// no-restart fast path reinstated at teardown exactly the gratuitous
+// restart the fast path removes, so the fix cancelled itself out.
+func TestNoTakeoverMeansNoTeardownRestart(t *testing.T) {
+	e := &jobEnv{}
+	if e.routerOwnedByJob() {
+		t.Fatal("nothing taken over yet")
+	}
+
+	// Simulate the fast path: build recorded, no configs, no restart.
+	e.mu.Lock()
+	e.jobBuildID = "build-A"
+	e.mu.Unlock()
+
+	if e.routerOwnedByJob() {
+		t.Error("recording the build without restarting must not claim the router — cleanup would then restart it for nothing")
 	}
 }

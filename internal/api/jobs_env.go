@@ -120,7 +120,6 @@ func (e *jobEnv) EnsureBuildActive(ctx context.Context, buildID string) error {
 	e.mu.Lock()
 	e.jobBuildID = buildID
 	hasConfigs := e.jobConfigs != nil
-	e.ownsRouter = true
 	e.mu.Unlock()
 
 	// The build is never written to the user's config. It travels as a
@@ -133,8 +132,16 @@ func (e *jobEnv) EnsureBuildActive(ctx context.Context, buildID string) error {
 	// instead meant the first cell of every job killed a healthy router,
 	// unloading models and dropping open sessions for nothing.
 	if e.s.process.IsRunning() && e.s.runningBuild() == buildID && !hasConfigs {
+		// Nothing was taken over, so ownership stays clear and cleanup
+		// has nothing to restore. Claiming it here reinstated at job end
+		// exactly the gratuitous restart this fast path removes from the
+		// start — the fix cancelled itself out.
 		return nil
 	}
+
+	e.mu.Lock()
+	e.ownsRouter = true
+	e.mu.Unlock()
 
 	return e.restartRouter(ctx, "build "+buildID)
 }
@@ -224,12 +231,20 @@ func (e *jobEnv) ClearEphemeralConfig(ctx context.Context) error {
 		return nil
 	}
 
+	// Ownership is released whatever happens. Holding it after a failed
+	// restore was meant to record that work was owed, but nothing ever
+	// retried, and the guards read it — so one failed restore locked the
+	// user out of starting the router at all.
+	//
+	// Releasing is also the better recovery: with no job running, the
+	// user's next Start uses their own build and config, which is exactly
+	// what the restore was trying to achieve.
+	defer e.releaseRouter()
 	if err := e.restartRouter(ctx, "restore the user's build and config"); err != nil {
-		// Ownership stays set so a retry (or the next job's cleanup) can
-		// still see that the router needs handing back.
+		slog.Error("failed to restart the router on the user's saved config after a benchmark job; start it from the Service page to recover",
+			"error", err)
 		return err
 	}
-	e.releaseRouter()
 	return nil
 }
 
@@ -284,17 +299,15 @@ func resolveGPUAssignment(out *models.ModelConfig, base models.ModelConfig, numG
 	if out.GPUAssign == base.GPUAssign || out.GPUAssign == "" || out.GPUAssign == "custom" {
 		return nil
 	}
-	// An explicit tensor_split is the more specific instruction. Deriving
-	// one from gpu_assign on top of it made the run record a split it
-	// never used.
-	if out.TensorSplit != base.TensorSplit {
-		return nil
-	}
+	// A job setting both is contradictory; it is refused at definition
+	// time (validateGPUAssignment). Reaching here means only gpu_assign
+	// was set, so deriving the split is unambiguous.
 	if numGPUs <= 0 {
-		// ResolveGPUAssign returns empty for every assignment when it
-		// doesn't know the GPU count, which would make each sweep point
-		// generate an identical preset and report identical measurements
-		// under different labels. Fail the cell instead.
+		// Telemetry can be absent (tool missing, first poll not yet
+		// complete) on a host where inference works fine, so failing the
+		// cell here killed jobs that would have run. Jobs that actually
+		// sweep gpu_assign are refused at definition time instead, where
+		// the message can be acted on.
 		return fmt.Errorf("cannot resolve GPU assignment %q: no GPUs detected", out.GPUAssign)
 	}
 	ts, sm, mg := models.ResolveGPUAssign(out.GPUAssign, numGPUs)

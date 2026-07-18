@@ -189,11 +189,21 @@ func (s *Server) handleServiceStatus(w http.ResponseWriter, r *http.Request) {
 // meant one failed restore locked the user out of starting the router
 // at all, with no job to cancel.
 func (s *Server) routerBusyWithJob() bool {
-	if s.jobs == nil {
-		return false
+	// Both signals, because each is blind alone. The queue's view goes
+	// false if the running job's record is deleted mid-run, which would
+	// disarm every guard while the job kept driving the router. jobEnv's
+	// ownership covers that window — and it can no longer strand the
+	// guards, because cleanup releases it unconditionally, including when
+	// the restore restart fails.
+	if s.jobs != nil {
+		if _, running := s.jobs.Status(); running {
+			return true
+		}
 	}
-	_, running := s.jobs.Status()
-	return running
+	if env, ok := s.jobEnv(); ok {
+		return env.routerOwnedByJob()
+	}
+	return false
 }
 
 func (s *Server) handleServiceStart(w http.ResponseWriter, r *http.Request) {
@@ -210,11 +220,12 @@ func (s *Server) handleServiceStart(w http.ResponseWriter, r *http.Request) {
 	s.handleServiceStatus(w, r)
 }
 
+// Stop is deliberately NOT guarded against a running job. It is the
+// user's only way out of a hung cell holding all the VRAM, and cleanup
+// already handles finding the router stopped. Guards belong on the
+// actions that *start* the router, because those are the ones that can
+// put a cell on the wrong config while it reports another.
 func (s *Server) handleServiceStop(w http.ResponseWriter, r *http.Request) {
-	if s.routerBusyWithJob() {
-		http.Error(w, "a benchmark job is currently running the router — cancel it first", http.StatusConflict)
-		return
-	}
 	if err := s.process.Stop(); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -420,6 +431,14 @@ func (s *Server) handleActivateModel(w http.ResponseWriter, r *http.Request) {
 // handleDeactivateModel unloads a model via the router.
 func (s *Server) handleDeactivateModel(w http.ResponseWriter, r *http.Request) {
 	id := s.registry.ResolveID(chi.URLParam(r, "id"))
+
+	// Unloading the model a cell is measuring corrupts that measurement,
+	// which makes this more disruptive than Activate — it was left
+	// unguarded while Activate was not.
+	if s.routerBusyWithJob() {
+		http.Error(w, "a benchmark job is currently using the router — cancel it first", http.StatusConflict)
+		return
+	}
 
 	if err := s.process.UnloadModel(s.registry.RouterName(id)); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
