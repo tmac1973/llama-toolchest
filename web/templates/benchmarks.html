@@ -333,9 +333,15 @@ function prefillJobForm(job) {
         // a curated choice into a spurious custom entry — and ticking
         // the visible one too would sweep "1" against "1.0", two cells
         // measuring the same thing.
+        // Compare numerically only when *both* strings are entirely
+        // numeric. parseFloat would accept a prefix, so "0-1" (both GPUs)
+        // parsed as 0 and matched the "GPU 0" choice, silently rewriting
+        // a dual-GPU job to single-GPU on edit. Number() returns NaN
+        // unless the whole string is a number.
         var sameValue = function(a, b) {
             if (a === b) return true;
-            var na = parseFloat(a), nb = parseFloat(b);
+            if (a === '' || b === '') return false;
+            var na = Number(a), nb = Number(b);
             return !isNaN(na) && !isNaN(nb) && na === nb;
         };
         var wanted = values.slice();
@@ -420,9 +426,11 @@ function addParamCustom(el) {
 
     // Reuse an existing checkbox when the typed value is already offered,
     // so a custom entry can't create a duplicate the server would reject.
+    // Same strictness as sameValue: a custom "0-1" must not tick "0".
     var numEq = function(a, b) {
         if (a === b) return true;
-        var na = parseFloat(a), nb = parseFloat(b);
+        if (a === '' || b === '') return false;
+        var na = Number(a), nb = Number(b);
         return !isNaN(na) && !isNaN(nb) && na === nb;
     };
     var existing = Array.from(row.querySelectorAll('.param-value'))

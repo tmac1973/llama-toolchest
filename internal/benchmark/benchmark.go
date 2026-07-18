@@ -571,6 +571,13 @@ func overrideKey(o *ConfigOverrides) string {
 	if err != nil {
 		return ""
 	}
+	// Every field is omitempty, so an all-nil struct marshals to "{}".
+	// That must key the same as nil: they mean the same thing, and
+	// differing would drop every completed cell to pending and re-parent
+	// its runs to Ad-Hoc on an unrelated edit.
+	if string(b) == "{}" {
+		return ""
+	}
 	return string(b)
 }
 

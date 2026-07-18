@@ -210,3 +210,51 @@ func TestCaptureActiveBuildHandlesEmptySelection(t *testing.T) {
 		t.Errorf("prev = %q, want empty", prev)
 	}
 }
+
+// A build the user selects mid-job is newer than the job's own change,
+// so cleanup must leave it alone rather than reverting to the pre-job
+// selection and persisting that.
+func TestBuildOwnershipDistinguishesUserChange(t *testing.T) {
+	s := &Server{}
+	s.captureActiveBuild("A")
+
+	s.noteBuildActivated("B")
+	if !s.buildStillOurs("B") {
+		t.Error("B is the build the job set; restoring over it is correct")
+	}
+	if s.buildStillOurs("C") {
+		t.Error("C was not set by the job — the user changed it and their choice must win")
+	}
+}
+
+// The bench window opens at the first build activation, before any
+// config override is armed. startRouter checks this to avoid clearing
+// pending-reload badges for edits that were never applied.
+func TestBenchJobActiveCoversBuildOnlyPhase(t *testing.T) {
+	s := &Server{}
+	if s.benchJobActive() {
+		t.Error("no job running")
+	}
+
+	s.captureActiveBuild("A") // first cell, no override armed yet
+	if !s.benchJobActive() {
+		t.Error("a job that has only switched builds still owns the router")
+	}
+
+	s.consumeActiveBuild()
+	if s.benchJobActive() {
+		t.Error("window should close once cleanup consumes the capture")
+	}
+}
+
+func TestBenchJobActiveCoversOverridePhase(t *testing.T) {
+	s := &Server{}
+	s.setBenchOverrides(map[string]*models.ModelConfig{"m": {}})
+	if !s.benchJobActive() {
+		t.Error("an armed override means a job owns the router")
+	}
+	s.setBenchOverrides(nil)
+	if s.benchJobActive() {
+		t.Error("window should close when the override clears")
+	}
+}

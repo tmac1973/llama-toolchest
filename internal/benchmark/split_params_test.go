@@ -247,3 +247,83 @@ func TestMergeOverridesNils(t *testing.T) {
 		t.Error("nil derived should return base")
 	}
 }
+
+// Dedup must compare canonical values, not raw text: "1.0" and "1"
+// resolve to the same ConfigOverrides and would otherwise expand into
+// byte-identical cells — one measurement shown twice.
+func TestValidateSweepsRejectsNumericallyEqualValues(t *testing.T) {
+	cases := []struct {
+		field  string
+		values []string
+	}{
+		{"temperature", []string{"1.0", "1"}},
+		{"threads", []string{"8", "08"}},
+		{"ubatch_size", []string{"512", "0512"}},
+	}
+	for _, c := range cases {
+		if err := ValidateSweeps([]SweepAxis{{Field: c.field, Values: c.values}}); err == nil {
+			t.Errorf("%s %v: expected numerically identical values to be rejected", c.field, c.values)
+		}
+	}
+}
+
+// Genuinely distinct values must still be allowed.
+func TestValidateSweepsAllowsDistinctValues(t *testing.T) {
+	if err := ValidateSweeps([]SweepAxis{
+		{Field: "temperature", Values: []string{"0", "0.7", "1.0"}},
+	}); err != nil {
+		t.Errorf("distinct values rejected: %v", err)
+	}
+}
+
+func TestSplitParamsCollapsesNumericallyEqualValues(t *testing.T) {
+	_, sweeps, err := SplitParams(map[string][]string{"temperature": {"1.0", "1"}})
+	if err != nil {
+		t.Fatalf("SplitParams: %v", err)
+	}
+	if len(sweeps) != 0 {
+		t.Errorf("got %+v, want them collapsed to a single fixed value", sweeps)
+	}
+}
+
+// A nil and an all-nil override struct mean the same thing. Keying them
+// differently would drop every completed cell to pending on an unrelated
+// edit and re-parent its runs to Ad-Hoc.
+func TestOverrideKeyTreatsEmptyAsNil(t *testing.T) {
+	if overrideKey(nil) != overrideKey(&ConfigOverrides{}) {
+		t.Errorf("nil (%q) and empty (%q) must key identically",
+			overrideKey(nil), overrideKey(&ConfigOverrides{}))
+	}
+	cell := JobCell{ModelID: "m", BuildID: "b", Preset: "p"}
+	if identifyIn(cell, nil) != identifyIn(cell, &ConfigOverrides{}) {
+		t.Error("an unchanged job must not invalidate its completed cells")
+	}
+}
+
+// Params own every parameter they can express, including by omission —
+// otherwise an override supplied alongside them can never be cleared.
+func TestKeepUnsweepableDropsExpressibleFields(t *testing.T) {
+	ngl := 40
+	path := "/models/draft.gguf"
+	got := KeepUnsweepable(&ConfigOverrides{GPULayers: &ngl, DraftModelPath: &path})
+
+	if got == nil {
+		t.Fatal("the unsweepable field should have been kept")
+	}
+	if got.GPULayers != nil {
+		t.Error("gpu_layers is expressible via params and must not carry through")
+	}
+	if got.DraftModelPath == nil || *got.DraftModelPath != path {
+		t.Error("draft_model_path has no form control and must carry through")
+	}
+}
+
+func TestKeepUnsweepableNilWhenNothingRemains(t *testing.T) {
+	ngl := 40
+	if got := KeepUnsweepable(&ConfigOverrides{GPULayers: &ngl}); got != nil {
+		t.Errorf("got %+v, want nil when every field is expressible", got)
+	}
+	if KeepUnsweepable(nil) != nil {
+		t.Error("nil in, nil out")
+	}
+}

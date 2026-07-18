@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -93,14 +94,18 @@ func (e *jobEnv) EnsureBuildActive(ctx context.Context, buildID string) error {
 	// Record the user's selection before the first switch, so the job can
 	// restore it. Done before the early return: when the first cell's
 	// build is already active, that is still the selection to go back to.
-	e.s.captureActiveBuild(e.s.cfg.ActiveBuild)
+	e.s.captureActiveBuild(e.s.activeBuild())
 
-	if e.s.cfg.ActiveBuild == buildID && e.s.process.IsRunning() {
+	if e.s.activeBuild() == buildID && e.s.process.IsRunning() {
+		e.s.noteBuildActivated(buildID)
 		return nil
 	}
 
-	e.s.cfg.ActiveBuild = buildID
-	e.s.saveConfig()
+	e.s.withConfig(func() {
+		e.s.cfg.ActiveBuild = buildID
+		e.s.saveConfigLocked()
+	})
+	e.s.noteBuildActivated(buildID)
 
 	if e.s.process.IsRunning() {
 		if err := e.s.process.Stop(); err != nil {
@@ -200,16 +205,38 @@ func (e *jobEnv) ClearEphemeralConfig(ctx context.Context) error {
 	// ActiveBuild, so restore that too — the same leak the ephemeral
 	// preset avoids for model config.
 	buildDirty := false
-	if prev, ok := e.s.consumeActiveBuild(); ok && prev != e.s.cfg.ActiveBuild {
-		e.s.cfg.ActiveBuild = prev
-		e.s.saveConfig()
-		buildDirty = true
+	if prev, ok := e.s.consumeActiveBuild(); ok {
+		current := e.s.activeBuild()
+		switch {
+		case prev == current:
+			// Never left the user's selection.
+		case !e.s.buildStillOurs(current):
+			// The user picked a different build while the job ran. Their
+			// choice is newer than ours, so leave it alone.
+			slog.Info("not restoring pre-benchmark build; the selection changed during the job",
+				"pre_job", prev, "current", current)
+		default:
+			e.s.withConfig(func() {
+				e.s.cfg.ActiveBuild = prev
+				e.s.saveConfigLocked()
+			})
+			buildDirty = true
+		}
 	}
 
+	e.s.setBenchOverrides(nil)
 	if !configDirty && !buildDirty {
 		return nil
 	}
-	e.s.setBenchOverrides(nil)
+
+	// Don't resurrect a router the user deliberately stopped mid-job.
+	// The saved config and build are restored either way, so the next
+	// manual start picks them up.
+	if !e.s.process.IsRunning() {
+		slog.Info("router is stopped; restored saved config and build without restarting")
+		return nil
+	}
+
 	// One restart covers both: startRouter re-resolves the active build
 	// and rewrites the preset from saved config.
 	return e.restartRouter(ctx, "restore saved config and build")

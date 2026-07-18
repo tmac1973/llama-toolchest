@@ -70,6 +70,17 @@ type Server struct {
 	// build happened to run last.
 	benchPrevBuild    string
 	benchPrevBuildSet bool
+	// benchLastSetBuild is the build the job most recently activated.
+	// Restore only happens when the live selection still matches it — if
+	// it doesn't, the user changed builds mid-job and their choice wins.
+	benchLastSetBuild string
+
+	// cfgMu serializes access to cfg and its persistence. The benchmark
+	// queue writes cfg.ActiveBuild from its own goroutine while Settings
+	// handlers write other fields from HTTP goroutines; without this the
+	// two saveConfig calls can serialize a half-updated struct and lose
+	// whichever setting was written last.
+	cfgMu sync.Mutex
 }
 
 // benchRouterDirty records that the router was (re)started for a
@@ -111,6 +122,46 @@ func (s *Server) consumeActiveBuild() (string, bool) {
 	prev, ok := s.benchPrevBuild, s.benchPrevBuildSet
 	s.benchPrevBuild, s.benchPrevBuildSet = "", false
 	return prev, ok
+}
+
+// benchJobActive reports whether a benchmark job currently owns the
+// router. True from the job's first build activation until cleanup, so
+// it covers the window before any config override is armed — during
+// which the router is already being restarted on the job's behalf.
+func (s *Server) benchJobActive() bool {
+	s.benchMu.Lock()
+	defer s.benchMu.Unlock()
+	return s.benchPrevBuildSet || len(s.benchOverrides) > 0
+}
+
+// noteBuildActivated records the build a job just switched to, so
+// cleanup can tell its own change from a later one by the user.
+func (s *Server) noteBuildActivated(id string) {
+	s.benchMu.Lock()
+	defer s.benchMu.Unlock()
+	s.benchLastSetBuild = id
+}
+
+// buildStillOurs reports whether current is the build this job last set.
+func (s *Server) buildStillOurs(current string) bool {
+	s.benchMu.Lock()
+	defer s.benchMu.Unlock()
+	return s.benchLastSetBuild == current
+}
+
+// withConfig runs fn with the config lock held, so a mutation and its
+// persistence are atomic with respect to other writers.
+func (s *Server) withConfig(fn func()) {
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+	fn()
+}
+
+// activeBuild reads the selected build under lock.
+func (s *Server) activeBuild() string {
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+	return s.cfg.ActiveBuild
 }
 
 // setRunningConfigs replaces the launch-config snapshot under lock.

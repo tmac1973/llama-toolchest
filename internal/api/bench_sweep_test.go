@@ -177,26 +177,62 @@ func TestValidateBatchMatrixRejectsExplicitBadPair(t *testing.T) {
 	}
 }
 
-// One bad point anywhere in the ladder fails the whole job up front,
-// rather than that cell dying mid-run.
-func TestValidateBatchMatrixRejectsBadSweepPoint(t *testing.T) {
+// A ladder with one unusable rung is still a useful job: the other cells
+// run and the bad one fails at apply time with a message naming the
+// pair. Rejecting the whole job for one bad corner made a batch ×
+// micro-batch matrix impossible to create at all.
+func TestValidateBatchMatrixAllowsPartiallyValidLadder(t *testing.T) {
 	s := batchMatrixServer(t, models.ModelConfig{})
 	err := s.validateBatchMatrix([]string{"m"},
 		&benchmark.ConfigOverrides{BatchSize: intPtr(2048)},
 		[]benchmark.SweepAxis{{Field: "ubatch_size", Values: []string{"512", "1024", "4096"}}})
-	if err == nil {
-		t.Error("expected the 4096 point to be rejected against batch 2048")
+	if err != nil {
+		t.Errorf("a ladder with viable points should be accepted, got: %v", err)
 	}
 }
 
-// The saved-config half: sweeping only micro-batch has to be checked
-// against whatever batch size the model already has.
+// The two-axis case the over-strict check used to block outright.
+func TestValidateBatchMatrixAllowsTwoAxisMatrix(t *testing.T) {
+	s := batchMatrixServer(t, models.ModelConfig{})
+	err := s.validateBatchMatrix([]string{"m"}, nil, []benchmark.SweepAxis{
+		{Field: "batch_size", Values: []string{"1024", "2048"}},
+		{Field: "ubatch_size", Values: []string{"512", "2048"}},
+	})
+	if err != nil {
+		t.Errorf("batch × micro-batch matrices must be creatable, got: %v", err)
+	}
+}
+
+// Nothing viable is still a hard error — the job could only produce
+// failures.
+func TestValidateBatchMatrixRejectsWhollyUnviable(t *testing.T) {
+	s := batchMatrixServer(t, models.ModelConfig{})
+	err := s.validateBatchMatrix([]string{"m"},
+		&benchmark.ConfigOverrides{BatchSize: intPtr(512)},
+		[]benchmark.SweepAxis{{Field: "ubatch_size", Values: []string{"1024", "2048"}}})
+	if err == nil {
+		t.Error("every point exceeds the batch size; the job cannot produce a single result")
+	}
+}
+
+// The saved-config half, in the wholly-unviable case.
 func TestValidateBatchMatrixUsesSavedBatchSize(t *testing.T) {
 	s := batchMatrixServer(t, models.ModelConfig{BatchSize: 1024})
 	err := s.validateBatchMatrix([]string{"m"}, nil,
-		[]benchmark.SweepAxis{{Field: "ubatch_size", Values: []string{"512", "2048"}}})
+		[]benchmark.SweepAxis{{Field: "ubatch_size", Values: []string{"2048", "4096"}}})
 	if err == nil {
-		t.Error("2048 exceeds the model's saved batch size of 1024 and should be rejected")
+		t.Error("both points exceed the model's saved batch size of 1024")
+	}
+}
+
+// A malformed sweep value must surface, not degrade the check to
+// "field not set" and let the job through.
+func TestValidateBatchMatrixReportsUnparseableValue(t *testing.T) {
+	s := batchMatrixServer(t, models.ModelConfig{})
+	err := s.validateBatchMatrix([]string{"m"}, nil,
+		[]benchmark.SweepAxis{{Field: "ubatch_size", Values: []string{"512", "junk"}}})
+	if err == nil {
+		t.Error("expected an unparseable sweep value to be reported")
 	}
 }
 

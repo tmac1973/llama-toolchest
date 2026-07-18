@@ -446,7 +446,7 @@ func (s *Server) startRouter() error {
 	// the "restart required" badge from edits the user has not applied.
 	// The job restores the real preset when it finishes, and that restart
 	// takes this path properly.
-	if len(s.benchOverridesSnapshot()) > 0 {
+	if s.benchJobActive() {
 		return nil
 	}
 

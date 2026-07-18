@@ -155,6 +155,35 @@ func floatField(name, label, help, example string, apply func(*ConfigOverrides, 
 	}
 }
 
+// canonical returns the value in the form the parser resolves it to, so
+// dedup catches values that differ as text but not as configuration —
+// "1.0" vs "1", "8" vs "08". Raw text is returned for free-form kinds.
+func (f SweepField) canonical(raw string) string {
+	v := strings.TrimSpace(raw)
+	switch f.Kind {
+	case SweepKindInt:
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return v
+		}
+		return strconv.Itoa(n)
+	case SweepKindFloat:
+		n, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return v
+		}
+		return strconv.FormatFloat(n, 'g', -1, 64)
+	case SweepKindBool:
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return v
+		}
+		return strconv.FormatBool(b)
+	default:
+		return v
+	}
+}
+
 // sweepFields is the registry. Keys match ConfigOverrides' JSON tags so
 // a sweep axis and a fixed override name the same thing.
 var sweepFields = map[string]SweepField{
@@ -273,10 +302,11 @@ func ParseSweepValues(field, raw string) ([]string, error) {
 		if v == "" {
 			continue
 		}
-		if seen[v] {
+		c := f.canonical(v)
+		if seen[c] {
 			return nil, fmt.Errorf("%s: duplicate value %q", f.Label, v)
 		}
-		seen[v] = true
+		seen[c] = true
 		if err := f.set(&ConfigOverrides{}, v); err != nil {
 			return nil, fmt.Errorf("%s: %w", f.Label, err)
 		}
@@ -310,10 +340,13 @@ func ValidateSweeps(sweeps []SweepAxis) error {
 		// this path is what JSON API callers hit.
 		seenValue := map[string]bool{}
 		for _, v := range s.Values {
-			if seenValue[v] {
+			// Canonical form: "1.0" and "1" resolve to the same config
+			// and would otherwise expand into byte-identical cells.
+			c := f.canonical(v)
+			if seenValue[c] {
 				return fmt.Errorf("%s: duplicate value %q", f.Label, v)
 			}
-			seenValue[v] = true
+			seenValue[c] = true
 			if err := f.set(&ConfigOverrides{}, v); err != nil {
 				return fmt.Errorf("%s: %w", f.Label, err)
 			}
@@ -495,10 +528,14 @@ func SplitParams(params map[string][]string) (*ConfigOverrides, []SweepAxis, err
 		var values []string
 		for _, v := range params[name] {
 			v = strings.TrimSpace(v)
-			if v == "" || seen[v] {
+			if v == "" {
 				continue
 			}
-			seen[v] = true
+			c := f.canonical(v)
+			if seen[c] {
+				continue
+			}
+			seen[c] = true
 			values = append(values, v)
 		}
 		if len(values) == 0 {
@@ -542,6 +579,45 @@ func MergeOverrides(base, derived *ConfigOverrides) *ConfigOverrides {
 		if !d.Field(i).IsNil() {
 			o.Field(i).Set(d.Field(i))
 		}
+	}
+	return &out
+}
+
+// IsSweepable reports whether a parameter has a form control, i.e.
+// whether params can express it.
+func IsSweepable(field string) bool {
+	_, ok := sweepFields[field]
+	return ok
+}
+
+// KeepUnsweepable returns a copy of o holding only fields the parameter
+// registry cannot express. Used when merging a params-based edit over a
+// caller-supplied override set: params own everything they can say, so
+// leaving a parameter out of params means "unset it", not "keep it".
+func KeepUnsweepable(o *ConfigOverrides) *ConfigOverrides {
+	if o == nil {
+		return nil
+	}
+	// JSON tags are the registry keys, so a field is sweepable exactly
+	// when its tag names a registry entry.
+	var out ConfigOverrides
+	v := reflect.ValueOf(*o)
+	t := v.Type()
+	dst := reflect.ValueOf(&out).Elem()
+	any := false
+	for i := 0; i < v.NumField(); i++ {
+		if v.Field(i).IsNil() {
+			continue
+		}
+		tag := strings.Split(t.Field(i).Tag.Get("json"), ",")[0]
+		if IsSweepable(tag) {
+			continue
+		}
+		dst.Field(i).Set(v.Field(i))
+		any = true
+	}
+	if !any {
+		return nil
 	}
 	return &out
 }

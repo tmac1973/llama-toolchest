@@ -104,9 +104,14 @@ func resolveSweeps(req *jobCreateRequest) error {
 		// Merge rather than replace: the form carries through override
 		// fields it has no control for (draft_model_path), and replacing
 		// wholesale would delete them from a job whose name was the only
-		// thing the user meant to change. Params win on conflict, since
-		// they are what the user just edited.
-		req.Overrides = benchmark.MergeOverrides(req.Overrides, derived)
+		// thing the user meant to change.
+		//
+		// Only unsweepable fields carry through. A field the params map
+		// can express is params' to decide, including deciding to leave
+		// it unset — carrying those over made a supplied override
+		// impossible to clear.
+		req.Overrides = benchmark.MergeOverrides(
+			benchmark.KeepUnsweepable(req.Overrides), derived)
 		req.Sweeps = axes
 		return nil
 	}
@@ -161,51 +166,76 @@ const maxJobCells = 500
 // config, so this needs the registry and can't live in the pure
 // request validator.
 func (s *Server) validateBatchMatrix(modelIDs []string, overrides *benchmark.ConfigOverrides, sweeps []benchmark.SweepAxis) error {
-	candidates := func(field string, fixed *int) []int {
+	// A parse failure here would silently degrade the check to "field not
+	// set" and let a job through that fails every cell hours later.
+	// ValidateSweeps has already parsed these, so an error is a bug.
+	candidates := func(field string, fixed *int) ([]int, error) {
 		for _, sw := range sweeps {
 			if sw.Field != field {
 				continue
 			}
 			out := make([]int, 0, len(sw.Values))
 			for _, v := range sw.Values {
-				if n, err := strconv.Atoi(v); err == nil {
-					out = append(out, n)
+				n, err := strconv.Atoi(v)
+				if err != nil {
+					return nil, fmt.Errorf("%s: %q is not an integer", field, v)
 				}
+				out = append(out, n)
 			}
-			return out
+			return out, nil
 		}
 		if fixed != nil {
-			return []int{*fixed}
+			return []int{*fixed}, nil
 		}
-		return nil // not set: fall back to the model's saved value
+		return nil, nil // not set: fall back to the model's saved value
 	}
 
 	var fixedBatch, fixedUBatch *int
 	if overrides != nil {
 		fixedBatch, fixedUBatch = overrides.BatchSize, overrides.UBatchSize
 	}
-	batches := candidates("batch_size", fixedBatch)
-	ubatches := candidates("ubatch_size", fixedUBatch)
+	batches, err := candidates("batch_size", fixedBatch)
+	if err != nil {
+		return err
+	}
+	ubatches, err := candidates("ubatch_size", fixedUBatch)
+	if err != nil {
+		return err
+	}
 	if len(batches) == 0 && len(ubatches) == 0 {
 		return nil
 	}
 
-	// When the job sets both explicitly, the pair is checkable on its own
-	// — it is wrong for every model, and this also catches jobs naming a
-	// model that isn't registered yet.
-	if len(batches) > 0 && len(ubatches) > 0 {
-		for _, b := range batches {
-			for _, ub := range ubatches {
+	// Reject only when *no* combination can run.
+	//
+	// A batch × micro-batch matrix legitimately contains invalid corners
+	// — sweeping b=[1024,2048] against ub=[512,2048] means (1024, 2048)
+	// can't load while the other three can. Failing the whole job for one
+	// bad corner made that experiment impossible to create. Those cells
+	// still fail individually at apply time, with a message naming the
+	// pair, which is the right granularity.
+	viable := func(bs, ubs []int) (int, int) {
+		ok, total := 0, 0
+		for _, b := range bs {
+			for _, ub := range ubs {
+				total++
 				probe := models.ModelConfig{BatchSize: b, UBatchSize: ub}
-				if err := probe.ValidateBatchSizes(); err != nil {
-					return err
+				if probe.ValidateBatchSizes() == nil {
+					ok++
 				}
 			}
 		}
+		return ok, total
 	}
 
-	// Then against each model's saved values, which is what fills in
-	// whichever side the job left alone.
+	if len(batches) > 0 && len(ubatches) > 0 {
+		if ok, total := viable(batches, ubatches); ok == 0 && total > 0 {
+			return fmt.Errorf("no batch / micro-batch combination in this job can run: every micro-batch value exceeds every batch value")
+		}
+	}
+
+	// Then against each model's saved values, which fill in whichever
+	// side the job left alone.
 	for _, id := range modelIDs {
 		saved, err := s.registry.GetConfig(id)
 		if err != nil {
@@ -218,13 +248,9 @@ func (s *Server) validateBatchMatrix(modelIDs []string, overrides *benchmark.Con
 		if len(ubs) == 0 {
 			ubs = []int{saved.UBatchSize}
 		}
-		for _, b := range bs {
-			for _, ub := range ubs {
-				probe := models.ModelConfig{BatchSize: b, UBatchSize: ub}
-				if err := probe.ValidateBatchSizes(); err != nil {
-					return fmt.Errorf("%s: %w", id, err)
-				}
-			}
+		if ok, total := viable(bs, ubs); ok == 0 && total > 0 {
+			probe := models.ModelConfig{BatchSize: bs[0], UBatchSize: ubs[0]}
+			return fmt.Errorf("%s: %w", id, probe.ValidateBatchSizes())
 		}
 	}
 	return nil
