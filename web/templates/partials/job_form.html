@@ -15,13 +15,27 @@
 /* A set parameter should be visible without opening the menu. */
 .param-summary[data-active] { color: var(--pico-color); font-weight: 600; }
 .param-summary[data-active="sweep"] { color: var(--pico-primary); }
-.param-options { padding: 0.2rem 0.75rem 0.5rem; }
+.param-options { padding: 0.2rem 0.6rem 0.5rem; }
 .param-options label { display: block; margin: 0.1rem 0; font-size: 0.9rem; }
-.param-menu small { display: block; padding: 0 0.75rem 0.5rem; }
+
+/* Free-text parameters share the dropdowns' frame and left inset so every
+   label lines up down the column. */
+.param-freetext { border: 1px solid var(--pico-muted-border-color); border-radius: var(--pico-border-radius); }
+.param-freetext-head { padding: 0.35rem 0.6rem 0; font-size: 0.9rem; }
+.param-freetext .param-text { margin: 0.3rem 0 0.2rem; font-size: 0.9rem; }
+
+/* Pico gives inputs a bottom margin and small elements a negative top
+   one; left alone the help text rode up over the input's border. */
+.param-options small,
+.param-menu > small {
+    display: block; margin: 0; padding-top: 0.15rem;
+    font-size: 0.8rem; line-height: 1.3; color: var(--pico-muted-color);
+}
+.param-menu > small { padding: 0.15rem 0.6rem 0.5rem; }
 .param-custom { display: flex; gap: 0.4rem; margin-top: 0.4rem; }
 .param-custom input { margin: 0; font-size: 0.85rem; }
 .param-custom button { margin: 0; width: auto; padding: 0.15rem 0.6rem; font-size: 0.8rem; }
-.param-row .param-text { margin-bottom: 0.2rem; }
+
 </style>
 
 <form id="new-job-form" data-max-cells="{{.MaxCells}}" onsubmit="event.preventDefault();submitNewJob();">
@@ -79,13 +93,17 @@
         {{range $p := .Params}}
         <div class="param-row" data-param="{{.Name}}" data-sep="{{.Separator}}" data-restarts="{{if .RestartsRouter}}1{{end}}">
             {{if .FreeText}}
-            <label>
-                {{.Label}}{{if .RestartsRouter}} <span title="Each distinct value reloads llama-server" style="cursor:help;">&#8635;</span>{{end}}
-                <input type="text" class="param-text" data-param-text="{{.Name}}"
-                       placeholder="{{if .Example}}{{.Example}} — separate with {{.Separator}} to sweep{{else}}use model's saved value{{end}}"
-                       oninput="updateMatrixCount()">
-                <small style="color:var(--pico-muted-color);">{{.Help}}</small>
-            </label>
+            <div class="param-freetext">
+                <div class="param-freetext-head">
+                    <span class="param-label">{{.Label}}{{if .RestartsRouter}} <span title="Each distinct value reloads llama-server" style="cursor:help;">&#8635;</span>{{end}}</span>
+                </div>
+                <div class="param-options">
+                    <input type="text" class="param-text" data-param-text="{{.Name}}"
+                           placeholder="{{if .Example}}{{.Example}} — separate with {{.Separator}} to sweep{{else}}use model's saved value{{end}}"
+                           oninput="updateMatrixCount()">
+                    <small>{{.Help}}</small>
+                </div>
+            </div>
             {{else}}
             <details class="param-menu">
                 <summary>

@@ -179,8 +179,6 @@ var sweepFields = map[string]SweepField{
 		func(o *ConfigOverrides, v *string) { o.TensorSplit = v }),
 	"spec_type": strField("spec_type", "Speculative Decoding", "Speculative decoding mode.", "none,draft-mtp",
 		func(o *ConfigOverrides, v *string) { o.SpecType = v }),
-	"draft_model_path": strField("draft_model_path", "Draft Model", "Path to the draft model GGUF.", "",
-		func(o *ConfigOverrides, v *string) { o.DraftModelPath = v }),
 
 	// Sampling params ride along with each request, so sweeping them
 	// costs no router restarts.
@@ -218,7 +216,28 @@ func SweepFields() []SweepField {
 	for _, f := range sweepFields {
 		out = append(out, f)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Label < out[j].Label })
+	// Three tiers, then alphabetical within each. Parameters that reload
+	// llama-server are the ones that move throughput, so they come first;
+	// sampling settings don't and would otherwise scatter among them.
+	// Free-text parameters sort last because they render as a different
+	// control, and interleaving them looks like a rendering fault rather
+	// than a distinction.
+	tier := func(f SweepField) int {
+		switch {
+		case f.FreeText:
+			return 2
+		case !f.RestartsRouter:
+			return 1
+		default:
+			return 0
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if ti, tj := tier(out[i]), tier(out[j]); ti != tj {
+			return ti < tj
+		}
+		return out[i].Label < out[j].Label
+	})
 	return out
 }
 
@@ -431,12 +450,10 @@ func init() {
 	ga.AllowCustom = true
 	sweepFields["gpu_assign"] = ga
 
-	// No sensible enumeration: a split ratio and a filesystem path.
-	for _, name := range []string{"tensor_split", "draft_model_path"} {
-		f := sweepFields[name]
-		f.FreeText = true
-		sweepFields[name] = f
-	}
+	// No sensible enumeration: a split ratio is free-form.
+	ts2 := sweepFields["tensor_split"]
+	ts2.FreeText = true
+	sweepFields["tensor_split"] = ts2
 }
 
 // SplitParams turns the unified "parameter → selected values" shape the

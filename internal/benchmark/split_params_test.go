@@ -133,3 +133,43 @@ func TestEnumerableParamsHaveChoices(t *testing.T) {
 		}
 	}
 }
+
+// Ordering is a UX contract, not incidental: reload-affecting parameters
+// first (those are the ones that move throughput), sampling next, and
+// free-text controls last so they don't interleave with the dropdowns
+// and read as a rendering fault.
+func TestSweepFieldOrdering(t *testing.T) {
+	fields := SweepFields()
+
+	rank := func(f SweepField) int {
+		switch {
+		case f.FreeText:
+			return 2
+		case !f.RestartsRouter:
+			return 1
+		default:
+			return 0
+		}
+	}
+	for i := 1; i < len(fields); i++ {
+		prev, cur := fields[i-1], fields[i]
+		if rank(prev) > rank(cur) {
+			t.Errorf("%s (tier %d) sorts before %s (tier %d)",
+				prev.Name, rank(prev), cur.Name, rank(cur))
+		}
+		if rank(prev) == rank(cur) && prev.Label > cur.Label {
+			t.Errorf("within a tier, %q should follow %q", prev.Label, cur.Label)
+		}
+	}
+	if len(fields) == 0 || !fields[len(fields)-1].FreeText {
+		t.Error("the last parameter should be a free-text one")
+	}
+}
+
+// A draft model path is a thing to select, not a knob to tune, and it
+// was the only parameter whose values were filesystem paths.
+func TestDraftModelPathIsNotSweepable(t *testing.T) {
+	if _, ok := LookupSweepField("draft_model_path"); ok {
+		t.Error("draft_model_path should not be offered as a tunable parameter")
+	}
+}
