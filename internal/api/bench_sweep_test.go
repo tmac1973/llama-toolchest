@@ -19,60 +19,6 @@ func baseReq() jobCreateRequest {
 	}
 }
 
-// The form posts raw strings; the server owns parsing so the browser
-// never reimplements value syntax.
-func TestResolveSweepsParsesRawFormInput(t *testing.T) {
-	req := baseReq()
-	req.SweepsRaw = map[string]string{"gpu_layers": "20, 40,99"}
-
-	if err := resolveSweeps(&req); err != nil {
-		t.Fatalf("resolveSweeps: %v", err)
-	}
-	if len(req.Sweeps) != 1 {
-		t.Fatalf("got %d axes, want 1", len(req.Sweeps))
-	}
-	if got := req.Sweeps[0].Values; len(got) != 3 || got[0] != "20" || got[2] != "99" {
-		t.Errorf("values = %v, want [20 40 99]", got)
-	}
-}
-
-// A blank field is an untouched form input, not an empty axis.
-func TestResolveSweepsSkipsBlankFields(t *testing.T) {
-	req := baseReq()
-	req.SweepsRaw = map[string]string{"gpu_layers": "  ", "threads": "4,8"}
-
-	if err := resolveSweeps(&req); err != nil {
-		t.Fatalf("resolveSweeps: %v", err)
-	}
-	if len(req.Sweeps) != 1 || req.Sweeps[0].Field != "threads" {
-		t.Errorf("got %+v, want only a threads axis", req.Sweeps)
-	}
-}
-
-// JSON API callers can send structured axes directly; raw input must not
-// clobber them.
-func TestResolveSweepsPrefersStructuredAxes(t *testing.T) {
-	req := baseReq()
-	req.Sweeps = []benchmark.SweepAxis{{Field: "threads", Values: []string{"8"}}}
-	req.SweepsRaw = map[string]string{"gpu_layers": "20,40"}
-
-	if err := resolveSweeps(&req); err != nil {
-		t.Fatalf("resolveSweeps: %v", err)
-	}
-	if len(req.Sweeps) != 1 || req.Sweeps[0].Field != "threads" {
-		t.Errorf("structured axes were overwritten: %+v", req.Sweeps)
-	}
-}
-
-func TestResolveSweepsRejectsBadValues(t *testing.T) {
-	req := baseReq()
-	req.SweepsRaw = map[string]string{"gpu_layers": "20,not-a-number"}
-
-	if err := resolveSweeps(&req); err == nil {
-		t.Error("expected an error for an unparseable value")
-	}
-}
-
 // A bad sweep must fail when the job is defined, not hours into a run.
 func TestValidateJobRequestRejectsInvalidSweep(t *testing.T) {
 	req := baseReq()

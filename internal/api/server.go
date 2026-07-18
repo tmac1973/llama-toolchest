@@ -53,6 +53,10 @@ type Server struct {
 	// the whole process down rather than failing one request.
 	stateMu        sync.RWMutex
 	runningConfigs map[string]*models.ModelConfig
+	// runningBuild_ is the build id the router was last started with.
+	// Distinct from cfg.ActiveBuild, which is the user's saved choice: a
+	// job launches other builds without changing that.
+	runningBuild_ string
 	// cfgMu serializes access to cfg and its persistence. The benchmark
 	// queue and the Settings handlers both write config fields, and two
 	// interleaved saveConfig calls could otherwise serialize a
@@ -75,6 +79,21 @@ func (s *Server) withConfig(fn func()) {
 	s.cfgMu.Lock()
 	defer s.cfgMu.Unlock()
 	fn()
+}
+
+// setRunningBuild records the build the router was last launched with.
+func (s *Server) setRunningBuild(id string) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.runningBuild_ = id
+}
+
+// runningBuild returns the build the router is actually serving, which
+// differs from the user's saved selection while a job runs.
+func (s *Server) runningBuild() string {
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
+	return s.runningBuild_
 }
 
 // activeBuild reads the selected build under lock.

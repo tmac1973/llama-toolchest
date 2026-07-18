@@ -216,3 +216,47 @@ func TestGPUAssignUnchangedLeavesDerivedFields(t *testing.T) {
 		t.Errorf("untouched assignment was rewritten: %q %q %d", out.TensorSplit, out.SplitMode, out.MainGPU)
 	}
 }
+
+// An explicit tensor_split is the more specific instruction. Deriving
+// one from gpu_assign on top of it made the run record a split it never
+// used — a mislabeled measurement.
+func TestGPUAssignDoesNotClobberExplicitTensorSplit(t *testing.T) {
+	base := models.ModelConfig{GPUAssign: "all", TensorSplit: "", SplitMode: "layer"}
+	out := applySnapshotToConfig(base, benchmark.ConfigSnapshot{
+		GPUAssign: "0-1", TensorSplit: "70,30",
+	})
+	if err := resolveGPUAssignment(&out, base, 2); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if out.TensorSplit != "70,30" {
+		t.Errorf("TensorSplit = %q, want the explicitly swept 70,30", out.TensorSplit)
+	}
+}
+
+// With no GPU count, ResolveGPUAssign returns empty for every value, so
+// every sweep point would generate an identical preset and report
+// identical measurements under different labels. Fail instead.
+func TestGPUAssignFailsWhenGPUCountUnknown(t *testing.T) {
+	base := models.ModelConfig{GPUAssign: "all"}
+	out := applySnapshotToConfig(base, benchmark.ConfigSnapshot{GPUAssign: "0-1"})
+	if err := resolveGPUAssignment(&out, base, 0); err == nil {
+		t.Error("expected an error rather than a silently collapsed sweep")
+	}
+}
+
+// The interactive guard must be sourced from the queue, not from
+// jobEnv's sticky ownership flag: a failed restore leaves that flag set
+// deliberately, and reading it here locked the user out of starting the
+// router with no job left to cancel.
+func TestRouterBusyGuardIsNotStrandedByFailedRestore(t *testing.T) {
+	s := &Server{}
+	if s.routerBusyWithJob() {
+		t.Error("no queue wired; nothing is busy")
+	}
+
+	// Ownership stranded true, as a failed restore leaves it.
+	s.env = &jobEnv{s: s, ownsRouter: true}
+	if s.routerBusyWithJob() {
+		t.Error("a stranded ownership flag must not block interactive start")
+	}
+}

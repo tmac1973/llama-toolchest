@@ -178,13 +178,22 @@ func (s *Server) handleServiceStatus(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, status)
 }
 
-// routerBusyWithJob reports whether a benchmark job currently controls
-// the router. Interactive start/restart refuses rather than fighting it:
-// restarting would drop the job onto the user's config mid-cell, so that
-// cell would measure something other than what it reports.
+// routerBusyWithJob reports whether a benchmark job is currently running
+// and therefore driving the router. Interactive start/stop/restart
+// refuses rather than fighting it: restarting mid-cell would leave that
+// cell measuring something other than what it reports.
+//
+// Deliberately sourced from the queue rather than from jobEnv's
+// ownership flag. That flag is sticky by design — a failed restore
+// leaves it set so cleanup knows work is still owed — and using it here
+// meant one failed restore locked the user out of starting the router
+// at all, with no job to cancel.
 func (s *Server) routerBusyWithJob() bool {
-	env, ok := s.jobEnv()
-	return ok && env.routerOwnedByJob()
+	if s.jobs == nil {
+		return false
+	}
+	_, running := s.jobs.Status()
+	return running
 }
 
 func (s *Server) handleServiceStart(w http.ResponseWriter, r *http.Request) {
@@ -202,6 +211,10 @@ func (s *Server) handleServiceStart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleServiceStop(w http.ResponseWriter, r *http.Request) {
+	if s.routerBusyWithJob() {
+		http.Error(w, "a benchmark job is currently running the router — cancel it first", http.StatusConflict)
+		return
+	}
 	if err := s.process.Stop(); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -357,6 +370,16 @@ func (s *Server) handleServiceHealth(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleActivateModel(w http.ResponseWriter, r *http.Request) {
 	id := s.registry.ResolveID(chi.URLParam(r, "id"))
 
+	// Third startRouter caller, and the easiest to miss: it fires only
+	// when the router happens to be down, which includes the window
+	// between Stop and Start inside a job's own restart. Starting there
+	// would launch the user's preset under a job, so the cell would
+	// measure saved config while reporting the override.
+	if s.routerBusyWithJob() {
+		http.Error(w, "a benchmark job is currently running the router — cancel it first", http.StatusConflict)
+		return
+	}
+
 	// Ensure router is running
 	if !s.process.IsRunning() {
 		if err := s.startRouter(); err != nil {
@@ -489,22 +512,28 @@ func (s *Server) startRouterWith(opt routerOptions) error {
 		return err
 	}
 
-	// The router has just read a preset. Snapshot each model's launch
-	// config so /api/models/{id}/info can report live values for
-	// restart-requiring fields vs. a subsequent edit. Value-copy (not a
-	// shared pointer) because handleUpdateModelConfig mutates the
-	// registry's config struct in place.
-	//
-	// Keyed off which preset was actually used, not off whether a job is
-	// running: a job that has only switched builds is still running the
-	// user's config, and its snapshot is correct. Only a substitute
-	// config makes the saved values a lie.
-	if opt.overrides != nil {
-		return nil
-	}
+	// Record which build is actually serving, so callers can tell the
+	// user's saved selection from what a job temporarily launched.
+	s.setRunningBuild(build.ID)
 
+	// Snapshot each model's launch config so /api/models/{id}/info can
+	// report live values for restart-requiring fields vs. a subsequent
+	// edit. Value-copy (not a shared pointer) because
+	// handleUpdateModelConfig mutates the registry's config struct in
+	// place.
+	//
+	// Built from the configs this start actually used, substitutes
+	// included. Returning early for override starts left the previous
+	// snapshot in place, so /info reported the user's saved values as
+	// live while llama-server ran the job's — the same "recorded config
+	// is a lie" failure this mechanism exists to prevent.
 	snapshot := make(map[string]*models.ModelConfig)
 	for _, m := range s.registry.List() {
+		if sub, ok := opt.overrides[m.ID]; ok && sub != nil {
+			cp := *sub
+			snapshot[m.ID] = &cp
+			continue
+		}
 		cfg, err := s.registry.GetConfig(m.ID)
 		if err != nil {
 			continue
@@ -513,7 +542,13 @@ func (s *Server) startRouterWith(opt routerOptions) error {
 		snapshot[m.ID] = &cp
 	}
 	s.setRunningConfigs(snapshot)
-	s.clearDirty()
+
+	// Pending-reload badges only make sense against the user's own
+	// config. A job's start doesn't apply the user's edits, so it must
+	// not clear them.
+	if opt.overrides == nil {
+		s.clearDirty()
+	}
 	return nil
 }
 

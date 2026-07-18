@@ -118,15 +118,21 @@ func (e *jobEnv) EnsureBuildActive(ctx context.Context, buildID string) error {
 	}
 
 	e.mu.Lock()
-	unchanged := e.jobBuildID == buildID && e.ownsRouter
 	e.jobBuildID = buildID
+	hasConfigs := e.jobConfigs != nil
 	e.ownsRouter = true
 	e.mu.Unlock()
 
 	// The build is never written to the user's config. It travels as a
 	// start parameter, so a crash mid-job leaves the saved selection
 	// untouched and there is nothing to restore.
-	if unchanged && e.s.process.IsRunning() {
+	//
+	// Skip the restart when the router is already serving this build on
+	// the user's config — which is the common case for a quick benchmark
+	// on the build you already have running. Comparing against jobBuildID
+	// instead meant the first cell of every job killed a healthy router,
+	// unloading models and dropping open sessions for nothing.
+	if e.s.process.IsRunning() && e.s.runningBuild() == buildID && !hasConfigs {
 		return nil
 	}
 
@@ -171,7 +177,9 @@ func (e *jobEnv) ApplyEphemeralConfig(ctx context.Context, modelID string, cfg b
 		return fmt.Errorf("resolve config for %s: %w", modelID, err)
 	}
 	merged := applySnapshotToConfig(*base, cfg)
-	resolveGPUAssignment(&merged, *base, len(e.s.monitor.Current().GPU))
+	if err := resolveGPUAssignment(&merged, *base, len(e.s.monitor.Current().GPU)); err != nil {
+		return fmt.Errorf("%s: %w", modelID, err)
+	}
 	if err := merged.ValidateBatchSizes(); err != nil {
 		// The model-config form rejects an unusable batch pair; the
 		// benchmark path has to as well, or a -ub sweep past the batch
@@ -272,12 +280,26 @@ func applySnapshotToConfig(base models.ModelConfig, snap benchmark.ConfigSnapsho
 // Only applied when the snapshot's assignment differs from the base's,
 // so a job that doesn't touch gpu_assign leaves the model's saved
 // split-mode and main-gpu alone.
-func resolveGPUAssignment(out *models.ModelConfig, base models.ModelConfig, numGPUs int) {
+func resolveGPUAssignment(out *models.ModelConfig, base models.ModelConfig, numGPUs int) error {
 	if out.GPUAssign == base.GPUAssign || out.GPUAssign == "" || out.GPUAssign == "custom" {
-		return
+		return nil
+	}
+	// An explicit tensor_split is the more specific instruction. Deriving
+	// one from gpu_assign on top of it made the run record a split it
+	// never used.
+	if out.TensorSplit != base.TensorSplit {
+		return nil
+	}
+	if numGPUs <= 0 {
+		// ResolveGPUAssign returns empty for every assignment when it
+		// doesn't know the GPU count, which would make each sweep point
+		// generate an identical preset and report identical measurements
+		// under different labels. Fail the cell instead.
+		return fmt.Errorf("cannot resolve GPU assignment %q: no GPUs detected", out.GPUAssign)
 	}
 	ts, sm, mg := models.ResolveGPUAssign(out.GPUAssign, numGPUs)
 	out.TensorSplit, out.SplitMode, out.MainGPU = ts, sm, mg
+	return nil
 }
 
 // ResolveModel pulls registry data into the shape the JobRunner expects.

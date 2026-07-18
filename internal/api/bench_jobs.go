@@ -81,10 +81,6 @@ type jobCreateRequest struct {
 	Presets     []string                   `json:"presets"`
 	Overrides   *benchmark.ConfigOverrides `json:"overrides,omitempty"`
 	Sweeps      []benchmark.SweepAxis      `json:"sweeps,omitempty"`
-	// SweepsRaw is what the job form posts: field name → the raw list the
-	// user typed. Parsed server-side so value syntax lives in exactly one
-	// place. Ignored when Sweeps is set directly (JSON API callers).
-	SweepsRaw map[string]string `json:"sweeps_raw,omitempty"`
 	// Params is the unified shape the job form posts: parameter name →
 	// selected values. One value fixes the parameter, two or more sweep
 	// it. Supersedes Overrides/Sweeps for form callers; the older fields
@@ -115,14 +111,6 @@ func resolveSweeps(req *jobCreateRequest) error {
 		req.Sweeps = axes
 		return nil
 	}
-	if len(req.Sweeps) > 0 || len(req.SweepsRaw) == 0 {
-		return nil
-	}
-	axes, err := benchmark.BuildSweeps(req.SweepsRaw)
-	if err != nil {
-		return err
-	}
-	req.Sweeps = axes
 	return nil
 }
 

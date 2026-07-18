@@ -277,47 +277,6 @@ func LookupSweepField(name string) (SweepField, bool) {
 	return f, ok
 }
 
-// ParseSweepValues splits a comma-separated list into trimmed, non-empty
-// values, rejecting duplicates and validating each against the field's
-// parser so a bad entry is caught when the job is defined rather than
-// halfway through a long run.
-//
-// tensor_split uses "|" to separate values because its values contain
-// commas.
-func ParseSweepValues(field, raw string) ([]string, error) {
-	f, ok := sweepFields[field]
-	if !ok {
-		return nil, fmt.Errorf("unknown sweep field %q", field)
-	}
-
-	sep := f.Separator
-	if sep == "" {
-		sep = ","
-	}
-
-	seen := map[string]bool{}
-	var out []string
-	for _, part := range strings.Split(raw, sep) {
-		v := strings.TrimSpace(part)
-		if v == "" {
-			continue
-		}
-		c := f.canonical(v)
-		if seen[c] {
-			return nil, fmt.Errorf("%s: duplicate value %q", f.Label, v)
-		}
-		seen[c] = true
-		if err := f.set(&ConfigOverrides{}, v); err != nil {
-			return nil, fmt.Errorf("%s: %w", f.Label, err)
-		}
-		out = append(out, v)
-	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("%s: no values given", f.Label)
-	}
-	return out, nil
-}
-
 // ValidateSweeps checks every axis names a known field and carries at
 // least one valid value, and that no field is swept twice.
 func ValidateSweeps(sweeps []SweepAxis) error {
@@ -399,31 +358,6 @@ func SweepRestartsRouter(sweeps []SweepAxis) bool {
 		}
 	}
 	return false
-}
-
-// BuildSweeps turns raw "field → comma-separated list" form input into
-// validated axes. Blank entries are skipped so an untouched form field
-// doesn't create an empty axis. Keeping this server-side means the
-// browser never has to reimplement value parsing.
-func BuildSweeps(raw map[string]string) ([]SweepAxis, error) {
-	names := make([]string, 0, len(raw))
-	for k := range raw {
-		names = append(names, k)
-	}
-	sort.Strings(names)
-
-	var out []SweepAxis
-	for _, name := range names {
-		if strings.TrimSpace(raw[name]) == "" {
-			continue
-		}
-		values, err := ParseSweepValues(name, raw[name])
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, SweepAxis{Field: name, Values: values})
-	}
-	return out, nil
 }
 
 func choices(pairs ...string) []SweepChoice {

@@ -52,16 +52,56 @@ function mkRow(param, choices, opts){
   }
   return row;
 }
+function mkCheck(name, value, checked){
+  const cb=new El('input'); cb.type='checkbox'; cb.className='matrix-pick';
+  cb.setAttribute('name', name); cb.value=value; cb.checked=!!checked;
+  return cb;
+}
+
+// Free-text parameter row (tensor_split): a plain input, no dropdown.
+function mkTextRow(param, sep){
+  const row=new El('div'); row.className='param-row';
+  row.setAttribute('data-param', param);
+  row.setAttribute('data-sep', sep || ',');
+  row.setAttribute('data-restarts','1');
+  const input=new El('input'); input.className='param-text';
+  input.setAttribute('data-param-text', param);
+  row.appendChild(input);
+  return row;
+}
+
 const form=new El('form');
 form.setAttribute('data-max-cells','500');
+// Matrix selections, without which updateMatrixCount bails immediately.
+form.appendChild(mkCheck('model','m1',true));
+form.appendChild(mkCheck('model','m2',false));
+form.appendChild(mkCheck('build','b1',true));
+form.appendChild(mkCheck('preset','internal-quick',true));
 form.appendChild(mkRow('ubatch_size',['64','128','256','512','1024','2048'],{restarts:1,custom:1}));
 form.appendChild(mkRow('gpu_assign',['all','0','1','0-1'],{restarts:1,custom:1}));
 form.appendChild(mkRow('spec_type',['draft','draft-mtp'],{restarts:1}));         // no custom box
 form.appendChild(mkRow('temperature',['0','0.7','1.0'],{custom:1}));
+form.appendChild(mkTextRow('tensor_split','|'));
 const _byId={};
 global.document={
   getElementById:(id)=>{ if(id==='new-job-form') return form;
     if(!_byId[id]) _byId[id]=new El('div'); return _byId[id]; },
   createElement:(t)=>new El(t),
   createTextNode:(t)=>{ const n=new El('#text'); n.textContent=t; return n; } };
+// form.elements: named-control access, as browsers expose it.
+Object.defineProperty(form, 'elements', {
+  get(){
+    const map={};
+    for(const n of form.walk()){
+      const nm=n.getAttribute('name');
+      if(nm && !(nm in map)) map[nm]=n;
+    }
+    return map;
+  }
+});
+// Named inputs prefillJobForm writes directly.
+['name','description'].forEach(function(n){
+  const el=new El('input'); el.setAttribute('name', n); form.appendChild(el);
+});
+
 global.form=form;

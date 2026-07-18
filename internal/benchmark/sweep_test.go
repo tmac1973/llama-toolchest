@@ -163,43 +163,6 @@ func TestCellOverridesRejectsUnknownField(t *testing.T) {
 	}
 }
 
-func TestParseSweepValues(t *testing.T) {
-	got, err := ParseSweepValues("gpu_layers", " 20, 40 ,99 ")
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	if !reflect.DeepEqual(got, []string{"20", "40", "99"}) {
-		t.Errorf("got %v, want [20 40 99]", got)
-	}
-}
-
-func TestParseSweepValuesRejectsBadInput(t *testing.T) {
-	cases := map[string]struct{ field, raw string }{
-		"non-integer":   {"gpu_layers", "20,abc"},
-		"duplicate":     {"gpu_layers", "20,20"},
-		"empty":         {"gpu_layers", "  ,  "},
-		"bad bool":      {"flash_attention", "yes,no"},
-		"unknown field": {"nonsense", "1"},
-		"non-float":     {"temperature", "warm"},
-	}
-	for name, c := range cases {
-		if _, err := ParseSweepValues(c.field, c.raw); err == nil {
-			t.Errorf("%s: expected an error for %q", name, c.raw)
-		}
-	}
-}
-
-// tensor_split values contain commas, so its list uses "|".
-func TestParseSweepValuesTensorSplitUsesPipe(t *testing.T) {
-	got, err := ParseSweepValues("tensor_split", "1,1 | 3,1")
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	if !reflect.DeepEqual(got, []string{"1,1", "3,1"}) {
-		t.Errorf("got %v, want [1,1 3,1]", got)
-	}
-}
-
 func TestValidateSweeps(t *testing.T) {
 	if err := ValidateSweeps([]SweepAxis{
 		{Field: "gpu_layers", Values: []string{"20", "40"}},
@@ -231,19 +194,6 @@ func TestSweepRestartsRouterDistinguishesSamplingFromConfig(t *testing.T) {
 	}
 	if !SweepRestartsRouter([]SweepAxis{{Field: "gpu_layers", Values: []string{"20", "40"}}}) {
 		t.Error("sweeping gpu_layers requires router restarts")
-	}
-}
-
-// Every registry entry must round-trip through its own parser, so a
-// newly added field can't ship with a broken example.
-func TestSweepFieldExamplesParse(t *testing.T) {
-	for _, f := range SweepFields() {
-		if f.Example == "" {
-			continue
-		}
-		if _, err := ParseSweepValues(f.Name, f.Example); err != nil {
-			t.Errorf("%s: example %q does not parse: %v", f.Name, f.Example, err)
-		}
 	}
 }
 
