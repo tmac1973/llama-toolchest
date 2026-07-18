@@ -21,7 +21,10 @@
                 Flash Attn: {{if .Config.FlashAttention}}on{{else}}off{{end}}
                 | KV Quant: {{or .Config.KVCacheQuant "f16"}}
                 {{if .Config.DirectIO}} | Direct I/O: on{{end}}
+                {{if .Config.BatchSize}} | Batch: {{.Config.BatchSize}}{{end}}
+                {{if .Config.UBatchSize}} | Micro-batch: {{.Config.UBatchSize}}{{end}}
                 {{if .Config.SpecType}} | Spec: {{.Config.SpecType}}{{end}}
+                {{if .SweepValues}}<br>Sweep point: {{range $k, $v := .SweepValues}}<kbd>{{$k}}={{$v}}</kbd> {{end}}{{end}}
             </small>
         </div>
         <div>

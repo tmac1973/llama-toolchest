@@ -119,6 +119,7 @@
                 <th>Size</th>
                 <th>GPUs</th>
                 <th>Context</th>
+                <th title="Batch / micro-batch (-b / -ub). A dash means llama.cpp's default.">Batch b/ub</th>
                 <th>KV Quant</th>
                 <th>Flash Attn</th>
                 <th>Build</th>
@@ -142,6 +143,7 @@
             <td>{{printf "%.1f" .SizeGB}} GB</td>
             <td>{{if .Config.GPUAssign}}{{.Config.GPUAssign}}{{else}}all{{end}}</td>
             <td>{{.Config.ContextSize}}</td>
+            <td>{{if or .Config.BatchSize .Config.UBatchSize}}{{if .Config.BatchSize}}{{.Config.BatchSize}}{{else}}—{{end}}/{{if .Config.UBatchSize}}{{.Config.UBatchSize}}{{else}}—{{end}}{{else}}—{{end}}</td>
             <td>{{or .Config.KVCacheQuant "f16"}}</td>
             <td>{{if .Config.FlashAttention}}yes{{else}}no{{end}}</td>
             <td title="{{$b.Tag}}{{if $b.GitSHA}} · {{$b.GitSHA}}{{end}}">
