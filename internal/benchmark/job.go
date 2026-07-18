@@ -59,6 +59,11 @@ type BenchmarkJob struct {
 	Presets   []string         `json:"presets,omitempty"`
 	Overrides *ConfigOverrides `json:"overrides,omitempty"`
 
+	// Sweeps expand the matrix: every combination of every axis becomes
+	// its own cell. Overrides still apply to all of them, so a fixed
+	// value acts as the baseline for whatever isn't being swept.
+	Sweeps []SweepAxis `json:"sweeps,omitempty"`
+
 	// Expanded matrix
 	Cells []JobCell `json:"cells,omitempty"`
 }
@@ -94,6 +99,10 @@ type JobCell struct {
 	Attempt        int    `json:"attempt"`
 	BenchmarkRunID string `json:"benchmark_run_id,omitempty"`
 	Error          string `json:"error,omitempty"`
+
+	// SweepValues holds this cell's point on each swept axis, keyed by
+	// sweep field name. Empty for jobs that sweep nothing.
+	SweepValues map[string]string `json:"sweep_values,omitempty"`
 }
 
 // newAdhocJob synthesizes the catch-all "Ad-Hoc Runs" pseudo-job that

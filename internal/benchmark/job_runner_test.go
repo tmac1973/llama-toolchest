@@ -371,3 +371,97 @@ func TestSamplingOverridesReachTheRequest(t *testing.T) {
 		t.Error("min_p was not overridden and must be omitted")
 	}
 }
+
+// A sweep must apply each distinct config exactly once, not once per
+// cell. Two presets under each of two sweep points is four cells but
+// only two configs, so only two reloads.
+func TestSweepAppliesEachConfigOnce(t *testing.T) {
+	router := newFakeRouter(t)
+	env := &fakeEnv{
+		routerURL: router.URL,
+		saved:     ConfigSnapshot{GPULayers: 999, ContextSize: 8192, Threads: 8},
+	}
+
+	job := BenchmarkJob{
+		ID: "job-sweep", Name: "sweep", Kind: JobKindBatch,
+		ModelIDs: []string{"m"}, BuildIDs: []string{"b"},
+		Presets: []string{"internal-quick", "internal-long-ctx"},
+		Sweeps:  []SweepAxis{{Field: "gpu_layers", Values: []string{"20", "40"}}},
+	}
+	job.Cells = ExpandCellsWithSweeps(job.ModelIDs, job.BuildIDs, job.Presets, job.Sweeps)
+	if len(job.Cells) != 4 {
+		t.Fatalf("expected 4 cells, got %d", len(job.Cells))
+	}
+
+	done, store := runJob(t, job, env)
+	if done.Status != JobStatusCompleted {
+		t.Fatalf("job status = %s, want completed", done.Status)
+	}
+
+	applied, cleared := env.snapshotCalls()
+	if len(applied) != 2 {
+		t.Errorf("ApplyEphemeralConfig called %d times across 4 cells, want 2 (one per distinct config)", len(applied))
+	}
+	if cleared != 1 {
+		t.Errorf("ClearEphemeralConfig called %d times, want 1", cleared)
+	}
+
+	got := map[int]bool{}
+	for _, a := range applied {
+		got[a.GPULayers] = true
+	}
+	if !got[20] || !got[40] {
+		t.Errorf("expected both swept values to be applied, got %v", got)
+	}
+
+	if runs := store.RunsForJob(job.ID); len(runs) != 4 {
+		t.Errorf("got %d runs, want 4", len(runs))
+	}
+}
+
+// Sweeping a sampling param changes only the request body, so it must
+// not restart the router at all.
+func TestSamplingSweepCostsNoRestarts(t *testing.T) {
+	router := newFakeRouter(t)
+	env := &fakeEnv{routerURL: router.URL, saved: ConfigSnapshot{GPULayers: 999}}
+
+	job := BenchmarkJob{
+		ID: "job-temp", Name: "temp sweep", Kind: JobKindBatch,
+		ModelIDs: []string{"m"}, BuildIDs: []string{"b"},
+		Presets: []string{"internal-quick"},
+		Sweeps:  []SweepAxis{{Field: "temperature", Values: []string{"0", "0.7", "1.0"}}},
+	}
+	job.Cells = ExpandCellsWithSweeps(job.ModelIDs, job.BuildIDs, job.Presets, job.Sweeps)
+
+	done, _ := runJob(t, job, env)
+	if done.Status != JobStatusCompleted {
+		t.Fatalf("job status = %s, want completed", done.Status)
+	}
+
+	// Sampling doesn't change ConfigSnapshot, so all three cells resolve
+	// to one identical config and the router is touched exactly once.
+	applied, _ := env.snapshotCalls()
+	if len(applied) > 1 {
+		t.Errorf("sampling sweep caused %d config applications, want at most 1", len(applied))
+	}
+
+	// Each swept temperature must reach the wire.
+	var temps []any
+	for _, b := range router.completionBodies() {
+		if v, ok := b["temperature"]; ok {
+			temps = append(temps, v)
+		}
+	}
+	if len(temps) != 3 {
+		t.Fatalf("got %d requests carrying temperature, want 3: %v", len(temps), temps)
+	}
+	seen := map[any]bool{}
+	for _, v := range temps {
+		seen[v] = true
+	}
+	for _, want := range []any{0.0, 0.7, 1.0} {
+		if !seen[want] {
+			t.Errorf("temperature %v never reached the router (saw %v)", want, temps)
+		}
+	}
+}
