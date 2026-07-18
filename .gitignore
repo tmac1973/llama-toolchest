@@ -7,5 +7,9 @@ dist/
 # Rendered from Caddyfile.template by `setup.sh install --secure`; contains the
 # admin bcrypt hash, so it must never be committed. The template is tracked.
 /Caddyfile
+# Local dev config read by `make dev`. Holds this machine's data_dir plus
+# hf_token and api_key fields, so it must never be committed. The example
+# lives at packaging/config/llama-toolchest.yaml.example.
+/config.yaml
 .claude/
 debug_output.txt
