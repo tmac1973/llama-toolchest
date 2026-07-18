@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tmlabonte/llamactl/internal/models"
+	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
 const baseURL = "https://huggingface.co/api"

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tmlabonte/llamactl/internal/models"
-	"github.com/tmlabonte/llamactl/web"
+	"github.com/tmac1973/llama-toolchest/internal/models"
+	"github.com/tmac1973/llama-toolchest/web"
 )
 
 // testFuncMap mirrors the custom funcs registered in parseTemplates so the

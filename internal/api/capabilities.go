@@ -1,6 +1,6 @@
 package api
 
-import "github.com/tmlabonte/llamactl/internal/models"
+import "github.com/tmac1973/llama-toolchest/internal/models"
 
 // CapabilitiesSchemaVersion is the version of the capabilities object shape.
 // Clients branch on it; bump only on breaking changes to the schema.

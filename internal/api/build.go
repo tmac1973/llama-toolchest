@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/tmlabonte/llamactl/internal/builder"
+	"github.com/tmac1973/llama-toolchest/internal/builder"
 )
 
 func (s *Server) handleListBackends(w http.ResponseWriter, r *http.Request) {

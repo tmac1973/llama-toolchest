@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/tmlabonte/llamactl/internal/api"
-	"github.com/tmlabonte/llamactl/internal/config"
+	"github.com/tmac1973/llama-toolchest/internal/api"
+	"github.com/tmac1973/llama-toolchest/internal/config"
 )
 
 // Build info, populated via -ldflags by goreleaser.

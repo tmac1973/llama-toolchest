@@ -1,4 +1,4 @@
-module github.com/tmlabonte/llamactl
+module github.com/tmac1973/llama-toolchest
 
 go 1.25.7
 

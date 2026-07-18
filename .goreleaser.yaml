@@ -2,9 +2,8 @@
 # Triggered by .github/workflows/release.yml; for local dev use:
 #   make package-snapshot
 #
-# Project: llama-toolchest. Module path is github.com/tmlabonte/llamactl
-# for legacy reasons; the binary, package, and brand name are
-# llama-toolchest.
+# Project: llama-toolchest. Module path, binary, package, and brand name
+# are all github.com/tmac1973/llama-toolchest.
 
 version: 2
 

@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/tmlabonte/llamactl/internal/benchmark"
+	"github.com/tmac1973/llama-toolchest/internal/benchmark"
 )
 
 // ExportEnvelope is the on-disk JSON shape for both per-job and

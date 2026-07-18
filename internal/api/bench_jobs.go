@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/tmlabonte/llamactl/internal/benchmark"
-	"github.com/tmlabonte/llamactl/internal/models"
+	"github.com/tmac1973/llama-toolchest/internal/benchmark"
+	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
 // handleListJobs returns all benchmark jobs.

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tmlabonte/llamactl/internal/models"
+	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
 // autoLoadTimeout caps how long an auto-load triggered by /v1/chat/completions

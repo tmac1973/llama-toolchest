@@ -15,14 +15,14 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/tmlabonte/llamactl/internal/benchmark"
-	"github.com/tmlabonte/llamactl/internal/builder"
-	"github.com/tmlabonte/llamactl/internal/config"
-	"github.com/tmlabonte/llamactl/internal/huggingface"
-	"github.com/tmlabonte/llamactl/internal/models"
-	"github.com/tmlabonte/llamactl/internal/monitor"
-	"github.com/tmlabonte/llamactl/internal/process"
-	"github.com/tmlabonte/llamactl/web"
+	"github.com/tmac1973/llama-toolchest/internal/benchmark"
+	"github.com/tmac1973/llama-toolchest/internal/builder"
+	"github.com/tmac1973/llama-toolchest/internal/config"
+	"github.com/tmac1973/llama-toolchest/internal/huggingface"
+	"github.com/tmac1973/llama-toolchest/internal/models"
+	"github.com/tmac1973/llama-toolchest/internal/monitor"
+	"github.com/tmac1973/llama-toolchest/internal/process"
+	"github.com/tmac1973/llama-toolchest/web"
 )
 
 type Server struct {

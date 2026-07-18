@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/tmlabonte/llamactl/internal/models"
+	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
 // openAIModel builds an OpenAI-compatible Model object with a meta extension.

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tmlabonte/llamactl/internal/monitor"
+	"github.com/tmac1973/llama-toolchest/internal/monitor"
 )
 
 const (

@@ -3,7 +3,7 @@ package api
 import (
 	"net/http"
 
-	"github.com/tmlabonte/llamactl/internal/models"
+	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
 // handleGPUMap renders the GPU allocation map partial.

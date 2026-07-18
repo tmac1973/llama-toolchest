@@ -3,7 +3,7 @@ package api
 import (
 	"testing"
 
-	"github.com/tmlabonte/llamactl/internal/models"
+	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
 func ptrF(v float64) *float64 { return &v }

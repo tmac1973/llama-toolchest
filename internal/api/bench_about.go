@@ -3,7 +3,7 @@ package api
 import (
 	"net/http"
 
-	"github.com/tmlabonte/llamactl/internal/benchmark"
+	"github.com/tmac1973/llama-toolchest/internal/benchmark"
 )
 
 // AboutBenchmarks is the JSON shape for /api/benchmarks/about. The HTMX

@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tmlabonte/llamactl/internal/broadcast"
+	"github.com/tmac1973/llama-toolchest/internal/broadcast"
 )
 
 const (

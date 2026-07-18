@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tmlabonte/llamactl/internal/broadcast"
+	"github.com/tmac1973/llama-toolchest/internal/broadcast"
 )
 
 // DownloadStatus tracks progress of a model download.

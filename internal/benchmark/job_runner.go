@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tmlabonte/llamactl/internal/monitor"
+	"github.com/tmac1973/llama-toolchest/internal/monitor"
 )
 
 // ErrJobAlreadyRunning is returned by Submit when a job is in flight.

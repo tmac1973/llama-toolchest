@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tmlabonte/llamactl/internal/benchmark"
-	"github.com/tmlabonte/llamactl/internal/builder"
-	"github.com/tmlabonte/llamactl/internal/models"
-	"github.com/tmlabonte/llamactl/internal/monitor"
+	"github.com/tmac1973/llama-toolchest/internal/benchmark"
+	"github.com/tmac1973/llama-toolchest/internal/builder"
+	"github.com/tmac1973/llama-toolchest/internal/models"
+	"github.com/tmac1973/llama-toolchest/internal/monitor"
 )
 
 // jobEnv adapts *Server to benchmark.JobEnv. Created once at server

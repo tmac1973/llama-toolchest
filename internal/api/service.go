@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/tmlabonte/llamactl/internal/models"
-	"github.com/tmlabonte/llamactl/internal/process"
+	"github.com/tmac1973/llama-toolchest/internal/models"
+	"github.com/tmac1973/llama-toolchest/internal/process"
 )
 
 // applySpecDefaults resets speculative decoding parameters to recommended

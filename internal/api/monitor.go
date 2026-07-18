@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/tmlabonte/llamactl/internal/monitor"
+	"github.com/tmac1973/llama-toolchest/internal/monitor"
 )
 
 func (s *Server) handleMonitorStream(w http.ResponseWriter, r *http.Request) {
