@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -71,6 +72,12 @@ type BenchmarkRun struct {
 
 	// Duration
 	DurationMs int64 `json:"duration_ms,omitempty"`
+
+	// SweepValues records which point of a parameter sweep this run
+	// measured, copied from its cell. Stored on the run so results stay
+	// self-describing when compared across jobs, or after a job is
+	// deleted and its runs are orphaned to Ad-Hoc.
+	SweepValues map[string]string `json:"sweep_values,omitempty"`
 
 	// ConfigUnverified marks a run whose recorded Config may not reflect
 	// what llama-server actually ran. Set by the v2→v3 migration on runs
@@ -526,7 +533,45 @@ func (s *Store) DeleteJob(id string, disposition DeleteDisposition) error {
 //
 // Refuses to edit the synthetic adhoc job. Does not check whether the
 // queue is busy — that's the JobQueue's responsibility on Submit.
-func (s *Store) UpdateJobDefinition(id, name, description string, modelIDs, buildIDs, presets []string, overrides *ConfigOverrides) (*BenchmarkJob, error) {
+// JobDefinition is the editable part of a job. Grouped into a struct
+// because the positional form had grown to seven parameters and adding
+// sweeps would have made eight.
+type JobDefinition struct {
+	Name        string
+	Description string
+	ModelIDs    []string
+	BuildIDs    []string
+	Presets     []string
+	Overrides   *ConfigOverrides
+	Sweeps      []SweepAxis
+}
+
+// cellIdentity keys a cell for match-up across an edit. Sweep values are
+// part of the identity: without them, editing a swept job would match a
+// completed cell to a different sweep point and report its result under
+// the wrong configuration.
+type cellIdentity struct {
+	Model, Build, Preset string
+	Sweep                string
+}
+
+func identify(c JobCell) cellIdentity {
+	names := make([]string, 0, len(c.SweepValues))
+	for k := range c.SweepValues {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	var b strings.Builder
+	for _, n := range names {
+		fmt.Fprintf(&b, "%s=%s;", n, c.SweepValues[n])
+	}
+	return cellIdentity{c.ModelID, c.BuildID, c.Preset, b.String()}
+}
+
+func (s *Store) UpdateJobDefinition(id string, def JobDefinition) (*BenchmarkJob, error) {
+	name, description := def.Name, def.Description
+	modelIDs, buildIDs, presets := def.ModelIDs, def.BuildIDs, def.Presets
+	overrides := def.Overrides
 	if id == AdhocJobID {
 		return nil, fmt.Errorf("cannot edit the synthetic %q job", AdhocJobID)
 	}
@@ -545,16 +590,15 @@ func (s *Store) UpdateJobDefinition(id, name, description string, modelIDs, buil
 	}
 	job := s.jobs[idx]
 
-	type cellKey struct{ Model, Build, Preset string }
-	prev := make(map[cellKey]JobCell, len(job.Cells))
+	prev := make(map[cellIdentity]JobCell, len(job.Cells))
 	for _, c := range job.Cells {
-		prev[cellKey{c.ModelID, c.BuildID, c.Preset}] = c
+		prev[identify(c)] = c
 	}
 
-	newCells := ExpandCells(modelIDs, buildIDs, presets)
+	newCells := ExpandCellsWithSweeps(modelIDs, buildIDs, presets, def.Sweeps)
 	keptRuns := make(map[string]bool)
 	for i := range newCells {
-		k := cellKey{newCells[i].ModelID, newCells[i].BuildID, newCells[i].Preset}
+		k := identify(newCells[i])
 		if old, ok := prev[k]; ok && old.Status == CellStatusCompleted {
 			newCells[i] = old
 			if old.BenchmarkRunID != "" {
@@ -592,6 +636,7 @@ func (s *Store) UpdateJobDefinition(id, name, description string, modelIDs, buil
 	job.BuildIDs = buildIDs
 	job.Presets = presets
 	job.Overrides = overrides
+	job.Sweeps = def.Sweeps
 	job.Cells = newCells
 	job.Status = JobStatusPending
 	job.StartedAt = time.Time{}

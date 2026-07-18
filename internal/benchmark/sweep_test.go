@@ -260,3 +260,39 @@ func TestNewRunIDIsUnique(t *testing.T) {
 		seen[id] = true
 	}
 }
+
+// Editing a swept job must match completed cells to the same sweep
+// point. Keying only on (model, build, preset) would let a completed
+// ngl=20 cell satisfy the ngl=40 cell and report its result under the
+// wrong configuration.
+func TestCellIdentityDistinguishesSweepPoints(t *testing.T) {
+	a := JobCell{ModelID: "m", BuildID: "b", Preset: "p",
+		SweepValues: map[string]string{"gpu_layers": "20"}}
+	b := JobCell{ModelID: "m", BuildID: "b", Preset: "p",
+		SweepValues: map[string]string{"gpu_layers": "40"}}
+
+	if identify(a) == identify(b) {
+		t.Error("cells at different sweep points must not share an identity")
+	}
+}
+
+// Map iteration order must not affect identity, or an edit would fail to
+// match cells to themselves.
+func TestCellIdentityStableAcrossMapOrder(t *testing.T) {
+	a := JobCell{ModelID: "m", BuildID: "b", Preset: "p",
+		SweepValues: map[string]string{"gpu_layers": "20", "threads": "8"}}
+	b := JobCell{ModelID: "m", BuildID: "b", Preset: "p",
+		SweepValues: map[string]string{"threads": "8", "gpu_layers": "20"}}
+
+	if identify(a) != identify(b) {
+		t.Errorf("identity depends on map order:\n%+v\n%+v", identify(a), identify(b))
+	}
+}
+
+func TestCellIdentityUnsweptCellsMatch(t *testing.T) {
+	a := JobCell{ModelID: "m", BuildID: "b", Preset: "p"}
+	b := JobCell{ModelID: "m", BuildID: "b", Preset: "p"}
+	if identify(a) != identify(b) {
+		t.Error("identical unswept cells must share an identity")
+	}
+}

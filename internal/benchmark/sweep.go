@@ -44,6 +44,10 @@ type SweepField struct {
 	// llama-server reloads, which is what makes a sweep expensive.
 	// Sampling params are sent per request and cost nothing.
 	RestartsRouter bool
+	// Separator splits a value list. Exposed rather than hardcoded so the
+	// form's live cell-count estimate splits exactly the way the parser
+	// does — tensor_split values contain commas and so use "|".
+	Separator string
 
 	set func(o *ConfigOverrides, raw string) error
 }
@@ -75,7 +79,7 @@ func parseBool(raw string) (bool, error) {
 func intField(name, label, help, example string, apply func(*ConfigOverrides, *int)) SweepField {
 	return SweepField{
 		Name: name, Label: label, Kind: SweepKindInt, Help: help,
-		Example: example, RestartsRouter: true,
+		Example: example, RestartsRouter: true, Separator: ",",
 		set: func(o *ConfigOverrides, raw string) error {
 			v, err := parseInt(raw)
 			if err != nil {
@@ -90,7 +94,7 @@ func intField(name, label, help, example string, apply func(*ConfigOverrides, *i
 func strField(name, label, help, example string, apply func(*ConfigOverrides, *string)) SweepField {
 	return SweepField{
 		Name: name, Label: label, Kind: SweepKindStr, Help: help,
-		Example: example, RestartsRouter: true,
+		Example: example, RestartsRouter: true, Separator: ",",
 		set: func(o *ConfigOverrides, raw string) error {
 			v := strings.TrimSpace(raw)
 			apply(o, &v)
@@ -102,7 +106,7 @@ func strField(name, label, help, example string, apply func(*ConfigOverrides, *s
 func boolField(name, label, help string, apply func(*ConfigOverrides, *bool)) SweepField {
 	return SweepField{
 		Name: name, Label: label, Kind: SweepKindBool, Help: help,
-		Example: "true,false", RestartsRouter: true,
+		Example: "true,false", RestartsRouter: true, Separator: ",",
 		set: func(o *ConfigOverrides, raw string) error {
 			v, err := parseBool(raw)
 			if err != nil {
@@ -117,7 +121,7 @@ func boolField(name, label, help string, apply func(*ConfigOverrides, *bool)) Sw
 func floatField(name, label, help, example string, apply func(*ConfigOverrides, *float64)) SweepField {
 	return SweepField{
 		Name: name, Label: label, Kind: SweepKindFloat, Help: help,
-		Example: example, RestartsRouter: false,
+		Example: example, RestartsRouter: false, Separator: ",",
 		set: func(o *ConfigOverrides, raw string) error {
 			v, err := parseFloat(raw)
 			if err != nil {
@@ -174,6 +178,12 @@ func init() {
 	f := sweepFields["top_k"]
 	f.RestartsRouter = false
 	sweepFields["top_k"] = f
+
+	// tensor_split values are themselves comma-separated ("1,1"), so its
+	// list needs a different separator.
+	ts := sweepFields["tensor_split"]
+	ts.Separator = "|"
+	sweepFields["tensor_split"] = ts
 }
 
 // SweepFields returns the registry sorted by label, for rendering the
@@ -206,9 +216,9 @@ func ParseSweepValues(field, raw string) ([]string, error) {
 		return nil, fmt.Errorf("unknown sweep field %q", field)
 	}
 
-	sep := ","
-	if field == "tensor_split" {
-		sep = "|"
+	sep := f.Separator
+	if sep == "" {
+		sep = ","
 	}
 
 	seen := map[string]bool{}
@@ -302,4 +312,29 @@ func SweepRestartsRouter(sweeps []SweepAxis) bool {
 		}
 	}
 	return false
+}
+
+// BuildSweeps turns raw "field → comma-separated list" form input into
+// validated axes. Blank entries are skipped so an untouched form field
+// doesn't create an empty axis. Keeping this server-side means the
+// browser never has to reimplement value parsing.
+func BuildSweeps(raw map[string]string) ([]SweepAxis, error) {
+	names := make([]string, 0, len(raw))
+	for k := range raw {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+
+	var out []SweepAxis
+	for _, name := range names {
+		if strings.TrimSpace(raw[name]) == "" {
+			continue
+		}
+		values, err := ParseSweepValues(name, raw[name])
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, SweepAxis{Field: name, Values: values})
+	}
+	return out, nil
 }

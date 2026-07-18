@@ -42,6 +42,7 @@
                 <th>Quant</th>
                 <th>Build</th>
                 <th>Preset</th>
+                <th>Sweep</th>
                 <th>Status</th>
                 <th title="Token Generation tokens/sec">TG t/s</th>
                 <th title="Prompt Processing tokens/sec">PP t/s</th>
@@ -57,6 +58,7 @@
             <td>{{if .Quant}}<kbd>{{.Quant}}</kbd>{{else}}—{{end}}</td>
             <td><kbd>{{.BuildLbl}}</kbd></td>
             <td><small>{{.Cell.Preset}}</small></td>
+            <td><small>{{if .Cell.SweepValues}}{{range $k, $v := .Cell.SweepValues}}<kbd>{{$k}}={{$v}}</kbd> {{end}}{{else}}—{{end}}</small></td>
             <td><span class="cell-status status-{{.Cell.Status}}">{{.Cell.Status}}</span>
                 {{if .ErrorShort}}<br><small style="color:var(--pico-del-color);" title="{{.Cell.Error}}">{{.ErrorShort}}</small>{{end}}
             </td>

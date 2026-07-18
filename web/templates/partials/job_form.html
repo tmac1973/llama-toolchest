@@ -1,5 +1,5 @@
 {{define "job_form"}}
-<form id="new-job-form" onsubmit="event.preventDefault();submitNewJob();">
+<form id="new-job-form" data-max-cells="{{.MaxCells}}" onsubmit="event.preventDefault();submitNewJob();">
     <label>
         Name
         <input type="text" name="name" required placeholder="Q4 vs Q8 sweep" oninput="updateMatrixCount()">
@@ -105,6 +105,31 @@
                 </select>
             </label>
         </div>
+    </details>
+
+    <details>
+        <summary>Parameter sweeps <small style="color:var(--pico-muted-color);">(blank = don't sweep)</small></summary>
+        <p style="margin:0.25rem 0 0.75rem;color:var(--pico-muted-color);font-size:0.85em;">
+            Give a list of values and every combination becomes its own cell,
+            on top of the models/builds/presets you picked. A sweep value wins
+            over the fixed override above for the same field.
+            Marked <strong>&#8635;</strong> fields reload llama-server for each
+            distinct value, which is the slow part; sampling settings are sent
+            with each request and cost nothing extra.
+        </p>
+        {{range .SweepFields}}
+        <label style="margin-bottom:0.5rem;">
+            {{.Label}}
+            {{if .RestartsRouter}}<span title="Each distinct value reloads llama-server" style="cursor:help;">&#8635;</span>{{end}}
+            <input type="text"
+                   name="sw_{{.Name}}"
+                   data-sweep-field="{{.Name}}"
+                   data-sweep-sep="{{.Separator}}"
+                   oninput="updateMatrixCount()"
+                   placeholder="{{if .Example}}{{.Example}}{{else}}no sweep{{end}}">
+            <small style="color:var(--pico-muted-color);">{{.Help}}</small>
+        </label>
+        {{end}}
     </details>
 
     <p id="job-matrix-preview" style="margin:0.5rem 0;color:var(--pico-muted-color);">

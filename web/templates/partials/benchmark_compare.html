@@ -112,6 +112,7 @@
             <tr>
                 <th>Model</th>
                 <th>Quant</th>
+                <th title="Which point of a parameter sweep this run measured">Sweep</th>
                 <th title="Prompt Processing tokens/sec">PP t/s</th>
                 <th title="Token Generation tokens/sec">TG t/s</th>
                 <th title="Time To First Token, milliseconds">TTFT (ms)</th>
@@ -134,6 +135,7 @@
             data-sort-ttft="{{printf "%.4f" .Summary.AvgTTFTMs}}"{{end}}>
             <td title="{{.ModelID}}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{if .ConfigUnverified}}<span title="Config columns for this run may not reflect what actually ran — its job declared overrides before overrides were applied. Throughput is still valid." style="color:var(--pico-del-color,#b3261e);cursor:help;">&#9888;</span> {{end}}{{.ModelName}}</td>
             <td><kbd>{{.Quant}}</kbd></td>
+            <td>{{if .SweepValues}}{{range $k, $v := .SweepValues}}<kbd title="{{$k}}">{{$v}}</kbd> {{end}}{{else}}—{{end}}</td>
             <td>{{if .Summary}}{{printf "%.0f" .Summary.AvgPromptTokPerSec}}{{else}}—{{end}}</td>
             <td>{{if .Summary}}<strong>{{printf "%.1f" .Summary.AvgGenTokPerSec}}</strong>{{else}}—{{end}}</td>
             <td>{{if .Summary}}{{printf "%.0f" .Summary.AvgTTFTMs}}{{else}}—{{end}}</td>

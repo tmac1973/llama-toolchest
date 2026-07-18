@@ -73,13 +73,62 @@ type jobListEntry struct {
 
 // jobCreateRequest is the JSON body POST /api/benchmark-jobs accepts.
 type jobCreateRequest struct {
-	Name        string                       `json:"name"`
-	Description string                       `json:"description,omitempty"`
-	ModelIDs    []string                     `json:"model_ids"`
-	BuildIDs    []string                     `json:"build_ids"`
-	Presets     []string                     `json:"presets"`
-	Overrides   *benchmark.ConfigOverrides   `json:"overrides,omitempty"`
+	Name        string                     `json:"name"`
+	Description string                     `json:"description,omitempty"`
+	ModelIDs    []string                   `json:"model_ids"`
+	BuildIDs    []string                   `json:"build_ids"`
+	Presets     []string                   `json:"presets"`
+	Overrides   *benchmark.ConfigOverrides `json:"overrides,omitempty"`
+	Sweeps      []benchmark.SweepAxis      `json:"sweeps,omitempty"`
+	// SweepsRaw is what the job form posts: field name → the raw list the
+	// user typed. Parsed server-side so value syntax lives in exactly one
+	// place. Ignored when Sweeps is set directly (JSON API callers).
+	SweepsRaw map[string]string `json:"sweeps_raw,omitempty"`
 }
+
+// resolveSweeps normalizes the two input shapes into axes.
+func resolveSweeps(req *jobCreateRequest) error {
+	if len(req.Sweeps) > 0 || len(req.SweepsRaw) == 0 {
+		return nil
+	}
+	axes, err := benchmark.BuildSweeps(req.SweepsRaw)
+	if err != nil {
+		return err
+	}
+	req.Sweeps = axes
+	return nil
+}
+
+// validateJobRequest checks the parts both create and update share.
+// Sweeps are validated up front so a bad value fails at definition time
+// rather than partway through a run that may already have taken hours.
+func validateJobRequest(req jobCreateRequest) error {
+	if strings.TrimSpace(req.Name) == "" {
+		return errors.New("name is required")
+	}
+	if len(req.ModelIDs) == 0 || len(req.BuildIDs) == 0 || len(req.Presets) == 0 {
+		return errors.New("model_ids, build_ids, and presets are all required")
+	}
+	if err := benchmark.ValidateSweeps(req.Sweeps); err != nil {
+		return err
+	}
+	// A sweep of every axis multiplies fast. Refuse obviously runaway
+	// matrices rather than letting someone queue a week of work by
+	// pasting a long list.
+	cells := len(req.ModelIDs) * len(req.BuildIDs) * len(req.Presets)
+	for _, sw := range req.Sweeps {
+		cells *= len(sw.Values)
+	}
+	if cells > maxJobCells {
+		return fmt.Errorf("this matrix expands to %d cells, above the %d limit — narrow a sweep or split the job", cells, maxJobCells)
+	}
+	return nil
+}
+
+// maxJobCells caps matrix size. Each cell is a full benchmark and most
+// carry a router reload, so four figures of them is a runaway job, not
+// an experiment.
+const maxJobCells = 500
 
 // handleCreateJob expands the matrix and submits the job to the queue.
 // Returns 409 when another job is already running.
@@ -89,12 +138,12 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if strings.TrimSpace(req.Name) == "" {
-		http.Error(w, "name is required", http.StatusBadRequest)
+	if err := resolveSweeps(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if len(req.ModelIDs) == 0 || len(req.BuildIDs) == 0 || len(req.Presets) == 0 {
-		http.Error(w, "model_ids, build_ids, and presets are all required", http.StatusBadRequest)
+	if err := validateJobRequest(req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -109,7 +158,8 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		BuildIDs:    req.BuildIDs,
 		Presets:     req.Presets,
 		Overrides:   req.Overrides,
-		Cells:       benchmark.ExpandCells(req.ModelIDs, req.BuildIDs, req.Presets),
+		Sweeps:      req.Sweeps,
+		Cells:       benchmark.ExpandCellsWithSweeps(req.ModelIDs, req.BuildIDs, req.Presets, req.Sweeps),
 	}
 
 	if err := s.jobs.Submit(job); err != nil {
@@ -140,16 +190,24 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if strings.TrimSpace(req.Name) == "" {
-		http.Error(w, "name is required", http.StatusBadRequest)
+	if err := resolveSweeps(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if len(req.ModelIDs) == 0 || len(req.BuildIDs) == 0 || len(req.Presets) == 0 {
-		http.Error(w, "model_ids, build_ids, and presets are all required", http.StatusBadRequest)
+	if err := validateJobRequest(req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	updated, err := s.bench.UpdateJobDefinition(id, req.Name, req.Description, req.ModelIDs, req.BuildIDs, req.Presets, req.Overrides)
+	updated, err := s.bench.UpdateJobDefinition(id, benchmark.JobDefinition{
+		Name:        req.Name,
+		Description: req.Description,
+		ModelIDs:    req.ModelIDs,
+		BuildIDs:    req.BuildIDs,
+		Presets:     req.Presets,
+		Overrides:   req.Overrides,
+		Sweeps:      req.Sweeps,
+	})
 	if err != nil {
 		// "synthetic" is the adhoc-edit refusal; anything else means the
 		// job wasn't found.
@@ -203,13 +261,13 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 // parent list row without re-rendering the entire list.
 func (s *Server) renderJobDetail(w http.ResponseWriter, job *benchmark.BenchmarkJob) {
 	type cellRow struct {
-		Idx       int
-		Cell      benchmark.JobCell
-		ModelName string
-		Quant     string
-		BuildLbl  string
-		TGTPS     string // formatted, "—" when no summary
-		PPTPS     string
+		Idx        int
+		Cell       benchmark.JobCell
+		ModelName  string
+		Quant      string
+		BuildLbl   string
+		TGTPS      string // formatted, "—" when no summary
+		PPTPS      string
 		ErrorShort string
 	}
 	rows := make([]cellRow, 0, len(job.Cells))
@@ -283,17 +341,21 @@ func (s *Server) handleJobForm(w http.ResponseWriter, r *http.Request) {
 	}
 	numGPUs := len(s.monitor.Current().GPU)
 	s.renderPartial(w, "job_form", struct {
-		Models     []*models.Model
-		Builds     []buildOpt
-		Presets    []benchmark.Preset
-		GPUOptions []models.GPUOption
-		Running    bool
+		Models      []*models.Model
+		Builds      []buildOpt
+		Presets     []benchmark.Preset
+		GPUOptions  []models.GPUOption
+		SweepFields []benchmark.SweepField
+		MaxCells    int
+		Running     bool
 	}{
-		Models:     enabled,
-		Builds:     builds,
-		Presets:    benchmark.Presets(),
-		GPUOptions: models.GPUAssignOptions(numGPUs),
-		Running:    s.process.IsRunning(),
+		Models:      enabled,
+		Builds:      builds,
+		Presets:     benchmark.Presets(),
+		GPUOptions:  models.GPUAssignOptions(numGPUs),
+		SweepFields: benchmark.SweepFields(),
+		MaxCells:    maxJobCells,
+		Running:     s.process.IsRunning(),
 	})
 }
 
@@ -358,6 +420,7 @@ func (s *Server) handleRetryFailedCells(w http.ResponseWriter, r *http.Request) 
 // One event type:
 //   - "snapshot": JSON-encoded BenchmarkJob with cells. Emitted only
 //     when something changed since the previous send.
+//
 // Stream ends when the job reaches a terminal state.
 func (s *Server) handleJobProgress(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")

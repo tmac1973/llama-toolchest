@@ -306,18 +306,44 @@ function prefillJobForm(job) {
     setField('ov_gpu_assign',      ov.gpu_assign);
     setField('ov_tensor_split',    ov.tensor_split);
     setField('ov_spec_type',       ov.spec_type);
-    // Reveal the overrides <details> if any override is set so the user
-    // can see what they're editing without an extra click.
-    if (Object.keys(ov).length > 0) {
-        var det = form.querySelector('details');
-        if (det) det.open = true;
-    }
+    // Repopulate sweep axes, joining with each field's own separator.
+    var sweeps = job.sweeps || [];
+    sweeps.forEach(function(axis){
+        var input = form.querySelector('input[data-sweep-field="'+axis.field+'"]');
+        if (!input) return;
+        var sep = input.getAttribute('data-sweep-sep') || ',';
+        input.value = (axis.values || []).join(sep === ',' ? ',' : ' '+sep+' ');
+    });
+    // Reveal the relevant <details> so the user can see what they're
+    // editing without an extra click.
+    var panes = form.querySelectorAll('details');
+    if (Object.keys(ov).length > 0 && panes[0]) panes[0].open = true;
+    if (sweeps.length > 0 && panes[1]) panes[1].open = true;
     // Tweak submit button label so it reads natural in edit mode.
     var btn = document.getElementById('job-submit-btn');
     if (btn) btn.textContent = 'Save & Re-run';
 }
 function closeJobForm() {
     document.getElementById('job-form-modal').close();
+}
+// Counts values the same way the server's parser does, using the
+// separator the field itself declares so this never drifts from Go.
+// Only an estimate for display — the server validates for real.
+function sweepAxes(form) {
+    return Array.from(form.querySelectorAll('input[data-sweep-field]'))
+        .map(function(input){
+            var raw = input.value.trim();
+            if (!raw) return null;
+            var sep = input.getAttribute('data-sweep-sep') || ',';
+            var values = raw.split(sep).map(function(v){return v.trim();}).filter(Boolean);
+            if (!values.length) return null;
+            return {
+                field: input.getAttribute('data-sweep-field'),
+                count: values.length,
+                restarts: !!input.parentElement.querySelector('span[title]'),
+            };
+        })
+        .filter(Boolean);
 }
 function updateMatrixCount() {
     var form = document.getElementById('new-job-form');
@@ -327,13 +353,40 @@ function updateMatrixCount() {
     var p = form.querySelectorAll('input[name=preset]:checked').length;
     var preview = document.getElementById('job-matrix-preview');
     var btn = document.getElementById('job-submit-btn');
-    if (m && b && p) {
-        preview.textContent = m+' models × '+b+' builds × '+p+' presets = '+(m*b*p)+' cells';
-        btn.disabled = false;
-    } else {
+    if (!(m && b && p)) {
         preview.textContent = 'Select models, builds, and presets to compute the matrix size.';
         btn.disabled = true;
+        return;
     }
+
+    var axes = sweepAxes(form);
+    var sweepCells = 1, reloadPoints = 1, desc = '';
+    axes.forEach(function(a){
+        sweepCells *= a.count;
+        if (a.restarts) reloadPoints *= a.count;
+        desc += ' × '+a.count+' '+a.field;
+    });
+
+    var cells = m*b*p*sweepCells;
+    var text = m+' models × '+b+' builds × '+p+' presets'+desc+' = '+cells+' cells';
+
+    // Reloads are what make a sweep slow, so show them next to the cell
+    // count rather than letting someone queue hours of model loading
+    // without warning. Matches the runner: one reload per distinct
+    // (model, config), amortized across presets.
+    if (axes.length) {
+        var reloads = m*b*reloadPoints;
+        text += ' · ~'+reloads+' llama-server reload'+(reloads===1?'':'s');
+    }
+    preview.textContent = text;
+
+    var max = parseInt(form.getAttribute('data-max-cells'), 10) || Infinity;
+    if (cells > max) {
+        preview.textContent = text+' — over the '+max+'-cell limit';
+        btn.disabled = true;
+        return;
+    }
+    btn.disabled = false;
 }
 function readOverrides(form) {
     var ov = {};
@@ -351,6 +404,16 @@ function readOverrides(form) {
     if (str('ov_spec_type')!==null)        ov.spec_type = str('ov_spec_type');
     return Object.keys(ov).length ? ov : null;
 }
+// Sends the raw strings; the server owns value parsing so the two can't
+// disagree about what "1,1|3,1" means.
+function readSweepsRaw(form) {
+    var raw = {};
+    Array.from(form.querySelectorAll('input[data-sweep-field]')).forEach(function(input){
+        var v = input.value.trim();
+        if (v) raw[input.getAttribute('data-sweep-field')] = v;
+    });
+    return Object.keys(raw).length ? raw : null;
+}
 function submitNewJob() {
     var form = document.getElementById('new-job-form');
     var err = document.getElementById('job-form-error');
@@ -363,6 +426,7 @@ function submitNewJob() {
         build_ids: picked('build'),
         presets: picked('preset'),
         overrides: readOverrides(form),
+        sweeps_raw: readSweepsRaw(form),
     };
     var isEdit = !!editingJobID;
     var url = isEdit ? '/api/benchmark-jobs/'+encodeURIComponent(editingJobID) : '/api/benchmark-jobs';

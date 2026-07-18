@@ -348,6 +348,7 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 		Build:        buildSnap,
 		GPUs:         GPUSnapshotsFromMetrics(q.env.CurrentMetrics()),
 		Preset:       preset.Name,
+		SweepValues:  cell.SweepValues,
 		PromptTokens: preset.PromptTokens,
 		GenTokens:    preset.GenTokens,
 	}
