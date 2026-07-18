@@ -95,14 +95,21 @@ type Model struct {
 
 // ModelConfig holds per-model launch configuration for llama-server.
 type ModelConfig struct {
-	Enabled        bool   `json:"enabled"`
-	GPULayers      int    `json:"gpu_layers"`
-	TensorSplit    string `json:"tensor_split"`
-	SplitMode      string `json:"split_mode,omitempty"` // "layer", "tensor", or ""
-	MainGPU        int    `json:"main_gpu,omitempty"`
-	GPUAssign      string `json:"gpu_assign,omitempty"` // "all", "0", "0-1", "custom", etc.
-	ContextSize    int    `json:"context_size"`
-	Parallel       int    `json:"parallel,omitempty"` // n parallel sequence slots; 0/1 = no extra slots, >1 divides ctx_size across slots
+	Enabled     bool   `json:"enabled"`
+	GPULayers   int    `json:"gpu_layers"`
+	TensorSplit string `json:"tensor_split"`
+	SplitMode   string `json:"split_mode,omitempty"` // "layer", "tensor", or ""
+	MainGPU     int    `json:"main_gpu,omitempty"`
+	GPUAssign   string `json:"gpu_assign,omitempty"` // "all", "0", "0-1", "custom", etc.
+	ContextSize int    `json:"context_size"`
+	Parallel    int    `json:"parallel,omitempty"` // n parallel sequence slots; 0/1 = no extra slots, >1 divides ctx_size across slots
+	// BatchSize/UBatchSize map to --batch-size / --ubatch-size. Zero means
+	// "don't emit", leaving llama.cpp on its own defaults (2048 / 512), so
+	// existing models are unaffected. UBatchSize is the physical compute
+	// batch and is the main prompt-processing tuning knob; BatchSize is
+	// the logical batch and must be >= UBatchSize.
+	BatchSize      int    `json:"batch_size,omitempty"`
+	UBatchSize     int    `json:"ubatch_size,omitempty"`
 	Threads        int    `json:"threads"`
 	FlashAttention bool   `json:"flash_attention"`
 	Jinja          bool   `json:"jinja"`
@@ -147,6 +154,48 @@ type ModelConfig struct {
 	RepeatPenalty   *float64 `json:"repeat_penalty,omitempty"`
 }
 
+// DefaultBatchSize and DefaultUBatchSize mirror llama.cpp's own defaults,
+// used when the field is left blank so validation can reason about the
+// value that will actually be in effect.
+const (
+	DefaultBatchSize  = 2048
+	DefaultUBatchSize = 512
+)
+
+// EffectiveBatchSize returns the batch size that will be in effect.
+func (c *ModelConfig) EffectiveBatchSize() int {
+	if c.BatchSize > 0 {
+		return c.BatchSize
+	}
+	return DefaultBatchSize
+}
+
+// EffectiveUBatchSize returns the micro-batch size that will be in effect.
+func (c *ModelConfig) EffectiveUBatchSize() int {
+	if c.UBatchSize > 0 {
+		return c.UBatchSize
+	}
+	return DefaultUBatchSize
+}
+
+// ValidateBatchSizes rejects a micro-batch larger than the batch it has
+// to fit inside. Checked against the effective values, so raising -ub
+// past 2048 without also raising -b is caught rather than silently
+// clamped by llama.cpp at load time.
+func (c *ModelConfig) ValidateBatchSizes() error {
+	if c.BatchSize < 0 || c.UBatchSize < 0 {
+		return fmt.Errorf("batch sizes cannot be negative")
+	}
+	b, ub := c.EffectiveBatchSize(), c.EffectiveUBatchSize()
+	if ub > b {
+		if c.BatchSize == 0 {
+			return fmt.Errorf("micro-batch %d exceeds the default batch size of %d — raise Batch (-b) to at least %d", ub, DefaultBatchSize, ub)
+		}
+		return fmt.Errorf("micro-batch %d exceeds batch size %d — micro-batch must be less than or equal to batch", ub, b)
+	}
+	return nil
+}
+
 // SamplingOverrides returns a map of non-nil sampling parameters suitable
 // for merging into an OpenAI-compatible request body.
 func (c *ModelConfig) SamplingOverrides() map[string]any {
@@ -186,6 +235,12 @@ func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool) string {
 		parts = append(parts, "--ctx-size", strconv.Itoa(c.ContextSize))
 	}
 	parts = append(parts, "--threads", strconv.Itoa(c.Threads))
+	if c.BatchSize > 0 {
+		parts = append(parts, "--batch-size", strconv.Itoa(c.BatchSize))
+	}
+	if c.UBatchSize > 0 {
+		parts = append(parts, "--ubatch-size", strconv.Itoa(c.UBatchSize))
+	}
 	if c.Parallel > 1 {
 		parts = append(parts, "--parallel", strconv.Itoa(c.Parallel))
 	}

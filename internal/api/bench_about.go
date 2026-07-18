@@ -14,7 +14,7 @@ type AboutBenchmarks struct {
 		RepetitionPrefix string `json:"repetition_prefix"`
 		CharsPerToken    int    `json:"chars_per_token"`
 	} `json:"internal_prompt"`
-	Presets        []benchmark.Preset `json:"presets"`
+	Presets        []benchmark.Preset     `json:"presets"`
 	BenchyCommands []BenchyCommandExample `json:"benchy_commands,omitempty"`
 }
 

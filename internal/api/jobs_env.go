@@ -194,6 +194,12 @@ func applySnapshotToConfig(base models.ModelConfig, snap benchmark.ConfigSnapsho
 	if snap.Threads != 0 {
 		out.Threads = snap.Threads
 	}
+	if snap.BatchSize != 0 {
+		out.BatchSize = snap.BatchSize
+	}
+	if snap.UBatchSize != 0 {
+		out.UBatchSize = snap.UBatchSize
+	}
 	if snap.GPUAssign != "" {
 		out.GPUAssign = snap.GPUAssign
 	}
@@ -242,6 +248,8 @@ func (e *jobEnv) ResolveModel(modelID string) (benchmark.ModelInfo, error) {
 			KVCacheQuant:   cfg.KVCacheQuant,
 			DirectIO:       cfg.DirectIO,
 			Threads:        cfg.Threads,
+			BatchSize:      cfg.BatchSize,
+			UBatchSize:     cfg.UBatchSize,
 			SpecType:       cfg.SpecType,
 			DraftModelPath: cfg.DraftModelPath,
 		},

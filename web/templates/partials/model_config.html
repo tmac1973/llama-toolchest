@@ -138,6 +138,19 @@
         </label>
     </div>
 
+    <div class="grid">
+        <label title="Physical compute batch (--ubatch-size). The main prompt-processing tuning knob: larger values generally raise prefill throughput at the cost of compute-buffer memory, but the optimum is machine- and model-specific. Must be <= Batch Size. Leave blank for llama.cpp's default of 512. Use a benchmark job sweep to find the best value rather than guessing.">
+            Micro-batch (-ub)
+            <input type="number" name="ubatch_size" value="{{if gt .Config.UBatchSize 0}}{{.Config.UBatchSize}}{{end}}"
+                   min="1" max="32768" placeholder="512 (default)">
+        </label>
+        <label title="Logical batch size (--batch-size). Tokens submitted per decode call, processed in Micro-batch-sized chunks. Must be >= Micro-batch. Leave blank for llama.cpp's default of 2048.">
+            Batch (-b)
+            <input type="number" name="batch_size" value="{{if gt .Config.BatchSize 0}}{{.Config.BatchSize}}{{end}}"
+                   min="1" max="65536" placeholder="2048 (default)">
+        </label>
+    </div>
+
     {{if .HasBuiltinVision}}
     <div class="grid">
         <label>

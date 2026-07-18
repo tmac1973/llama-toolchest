@@ -102,6 +102,12 @@ func writeConfigParams(b *strings.Builder, cfg *ModelConfig, isEmbedding bool) {
 	if !isEmbedding && cfg.ContextSize > 0 {
 		b.WriteString(fmt.Sprintf("ctx-size = %d\n", cfg.ContextSize))
 	}
+	if cfg.BatchSize > 0 {
+		b.WriteString(fmt.Sprintf("batch-size = %d\n", cfg.BatchSize))
+	}
+	if cfg.UBatchSize > 0 {
+		b.WriteString(fmt.Sprintf("ubatch-size = %d\n", cfg.UBatchSize))
+	}
 	if cfg.GPULayers > 0 {
 		b.WriteString(fmt.Sprintf("gpu-layers = %d\n", cfg.GPULayers))
 	}

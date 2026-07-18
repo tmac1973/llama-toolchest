@@ -45,9 +45,9 @@ func twoBuildRuns() ([]benchmark.BenchmarkRun, jobLookup) {
 	}
 
 	return []benchmark.BenchmarkRun{
-			mk("b10068-rocm", withFattn, 2143.5),
-			mk("b10068-rocm-plain", common, 1726.4),
-		}, jobLookup{"job-1": job}
+		mk("b10068-rocm", withFattn, 2143.5),
+		mk("b10068-rocm-plain", common, 1726.4),
+	}, jobLookup{"job-1": job}
 }
 
 func parseCSV(t *testing.T, write func(*csv.Writer) error) [][]string {

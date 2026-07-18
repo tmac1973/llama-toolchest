@@ -726,6 +726,8 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		}
 		cfg.ContextSize, _ = strconv.Atoi(r.FormValue("context_size"))
 		cfg.Parallel, _ = strconv.Atoi(r.FormValue("parallel"))
+		cfg.BatchSize, _ = strconv.Atoi(r.FormValue("batch_size"))
+		cfg.UBatchSize, _ = strconv.Atoi(r.FormValue("ubatch_size"))
 		cfg.Threads, _ = strconv.Atoi(r.FormValue("threads"))
 		cfg.FlashAttention = r.FormValue("flash_attention") == "on"
 		cfg.Jinja = r.FormValue("jinja") == "on"
@@ -823,6 +825,13 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		if cfg.SpecType != prevSpecType {
 			applySpecDefaults(cfg)
 		}
+	}
+
+	// Reject an unusable batch pair here rather than letting llama-server
+	// clamp or fail at model load, where the cause is far less obvious.
+	if err := cfg.ValidateBatchSizes(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	if err := s.registry.SetConfig(id, cfg); err != nil {

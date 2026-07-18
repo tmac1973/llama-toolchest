@@ -96,6 +96,8 @@ type ConfigSnapshot struct {
 	KVCacheQuant   string `json:"kv_cache_quant,omitempty"`
 	DirectIO       bool   `json:"direct_io,omitempty"`
 	Threads        int    `json:"threads"`
+	BatchSize      int    `json:"batch_size,omitempty"`
+	UBatchSize     int    `json:"ubatch_size,omitempty"`
 	SpecType       string `json:"spec_type,omitempty"`
 	DraftModelPath string `json:"draft_model_path,omitempty"`
 }
@@ -123,13 +125,13 @@ type BuildSnapshot struct {
 
 // BenchmarkResult is one test point.
 type BenchmarkResult struct {
-	PromptTokens     int     `json:"prompt_tokens"`
-	GenTokens        int     `json:"gen_tokens"`
-	Repetition       int     `json:"repetition"`
-	PromptTokPerSec  float64 `json:"prompt_tok_per_sec"`
-	GenTokPerSec     float64 `json:"gen_tok_per_sec"`
-	TTFTMs           float64 `json:"ttft_ms"`
-	TotalMs          float64 `json:"total_ms"`
+	PromptTokens    int     `json:"prompt_tokens"`
+	GenTokens       int     `json:"gen_tokens"`
+	Repetition      int     `json:"repetition"`
+	PromptTokPerSec float64 `json:"prompt_tok_per_sec"`
+	GenTokPerSec    float64 `json:"gen_tok_per_sec"`
+	TTFTMs          float64 `json:"ttft_ms"`
+	TotalMs         float64 `json:"total_ms"`
 }
 
 // BenchmarkSummary holds aggregated stats.

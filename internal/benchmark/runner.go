@@ -60,9 +60,9 @@ func (s SamplingParams) applyTo(body map[string]any) {
 
 // ProgressUpdate is sent during benchmark execution.
 type ProgressUpdate struct {
-	Stage   string // "loading", "warmup", "benchmark", "llama-bench", "done", "error"
-	Detail  string // e.g. "512 tokens, rep 2/3"
-	Pct     int    // 0-100
+	Stage  string // "loading", "warmup", "benchmark", "llama-bench", "done", "error"
+	Detail string // e.g. "512 tokens, rep 2/3"
+	Pct    int    // 0-100
 }
 
 // Runner executes benchmarks.
@@ -445,4 +445,3 @@ func (r *Runner) runOneTest(ctx context.Context, routerURL, model string, prompt
 		TotalMs:         timings.PromptMs + timings.PredictedMs,
 	}, nil
 }
-

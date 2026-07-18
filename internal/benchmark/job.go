@@ -74,6 +74,8 @@ type ConfigOverrides struct {
 	GPULayers      *int     `json:"gpu_layers,omitempty"`
 	ContextSize    *int     `json:"context_size,omitempty"`
 	Threads        *int     `json:"threads,omitempty"`
+	BatchSize      *int     `json:"batch_size,omitempty"`
+	UBatchSize     *int     `json:"ubatch_size,omitempty"`
 	FlashAttention *bool    `json:"flash_attention,omitempty"`
 	KVCacheQuant   *string  `json:"kv_cache_quant,omitempty"`
 	DirectIO       *bool    `json:"direct_io,omitempty"`

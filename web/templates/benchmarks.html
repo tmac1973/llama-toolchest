@@ -345,6 +345,19 @@ function sweepAxes(form) {
         })
         .filter(Boolean);
 }
+// Fills a standard -ub ladder. Deliberately a starting point rather than
+// a recommendation: the optimum depends on the model and the card, which
+// is the whole reason this is a sweep and not a default.
+function fillUbatchLadder() {
+    var form = document.getElementById('new-job-form');
+    if (!form) return;
+    var input = form.querySelector('input[data-sweep-field="ubatch_size"]');
+    if (!input) return;
+    input.value = '64,128,256,512,1024,2048';
+    var det = input.closest('details');
+    if (det) det.open = true;
+    updateMatrixCount();
+}
 function updateMatrixCount() {
     var form = document.getElementById('new-job-form');
     if (!form) return;

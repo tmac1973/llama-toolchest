@@ -415,6 +415,12 @@ func applyOverrides(base ConfigSnapshot, overrides *ConfigOverrides) ConfigSnaps
 	if overrides.Threads != nil {
 		out.Threads = *overrides.Threads
 	}
+	if overrides.BatchSize != nil {
+		out.BatchSize = *overrides.BatchSize
+	}
+	if overrides.UBatchSize != nil {
+		out.UBatchSize = *overrides.UBatchSize
+	}
 	if overrides.FlashAttention != nil {
 		out.FlashAttention = *overrides.FlashAttention
 	}
