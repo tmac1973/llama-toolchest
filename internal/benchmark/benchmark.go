@@ -207,6 +207,13 @@ func Presets() []Preset {
 			PromptTokens: []int{32768}, GenTokens: 512, Repetitions: 1,
 		},
 		{
+			Name:         "internal-long-ctx-thorough",
+			Label:        "internal-long-ctx-thorough — 3 reps × 4 prompt sizes 8K–64K (~20 min)",
+			Description:  "Three repetitions at 8192 / 16384 / 32768 / 65536-token prompts with 512 generated tokens each. Long-context companion to internal-long-ctx: enough repetitions to see run-to-run variance, and enough prompt sizes to show how prefill throughput scales with context depth. Prompt sizes are nominal — prompts are built at an estimated 4 chars/token, so the tokenized length typically comes out 10-25% lower depending on the tokenizer (check prompt_tokens in the results). Needs a model context of at least 64K.",
+			Source:       PresetSourceInternal,
+			PromptTokens: []int{8192, 16384, 32768, 65536}, GenTokens: 512, Repetitions: 3,
+		},
+		{
 			Name:         "benchy-quick",
 			Label:        "benchy-quick — 1 rep, 512 prompt / 32 gen via llama-benchy (~10s)",
 			Description:  "Single-shot llama-benchy run against the router. Smoke test for the API path; works with sharded GGUFs.",
