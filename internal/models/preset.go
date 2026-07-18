@@ -109,10 +109,20 @@ func writeConfigParams(b *strings.Builder, cfg *ModelConfig, isEmbedding bool) {
 	if cfg.UBatchSize > 0 {
 		b.WriteString(fmt.Sprintf("ubatch-size = %d\n", cfg.UBatchSize))
 	}
-	if cfg.GPULayers > 0 {
+	// Emitted even at zero: 0 means "offload nothing, run on CPU", which
+	// is a real setting and the value the sweep menu offers as
+	// "0 (CPU only)". Guarding on > 0 conflated it with "unset", so the
+	// key was omitted, llama-server applied its own default, and the cell
+	// ran fully offloaded while the results recorded gpu_layers=0.
+	//
+	// Registration defaults this to 999 (registry.go), so a stored 0 is a
+	// deliberate choice rather than missing data.
+	if cfg.GPULayers >= 0 {
 		b.WriteString(fmt.Sprintf("gpu-layers = %d\n", cfg.GPULayers))
 	}
-	if cfg.Threads > 0 {
+	// Same conflation as gpu-layers: 0 is llama.cpp's "pick automatically",
+	// which a sweep can legitimately ask for.
+	if cfg.Threads >= 0 {
 		b.WriteString(fmt.Sprintf("threads = %d\n", cfg.Threads))
 	}
 	if cfg.Parallel > 1 {

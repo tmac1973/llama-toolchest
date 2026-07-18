@@ -109,3 +109,36 @@ func TestBatchSizesOmittedFromPresetINIWhenUnset(t *testing.T) {
 		t.Errorf("unset batch sizes should not appear in the preset:\n%s", ini)
 	}
 }
+
+// gpu-layers = 0 means "run on CPU", not "unset". Guarding the emitter on
+// > 0 dropped the key entirely, so llama-server applied its own default
+// and the model ran fully offloaded while the benchmark recorded 0 — a
+// mislabeled measurement, caught only by noticing that a CPU-only cell
+// was as fast as a full-GPU one.
+func TestZeroGPULayersReachesPreset(t *testing.T) {
+	mods := []*Model{{ID: "a", ModelID: "u/A", Quant: "Q8_0", FilePath: "/m/a.gguf"}}
+	cfgs := map[string]*ModelConfig{
+		"a": {Enabled: true, ContextSize: 4096, GPULayers: 0, Threads: 8},
+	}
+	ini := GeneratePresetINI("/m", mods, cfgs)
+
+	if !strings.Contains(ini, "gpu-layers = 0") {
+		t.Errorf("gpu-layers = 0 missing; llama-server would offload everything:\n%s", ini)
+	}
+}
+
+// The UI's flag preview and the preset are two hand-maintained emitters
+// of the same settings. They disagreed here: the preview showed
+// --n-gpu-layers 0 while the preset omitted it.
+func TestPresetAndFlagPreviewAgreeOnZero(t *testing.T) {
+	cfg := &ModelConfig{Enabled: true, ContextSize: 4096, GPULayers: 0, Threads: 8}
+	mods := []*Model{{ID: "a", ModelID: "u/A", Quant: "Q8_0", FilePath: "/m/a.gguf"}}
+	ini := GeneratePresetINI("/m", mods, map[string]*ModelConfig{"a": cfg})
+	flags := cfg.EffectiveFlagsFor(false)
+
+	iniHasZero := strings.Contains(ini, "gpu-layers = 0")
+	flagsHaveZero := strings.Contains(flags, "--n-gpu-layers 0")
+	if iniHasZero != flagsHaveZero {
+		t.Errorf("emitters disagree: preset=%v preview=%v\nflags: %s", iniHasZero, flagsHaveZero, flags)
+	}
+}

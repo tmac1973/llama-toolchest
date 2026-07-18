@@ -202,7 +202,9 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 			pct := 15 + (completedTests*70)/totalTests
 			send("benchmark", fmt.Sprintf("API benchmark: %d prompt tokens, generating %d tokens (rep %d/%d)", promptTokens, cfg.Preset.GenTokens, rep, cfg.Preset.Repetitions), pct)
 
-			result, err := r.runOneTest(ctx, cfg.RouterURL, cfg.RouterName, promptTokens, cfg.Preset.GenTokens, rep, cfg.Sampling)
+			// run.ID is unique per cell, so no two cells can send the
+			// same prompt and hit each other's cache.
+			result, err := r.runOneTest(ctx, cfg.RouterURL, cfg.RouterName, promptTokens, cfg.Preset.GenTokens, rep, cfg.Sampling, run.ID)
 			if err != nil {
 				lastErr = err
 				slog.Error("benchmark test failed", "prompt_tokens", promptTokens, "rep", rep, "error", err)
@@ -348,10 +350,26 @@ const BenchPromptCharsPerToken = 4
 // buildPrompt constructs a prompt of approximately the target token count
 // by repeating the benchmark text. The repetition parameter varies the
 // prompt to defeat llama.cpp's prompt cache.
-func buildPrompt(targetTokens int, repetition int) string {
+// buildPrompt constructs a prompt of approximately the target token
+// count. The prefix carries both a repetition number and a per-run
+// nonce.
+//
+// The nonce matters as much as the repetition. Varying only by
+// repetition defeats the prompt cache within a run, but two cells of the
+// same job that share a model and preset send byte-identical prompts —
+// and when the router is not restarted between them (a sampling sweep
+// never restarts, and config sweeps reuse the router across presets),
+// llama.cpp serves the second from cache. The observed symptom is
+// prompt_n collapsing from 213 to 4 and prompt-processing throughput
+// reported as ~90 t/s instead of ~1380: a meaningless number presented
+// as a measurement.
+func buildPromptFor(nonce string, targetTokens int, repetition int) string {
 	targetChars := targetTokens * BenchPromptCharsPerToken
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf(BenchPromptPrefixTemplate, repetition))
+	if nonce != "" {
+		b.WriteString("Run identifier: " + nonce + ".\n\n")
+	}
 	for b.Len() < targetChars {
 		b.WriteString(BenchPromptText)
 	}
@@ -362,11 +380,17 @@ func buildPrompt(targetTokens int, repetition int) string {
 	return text
 }
 
+// buildPrompt is the nonce-free form, kept for callers that don't need
+// cache isolation (warmup).
+func buildPrompt(targetTokens int, repetition int) string {
+	return buildPromptFor("", targetTokens, repetition)
+}
+
 // sendCompletion sends a chat completion and returns the timings.
 func (r *Runner) sendCompletion(ctx context.Context, routerURL, model string, promptTokens, genTokens int) error {
 	// Warmup only needs the model resident; sampling settings are
 	// irrelevant to that and are left at server defaults.
-	_, err := r.sendCompletionWithTimings(ctx, routerURL, model, promptTokens, genTokens, 0, SamplingParams{})
+	_, err := r.sendCompletionWithTimings(ctx, routerURL, model, promptTokens, genTokens, 0, SamplingParams{}, "")
 	return err
 }
 
@@ -380,8 +404,8 @@ type timingsResponse struct {
 	PredictedPerSec float64 `json:"predicted_per_second"`
 }
 
-func (r *Runner) sendCompletionWithTimings(ctx context.Context, routerURL, model string, promptTokens, genTokens, repetition int, sampling SamplingParams) (*timingsResponse, error) {
-	prompt := buildPrompt(promptTokens, repetition)
+func (r *Runner) sendCompletionWithTimings(ctx context.Context, routerURL, model string, promptTokens, genTokens, repetition int, sampling SamplingParams, nonce string) (*timingsResponse, error) {
+	prompt := buildPromptFor(nonce, promptTokens, repetition)
 	reqPayload := map[string]any{
 		"model":      model,
 		"max_tokens": genTokens,
@@ -429,8 +453,8 @@ func (r *Runner) sendCompletionWithTimings(ctx context.Context, routerURL, model
 }
 
 // runOneTest runs a single benchmark test point.
-func (r *Runner) runOneTest(ctx context.Context, routerURL, model string, promptTokens, genTokens, rep int, sampling SamplingParams) (*BenchmarkResult, error) {
-	timings, err := r.sendCompletionWithTimings(ctx, routerURL, model, promptTokens, genTokens, rep, sampling)
+func (r *Runner) runOneTest(ctx context.Context, routerURL, model string, promptTokens, genTokens, rep int, sampling SamplingParams, nonce string) (*BenchmarkResult, error) {
+	timings, err := r.sendCompletionWithTimings(ctx, routerURL, model, promptTokens, genTokens, rep, sampling, nonce)
 	if err != nil {
 		return nil, err
 	}

@@ -394,3 +394,38 @@ func TestValidateSamplingSupportAllowsConfigSweepWithBenchy(t *testing.T) {
 		t.Errorf("config parameters do reach benchy runs: %v", err)
 	}
 }
+
+// Two cells of one job that share a model and preset must not send
+// byte-identical prompts. When the router isn't restarted between them —
+// which a sampling sweep never does — llama.cpp serves the second from
+// its prompt cache, prompt_n collapses, and the recorded
+// prompt-processing rate is cache-lookup overhead reported as a
+// measurement.
+func TestPromptsDifferPerCell(t *testing.T) {
+	a := buildPromptFor("bench-1-1-1", 256, 1)
+	b := buildPromptFor("bench-2-2-1", 256, 1)
+	if a == b {
+		t.Error("two cells produced identical prompts; the second would hit the prompt cache")
+	}
+	// Same nonce and repetition must still be reproducible.
+	if buildPromptFor("bench-1-1-1", 256, 1) != a {
+		t.Error("prompt generation must be deterministic for a given cell")
+	}
+}
+
+// The existing per-repetition variation must survive.
+func TestPromptsDifferPerRepetition(t *testing.T) {
+	if buildPromptFor("x", 256, 1) == buildPromptFor("x", 256, 2) {
+		t.Error("repetitions must differ")
+	}
+}
+
+// Sizing is approximate but must not be thrown off by the nonce.
+func TestPromptSizeUnaffectedByNonce(t *testing.T) {
+	want := 256 * BenchPromptCharsPerToken
+	for _, n := range []string{"", "bench-1784407486983-1-1"} {
+		if got := len(buildPromptFor(n, 256, 1)); got != want {
+			t.Errorf("nonce %q: prompt is %d chars, want %d", n, got, want)
+		}
+	}
+}
