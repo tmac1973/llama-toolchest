@@ -1,4 +1,29 @@
 {{define "job_form"}}
+<style>
+.param-row { margin-bottom: 0.4rem; }
+.param-menu { border: 1px solid var(--pico-muted-border-color); border-radius: var(--pico-border-radius); margin: 0; }
+.param-menu > summary {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem;
+    padding: 0.35rem 0.6rem; font-size: 0.9rem; cursor: pointer;
+}
+.param-menu > summary::after { margin-left: 0; }
+.param-label { white-space: nowrap; }
+.param-summary {
+    font-size: 0.85rem; color: var(--pico-muted-color);
+    text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* A set parameter should be visible without opening the menu. */
+.param-summary[data-active] { color: var(--pico-color); font-weight: 600; }
+.param-summary[data-active="sweep"] { color: var(--pico-primary); }
+.param-options { padding: 0.2rem 0.75rem 0.5rem; }
+.param-options label { display: block; margin: 0.1rem 0; font-size: 0.9rem; }
+.param-menu small { display: block; padding: 0 0.75rem 0.5rem; }
+.param-custom { display: flex; gap: 0.4rem; margin-top: 0.4rem; }
+.param-custom input { margin: 0; font-size: 0.85rem; }
+.param-custom button { margin: 0; width: auto; padding: 0.15rem 0.6rem; font-size: 0.8rem; }
+.param-row .param-text { margin-bottom: 0.2rem; }
+</style>
+
 <form id="new-job-form" data-max-cells="{{.MaxCells}}" onsubmit="event.preventDefault();submitNewJob();">
     <label>
         Name
@@ -39,104 +64,60 @@
         {{end}}
     </fieldset>
 
-    <details>
-        <summary>Overrides <small style="color:var(--pico-muted-color);">(blank = use each model's saved value)</small></summary>
-        <div class="grid">
-            <label>GPU layers <input type="number" name="ov_gpu_layers" placeholder=""></label>
-            <label>Context size
-                <select name="ov_context_size">
-                    <option value="">inherit</option>
-                    <option value="2048">2K</option>
-                    <option value="4096">4K</option>
-                    <option value="8192">8K</option>
-                    <option value="16384">16K</option>
-                    <option value="32768">32K</option>
-                    <option value="65536">64K</option>
-                    <option value="131072">128K</option>
-                    <option value="262144">256K</option>
-                </select>
-            </label>
-            <label>Threads <input type="number" name="ov_threads" placeholder=""></label>
-        </div>
-        <div class="grid">
-            <label>Flash attention
-                <select name="ov_flash_attention">
-                    <option value="">inherit</option>
-                    <option value="true">on</option>
-                    <option value="false">off</option>
-                </select>
-            </label>
-            <label>KV cache quant
-                <select name="ov_kv_cache_quant">
-                    <option value="">inherit</option>
-                    <option value="f16">f16 (no quant)</option>
-                    <option value="q8_0">q8_0</option>
-                    <option value="q4_0">q4_0</option>
-                </select>
-            </label>
-            <label>Direct I/O
-                <select name="ov_direct_io">
-                    <option value="">inherit</option>
-                    <option value="true">on</option>
-                    <option value="false">off</option>
-                </select>
-            </label>
-        </div>
-        <div class="grid">
-            <label>GPU assign
-                <select name="ov_gpu_assign">
-                    <option value="">inherit</option>
-                    {{range .GPUOptions}}
-                    <option value="{{.Value}}" {{if .Disabled}}disabled{{end}}>{{.Label}}</option>
-                    {{end}}
-                </select>
-            </label>
-            <label>Tensor split <input type="text" name="ov_tensor_split" placeholder="e.g. 50,50"></label>
-            <label>Spec type
-                <select name="ov_spec_type">
-                    <option value="">inherit</option>
-                    <option value="draft">Draft Model</option>
-                    <option value="draft-mtp">MTP (self-speculation)</option>
-                    <option value="ngram-simple">N-gram Simple</option>
-                    <option value="ngram-cache">N-gram Cache</option>
-                    <option value="ngram-map-k">N-gram Map-K</option>
-                    <option value="ngram-map-k4v">N-gram Map-K4V</option>
-                    <option value="ngram-mod">N-gram Mod</option>
-                </select>
-            </label>
-        </div>
-    </details>
-
-    <details>
-        <summary>Parameter sweeps <small style="color:var(--pico-muted-color);">(blank = don't sweep)</small></summary>
+    <details open>
+        <summary>Parameters <small style="color:var(--pico-muted-color);">(pick one value to fix it, several to sweep)</small></summary>
         <p style="margin:0.25rem 0 0.75rem;color:var(--pico-muted-color);font-size:0.85em;">
-            Give a list of values and every combination becomes its own cell,
-            on top of the models/builds/presets you picked. A sweep value wins
-            over the fixed override above for the same field.
-            Marked <strong>&#8635;</strong> fields reload llama-server for each
-            distinct value, which is the slow part; sampling settings are sent
-            with each request and cost nothing extra.
+            Every parameter defaults to each model's own saved setting. Pick a
+            single value to use it for the whole job; pick several and each
+            becomes its own cell, multiplied against the models, builds and
+            presets above. Parameters marked <strong>&#8635;</strong> reload
+            llama-server for each distinct value, which is what makes a sweep
+            slow — sampling settings ride along with each request and cost
+            nothing extra.
         </p>
-        <p style="margin:0 0 0.75rem;">
-            <button type="button" class="outline secondary"
-                    style="margin:0;padding:0.15rem 0.6rem;font-size:0.8rem;width:auto;"
-                    onclick="fillUbatchLadder()"
-                    title="Fills the micro-batch field with a standard ladder. Prompt-processing throughput against -ub is machine- and model-specific, so measuring beats guessing.">
-                Find best micro-batch
-            </button>
-        </p>
-        {{range .SweepFields}}
-        <label style="margin-bottom:0.5rem;">
-            {{.Label}}
-            {{if .RestartsRouter}}<span title="Each distinct value reloads llama-server" style="cursor:help;">&#8635;</span>{{end}}
-            <input type="text"
-                   name="sw_{{.Name}}"
-                   data-sweep-field="{{.Name}}"
-                   data-sweep-sep="{{.Separator}}"
-                   oninput="updateMatrixCount()"
-                   placeholder="{{if .Example}}{{.Example}}{{else}}no sweep{{end}}">
-            <small style="color:var(--pico-muted-color);">{{.Help}}</small>
-        </label>
+
+        {{range $p := .Params}}
+        <div class="param-row" data-param="{{.Name}}" data-sep="{{.Separator}}" data-restarts="{{if .RestartsRouter}}1{{end}}">
+            {{if .FreeText}}
+            <label>
+                {{.Label}}{{if .RestartsRouter}} <span title="Each distinct value reloads llama-server" style="cursor:help;">&#8635;</span>{{end}}
+                <input type="text" class="param-text" data-param-text="{{.Name}}"
+                       placeholder="{{if .Example}}{{.Example}} — separate with {{.Separator}} to sweep{{else}}use model's saved value{{end}}"
+                       oninput="updateMatrixCount()">
+                <small style="color:var(--pico-muted-color);">{{.Help}}</small>
+            </label>
+            {{else}}
+            <details class="param-menu">
+                <summary>
+                    <span class="param-label">{{.Label}}{{if .RestartsRouter}} <span title="Each distinct value reloads llama-server" style="cursor:help;">&#8635;</span>{{end}}</span>
+                    <span class="param-summary" data-summary-for="{{.Name}}">Use model's saved value</span>
+                </summary>
+                <div class="param-options">
+                    <label class="param-default">
+                        <input type="checkbox" class="param-inherit" data-param-inherit="{{.Name}}" checked
+                               onchange="onParamInheritToggle(this)">
+                        Use model's saved value
+                    </label>
+                    <hr style="margin:0.4rem 0;">
+                    {{range .Choices}}
+                    <label>
+                        <input type="checkbox" class="param-value" data-param-value="{{$p.Name}}"
+                               value="{{.Value}}" onchange="onParamValueToggle(this)">
+                        {{.Label}}
+                    </label>
+                    {{end}}
+                    {{if .AllowCustom}}
+                    <div class="param-custom">
+                        <input type="text" class="param-custom-input" placeholder="Custom value"
+                               onkeydown="if(event.key==='Enter'){event.preventDefault();addParamCustom(this);}">
+                        <button type="button" class="outline secondary" onclick="addParamCustom(this)">Add</button>
+                    </div>
+                    {{end}}
+                </div>
+                <small style="color:var(--pico-muted-color);">{{.Help}}</small>
+            </details>
+            {{end}}
+        </div>
         {{end}}
     </details>
 

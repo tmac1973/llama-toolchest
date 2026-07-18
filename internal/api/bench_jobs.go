@@ -84,10 +84,26 @@ type jobCreateRequest struct {
 	// user typed. Parsed server-side so value syntax lives in exactly one
 	// place. Ignored when Sweeps is set directly (JSON API callers).
 	SweepsRaw map[string]string `json:"sweeps_raw,omitempty"`
+	// Params is the unified shape the job form posts: parameter name →
+	// selected values. One value fixes the parameter, two or more sweep
+	// it. Supersedes Overrides/Sweeps for form callers; the older fields
+	// remain for JSON API callers and already-saved jobs.
+	Params map[string][]string `json:"params,omitempty"`
 }
 
-// resolveSweeps normalizes the two input shapes into axes.
+// resolveSweeps normalizes the accepted input shapes into overrides and
+// axes. Params wins when present, since it is what the form sends and it
+// expresses both concepts at once.
 func resolveSweeps(req *jobCreateRequest) error {
+	if len(req.Params) > 0 {
+		overrides, axes, err := benchmark.SplitParams(req.Params)
+		if err != nil {
+			return err
+		}
+		req.Overrides = overrides
+		req.Sweeps = axes
+		return nil
+	}
 	if len(req.Sweeps) > 0 || len(req.SweepsRaw) == 0 {
 		return nil
 	}
@@ -341,21 +357,21 @@ func (s *Server) handleJobForm(w http.ResponseWriter, r *http.Request) {
 	}
 	numGPUs := len(s.monitor.Current().GPU)
 	s.renderPartial(w, "job_form", struct {
-		Models      []*models.Model
-		Builds      []buildOpt
-		Presets     []benchmark.Preset
-		GPUOptions  []models.GPUOption
-		SweepFields []benchmark.SweepField
-		MaxCells    int
-		Running     bool
+		Models     []*models.Model
+		Builds     []buildOpt
+		Presets    []benchmark.Preset
+		GPUOptions []models.GPUOption
+		Params     []paramView
+		MaxCells   int
+		Running    bool
 	}{
-		Models:      enabled,
-		Builds:      builds,
-		Presets:     benchmark.Presets(),
-		GPUOptions:  models.GPUAssignOptions(numGPUs),
-		SweepFields: benchmark.SweepFields(),
-		MaxCells:    maxJobCells,
-		Running:     s.process.IsRunning(),
+		Models:     enabled,
+		Builds:     builds,
+		Presets:    benchmark.Presets(),
+		GPUOptions: models.GPUAssignOptions(numGPUs),
+		Params:     paramViews(numGPUs),
+		MaxCells:   maxJobCells,
+		Running:    s.process.IsRunning(),
 	})
 }
 
@@ -520,4 +536,31 @@ func newJobID() string {
 	var buf [4]byte
 	_, _ = rand.Read(buf[:])
 	return fmt.Sprintf("job-%d-%s", time.Now().UnixMilli(), hex.EncodeToString(buf[:]))
+}
+
+// paramView is a sweep field with its choices resolved for rendering.
+type paramView struct {
+	benchmark.SweepField
+	Choices []benchmark.SweepChoice
+}
+
+// paramViews resolves each parameter's choice list, filling in the sets
+// that depend on the host — currently just GPU assignment, which can't
+// be a static table because it depends on how many GPUs are installed.
+func paramViews(numGPUs int) []paramView {
+	fields := benchmark.SweepFields()
+	out := make([]paramView, 0, len(fields))
+	for _, f := range fields {
+		pv := paramView{SweepField: f, Choices: f.Choices}
+		if f.DynamicChoices == "gpu_assign" {
+			for _, o := range models.GPUAssignOptions(numGPUs) {
+				if o.Disabled {
+					continue
+				}
+				pv.Choices = append(pv.Choices, benchmark.SweepChoice{Value: o.Value, Label: o.Label})
+			}
+		}
+		out = append(out, pv)
+	}
+	return out
 }

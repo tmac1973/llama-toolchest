@@ -29,6 +29,12 @@ const (
 	SweepKindFloat SweepKind = "float"
 )
 
+// SweepChoice is one curated value offered in a parameter's dropdown.
+type SweepChoice struct {
+	Value string
+	Label string
+}
+
 // SweepField describes one sweepable parameter. The set function is the
 // single place that knows how to turn a raw string into a
 // ConfigOverrides mutation, so the form, the parser, and cell expansion
@@ -48,6 +54,21 @@ type SweepField struct {
 	// form's live cell-count estimate splits exactly the way the parser
 	// does — tensor_split values contain commas and so use "|".
 	Separator string
+	// Choices are the curated values offered as checkboxes. Selecting one
+	// fixes the parameter; selecting several sweeps it. Empty means the
+	// parameter has no meaningful enumeration.
+	Choices []SweepChoice
+	// FreeText renders a plain text input instead of a dropdown, for
+	// parameters with no sensible curated values (a tensor split ratio,
+	// a filesystem path). Sweeping still works via the separator.
+	FreeText bool
+	// AllowCustom adds a "Custom…" row to the dropdown so values outside
+	// the curated list stay reachable without a code change. Off for
+	// parameters that are genuinely closed sets, like booleans.
+	AllowCustom bool
+	// DynamicChoices names a choice set the API layer fills in at render
+	// time because it depends on the host (e.g. how many GPUs exist).
+	DynamicChoices string
 
 	set func(o *ConfigOverrides, raw string) error
 }
@@ -341,4 +362,138 @@ func BuildSweeps(raw map[string]string) ([]SweepAxis, error) {
 		out = append(out, SweepAxis{Field: name, Values: values})
 	}
 	return out, nil
+}
+
+func choices(pairs ...string) []SweepChoice {
+	out := make([]SweepChoice, 0, len(pairs)/2)
+	for i := 0; i+1 < len(pairs); i += 2 {
+		out = append(out, SweepChoice{Value: pairs[i], Label: pairs[i+1]})
+	}
+	return out
+}
+
+// withChoices decorates a registry entry. Kept separate from the field
+// constructors so the value-parsing logic and the presentation choices
+// stay visibly distinct.
+func withChoices(f SweepField, allowCustom bool, cs []SweepChoice) SweepField {
+	f.Choices = cs
+	f.AllowCustom = allowCustom
+	return f
+}
+
+func init() {
+	set := func(name string, allowCustom bool, cs []SweepChoice) {
+		f := sweepFields[name]
+		sweepFields[name] = withChoices(f, allowCustom, cs)
+	}
+
+	set("ubatch_size", true, choices(
+		"64", "64", "128", "128", "256", "256",
+		"512", "512 (default)", "1024", "1024", "2048", "2048",
+	))
+	set("batch_size", true, choices(
+		"512", "512", "1024", "1024", "2048", "2048 (default)",
+		"4096", "4096", "8192", "8192",
+	))
+	set("context_size", true, choices(
+		"2048", "2K", "4096", "4K", "8192", "8K", "16384", "16K",
+		"32768", "32K", "65536", "64K", "131072", "128K", "262144", "256K",
+	))
+	set("gpu_layers", true, choices(
+		"0", "0 (CPU only)", "20", "20", "40", "40", "60", "60", "999", "999 (all)",
+	))
+	set("threads", true, choices(
+		"4", "4", "8", "8", "16", "16", "32", "32",
+	))
+	set("flash_attention", false, choices("true", "on", "false", "off"))
+	set("direct_io", false, choices("true", "on", "false", "off"))
+	set("kv_cache_quant", true, choices(
+		"f16", "f16 (no quant)", "q8_0", "q8_0", "q4_0", "q4_0",
+	))
+	// No empty choice: a blank value already means "use the model's saved
+	// setting", so an "off" entry would be dropped as if unset.
+	set("spec_type", false, choices(
+		"draft", "Draft Model", "draft-mtp", "MTP (self-speculation)",
+		"ngram-simple", "N-gram Simple", "ngram-cache", "N-gram Cache",
+		"ngram-map-k", "N-gram Map-K", "ngram-map-k4v", "N-gram Map-K4V",
+		"ngram-mod", "N-gram Mod",
+	))
+	set("temperature", true, choices("0", "0 (greedy)", "0.7", "0.7", "1.0", "1.0"))
+	set("top_p", true, choices("0.9", "0.9", "0.95", "0.95", "1.0", "1.0"))
+	set("top_k", true, choices("20", "20", "40", "40", "0", "0 (disabled)"))
+	set("min_p", true, choices("0", "0", "0.05", "0.05", "0.1", "0.1"))
+	set("repeat_penalty", true, choices("1.0", "1.0 (off)", "1.05", "1.05", "1.1", "1.1"))
+
+	// GPU assignment depends on how many GPUs this host has, so the API
+	// layer fills it in at render time.
+	ga := sweepFields["gpu_assign"]
+	ga.DynamicChoices = "gpu_assign"
+	ga.AllowCustom = true
+	sweepFields["gpu_assign"] = ga
+
+	// No sensible enumeration: a split ratio and a filesystem path.
+	for _, name := range []string{"tensor_split", "draft_model_path"} {
+		f := sweepFields[name]
+		f.FreeText = true
+		sweepFields[name] = f
+	}
+}
+
+// SplitParams turns the unified "parameter → selected values" shape the
+// job form posts into the two structures the runner uses: a single value
+// fixes the parameter for every cell, two or more sweep it.
+//
+// The form deliberately has no separate override and sweep controls —
+// they were two names for one question, and setting both left the
+// override silently ignored.
+func SplitParams(params map[string][]string) (*ConfigOverrides, []SweepAxis, error) {
+	names := make([]string, 0, len(params))
+	for k := range params {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+
+	var overrides *ConfigOverrides
+	var sweeps []SweepAxis
+
+	for _, name := range names {
+		f, ok := sweepFields[name]
+		if !ok {
+			return nil, nil, fmt.Errorf("unknown parameter %q", name)
+		}
+
+		// Drop blanks and duplicates; a blank means "use the model's
+		// saved value", which is the absence of an entry.
+		seen := map[string]bool{}
+		var values []string
+		for _, v := range params[name] {
+			v = strings.TrimSpace(v)
+			if v == "" || seen[v] {
+				continue
+			}
+			seen[v] = true
+			values = append(values, v)
+		}
+		if len(values) == 0 {
+			continue
+		}
+
+		for _, v := range values {
+			if err := f.set(&ConfigOverrides{}, v); err != nil {
+				return nil, nil, fmt.Errorf("%s: %w", f.Label, err)
+			}
+		}
+
+		if len(values) == 1 {
+			if overrides == nil {
+				overrides = &ConfigOverrides{}
+			}
+			if err := f.set(overrides, values[0]); err != nil {
+				return nil, nil, fmt.Errorf("%s: %w", f.Label, err)
+			}
+			continue
+		}
+		sweeps = append(sweeps, SweepAxis{Field: name, Values: values})
+	}
+	return overrides, sweeps, nil
 }
