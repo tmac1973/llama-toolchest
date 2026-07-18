@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; background: #0c0c0e; }
+  body { font-family: -apple-system, "Segoe UI", system-ui, sans-serif; }
+  * { box-sizing: border-box; }
+  a { color: inherit; }
+  a:hover { color: inherit; }
+  .ltc-canvas { padding: 48px; display: flex; flex-direction: column; gap: 56px; }
+  .ltc-turn { display: flex; flex-direction: column; gap: 22px; }
+  .ltc-row { display: flex; flex-wrap: wrap; gap: 40px; align-items: flex-start; }
+  .ltc-opt { display: flex; flex-direction: column; gap: 12px; }
+  .ltc-badge { display: inline-flex; align-items: center; justify-content: center; font-family: "IBM Plex Mono", monospace; font-size: 12px; font-weight: 600; color: #0c0c0e; background: #d7dae0; border-radius: 5px; padding: 2px 8px; letter-spacing: 0.02em; }
+  .ltc-caption { color: #e6e8ec; font-size: 15px; font-weight: 600; }
+  .ltc-caption small { color: #8a8f98; font-weight: 400; margin-left: 6px; }
+  .ltc-turnhead { color: #f2f4f7; font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+  .ltc-turnsub { color: #8a8f98; font-size: 14px; max-width: 900px; line-height: 1.5; }
+  /* Frame primitives (all colors come from per-frame CSS vars) */
+  .frame { width: 1180px; height: 840px; display: flex; overflow: hidden; border: 1px solid var(--border); border-radius: var(--frameRadius); background: var(--bg); color: var(--text); font-family: var(--font); }
+  .frame a { color: var(--accent); text-decoration: none; }
+  .side { width: 220px; min-width: 220px; padding: 16px; border-right: 1px solid var(--border); display: flex; flex-direction: column; justify-content: space-between; background: var(--sidebg); }
+  .side .brand h3 { margin: 0; font-size: 18px; color: var(--head); font-weight: 700; letter-spacing: -0.01em; }
+  .side .brand p { margin: 3px 0 0; font-size: 12px; color: var(--muted); }
+  .navlist { list-style: none; padding: 0; margin: 18px 0 0; display: flex; flex-direction: column; gap: 3px; }
+  .navlist a { display: block; padding: 7px 10px; border-radius: var(--navRadius); font-size: 14px; color: var(--text); }
+  .navlist a.active { background: var(--navActiveBg); color: var(--navActiveText); font-weight: var(--navActiveWeight); }
+  .main { flex: 1; padding: 20px 24px; overflow: hidden; background: var(--bg); display: flex; flex-direction: column; }
+  .mono { font-family: var(--mono); }
+  .kbd { font-family: var(--mono); font-size: 11.5px; padding: 1px 6px; border-radius: 4px; background: var(--kbdBg); color: var(--kbdText); white-space: nowrap; }
+  .prog { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }
+  .prog > i { display: block; height: 100%; background: var(--accent); }
+  .frame article { flex-shrink: 0; }
+  .frame .main > div[style*="overflow-y:auto"] { min-height: 0; }
+</style>
+</helmet>
+
+<div class="ltc-canvas">
+
+  <section class="ltc-turn">
+    <div>
+      <div class="ltc-turnhead">Models screen — current vs. three refined directions</div>
+      <div class="ltc-turnsub">Reference in chat by id. <a href="#1a">1a</a> is a faithful recreation of today's UI (stock Pico dark). <a href="#1b">1b</a>, <a href="#1c">1c</a>, <a href="#1d">1d</a> are restyle directions — same structure, tighter and more distinct, each solving the "where does one model config end and the next begin" problem. Pick one and I'll apply it across all six screens.</div>
+    </div>
+
+    <div class="ltc-row">
+
+      <!-- ============================= 1a — CURRENT (Pico dark) ============================= -->
+      <div class="ltc-opt" id="1a">
+        <div style="display:flex;align-items:center;gap:10px;"><span class="ltc-badge">1a</span><span class="ltc-caption">Current<small>stock Pico dark — the baseline</small></span></div>
+        <div class="frame" style="--bg:#13171f;--sidebg:#13171f;--panel:#181c25;--inset:#13171f;--border:#202632;--text:#c2c7d0;--muted:#7b8495;--head:#e6e9ed;--accent:#01aaff;--accentBg:#0172ad;--font:system-ui,-apple-system,'Segoe UI',sans-serif;--mono:'IBM Plex Mono',ui-monospace,monospace;--kbdBg:#c2c7d0;--kbdText:#13171f;--frameRadius:8px;--navRadius:4px;--navActiveBg:#0172ad;--navActiveText:#fff;--navActiveWeight:700;">
+          <aside class="side">
+            <div>
+              <div class="brand"><h3>Llama Toolchest</h3><p>Inference Manager <span style="opacity:.6">v1.4.2</span></p></div>
+              <ul class="navlist">
+                <li><a href="#1a">Server</a></li>
+                <li><a href="#1a">Builds</a></li>
+                <li><a href="#1a" class="active">Models</a></li>
+                <li><a href="#1a">Search HF</a></li>
+                <li><a href="#1a">Benchmarks</a></li>
+                <li><a href="#1a">Settings</a></li>
+                <li><a href="#1a">Help</a></li>
+              </ul>
+            </div>
+            <div style="border-top:1px solid var(--border);padding-top:10px;font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:7px;">
+              <div><div style="display:flex;justify-content:space-between;"><span>GPU0</span><span>45%</span></div><div class="prog" style="margin-top:2px"><i style="width:45%"></i></div><div style="display:flex;justify-content:space-between;margin-top:3px"><span>VRAM</span><span>18.2/24.0</span></div><div class="prog" style="margin-top:2px"><i style="width:76%"></i></div></div>
+              <div><div style="display:flex;justify-content:space-between;"><span>GPU1</span><span>30%</span></div><div class="prog" style="margin-top:2px"><i style="width:30%"></i></div><div style="display:flex;justify-content:space-between;margin-top:3px"><span>VRAM</span><span>12.1/24.0</span></div><div class="prog" style="margin-top:2px"><i style="width:50%"></i></div></div>
+              <div><div style="display:flex;justify-content:space-between;"><span>CPU</span><span>12%</span></div><div class="prog" style="margin-top:2px"><i style="width:12%"></i></div></div>
+              <div><div style="display:flex;justify-content:space-between;"><span>RAM</span><span>24.3/64</span></div><div class="prog" style="margin-top:2px"><i style="width:38%"></i></div></div>
+            </div>
+          </aside>
+          <main class="main">
+            <div style="display:flex;justify-content:flex-end;padding-bottom:8px;">
+              <button style="font-size:12.5px;padding:4px 10px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;">Scan for Models</button>
+            </div>
+            <div style="border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:12px;background:var(--panel);flex-shrink:0;">
+              <div style="font-size:13px;font-weight:600;color:var(--head);margin-bottom:8px;">▾ GPU Allocation Map</div>
+              <div style="margin-bottom:8px;">
+                <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;"><span><strong>GPU 0</strong> <span style="color:var(--muted)">RTX 4090</span></span><span>18.2 / 24.0 GB</span></div>
+                <div style="height:18px;border-radius:4px;background:var(--border);display:flex;overflow:hidden;"><div style="width:52%;background:#01aaff"></div><div style="width:24%;background:#7c5cff"></div></div>
+              </div>
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;"><span><strong>GPU 1</strong> <span style="color:var(--muted)">RTX 4090</span></span><span>12.1 / 24.0 GB</span></div>
+                <div style="height:18px;border-radius:4px;background:var(--border);display:flex;overflow:hidden;"><div style="width:50%;background:#01aaff"></div></div>
+              </div>
+              <div style="display:flex;gap:14px;font-size:11.5px;margin-top:8px;color:var(--text);"><span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:2px;background:#01aaff;display:inline-block;"></span>Qwen3-32B <span style="color:var(--muted)">(24.3 GB)</span></span><span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:2px;background:#7c5cff;display:inline-block;"></span>gemma-3-27b <span style="color:var(--muted)">(5.8 GB)</span></span></div>
+            </div>
+
+            <!-- header row -->
+            <div style="display:grid;grid-template-columns:2.5rem minmax(0,1fr) 5rem 5rem 5rem 12rem;gap:12px;align-items:center;padding:0 12px 5px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);">
+              <div>On</div><div>Model</div><div>Quant</div><div>VRAM</div><div>Size</div><div style="justify-self:end;">Actions</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;overflow-y:auto;">
+              <!-- card 1: expanded (current flat treatment) -->
+              <article style="border:1px solid var(--border);border-radius:6px;background:var(--panel);overflow:hidden;flex-shrink:0;">
+                <div style="display:grid;grid-template-columns:2.5rem minmax(0,1fr) 5rem 5rem 5rem 12rem;gap:12px;align-items:center;padding:8px 12px;font-size:14px;">
+                  <div><span style="display:inline-block;width:32px;height:18px;border-radius:9px;background:var(--accent);position:relative;"><span style="position:absolute;top:2px;right:2px;width:14px;height:14px;border-radius:50%;background:#fff;"></span></span></div>
+                  <div style="overflow-wrap:anywhere;">unsloth/Qwen3-32B-GGUF <mark style="background:#c9a94b;color:#13171f;padding:0 5px;font-size:11px;border-radius:3px;">tools</mark></div>
+                  <div><span class="kbd">Q8_K_XL</span></div>
+                  <div style="white-space:nowrap;">34.2 GB</div>
+                  <div style="white-space:nowrap;">32.5 GB</div>
+                  <div style="justify-self:end;display:flex;gap:6px;"><button style="font-size:13px;padding:4px 10px;border:1px solid var(--accent);background:transparent;color:var(--accent);border-radius:5px;cursor:pointer;">Configure</button><button style="font-size:13px;padding:4px 10px;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:5px;cursor:pointer;">Remove</button></div>
+                </div>
+                <!-- current config panel: thin top border, page-bg, no owner label -->
+                <div style="border-top:1px solid var(--border);padding:12px;background:var(--inset);">
+                  <label style="font-size:13px;display:block;margin-bottom:8px;color:var(--text);">Aliases<input value="qwen3:latest, my-chat-model" style="display:block;width:100%;margin-top:3px;padding:6px 8px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:5px;color:var(--text);"></label>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px;">
+                    <label style="font-size:13px;color:var(--text);">GPU Layers<input value="999" style="display:block;width:100%;margin-top:3px;padding:6px 8px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:5px;color:var(--text);"></label>
+                    <label style="font-size:13px;color:var(--text);">Context Size <small style="color:var(--muted)">(max 131072)</small><input value="32768" style="display:block;width:100%;margin-top:3px;padding:6px 8px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:5px;color:var(--text);"></label>
+                  </div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px;">
+                    <label style="font-size:13px;color:var(--text);">GPU Assignment<select style="display:block;width:100%;margin-top:3px;padding:6px 8px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:5px;color:var(--text);"><option>GPUs 0–1 ★</option></select></label>
+                    <label style="font-size:13px;color:var(--text);">Threads<input value="16" style="display:block;width:100%;margin-top:3px;padding:6px 8px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:5px;color:var(--text);"></label>
+                  </div>
+                  <div style="display:flex;gap:24px;align-items:center;margin-bottom:8px;font-size:13px;color:var(--text);">
+                    <label style="display:flex;align-items:center;gap:8px;">Flash Attention <span style="display:inline-block;width:32px;height:18px;border-radius:9px;background:var(--accent);position:relative;"><span style="position:absolute;top:2px;right:2px;width:14px;height:14px;border-radius:50%;background:#fff;"></span></span></label>
+                    <label style="display:flex;align-items:center;gap:8px;flex:1;">KV Cache Quant <select style="flex:1;padding:6px 8px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:5px;color:var(--text);"><option>q8_0</option></select></label>
+                  </div>
+                  <small style="color:var(--muted);font-size:12px;">Changes are saved automatically. Launch parameters require a server restart to apply.</small>
+                </div>
+              </article>
+              <!-- card 2 -->
+              <article style="border:1px solid var(--border);border-radius:6px;background:var(--panel);flex-shrink:0;">
+                <div style="display:grid;grid-template-columns:2.5rem minmax(0,1fr) 5rem 5rem 5rem 12rem;gap:12px;align-items:center;padding:8px 12px;font-size:14px;">
+                  <div><span style="display:inline-block;width:32px;height:18px;border-radius:9px;background:var(--accent);position:relative;"><span style="position:absolute;top:2px;right:2px;width:14px;height:14px;border-radius:50%;background:#fff;"></span></span></div>
+                  <div style="overflow-wrap:anywhere;">google/gemma-3-27b-it-GGUF <mark style="background:#c9a94b;color:#13171f;padding:0 5px;font-size:11px;border-radius:3px;">vision</mark> <mark style="background:#c9a94b;color:#13171f;padding:0 5px;font-size:11px;border-radius:3px;">tools</mark></div>
+                  <div><span class="kbd">Q6_K</span></div>
+                  <div style="white-space:nowrap;">22.1 GB</div>
+                  <div style="white-space:nowrap;">20.8 GB</div>
+                  <div style="justify-self:end;display:flex;gap:6px;"><button style="font-size:13px;padding:4px 10px;border:1px solid var(--accent);background:transparent;color:var(--accent);border-radius:5px;cursor:pointer;">Configure</button><button style="font-size:13px;padding:4px 10px;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:5px;cursor:pointer;">Remove</button></div>
+                </div>
+              </article>
+              <!-- card 3 disabled -->
+              <article style="border:1px solid var(--border);border-radius:6px;background:var(--panel);flex-shrink:0;">
+                <div style="display:grid;grid-template-columns:2.5rem minmax(0,1fr) 5rem 5rem 5rem 12rem;gap:12px;align-items:center;padding:8px 12px;font-size:14px;">
+                  <div><span style="display:inline-block;width:32px;height:18px;border-radius:9px;background:var(--border);position:relative;"><span style="position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--muted);"></span></span></div>
+                  <div style="overflow-wrap:anywhere;">meta-llama/Llama-3.3-70B-Instruct-GGUF <mark style="background:#c9a94b;color:#13171f;padding:0 5px;font-size:11px;border-radius:3px;">tools</mark></div>
+                  <div><span class="kbd">Q4_K_M</span></div>
+                  <div style="white-space:nowrap;">42.5 GB</div>
+                  <div style="white-space:nowrap;">39.6 GB</div>
+                  <div style="justify-self:end;display:flex;gap:6px;"><button style="font-size:13px;padding:4px 10px;border:1px solid var(--accent);background:transparent;color:var(--accent);border-radius:5px;cursor:pointer;">Configure</button><button style="font-size:13px;padding:4px 10px;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:5px;cursor:pointer;">Remove</button></div>
+                </div>
+              </article>
+            </div>
+
+            <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:10px;display:flex;justify-content:space-between;align-items:center;">
+              <h4 style="margin:0;font-size:15px;color:var(--head);">Embedding Models</h4>
+              <button style="font-size:12.5px;padding:4px 10px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;">Get Embedding Models</button>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
+              <article style="border:1px solid var(--border);border-radius:6px;background:var(--panel);flex-shrink:0;"><div style="display:grid;grid-template-columns:2.5rem minmax(0,1fr) 5rem 5rem 5rem 12rem;gap:12px;align-items:center;padding:8px 12px;font-size:14px;"><div><span style="display:inline-block;width:32px;height:18px;border-radius:9px;background:var(--accent);position:relative;"><span style="position:absolute;top:2px;right:2px;width:14px;height:14px;border-radius:50%;background:#fff;"></span></span></div><div>nomic-ai/nomic-embed-text-v1.5</div><div><span class="kbd">F16</span></div><div>—</div><div>0.5 GB</div><div style="justify-self:end;display:flex;gap:6px;"><button style="font-size:13px;padding:4px 10px;border:1px solid var(--accent);background:transparent;color:var(--accent);border-radius:5px;cursor:pointer;">Configure</button></div></div></article>
+            </div>
+          </main>
+        </div>
+      </div>
+
+      <!-- ============================= 1b — REFINED DARK ============================= -->
+      <div class="ltc-opt" id="1b">
+        <div style="display:flex;align-items:center;gap:10px;"><span class="ltc-badge">1b</span><span class="ltc-caption">Refined Dark<small>modern dev-tool — neutral slate, one cool accent</small></span></div>
+        <div class="frame" style="--bg:#0e1116;--sidebg:#0b0e12;--panel:#151a21;--panel2:#1a2029;--inset:#0a0d11;--border:#232a34;--borderSoft:#1a2029;--text:#ccd2dc;--muted:#79828f;--head:#f0f3f7;--accent:#4aa8ff;--accentSoft:#16324d;--ok:#4ea674;--warn:#d6a44c;--font:'IBM Plex Sans',system-ui,sans-serif;--mono:'IBM Plex Mono',ui-monospace,monospace;--kbdBg:#1f2731;--kbdText:#9fb4cc;--frameRadius:12px;--navRadius:7px;--navActiveBg:#16324d;--navActiveText:#8fc7ff;--navActiveWeight:600;">
+          <aside class="side">
+            <div>
+              <div class="brand" style="display:flex;align-items:center;gap:9px;"><span style="width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,#4aa8ff,#7c5cff);display:inline-block;flex-shrink:0;"></span><div><h3 style="font-size:16px;">Llama Toolchest</h3><p style="font-size:11px;">Inference Manager · v1.4.2</p></div></div>
+              <ul class="navlist">
+                <li><a href="#1b">Server</a></li>
+                <li><a href="#1b">Builds</a></li>
+                <li><a href="#1b" class="active">Models</a></li>
+                <li><a href="#1b">Search HF</a></li>
+                <li><a href="#1b">Benchmarks</a></li>
+                <li><a href="#1b">Settings</a></li>
+                <li><a href="#1b">Help</a></li>
+              </ul>
+            </div>
+            <div style="padding-top:12px;border-top:1px solid var(--borderSoft);font-size:11.5px;color:var(--muted);display:flex;flex-direction:column;gap:9px;">
+              <div style="text-transform:uppercase;letter-spacing:.06em;font-size:10px;color:var(--muted);opacity:.7;">System</div>
+              <div><div style="display:flex;justify-content:space-between;color:var(--text);"><span>GPU0</span><span class="mono">45%</span></div><div class="prog" style="margin-top:3px"><i style="width:45%"></i></div><div style="display:flex;justify-content:space-between;margin-top:4px"><span>VRAM</span><span class="mono">18.2/24.0</span></div><div class="prog" style="margin-top:3px"><i style="width:76%"></i></div></div>
+              <div><div style="display:flex;justify-content:space-between;color:var(--text);"><span>GPU1</span><span class="mono">30%</span></div><div class="prog" style="margin-top:3px"><i style="width:30%"></i></div><div style="display:flex;justify-content:space-between;margin-top:4px"><span>VRAM</span><span class="mono">12.1/24.0</span></div><div class="prog" style="margin-top:3px"><i style="width:50%"></i></div></div>
+              <div style="display:flex;gap:12px;"><div style="flex:1"><div style="display:flex;justify-content:space-between;color:var(--text);"><span>CPU</span><span class="mono">12%</span></div><div class="prog" style="margin-top:3px"><i style="width:12%"></i></div></div><div style="flex:1"><div style="display:flex;justify-content:space-between;color:var(--text);"><span>RAM</span><span class="mono">38%</span></div><div class="prog" style="margin-top:3px"><i style="width:38%"></i></div></div></div>
+            </div>
+          </aside>
+          <main class="main">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:12px;">
+              <div><div style="font-size:18px;font-weight:600;color:var(--head);letter-spacing:-0.01em;">Models</div><div style="font-size:12.5px;color:var(--muted);">3 chat · 1 embedding · 2 loaded</div></div>
+              <button style="font-size:12.5px;padding:6px 12px;border-radius:7px;border:1px solid var(--border);background:var(--panel);color:var(--text);cursor:pointer;">Scan for Models</button>
+            </div>
+            <div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:14px;background:var(--panel);flex-shrink:0;">
+              <div style="font-size:12.5px;font-weight:600;color:var(--head);margin-bottom:10px;display:flex;align-items:center;gap:7px;">GPU Allocation Map</div>
+              <div style="display:flex;flex-direction:column;gap:10px;">
+                <div>
+                  <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px;"><span style="color:var(--text)"><strong>GPU 0</strong> <span style="color:var(--muted)">RTX 4090</span></span><span class="mono" style="color:var(--muted)">18.2 / 24.0 GB</span></div>
+                  <div style="height:8px;border-radius:5px;background:var(--inset);display:flex;overflow:hidden;gap:2px;"><div style="width:52%;background:var(--accent)"></div><div style="width:24%;background:#7c5cff"></div></div>
+                </div>
+                <div>
+                  <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px;"><span style="color:var(--text)"><strong>GPU 1</strong> <span style="color:var(--muted)">RTX 4090</span></span><span class="mono" style="color:var(--muted)">12.1 / 24.0 GB</span></div>
+                  <div style="height:8px;border-radius:5px;background:var(--inset);display:flex;overflow:hidden;"><div style="width:50%;background:var(--accent)"></div></div>
+                </div>
+              </div>
+              <div style="display:flex;gap:16px;font-size:11.5px;margin-top:10px;color:var(--text);"><span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:9px;height:9px;border-radius:3px;background:var(--accent);display:inline-block;"></span>Qwen3-32B <span style="color:var(--muted)">24.3 GB</span></span><span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:9px;height:9px;border-radius:3px;background:#7c5cff;display:inline-block;"></span>gemma-3-27b <span style="color:var(--muted)">5.8 GB</span></span></div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:2.5rem minmax(0,1fr) 5rem 5rem 5rem 11rem;gap:12px;align-items:center;padding:0 14px 7px;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);">
+              <div>On</div><div>Model</div><div>Quant</div><div>VRAM</div><div>Size</div><div style="justify-self:end;">Actions</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px;overflow-y:auto;">
+              <!-- expanded card w/ improved separation: accent rail + owner header + inset -->
+              <article style="border:1px solid var(--accent);border-radius:10px;background:var(--panel);overflow:hidden;flex-shrink:0;box-shadow:0 0 0 1px var(--accentSoft),0 8px 24px -12px rgba(0,0,0,.7);">
+                <div style="display:grid;grid-template-columns:2.5rem minmax(0,1fr) 5rem 5rem 5rem 11rem;gap:12px;align-items:center;padding:11px 14px;font-size:14px;">
+                  <div><span style="display:inline-block;width:32px;height:18px;border-radius:9px;background:var(--accent);position:relative;"><span style="position:absolute;top:2px;right:2px;width:14px;height:14px;border-radius:50%;background:#fff;"></span></span></div>
+                  <div style="overflow-wrap:anywhere;color:var(--head);font-weight:500;">unsloth/Qwen3-32B-GGUF <span style="border:1px solid var(--border);color:var(--muted);padding:1px 6px;font-size:10.5px;border-radius:20px;margin-left:2px;">tools</span></div>
+                  <div><span class="kbd">Q8_K_XL</span></div>
+                  <div class="mono" style="white-space:nowrap;font-size:13px;">34.2 GB</div>
+                  <div class="mono" style="white-space:nowrap;font-size:13px;color:var(--muted);">32.5 GB</div>
+                  <div style="justify-self:end;display:flex;gap:7px;"><button style="font-size:12.5px;padding:5px 12px;border:none;background:var(--accent);color:#04121f;font-weight:600;border-radius:6px;cursor:pointer;">Configuring ▾</button><button style="font-size:12.5px;padding:5px 10px;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:6px;cursor:pointer;">Remove</button></div>
+                </div>
+                <div style="border-top:1px solid var(--accentSoft);background:var(--inset);display:flex;">
+                  <div style="width:3px;background:var(--accent);flex-shrink:0;"></div>
+                  <div style="padding:12px 16px;flex:1;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;"><span style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);">Configuration · unsloth/Qwen3-32B-GGUF</span><span style="font-size:11px;color:var(--warn);">↻ restart required</span></div>
+                    <label style="font-size:12.5px;display:block;margin-bottom:10px;color:var(--muted);">Aliases<input value="qwen3:latest, my-chat-model" style="display:block;width:100%;margin-top:4px;padding:7px 9px;font-size:13px;background:var(--panel);border:1px solid var(--border);border-radius:6px;color:var(--text);"></label>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px;">
+                      <label style="font-size:12.5px;color:var(--muted);">GPU Layers<input value="999" style="display:block;width:100%;margin-top:4px;padding:7px 9px;font-size:13px;background:var(--panel);border:1px solid var(--border);border-radius:6px;color:var(--text);"></label>
+                      <label style="font-size:12.5px;color:var(--muted);">Context Size <span style="color:var(--muted);opacity:.7;">(max 131072)</span><input value="32768" style="display:block;width:100%;margin-top:4px;padding:7px 9px;font-size:13px;background:var(--panel);border:1px solid var(--border);border-radius:6px;color:var(--text);"></label>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px;">
+                      <label style="font-size:12.5px;color:var(--muted);">GPU Assignment<select style="display:block;width:100%;margin-top:4px;padding:7px 9px;font-size:13px;background:var(--panel);border:1px solid var(--border);border-radius:6px;color:var(--text);"><option>GPUs 0–1 ★</option></select></label>
+                      <label style="font-size:12.5px;color:var(--muted);">Threads<input value="16" style="display:block;width:100%;margin-top:4px;padding:7px 9px;font-size:13px;background:var(--panel);border:1px solid var(--border);border-radius:6px;color:var(--text);"></label>
+                    </div>
+                    <div style="display:flex;gap:22px;align-items:center;font-size:12.5px;color:var(--text);">
+                      <label style="display:flex;align-items:center;gap:9px;">Flash Attention <span style="display:inline-block;width:32px;height:18px;border-radius:9px;background:var(--accent);position:relative;"><span style="position:absolute;top:2px;right:2px;width:14px;height:14px;border-radius:50%;background:#fff;"></span></span></label>
+                      <label style="display:flex;align-items:center;gap:9px;flex:1;color:var(--muted);">KV Cache Quant <select style="flex:1;padding:7px 9px;font-size:13px;background:var(--panel);border:1px solid var(--border);border-radius:6px;color:var(--text);"><option>q8_0</option></select></label>
+                    </div>
+                    <div style="margin-top:12px;font-size:11.5px;color:var(--muted);">Changes saved automatically · launch params apply on restart.</div>
+                  </div>
+                </div>
+              </article>
+              <article style="border:1px solid var(--border);border-radius:10px;background:var(--panel);flex-shrink:0;">
+                <div style="display:grid;grid-template-columns:2.5rem minmax(0,1fr) 5rem 5rem 5rem 11rem;gap:12px;align-items:center;padding:11px 14px;font-size:14px;">
+                  <div><span style="display:inline-block;width:32px;height:18px;border-radius:9px;background:var(--accent);position:relative;"><span style="position:absolute;top:2px;right:2px;width:14px;height:14px;border-radius:50%;background:#fff;"></span></span></div>
+                  <div style="overflow-wrap:anywhere;color:var(--head);font-weight:500;">google/gemma-3-27b-it-GGUF <span style="border:1px solid var(--border);color:var(--muted);padding:1px 6px;font-size:10.5px;border-radius:20px;">vision</span> <span style="border:1px solid var(--border);color:var(--muted);padding:1px 6px;font-size:10.5px;border-radius:20px;">tools</span></div>
+                  <div><span class="kbd">Q6_K</span></div>
+                  <div class="mono" style="white-space:nowrap;font-size:13px;">22.1 GB</div>
+                  <div class="mono" style="white-space:nowrap;font-size:13px;color:var(--muted);">20.8 GB</div>
+                  <div style="justify-self:end;display:flex;gap:7px;"><button style="font-size:12.5px;padding:5px 12px;border:1px solid var(--border);background:var(--panel2);color:var(--text);border-radius:6px;cursor:pointer;">Configure</button><button style="font-size:12.5px;padding:5px 10px;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:6px;cursor:pointer;">Remove</button></div>
+                </div>
+              </article>
+              <article style="border:1px solid var(--border);border-radius:10px;background:var(--panel);flex-shrink:0;opacity:.72;">
+                <div style="display:grid;grid-template-columns:2.5rem minmax(0,1fr) 5rem 5rem 5rem 11rem;gap:12px;align-items:center;padding:11px 14px;font-size:14px;">
+                  <div><span style="display:inline-block;width:32px;height:18px;border-radius:9px;background:var(--border);position:relative;"><span style="position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--muted);"></span></span></div>
+                  <div style="overflow-wrap:anywhere;color:var(--text);">meta-llama/Llama-3.3-70B-Instruct-GGUF <span style="border:1px solid var(--border);color:var(--muted);padding:1px 6px;font-size:10.5px;border-radius:20px;">tools</span></div>
+                  <div><span class="kbd">Q4_K_M</span></div>
+                  <div class="mono" style="white-space:nowrap;font-size:13px;">42.5 GB</div>
+                  <div class="mono" style="white-space:nowrap;font-size:13px;color:var(--muted);">39.6 GB</div>
+                  <div style="justify-self:end;display:flex;gap:7px;"><button style="font-size:12.5px;padding:5px 12px;border:1px solid var(--border);background:var(--panel2);color:var(--text);border-radius:6px;cursor:pointer;">Configure</button><button style="font-size:12.5px;padding:5px 10px;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:6px;cursor:pointer;">Remove</button></div>
+                </div>
+              </article>
+            </div>
+
+            <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+              <h4 style="margin:0;font-size:14px;color:var(--head);">Embedding Models</h4>
+              <button style="font-size:12px;padding:5px 11px;border-radius:7px;border:1px solid var(--border);background:var(--panel);color:var(--muted);cursor:pointer;">Get Embedding Models</button>
+            </div>
+            <div style="margin-top:10px;"><article style="border:1px solid var(--border);border-radius:10px;background:var(--panel);flex-shrink:0;"><div style="display:grid;grid-template-columns:2.5rem minmax(0,1fr) 5rem 5rem 5rem 11rem;gap:12px;align-items:center;padding:11px 14px;font-size:14px;"><div><span style="display:inline-block;width:32px;height:18px;border-radius:9px;background:var(--accent);position:relative;"><span style="position:absolute;top:2px;right:2px;width:14px;height:14px;border-radius:50%;background:#fff;"></span></span></div><div style="color:var(--head);font-weight:500;">nomic-ai/nomic-embed-text-v1.5</div><div><span class="kbd">F16</span></div><div class="mono" style="color:var(--muted);font-size:13px;">—</div><div class="mono" style="font-size:13px;">0.5 GB</div><div style="justify-self:end;"><button style="font-size:12.5px;padding:5px 12px;border:1px solid var(--border);background:var(--panel2);color:var(--text);border-radius:6px;cursor:pointer;">Configure</button></div></div></article></div>
+          </main>
+        </div>
+      </div>
+
+      <!-- ============================= 1c — TERMINAL (refined) ============================= -->
+      <div class="ltc-opt" id="1c">
+        <div style="display:flex;align-items:center;gap:10px;"><span class="ltc-badge">1c</span><span class="ltc-caption">Terminal<small>refined hacker — mono, near-black, phosphor accent used sparingly</small></span></div>
+        <div class="frame" style="--bg:#0a0d0a;--sidebg:#080a08;--panel:#0e120e;--panel2:#121712;--inset:#070907;--border:#1c281c;--borderSoft:#141c14;--text:#a8bda8;--muted:#5f735f;--head:#d7f0d7;--accent:#54e06e;--accentSoft:#12351a;--warn:#d9a441;--font:'JetBrains Mono',ui-monospace,monospace;--mono:'JetBrains Mono',ui-monospace,monospace;--kbdBg:#12281a;--kbdText:#7fe89a;--frameRadius:8px;--navRadius:0px;--navActiveBg:#12351a;--navActiveText:#7fe89a;--navActiveWeight:700;">
+          <aside class="side">
+            <div>
+              <div class="brand"><h3 style="font-size:15px;font-family:var(--mono);">▚ llama-toolchest</h3><p style="font-size:11px;">inference-manager v1.4.2</p></div>
+              <ul class="navlist" style="gap:1px;">
+                <li><a href="#1c">server</a></li>
+                <li><a href="#1c">builds</a></li>
+                <li><a href="#1c" class="active">models</a></li>
+                <li><a href="#1c">search-hf</a></li>
+                <li><a href="#1c">benchmarks</a></li>
+                <li><a href="#1c">settings</a></li>
+                <li><a href="#1c">help</a></li>
+              </ul>
+            </div>
+            <div style="padding-top:12px;border-top:1px solid var(--borderSoft);font-size:11px;color:var(--muted);display:flex;flex-direction:column;gap:8px;">
+              <div style="color:var(--muted);opacity:.7;">// system</div>
+              <div><div style="display:flex;justify-content:space-between;color:var(--text);"><span>gpu0</span><span>[ 45% ]</span></div><div class="prog" style="margin-top:3px;border-radius:0"><i style="width:45%"></i></div><div style="display:flex;justify-content:space-between;margin-top:3px"><span>vram</span><span>18.2/24.0</span></div><div class="prog" style="margin-top:3px;border-radius:0"><i style="width:76%"></i></div></div>
+              <div><div style="display:flex;justify-content:space-between;color:var(--text);"><span>gpu1</span><span>[ 30% ]</span></div><div class="prog" style="margin-top:3px;border-radius:0"><i style="width:30%"></i></div><div style="display:flex;justify-content:space-between;margin-top:3px"><span>vram</span><span>12.1/24.0</span></div><div class="prog" style="margin-top:3px;border-radius:0"><i style="width:50%"></i></div></div>
+              <div style="display:flex;gap:10px;"><div style="flex:1"><div style="display:flex;justify-content:space-between;color:var(--text);"><span>cpu</span><span>12%</span></div><div class="prog" style="margin-top:3px;border-radius:0"><i style="width:12%"></i></div></div><div style="flex:1"><div style="display:flex;justify-content:space-between;color:var(--text);"><span>ram</span><span>38%</span></div><div class="prog" style="margin-top:3px;border-radius:0"><i style="width:38%"></i></div></div></div>
+            </div>
+          </aside>
+          <main class="main">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:12px;">
+              <div style="font-size:16px;color:var(--head);">models<span style="color:var(--muted)"> — 3 chat · 1 embed · 2 loaded</span></div>
+              <button style="font-size:12px;padding:5px 11px;border-radius:0;border:1px solid var(--border);background:transparent;color:var(--accent);cursor:pointer;font-family:var(--mono);">[ scan ]</button>
+            </div>
+            <div style="border:1px solid var(--border);padding:12px 14px;margin-bottom:14px;background:var(--panel);flex-shrink:0;">
+              <div style="font-size:12px;color:var(--head);margin-bottom:10px;">┌ gpu allocation map</div>
+              <div style="display:flex;flex-direction:column;gap:9px;">
+                <div>
+                  <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:4px;"><span style="color:var(--text)">gpu0 <span style="color:var(--muted)">rtx-4090</span></span><span style="color:var(--muted)">18.2/24.0 GB</span></div>
+                  <div style="height:14px;background:var(--inset);display:flex;overflow:hidden;border:1px solid var(--borderSoft);"><div style="width:52%;background:var(--accent)"></div><div style="width:24%;background:#3aa4d9"></div></div>
+                </div>
+                <div>
+                  <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:4px;"><span style="color:var(--text)">gpu1 <span style="color:var(--muted)">rtx-4090</span></span><span style="color:var(--muted)">12.1/24.0 GB</span></div>
+                  <div style="height:14px;background:var(--inset);display:flex;overflow:hidden;border:1px solid var(--borderSoft);"><div style="width:50%;background:var(--accent)"></div></div>
+                </div>
+              </div>
+              <div style="display:flex;gap:16px;font-size:11px;margin-top:9px;color:var(--text);"><span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:9px;height:9px;background:var(--accent);display:inline-block;"></span>qwen3-32b <span style="color:var(--muted)">24.3</span></span><span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:9px;height:9px;background:#3aa4d9;display:inline-block;"></span>gemma-3-27b <span style="color:var(--muted)">5.8</span></span></div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:2.5rem minmax(0,1fr) 5rem 5rem 5rem 11rem;gap:12px;align-items:center;padding:0 12px 6px;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);">
+              <div>on</div><div>model</div><div>quant</div><div>vram</div><div>size</div><div style="justify-self:end;">actions</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:9px;overflow-y:auto;">
+              <!-- expanded: bracket-boxed config with owner header line -->
+              <article style="border:1px solid var(--accent);background:var(--panel);overflow:hidden;flex-shrink:0;">
+                <div style="display:grid;grid-template-columns:2.5rem minmax(0,1fr) 5rem 5rem 5rem 11rem;gap:12px;align-items:center;padding:10px 12px;font-size:13.5px;">
+                  <div><span style="display:inline-block;width:30px;height:16px;background:var(--accent);position:relative;"><span style="position:absolute;top:2px;right:2px;width:12px;height:12px;background:#04120a;"></span></span></div>
+                  <div style="overflow-wrap:anywhere;color:var(--head);">unsloth/Qwen3-32B-GGUF <span style="color:var(--accent);font-size:11px;">[tools]</span></div>
+                  <div><span class="kbd" style="border-radius:0;">Q8_K_XL</span></div>
+                  <div style="white-space:nowrap;font-size:12.5px;color:var(--head);">34.2</div>
+                  <div style="white-space:nowrap;font-size:12.5px;color:var(--muted);">32.5</div>
+                  <div style="justify-self:end;display:flex;gap:6px;"><button style="font-size:12px;padding:4px 10px;border:1px solid var(--accent);background:var(--accentSoft);color:var(--accent);cursor:pointer;font-family:var(--mono);">[ config ▾ ]</button><button style="font-size:12px;padding:4px 8px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-family:var(--mono);">rm</button></div>
+                </div>
+                <div style="border-top:1px dashed var(--accent);background:var(--inset);padding:12px 14px;">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;font-size:11px;"><span style="color:var(--accent);">╾╾ config: unsloth/Qwen3-32B-GGUF ╼╼</span><span style="color:var(--warn);">↻ restart req'd</span></div>
+                  <label style="font-size:12px;display:block;margin-bottom:10px;color:var(--muted);">aliases<input value="qwen3:latest, my-chat-model" style="display:block;width:100%;margin-top:4px;padding:6px 8px;font-size:12.5px;background:var(--panel);border:1px solid var(--border);border-radius:0;color:var(--text);font-family:var(--mono);"></label>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-bottom:10px;">
+                    <label style="font-size:12px;color:var(--muted);">gpu_layers<input value="999" style="display:block;width:100%;margin-top:4px;padding:6px 8px;font-size:12.5px;background:var(--panel);border:1px solid var(--border);border-radius:0;color:var(--text);font-family:var(--mono);"></label>
+                    <label style="font-size:12px;color:var(--muted);">ctx_size <span style="opacity:.6">(max 131072)</span><input value="32768" style="display:block;width:100%;margin-top:4px;padding:6px 8px;font-size:12.5px;background:var(--panel);border:1px solid var(--border);border-radius:0;color:var(--text);font-family:var(--mono);"></label>
+                  </div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-bottom:10px;">
+                    <label style="font-size:12px;color:var(--muted);">gpu_assign<select style="display:block;width:100%;margin-top:4px;padding:6px 8px;font-size:12.5px;background:var(--panel);border:1px solid var(--border);border-radius:0;color:var(--text);font-family:var(--mono);"><option>gpus 0-1 ★</option></select></label>
+                    <label style="font-size:12px;color:var(--muted);">threads<input value="16" style="display:block;width:100%;margin-top:4px;padding:6px 8px;font-size:12.5px;background:var(--panel);border:1px solid var(--border);border-radius:0;color:var(--text);font-family:var(--mono);"></label>
+                  </div>
+                  <div style="display:flex;gap:22px;align-items:center;font-size:12px;color:var(--text);">
+                    <label style="display:flex;align-items:center;gap:8px;color:var(--muted);">flash_attn <span style="display:inline-block;width:30px;height:16px;background:var(--accent);position:relative;"><span style="position:absolute;top:2px;right:2px;width:12px;height:12px;background:#04120a;"></span></span></label>
+                    <label style="display:flex;align-items:center;gap:8px;flex:1;color:var(--muted);">kv_cache <select style="flex:1;padding:6px 8px;font-size:12.5px;background:var(--panel);border:1px solid var(--border);border-radius:0;color:var(--text);font-family:var(--mono);"><option>q8_0</option></select></label>
+                  </div>
+                  <div style="margin-top:12px;font-size:11px;color:var(--muted);">// saved automatically · launch params apply on restart</div>
+                </div>
+              </article>
+              <article style="border:1px solid var(--border);background:var(--panel);flex-shrink:0;">
+                <div style="display:grid;grid-template-columns:2.5rem minmax(0,1fr) 5rem 5rem 5rem 11rem;gap:12px;align-items:center;padding:10px 12px;font-size:13.5px;">
+                  <div><span style="display:inline-block;width:30px;height:16px;background:var(--accent);position:relative;"><span style="position:absolute;top:2px;right:2px;width:12px;height:12px;background:#04120a;"></span></span></div>
+                  <div style="overflow-wrap:anywhere;color:var(--head);">google/gemma-3-27b-it-GGUF <span style="color:var(--accent);font-size:11px;">[vision] [tools]</span></div>
+                  <div><span class="kbd" style="border-radius:0;">Q6_K</span></div>
+                  <div style="white-space:nowrap;font-size:12.5px;color:var(--head);">22.1</div>
+                  <div style="white-space:nowrap;font-size:12.5px;color:var(--muted);">20.8</div>
+                  <div style="justify-self:end;display:flex;gap:6px;"><button style="font-size:12px;padding:4px 10px;border:1px solid var(--border);background:transparent;color:var(--accent);cursor:pointer;font-family:var(--mono);">[ config ]</button><button style="font-size:12px;padding:4px 8px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-family:var(--mono);">rm</button></div>
+                </div>
+              </article>
+              <article style="border:1px solid var(--border);background:var(--panel);flex-shrink:0;opacity:.65;">
+                <div style="display:grid;grid-template-columns:2.5rem minmax(0,1fr) 5rem 5rem 5rem 11rem;gap:12px;align-items:center;padding:10px 12px;font-size:13.5px;">
+                  <div><span style="display:inline-block;width:30px;height:16px;background:var(--border);position:relative;"><span style="position:absolute;top:2px;left:2px;width:12px;height:12px;background:var(--muted);"></span></span></div>
+                  <div style="overflow-wrap:anywhere;color:var(--text);">meta-llama/Llama-3.3-70B-Instruct-GGUF <span style="color:var(--muted);font-size:11px;">[tools]</span></div>
+                  <div><span class="kbd" style="border-radius:0;">Q4_K_M</span></div>
+                  <div style="white-space:nowrap;font-size:12.5px;color:var(--head);">42.5</div>
+                  <div style="white-space:nowrap;font-size:12.5px;color:var(--muted);">39.6</div>
+                  <div style="justify-self:end;display:flex;gap:6px;"><button style="font-size:12px;padding:4px 10px;border:1px solid var(--border);background:transparent;color:var(--accent);cursor:pointer;font-family:var(--mono);">[ config ]</button><button style="font-size:12px;padding:4px 8px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-family:var(--mono);">rm</button></div>
+                </div>
+              </article>
+            </div>
+
+            <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+              <h4 style="margin:0;font-size:13.5px;color:var(--head);">embedding models</h4>
+              <button style="font-size:11.5px;padding:4px 10px;border-radius:0;border:1px solid var(--border);background:transparent;color:var(--accent);cursor:pointer;font-family:var(--mono);">[ get models ]</button>
+            </div>
+            <div style="margin-top:10px;"><article style="border:1px solid var(--border);background:var(--panel);flex-shrink:0;"><div style="display:grid;grid-template-columns:2.5rem minmax(0,1fr) 5rem 5rem 5rem 11rem;gap:12px;align-items:center;padding:10px 12px;font-size:13.5px;"><div><span style="display:inline-block;width:30px;height:16px;background:var(--accent);position:relative;"><span style="position:absolute;top:2px;right:2px;width:12px;height:12px;background:#04120a;"></span></span></div><div style="color:var(--head);">nomic-ai/nomic-embed-text-v1.5</div><div><span class="kbd" style="border-radius:0;">F16</span></div><div style="color:var(--muted);font-size:12.5px;">—</div><div style="font-size:12.5px;color:var(--head);">0.5</div><div style="justify-self:end;"><button style="font-size:12px;padding:4px 10px;border:1px solid var(--border);background:transparent;color:var(--accent);cursor:pointer;font-family:var(--mono);">[ config ]</button></div></div></article></div>
+          </main>
+        </div>
+      </div>
+
+      <!-- ============================= 1d — GRAPHITE (calm) ============================= -->
+      <div class="ltc-opt" id="1d">
+        <div style="display:flex;align-items:center;gap:10px;"><span class="ltc-badge">1d</span><span class="ltc-caption">Graphite<small>calm & low-contrast — softer neutrals, muted periwinkle accent</small></span></div>
+        <div class="frame" style="--bg:#181a1e;--sidebg:#141619;--panel:#1e2126;--panel2:#23272d;--inset:#141619;--border:#2b2f36;--borderSoft:#23262c;--text:#c3c7cf;--muted:#828892;--head:#e9ebef;--accent:#9aa6d4;--accentSoft:#262a3a;--warn:#cba76a;--font:'IBM Plex Sans',system-ui,sans-serif;--mono:'IBM Plex Mono',ui-monospace,monospace;--kbdBg:#262a31;--kbdText:#aeb6c6;--frameRadius:14px;--navRadius:9px;--navActiveBg:#262a3a;--navActiveText:#c0c9ea;--navActiveWeight:600;">
+          <aside class="side">
+            <div>
+              <div class="brand" style="display:flex;align-items:center;gap:9px;"><span style="width:26px;height:26px;border-radius:9px;background:var(--accentSoft);border:1px solid var(--accent);display:inline-flex;align-items:center;justify-content:center;color:var(--accent);font-size:13px;flex-shrink:0;">L</span><div><h3 style="font-size:16px;">Llama Toolchest</h3><p style="font-size:11px;">Inference Manager · v1.4.2</p></div></div>
+              <ul class="navlist">
+                <li><a href="#1d">Server</a></li>
+                <li><a href="#1d">Builds</a></li>
+                <li><a href="#1d" class="active">Models</a></li>
+                <li><a href="#1d">Search HF</a></li>
+                <li><a href="#1d">Benchmarks</a></li>
+                <li><a href="#1d">Settings</a></li>
+                <li><a href="#1d">Help</a></li>
+              </ul>
+            </div>
+            <div style="padding-top:12px;border-top:1px solid var(--borderSoft);font-size:11.5px;color:var(--muted);display:flex;flex-direction:column;gap:10px;">
+              <div><div style="display:flex;justify-content:space-between;color:var(--text);"><span>GPU0</span><span>45%</span></div><div class="prog" style="margin-top:4px;height:7px"><i style="width:45%"></i></div><div style="display:flex;justify-content:space-between;margin-top:4px"><span>VRAM</span><span>18.2/24.0</span></div><div class="prog" style="margin-top:4px;height:7px"><i style="width:76%"></i></div></div>
+              <div><div style="display:flex;justify-content:space-between;color:var(--text);"><span>GPU1</span><span>30%</span></div><div class="prog" style="margin-top:4px;height:7px"><i style="width:30%"></i></div><div style="display:flex;justify-content:space-between;margin-top:4px"><span>VRAM</span><span>12.1/24.0</span></div><div class="prog" style="margin-top:4px;height:7px"><i style="width:50%"></i></div></div>
+              <div style="display:flex;gap:12px;"><div style="flex:1"><div style="display:flex;justify-content:space-between;color:var(--text);"><span>CPU</span><span>12%</span></div><div class="prog" style="margin-top:4px;height:7px"><i style="width:12%"></i></div></div><div style="flex:1"><div style="display:flex;justify-content:space-between;color:var(--text);"><span>RAM</span><span>38%</span></div><div class="prog" style="margin-top:4px;height:7px"><i style="width:38%"></i></div></div></div>
+            </div>
+          </aside>
+          <main class="main">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:14px;">
+              <div><div style="font-size:19px;font-weight:600;color:var(--head);letter-spacing:-0.01em;">Models</div><div style="font-size:12.5px;color:var(--muted);margin-top:1px;">3 chat models · 1 embedding · 2 loaded</div></div>
+              <button style="font-size:12.5px;padding:7px 14px;border-radius:9px;border:1px solid var(--border);background:var(--panel);color:var(--text);cursor:pointer;">Scan for Models</button>
+            </div>
+            <div style="border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:16px;background:var(--panel);flex-shrink:0;">
+              <div style="font-size:12.5px;font-weight:600;color:var(--muted);margin-bottom:12px;text-transform:uppercase;letter-spacing:.05em;">GPU Allocation</div>
+              <div style="display:flex;flex-direction:column;gap:12px;">
+                <div>
+                  <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:6px;"><span style="color:var(--text)"><strong style="font-weight:600">GPU 0</strong> <span style="color:var(--muted)">RTX 4090</span></span><span class="mono" style="color:var(--muted)">18.2 / 24.0 GB</span></div>
+                  <div style="height:10px;border-radius:6px;background:var(--inset);display:flex;overflow:hidden;gap:2px;"><div style="width:52%;background:var(--accent)"></div><div style="width:24%;background:#c58fb8"></div></div>
+                </div>
+                <div>
+                  <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:6px;"><span style="color:var(--text)"><strong style="font-weight:600">GPU 1</strong> <span style="color:var(--muted)">RTX 4090</span></span><span class="mono" style="color:var(--muted)">12.1 / 24.0 GB</span></div>
+                  <div style="height:10px;border-radius:6px;background:var(--inset);display:flex;overflow:hidden;"><div style="width:50%;background:var(--accent)"></div></div>
+                </div>
+              </div>
+              <div style="display:flex;gap:18px;font-size:11.5px;margin-top:12px;color:var(--text);"><span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:9px;height:9px;border-radius:3px;background:var(--accent);display:inline-block;"></span>Qwen3-32B <span style="color:var(--muted)">24.3 GB</span></span><span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:9px;height:9px;border-radius:3px;background:#c58fb8;display:inline-block;"></span>gemma-3-27b <span style="color:var(--muted)">5.8 GB</span></span></div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:2.5rem minmax(0,1fr) 5rem 5rem 5rem 11rem;gap:12px;align-items:center;padding:0 16px 8px;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);">
+              <div>On</div><div>Model</div><div>Quant</div><div>VRAM</div><div>Size</div><div style="justify-self:end;">Actions</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:12px;overflow-y:auto;">
+              <article style="border:1px solid var(--accent);border-radius:12px;background:var(--panel);overflow:hidden;flex-shrink:0;">
+                <div style="display:grid;grid-template-columns:2.5rem minmax(0,1fr) 5rem 5rem 5rem 11rem;gap:12px;align-items:center;padding:13px 16px;font-size:14px;">
+                  <div><span style="display:inline-block;width:32px;height:18px;border-radius:9px;background:var(--accent);position:relative;"><span style="position:absolute;top:2px;right:2px;width:14px;height:14px;border-radius:50%;background:#fff;"></span></span></div>
+                  <div style="overflow-wrap:anywhere;color:var(--head);font-weight:500;">unsloth/Qwen3-32B-GGUF <span style="background:var(--accentSoft);color:var(--accent);padding:2px 8px;font-size:10.5px;border-radius:20px;">tools</span></div>
+                  <div><span class="kbd">Q8_K_XL</span></div>
+                  <div class="mono" style="white-space:nowrap;font-size:13px;">34.2 GB</div>
+                  <div class="mono" style="white-space:nowrap;font-size:13px;color:var(--muted);">32.5 GB</div>
+                  <div style="justify-self:end;display:flex;gap:7px;"><button style="font-size:12.5px;padding:6px 13px;border:none;background:var(--accent);color:#14161c;font-weight:600;border-radius:8px;cursor:pointer;">Configuring</button><button style="font-size:12.5px;padding:6px 11px;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:8px;cursor:pointer;">Remove</button></div>
+                </div>
+                <div style="border-top:1px solid var(--border);background:var(--inset);padding:6px;">
+                  <div style="border:1px solid var(--accentSoft);border-radius:9px;background:var(--panel);padding:14px 16px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--borderSoft);"><span style="font-size:13px;font-weight:600;color:var(--head);">Configure <span style="color:var(--muted);font-weight:400;">— unsloth/Qwen3-32B-GGUF</span></span><span style="font-size:11px;color:var(--warn);">Restart required</span></div>
+                    <label style="font-size:12.5px;display:block;margin-bottom:12px;color:var(--muted);">Aliases<input value="qwen3:latest, my-chat-model" style="display:block;width:100%;margin-top:5px;padding:8px 10px;font-size:13px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;color:var(--text);"></label>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:12px;">
+                      <label style="font-size:12.5px;color:var(--muted);">GPU Layers<input value="999" style="display:block;width:100%;margin-top:5px;padding:8px 10px;font-size:13px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;color:var(--text);"></label>
+                      <label style="font-size:12.5px;color:var(--muted);">Context Size <span style="opacity:.7">(max 131072)</span><input value="32768" style="display:block;width:100%;margin-top:5px;padding:8px 10px;font-size:13px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;color:var(--text);"></label>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:12px;">
+                      <label style="font-size:12.5px;color:var(--muted);">GPU Assignment<select style="display:block;width:100%;margin-top:5px;padding:8px 10px;font-size:13px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;color:var(--text);"><option>GPUs 0–1 ★</option></select></label>
+                      <label style="font-size:12.5px;color:var(--muted);">Threads<input value="16" style="display:block;width:100%;margin-top:5px;padding:8px 10px;font-size:13px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;color:var(--text);"></label>
+                    </div>
+                    <div style="display:flex;gap:24px;align-items:center;font-size:12.5px;color:var(--text);">
+                      <label style="display:flex;align-items:center;gap:9px;color:var(--muted);">Flash Attention <span style="display:inline-block;width:32px;height:18px;border-radius:9px;background:var(--accent);position:relative;"><span style="position:absolute;top:2px;right:2px;width:14px;height:14px;border-radius:50%;background:#fff;"></span></span></label>
+                      <label style="display:flex;align-items:center;gap:9px;flex:1;color:var(--muted);">KV Cache Quant <select style="flex:1;padding:8px 10px;font-size:13px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;color:var(--text);"><option>q8_0</option></select></label>
+                    </div>
+                    <div style="margin-top:14px;font-size:11.5px;color:var(--muted);">Changes saved automatically · launch parameters apply on restart.</div>
+                  </div>
+                </div>
+              </article>
+              <article style="border:1px solid var(--border);border-radius:12px;background:var(--panel);flex-shrink:0;">
+                <div style="display:grid;grid-template-columns:2.5rem minmax(0,1fr) 5rem 5rem 5rem 11rem;gap:12px;align-items:center;padding:13px 16px;font-size:14px;">
+                  <div><span style="display:inline-block;width:32px;height:18px;border-radius:9px;background:var(--accent);position:relative;"><span style="position:absolute;top:2px;right:2px;width:14px;height:14px;border-radius:50%;background:#fff;"></span></span></div>
+                  <div style="overflow-wrap:anywhere;color:var(--head);font-weight:500;">google/gemma-3-27b-it-GGUF <span style="background:var(--accentSoft);color:var(--accent);padding:2px 8px;font-size:10.5px;border-radius:20px;">vision</span> <span style="background:var(--accentSoft);color:var(--accent);padding:2px 8px;font-size:10.5px;border-radius:20px;">tools</span></div>
+                  <div><span class="kbd">Q6_K</span></div>
+                  <div class="mono" style="white-space:nowrap;font-size:13px;">22.1 GB</div>
+                  <div class="mono" style="white-space:nowrap;font-size:13px;color:var(--muted);">20.8 GB</div>
+                  <div style="justify-self:end;display:flex;gap:7px;"><button style="font-size:12.5px;padding:6px 13px;border:1px solid var(--border);background:var(--panel2);color:var(--text);border-radius:8px;cursor:pointer;">Configure</button><button style="font-size:12.5px;padding:6px 11px;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:8px;cursor:pointer;">Remove</button></div>
+                </div>
+              </article>
+              <article style="border:1px solid var(--border);border-radius:12px;background:var(--panel);flex-shrink:0;opacity:.7;">
+                <div style="display:grid;grid-template-columns:2.5rem minmax(0,1fr) 5rem 5rem 5rem 11rem;gap:12px;align-items:center;padding:13px 16px;font-size:14px;">
+                  <div><span style="display:inline-block;width:32px;height:18px;border-radius:9px;background:var(--border);position:relative;"><span style="position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--muted);"></span></span></div>
+                  <div style="overflow-wrap:anywhere;color:var(--text);">meta-llama/Llama-3.3-70B-Instruct-GGUF <span style="background:var(--accentSoft);color:var(--accent);padding:2px 8px;font-size:10.5px;border-radius:20px;">tools</span></div>
+                  <div><span class="kbd">Q4_K_M</span></div>
+                  <div class="mono" style="white-space:nowrap;font-size:13px;">42.5 GB</div>
+                  <div class="mono" style="white-space:nowrap;font-size:13px;color:var(--muted);">39.6 GB</div>
+                  <div style="justify-self:end;display:flex;gap:7px;"><button style="font-size:12.5px;padding:6px 13px;border:1px solid var(--border);background:var(--panel2);color:var(--text);border-radius:8px;cursor:pointer;">Configure</button><button style="font-size:12.5px;padding:6px 11px;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:8px;cursor:pointer;">Remove</button></div>
+                </div>
+              </article>
+            </div>
+
+            <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+              <h4 style="margin:0;font-size:14px;color:var(--head);">Embedding Models</h4>
+              <button style="font-size:12px;padding:6px 13px;border-radius:9px;border:1px solid var(--border);background:var(--panel);color:var(--muted);cursor:pointer;">Get Embedding Models</button>
+            </div>
+            <div style="margin-top:12px;"><article style="border:1px solid var(--border);border-radius:12px;background:var(--panel);flex-shrink:0;"><div style="display:grid;grid-template-columns:2.5rem minmax(0,1fr) 5rem 5rem 5rem 11rem;gap:12px;align-items:center;padding:13px 16px;font-size:14px;"><div><span style="display:inline-block;width:32px;height:18px;border-radius:9px;background:var(--accent);position:relative;"><span style="position:absolute;top:2px;right:2px;width:14px;height:14px;border-radius:50%;background:#fff;"></span></span></div><div style="color:var(--head);font-weight:500;">nomic-ai/nomic-embed-text-v1.5</div><div><span class="kbd">F16</span></div><div class="mono" style="color:var(--muted);font-size:13px;">—</div><div class="mono" style="font-size:13px;">0.5 GB</div><div style="justify-self:end;"><button style="font-size:12.5px;padding:6px 13px;border:1px solid var(--border);background:var(--panel2);color:var(--text);border-radius:8px;cursor:pointer;">Configure</button></div></div></article></div>
+          </main>
+        </div>
+      </div>
+
+      <!--OPTIONS_END-->
+    </div>
+  </section>
+
+</div>
+</x-dc>
+</body>
+</html>

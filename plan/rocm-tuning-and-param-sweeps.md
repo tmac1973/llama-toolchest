@@ -412,9 +412,9 @@ architecture-dependent, which is evidence that the whole
 `RecommendedFor []string` premise is the wrong abstraction — arch is not
 the variable that determines the answer. What survives:
 
-- Correct the two demonstrably wrong things (Finding 2's dead
-  `COMPUTE_16F` toggle; the `setup.sh:140` gfx1201 `HSA_OVERRIDE`
-  mapping).
+- Correct Finding 2's dead `COMPUTE_16F` toggle. (The `setup.sh` gfx1201
+  `HSA_OVERRIDE` mapping turned out to be **already correct** — it sets
+  no override for gfx1200/1201. The plan was wrong to flag it.)
 - Fix `GGML_HIP_ROCWMMA_FATTN`'s description to describe *eligibility*
   (head size ≤ 128, GQA ≥ 2, masked, no ALiBi → native path available;
   otherwise rocWMMA covers cases the native kernel declines) instead of
@@ -470,6 +470,41 @@ specifically depends on 3. Phase 4 is fully independent of 1–3.
 
 Suggested order: **3 → 1 → 2 → 4**, which puts a manually-settable `-ub`
 in your hands on day one, then makes sweeping it trustworthy.
+
+---
+
+## Status — all phases implemented 2026-07-18
+
+| Phase | Status | Commit |
+|---|---|---|
+| 0 — CSV cmake_flags + long-ctx preset | done | `c92238d` |
+| 1 — apply config overrides | done | `7f0bee5`, tests `d1329ee` |
+| 2 — N-axis sweeps | done | `edb6a21`, API/UI `27147bf` |
+| 3 — batch / micro-batch | done | `c2cbf36` |
+| 4 — ROCm corrections + runtime env | done (scoped down) | `0ccab64` |
+
+Bugs found and fixed that were not in the original plan:
+
+- **All 15 override fields were inert**, not the 6 first identified —
+  the merged config reached only the recorded snapshot, never
+  llama-server.
+- **Preset INI section order was nondeterministic** (map iteration),
+  making presets undiffable.
+- **Run IDs collided** — `bench-<millis>-<attempt>` is not unique when
+  two cells finish in the same millisecond, and the store silently
+  overwrote the earlier run. Sweeps make this common.
+- **`setup.sh` was already correct** for gfx1200/1201; the plan's claim
+  that it needed re-checking was wrong.
+
+Known gaps, deliberately not closed:
+
+- `ApplyEphemeralConfig`'s real implementation (registry → preset write →
+  router restart) is unit-tested but never driven against a live
+  llama-server; the cell loop is covered via a fake JobEnv.
+- Batch-size validation over HTTP needs a registered model to exercise.
+- Runtime env vars reaching a live llama-server needs a compiled build.
+
+All three need the gfx1201 box.
 
 ---
 

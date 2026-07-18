@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; background: #0e0f12; }
+  * { box-sizing: border-box; }
+  .app {
+    --bg:#181a1e; --sidebg:#141619; --panel:#1e2126; --panel2:#23272d; --inset:#141619;
+    --border:#2b2f36; --borderSoft:#23262c; --text:#c3c7cf; --muted:#828892; --head:#e9ebef;
+    --accent:#9aa6d4; --accentSoft:#262a3a; --warn:#cba76a; --ok:#7fb490; --danger:#d98a8a;
+    --kbdBg:#262a31; --kbdText:#aeb6c6; --font:'IBM Plex Sans',system-ui,sans-serif; --mono:'IBM Plex Mono',ui-monospace,monospace;
+    width:1200px; height:860px; display:flex; overflow:hidden; border:1px solid var(--border);
+    border-radius:16px; background:var(--bg); color:var(--text); font-family:var(--font); font-size:14px;
+  }
+  .app a { color: var(--accent); text-decoration: none; }
+  .app a:hover { color: #c0c9ea; }
+  .side { width:224px; min-width:224px; padding:16px; border-right:1px solid var(--border); display:flex; flex-direction:column; justify-content:space-between; background:var(--sidebg); }
+  .brand { display:flex; align-items:center; gap:9px; }
+  .brand-badge { width:28px; height:28px; border-radius:9px; background:var(--accentSoft); border:1px solid var(--accent); display:flex; align-items:center; justify-content:center; color:var(--accent); font-size:14px; font-weight:600; flex-shrink:0; }
+  .brand h3 { margin:0; font-size:16px; color:var(--head); font-weight:700; letter-spacing:-.01em; }
+  .brand p { margin:2px 0 0; font-size:11px; color:var(--muted); }
+  .nav { list-style:none; padding:0; margin:22px 0 0; display:flex; flex-direction:column; gap:3px; }
+  .nav a { display:block; padding:8px 11px; border-radius:9px; font-size:14px; color:var(--text); cursor:pointer; }
+  .nav a:hover { background:var(--panel); color:var(--text); }
+  .nav a.on { background:var(--accentSoft); color:#c0c9ea; font-weight:600; }
+  .sys { padding-top:12px; border-top:1px solid var(--borderSoft); font-size:11.5px; color:var(--muted); display:flex; flex-direction:column; gap:10px; }
+  .sys .rowb { display:flex; justify-content:space-between; }
+  .main { flex:1; padding:22px 26px; overflow-y:auto; background:var(--bg); }
+  .ph { font-size:20px; font-weight:600; color:var(--head); letter-spacing:-.01em; margin:0; }
+  .psub { font-size:12.5px; color:var(--muted); margin:3px 0 0; }
+  .head-row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:18px; }
+  .card { border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  .card.pad { padding:15px 17px; }
+  .card-h { font-size:11.5px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin-bottom:12px; }
+  .btn { font-size:12.5px; padding:7px 14px; border-radius:9px; border:1px solid var(--border); background:var(--panel2); color:var(--text); cursor:pointer; font-family:inherit; }
+  .btn:hover { border-color:var(--accent); }
+  .btn.primary { border:none; background:var(--accent); color:#14161c; font-weight:600; }
+  .btn.ghost { background:transparent; color:var(--muted); }
+  .btn.sm { font-size:12px; padding:5px 11px; border-radius:8px; }
+  .lbl { font-size:12.5px; color:var(--muted); display:block; }
+  .inp, .sel { display:block; width:100%; margin-top:5px; padding:8px 10px; font-size:13px; background:var(--panel2); border:1px solid var(--border); border-radius:8px; color:var(--text); font-family:inherit; }
+  .kbd { font-family:var(--mono); font-size:11.5px; padding:1px 6px; border-radius:4px; background:var(--kbdBg); color:var(--kbdText); white-space:nowrap; }
+  .pill { background:var(--accentSoft); color:var(--accent); padding:2px 8px; font-size:10.5px; border-radius:20px; white-space:nowrap; }
+  .mono { font-family:var(--mono); }
+  .prog { height:7px; border-radius:4px; background:var(--inset); overflow:hidden; }
+  .prog > i { display:block; height:100%; background:var(--accent); }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+  .mrow { display:grid; grid-template-columns:2.5rem minmax(0,1fr) 5rem 5rem 5rem 11rem; gap:12px; align-items:center; }
+  .switch { display:inline-block; width:32px; height:18px; border-radius:9px; position:relative; flex-shrink:0; }
+  .switch.on { background:var(--accent); }
+  .switch.off { background:var(--border); }
+  .switch > i { position:absolute; top:2px; width:14px; height:14px; border-radius:50%; }
+  .switch.on > i { right:2px; background:#fff; }
+  .switch.off > i { left:2px; background:var(--muted); }
+  .tbl { width:100%; border-collapse:collapse; font-size:13px; }
+  .tbl th { text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); font-weight:600; padding:9px 10px; border-bottom:1px solid var(--border); }
+  .tbl td { padding:10px; border-bottom:1px solid var(--borderSoft); vertical-align:middle; }
+  .status { display:inline-block; padding:2px 9px; border-radius:20px; font-size:11px; font-weight:600; }
+  .st-run { background:rgba(127,180,144,.16); color:var(--ok); }
+  .st-stop { background:var(--accentSoft); color:var(--muted); }
+  .st-fail { background:rgba(217,138,138,.16); color:var(--danger); }
+  .log { background:#101215; border:1px solid var(--border); border-radius:8px; padding:11px 13px; font-family:var(--mono); font-size:11.5px; line-height:1.55; color:var(--text); overflow:auto; white-space:pre-wrap; }
+  .toc { display:flex; flex-wrap:wrap; gap:7px 10px; font-size:12.5px; padding:12px 14px; background:var(--panel); border:1px solid var(--border); border-radius:10px; margin-bottom:18px; }
+  .help h2 { font-size:16px; color:var(--head); margin:22px 0 8px; padding-top:14px; border-top:1px solid var(--border); }
+  .help h3 { font-size:13.5px; color:var(--head); margin:14px 0 5px; }
+  .help p { margin:0 0 8px; line-height:1.6; font-size:13.5px; }
+  .help dt { font-weight:600; color:var(--text); margin-top:8px; font-size:13.5px; }
+  .help dd { margin:2px 0 6px 14px; color:var(--muted); font-size:13px; line-height:1.55; }
+  .help ol, .help ul { margin:0 0 10px 20px; padding:0; line-height:1.6; font-size:13.5px; }
+  .help li { margin-bottom:5px; }
+  .help code { font-family:var(--mono); font-size:12px; background:var(--kbdBg); color:var(--kbdText); padding:1px 5px; border-radius:4px; }
+  .callout { border-left:3px solid var(--accent); background:var(--accentSoft); padding:10px 13px; border-radius:0 8px 8px 0; font-size:13px; line-height:1.55; margin:8px 0; }
+</style>
+</helmet>
+
+<div class="app">
+  <aside class="side">
+    <div>
+      <div class="brand">
+        <span class="brand-badge">L</span>
+        <div><h3>Llama Toolchest</h3><p>Inference Manager · v1.4.2</p></div>
+      </div>
+      <ul class="nav">
+        <li><a class="{{ onServer }}" onClick="{{ goServer }}">Server</a></li>
+        <li><a class="{{ onBuilds }}" onClick="{{ goBuilds }}">Builds</a></li>
+        <li><a class="{{ onModels }}" onClick="{{ goModels }}">Models</a></li>
+        <li><a class="{{ onSearch }}" onClick="{{ goSearch }}">Search HF</a></li>
+        <li><a class="{{ onBench }}" onClick="{{ goBench }}">Benchmarks</a></li>
+        <li><a class="{{ onSettings }}" onClick="{{ goSettings }}">Settings</a></li>
+        <li><a class="{{ onHelp }}" onClick="{{ goHelp }}">Help</a></li>
+      </ul>
+    </div>
+    <div class="sys">
+      <div><div class="rowb" style="color:var(--text)"><span>GPU0</span><span>45%</span></div><div class="prog" style="margin-top:4px"><i style="width:45%"></i></div><div class="rowb" style="margin-top:4px"><span>VRAM</span><span>18.2/24.0</span></div><div class="prog" style="margin-top:4px"><i style="width:76%"></i></div></div>
+      <div><div class="rowb" style="color:var(--text)"><span>GPU1</span><span>30%</span></div><div class="prog" style="margin-top:4px"><i style="width:30%"></i></div><div class="rowb" style="margin-top:4px"><span>VRAM</span><span>12.1/24.0</span></div><div class="prog" style="margin-top:4px"><i style="width:50%"></i></div></div>
+      <div style="display:flex;gap:12px;"><div style="flex:1"><div class="rowb" style="color:var(--text)"><span>CPU</span><span>12%</span></div><div class="prog" style="margin-top:4px"><i style="width:12%"></i></div></div><div style="flex:1"><div class="rowb" style="color:var(--text)"><span>RAM</span><span>38%</span></div><div class="prog" style="margin-top:4px"><i style="width:38%"></i></div></div></div>
+    </div>
+  </aside>
+
+  <main class="main">
+
+    <!-- ===================== SERVER ===================== -->
+    <sc-if value="{{ isServer }}" hint-placeholder-val="{{ false }}">
+      <div class="head-row"><div><h1 class="ph">Server</h1><p class="psub">Router running · 1 model loaded · uptime 2h 14m</p></div></div>
+      <div class="grid3" style="margin-bottom:14px;">
+        <div class="card pad">
+          <div class="card-h">Server</div>
+          <div style="margin-bottom:12px;"><span class="status st-run">● Running</span> <span style="color:var(--muted);font-size:12.5px;">— Qwen3-32B · 2h 14m</span></div>
+          <div class="grid2" style="margin-bottom:12px;">
+            <label class="lbl">Build<select class="sel"><option>b6410 (cuda)</option><option>Auto (newest ref)</option></select></label>
+            <label class="lbl">Max Loaded<input class="inp" value="2"></label>
+          </div>
+          <div style="display:flex;gap:8px;"><button class="btn primary sm">Start</button><button class="btn ghost sm">Stop</button><button class="btn sm">Restart</button></div>
+        </div>
+        <div class="card pad">
+          <div class="card-h">Available Models</div>
+          <div style="display:flex;flex-direction:column;gap:8px;font-size:12.5px;">
+            <div style="display:flex;align-items:center;gap:7px;"><span style="color:var(--accent)">▶</span><span class="mono" style="color:var(--text);word-break:break-all;">unsloth-Qwen3-32B.Q8_K_XL</span><span class="pill">loaded</span></div>
+            <div style="display:flex;align-items:center;gap:7px;"><span style="color:var(--accent)">▶</span><span class="mono" style="color:var(--text);word-break:break-all;">google-gemma-3-27b-it.Q6_K</span></div>
+            <div style="display:flex;align-items:center;gap:7px;"><span style="color:var(--accent)">▶</span><span class="mono" style="color:var(--text);word-break:break-all;">mistral-Small-24B.Q5_K_M</span></div>
+          </div>
+        </div>
+        <div class="card pad">
+          <div class="card-h">Inventory</div>
+          <p style="margin:0 0 6px;font-size:13px;"><strong style="color:var(--head)">3</strong> builds · <strong style="color:var(--head)">4</strong> models</p>
+          <p style="margin:0 0 4px;font-size:12.5px;"><a>Builds →</a> · <a>Models →</a></p>
+          <p style="margin:0;font-size:12.5px;"><a>Get New Models →</a></p>
+        </div>
+      </div>
+      <div class="card pad" style="margin-bottom:14px;">
+        <div class="card-h">API Endpoint</div>
+        <div style="display:flex;align-items:center;gap:10px;"><code class="log" style="flex:1;padding:8px 11px;">http://192.168.1.50:3000/v1</code><button class="btn sm">Copy</button></div>
+        <p style="margin:10px 0 0;font-size:12.5px;"><a>Open Chat UI →</a></p>
+      </div>
+      <div class="card pad" style="margin-bottom:14px;">
+        <div class="card-h">Live Performance</div>
+        <table class="tbl">
+          <thead><tr><th>Model</th><th>Avg TG t/s</th><th>Avg PP t/s</th><th>Requests</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">unsloth-Qwen3-32B.Q8_K_XL</td><td><strong style="color:var(--head)">38.4</strong></td><td>1240</td><td>127</td></tr>
+            <tr><td class="mono">google-gemma-3-27b-it.Q6_K</td><td><strong style="color:var(--head)">52.1</strong></td><td>1890</td><td>44</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card pad">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <span class="card-h" style="margin:0;">Server Logs</span>
+          <div style="display:flex;gap:12px;align-items:center;"><label class="lbl" style="display:flex;align-items:center;gap:7px;">Live tail <span class="switch on"><i></i></span></label><button class="btn sm ghost">Copy</button><button class="btn sm ghost">Clear</button></div>
+        </div>
+        <div class="log" style="height:150px;">llama_model_loader: loaded meta data with 34 key-value pairs
+llm_load_tensors: offloading 64 repeating layers to GPU
+llm_load_tensors: offloaded 65/65 layers to GPU
+llama_new_context_with_model: n_ctx = 32768
+llama_new_context_with_model: KV self size = 8192.00 MiB
+main: model loaded, server listening on 127.0.0.1:8080
+srv update_slots: all slots are idle</div>
+      </div>
+    </sc-if>
+
+    <!-- ===================== BUILDS ===================== -->
+    <sc-if value="{{ isBuilds }}" hint-placeholder-val="{{ false }}">
+      <div class="head-row"><div><h1 class="ph">Builds</h1><p class="psub">Compile llama.cpp for your hardware · builds are cached and reused</p></div></div>
+      <div class="card pad" style="margin-bottom:16px;">
+        <div class="card-h">New Build</div>
+        <div class="grid2" style="margin-bottom:12px;">
+          <label class="lbl">Profile<select class="sel"><option>cuda (CUDA 12.8)</option><option>cpu</option><option>vulkan</option></select></label>
+          <label class="lbl">Git Ref
+            <div style="display:flex;gap:8px;margin-top:5px;">
+              <select class="sel" style="margin-top:0;"><option>latest</option><option>b6410</option><option>b6388</option></select>
+              <a class="btn sm" style="white-space:nowrap;">Release Notes</a>
+              <button class="btn sm ghost" style="white-space:nowrap;">Refresh Tags</button>
+            </div>
+          </label>
+        </div>
+        <label class="lbl" style="margin-bottom:12px;">Build Tag <span style="opacity:.7">(optional)</span><input class="inp" placeholder="e.g. rocwmma"></label>
+        <div style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:14px;font-size:13px;color:var(--text);">
+          <label style="display:flex;align-items:center;gap:8px;"><span class="switch on"><i></i></span> Flash Attention</label>
+          <label style="display:flex;align-items:center;gap:8px;"><span class="switch on"><i></i></span> Server (HTTP)</label>
+          <label style="display:flex;align-items:center;gap:8px;"><span class="switch on"><i></i></span> cURL / OpenSSL</label>
+          <label style="display:flex;align-items:center;gap:8px;"><span class="switch off"><i></i></span> Native arch only</label>
+        </div>
+        <button class="btn primary">Start Build</button>
+      </div>
+      <div class="card pad">
+        <div class="card-h">Compiled Builds</div>
+        <table class="tbl">
+          <thead><tr><th>ID</th><th>SHA</th><th>Status</th><th>Started</th><th></th></tr></thead>
+          <tbody>
+            <tr><td><span class="kbd">b6410-cuda</span></td><td><code class="mono" style="color:var(--muted)">a3f91c2</code></td><td><span class="status st-run">success</span></td><td style="color:var(--muted)">2026-07-12 09:14</td><td style="text-align:right;"><button class="btn sm ghost">Info</button> <button class="btn sm ghost">Delete</button></td></tr>
+            <tr><td><span class="kbd">b6388-cuda</span></td><td><code class="mono" style="color:var(--muted)">7d20e88</code></td><td><span class="status st-run">success</span></td><td style="color:var(--muted)">2026-07-05 18:02</td><td style="text-align:right;"><button class="btn sm ghost">Info</button> <button class="btn sm ghost">Delete</button></td></tr>
+            <tr><td><span class="kbd">b6410-cpu</span></td><td><code class="mono" style="color:var(--muted)">a3f91c2</code></td><td><span class="status st-fail">failed</span></td><td style="color:var(--muted)">2026-07-12 08:51</td><td style="text-align:right;"><button class="btn sm ghost">Info</button> <button class="btn sm ghost">Delete</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </sc-if>
+
+    <!-- ===================== MODELS ===================== -->
+    <sc-if value="{{ isModels }}" hint-placeholder-val="{{ true }}">
+      <div class="head-row">
+        <div><h1 class="ph">Models</h1><p class="psub">3 chat models · 1 embedding · 2 loaded</p></div>
+        <button class="btn">Scan for Models</button>
+      </div>
+      <div class="card pad" style="margin-bottom:16px;">
+        <div class="card-h">GPU Allocation</div>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:6px;"><span><strong style="font-weight:600;color:var(--text)">GPU 0</strong> <span style="color:var(--muted)">RTX 4090</span></span><span class="mono" style="color:var(--muted)">18.2 / 24.0 GB</span></div>
+            <div style="height:10px;border-radius:6px;background:var(--inset);display:flex;overflow:hidden;gap:2px;"><div style="width:52%;background:var(--accent)"></div><div style="width:24%;background:#c58fb8"></div></div>
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:6px;"><span><strong style="font-weight:600;color:var(--text)">GPU 1</strong> <span style="color:var(--muted)">RTX 4090</span></span><span class="mono" style="color:var(--muted)">12.1 / 24.0 GB</span></div>
+            <div style="height:10px;border-radius:6px;background:var(--inset);display:flex;overflow:hidden;"><div style="width:50%;background:var(--accent)"></div></div>
+          </div>
+        </div>
+        <div style="display:flex;gap:18px;font-size:11.5px;margin-top:12px;color:var(--text);"><span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:9px;height:9px;border-radius:3px;background:var(--accent);display:inline-block;"></span>Qwen3-32B <span style="color:var(--muted)">24.3 GB</span></span><span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:9px;height:9px;border-radius:3px;background:#c58fb8;display:inline-block;"></span>gemma-3-27b <span style="color:var(--muted)">5.8 GB</span></span></div>
+      </div>
+
+      <div class="mrow" style="padding:0 16px 8px;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);">
+        <div>On</div><div>Model</div><div>Quant</div><div>VRAM</div><div>Size</div><div style="justify-self:end;">Actions</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <article class="card" style="border-color:var(--accent);overflow:hidden;">
+          <div class="mrow" style="padding:13px 16px;">
+            <div><span class="switch on"><i></i></span></div>
+            <div style="overflow-wrap:anywhere;color:var(--head);font-weight:500;">unsloth/Qwen3-32B-GGUF <span class="pill">tools</span></div>
+            <div><span class="kbd">Q8_K_XL</span></div>
+            <div class="mono" style="font-size:13px;">34.2 GB</div>
+            <div class="mono" style="font-size:13px;color:var(--muted);">32.5 GB</div>
+            <div style="justify-self:end;display:flex;gap:7px;"><button class="btn primary sm">Configuring</button><button class="btn ghost sm">Remove</button></div>
+          </div>
+          <div style="border-top:1px solid var(--border);background:var(--inset);padding:6px;">
+            <div style="border:1px solid var(--accentSoft);border-radius:9px;background:var(--panel);padding:14px 16px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--borderSoft);"><span style="font-size:13px;font-weight:600;color:var(--head);">Configure <span style="color:var(--muted);font-weight:400;">— unsloth/Qwen3-32B-GGUF</span></span><span style="font-size:11px;color:var(--warn);">Restart required</span></div>
+              <label class="lbl" style="margin-bottom:12px;">Aliases<input class="inp" value="qwen3:latest, my-chat-model"></label>
+              <div class="grid2" style="margin-bottom:12px;">
+                <label class="lbl">GPU Layers<input class="inp" value="999"></label>
+                <label class="lbl">Context Size <span style="opacity:.7">(max 131072)</span><input class="inp" value="32768"></label>
+              </div>
+              <div class="grid2" style="margin-bottom:12px;">
+                <label class="lbl">GPU Assignment<select class="sel"><option>GPUs 0–1 ★</option></select></label>
+                <label class="lbl">Threads<input class="inp" value="16"></label>
+              </div>
+              <div style="display:flex;gap:24px;align-items:center;font-size:12.5px;">
+                <label class="lbl" style="display:flex;align-items:center;gap:9px;">Flash Attention <span class="switch on"><i></i></span></label>
+                <label class="lbl" style="display:flex;align-items:center;gap:9px;flex:1;">KV Cache Quant <select class="sel" style="margin-top:0;flex:1;"><option>q8_0</option></select></label>
+              </div>
+              <div style="margin-top:14px;font-size:11.5px;color:var(--muted);">Changes saved automatically · launch parameters apply on restart.</div>
+            </div>
+          </div>
+        </article>
+        <article class="card">
+          <div class="mrow" style="padding:13px 16px;">
+            <div><span class="switch on"><i></i></span></div>
+            <div style="overflow-wrap:anywhere;color:var(--head);font-weight:500;">google/gemma-3-27b-it-GGUF <span class="pill">vision</span> <span class="pill">tools</span></div>
+            <div><span class="kbd">Q6_K</span></div>
+            <div class="mono" style="font-size:13px;">22.1 GB</div>
+            <div class="mono" style="font-size:13px;color:var(--muted);">20.8 GB</div>
+            <div style="justify-self:end;display:flex;gap:7px;"><button class="btn sm">Configure</button><button class="btn ghost sm">Remove</button></div>
+          </div>
+        </article>
+        <article class="card" style="opacity:.7;">
+          <div class="mrow" style="padding:13px 16px;">
+            <div><span class="switch off"><i></i></span></div>
+            <div style="overflow-wrap:anywhere;">meta-llama/Llama-3.3-70B-Instruct-GGUF <span class="pill">tools</span></div>
+            <div><span class="kbd">Q4_K_M</span></div>
+            <div class="mono" style="font-size:13px;">42.5 GB</div>
+            <div class="mono" style="font-size:13px;color:var(--muted);">39.6 GB</div>
+            <div style="justify-self:end;display:flex;gap:7px;"><button class="btn sm">Configure</button><button class="btn ghost sm">Remove</button></div>
+          </div>
+        </article>
+      </div>
+
+      <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+        <h4 style="margin:0;font-size:14px;color:var(--head);">Embedding Models</h4>
+        <button class="btn sm ghost">Get Embedding Models</button>
+      </div>
+      <div style="margin-top:12px;">
+        <article class="card"><div class="mrow" style="padding:13px 16px;"><div><span class="switch on"><i></i></span></div><div style="color:var(--head);font-weight:500;">nomic-ai/nomic-embed-text-v1.5</div><div><span class="kbd">F16</span></div><div class="mono" style="color:var(--muted);font-size:13px;">—</div><div class="mono" style="font-size:13px;">0.5 GB</div><div style="justify-self:end;"><button class="btn sm">Configure</button></div></div></article>
+      </div>
+    </sc-if>
+
+    <!-- ===================== SEARCH HF ===================== -->
+    <sc-if value="{{ isSearch }}" hint-placeholder-val="{{ false }}">
+      <div class="head-row"><div><h1 class="ph">Search HuggingFace</h1><p class="psub">Find GGUF repos, browse files, download specific quants</p></div></div>
+      <div style="display:flex;gap:10px;margin-bottom:18px;">
+        <input class="inp" style="margin-top:0;flex:1;" value="Qwen3-32B GGUF" placeholder="Search GGUF models...">
+        <button class="btn primary" style="white-space:nowrap;">Search</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <article class="card pad">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+            <div>
+              <div style="font-size:14px;color:var(--head);font-weight:600;">unsloth/Qwen3-32B-GGUF <a style="font-size:12px;">↗</a> <span style="color:var(--muted);font-size:12.5px;font-weight:400;">— apache-2.0</span></div>
+              <div style="font-size:12px;color:var(--muted);margin-top:3px;">184,220 downloads · 412 likes</div>
+            </div>
+            <button class="btn sm">Files</button>
+          </div>
+          <div style="margin-top:14px;border-top:1px solid var(--borderSoft);padding-top:12px;">
+            <p style="font-size:12px;color:var(--muted);margin:0 0 10px;"><strong style="color:var(--text)">41.2 GB</strong> available for new downloads <span style="opacity:.7">(free: 43.2 GB · reserved: 2 GB safety)</span></p>
+            <table class="tbl">
+              <thead><tr><th>File</th><th>Quant</th><th>Size</th><th>VRAM Est.</th><th>Fit</th><th></th></tr></thead>
+              <tbody>
+                <tr><td class="mono" style="font-size:12px;">Qwen3-32B-Q8_K_XL.gguf</td><td><span class="kbd">Q8_K_XL</span></td><td>32.5 GB</td><td>34.2 GB</td><td><span style="color:var(--ok)">Fits</span></td><td style="text-align:right;"><span style="color:var(--ok);font-size:12.5px;">Downloaded</span> <a style="font-size:12.5px;">View</a></td></tr>
+                <tr><td class="mono" style="font-size:12px;">Qwen3-32B-Q6_K.gguf</td><td><span class="kbd">Q6_K</span></td><td>26.9 GB</td><td>28.4 GB</td><td><span style="color:var(--ok)">Fits</span></td><td style="text-align:right;"><button class="btn sm primary">Download</button></td></tr>
+                <tr><td class="mono" style="font-size:12px;">Qwen3-32B-Q4_K_M.gguf</td><td><span class="kbd">Q4_K_M</span></td><td>19.8 GB</td><td>21.3 GB</td><td><span style="color:var(--ok)">Fits</span></td><td style="text-align:right;"><button class="btn sm primary">Download</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+        <article class="card pad">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+            <div>
+              <div style="font-size:14px;color:var(--head);font-weight:600;">bartowski/Qwen3-32B-GGUF <a style="font-size:12px;">↗</a> <span style="color:var(--muted);font-size:12.5px;font-weight:400;">— apache-2.0</span></div>
+              <div style="font-size:12px;color:var(--muted);margin-top:3px;">96,540 downloads · 233 likes</div>
+            </div>
+            <button class="btn sm">Files</button>
+          </div>
+        </article>
+      </div>
+    </sc-if>
+
+    <!-- ===================== BENCHMARKS ===================== -->
+    <sc-if value="{{ isBench }}" hint-placeholder-val="{{ false }}">
+      <div class="head-row"><div><h1 class="ph">Benchmarks</h1><p class="psub">Run llama-bench presets or end-to-end requests · compare across runs</p></div></div>
+      <div class="card pad" style="margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+          <span class="card-h" style="margin:0;">Benchmark Jobs</span>
+          <div style="display:flex;gap:8px;"><button class="btn sm ghost">?</button><button class="btn sm">+ New Batch Job</button></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <div style="border:1px solid var(--border);border-radius:10px;background:var(--panel2);overflow:hidden;">
+            <div style="padding:11px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;">
+              <span style="color:var(--muted)">▾</span>
+              <strong style="color:var(--head);font-size:13.5px;">Q4 vs Q8 sweep</strong>
+              <span class="status st-run">completed</span>
+              <span style="font-size:12px;color:var(--muted);">6/6 cells</span>
+              <span style="font-size:12px;color:var(--muted);margin-left:auto;">created Jul 12 09:40 · finished Jul 12 09:52</span>
+            </div>
+            <div style="padding:0 14px 14px;">
+              <table class="tbl">
+                <thead><tr><th></th><th>Model · Build · Preset</th><th>Status</th><th>PP t/s</th><th>TG t/s</th><th>TTFT</th></tr></thead>
+                <tbody>
+                  <tr><td><span class="switch off" style="width:16px;height:16px;border-radius:4px;"></span></td><td class="mono" style="font-size:12px;">Qwen3-32B.Q8 · b6410 · standard</td><td><span class="status st-run">done</span></td><td>1240</td><td><strong style="color:var(--head)">38.4</strong></td><td>0.42s</td></tr>
+                  <tr><td><span class="switch off" style="width:16px;height:16px;border-radius:4px;"></span></td><td class="mono" style="font-size:12px;">Qwen3-32B.Q4 · b6410 · standard</td><td><span class="status st-run">done</span></td><td>1610</td><td><strong style="color:var(--head)">51.2</strong></td><td>0.31s</td></tr>
+                  <tr><td><span class="switch off" style="width:16px;height:16px;border-radius:4px;"></span></td><td class="mono" style="font-size:12px;">gemma-3-27b.Q6 · b6410 · standard</td><td><span class="status st-run">done</span></td><td>1890</td><td><strong style="color:var(--head)">52.1</strong></td><td>0.28s</td></tr>
+                </tbody>
+              </table>
+              <div style="display:flex;gap:8px;margin-top:12px;"><button class="btn sm">Compare selected</button><button class="btn sm ghost">Export CSV</button></div>
+            </div>
+          </div>
+          <div style="border:1px solid var(--border);border-radius:10px;background:var(--panel2);padding:11px 14px;display:flex;align-items:center;gap:10px;">
+            <span style="color:var(--muted)">▸</span>
+            <strong style="color:var(--head);font-size:13.5px;">Long-context check</strong>
+            <span class="status st-run" style="background:rgba(154,166,212,.16);color:var(--accent);">running</span>
+            <span style="font-size:12px;color:var(--muted);">2/4 cells</span>
+            <span style="font-size:12px;color:var(--muted);margin-left:auto;">created Jul 14 11:02</span>
+          </div>
+        </div>
+      </div>
+      <div class="card pad">
+        <div class="card-h">Quick Benchmark <span style="text-transform:none;letter-spacing:0;font-weight:400;">— 1-cell job using the active build</span></div>
+        <div style="display:grid;grid-template-columns:2fr 2fr 1fr;gap:12px;align-items:end;">
+          <label class="lbl">Model<select class="sel"><option>unsloth/Qwen3-32B-GGUF (Q8_K_XL, 32.5 GB)</option></select></label>
+          <label class="lbl">Preset<select class="sel"><option>Standard (~2 min)</option><option>Quick (~10s)</option><option>Thorough (~10 min)</option></select></label>
+          <button class="btn primary">Run</button>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ===================== SETTINGS ===================== -->
+    <sc-if value="{{ isSettings }}" hint-placeholder-val="{{ false }}">
+      <div class="head-row"><div><h1 class="ph">Settings</h1></div></div>
+      <div style="display:flex;flex-direction:column;gap:14px;max-width:720px;">
+        <div class="card pad">
+          <div class="card-h">Startup</div>
+          <p style="margin:0 0 12px;font-size:13px;line-height:1.55;">Start the inference server automatically when the container launches, using the selected build and model configs.</p>
+          <label class="lbl" style="display:flex;align-items:center;gap:10px;color:var(--text);font-size:13.5px;"><span class="switch off"><i></i></span> Auto-start server on container startup</label>
+        </div>
+        <div class="card pad">
+          <div class="card-h">Server URL</div>
+          <p style="margin:0 0 12px;font-size:13px;line-height:1.55;color:var(--muted)">Base URL for dashboard links. Change it if you reach this UI from other machines.</p>
+          <label class="lbl">Server URL<input class="inp" value="http://192.168.1.50:3000"></label>
+          <button class="btn primary sm" style="margin-top:12px;">Save</button>
+        </div>
+        <div class="card pad">
+          <div class="card-h">OpenAI-Compatible Proxy</div>
+          <p style="margin:0 0 10px;font-size:13px;color:var(--muted)">Point your tools at this endpoint:</p>
+          <code class="log" style="display:block;padding:9px 12px;">http://192.168.1.50:3000/v1</code>
+          <button class="btn sm" style="margin-top:12px;">Test Connection</button>
+        </div>
+        <div class="card pad">
+          <div class="card-h">API Key Authentication</div>
+          <p style="margin:0 0 12px;font-size:13px;color:var(--muted)">Optional Bearer token required for /v1/* requests.</p>
+          <label class="lbl">API Key<input class="inp" type="password" placeholder="(key is set — leave blank to keep)"></label>
+          <button class="btn primary sm" style="margin-top:12px;">Save</button>
+        </div>
+        <div class="card pad">
+          <div class="card-h">HuggingFace Token</div>
+          <p style="margin:0 0 12px;font-size:13px;color:var(--muted)">Required for gated model downloads.</p>
+          <label class="lbl">HF Token<input class="inp" type="password" placeholder="hf_..."></label>
+          <button class="btn primary sm" style="margin-top:12px;">Save</button>
+        </div>
+        <div class="card pad">
+          <div class="card-h">Theme</div>
+          <p style="margin:0 0 12px;font-size:13px;color:var(--muted)">Change the look of the UI. Saved in your browser.</p>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            <button class="btn sm primary">Graphite</button><button class="btn sm">Dark</button><button class="btn sm">Light</button><button class="btn sm mono">Terminal Green</button><button class="btn sm mono">Terminal Amber</button><button class="btn sm">Cyberpunk</button>
+          </div>
+        </div>
+        <div class="card pad">
+          <div class="card-h">Storage</div>
+          <p style="margin:0 0 6px;font-size:13px;"><strong style="color:var(--head)">Data directory:</strong> <code>/data</code></p>
+          <p style="margin:0 0 14px;font-size:12px;color:var(--muted);line-height:1.55;">Holds builds, registry state, and (by default) models. Set at install time — not editable here.</p>
+          <label class="lbl">Models directory<input class="inp" placeholder="(default: /data/models)"></label>
+          <button class="btn sm" style="margin-top:12px;">Save Models Directory</button>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ===================== HELP ===================== -->
+    <sc-if value="{{ isHelp }}" hint-placeholder-val="{{ false }}">
+      <div class="help" style="max-width:800px;">
+        <div class="head-row" style="margin-bottom:8px;"><div><h1 class="ph">Llama Toolchest — Help</h1><p class="psub">A product manual for running local LLMs with the llama.cpp inference server.</p></div></div>
+        <div class="toc">
+          <a>Quickstart</a><a>Core concepts</a><a>Server tab</a><a>Builds</a><a>Models</a><a>Model config</a><a>Search HF</a><a>Benchmarks</a><a>Settings</a><a>Using the API</a><a>Troubleshooting</a>
+        </div>
+        <h2 style="border-top:none;padding-top:0;margin-top:0;">Quickstart</h2>
+        <ol>
+          <li><strong>Build llama.cpp.</strong> Go to Builds, pick a profile that matches your hardware (CUDA, ROCm, Vulkan, CPU), and start a build. Builds are cached and reused.</li>
+          <li><strong>Download a model.</strong> On Search HF, search for a GGUF repo and download a quant (<code>Q4_K_M</code> is a good balance).</li>
+          <li><strong>Enable it.</strong> On Models, flip the "On" switch for the model(s) you want served.</li>
+          <li><strong>Tune for VRAM.</strong> Click <em>Configure</em> to adjust Context Size and KV Cache Quant; watch the VRAM Est. column update.</li>
+          <li><strong>Start the server.</strong> Go to Server and click Start, then force-load a model or let the router load on first request.</li>
+          <li><strong>Send a request.</strong> Use the OpenAI-compatible endpoint, passing a model's public name in the <code>model</code> field.</li>
+        </ol>
+        <h2>Core concepts</h2>
+        <h3>Enabled vs loaded</h3>
+        <dl>
+          <dt>Enabled</dt><dd>The model is in the llama.cpp preset and advertised via <code>/v1/models</code>. Enable as many as you like — it uses no VRAM.</dd>
+          <dt>Loaded</dt><dd>The weights are resident in GPU VRAM and ready to serve. Only a limited number load at once (Max Loaded).</dd>
+        </dl>
+        <h3>Max Loaded</h3>
+        <p>Caps how many models are simultaneously resident. When the cap is hit, the router unloads the least-recently-used model. Set to <code>0</code> for unlimited.</p>
+        <h2>Model config</h2>
+        <div class="callout">Most config changes require a <strong>server restart</strong> to take effect. Sampling params apply per-request with no restart.</div>
+        <h3>Speculative Decoding</h3>
+        <p>Predict multiple tokens per step for a speedup with no quality change. Draft Model uses a smaller same-architecture model; N-gram modes use pattern matching with no extra model.</p>
+        <h2>Troubleshooting</h2>
+        <dl>
+          <dt>Start button does nothing</dt><dd>No successful build exists. Go to Builds and build llama.cpp first.</dd>
+          <dt>Out of VRAM</dt><dd>Lower GPU Layers, reduce Context Size, enable KV Cache Quant, or lower Max Loaded.</dd>
+        </dl>
+      </div>
+    </sc-if>
+
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { tab: 'models' };
+  renderVals() {
+    const t = this.state.tab;
+    const on = (n) => t === n ? 'on' : '';
+    const go = (n) => () => this.setState({ tab: n });
+    return {
+      isServer: t === 'server', isBuilds: t === 'builds', isModels: t === 'models',
+      isSearch: t === 'search', isBench: t === 'bench', isSettings: t === 'settings', isHelp: t === 'help',
+      onServer: on('server'), onBuilds: on('builds'), onModels: on('models'),
+      onSearch: on('search'), onBench: on('bench'), onSettings: on('settings'), onHelp: on('help'),
+      goServer: go('server'), goBuilds: go('builds'), goModels: go('models'),
+      goSearch: go('search'), goBench: go('bench'), goSettings: go('settings'), goHelp: go('help'),
+    };
+  }
+}
+</script>
+</body>
+</html>
