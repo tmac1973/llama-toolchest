@@ -19,7 +19,7 @@ A web-based management interface for [llama.cpp](https://github.com/ggerganov/ll
 - **Speculative decoding** — Pair a small draft model with a large model; draft picker auto-filters by architecture.
 - **Capability detection** — Tool calling, vision, and reasoning-mode detection from GGUF metadata, surfaced as badges and via the `capabilities` block on `/api/service/loaded-models` (single-round-trip auto-discovery).
 - **VRAM estimation** — Architecture-aware estimates from GGUF metadata, accounting for KV cache size and quantization.
-- **Benchmarks** — Run llama-bench presets per model, compare runs, and export results.
+- **Benchmarks** — Batch jobs sweeping models × builds × presets × any model parameter, with results compared across runs and exported to CSV/JSON.
 - **OpenAI-compatible API** — Chat completions (streaming, tool calling, JSON schema), completions, embeddings, model listing. Optional Bearer auth.
 - **Built-in chat UI** — llama.cpp's native chat interface with a model-selector dropdown.
 - **Agent CLI** — Lightweight terminal chat client (`cmd/agent`) with optional filesystem tool use.
@@ -217,7 +217,7 @@ cmd/
   agent/             Terminal chat client with tool use
 internal/
   api/               HTTP handlers, SSE streaming, /v1 proxy
-  benchmark/         llama-bench runs, presets, comparison
+  benchmark/         benchmark jobs, parameter sweeps, comparison
   builder/           llama.cpp build pipeline (git, cmake, ninja)
   config/            YAML configuration
   huggingface/       HF API client and model downloader

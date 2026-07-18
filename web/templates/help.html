@@ -146,7 +146,7 @@
     <p>The <em>Profile</em> dropdown only lists backends detected on this system — the SDK or driver for a backend must be present for it to appear (no CUDA toolkit → no CUDA option, and so on).</p>
     <dl>
         <dt>CUDA</dt><dd>NVIDIA GPUs. Requires the CUDA toolkit.</dd>
-        <dt>ROCm</dt><dd>AMD GPUs. Requires ROCm. The GPU arch is auto-detected from <code>rocminfo</code> when possible (e.g. <code>gfx1201</code> for Radeon R9700); you can override it.</dd>
+        <dt>ROCm</dt><dd>AMD GPUs. Requires ROCm. The GPU arch is auto-detected from <code>rocminfo</code> when possible (e.g. <code>gfx1201</code> for Radeon R9700), falling back to <code>gfx1100</code> if detection fails. To target a different arch, set <code>AMDGPU_TARGETS</code> in the Extra CMake Flags box.</dd>
         <dt>Vulkan</dt><dd>Vendor-neutral GPU acceleration (AMD, NVIDIA, Intel) through the Vulkan driver — handy when you don't have a vendor SDK installed. <strong>Host-mode only:</strong> Vulkan isn't offered when running inside a container, since that requires host driver/ICD passthrough the container doesn't manage.</dd>
         <dt>Metal</dt><dd>Apple GPUs. Only appears when running on macOS.</dd>
         <dt>CPU</dt><dd>Portable build with no GPU acceleration. Always available.</dd>
@@ -193,6 +193,8 @@
         <dt>Jinja Templates</dt><dd>Required for most modern chat models to render their prompt format.</dd>
         <dt>KV Cache Quant</dt><dd>Quantize the KV cache. <code>q8_0</code> is a ~50% VRAM win with almost no quality cost; <code>q4_0</code> saves more but can affect quality.</dd>
         <dt>Direct I/O</dt><dd>Load model weights straight to VRAM, bypassing the OS page cache. Useful when VRAM &gt; system RAM.</dd>
+        <dt>Micro-batch (-ub)</dt><dd>The physical batch actually computed at once, and usually the biggest lever on prompt-processing speed. Larger values generally raise prefill throughput at the cost of compute-buffer VRAM, but the optimum depends on both the model and the GPU — measure it with a benchmark sweep rather than guessing. Must be &le; Batch. Blank leaves llama.cpp's default of 512.</dd>
+        <dt>Batch (-b)</dt><dd>The logical batch: tokens submitted per decode call, processed in micro-batch-sized chunks. Mostly just needs to be &ge; Micro-batch. Blank leaves llama.cpp's default of 2048.</dd>
         <dt>Vision Projector (mmproj)</dt><dd>Multimodal projector path. Auto-detected from the model directory for most vision models.</dd>
     </dl>
 
@@ -224,17 +226,33 @@
     <p>If an mmproj ends up in an unexpected location, you can paste its path into the Configure dialog's <em>Vision Projector</em> field manually.</p>
 
     <h2 id="benchmarks">Benchmarks</h2>
-    <p>Runs either the llama.cpp <code>llama-bench</code> microbenchmark or real end-to-end requests through the router against a loaded model. Results persist and can be compared across runs.</p>
+    <p>Benchmarks are organised as <strong>jobs</strong>: a named batch that runs a matrix of models &times; builds &times; presets, optionally multiplied by a sweep over any model parameter. Every cell records the build (including its CMake flags), the config in effect, and the GPU state, so a result stays interpretable after you rebuild or delete things.</p>
+    <p>Measurements run as real end-to-end requests through the router, or via <a href="https://github.com/eugr/llama-benchy">llama-benchy</a> for the <code>benchy-*</code> presets. Both work with multi-file (sharded) GGUFs.</p>
 
     <h3>Presets</h3>
     <dl>
-        <dt>Quick (~10s)</dt>
-        <dd>One end-to-end request with a 256-token prompt and 128 generated tokens. Fast sanity check that a model loads and responds; does not run llama-bench.</dd>
-        <dt>Standard (~2 min)</dt>
-        <dd>Three repetitions of end-to-end requests at <strong>128</strong>, <strong>512</strong>, and <strong>2048</strong>-token prompts (128 generated tokens each). Also runs <code>llama-bench</code> for raw prompt-processing and token-generation throughput, independent of HTTP overhead.</dd>
-        <dt>Thorough (~10 min)</dt>
-        <dd>Five repetitions at <strong>128 / 512 / 2048 / 8192</strong>-token prompts with 256 generated tokens each, plus <code>llama-bench</code>. Use this when you care about long-context performance or need tight variance bounds.</dd>
+        <dt>internal-quick (~10s)</dt>
+        <dd>One request, 256-token prompt, 128 generated. Sanity check that a model loads and responds.</dd>
+        <dt>internal-standard (~1 min)</dt>
+        <dd>Three repetitions at <strong>128 / 512 / 2048</strong>-token prompts, 128 generated each.</dd>
+        <dt>internal-thorough (~5 min)</dt>
+        <dd>Five repetitions at <strong>128 / 512 / 2048 / 8192</strong>-token prompts, 256 generated each. Tight variance bounds.</dd>
+        <dt>internal-long-ctx</dt>
+        <dd>A single 32K-token prompt with 512 generated. Stresses KV cache and flash attention.</dd>
+        <dt>internal-long-ctx-thorough (~20 min)</dt>
+        <dd>Three repetitions at <strong>8K / 16K / 32K / 64K</strong>-token prompts, 512 generated each. Use this when comparing builds at long context, where one repetition is too noisy to tell a real difference from run-to-run variance.</dd>
+        <dt>benchy-quick / benchy-standard</dt>
+        <dd>Run through llama-benchy against the router's OpenAI-compatible endpoint.</dd>
     </dl>
+    <p>Prompt sizes are nominal. Prompts are built at an estimated 4 characters per token, so the tokenized length usually comes out 10&ndash;25% lower depending on the tokenizer — check <code>prompt_tokens</code> in the results for what was actually sent.</p>
+
+    <h3>Parameters and sweeps</h3>
+    <p>Each parameter in a job defaults to every model's own saved setting. Pick <strong>one</strong> value to use it for the whole job; pick <strong>several</strong> and each becomes its own cell. There is no separate "override" concept — one value is an override, more than one is a sweep.</p>
+    <p>Parameters marked <strong>&#8635;</strong> reload llama-server for each distinct value, which is what makes a sweep slow. Sampling settings ride along with each request and cost nothing extra. The matrix preview shows both the cell count and the estimated number of reloads before you commit.</p>
+    <p>A job's parameters are applied to a throwaway preset file; your saved model configs are never modified, so a cancelled or crashed job cannot leave a model misconfigured.</p>
+    <div class="callout">
+        <strong>Finding a good micro-batch:</strong> <code>-ub</code> is usually the biggest lever on prompt-processing speed, and the best value depends on both the model and the card — there is no default worth trusting. Select a model, a build and a long-context preset, then pick several micro-batch values (or use <em>Find best micro-batch</em>) and compare the PP column.
+    </div>
 
     <h3>What gets measured</h3>
     <ul>
@@ -245,19 +263,21 @@
 
     <h3>Actions</h3>
     <ul>
-        <li><strong>Detail</strong> — expands per-run results with all data points and hardware snapshot.</li>
-        <li><strong>Compare</strong> — check multiple rows and hit Compare to see them side by side.</li>
-        <li><strong>Export</strong> — CSV dump of every data point for external analysis.</li>
+        <li><strong>Detail</strong> — expands the job's cell matrix, with each cell's sweep point and per-run data.</li>
+        <li><strong>Compare</strong> — check multiple rows and hit Compare to see them side by side, within or across jobs.</li>
+        <li><strong>Export</strong> — CSV or JSON, including the build's CMake flags and each run's sweep point so rows stay distinguishable outside the UI.</li>
+        <li><strong>Retry failed</strong> — re-runs only the cells that failed, keeping completed results.</li>
     </ul>
 
     <div class="callout">
-        <strong>Note:</strong> <code>llama-bench</code> does not support multi-file (sharded) GGUFs. For large models split into multiple files, only the end-to-end portion of the benchmark runs; the <em>llama-bench</em> badge won't appear on the row.
+        <strong>Runs marked &#9888; unverified:</strong> these predate the fix that made job parameter overrides take effect. Their throughput numbers are real, but the config recorded against them may not be what actually ran. Re-run them if the configuration matters to your comparison.
     </div>
     <p>A failed benchmark still appears in the list and can be deleted like any other.</p>
 
     <h2 id="settings">Settings</h2>
     <dl>
         <dt>Auto-start</dt><dd>Start the llama-server automatically on startup (container boot or service start), using the selected build and model configs.</dd>
+        <dt>Runtime environment</dt><dd>A short, curated set of environment variables applied to the llama-server process. They are process-wide rather than per model, because the router hosts every model in one process, and take effect on the next restart. A value already exported around the service (a systemd drop-in, container env) wins over one set here. The list is deliberately short: most environment variables that circulate as llama.cpp tuning tips are either no-ops for it or workarounds for other stacks. Leave them unset unless you are measuring a specific difference.</dd>
         <dt>Server URL</dt><dd>The externally-reachable base URL of this web UI — used for the clickable API endpoint and Chat UI links. Change this if you access the UI from another host.</dd>
         <dt>OpenAI-Compatible Proxy</dt><dd>The <code>/v1</code> endpoint exposed to clients. <em>Test Connection</em> verifies the llama-server is reachable.</dd>
         <dt>API Key</dt><dd>Optional Bearer token required for <code>/v1/*</code> requests. Leave blank for an open proxy.</dd>
