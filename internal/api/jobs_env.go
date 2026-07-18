@@ -119,6 +119,104 @@ func (e *jobEnv) EnsureBuildActive(ctx context.Context, buildID string) error {
 	return fmt.Errorf("timed out waiting for router to come up on build %s", buildID)
 }
 
+// restartRouter stops the router (if up) and starts it again, blocking
+// until it is running or the deadline passes. Factored out of
+// EnsureBuildActive so config swaps reuse the same wait semantics.
+func (e *jobEnv) restartRouter(ctx context.Context, what string) error {
+	if e.s.process.IsRunning() {
+		if err := e.s.process.Stop(); err != nil {
+			return fmt.Errorf("stop router: %w", err)
+		}
+	}
+	if err := e.s.startRouter(); err != nil {
+		return fmt.Errorf("start router for %s: %w", what, err)
+	}
+	deadline := time.Now().Add(2 * time.Minute)
+	for time.Now().Before(deadline) {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if e.s.process.IsRunning() {
+			return nil
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return fmt.Errorf("timed out waiting for router after %s", what)
+}
+
+// ApplyEphemeralConfig makes modelID run under cfg for the next
+// benchmark cell, restarting the router so it re-reads the preset.
+//
+// The substitute config is written to a separate preset file and held
+// only in memory — the user's models.json and preset.ini are never
+// modified, so an interrupted job cannot leave a model misconfigured.
+// Callers must pair this with ClearEphemeralConfig.
+func (e *jobEnv) ApplyEphemeralConfig(ctx context.Context, modelID string, cfg benchmark.ConfigSnapshot) error {
+	base, err := e.s.registry.GetConfig(modelID)
+	if err != nil {
+		return fmt.Errorf("resolve config for %s: %w", modelID, err)
+	}
+	merged := applySnapshotToConfig(*base, cfg)
+	e.s.setBenchOverrides(map[string]*models.ModelConfig{modelID: &merged})
+
+	if err := e.restartRouter(ctx, "benchmark config override"); err != nil {
+		// Don't leave the override armed if we couldn't bring the router
+		// up under it; the next start would silently reuse it.
+		e.s.setBenchOverrides(nil)
+		return err
+	}
+	return nil
+}
+
+// ClearEphemeralConfig drops any benchmark config override and restarts
+// the router back onto the user's saved config. Safe to call when no
+// override is active, in which case it does nothing.
+func (e *jobEnv) ClearEphemeralConfig(ctx context.Context) error {
+	if e.s.benchOverridesSnapshot() == nil {
+		return nil
+	}
+	e.s.setBenchOverrides(nil)
+	return e.restartRouter(ctx, "restore saved config")
+}
+
+// applySnapshotToConfig overlays a benchmark ConfigSnapshot onto a copy
+// of the model's saved config. Zero values mean "not overridden", which
+// matches how ConfigSnapshot is built in ResolveModel — a snapshot
+// always carries the saved value unless a job override replaced it.
+func applySnapshotToConfig(base models.ModelConfig, snap benchmark.ConfigSnapshot) models.ModelConfig {
+	out := base
+	if snap.GPULayers != 0 {
+		out.GPULayers = snap.GPULayers
+	}
+	if snap.ContextSize != 0 {
+		out.ContextSize = snap.ContextSize
+	}
+	if snap.Threads != 0 {
+		out.Threads = snap.Threads
+	}
+	if snap.GPUAssign != "" {
+		out.GPUAssign = snap.GPUAssign
+	}
+	if snap.TensorSplit != "" {
+		out.TensorSplit = snap.TensorSplit
+	}
+	if snap.KVCacheQuant != "" {
+		out.KVCacheQuant = snap.KVCacheQuant
+	}
+	if snap.SpecType != "" {
+		out.SpecType = snap.SpecType
+	}
+	if snap.DraftModelPath != "" {
+		out.DraftModelPath = snap.DraftModelPath
+	}
+	// Booleans carry no "unset" value in the snapshot, so they always
+	// win. ResolveModel seeds them from the saved config, making this a
+	// no-op unless a job override changed them.
+	out.FlashAttention = snap.FlashAttention
+	out.DirectIO = snap.DirectIO
+	return out
+}
+
 // ResolveModel pulls registry data into the shape the JobRunner expects.
 func (e *jobEnv) ResolveModel(modelID string) (benchmark.ModelInfo, error) {
 	m, err := e.s.registry.Get(modelID)
@@ -145,6 +243,7 @@ func (e *jobEnv) ResolveModel(modelID string) (benchmark.ModelInfo, error) {
 			DirectIO:       cfg.DirectIO,
 			Threads:        cfg.Threads,
 			SpecType:       cfg.SpecType,
+			DraftModelPath: cfg.DraftModelPath,
 		},
 	}, nil
 }

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -46,6 +47,38 @@ type Server struct {
 	// edit that hasn't been picked up yet (the router reads preset.ini only
 	// at startup). Populated by startRouter, cleared by Stop.
 	runningConfigs map[string]*models.ModelConfig
+	// benchOverrides substitutes model configs for the duration of a
+	// benchmark cell, keyed by registry ID. When non-empty, startRouter
+	// builds the router's preset from these instead of the saved config,
+	// writing to a separate file so models.json and preset.ini are never
+	// touched. Deliberately in-memory only: if the process dies mid-job
+	// the overrides vanish and the next start is back on saved config.
+	// Guarded because the job queue writes these from its own goroutine
+	// while HTTP-triggered restarts read them via startRouter.
+	benchMu        sync.Mutex
+	benchOverrides map[string]*models.ModelConfig
+}
+
+// setBenchOverrides replaces the ephemeral benchmark config set. Pass
+// nil to go back to the user's saved config.
+func (s *Server) setBenchOverrides(m map[string]*models.ModelConfig) {
+	s.benchMu.Lock()
+	defer s.benchMu.Unlock()
+	s.benchOverrides = m
+}
+
+// benchOverridesSnapshot returns a copy safe to read outside the lock.
+func (s *Server) benchOverridesSnapshot() map[string]*models.ModelConfig {
+	s.benchMu.Lock()
+	defer s.benchMu.Unlock()
+	if len(s.benchOverrides) == 0 {
+		return nil
+	}
+	out := make(map[string]*models.ModelConfig, len(s.benchOverrides))
+	for k, v := range s.benchOverrides {
+		out[k] = v
+	}
+	return out
 }
 
 // SetVersion records the build's version string. main.go calls this with

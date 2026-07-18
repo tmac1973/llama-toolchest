@@ -21,6 +21,41 @@ type RunConfig struct {
 	HFRepoID   string // HuggingFace repo id; passed to llama-benchy as --tokenizer
 	HFToken    string // forwarded as HF_TOKEN to llama-benchy (avoids HF rate limiting)
 	HFHome     string // forwarded as HF_HOME so the tokenizer cache persists across runs
+	Sampling   SamplingParams
+}
+
+// SamplingParams are per-request generation settings. Unlike everything
+// in ConfigSnapshot these never reach the preset INI — llama-server
+// takes them per chat-completion request — so a job override has to be
+// sent with the request rather than applied to the router's config.
+// Nil fields are omitted, leaving llama-server on its own defaults.
+type SamplingParams struct {
+	Temperature   *float64
+	TopP          *float64
+	TopK          *int
+	MinP          *float64
+	RepeatPenalty *float64
+}
+
+// applyTo writes the set fields into an OpenAI-style request body.
+// Key names match llama-server's chat-completions endpoint; top_k,
+// min_p and repeat_penalty are llama.cpp extensions to the OpenAI shape.
+func (s SamplingParams) applyTo(body map[string]any) {
+	if s.Temperature != nil {
+		body["temperature"] = *s.Temperature
+	}
+	if s.TopP != nil {
+		body["top_p"] = *s.TopP
+	}
+	if s.TopK != nil {
+		body["top_k"] = *s.TopK
+	}
+	if s.MinP != nil {
+		body["min_p"] = *s.MinP
+	}
+	if s.RepeatPenalty != nil {
+		body["repeat_penalty"] = *s.RepeatPenalty
+	}
 }
 
 // ProgressUpdate is sent during benchmark execution.
@@ -167,7 +202,7 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 			pct := 15 + (completedTests*70)/totalTests
 			send("benchmark", fmt.Sprintf("API benchmark: %d prompt tokens, generating %d tokens (rep %d/%d)", promptTokens, cfg.Preset.GenTokens, rep, cfg.Preset.Repetitions), pct)
 
-			result, err := r.runOneTest(ctx, cfg.RouterURL, cfg.RouterName, promptTokens, cfg.Preset.GenTokens, rep)
+			result, err := r.runOneTest(ctx, cfg.RouterURL, cfg.RouterName, promptTokens, cfg.Preset.GenTokens, rep, cfg.Sampling)
 			if err != nil {
 				lastErr = err
 				slog.Error("benchmark test failed", "prompt_tokens", promptTokens, "rep", rep, "error", err)
@@ -329,7 +364,9 @@ func buildPrompt(targetTokens int, repetition int) string {
 
 // sendCompletion sends a chat completion and returns the timings.
 func (r *Runner) sendCompletion(ctx context.Context, routerURL, model string, promptTokens, genTokens int) error {
-	_, err := r.sendCompletionWithTimings(ctx, routerURL, model, promptTokens, genTokens, 0)
+	// Warmup only needs the model resident; sampling settings are
+	// irrelevant to that and are left at server defaults.
+	_, err := r.sendCompletionWithTimings(ctx, routerURL, model, promptTokens, genTokens, 0, SamplingParams{})
 	return err
 }
 
@@ -343,16 +380,18 @@ type timingsResponse struct {
 	PredictedPerSec float64 `json:"predicted_per_second"`
 }
 
-func (r *Runner) sendCompletionWithTimings(ctx context.Context, routerURL, model string, promptTokens, genTokens, repetition int) (*timingsResponse, error) {
+func (r *Runner) sendCompletionWithTimings(ctx context.Context, routerURL, model string, promptTokens, genTokens, repetition int, sampling SamplingParams) (*timingsResponse, error) {
 	prompt := buildPrompt(promptTokens, repetition)
-	reqBody, _ := json.Marshal(map[string]any{
+	reqPayload := map[string]any{
 		"model":      model,
 		"max_tokens": genTokens,
 		"stream":     false,
 		"messages": []map[string]string{
 			{"role": "user", "content": prompt},
 		},
-	})
+	}
+	sampling.applyTo(reqPayload)
+	reqBody, _ := json.Marshal(reqPayload)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, routerURL+"/v1/chat/completions", bytes.NewReader(reqBody))
 	if err != nil {
@@ -390,8 +429,8 @@ func (r *Runner) sendCompletionWithTimings(ctx context.Context, routerURL, model
 }
 
 // runOneTest runs a single benchmark test point.
-func (r *Runner) runOneTest(ctx context.Context, routerURL, model string, promptTokens, genTokens, rep int) (*BenchmarkResult, error) {
-	timings, err := r.sendCompletionWithTimings(ctx, routerURL, model, promptTokens, genTokens, rep)
+func (r *Runner) runOneTest(ctx context.Context, routerURL, model string, promptTokens, genTokens, rep int, sampling SamplingParams) (*BenchmarkResult, error) {
+	timings, err := r.sendCompletionWithTimings(ctx, routerURL, model, promptTokens, genTokens, rep, sampling)
 	if err != nil {
 		return nil, err
 	}

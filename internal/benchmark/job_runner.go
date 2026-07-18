@@ -35,6 +35,16 @@ type JobEnv interface {
 	// config to apply overrides on top of, display fields).
 	ResolveModel(modelID string) (ModelInfo, error)
 
+	// ApplyEphemeralConfig makes modelID run under cfg, restarting the
+	// router so it takes effect. Implementations must not persist the
+	// change: the user's saved config has to survive a job that is
+	// cancelled or crashes. Blocks until the router is reachable.
+	ApplyEphemeralConfig(ctx context.Context, modelID string, cfg ConfigSnapshot) error
+
+	// ClearEphemeralConfig drops any active override and restarts the
+	// router onto saved config. Must be a no-op when nothing is active.
+	ClearEphemeralConfig(ctx context.Context) error
+
 	// ResolveBuild returns the snapshot for buildID. Empty struct means
 	// the build no longer exists; the cell will fail.
 	ResolveBuild(buildID string) BuildSnapshot
@@ -183,6 +193,19 @@ func (q *JobQueue) run(ctx context.Context, job BenchmarkJob, rj *runningJob) {
 	var prevBuildID string
 	var anyCompleted bool
 
+	// Whatever ends this job — completion, failure, cancel — the router
+	// has to go back to the user's saved config. WithoutCancel because
+	// ctx is already dead on the cancel path, which is precisely when
+	// restoring matters most.
+	if job.Overrides != nil {
+		defer func() {
+			if err := q.env.ClearEphemeralConfig(context.WithoutCancel(ctx)); err != nil {
+				slog.Error("failed to restore saved model config after benchmark job; the router may still be running under benchmark overrides",
+					"job", job.ID, "error", err)
+			}
+		}()
+	}
+
 	for i := range job.Cells {
 		cell := &job.Cells[i]
 
@@ -259,6 +282,20 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 	preset := GetPreset(cell.Preset)
 	cfg := applyOverrides(modelInfo.Config, job.Overrides)
 
+	// Make the merged config real before measuring anything. Without
+	// this the cell benchmarks the model's saved config and then records
+	// cfg, which is how overrides silently produced mislabeled results.
+	//
+	// Costs a router restart. On a build boundary that's the second one
+	// (EnsureBuildActive already restarted), but cells are ordered
+	// builds-outermost so that pairing happens once per build, not once
+	// per cell.
+	if job.Overrides != nil {
+		if err := q.env.ApplyEphemeralConfig(ctx, cell.ModelID, cfg); err != nil {
+			return fmt.Errorf("apply config overrides for %s: %w", cell.ModelID, err)
+		}
+	}
+
 	run := BenchmarkRun{
 		ID:           fmt.Sprintf("bench-%d-%d", time.Now().UnixMilli(), cell.Attempt),
 		JobID:        job.ID,
@@ -290,6 +327,7 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 		HFRepoID:   modelInfo.HFRepoID,
 		HFToken:    q.env.HFToken(),
 		HFHome:     q.env.HFCacheDir(),
+		Sampling:   samplingFromOverrides(job.Overrides),
 	}, nil)
 
 	final, err := q.store.Get(run.ID)
@@ -303,6 +341,25 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 		return fmt.Errorf("run ended with status %s", final.Status)
 	}
 	return nil
+}
+
+// samplingFromOverrides extracts the per-request generation settings
+// from a job's overrides. These deliberately bypass ConfigSnapshot:
+// llama-server takes them per chat-completion request, not from the
+// preset INI, so they travel with the benchmark request instead of the
+// router config. Previously they were accepted by the form, persisted,
+// and then dropped on the floor.
+func samplingFromOverrides(o *ConfigOverrides) SamplingParams {
+	if o == nil {
+		return SamplingParams{}
+	}
+	return SamplingParams{
+		Temperature:   o.Temperature,
+		TopP:          o.TopP,
+		TopK:          o.TopK,
+		MinP:          o.MinP,
+		RepeatPenalty: o.RepeatPenalty,
+	}
 }
 
 // applyOverrides returns base with non-nil ConfigOverrides fields
@@ -338,6 +395,9 @@ func applyOverrides(base ConfigSnapshot, overrides *ConfigOverrides) ConfigSnaps
 	}
 	if overrides.SpecType != nil {
 		out.SpecType = *overrides.SpecType
+	}
+	if overrides.DraftModelPath != nil {
+		out.DraftModelPath = *overrides.DraftModelPath
 	}
 	return out
 }

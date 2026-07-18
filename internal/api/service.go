@@ -404,10 +404,24 @@ func (s *Server) startRouter() error {
 	}
 	binaryPath := build.BinaryPath
 
-	// Generate preset INI from model configs
-	presetPath, err := s.registry.WritePresetINI()
-	if err != nil {
-		slog.Warn("failed to write preset INI", "error", err)
+	// Generate preset INI from model configs. A benchmark cell running
+	// under substitute config swaps in an ephemeral preset here; every
+	// other caller gets the user's saved settings.
+	var presetPath string
+	var err error
+	if overrides := s.benchOverridesSnapshot(); len(overrides) > 0 {
+		presetPath, err = s.registry.WriteBenchPresetINI(overrides)
+		if err != nil {
+			// Falling back to the saved preset would silently benchmark
+			// the wrong config — the exact failure this mechanism exists
+			// to prevent. Refuse to start instead.
+			return fmt.Errorf("write benchmark preset: %w", err)
+		}
+	} else {
+		presetPath, err = s.registry.WritePresetINI()
+		if err != nil {
+			slog.Warn("failed to write preset INI", "error", err)
+		}
 	}
 
 	if err := s.process.Start(process.RouterConfig{

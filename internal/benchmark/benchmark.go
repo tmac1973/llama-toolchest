@@ -71,6 +71,12 @@ type BenchmarkRun struct {
 
 	// Duration
 	DurationMs int64 `json:"duration_ms,omitempty"`
+
+	// ConfigUnverified marks a run whose recorded Config may not reflect
+	// what llama-server actually ran. Set by the v2→v3 migration on runs
+	// from jobs that declared overrides back when overrides were never
+	// applied. Never set on runs produced after that fix.
+	ConfigUnverified bool `json:"config_unverified,omitempty"`
 }
 
 // ConfigSnapshot freezes model config at benchmark time.
@@ -84,6 +90,7 @@ type ConfigSnapshot struct {
 	DirectIO       bool   `json:"direct_io,omitempty"`
 	Threads        int    `json:"threads"`
 	SpecType       string `json:"spec_type,omitempty"`
+	DraftModelPath string `json:"draft_model_path,omitempty"`
 }
 
 // GPUSnapshot captures GPU hardware at benchmark time.
@@ -303,8 +310,9 @@ type Store struct {
 const maxTimingSamples = 1000
 
 // schemaVersion is the on-disk envelope version this build writes. v1
-// was a bare JSON array of runs; v2 wraps them with a jobs list.
-const schemaVersion = 2
+// was a bare JSON array of runs; v2 wraps them with a jobs list; v3
+// flags runs whose recorded config was never actually applied.
+const schemaVersion = 3
 
 // benchmarkFile is the v2 envelope. v1 files are detected by an
 // unmarshal failure into this shape and a successful retry as []BenchmarkRun.
@@ -312,6 +320,34 @@ type benchmarkFile struct {
 	Version int            `json:"version"`
 	Jobs    []BenchmarkJob `json:"jobs"`
 	Runs    []BenchmarkRun `json:"runs"`
+}
+
+// markUnverifiedConfigs is the v2→v3 migration. Before v3, a job's
+// ConfigOverrides were merged into each run's recorded ConfigSnapshot
+// but never applied to llama-server — the cell benchmarked the model's
+// saved config while reporting the overridden one. The throughput
+// numbers are real; the config they are attributed to is not.
+//
+// We cannot recover what actually ran, so flag every run belonging to a
+// job that declared overrides and let the UI say so.
+func markUnverifiedConfigs(jobs []BenchmarkJob, runs []BenchmarkRun) bool {
+	overridden := make(map[string]bool, len(jobs))
+	for _, j := range jobs {
+		if j.Overrides != nil {
+			overridden[j.ID] = true
+		}
+	}
+	if len(overridden) == 0 {
+		return false
+	}
+	changed := false
+	for i := range runs {
+		if overridden[runs[i].JobID] && !runs[i].ConfigUnverified {
+			runs[i].ConfigUnverified = true
+			changed = true
+		}
+	}
+	return changed
 }
 
 // NewStore creates a store and loads persisted benchmarks. resolver may
@@ -673,6 +709,14 @@ func (s *Store) load() {
 		}
 		s.runs = runs
 		dirty = true // forces a v2 rewrite at end of load
+	}
+
+	// v2→v3: flag runs whose config snapshot was never applied. Runs
+	// written by v3+ are already correct, so scope this to older files.
+	if file.Version < 3 {
+		if markUnverifiedConfigs(s.jobs, s.runs) {
+			dirty = true
+		}
 	}
 
 	// Any benchmark still marked running at startup belongs to a previous

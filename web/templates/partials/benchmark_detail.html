@@ -6,7 +6,12 @@
 
     <div class="grid" style="margin-bottom:0.5rem;">
         <div>
-            <small><strong>Configuration</strong></small><br>
+            <small><strong>Configuration</strong>
+                {{if .ConfigUnverified}}
+                <span title="This run predates the fix that made benchmark config overrides take effect. Its job declared overrides, but they were never applied to llama-server — the values below may not be what actually ran. The throughput numbers are still valid."
+                      style="color:var(--pico-del-color,#b3261e);font-weight:600;cursor:help;">&#9888; unverified</span>
+                {{end}}
+            </small><br>
             <small>
                 GPU Layers: {{.Config.GPULayers}} |
                 Context: {{if .Config.ContextSize}}{{.Config.ContextSize}}{{else}}default{{end}} |
