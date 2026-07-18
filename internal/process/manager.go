@@ -56,6 +56,9 @@ type RouterConfig struct {
 	ModelsMax  int
 	Host       string
 	Port       int
+	// ExtraEnv holds KEY=VALUE pairs appended to the child environment,
+	// for curated performance-related variables set in Settings.
+	ExtraEnv []string
 }
 
 const logHistorySize = 500
@@ -122,7 +125,7 @@ func (m *Manager) Start(cfg RouterConfig) error {
 	// The variable name differs per OS; on Windows we prepend to PATH instead
 	// of setting a separate var, since that's how Windows resolves DLLs.
 	binDir := filepath.Dir(cfg.BinaryPath)
-	cmd.Env = pinCUDADeviceOrder(appendLibraryPath(os.Environ(), binDir))
+	cmd.Env = applyExtraEnv(pinCUDADeviceOrder(appendLibraryPath(os.Environ(), binDir)), cfg.ExtraEnv)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -423,6 +426,31 @@ func (m *Manager) CheckHealth() bool {
 // set so the child process can find shared libraries co-located with the
 // binary. On Linux this is LD_LIBRARY_PATH, on macOS DYLD_LIBRARY_PATH, on
 // Windows we prepend to PATH (since that's how the loader finds DLLs).
+// applyExtraEnv appends configured KEY=VALUE pairs, skipping any whose
+// key is already present in the inherited environment. Matching
+// pinCUDADeviceOrder's rule: a value the operator exported around the
+// process wins over one set in the UI, so a systemd drop-in or container
+// env stays authoritative.
+func applyExtraEnv(env []string, extra []string) []string {
+	if len(extra) == 0 {
+		return env
+	}
+	existing := make(map[string]bool, len(env))
+	for _, kv := range env {
+		if i := strings.IndexByte(kv, '='); i > 0 {
+			existing[kv[:i]] = true
+		}
+	}
+	for _, kv := range extra {
+		i := strings.IndexByte(kv, '=')
+		if i <= 0 || existing[kv[:i]] {
+			continue
+		}
+		env = append(env, kv)
+	}
+	return env
+}
+
 // pinCUDADeviceOrder forces llama-server's CUDA backend to enumerate GPUs in
 // PCI bus order, matching nvidia-smi (whose indices drive the web UI's "GPU N"
 // labels and the --main-gpu / --tensor-split values we generate). Without this

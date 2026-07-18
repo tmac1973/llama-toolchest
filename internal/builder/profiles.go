@@ -66,7 +66,7 @@ func ProfileOptions(profile string) []BuildOption {
 			{
 				Flag:        "GGML_CUDA_FORCE_CUBLAS_COMPUTE_16F",
 				Label:       "Force FP16 cuBLAS Compute Type",
-				Description: "Force cuBLAS GEMM to use FP16 accumulators instead of FP32 when inputs are FP16. Faster on FP16-throughput-bound GPUs at a small accuracy cost.",
+				Description: "No effect on current llama.cpp — this flag was removed upstream and replaced by the GGML_CUDA_CUBLAS_COMPUTE_TYPE environment variable, which you can set under Settings. Kept only for building older refs that still define it. On a recent ref this changes nothing.",
 				Default:     false,
 			},
 		}...)
@@ -87,20 +87,20 @@ func ProfileOptions(profile string) []BuildOption {
 			{
 				Flag:        "GGML_HIP_ROCWMMA_FATTN",
 				Label:       "rocWMMA FlashAttention",
-				Description: "Build the FlashAttention kernel against rocWMMA so attention dispatches through the AI matrix accelerators (FP16 WMMA). Recommended for RDNA3+ (gfx1100/1101/1151) and RDNA4 (gfx1200/1201) on ROCm 7.x — speeds up prefill noticeably. Requires --flash-attn at runtime to take effect. Needs rocwmma-devel installed.",
+				Description: "Builds the FlashAttention kernel against rocWMMA. Whether this helps depends on the model, not just the GPU: llama.cpp now has native MMA attention kernels, but they only apply when head size is <= 128 with GQA >= 2 and a mask (no ALiBi). Outside that, the rocWMMA path covers cases the native kernel declines, and turning this off drops to the slower generic tile kernel. Measured +24% prompt processing on Qwen3.6-27B-MTP on gfx1201, and upstream reports the opposite for llama-8B Q4_0 — so benchmark both builds rather than assuming. Requires --flash-attn at runtime and rocwmma-devel to build.",
 				Default:     false,
 			},
 			{
 				Flag:        "CMAKE_HIP_FLAGS",
 				Value:       "-funsafe-math-optimizations",
 				Label:       "HIP Fast Math",
-				Description: "Compile HIP kernels with -funsafe-math-optimizations, matching CUDA's fast-math behavior. Noticeable speedup with minor accuracy tradeoff. Built into llama.cpp after 2026-07-09 (commit ccb0c34), so this toggle only matters for older refs; enabling it on newer refs is harmless.",
+				Description: "Compiles HIP kernels with -funsafe-math-optimizations. Current llama.cpp already applies this unconditionally (alongside -ffast-math -fno-finite-math-only, deliberately — plain -ffast-math breaks ggml's INFINITY masking and produces NaNs), so this only matters for refs older than 2026-07-09 (commit ccb0c34). Harmless on newer refs.",
 				Default:     false,
 			},
 			{
 				Flag:        "GGML_CUDA_FORCE_CUBLAS_COMPUTE_16F",
 				Label:       "Force FP16 hipBLAS Compute Type",
-				Description: "Force hipBLAS/cuBLAS GEMM to use FP16 accumulators instead of FP32 when inputs are FP16. Particularly useful on RDNA4 (gfx1200/1201) where the rocWMMA-FATTN path is flaky — this is the main tuning knob for FP16 matrix throughput. Small accuracy cost.",
+				Description: "No effect on current llama.cpp — this flag was removed upstream and replaced by the GGML_CUDA_CUBLAS_COMPUTE_TYPE environment variable, which you can set under Settings. Kept only for building older refs that still define it. On a recent ref this changes nothing.",
 				Default:     false,
 			},
 		}...)

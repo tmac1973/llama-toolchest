@@ -22,6 +22,12 @@ type Config struct {
 	ActiveBuild string `yaml:"active_build"` // which llama.cpp build to use
 	ModelsMax   int    `yaml:"models_max"`   // max loaded models, 0 = unlimited
 	AutoStart   bool   `yaml:"auto_start"`   // start the llama-server on container startup
+
+	// RuntimeEnv holds curated environment variables applied to the
+	// llama-server router process. Router-wide by nature: it hosts every
+	// model in one process, so per-model env is not expressible.
+	// See RuntimeEnvOptions for the allowed set.
+	RuntimeEnv map[string]string `yaml:"runtime_env,omitempty"`
 }
 
 // ModelsPath returns the directory where GGUF models live. ModelsDir wins

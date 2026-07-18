@@ -451,6 +451,8 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		ModelsDir        string
 		DefaultModelsDir string
 		AutoStart        bool
+		RuntimeEnvOpts   []config.RuntimeEnvOption
+		RuntimeEnv       map[string]string
 	}{
 		pageData:         pageData{Title: "Settings", Nav: "settings"},
 		ProxyEndpoint:    proxyEndpoint,
@@ -463,6 +465,8 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		ModelsDir:        s.cfg.ModelsDir,
 		DefaultModelsDir: filepath.Join(s.cfg.DataDir, "models"),
 		AutoStart:        s.cfg.AutoStart,
+		RuntimeEnvOpts:   config.RuntimeEnvOptions(),
+		RuntimeEnv:       s.cfg.RuntimeEnv,
 	}
 	s.render(w, "settings.html", data)
 }

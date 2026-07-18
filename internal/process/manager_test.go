@@ -37,3 +37,34 @@ func TestPinCUDADeviceOrderRespectsExisting(t *testing.T) {
 		t.Fatalf("expected the existing FASTEST_FIRST to survive untouched; got count=%d last=%q env=%v", n, last, env)
 	}
 }
+
+// applyExtraEnv must not override a variable the operator exported
+// around the process — a systemd drop-in or container env stays
+// authoritative over a value set in the UI.
+func TestApplyExtraEnvDoesNotOverrideInherited(t *testing.T) {
+	env := []string{"PATH=/usr/bin", "ROCBLAS_USE_HIPBLASLT=0"}
+	got := applyExtraEnv(env, []string{"ROCBLAS_USE_HIPBLASLT=1", "GGML_CUDA_DISABLE_GRAPHS=1"})
+
+	var hipblaslt, graphs string
+	for _, kv := range got {
+		if v, ok := strings.CutPrefix(kv, "ROCBLAS_USE_HIPBLASLT="); ok {
+			hipblaslt = v
+		}
+		if v, ok := strings.CutPrefix(kv, "GGML_CUDA_DISABLE_GRAPHS="); ok {
+			graphs = v
+		}
+	}
+	if hipblaslt != "0" {
+		t.Errorf("inherited ROCBLAS_USE_HIPBLASLT = %q, want the inherited 0 to win", hipblaslt)
+	}
+	if graphs != "1" {
+		t.Errorf("GGML_CUDA_DISABLE_GRAPHS = %q, want 1", graphs)
+	}
+}
+
+func TestApplyExtraEnvNoExtras(t *testing.T) {
+	env := []string{"PATH=/usr/bin"}
+	if got := applyExtraEnv(env, nil); len(got) != 1 {
+		t.Errorf("got %v, want the environment unchanged", got)
+	}
+}

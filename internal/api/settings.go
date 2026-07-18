@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tmac1973/llama-toolchest/internal/config"
 	"gopkg.in/yaml.v3"
 )
 
@@ -85,6 +86,22 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			if v, err := strconv.Atoi(r.FormValue("models_max")); err == nil {
 				s.cfg.ModelsMax = v
 			}
+		}
+		// Curated runtime env vars. Presence of the marker means the form
+		// included this section, so an unchecked/blank field clears the
+		// value rather than being ignored.
+		if r.Form.Has("runtime_env_touched") {
+			env := map[string]string{}
+			for _, opt := range config.RuntimeEnvOptions() {
+				if v := strings.TrimSpace(r.FormValue("env_" + opt.Name)); v != "" {
+					env[opt.Name] = v
+				}
+			}
+			if err := config.ValidateRuntimeEnv(env); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			s.cfg.RuntimeEnv = env
 		}
 		if r.Form.Has("auto_start_touched") {
 			s.cfg.AutoStart = r.FormValue("auto_start") == "on"

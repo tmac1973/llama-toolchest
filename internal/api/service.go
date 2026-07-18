@@ -429,6 +429,7 @@ func (s *Server) startRouter() error {
 		PresetPath: presetPath,
 		ModelsMax:  s.cfg.ModelsMax,
 		Port:       s.cfg.LlamaPort,
+		ExtraEnv:   s.cfg.RuntimeEnvPairs(),
 	}); err != nil {
 		return err
 	}
