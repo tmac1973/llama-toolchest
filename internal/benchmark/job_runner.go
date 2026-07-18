@@ -28,9 +28,16 @@ type JobEnv interface {
 	CheckBuildRunnable(ctx context.Context, buildID string) error
 
 	// EnsureBuildActive switches the router to the build identified by
-	// buildID, restarting llama-server when the active build differs.
+	// buildID, restarting llama-server when the running build differs.
 	// Blocks until the router is reachable.
-	EnsureBuildActive(ctx context.Context, buildID string) error
+	//
+	// configFollows tells the implementation that the caller will apply
+	// a config override immediately afterwards, which restarts the
+	// router anyway. It may then record the build and skip its own
+	// restart so the pair costs one reload instead of two — the first of
+	// which would otherwise serve the previous cell's config on the new
+	// build for no purpose.
+	EnsureBuildActive(ctx context.Context, buildID string, configFollows bool) error
 
 	// ResolveModel returns everything the cell needs about a model from
 	// the registry (HF repo id for tokenizer, router-served name, saved
@@ -280,11 +287,18 @@ func newRunID(attempt int) string {
 	return fmt.Sprintf("bench-%d-%d-%d", time.Now().UnixMilli(), runSeq.Add(1), attempt)
 }
 
-// appliedConfig is the (model, config) pair currently pushed to the
-// router, so consecutive cells needing the same thing don't each pay for
-// a reload. Comparable by design — ConfigSnapshot is all scalars.
+// appliedConfig is what the router is currently running, so consecutive
+// cells needing the same thing don't each pay for a reload. Comparable
+// by design — ConfigSnapshot is all scalars.
+//
+// The build is part of it. Keying on (model, config) alone meant two
+// cells on different builds with identical config compared equal, the
+// apply was skipped, and — since the build switch now defers its restart
+// to that apply — the router never switched at all. The second cell then
+// measured the previous build while recording the new one.
 type appliedConfig struct {
 	modelID string
+	buildID string
 	cfg     ConfigSnapshot
 }
 
@@ -295,11 +309,19 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 		"job", job.ID, "model", cell.ModelID, "build", cell.BuildID,
 		"preset", cell.Preset, "sweep", cell.SweepValues)
 
+	// Resolved before the build switch so EnsureBuildActive can be told
+	// whether a config apply follows it. Fixed overrides form the
+	// baseline; this cell's swept values win over them.
+	cellOv, err := CellOverrides(job.Overrides, cell.SweepValues)
+	if err != nil {
+		return fmt.Errorf("resolve cell overrides: %w", err)
+	}
+
 	if cell.BuildID != *prevBuildID {
 		if err := q.env.CheckBuildRunnable(ctx, cell.BuildID); err != nil {
 			return fmt.Errorf("build %s not runnable on this host: %w", cell.BuildID, err)
 		}
-		if err := q.env.EnsureBuildActive(ctx, cell.BuildID); err != nil {
+		if err := q.env.EnsureBuildActive(ctx, cell.BuildID, cellOv != nil); err != nil {
 			return fmt.Errorf("activate build %s: %w", cell.BuildID, err)
 		}
 		*prevBuildID = cell.BuildID
@@ -315,27 +337,22 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 	}
 	preset := GetPreset(cell.Preset)
 
-	// Fixed overrides form the baseline; this cell's swept values win
-	// over them.
-	cellOv, err := CellOverrides(job.Overrides, cell.SweepValues)
-	if err != nil {
-		return fmt.Errorf("resolve cell overrides: %w", err)
-	}
 	cfg := applyOverrides(modelInfo.Config, cellOv)
 
 	// Make the merged config real before measuring anything. Without
 	// this the cell benchmarks the model's saved config and then records
 	// cfg, which is how overrides silently produced mislabeled results.
 	//
-	// Costs a router restart. On a build boundary that's the second one
-	// (EnsureBuildActive already restarted), but cells are ordered
-	// builds-outermost so that pairing happens once per build, not once
-	// per cell.
+	// Costs a router restart. At a build boundary EnsureBuildActive
+	// deferred its own restart to this one, so the pair costs a single
+	// reload rather than two — the first of which would have served the
+	// previous cell's config on the new build for no purpose.
+	//
 	// Sweeping a value that only affects the request (sampling) must not
 	// pay for a reload, and consecutive cells that share a config (e.g.
 	// several presets under one sweep point) only need one.
 	if cellOv != nil {
-		want := appliedConfig{modelID: cell.ModelID, cfg: cfg}
+		want := appliedConfig{modelID: cell.ModelID, buildID: cell.BuildID, cfg: cfg}
 		if *lastApplied != want {
 			if err := q.env.ApplyEphemeralConfig(ctx, cell.ModelID, cfg); err != nil {
 				return fmt.Errorf("apply config overrides for %s: %w", cell.ModelID, err)

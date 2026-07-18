@@ -22,17 +22,29 @@ type fakeEnv struct {
 	routerURL string
 	saved     ConfigSnapshot
 
-	applied  []ConfigSnapshot // one per ApplyEphemeralConfig call
-	appliedT []time.Time
-	cleared  int
-	clearedT []time.Time
-	dirty    bool
+	applied       []ConfigSnapshot // one per ApplyEphemeralConfig call
+	appliedT      []time.Time
+	cleared       int
+	clearedT      []time.Time
+	dirty         bool
+	buildSwitches []string
+	buildRestarts int
 
 	applyErr error
 }
 
 func (f *fakeEnv) CheckBuildRunnable(context.Context, string) error { return nil }
-func (f *fakeEnv) EnsureBuildActive(context.Context, string) error  { return nil }
+func (f *fakeEnv) EnsureBuildActive(_ context.Context, id string, configFollows bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.buildSwitches = append(f.buildSwitches, id)
+	// Mirrors the real implementation: when a config apply follows, the
+	// restart is deferred to it rather than doubled.
+	if !configFollows {
+		f.buildRestarts++
+	}
+	return nil
+}
 
 func (f *fakeEnv) ResolveModel(string) (ModelInfo, error) {
 	return ModelInfo{
@@ -571,5 +583,69 @@ func TestCleanupIsAlwaysRequested(t *testing.T) {
 	// router is never restarted.
 	if cleared != 0 {
 		t.Errorf("cleanup restarted the router %d times for an unchanged job", cleared)
+	}
+}
+
+// A build switch followed immediately by a config apply must cost one
+// reload, not two. Restarting in EnsureBuildActive and again in
+// ApplyEphemeralConfig briefly served the previous cell's config on the
+// new build for no purpose, and doubled the reload cost at every build
+// boundary — which a two-build comparison hits on every model.
+func TestBuildSwitchWithConfigCostsOneReload(t *testing.T) {
+	router := newFakeRouter(t)
+	env := &fakeEnv{routerURL: router.URL, saved: ConfigSnapshot{GPULayers: 999}}
+
+	job := BenchmarkJob{
+		ID: "job-2b", Name: "two builds", Kind: JobKindBatch,
+		ModelIDs: []string{"m"}, BuildIDs: []string{"b1", "b2"},
+		Presets: []string{"internal-quick"},
+		Sweeps:  []SweepAxis{{Field: "ubatch_size", Values: []string{"512"}}},
+	}
+	job.Cells = ExpandCellsWithSweeps(job.ModelIDs, job.BuildIDs, job.Presets, job.Sweeps)
+
+	done, _ := runJob(t, job, env)
+	if done.Status != JobStatusCompleted {
+		t.Fatalf("job status = %s, want completed", done.Status)
+	}
+
+	env.mu.Lock()
+	switches, restarts := append([]string(nil), env.buildSwitches...), env.buildRestarts
+	env.mu.Unlock()
+
+	if len(switches) != 2 {
+		t.Errorf("build activations = %v, want one per build", switches)
+	}
+	// Both switches carry a config, so neither restarts on its own; the
+	// following ApplyEphemeralConfig does it once each.
+	if restarts != 0 {
+		t.Errorf("EnsureBuildActive restarted %d times; the config apply should carry it", restarts)
+	}
+	if applied, _ := env.snapshotCalls(); len(applied) != 2 {
+		t.Errorf("config applied %d times, want once per build", len(applied))
+	}
+}
+
+// Without a config to apply, EnsureBuildActive must still restart — the
+// deferral has nothing to defer to.
+func TestBuildSwitchWithoutConfigStillRestarts(t *testing.T) {
+	router := newFakeRouter(t)
+	env := &fakeEnv{routerURL: router.URL, saved: ConfigSnapshot{GPULayers: 999}}
+
+	job := BenchmarkJob{
+		ID: "job-nb", Name: "no overrides", Kind: JobKindBatch,
+		ModelIDs: []string{"m"}, BuildIDs: []string{"b1", "b2"},
+		Presets: []string{"internal-quick"},
+	}
+	job.Cells = ExpandCells(job.ModelIDs, job.BuildIDs, job.Presets)
+
+	if done, _ := runJob(t, job, env); done.Status != JobStatusCompleted {
+		t.Fatalf("job status = %s, want completed", done.Status)
+	}
+
+	env.mu.Lock()
+	restarts := env.buildRestarts
+	env.mu.Unlock()
+	if restarts != 2 {
+		t.Errorf("EnsureBuildActive restarted %d times, want one per build", restarts)
 	}
 }

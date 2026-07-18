@@ -103,7 +103,7 @@ func (e *jobEnv) CheckBuildRunnable(ctx context.Context, buildID string) error {
 
 // EnsureBuildActive switches the router to buildID if it isn't already,
 // waiting up to 2 minutes for /health to pass.
-func (e *jobEnv) EnsureBuildActive(ctx context.Context, buildID string) error {
+func (e *jobEnv) EnsureBuildActive(ctx context.Context, buildID string, configFollows bool) error {
 	if buildID == "" {
 		return fmt.Errorf("empty build id")
 	}
@@ -137,6 +137,16 @@ func (e *jobEnv) EnsureBuildActive(ctx context.Context, buildID string) error {
 		// has nothing to restore. Claiming it here reinstated at job end
 		// exactly the gratuitous restart this fast path removes from the
 		// start — the fix cancelled itself out.
+		return nil
+	}
+
+	// A config apply is coming immediately, and it restarts the router
+	// anyway with this build now recorded. Restarting here as well would
+	// cost a second reload whose only effect is to briefly serve the
+	// previous cell's config on the new build.
+	if configFollows {
+		slog.Info("deferring build switch to the config apply that follows",
+			"build", buildID, "was", e.s.runningBuild())
 		return nil
 	}
 
