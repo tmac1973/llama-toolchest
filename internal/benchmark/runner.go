@@ -366,10 +366,20 @@ const BenchPromptCharsPerToken = 4
 func buildPromptFor(nonce string, targetTokens int, repetition int) string {
 	targetChars := targetTokens * BenchPromptCharsPerToken
 	var b strings.Builder
+	// Everything that distinguishes this request goes first, before the
+	// shared boilerplate, so two prompts diverge within the first few
+	// tokens and llama.cpp can cache almost nothing between them.
+	//
+	// Size matters as much as the nonce. Prompts of different sizes were
+	// otherwise identical up to the shorter one's length, so the common
+	// prefix was cached and every size after the first reported only the
+	// tokens beyond it: a preset sweeping 8192/16384/32768/65536 produced
+	// prompt_n of 6309/6795/13070/25630, which sum to the real sizes, and
+	// its throughput figures measured incremental prefill at increasing
+	// depth rather than the full prefill each row claimed.
+	b.WriteString(fmt.Sprintf("Benchmark %s, target %d tokens, repetition %d.\n\n",
+		nonce, targetTokens, repetition))
 	b.WriteString(fmt.Sprintf(BenchPromptPrefixTemplate, repetition))
-	if nonce != "" {
-		b.WriteString("Run identifier: " + nonce + ".\n\n")
-	}
 	for b.Len() < targetChars {
 		b.WriteString(BenchPromptText)
 	}

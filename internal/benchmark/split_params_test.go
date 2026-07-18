@@ -429,3 +429,29 @@ func TestPromptSizeUnaffectedByNonce(t *testing.T) {
 		}
 	}
 }
+
+// Prompts of different sizes must not share a prefix. They previously
+// differed only in total length, so llama.cpp cached the common part and
+// every size after the first measured incremental prefill while
+// reporting only the newly-processed token count.
+func TestPromptsOfDifferentSizesDoNotSharePrefix(t *testing.T) {
+	short := buildPromptFor("cell-1", 256, 1)
+	long := buildPromptFor("cell-1", 512, 1)
+
+	n := len(short)
+	if len(long) < n {
+		t.Fatal("longer target produced a shorter prompt")
+	}
+	if long[:n] == short {
+		t.Error("the longer prompt starts with the shorter one verbatim; llama.cpp would serve the overlap from cache and report only the tail")
+	}
+	// They must diverge within the first few tokens, so the cacheable
+	// overlap is negligible rather than most of the shorter prompt.
+	div := 0
+	for div < len(short) && short[div] == long[div] {
+		div++
+	}
+	if div > 64 {
+		t.Errorf("prompts share their first %d chars; the overlap should be a few tokens at most", div)
+	}
+}
