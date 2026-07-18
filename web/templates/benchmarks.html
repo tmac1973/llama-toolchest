@@ -239,6 +239,7 @@ function openBenchHelp() {
 var editingJobID = '';
 
 function openJobForm() {
+    unmappedOverrides = {};
     editingJobID = '';
     document.getElementById('job-form-title').textContent = 'New Batch Job';
     var modal = document.getElementById('job-form-modal');
@@ -296,10 +297,19 @@ function prefillJobForm(job) {
     // just a one-value selection.
     var selections = {};
     var ov = job.overrides || {};
+    // Overrides the form has no control for (e.g. draft_model_path, which
+    // is settable via the JSON API but not sweepable). Carried through
+    // untouched on save so editing a job's name can't silently delete a
+    // setting the form can't display.
+    unmappedOverrides = {};
     Object.keys(ov).forEach(function(field){
         var v = ov[field];
         if (v === null || v === undefined) return;
         if (typeof v === 'boolean') v = v ? 'true' : 'false';
+        if (!form.querySelector('.param-row[data-param="'+field+'"]')) {
+            unmappedOverrides[field] = v;
+            return;
+        }
         selections[field] = [String(v)];
     });
     (job.sweeps || []).forEach(function(axis){
@@ -317,15 +327,26 @@ function prefillJobForm(job) {
             return;
         }
 
-        var wanted = {};
-        values.forEach(function(v){ wanted[v] = true; });
+        // Match numerically where both sides parse as numbers: a stored
+        // 1.0 arrives from JSON as the number 1, whose string form is
+        // "1" and matches no "1.0" checkbox. Without this, editing turns
+        // a curated choice into a spurious custom entry — and ticking
+        // the visible one too would sweep "1" against "1.0", two cells
+        // measuring the same thing.
+        var sameValue = function(a, b) {
+            if (a === b) return true;
+            var na = parseFloat(a), nb = parseFloat(b);
+            return !isNaN(na) && !isNaN(nb) && na === nb;
+        };
+        var wanted = values.slice();
         row.querySelectorAll('.param-value').forEach(function(c){
-            c.checked = !!wanted[c.value];
-            delete wanted[c.value];
+            var hit = wanted.findIndex(function(v){ return sameValue(v, c.value); });
+            c.checked = hit !== -1;
+            if (hit !== -1) wanted.splice(hit, 1);
         });
         // Anything the job used that isn't a curated choice was entered
         // as a custom value; recreate it so editing doesn't drop it.
-        Object.keys(wanted).forEach(function(v){
+        wanted.forEach(function(v){
             var input = row.querySelector('.param-custom-input');
             if (!input) return;
             input.value = v;
@@ -346,6 +367,8 @@ function prefillJobForm(job) {
     var btn = document.getElementById('job-submit-btn');
     if (btn) btn.textContent = 'Save & Re-run';
 }
+// Overrides with no matching form control, preserved across an edit.
+var unmappedOverrides = {};
 function closeJobForm() {
     document.getElementById('job-form-modal').close();
 }
@@ -397,8 +420,13 @@ function addParamCustom(el) {
 
     // Reuse an existing checkbox when the typed value is already offered,
     // so a custom entry can't create a duplicate the server would reject.
+    var numEq = function(a, b) {
+        if (a === b) return true;
+        var na = parseFloat(a), nb = parseFloat(b);
+        return !isNaN(na) && !isNaN(nb) && na === nb;
+    };
     var existing = Array.from(row.querySelectorAll('.param-value'))
-        .find(function(c){ return c.value === raw; });
+        .find(function(c){ return numEq(c.value, raw); });
     if (existing) {
         existing.checked = true;
     } else {
@@ -522,6 +550,7 @@ function submitNewJob() {
         build_ids: picked('build'),
         presets: picked('preset'),
         params: readParams(form),
+        overrides: Object.keys(unmappedOverrides).length ? unmappedOverrides : null,
     };
     var isEdit = !!editingJobID;
     var url = isEdit ? '/api/benchmark-jobs/'+encodeURIComponent(editingJobID) : '/api/benchmark-jobs';

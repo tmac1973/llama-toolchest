@@ -2,6 +2,7 @@ package benchmark
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -303,7 +304,16 @@ func ValidateSweeps(sweeps []SweepAxis) error {
 		if len(s.Values) == 0 {
 			return fmt.Errorf("%s: no values given", f.Label)
 		}
+		// Duplicates would expand into byte-identical cells: double the
+		// runtime, and two rows showing one measurement as if it were
+		// two data points. ParseSweepValues rejects them for form input;
+		// this path is what JSON API callers hit.
+		seenValue := map[string]bool{}
 		for _, v := range s.Values {
+			if seenValue[v] {
+				return fmt.Errorf("%s: duplicate value %q", f.Label, v)
+			}
+			seenValue[v] = true
 			if err := f.set(&ConfigOverrides{}, v); err != nil {
 				return fmt.Errorf("%s: %w", f.Label, err)
 			}
@@ -513,4 +523,25 @@ func SplitParams(params map[string][]string) (*ConfigOverrides, []SweepAxis, err
 		sweeps = append(sweeps, SweepAxis{Field: name, Values: values})
 	}
 	return overrides, sweeps, nil
+}
+
+// MergeOverrides layers derived over base field by field, so overrides
+// the caller supplied for fields the form cannot express survive an
+// edit. A non-nil field in derived wins.
+func MergeOverrides(base, derived *ConfigOverrides) *ConfigOverrides {
+	if base == nil {
+		return derived
+	}
+	if derived == nil {
+		return base
+	}
+	out := *base
+	d := reflect.ValueOf(*derived)
+	o := reflect.ValueOf(&out).Elem()
+	for i := 0; i < d.NumField(); i++ {
+		if !d.Field(i).IsNil() {
+			o.Field(i).Set(d.Field(i))
+		}
+	}
+	return &out
 }

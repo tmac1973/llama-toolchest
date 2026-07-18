@@ -194,7 +194,7 @@ func (s *Server) handleModelInfo(w http.ResponseWriter, r *http.Request) {
 		// because the proxy applies them per-request.
 		live := cfg
 		hasSnapshot := false
-		if snap, ok := s.runningConfigs[id]; ok && s.process.IsRunning() {
+		if snap, ok := s.runningConfigFor(id); ok && s.process.IsRunning() {
 			live = snap
 			hasSnapshot = true
 		}
@@ -379,7 +379,7 @@ func (s *Server) renderModelCard(w http.ResponseWriter, m *models.Model, routerK
 
 	pendingEnable := enabled && state == "" && s.process.IsRunning()
 	pendingDisable := !enabled && state != "" && s.process.IsRunning()
-	configChanged := s.dirtyModels[m.ID] && state != "" && s.process.IsRunning()
+	configChanged := s.isDirty(m.ID) && state != "" && s.process.IsRunning()
 
 	org, base := m.OrgAndBase()
 	searchText := strings.ToLower(strings.Join([]string{

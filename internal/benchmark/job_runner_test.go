@@ -465,3 +465,67 @@ func TestSamplingSweepCostsNoRestarts(t *testing.T) {
 		}
 	}
 }
+
+// A restart that fails *after* llama-server came up on the benchmark
+// preset must still be restored. Clearing the override in the apply
+// error path made the deferred cleanup a no-op, leaving the router
+// serving normal traffic under benchmark config.
+func TestCleanupRunsWhenApplySucceedsThenRestartFails(t *testing.T) {
+	router := newFakeRouter(t)
+	ngl := 50
+	env := &fakeEnv{
+		routerURL: router.URL,
+		saved:     ConfigSnapshot{GPULayers: 999},
+		applyErr:  context.DeadlineExceeded,
+	}
+
+	job, _ := runJob(t, oneCellJob(&ConfigOverrides{GPULayers: &ngl}), env)
+	if job.Status != JobStatusFailed {
+		t.Errorf("job status = %s, want failed", job.Status)
+	}
+	if _, cleared := env.snapshotCalls(); cleared != 1 {
+		t.Errorf("ClearEphemeralConfig called %d times, want 1 — the router must be restored even when apply failed", cleared)
+	}
+}
+
+// A zero-valued sweep point must reach the router. This is the runner-
+// level guard for the same bug applySnapshotToConfig had: gpu_layers=0
+// is a legitimate CPU-only override, not an absent one.
+func TestZeroValuedSweepPointIsApplied(t *testing.T) {
+	router := newFakeRouter(t)
+	env := &fakeEnv{
+		routerURL: router.URL,
+		saved:     ConfigSnapshot{GPULayers: 999, ContextSize: 8192},
+	}
+
+	job := BenchmarkJob{
+		ID: "job-zero", Name: "zero", Kind: JobKindBatch,
+		ModelIDs: []string{"m"}, BuildIDs: []string{"b"},
+		Presets: []string{"internal-quick"},
+		Sweeps:  []SweepAxis{{Field: "gpu_layers", Values: []string{"0", "999"}}},
+	}
+	job.Cells = ExpandCellsWithSweeps(job.ModelIDs, job.BuildIDs, job.Presets, job.Sweeps)
+
+	done, store := runJob(t, job, env)
+	if done.Status != JobStatusCompleted {
+		t.Fatalf("job status = %s, want completed", done.Status)
+	}
+
+	applied, _ := env.snapshotCalls()
+	var sawZero bool
+	for _, a := range applied {
+		if a.GPULayers == 0 {
+			sawZero = true
+		}
+	}
+	if !sawZero {
+		t.Errorf("gpu_layers=0 never reached the router; applied %+v", applied)
+	}
+
+	// And the recorded run must agree with what was applied.
+	for _, r := range store.RunsForJob(job.ID) {
+		if r.SweepValues["gpu_layers"] == "0" && r.Config.GPULayers != 0 {
+			t.Errorf("run recorded gpu_layers=%d for the 0 sweep point", r.Config.GPULayers)
+		}
+	}
+}

@@ -195,7 +195,7 @@ func (s *Server) handleServiceStop(w http.ResponseWriter, r *http.Request) {
 	}
 	// Nothing is live anymore — drop the snapshot so /info falls back to
 	// reporting just the configured value.
-	s.runningConfigs = make(map[string]*models.ModelConfig)
+	s.setRunningConfigs(make(map[string]*models.ModelConfig))
 	s.handleServiceStatus(w, r)
 }
 
@@ -439,6 +439,17 @@ func (s *Server) startRouter() error {
 	// restart-requiring fields vs. a subsequent edit. Value-copy (not a
 	// shared pointer) because handleUpdateModelConfig mutates the registry's
 	// config struct in place.
+	//
+	// Skipped entirely when the router came up on a benchmark preset: the
+	// live config is the job's, not the user's, so recording saved values
+	// would misreport what is running and clearing dirtyModels would drop
+	// the "restart required" badge from edits the user has not applied.
+	// The job restores the real preset when it finishes, and that restart
+	// takes this path properly.
+	if len(s.benchOverridesSnapshot()) > 0 {
+		return nil
+	}
+
 	snapshot := make(map[string]*models.ModelConfig)
 	for _, m := range s.registry.List() {
 		cfg, err := s.registry.GetConfig(m.ID)
@@ -448,8 +459,8 @@ func (s *Server) startRouter() error {
 		cp := *cfg
 		snapshot[m.ID] = &cp
 	}
-	s.runningConfigs = snapshot
-	s.dirtyModels = make(map[string]bool)
+	s.setRunningConfigs(snapshot)
+	s.clearDirty()
 	return nil
 }
 
@@ -848,7 +859,7 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 	// Mark model as needing reload (config changed but model not reloaded yet).
 	// Sampling params are injected at the proxy layer and don't need a reload.
 	if cfg.Enabled && s.process.IsRunning() {
-		s.dirtyModels[id] = true
+		s.markDirty(id)
 	}
 
 	// Update VRAM estimate in model list

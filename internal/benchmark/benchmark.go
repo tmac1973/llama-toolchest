@@ -555,6 +555,23 @@ type JobDefinition struct {
 type cellIdentity struct {
 	Model, Build, Preset string
 	Sweep                string
+	Overrides            string
+}
+
+// overrideKey renders a job's fixed overrides into the cell identity.
+// Without it, editing a single-value parameter (which lands in Overrides
+// rather than Sweeps) leaves every completed cell matching, so results
+// measured at the old value are carried forward and re-attributed to the
+// new one. Harmless while overrides did nothing; not anymore.
+func overrideKey(o *ConfigOverrides) string {
+	if o == nil {
+		return ""
+	}
+	b, err := json.Marshal(o)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 func identify(c JobCell) cellIdentity {
@@ -567,7 +584,15 @@ func identify(c JobCell) cellIdentity {
 	for _, n := range names {
 		fmt.Fprintf(&b, "%s=%s;", n, c.SweepValues[n])
 	}
-	return cellIdentity{c.ModelID, c.BuildID, c.Preset, b.String()}
+	return cellIdentity{Model: c.ModelID, Build: c.BuildID, Preset: c.Preset, Sweep: b.String()}
+}
+
+// identifyIn keys a cell within a job, folding in that job's fixed
+// overrides so a changed override invalidates prior results.
+func identifyIn(c JobCell, o *ConfigOverrides) cellIdentity {
+	id := identify(c)
+	id.Overrides = overrideKey(o)
+	return id
 }
 
 func (s *Store) UpdateJobDefinition(id string, def JobDefinition) (*BenchmarkJob, error) {
@@ -594,13 +619,13 @@ func (s *Store) UpdateJobDefinition(id string, def JobDefinition) (*BenchmarkJob
 
 	prev := make(map[cellIdentity]JobCell, len(job.Cells))
 	for _, c := range job.Cells {
-		prev[identify(c)] = c
+		prev[identifyIn(c, job.Overrides)] = c
 	}
 
 	newCells := ExpandCellsWithSweeps(modelIDs, buildIDs, presets, def.Sweeps)
 	keptRuns := make(map[string]bool)
 	for i := range newCells {
-		k := identify(newCells[i])
+		k := identifyIn(newCells[i], overrides)
 		if old, ok := prev[k]; ok && old.Status == CellStatusCompleted {
 			newCells[i] = old
 			if old.BenchmarkRunID != "" {

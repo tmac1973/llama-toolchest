@@ -46,6 +46,12 @@ type Server struct {
 	// live value of any restart-requiring field separately from a config
 	// edit that hasn't been picked up yet (the router reads preset.ini only
 	// at startup). Populated by startRouter, cleared by Stop.
+	// stateMu guards runningConfigs and dirtyModels. They used to be
+	// touched only from HTTP handlers, but the benchmark queue now
+	// restarts the router once per cell from its own goroutine, and a
+	// concurrent map read/write is a fatal runtime error that would take
+	// the whole process down rather than failing one request.
+	stateMu        sync.RWMutex
 	runningConfigs map[string]*models.ModelConfig
 	// benchOverrides substitutes model configs for the duration of a
 	// benchmark cell, keyed by registry ID. When non-empty, startRouter
@@ -55,8 +61,62 @@ type Server struct {
 	// the overrides vanish and the next start is back on saved config.
 	// Guarded because the job queue writes these from its own goroutine
 	// while HTTP-triggered restarts read them via startRouter.
-	benchMu        sync.Mutex
-	benchOverrides map[string]*models.ModelConfig
+	benchMu          sync.Mutex
+	benchOverrides   map[string]*models.ModelConfig
+	benchRouterDirty bool
+}
+
+// benchRouterDirty records that the router was (re)started for a
+// benchmark, so cleanup knows a restore is owed even if the override was
+// already dropped by a failed apply.
+func (s *Server) markBenchRouterDirty() {
+	s.benchMu.Lock()
+	defer s.benchMu.Unlock()
+	s.benchRouterDirty = true
+}
+
+// consumeBenchRouterDirty reports whether a restore is owed and clears
+// the flag, so a second cleanup pass doesn't restart again.
+func (s *Server) consumeBenchRouterDirty() bool {
+	s.benchMu.Lock()
+	defer s.benchMu.Unlock()
+	was := s.benchRouterDirty
+	s.benchRouterDirty = false
+	return was
+}
+
+// setRunningConfigs replaces the launch-config snapshot under lock.
+func (s *Server) setRunningConfigs(m map[string]*models.ModelConfig) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.runningConfigs = m
+}
+
+// runningConfigFor returns the launch config recorded for a model.
+func (s *Server) runningConfigFor(id string) (*models.ModelConfig, bool) {
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
+	cfg, ok := s.runningConfigs[id]
+	return cfg, ok
+}
+
+// markDirty / isDirty / clearDirty guard the pending-reload set.
+func (s *Server) markDirty(id string) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.dirtyModels[id] = true
+}
+
+func (s *Server) isDirty(id string) bool {
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
+	return s.dirtyModels[id]
+}
+
+func (s *Server) clearDirty() {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.dirtyModels = make(map[string]bool)
 }
 
 // setBenchOverrides replaces the ephemeral benchmark config set. Pass

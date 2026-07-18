@@ -2,10 +2,12 @@ package api
 
 import (
 	"encoding/csv"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/tmac1973/llama-toolchest/internal/benchmark"
+	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
 func baseReq() jobCreateRequest {
@@ -85,9 +87,11 @@ func TestValidateJobRequestRejectsInvalidSweep(t *testing.T) {
 // work. The cap is checked against the expanded size, not the input size.
 func TestValidateJobRequestCapsMatrixSize(t *testing.T) {
 	req := baseReq()
+	// Distinct values: duplicates are rejected earlier now, which would
+	// mask the cap this test is about.
 	big := make([]string, 30)
 	for i := range big {
-		big[i] = strings.Repeat("9", 1+i%3)
+		big[i] = strconv.Itoa(i + 1)
 	}
 	req.Sweeps = []benchmark.SweepAxis{
 		{Field: "gpu_layers", Values: big},
@@ -140,5 +144,81 @@ func TestFormatSweepValues(t *testing.T) {
 	}
 	if formatSweepValues(nil) != "" {
 		t.Error("nil should render empty")
+	}
+}
+
+// batchMatrixServer builds a Server with a real registry holding one
+// model, so the saved-config half of the check is exercised.
+func batchMatrixServer(t *testing.T, saved models.ModelConfig) *Server {
+	t.Helper()
+	reg := models.NewRegistry(t.TempDir(), "/models")
+	m := &models.Model{ID: "m", ModelID: "u/M", Quant: "Q8_0", FilePath: "/models/m.gguf"}
+	if err := reg.Add(m); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	saved.Enabled = true
+	if err := reg.SetConfig("m", &saved); err != nil {
+		t.Fatalf("set config: %v", err)
+	}
+	return &Server{registry: reg}
+}
+
+func intPtr(v int) *int { return &v }
+
+// A micro-batch above the batch size must be refused when the job is
+// defined. The apply-time check catches it too, but only after the sweep
+// has been running — potentially for an hour.
+func TestValidateBatchMatrixRejectsExplicitBadPair(t *testing.T) {
+	s := batchMatrixServer(t, models.ModelConfig{})
+	err := s.validateBatchMatrix([]string{"m"},
+		&benchmark.ConfigOverrides{BatchSize: intPtr(512), UBatchSize: intPtr(4096)}, nil)
+	if err == nil {
+		t.Error("expected an explicitly bad batch pair to be rejected")
+	}
+}
+
+// One bad point anywhere in the ladder fails the whole job up front,
+// rather than that cell dying mid-run.
+func TestValidateBatchMatrixRejectsBadSweepPoint(t *testing.T) {
+	s := batchMatrixServer(t, models.ModelConfig{})
+	err := s.validateBatchMatrix([]string{"m"},
+		&benchmark.ConfigOverrides{BatchSize: intPtr(2048)},
+		[]benchmark.SweepAxis{{Field: "ubatch_size", Values: []string{"512", "1024", "4096"}}})
+	if err == nil {
+		t.Error("expected the 4096 point to be rejected against batch 2048")
+	}
+}
+
+// The saved-config half: sweeping only micro-batch has to be checked
+// against whatever batch size the model already has.
+func TestValidateBatchMatrixUsesSavedBatchSize(t *testing.T) {
+	s := batchMatrixServer(t, models.ModelConfig{BatchSize: 1024})
+	err := s.validateBatchMatrix([]string{"m"}, nil,
+		[]benchmark.SweepAxis{{Field: "ubatch_size", Values: []string{"512", "2048"}}})
+	if err == nil {
+		t.Error("2048 exceeds the model's saved batch size of 1024 and should be rejected")
+	}
+}
+
+// With no batch size saved, llama.cpp's 2048 default applies.
+func TestValidateBatchMatrixUsesLlamaDefaultBatch(t *testing.T) {
+	s := batchMatrixServer(t, models.ModelConfig{})
+	if err := s.validateBatchMatrix([]string{"m"}, nil,
+		[]benchmark.SweepAxis{{Field: "ubatch_size", Values: []string{"4096"}}}); err == nil {
+		t.Error("4096 exceeds the default batch of 2048 and should be rejected")
+	}
+	if err := s.validateBatchMatrix([]string{"m"}, nil,
+		[]benchmark.SweepAxis{{Field: "ubatch_size", Values: []string{"64", "512", "2048"}}}); err != nil {
+		t.Errorf("a valid ladder was rejected: %v", err)
+	}
+}
+
+// A job that doesn't touch batch sizes must not be validated against
+// them at all.
+func TestValidateBatchMatrixIgnoresUnrelatedJobs(t *testing.T) {
+	s := batchMatrixServer(t, models.ModelConfig{BatchSize: 512})
+	if err := s.validateBatchMatrix([]string{"m"}, nil,
+		[]benchmark.SweepAxis{{Field: "threads", Values: []string{"4", "8"}}}); err != nil {
+		t.Errorf("unrelated sweep rejected: %v", err)
 	}
 }

@@ -1,6 +1,9 @@
 package benchmark
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // One value fixes a parameter for the whole job; two or more sweep it.
 // This is the rule that replaced the separate override and sweep
@@ -171,5 +174,76 @@ func TestSweepFieldOrdering(t *testing.T) {
 func TestDraftModelPathIsNotSweepable(t *testing.T) {
 	if _, ok := LookupSweepField("draft_model_path"); ok {
 		t.Error("draft_model_path should not be offered as a tunable parameter")
+	}
+}
+
+// Editing a job's fixed override must invalidate completed cells. Keying
+// only on (model, build, preset, sweep) let a cell measured at ubatch 512
+// satisfy the same cell at 1024, re-attributing the old measurement.
+func TestCellIdentityIncludesFixedOverrides(t *testing.T) {
+	cell := JobCell{ModelID: "m", BuildID: "b", Preset: "p"}
+	a, b := 512, 1024
+
+	if identifyIn(cell, &ConfigOverrides{UBatchSize: &a}) ==
+		identifyIn(cell, &ConfigOverrides{UBatchSize: &b}) {
+		t.Error("cells under different fixed overrides must not share an identity")
+	}
+	if identifyIn(cell, &ConfigOverrides{UBatchSize: &a}) ==
+		identifyIn(cell, nil) {
+		t.Error("an override and no override must not share an identity")
+	}
+	if identifyIn(cell, &ConfigOverrides{UBatchSize: &a}) !=
+		identifyIn(cell, &ConfigOverrides{UBatchSize: &a}) {
+		t.Error("identical overrides must produce a stable identity")
+	}
+}
+
+// Duplicate values expand into byte-identical cells: double the runtime,
+// and one measurement reported twice as if it were two data points.
+// ParseSweepValues rejected them; the JSON API path did not.
+func TestValidateSweepsRejectsDuplicateValues(t *testing.T) {
+	err := ValidateSweeps([]SweepAxis{{Field: "threads", Values: []string{"8", "8"}}})
+	if err == nil {
+		t.Fatal("expected duplicate values to be rejected")
+	}
+	if !strings.Contains(err.Error(), "duplicate") {
+		t.Errorf("error should name the problem, got: %v", err)
+	}
+}
+
+// An override the form cannot display must survive an edit rather than
+// being deleted by the params round trip.
+func TestMergeOverridesKeepsUnmappedFields(t *testing.T) {
+	path := "/models/draft.gguf"
+	ngl := 40
+	base := &ConfigOverrides{DraftModelPath: &path}
+	derived := &ConfigOverrides{GPULayers: &ngl}
+
+	got := MergeOverrides(base, derived)
+	if got.DraftModelPath == nil || *got.DraftModelPath != path {
+		t.Error("unmapped override was dropped")
+	}
+	if got.GPULayers == nil || *got.GPULayers != 40 {
+		t.Error("derived override was lost")
+	}
+}
+
+// What the user just edited wins over what was carried through.
+func TestMergeOverridesDerivedWins(t *testing.T) {
+	oldNgl, newNgl := 20, 40
+	got := MergeOverrides(&ConfigOverrides{GPULayers: &oldNgl}, &ConfigOverrides{GPULayers: &newNgl})
+	if got.GPULayers == nil || *got.GPULayers != 40 {
+		t.Errorf("got %v, want the derived 40", got.GPULayers)
+	}
+}
+
+func TestMergeOverridesNils(t *testing.T) {
+	ngl := 40
+	only := &ConfigOverrides{GPULayers: &ngl}
+	if MergeOverrides(nil, only) != only {
+		t.Error("nil base should return derived")
+	}
+	if MergeOverrides(only, nil) != only {
+		t.Error("nil derived should return base")
 	}
 }

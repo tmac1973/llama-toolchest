@@ -123,6 +123,11 @@ func (e *jobEnv) EnsureBuildActive(ctx context.Context, buildID string) error {
 // until it is running or the deadline passes. Factored out of
 // EnsureBuildActive so config swaps reuse the same wait semantics.
 func (e *jobEnv) restartRouter(ctx context.Context, what string) error {
+	if e.s.benchOverridesSnapshot() != nil {
+		// Record before starting: if the start half-succeeds we still
+		// have to restore afterwards.
+		e.s.markBenchRouterDirty()
+	}
 	if e.s.process.IsRunning() {
 		if err := e.s.process.Stop(); err != nil {
 			return fmt.Errorf("stop router: %w", err)
@@ -157,22 +162,33 @@ func (e *jobEnv) ApplyEphemeralConfig(ctx context.Context, modelID string, cfg b
 		return fmt.Errorf("resolve config for %s: %w", modelID, err)
 	}
 	merged := applySnapshotToConfig(*base, cfg)
+	if err := merged.ValidateBatchSizes(); err != nil {
+		// The model-config form rejects an unusable batch pair; the
+		// benchmark path has to as well, or a -ub sweep past the batch
+		// size either measures the same clamped value under several
+		// labels or fails every cell mid-job.
+		return fmt.Errorf("%s: %w", modelID, err)
+	}
+
 	e.s.setBenchOverrides(map[string]*models.ModelConfig{modelID: &merged})
 
-	if err := e.restartRouter(ctx, "benchmark config override"); err != nil {
-		// Don't leave the override armed if we couldn't bring the router
-		// up under it; the next start would silently reuse it.
-		e.s.setBenchOverrides(nil)
-		return err
-	}
-	return nil
+	// Deliberately left armed when the restart fails. restartRouter can
+	// fail *after* llama-server came up on the benchmark preset (e.g.
+	// cancelled during the health poll), and clearing here would make the
+	// deferred ClearEphemeralConfig a no-op — leaving the router serving
+	// normal traffic under benchmark config with nothing to restore it.
+	return e.restartRouter(ctx, "benchmark config override")
 }
 
 // ClearEphemeralConfig drops any benchmark config override and restarts
 // the router back onto the user's saved config. Safe to call when no
 // override is active, in which case it does nothing.
 func (e *jobEnv) ClearEphemeralConfig(ctx context.Context) error {
-	if e.s.benchOverridesSnapshot() == nil {
+	// Keyed off "did we ever start the router for a benchmark", not off
+	// the override still being armed: a failed apply can leave the router
+	// running on the benchmark preset with the override already dropped,
+	// and that is precisely the case that must still be restored.
+	if !e.s.consumeBenchRouterDirty() {
 		return nil
 	}
 	e.s.setBenchOverrides(nil)
@@ -185,39 +201,26 @@ func (e *jobEnv) ClearEphemeralConfig(ctx context.Context) error {
 // always carries the saved value unless a job override replaced it.
 func applySnapshotToConfig(base models.ModelConfig, snap benchmark.ConfigSnapshot) models.ModelConfig {
 	out := base
-	if snap.GPULayers != 0 {
-		out.GPULayers = snap.GPULayers
-	}
-	if snap.ContextSize != 0 {
-		out.ContextSize = snap.ContextSize
-	}
-	if snap.Threads != 0 {
-		out.Threads = snap.Threads
-	}
-	if snap.BatchSize != 0 {
-		out.BatchSize = snap.BatchSize
-	}
-	if snap.UBatchSize != 0 {
-		out.UBatchSize = snap.UBatchSize
-	}
-	if snap.GPUAssign != "" {
-		out.GPUAssign = snap.GPUAssign
-	}
-	if snap.TensorSplit != "" {
-		out.TensorSplit = snap.TensorSplit
-	}
-	if snap.KVCacheQuant != "" {
-		out.KVCacheQuant = snap.KVCacheQuant
-	}
-	if snap.SpecType != "" {
-		out.SpecType = snap.SpecType
-	}
-	if snap.DraftModelPath != "" {
-		out.DraftModelPath = snap.DraftModelPath
-	}
-	// Booleans carry no "unset" value in the snapshot, so they always
-	// win. ResolveModel seeds them from the saved config, making this a
-	// no-op unless a job override changed them.
+
+	// Every field is assigned unconditionally. ResolveModel seeds the
+	// snapshot from the model's saved config and applyOverrides then
+	// replaces only what the job set, so the snapshot is authoritative
+	// for every field it models — a zero is the value zero, not "unset".
+	//
+	// Skipping zeros here silently discarded legitimate overrides
+	// (gpu_layers=0 for CPU-only, ubatch/threads/context edge values)
+	// while the run still recorded them as applied. That is exactly the
+	// mislabeled-result bug this whole mechanism exists to prevent.
+	out.GPULayers = snap.GPULayers
+	out.ContextSize = snap.ContextSize
+	out.Threads = snap.Threads
+	out.BatchSize = snap.BatchSize
+	out.UBatchSize = snap.UBatchSize
+	out.GPUAssign = snap.GPUAssign
+	out.TensorSplit = snap.TensorSplit
+	out.KVCacheQuant = snap.KVCacheQuant
+	out.SpecType = snap.SpecType
+	out.DraftModelPath = snap.DraftModelPath
 	out.FlashAttention = snap.FlashAttention
 	out.DirectIO = snap.DirectIO
 	return out

@@ -23,7 +23,7 @@ func (s *Server) buildCapabilities(m *models.Model, cfg *models.ModelConfig) map
 	parallel := 1
 	if cfg != nil {
 		live := cfg
-		if snap, ok := s.runningConfigs[m.ID]; ok && s.process.IsRunning() {
+		if snap, ok := s.runningConfigFor(m.ID); ok && s.process.IsRunning() {
 			live = snap
 		}
 		if live.ContextSize > 0 {

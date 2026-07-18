@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -96,11 +97,16 @@ type jobCreateRequest struct {
 // expresses both concepts at once.
 func resolveSweeps(req *jobCreateRequest) error {
 	if len(req.Params) > 0 {
-		overrides, axes, err := benchmark.SplitParams(req.Params)
+		derived, axes, err := benchmark.SplitParams(req.Params)
 		if err != nil {
 			return err
 		}
-		req.Overrides = overrides
+		// Merge rather than replace: the form carries through override
+		// fields it has no control for (draft_model_path), and replacing
+		// wholesale would delete them from a job whose name was the only
+		// thing the user meant to change. Params win on conflict, since
+		// they are what the user just edited.
+		req.Overrides = benchmark.MergeOverrides(req.Overrides, derived)
 		req.Sweeps = axes
 		return nil
 	}
@@ -146,6 +152,84 @@ func validateJobRequest(req jobCreateRequest) error {
 // an experiment.
 const maxJobCells = 500
 
+// validateBatchMatrix rejects a job whose batch/micro-batch combinations
+// can't load, before any of it runs.
+//
+// The apply-time check catches these too, but only once the cell is
+// reached — a long sweep would run for an hour and then fail every cell
+// above the batch size. Effective values depend on each model's saved
+// config, so this needs the registry and can't live in the pure
+// request validator.
+func (s *Server) validateBatchMatrix(modelIDs []string, overrides *benchmark.ConfigOverrides, sweeps []benchmark.SweepAxis) error {
+	candidates := func(field string, fixed *int) []int {
+		for _, sw := range sweeps {
+			if sw.Field != field {
+				continue
+			}
+			out := make([]int, 0, len(sw.Values))
+			for _, v := range sw.Values {
+				if n, err := strconv.Atoi(v); err == nil {
+					out = append(out, n)
+				}
+			}
+			return out
+		}
+		if fixed != nil {
+			return []int{*fixed}
+		}
+		return nil // not set: fall back to the model's saved value
+	}
+
+	var fixedBatch, fixedUBatch *int
+	if overrides != nil {
+		fixedBatch, fixedUBatch = overrides.BatchSize, overrides.UBatchSize
+	}
+	batches := candidates("batch_size", fixedBatch)
+	ubatches := candidates("ubatch_size", fixedUBatch)
+	if len(batches) == 0 && len(ubatches) == 0 {
+		return nil
+	}
+
+	// When the job sets both explicitly, the pair is checkable on its own
+	// — it is wrong for every model, and this also catches jobs naming a
+	// model that isn't registered yet.
+	if len(batches) > 0 && len(ubatches) > 0 {
+		for _, b := range batches {
+			for _, ub := range ubatches {
+				probe := models.ModelConfig{BatchSize: b, UBatchSize: ub}
+				if err := probe.ValidateBatchSizes(); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	// Then against each model's saved values, which is what fills in
+	// whichever side the job left alone.
+	for _, id := range modelIDs {
+		saved, err := s.registry.GetConfig(id)
+		if err != nil {
+			continue // a missing model fails later with a clearer error
+		}
+		bs, ubs := batches, ubatches
+		if len(bs) == 0 {
+			bs = []int{saved.BatchSize}
+		}
+		if len(ubs) == 0 {
+			ubs = []int{saved.UBatchSize}
+		}
+		for _, b := range bs {
+			for _, ub := range ubs {
+				probe := models.ModelConfig{BatchSize: b, UBatchSize: ub}
+				if err := probe.ValidateBatchSizes(); err != nil {
+					return fmt.Errorf("%s: %w", id, err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // handleCreateJob expands the matrix and submits the job to the queue.
 // Returns 409 when another job is already running.
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
@@ -159,6 +243,10 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := validateJobRequest(req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.validateBatchMatrix(req.ModelIDs, req.Overrides, req.Sweeps); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -211,6 +299,10 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := validateJobRequest(req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.validateBatchMatrix(req.ModelIDs, req.Overrides, req.Sweeps); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
