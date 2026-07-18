@@ -2,6 +2,7 @@ package models
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -359,6 +360,9 @@ func (r *Registry) writePreset(name string, overrides map[string]*ModelConfig) (
 	if err := os.WriteFile(presetPath, []byte(content), 0o644); err != nil {
 		return "", fmt.Errorf("write preset: %w", err)
 	}
+
+	slog.Debug("wrote preset", "path", presetPath,
+		"models", len(models), "substituted", len(overrides))
 
 	return presetPath, nil
 }

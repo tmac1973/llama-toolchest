@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -38,6 +39,11 @@ func main() {
 		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
+
+	// log_level was accepted in config and documented but never wired to
+	// slog, so it silently did nothing and debug logging was
+	// unreachable.
+	configureLogging(cfg.LogLevel)
 
 	if err := initDataDir(cfg); err != nil {
 		slog.Warn("could not init data dir (expected in local dev)", "error", err)
@@ -95,4 +101,21 @@ func initDataDir(cfg *config.Config) error {
 		}
 	}
 	return nil
+}
+
+// configureLogging installs the default slog handler at the configured
+// level. Unknown values fall back to info rather than failing startup.
+func configureLogging(level string) {
+	var lvl slog.Level
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "debug":
+		lvl = slog.LevelDebug
+	case "warn", "warning":
+		lvl = slog.LevelWarn
+	case "error":
+		lvl = slog.LevelError
+	default:
+		lvl = slog.LevelInfo
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: lvl})))
 }

@@ -6,6 +6,7 @@ import (
 	"html"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -208,6 +209,7 @@ func (s *Server) routerBusyWithJob() bool {
 
 func (s *Server) handleServiceStart(w http.ResponseWriter, r *http.Request) {
 	if s.routerBusyWithJob() {
+		slog.Info("refused router action: a benchmark job is using the router", "path", r.URL.Path)
 		http.Error(w, "a benchmark job is currently running the router — cancel it first", http.StatusConflict)
 		return
 	}
@@ -238,6 +240,7 @@ func (s *Server) handleServiceStop(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleServiceRestart(w http.ResponseWriter, r *http.Request) {
 	if s.routerBusyWithJob() {
+		slog.Info("refused router action: a benchmark job is using the router", "path", r.URL.Path)
 		http.Error(w, "a benchmark job is currently running the router — cancel it first", http.StatusConflict)
 		return
 	}
@@ -387,6 +390,7 @@ func (s *Server) handleActivateModel(w http.ResponseWriter, r *http.Request) {
 	// would launch the user's preset under a job, so the cell would
 	// measure saved config while reporting the override.
 	if s.routerBusyWithJob() {
+		slog.Info("refused router action: a benchmark job is using the router", "path", r.URL.Path)
 		http.Error(w, "a benchmark job is currently running the router — cancel it first", http.StatusConflict)
 		return
 	}
@@ -436,6 +440,7 @@ func (s *Server) handleDeactivateModel(w http.ResponseWriter, r *http.Request) {
 	// which makes this more disruptive than Activate — it was left
 	// unguarded while Activate was not.
 	if s.routerBusyWithJob() {
+		slog.Info("refused model action: a benchmark job is using the router", "path", r.URL.Path)
 		http.Error(w, "a benchmark job is currently using the router — cancel it first", http.StatusConflict)
 		return
 	}
@@ -520,6 +525,20 @@ func (s *Server) startRouterWith(opt routerOptions) error {
 			slog.Warn("failed to write preset INI", "error", err)
 		}
 	}
+
+	overridden := make([]string, 0, len(opt.overrides))
+	for id := range opt.overrides {
+		overridden = append(overridden, id)
+	}
+	sort.Strings(overridden)
+
+	slog.Info("starting router",
+		"build", build.ID,
+		"preset", presetPath,
+		"for_benchmark", opt.overrides != nil,
+		"substitute_configs", overridden,
+		"env", extraEnv,
+	)
 
 	if err := s.process.Start(process.RouterConfig{
 		BinaryPath: build.BinaryPath,

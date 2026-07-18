@@ -132,12 +132,16 @@ func (e *jobEnv) EnsureBuildActive(ctx context.Context, buildID string) error {
 	// instead meant the first cell of every job killed a healthy router,
 	// unloading models and dropping open sessions for nothing.
 	if e.s.process.IsRunning() && e.s.runningBuild() == buildID && !hasConfigs {
+		slog.Info("router already on the requested build; not restarting", "build", buildID)
 		// Nothing was taken over, so ownership stays clear and cleanup
 		// has nothing to restore. Claiming it here reinstated at job end
 		// exactly the gratuitous restart this fast path removes from the
 		// start — the fix cancelled itself out.
 		return nil
 	}
+
+	slog.Info("switching router to benchmark build",
+		"build", buildID, "was", e.s.runningBuild())
 
 	e.mu.Lock()
 	e.ownsRouter = true
@@ -195,6 +199,11 @@ func (e *jobEnv) ApplyEphemeralConfig(ctx context.Context, modelID string, cfg b
 		return fmt.Errorf("%s: %w", modelID, err)
 	}
 
+	slog.Info("applying benchmark config",
+		"model", modelID,
+		"changes", configDiff(*base, merged),
+	)
+
 	e.mu.Lock()
 	e.jobConfigs = map[string]*models.ModelConfig{modelID: &merged}
 	e.ownsRouter = true
@@ -218,8 +227,10 @@ func (e *jobEnv) ClearEphemeralConfig(ctx context.Context) error {
 	e.mu.Unlock()
 
 	if !owned {
+		slog.Debug("benchmark job ended; router was never taken over, nothing to restore")
 		return nil
 	}
+	slog.Info("benchmark job ended; restoring the user's build and config")
 
 	// Nothing was persisted, so there is no saved state to repair — the
 	// only thing to undo is which build and preset the process is
@@ -372,4 +383,32 @@ func (e *jobEnv) HFCacheDir() string {
 // runs label the same way as the existing single-run path.
 func shortenModelName(modelID string) string {
 	return models.ShortModelName(modelID)
+}
+
+// configDiff reports which launch-relevant fields a benchmark override
+// changes, so a log line answers "did my override actually reach
+// llama-server, and with what value" without diffing structs by eye.
+func configDiff(base, merged models.ModelConfig) []string {
+	var out []string
+	add := func(name string, from, to any) {
+		if from != to {
+			out = append(out, fmt.Sprintf("%s %v→%v", name, from, to))
+		}
+	}
+	add("ctx-size", base.ContextSize, merged.ContextSize)
+	add("gpu-layers", base.GPULayers, merged.GPULayers)
+	add("threads", base.Threads, merged.Threads)
+	add("batch-size", base.BatchSize, merged.BatchSize)
+	add("ubatch-size", base.UBatchSize, merged.UBatchSize)
+	add("flash-attn", base.FlashAttention, merged.FlashAttention)
+	add("cache-type", base.KVCacheQuant, merged.KVCacheQuant)
+	add("direct-io", base.DirectIO, merged.DirectIO)
+	add("tensor-split", base.TensorSplit, merged.TensorSplit)
+	add("split-mode", base.SplitMode, merged.SplitMode)
+	add("main-gpu", base.MainGPU, merged.MainGPU)
+	add("spec-type", base.SpecType, merged.SpecType)
+	if len(out) == 0 {
+		return []string{"none"}
+	}
+	return out
 }

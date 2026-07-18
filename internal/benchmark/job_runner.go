@@ -191,6 +191,9 @@ func (q *JobQueue) run(ctx context.Context, job BenchmarkJob, rj *runningJob) {
 	job.Status = JobStatusRunning
 	job.StartedAt = time.Now()
 	q.store.SaveJob(job)
+	slog.Info("benchmark job starting",
+		"job", job.ID, "name", job.Name, "cells", len(job.Cells),
+		"sweeps", len(job.Sweeps), "has_overrides", job.Overrides != nil)
 
 	var prevBuildID string
 	var anyCompleted bool
@@ -241,6 +244,8 @@ func (q *JobQueue) run(ctx context.Context, job BenchmarkJob, rj *runningJob) {
 		}
 
 		cell.Status = CellStatusCompleted
+		slog.Info("benchmark cell completed",
+			"job", job.ID, "model", cell.ModelID, "sweep", cell.SweepValues)
 		anyCompleted = true
 		q.store.SaveJob(job)
 	}
@@ -284,6 +289,12 @@ type appliedConfig struct {
 }
 
 func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell, prevBuildID *string, lastApplied *appliedConfig) error {
+	// Logged before anything can fail, so a failure is always preceded by
+	// the cell it belongs to.
+	slog.Info("benchmark cell starting",
+		"job", job.ID, "model", cell.ModelID, "build", cell.BuildID,
+		"preset", cell.Preset, "sweep", cell.SweepValues)
+
 	if cell.BuildID != *prevBuildID {
 		if err := q.env.CheckBuildRunnable(ctx, cell.BuildID); err != nil {
 			return fmt.Errorf("build %s not runnable on this host: %w", cell.BuildID, err)
@@ -330,6 +341,9 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 				return fmt.Errorf("apply config overrides for %s: %w", cell.ModelID, err)
 			}
 			*lastApplied = want
+		} else {
+			slog.Info("reusing the running config; no reload needed",
+				"model", cell.ModelID, "sweep", cell.SweepValues)
 		}
 	}
 
