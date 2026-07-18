@@ -159,3 +159,54 @@ func TestBenchRouterDirtySurvivesOverrideClear(t *testing.T) {
 		t.Error("a restore is still owed once the router has run on a benchmark preset")
 	}
 }
+
+// A job that switches builds rewrites the user's saved ActiveBuild, so
+// the pre-job selection has to be remembered and restored — the same
+// leak the ephemeral preset avoids for model config.
+func TestCaptureActiveBuildRemembersFirstSelection(t *testing.T) {
+	s := &Server{}
+
+	// Captured on the first cell, including when that cell's build is
+	// already active and nothing switches.
+	s.captureActiveBuild("build-A")
+	s.captureActiveBuild("build-B") // later cells must not overwrite it
+	s.captureActiveBuild("build-C")
+
+	prev, ok := s.consumeActiveBuild()
+	if !ok {
+		t.Fatal("expected a build to restore")
+	}
+	if prev != "build-A" {
+		t.Errorf("prev = %q, want the pre-job build-A", prev)
+	}
+}
+
+func TestConsumeActiveBuildIsOneShot(t *testing.T) {
+	s := &Server{}
+	if _, ok := s.consumeActiveBuild(); ok {
+		t.Error("nothing captured; nothing to restore")
+	}
+
+	s.captureActiveBuild("build-A")
+	if _, ok := s.consumeActiveBuild(); !ok {
+		t.Fatal("expected a restore after capture")
+	}
+	if _, ok := s.consumeActiveBuild(); ok {
+		t.Error("consuming twice would restore again on a later job")
+	}
+}
+
+// An empty selection is a real state (no build chosen yet) and must be
+// distinguishable from "nothing captured".
+func TestCaptureActiveBuildHandlesEmptySelection(t *testing.T) {
+	s := &Server{}
+	s.captureActiveBuild("")
+
+	prev, ok := s.consumeActiveBuild()
+	if !ok {
+		t.Fatal("an empty pre-job selection is still a selection to restore")
+	}
+	if prev != "" {
+		t.Errorf("prev = %q, want empty", prev)
+	}
+}

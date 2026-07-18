@@ -197,17 +197,18 @@ func (q *JobQueue) run(ctx context.Context, job BenchmarkJob, rj *runningJob) {
 	var lastApplied appliedConfig
 
 	// Whatever ends this job — completion, failure, cancel — the router
-	// has to go back to the user's saved config. WithoutCancel because
-	// ctx is already dead on the cancel path, which is precisely when
+	// has to go back to the user's saved config and build. Unconditional:
+	// a job with no overrides can still switch builds, and the runner
+	// can't see which builds were already active. The implementation
+	// no-ops when there is nothing to restore. WithoutCancel because ctx
+	// is already dead on the cancel path, which is precisely when
 	// restoring matters most.
-	if job.Overrides != nil || len(job.Sweeps) > 0 {
-		defer func() {
-			if err := q.env.ClearEphemeralConfig(context.WithoutCancel(ctx)); err != nil {
-				slog.Error("failed to restore saved model config after benchmark job; the router may still be running under benchmark overrides",
-					"job", job.ID, "error", err)
-			}
-		}()
-	}
+	defer func() {
+		if err := q.env.ClearEphemeralConfig(context.WithoutCancel(ctx)); err != nil {
+			slog.Error("failed to restore saved config/build after benchmark job; the router may still be running under benchmark settings",
+				"job", job.ID, "error", err)
+		}
+	}()
 
 	for i := range job.Cells {
 		cell := &job.Cells[i]

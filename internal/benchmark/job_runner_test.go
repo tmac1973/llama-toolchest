@@ -26,6 +26,7 @@ type fakeEnv struct {
 	appliedT []time.Time
 	cleared  int
 	clearedT []time.Time
+	dirty    bool
 
 	applyErr error
 }
@@ -45,6 +46,10 @@ func (f *fakeEnv) ResolveModel(string) (ModelInfo, error) {
 func (f *fakeEnv) ApplyEphemeralConfig(_ context.Context, _ string, cfg ConfigSnapshot) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	// The real implementation arms the override and marks the router
+	// dirty before the restart can fail, so a failed apply still owes a
+	// restore.
+	f.dirty = true
 	if f.applyErr != nil {
 		return f.applyErr
 	}
@@ -57,11 +62,24 @@ func (f *fakeEnv) ApplyEphemeralConfig(_ context.Context, _ string, cfg ConfigSn
 // aborts on a dead context. Without this check a test could not tell
 // context.WithoutCancel from a plain ctx on the cancel path.
 func (f *fakeEnv) ClearEphemeralConfig(ctx context.Context) error {
+	f.mu.Lock()
+	dirty := f.dirty
+	f.mu.Unlock()
+
+	// Mirrors the real implementation: cleanup is always called, but only
+	// restarts when a config or build was actually changed. Checking
+	// ctx.Err() matters because the real restore restarts the router and
+	// so aborts on a dead context — that is what distinguishes
+	// context.WithoutCancel from a plain ctx on the cancel path.
+	if !dirty {
+		return nil
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.dirty = false
 	f.cleared++
 	f.clearedT = append(f.clearedT, time.Now())
 	return nil
@@ -527,5 +545,31 @@ func TestZeroValuedSweepPointIsApplied(t *testing.T) {
 		if r.SweepValues["gpu_layers"] == "0" && r.Config.GPULayers != 0 {
 			t.Errorf("run recorded gpu_layers=%d for the 0 sweep point", r.Config.GPULayers)
 		}
+	}
+}
+
+// A job with no overrides still asks for cleanup, because it may have
+// switched builds and the runner can't see which were already active.
+// The implementation decides whether a restart is actually needed.
+func TestCleanupIsAlwaysRequested(t *testing.T) {
+	router := newFakeRouter(t)
+	env := &fakeEnv{
+		routerURL: router.URL,
+		saved:     ConfigSnapshot{GPULayers: 999, ContextSize: 8192},
+	}
+
+	job, _ := runJob(t, oneCellJob(nil), env)
+	if job.Status != JobStatusCompleted {
+		t.Fatalf("job status = %s, want completed", job.Status)
+	}
+
+	applied, cleared := env.snapshotCalls()
+	if len(applied) != 0 {
+		t.Errorf("no overrides, so no config should be pushed; got %d", len(applied))
+	}
+	// Nothing was changed, so cleanup finds nothing to restore and the
+	// router is never restarted.
+	if cleared != 0 {
+		t.Errorf("cleanup restarted the router %d times for an unchanged job", cleared)
 	}
 }

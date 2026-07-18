@@ -64,6 +64,12 @@ type Server struct {
 	benchMu          sync.Mutex
 	benchOverrides   map[string]*models.ModelConfig
 	benchRouterDirty bool
+	// benchPrevBuild remembers which build the user had selected before a
+	// job started switching builds, so the job can put it back. Without
+	// it, a multi-build job permanently leaves the router on whichever
+	// build happened to run last.
+	benchPrevBuild    string
+	benchPrevBuildSet bool
 }
 
 // benchRouterDirty records that the router was (re)started for a
@@ -83,6 +89,28 @@ func (s *Server) consumeBenchRouterDirty() bool {
 	was := s.benchRouterDirty
 	s.benchRouterDirty = false
 	return was
+}
+
+// captureActiveBuild records the pre-job build selection, once per job.
+// Called on every EnsureBuildActive so the first cell wins, including
+// when that cell's build is already active and nothing switches.
+func (s *Server) captureActiveBuild(current string) {
+	s.benchMu.Lock()
+	defer s.benchMu.Unlock()
+	if s.benchPrevBuildSet {
+		return
+	}
+	s.benchPrevBuild = current
+	s.benchPrevBuildSet = true
+}
+
+// consumeActiveBuild returns the build to restore and clears the record.
+func (s *Server) consumeActiveBuild() (string, bool) {
+	s.benchMu.Lock()
+	defer s.benchMu.Unlock()
+	prev, ok := s.benchPrevBuild, s.benchPrevBuildSet
+	s.benchPrevBuild, s.benchPrevBuildSet = "", false
+	return prev, ok
 }
 
 // setRunningConfigs replaces the launch-config snapshot under lock.

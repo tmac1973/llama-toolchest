@@ -90,6 +90,11 @@ func (e *jobEnv) EnsureBuildActive(ctx context.Context, buildID string) error {
 		return fmt.Errorf("build %s is %s, not success", buildID, target.Status)
 	}
 
+	// Record the user's selection before the first switch, so the job can
+	// restore it. Done before the early return: when the first cell's
+	// build is already active, that is still the selection to go back to.
+	e.s.captureActiveBuild(e.s.cfg.ActiveBuild)
+
 	if e.s.cfg.ActiveBuild == buildID && e.s.process.IsRunning() {
 		return nil
 	}
@@ -184,15 +189,30 @@ func (e *jobEnv) ApplyEphemeralConfig(ctx context.Context, modelID string, cfg b
 // the router back onto the user's saved config. Safe to call when no
 // override is active, in which case it does nothing.
 func (e *jobEnv) ClearEphemeralConfig(ctx context.Context) error {
-	// Keyed off "did we ever start the router for a benchmark", not off
-	// the override still being armed: a failed apply can leave the router
-	// running on the benchmark preset with the override already dropped,
-	// and that is precisely the case that must still be restored.
-	if !e.s.consumeBenchRouterDirty() {
+	// Config half, keyed off "did we ever start the router for a
+	// benchmark" rather than off the override still being armed: a failed
+	// apply can leave the router running on the benchmark preset with the
+	// override already dropped, and that is precisely the case that must
+	// still be restored.
+	configDirty := e.s.consumeBenchRouterDirty()
+
+	// Build half. A job that switches builds rewrites the user's saved
+	// ActiveBuild, so restore that too — the same leak the ephemeral
+	// preset avoids for model config.
+	buildDirty := false
+	if prev, ok := e.s.consumeActiveBuild(); ok && prev != e.s.cfg.ActiveBuild {
+		e.s.cfg.ActiveBuild = prev
+		e.s.saveConfig()
+		buildDirty = true
+	}
+
+	if !configDirty && !buildDirty {
 		return nil
 	}
 	e.s.setBenchOverrides(nil)
-	return e.restartRouter(ctx, "restore saved config")
+	// One restart covers both: startRouter re-resolves the active build
+	// and rewrites the preset from saved config.
+	return e.restartRouter(ctx, "restore saved config and build")
 }
 
 // applySnapshotToConfig overlays a benchmark ConfigSnapshot onto a copy
