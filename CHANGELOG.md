@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.16.0](https://github.com/tmac1973/llama-toolchest/compare/v2.15.1...v2.16.0) (2026-07-18)
+
+
+### Features
+
+* **bench:** parameter sweeps, working config overrides, and ROCm flag corrections ([#90](https://github.com/tmac1973/llama-toolchest/issues/90)) ([359bf4b](https://github.com/tmac1973/llama-toolchest/commit/359bf4b4d790be00cc2c11b003bb351ce1a405cb))
+
+
+### Bug Fixes
+
+* **build:** correct Go module path to github.com/tmac1973/llama-toolchest ([#88](https://github.com/tmac1973/llama-toolchest/issues/88)) ([f7871d7](https://github.com/tmac1973/llama-toolchest/commit/f7871d7a0b7b873977dadbf5ebf1362e66e4e0e2))
+
 ## [2.15.1](https://github.com/tmac1973/llama-toolchest/compare/v2.15.0...v2.15.1) (2026-07-15)
 
 
