@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.16.1](https://github.com/tmac1973/llama-toolchest/compare/v2.16.0...v2.16.1) (2026-07-19)
+
+
+### Bug Fixes
+
+* **bench:** prompt-cache contamination across prompt sizes, and batch/ubatch in results UI ([#91](https://github.com/tmac1973/llama-toolchest/issues/91)) ([9ae7371](https://github.com/tmac1973/llama-toolchest/commit/9ae7371bdce6e0e14d677af6988bbe9367ba24b5))
+
 ## [2.16.0](https://github.com/tmac1973/llama-toolchest/compare/v2.15.1...v2.16.0) (2026-07-18)
 
 
