@@ -55,8 +55,34 @@
     </div>
     {{end}}{{end}}
 
+    {{if .Summary}}{{if .Summary.PerSize}}
+    <small><strong>Results by prompt size</strong> — one row per prompt length, mean ± standard deviation across repetitions. This is the shape <code>llama-bench</code> reports (pp512, pp2048), and the only form comparable to externally published numbers: prompt throughput rises steeply with prompt length, so an average across sizes matches nothing.</small>
+    <table role="grid" style="font-size:0.85rem;">
+        <thead>
+            <tr>
+                <th title="llama-bench style label: pp&lt;prompt tokens&gt;">Test</th>
+                <th title="Prompt processing, mean ± stddev">PP t/s</th>
+                <th title="Token generation, mean ± stddev">TG t/s</th>
+                <th title="Time to first token">TTFT</th>
+                <th title="Repetitions at this size">Reps</th>
+            </tr>
+        </thead>
+        <tbody>
+        {{range .Summary.PerSize}}
+        <tr>
+            <td><kbd>{{.Label}}</kbd></td>
+            <td><strong>{{printf "%.0f" .PPMean}}</strong>{{if gt .Count 1}} ± {{printf "%.0f" .PPStd}}{{end}}</td>
+            <td><strong>{{printf "%.1f" .TGMean}}</strong>{{if gt .Count 1}} ± {{printf "%.1f" .TGStd}}{{end}}</td>
+            <td>{{printf "%.0f" .AvgTTFTMs}} ms</td>
+            <td>{{.Count}}</td>
+        </tr>
+        {{end}}
+        </tbody>
+    </table>
+    {{end}}{{end}}
+
     {{if .Results}}
-    <small><strong>API Benchmark</strong> — real chat completion requests through the server</small>
+    <small><strong>Individual requests</strong> — every data point behind the table above</small>
     <table role="grid" style="font-size:0.85rem;">
         <thead>
             <tr>

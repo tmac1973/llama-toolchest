@@ -102,3 +102,62 @@ func TestTimingSummaryIgnoresEmptySamples(t *testing.T) {
 		t.Errorf("Count = %d, want both samples counted", got.Count)
 	}
 }
+
+// Per-size reporting is the only form comparable to llama-bench, which
+// publishes one figure per fixed prompt length (pp512, pp2048) and never
+// averages across sizes — prompt throughput rises steeply with length,
+// so a mixed average matches nothing published anywhere.
+func TestComputeSummaryReportsPerSize(t *testing.T) {
+	results := []BenchmarkResult{
+		{PromptTokens: 512, GenTokens: 128, PromptTokPerSec: 1000, GenTokPerSec: 30},
+		{PromptTokens: 512, GenTokens: 128, PromptTokPerSec: 1100, GenTokPerSec: 32},
+		{PromptTokens: 2048, GenTokens: 128, PromptTokPerSec: 2000, GenTokPerSec: 28},
+		{PromptTokens: 2048, GenTokens: 128, PromptTokPerSec: 2200, GenTokPerSec: 30},
+	}
+	got := ComputeSummary(results)
+
+	if len(got.PerSize) != 2 {
+		t.Fatalf("got %d size groups, want 2: %+v", len(got.PerSize), got.PerSize)
+	}
+	// Sorted ascending by prompt length.
+	if got.PerSize[0].PromptTokens != 512 || got.PerSize[1].PromptTokens != 2048 {
+		t.Errorf("sizes = %d, %d; want 512 then 2048",
+			got.PerSize[0].PromptTokens, got.PerSize[1].PromptTokens)
+	}
+	if got.PerSize[0].PPMean != 1050 || got.PerSize[1].PPMean != 2100 {
+		t.Errorf("means = %.0f, %.0f; want 1050 and 2100",
+			got.PerSize[0].PPMean, got.PerSize[1].PPMean)
+	}
+	// Standard deviation is what tells a real difference from noise.
+	if got.PerSize[0].PPStd != 50 {
+		t.Errorf("stddev = %.1f, want 50", got.PerSize[0].PPStd)
+	}
+	if got.PerSize[0].Label() != "pp512" {
+		t.Errorf("label = %q, want pp512", got.PerSize[0].Label())
+	}
+}
+
+// The mixed average is retained for stored data but must not be mistaken
+// for a per-size figure.
+func TestComputeSummaryKeepsMixedAverage(t *testing.T) {
+	results := []BenchmarkResult{
+		{PromptTokens: 512, PromptTokPerSec: 1000, GenTokPerSec: 30},
+		{PromptTokens: 8192, PromptTokPerSec: 3000, GenTokPerSec: 30},
+	}
+	got := ComputeSummary(results)
+	if got.AvgPromptTokPerSec != 2000 {
+		t.Errorf("mixed average = %.0f, want 2000", got.AvgPromptTokPerSec)
+	}
+	if got.PerSize[0].PPMean == got.AvgPromptTokPerSec {
+		t.Error("per-size figures must not equal the mixed average")
+	}
+}
+
+func TestComputeSummarySingleSizeHasZeroStdOnOneRep(t *testing.T) {
+	got := ComputeSummary([]BenchmarkResult{
+		{PromptTokens: 512, PromptTokPerSec: 1000, GenTokPerSec: 30},
+	})
+	if len(got.PerSize) != 1 || got.PerSize[0].PPStd != 0 {
+		t.Errorf("one repetition should report zero spread, got %+v", got.PerSize)
+	}
+}

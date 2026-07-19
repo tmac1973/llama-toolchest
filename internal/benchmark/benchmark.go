@@ -136,11 +136,59 @@ type BenchmarkResult struct {
 
 // BenchmarkSummary holds aggregated stats.
 type BenchmarkSummary struct {
+	// AvgPromptTokPerSec and AvgGenTokPerSec average across every result
+	// in the run, including different prompt sizes. Retained for stored
+	// data and backward compatibility, but they are not comparable to
+	// llama-bench or to runs using a different preset — use PerSize.
 	AvgPromptTokPerSec float64 `json:"avg_prompt_tok_per_sec"`
 	AvgGenTokPerSec    float64 `json:"avg_gen_tok_per_sec"`
 	AvgTTFTMs          float64 `json:"avg_ttft_ms"`
 	MinGenTokPerSec    float64 `json:"min_gen_tok_per_sec"`
 	MaxGenTokPerSec    float64 `json:"max_gen_tok_per_sec"`
+
+	// PerSize reports one figure per fixed prompt length, with standard
+	// deviation across repetitions — the shape llama-bench uses and the
+	// only form comparable to externally published numbers.
+	PerSize []SizeSummary `json:"per_size,omitempty"`
+}
+
+// SizeSummary is one prompt length's results, equivalent to a single
+// llama-bench row (pp512, pp2048, …).
+type SizeSummary struct {
+	PromptTokens int     `json:"prompt_tokens"`
+	GenTokens    int     `json:"gen_tokens"`
+	Count        int     `json:"count"`
+	PPMean       float64 `json:"pp_mean"`
+	PPStd        float64 `json:"pp_std"`
+	TGMean       float64 `json:"tg_mean"`
+	TGStd        float64 `json:"tg_std"`
+	AvgTTFTMs    float64 `json:"avg_ttft_ms"`
+}
+
+// Label renders the llama-bench-style name for this row, e.g. "pp6310".
+func (s SizeSummary) Label() string { return fmt.Sprintf("pp%d", s.PromptTokens) }
+
+// SizeRows returns the per-prompt-size rows for display, one per fixed
+// prompt length as llama-bench reports them.
+//
+// Falls back to a single row carrying the run's mixed average when there
+// is no per-size data — a legacy run, or one that failed before
+// producing results. That row has PromptTokens 0, which the templates
+// render as "mixed" rather than as a comparable figure.
+func (r BenchmarkRun) SizeRows() []SizeSummary {
+	if r.Summary == nil {
+		return nil
+	}
+	if len(r.Summary.PerSize) > 0 {
+		return r.Summary.PerSize
+	}
+	return []SizeSummary{{
+		PromptTokens: 0,
+		Count:        len(r.Results),
+		PPMean:       r.Summary.AvgPromptTokPerSec,
+		TGMean:       r.Summary.AvgGenTokPerSec,
+		AvgTTFTMs:    r.Summary.AvgTTFTMs,
+	}}
 }
 
 // LlamaBenchResult holds raw inference benchmark data.
@@ -911,6 +959,17 @@ func (s *Store) load() {
 		}
 		s.runs = runs
 		dirty = true // forces a v2 rewrite at end of load
+	}
+
+	// Backfill per-size summaries for runs stored before they existed.
+	// The raw per-result data already carries prompt_tokens, so this is a
+	// pure re-aggregation — no measurement is lost or invented.
+	for i := range s.runs {
+		r := &s.runs[i]
+		if r.Summary != nil && len(r.Summary.PerSize) == 0 && len(r.Results) > 0 {
+			r.Summary.PerSize = computePerSize(r.Results)
+			dirty = true
+		}
 	}
 
 	// v2→v3: flag runs whose config snapshot was never applied. Runs

@@ -113,8 +113,9 @@
                 <th>Model</th>
                 <th>Quant</th>
                 <th title="Which point of a parameter sweep this run measured">Sweep</th>
-                <th title="Prompt Processing tokens/sec">PP t/s</th>
-                <th title="Token Generation tokens/sec">TG t/s</th>
+                <th title="Prompt length this row measures, llama-bench style (pp&lt;tokens&gt;). Rows are per size because prompt throughput rises with prompt length — averaging across sizes is comparable to nothing.">Test</th>
+                <th title="Prompt Processing tokens/sec, mean ± stddev across repetitions">PP t/s</th>
+                <th title="Token Generation tokens/sec, mean ± stddev">TG t/s</th>
                 <th title="Time To First Token, milliseconds">TTFT (ms)</th>
                 <th>Size</th>
                 <th>GPUs</th>
@@ -128,29 +129,36 @@
         </thead>
         <tbody>
         {{range .Runs}}
+        {{$run := .}}
         {{$b := .EffectiveBuild}}
-        <tr data-run-id="{{.ID}}"
-            data-sort-name="{{.ModelName}}"
-            {{if .Summary}}data-sort-gen="{{printf "%.4f" .Summary.AvgGenTokPerSec}}"
-            data-sort-prompt="{{printf "%.4f" .Summary.AvgPromptTokPerSec}}"
-            data-sort-ttft="{{printf "%.4f" .Summary.AvgTTFTMs}}"{{end}}>
-            <td title="{{.ModelID}}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{if .ConfigUnverified}}<span title="Config columns for this run may not reflect what actually ran — its job declared overrides before overrides were applied. Throughput is still valid." style="color:var(--pico-del-color,#b3261e);cursor:help;">&#9888;</span> {{end}}{{.ModelName}}</td>
-            <td><kbd>{{.Quant}}</kbd></td>
-            <td>{{if .SweepValues}}{{range $k, $v := .SweepValues}}<kbd title="{{$k}}">{{$v}}</kbd> {{end}}{{else}}—{{end}}</td>
-            <td>{{if .Summary}}{{printf "%.0f" .Summary.AvgPromptTokPerSec}}{{else}}—{{end}}</td>
-            <td>{{if .Summary}}<strong>{{printf "%.1f" .Summary.AvgGenTokPerSec}}</strong>{{else}}—{{end}}</td>
-            <td>{{if .Summary}}{{printf "%.0f" .Summary.AvgTTFTMs}}{{else}}—{{end}}</td>
-            <td>{{printf "%.1f" .SizeGB}} GB</td>
-            <td>{{if .Config.GPUAssign}}{{.Config.GPUAssign}}{{else}}all{{end}}</td>
-            <td>{{.Config.ContextSize}}</td>
-            <td>{{if or .Config.BatchSize .Config.UBatchSize}}{{if .Config.BatchSize}}{{.Config.BatchSize}}{{else}}—{{end}}/{{if .Config.UBatchSize}}{{.Config.UBatchSize}}{{else}}—{{end}}{{else}}—{{end}}</td>
-            <td>{{or .Config.KVCacheQuant "f16"}}</td>
-            <td>{{if .Config.FlashAttention}}yes{{else}}no{{end}}</td>
+        {{/* One row per prompt size, matching llama-bench. A run with no
+             per-size data (legacy, or failed before producing results)
+             falls back to a single row using its mixed average. */}}
+        {{range $sz := .SizeRows}}
+        <tr data-run-id="{{$run.ID}}"
+            data-sort-name="{{$run.ModelName}}"
+            data-sort-gen="{{printf "%.4f" $sz.TGMean}}"
+            data-sort-prompt="{{printf "%.4f" $sz.PPMean}}"
+            data-sort-ttft="{{printf "%.4f" $sz.AvgTTFTMs}}">
+            <td title="{{$run.ModelID}}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{if $run.ConfigUnverified}}<span title="Config columns for this run may not reflect what actually ran — its job declared overrides before overrides were applied. Throughput is still valid." style="color:var(--pico-del-color,#b3261e);cursor:help;">&#9888;</span> {{end}}{{$run.ModelName}}</td>
+            <td><kbd>{{$run.Quant}}</kbd></td>
+            <td>{{if $run.SweepValues}}{{range $k, $v := $run.SweepValues}}<kbd title="{{$k}}">{{$v}}</kbd> {{end}}{{else}}—{{end}}</td>
+            <td>{{if $sz.PromptTokens}}<kbd>{{$sz.Label}}</kbd>{{else}}<span title="Averaged across prompt sizes; not comparable to llama-bench or to runs using a different preset." style="color:var(--pico-muted-color);cursor:help;">mixed</span>{{end}}</td>
+            <td>{{printf "%.0f" $sz.PPMean}}{{if gt $sz.Count 1}} <small>± {{printf "%.0f" $sz.PPStd}}</small>{{end}}</td>
+            <td><strong>{{printf "%.1f" $sz.TGMean}}</strong>{{if gt $sz.Count 1}} <small>± {{printf "%.1f" $sz.TGStd}}</small>{{end}}</td>
+            <td>{{printf "%.0f" $sz.AvgTTFTMs}}</td>
+            <td>{{printf "%.1f" $run.SizeGB}} GB</td>
+            <td>{{if $run.Config.GPUAssign}}{{$run.Config.GPUAssign}}{{else}}all{{end}}</td>
+            <td>{{$run.Config.ContextSize}}</td>
+            <td>{{if or $run.Config.BatchSize $run.Config.UBatchSize}}{{if $run.Config.BatchSize}}{{$run.Config.BatchSize}}{{else}}—{{end}}/{{if $run.Config.UBatchSize}}{{$run.Config.UBatchSize}}{{else}}—{{end}}{{else}}—{{end}}</td>
+            <td>{{or $run.Config.KVCacheQuant "f16"}}</td>
+            <td>{{if $run.Config.FlashAttention}}yes{{else}}no{{end}}</td>
             <td title="{{$b.Tag}}{{if $b.GitSHA}} · {{$b.GitSHA}}{{end}}">
                 {{if $b.Profile}}{{$b.Profile}}{{end}}{{if $b.GitRef}} · {{$b.GitRef}}{{end}}{{if and (not $b.Profile) (not $b.GitRef)}}—{{end}}
             </td>
-            {{if $.HasLlamaBench}}<td>{{if .LlamaBench}}{{printf "%.1f" .LlamaBench.GenTokPerSec}}{{else}}—{{end}}</td>{{end}}
+            {{if $.HasLlamaBench}}<td>{{if $run.LlamaBench}}{{printf "%.1f" $run.LlamaBench.GenTokPerSec}}{{else}}—{{end}}</td>{{end}}
         </tr>
+        {{end}}
         {{end}}
         </tbody>
     </table>
