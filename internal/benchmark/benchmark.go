@@ -736,31 +736,132 @@ func (s *Store) Timings(modelID string) []TimingSample {
 }
 
 // TimingSummary returns aggregated timing stats per model.
+// promptBuckets groups observed requests by prompt length. Prompt
+// processing throughput rises steeply with prompt size — a 72-token
+// prefill cannot reach the rate of a 6000-token one on any hardware,
+// because fixed per-request overhead dominates — so a single headline
+// number moves whenever the traffic mix moves, independently of how
+// fast the server actually is.
+var promptBuckets = []struct {
+	Label string
+	Min   int // inclusive
+	Max   int // exclusive; 0 = no upper bound
+}{
+	{"<512", 0, 512},
+	{"512–2k", 512, 2048},
+	{"2k–8k", 2048, 8192},
+	{"8k+", 8192, 0},
+}
+
+// TimingSummary aggregates passive timing samples per model.
+//
+// Rates are token-weighted (total tokens / total time), not a mean of
+// per-request rates. Averaging rates gave a 72-token request the same
+// weight as a 6000-token one, so the figure tracked how many short
+// requests happened to be in the window rather than how fast the server
+// was: an observed window of 14 requests, 11 of them sub-200-token
+// cache-hit continuations, averaged 351 t/s while the same server
+// measured 2400+ t/s on 6k prompts.
 func (s *Store) TimingSummary() []TimingModelSummary {
 	s.timingsMu.RLock()
 	defer s.timingsMu.RUnlock()
+
 	var out []TimingModelSummary
 	for modelID, samples := range s.timings {
 		if len(samples) == 0 {
 			continue
 		}
-		var sumGen, sumPrompt float64
-		for _, t := range samples {
-			sumGen += t.GenTokPerSec
-			sumPrompt += t.PromptTokPerSec
+		sum := newTimingAgg()
+		buckets := make([]*timingAgg, len(promptBuckets))
+		for i := range buckets {
+			buckets[i] = newTimingAgg()
 		}
-		n := float64(len(samples))
-		out = append(out, TimingModelSummary{
+
+		minTok, maxTok := 0, 0
+		for i, t := range samples {
+			sum.add(t)
+			if b := bucketFor(t.PromptTokens); b >= 0 {
+				buckets[b].add(t)
+			}
+			if i == 0 || t.PromptTokens < minTok {
+				minTok = t.PromptTokens
+			}
+			if t.PromptTokens > maxTok {
+				maxTok = t.PromptTokens
+			}
+		}
+
+		m := TimingModelSummary{
 			ModelID:            modelID,
 			Count:              len(samples),
-			AvgGenTokPerSec:    sumGen / n,
-			AvgPromptTokPerSec: sumPrompt / n,
-		})
+			AvgGenTokPerSec:    sum.genRate(),
+			AvgPromptTokPerSec: sum.promptRate(),
+			MinPromptTokens:    minTok,
+			MaxPromptTokens:    maxTok,
+		}
+		for i, b := range promptBuckets {
+			if buckets[i].count == 0 {
+				continue
+			}
+			m.Buckets = append(m.Buckets, TimingBucket{
+				Label:              b.Label,
+				Count:              buckets[i].count,
+				AvgPromptTokPerSec: buckets[i].promptRate(),
+				AvgGenTokPerSec:    buckets[i].genRate(),
+			})
+		}
+		out = append(out, m)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].ModelID < out[j].ModelID
 	})
 	return out
+}
+
+func bucketFor(promptTokens int) int {
+	for i, b := range promptBuckets {
+		if promptTokens >= b.Min && (b.Max == 0 || promptTokens < b.Max) {
+			return i
+		}
+	}
+	return -1
+}
+
+// timingAgg accumulates tokens and the time they took, reconstructing
+// each sample's duration from its recorded rate. Summing durations and
+// tokens separately is what makes the result token-weighted.
+type timingAgg struct {
+	count                   int
+	promptTokens, genTokens float64
+	promptSecs, genSecs     float64
+}
+
+func newTimingAgg() *timingAgg { return &timingAgg{} }
+
+func (a *timingAgg) add(t TimingSample) {
+	a.count++
+	if t.PromptTokPerSec > 0 && t.PromptTokens > 0 {
+		a.promptTokens += float64(t.PromptTokens)
+		a.promptSecs += float64(t.PromptTokens) / t.PromptTokPerSec
+	}
+	if t.GenTokPerSec > 0 && t.GenTokens > 0 {
+		a.genTokens += float64(t.GenTokens)
+		a.genSecs += float64(t.GenTokens) / t.GenTokPerSec
+	}
+}
+
+func (a *timingAgg) promptRate() float64 {
+	if a.promptSecs == 0 {
+		return 0
+	}
+	return a.promptTokens / a.promptSecs
+}
+
+func (a *timingAgg) genRate() float64 {
+	if a.genSecs == 0 {
+		return 0
+	}
+	return a.genTokens / a.genSecs
 }
 
 // TimingModelSummary is aggregated timing stats for one model.
@@ -769,6 +870,20 @@ type TimingModelSummary struct {
 	Count              int     `json:"count"`
 	AvgGenTokPerSec    float64 `json:"avg_gen_tok_per_sec"`
 	AvgPromptTokPerSec float64 `json:"avg_prompt_tok_per_sec"`
+	// Prompt-length range the rates were observed over, so a headline
+	// figure can't be mistaken for a hardware measurement.
+	MinPromptTokens int            `json:"min_prompt_tokens"`
+	MaxPromptTokens int            `json:"max_prompt_tokens"`
+	Buckets         []TimingBucket `json:"buckets,omitempty"`
+}
+
+// TimingBucket is the same stats restricted to one prompt-length range,
+// which is what makes two periods comparable when the traffic mix moved.
+type TimingBucket struct {
+	Label              string  `json:"label"`
+	Count              int     `json:"count"`
+	AvgPromptTokPerSec float64 `json:"avg_prompt_tok_per_sec"`
+	AvgGenTokPerSec    float64 `json:"avg_gen_tok_per_sec"`
 }
 
 func (s *Store) benchmarkPath() string {

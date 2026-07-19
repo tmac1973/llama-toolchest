@@ -2,23 +2,41 @@
 {{if not .Summary}}
 <p><small>No timing data yet. Performance stats will appear here as you use the API.</small></p>
 {{else}}
+<p style="margin:0 0 0.5rem;"><small style="color:var(--pico-muted-color);">
+    Rates are token-weighted (total tokens ÷ total time), so a short request
+    can't outweigh a long one. Prompt processing gets faster as prompts get
+    longer — fixed per-request overhead dominates a small prefill — so compare
+    like-for-like using the per-size rows rather than the overall figure, which
+    moves with your traffic mix.
+</small></p>
 <table role="grid" style="font-size:0.85rem;">
     <thead>
         <tr>
             <th>Model</th>
-            <th title="Average generation tokens/sec">Avg TG t/s</th>
-            <th title="Average prompt processing tokens/sec">Avg PP t/s</th>
+            <th title="Prompt length range these requests covered">Prompt size</th>
+            <th title="Token-weighted generation tokens/sec">TG t/s</th>
+            <th title="Token-weighted prompt processing tokens/sec">PP t/s</th>
             <th title="Number of requests observed">Requests</th>
         </tr>
     </thead>
     <tbody>
     {{range .Summary}}
     <tr>
-        <td>{{.ModelID}}</td>
+        <td><strong>{{.ModelID}}</strong></td>
+        <td><small>{{if .MaxPromptTokens}}{{.MinPromptTokens}}–{{.MaxPromptTokens}} tok{{else}}—{{end}}</small></td>
         <td><strong>{{printf "%.1f" .AvgGenTokPerSec}}</strong></td>
-        <td>{{printf "%.0f" .AvgPromptTokPerSec}}</td>
+        <td><strong>{{printf "%.0f" .AvgPromptTokPerSec}}</strong></td>
         <td>{{.Count}}</td>
     </tr>
+    {{range .Buckets}}
+    <tr style="color:var(--pico-muted-color);">
+        <td></td>
+        <td><small>{{.Label}}</small></td>
+        <td><small>{{printf "%.1f" .AvgGenTokPerSec}}</small></td>
+        <td><small>{{printf "%.0f" .AvgPromptTokPerSec}}</small></td>
+        <td><small>{{.Count}}</small></td>
+    </tr>
+    {{end}}
     {{end}}
     </tbody>
 </table>
