@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.16.2](https://github.com/tmac1973/llama-toolchest/compare/v2.16.1...v2.16.2) (2026-07-19)
+
+
+### Bug Fixes
+
+* **obs:** report benchmark and live throughput per prompt size, matching llama-bench ([#93](https://github.com/tmac1973/llama-toolchest/issues/93)) ([feadda3](https://github.com/tmac1973/llama-toolchest/commit/feadda317fe353a71b6930276ba459d3ad84abcd))
+
 ## [2.16.1](https://github.com/tmac1973/llama-toolchest/compare/v2.16.0...v2.16.1) (2026-07-19)
 
 
