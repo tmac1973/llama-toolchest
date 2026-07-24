@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.16.3](https://github.com/tmac1973/llama-toolchest/compare/v2.16.2...v2.16.3) (2026-07-24)
+
+
+### Bug Fixes
+
+* **obs:** show a single averaged row per model in live performance ([#95](https://github.com/tmac1973/llama-toolchest/issues/95)) ([e333e10](https://github.com/tmac1973/llama-toolchest/commit/e333e10698de2d3a269d7e5fe01b01e60272a08c))
+
 ## [2.16.2](https://github.com/tmac1973/llama-toolchest/compare/v2.16.1...v2.16.2) (2026-07-19)
 
 
