@@ -222,6 +222,7 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		slog.Error("build failed to start", "profile", req.Profile, "git_ref", req.GitRef, "error", err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}

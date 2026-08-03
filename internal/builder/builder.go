@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -224,6 +225,8 @@ func (e *DuplicateBuildError) Error() string {
 // optionOverrides allows toggling profile-specific cmake flags.
 // extraCMake allows passing additional raw cmake flags.
 func (b *Builder) Build(ctx context.Context, profile string, gitRef string, tag string, force bool, optionOverrides map[string]bool, extraCMake string) (*BuildResult, error) {
+	slog.Info("build requested", "profile", profile, "git_ref", gitRef, "tag", tag, "force", force)
+
 	prof, ok := FindProfile(profile)
 	if !ok {
 		return nil, fmt.Errorf("unknown profile: %s", profile)
@@ -329,6 +332,21 @@ func (b *Builder) Build(ctx context.Context, profile string, gitRef string, tag 
 	b.logBcasts[result.ID] = broadcast.New[string](buildLogHistorySize, buildLogHistorySize)
 	b.logMu.Unlock()
 
+	// The git clone/fetch/checkout lines were buffered before the build ID
+	// existed; replay them into the broadcaster so they show up in the
+	// streamed log rather than being silently discarded.
+drain:
+	for {
+		select {
+		case line := <-logCh:
+			b.broadcastLog(result.ID, line)
+		default:
+			break drain
+		}
+	}
+
+	slog.Info("build started", "id", result.ID, "git_ref", resolvedRef, "git_sha", sha)
+
 	// Run the actual build asynchronously
 	go b.runBuild(ctx, prof, srcDir, result, logCh)
 
@@ -383,6 +401,7 @@ func (b *Builder) runBuild(ctx context.Context, prof BuildProfile, srcDir string
 	os.MkdirAll(buildDir, 0o755)
 
 	// cmake — only build server and required libs, skip tests and examples
+	slog.Info("running cmake", "id", result.ID)
 	sendLog("==> Running cmake...")
 	cmakeArgs := []string{"..", "-G", "Ninja",
 		"-DLLAMA_BUILD_TESTS=OFF",
@@ -443,6 +462,7 @@ func (b *Builder) runBuild(ctx context.Context, prof BuildProfile, srcDir string
 	}
 
 	// ninja — build all targets (target names vary across llama.cpp versions)
+	slog.Info("running ninja", "id", result.ID)
 	sendLog("==> Running ninja...")
 	if err := b.runCmd(ctx, buildDir, logCh, result.ID, buildEnv, "ninja", "-j", fmt.Sprintf("%d", runtime.NumCPU())); err != nil {
 		b.finishBuild(result, BuildStatusFailed, fmt.Sprintf("ninja failed: %v", err))
@@ -538,6 +558,12 @@ func (b *Builder) finishBuild(result *BuildResult, status, errMsg string) {
 	result.Error = errMsg
 	result.FinishedAt = time.Now()
 
+	if status == BuildStatusFailed {
+		slog.Error("build failed", "id", result.ID, "error", errMsg)
+	} else {
+		slog.Info("build succeeded", "id", result.ID, "binary", result.BinaryPath)
+	}
+
 	for i, br := range b.builds {
 		if br.ID == result.ID {
 			b.builds[i] = *result
@@ -549,10 +575,12 @@ func (b *Builder) finishBuild(result *BuildResult, status, errMsg string) {
 
 func (b *Builder) ensureRepo(ctx context.Context, srcDir string, logCh chan string) error {
 	if _, err := os.Stat(filepath.Join(srcDir, ".git")); err == nil {
+		slog.Info("fetching llama.cpp", "dir", srcDir)
 		sendLog(logCh, "==> Fetching latest from llama.cpp...")
 		return b.runCmd(ctx, srcDir, logCh, "", nil, "git", "fetch", "--all", "--tags")
 	}
 
+	slog.Info("cloning llama.cpp", "repo", llamaCppRepo, "dir", srcDir)
 	sendLog(logCh, "==> Cloning llama.cpp...")
 	return b.runCmd(ctx, filepath.Dir(srcDir), logCh, "", nil, "git", "clone", llamaCppRepo, filepath.Base(srcDir))
 }
@@ -565,7 +593,7 @@ func (b *Builder) checkoutRef(ctx context.Context, srcDir string, ref string, lo
 		// Use --sort=-v:refname for proper version ordering.
 		out, err := exec.CommandContext(ctx, "git", "-C", srcDir, "tag", "--sort=-v:refname", "-l", "b*").Output()
 		if err != nil {
-			return "", "", fmt.Errorf("listing tags: %w", err)
+			return "", "", fmt.Errorf("listing tags: %w%s", err, exitErrDetail(err))
 		}
 		tags := strings.Split(strings.TrimSpace(string(out)), "\n")
 		if len(tags) == 0 || tags[0] == "" {
@@ -576,6 +604,7 @@ func (b *Builder) checkoutRef(ctx context.Context, srcDir string, ref string, lo
 		sendLog(logCh, fmt.Sprintf("==> Latest tag: %s", ref))
 	}
 
+	slog.Info("checking out ref", "ref", ref)
 	sendLog(logCh, fmt.Sprintf("==> Checking out %s...", ref))
 	if err := b.runCmd(ctx, srcDir, logCh, "", nil, "git", "checkout", ref); err != nil {
 		return "", "", err
@@ -583,7 +612,7 @@ func (b *Builder) checkoutRef(ctx context.Context, srcDir string, ref string, lo
 
 	out, err := exec.CommandContext(ctx, "git", "-C", srcDir, "rev-parse", "HEAD").Output()
 	if err != nil {
-		return "", "", fmt.Errorf("rev-parse: %w", err)
+		return "", "", fmt.Errorf("rev-parse: %w%s", err, exitErrDetail(err))
 	}
 	return ref, strings.TrimSpace(string(out)), nil
 }
@@ -671,6 +700,11 @@ func (b *Builder) runCmd(ctx context.Context, dir string, logCh chan string, bui
 		return fmt.Errorf("starting %s: %w", name, err)
 	}
 
+	// Keep the last few output lines so a failure's error message carries
+	// the actual tool output (e.g. git's "fatal: ..."), not just an exit code.
+	const tailSize = 10
+	var tail []string
+
 	scanner := bufio.NewScanner(stdout)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -682,9 +716,29 @@ func (b *Builder) runCmd(ctx context.Context, dir string, logCh chan string, bui
 		if buildID != "" {
 			b.broadcastLog(buildID, line)
 		}
+		tail = append(tail, line)
+		if len(tail) > tailSize {
+			tail = tail[1:]
+		}
 	}
 
-	return cmd.Wait()
+	if err := cmd.Wait(); err != nil {
+		if detail := strings.TrimSpace(strings.Join(tail, "\n")); detail != "" {
+			return fmt.Errorf("%s: %w\n%s", name, err, detail)
+		}
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	return nil
+}
+
+// exitErrDetail returns the captured stderr of an exec.ExitError (as produced
+// by cmd.Output()), formatted for appending to an error message.
+func exitErrDetail(err error) string {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && len(ee.Stderr) > 0 {
+		return ": " + strings.TrimSpace(string(ee.Stderr))
+	}
+	return ""
 }
 
 func sendLog(ch chan string, msg string) {
@@ -710,6 +764,8 @@ func (b *Builder) loadBuilds() {
 	for _, br := range b.builds {
 		if br.Status != BuildStatusBuilding {
 			cleaned = append(cleaned, br)
+		} else {
+			slog.Warn("discarding build interrupted by restart", "id", br.ID)
 		}
 	}
 	if len(cleaned) != len(b.builds) {
