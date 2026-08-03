@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.16.4](https://github.com/tmac1973/llama-toolchest/compare/v2.16.3...v2.16.4) (2026-08-03)
+
+
+### Bug Fixes
+
+* **build:** surface git-phase logging and error detail ([#98](https://github.com/tmac1973/llama-toolchest/issues/98)) ([3877e39](https://github.com/tmac1973/llama-toolchest/commit/3877e39cb5d99fe2e98396bb9048542e3d8c52bf)), closes [#97](https://github.com/tmac1973/llama-toolchest/issues/97)
+
 ## [2.16.3](https://github.com/tmac1973/llama-toolchest/compare/v2.16.2...v2.16.3) (2026-07-24)
 
 
