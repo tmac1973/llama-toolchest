@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.16.5](https://github.com/tmac1973/llama-toolchest/compare/v2.16.4...v2.16.5) (2026-08-03)
+
+
+### Bug Fixes
+
+* **build:** force git checkout so a dirty clone can't block builds ([#101](https://github.com/tmac1973/llama-toolchest/issues/101)) ([a693c4d](https://github.com/tmac1973/llama-toolchest/commit/a693c4d4a55e99ec71a703fa500b1e5b5e0e4c8d)), closes [#100](https://github.com/tmac1973/llama-toolchest/issues/100)
+
 ## [2.16.4](https://github.com/tmac1973/llama-toolchest/compare/v2.16.3...v2.16.4) (2026-08-03)
 
 
