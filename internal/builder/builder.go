@@ -606,7 +606,12 @@ func (b *Builder) checkoutRef(ctx context.Context, srcDir string, ref string, lo
 
 	slog.Info("checking out ref", "ref", ref)
 	sendLog(logCh, fmt.Sprintf("==> Checking out %s...", ref))
-	if err := b.runCmd(ctx, srcDir, logCh, "", nil, "git", "checkout", ref); err != nil {
+	// The clone is a build cache managed entirely by us — nothing in it is
+	// ever worth preserving. Force the checkout so leftover local changes
+	// (e.g. a checkout interrupted by a restart, which leaves the tree
+	// half-updated) can't block future builds with "Please commit your
+	// changes or stash them".
+	if err := b.runCmd(ctx, srcDir, logCh, "", nil, "git", "checkout", "--force", ref); err != nil {
 		return "", "", err
 	}
 
