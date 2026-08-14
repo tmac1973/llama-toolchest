@@ -184,6 +184,9 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 	if n := s.registry.ScanModels(); n > 0 {
 		slog.Info("discovered models on disk", "count", n)
 	}
+	// Fetch sampling presets for models that have never been attempted —
+	// pre-existing registry records and files ScanModels just found.
+	go s.backfillPresets()
 	if n := s.registry.AutoDetectMMProj(); n > 0 {
 		slog.Info("auto-detected mmproj files", "count", n)
 	}
@@ -393,6 +396,7 @@ func (s *Server) buildRouter() chi.Router {
 			r.Put("/{id}/enable", s.handleModelEnable)
 			r.Get("/{id}/config", s.handleGetModelConfig)
 			r.Put("/{id}/config", s.handleUpdateModelConfig)
+			r.Post("/{id}/refresh-presets", s.handleRefreshPresets)
 			r.Get("/{id}/vram-estimate", s.handleModelVRAMEstimate)
 		})
 		r.Route("/hf", func(r chi.Router) {

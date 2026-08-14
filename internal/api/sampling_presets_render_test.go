@@ -63,6 +63,7 @@ func TestSamplingPresetsPartialRenders(t *testing.T) {
 		NumGPUs             int
 		SamplingPresets     []models.SamplingPreset
 		SamplingPresetsJSON string
+		HasEmbeddedDefault  bool
 	}{
 		ModelID:             "test-id",
 		Config:              cfg,
@@ -116,6 +117,7 @@ func TestSamplingPresetsPartialHidden(t *testing.T) {
 		NumGPUs             int
 		SamplingPresets     []models.SamplingPreset
 		SamplingPresetsJSON string
+		HasEmbeddedDefault  bool
 	}{
 		ModelID: "test-id",
 		Config:  &models.ModelConfig{Enabled: true, GPULayers: 999, ContextSize: 8192},

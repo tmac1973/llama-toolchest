@@ -370,9 +370,22 @@
     {{end}}
 
     <hr style="margin: 1rem 0 0.5rem;">
-    <small><strong>Sampling</strong> — applied per-request, no restart needed. Leave blank for server defaults.</small>
+    <small><strong>Sampling</strong> — applied per-request, no restart needed. Leave blank for server defaults.
+        <button type="button" class="outline secondary" style="padding: 0 0.4rem; margin-left: 0.5rem; font-size: 0.8em;"
+                title="Re-fetch recommended presets from the model's publisher (GGUF metadata, Unsloth docs, generation_config.json)"
+                hx-post="/api/models/{{.ModelID}}/refresh-presets"
+                hx-target="closest form"
+                hx-swap="outerHTML focus-scroll:false show:none"
+                hx-on::before-request="window._cfgScrollY=window.scrollY"
+                hx-on::after-settle="window.scrollTo({top:window._cfgScrollY,behavior:'instant'})">
+            &#8635; Refresh presets
+        </button>
+    </small>
+    {{if .HasEmbeddedDefault}}
+    <small style="display: block; opacity: 0.7;">This model ships embedded sampling defaults — llama-server already applies them when the fields below are blank. Pick a preset to see or override the values.</small>
+    {{end}}
     {{if .SamplingPresets}}
-    <label title="Apply a recommended sampling preset scraped from the model's HuggingFace page. Fills in the fields below — you can edit afterward.">
+    <label title="Apply a sampling preset recommended by the model's publisher — gathered at download time from the GGUF file's embedded defaults, the Unsloth docs, and the base model's generation_config.json. Fills in the fields below — you can edit afterward.">
         Preset
         <select class="sampling-preset-picker"
                 data-presets="{{.SamplingPresetsJSON}}"

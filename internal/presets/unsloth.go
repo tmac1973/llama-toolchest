@@ -136,21 +136,27 @@ func parseRecommendedSettings(md, pageURL string) []models.SamplingPreset {
 var headingRE = regexp.MustCompile(`^#{1,6}\s`)
 
 // recommendedSection returns the lines from a heading mentioning
-// recommended/suggested settings/parameters up to the next heading.
+// recommended/suggested settings/parameters up to the next heading of the
+// same or higher level. Deeper sub-headings (per-size "#### 27B Settings"
+// blocks under a "### Recommended Settings") stay inside the section.
 func recommendedSection(md string) string {
 	lines := strings.Split(md, "\n")
-	start := -1
+	start, startLevel := -1, 0
 	for i, line := range lines {
 		if !headingRE.MatchString(line) {
 			continue
 		}
-		l := strings.ToLower(line)
+		level := len(line) - len(strings.TrimLeft(line, "#"))
 		if start >= 0 {
-			return strings.Join(lines[start:i], "\n")
+			if level <= startLevel {
+				return strings.Join(lines[start:i], "\n")
+			}
+			continue
 		}
+		l := strings.ToLower(line)
 		if (strings.Contains(l, "recommended") || strings.Contains(l, "suggested")) &&
 			(strings.Contains(l, "settings") || strings.Contains(l, "parameters") || strings.Contains(l, "inference")) {
-			start = i + 1
+			start, startLevel = i+1, level
 		}
 	}
 	if start >= 0 {

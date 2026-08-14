@@ -138,6 +138,9 @@ func (s *Server) handleDownloadEmbeddingPreset(w http.ResponseWriter, r *http.Re
 
 func (s *Server) handleScanModels(w http.ResponseWriter, r *http.Request) {
 	found := s.registry.ScanModels()
+	if found > 0 {
+		go s.backfillPresets()
+	}
 
 	if isHTMX(r) {
 		// Re-render the model list with any newly discovered models

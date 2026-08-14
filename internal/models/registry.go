@@ -528,6 +528,22 @@ func (r *Registry) SetSamplingPresets(id string, presets []SamplingPreset, check
 	return nil
 }
 
+// ListNeedingPresetFetch returns IDs of models that have never had a network
+// preset-fetch attempt (zero PresetsCheckedAt). Embedding models are skipped
+// by the enrichment itself, not here, so the marker still gets stamped.
+func (r *Registry) ListNeedingPresetFetch() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var ids []string
+	for id, m := range r.data.Models {
+		if m.PresetsCheckedAt.IsZero() {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
 // BackfillGGUFMeta parses GGUF metadata for any models missing architecture
 // info. Called at startup to handle models downloaded before GGUF parsing existed.
 func (r *Registry) BackfillGGUFMeta() {

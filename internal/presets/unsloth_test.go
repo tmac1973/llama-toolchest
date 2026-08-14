@@ -10,7 +10,9 @@ Qwen 3.8 is the latest release.
 
 ### Recommended Settings
 
-Use these parameters for best results:
+#### Qwen3.8-**27B Settings:**
+
+Deeper sub-headings must stay inside the section (the real page has them).
 
 | Parameter | Thinking Mode | Instruct (non-thinking) Mode |
 |---|---|---|

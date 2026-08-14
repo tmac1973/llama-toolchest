@@ -782,11 +782,18 @@ func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 
 		var samplingPresets []models.SamplingPreset
 		var samplingPresetsJSON string
+		var hasEmbeddedDefault bool
 		if model != nil && !isEmbedding {
 			samplingPresets = model.EffectiveSamplingPresets()
 			if len(samplingPresets) > 0 {
 				if b, err := json.Marshal(samplingPresets); err == nil {
 					samplingPresetsJSON = string(b)
+				}
+			}
+			for _, p := range samplingPresets {
+				if p.Source == "gguf" {
+					hasEmbeddedDefault = true
+					break
 				}
 			}
 		}
@@ -805,6 +812,7 @@ func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 			NumGPUs             int
 			SamplingPresets     []models.SamplingPreset
 			SamplingPresetsJSON string
+			HasEmbeddedDefault  bool
 		}{
 			ModelID:             id,
 			Config:              cfg,
@@ -819,6 +827,7 @@ func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 			NumGPUs:             numGPUs,
 			SamplingPresets:     samplingPresets,
 			SamplingPresetsJSON: samplingPresetsJSON,
+			HasEmbeddedDefault:  hasEmbeddedDefault,
 		}
 		s.renderPartial(w, "model_config", data)
 		return
