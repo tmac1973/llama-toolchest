@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.17.0](https://github.com/tmac1973/llama-toolchest/compare/v2.16.5...v2.17.0) (2026-08-14)
+
+
+### Features
+
+* **downloads:** merge download panels into one card with pause/resume/discard ([#105](https://github.com/tmac1973/llama-toolchest/issues/105)) ([ae6fc3d](https://github.com/tmac1973/llama-toolchest/commit/ae6fc3da0f91ae69ca87bc7e825ff988dfb4f349))
+* **presets:** fetch sampling presets at model download time ([#103](https://github.com/tmac1973/llama-toolchest/issues/103)) ([906103a](https://github.com/tmac1973/llama-toolchest/commit/906103a13fa9f5bd232b17a2fe52e88073a0e0d6))
+
 ## [2.16.5](https://github.com/tmac1973/llama-toolchest/compare/v2.16.4...v2.16.5) (2026-08-03)
 
 
