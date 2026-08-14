@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.17.2](https://github.com/tmac1973/llama-toolchest/compare/v2.17.1...v2.17.2) (2026-08-14)
+
+
+### Bug Fixes
+
+* **units:** report binary sizes as GiB/MiB in benchmark exports and UI ([#109](https://github.com/tmac1973/llama-toolchest/issues/109)) ([21bca4a](https://github.com/tmac1973/llama-toolchest/commit/21bca4a40ee282470e359cf762ab55318d2b7a8a))
+
 ## [2.17.1](https://github.com/tmac1973/llama-toolchest/compare/v2.17.0...v2.17.1) (2026-08-14)
 
 
