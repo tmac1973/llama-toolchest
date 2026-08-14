@@ -2,6 +2,7 @@ package huggingface
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -93,9 +94,14 @@ func (d *Downloader) Start(ctx context.Context, modelID, filename string, expect
 	downloadID := fmt.Sprintf("%s--%s", safeName, safeFilename)
 
 	d.mu.Lock()
-	if _, exists := d.active[downloadID]; exists {
-		d.mu.Unlock()
-		return downloadID, fmt.Errorf("download already in progress")
+	if existing, exists := d.active[downloadID]; exists {
+		if s := existing.last(); s.Status == "downloading" {
+			d.mu.Unlock()
+			return downloadID, fmt.Errorf("download already in progress")
+		}
+		// Terminal entry still inside its 30s late-subscriber grace window —
+		// evict it so a paused/failed download can be resumed immediately.
+		delete(d.active, downloadID)
 	}
 
 	dlCtx, cancel := context.WithCancel(context.Background())
@@ -260,6 +266,13 @@ func (d *Downloader) run(ctx context.Context, downloadID, modelID, filename stri
 
 		downloaded, err := d.downloadFile(ctx, downloadID, modelID, fn, label, modelDir, totalDownloaded, combinedTotal, dl)
 		if err != nil {
+			// A mid-file cancellation surfaces as ctx.Err() from downloadFile —
+			// report it as "cancelled" like the between-files check above, not
+			// as a failure.
+			if errors.Is(err, context.Canceled) {
+				sendProgress(DownloadStatus{ID: downloadID, ModelID: modelID, Filename: label, Status: "cancelled"})
+				return
+			}
 			sendProgress(DownloadStatus{ID: downloadID, ModelID: modelID, Filename: label, Status: "failed", Error: err.Error()})
 			return
 		}

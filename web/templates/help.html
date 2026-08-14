@@ -170,8 +170,10 @@
     <h3>VRAM Est. column</h3>
     <p>Shows <em>base</em> (weights + small overhead) and <em>peak</em> (weights + full KV cache at configured context size). The GPU allocation map uses the peak number so the bars reflect actual VRAM use when a model is loaded.</p>
 
+    <h3>Downloads card</h3>
+    <p>A single <strong>Downloads</strong> card at the top of the Models page tracks every download — one row per model, whether it's actively downloading, paused, or was interrupted. Active rows show live progress and a <strong>Pause</strong> button (stops the transfer but keeps the partial files); paused or interrupted rows show what's on disk with <strong>Resume</strong> (picks up from the bytes already downloaded) and <strong>Discard</strong> (deletes the partial files). Rows persist across restarts — an interrupted download reappears as paused on the next boot — and leave the card only when the download completes or you discard it. To fully cancel a download: Pause, then Discard.</p>
     <h3>Incomplete &amp; missing files</h3>
-    <p>If a download was interrupted, the model carries an <code>incomplete</code> badge and a <strong>Resume</strong> button that picks up from the bytes already on disk; it can't be enabled until the download finishes. A pending-download tracker also sits at the top of the Models page. If a model's GGUF has gone missing from disk entirely, it's flagged as an orphan and likewise can't be enabled — remove it or re-download.</p>
+    <p>If a registered model's download was interrupted, its card carries an <code>incomplete</code> badge and a <strong>Resume</strong> button; it can't be enabled until the download finishes. If a model's GGUF has gone missing from disk entirely, it's flagged as an orphan and likewise can't be enabled — remove it or re-download.</p>
 
     <h2 id="model-config">Model config (Configure dialog)</h2>
 

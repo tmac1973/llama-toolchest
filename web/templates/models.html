@@ -16,19 +16,12 @@
      hx-swap="innerHTML">
 </div>
 
-<div id="active-downloads"
-     hx-get="/api/hf/downloads"
-     hx-trigger="load, every 3s"
+<div id="downloads-panel"
+     hx-get="/api/hf/downloads-panel"
+     hx-trigger="load, every 3s, dlPanelRefresh from:body, modelsChanged from:body"
      hx-swap="innerHTML"
      hx-on::before-swap="if(event.detail.xhr.responseText===this.innerHTML){event.detail.shouldSwap=false;}"
-     hx-on::after-swap="var has=this.innerHTML.trim().length>0;if(this.dataset.wasActive==='1'&&!has){htmx.trigger(document.body,'modelsChanged');}this.dataset.wasActive=has?'1':'0';">
-</div>
-
-<div id="incomplete-downloads"
-     hx-get="/api/hf/incomplete"
-     hx-trigger="load, every 5s, modelsChanged from:body"
-     hx-swap="innerHTML"
-     hx-on::before-swap="if(event.detail.xhr.responseText===this.innerHTML){event.detail.shouldSwap=false;}">
+     hx-on::after-swap="var act=this.querySelectorAll('.dl-row-active').length;var prev=parseInt(this.dataset.act||'0');if(prev>act){htmx.trigger(document.body,'modelsChanged');}this.dataset.act=act;">
 </div>
 
 <div id="model-list" hx-get="/api/models" hx-trigger="load, modelsChanged from:body" hx-swap="innerHTML">

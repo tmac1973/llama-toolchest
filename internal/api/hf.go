@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -198,7 +199,7 @@ func (s *Server) handleHFDownloadProgress(w http.ResponseWriter, r *http.Request
 			case "failed":
 				html = fmt.Sprintf(`<p>Download failed: %s</p>`, status.Error)
 			case "cancelled":
-				html = `<p>Download cancelled.</p>`
+				html = `<p>Download paused — resume it from the Models page.</p>`
 			default:
 				html = string(data)
 			}
@@ -214,24 +215,68 @@ func (s *Server) handleHFDownloadProgress(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleHFActiveDownloads(w http.ResponseWriter, r *http.Request) {
-	active := s.downloader.ListActive()
+	respondJSON(w, s.downloader.ListActive())
+}
 
-	if isHTMX(r) {
-		respondHTML(w)
-		if len(active) == 0 {
-			return // empty response — nothing to show
+// downloadRow is one entry in the merged Downloads panel: either an active
+// download (live progress + Pause) or paused/incomplete on-disk partials
+// (Resume + Discard). A row leaves the panel only when the download completes
+// (the model registers, so the partial scan stops reporting it) or the user
+// discards the files.
+type downloadRow struct {
+	ID       string // download ID, also used as a stable DOM handle
+	ModelID  string
+	Filename string
+	Active   bool
+
+	// Active rows
+	Pct     float64
+	DownGB  float64
+	TotalGB float64
+	SpeedMB float64
+
+	// Paused/incomplete rows
+	OnDiskGB  float64
+	PartCount int
+}
+
+// handleDownloadsPanel renders the single Downloads card on the Models page:
+// all in-flight downloads plus all resumable partials on disk, deduped by
+// download ID (an in-flight download's own .part files must not surface as a
+// second "incomplete" row — the pre-merge UI had that bug, offering Resume on
+// a download that was actively running).
+func (s *Server) handleDownloadsPanel(w http.ResponseWriter, r *http.Request) {
+	var rows []downloadRow
+	activeIDs := make(map[string]bool)
+	for _, dl := range s.downloader.ListActive() {
+		activeIDs[dl.ID] = true
+		row := downloadRow{
+			ID: dl.ID, ModelID: dl.ModelID, Filename: dl.Filename, Active: true,
+			DownGB:  models.BytesToGB(dl.BytesDownloaded),
+			TotalGB: models.BytesToGB(dl.TotalBytes),
+			SpeedMB: float64(dl.SpeedBPS) / (1024 * 1024),
 		}
-		for _, dl := range active {
-			fmt.Fprintf(w, `<div style="padding: 0.25rem 0.5rem; font-size: 0.85rem;">
-				<strong>%s</strong> — <small>%s</small>
-				%s
-			</div>`, dl.ModelID, dl.Filename,
-				downloadProgressHTML(dl, ` style="margin: 0.25rem 0;"`))
+		if dl.TotalBytes > 0 {
+			row.Pct = float64(dl.BytesDownloaded) / float64(dl.TotalBytes) * 100
 		}
-		return
+		rows = append(rows, row)
 	}
+	for _, p := range s.registry.OrphanParts() {
+		id := huggingface.SafeModelID(p.ModelID) + "--" + huggingface.SafeFileID(p.Filename)
+		if activeIDs[id] {
+			continue
+		}
+		rows = append(rows, downloadRow{
+			ID: id, ModelID: p.ModelID, Filename: p.Filename,
+			OnDiskGB: models.BytesToGB(p.BytesOnDisk), PartCount: p.PartCount,
+		})
+	}
+	// Stable order — ListActive iterates a map, and the client skips the swap
+	// when the rendered HTML is byte-identical to what it already shows.
+	sort.Slice(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID })
 
-	respondJSON(w, active)
+	respondHTML(w)
+	s.renderPartial(w, "downloads_panel", struct{ Rows []downloadRow }{rows})
 }
 
 // domID sanitizes a string for use as an HTML id attribute or CSS selector
@@ -253,49 +298,7 @@ func domID(s string) string {
 // models, each offering Resume (reuses the normal download path, which picks up
 // from the existing partial) and Discard. Mirrors handleHFActiveDownloads.
 func (s *Server) handleIncompleteDownloads(w http.ResponseWriter, r *http.Request) {
-	parts := s.registry.OrphanParts()
-
-	if isHTMX(r) {
-		respondHTML(w)
-		if len(parts) == 0 {
-			return // empty response — nothing to show
-		}
-		fmt.Fprint(w, `<article style="padding: 0.5rem 0.75rem; margin: 0.5rem 0;">
-			<strong style="font-size: 0.9rem;">Incomplete downloads</strong>`)
-		for _, p := range parts {
-			id := domID(p.ModelID + "--" + p.Filename)
-			onDiskGB := models.BytesToGB(p.BytesOnDisk)
-			fmt.Fprintf(w, `<div style="padding: 0.25rem 0; font-size: 0.85rem; border-top: 1px solid var(--pico-muted-border-color);">
-				<div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem;">
-					<span><strong>%s</strong> — <small>%s</small> <small>(%.1f GB on disk, %d partial file(s))</small></span>
-					<span role="group" style="margin:0; flex:0 0 auto;">
-						<button type="button" class="outline"
-								style="margin:0; padding:0.15rem 0.6rem; font-size:0.8rem;"
-								hx-post="/api/hf/download"
-								hx-vals='{"model_id":"%s","filename":"%s","size":"0"}'
-								hx-target="#incdl-%s"
-								hx-swap="innerHTML">Resume</button>
-						<button type="button" class="outline secondary"
-								style="margin:0; padding:0.15rem 0.6rem; font-size:0.8rem;"
-								hx-delete="/api/hf/incomplete"
-								hx-vals='{"model_id":"%s","filename":"%s"}'
-								hx-confirm="Delete the partial files for %s? This cannot be undone."
-								hx-target="#incdl-%s"
-								hx-swap="innerHTML">Discard</button>
-					</span>
-				</div>
-				<div id="incdl-%s"></div>
-			</div>`,
-				p.ModelID, p.Filename, onDiskGB, p.PartCount,
-				p.ModelID, p.Filename, id,
-				p.ModelID, p.Filename, p.ModelID, id,
-				id)
-		}
-		fmt.Fprint(w, `</article>`)
-		return
-	}
-
-	respondJSON(w, parts)
+	respondJSON(w, s.registry.OrphanParts())
 }
 
 // handleIncompleteDiscard deletes the on-disk files (completed shards and

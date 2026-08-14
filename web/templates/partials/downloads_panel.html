@@ -1,0 +1,47 @@
+{{define "downloads_panel"}}
+{{if .Rows}}
+<article style="padding: 0.5rem 0.75rem; margin: 0.5rem 0;">
+    <strong style="font-size: 0.9rem;">Downloads</strong>
+    {{range .Rows}}
+    <div class="dl-row{{if .Active}} dl-row-active{{end}}" style="padding: 0.25rem 0; font-size: 0.85rem; border-top: 1px solid var(--pico-muted-border-color);">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem;">
+            <span>
+                <strong>{{.ModelID}}</strong> — <small>{{.Filename}}</small>
+                {{if not .Active}}<small>({{printf "%.1f" .OnDiskGB}} GB on disk, {{.PartCount}} partial file(s))</small>{{end}}
+            </span>
+            <span role="group" style="margin:0; flex:0 0 auto;">
+                {{if .Active}}
+                <button type="button" class="outline secondary"
+                        style="margin:0; padding:0.15rem 0.6rem; font-size:0.8rem;"
+                        title="Stop downloading but keep the partial files — resume any time"
+                        hx-delete="/api/hf/download/{{.ID}}"
+                        hx-swap="none"
+                        hx-on::after-request="htmx.trigger(document.body,'dlPanelRefresh')">Pause</button>
+                {{else}}
+                <button type="button" class="outline"
+                        style="margin:0; padding:0.15rem 0.6rem; font-size:0.8rem;"
+                        title="Continue this download from the bytes already on disk"
+                        hx-post="/api/hf/download"
+                        hx-vals='{"model_id":"{{.ModelID}}","filename":"{{.Filename}}","size":"0"}'
+                        hx-swap="none"
+                        hx-on::after-request="htmx.trigger(document.body,'dlPanelRefresh')">Resume</button>
+                <button type="button" class="outline secondary"
+                        style="margin:0; padding:0.15rem 0.6rem; font-size:0.8rem;"
+                        title="Delete the partial files from disk"
+                        hx-delete="/api/hf/incomplete"
+                        hx-vals='{"model_id":"{{.ModelID}}","filename":"{{.Filename}}"}'
+                        hx-confirm="Delete the partial files for {{.ModelID}}? This cannot be undone."
+                        hx-swap="none"
+                        hx-on::after-request="htmx.trigger(document.body,'dlPanelRefresh')">Discard</button>
+                {{end}}
+            </span>
+        </div>
+        {{if .Active}}
+        <progress value="{{printf "%.0f" .Pct}}" max="100" style="margin: 0.25rem 0;"></progress>
+        <small>{{printf "%.1f" .DownGB}} / {{printf "%.1f" .TotalGB}} GB ({{printf "%.1f" .SpeedMB}} MB/s) — {{printf "%.0f" .Pct}}%</small>
+        {{end}}
+    </div>
+    {{end}}
+</article>
+{{end}}
+{{end}}
