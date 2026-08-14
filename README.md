@@ -14,6 +14,7 @@ A web-based management interface for [llama.cpp](https://github.com/ggerganov/ll
 - **Model management** — Download GGUF models from HuggingFace, scan existing files, configure per-model parameters.
 - **Multi-model loading** — Run multiple models simultaneously via llama.cpp's router. Per-model isolated subprocess, LRU eviction at the VRAM limit.
 - **Per-model config** — Context size, KV cache quant, GPU layers, tensor split, flash attention, sampling, aliases, and speculative-decoding draft model.
+- **Sampling presets** — Fetched automatically at download time from the GGUF file's embedded defaults (`general.sampling.*`), the Unsloth docs (thinking / non-thinking / coding variants), and the base model's `generation_config.json`, and offered as one-click presets in the config UI.
 - **Vision / multimodal** — Auto-detect and pair `mmproj` files. Send images via the OpenAI chat API (requires OpenSSL build).
 - **Embedding models** — Curated one-click downloads (nomic-embed, bge, mxbai-embed, snowflake-arctic-embed) with automatic `--embeddings` injection.
 - **Speculative decoding** — Pair a small draft model with a large model; draft picker auto-filters by architecture.
@@ -270,7 +271,7 @@ All scripts include an interactive model picker; pass a model name to skip selec
 
 ### OpenAI-compatible (`/v1/*`)
 
-All requests are forwarded to llama.cpp's router. Per-model sampling defaults are injected for requests that don't specify them; user-defined model aliases work in the `model` field.
+All requests are forwarded to llama.cpp's router. Per-model sampling defaults are injected for requests that don't specify them; user-defined model aliases work in the `model` field. Sampling precedence is: request parameters > per-model config > GGUF-embedded defaults (`general.sampling.*`, applied by llama-server itself) > llama.cpp built-ins.
 
 - `GET /v1/models` — list available models
 - `GET /v1/models/{model}` — single model info
@@ -339,9 +340,12 @@ old to report". `schema_version` is bumped only on breaking changes.
           "kwarg": "enable_thinking"        // key when toggle == chat_template_kwargs, else ""
         },
 
-        // recommended sampling — per-model override wins, else the model card
+        // recommended sampling — per-model override wins, else the card
+        // preset. source is where the card preset came from: "gguf"
+        // (defaults embedded in the GGUF header — the common case),
+        // "unsloth-docs", "generation_config.json", or "params".
         "sampling": {
-          "source": "generation_config.json",
+          "source": "gguf",
           "source_url": null,
           "default": { "temperature": 0.6, "top_p": 0.95, "top_k": 20,
                        "min_p": null, "presence_penalty": null, "repeat_penalty": null },

@@ -143,12 +143,13 @@ Pre-2026 unsloth GGUF repos ship an Ollama-style `params` JSON
 `repeat_penalty` recommendations. One cheap GET; parse if present,
 `Source: "params"`.
 
-### 5. Labeled heuristic — last resort, off by default in v1
+### 5. Labeled heuristic — not implemented in v1
 
 Family heuristic (reasoning arch → `temp 0.6 / top_p 0.95`; instruct
-→ `0.7 / 0.8`) marked `Source: "heuristic"`. Ship the plumbing but
-gate behind a config flag; silence has been acceptable so far and a
-wrong confident-looking number is worse than a blank field.
+→ `0.7 / 0.8`) marked `Source: "heuristic"`. Deferred entirely:
+silence has been acceptable so far and a wrong confident-looking
+number is worse than a blank field. Revisit only if the first three
+sources leave real gaps in practice.
 
 Merge rule (reuses scraper semantics): later sources never overwrite
 a field an earlier source set for the same variant name, but may
@@ -165,9 +166,11 @@ back-fill nils and add new variants. Dedupe, `default` sorts first.
   — runs the chain above; per-source timeout ~10 s, whole-fetch
   budget ~30 s; every network miss is a debug log, never an error to
   the caller.
-- `SamplingPreset` struct stays where it is (`internal/models`),
-  gains `FetchedAt time.Time` and new `Source` values
-  (`gguf | unsloth-docs | generation_config.json | params | heuristic`).
+- `SamplingPreset` struct stays where it is (`internal/models`) and
+  gains new `Source` values
+  (`gguf | unsloth-docs | generation_config.json | params`).
+  (Implementation note: per-preset `FetchedAt` was dropped —
+  `Model.PresetsCheckedAt` covers staleness with less churn.)
 
 ### Persistence
 

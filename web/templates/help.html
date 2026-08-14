@@ -202,7 +202,9 @@
     <p>Predict multiple tokens per step for a speedup with no quality change. <em>Draft Model</em> uses a smaller same-architecture model as the drafter (largest and most consistent speedup). N-gram modes use pattern matching with no extra model — best for repetitive workloads. Click the <strong>?</strong> button in the Configure dialog for per-mode details.</p>
 
     <h3>Sampling</h3>
-    <p>Temperature, top-p, top-k, min-p, penalties — applied per-request with no restart needed. Leave blank to use server defaults. When the model's HuggingFace page publishes recommended sampling settings, a <em>Preset</em> dropdown offers them — pick one to fill in the fields, then tweak as you like.</p>
+    <p>Temperature, top-p, top-k, min-p, penalties — applied per-request with no restart needed. Leave blank to use server defaults. When a model is downloaded (or found by a scan), recommended presets are gathered automatically from three sources, in order: sampling defaults embedded in the GGUF file itself (<code>general.sampling.*</code> metadata, shipped by all major quantizers since late 2025), the Unsloth docs page for the model family (which adds thinking / non-thinking / coding variants and parameters vendors omit), and the base model's <code>generation_config.json</code> on HuggingFace. The <em>Preset</em> dropdown offers whatever was found, each labeled with its source — pick one to fill in the fields, then tweak as you like.</p>
+    <p>One subtlety: for recent GGUFs, blank fields do <em>not</em> mean "no sampling opinion". llama-server reads the file's embedded defaults on its own and applies them whenever nothing overrides them, and the config form notes when that's the case. Picking a preset or typing a value takes precedence.</p>
+    <p>The <strong>&#8635; Refresh presets</strong> button re-runs the lookup — useful when you grabbed a model on release day, before its docs page existed.</p>
 
     <h3>Extra Flags</h3>
     <p>Free-form llama-server flags appended verbatim. Use for anything not exposed in the UI.</p>
@@ -212,7 +214,7 @@
     </div>
 
     <h2 id="search-hf">Search HF</h2>
-    <p>Search HuggingFace for GGUF repos, browse files, and download specific quants. Downloads resume on interruption. Large models are shown with their total size so you know what you're committing to.</p>
+    <p>Search HuggingFace for GGUF repos, browse files, and download specific quants. Downloads resume on interruption. Large models are shown with their total size so you know what you're committing to. After a download completes, recommended sampling presets are fetched automatically in the background and appear in <em>Configure → Sampling</em>.</p>
     <p>Gated models require a HuggingFace token — set it under <a href="/settings">Settings</a>.</p>
 
     <h3>Vision models &amp; projector files</h3>
@@ -305,6 +307,7 @@
         <dt>Model doesn't appear in <code>/v1/models</code></dt><dd>Verify the "On" switch is flipped, then restart the server so the preset file regenerates.</dd>
         <dt>Model still shows as "loading" forever</dt><dd>It likely failed at startup — check Server Logs for the error.</dd>
         <dt>Out of VRAM</dt><dd>Lower GPU Layers, reduce Context Size, enable KV Cache Quant, or lower Max Loaded. The GPU allocation map on the Models page shows where your VRAM is going.</dd>
+        <dt>No sampling presets for my model</dt><dd>The lookup found nothing: an older quant without embedded defaults, no Unsloth docs page for the family, and no usable <code>generation_config.json</code>. The fields fall back to server (or GGUF-embedded) defaults. Use <em>&#8635; Refresh presets</em> in Configure → Sampling to retry after the publisher adds documentation.</dd>
     </dl>
 
     <p style="margin-top: 2rem; text-align: center; color: var(--pico-muted-color); font-size: 0.8rem;">
