@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.17.1](https://github.com/tmac1973/llama-toolchest/compare/v2.17.0...v2.17.1) (2026-08-14)
+
+
+### Bug Fixes
+
+* **downloads:** stop stale cached pages rendering 'null' into the Models page ([#106](https://github.com/tmac1973/llama-toolchest/issues/106)) ([0c18d5b](https://github.com/tmac1973/llama-toolchest/commit/0c18d5b4d5664cacfc1292eda66e50ffc9b44323))
+* **downloads:** stop the Pause/Resume buttons overflowing the card ([#108](https://github.com/tmac1973/llama-toolchest/issues/108)) ([556a614](https://github.com/tmac1973/llama-toolchest/commit/556a61455aa0fcdd722733be1b16d14b62b4c50f))
+
 ## [2.17.0](https://github.com/tmac1973/llama-toolchest/compare/v2.16.5...v2.17.0) (2026-08-14)
 
 
