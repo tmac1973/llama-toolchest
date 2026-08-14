@@ -215,7 +215,19 @@ func (s *Server) handleHFDownloadProgress(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleHFActiveDownloads(w http.ResponseWriter, r *http.Request) {
-	respondJSON(w, s.downloader.ListActive())
+	// Compat shim: a Models page cached from before the merged Downloads card
+	// polls this endpoint with htmx and would otherwise swap raw JSON —
+	// literally the text "null" for an empty list — into the page. Serve such
+	// pages the merged card; its old sibling panel gets empty HTML below.
+	if isHTMX(r) {
+		s.handleDownloadsPanel(w, r)
+		return
+	}
+	active := s.downloader.ListActive()
+	if active == nil {
+		active = []huggingface.DownloadStatus{}
+	}
+	respondJSON(w, active)
 }
 
 // downloadRow is one entry in the merged Downloads panel: either an active
@@ -298,7 +310,17 @@ func domID(s string) string {
 // models, each offering Resume (reuses the normal download path, which picks up
 // from the existing partial) and Discard. Mirrors handleHFActiveDownloads.
 func (s *Server) handleIncompleteDownloads(w http.ResponseWriter, r *http.Request) {
-	respondJSON(w, s.registry.OrphanParts())
+	// Compat shim, same as handleHFActiveDownloads: stale pages get empty
+	// HTML here (their other panel already shows the merged card).
+	if isHTMX(r) {
+		respondHTML(w)
+		return
+	}
+	parts := s.registry.OrphanParts()
+	if parts == nil {
+		parts = []models.OrphanPart{}
+	}
+	respondJSON(w, parts)
 }
 
 // handleIncompleteDiscard deletes the on-disk files (completed shards and
