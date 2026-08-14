@@ -403,4 +403,9 @@ func (s *Server) onDownloadComplete(downloadID, modelID, filename string, sizeBy
 			slog.Info("auto-associated MTP head", "model", m.ID, "mtp", mtp)
 		}
 	}
+
+	// Fetch publisher sampling presets (Unsloth docs, generation_config.json)
+	// in the background — the GGUF-embedded default was already attached via
+	// meta.ApplyTo above.
+	go s.enrichModelPresets(m.ID)
 }

@@ -512,6 +512,22 @@ func (r *Registry) SetConfig(id string, cfg *ModelConfig) error {
 	return nil
 }
 
+// SetSamplingPresets replaces the sampling presets on a model record and
+// stamps the network-fetch attempt time. Called from the async download-time
+// enrichment goroutine, so all mutation happens under the registry lock.
+func (r *Registry) SetSamplingPresets(id string, presets []SamplingPreset, checkedAt time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	m, ok := r.data.Models[id]
+	if !ok {
+		return fmt.Errorf("model not found: %s", id)
+	}
+	m.SamplingPresets = presets
+	m.PresetsCheckedAt = checkedAt
+	r.save()
+	return nil
+}
+
 // BackfillGGUFMeta parses GGUF metadata for any models missing architecture
 // info. Called at startup to handle models downloaded before GGUF parsing existed.
 func (r *Registry) BackfillGGUFMeta() {

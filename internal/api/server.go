@@ -22,6 +22,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/huggingface"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/monitor"
+	"github.com/tmac1973/llama-toolchest/internal/presets"
 	"github.com/tmac1973/llama-toolchest/internal/process"
 	"github.com/tmac1973/llama-toolchest/web"
 )
@@ -36,6 +37,7 @@ type Server struct {
 	hfClient    *huggingface.Client
 	downloader  *huggingface.Downloader
 	registry    *models.Registry
+	presets     *presets.Fetcher
 	process     *process.Manager
 	monitor     *monitor.Monitor
 	bench       *benchmark.Store
@@ -165,6 +167,7 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 		hfClient:       huggingface.NewClient(cfg.HFToken),
 		downloader:     huggingface.NewDownloader(cfg.DataDir, cfg.ModelsPath(), cfg.HFToken),
 		registry:       models.NewRegistry(cfg.DataDir, cfg.ModelsPath()),
+		presets:        presets.NewFetcher(filepath.Join(cfg.DataDir, "cache", "presets"), cfg.HFToken),
 		process:        process.NewManager(),
 		monitor:        mon,
 		bench:          benchmark.NewStore(cfg.DataDir, builderResolver(bld)),
