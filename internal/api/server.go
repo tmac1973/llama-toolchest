@@ -688,6 +688,10 @@ func (s *Server) render(w http.ResponseWriter, name string, data any) {
 		http.Error(w, "page not found", http.StatusNotFound)
 		return
 	}
+	// Pages carry the polling endpoints and swap targets for this build's
+	// partials; a heuristically-cached page from an older build can poll new
+	// endpoints with mismatched expectations. Make browsers revalidate.
+	w.Header().Set("Cache-Control", "no-cache")
 	respondHTML(w)
 	if err := tmpl.ExecuteTemplate(w, "layout", data); err != nil {
 		slog.Error("template render error", "name", name, "error", err)
