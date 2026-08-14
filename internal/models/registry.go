@@ -91,6 +91,17 @@ type Model struct {
 	KVFullPerTok  int `json:"kv_full_per_tok,omitempty"`
 	KVSWAPerTok   int `json:"kv_swa_per_tok,omitempty"`
 	SlidingWindow int `json:"sliding_window,omitempty"`
+
+	// Sampling presets discovered at download/scan time: GGUF-embedded
+	// defaults now, network sources (publisher docs, generation_config.json)
+	// as they run. SamplingChecked records that the GGUF header was inspected
+	// for general.sampling.* keys (distinguishes "file has none" from "parsed
+	// before these existed" during backfill). PresetsCheckedAt records the
+	// last network fetch attempt; zero = never attempted.
+	SamplingPresets  []SamplingPreset `json:"sampling_presets,omitempty"`
+	SamplingChecked  bool             `json:"sampling_checked,omitempty"`
+	BaseModelRepo    string           `json:"base_model_repo,omitempty"`
+	PresetsCheckedAt time.Time        `json:"presets_checked_at,omitzero"`
 }
 
 // ModelConfig holds per-model launch configuration for llama-server.
@@ -517,8 +528,11 @@ func (r *Registry) BackfillGGUFMeta() {
 		// Records parsed before reasoning detection existed have no reasoning
 		// verdict — re-parse once to inspect the chat template.
 		needsReasoning := m.NLayers > 0 && !m.ReasoningChecked
+		// Records parsed before general.sampling.* keys were read — re-parse
+		// once to pick up embedded sampling defaults and the base-model repo.
+		needsSampling := m.NLayers > 0 && !m.SamplingChecked
 
-		if !needsFull && !needsVision && !needsKV && !needsReasoning {
+		if !needsFull && !needsVision && !needsKV && !needsReasoning && !needsSampling {
 			continue
 		}
 		meta, err := ParseGGUFMeta(m.FilePath)
@@ -558,6 +572,17 @@ func (r *Registry) BackfillGGUFMeta() {
 				changed = true
 				slog.Info("backfilled reasoning capability", "model", m.ID,
 					"supported", meta.Reasoning.Supported, "toggle", meta.Reasoning.Toggle)
+			}
+			if needsSampling && meta.SamplingChecked {
+				if m.BaseModelRepo == "" {
+					m.BaseModelRepo = meta.BaseModelRepo
+				}
+				if p := meta.EmbeddedSamplingPreset(); p != nil {
+					m.SamplingPresets = UpsertSamplingPreset(m.SamplingPresets, *p)
+					slog.Info("backfilled embedded sampling defaults", "model", m.ID)
+				}
+				m.SamplingChecked = true
+				changed = true
 			}
 		}
 	}

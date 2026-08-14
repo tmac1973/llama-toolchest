@@ -34,6 +34,23 @@ type GGUFMeta struct {
 	KVFullPerTok  int `json:"kv_full_per_tok,omitempty"` // Σ full-attention layers of kv_heads·(k_dim+v_dim)
 	KVSWAPerTok   int `json:"kv_swa_per_tok,omitempty"`  // Σ sliding-window layers of kv_heads·(k_dim_swa+v_dim_swa)
 	SlidingWindow int `json:"sliding_window,omitempty"`  // sliding-window size; 0 if no local-attention layers
+
+	// Author-recommended sampling defaults from general.sampling.* keys
+	// (llama.cpp PR #17120; convert_hf_to_gguf.py fills them from the upstream
+	// generation_config.json). Nil = key absent. SamplingChecked mirrors
+	// ReasoningChecked: it lets backfill tell "no keys in the file" apart from
+	// "parsed before these keys were read".
+	SamplingTemp          *float64 `json:"sampling_temp,omitempty"`
+	SamplingTopP          *float64 `json:"sampling_top_p,omitempty"`
+	SamplingTopK          *int     `json:"sampling_top_k,omitempty"`
+	SamplingMinP          *float64 `json:"sampling_min_p,omitempty"`
+	SamplingRepeatPenalty *float64 `json:"sampling_repeat_penalty,omitempty"`
+	SamplingChecked       bool     `json:"sampling_checked"`
+
+	// BaseModelRepo is the upstream "org/repo" this quant derives from, per
+	// general.base_model.0.repo_url. Used to locate the base model's
+	// generation_config.json when the file has no embedded sampling keys.
+	BaseModelRepo string `json:"base_model_repo,omitempty"`
 }
 
 // ApplyTo copies parsed GGUF metadata onto a Model.
@@ -51,6 +68,38 @@ func (meta *GGUFMeta) ApplyTo(m *Model) {
 	m.KVFullPerTok = meta.KVFullPerTok
 	m.KVSWAPerTok = meta.KVSWAPerTok
 	m.SlidingWindow = meta.SlidingWindow
+	m.SamplingChecked = meta.SamplingChecked
+	if meta.BaseModelRepo != "" {
+		m.BaseModelRepo = meta.BaseModelRepo
+	}
+	// Merge rather than assign: re-parses must not drop presets gathered from
+	// network sources after download.
+	if p := meta.EmbeddedSamplingPreset(); p != nil {
+		m.SamplingPresets = UpsertSamplingPreset(m.SamplingPresets, *p)
+	}
+}
+
+// EmbeddedSamplingPreset assembles the general.sampling.* values into a
+// preset, or nil when the file carries none. llama-server applies these same
+// values on its own when launched without explicit sampling flags, so this
+// preset surfaces what is already the effective default rather than changing
+// behavior.
+func (meta *GGUFMeta) EmbeddedSamplingPreset() *SamplingPreset {
+	if meta.SamplingTemp == nil && meta.SamplingTopP == nil && meta.SamplingTopK == nil &&
+		meta.SamplingMinP == nil && meta.SamplingRepeatPenalty == nil {
+		return nil
+	}
+	return &SamplingPreset{
+		Name:          "default",
+		Label:         "Model-embedded default",
+		Description:   "From GGUF metadata (general.sampling.*) — active whenever no override is set",
+		Source:        "gguf",
+		Temperature:   meta.SamplingTemp,
+		TopP:          meta.SamplingTopP,
+		TopK:          meta.SamplingTopK,
+		MinP:          meta.SamplingMinP,
+		RepeatPenalty: meta.SamplingRepeatPenalty,
+	}
 }
 
 // HeadDim returns the dimension per attention head.
@@ -135,6 +184,51 @@ func ParseGGUFMeta(path string) (*GGUFMeta, error) {
 				meta.Architecture = v
 			}
 			continue
+
+		case key == "general.base_model.0.repo_url" && valueType == ggufTypeString:
+			if v, err := readGGUFString(f); err == nil {
+				meta.BaseModelRepo = repoFromURL(v)
+			}
+			continue
+
+		// general.sampling.* — author-recommended defaults. Out-of-range values
+		// (same bounds the old scraper enforced) are dropped, but the value has
+		// been consumed either way, so continue.
+		case key == "general.sampling.temp":
+			if v, ok := readGGUFScalarFloat(f, valueType); ok {
+				if v >= 0 && v <= 4 {
+					meta.SamplingTemp = &v
+				}
+				continue
+			}
+		case key == "general.sampling.top_p":
+			if v, ok := readGGUFScalarFloat(f, valueType); ok {
+				if v >= 0 && v <= 1 {
+					meta.SamplingTopP = &v
+				}
+				continue
+			}
+		case key == "general.sampling.top_k":
+			if v, ok := readGGUFScalarInt(f, valueType); ok {
+				if v >= 1 && v <= 1000 {
+					meta.SamplingTopK = &v
+				}
+				continue
+			}
+		case key == "general.sampling.min_p":
+			if v, ok := readGGUFScalarFloat(f, valueType); ok {
+				if v >= 0 && v <= 1 {
+					meta.SamplingMinP = &v
+				}
+				continue
+			}
+		case key == "general.sampling.penalty_repeat":
+			if v, ok := readGGUFScalarFloat(f, valueType); ok {
+				if v > 0 && v <= 3 {
+					meta.SamplingRepeatPenalty = &v
+				}
+				continue
+			}
 
 		case key == "tokenizer.chat_template" && valueType == ggufTypeString:
 			if v, err := readGGUFString(f); err == nil {
@@ -227,8 +321,10 @@ func ParseGGUFMeta(path string) (*GGUFMeta, error) {
 	// A successful parse means reasoning was evaluated even if no chat template
 	// was present — in which case Reasoning stays the unsupported zero value.
 	// Normalize the empty toggle to the explicit "none" so the API contract
-	// never emits a blank mechanism.
+	// never emits a blank mechanism. Same for sampling: checked means the
+	// general.sampling.* keys were looked for, present or not.
 	meta.ReasoningChecked = true
+	meta.SamplingChecked = true
 	if meta.Reasoning.Toggle == "" {
 		meta.Reasoning.Toggle = ReasoningToggleNone
 	}
@@ -366,6 +462,44 @@ func readGGUFScalarInt(r io.Reader, valueType uint32) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+// readGGUFScalarFloat reads a float-typed scalar value, accepting integer
+// types too (metadata authors sometimes write whole numbers as ints). Same
+// consume-only-on-match contract as readGGUFScalarInt.
+func readGGUFScalarFloat(r io.Reader, valueType uint32) (float64, bool) {
+	switch valueType {
+	case ggufTypeFloat32:
+		var v float32
+		if binary.Read(r, binary.LittleEndian, &v) == nil {
+			return float64(v), true
+		}
+	case ggufTypeFloat64:
+		var v float64
+		if binary.Read(r, binary.LittleEndian, &v) == nil {
+			return v, true
+		}
+	default:
+		if v, ok := readGGUFScalarInt(r, valueType); ok {
+			return float64(v), true
+		}
+	}
+	return 0, false
+}
+
+// repoFromURL extracts "org/repo" from a huggingface.co URL, returning ""
+// for anything that doesn't look like a HF repo URL.
+func repoFromURL(u string) string {
+	for _, prefix := range []string{"https://huggingface.co/", "http://huggingface.co/", "huggingface.co/"} {
+		if rest, ok := strings.CutPrefix(u, prefix); ok {
+			rest = strings.TrimSuffix(rest, "/")
+			if parts := strings.Split(rest, "/"); len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+				return rest
+			}
+			return ""
+		}
+	}
+	return ""
 }
 
 // readGGUFArrayInts reads an array value (its element type, count, and elements;

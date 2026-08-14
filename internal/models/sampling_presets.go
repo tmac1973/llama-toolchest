@@ -28,6 +28,32 @@ func LookupSamplingPresets(repoID string) []SamplingPreset {
 	return samplingPresetsByRepo[repoID]
 }
 
+// EffectiveSamplingPresets returns the presets attached to this model record
+// (gathered at download/scan time), falling back to the legacy compiled-in
+// scrape snapshot for records that predate download-time discovery.
+func (m *Model) EffectiveSamplingPresets() []SamplingPreset {
+	if len(m.SamplingPresets) > 0 {
+		return m.SamplingPresets
+	}
+	return LookupSamplingPresets(m.ModelID)
+}
+
+// UpsertSamplingPreset returns presets with p replacing the entry of the same
+// Name, inserting it otherwise ("default" first, others appended). Preset
+// sources upsert by variant name so the list keeps one entry per variant.
+func UpsertSamplingPreset(presets []SamplingPreset, p SamplingPreset) []SamplingPreset {
+	for i := range presets {
+		if presets[i].Name == p.Name {
+			presets[i] = p
+			return presets
+		}
+	}
+	if p.Name == "default" {
+		return append([]SamplingPreset{p}, presets...)
+	}
+	return append(presets, p)
+}
+
 // SamplingPresetsCoverage reports how many repos have presets registered.
 // Used by tests and the scraper's self-check.
 func SamplingPresetsCoverage() int {

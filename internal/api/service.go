@@ -783,7 +783,7 @@ func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 		var samplingPresets []models.SamplingPreset
 		var samplingPresetsJSON string
 		if model != nil && !isEmbedding {
-			samplingPresets = models.LookupSamplingPresets(model.ModelID)
+			samplingPresets = model.EffectiveSamplingPresets()
 			if len(samplingPresets) > 0 {
 				if b, err := json.Marshal(samplingPresets); err == nil {
 					samplingPresetsJSON = string(b)

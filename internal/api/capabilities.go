@@ -64,7 +64,7 @@ func (s *Server) buildCapabilities(m *models.Model, cfg *models.ModelConfig) map
 // model card recommendation, else null. `presets` is the published preset list
 // verbatim, and source/source_url carry provenance from the card.
 func buildSampling(m *models.Model, cfg *models.ModelConfig) map[string]any {
-	presets := models.LookupSamplingPresets(m.ModelID)
+	presets := m.EffectiveSamplingPresets()
 	if presets == nil {
 		presets = []models.SamplingPreset{}
 	}
