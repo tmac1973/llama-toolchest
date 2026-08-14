@@ -8,8 +8,8 @@ import (
 
 const vramOverheadGB = 0.2 // fixed overhead for compute buffers, scratch space, etc.
 
-// BytesToGB converts bytes to gigabytes.
-func BytesToGB(b int64) float64 {
+// BytesToGiB converts bytes to gibibytes (binary, 1024³).
+func BytesToGiB(b int64) float64 {
 	return float64(b) / (1024 * 1024 * 1024)
 }
 
@@ -115,7 +115,7 @@ func VRAMEstimateForConfig(m *Model, cfg *ModelConfig) float64 {
 		ctx = m.ContextLength
 	}
 	// Weight memory: file size is a good proxy for quantized weights in VRAM.
-	return BytesToGB(m.SizeBytes) + m.KVCacheGB(ctx, cfg.KVCacheQuant) + AuxFilesVRAMGB(cfg) + vramOverheadGB
+	return BytesToGiB(m.SizeBytes) + m.KVCacheGB(ctx, cfg.KVCacheQuant) + AuxFilesVRAMGB(cfg) + vramOverheadGB
 }
 
 // AuxFilesVRAMGB sums the on-disk sizes of auxiliary GGUFs that load into VRAM
@@ -142,7 +142,7 @@ func AuxFilesVRAMGB(cfg *ModelConfig) float64 {
 // downloaded yet).
 func fileSizeGB(path string) float64 {
 	if fi, err := os.Stat(path); err == nil {
-		return BytesToGB(fi.Size())
+		return BytesToGiB(fi.Size())
 	}
 	return 0
 }
@@ -177,12 +177,12 @@ func VRAMFitLabel(estimatedGB float64, perGPU float64, numGPUs int, numberProces
 	return fmt.Sprintf("%d GPU", needed)
 }
 
-// FormatVRAM formats a VRAM estimate as a human-readable string.
+// FormatVRAM formats a VRAM estimate (in GiB) as a human-readable string.
 func FormatVRAM(gb float64) string {
 	if gb < 1 {
-		return formatFloat(gb*1024, 0) + " MB"
+		return formatFloat(gb*1024, 0) + " MiB"
 	}
-	return formatFloat(gb, 1) + " GB"
+	return formatFloat(gb, 1) + " GiB"
 }
 
 func formatFloat(f float64, decimals int) string {

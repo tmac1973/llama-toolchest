@@ -8,7 +8,7 @@
             <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.15rem;">
                 <span><strong>GPU {{.Index}}</strong> <small>{{.Name}}</small></span>
                 <span>
-                    {{printf "%.1f" .UsedGB}} / {{printf "%.1f" .TotalGB}} GB
+                    {{printf "%.1f" .UsedGB}} / {{printf "%.1f" .TotalGB}} GiB
                     {{if .Overcommit}} <mark style="padding:0 0.3rem;font-size:0.75rem;background:var(--pico-del-color);color:#fff;">OVER</mark>{{end}}
                 </span>
             </div>
@@ -26,7 +26,7 @@
             {{range .Allocations}}
             <span style="display: inline-flex; align-items: center; gap: 0.25rem;">
                 <span style="display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 2px; background: {{.Color}};"></span>
-                {{.ModelName}} <small>({{printf "%.1f" .TotalGB}} GB)</small>
+                {{.ModelName}} <small>({{printf "%.1f" .TotalGB}} GiB)</small>
             </span>
             {{end}}
         </div>

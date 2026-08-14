@@ -129,7 +129,7 @@ func (s *Server) handleHFDownload(w http.ResponseWriter, r *http.Request) {
 			needGB := float64(req.Size) / (1024 * 1024 * 1024)
 			haveGB := float64(avail) / (1024 * 1024 * 1024)
 			http.Error(w,
-				fmt.Sprintf("insufficient disk space: need %.1f GB, only %.1f GB available after reserving the 2 GB safety margin and any in-flight downloads", needGB, haveGB),
+				fmt.Sprintf("insufficient disk space: need %.1f GiB, only %.1f GiB available after reserving the 2 GiB safety margin and any in-flight downloads", needGB, haveGB),
 				http.StatusInsufficientStorage)
 			return
 		}
@@ -163,10 +163,10 @@ func downloadProgressHTML(status huggingface.DownloadStatus, progressStyle strin
 		pct = float64(status.BytesDownloaded) / float64(status.TotalBytes) * 100
 	}
 	speedMB := float64(status.SpeedBPS) / (1024 * 1024)
-	downloadedGB := models.BytesToGB(status.BytesDownloaded)
-	totalGB := models.BytesToGB(status.TotalBytes)
+	downloadedGB := models.BytesToGiB(status.BytesDownloaded)
+	totalGB := models.BytesToGiB(status.TotalBytes)
 	return fmt.Sprintf(
-		`<progress value="%.0f" max="100"%s></progress><small>%.1f / %.1f GB (%.1f MB/s) — %.0f%%</small>`,
+		`<progress value="%.0f" max="100"%s></progress><small>%.1f / %.1f GiB (%.1f MiB/s) — %.0f%%</small>`,
 		pct, progressStyle, downloadedGB, totalGB, speedMB, pct)
 }
 
@@ -264,8 +264,8 @@ func (s *Server) handleDownloadsPanel(w http.ResponseWriter, r *http.Request) {
 		activeIDs[dl.ID] = true
 		row := downloadRow{
 			ID: dl.ID, ModelID: dl.ModelID, Filename: dl.Filename, Active: true,
-			DownGB:  models.BytesToGB(dl.BytesDownloaded),
-			TotalGB: models.BytesToGB(dl.TotalBytes),
+			DownGB:  models.BytesToGiB(dl.BytesDownloaded),
+			TotalGB: models.BytesToGiB(dl.TotalBytes),
 			SpeedMB: float64(dl.SpeedBPS) / (1024 * 1024),
 		}
 		if dl.TotalBytes > 0 {
@@ -280,7 +280,7 @@ func (s *Server) handleDownloadsPanel(w http.ResponseWriter, r *http.Request) {
 		}
 		rows = append(rows, downloadRow{
 			ID: id, ModelID: p.ModelID, Filename: p.Filename,
-			OnDiskGB: models.BytesToGB(p.BytesOnDisk), PartCount: p.PartCount,
+			OnDiskGB: models.BytesToGiB(p.BytesOnDisk), PartCount: p.PartCount,
 		})
 	}
 	// Stable order — ListActive iterates a map, and the client skips the swap

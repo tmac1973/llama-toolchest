@@ -147,7 +147,7 @@
             <td>{{printf "%.0f" $sz.PPMean}}{{if gt $sz.Count 1}} <small>± {{printf "%.0f" $sz.PPStd}}</small>{{end}}</td>
             <td><strong>{{printf "%.1f" $sz.TGMean}}</strong>{{if gt $sz.Count 1}} <small>± {{printf "%.1f" $sz.TGStd}}</small>{{end}}</td>
             <td>{{printf "%.0f" $sz.AvgTTFTMs}}</td>
-            <td>{{printf "%.1f" $run.SizeGB}} GB</td>
+            <td>{{printf "%.1f" $run.SizeGiB}} GiB</td>
             <td>{{if $run.Config.GPUAssign}}{{$run.Config.GPUAssign}}{{else}}all{{end}}</td>
             <td>{{$run.Config.ContextSize}}</td>
             <td>{{if or $run.Config.BatchSize $run.Config.UBatchSize}}{{if $run.Config.BatchSize}}{{$run.Config.BatchSize}}{{else}}—{{end}}/{{if $run.Config.UBatchSize}}{{$run.Config.UBatchSize}}{{else}}—{{end}}{{else}}—{{end}}</td>

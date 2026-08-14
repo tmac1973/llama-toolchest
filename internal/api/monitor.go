@@ -80,7 +80,7 @@ func monitorBarData(m monitor.Metrics) struct {
 			Name:        gpu.Name,
 			UtilPercent: gpu.UtilPercent,
 			VRAMPercent: vramPct,
-			VRAMGB:      fmt.Sprintf("%.1f/%.1fGB", float64(gpu.VRAMUsedMB)/1024, float64(gpu.VRAMTotalMB)/1024),
+			VRAMGB:      fmt.Sprintf("%.1f/%.1fGiB", float64(gpu.VRAMUsedMB)/1024, float64(gpu.VRAMTotalMB)/1024),
 			Details:     details,
 		}
 	}
@@ -97,6 +97,6 @@ func monitorBarData(m monitor.Metrics) struct {
 		GPUs:       gpus,
 		CPUPercent: m.CPU.UsagePercent,
 		RAMPercent: ramPct,
-		RAMGB:      fmt.Sprintf("%.1f/%.1fGB", float64(m.Memory.UsedMB)/1024, float64(m.Memory.TotalMB)/1024),
+		RAMGB:      fmt.Sprintf("%.1f/%.1fGiB", float64(m.Memory.UsedMB)/1024, float64(m.Memory.TotalMB)/1024),
 	}
 }

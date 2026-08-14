@@ -30,7 +30,7 @@
         <div>
             <small><strong>Hardware</strong></small><br>
             <small>
-                {{range .GPUs}}GPU {{.Index}}: {{.Name}} ({{printf "%.0f" (divf .VRAMTotalMB 1024.0)}} GB)<br>{{end}}
+                {{range .GPUs}}GPU {{.Index}}: {{.Name}} ({{printf "%.0f" (divf .VRAMTotalMiB 1024.0)}} GiB)<br>{{end}}
             </small>
         </div>
     </div>

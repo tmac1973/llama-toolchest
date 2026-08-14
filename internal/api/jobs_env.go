@@ -349,7 +349,7 @@ func (e *jobEnv) ResolveModel(modelID string) (benchmark.ModelInfo, error) {
 	return benchmark.ModelInfo{
 		HFRepoID:    m.ModelID,
 		Quant:       m.Quant,
-		SizeGB:      models.BytesToGB(m.SizeBytes),
+		SizeGiB:     models.BytesToGiB(m.SizeBytes),
 		DisplayName: shortenModelName(m.ModelID),
 		RouterName:  e.s.registry.RouterName(modelID),
 		Config: benchmark.ConfigSnapshot{

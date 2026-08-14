@@ -7,7 +7,7 @@
         <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem;">
             <span>
                 <strong>{{.ModelID}}</strong> — <small>{{.Filename}}</small>
-                {{if not .Active}}<small>({{printf "%.1f" .OnDiskGB}} GB on disk, {{.PartCount}} partial file(s))</small>{{end}}
+                {{if not .Active}}<small>({{printf "%.1f" .OnDiskGB}} GiB on disk, {{.PartCount}} partial file(s))</small>{{end}}
             </span>
             {{/* Deliberately not role="group": Pico gives groups width:100%
                  and stretches their buttons, which overflows this card. */}}
@@ -40,7 +40,7 @@
         </div>
         {{if .Active}}
         <progress value="{{printf "%.0f" .Pct}}" max="100" style="margin: 0.25rem 0;"></progress>
-        <small>{{printf "%.1f" .DownGB}} / {{printf "%.1f" .TotalGB}} GB ({{printf "%.1f" .SpeedMB}} MB/s) — {{printf "%.0f" .Pct}}%</small>
+        <small>{{printf "%.1f" .DownGB}} / {{printf "%.1f" .TotalGB}} GiB ({{printf "%.1f" .SpeedMB}} MiB/s) — {{printf "%.0f" .Pct}}%</small>
         {{end}}
     </div>
     {{end}}

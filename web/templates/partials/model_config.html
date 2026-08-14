@@ -269,7 +269,7 @@
                 <option value="">None</option>
                 {{range .DraftCandidates}}
                 <option value="{{.FilePath}}" {{if eq $.Config.DraftModelPath .FilePath}}selected{{end}}>
-                    {{.Filename}} ({{printf "%.1f" .SizeGB}} GB)
+                    {{.Filename}} ({{printf "%.1f" .SizeGB}} GiB)
                 </option>
                 {{end}}
             </select>

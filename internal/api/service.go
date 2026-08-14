@@ -679,16 +679,16 @@ func (s *Server) handleModelVRAMEstimate(w http.ResponseWriter, r *http.Request)
 
 	total := models.VRAMEstimateForConfig(model, cfg)
 	kvGB := model.KVCacheGB(contextSize, kvCacheQuant)
-	weightsGB := models.BytesToGB(model.SizeBytes)
+	weightsGB := models.BytesToGiB(model.SizeBytes)
 	extraGB := models.AuxFilesVRAMGB(cfg)
 
 	if isHTMX(r) {
 		respondHTML(w)
 		extra := ""
 		if extraGB > 0.05 {
-			extra = fmt.Sprintf(" + aux files: %.1f GB", extraGB)
+			extra = fmt.Sprintf(" + aux files: %.1f GiB", extraGB)
 		}
-		fmt.Fprintf(w, `<strong>%.1f GB</strong> <small>(weights: %.1f GB + KV cache: %.1f GB%s + overhead)</small>`,
+		fmt.Fprintf(w, `<strong>%.1f GiB</strong> <small>(weights: %.1f GiB + KV cache: %.1f GiB%s + overhead)</small>`,
 			total, weightsGB, kvGB, extra)
 		return
 	}
@@ -1002,7 +1002,7 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		if model, err := s.registry.Get(id); err == nil {
 			vramGB := models.VRAMEstimateForConfig(model, cfg)
 			w.Header().Set("HX-Trigger", fmt.Sprintf(
-				`{"vramUpdated":{"id":%q,"vram":"%.1f GB"},"gpuMapChanged":true}`,
+				`{"vramUpdated":{"id":%q,"vram":"%.1f GiB"},"gpuMapChanged":true}`,
 				id, vramGB))
 		}
 	}

@@ -218,7 +218,7 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 // per page so each page's {{define "content"}} doesn't collide.
 func (s *Server) parseTemplates() map[string]*template.Template {
 	funcMap := template.FuncMap{
-		"divGB": models.BytesToGB,
+		"divGB": models.BytesToGiB,
 		// cssID sanitizes a string so it's safe to use as both an HTML id
 		// attribute and a CSS selector (see domID in hf.go).
 		"cssID": domID,

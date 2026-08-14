@@ -935,7 +935,7 @@ func (r *Registry) ScanModels() int {
 	for _, m := range found {
 		r.Add(m)
 		slog.Info("scanned model", "id", m.ID, "file", m.FilePath,
-			"size_gb", fmt.Sprintf("%.1f", float64(m.SizeBytes)/(1024*1024*1024)),
+			"size_gib", fmt.Sprintf("%.1f", float64(m.SizeBytes)/(1024*1024*1024)),
 			"arch", m.Arch)
 	}
 
@@ -1187,7 +1187,7 @@ func (r *Registry) FindDraftCandidates(id string) []DraftCandidate {
 			ID:       m.ID,
 			Filename: m.Filename,
 			FilePath: m.FilePath,
-			SizeGB:   BytesToGB(m.SizeBytes),
+			SizeGB:   BytesToGiB(m.SizeBytes),
 			Arch:     m.Arch,
 		})
 	}

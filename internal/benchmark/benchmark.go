@@ -32,7 +32,12 @@ type BenchmarkRun struct {
 	ModelID   string  `json:"model_id"`
 	ModelName string  `json:"model_name"`
 	Quant     string  `json:"quant"`
-	SizeGB    float64 `json:"size_gb"`
+	SizeGiB   float64 `json:"size_gib"` // model file size, bytes/1024³
+
+	// LegacySizeGB reads files written before the size_gib rename (the
+	// value was always binary GiB despite the name); load() folds it
+	// into SizeGiB and clears it so it never persists again.
+	LegacySizeGB float64 `json:"size_gb,omitempty"`
 
 	// Configuration snapshot
 	Config ConfigSnapshot `json:"config"`
@@ -104,9 +109,13 @@ type ConfigSnapshot struct {
 
 // GPUSnapshot captures GPU hardware at benchmark time.
 type GPUSnapshot struct {
-	Index       int    `json:"index"`
-	Name        string `json:"name"`
-	VRAMTotalMB int    `json:"vram_total_mb"`
+	Index        int    `json:"index"`
+	Name         string `json:"name"`
+	VRAMTotalMiB int    `json:"vram_total_mib"` // as reported by nvidia-smi / sysfs, binary MiB
+
+	// LegacyVRAMTotalMB reads files written before the vram_total_mib
+	// rename; load() folds it into VRAMTotalMiB and clears it.
+	LegacyVRAMTotalMB int `json:"vram_total_mb,omitempty"`
 }
 
 // BuildSnapshot freezes the llama.cpp build that produced a benchmark
@@ -336,9 +345,9 @@ func GPUSnapshotsFromMetrics(m monitor.Metrics) []GPUSnapshot {
 	snaps := make([]GPUSnapshot, len(m.GPU))
 	for i, g := range m.GPU {
 		snaps[i] = GPUSnapshot{
-			Index:       g.Index,
-			Name:        g.Name,
-			VRAMTotalMB: g.VRAMTotalMB,
+			Index:        g.Index,
+			Name:         g.Name,
+			VRAMTotalMiB: g.VRAMTotalMB,
 		}
 	}
 	return snaps
@@ -368,8 +377,10 @@ const maxTimingSamples = 1000
 
 // schemaVersion is the on-disk envelope version this build writes. v1
 // was a bare JSON array of runs; v2 wraps them with a jobs list; v3
-// flags runs whose recorded config was never actually applied.
-const schemaVersion = 3
+// flags runs whose recorded config was never actually applied; v4
+// renames size_gb → size_gib and vram_total_mb → vram_total_mib (the
+// values were always binary units — the old names were wrong).
+const schemaVersion = 4
 
 // benchmarkFile is the v2 envelope. v1 files are detected by an
 // unmarshal failure into this shape and a successful retry as []BenchmarkRun.
@@ -969,6 +980,26 @@ func (s *Store) load() {
 		if r.Summary != nil && len(r.Summary.PerSize) == 0 && len(r.Results) > 0 {
 			r.Summary.PerSize = computePerSize(r.Results)
 			dirty = true
+		}
+	}
+
+	// v3→v4: fold the misnamed legacy unit fields into their renamed
+	// successors. Unconditional rather than version-gated — it's
+	// idempotent, and pre-v2 files carry no version at all.
+	for i := range s.runs {
+		r := &s.runs[i]
+		if r.SizeGiB == 0 && r.LegacySizeGB != 0 {
+			r.SizeGiB = r.LegacySizeGB
+			r.LegacySizeGB = 0
+			dirty = true
+		}
+		for gi := range r.GPUs {
+			g := &r.GPUs[gi]
+			if g.VRAMTotalMiB == 0 && g.LegacyVRAMTotalMB != 0 {
+				g.VRAMTotalMiB = g.LegacyVRAMTotalMB
+				g.LegacyVRAMTotalMB = 0
+				dirty = true
+			}
 		}
 	}
 

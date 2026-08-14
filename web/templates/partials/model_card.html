@@ -30,8 +30,8 @@
             {{if .IsIncomplete}} <mark style="padding:0 0.3rem;font-size:0.75rem;background:var(--pico-del-color);color:var(--pico-card-background-color);">incomplete</mark>{{end}}
         </div>
         <div class="model-card-quant"><kbd>{{.Quant}}</kbd></div>
-        <div class="model-card-vram" id="vram-{{.ID}}" title="Estimated VRAM at the configured context size — llama.cpp pre-allocates the full KV cache at load time, so this is what the model actually needs to load">{{printf "%.1f" .VRAMGB}} GB</div>
-        <div class="model-card-size">{{printf "%.1f" (divGB .SizeBytes)}} GB</div>
+        <div class="model-card-vram" id="vram-{{.ID}}" title="Estimated VRAM at the configured context size — llama.cpp pre-allocates the full KV cache at load time, so this is what the model actually needs to load">{{printf "%.1f" .VRAMGB}} GiB</div>
+        <div class="model-card-size">{{printf "%.1f" (divGB .SizeBytes)}} GiB</div>
         <div class="model-card-actions">
             {{if .IsOrphan}}
             <button type="button" class="outline secondary"

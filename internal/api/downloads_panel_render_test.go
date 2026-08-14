@@ -56,7 +56,7 @@ func TestDownloadsPanelPausedRow(t *testing.T) {
 	if strings.Contains(out, "dl-row-active") {
 		t.Errorf("paused row must not carry the active marker class")
 	}
-	if !strings.Contains(out, "3.5 GB on disk, 2 partial file(s)") {
+	if !strings.Contains(out, "3.5 GiB on disk, 2 partial file(s)") {
 		t.Errorf("paused row must show on-disk size; output=\n%s", out)
 	}
 	if !strings.Contains(out, "hx-confirm") {

@@ -13,7 +13,7 @@
                 Model
                 <select name="model_id" required>
                     {{range .Models}}
-                    <option value="{{.ID}}">{{.ModelID}} ({{.Quant}}, {{printf "%.1f" (divGB .SizeBytes)}} GB)</option>
+                    <option value="{{.ID}}">{{.ModelID}} ({{.Quant}}, {{printf "%.1f" (divGB .SizeBytes)}} GiB)</option>
                     {{end}}
                 </select>
             </label>

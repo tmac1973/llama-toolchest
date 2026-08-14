@@ -80,7 +80,7 @@ type JobEnv interface {
 type ModelInfo struct {
 	HFRepoID    string // model.ModelID — passed to llama-benchy --tokenizer
 	Quant       string
-	SizeGB      float64
+	SizeGiB     float64
 	DisplayName string         // short, human-readable name for the run
 	RouterName  string         // identifier the router responds to
 	Config      ConfigSnapshot // saved baseline; ConfigOverrides overlay on this
@@ -372,7 +372,7 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 		ModelID:      cell.ModelID,
 		ModelName:    modelInfo.DisplayName,
 		Quant:        modelInfo.Quant,
-		SizeGB:       modelInfo.SizeGB,
+		SizeGiB:      modelInfo.SizeGiB,
 		Config:       cfg,
 		BuildID:      buildSnap.ID,
 		BuildRef:     buildSnap.GitRef,

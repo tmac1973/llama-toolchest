@@ -53,7 +53,7 @@
         {{range .Models}}
         <label>
             <input type="checkbox" name="model" value="{{.ID}}" onchange="updateMatrixCount()">
-            <span>{{.ModelID}} <small style="color:var(--pico-muted-color);">({{.Quant}}, {{printf "%.1f" (divGB .SizeBytes)}} GB)</small></span>
+            <span>{{.ModelID}} <small style="color:var(--pico-muted-color);">({{.Quant}}, {{printf "%.1f" (divGB .SizeBytes)}} GiB)</small></span>
         </label>
         {{end}}
     </fieldset>

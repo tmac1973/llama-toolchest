@@ -363,7 +363,7 @@ func (s *Server) renderModelCard(w http.ResponseWriter, m *models.Model, routerK
 		state = routerKnown[m.PublicName()]
 	}
 
-	vramGB := models.BytesToGB(m.SizeBytes) + 0.2
+	vramGB := models.BytesToGiB(m.SizeBytes) + 0.2
 	enabled := true
 	hasVision := m.HasBuiltinVision
 	gpuLabel := ""

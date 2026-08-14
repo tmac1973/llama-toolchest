@@ -26,7 +26,9 @@ type ExportEnvelope struct {
 	Runs    []benchmark.BenchmarkRun  `json:"runs"`
 }
 
-const exportEnvelopeVersion = 1
+// v2: runs carry size_gib / gpus[].vram_total_mib instead of the
+// misnamed size_gb / vram_total_mb (the values were always binary units).
+const exportEnvelopeVersion = 2
 
 const (
 	exportFormatCSV  = "csv"

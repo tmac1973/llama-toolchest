@@ -4,8 +4,8 @@
     {{if lt $.AvailableBytes 0}}
         <small>Disk space unavailable — downloads not gated by free space.</small>
     {{else}}
-        <strong>{{printf "%.1f" (divGB $.AvailableBytes)}} GB</strong> available for new downloads
-        <small>(free: {{printf "%.1f" (divGB $.FreeBytes)}} GB · reserved: {{printf "%.1f" (divGB $.SafetyMargin)}} GB safety + in-flight downloads)</small>
+        <strong>{{printf "%.1f" (divGB $.AvailableBytes)}} GiB</strong> available for new downloads
+        <small>(free: {{printf "%.1f" (divGB $.FreeBytes)}} GiB · reserved: {{printf "%.1f" (divGB $.SafetyMargin)}} GiB safety + in-flight downloads)</small>
     {{end}}
 </p>
 <table role="grid">
@@ -17,8 +17,8 @@
         <tr>
             <td><small>{{$f.Filename}}{{if $f.Shards}} ({{len $f.Shards}} parts){{end}}{{if $f.IsMMProj}} <mark style="padding:0 0.3rem;">vision</mark>{{end}}</small></td>
             <td><kbd>{{$f.Quant}}</kbd></td>
-            <td>{{printf "%.1f" (divGB $f.Size)}} GB</td>
-            <td>{{printf "%.1f" $f.VRAMEstGB}} GB</td>
+            <td>{{printf "%.1f" (divGB $f.Size)}} GiB</td>
+            <td>{{printf "%.1f" $f.VRAMEstGB}} GiB</td>
             <td>
                 {{$fit := vramFit $f.VRAMEstGB}}
                 {{if eq $fit "too_large"}}
@@ -38,7 +38,7 @@
                 {{else if not $f.FitsOnDisk}}
                     <button type="button" disabled
                             style="opacity: 0.5; cursor: not-allowed;"
-                            title="Not enough free disk space — needs {{printf "%.1f" (divGB $f.Size)}} GB, only {{printf "%.1f" (divGB $.AvailableBytes)}} GB available after the 2 GB safety margin and in-flight downloads. Free space and try again.">
+                            title="Not enough free disk space — needs {{printf "%.1f" (divGB $f.Size)}} GiB, only {{printf "%.1f" (divGB $.AvailableBytes)}} GiB available after the 2 GiB safety margin and in-flight downloads. Free space and try again.">
                         Won't Fit
                     </button>
                 {{else}}
