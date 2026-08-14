@@ -9,7 +9,9 @@
                 <strong>{{.ModelID}}</strong> — <small>{{.Filename}}</small>
                 {{if not .Active}}<small>({{printf "%.1f" .OnDiskGB}} GB on disk, {{.PartCount}} partial file(s))</small>{{end}}
             </span>
-            <span role="group" style="margin:0; flex:0 0 auto;">
+            {{/* Deliberately not role="group": Pico gives groups width:100%
+                 and stretches their buttons, which overflows this card. */}}
+            <span style="display:inline-flex; gap:0.35rem; margin:0; flex:0 0 auto;">
                 {{if .Active}}
                 <button type="button" class="outline secondary"
                         style="margin:0; padding:0.15rem 0.6rem; font-size:0.8rem;"
