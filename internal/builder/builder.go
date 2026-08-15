@@ -65,6 +65,11 @@ type Builder struct {
 
 	refsMu     sync.Mutex
 	cachedRefs []string
+
+	// Saved build-flag presets (see flag_presets.go), loaded lazily.
+	fpMu        sync.Mutex
+	fpLoaded    bool
+	flagPresets []FlagPreset
 }
 
 // NewBuilder creates a Builder and loads persisted build state.

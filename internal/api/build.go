@@ -36,6 +36,20 @@ func (s *Server) handleProfileOptions(w http.ResponseWriter, r *http.Request) {
 	}
 	extraCMake := r.URL.Query().Get("extra_cmake")
 
+	// Applying a saved flag set: its stored states replace the live ones,
+	// and the Build Tag is filled with the preset name via an OOB swap
+	// (below). Later toggle edits re-fetch without preset=, so tweaks on
+	// top of a loaded preset stick until saved again.
+	var loadedPreset *builder.FlagPreset
+	if name := r.URL.Query().Get("preset"); name != "" {
+		if p, ok := s.builder.FindFlagPreset(name); ok && p.Profile == profile {
+			hasOverrides = true
+			overrides = p.Options
+			extraCMake = p.ExtraCMake
+			loadedPreset = &p
+		}
+	}
+
 	if isHTMX(r) {
 		respondHTML(w)
 		if len(options) == 0 {
@@ -93,6 +107,14 @@ func (s *Server) handleProfileOptions(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.Write([]byte(`</div>`))
+
+		if loadedPreset != nil {
+			// Fill the Build Tag with the preset name so the resulting
+			// build is labeled by the flag set that produced it. Must
+			// mirror the input's markup in builds.html.
+			fmt.Fprintf(w, `<input type="text" id="build-tag" name="tag" hx-swap-oob="outerHTML" value="%s" placeholder="e.g. rocwmma" pattern="[a-z0-9][a-z0-9-]*" autocomplete="off">`,
+				html.EscapeString(loadedPreset.Name))
+		}
 		return
 	}
 

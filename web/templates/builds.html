@@ -49,10 +49,17 @@
             </label>
         </div>
 
-        <label title="Optional label appended to the build ID so multiple builds of the same ref+profile can coexist (e.g. 'rocwmma' or 'no-fattn'). Lowercase letters, digits, and hyphens. If left blank and a build with the same ref+profile already exists with different flags, a short hash of the flags is appended automatically.">
-            Build Tag <small>(optional)</small>
-            <input type="text" name="tag" placeholder="e.g. rocwmma" pattern="[a-z0-9][a-z0-9-]*" autocomplete="off">
+        <label title="Optional label appended to the build ID so multiple builds of the same ref+profile can coexist (e.g. 'rocwmma' or 'no-fattn'). Lowercase letters, digits, and hyphens. If left blank and a build with the same ref+profile already exists with different flags, a short hash of the flags is appended automatically. Also names a saved flag set when you press Save Flags.">
+            Build Tag <small>(optional; names saved flag sets)</small>
+            <input type="text" id="build-tag" name="tag" placeholder="e.g. rocwmma" pattern="[a-z0-9][a-z0-9-]*" autocomplete="off">
         </label>
+
+        <div id="flag-presets"
+             hx-get="/api/builds/flag-presets"
+             hx-include="#build-profile"
+             hx-trigger="load, change from:#build-profile"
+             hx-swap="innerHTML">
+        </div>
 
         <div id="build-options">
             <!-- Populated by htmx when profile changes -->

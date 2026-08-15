@@ -158,6 +158,9 @@
     <h3>Build options</h3>
     <p>The toggles under each profile are a curated set: every one offers a real performance or compatibility payoff on refs you'd build today, with the description saying when to enable it. Debug-only flags (like the Vulkan validation layers) and flags removed upstream aren't offered as toggles — anything else llama.cpp's CMake accepts can go in the <em>Extra CMake Flags</em> box, and the effective-flags preview shows exactly what the build will receive either way. Vulkan has no performance build flags at all upstream; its tuning levers are runtime environment variables under Settings.</p>
 
+    <h3>Saved flag sets</h3>
+    <p>A favorite combination of toggles and Extra CMake Flags can be saved and replayed against any git ref: set the flags, enter a <em>Build Tag</em> (it names the set), and press <em>Save Flags</em>. Picking a set from the <em>Saved Flag Sets</em> dropdown fills the toggles, extra flags, and Build Tag — so builds made from it are labeled by the flag set that produced them (e.g. <code>b10440-rocm-rocwmma</code>). Saving under an existing name updates it; sets belong to a profile and store no git ref.</p>
+
     <h2 id="models">Models</h2>
     <p>Every downloaded GGUF shows up here. The list is grouped by HuggingFace <strong>org</strong>, then by <strong>base model name</strong> (the repo minus <code>-GGUF</code>), with all quants of a base model shown together.</p>
 
