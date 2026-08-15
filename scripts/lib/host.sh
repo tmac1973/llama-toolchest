@@ -140,7 +140,7 @@ host_missing_gpu_sdk_packages() {
                 fedora)
                     # Fedora's native ROCm packages. Versioned together by
                     # the distro, so dnf resolves a consistent set.
-                    for pkg in rocm-hip-devel rocblas-devel hipblas-devel rocm-cmake rocwmma-devel; do
+                    for pkg in rocm-hip-devel rocblas-devel hipblas-devel rocm-cmake rocwmma-devel rccl-devel; do
                         rpm -q "$pkg" >/dev/null 2>&1 || need+=("$pkg")
                     done
                     ;;
@@ -148,7 +148,7 @@ host_missing_gpu_sdk_packages() {
                     # Debian/Ubuntu don't ship ROCm in default repos —
                     # users add AMD's apt repo first. Names below match
                     # AMD's repo (https://repo.radeon.com).
-                    for pkg in rocm-hip-runtime-dev rocblas-dev hipblas-dev rocm-cmake rocwmma-dev; do
+                    for pkg in rocm-hip-runtime-dev rocblas-dev hipblas-dev rocm-cmake rocwmma-dev rccl-dev; do
                         dpkg -s "$pkg" >/dev/null 2>&1 || need+=("$pkg")
                     done
                     ;;

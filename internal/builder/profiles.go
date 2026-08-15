@@ -26,6 +26,17 @@ func (o BuildOption) CMakeValue() string {
 }
 
 // ProfileOptions returns the toggleable build options for a given profile.
+//
+// The bar for a toggle: a real performance or compatibility payoff a
+// non-expert might want on a ref they'd realistically build. Debug-only
+// flags and flags removed upstream stay out (Extra CMake flags covers
+// them); the one deliberate exception is GGML_HIP_ROCWMMA_FATTN, kept
+// because it remains the fastest prompt-processing path on RDNA4 and its
+// description carries the ref-pinning guidance. Removed toggles
+// (GGML_CUDA_F16, LLAMA_HIP_UMA, the build-flag spelling of unified
+// memory, GGML_CUDA_FORCE_CUBLAS_COMPUTE_16F, HIP fast-math) need no
+// migration: ApplyOptionOverrides ignores stored overrides for flags no
+// longer listed, and all of them were no-ops on current refs anyway.
 func ProfileOptions(profile string) []BuildOption {
 	common := []BuildOption{
 		{
@@ -40,85 +51,77 @@ func ProfileOptions(profile string) []BuildOption {
 			Description: "Enable HTTPS for fetching remote images in vision models and downloading models by URL. Requires OpenSSL dev libraries.",
 			Default:     true,
 		},
+		{
+			Flag:        "GGML_LTO",
+			Label:       "Link-Time Optimization",
+			Description: "Optimize across compilation units at link time. Small speedup in CPU-side code at the cost of a noticeably longer build.",
+			Default:     false,
+		},
+	}
+
+	// Shared by the CUDA and HIP backends (the HIP backend compiles the
+	// same kernel sources).
+	faAllQuants := BuildOption{
+		Flag:        "GGML_CUDA_FA_ALL_QUANTS",
+		Label:       "FlashAttention for All KV Quants",
+		Description: "Compile FlashAttention kernels for every KV-cache quantization combination. Enable if you run a quantized KV cache (cache type other than f16) — without it those combinations fall back to slower generic kernels. Significantly longer build time.",
+		Default:     false,
+	}
+	forceMMQ := BuildOption{
+		Flag:        "GGML_CUDA_FORCE_MMQ",
+		Label:       "Force Custom Matrix Multiply (MMQ)",
+		Description: "Always use llama.cpp's custom quantized matmul kernels instead of the BLAS library. Lower VRAM use; often faster on consumer GPUs, can be slower at large batch sizes on datacenter cards. Mutually exclusive with Force cuBLAS.",
+		Default:     false,
 	}
 
 	switch profile {
 	case "cuda":
 		return append(common, []BuildOption{
+			forceMMQ,
 			{
-				Flag:        "GGML_CUDA_F16",
-				Label:       "CUDA FP16",
-				Description: "Use FP16 for CUDA operations. Faster on RTX cards with minor accuracy tradeoff.",
+				Flag:        "GGML_CUDA_FORCE_CUBLAS",
+				Label:       "Force cuBLAS",
+				Description: "Always use cuBLAS instead of the custom MMQ kernels. Can help prompt processing on datacenter GPUs with strong tensor cores. Mutually exclusive with Force MMQ.",
+				Default:     false,
+			},
+			faAllQuants,
+			{
+				Flag:        "GGML_CUDA_GRAPHS",
+				Label:       "CUDA Graphs",
+				Description: "Batch kernel launches into CUDA graphs, cutting per-token launch overhead during generation. Recent refs leave this off by default for llama.cpp; if it misbehaves at runtime, the GGML_CUDA_DISABLE_GRAPHS variable under Settings switches it off without rebuilding.",
 				Default:     false,
 			},
 			{
-				Flag:        "GGML_CUDA_FORCE_MMQ",
-				Label:       "Force Custom Matrix Multiply",
-				Description: "Use llama.cpp's custom matrix multiply kernels instead of cuBLAS. Can be faster on some GPUs.",
-				Default:     false,
-			},
-			{
-				Flag:        "GGML_CUDA_ENABLE_UNIFIED_MEMORY",
-				Label:       "Unified Memory (VRAM Overflow)",
-				Description: "Allow models larger than VRAM to overflow into system RAM. Slower but lets you run bigger models.",
-				Default:     false,
-			},
-			{
-				Flag:        "GGML_CUDA_FORCE_CUBLAS_COMPUTE_16F",
-				Label:       "Force FP16 cuBLAS Compute Type",
-				Description: "No effect on current llama.cpp — this flag was removed upstream and replaced by the GGML_CUDA_CUBLAS_COMPUTE_TYPE environment variable, which you can set under Settings. Kept only for building older refs that still define it. On a recent ref this changes nothing.",
+				Flag:        "GGML_CUDA_NO_PEER_COPY",
+				Label:       "Disable Peer-to-Peer Copies",
+				Description: "Route multi-GPU transfers through system memory instead of direct GPU-to-GPU copies. Fixes corrupt or garbage output on multi-GPU boards whose PCIe topology lacks real peer-to-peer support (common on consumer chipsets). Leave off unless you see that symptom.",
 				Default:     false,
 			},
 		}...)
 	case "rocm":
 		return append(common, []BuildOption{
+			forceMMQ,
+			faAllQuants,
 			{
-				Flag:        "LLAMA_HIP_UMA",
-				Label:       "HIP Unified Memory Access",
-				Description: "Enable unified memory for ROCm. Enable for APUs only — hurts performance on discrete GPUs.",
-				Default:     false,
-			},
-			{
-				Flag:        "GGML_CUDA_ENABLE_UNIFIED_MEMORY",
-				Label:       "Unified Memory (VRAM Overflow)",
-				Description: "Allow models larger than VRAM to overflow into system RAM. Slower but lets you run bigger models.",
+				Flag:        "GGML_HIP_RCCL",
+				Label:       "RCCL Collectives (Tensor Parallelism)",
+				Description: "Build against RCCL, ROCm's collective communications library, for the AllReduce that fires every layer under tensor parallelism. Without it the build falls back to a slower generic path (the 'falling back to meta-backend butterfly' message in the logs). Only matters for split-mode tensor across 2+ GPUs; requires rccl-devel to build.",
 				Default:     false,
 			},
 			{
 				Flag:        "GGML_HIP_ROCWMMA_FATTN",
-				Label:       "rocWMMA FlashAttention",
-				Description: "Builds the FlashAttention kernel against rocWMMA. Whether this helps depends on the model, not just the GPU: llama.cpp now has native MMA attention kernels, but they only apply when head size is <= 128 with GQA >= 2 and a mask (no ALiBi). Outside that, the rocWMMA path covers cases the native kernel declines, and turning this off drops to the slower generic tile kernel. Measured +24% prompt processing on Qwen3.6-27B-MTP on gfx1201, and upstream reports the opposite for llama-8B Q4_0 — so benchmark both builds rather than assuming. Requires --flash-attn at runtime and rocwmma-devel to build.",
-				Default:     false,
-			},
-			{
-				Flag:        "CMAKE_HIP_FLAGS",
-				Value:       "-funsafe-math-optimizations",
-				Label:       "HIP Fast Math",
-				Description: "Compiles HIP kernels with -funsafe-math-optimizations. Current llama.cpp already applies this unconditionally (alongside -ffast-math -fno-finite-math-only, deliberately — plain -ffast-math breaks ggml's INFINITY masking and produces NaNs), so this only matters for refs older than 2026-07-09 (commit ccb0c34). Harmless on newer refs.",
-				Default:     false,
-			},
-			{
-				Flag:        "GGML_CUDA_FORCE_CUBLAS_COMPUTE_16F",
-				Label:       "Force FP16 hipBLAS Compute Type",
-				Description: "No effect on current llama.cpp — this flag was removed upstream and replaced by the GGML_CUDA_CUBLAS_COMPUTE_TYPE environment variable, which you can set under Settings. Kept only for building older refs that still define it. On a recent ref this changes nothing.",
+				Label:       "rocWMMA FlashAttention (older refs only)",
+				Description: "Builds the FlashAttention kernel against rocWMMA. Upstream REMOVED this path at b10332 (PR #26046) — on b10332 or newer this toggle is a silent no-op and the native MMA kernel is always used. That native kernel regresses prompt processing on RDNA4 (gfx1201) by 25-49% at deep context (upstream issue #26220, still open); rocWMMA measured +24% prompt processing on Qwen3.6-27B-MTP here. To use it, pin a ref older than b10332 and enable this. Requires rocwmma-devel to build and --flash-attn at runtime.",
 				Default:     false,
 			},
 		}...)
 	case "vulkan":
-		return append(common, []BuildOption{
-			{
-				Flag:        "GGML_VULKAN_CHECK_RESULTS",
-				Label:       "Vulkan: Check Results",
-				Description: "Cross-check Vulkan kernel outputs against the CPU backend. Significant slowdown — debug only.",
-				Default:     false,
-			},
-			{
-				Flag:        "GGML_VULKAN_VALIDATE",
-				Label:       "Vulkan: Validation Layers",
-				Description: "Enable Vulkan validation layers. Requires the Vulkan SDK; useful for development.",
-				Default:     false,
-			},
-		}...)
+		// No Vulkan-specific toggles: upstream has no performance build
+		// flags for Vulkan — its tuning levers are runtime environment
+		// variables (GGML_VK_DISABLE_COOPMAT, GGML_VK_FORCE_MAX_ALLOCATION_SIZE
+		// under Settings). The debug flags (GGML_VULKAN_CHECK_RESULTS,
+		// GGML_VULKAN_VALIDATE) are reachable via Extra CMake flags.
+		return common
 	case "metal":
 		return common
 	case "cpu":
@@ -145,8 +148,10 @@ func DefaultProfiles() []BuildProfile {
 			Name:    "rocm",
 			Backend: "rocm",
 			CMakeFlags: map[string]string{
-				"GGML_HIP":        "ON",
-				"AMDGPU_TARGETS":  gpuTargets,
+				"GGML_HIP": "ON",
+				// GPU_TARGETS is the current documented name; upstream
+				// still forwards the older AMDGPU_TARGETS spelling to it.
+				"GPU_TARGETS":      gpuTargets,
 				"CMAKE_BUILD_TYPE": "Release",
 			},
 		},

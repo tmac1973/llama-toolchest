@@ -56,6 +56,10 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	s.cfgMu.Lock()
 	defer s.cfgMu.Unlock()
 
+	// Set when this request changed the runtime environment section, so
+	// the response can carry the footgun warnings and refreshed preview.
+	envTouched := false
+
 	if r.Header.Get("Content-Type") == "application/json" {
 		var update struct {
 			LlamaPort *int    `json:"llama_port,omitempty"`
@@ -94,21 +98,35 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 				s.cfg.ModelsMax = v
 			}
 		}
-		// Curated runtime env vars. Presence of the marker means the form
-		// included this section, so an unchecked/blank field clears the
-		// value rather than being ignored.
+		// Runtime env. Presence of the marker means the form included
+		// this section, so a blanked field clears the value rather than
+		// being ignored. Fields absent from the form entirely (curated
+		// options hidden by the backend filter) keep their saved value —
+		// though the filter already keeps any set variable visible, so
+		// this is a second line of defense, not the mechanism.
 		if r.Form.Has("runtime_env_touched") {
 			env := map[string]string{}
 			for _, opt := range config.RuntimeEnvOptions() {
-				if v := strings.TrimSpace(r.FormValue("env_" + opt.Name)); v != "" {
+				if r.Form.Has("env_" + opt.Name) {
+					if v := strings.TrimSpace(r.FormValue("env_" + opt.Name)); v != "" {
+						env[opt.Name] = v
+					}
+				} else if v := strings.TrimSpace(s.cfg.RuntimeEnv[opt.Name]); v != "" {
 					env[opt.Name] = v
 				}
 			}
-			if err := config.ValidateRuntimeEnv(env); err != nil {
+			extra := s.cfg.RuntimeEnvExtra
+			if r.Form.Has("runtime_env_extra") {
+				extra = r.FormValue("runtime_env_extra")
+			}
+			set := config.EnvSet{Curated: env, Extra: extra}
+			if err := set.Validate(); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
 			s.cfg.RuntimeEnv = env
+			s.cfg.RuntimeEnvExtra = extra
+			envTouched = true
 		}
 		if r.Form.Has("auto_start_touched") {
 			s.cfg.AutoStart = r.FormValue("auto_start") == "on"
@@ -130,6 +148,18 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 
 	if isHTMX(r) {
 		respondHTML(w)
+		if envTouched {
+			// Footgun warnings plus an out-of-band refresh of the
+			// effective-environment preview.
+			s.renderPartial(w, "runtime_env_status", struct {
+				Warnings  []string
+				Effective []envLine
+			}{
+				Warnings:  s.cfg.EnvSet().Warnings(),
+				Effective: s.effectiveEnvLines(),
+			})
+			return
+		}
 		proxyEndpoint := strings.TrimRight(s.cfg.ExternalURL, "/") + "/v1"
 		// Out-of-band swap to update the proxy endpoint display
 		fmt.Fprintf(w, `<p>Settings saved.</p><pre id="proxy-endpoint" hx-swap-oob="true">%s</pre>`, proxyEndpoint)

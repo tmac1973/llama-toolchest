@@ -3,38 +3,65 @@
 
 <article>
     <header>Runtime environment</header>
-    <p>Environment variables applied to the llama-server process. These are
-       process-wide, not per model — the router hosts every model in one
-       process. A change takes effect on the next server restart.</p>
-    <p><small style="color:var(--pico-muted-color);">
-       This list is deliberately short. Most environment variables that circulate
-       as llama.cpp tuning tips are either no-ops for it or workarounds for other
-       stacks. Leave these unset unless you are measuring a specific difference —
-       a benchmark job with two builds is the way to tell.
-    </small></p>
+    <p>Environment variables applied to the llama-server process and inherited by
+       every model instance it spawns — process-wide, not per model. Changes take
+       effect on the next server restart.
+       {{if .EnvBackend}}<small style="color:var(--pico-muted-color);">Showing
+       variables for <b>{{.EnvBackend}}</b> builds; variables for other backends
+       appear when such a build is active or when they hold a value.</small>{{end}}</p>
     <form hx-put="/api/settings"
           hx-target="#runtime-env-status"
           hx-swap="innerHTML"
           hx-trigger="change">
         <input type="hidden" name="runtime_env_touched" value="1">
-        {{range .RuntimeEnvOpts}}
-        <label>
-            {{.Label}} <code style="font-size:0.8em;">{{.Name}}</code>
-            {{if .Values}}
-            <select name="env_{{.Name}}">
-                {{$current := index $.RuntimeEnv .Name}}
-                {{range .Values}}
-                <option value="{{.}}" {{if eq . $current}}selected{{end}}>{{if eq . ""}}unset{{else}}{{.}}{{end}}</option>
-                {{end}}
-            </select>
-            {{else}}
-            <input type="text" name="env_{{.Name}}" value="{{index $.RuntimeEnv .Name}}" placeholder="unset">
+        <table style="margin-bottom:0;">
+            <tbody>
+            {{range .RuntimeEnvOpts}}
+            <tr>
+                <td style="vertical-align:middle;">
+                    <details style="margin:0; padding:0; border:none;">
+                        <summary style="font-size:0.9em; margin:0;">{{.Label}} <code style="font-size:0.8em;">{{.Name}}</code></summary>
+                        <small style="color:var(--pico-muted-color);">{{.Help}}</small>
+                    </details>
+                </td>
+                <td style="width:12rem; vertical-align:middle;">
+                    {{if .Values}}
+                    <select name="env_{{.Name}}" style="margin:0;">
+                        {{$current := index $.RuntimeEnv .Name}}
+                        {{range .Values}}
+                        <option value="{{.}}" {{if eq . $current}}selected{{end}}>{{if eq . ""}}unset{{else}}{{.}}{{end}}</option>
+                        {{end}}
+                    </select>
+                    {{else}}
+                    <input type="text" name="env_{{.Name}}" value="{{index $.RuntimeEnv .Name}}" placeholder="unset" style="margin:0;">
+                    {{end}}
+                </td>
+            </tr>
             {{end}}
-            <small style="color:var(--pico-muted-color);">{{.Help}}</small>
+            </tbody>
+        </table>
+        <label style="margin-top:1rem;">
+            Extra environment
+            <textarea name="runtime_env_extra" rows="3"
+                      placeholder="KEY=VALUE &mdash; one per line, # comments allowed"
+                      style="font-family:var(--pico-font-family-monospace); font-size:0.85em;">{{.RuntimeEnvExtra}}</textarea>
+            <small style="color:var(--pico-muted-color);">
+                Escape hatch for anything not listed — most variables that circulate as
+                llama.cpp tuning tips are no-ops for it, so measure before keeping one.
+                Applied last, overriding the dropdowns on a name clash. Known-footgun
+                variables save with a warning.
+            </small>
         </label>
-        {{end}}
     </form>
-    <div id="runtime-env-status"></div>
+    <div id="runtime-env-status">
+        {{range .EnvWarnings}}
+        <p><mark>&#9888; {{.}}</mark></p>
+        {{end}}
+    </div>
+    <details>
+        <summary>Effective environment</summary>
+        <pre id="effective-env" style="font-size:0.8em; white-space:pre-wrap;">{{template "effective_env" .EffectiveEnv}}</pre>
+    </details>
 </article>
 
 <article>

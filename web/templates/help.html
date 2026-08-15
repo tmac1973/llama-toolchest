@@ -146,14 +146,17 @@
     <p>The <em>Profile</em> dropdown only lists backends detected on this system — the SDK or driver for a backend must be present for it to appear (no CUDA toolkit → no CUDA option, and so on).</p>
     <dl>
         <dt>CUDA</dt><dd>NVIDIA GPUs. Requires the CUDA toolkit.</dd>
-        <dt>ROCm</dt><dd>AMD GPUs. Requires ROCm. The GPU arch is auto-detected from <code>rocminfo</code> when possible (e.g. <code>gfx1201</code> for Radeon R9700), falling back to <code>gfx1100</code> if detection fails. To target a different arch, set <code>AMDGPU_TARGETS</code> in the Extra CMake Flags box.</dd>
+        <dt>ROCm</dt><dd>AMD GPUs. Requires ROCm. The GPU arch is auto-detected from <code>rocminfo</code> when possible (e.g. <code>gfx1201</code> for Radeon R9700), falling back to <code>gfx1100</code> if detection fails. To target a different arch, set <code>GPU_TARGETS</code> in the Extra CMake Flags box.</dd>
         <dt>Vulkan</dt><dd>Vendor-neutral GPU acceleration (AMD, NVIDIA, Intel) through the Vulkan driver — handy when you don't have a vendor SDK installed. <strong>Host-mode only:</strong> Vulkan isn't offered when running inside a container, since that requires host driver/ICD passthrough the container doesn't manage.</dd>
         <dt>Metal</dt><dd>Apple GPUs. Only appears when running on macOS.</dd>
         <dt>CPU</dt><dd>Portable build with no GPU acceleration. Always available.</dd>
     </dl>
 
     <h3>Ref selection</h3>
-    <p>Choose a specific llama.cpp release tag (<code>b*</code>) or <code>latest</code> to auto-pick the newest. Some features (like experimental tensor parallelism) only exist after a certain ref.</p>
+    <p>Choose a specific llama.cpp release tag (<code>b*</code>) or <code>latest</code> to auto-pick the newest. Some features (like experimental tensor parallelism) only exist after a certain ref — and a few go the other way: <strong>rocWMMA FlashAttention</strong> was removed upstream at <code>b10332</code>, so its toggle only affects refs older than that. It remains the fastest prompt-processing path on RDNA4 (the replacement kernel is 25&ndash;49% slower at deep context on gfx1201, upstream issue #26220), so RDNA4 users chasing prompt speed should pin an older ref and enable it.</p>
+
+    <h3>Build options</h3>
+    <p>The toggles under each profile are a curated set: every one offers a real performance or compatibility payoff on refs you'd build today, with the description saying when to enable it. Debug-only flags (like the Vulkan validation layers) and flags removed upstream aren't offered as toggles — anything else llama.cpp's CMake accepts can go in the <em>Extra CMake Flags</em> box, and the effective-flags preview shows exactly what the build will receive either way. Vulkan has no performance build flags at all upstream; its tuning levers are runtime environment variables under Settings.</p>
 
     <h2 id="models">Models</h2>
     <p>Every downloaded GGUF shows up here. The list is grouped by HuggingFace <strong>org</strong>, then by <strong>base model name</strong> (the repo minus <code>-GGUF</code>), with all quants of a base model shown together.</p>
@@ -282,7 +285,7 @@
     <h2 id="settings">Settings</h2>
     <dl>
         <dt>Auto-start</dt><dd>Start the llama-server automatically on startup (container boot or service start), using the selected build and model configs.</dd>
-        <dt>Runtime environment</dt><dd>A short, curated set of environment variables applied to the llama-server process. They are process-wide rather than per model, because the router hosts every model in one process, and take effect on the next restart. A value already exported around the service (a systemd drop-in, container env) wins over one set here. The list is deliberately short: most environment variables that circulate as llama.cpp tuning tips are either no-ops for it or workarounds for other stacks. Leave them unset unless you are measuring a specific difference.</dd>
+        <dt>Runtime environment</dt><dd>Environment variables applied to the llama-server router process and inherited identically by every model instance it spawns — process-wide, not per model — taking effect on the next restart. The table shows the curated variables relevant to your active build's backend (a variable with a value set stays visible even after switching backends, so nothing applies invisibly). The curated list is deliberately short: most environment variables that circulate as llama.cpp tuning tips are either no-ops for it or workarounds for other stacks — leave them unset unless you are measuring a specific difference. The <em>Extra environment</em> box takes anything else, one <code>KEY=VALUE</code> per line; it's applied last, so it overrides the dropdowns on a name clash, and known-footgun variables (device-visibility overrides, <code>HSA_OVERRIDE_GFX_VERSION</code>, <code>CUDA_DEVICE_ORDER</code>) save with a warning explaining the hazard. The <em>Effective environment</em> preview shows the final list as the launch will apply it — a value already exported around the service (a systemd drop-in, container env) wins over one set here, and the preview marks those.</dd>
         <dt>Server URL</dt><dd>The externally-reachable base URL of this web UI — used for the clickable API endpoint and Chat UI links. Change this if you access the UI from another host.</dd>
         <dt>OpenAI-Compatible Proxy</dt><dd>The <code>/v1</code> endpoint exposed to clients. <em>Test Connection</em> verifies the llama-server is reachable.</dd>
         <dt>API Key</dt><dd>Optional Bearer token required for <code>/v1/*</code> requests. Leave blank for an open proxy.</dd>

@@ -24,10 +24,15 @@ type Config struct {
 	AutoStart   bool   `yaml:"auto_start"`   // start the llama-server on container startup
 
 	// RuntimeEnv holds curated environment variables applied to the
-	// llama-server router process. Router-wide by nature: it hosts every
-	// model in one process, so per-model env is not expressible.
-	// See RuntimeEnvOptions for the allowed set.
+	// llama-server router process. Router-wide by nature: every spawned
+	// model instance inherits this environment identically, so per-model
+	// env is not expressible. See RuntimeEnvOptions for the allowed set.
 	RuntimeEnv map[string]string `yaml:"runtime_env,omitempty"`
+
+	// RuntimeEnvExtra is the free-form escape hatch: KEY=VALUE lines
+	// applied alongside RuntimeEnv (and overriding it on a name clash).
+	// Any variable is accepted; known footguns warn on save.
+	RuntimeEnvExtra string `yaml:"runtime_env_extra,omitempty"`
 }
 
 // ModelsPath returns the directory where GGUF models live. ModelsDir wins
