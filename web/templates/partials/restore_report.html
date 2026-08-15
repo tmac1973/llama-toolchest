@@ -1,0 +1,51 @@
+{{define "restore_report"}}
+{{if .Error}}
+<p><mark>&#9888; {{.Error}}</mark></p>
+{{else}}
+{{if .Applied}}
+<p><strong>Applied</strong></p>
+<ul style="margin-top:0;">
+    {{range .Applied}}<li><small>{{.}}</small></li>{{end}}
+</ul>
+{{end}}
+{{range .Notes}}
+<p><small>&#8505; {{.}}</small></p>
+{{end}}
+{{range .Warnings}}
+<p><mark>&#9888; {{.}}</mark></p>
+{{end}}
+{{if .Skipped}}
+<p><strong>Skipped</strong></p>
+<ul style="margin-top:0;">
+    {{range .Skipped}}<li><small>{{.Item}} — {{.Reason}}</small></li>{{end}}
+</ul>
+{{end}}
+{{if .NotSelected}}
+<p><small>Not selected (skipped by choice): {{range $i, $s := .NotSelected}}{{if $i}}, {{end}}{{$s}}{{end}}</small></p>
+{{end}}
+{{if .Missing}}
+<p><strong>Models not installed</strong></p>
+<ul style="margin-top:0;">
+    {{range .Missing}}
+    <li>
+        <small><code>{{.ModelID}}</code> {{.Quant}}
+        {{if .Pending}}&mdash; held as pending; its config applies automatically when the model is installed.{{else}}&mdash; install this model to apply its config.{{end}}</small>
+        <span id="restore-dl-{{cssID .ModelID}}-{{cssID .Quant}}"></span>
+        <button type="button" class="outline" style="padding:0.1rem 0.6rem;font-size:0.8em;margin:0 0 0 0.5rem;"
+                hx-post="/api/hf/download"
+                hx-vals='{"model_id": "{{.ModelID}}", "filename": "{{.Filename}}", "inline": "1"}'
+                hx-target="#restore-dl-{{cssID .ModelID}}-{{cssID .Quant}}"
+                hx-swap="innerHTML"
+                hx-disabled-elt="this">Download</button>
+    </li>
+    {{end}}
+</ul>
+{{if gt (len .Missing) 1}}
+<button type="button" class="outline secondary" style="padding:0.15rem 0.75rem;font-size:0.85em;"
+        onclick="var btns=this.closest('div').querySelectorAll('button[hx-post$=download]'); for(var i=0;i<btns.length;i++){if(!btns[i].disabled)btns[i].click();} this.disabled=true;">
+    Download all missing
+</button>
+{{end}}
+{{end}}
+{{end}}
+{{end}}

@@ -1,6 +1,8 @@
 package models
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -167,5 +169,62 @@ func TestAssignedModelGPUs(t *testing.T) {
 				break
 			}
 		}
+	}
+}
+
+// AssignGPUsOutOfRange feeds the backup restore engine's topology check.
+// The legacy tensor-N form must be checked unclamped — tensorAssignGPUs
+// clamps N and would pass "tensor-4" on a 2-GPU box as in range.
+func TestAssignGPUsOutOfRange(t *testing.T) {
+	cases := []struct {
+		assign  string
+		numGPUs int
+		want    bool
+	}{
+		{"tensor-4", 2, true},
+		{"tensor-2", 2, false},
+		{"tensor:1,2", 2, true},
+		{"tensor:0,1", 2, false},
+		{"2-3", 2, true},
+		{"0-1", 4, false},
+		{"1,3", 3, true},
+		{"all", 1, false},
+		{"custom", 1, false},
+		{"", 1, false},
+		{"garbage", 1, false},
+	}
+	for _, c := range cases {
+		if got := AssignGPUsOutOfRange(c.assign, c.numGPUs); got != c.want {
+			t.Errorf("AssignGPUsOutOfRange(%q, %d) = %v, want %v", c.assign, c.numGPUs, got, c.want)
+		}
+	}
+}
+
+// ResolveConfigPaths is shared by restore-apply and pending-claim.
+func TestResolveConfigPaths(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "repo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(dir, "repo", "mmproj.gguf"), []byte("x"), 0o644)
+	abs := filepath.Join(dir, "repo", "mmproj.gguf")
+
+	cfg := &ModelConfig{
+		MmprojPath:     filepath.Join("repo", "mmproj.gguf"),  // relative, exists
+		MtpPath:        filepath.Join("repo", "missing.gguf"), // relative, missing
+		DraftModelPath: abs,                                   // absolute, exists
+	}
+	warnings := ResolveConfigPaths(cfg, dir)
+	if cfg.MmprojPath != abs {
+		t.Errorf("relative existing path should resolve: %q", cfg.MmprojPath)
+	}
+	if cfg.MtpPath != "" {
+		t.Errorf("missing path should blank: %q", cfg.MtpPath)
+	}
+	if cfg.DraftModelPath != abs {
+		t.Errorf("absolute existing path should stay: %q", cfg.DraftModelPath)
+	}
+	if len(warnings) != 1 {
+		t.Errorf("want 1 warning, got %v", warnings)
 	}
 }

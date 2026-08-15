@@ -355,6 +355,38 @@ func tensorAssignGPUs(assign string, numGPUs int) ([]int, bool) {
 	return nil, false
 }
 
+// AssignGPUsOutOfRange reports whether a GPU assignment references GPU
+// indices this machine doesn't have. Used by the backup restore engine
+// to detect configs imported from a box with more GPUs.
+//
+// The legacy "tensor-N" form must be checked with the unclamped
+// parseTensorAssign — tensorAssignGPUs clamps N to numGPUs and would
+// report "tensor-4" on a 2-GPU box as in range. Explicit-set and range
+// forms are unclamped already, so their max referenced index is checked
+// directly. "all", "custom", "" and unparseable values report false —
+// they either adapt to any topology or are the caller's problem to
+// warn about separately.
+func AssignGPUsOutOfRange(assign string, numGPUs int) bool {
+	if numGPUs <= 0 {
+		return false
+	}
+	if n, ok := parseTensorAssign(assign); ok {
+		return n > numGPUs
+	}
+	var gpus []int
+	if rest, ok := strings.CutPrefix(assign, "tensor:"); ok {
+		gpus = parseIntList(rest)
+	} else {
+		gpus = parseGPURange(assign)
+	}
+	for _, g := range gpus {
+		if g >= numGPUs {
+			return true
+		}
+	}
+	return false
+}
+
 // parseIntList parses "0,2,3" into indices; nil on any invalid entry.
 func parseIntList(s string) []int {
 	var out []int
