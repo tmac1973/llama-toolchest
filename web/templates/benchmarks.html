@@ -396,6 +396,34 @@ function onParamInheritToggle(cb) {
     syncParamRow(row);
 }
 
+// updateSpecValue re-encodes a speculative mode's checkbox value from
+// its settings inputs: "mode:key=value,..." with empty inputs omitted
+// (empty = use the model's saved value), bare "mode" when all are
+// empty. Editing a setting selects the mode, since editing expresses
+// intent to use it.
+function updateSpecValue(input) {
+    var box = input.closest('.spec-params');
+    var row = input.closest('.param-row');
+    if (!box || !row) return;
+    var mode = box.getAttribute('data-mode');
+    var pairs = [];
+    box.querySelectorAll('.spec-param-input').forEach(function (inp) {
+        var v = (inp.value || '').trim();
+        if (v !== '') pairs.push(inp.getAttribute('data-key') + '=' + v);
+    });
+    var cb = Array.from(row.querySelectorAll('.param-value'))
+        .find(function (c) { return c.getAttribute('data-mode') === mode; });
+    if (!cb) return;
+    cb.value = pairs.length ? mode + ':' + pairs.join(',') : mode;
+    if (!cb.checked) {
+        cb.checked = true;
+        onParamValueToggle(cb);
+    } else {
+        syncParamRow(row);
+    }
+    updateMatrixCount();
+}
+
 function onParamValueToggle(cb) {
     var row = cb.closest('.param-row');
     var inherit = row.querySelector('.param-inherit');
@@ -428,6 +456,32 @@ function addParamCustom(el) {
 // booleans) previously dropped any stored value the list didn't cover,
 // silently deleting the setting when the job was edited.
 function addParamValue(row, raw) {
+    // Speculative decoding values restore onto their mode's checkbox and
+    // settings inputs rather than becoming custom entries: the mode is
+    // the text before ":", the settings are key=value pairs after it.
+    var specMode = raw.split(':')[0].trim();
+    var specCb = Array.from(row.querySelectorAll('.param-value'))
+        .find(function (c) { return c.getAttribute('data-mode') === specMode; });
+    if (specCb) {
+        var box = row.querySelector('.spec-params[data-mode="' + specMode + '"]');
+        if (box) {
+            var settings = {};
+            (raw.split(':')[1] || '').split(',').forEach(function (pair) {
+                var kv = pair.split('=');
+                if (kv.length === 2) settings[kv[0].trim()] = kv[1].trim();
+            });
+            box.querySelectorAll('.spec-param-input').forEach(function (inp) {
+                var k = inp.getAttribute('data-key');
+                inp.value = (k in settings) ? settings[k] : '';
+            });
+        }
+        specCb.value = raw;
+        specCb.checked = true;
+        var inh = row.querySelector('.param-inherit');
+        if (inh) inh.checked = false;
+        syncParamRow(row);
+        return;
+    }
     // Reuse an existing checkbox when the value is already offered, so
     // this can't create a duplicate the server would reject.
     var existing = Array.from(row.querySelectorAll('.param-value'))

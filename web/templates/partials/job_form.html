@@ -36,6 +36,13 @@
 .param-custom input { margin: 0; font-size: 0.85rem; }
 .param-custom button { margin: 0; width: auto; padding: 0.15rem 0.6rem; font-size: 0.8rem; }
 
+/* Per-mode settings under a speculative decoding choice. */
+.spec-params { margin: 0 0 0.3rem 1.5rem; }
+.spec-params > summary { font-size: 0.8rem; color: var(--pico-muted-color); cursor: pointer; }
+.spec-params .spec-param { display: flex; align-items: center; gap: 0.5rem; margin: 0.15rem 0; }
+.spec-params .spec-param small { min-width: 10rem; color: var(--pico-muted-color); }
+.spec-params .spec-param-input { margin: 0; width: 7rem; font-size: 0.85rem; padding: 0.1rem 0.4rem; height: auto; }
+
 </style>
 
 <form id="new-job-form" data-max-cells="{{.MaxCells}}" onsubmit="event.preventDefault();submitNewJob();">
@@ -120,9 +127,23 @@
                     {{range .Choices}}
                     <label>
                         <input type="checkbox" class="param-value" data-param-value="{{$p.Name}}"
-                               value="{{.Value}}" onchange="onParamValueToggle(this)">
+                               value="{{.Value}}"{{if .Params}} data-mode="{{.Mode}}"{{end}} onchange="onParamValueToggle(this)">
                         {{.Label}}
                     </label>
+                    {{if .Params}}
+                    <details class="spec-params" data-mode="{{.Mode}}">
+                        <summary><small>settings</small></summary>
+                        {{range .Params}}
+                        <label class="spec-param" title="Clear the field to use the model's saved value.">
+                            <small>{{.Label}}</small>
+                            <input type="text" inputmode="decimal" class="spec-param-input"
+                                   data-key="{{.Key}}" value="{{.Default}}"
+                                   placeholder="model's saved value"
+                                   oninput="updateSpecValue(this)">
+                        </label>
+                        {{end}}
+                    </details>
+                    {{end}}
                     {{end}}
                     {{if .AllowCustom}}
                     <div class="param-custom">

@@ -21,40 +21,27 @@ import (
 // it on every save would clobber user-tuned values within an existing mode
 // (the form parser already loaded them from the request into cfg).
 func applySpecDefaults(cfg *models.ModelConfig) {
-	switch cfg.SpecType {
-	case "":
-		cfg.DraftMax = 0
-		cfg.DraftMin = 0
-		cfg.DraftPMin = ""
-		cfg.NgramSizeN = 0
-		cfg.NgramSizeM = 0
-	case "draft":
-		cfg.DraftMax = 16
-		cfg.DraftMin = 0
-		cfg.DraftPMin = "0.75"
-		cfg.NgramSizeN = 0
-		cfg.NgramSizeM = 0
-	case "draft-mtp":
-		// unsloth's MTP cookbook uses --spec-draft-n-max 6 for Qwen3.6.
-		// Leave min/p-min at llama.cpp defaults — MTP heads have their
-		// own acceptance logic and the broader knobs rarely help.
-		cfg.DraftMax = 6
-		cfg.DraftMin = 0
-		cfg.DraftPMin = ""
-		cfg.NgramSizeN = 0
-		cfg.NgramSizeM = 0
-	case "ngram-simple", "ngram-cache", "ngram-map-k", "ngram-map-k4v":
-		cfg.DraftMax = 16
-		cfg.DraftMin = 0
-		cfg.DraftPMin = ""
-		cfg.NgramSizeN = 12
-		cfg.NgramSizeM = 48
-	case "ngram-mod":
-		cfg.DraftMax = 64
-		cfg.DraftMin = 48
-		cfg.DraftPMin = ""
-		cfg.NgramSizeN = 24
-		cfg.NgramSizeM = 48
+	// Zero everything, then apply the mode's recommended defaults from
+	// the shared table — the same one the benchmark job form renders, so
+	// the two surfaces cannot disagree.
+	cfg.DraftMax = 0
+	cfg.DraftMin = 0
+	cfg.DraftPMin = ""
+	cfg.NgramSizeN = 0
+	cfg.NgramSizeM = 0
+	for _, p := range models.SpecModeParams(cfg.SpecType) {
+		switch p.Key {
+		case "draft_max":
+			cfg.DraftMax, _ = strconv.Atoi(p.Default)
+		case "draft_min":
+			cfg.DraftMin, _ = strconv.Atoi(p.Default)
+		case "draft_p_min":
+			cfg.DraftPMin = p.Default
+		case "ngram_size_n":
+			cfg.NgramSizeN, _ = strconv.Atoi(p.Default)
+		case "ngram_size_m":
+			cfg.NgramSizeM, _ = strconv.Atoi(p.Default)
+		}
 	}
 }
 
