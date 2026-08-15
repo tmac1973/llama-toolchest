@@ -3,6 +3,8 @@
 package monitor
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -110,6 +112,45 @@ Agent 1
 `
 	if got := parseROCmGPUNames(out); len(got) != 0 {
 		t.Errorf("parseROCmGPUNames = %v; want empty", got)
+	}
+}
+
+// TestIndexOfDevice guards the rocm-smi index mapping: DRM card numbers
+// follow driver probe order while the monitor's device list follows KFD
+// order, and rocm-smi's "cardN" labels must be resolved to KFD positions
+// or one card's utilization gets paired with another card's VRAM and
+// name. A card and a render node of the same GPU are symlinks to one
+// PCI device directory; indexOfDevice matches them by resolved path.
+func TestIndexOfDevice(t *testing.T) {
+	tmp := t.TempDir()
+	// Two PCI device directories.
+	pciA := filepath.Join(tmp, "pci0000:03:00.0")
+	pciB := filepath.Join(tmp, "pci0000:83:00.0")
+	for _, d := range []string{pciA, pciB} {
+		if err := os.Mkdir(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// KFD order lists B first; DRM probe order made A card0 and B card1.
+	link := func(name, target string) string {
+		p := filepath.Join(tmp, name)
+		if err := os.Symlink(target, p); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	kfdDirs := []string{link("renderD128", pciB), link("renderD129", pciA)}
+	card0 := link("card0-device", pciA)
+	card1 := link("card1-device", pciB)
+
+	if got := indexOfDevice(kfdDirs, card0); got != 1 {
+		t.Errorf("indexOfDevice(card0) = %d; want 1", got)
+	}
+	if got := indexOfDevice(kfdDirs, card1); got != 0 {
+		t.Errorf("indexOfDevice(card1) = %d; want 0", got)
+	}
+	if got := indexOfDevice(kfdDirs, filepath.Join(tmp, "missing")); got != -1 {
+		t.Errorf("indexOfDevice(missing) = %d; want -1", got)
 	}
 }
 

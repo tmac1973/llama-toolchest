@@ -60,6 +60,10 @@ func (r *rocmBackend) collectROCmSMI() ([]GPUInfo, error) {
 		colIdx[strings.TrimSpace(h)] = i
 	}
 
+	// KFD-ordered device dirs: position N belongs to the GPU
+	// llama-server addresses as ROCm<N>.
+	dirs := listAMDGPUDirs()
+
 	var gpus []GPUInfo
 	for _, line := range lines[1:] {
 		fields := strings.Split(line, ",")
@@ -74,10 +78,28 @@ func (r *rocmBackend) collectROCmSMI() ([]GPUInfo, error) {
 			// fails and leaves Index=0 for every GPU, which made
 			// every GPU show up as GPU0 in the sidebar.
 			s := strings.TrimSpace(fields[i])
-			s = strings.TrimPrefix(s, "card")
-			s = strings.TrimPrefix(s, "GPU ")
-			s = strings.TrimPrefix(s, "GPU")
-			gpu.Index, _ = strconv.Atoi(s)
+			if num, isCard := strings.CutPrefix(s, "card"); isCard {
+				// "cardN" is the DRM card number, which follows driver
+				// probe order — not the KFD order every other index in
+				// this package (and llama-server's ROCm<N> devices)
+				// uses. Using it directly attributed one card's
+				// utilization to another card's VRAM/name whenever the
+				// two orders disagreed. Map the card to its KFD
+				// position instead; fall back to the raw number only
+				// when the card can't be found.
+				n, _ := strconv.Atoi(num)
+				gpu.Index = n
+				cardDir := fmt.Sprintf("/sys/class/drm/card%d/device", n)
+				if idx := indexOfDevice(dirs, cardDir); idx >= 0 {
+					gpu.Index = idx
+				}
+			} else {
+				// "GPU N" is rocm-smi's logical index, already in KFD
+				// order.
+				s = strings.TrimPrefix(s, "GPU ")
+				s = strings.TrimPrefix(s, "GPU")
+				gpu.Index, _ = strconv.Atoi(s)
+			}
 		}
 		if i, ok := colIdx["GPU use (%)"]; ok && i < len(fields) {
 			gpu.UtilPercent, _ = strconv.Atoi(strings.TrimSpace(fields[i]))
@@ -94,10 +116,11 @@ func (r *rocmBackend) collectROCmSMI() ([]GPUInfo, error) {
 			gpu.PowerW, _ = strconv.ParseFloat(strings.TrimSpace(fields[i]), 64)
 		}
 
-		// Get VRAM info from sysfs (more reliable than rocm-smi CSV)
-		vramUsed, vramTotal := readVRAMSysfs(gpu.Index)
-		gpu.VRAMUsedMB = vramUsed
-		gpu.VRAMTotalMB = vramTotal
+		// Get VRAM info from sysfs (more reliable than rocm-smi CSV).
+		// gpu.Index is a KFD position now, so it indexes dirs directly.
+		if gpu.Index >= 0 && gpu.Index < len(dirs) {
+			gpu.VRAMUsedMB, gpu.VRAMTotalMB = readVRAMFromDir(dirs[gpu.Index])
+		}
 
 		// Get GPU name from sysfs
 		gpu.Name = readGPUNameSysfs(gpu.Index)
@@ -226,14 +249,22 @@ func (r *rocmBackend) collectSysfs() ([]GPUInfo, error) {
 	return gpus, nil
 }
 
-// readVRAMSysfs reads VRAM usage for the Nth AMD GPU. Used by the rocm-smi
-// path, which only knows the GPU index.
-func readVRAMSysfs(gpuIdx int) (usedMB, totalMB int) {
-	dirs := listAMDGPUDirs()
-	if gpuIdx < 0 || gpuIdx >= len(dirs) {
-		return 0, 0
+// indexOfDevice returns the position of deviceDir in dirs, or -1 when
+// absent. Paths are compared after resolving symlinks: a GPU's
+// /sys/class/drm/cardN/device and /sys/class/drm/renderDM/device both
+// link to the same PCI device directory, which is what makes a DRM card
+// findable in the KFD-ordered render-node list.
+func indexOfDevice(dirs []string, deviceDir string) int {
+	target, err := filepath.EvalSymlinks(deviceDir)
+	if err != nil {
+		return -1
 	}
-	return readVRAMFromDir(dirs[gpuIdx])
+	for i, d := range dirs {
+		if resolved, err := filepath.EvalSymlinks(d); err == nil && resolved == target {
+			return i
+		}
+	}
+	return -1
 }
 
 // readVRAMFromDir reads /sys/class/drm/card*/device/mem_info_vram_* from an
