@@ -3,6 +3,7 @@ package builder
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -178,5 +179,20 @@ func TestApplyOptionOverridesIgnoresStaleOverrides(t *testing.T) {
 	}
 	if flags["GGML_CUDA_FORCE_MMQ"] != "ON" {
 		t.Error("override for a live toggle should still apply")
+	}
+}
+
+// setEnvDefault must never clobber a value the operator exported around
+// the service — same precedence rule as applyExtraEnv.
+func TestSetEnvDefault(t *testing.T) {
+	env := []string{"PATH=/usr/bin", "ROCM_PATH=/custom/rocm"}
+	env = setEnvDefault(env, "ROCM_PATH", "/opt/rocm")
+	env = setEnvDefault(env, "HIP_PATH", "/opt/rocm")
+	joined := strings.Join(env, " ")
+	if strings.Contains(joined, "ROCM_PATH=/opt/rocm") {
+		t.Errorf("inherited ROCM_PATH clobbered: %v", env)
+	}
+	if !strings.Contains(joined, "HIP_PATH=/opt/rocm") {
+		t.Errorf("missing HIP_PATH default: %v", env)
 	}
 }
