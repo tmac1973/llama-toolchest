@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"log/slog"
 	"net/http"
 	"os"
@@ -120,6 +121,22 @@ func (s *Server) handleHFDownload(w http.ResponseWriter, r *http.Request) {
 		req.Size, _ = strconv.ParseInt(r.FormValue("size"), 10, 64)
 	}
 
+	// Inline mode: callers whose swap target can't host the table-shaped
+	// download_progress partial (the restore report rows, the pending
+	// ghost cards) get a minimal text fragment instead — and ALWAYS 200,
+	// success or error, because htmx doesn't swap non-2xx responses and
+	// an invisible failure is worse than an inline error line. Live
+	// progress lives in the Downloads panel.
+	inline := r.FormValue("inline") == "1"
+	inlineRespond := func(msg string, isErr bool) {
+		respondHTML(w)
+		if isErr {
+			fmt.Fprintf(w, `<small><mark>%s</mark></small>`, html.EscapeString(msg))
+			return
+		}
+		fmt.Fprintf(w, `<small>%s</small>`, html.EscapeString(msg))
+	}
+
 	// Defense-in-depth disk-space guard. The browse UI also disables the
 	// button when a file won't fit, but a stale page or direct API call
 	// could still POST here.
@@ -128,16 +145,28 @@ func (s *Server) handleHFDownload(w http.ResponseWriter, r *http.Request) {
 		if avail >= 0 && req.Size > avail {
 			needGB := float64(req.Size) / (1024 * 1024 * 1024)
 			haveGB := float64(avail) / (1024 * 1024 * 1024)
-			http.Error(w,
-				fmt.Sprintf("insufficient disk space: need %.1f GiB, only %.1f GiB available after reserving the 2 GiB safety margin and any in-flight downloads", needGB, haveGB),
-				http.StatusInsufficientStorage)
+			msg := fmt.Sprintf("insufficient disk space: need %.1f GiB, only %.1f GiB available after reserving the 2 GiB safety margin and any in-flight downloads", needGB, haveGB)
+			if inline && isHTMX(r) {
+				inlineRespond(msg, true)
+				return
+			}
+			http.Error(w, msg, http.StatusInsufficientStorage)
 			return
 		}
 	}
 
 	downloadID, err := s.downloader.Start(r.Context(), req.ModelID, req.Filename, req.Size)
 	if err != nil {
+		if inline && isHTMX(r) {
+			inlineRespond(err.Error(), true)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if inline && isHTMX(r) {
+		inlineRespond("queued — progress in the Downloads panel", false)
 		return
 	}
 

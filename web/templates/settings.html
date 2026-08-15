@@ -89,6 +89,117 @@
 </article>
 
 <article>
+    <header>Backup &amp; Restore</header>
+    <p>Backs up configuration &mdash; settings, runtime environment, saved
+       build flag sets, and per-model launch configs &mdash; not models,
+       builds, or benchmark history. Model configs are keyed by HuggingFace
+       identity, so a backup restores onto another server; configs for models
+       not installed there wait as pending and attach automatically when the
+       model is downloaded.</p>
+
+    <div class="grid" style="align-items:end;">
+        <label style="margin-bottom:0;" title="Include the HuggingFace token and API key in the backup file, in plaintext. Off by default — only enable when you control where the file goes.">
+            <input type="checkbox" id="backup-secrets" style="margin-right:0.4rem;">
+            Include secrets (HF token, API key)
+        </label>
+        <a id="backup-export" href="/api/backup" role="button" class="outline" style="margin-bottom:0;"
+           title="Download the backup as a JSON file. Also fetchable as GET /api/backup for scripting.">Export Backup</a>
+    </div>
+    <script>
+    document.getElementById('backup-secrets').addEventListener('change', function () {
+        document.getElementById('backup-export').href = this.checked ? '/api/backup?secrets=1' : '/api/backup';
+    });
+    </script>
+
+    <hr>
+
+    <form hx-post="/api/restore"
+          hx-target="#restore-report"
+          hx-swap="innerHTML"
+          hx-encoding="multipart/form-data">
+        <label title="A llama-toolchest backup JSON file. Its contents are previewed below before anything is uploaded.">
+            Restore from backup
+            <input type="file" id="restore-file" name="file" accept=".json,application/json">
+        </label>
+        <div class="grid" id="restore-sections" style="grid-template-columns:repeat(4, auto);justify-content:start;gap:0.5rem 1.5rem;">
+            <label style="margin:0;"><input type="checkbox" name="sec_settings" checked style="margin-right:0.3rem;"><span id="sec-label-settings">Settings</span></label>
+            <label style="margin:0;"><input type="checkbox" name="sec_env" checked style="margin-right:0.3rem;"><span id="sec-label-env">Runtime env</span></label>
+            <label style="margin:0;"><input type="checkbox" name="sec_flags" checked style="margin-right:0.3rem;"><span id="sec-label-flags">Flag presets</span></label>
+            <label style="margin:0;"><input type="checkbox" name="sec_models" checked style="margin-right:0.3rem;"><span id="sec-label-models">Model configs</span></label>
+        </div>
+        <p id="restore-preview-msg"><small style="color:var(--pico-muted-color);">Choose a file to preview its contents.</small></p>
+        <button type="submit" id="restore-submit" disabled
+                title="Merge the selected sections into this server's configuration. Nothing is deleted by a restore.">Restore</button>
+    </form>
+    <div id="restore-report"></div>
+    <script>
+    (function () {
+        var fileInput = document.getElementById('restore-file');
+        var submit = document.getElementById('restore-submit');
+        var msg = document.getElementById('restore-preview-msg');
+        var parsedOK = false;
+
+        function boxes() {
+            return document.querySelectorAll('#restore-sections input[type=checkbox]');
+        }
+        function refreshSubmit() {
+            var any = false;
+            boxes().forEach(function (b) { if (b.checked && !b.disabled) any = true; });
+            submit.disabled = !(parsedOK && any);
+        }
+        boxes().forEach(function (b) { b.addEventListener('change', refreshSubmit); });
+
+        function setSection(id, box, present, label) {
+            document.getElementById(id).textContent = label;
+            box.disabled = !present;
+            if (!present) box.checked = false;
+        }
+
+        fileInput.addEventListener('change', function () {
+            parsedOK = false;
+            var f = fileInput.files[0];
+            if (!f) { refreshSubmit(); return; }
+            var reader = new FileReader();
+            reader.onload = function () {
+                var b = boxes();
+                try {
+                    var d = JSON.parse(reader.result);
+                    if (d.version !== 1) throw new Error('version');
+                    var s = d.settings || {};
+                    var env = d.runtime_env || null;
+                    var envCount = 0;
+                    if (env) {
+                        envCount = Object.keys(env.curated || {}).length;
+                        (env.extra || '').split('\n').forEach(function (l) {
+                            l = l.trim();
+                            if (l && l[0] !== '#') envCount++;
+                        });
+                    }
+                    var hasSecrets = !!(s.hf_token || s.api_key);
+                    setSection('sec-label-settings', b[0], !!d.settings,
+                        'Settings' + (hasSecrets ? ' ⚠ contains secrets' : ''));
+                    setSection('sec-label-env', b[1], !!env, 'Runtime env (' + envCount + ')');
+                    setSection('sec-label-flags', b[2], (d.flag_presets || []).length > 0,
+                        'Flag presets (' + (d.flag_presets || []).length + ')');
+                    setSection('sec-label-models', b[3], (d.model_configs || []).length > 0,
+                        'Model configs (' + (d.model_configs || []).length + ')');
+                    parsedOK = true;
+                    msg.innerHTML = hasSecrets
+                        ? '<small><mark>&#9888; this file contains secrets (HF token / API key)</mark></small>'
+                        : '<small style="color:var(--pico-muted-color);">File looks valid. Untick anything you don\'t want restored.</small>';
+                } catch (e) {
+                    msg.innerHTML = '<small><mark>&#9888; not a backup file</mark></small>';
+                }
+                refreshSubmit();
+            };
+            reader.readAsText(f);
+        });
+        refreshSubmit();
+    })();
+    </script>
+</article>
+
+<article>
     <header>Startup</header>
     <p>If enabled, the inference server starts automatically when the
        container launches, using the currently-selected build and model

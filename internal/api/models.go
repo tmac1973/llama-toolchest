@@ -1,6 +1,8 @@
 package api
 
 import (
+	"fmt"
+	"html"
 	"log/slog"
 	"net/http"
 	"sort"
@@ -12,13 +14,14 @@ import (
 
 func (s *Server) handleListEmbeddingModels(w http.ResponseWriter, r *http.Request) {
 	embeddingModels := filterModels(s.registry.List(), true)
+	pending := filterPending(s.registry.PendingConfigs(), true)
 
 	if isHTMX(r) {
 		respondHTML(w)
-		if len(embeddingModels) == 0 {
+		if len(embeddingModels) == 0 && len(pending) == 0 {
 			return
 		}
-		s.renderModelList(w, r, embeddingModels, false)
+		s.renderModelList(w, r, embeddingModels, pending, false)
 		return
 	}
 
@@ -28,19 +31,36 @@ func (s *Server) handleListEmbeddingModels(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 	// Filter out embedding models — they have their own section
 	modelList := filterModels(s.registry.List(), false)
+	pending := filterPending(s.registry.PendingConfigs(), false)
 
 	if isHTMX(r) {
 		respondHTML(w)
-		if len(modelList) == 0 {
+		// Pending entries must render even with an empty registry — a
+		// fresh target server right after a backup restore is exactly
+		// the case ghost cards exist for.
+		if len(modelList) == 0 && len(pending) == 0 {
 			w.Write([]byte(`<p>No models downloaded yet. <a href="/models/browse">Browse HuggingFace</a> to download models.</p>`))
 			return
 		}
 
-		s.renderModelList(w, r, modelList, true)
+		s.renderModelList(w, r, modelList, pending, true)
 		return
 	}
 
 	respondJSON(w, withPublicNames(modelList))
+}
+
+// filterPending splits pending backup configs by model kind using the
+// same name predicate the real lists use, so a pending embedding model
+// ghosts next to its installed siblings.
+func filterPending(all []models.PendingConfig, embedding bool) []models.PendingConfig {
+	var out []models.PendingConfig
+	for _, p := range all {
+		if models.IsEmbeddingModel(p.ModelID) == embedding {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // filterModels splits the registry list by model kind: embedding=true keeps
@@ -427,7 +447,7 @@ func (s *Server) renderModelCard(w http.ResponseWriter, m *models.Model, routerK
 // renderModelList renders the shared model list used by both chat and embedding
 // sections as a flat list of cards, sorted by base name then quant. When
 // withFilter is true, a filter input is emitted above the list.
-func (s *Server) renderModelList(w http.ResponseWriter, r *http.Request, modelList []*models.Model, withFilter bool) {
+func (s *Server) renderModelList(w http.ResponseWriter, r *http.Request, modelList []*models.Model, pending []models.PendingConfig, withFilter bool) {
 	routerKnown := s.routerKnownStates()
 
 	orphanSet := make(map[string]bool)
@@ -440,16 +460,31 @@ func (s *Server) renderModelList(w http.ResponseWriter, r *http.Request, modelLi
 		incompleteSet[m.ID] = true
 	}
 
-	sorted := make([]*models.Model, len(modelList))
-	copy(sorted, modelList)
-	sort.SliceStable(sorted, func(i, j int) bool {
-		_, bi := sorted[i].OrgAndBase()
-		_, bj := sorted[j].OrgAndBase()
-		bi, bj = strings.ToLower(bi), strings.ToLower(bj)
-		if bi != bj {
-			return bi < bj
+	// Merge installed models and pending ghost entries into one sequence
+	// sorted by the same (base, quant) key, so a ghost sits next to
+	// installed quants of its base model or stands alone for an absent
+	// one. OrgAndBase is pure ModelID text, so a stub Model computes the
+	// key for pending entries.
+	type listEntry struct {
+		base, quant string
+		m           *models.Model
+		p           *models.PendingConfig
+	}
+	entries := make([]listEntry, 0, len(modelList)+len(pending))
+	for _, m := range modelList {
+		_, base := m.OrgAndBase()
+		entries = append(entries, listEntry{base: strings.ToLower(base), quant: strings.ToLower(m.Quant), m: m})
+	}
+	for i := range pending {
+		p := &pending[i]
+		_, base := (&models.Model{ModelID: p.ModelID}).OrgAndBase()
+		entries = append(entries, listEntry{base: strings.ToLower(base), quant: strings.ToLower(p.Quant), p: p})
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		if entries[i].base != entries[j].base {
+			return entries[i].base < entries[j].base
 		}
-		return strings.ToLower(sorted[i].Quant) < strings.ToLower(sorted[j].Quant)
+		return entries[i].quant < entries[j].quant
 	})
 
 	if withFilter {
@@ -458,8 +493,51 @@ func (s *Server) renderModelList(w http.ResponseWriter, r *http.Request, modelLi
 
 	w.Write([]byte(`<div class="model-card-list">`))
 	w.Write([]byte(`<div class="model-card-header"><span></span><span>Model</span><span>Quant</span><span title="Estimated VRAM at the configured context size">VRAM Est.</span><span>Size</span><span></span></div>`))
-	for _, m := range sorted {
-		s.renderModelCard(w, m, routerKnown, orphanSet[m.ID], incompleteSet[m.ID])
+	for _, e := range entries {
+		if e.m != nil {
+			s.renderModelCard(w, e.m, routerKnown, orphanSet[e.m.ID], incompleteSet[e.m.ID])
+		} else {
+			s.renderPendingCard(w, e.p)
+		}
 	}
 	w.Write([]byte(`</div>`))
+}
+
+// renderPendingCard renders a ghost card for a backup-imported config
+// whose model isn't installed yet: greyed, identity + imported date, a
+// Download button (inline response mode — the table-shaped progress
+// partial can't live in a card) and a Discard button whose 204 +
+// HX-Trigger response refreshes the whole listing.
+func (s *Server) renderPendingCard(w http.ResponseWriter, p *models.PendingConfig) {
+	ident := domID(p.ModelID + "-" + p.Quant)
+	fmt.Fprintf(w, `<article class="model-card" style="opacity:0.6;" id="pending-card-%s" data-search="%s">
+	<div class="model-card-row">
+		<div class="model-card-toggle" title="Not installed — this is a config imported from a backup, waiting for its model."><span>&#x23F3;</span></div>
+		<div class="model-card-name">%s
+			<small style="display:block;color:var(--pico-muted-color);">not installed &mdash; config waiting (imported %s)</small>
+			<span id="pending-dl-%s"></span>
+		</div>
+		<div>%s</div>
+		<div>&mdash;</div>
+		<div>&mdash;</div>
+		<div style="display:flex;gap:0.4rem;justify-content:flex-end;">
+			<button type="button" class="outline" style="padding:0.1rem 0.6rem;font-size:0.8em;margin:0;"
+			        title="Download %s from HuggingFace; the waiting config attaches automatically when it arrives."
+			        hx-post="/api/hf/download"
+			        hx-vals='{"model_id": %q, "filename": %q, "inline": "1"}'
+			        hx-target="#pending-dl-%s" hx-swap="innerHTML" hx-disabled-elt="this">Download</button>
+			<button type="button" class="outline secondary" style="padding:0.1rem 0.6rem;font-size:0.8em;margin:0;"
+			        title="Discard this waiting config."
+			        hx-post="/api/backup/pending/discard"
+			        hx-vals='{"model_id": %q, "quant": %q}'
+			        hx-swap="none">Discard</button>
+		</div>
+	</div>
+</article>`,
+		ident, html.EscapeString(strings.ToLower(p.ModelID+" "+p.Quant+" pending")),
+		html.EscapeString(p.ModelID), p.SavedAt.Format("2006-01-02"), ident,
+		html.EscapeString(p.Quant),
+		html.EscapeString(p.Filename),
+		p.ModelID, p.Filename, ident,
+		p.ModelID, p.Quant)
 }

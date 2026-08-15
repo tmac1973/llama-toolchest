@@ -73,6 +73,15 @@ func TestSettingsPageRendersEnvSection(t *testing.T) {
 		`data-backends="cuda rocm"`, // rows carry the filter attribute
 		`data-set="1"`,              // set variables marked always-visible
 		"filterEnvRows",             // the filter script shipped with the page
+		// Backup & Restore card
+		`href="/api/backup"`,                // export link
+		`id="backup-secrets"`,               // secrets opt-in checkbox
+		`hx-encoding="multipart/form-data"`, // required for the file upload
+		`name="sec_settings"`,               // per-section checkboxes
+		`name="sec_models"`,
+		`id="restore-report"`,          // report target
+		`id="restore-submit" disabled`, // Restore disabled until a file parses
+		"FileReader",                   // client-side preview script
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("settings page missing %q", want)
