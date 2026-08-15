@@ -112,3 +112,36 @@ Agent 1
 		t.Errorf("parseROCmGPUNames = %v; want empty", got)
 	}
 }
+
+// parseROCmGPUArchs must return the gfx target of each GPU agent, in
+// the same order as parseROCmGPUNames, skipping CPU agents — it feeds
+// the iGPU tagging that drives the model-config guard rails.
+func TestParseROCmGPUArchs(t *testing.T) {
+	out := `*******
+Agent 1
+*******
+  Name:                    AMD Ryzen 7 9800X3D 8-Core Processor
+  Marketing Name:          AMD Ryzen 7 9800X3D 8-Core Processor
+  Device Type:             CPU
+*******
+Agent 2
+*******
+  Name:                    gfx1201
+  Marketing Name:          AMD Radeon RX 9070 XT
+  Device Type:             GPU
+  Pool Info:
+    Pool 1
+      Name:                nested-pool-must-not-override
+*******
+Agent 3
+*******
+  Name:                    gfx1036
+  Marketing Name:          AMD Ryzen 7 9800X3D 8-Core Processor
+  Device Type:             GPU
+`
+	got := parseROCmGPUArchs(out)
+	want := []string{"gfx1201", "gfx1036"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("parseROCmGPUArchs = %v; want %v", got, want)
+	}
+}

@@ -509,7 +509,8 @@ func (s *Server) handleJobForm(w http.ResponseWriter, r *http.Request) {
 		}
 		builds = append(builds, buildOpt{ID: b.ID, Profile: b.Profile, GitRef: b.GitRef, Tag: b.Tag})
 	}
-	numGPUs := len(s.monitor.Current().GPU)
+	gpuList := s.monitor.Current().GPU
+	numGPUs := len(gpuList)
 	s.renderPartial(w, "job_form", struct {
 		Models     []*models.Model
 		Builds     []buildOpt
@@ -522,8 +523,8 @@ func (s *Server) handleJobForm(w http.ResponseWriter, r *http.Request) {
 		Models:     enabled,
 		Builds:     builds,
 		Presets:    benchmark.Presets(),
-		GPUOptions: models.GPUAssignOptions(numGPUs),
-		Params:     paramViews(numGPUs),
+		GPUOptions: models.GPUAssignOptions(numGPUs, igpuFlags(gpuList)),
+		Params:     paramViews(numGPUs, igpuFlags(gpuList)),
 		MaxCells:   maxJobCells,
 		Running:    s.process.IsRunning(),
 	})
@@ -709,13 +710,13 @@ type paramView struct {
 // paramViews resolves each parameter's choice list, filling in the sets
 // that depend on the host — currently just GPU assignment, which can't
 // be a static table because it depends on how many GPUs are installed.
-func paramViews(numGPUs int) []paramView {
+func paramViews(numGPUs int, igpu []bool) []paramView {
 	fields := benchmark.SweepFields()
 	out := make([]paramView, 0, len(fields))
 	for _, f := range fields {
 		pv := paramView{SweepField: f, Choices: f.Choices}
 		if f.DynamicChoices == "gpu_assign" {
-			for _, o := range models.GPUAssignOptions(numGPUs) {
+			for _, o := range models.GPUAssignOptions(numGPUs, igpu) {
 				if o.Disabled {
 					continue
 				}

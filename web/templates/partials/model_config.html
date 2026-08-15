@@ -73,12 +73,15 @@
                 {{range .GPUOptions}}
                 <option value="{{.Value}}"
                         {{if eq $.Config.GPUAssign .Value}}selected{{end}}
-                        {{if and (eq $.Config.GPUAssign "") (eq .Value "all")}}selected{{end}}
+                        {{if and (eq $.Config.GPUAssign "") .IsSpanAll}}selected{{end}}
                         {{if .Disabled}}disabled{{end}}>
                     {{.Label}}{{if .Recommend}} ★{{end}}
                 </option>
                 {{end}}
             </select>
+            {{if .GPUAssignWarning}}
+            <small><mark>&#9888; {{.GPUAssignWarning}}</mark></small>
+            {{end}}
         </label>
         <div class="tensor-split-custom" style="{{if ne .Config.GPUAssign "custom"}}display:none;{{end}}">
             <label title="Manual tensor-split ratios. Comma-separated values for each GPU.">

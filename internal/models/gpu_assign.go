@@ -8,80 +8,126 @@ import (
 
 // GPUOption represents one selectable GPU assignment choice for the dropdown.
 type GPUOption struct {
-	Value     string // "all", "0", "0-1", "2-3", "tensor", "custom"
-	Label     string // "All GPUs", "GPU 0", "GPUs 0-1"
-	GPUs      []int  // which GPU indices (e.g., [0,1])
-	IsTensor  bool   // true for tensor parallelism mode
-	Disabled  bool   // model doesn't fit
-	Recommend bool   // suggested option
+	Value        string // "all", "0", "0-1", "0,2", "tensor-2", "tensor:0,2", "custom"
+	Label        string // "All GPUs", "GPU 0", "GPUs 0-1"
+	GPUs         []int  // which GPU indices (e.g., [0,1])
+	IsTensor     bool   // true for tensor parallelism mode
+	IsSpanAll    bool   // the "All (discrete) GPUs" option — the default when nothing is saved
+	IncludesIGPU bool   // true when any member GPU is an integrated GPU
+	Disabled     bool   // model doesn't fit
+	Recommend    bool   // suggested option
 }
 
-// GPUAssignOptions generates all GPU assignment options for a given number of GPUs.
-// Returns single GPUs, contiguous pairs, triples (for 4+ GPUs), "all", tensor
-// parallelism variants for 2..numGPUs, and "custom".
-func GPUAssignOptions(numGPUs int) []GPUOption {
+// GPUAssignOptions generates all GPU assignment options. igpu marks
+// which GPU indices are integrated GPUs (nil when none, or unknown).
+//
+// iGPU guard rails: single-GPU and range options that touch an iGPU
+// stay selectable but say so in their label (someone who built with the
+// iGPU target included may genuinely want it), MarkRecommended never
+// recommends them, and the spanning options — "All GPUs" and the tensor
+// parallelism variants — are generated from discrete GPUs only, since
+// spreading a model onto the iGPU by default is never what anyone
+// wants and hard-fails when the build excludes its kernels.
+func GPUAssignOptions(numGPUs int, igpu []bool) []GPUOption {
 	if numGPUs <= 0 {
 		return nil
 	}
+	isIGPU := func(i int) bool { return i >= 0 && i < len(igpu) && igpu[i] }
+
+	var dgpus []int
+	for i := 0; i < numGPUs; i++ {
+		if !isIGPU(i) {
+			dgpus = append(dgpus, i)
+		}
+	}
+	// APU-only box: the iGPU is all there is, so it stops being a
+	// special case — span options include it and carry no warning label.
+	if len(dgpus) == 0 {
+		dgpus = make([]int, numGPUs)
+		for i := range dgpus {
+			dgpus[i] = i
+		}
+		isIGPU = func(int) bool { return false }
+	}
 
 	var opts []GPUOption
+	mark := func(o GPUOption, suffix string) GPUOption {
+		for _, g := range o.GPUs {
+			if isIGPU(g) {
+				o.IncludesIGPU = true
+				o.Label += suffix
+				break
+			}
+		}
+		return o
+	}
 
 	// Single GPUs
 	for i := 0; i < numGPUs; i++ {
-		opts = append(opts, GPUOption{
+		opts = append(opts, mark(GPUOption{
 			Value: fmt.Sprintf("%d", i),
 			Label: fmt.Sprintf("GPU %d", i),
 			GPUs:  []int{i},
-		})
+		}, " (iGPU)"))
 	}
 
 	// Contiguous pairs
 	if numGPUs >= 2 {
 		for i := 0; i <= numGPUs-2; i++ {
-			opts = append(opts, GPUOption{
+			opts = append(opts, mark(GPUOption{
 				Value: fmt.Sprintf("%d-%d", i, i+1),
 				Label: fmt.Sprintf("GPUs %d-%d", i, i+1),
 				GPUs:  []int{i, i + 1},
-			})
+			}, " (includes iGPU)"))
 		}
 	}
 
 	// Contiguous triples
 	if numGPUs >= 4 {
 		for i := 0; i <= numGPUs-3; i++ {
-			opts = append(opts, GPUOption{
+			opts = append(opts, mark(GPUOption{
 				Value: fmt.Sprintf("%d-%d", i, i+2),
 				Label: fmt.Sprintf("GPUs %d-%d", i, i+2),
 				GPUs:  []int{i, i + 1, i + 2},
-			})
+			}, " (includes iGPU)"))
 		}
 	}
 
-	// "All GPUs" — layer split across all
-	allGPUs := make([]int, numGPUs)
-	for i := range allGPUs {
-		allGPUs[i] = i
+	// "All GPUs" — layer split across every discrete GPU. When an iGPU
+	// exists, the option's value is the explicit index set rather than
+	// "all", so llama-server placement matches the label exactly.
+	if len(dgpus) == numGPUs {
+		opts = append(opts, GPUOption{
+			Value:     "all",
+			Label:     fmt.Sprintf("All GPUs (%d, layer split)", numGPUs),
+			GPUs:      append([]int(nil), dgpus...),
+			IsSpanAll: true,
+		})
+	} else {
+		opts = append(opts, GPUOption{
+			Value:     joinInts(dgpus),
+			Label:     fmt.Sprintf("All discrete GPUs (%d, layer split)", len(dgpus)),
+			GPUs:      append([]int(nil), dgpus...),
+			IsSpanAll: true,
+		})
 	}
-	opts = append(opts, GPUOption{
-		Value: "all",
-		Label: fmt.Sprintf("All GPUs (%d, layer split)", numGPUs),
-		GPUs:  allGPUs,
-	})
 
-	// Tensor parallelism variants — one per GPU count (2..numGPUs).
-	// For partial counts, the model runs on the first N GPUs (see
-	// gpuPlacementParams for how that restriction reaches llama-server).
-	for n := 2; n <= numGPUs; n++ {
-		tpGPUs := make([]int, n)
-		for i := range tpGPUs {
-			tpGPUs[i] = i
+	// Tensor parallelism variants over discrete GPUs — one per count.
+	// The legacy "tensor-N" value means "first N GPUs"; when the first N
+	// discrete GPUs aren't literally indices 0..N-1 (an iGPU sits among
+	// them), the explicit-set form "tensor:i,j" is used instead.
+	for n := 2; n <= len(dgpus); n++ {
+		tpGPUs := append([]int(nil), dgpus[:n]...)
+		value := fmt.Sprintf("tensor-%d", n)
+		if tpGPUs[n-1] != n-1 {
+			value = "tensor:" + joinInts(tpGPUs)
 		}
 		label := fmt.Sprintf("Tensor Parallelism (%d GPUs, experimental)", n)
-		if n == numGPUs {
+		if n == len(dgpus) {
 			label = fmt.Sprintf("Tensor Parallelism (all %d GPUs, experimental)", n)
 		}
 		opts = append(opts, GPUOption{
-			Value:    fmt.Sprintf("tensor-%d", n),
+			Value:    value,
 			Label:    label,
 			GPUs:     tpGPUs,
 			IsTensor: true,
@@ -97,16 +143,27 @@ func GPUAssignOptions(numGPUs int) []GPUOption {
 	return opts
 }
 
+// joinInts renders indices as "0,2,3".
+func joinInts(xs []int) string {
+	parts := make([]string, len(xs))
+	for i, x := range xs {
+		parts[i] = fmt.Sprintf("%d", x)
+	}
+	return strings.Join(parts, ",")
+}
+
 // ResolveGPUAssign converts a GPU assignment string into tensor-split,
 // split-mode, and main-gpu values for llama-server.
 //
-//	"all"      → ("", "layer", 0)          — layer split across all GPUs
-//	"tensor-N" → tensor parallelism: split-mode=tensor; tensor-split="1,...,0"
-//	             restricts to first N GPUs when N<numGPUs, else no split
-//	"0"        → ("1,0,0,0", "layer", 0)   — single GPU
-//	"0-1"      → ("1,1,0,0", "layer", 0)   — two GPUs (layer)
-//	"2-3"      → ("0,0,1,1", "layer", 2)   — GPUs 2-3 (layer)
-//	"custom"   → ("", "", 0)               — caller preserves raw TensorSplit
+//	"all"        → ("", "layer", 0)          — layer split across all GPUs
+//	"tensor-N"   → tensor parallelism: split-mode=tensor; tensor-split="1,...,0"
+//	               restricts to first N GPUs when N<numGPUs, else no split
+//	"tensor:0,2" → tensor parallelism on an explicit GPU set (skips iGPUs)
+//	"0"          → ("1,0,0,0", "layer", 0)   — single GPU
+//	"0-1"        → ("1,1,0,0", "layer", 0)   — two GPUs (layer)
+//	"2-3"        → ("0,0,1,1", "layer", 2)   — GPUs 2-3 (layer)
+//	"0,2"        → ("1,0,1,0", "layer", 0)   — explicit set (skips iGPUs)
+//	"custom"     → ("", "", 0)               — caller preserves raw TensorSplit
 func ResolveGPUAssign(assign string, numGPUs int) (tensorSplit, splitMode string, mainGPU int) {
 	if assign == "" || assign == "custom" || numGPUs <= 0 {
 		return "", "", 0
@@ -117,23 +174,25 @@ func ResolveGPUAssign(assign string, numGPUs int) (tensorSplit, splitMode string
 		return "", "layer", 0
 	}
 
-	// "tensor-N" — tensor parallelism on first N GPUs
-	if strings.HasPrefix(assign, "tensor-") {
-		if n, ok := parseTensorAssign(assign); ok {
-			if n >= numGPUs {
-				return "", "tensor", 0
-			}
-			parts := make([]string, numGPUs)
-			for i := range parts {
-				if i < n {
-					parts[i] = "1"
-				} else {
-					parts[i] = "0"
-				}
-			}
-			return strings.Join(parts, ","), "tensor", 0
+	// "tensor-N" (first N GPUs) or "tensor:i,j" (explicit set)
+	if strings.HasPrefix(assign, "tensor") {
+		gpus, ok := tensorAssignGPUs(assign, numGPUs)
+		if !ok {
+			return "", "", 0
 		}
-		return "", "", 0
+		if len(gpus) >= numGPUs {
+			return "", "tensor", 0
+		}
+		parts := make([]string, numGPUs)
+		for i := range parts {
+			parts[i] = "0"
+		}
+		for _, g := range gpus {
+			if g >= 0 && g < numGPUs {
+				parts[g] = "1"
+			}
+		}
+		return strings.Join(parts, ","), "tensor", 0
 	}
 
 	// Parse the assignment to get GPU indices
@@ -275,11 +334,52 @@ func parseTensorAssign(assign string) (int, bool) {
 	return 0, false
 }
 
-// parseGPURange parses GPU assignment values like "0", "0-1", "2-3" into indices.
+// tensorAssignGPUs resolves either tensor form to GPU indices:
+// "tensor-N" → the first N GPUs (legacy), "tensor:i,j" → the explicit
+// set (used when an iGPU interrupts the discrete indices).
+func tensorAssignGPUs(assign string, numGPUs int) ([]int, bool) {
+	if rest, ok := strings.CutPrefix(assign, "tensor:"); ok {
+		gpus := parseIntList(rest)
+		return gpus, len(gpus) > 0
+	}
+	if n, ok := parseTensorAssign(assign); ok {
+		if n > numGPUs {
+			n = numGPUs
+		}
+		gpus := make([]int, n)
+		for i := range gpus {
+			gpus[i] = i
+		}
+		return gpus, true
+	}
+	return nil, false
+}
+
+// parseIntList parses "0,2,3" into indices; nil on any invalid entry.
+func parseIntList(s string) []int {
+	var out []int
+	for _, p := range strings.Split(s, ",") {
+		var n int
+		if _, err := fmt.Sscanf(strings.TrimSpace(p), "%d", &n); err != nil || n < 0 {
+			return nil
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
+// parseGPURange parses GPU assignment values like "0", "0-1", "2-3",
+// or an explicit set like "0,2" (used when an iGPU interrupts the
+// discrete indices) into indices.
 func parseGPURange(assign string) []int {
 	// Try single GPU: "0", "1", etc.
 	if len(assign) == 1 && assign[0] >= '0' && assign[0] <= '9' {
 		return []int{int(assign[0] - '0')}
+	}
+
+	// Explicit set: "0,2,3"
+	if strings.Contains(assign, ",") {
+		return parseIntList(assign)
 	}
 
 	// Try range: "0-1", "2-3", etc.
@@ -350,17 +450,17 @@ func ComputeAllocations(modelList []*Model, configs map[string]*ModelConfig, num
 	return allocs
 }
 
+// AssignedModelGPUs returns the GPU indices a model config places the
+// model on — the exported face of resolveModelGPUs for callers outside
+// the package (e.g. the iGPU assignment warning).
+func AssignedModelGPUs(cfg *ModelConfig, numGPUs int) []int {
+	return resolveModelGPUs(cfg, numGPUs)
+}
+
 // resolveModelGPUs determines which GPUs a model is assigned to.
 func resolveModelGPUs(cfg *ModelConfig, numGPUs int) []int {
-	if strings.HasPrefix(cfg.GPUAssign, "tensor-") {
-		if n, ok := parseTensorAssign(cfg.GPUAssign); ok {
-			if n > numGPUs {
-				n = numGPUs
-			}
-			gpus := make([]int, n)
-			for i := range gpus {
-				gpus[i] = i
-			}
+	if strings.HasPrefix(cfg.GPUAssign, "tensor") && cfg.GPUAssign != "tensor" {
+		if gpus, ok := tensorAssignGPUs(cfg.GPUAssign, numGPUs); ok {
 			return gpus
 		}
 	}
@@ -401,6 +501,8 @@ func GPUAssignLabel(assign string) string {
 		return "custom"
 	case strings.HasPrefix(assign, "tensor-"):
 		return "tp:" + strings.TrimPrefix(assign, "tensor-")
+	case strings.HasPrefix(assign, "tensor:"):
+		return "tp:" + strings.TrimPrefix(assign, "tensor:")
 	default:
 		return "gpu:" + assign
 	}
@@ -429,6 +531,11 @@ func MarkRecommended(options []GPUOption, modelVRAMGB float64, perGPUGB float64,
 	for i := range options {
 		opt := &options[i]
 		if opt.Value == "custom" {
+			continue
+		}
+		// Never recommend a placement touching an iGPU: it shares system
+		// RAM, and the default build excludes its kernels entirely.
+		if opt.IncludesIGPU {
 			continue
 		}
 

@@ -22,6 +22,8 @@ type GPUInfo struct {
 	VRAMTotalMB int     `json:"vram_total_mb"`
 	TempC       int     `json:"temp_c"`
 	PowerW      float64 `json:"power_w,omitempty"`
+	Arch        string  `json:"arch,omitempty"`    // gfx target (ROCm only)
+	IsIGPU      bool    `json:"is_igpu,omitempty"` // integrated GPU (APU)
 }
 
 // CPUInfo holds CPU usage metrics.

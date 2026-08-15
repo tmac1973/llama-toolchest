@@ -7,8 +7,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/tmac1973/llama-toolchest/internal/builder"
 )
@@ -99,16 +101,29 @@ func (r *rocmBackend) collectROCmSMI() ([]GPUInfo, error) {
 
 		// Get GPU name from sysfs
 		gpu.Name = readGPUNameSysfs(gpu.Index)
+		tagROCmGPU(&gpu)
 
 		gpus = append(gpus, gpu)
 	}
 	return gpus, nil
 }
 
-// listAMDGPUDirs returns the sysfs device directories of AMD GPUs
-// (vendor 0x1002) in card order. Shared by collectSysfs and readVRAMSysfs
-// so the card enumeration lives in one place.
+// listAMDGPUDirs returns the sysfs device directories of AMD GPUs in
+// KFD topology order — the order rocminfo, rocm-smi, and llama-server's
+// HIP runtime all enumerate in. Shared by collectSysfs and readVRAMSysfs
+// so the enumeration lives in one place.
+//
+// DRM card numbers follow driver probe order instead, which on desktop
+// APU boxes puts the iGPU at card0 while KFD lists the discrete GPU
+// first. Indexing sysfs by card number therefore attributed the iGPU's
+// 2GB carve-out to the discrete card (and vice versa) on such boxes —
+// and would have mismatched the per-model --device indices llama-server
+// resolves. KFD ordering keeps every index consumer aligned; the card
+// glob remains as a fallback for kernels without KFD topology.
 func listAMDGPUDirs() []string {
+	if dirs := listAMDGPUDirsKFD(); len(dirs) > 0 {
+		return dirs
+	}
 	cards, _ := filepath.Glob("/sys/class/drm/card[0-9]*/device/vendor")
 	var dirs []string
 	for _, vendorFile := range cards {
@@ -119,6 +134,52 @@ func listAMDGPUDirs() []string {
 		dirs = append(dirs, filepath.Dir(vendorFile))
 	}
 	return dirs
+}
+
+// listAMDGPUDirsKFD enumerates GPU nodes from /sys/class/kfd, mapping
+// each node's drm_render_minor to its device directory. CPU agents
+// carry gfx_target_version 0 and are skipped.
+func listAMDGPUDirsKFD() []string {
+	nodes, _ := filepath.Glob("/sys/class/kfd/kfd/topology/nodes/*/properties")
+	// Glob order is lexical ("10" before "2"); sort by numeric node id.
+	sort.Slice(nodes, func(i, j int) bool {
+		return kfdNodeID(nodes[i]) < kfdNodeID(nodes[j])
+	})
+	var dirs []string
+	for _, propsPath := range nodes {
+		data, err := os.ReadFile(propsPath)
+		if err != nil {
+			continue
+		}
+		gfx, minor := 0, -1
+		for _, line := range strings.Split(string(data), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) != 2 {
+				continue
+			}
+			switch fields[0] {
+			case "gfx_target_version":
+				gfx, _ = strconv.Atoi(fields[1])
+			case "drm_render_minor":
+				minor, _ = strconv.Atoi(fields[1])
+			}
+		}
+		if gfx == 0 || minor <= 0 {
+			continue
+		}
+		dir := fmt.Sprintf("/sys/class/drm/renderD%d/device", minor)
+		if vendor, err := os.ReadFile(filepath.Join(dir, "vendor")); err == nil &&
+			strings.TrimSpace(string(vendor)) == "0x1002" {
+			dirs = append(dirs, dir)
+		}
+	}
+	return dirs
+}
+
+// kfdNodeID extracts the numeric node id from a topology properties path.
+func kfdNodeID(propsPath string) int {
+	id, _ := strconv.Atoi(filepath.Base(filepath.Dir(propsPath)))
+	return id
 }
 
 func (r *rocmBackend) collectSysfs() ([]GPUInfo, error) {
@@ -155,6 +216,7 @@ func (r *rocmBackend) collectSysfs() ([]GPUInfo, error) {
 		}
 
 		gpu.Name = readGPUNameSysfs(idx)
+		tagROCmGPU(&gpu)
 		gpus = append(gpus, gpu)
 	}
 
@@ -189,15 +251,9 @@ func readVRAMFromDir(deviceDir string) (usedMB, totalMB int) {
 }
 
 func readGPUNameSysfs(gpuIdx int) string {
-	rocminfo := builder.FindROCmTool("rocminfo")
-	if rocminfo == "" {
-		return fmt.Sprintf("AMD GPU %d", gpuIdx)
-	}
-	if out, err := exec.Command(rocminfo).Output(); err == nil {
-		names := parseROCmGPUNames(string(out))
-		if gpuIdx >= 0 && gpuIdx < len(names) {
-			return names[gpuIdx]
-		}
+	names, _ := rocmAgents()
+	if gpuIdx >= 0 && gpuIdx < len(names) {
+		return names[gpuIdx]
 	}
 	return fmt.Sprintf("AMD GPU %d", gpuIdx)
 }
@@ -259,4 +315,75 @@ func parseROCmGPUNames(out string) []string {
 		}
 	}
 	return names
+}
+
+// parseROCmGPUArchs extracts the gfx target of each GPU agent from
+// rocminfo output, in the same agent order as parseROCmGPUNames.
+func parseROCmGPUArchs(out string) []string {
+	var archs []string
+	cur, isGPU, arch := -1, false, ""
+	flush := func() {
+		if cur >= 0 && isGPU {
+			archs = append(archs, arch)
+		}
+	}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(line, "Agent "):
+			flush()
+			cur, isGPU, arch = cur+1, false, ""
+		case cur < 0:
+			continue
+		case strings.HasPrefix(line, "Name:"):
+			if arch == "" {
+				arch = strings.TrimSpace(strings.TrimPrefix(line, "Name:"))
+			}
+		case strings.HasPrefix(line, "Device Type:"):
+			if strings.Contains(line, "GPU") {
+				isGPU = true
+			}
+		}
+	}
+	flush()
+	return archs
+}
+
+// rocmAgentInfo caches the rocminfo agent scan: names and gfx archs of
+// the GPU agents, in agent order. The hardware doesn't change while the
+// process runs, and the previous per-poll rocminfo exec was pure waste.
+// Card index → agent index relies on both following the same KFD/PCI
+// enumeration order, the same assumption readGPUNameSysfs has always
+// made for names.
+var (
+	rocmAgentsOnce sync.Once
+	rocmAgentNames []string
+	rocmAgentArchs []string
+)
+
+func rocmAgents() (names, archs []string) {
+	rocmAgentsOnce.Do(func() {
+		rocminfo := builder.FindROCmTool("rocminfo")
+		if rocminfo == "" {
+			return
+		}
+		out, err := exec.Command(rocminfo).Output()
+		if err != nil {
+			return
+		}
+		rocmAgentNames = parseROCmGPUNames(string(out))
+		rocmAgentArchs = parseROCmGPUArchs(string(out))
+	})
+	return rocmAgentNames, rocmAgentArchs
+}
+
+// tagROCmGPU fills the arch-derived fields for a GPU by index: its gfx
+// target and whether it's an integrated GPU (used by the model-config
+// assignment guard rails).
+func tagROCmGPU(gpu *GPUInfo) {
+	_, archs := rocmAgents()
+	if gpu.Index >= 0 && gpu.Index < len(archs) {
+		gpu.Arch = archs[gpu.Index]
+		gpu.IsIGPU = builder.IsIGPUArch(gpu.Arch)
+	}
 }
