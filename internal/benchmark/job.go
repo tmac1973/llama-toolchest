@@ -83,6 +83,11 @@ type ConfigOverrides struct {
 	TensorSplit    *string  `json:"tensor_split,omitempty"`
 	SpecType       *string  `json:"spec_type,omitempty"`
 	DraftModelPath *string  `json:"draft_model_path,omitempty"`
+	DraftMax       *int     `json:"draft_max,omitempty"`
+	DraftMin       *int     `json:"draft_min,omitempty"`
+	DraftPMin      *string  `json:"draft_p_min,omitempty"`
+	NgramSizeN     *int     `json:"ngram_size_n,omitempty"`
+	NgramSizeM     *int     `json:"ngram_size_m,omitempty"`
 	Temperature    *float64 `json:"temperature,omitempty"`
 	TopP           *float64 `json:"top_p,omitempty"`
 	TopK           *int     `json:"top_k,omitempty"`

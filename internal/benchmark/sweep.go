@@ -207,8 +207,29 @@ var sweepFields = map[string]SweepField{
 		func(o *ConfigOverrides, v *string) { o.GPUAssign = v }),
 	"tensor_split": strField("tensor_split", "Tensor Split", "Proportional split across GPUs, e.g. 1,1.", "1,1|3,1",
 		func(o *ConfigOverrides, v *string) { o.TensorSplit = v }),
-	"spec_type": strField("spec_type", "Speculative Decoding", "Speculative decoding mode.", "none,draft-mtp",
-		func(o *ConfigOverrides, v *string) { o.SpecType = v }),
+	// "none" is a stand-in for the empty value: a blank axis value would
+	// be dropped as "unset", so the registry maps none -> "" here, which
+	// reaches the config as an explicit "speculative decoding off". This
+	// is what lets one job compare a mode against no speculation at all.
+	"spec_type": strField("spec_type", "Speculative Decoding", "Speculative decoding mode. Select none to turn speculative decoding off for that cell.", "none,draft-mtp",
+		func(o *ConfigOverrides, v *string) {
+			if *v == "none" {
+				*v = ""
+			}
+			o.SpecType = v
+		}),
+	"draft_max": intField("draft_max", "Draft Tokens Max", "Maximum tokens drafted per step (--spec-draft-n-max). Applies when a speculative decoding mode is active; 0 leaves llama.cpp's default.", "4,6,8,16",
+		func(o *ConfigOverrides, v *int) { o.DraftMax = v }),
+	"draft_min": intField("draft_min", "Draft Tokens Min", "Minimum tokens drafted per step (--spec-draft-n-min). Applies when a speculative decoding mode is active; 0 leaves llama.cpp's default.", "0,2",
+		func(o *ConfigOverrides, v *int) { o.DraftMin = v }),
+	"draft_p_min": strField("draft_p_min", "Draft Probability Min", "Minimum draft acceptance probability, 0-1 (--spec-draft-p-min). Applies when a speculative decoding mode is active; blank leaves llama.cpp's default.", "0.5,0.75,0.9",
+		func(o *ConfigOverrides, v *string) { o.DraftPMin = v }),
+	"ngram_size_n": intField("ngram_size_n", "N-gram Size N", "N-gram lookup size (--spec-ngram-size-n). Applies to the n-gram speculative modes; 0 leaves llama.cpp's default.", "12,24",
+		func(o *ConfigOverrides, v *int) { o.NgramSizeN = v }),
+	"ngram_size_m": intField("ngram_size_m", "N-gram Size M", "N-gram candidate count (--spec-ngram-size-m). Applies to the n-gram speculative modes; 0 leaves llama.cpp's default.", "48,64",
+		func(o *ConfigOverrides, v *int) { o.NgramSizeM = v }),
+	"draft_model_path": strField("draft_model_path", "Draft Model Path", "Path to the draft model GGUF (--model-draft). Applies to the draft and MTP-with-separate-head modes; blank uses the model's saved setting.", "/data/models/org--repo/draft.gguf",
+		func(o *ConfigOverrides, v *string) { o.DraftModelPath = v }),
 
 	// Sampling params ride along with each request, so sweeping them
 	// costs no router restarts.
@@ -406,16 +427,22 @@ func init() {
 	set("kv_cache_quant", true, choices(
 		"f16", "f16 (no quant)", "q8_0", "q8_0", "q4_0", "q4_0",
 	))
-	// No empty choice: a blank value already means "use the model's saved
-	// setting", so an "off" entry would be dropped as if unset.
+	// "none" (not an empty value, which would be dropped as unset) is the
+	// explicit off entry; the field's set function maps it to "".
 	set("spec_type", false, choices(
+		"none", "Off (no speculative decoding)",
 		"draft", "Draft Model", "draft-mtp", "MTP (self-speculation)",
 		"ngram-simple", "N-gram Simple", "ngram-cache", "N-gram Cache",
 		"ngram-map-k", "N-gram Map-K", "ngram-map-k4v", "N-gram Map-K4V",
 		"ngram-mod", "N-gram Mod",
 	))
 	set("temperature", true, choices("0", "0 (greedy)", "0.7", "0.7", "1.0", "1.0"))
-	set("top_p", true, choices("0.9", "0.9", "0.95", "0.95", "1.0", "1.0"))
+	set("top_p", true, choices("0.9", "0.9", "0.95", "0.95", "1.0", "1.0 (off)"))
+	set("draft_max", true, choices("4", "4", "6", "6 (MTP guidance)", "8", "8", "16", "16"))
+	set("draft_min", true, choices("0", "0 (default)", "2", "2"))
+	set("draft_p_min", true, choices("0.5", "0.5", "0.75", "0.75", "0.9", "0.9"))
+	set("ngram_size_n", true, choices("12", "12", "24", "24"))
+	set("ngram_size_m", true, choices("48", "48", "64", "64"))
 	set("top_k", true, choices("20", "20", "40", "40", "0", "0 (disabled)"))
 	set("min_p", true, choices("0", "0", "0.05", "0.05", "0.1", "0.1"))
 	set("repeat_penalty", true, choices("1.0", "1.0 (off)", "1.05", "1.05", "1.1", "1.1"))
@@ -431,6 +458,11 @@ func init() {
 	ts2 := sweepFields["tensor_split"]
 	ts2.FreeText = true
 	sweepFields["tensor_split"] = ts2
+
+	// A filesystem path is free-form too.
+	dmp := sweepFields["draft_model_path"]
+	dmp.FreeText = true
+	sweepFields["draft_model_path"] = dmp
 }
 
 // SplitParams turns the unified "parameter → selected values" shape the

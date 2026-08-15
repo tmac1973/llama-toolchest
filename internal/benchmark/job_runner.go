@@ -474,6 +474,21 @@ func applyOverrides(base ConfigSnapshot, overrides *ConfigOverrides) ConfigSnaps
 	if overrides.DraftModelPath != nil {
 		out.DraftModelPath = *overrides.DraftModelPath
 	}
+	if overrides.DraftMax != nil {
+		out.DraftMax = *overrides.DraftMax
+	}
+	if overrides.DraftMin != nil {
+		out.DraftMin = *overrides.DraftMin
+	}
+	if overrides.DraftPMin != nil {
+		out.DraftPMin = *overrides.DraftPMin
+	}
+	if overrides.NgramSizeN != nil {
+		out.NgramSizeN = *overrides.NgramSizeN
+	}
+	if overrides.NgramSizeM != nil {
+		out.NgramSizeM = *overrides.NgramSizeM
+	}
 	return out
 }
 

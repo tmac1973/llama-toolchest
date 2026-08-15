@@ -97,15 +97,11 @@ func resolveSweeps(req *jobCreateRequest) error {
 		if err != nil {
 			return err
 		}
-		// Merge rather than replace: the form carries through override
-		// fields it has no control for (draft_model_path), and replacing
-		// wholesale would delete them from a job whose name was the only
-		// thing the user meant to change.
-		//
-		// Only unsweepable fields carry through. A field the params map
-		// can express is params' to decide, including deciding to leave
-		// it unset — carrying those over made a supplied override
-		// impossible to clear.
+		// Merge rather than replace, so any override field the form has
+		// no control for would survive an edit. Every field currently
+		// has a form control, making this a no-op, but the rule stays:
+		// a field the params map can express is params' to decide,
+		// including deciding to leave it unset.
 		req.Overrides = benchmark.MergeOverrides(
 			benchmark.KeepUnsweepable(req.Overrides), derived)
 		req.Sweeps = axes

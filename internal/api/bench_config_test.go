@@ -1,6 +1,7 @@
 package api
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -317,5 +318,36 @@ func TestNoTakeoverMeansNoTeardownRestart(t *testing.T) {
 
 	if e.routerOwnedByJob() {
 		t.Error("recording the build without restarting must not claim the router — cleanup would then restart it for nothing")
+	}
+}
+
+// Speculative decoding must be fully controllable per job: a mode plus
+// its parameters reach the launch flags, and the explicit off value
+// ("none" in the form, empty in the snapshot) silences a model whose
+// saved config has speculation enabled — the on-vs-off comparison in a
+// single job.
+func TestSpecParamsReachLaunchFlags(t *testing.T) {
+	base := models.ModelConfig{Enabled: true, GPULayers: 999, ContextSize: 8192, Threads: 8}
+
+	on := applySnapshotToConfig(base, benchmark.ConfigSnapshot{
+		GPULayers: 999, ContextSize: 8192, Threads: 8,
+		SpecType: "draft-mtp", DraftMax: 6, DraftPMin: "0.75",
+	})
+	flags := on.EffectiveFlagsFor(false, "")
+	for _, want := range []string{"--spec-type draft-mtp", "--spec-draft-n-max 6", "--spec-draft-p-min 0.75"} {
+		if !strings.Contains(flags, want) {
+			t.Errorf("flags missing %q: %s", want, flags)
+		}
+	}
+
+	savedMTP := base
+	savedMTP.SpecType = "draft-mtp"
+	savedMTP.DraftMax = 6
+	off := applySnapshotToConfig(savedMTP, benchmark.ConfigSnapshot{
+		GPULayers: 999, ContextSize: 8192, Threads: 8,
+		// SpecType empty: the explicit off override.
+	})
+	if flags := off.EffectiveFlagsFor(false, ""); strings.Contains(flags, "--spec-type") {
+		t.Errorf("explicit off should emit no speculative flags: %s", flags)
 	}
 }

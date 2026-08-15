@@ -302,6 +302,11 @@ func applySnapshotToConfig(base models.ModelConfig, snap benchmark.ConfigSnapsho
 	out.KVCacheQuant = snap.KVCacheQuant
 	out.SpecType = snap.SpecType
 	out.DraftModelPath = snap.DraftModelPath
+	out.DraftMax = snap.DraftMax
+	out.DraftMin = snap.DraftMin
+	out.DraftPMin = snap.DraftPMin
+	out.NgramSizeN = snap.NgramSizeN
+	out.NgramSizeM = snap.NgramSizeM
 	out.FlashAttention = snap.FlashAttention
 	out.DirectIO = snap.DirectIO
 	return out
@@ -365,6 +370,11 @@ func (e *jobEnv) ResolveModel(modelID string) (benchmark.ModelInfo, error) {
 			UBatchSize:     cfg.UBatchSize,
 			SpecType:       cfg.SpecType,
 			DraftModelPath: cfg.DraftModelPath,
+			DraftMax:       cfg.DraftMax,
+			DraftMin:       cfg.DraftMin,
+			DraftPMin:      cfg.DraftPMin,
+			NgramSizeN:     cfg.NgramSizeN,
+			NgramSizeM:     cfg.NgramSizeM,
 		},
 	}, nil
 }
@@ -417,6 +427,11 @@ func configDiff(base, merged models.ModelConfig) []string {
 	add("split-mode", base.SplitMode, merged.SplitMode)
 	add("main-gpu", base.MainGPU, merged.MainGPU)
 	add("spec-type", base.SpecType, merged.SpecType)
+	add("draft-max", base.DraftMax, merged.DraftMax)
+	add("draft-min", base.DraftMin, merged.DraftMin)
+	add("draft-p-min", base.DraftPMin, merged.DraftPMin)
+	add("ngram-size-n", base.NgramSizeN, merged.NgramSizeN)
+	add("ngram-size-m", base.NgramSizeM, merged.NgramSizeM)
 	if len(out) == 0 {
 		return []string{"none"}
 	}
