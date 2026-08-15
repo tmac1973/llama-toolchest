@@ -25,6 +25,55 @@ func igpuFlags(gpus []monitor.GPUInfo) []bool {
 	return out
 }
 
+// migrateGPUAssign maps legacy and pre-iGPU-audit GPU assignments onto
+// the current dropdown values, mutating cfg in place (the registry's
+// shared struct, so preset emission sees the migrated values too; disk
+// persists on the next save — the same lazy pattern the original
+// legacy migration used).
+//
+// Legacy: GPUAssign "" or bare "tensor" predate the unified dropdown
+// and are derived from the stored split fields.
+//
+// iGPU audit: on a box with an iGPU, "All GPUs" is no longer offered —
+// the spanning option covers discrete GPUs only, under an explicit-set
+// value. A stored "all" would match no option (the dropdown would
+// silently display the first entry) while still spanning the iGPU at
+// runtime, which fails to load under default builds that compile no
+// iGPU kernels. It migrates to the discrete-set value, with the split
+// fields re-resolved so display and emission agree immediately.
+func migrateGPUAssign(cfg *models.ModelConfig, gpuOptions []models.GPUOption, numGPUs int) {
+	if cfg.GPUAssign == "" || cfg.GPUAssign == "tensor" {
+		switch {
+		case cfg.SplitMode == "tensor":
+			// Derive N from tensor-split (count of non-zero entries); fall
+			// back to all GPUs if not set.
+			n := countNonZeroSplit(cfg.TensorSplit)
+			if n <= 0 || n > numGPUs {
+				n = numGPUs
+			}
+			if n >= 2 && n < numGPUs {
+				cfg.GPUAssign = fmt.Sprintf("tensor-%d", n)
+			} else {
+				cfg.GPUAssign = fmt.Sprintf("tensor-%d", numGPUs)
+			}
+		case cfg.TensorSplit != "":
+			cfg.GPUAssign = "custom"
+		}
+	}
+
+	if cfg.GPUAssign == "all" {
+		for _, o := range gpuOptions {
+			// On an iGPU-free box the spanning option's value is still
+			// "all", so this is a no-op there.
+			if o.IsSpanAll && o.Value != "all" {
+				cfg.GPUAssign = o.Value
+				cfg.TensorSplit, cfg.SplitMode, cfg.MainGPU = models.ResolveGPUAssign(o.Value, numGPUs)
+				break
+			}
+		}
+	}
+}
+
 // gpuAssignWarning reports why a model's current GPU assignment will
 // fail on the active build: it places the model on an iGPU whose gfx
 // target the build didn't compile kernels for. Empty when there is
