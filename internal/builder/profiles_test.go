@@ -103,6 +103,53 @@ func TestAuditedTogglesPresent(t *testing.T) {
 	}
 }
 
+// iGPU targets stay out of the default GPU_TARGETS on boxes with a
+// discrete GPU — the toggle opts back in — but APU-only boxes keep
+// theirs, or a Strix Halo would have nothing to build for.
+func TestROCmGPUTargetsExcludeIGPUByDefault(t *testing.T) {
+	if got := rocmGPUTargets([]string{"gfx1201", "gfx1036"}); got != "gfx1201" {
+		t.Errorf("dGPU+iGPU box: got %q, want gfx1201 only", got)
+	}
+	if got := rocmGPUTargets([]string{"gfx1151"}); got != "gfx1151" {
+		t.Errorf("APU-only box must keep its target, got %q", got)
+	}
+	if got := rocmGPUTargets([]string{"gfx1201", "gfx1201"}); got != "gfx1201" {
+		t.Errorf("duplicate targets should deduplicate, got %q", got)
+	}
+	if got := rocmGPUTargets(nil); got != "gfx1100" {
+		t.Errorf("no detection: got %q, want gfx1100 fallback", got)
+	}
+}
+
+// The Include iGPU toggle appears only when there's an iGPU to include
+// alongside a discrete GPU, and enabling it overrides GPU_TARGETS with
+// the full detected list.
+func TestIGPUTargetOption(t *testing.T) {
+	opt := igpuTargetOption([]string{"gfx1201", "gfx1036"})
+	if opt == nil {
+		t.Fatal("dGPU+iGPU box should offer the toggle")
+	}
+	if opt.Flag != "GPU_TARGETS" || opt.CMakeValue() != "gfx1201;gfx1036" {
+		t.Errorf("toggle should set the full target list, got %s=%s", opt.Flag, opt.CMakeValue())
+	}
+	if opt.Default {
+		t.Error("iGPU inclusion must default off")
+	}
+	if igpuTargetOption([]string{"gfx1201"}) != nil {
+		t.Error("no iGPU: no toggle")
+	}
+	if igpuTargetOption([]string{"gfx1151"}) != nil {
+		t.Error("APU-only: no toggle (its target is already the default)")
+	}
+
+	// End to end: profile default excludes, enabled override includes.
+	flags := map[string]string{"GPU_TARGETS": "gfx1201"}
+	ApplyOptionOverrides(flags, []BuildOption{*opt}, map[string]bool{"GPU_TARGETS": true})
+	if flags["GPU_TARGETS"] != "gfx1201;gfx1036" {
+		t.Errorf("enabled toggle should override the profile targets, got %q", flags["GPU_TARGETS"])
+	}
+}
+
 // GPU_TARGETS is the current documented name; upstream forwards
 // AMDGPU_TARGETS to it, but new invocations should use the real one.
 func TestROCmProfileUsesGPUTargets(t *testing.T) {

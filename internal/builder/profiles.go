@@ -1,5 +1,10 @@
 package builder
 
+import (
+	"fmt"
+	"strings"
+)
+
 // BuildProfile defines cmake flags for a build configuration.
 type BuildProfile struct {
 	Name       string            `json:"name"`
@@ -99,7 +104,7 @@ func ProfileOptions(profile string) []BuildOption {
 			},
 		}...)
 	case "rocm":
-		return append(common, []BuildOption{
+		opts := append(common, []BuildOption{
 			forceMMQ,
 			faAllQuants,
 			{
@@ -115,6 +120,10 @@ func ProfileOptions(profile string) []BuildOption {
 				Default:     false,
 			},
 		}...)
+		if opt := igpuTargetOption(detectedROCmGPUs()); opt != nil {
+			opts = append(opts, *opt)
+		}
+		return opts
 	case "vulkan":
 		// No Vulkan-specific toggles: upstream has no performance build
 		// flags for Vulkan — its tuning levers are runtime environment
@@ -131,17 +140,75 @@ func ProfileOptions(profile string) []BuildOption {
 	}
 }
 
+// detectedROCmGPUs returns the gfx targets rocminfo reports, in
+// enumeration order (duplicates included — multi-GPU boxes repeat the
+// arch).
+func detectedROCmGPUs() []string {
+	for _, b := range DetectBackends() {
+		if b.Name == "rocm" {
+			return b.GPUs
+		}
+	}
+	return nil
+}
+
+// splitROCmTargets partitions detected gfx targets into discrete-GPU and
+// iGPU lists, deduplicated, order preserved.
+func splitROCmTargets(gpus []string) (dgpu, igpu []string) {
+	seen := map[string]bool{}
+	for _, g := range gpus {
+		if seen[g] {
+			continue
+		}
+		seen[g] = true
+		if IsIGPUArch(g) {
+			igpu = append(igpu, g)
+		} else {
+			dgpu = append(dgpu, g)
+		}
+	}
+	return dgpu, igpu
+}
+
+// rocmGPUTargets returns the default GPU_TARGETS value: discrete GPUs
+// only when any exist — the iGPU on such a box is a tiny memory
+// carve-out most users don't want kernels for, and the Include iGPU
+// Build Target toggle opts back in. APU-only boxes (a Strix Halo) keep
+// their iGPU targets, since excluding them would leave nothing to build.
+func rocmGPUTargets(gpus []string) string {
+	dgpu, igpu := splitROCmTargets(gpus)
+	if len(dgpu) > 0 {
+		return strings.Join(dgpu, ";")
+	}
+	if len(igpu) > 0 {
+		return strings.Join(igpu, ";")
+	}
+	return "gfx1100" // fallback when detection fails
+}
+
+// igpuTargetOption returns the Include iGPU Build Target toggle, or nil
+// when the box doesn't have both a discrete GPU and an iGPU (nothing to
+// opt into). When enabled it overrides the profile's dGPU-only
+// GPU_TARGETS with the full detected list.
+func igpuTargetOption(gpus []string) *BuildOption {
+	dgpu, igpu := splitROCmTargets(gpus)
+	if len(dgpu) == 0 || len(igpu) == 0 {
+		return nil
+	}
+	return &BuildOption{
+		Flag:  "GPU_TARGETS",
+		Value: strings.Join(append(dgpu, igpu...), ";"),
+		Label: "Include iGPU Build Target",
+		Description: fmt.Sprintf("Also compile kernels for the integrated GPU (%s). Off by default: the iGPU shares system RAM, is far slower than the discrete card, and some ROCm math libraries don't ship kernels for it. Note the iGPU still appears as a device at runtime either way — this only controls whether the build can execute on it.",
+			strings.Join(igpu, ", ")),
+		Default: false,
+	}
+}
+
 // DefaultProfiles returns built-in profiles for each backend.
 // The ROCm profile auto-detects GPU targets from rocminfo.
 func DefaultProfiles() []BuildProfile {
-	// Detect GPU targets for ROCm
-	gpuTargets := "gfx1100" // fallback
-	for _, b := range DetectBackends() {
-		if b.Name == "rocm" && len(b.GPUs) > 0 {
-			gpuTargets = uniqueJoin(b.GPUs, ";")
-			break
-		}
-	}
+	gpuTargets := rocmGPUTargets(detectedROCmGPUs())
 
 	return []BuildProfile{
 		{

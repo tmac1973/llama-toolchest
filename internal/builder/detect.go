@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"time"
 )
 
 // FindROCmTool locates a ROCm binary. PATH is tried first, then
@@ -46,24 +48,58 @@ func RunningInContainer() bool {
 	return false
 }
 
-// Backend represents a detected GPU compute backend.
-type Backend struct {
-	Name      string   `json:"name"`      // "rocm", "cuda", "vulkan", "metal", "cpu"
-	Available bool     `json:"available"`
-	GPUs      []string `json:"gpus"`      // e.g. ["gfx1201", "gfx1201"]
-	Info      string   `json:"info"`      // human-readable summary
+// apuArchs are gfx IDs belonging to integrated GPUs (APUs). Used to keep
+// iGPU targets out of the default GPU_TARGETS: on a box with a discrete
+// GPU, the iGPU is a tiny memory carve-out nobody wants kernels for.
+// APU-only boxes (a Strix Halo, gfx1151) keep their targets — see
+// rocmGPUTargets.
+var apuArchs = map[string]bool{
+	"gfx902": true, "gfx909": true, "gfx90c": true, // Raven/Renoir/Cezanne
+	"gfx1013": true, "gfx1033": true, // Van Gogh
+	"gfx1035": true, "gfx1036": true, "gfx1037": true, // Rembrandt/Raphael/Mendocino
+	"gfx1103": true,                                                    // Phoenix/Hawk Point
+	"gfx1150": true, "gfx1151": true, "gfx1152": true, "gfx1153": true, // Strix/Krackan
 }
 
+// IsIGPUArch reports whether a gfx target belongs to an integrated GPU.
+func IsIGPUArch(gfx string) bool { return apuArchs[gfx] }
+
+// Backend represents a detected GPU compute backend.
+type Backend struct {
+	Name      string   `json:"name"` // "rocm", "cuda", "vulkan", "metal", "cpu"
+	Available bool     `json:"available"`
+	GPUs      []string `json:"gpus"` // e.g. ["gfx1201", "gfx1201"]
+	Info      string   `json:"info"` // human-readable summary
+}
+
+var (
+	detectMu       sync.Mutex
+	detectCache    []Backend
+	detectCachedAt time.Time
+)
+
 // DetectBackends probes the system for available GPU compute backends.
+//
+// Results are cached briefly: probing execs rocminfo, nvidia-smi, and
+// vulkaninfo (the latter alone costs ~100ms), and callers like the
+// build-option list and profile lookup run on every page render. Ten
+// seconds is long enough to collapse a render into one probe and short
+// enough that a freshly installed SDK appears on the next refresh.
 func DetectBackends() []Backend {
-	backends := []Backend{
+	detectMu.Lock()
+	defer detectMu.Unlock()
+	if detectCache != nil && time.Since(detectCachedAt) < 10*time.Second {
+		return detectCache
+	}
+	detectCache = []Backend{
 		detectROCm(),
 		detectCUDA(),
 		detectVulkan(),
 		detectMetal(),
 		{Name: "cpu", Available: true, Info: "CPU fallback (always available)"},
 	}
-	return backends
+	detectCachedAt = time.Now()
+	return detectCache
 }
 
 func detectROCm() Backend {
@@ -186,4 +222,3 @@ func detectMetal() Backend {
 	b.Info = "Apple Metal (always available on macOS)"
 	return b
 }
-
