@@ -70,11 +70,6 @@ type SweepField struct {
 	// DynamicChoices names a choice set the API layer fills in at render
 	// time because it depends on the host (e.g. how many GPUs exist).
 	DynamicChoices string
-	// Group names another field this one belongs under. Grouped fields
-	// render indented directly beneath their parent in the job form —
-	// the speculative decoding parameters sit under the mode selector,
-	// where someone choosing a mode will find them.
-	Group string
 
 	set func(o *ConfigOverrides, raw string) error
 }
@@ -265,22 +260,8 @@ func init() {
 	sweepFields["tensor_split"] = ts
 }
 
-// tier2 is the ungrouped tier rule: router-restarting parameters first,
-// then request-time sampling parameters, then free-text ones.
-func tier2(f SweepField) int {
-	switch {
-	case f.FreeText:
-		return 2
-	case !f.RestartsRouter:
-		return 1
-	default:
-		return 0
-	}
-}
-
-// SweepFields returns the registry sorted for the job form: three tiers,
-// alphabetical within each, with grouped fields directly beneath their
-// parent.
+// SweepFields returns the registry sorted by label, for rendering the
+// job form.
 func SweepFields() []SweepField {
 	out := make([]SweepField, 0, len(sweepFields))
 	for _, f := range sweepFields {
@@ -292,28 +273,21 @@ func SweepFields() []SweepField {
 	// Free-text parameters sort last because they render as a different
 	// control, and interleaving them looks like a rendering fault rather
 	// than a distinction.
-	// Grouped fields take their parent's tier and sort directly after
-	// it (parent label, then own label), so a group stays together
-	// wherever the parent lands — including a free-text member like
-	// draft_model_path, which would otherwise sink to the bottom away
-	// from its group.
 	tier := func(f SweepField) int {
-		if f.Group != "" {
-			return tier2(sweepFields[f.Group])
+		switch {
+		case f.FreeText:
+			return 2
+		case !f.RestartsRouter:
+			return 1
+		default:
+			return 0
 		}
-		return tier2(f)
-	}
-	key := func(f SweepField) string {
-		if f.Group != "" {
-			return sweepFields[f.Group].Label + "\x00" + f.Label
-		}
-		return f.Label
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if ti, tj := tier(out[i]), tier(out[j]); ti != tj {
 			return ti < tj
 		}
-		return key(out[i]) < key(out[j])
+		return out[i].Label < out[j].Label
 	})
 	return out
 }
@@ -489,13 +463,6 @@ func init() {
 	dmp := sweepFields["draft_model_path"]
 	dmp.FreeText = true
 	sweepFields["draft_model_path"] = dmp
-
-	// The speculative decoding parameters group under the mode selector.
-	for _, name := range []string{"draft_max", "draft_min", "draft_p_min", "ngram_size_n", "ngram_size_m", "draft_model_path"} {
-		f := sweepFields[name]
-		f.Group = "spec_type"
-		sweepFields[name] = f
-	}
 }
 
 // SplitParams turns the unified "parameter → selected values" shape the
