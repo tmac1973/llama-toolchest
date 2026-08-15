@@ -54,10 +54,14 @@
             <input type="text" id="build-tag" name="tag" placeholder="e.g. rocwmma" pattern="[a-z0-9][a-z0-9-]*" autocomplete="off">
         </label>
 
+        <!-- hx-target="this" is load-bearing: without it the div inherits
+             the form's hx-target="#build-output" and the row renders
+             below the Start Build button, outside the card. -->
         <div id="flag-presets"
              hx-get="/api/builds/flag-presets"
              hx-include="#build-profile"
              hx-trigger="load, change from:#build-profile"
+             hx-target="this"
              hx-swap="innerHTML">
         </div>
 
