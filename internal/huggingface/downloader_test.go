@@ -13,8 +13,10 @@ import (
 func seedActive(d *Downloader, downloadID, status string) {
 	dl := &download{
 		cancel: func() {},
+		done:   make(chan struct{}),
 		bc:     broadcast.New[DownloadStatus](1, 16),
 	}
+	close(dl.done) // a seeded terminal entry represents a finished goroutine
 	dl.broadcast(DownloadStatus{ID: downloadID, Status: status})
 	d.mu.Lock()
 	d.active[downloadID] = dl
@@ -42,6 +44,23 @@ func TestStartReplacesTerminalEntry(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Start after %q entry: %v", status, err)
 		}
-		d.Cancel(id) // stop the spawned goroutine; we only care about admission
+		// Cancel joins the goroutine: when it returns, run() has fully
+		// exited (no more filesystem writes racing TempDir cleanup — the
+		// flake this test used to have) and the entry's status is
+		// terminal.
+		d.Cancel(id)
+		d.mu.Lock()
+		dl := d.active[id]
+		d.mu.Unlock()
+		if dl != nil {
+			select {
+			case <-dl.done:
+			default:
+				t.Fatalf("Cancel returned before the %q run goroutine exited", status)
+			}
+			if s := dl.last(); s.Status == "downloading" {
+				t.Fatalf("post-Cancel status still %q", s.Status)
+			}
+		}
 	}
 }

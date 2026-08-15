@@ -30,6 +30,13 @@ type DownloadStatus struct {
 type download struct {
 	cancel context.CancelFunc
 
+	// done is closed when the run goroutine has fully exited. Cancel and
+	// Start's terminal-entry eviction wait on it (bounded), so nothing
+	// races a goroutine that hasn't noticed its cancelled context yet —
+	// neither a resume opening the same .part file, nor a test's TempDir
+	// cleanup racing run's MkdirAll.
+	done chan struct{}
+
 	// Fan-out to multiple subscribers. History size 1 means the current
 	// state is retained: replayed to new subscribers (so they see where we
 	// are immediately) and queryable via last() for ListActive/PendingBytes.
@@ -102,11 +109,25 @@ func (d *Downloader) Start(ctx context.Context, modelID, filename string, expect
 		// Terminal entry still inside its 30s late-subscriber grace window —
 		// evict it so a paused/failed download can be resumed immediately.
 		delete(d.active, downloadID)
+		d.mu.Unlock()
+		// Wait (bounded) for the old goroutine to fully exit before
+		// spawning a replacement: its terminal status means it's at the
+		// end of run(), but until done closes it may still hold the
+		// .part file the new goroutine is about to open. (nil guard:
+		// entries deserialized or constructed without a goroutine.)
+		if existing.done != nil {
+			select {
+			case <-existing.done:
+			case <-time.After(5 * time.Second):
+			}
+		}
+		d.mu.Lock()
 	}
 
 	dlCtx, cancel := context.WithCancel(context.Background())
 	dl := &download{
 		cancel: cancel,
+		done:   make(chan struct{}),
 		bc:     broadcast.New[DownloadStatus](1, 16),
 	}
 	// Seed the status so PendingBytes counts this download immediately,
@@ -216,10 +237,35 @@ func (d *Downloader) Cancel(downloadID string) error {
 	}
 
 	dl.cancel()
+	// Join the goroutine (bounded): when Cancel returns, the download has
+	// actually stopped touching the filesystem — not merely been asked
+	// to. The chunk loop and the HTTP request both watch the context, so
+	// exit is prompt; the timeout only guards a wedged transfer.
+	if dl.done != nil {
+		select {
+		case <-dl.done:
+		case <-time.After(5 * time.Second):
+		}
+	}
 	return nil
 }
 
 func (d *Downloader) run(ctx context.Context, downloadID, modelID, filename string, dl *download) {
+	defer close(dl.done)
+	// Cancelled before we ever ran (pause immediately after resume, or a
+	// test's admission-only Start): report the terminal status and exit
+	// without side effects — in particular before the MkdirAll below,
+	// which otherwise races whoever is cleaning the directory up.
+	if ctx.Err() != nil {
+		dl.broadcast(DownloadStatus{ID: downloadID, ModelID: modelID, Filename: filename, Status: "cancelled"})
+		go func() {
+			time.Sleep(30 * time.Second)
+			d.mu.Lock()
+			delete(d.active, downloadID)
+			d.mu.Unlock()
+		}()
+		return
+	}
 	defer func() {
 		// Keep in active map briefly so late subscribers can see final status
 		go func() {
