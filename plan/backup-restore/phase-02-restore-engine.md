@@ -102,7 +102,7 @@ become pending in phase 03).
      validates the **merged** EnvSet (`config.EnvSet.Validate` — it's what
      will actually apply); on error → one Skipped entry with the validation
      message, nothing stored; on success `Deps.ApplyEnv(merged)` stores it
-     and the engine surfaces `EnvSet.Warnings()` (footguns) into
+     and the engine surfaces `EnvSet.Warnings()` (known-risky variables) into
      `Report.Warnings`.
    - FlagPresets: one item each via `SaveFlagPreset` (its name/profile
      validation produces the skip reason).

@@ -57,7 +57,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	defer s.cfgMu.Unlock()
 
 	// Set when this request changed the runtime environment section, so
-	// the response can carry the footgun warnings and refreshed preview.
+	// the response can carry the variable warnings and refreshed preview.
 	envTouched := false
 
 	if r.Header.Get("Content-Type") == "application/json" {
@@ -149,7 +149,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if isHTMX(r) {
 		respondHTML(w)
 		if envTouched {
-			// Footgun warnings plus an out-of-band refresh of the
+			// Variable warnings plus an out-of-band refresh of the
 			// effective-environment preview.
 			s.renderPartial(w, "runtime_env_status", struct {
 				Warnings  []string

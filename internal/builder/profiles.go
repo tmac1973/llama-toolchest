@@ -126,7 +126,7 @@ func ProfileOptions(profile string) []BuildOption {
 		return opts
 	case "vulkan":
 		// No Vulkan-specific toggles: upstream has no performance build
-		// flags for Vulkan — its tuning levers are runtime environment
+		// flags for Vulkan — its tuning options are runtime environment
 		// variables (GGML_VK_DISABLE_COOPMAT, GGML_VK_FORCE_MAX_ALLOCATION_SIZE
 		// under Settings). The debug flags (GGML_VULKAN_CHECK_RESULTS,
 		// GGML_VULKAN_VALIDATE) are reachable via Extra CMake flags.

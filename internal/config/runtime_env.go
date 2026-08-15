@@ -8,10 +8,11 @@ import (
 
 // RuntimeEnvOption is a curated environment variable that measurably
 // affects llama-server. Deliberately a fixed list rather than a free-form
-// map: most of the variables that circulate in forum threads are either
-// no-ops for llama.cpp or workarounds for other stacks. Anything outside
-// this list goes through the free-form Extra environment entry, which
-// warns on the known footguns instead of refusing.
+// map: most of the variables that circulate in forum threads either
+// have no effect on llama.cpp or are workarounds for other software
+// stacks. Anything outside this list goes through the free-form Extra
+// environment entry, which warns about known-risky variables instead of
+// refusing them.
 //
 // The environment applies to the router process and is inherited by
 // every model instance it spawns identically — per-model env is not
@@ -59,7 +60,7 @@ func RuntimeEnvOptions() []RuntimeEnvOption {
 			Name:  "GGML_CUDA_DISABLE_GRAPHS",
 			Label: "Disable CUDA/HIP graphs",
 			Help: "Graphs are enabled by default and generally help token generation. " +
-				"This is a compatibility and debugging lever — expect a small slowdown, not a speedup.",
+				"This is a compatibility and troubleshooting option — expect a small slowdown, not a speedup.",
 			Values:   []string{"", "1"},
 			Backends: []string{"cuda", "rocm"},
 		},
@@ -92,7 +93,7 @@ func RuntimeEnvOptions() []RuntimeEnvOption {
 		{
 			Name:  "GGML_VK_DISABLE_COOPMAT",
 			Label: "Disable Vulkan matrix cores",
-			Help: "Turns off cooperative-matrix use in the Vulkan backend. A troubleshooting lever for " +
+			Help: "Turns off cooperative-matrix use in the Vulkan backend. A troubleshooting option for " +
 				"driver hangs and GPU resets (seen on some Intel Arc drivers); costs significant speed " +
 				"when the driver is healthy — 'matrix cores: none' in the log confirms it took effect.",
 			Values:   []string{"", "1"},
@@ -194,8 +195,9 @@ func validEnvName(name string) bool {
 
 // Validate checks the curated values against their allowed sets and the
 // free-form block for well-formed KEY=VALUE lines. Unknown variable
-// names in Extra are fine by design — that's what the escape hatch is
-// for; the known-footgun ones warn (see Warnings) but never block.
+// names in Extra are accepted by design — the free-form entry exists
+// for variables outside the curated list; known-risky ones warn (see
+// Warnings) but never block.
 func (e EnvSet) Validate() error {
 	allowed := make(map[string]RuntimeEnvOption, len(RuntimeEnvOptions()))
 	for _, o := range RuntimeEnvOptions() {
@@ -235,10 +237,10 @@ func (e EnvSet) Validate() error {
 	return nil
 }
 
-// envFootguns are variables that are legal to set but conflict with a
+// riskyEnvVars are variables that are legal to set but conflict with a
 // toolchest mechanism or are commonly harmful. They warn — never block —
-// because each has a legitimate expert use.
-var envFootguns = map[string]string{
+// because each has a legitimate use in the right situation.
+var riskyEnvVars = map[string]string{
 	"CUDA_DEVICE_ORDER":        "the process manager pins CUDA_DEVICE_ORDER=PCI_BUS_ID so the UI's GPU indices match llama-server; overriding it can silently remap which card \"GPU 0\" is",
 	"CUDA_VISIBLE_DEVICES":     "hides GPUs from the router and every model instance, fighting the per-model GPU assignment (--device) set in model config",
 	"HIP_VISIBLE_DEVICES":      "hides GPUs from the router and every model instance, fighting the per-model GPU assignment (--device) set in model config",
@@ -247,13 +249,13 @@ var envFootguns = map[string]string{
 	"HSA_OVERRIDE_GFX_VERSION": "only needed for GPUs ROCm doesn't support natively (setup.sh already handles that case); on a natively supported card it selects the wrong kernels and hurts correctness and performance",
 }
 
-// Warnings returns one message per footgun variable present in the set.
-// The variables still apply — this is information, not enforcement.
+// Warnings returns one message per known-risky variable present in the
+// set. The variables still apply — this is information, not enforcement.
 func (e EnvSet) Warnings() []string {
 	var names []string
 	seen := map[string]bool{}
 	note := func(name string) {
-		if reason, ok := envFootguns[name]; ok && !seen[name] {
+		if reason, ok := riskyEnvVars[name]; ok && !seen[name] {
 			seen[name] = true
 			names = append(names, fmt.Sprintf("%s: %s", name, reason))
 		}
@@ -278,8 +280,7 @@ func (e EnvSet) Warnings() []string {
 // Pairs renders the set as KEY=VALUE strings, skipping blank curated
 // values so an unset option means "don't touch the environment" rather
 // than "set it to empty". Free-form entries override curated ones with
-// the same name — the escape hatch wins. Sorted for a stable command
-// line.
+// the same name. Sorted for a stable command line.
 func (e EnvSet) Pairs() []string {
 	merged := map[string]string{}
 	for k, v := range e.Curated {

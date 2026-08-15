@@ -6,18 +6,13 @@
     <p>Environment variables applied to the llama-server process and inherited by
        every model instance it spawns — process-wide, not per model. Changes take
        effect on the next server restart.</p>
-    <label style="max-width:16rem;">
+    <label style="max-width:16rem;" title="Choose which backend's variables are shown in the table. This only changes what is displayed: every variable is saved and takes effect whenever a build of its backend runs, and a variable that has a value is always shown.">
         Backend
         <select id="env-backend-select" onchange="filterEnvRows(this)" style="margin-bottom:0.5rem;">
             {{range .EnvBackends}}
             <option value="{{.}}" {{if eq . $.ActiveBackend}}selected{{end}}>{{.}}{{if eq . $.ActiveBackend}} (active build){{end}}</option>
             {{end}}
         </select>
-        <small style="color:var(--pico-muted-color);">
-            View filter only — every variable saves regardless of which backend is
-            shown or built; it applies whenever a build of that backend runs.
-            Variables holding a value stay visible in every view.
-        </small>
     </label>
     <form hx-put="/api/settings"
           hx-target="#runtime-env-status"
@@ -47,17 +42,11 @@
             {{end}}
             </tbody>
         </table>
-        <label style="margin-top:1rem;">
+        <label style="margin-top:1rem;" title="Additional environment variables not listed above, one KEY=VALUE per line. Lines starting with # are ignored. If a variable is set both here and in the table, this value is used. Most environment variables recommended in online guides have no effect on llama.cpp, so test before keeping one. A few variables that can interfere with this tool are saved with a warning.">
             Extra environment
             <textarea name="runtime_env_extra" rows="3"
                       placeholder="KEY=VALUE &mdash; one per line, # comments allowed"
                       style="font-family:var(--pico-font-family-monospace); font-size:0.85em;">{{.RuntimeEnvExtra}}</textarea>
-            <small style="color:var(--pico-muted-color);">
-                Escape hatch for anything not listed — most variables that circulate as
-                llama.cpp tuning tips are no-ops for it, so measure before keeping one.
-                Applied last, overriding the dropdowns on a name clash. Known-footgun
-                variables save with a warning.
-            </small>
         </label>
     </form>
     <div id="runtime-env-status">

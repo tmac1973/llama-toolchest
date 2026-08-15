@@ -206,7 +206,7 @@ Touch points:
    architectural claim; the genuine hybrid-model issues (#22384, #25004,
    #22746) are cache/checkpoint **correctness** bugs causing full prompt
    reprocessing — which produces the repeated-slow-prefill symptom people
-   attribute to ubatch, and is the likely origin of the folklore.
+   attribute to ubatch, and is the likely origin of the myth.
    Hardcoding a small `-ub` for hybrid architectures would badly hurt
    prefill on a machine with adequate VRAM. This is precisely why the
    deliverable is a sweep, not a heuristic.
@@ -367,7 +367,7 @@ has a legitimate VRAM-reduction use), never defaulted.
 
 #### Finding 4 — `GGML_HIP_FORCE_ROCWMMA_FATTN_GFX12` is not real
 
-No CMake option, no source reference, nothing in `git log -S`. Folklore.
+No CMake option, no source reference, nothing in `git log -S`. An unsupported claim from forum posts.
 Do not implement.
 
 #### Current upstream defaults — already correct, don't touch
@@ -385,11 +385,11 @@ refs, as its own description already half-admits.
 |---|---|---|
 | `GGML_CUDA_CUBLAS_COMPUTE_TYPE` | unset (`auto`) | The real successor to COMPUTE_16F. The FP16-accumulator knob. |
 | `ROCBLAS_USE_HIPBLASLT` | unset | **Not defaulted anywhere.** No-op on gfx12 (hipBLASLt is already rocBLAS's default backend there), and llama.cpp's own source notes it crashes on gfx942. Worth an A/B on gfx1151/gfx1100 only. |
-| `GGML_CUDA_DISABLE_GRAPHS` | unset | Debug/compat lever. Expect a small TG *loss*, not a gain. |
+| `GGML_CUDA_DISABLE_GRAPHS` | unset | Debugging and compatibility option. Expect a small TG *loss*, not a gain. |
 | `GGML_CUDA_ENABLE_UNIFIED_MEMORY` | unset | Survivability, not speed. |
 
 **Explicitly rejected:** `HSA_NO_SCRATCH_RECLAIM` (no llama.cpp or ROCm
-evidence; PyTorch-thread folklore). `HSA_ENABLE_SDMA=0` (stability
+evidence; an unsupported claim from PyTorch forum threads). `HSA_ENABLE_SDMA=0` (stability
 workaround, not perf). `HSA_OVERRIDE_GFX_VERSION` on **gfx1201** — it is
 officially supported in current ROCm, so overriding is actively harmful.
 `setup.sh:140` currently maps `gfx1200|gfx1201` to an override; that

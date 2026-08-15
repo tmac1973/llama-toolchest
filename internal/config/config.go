@@ -29,9 +29,9 @@ type Config struct {
 	// env is not expressible. See RuntimeEnvOptions for the allowed set.
 	RuntimeEnv map[string]string `yaml:"runtime_env,omitempty"`
 
-	// RuntimeEnvExtra is the free-form escape hatch: KEY=VALUE lines
-	// applied alongside RuntimeEnv (and overriding it on a name clash).
-	// Any variable is accepted; known footguns warn on save.
+	// RuntimeEnvExtra holds free-form KEY=VALUE lines applied alongside
+	// RuntimeEnv (and overriding it when the same name is set in both).
+	// Any variable is accepted; known-risky ones warn on save.
 	RuntimeEnvExtra string `yaml:"runtime_env_extra,omitempty"`
 }
 

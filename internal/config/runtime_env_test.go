@@ -73,7 +73,7 @@ func TestRuntimeEnvPairsEmpty(t *testing.T) {
 }
 
 // Free-form entries extend the environment and override curated values
-// on a name clash — the escape hatch wins.
+// when the same name is set in both.
 func TestEnvSetExtraOverridesCurated(t *testing.T) {
 	e := EnvSet{
 		Curated: map[string]string{"GGML_CUDA_DISABLE_GRAPHS": "1"},
@@ -100,12 +100,12 @@ func TestEnvSetValidateExtra(t *testing.T) {
 	}
 }
 
-// Footguns warn but never block: the variables still validate, still
-// apply, and each warning names the specific hazard.
-func TestEnvSetWarnsOnFootguns(t *testing.T) {
+// Known-risky variables warn but never block: they still validate,
+// still apply, and each warning names the specific risk.
+func TestEnvSetWarnsOnRiskyVariables(t *testing.T) {
 	e := EnvSet{Extra: "HSA_OVERRIDE_GFX_VERSION=11.0.0\nCUDA_DEVICE_ORDER=FASTEST_FIRST\nSAFE_VAR=1"}
 	if err := e.Validate(); err != nil {
-		t.Fatalf("footguns must save, not block: %v", err)
+		t.Fatalf("risky variables must save, not block: %v", err)
 	}
 	warnings := e.Warnings()
 	if len(warnings) != 2 {
@@ -116,7 +116,7 @@ func TestEnvSetWarnsOnFootguns(t *testing.T) {
 	}
 	pairs := e.Pairs()
 	if len(pairs) != 3 {
-		t.Errorf("footgun variables must still apply, got %v", pairs)
+		t.Errorf("risky variables must still apply, got %v", pairs)
 	}
 }
 
@@ -177,7 +177,7 @@ func TestRuntimeEnvBackends(t *testing.T) {
 
 // The variables we deliberately excluded are the ones most likely to be
 // pasted in from forum threads; keep that decision pinned.
-func TestRuntimeEnvOptionsExcludeUnsupportedFolklore(t *testing.T) {
+func TestRuntimeEnvOptionsExcludeUnsupportedVariables(t *testing.T) {
 	for _, opt := range RuntimeEnvOptions() {
 		switch opt.Name {
 		case "HSA_NO_SCRATCH_RECLAIM", "HSA_ENABLE_SDMA", "HSA_OVERRIDE_GFX_VERSION":

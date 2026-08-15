@@ -23,7 +23,7 @@ func TestConfigSearchPathsIncludesEtc(t *testing.T) {
 }
 
 // TestDefaultConfigPathEnvWins verifies LLAMA_TOOLCHEST_CONFIG short-circuits
-// the search entirely — this is the documented escape hatch.
+// the search entirely — the documented way to force a specific path.
 func TestDefaultConfigPathEnvWins(t *testing.T) {
 	t.Setenv("LLAMA_TOOLCHEST_CONFIG", "/custom/spot/config.yaml")
 	if got := DefaultConfigPath(); got != "/custom/spot/config.yaml" {

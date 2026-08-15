@@ -21,7 +21,7 @@ b10332 and why an RDNA4 user would pin one.
 
 The Settings tab's runtime environment section has the opposite problem: four
 stacked label+dropdown+help blocks consume a lot of vertical space for four
-variables, there is no escape hatch for variables outside the curated list, and
+variables, there is no way to set variables outside the curated list, and
 newer high-value variables (`GGML_CUDA_P2P`, `CUDA_SCALE_LAUNCH_QUEUES`,
 `GGML_VK_DISABLE_COOPMAT`, `GGML_VK_FORCE_MAX_ALLOCATION_SIZE`) are missing.
 
@@ -51,12 +51,12 @@ newer high-value variables (`GGML_CUDA_P2P`, `CUDA_SCALE_LAUNCH_QUEUES`,
 - Add a free-form "Extra environment" entry for arbitrary `KEY=VALUE` pairs and
   a read-only "Effective environment" preview, following the Extra
   flags/Effective Flags pattern used in model config and the Build tab. Any
-  variable is accepted; a small named list of footguns (`CUDA_DEVICE_ORDER`,
+  variable is accepted; a small named list of risky variables (`CUDA_DEVICE_ORDER`,
   `HIP_VISIBLE_DEVICES`/`CUDA_VISIBLE_DEVICES`/`ROCR_VISIBLE_DEVICES`,
   `HSA_OVERRIDE_GFX_VERSION`) gets an inline warning explaining the specific
   hazard but saves anyway.
 - Build the environment feature as a self-contained, reusable component
-  (curated options + free-form entries + validation + footgun warnings +
+  (curated options + free-form entries + validation + risky-variable warnings +
   effective-env rendering) used at global scope in Settings now, shaped so a
   per-model copy can slot into model config later without rework.
 - Update the help page sections for the Build tab and Settings to match the new
@@ -94,7 +94,7 @@ effective flags preview shows exactly what cmake will receive either way.
 Settings flow: the user opens Settings and sees a compact table of environment
 variables relevant to their active backend, sets values from dropdowns, adds
 anything exotic in the free-form Extra environment box (getting a warning — not
-a refusal — if the variable is a known footgun), and confirms the final
+a refusal — if the variable is a known-risky variable), and confirms the final
 `KEY=VALUE` list in the Effective environment preview. The change applies on
 the next router restart, process-wide.
 
@@ -113,7 +113,7 @@ the next router restart, process-wide.
   (`Server.activeBackend()` exists as of the `--device` work).
 - `applyExtraEnv` in `internal/process/manager.go` gives inherited service
   environment precedence over UI-set values, and `pinCUDADeviceOrder` pins
-  `CUDA_DEVICE_ORDER=PCI_BUS_ID`; the effective preview and footgun warnings
+  `CUDA_DEVICE_ORDER=PCI_BUS_ID`; the effective preview and risky-variable warnings
   must be consistent with both behaviors.
 - Existing `config.yaml` `runtime_env` maps must keep loading unchanged; the
   free-form additions extend the schema rather than replace it.
@@ -161,7 +161,7 @@ the next router restart, process-wide.
   environment + read-only Effective environment preview follow the Extra
   flags/Effective Flags pattern.
 - **Free-form validation policy** → Allow any `KEY=VALUE`; warn inline on known
-  footguns (`CUDA_DEVICE_ORDER`, visible-devices vars,
+  known-risky variables (`CUDA_DEVICE_ORDER`, visible-devices vars,
   `HSA_OVERRIDE_GFX_VERSION`) but save anyway.
 - **Migration of removed-toggle overrides** → Drop silently; stored overrides
   for unknown flags are already ignored and the flags were no-ops.

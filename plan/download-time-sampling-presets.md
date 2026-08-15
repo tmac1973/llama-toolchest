@@ -24,7 +24,7 @@ publish (`min_p`, `presence_penalty`).
 
 ---
 
-## Current state (what actually exists — corrects the folklore)
+## Current state (what actually exists — corrects common misconceptions)
 
 - The "build-time doc scrape" is neither build-time nor doc-based:
   `scripts/scrape-sampling-presets/main.go` is a **manual codegen
