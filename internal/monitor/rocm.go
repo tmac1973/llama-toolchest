@@ -42,7 +42,7 @@ func (r *rocmBackend) collectROCmSMI() ([]GPUInfo, error) {
 		return nil, fmt.Errorf("rocm-smi: not found")
 	}
 	out, err := exec.Command(smi,
-		"--showuse", "--showmemuse", "--showtemp", "--showpower",
+		"--showbus", "--showuse", "--showmemuse", "--showtemp", "--showpower",
 		"--csv").Output()
 	if err != nil {
 		return nil, fmt.Errorf("rocm-smi: %w", err)
@@ -60,9 +60,26 @@ func (r *rocmBackend) collectROCmSMI() ([]GPUInfo, error) {
 		colIdx[strings.TrimSpace(h)] = i
 	}
 
+	// rocm-smi's "device" column ("card0", "card1", ...) is NOT a
+	// usable identity: depending on version and machine it is either
+	// the DRM card number (driver probe order, shifted by BMC/iGPU
+	// display devices) or rocm-smi's own row number (sorted by PCI bus
+	// address — the reverse of KFD order on some boards). Interpreting
+	// it produced swapped metrics on one machine and duplicate GPU
+	// indices on another. The PCI bus address is the only unambiguous
+	// key both sides share, so rows are matched to KFD positions by
+	// it; without the column the whole collection is rejected and the
+	// sysfs fallback (consistent by construction) takes over.
+	busCol, ok := colIdx["PCI Bus"]
+	if !ok {
+		return nil, fmt.Errorf("rocm-smi: no PCI Bus column")
+	}
+
 	// KFD-ordered device dirs: position N belongs to the GPU
 	// llama-server addresses as ROCm<N>.
 	dirs := listAMDGPUDirs()
+	byBDF := kfdIndexByBDF(dirs)
+	seen := make(map[int]bool)
 
 	var gpus []GPUInfo
 	for _, line := range lines[1:] {
@@ -72,35 +89,19 @@ func (r *rocmBackend) collectROCmSMI() ([]GPUInfo, error) {
 		}
 
 		gpu := GPUInfo{}
-		if i, ok := colIdx["device"]; ok && i < len(fields) {
-			// rocm-smi reports the device as "card0", "card1", etc.
-			// (or sometimes "GPU 0", "GPU 1"). Plain Atoi silently
-			// fails and leaves Index=0 for every GPU, which made
-			// every GPU show up as GPU0 in the sidebar.
-			s := strings.TrimSpace(fields[i])
-			if num, isCard := strings.CutPrefix(s, "card"); isCard {
-				// "cardN" is the DRM card number, which follows driver
-				// probe order — not the KFD order every other index in
-				// this package (and llama-server's ROCm<N> devices)
-				// uses. Using it directly attributed one card's
-				// utilization to another card's VRAM/name whenever the
-				// two orders disagreed. Map the card to its KFD
-				// position instead; fall back to the raw number only
-				// when the card can't be found.
-				n, _ := strconv.Atoi(num)
-				gpu.Index = n
-				cardDir := fmt.Sprintf("/sys/class/drm/card%d/device", n)
-				if idx := indexOfDevice(dirs, cardDir); idx >= 0 {
-					gpu.Index = idx
-				}
-			} else {
-				// "GPU N" is rocm-smi's logical index, already in KFD
-				// order.
-				s = strings.TrimPrefix(s, "GPU ")
-				s = strings.TrimPrefix(s, "GPU")
-				gpu.Index, _ = strconv.Atoi(s)
-			}
+		if busCol >= len(fields) {
+			return nil, fmt.Errorf("rocm-smi: row without PCI Bus field")
 		}
+		bdf := strings.ToLower(strings.TrimSpace(fields[busCol]))
+		idx, ok := byBDF[bdf]
+		if !ok || seen[idx] {
+			// A device KFD doesn't know, or two rows claiming one
+			// GPU: the mapping is unreliable — let sysfs take over
+			// rather than render wrong numbers.
+			return nil, fmt.Errorf("rocm-smi: device %s not uniquely in KFD topology", bdf)
+		}
+		seen[idx] = true
+		gpu.Index = idx
 		if i, ok := colIdx["GPU use (%)"]; ok && i < len(fields) {
 			gpu.UtilPercent, _ = strconv.Atoi(strings.TrimSpace(fields[i]))
 		}
@@ -128,13 +129,19 @@ func (r *rocmBackend) collectROCmSMI() ([]GPUInfo, error) {
 
 		gpus = append(gpus, gpu)
 	}
+	// Rows arrive in rocm-smi's PCI-address order; present them in
+	// GPU-index order so the sidebar reads ROCm0, ROCm1, ...
+	sort.Slice(gpus, func(i, j int) bool { return gpus[i].Index < gpus[j].Index })
 	return gpus, nil
 }
 
 // listAMDGPUDirs returns the sysfs device directories of AMD GPUs in
-// KFD topology order — the order rocminfo, rocm-smi, and llama-server's
-// HIP runtime all enumerate in. Shared by collectSysfs and readVRAMSysfs
-// so the enumeration lives in one place.
+// KFD topology order — the order rocminfo and llama-server's HIP
+// runtime enumerate in. (rocm-smi does NOT share it: its rows are
+// sorted by PCI bus address, which is why collectROCmSMI matches rows
+// by that address instead of by position or label.) Shared by
+// collectSysfs and collectROCmSMI so the enumeration lives in one
+// place.
 //
 // DRM card numbers follow driver probe order instead, which on desktop
 // APU boxes puts the iGPU at card0 while KFD lists the discrete GPU
@@ -249,22 +256,21 @@ func (r *rocmBackend) collectSysfs() ([]GPUInfo, error) {
 	return gpus, nil
 }
 
-// indexOfDevice returns the position of deviceDir in dirs, or -1 when
-// absent. Paths are compared after resolving symlinks: a GPU's
-// /sys/class/drm/cardN/device and /sys/class/drm/renderDM/device both
-// link to the same PCI device directory, which is what makes a DRM card
-// findable in the KFD-ordered render-node list.
-func indexOfDevice(dirs []string, deviceDir string) int {
-	target, err := filepath.EvalSymlinks(deviceDir)
-	if err != nil {
-		return -1
-	}
+// kfdIndexByBDF maps each device's PCI bus address (lowercase, e.g.
+// "0000:c7:00.0") to its position in the KFD-ordered dir list. The
+// address is the final component of the resolved sysfs device path,
+// and it is the same string rocm-smi's "PCI Bus" column reports —
+// the one identity shared by both enumerations.
+func kfdIndexByBDF(dirs []string) map[string]int {
+	m := make(map[string]int, len(dirs))
 	for i, d := range dirs {
-		if resolved, err := filepath.EvalSymlinks(d); err == nil && resolved == target {
-			return i
+		resolved, err := filepath.EvalSymlinks(d)
+		if err != nil {
+			continue
 		}
+		m[strings.ToLower(filepath.Base(resolved))] = i
 	}
-	return -1
+	return m
 }
 
 // readVRAMFromDir reads /sys/class/drm/card*/device/mem_info_vram_* from an

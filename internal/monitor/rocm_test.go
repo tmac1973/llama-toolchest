@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"testing"
 )
 
@@ -115,42 +116,44 @@ Agent 1
 	}
 }
 
-// TestIndexOfDevice guards the rocm-smi index mapping: DRM card numbers
-// follow driver probe order while the monitor's device list follows KFD
-// order, and rocm-smi's "cardN" labels must be resolved to KFD positions
-// or one card's utilization gets paired with another card's VRAM and
-// name. A card and a render node of the same GPU are symlinks to one
-// PCI device directory; indexOfDevice matches them by resolved path.
-func TestIndexOfDevice(t *testing.T) {
+// TestKFDIndexByBDF guards the rocm-smi row mapping: rocm-smi orders
+// its rows by PCI bus address while KFD topology (the order behind
+// llama-server's ROCm<N> device names) can run the other way entirely
+// — on a real quad-GPU board KFD listed c7, 83, 43, 03 while rocm-smi
+// listed 03, 43, 83, c7. The PCI address is the only identity both
+// share, so rows must resolve to KFD positions through it; matching by
+// row position or by rocm-smi's "cardN" label paired one card's
+// utilization with another card's VRAM (and produced duplicate GPU
+// indices when a BMC display device shifted the DRM card numbering).
+func TestKFDIndexByBDF(t *testing.T) {
 	tmp := t.TempDir()
-	// Two PCI device directories.
-	pciA := filepath.Join(tmp, "pci0000:03:00.0")
-	pciB := filepath.Join(tmp, "pci0000:83:00.0")
-	for _, d := range []string{pciA, pciB} {
-		if err := os.Mkdir(d, 0o755); err != nil {
+	// PCI device directories named by bus address, as sysfs does.
+	bdfs := []string{"0000:c7:00.0", "0000:83:00.0", "0000:43:00.0", "0000:03:00.0"}
+	var kfdDirs []string
+	for i, bdf := range bdfs {
+		target := filepath.Join(tmp, bdf)
+		if err := os.Mkdir(target, 0o755); err != nil {
 			t.Fatal(err)
 		}
-	}
-	// KFD order lists B first; DRM probe order made A card0 and B card1.
-	link := func(name, target string) string {
-		p := filepath.Join(tmp, name)
-		if err := os.Symlink(target, p); err != nil {
+		link := filepath.Join(tmp, "renderD"+strconv.Itoa(128+i))
+		if err := os.Symlink(target, link); err != nil {
 			t.Fatal(err)
 		}
-		return p
+		kfdDirs = append(kfdDirs, link)
 	}
-	kfdDirs := []string{link("renderD128", pciB), link("renderD129", pciA)}
-	card0 := link("card0-device", pciA)
-	card1 := link("card1-device", pciB)
 
-	if got := indexOfDevice(kfdDirs, card0); got != 1 {
-		t.Errorf("indexOfDevice(card0) = %d; want 1", got)
+	m := kfdIndexByBDF(kfdDirs)
+	if len(m) != 4 {
+		t.Fatalf("kfdIndexByBDF returned %d entries; want 4", len(m))
 	}
-	if got := indexOfDevice(kfdDirs, card1); got != 0 {
-		t.Errorf("indexOfDevice(card1) = %d; want 0", got)
+	// rocm-smi reports addresses uppercase; the map is keyed lowercase.
+	for want, bdf := range bdfs {
+		if got, ok := m[bdf]; !ok || got != want {
+			t.Errorf("m[%q] = %d, %v; want %d, true", bdf, got, ok, want)
+		}
 	}
-	if got := indexOfDevice(kfdDirs, filepath.Join(tmp, "missing")); got != -1 {
-		t.Errorf("indexOfDevice(missing) = %d; want -1", got)
+	if _, ok := m["0000:c9:00.0"]; ok {
+		t.Error("BMC-style device not in KFD list must be absent from the map")
 	}
 }
 
