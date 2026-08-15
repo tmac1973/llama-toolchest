@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.18.1](https://github.com/tmac1973/llama-toolchest/compare/v2.18.0...v2.18.1) (2026-08-15)
+
+
+### Bug Fixes
+
+* **monitor:** map rocm-smi card numbers to KFD positions ([#119](https://github.com/tmac1973/llama-toolchest/issues/119)) ([7628a95](https://github.com/tmac1973/llama-toolchest/commit/7628a95044798556ed620d1dabcbf95c7e61177f))
+
 ## [2.18.0](https://github.com/tmac1973/llama-toolchest/compare/v2.17.3...v2.18.0) (2026-08-15)
 
 
