@@ -1,6 +1,32 @@
 package builder
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+// Arch-family distros install ROCm under /opt/rocm without touching
+// PATH, so tool lookup must fall back to $ROCM_PATH/bin (and
+// /opt/rocm/bin). A bare LookPath regressed to "no ROCm detected" on
+// CachyOS with ROCm fully installed.
+func TestFindROCmToolUsesROCmPathFallback(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	os.MkdirAll(bin, 0o755)
+	fake := filepath.Join(bin, "definitely-not-on-path-rocminfo")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ROCM_PATH", dir)
+
+	if got := FindROCmTool("definitely-not-on-path-rocminfo"); got != fake {
+		t.Errorf("got %q, want %q", got, fake)
+	}
+	if got := FindROCmTool("definitely-not-anywhere-xyz"); got != "" {
+		t.Errorf("missing tool should return empty, got %q", got)
+	}
+}
 
 func optionFlags(profile string) map[string]BuildOption {
 	out := map[string]BuildOption{}

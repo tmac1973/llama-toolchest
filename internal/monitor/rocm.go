@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/tmac1973/llama-toolchest/internal/builder"
 )
 
 type rocmBackend struct{}
@@ -33,7 +35,11 @@ func (r *rocmBackend) Collect() ([]GPUInfo, error) {
 }
 
 func (r *rocmBackend) collectROCmSMI() ([]GPUInfo, error) {
-	out, err := exec.Command("rocm-smi",
+	smi := builder.FindROCmTool("rocm-smi")
+	if smi == "" {
+		return nil, fmt.Errorf("rocm-smi: not found")
+	}
+	out, err := exec.Command(smi,
 		"--showuse", "--showmemuse", "--showtemp", "--showpower",
 		"--csv").Output()
 	if err != nil {
@@ -183,7 +189,11 @@ func readVRAMFromDir(deviceDir string) (usedMB, totalMB int) {
 }
 
 func readGPUNameSysfs(gpuIdx int) string {
-	if out, err := exec.Command("rocminfo").Output(); err == nil {
+	rocminfo := builder.FindROCmTool("rocminfo")
+	if rocminfo == "" {
+		return fmt.Sprintf("AMD GPU %d", gpuIdx)
+	}
+	if out, err := exec.Command(rocminfo).Output(); err == nil {
 		names := parseROCmGPUNames(string(out))
 		if gpuIdx >= 0 && gpuIdx < len(names) {
 			return names[gpuIdx]

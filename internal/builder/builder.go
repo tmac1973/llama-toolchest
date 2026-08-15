@@ -424,6 +424,16 @@ func (b *Builder) runBuild(ctx context.Context, prof BuildProfile, srcDir string
 	// a compatible side-by-side g++ and hand it to cmake as the host
 	// compiler — without this, build fails on "unsupported GNU version".
 	buildEnv := os.Environ()
+	// Arch-family distros install ROCm under /opt/rocm without adding it
+	// to PATH (Fedora/Debian symlink the tools into /usr/bin), so cmake's
+	// HIP compiler probe and rocm_agent_enumerator fail even with ROCm
+	// fully installed. Put the detected tool directory on PATH for the
+	// build; harmless when it's already there.
+	if prof.Backend == "rocm" {
+		if tool := FindROCmTool("hipconfig"); tool != "" {
+			buildEnv = prependPath(buildEnv, filepath.Dir(tool))
+		}
+	}
 	if prof.Backend == "cuda" {
 		if nvcc, dir := findNVCC(); nvcc != "" {
 			alreadySet := false

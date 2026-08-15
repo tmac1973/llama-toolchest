@@ -3,9 +3,34 @@ package builder
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
+
+// FindROCmTool locates a ROCm binary. PATH is tried first, then
+// $ROCM_PATH/bin, then /opt/rocm/bin. Fedora and Debian symlink the
+// ROCm tools into /usr/bin, but Arch-family distros install everything
+// under /opt/rocm without touching PATH — a bare exec of "rocminfo"
+// fails there even with ROCm fully installed. Returns "" if the tool
+// isn't found anywhere.
+func FindROCmTool(name string) string {
+	if p, err := exec.LookPath(name); err == nil {
+		return p
+	}
+	var dirs []string
+	if rp := os.Getenv("ROCM_PATH"); rp != "" {
+		dirs = append(dirs, filepath.Join(rp, "bin"))
+	}
+	dirs = append(dirs, "/opt/rocm/bin")
+	for _, d := range dirs {
+		p := filepath.Join(d, name)
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			return p
+		}
+	}
+	return ""
+}
 
 // RunningInContainer reports whether the current process is running inside a
 // Docker- or Podman-style container. Docker creates /.dockerenv at the
@@ -44,9 +69,14 @@ func DetectBackends() []Backend {
 func detectROCm() Backend {
 	b := Backend{Name: "rocm"}
 
-	out, err := exec.Command("rocminfo").Output()
+	rocminfo := FindROCmTool("rocminfo")
+	if rocminfo == "" {
+		b.Info = "rocminfo not found (checked PATH, $ROCM_PATH/bin, /opt/rocm/bin)"
+		return b
+	}
+	out, err := exec.Command(rocminfo).Output()
 	if err != nil {
-		b.Info = "rocminfo not found or failed"
+		b.Info = "rocminfo failed"
 		return b
 	}
 
