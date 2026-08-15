@@ -140,12 +140,19 @@ func TestEnumerableParamsHaveChoices(t *testing.T) {
 
 // Ordering is a UX contract, not incidental: reload-affecting parameters
 // first (those are the ones that move throughput), sampling next, and
-// free-text controls last so they don't interleave with the dropdowns
-// and read as a rendering fault.
+// ungrouped free-text controls last so they don't interleave with the
+// dropdowns and read as a rendering fault. Grouped fields are the
+// exception to both rules: they take their parent's tier and sort
+// directly beneath it, so someone selecting a speculative decoding mode
+// finds its parameters right below the selector.
 func TestSweepFieldOrdering(t *testing.T) {
 	fields := SweepFields()
 
 	rank := func(f SweepField) int {
+		if f.Group != "" {
+			p, _ := LookupSweepField(f.Group)
+			f = p
+		}
 		switch {
 		case f.FreeText:
 			return 2
@@ -155,18 +162,46 @@ func TestSweepFieldOrdering(t *testing.T) {
 			return 0
 		}
 	}
+	key := func(f SweepField) string {
+		if f.Group != "" {
+			p, _ := LookupSweepField(f.Group)
+			return p.Label + "\x00" + f.Label
+		}
+		return f.Label
+	}
 	for i := 1; i < len(fields); i++ {
 		prev, cur := fields[i-1], fields[i]
 		if rank(prev) > rank(cur) {
 			t.Errorf("%s (tier %d) sorts before %s (tier %d)",
 				prev.Name, rank(prev), cur.Name, rank(cur))
 		}
-		if rank(prev) == rank(cur) && prev.Label > cur.Label {
+		if rank(prev) == rank(cur) && key(prev) > key(cur) {
 			t.Errorf("within a tier, %q should follow %q", prev.Label, cur.Label)
 		}
 	}
 	if len(fields) == 0 || !fields[len(fields)-1].FreeText {
 		t.Error("the last parameter should be a free-text one")
+	}
+
+	// The group contract itself: every spec parameter sits in a
+	// contiguous run immediately after the Speculative Decoding row.
+	idx := map[string]int{}
+	for i, f := range fields {
+		idx[f.Name] = i
+	}
+	specIdx, ok := idx["spec_type"]
+	if !ok {
+		t.Fatal("spec_type missing")
+	}
+	members := []string{"draft_max", "draft_min", "draft_p_min", "draft_model_path", "ngram_size_m", "ngram_size_n"}
+	for _, m := range members {
+		i, ok := idx[m]
+		if !ok {
+			t.Fatalf("%s missing", m)
+		}
+		if i <= specIdx || i > specIdx+len(members) {
+			t.Errorf("%s (index %d) is not grouped under spec_type (index %d)", m, i, specIdx)
+		}
 	}
 }
 
