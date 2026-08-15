@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.18.0](https://github.com/tmac1973/llama-toolchest/compare/v2.17.3...v2.18.0) (2026-08-15)
+
+
+### Features
+
+* **benchmarks:** speculative decoding off value and per-mode settings in jobs ([#118](https://github.com/tmac1973/llama-toolchest/issues/118)) ([9eb991b](https://github.com/tmac1973/llama-toolchest/commit/9eb991b1efc36408e4bcb293999e8cf777529422))
+* build-flag audit, runtime env rework, iGPU handling, saved flag sets ([#113](https://github.com/tmac1973/llama-toolchest/issues/113)) ([8eb385b](https://github.com/tmac1973/llama-toolchest/commit/8eb385ba9283e8f4c88cd3274f220c7b41f6700f))
+* configuration backup & restore with pending-config auto-claim ([#116](https://github.com/tmac1973/llama-toolchest/issues/116)) ([867deb6](https://github.com/tmac1973/llama-toolchest/commit/867deb68ad6d3f25b052ea9e335cc01404b76b35))
+
+
+### Bug Fixes
+
+* **downloads:** join the download goroutine on cancel and resume-eviction ([#115](https://github.com/tmac1973/llama-toolchest/issues/115)) ([f9c04ba](https://github.com/tmac1973/llama-toolchest/commit/f9c04bad946f07b7a3350865dbc32b87666e4d8b))
+
 ## [2.17.3](https://github.com/tmac1973/llama-toolchest/compare/v2.17.2...v2.17.3) (2026-08-15)
 
 
