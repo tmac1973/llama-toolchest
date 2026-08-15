@@ -361,6 +361,7 @@ func (s *Server) buildRouter() chi.Router {
 		})
 		r.Get("/backup", s.handleBackupExport)
 		r.Post("/restore", s.handleRestore)
+		r.Post("/backup/pending/discard", s.handleDiscardPending)
 		r.Get("/gpu-map", s.handleGPUMap)
 		r.Route("/benchmark-jobs", func(r chi.Router) {
 			r.Get("/", s.handleListJobs)

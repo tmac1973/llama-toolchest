@@ -180,7 +180,31 @@ func (s *Server) restoreDeps() backup.Deps {
 			s.markDirty(id)
 			return nil
 		},
+		SavePending: func(m backup.MissingModel) error {
+			return s.registry.SetPendingConfig(models.PendingConfig{
+				ModelID:  m.ModelID,
+				Quant:    m.Quant,
+				Filename: m.Filename,
+				Config:   m.Config,
+				SavedAt:  time.Now().UTC(),
+			})
+		},
 		NumGPUs:   len(s.monitor.Current().GPU),
 		ModelsDir: s.cfg.ModelsPath(),
 	}
+}
+
+// handleDiscardPending removes a pending config. Responds 204 with an
+// HX-Trigger so the models page's listing container (#model-list,
+// hx-trigger="modelsChanged from:body") re-fetches itself — the ghost
+// card disappears through existing machinery.
+func (s *Server) handleDiscardPending(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	modelID, quant := r.FormValue("model_id"), r.FormValue("quant")
+	if !s.registry.DiscardPendingConfig(modelID, quant) {
+		http.Error(w, fmt.Sprintf("no pending config for %s %s", modelID, quant), http.StatusNotFound)
+		return
+	}
+	w.Header().Set("HX-Trigger", "modelsChanged")
+	w.WriteHeader(http.StatusNoContent)
 }

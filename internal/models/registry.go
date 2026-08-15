@@ -304,6 +304,9 @@ func (c *ModelConfig) EffectiveFlags() string {
 type registryData struct {
 	Models  map[string]*Model       `json:"models"`
 	Configs map[string]*ModelConfig `json:"configs"`
+	// PendingConfigs holds backup-imported configs awaiting their model
+	// (see pending.go). Additive: older binaries ignore the field.
+	PendingConfigs []PendingConfig `json:"pending_configs,omitempty"`
 }
 
 // Registry manages local model storage and metadata.
@@ -335,6 +338,10 @@ func (r *Registry) Add(m *Model) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.data.Models[m.ID] = m
+	// A backup-imported config waiting for this identity wins over the
+	// default config. Covers downloads and scans alike — ScanModels
+	// routes its registrations through Add.
+	r.claimPendingLocked(m)
 	// Set default config
 	if _, exists := r.data.Configs[m.ID]; !exists {
 		r.data.Configs[m.ID] = &ModelConfig{

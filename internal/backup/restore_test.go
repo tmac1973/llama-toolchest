@@ -317,3 +317,40 @@ func TestAssembleParseApplyRoundTrip(t *testing.T) {
 		t.Errorf("model config did not land: %+v", rep)
 	}
 }
+
+// With SavePending wired, missing models become pending (not skipped),
+// and re-import upserts through the hook.
+func TestMissingModelBecomesPending(t *testing.T) {
+	rec := newRecorder(2, "")
+	rec.deps.SavePending = func(m MissingModel) error {
+		rec.pending = append(rec.pending, m)
+		return nil
+	}
+	rec.installed["org/a-GGUF Q4_K_M"] = []string{"id-a"}
+	f, _ := Parse([]byte(`{"version": 1, "model_configs": [
+		{"model_id": "org/a-GGUF", "quant": "Q4_K_M", "filename": "a.gguf", "config": {}},
+		{"model_id": "org/x-GGUF", "quant": "Q8_0", "filename": "x.gguf",
+		 "config": {"gpu_assign": "tensor-4", "split_mode": "tensor", "tensor_split": "1,1,1,1"}}
+	]}`))
+	rep := Apply(f, Selections{ModelConfigs: true}, rec.deps)
+
+	if rep.AppliedModelConfigs != 1 {
+		t.Errorf("installed model should apply: %+v", rep)
+	}
+	if len(rec.pending) != 1 || rec.pending[0].ModelID != "org/x-GGUF" {
+		t.Fatalf("missing model should go pending: %+v", rec.pending)
+	}
+	// Pending stores the topology-normalized config (tensor-4 on 2 GPUs
+	// → local "all"), so claim is a plain attach.
+	if got := rec.pending[0].Config; got.GPUAssign != "all" || got.TensorSplit != "" {
+		t.Errorf("pending config not normalized: %+v", got)
+	}
+	if len(rep.Missing) != 1 || !rep.Missing[0].Pending {
+		t.Errorf("report should mark the entry pending: %+v", rep.Missing)
+	}
+	for _, sk := range rep.Skipped {
+		if strings.Contains(sk.Item, "org/x-GGUF") {
+			t.Errorf("pending entry must not also be skipped: %+v", sk)
+		}
+	}
+}
