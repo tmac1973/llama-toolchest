@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.18.2](https://github.com/tmac1973/llama-toolchest/compare/v2.18.1...v2.18.2) (2026-08-15)
+
+
+### Bug Fixes
+
+* **monitor:** match rocm-smi rows to KFD positions by PCI bus address ([#121](https://github.com/tmac1973/llama-toolchest/issues/121)) ([ab57617](https://github.com/tmac1973/llama-toolchest/commit/ab576179164b98d395ed41d50d6e89c5566ef9bd))
+
 ## [2.18.1](https://github.com/tmac1973/llama-toolchest/compare/v2.18.0...v2.18.1) (2026-08-15)
 
 
