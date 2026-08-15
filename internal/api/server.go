@@ -519,7 +519,8 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		RuntimeEnvOpts   []config.RuntimeEnvOption
 		RuntimeEnv       map[string]string
 		RuntimeEnvExtra  string
-		EnvBackend       string
+		EnvBackends      []string
+		ActiveBackend    string
 		EnvWarnings      []string
 		EffectiveEnv     []envLine
 	}{
@@ -534,10 +535,11 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		ModelsDir:        s.cfg.ModelsDir,
 		DefaultModelsDir: filepath.Join(s.cfg.DataDir, "models"),
 		AutoStart:        s.cfg.AutoStart,
-		RuntimeEnvOpts:   config.FilterRuntimeEnvOptions(s.activeBackend(), s.cfg.RuntimeEnv),
+		RuntimeEnvOpts:   config.RuntimeEnvOptions(),
 		RuntimeEnv:       s.cfg.RuntimeEnv,
 		RuntimeEnvExtra:  s.cfg.RuntimeEnvExtra,
-		EnvBackend:       s.activeBackend(),
+		EnvBackends:      config.RuntimeEnvBackends(),
+		ActiveBackend:    s.activeBackend(),
 		EnvWarnings:      s.cfg.EnvSet().Warnings(),
 		EffectiveEnv:     s.effectiveEnvLines(),
 	}

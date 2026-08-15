@@ -109,27 +109,37 @@ func RuntimeEnvOptions() []RuntimeEnvOption {
 	}
 }
 
-// FilterRuntimeEnvOptions returns the curated options relevant to a
-// build backend. An option is shown when its Backends list matches, when
-// the backend is unknown (empty — no build yet), or when the variable
-// currently has a value set: a set variable must never be invisible just
-// because the user switched backends, or it would keep applying with no
-// way to see or clear it.
-func FilterRuntimeEnvOptions(backend string, set map[string]string) []RuntimeEnvOption {
-	var out []RuntimeEnvOption
+// RuntimeEnvBackends returns the backends the curated set spans, in
+// first-appearance order — the choices for the Settings backend
+// selector. The selector is a view filter only: every variable is
+// settable whether or not a build for its backend exists, since env is
+// configuration for whatever the router launches next.
+func RuntimeEnvBackends() []string {
+	var out []string
+	seen := map[string]bool{}
 	for _, o := range RuntimeEnvOptions() {
-		if backend == "" || len(o.Backends) == 0 || strings.TrimSpace(set[o.Name]) != "" {
-			out = append(out, o)
-			continue
-		}
 		for _, b := range o.Backends {
-			if b == backend {
-				out = append(out, o)
-				break
+			if !seen[b] {
+				seen[b] = true
+				out = append(out, b)
 			}
 		}
 	}
 	return out
+}
+
+// BackendsAttr renders the option's backends for the row's data
+// attribute, space-separated ("cuda rocm"). Empty means all backends.
+func (o RuntimeEnvOption) BackendsAttr() string {
+	return strings.Join(o.Backends, " ")
+}
+
+// BackendsLabel renders the option's backends for display ("cuda, rocm").
+func (o RuntimeEnvOption) BackendsLabel() string {
+	if len(o.Backends) == 0 {
+		return "all"
+	}
+	return strings.Join(o.Backends, ", ")
 }
 
 // EnvSet is one scope's worth of environment configuration: values for

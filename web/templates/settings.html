@@ -5,22 +5,32 @@
     <header>Runtime environment</header>
     <p>Environment variables applied to the llama-server process and inherited by
        every model instance it spawns — process-wide, not per model. Changes take
-       effect on the next server restart.
-       {{if .EnvBackend}}<small style="color:var(--pico-muted-color);">Showing
-       variables for <b>{{.EnvBackend}}</b> builds; variables for other backends
-       appear when such a build is active or when they hold a value.</small>{{end}}</p>
+       effect on the next server restart.</p>
+    <label style="max-width:16rem;">
+        Backend
+        <select id="env-backend-select" onchange="filterEnvRows(this)" style="margin-bottom:0.5rem;">
+            {{range .EnvBackends}}
+            <option value="{{.}}" {{if eq . $.ActiveBackend}}selected{{end}}>{{.}}{{if eq . $.ActiveBackend}} (active build){{end}}</option>
+            {{end}}
+        </select>
+        <small style="color:var(--pico-muted-color);">
+            View filter only — every variable saves regardless of which backend is
+            shown or built; it applies whenever a build of that backend runs.
+            Variables holding a value stay visible in every view.
+        </small>
+    </label>
     <form hx-put="/api/settings"
           hx-target="#runtime-env-status"
           hx-swap="innerHTML"
           hx-trigger="change">
         <input type="hidden" name="runtime_env_touched" value="1">
-        <table style="margin-bottom:0;">
+        <table id="runtime-env-table" style="margin-bottom:0;">
             <tbody>
             {{range .RuntimeEnvOpts}}
-            <tr>
+            <tr data-backends="{{.BackendsAttr}}" {{if ne (index $.RuntimeEnv .Name) ""}}data-set="1"{{end}}>
                 <td style="vertical-align:middle;">
                     <details style="margin:0; padding:0; border:none;">
-                        <summary style="font-size:0.9em; margin:0;">{{.Label}} <code style="font-size:0.8em;">{{.Name}}</code></summary>
+                        <summary style="font-size:0.9em; margin:0;">{{.Label}} <code style="font-size:0.8em;">{{.Name}}</code> <small style="color:var(--pico-muted-color);">[{{.BackendsLabel}}]</small></summary>
                         <small style="color:var(--pico-muted-color);">{{.Help}}</small>
                     </details>
                 </td>
@@ -62,6 +72,23 @@
         <summary>Effective environment</summary>
         <pre id="effective-env" style="font-size:0.8em; white-space:pre-wrap;">{{template "effective_env" .EffectiveEnv}}</pre>
     </details>
+    <script>
+    function filterEnvRows(sel) {
+        var rows = document.querySelectorAll('#runtime-env-table tr[data-backends]');
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i];
+            var backends = r.getAttribute('data-backends') || '';
+            var show = backends === '' ||
+                backends.split(' ').indexOf(sel.value) >= 0 ||
+                r.getAttribute('data-set') === '1';
+            r.style.display = show ? '' : 'none';
+        }
+    }
+    (function () {
+        var sel = document.getElementById('env-backend-select');
+        if (sel) filterEnvRows(sel);
+    })();
+    </script>
 </article>
 
 <article>

@@ -137,32 +137,41 @@ func TestEnvSetUsableAtNonGlobalScope(t *testing.T) {
 	}
 }
 
-// Backend filtering keeps the table short, but a variable with a value
-// set must stay visible even when the backend doesn't match — otherwise
-// switching builds leaves it applying invisibly with no way to clear it.
-func TestFilterRuntimeEnvOptions(t *testing.T) {
-	rocm := FilterRuntimeEnvOptions("rocm", nil)
-	for _, o := range rocm {
+// The Settings backend selector is built from the backends the curated
+// set spans; every curated option must be reachable through it.
+func TestRuntimeEnvBackends(t *testing.T) {
+	backends := RuntimeEnvBackends()
+	if len(backends) == 0 {
+		t.Fatal("no backends derived from the curated set")
+	}
+	seen := map[string]bool{}
+	for _, b := range backends {
+		if seen[b] {
+			t.Errorf("duplicate backend %q", b)
+		}
+		seen[b] = true
+	}
+	for _, o := range RuntimeEnvOptions() {
+		if len(o.Backends) == 0 {
+			continue // backend-less options show in every view
+		}
+		reachable := false
 		for _, b := range o.Backends {
-			if b == "vulkan" && len(o.Backends) == 1 {
-				t.Errorf("vulkan-only option %s shown on rocm", o.Name)
+			if seen[b] {
+				reachable = true
 			}
 		}
-	}
-	// A set vulkan-only var must survive the rocm filter.
-	set := map[string]string{"GGML_VK_DISABLE_COOPMAT": "1"}
-	found := false
-	for _, o := range FilterRuntimeEnvOptions("rocm", set) {
-		if o.Name == "GGML_VK_DISABLE_COOPMAT" {
-			found = true
+		if !reachable {
+			t.Errorf("option %s unreachable from the backend selector", o.Name)
 		}
 	}
-	if !found {
-		t.Error("a set variable must stay visible regardless of backend filter")
+	// Row attribute and display forms.
+	opt := RuntimeEnvOption{Backends: []string{"cuda", "rocm"}}
+	if opt.BackendsAttr() != "cuda rocm" || opt.BackendsLabel() != "cuda, rocm" {
+		t.Errorf("attr/label rendering wrong: %q / %q", opt.BackendsAttr(), opt.BackendsLabel())
 	}
-	// Unknown backend shows everything.
-	if got, all := len(FilterRuntimeEnvOptions("", nil)), len(RuntimeEnvOptions()); got != all {
-		t.Errorf("empty backend should show all options, got %d of %d", got, all)
+	if (RuntimeEnvOption{}).BackendsLabel() != "all" {
+		t.Error("backend-less option should label as all")
 	}
 }
 
