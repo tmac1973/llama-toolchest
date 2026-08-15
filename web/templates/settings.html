@@ -28,11 +28,8 @@
             <tbody>
             {{range .RuntimeEnvOpts}}
             <tr data-backends="{{.BackendsAttr}}" {{if ne (index $.RuntimeEnv .Name) ""}}data-set="1"{{end}}>
-                <td style="vertical-align:middle;">
-                    <details style="margin:0; padding:0; border:none;">
-                        <summary style="font-size:0.9em; margin:0;">{{.Label}} <code style="font-size:0.8em;">{{.Name}}</code> <small style="color:var(--pico-muted-color);">[{{.BackendsLabel}}]</small></summary>
-                        <small style="color:var(--pico-muted-color);">{{.Help}}</small>
-                    </details>
+                <td style="vertical-align:middle; font-size:0.9em;" title="{{.Help}}">
+                    {{.Label}} <code style="font-size:0.8em;">{{.Name}}</code> <small style="color:var(--pico-muted-color);">[{{.BackendsLabel}}]</small>
                 </td>
                 <td style="width:12rem; vertical-align:middle;">
                     {{if .Values}}
@@ -68,10 +65,10 @@
         <p><mark>&#9888; {{.}}</mark></p>
         {{end}}
     </div>
-    <details>
-        <summary>Effective environment</summary>
-        <pre id="effective-env" style="font-size:0.8em; white-space:pre-wrap;">{{template "effective_env" .EffectiveEnv}}</pre>
-    </details>
+    <label title="The environment llama-server will be launched with, as KEY=VALUE lines. A value already exported around the service (systemd drop-in, container env) wins over one set here; overridden entries are marked.">
+        Effective Environment
+        <pre id="effective-env" style="font-size:0.8em; white-space:pre-wrap; opacity:0.7;">{{template "effective_env" .EffectiveEnv}}</pre>
+    </label>
     <script>
     function filterEnvRows(sel) {
         var rows = document.querySelectorAll('#runtime-env-table tr[data-backends]');

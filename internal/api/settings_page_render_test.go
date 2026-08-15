@@ -63,7 +63,7 @@ func TestSettingsPageRendersEnvSection(t *testing.T) {
 	for _, want := range []string{
 		"runtime_env_extra",         // free-form textarea present
 		"FOO=bar",                   // saved extra text round-trips
-		"Effective environment",     // preview disclosure present
+		"Effective Environment",     // always-visible preview present (no disclosure)
 		"ROCBLAS_USE_HIPBLASLT",     // curated rows rendered
 		"GGML_VK_DISABLE_COOPMAT",   // every backend's rows are in the DOM (view filter is client-side)
 		"CUDA_DEVICE_ORDER",         // warning surfaced on page load
