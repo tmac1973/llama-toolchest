@@ -359,6 +359,7 @@ func (s *Server) buildRouter() chi.Router {
 			r.Get("/{id}/info", s.handleBuildInfo)
 			r.Delete("/{id}", s.handleDeleteBuild)
 		})
+		r.Get("/backup", s.handleBackupExport)
 		r.Get("/gpu-map", s.handleGPUMap)
 		r.Route("/benchmark-jobs", func(r chi.Router) {
 			r.Get("/", s.handleListJobs)
