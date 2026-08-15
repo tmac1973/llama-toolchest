@@ -186,6 +186,7 @@
         <dt>Tensor Parallelism (<em>N</em> GPUs)</dt><dd>Experimental. Splits individual tensors across N GPUs simultaneously — needs a fast GPU interconnect. On CUDA, NCCL (libnccl-dev) must be present at build time for the optimized AllReduce path; without it the build falls back to a slower path. Pair with Flash Attention <em>on</em> and KV cache at <code>f16</code> (no quant). Upstream support is still rough for some architectures, and N must divide the model's attention head count — many models pick head counts that don't split by 3.</dd>
         <dt>Custom</dt><dd>You provide a raw <code>--tensor-split</code> ratio string.</dd>
     </dl>
+    <p>Any option that leaves GPUs out is enforced with a <code>--device</code> list, so the excluded GPUs are never even initialized by that model's server instance — they stay idle and free for other models. (A zero tensor-split entry alone only keeps weights off a GPU; llama.cpp would still initialize it and, in tensor mode, spin it at 100% inside the collective ops.) The <em>Custom</em> option skips this and passes your ratio string through untouched.</p>
 
     <h3>Key flags</h3>
     <dl>

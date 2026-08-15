@@ -284,6 +284,25 @@ func (s *Server) resolveActiveBuild() *builder.BuildResult {
 	return s.resolveBuild(s.activeBuild())
 }
 
+// buildBackend returns a build's backend ("rocm", "cuda", ...), resolved
+// through its profile. It selects the llama.cpp device-name prefix
+// (ROCm0, CUDA0, ...) when the preset emits per-model device lists.
+func buildBackend(b *builder.BuildResult) string {
+	if b == nil {
+		return ""
+	}
+	if p, ok := builder.FindProfile(b.Profile); ok {
+		return p.Backend
+	}
+	return b.Profile
+}
+
+// activeBackend is buildBackend for the build the router would launch
+// with right now (saved selection, latest-successful fallback).
+func (s *Server) activeBackend() string {
+	return buildBackend(s.resolveActiveBuild())
+}
+
 // resolveBuild returns the build to launch for an explicit id, falling
 // back to the newest successful build when the id is empty or unusable.
 // Takes the id as a parameter so callers that already read cfg under the

@@ -63,7 +63,7 @@ func TestValidateBatchSizesExplainsDefaultCase(t *testing.T) {
 // and their command lines are unchanged.
 func TestBatchFlagsOmittedWhenUnset(t *testing.T) {
 	c := ModelConfig{GPULayers: 999, ContextSize: 8192, Threads: 8}
-	flags := c.EffectiveFlagsFor(false)
+	flags := c.EffectiveFlagsFor(false, "")
 	if strings.Contains(flags, "batch-size") {
 		t.Errorf("unset batch sizes should emit no flags, got: %s", flags)
 	}
@@ -72,7 +72,7 @@ func TestBatchFlagsOmittedWhenUnset(t *testing.T) {
 func TestBatchFlagsEmittedWhenSet(t *testing.T) {
 	c := ModelConfig{GPULayers: 999, ContextSize: 8192, Threads: 8,
 		BatchSize: 4096, UBatchSize: 1024}
-	flags := c.EffectiveFlagsFor(false)
+	flags := c.EffectiveFlagsFor(false, "")
 	if !strings.Contains(flags, "--batch-size 4096") {
 		t.Errorf("missing --batch-size, got: %s", flags)
 	}
@@ -90,7 +90,7 @@ func TestBatchSizesReachPresetINI(t *testing.T) {
 		"a": {Enabled: true, ContextSize: 8192, GPULayers: 999, Threads: 8,
 			BatchSize: 4096, UBatchSize: 1024},
 	}
-	ini := GeneratePresetINI("/m", mods, cfgs)
+	ini := GeneratePresetINI("/m", mods, cfgs, "")
 
 	if !strings.Contains(ini, "batch-size = 4096") {
 		t.Errorf("preset missing batch-size:\n%s", ini)
@@ -105,7 +105,7 @@ func TestBatchSizesOmittedFromPresetINIWhenUnset(t *testing.T) {
 	cfgs := map[string]*ModelConfig{
 		"a": {Enabled: true, ContextSize: 8192, GPULayers: 999, Threads: 8},
 	}
-	if ini := GeneratePresetINI("/m", mods, cfgs); strings.Contains(ini, "batch-size") {
+	if ini := GeneratePresetINI("/m", mods, cfgs, ""); strings.Contains(ini, "batch-size") {
 		t.Errorf("unset batch sizes should not appear in the preset:\n%s", ini)
 	}
 }
@@ -120,7 +120,7 @@ func TestZeroGPULayersReachesPreset(t *testing.T) {
 	cfgs := map[string]*ModelConfig{
 		"a": {Enabled: true, ContextSize: 4096, GPULayers: 0, Threads: 8},
 	}
-	ini := GeneratePresetINI("/m", mods, cfgs)
+	ini := GeneratePresetINI("/m", mods, cfgs, "")
 
 	if !strings.Contains(ini, "gpu-layers = 0") {
 		t.Errorf("gpu-layers = 0 missing; llama-server would offload everything:\n%s", ini)
@@ -133,8 +133,8 @@ func TestZeroGPULayersReachesPreset(t *testing.T) {
 func TestPresetAndFlagPreviewAgreeOnZero(t *testing.T) {
 	cfg := &ModelConfig{Enabled: true, ContextSize: 4096, GPULayers: 0, Threads: 8}
 	mods := []*Model{{ID: "a", ModelID: "u/A", Quant: "Q8_0", FilePath: "/m/a.gguf"}}
-	ini := GeneratePresetINI("/m", mods, map[string]*ModelConfig{"a": cfg})
-	flags := cfg.EffectiveFlagsFor(false)
+	ini := GeneratePresetINI("/m", mods, map[string]*ModelConfig{"a": cfg}, "")
+	flags := cfg.EffectiveFlagsFor(false, "")
 
 	iniHasZero := strings.Contains(ini, "gpu-layers = 0")
 	flagsHaveZero := strings.Contains(flags, "--n-gpu-layers 0")

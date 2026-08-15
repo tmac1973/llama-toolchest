@@ -48,7 +48,7 @@ func TestWriteBenchPresetINIAppliesOverrideToOneModel(t *testing.T) {
 
 	path, err := r.WriteBenchPresetINI(map[string]*ModelConfig{
 		"a": {Enabled: true, ContextSize: 65536, GPULayers: 999, Threads: 8},
-	})
+	}, "")
 	if err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestWriteBenchPresetINIAppliesOverrideToOneModel(t *testing.T) {
 func TestWriteBenchPresetINIDoesNotMutateSavedConfig(t *testing.T) {
 	r := benchRegistry(t)
 
-	realPath, err := r.WritePresetINI()
+	realPath, err := r.WritePresetINI("")
 	if err != nil {
 		t.Fatalf("write real preset: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestWriteBenchPresetINIDoesNotMutateSavedConfig(t *testing.T) {
 
 	benchPath, err := r.WriteBenchPresetINI(map[string]*ModelConfig{
 		"a": {Enabled: true, ContextSize: 65536, GPULayers: 1, Threads: 1},
-	})
+	}, "")
 	if err != nil {
 		t.Fatalf("write bench preset: %v", err)
 	}
@@ -122,11 +122,11 @@ func TestWriteBenchPresetINIDoesNotMutateSavedConfig(t *testing.T) {
 func TestWriteBenchPresetININilOverridesMatchesReal(t *testing.T) {
 	r := benchRegistry(t)
 
-	realPath, err := r.WritePresetINI()
+	realPath, err := r.WritePresetINI("")
 	if err != nil {
 		t.Fatalf("write real: %v", err)
 	}
-	benchPath, err := r.WriteBenchPresetINI(nil)
+	benchPath, err := r.WriteBenchPresetINI(nil, "")
 	if err != nil {
 		t.Fatalf("write bench: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestWriteBenchPresetINIIgnoresUnknownModel(t *testing.T) {
 	path, err := r.WriteBenchPresetINI(map[string]*ModelConfig{
 		"ghost": {Enabled: true, ContextSize: 65536},
 		"a":     nil,
-	})
+	}, "")
 	if err != nil {
 		t.Fatalf("write: %v", err)
 	}

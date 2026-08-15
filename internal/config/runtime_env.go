@@ -13,8 +13,10 @@ import (
 // box invites pasting them in.
 //
 // These apply to the router process as a whole, not per model — the
-// router hosts every model in one process, so per-model env is not
-// expressible.
+// router inherits its environment into every model instance it spawns
+// identically, so per-model env is not expressible. (Per-model GPU
+// placement doesn't need env: it's expressed via the preset's device /
+// tensor-split keys.)
 type RuntimeEnvOption struct {
 	Name    string
 	Label   string

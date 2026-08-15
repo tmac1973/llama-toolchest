@@ -19,7 +19,7 @@ func TestGeneratePresetINIUniqueSectionsPerQuant(t *testing.T) {
 		"u--R-GGUF--R-Q4_0": {Enabled: true},
 		"u--R-GGUF--R-Q8_0": {Enabled: true},
 	}
-	out := GeneratePresetINI("/data/models", mods, cfgs)
+	out := GeneratePresetINI("/data/models", mods, cfgs, "")
 
 	if !strings.Contains(out, "[u--R-GGUF--R-Q4_0]") {
 		t.Errorf("Q4_0 section missing from preset:\n%s", out)
@@ -48,7 +48,7 @@ func TestGeneratePresetINIAliasesIncludeDirnameOnlyWhenUnique(t *testing.T) {
 		"u--R-GGUF--R-Q8_0": {Enabled: true},
 		"u--S-GGUF--S-Q8_0": {Enabled: true},
 	}
-	out := GeneratePresetINI("/data/models", mods, cfgs)
+	out := GeneratePresetINI("/data/models", mods, cfgs, "")
 
 	// The R section's alias line must NOT contain the colliding "u--R-GGUF" dirname.
 	for _, sectionID := range []string{"u--R-GGUF--R-Q4_0", "u--R-GGUF--R-Q8_0"} {
@@ -160,7 +160,7 @@ func TestGeneratePresetINIExtraFlagsWithSpaces(t *testing.T) {
 			ExtraFlags: `--reasoning-budget 4096 --reasoning-budget-message "... thinking budget exceeded, let's answer now."`,
 		},
 	}
-	out := GeneratePresetINI("/data/models", mods, cfgs)
+	out := GeneratePresetINI("/data/models", mods, cfgs, "")
 
 	if !strings.Contains(out, "reasoning-budget = 4096\n") {
 		t.Errorf("expected 'reasoning-budget = 4096'; got:\n%s", out)

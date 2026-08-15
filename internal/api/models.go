@@ -303,7 +303,7 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Regenerate preset INI so the router doesn't reference a deleted model
-	if _, err := s.registry.WritePresetINI(); err != nil {
+	if _, err := s.registry.WritePresetINI(s.activeBackend()); err != nil {
 		slog.Warn("failed to regenerate preset INI after delete", "error", err)
 	}
 

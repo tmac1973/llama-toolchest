@@ -2,6 +2,7 @@ package models
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -68,7 +69,8 @@ func GPUAssignOptions(numGPUs int) []GPUOption {
 	})
 
 	// Tensor parallelism variants — one per GPU count (2..numGPUs).
-	// For partial counts, tensor-split restricts to the first N GPUs.
+	// For partial counts, the model runs on the first N GPUs (see
+	// gpuPlacementParams for how that restriction reaches llama-server).
 	for n := 2; n <= numGPUs; n++ {
 		tpGPUs := make([]int, n)
 		for i := range tpGPUs {
@@ -152,6 +154,115 @@ func ResolveGPUAssign(assign string, numGPUs int) (tensorSplit, splitMode string
 	}
 
 	return strings.Join(parts, ","), "layer", gpus[0]
+}
+
+// backendDevicePrefix maps a build profile backend to the device-name
+// prefix llama.cpp registers for it ("ROCm0", "CUDA0", ...). Backends
+// absent here (cpu; metal, which is single-device) have no addressable
+// multi-GPU device names, so no device list is emitted and placement
+// falls back to the zero-padded tensor-split.
+var backendDevicePrefix = map[string]string{
+	"rocm":   "ROCm",
+	"cuda":   "CUDA",
+	"vulkan": "Vulkan",
+	"sycl":   "SYCL",
+}
+
+// SplitDeviceIndices returns the GPU indices carrying non-zero weight in
+// a zero-padded tensor-split string ("1,1,0,0" → [0 1]), or nil when the
+// split doesn't restrict anything — empty, or every entry non-zero.
+func SplitDeviceIndices(tensorSplit string) []int {
+	if tensorSplit == "" {
+		return nil
+	}
+	parts := strings.Split(tensorSplit, ",")
+	var active []int
+	for i, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" && p != "0" && p != "0.0" {
+			active = append(active, i)
+		}
+	}
+	if len(active) == 0 || len(active) == len(parts) {
+		return nil
+	}
+	return active
+}
+
+// DeviceList renders GPU indices as llama.cpp device names for a
+// backend: ("rocm", [0 1]) → "ROCm0,ROCm1". Empty when the backend has
+// no addressable device names.
+func DeviceList(backend string, gpus []int) string {
+	prefix := backendDevicePrefix[backend]
+	if prefix == "" || len(gpus) == 0 {
+		return ""
+	}
+	names := make([]string, len(gpus))
+	for i, g := range gpus {
+		names[i] = fmt.Sprintf("%s%d", prefix, g)
+	}
+	return strings.Join(names, ",")
+}
+
+// gpuPlacementParams returns the flags that place a model onto its GPUs,
+// shared by the preset INI and the EffectiveFlags preview.
+//
+// When the assignment restricts the model to a subset of GPUs and the
+// backend has addressable device names, placement is expressed as a
+// "device" list rather than a zero-padded tensor-split. A zero split
+// entry only keeps weights off a GPU — llama.cpp still initializes every
+// visible device, and under split-mode tensor the excluded GPUs are
+// enrolled in the collective ops, spinning at full utilization and
+// forcing the slow butterfly all-reduce fallback ("internal AllReduce
+// init failed (n_devices != N?)"). A device list keeps them out of the
+// instance entirely, which is also what lets another model run on them
+// concurrently.
+//
+// With a device list llama-server renumbers the visible devices 0..N-1,
+// so the padded split is trimmed to its active entries and main-gpu —
+// always the first active GPU, which becomes index 0 — is omitted.
+//
+// "custom" assignments keep the user's raw tensor-split untouched, and
+// backends without device names keep the padded-split emission.
+func gpuPlacementParams(c *ModelConfig, backend string) []specParam {
+	if c.GPUAssign != "" && c.GPUAssign != "custom" {
+		if gpus := SplitDeviceIndices(c.TensorSplit); gpus != nil {
+			if devices := DeviceList(backend, gpus); devices != "" {
+				out := []specParam{{"device", devices}}
+				if ts := trimSplit(c.TensorSplit, gpus); ts != "" {
+					out = append(out, specParam{"tensor-split", ts})
+				}
+				if c.SplitMode != "" {
+					out = append(out, specParam{"split-mode", c.SplitMode})
+				}
+				return out
+			}
+		}
+	}
+	var out []specParam
+	if c.TensorSplit != "" {
+		out = append(out, specParam{"tensor-split", c.TensorSplit})
+	}
+	if c.SplitMode != "" {
+		out = append(out, specParam{"split-mode", c.SplitMode})
+	}
+	if c.MainGPU > 0 {
+		out = append(out, specParam{"main-gpu", strconv.Itoa(c.MainGPU)})
+	}
+	return out
+}
+
+// trimSplit keeps only the split entries at the given indices ("1,1,0,0"
+// with [0 1] → "1,1"), matching the renumbering a device list applies.
+func trimSplit(tensorSplit string, gpus []int) string {
+	parts := strings.Split(tensorSplit, ",")
+	out := make([]string, 0, len(gpus))
+	for _, g := range gpus {
+		if g < len(parts) {
+			out = append(out, strings.TrimSpace(parts[g]))
+		}
+	}
+	return strings.Join(out, ",")
 }
 
 // parseTensorAssign parses a "tensor-N" GPU assignment, returning N and

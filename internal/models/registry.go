@@ -235,8 +235,10 @@ func (c *ModelConfig) SamplingOverrides() map[string]any {
 // EffectiveFlags returns the full set of llama-server flags (excluding
 // binary, model path, host, and port) that will be used at launch.
 // EffectiveFlagsFor returns the flags that will be used at launch, filtering
-// out chat-specific flags for embedding models.
-func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool) string {
+// out chat-specific flags for embedding models. backend is the active
+// build's backend ("rocm", "cuda", ...), used to render GPU restrictions
+// as a --device list; "" falls back to the padded tensor-split.
+func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool, backend string) string {
 	var parts []string
 	parts = append(parts, "--n-gpu-layers", strconv.Itoa(c.GPULayers))
 	if isEmbedding {
@@ -255,23 +257,17 @@ func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool) string {
 	if c.Parallel > 1 {
 		parts = append(parts, "--parallel", strconv.Itoa(c.Parallel))
 	}
-	if c.TensorSplit != "" {
-		parts = append(parts, "--tensor-split", c.TensorSplit)
+	for _, p := range gpuPlacementParams(c, backend) {
+		parts = append(parts, "--"+p.Name, p.Value)
 	}
-	if c.SplitMode != "" {
-		parts = append(parts, "--split-mode", c.SplitMode)
-		// Upstream auto-fit (common_fit_params) is not implemented for
-		// SPLIT_MODE_TENSOR and aborts model load with "llama_params_fit
-		// is not implemented for SPLIT_MODE_TENSOR". Disable it so the
-		// user's explicit --n-gpu-layers / --tensor-split values are
-		// honored verbatim. Drop this when llama.cpp adds the fitter for
-		// tensor mode.
-		if c.SplitMode == "tensor" {
-			parts = append(parts, "--fit", "off")
-		}
-	}
-	if c.MainGPU > 0 {
-		parts = append(parts, "--main-gpu", strconv.Itoa(c.MainGPU))
+	// Upstream auto-fit (common_fit_params) is not implemented for
+	// SPLIT_MODE_TENSOR and aborts model load with "llama_params_fit
+	// is not implemented for SPLIT_MODE_TENSOR". Disable it so the
+	// user's explicit --n-gpu-layers / --tensor-split values are
+	// honored verbatim. Drop this when llama.cpp adds the fitter for
+	// tensor mode.
+	if c.SplitMode == "tensor" {
+		parts = append(parts, "--fit", "off")
 	}
 	if !isEmbedding {
 		if c.FlashAttention {
@@ -302,7 +298,7 @@ func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool) string {
 
 // EffectiveFlags returns the flags for a chat model (backward compat).
 func (c *ModelConfig) EffectiveFlags() string {
-	return c.EffectiveFlagsFor(false)
+	return c.EffectiveFlagsFor(false, "")
 }
 
 type registryData struct {

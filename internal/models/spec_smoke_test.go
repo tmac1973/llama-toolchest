@@ -128,7 +128,7 @@ func TestSpecMTPPresetINI(t *testing.T) {
 		DraftMax:    6,
 	}
 	var b strings.Builder
-	writeConfigParams(&b, cfg, false)
+	writeConfigParams(&b, cfg, false, "")
 	out := b.String()
 	for _, want := range []string{"spec-type = draft-mtp", "spec-draft-n-max = 6"} {
 		if !strings.Contains(out, want) {

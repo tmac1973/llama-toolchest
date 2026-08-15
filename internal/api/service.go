@@ -512,7 +512,7 @@ func (s *Server) startRouterWith(opt routerOptions) error {
 	var presetPath string
 	var err error
 	if opt.overrides != nil {
-		presetPath, err = s.registry.WriteBenchPresetINI(opt.overrides)
+		presetPath, err = s.registry.WriteBenchPresetINI(opt.overrides, buildBackend(build))
 		if err != nil {
 			// Falling back to the saved preset would silently benchmark
 			// the wrong config — the exact failure this mechanism exists
@@ -520,7 +520,7 @@ func (s *Server) startRouterWith(opt routerOptions) error {
 			return fmt.Errorf("write benchmark preset: %w", err)
 		}
 	} else {
-		presetPath, err = s.registry.WritePresetINI()
+		presetPath, err = s.registry.WritePresetINI(buildBackend(build))
 		if err != nil {
 			slog.Warn("failed to write preset INI", "error", err)
 		}
@@ -610,7 +610,7 @@ func (s *Server) handleModelEnable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Regenerate preset so the router picks up the change
-	if _, err := s.registry.WritePresetINI(); err != nil {
+	if _, err := s.registry.WritePresetINI(s.activeBackend()); err != nil {
 		slog.Warn("failed to regenerate preset INI", "error", err)
 	}
 
@@ -816,7 +816,7 @@ func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 		}{
 			ModelID:             id,
 			Config:              cfg,
-			EffectiveFlags:      cfg.EffectiveFlagsFor(isEmbedding),
+			EffectiveFlags:      cfg.EffectiveFlagsFor(isEmbedding, s.activeBackend()),
 			MaxContext:          maxContext,
 			HasMMProj:           cfg.MmprojPath != "" || detectedMMProj != "",
 			HasMTP:              cfg.MtpPath != "" || detectedMTP != "",
@@ -987,7 +987,7 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Regenerate preset INI so the router picks up changes on next load/reload
-	if _, err := s.registry.WritePresetINI(); err != nil {
+	if _, err := s.registry.WritePresetINI(s.activeBackend()); err != nil {
 		slog.Warn("failed to regenerate preset INI", "error", err)
 	}
 
