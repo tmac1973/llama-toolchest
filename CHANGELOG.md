@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.17.3](https://github.com/tmac1973/llama-toolchest/compare/v2.17.2...v2.17.3) (2026-08-15)
+
+
+### Bug Fixes
+
+* **gpu:** restrict model instances to their assigned GPUs with --device ([#111](https://github.com/tmac1973/llama-toolchest/issues/111)) ([984f8a1](https://github.com/tmac1973/llama-toolchest/commit/984f8a1ee7435122c7a84c8135342a4410330fe4))
+
 ## [2.17.2](https://github.com/tmac1973/llama-toolchest/compare/v2.17.1...v2.17.2) (2026-08-14)
 
 
