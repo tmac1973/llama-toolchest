@@ -874,12 +874,11 @@ func TestSameTopTokenScaleHasNoGaps(t *testing.T) {
 	}
 }
 
-// The compare view's details table renders ONE ROW PER PROMPT SIZE, so
-// a run measured at three sizes contributes three rows sharing a
-// data-run-id. The sort code assumed one row per run, which is what
-// made sorting appear not to work; this checks the markup the fixed
-// code depends on is actually there.
-func TestCompareTableRowsShareRunID(t *testing.T) {
+// The details table shows ONE ROW PER RUN carrying the same average the
+// bar chart shows. It used to show one row per prompt length, so a run
+// drew one bar but several rows holding different numbers, and nothing
+// lined up between the two halves of the view.
+func TestCompareTableIsOneRowPerRun(t *testing.T) {
 	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
 		"templates/layout.html", "templates/partials/*.html")
 	if err != nil {
@@ -887,13 +886,14 @@ func TestCompareTableRowsShareRunID(t *testing.T) {
 	}
 
 	multi := perfRun("multi")
+	multi.Summary.AvgGenTokPerSec = 36
 	multi.Summary.PerSize = []benchmark.SizeSummary{
-		{PromptTokens: 128, TGMean: 40, Count: 3},
-		{PromptTokens: 512, TGMean: 38, Count: 3},
-		{PromptTokens: 2048, TGMean: 30, Count: 3},
+		{PromptTokens: 128, TGMean: 40, PPMean: 900, Count: 3},
+		{PromptTokens: 512, TGMean: 38, PPMean: 1400, Count: 3},
+		{PromptTokens: 2048, TGMean: 30, PPMean: 2100, Count: 3},
 	}
 	single := perfRun("single")
-	single.Summary.PerSize = []benchmark.SizeSummary{{PromptTokens: 512, TGMean: 44, Count: 3}}
+	single.Summary.PerSize = []benchmark.SizeSummary{{PromptTokens: 512, TGMean: 44, PPMean: 1500, Count: 3}}
 
 	var buf bytes.Buffer
 	if err := base.ExecuteTemplate(&buf, "benchmark_compare",
@@ -901,13 +901,34 @@ func TestCompareTableRowsShareRunID(t *testing.T) {
 		t.Fatalf("execute: %v", err)
 	}
 	out := buf.String()
-	if n := strings.Count(out, `data-run-id="multi"`); n < 4 {
-		t.Errorf(`data-run-id="multi" appears %d times, want 4 (one bar row per chart plus three size rows)`, n)
+
+	// Two bar charts plus one table row = three mentions per run, no
+	// matter how many prompt lengths it measured.
+	if n := strings.Count(out, `data-run-id="multi"`); n != 3 {
+		t.Errorf(`data-run-id="multi" appears %d times, want 3 (a bar in each of the two charts, and one table row)`, n)
 	}
-	// The sort has to be able to read a value for every run from the
-	// markup, or a run has no position to sort into.
-	if !strings.Contains(out, `data-sort-gen=`) {
-		t.Error("no sort values in the rendered comparison")
+	if n := strings.Count(out, `data-run-id="single"`); n != 3 {
+		t.Errorf(`data-run-id="single" appears %d times, want 3`, n)
+	}
+
+	// The table's figure is the run average, matching the bar.
+	if !strings.Contains(out, ">36.0<") {
+		t.Errorf("the table does not show the run average the bar chart shows\n")
+	}
+
+	// The prompt lengths are named, and the per-length breakdown the
+	// rows used to carry is in that cell's tooltip.
+	if !strings.Contains(out, "128 / 512 / 2048") {
+		t.Error("the table does not say which prompt lengths the average covers")
+	}
+	for _, want := range []string{"128 tokens:", "2048 tokens:", "2100 prompt tok/s"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the per-length breakdown is missing %q from the tooltip", want)
+		}
+	}
+	// A run measured at one length says so rather than listing a set.
+	if !strings.Contains(out, "Measured at 512-token prompts only") {
+		t.Error("a single-length run does not explain its average")
 	}
 }
 

@@ -58,8 +58,8 @@
     <div class="callout" style="font-size:0.8rem;padding:0.4rem 0.6rem;margin-bottom:0.5rem;">
         <strong>These runs did not all measure the same prompt lengths.</strong>
         Each bar is that run's average over whatever it measured, and prompt speed climbs steeply with prompt length,
-        so the bars are not strictly comparable with one another. The details table below breaks every run out by prompt length —
-        compare rows with the same <em>Test</em> value.
+        so the bars are not strictly comparable with one another. The details table below shows each run's prompt lengths in its own
+        column — compare runs whose <em>Prompt sizes</em> match, and hover that cell for the breakdown.
     </div>
     {{end}}
 
@@ -134,10 +134,10 @@
                 <th>Model</th>
                 <th>Quant</th>
                 <th title="Which point of a parameter sweep this run measured">Sweep</th>
-                <th title="Prompt length this row measures, llama-bench style (pp&lt;tokens&gt;). Rows are per size because prompt throughput rises with prompt length — averaging across sizes is comparable to nothing.">Test</th>
-                <th title="Prompt Processing tokens/sec, mean ± stddev across repetitions">PP t/s</th>
-                <th title="Token Generation tokens/sec, mean ± stddev">TG t/s</th>
-                <th title="Time To First Token, milliseconds">TTFT (ms)</th>
+                <th title="The prompt lengths this run measured, which is what its averages cover. Prompt speed climbs steeply with prompt length, so two runs are only strictly comparable when this column matches. Hover a value for the breakdown by length.">Prompt sizes</th>
+                <th title="Prompt Processing tokens/sec, averaged over everything this run measured — the same figure as the bar chart above.">PP t/s</th>
+                <th title="Token Generation tokens/sec, averaged over everything this run measured — the same figure as the bar chart above.">TG t/s</th>
+                <th title="Time To First Token in milliseconds, averaged over everything this run measured.">TTFT (ms)</th>
                 {{if .HasEval}}<th title="Capability evaluation score — only capability runs (perplexity / KL-divergence / HellaSwag / Winogrande) produce one; each row shows its own metric (the mode is part of the row identity, so rows of different modes are not compared against each other). PPL: perplexity — lower is better. HellaSwag / Winogrande: accuracy with confidence interval and task count. KLD: deviation from the reference — 0 = identical. Performance runs show an em-dash here.">Score</th>{{end}}
                 <th>Size</th>
                 <th>GPUs</th>
@@ -169,7 +169,7 @@
             <td title="{{(index $.Labels $run.ID).Full}}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help;">{{$run.ModelName}}</td>
             <td><kbd>{{$run.Quant}}</kbd></td>
             <td>—</td>
-            <td><span title="No timing rows — this is a capability evaluation, not a speed run." style="color:var(--pico-muted-color);cursor:help;">no timing</span></td>
+            <td><span title="A capability evaluation reads the model&#39;s own predictions over a fixed text; it measures no speed and no prompt lengths." style="color:var(--pico-muted-color);cursor:help;">not a speed run</span></td>
             <td>—</td>
             <td>—</td>
             <td>—</td>
@@ -183,22 +183,26 @@
         </tr>
         {{end}}
         {{else}}
-        {{/* One row per prompt size, matching llama-bench. A run with no
-             per-size data (legacy, or failed before producing results)
-             falls back to a single row using its mixed average. */}}
-        {{range $sz := .SizeRows}}
+        {{/* ONE ROW PER RUN, holding the same average the bar chart
+             shows. It used to be one row per prompt length, so a run
+             drew one bar but two or three rows carrying different
+             numbers, and nothing lined up between the chart and the
+             table. The per-length breakdown is not lost: it is in the
+             Prompt sizes cell's tooltip, where it explains the average
+             instead of competing with it. */}}
+        {{$s := $run.Summary}}
         <tr data-run-id="{{$run.ID}}"
             data-sort-name="{{(index $.Labels $run.ID).Short}}"
-            data-sort-gen="{{printf "%.4f" $sz.TGMean}}"
-            data-sort-prompt="{{printf "%.4f" $sz.PPMean}}"
+            data-sort-gen="{{printf "%.4f" $s.AvgGenTokPerSec}}"
+            data-sort-prompt="{{printf "%.4f" $s.AvgPromptTokPerSec}}"
             data-sort-score="{{printf "%.4f" (evalScoreValue $run.Eval)}}">
             <td title="{{(index $.Labels $run.ID).Full}}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help;">{{if $run.ConfigUnverified}}<span title="Config columns for this run may not reflect what actually ran — its job declared overrides before overrides were applied. Throughput is still valid." style="color:var(--pico-del-color,#b3261e);cursor:help;">&#9888;</span> {{end}}{{$run.ModelName}}</td>
             <td><kbd>{{$run.Quant}}</kbd></td>
             <td>{{if $run.SweepValues}}{{range $k, $v := $run.SweepValues}}<kbd>{{$k}}={{$v}}</kbd> {{end}}{{else}}—{{end}}</td>
-            <td>{{if $sz.PromptTokens}}<kbd>{{$sz.Label}}</kbd>{{else}}<span title="Averaged across prompt sizes; not comparable to llama-bench or to runs using a different preset." style="color:var(--pico-muted-color);cursor:help;">mixed</span>{{end}}</td>
-            <td>{{printf "%.0f" $sz.PPMean}}{{if gt $sz.Count 1}} <small>± {{printf "%.0f" $sz.PPStd}}</small>{{end}}</td>
-            <td><strong>{{printf "%.1f" $sz.TGMean}}</strong>{{if gt $sz.Count 1}} <small>± {{printf "%.1f" $sz.TGStd}}</small>{{end}}</td>
-            <td>{{printf "%.0f" $sz.AvgTTFTMs}}</td>
+            <td title="{{$run.PromptSizesDetail}}" style="cursor:help;">{{with $run.PromptSizesText}}{{.}}{{else}}—{{end}}</td>
+            <td>{{printf "%.0f" $s.AvgPromptTokPerSec}}</td>
+            <td><strong>{{printf "%.1f" $s.AvgGenTokPerSec}}</strong></td>
+            <td>{{printf "%.0f" $s.AvgTTFTMs}}</td>
             {{if $.HasEval}}
             {{/* Each row renders its own metric — the mode is part of the
                  row identity, so a perplexity row and a HellaSwag row in
@@ -216,7 +220,6 @@
             </td>
             {{if $.HasLlamaBench}}<td>{{if $run.LlamaBench}}{{printf "%.1f" $run.LlamaBench.GenTokPerSec}}{{else}}—{{end}}</td>{{end}}
         </tr>
-        {{end}}
         {{end}}
         {{end}}
         </tbody>

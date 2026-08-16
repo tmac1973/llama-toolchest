@@ -367,3 +367,60 @@ func fullLabel(r BenchmarkRun, dims []runDimension) string {
 	}
 	return b.String()
 }
+
+// PromptSizesText names the prompt lengths a run measured, for the
+// compare view's details table.
+//
+// That table used to render one row per prompt length while the bar
+// charts above it showed one bar per run, holding the run's average.
+// Two rows for one bar, carrying different numbers, is the shape that
+// made the table hard to read: nothing lined up between the two halves
+// of the view. The table now shows one row per run with the same
+// average the bar shows, and this column says what that average covers,
+// so the reader can see at a glance whether two rows are measuring
+// comparable things.
+func (r BenchmarkRun) PromptSizesText() string {
+	rows := r.SizeRows()
+	if len(rows) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(rows))
+	for _, s := range rows {
+		if s.PromptTokens == 0 {
+			// A legacy run, or one that recorded no per-length detail.
+			// Its average is over an unknown set.
+			return "not recorded"
+		}
+		parts = append(parts, strconv.Itoa(s.PromptTokens))
+	}
+	return strings.Join(parts, " / ")
+}
+
+// PromptSizesDetail breaks the average down by prompt length, for the
+// tooltip on the cell PromptSizesText fills. The detail is worth
+// keeping — prompt speed climbs steeply with prompt length, so an
+// average over several lengths hides a wide spread — it just does not
+// need a table row each.
+func (r BenchmarkRun) PromptSizesDetail() string {
+	rows := r.SizeRows()
+	if len(rows) == 0 {
+		return ""
+	}
+	if len(rows) == 1 && rows[0].PromptTokens > 0 {
+		return fmt.Sprintf("Measured at %d-token prompts only, so this average is a single figure.", rows[0].PromptTokens)
+	}
+	if rows[0].PromptTokens == 0 {
+		return "This run recorded no per-length detail, so its average is over an unknown mix of prompt lengths and cannot be compared with a run measured at one length."
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "This row averages %d prompt lengths. Prompt speed climbs steeply with prompt length, so the spread is wide:\n", len(rows))
+	for _, s := range rows {
+		fmt.Fprintf(&b, "\n%d tokens: %.0f prompt tok/s, %.1f generation tok/s, %.0f ms to first token",
+			s.PromptTokens, s.PPMean, s.TGMean, s.AvgTTFTMs)
+		if s.Count > 1 {
+			fmt.Fprintf(&b, " (%d repetitions)", s.Count)
+		}
+	}
+	return b.String()
+}
