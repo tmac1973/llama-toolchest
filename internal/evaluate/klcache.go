@@ -4,7 +4,7 @@
 // Files live under <root>/logits/ (root is the eval-data root, passed in
 // by callers) as
 //
-//	<SafeModelID>~<quant>~<dataset>~c<chunks>~ctx<n>.kld
+//	<SafeModelID>~<quant>~<dataset>~c<chunks>~ctx<n>~f<fingerprint>.kld
 //
 // The field separator is ~, NOT --: SafeModelID maps "/" to "--", so a --
 // separator would make reverse-parsing the filename ambiguous. ~ is
@@ -14,6 +14,8 @@
 package evaluate
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -43,12 +45,19 @@ const (
 // the ONLY consistency guard. Today ctx is always EvalContextSize (512);
 // keying it means a future constant change invalidates cleanly instead of
 // mis-serving.
+//
+// Fingerprint covers the reference's numerics-affecting evaluation flags
+// (KLFlagFingerprint). Without it, editing the reference model's config —
+// its KV cache type, say — leaves the old logits in place under an
+// unchanged name, and every later comparison silently scores against a
+// reference that no longer matches its own stated settings.
 type KLBaseKey struct {
-	ModelID string
-	Quant   string
-	Dataset string
-	Chunks  int // 0 = full run (no --chunks cap)
-	Ctx     int
+	ModelID     string
+	Quant       string
+	Dataset     string
+	Chunks      int // 0 = full run (no --chunks cap)
+	Ctx         int
+	Fingerprint string // KLFlagFingerprint of the generation flags; "" only for legacy files
 }
 
 // Filename renders the deterministic cache filename for the key.
@@ -59,7 +68,58 @@ func (k KLBaseKey) Filename() string {
 		k.Dataset,
 		"c" + strconv.Itoa(k.Chunks),
 		"ctx" + strconv.Itoa(k.Ctx),
+		"f" + k.fingerprintOrNone(),
 	}, klKeySeparator) + klBaseExt
+}
+
+// fingerprintOrNone renders the fingerprint field, substituting "none"
+// for an empty one so the filename always has six fields.
+func (k KLBaseKey) fingerprintOrNone() string {
+	if k.Fingerprint == "" {
+		return "none"
+	}
+	return k.Fingerprint
+}
+
+// klNumericsFlags are the evaluation flags that change the LOGITS a
+// generation run produces, as opposed to how fast it produces them.
+// Only these enter the cache fingerprint.
+//
+// Deliberately excluded: --n-gpu-layers, --threads, --direct-io, and the
+// placement flags (--device / --tensor-split / --split-mode / --main-gpu).
+// They pick kernels and hardware, not arithmetic, and a base file is tens
+// of GiB for a large-vocabulary model — keying on them would throw the
+// cache away every time a user retunes an unrelated performance setting.
+// The caveat that different backends are not bit-identical is real but
+// far below the quantization differences these comparisons measure.
+var klNumericsFlags = map[string]bool{
+	"--flash-attn":   true,
+	"--cache-type-k": true,
+	"--cache-type-v": true,
+	"--batch-size":   true,
+	"--ubatch-size":  true,
+}
+
+// KLFlagFingerprint reduces a generation flag list to a short stable hex
+// digest of its numerics-affecting entries. Flag order does not change
+// the result: the pairs are sorted first, so two callers assembling the
+// same settings in a different order share one cache entry.
+func KLFlagFingerprint(flags []string) string {
+	var pairs []string
+	for i := 0; i < len(flags); i++ {
+		if !klNumericsFlags[flags[i]] {
+			continue
+		}
+		if i+1 < len(flags) && !strings.HasPrefix(flags[i+1], "--") {
+			pairs = append(pairs, flags[i]+"="+flags[i+1])
+			i++
+			continue
+		}
+		pairs = append(pairs, flags[i])
+	}
+	sort.Strings(pairs)
+	sum := sha256.Sum256([]byte(strings.Join(pairs, " ")))
+	return hex.EncodeToString(sum[:])[:12]
 }
 
 // KLBasePath returns the final on-disk path of a base file under root.
@@ -88,8 +148,12 @@ func ParseKLBaseFilename(name string) (KLBaseKey, error) {
 		return k, fmt.Errorf("not a KL base filename (no %s suffix): %s", klBaseExt, name)
 	}
 	parts := strings.Split(base, klKeySeparator)
-	if len(parts) != 5 {
-		return k, fmt.Errorf("malformed KL base filename (want 5 ~-separated fields, got %d): %s", len(parts), name)
+	// Six fields today. Five is the pre-fingerprint layout: accepted so
+	// such a file still LISTS and can be deleted from the card, but its
+	// empty fingerprint re-renders as "~fnone", so a current key never
+	// resolves to it and it can never be served.
+	if len(parts) != 5 && len(parts) != 6 {
+		return k, fmt.Errorf("malformed KL base filename (want 5 or 6 ~-separated fields, got %d): %s", len(parts), name)
 	}
 	k.ModelID, k.Quant, k.Dataset = parts[0], parts[1], parts[2]
 	if k.ModelID == "" || k.Quant == "" || k.Dataset == "" {
@@ -111,6 +175,14 @@ func ParseKLBaseFilename(name string) (KLBaseKey, error) {
 		return KLBaseKey{}, fmt.Errorf("malformed KL base filename (ctx field %q): %s", parts[4], name)
 	}
 	k.Ctx = ctx
+	if len(parts) == 6 {
+		if !strings.HasPrefix(parts[5], "f") || len(parts[5]) < 2 {
+			return KLBaseKey{}, fmt.Errorf("malformed KL base filename (fingerprint field %q): %s", parts[5], name)
+		}
+		if fp := parts[5][1:]; fp != "none" {
+			k.Fingerprint = fp
+		}
+	}
 	return k, nil
 }
 
@@ -171,6 +243,31 @@ func HasKLBase(root string, key KLBaseKey) bool {
 // not an error (the UI's delete button is idempotent).
 func DeleteKLBase(root string, key KLBaseKey) error {
 	if err := os.Remove(KLBasePath(root, key)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+// DeleteKLBaseFile removes the named base file from root's logits dir.
+//
+// The name comes from an HTTP form, so it is validated as a name and not
+// trusted as a path: it must be a bare filename (no directory part) that
+// parses as a KL base filename, and the resolved path must still sit
+// directly inside the logits directory. Deleting a missing entry is not
+// an error, matching DeleteKLBase.
+func DeleteKLBaseFile(root, name string) error {
+	if name == "" || name != filepath.Base(name) {
+		return fmt.Errorf("not a KL base filename: %q", name)
+	}
+	if _, err := ParseKLBaseFilename(name); err != nil {
+		return err
+	}
+	dir := LogitsDir(root)
+	path := filepath.Join(dir, name)
+	if filepath.Dir(path) != filepath.Clean(dir) {
+		return fmt.Errorf("not a KL base filename: %q", name)
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	return nil
@@ -270,13 +367,16 @@ func CheckKLBaseSpace(root string, estimate int64) error {
 	needed := estimate + huggingface.DiskSafetyMarginBytes
 	if free < needed {
 		return fmt.Errorf("insufficient disk space for KL reference logits: estimated %s plus the %s download safety margin, but only %s free at %s",
-			formatBytes(estimate), formatBytes(huggingface.DiskSafetyMarginBytes), formatBytes(free), root)
+			FormatBytes(estimate), FormatBytes(huggingface.DiskSafetyMarginBytes), FormatBytes(free), root)
 	}
 	return nil
 }
 
-// formatBytes renders a byte count in binary units (B, KiB, MiB, GiB, …).
-func formatBytes(b int64) string {
+// FormatBytes renders a byte count in binary units (B, KiB, MiB, GiB, …).
+// Exported because the same figures appear in this package's disk-guard
+// refusals, the job runner's progress lines, and the evaluation-data
+// card: one formatter, so a size never reads two ways.
+func FormatBytes(b int64) string {
 	const unit = 1024
 	if b < unit {
 		return strconv.FormatInt(b, 10) + " B"

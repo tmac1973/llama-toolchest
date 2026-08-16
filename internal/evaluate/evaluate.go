@@ -81,19 +81,22 @@ type Spec struct {
 	Flags []string
 }
 
-// Result is one evaluated outcome. It mirrors benchmark.EvalScores
-// field for field — same names, same meaning, same json tags — so the
-// job runner can copy it straight onto the run. It lives here rather
-// than in internal/benchmark because this package must not import
-// that one; the two structs stay in sync by hand.
+// Result is one evaluated outcome, and the ONE declaration of the
+// capability-score schema: benchmark.EvalScores is an alias for it, so
+// the run's stored JSON and the engine's output are the same type and
+// cannot drift. It lives here rather than in internal/benchmark because
+// this package must not import that one.
 //
-// The engine fills every field except Reference: the runner records
-// the KL reference identity there.
+// The engine fills every field except Reference and ReferenceLabel:
+// the runner records the KL reference's identity there.
 type Result struct {
 	Mode        string `json:"mode"`
 	Dataset     string `json:"dataset,omitempty"`
 	ContextSize int    `json:"context_size,omitempty"`
-	Chunks      int    `json:"chunks,omitempty"` // perplexity/KL requested chunk cap; 0 = full
+	// Chunks is the chunk count the tool announced it scored
+	// (perplexity/KL), falling back to the requested cap when the
+	// output carries no count. 0 means neither was known.
+	Chunks int `json:"chunks,omitempty"`
 
 	// Perplexity mode.
 	Perplexity    float64 `json:"perplexity,omitempty"`
@@ -117,9 +120,14 @@ type Result struct {
 	SameTopPct    float64 `json:"same_top_pct,omitempty"`
 	SameTopPctErr float64 `json:"same_top_pct_err,omitempty"`
 
-	// Reference is the identity of the model the KL divergence was
-	// measured against. Filled by the runner; empty for other modes.
-	Reference string `json:"reference,omitempty"`
+	// Reference is the registry ID of the model the KL divergence was
+	// measured against — the stable identity, used for lookups.
+	// ReferenceLabel is the same model written for a person to read
+	// ("Qwen3.5-9B (IQ4_NL)"); displays prefer it and fall back to
+	// Reference for runs recorded before it existed. Both are filled by
+	// the runner and empty for other modes.
+	Reference      string `json:"reference,omitempty"`
+	ReferenceLabel string `json:"reference_label,omitempty"`
 }
 
 // SnapshotSubset is the plain-field view of benchmark.ConfigSnapshot

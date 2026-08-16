@@ -521,12 +521,28 @@ const klFullRunChunksEstimate = 650
 // failure or cancel the partial is deleted, never cached.
 func (e *jobEnv) EnsureKLBase(ctx context.Context, ref benchmark.ModelInfo, chunks int, buildID string, progress func(string)) (string, error) {
 	root := evaluate.EvalDataRoot(e.s.cfg.DataDir)
+
+	// The flags come first: they are half the cache key. Generation runs
+	// at the reference's own saved config (so a large reference is not
+	// silently evaluated on CPU) through EvalConfigSnapshot, which pins
+	// the KV cache to f16 the same way a capability cell does — the
+	// reference logits are the yardstick, and a yardstick measured
+	// through a quantized cache is not one.
+	flags, err := e.EvalFlags(ref.ID, benchmark.EvalConfigSnapshot(ref.Config, nil), buildID)
+	if err != nil {
+		return "", fmt.Errorf("reference %s: %w", ref.DisplayName, err)
+	}
+
 	key := evaluate.KLBaseKey{
 		ModelID: ref.HFRepoID,
 		Quant:   ref.Quant,
 		Dataset: evaluate.ModeKLDiv.DatasetName(),
 		Chunks:  chunks,
 		Ctx:     evaluate.EvalContextSize,
+		// Without this, editing the reference's config leaves the old
+		// logits in place under an unchanged name and every later
+		// comparison scores against a stale reference.
+		Fingerprint: evaluate.KLFlagFingerprint(flags),
 	}
 	if evaluate.HasKLBase(root, key) {
 		return evaluate.KLBasePath(root, key), nil
@@ -553,10 +569,6 @@ func (e *jobEnv) EnsureKLBase(ctx context.Context, ref benchmark.ModelInfo, chun
 	if err != nil {
 		return "", fmt.Errorf("dataset for KL base generation: %w", err)
 	}
-	flags, err := e.EvalFlags(ref.ID, ref.Config, buildID)
-	if err != nil {
-		return "", fmt.Errorf("reference %s: %w", ref.DisplayName, err)
-	}
 
 	if err := os.MkdirAll(evaluate.LogitsDir(root), 0o755); err != nil {
 		return "", err
@@ -565,7 +577,7 @@ func (e *jobEnv) EnsureKLBase(ctx context.Context, ref benchmark.ModelInfo, chun
 	final := evaluate.KLBasePath(root, key)
 
 	if progress != nil {
-		progress(fmt.Sprintf("generating reference logits for %s — ~%s", ref.DisplayName, evaluateFormatBytes(estimate)))
+		progress(fmt.Sprintf("generating reference logits for %s — ~%s", ref.DisplayName, evaluate.FormatBytes(estimate)))
 	}
 
 	// The ticker reports file growth; progress only stores into the run,
@@ -619,22 +631,6 @@ func (e *jobEnv) EnsureKLBase(ctx context.Context, ref benchmark.ModelInfo, chun
 		return "", fmt.Errorf("installing KL base logits: %w", err)
 	}
 	return final, nil
-}
-
-// evaluateFormatBytes is the byte formatter the KL guard errors use.
-// (evaluate.formatBytes is unexported; the progress lines only need the
-// same units.)
-func evaluateFormatBytes(b int64) string {
-	const unit = 1024
-	if b < unit {
-		return fmt.Sprintf("%d B", b)
-	}
-	div, exp := int64(unit), 0
-	for n := b / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
 // RunEval implements the JobEnv method over the phase 01 engine.

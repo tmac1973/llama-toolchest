@@ -47,7 +47,7 @@
 </table>
 
 <h5>Capability presets</h5>
-<p>All capability presets run <code>llama-perplexity</code> directly against the model at a fixed 512-token context (the inference server is offline while they run), so the table is sized by task or chunk count rather than prompt/gen/reps — the performance columns above don't apply to these.</p>
+<p>All capability presets run <code>llama-perplexity</code> directly against the model at a fixed 512-token context, with an f16 KV cache unless the job asks for another (the inference server is offline while they run), so the table is sized by task or chunk count rather than prompt/gen/reps — the performance columns above don't apply to these.</p>
 <table role="grid" style="font-size:0.8rem;">
     <thead>
         <tr>
@@ -55,6 +55,7 @@
             <th>Mode</th>
             <th>Size</th>
             <th title="What the number means.">What the score means</th>
+            <th title="The authoritative description of the metric, for reading a result you are not sure about.">How to read it</th>
         </tr>
     </thead>
     <tbody>
@@ -65,11 +66,13 @@
             <td>{{.EvalMode}}</td>
             <td>{{evalSizeText .}}</td>
             <td>{{evalMeaningText .}}</td>
+            <td>{{with evalPresetDoc .}}{{$h := .Headline}}{{with .PrimaryLink}}<a href="{{.URL}}" target="_blank" rel="noopener" title="{{$h}}">{{.Label}}</a>{{end}}{{else}}—{{end}}</td>
         </tr>
         {{end}}
     {{end}}
     </tbody>
 </table>
+<p>Open any capability result in the run list and expand <strong>How to read this score</strong>: it explains in plain language what the number measures, shows a table of good and bad values so you can place your own, and lists what to watch out for.</p>
 
 {{if .BenchyCommands}}
 <h5>llama-benchy commands</h5>

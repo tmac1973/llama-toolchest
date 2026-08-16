@@ -68,6 +68,11 @@ func (meta *GGUFMeta) ApplyTo(m *Model) {
 	m.NHead = meta.NHead
 	m.NKVHead = meta.NKVHead
 	m.ContextLength = meta.ContextLength
+	// A parse always looks for tokenizer.ggml.tokens, so the question is
+	// answered either way — record that, and only overwrite the value
+	// when there was one, so a parse that found nothing cannot clear a
+	// size an earlier one established.
+	m.VocabChecked = true
 	if meta.VocabSize > 0 {
 		m.VocabSize = meta.VocabSize
 	}

@@ -8,7 +8,7 @@
 //	├── datasets/wikitext-2-raw-test.txt
 //	├── datasets/hellaswag_val_full.txt
 //	├── datasets/winogrande-debiased-eval.csv
-//	└── logits/<SafeModelID>~<quant>~<dataset>~c<chunks>~ctx<n>.kld
+//	└── logits/<SafeModelID>~<quant>~<dataset>~c<chunks>~ctx<n>~f<fingerprint>.kld
 //
 // (The logits filename scheme is owned by klcache.go; it lives here only so
 // the whole tree is visible in one place.)
@@ -27,6 +27,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -62,9 +63,16 @@ type Dataset struct {
 	// static files, not HF-API objects — the HF client's auth/resume
 	// machinery is not needed.
 	URL string
-	// SHA256 is the pinned hex SHA-256 of the download artifact, verified
-	// at download time.
+	// SHA256 is the pinned hex SHA-256 of the download ARTIFACT, verified
+	// at download time — the zip for an archive entry, the file itself
+	// otherwise.
 	SHA256 string
+	// StoredSHA256 is the pinned hex SHA-256 of the file that ends up on
+	// disk. It differs from SHA256 only for archive entries, where the
+	// artifact is a zip and the stored file is the extracted member, and
+	// is what Verify re-hashes. Leaving it empty for a plain file means
+	// the two hashes are the same fact, so only archives carry both.
+	StoredSHA256 string
 	// License is the dataset's license, shown to the user.
 	License string
 	// ApproxSize is the approximate size in bytes of the stored file.
@@ -93,13 +101,16 @@ type Dataset struct {
 //     llama.cpp, the dataset named in perplexity.cpp's comment).
 var pinnedDatasets = []Dataset{
 	{
-		Name:        "wikitext-2",
-		File:        "wikitext-2-raw-test.txt",
-		URL:         "https://huggingface.co/datasets/ggml-org/ci/resolve/main/wikitext-2-raw-v1.zip",
-		SHA256:      "ef7edb566e3e2b2d31b29c1fdb0c89a4cc683597484c3dc2517919c615435a11",
-		License:     "CC BY-SA 3.0",
-		ApproxSize:  1_290_590, // wiki.test.raw after extraction
-		ExtractFile: "wikitext-2-raw/wiki.test.raw",
+		Name: "wikitext-2",
+		File: "wikitext-2-raw-test.txt",
+		URL:  "https://huggingface.co/datasets/ggml-org/ci/resolve/main/wikitext-2-raw-v1.zip",
+		// The zip, checked on download...
+		SHA256: "ef7edb566e3e2b2d31b29c1fdb0c89a4cc683597484c3dc2517919c615435a11",
+		// ...and the extracted wiki.test.raw, which is what Verify sees.
+		StoredSHA256: "173c87a53759e0201f33e0ccf978e510c2042d7f2cb78229d9a50d79b9e7dd08",
+		License:      "CC BY-SA 3.0",
+		ApproxSize:   1_290_590, // wiki.test.raw after extraction
+		ExtractFile:  "wikitext-2-raw/wiki.test.raw",
 	},
 	{
 		Name:       "hellaswag",
@@ -330,10 +341,28 @@ type DatasetStatus struct {
 	Verified bool   `json:"verified"`
 }
 
+// storedHash returns the pinned hash of the file that lands on disk:
+// the extracted member's for an archive entry, the artifact's otherwise.
+// Verifying an extracted file against the ZIP's hash can only ever
+// fail, which is how a correctly downloaded wikitext-2 came to be
+// reported as corrupt.
+func (d Dataset) storedHash() string {
+	if d.StoredSHA256 != "" {
+		return d.StoredSHA256
+	}
+	return d.SHA256
+}
+
 // Verify re-hashes every pinned dataset present under root against its
-// pinned SHA-256 and returns one status per dataset in table order. It is
-// the UI's state display — the deliberate place where hashing happens
-// outside the download path (EnsureDataset itself does not re-verify).
+// stored-file SHA-256 and returns one status per dataset in table order.
+// It is the UI's state display — the deliberate place where hashing
+// happens outside the download path (EnsureDataset itself does not
+// re-verify).
+//
+// The result is cached per (path, size, mtime): the card re-renders on
+// every job action, and re-reading ~9 MB of dataset to answer a question
+// whose inputs have not changed is waste. A file rewritten in place
+// changes its mtime, so the cache cannot serve a stale verdict.
 func Verify(root string) []DatasetStatus {
 	out := make([]DatasetStatus, 0, len(pinnedDatasets))
 	for _, ds := range pinnedDatasets {
@@ -345,12 +374,50 @@ func Verify(root string) []DatasetStatus {
 		}
 		st.Present = true
 		st.Size = info.Size()
-		if sum, err := fileSHA256(st.Path); err == nil {
-			st.Verified = strings.EqualFold(sum, ds.SHA256)
-		}
+		st.Verified = verifiedCached(st.Path, info, ds.storedHash())
 		out = append(out, st)
 	}
 	return out
+}
+
+// verifyCacheEntry is one memoized hash verdict, keyed by the file
+// identity Verify observed when it computed it.
+type verifyCacheEntry struct {
+	size     int64
+	modTime  time.Time
+	hash     string // the pinned hash the verdict was computed against
+	verified bool
+}
+
+var (
+	verifyCacheMu sync.Mutex
+	verifyCache   = map[string]verifyCacheEntry{}
+)
+
+// verifiedCached reports whether the file at path matches want, reusing
+// a previous verdict when size, mtime, and the pinned hash are all
+// unchanged.
+func verifiedCached(path string, info os.FileInfo, want string) bool {
+	key := path
+	verifyCacheMu.Lock()
+	e, ok := verifyCache[key]
+	verifyCacheMu.Unlock()
+	if ok && e.size == info.Size() && e.modTime.Equal(info.ModTime()) && e.hash == want {
+		return e.verified
+	}
+
+	sum, err := fileSHA256(path)
+	if err != nil {
+		// Unreadable right now: report unverified without caching, so a
+		// transient error does not stick.
+		return false
+	}
+	verified := strings.EqualFold(sum, want)
+
+	verifyCacheMu.Lock()
+	verifyCache[key] = verifyCacheEntry{size: info.Size(), modTime: info.ModTime(), hash: want, verified: verified}
+	verifyCacheMu.Unlock()
+	return verified
 }
 
 // fileSHA256 hashes the whole file at path.

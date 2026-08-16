@@ -69,15 +69,21 @@ type Model struct {
 	DownloadedAt time.Time `json:"downloaded_at"`
 
 	// Architecture parameters parsed from GGUF header.
-	Arch             string `json:"arch,omitempty"`
-	NLayers          int    `json:"n_layers,omitempty"`
-	NEmbd            int    `json:"n_embd,omitempty"`
-	NHead            int    `json:"n_head,omitempty"`
-	NKVHead          int    `json:"n_kv_head,omitempty"`
-	ContextLength    int    `json:"context_length,omitempty"`     // max trained context
-	VocabSize        int    `json:"vocab_size,omitempty"`         // tokenizer vocab size (tokenizer.ggml.tokens length)
-	SupportsTools    bool   `json:"supports_tools,omitempty"`     // chat template handles tools
-	HasBuiltinVision bool   `json:"has_builtin_vision,omitempty"` // vision encoder baked into model
+	Arch          string `json:"arch,omitempty"`
+	NLayers       int    `json:"n_layers,omitempty"`
+	NEmbd         int    `json:"n_embd,omitempty"`
+	NHead         int    `json:"n_head,omitempty"`
+	NKVHead       int    `json:"n_kv_head,omitempty"`
+	ContextLength int    `json:"context_length,omitempty"` // max trained context
+	VocabSize     int    `json:"vocab_size,omitempty"`     // tokenizer vocab size (tokenizer.ggml.tokens length)
+	// VocabChecked records that the GGUF header was inspected for
+	// tokenizer.ggml.tokens, which distinguishes "this file has no such
+	// key" from "this record predates the field". Without it a model
+	// whose GGUF genuinely lacks the key is re-parsed at every startup,
+	// forever, to rediscover the same nothing.
+	VocabChecked     bool `json:"vocab_checked,omitempty"`
+	SupportsTools    bool `json:"supports_tools,omitempty"`     // chat template handles tools
+	HasBuiltinVision bool `json:"has_builtin_vision,omitempty"` // vision encoder baked into model
 
 	// Reasoning / thinking mode detected from the chat template at parse time.
 	// ReasoningChecked distinguishes a genuine "no reasoning" from a record
@@ -568,8 +574,10 @@ func (r *Registry) BackfillGGUFMeta() {
 		// once to pick up embedded sampling defaults and the base-model repo.
 		needsSampling := m.NLayers > 0 && !m.SamplingChecked
 		// Records parsed before vocab-size capture existed — re-parse once
-		// to pick up tokenizer.ggml.tokens' length.
-		needsVocab := m.NLayers > 0 && m.VocabSize == 0
+		// to pick up tokenizer.ggml.tokens' length. Keyed on VocabChecked,
+		// not on VocabSize == 0, so a file that simply has no such key is
+		// asked once rather than at every startup.
+		needsVocab := m.NLayers > 0 && !m.VocabChecked
 
 		if !needsFull && !needsVision && !needsKV && !needsReasoning && !needsSampling && !needsVocab {
 			continue
@@ -623,10 +631,15 @@ func (r *Registry) BackfillGGUFMeta() {
 				m.SamplingChecked = true
 				changed = true
 			}
-			if needsVocab && meta.VocabSize > 0 {
-				m.VocabSize = meta.VocabSize
+			if needsVocab {
+				// The question was asked; record that, whatever the
+				// answer, so it is not asked again.
+				m.VocabChecked = true
 				changed = true
-				slog.Info("backfilled vocab size", "model", m.ID, "vocab", meta.VocabSize)
+				if meta.VocabSize > 0 {
+					m.VocabSize = meta.VocabSize
+					slog.Info("backfilled vocab size", "model", m.ID, "vocab", meta.VocabSize)
+				}
 			}
 		}
 	}

@@ -154,8 +154,8 @@ func evalExportFields(e *benchmark.EvalScores) []string {
 	return out
 }
 
-// evalCountOrFull renders the requested chunk cap the way the display
-// does: the number, or "full" when 0 (no actual-count parsing exists).
+// evalCountOrFull renders the chunk count the way the display does: the
+// number, or "full" when the run recorded none.
 func evalCountOrFull(n int) string {
 	if n <= 0 {
 		return "full"

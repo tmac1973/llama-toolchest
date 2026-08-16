@@ -12,8 +12,8 @@ import (
 // ---------- key → filename → key ----------
 
 func TestKLBaseFilenameExact(t *testing.T) {
-	k := KLBaseKey{ModelID: "unsloth/Qwen3.5-4B-GGUF", Quant: "Q4_K_M", Dataset: "wikitext-2", Chunks: 100, Ctx: 512}
-	want := "unsloth--Qwen3.5-4B-GGUF~Q4_K_M~wikitext-2~c100~ctx512.kld"
+	k := KLBaseKey{ModelID: "unsloth/Qwen3.5-4B-GGUF", Quant: "Q4_K_M", Dataset: "wikitext-2", Chunks: 100, Ctx: 512, Fingerprint: "abc123def456"}
+	want := "unsloth--Qwen3.5-4B-GGUF~Q4_K_M~wikitext-2~c100~ctx512~fabc123def456.kld"
 	if got := k.Filename(); got != want {
 		t.Errorf("Filename() = %q, want %q", got, want)
 	}
@@ -27,9 +27,10 @@ func TestKLBaseFilenameExact(t *testing.T) {
 
 func TestKLBaseFilenameRoundTrip(t *testing.T) {
 	keys := []KLBaseKey{
-		{ModelID: "unsloth/Qwen3.5-4B-GGUF", Quant: "Q4_K_M", Dataset: "wikitext-2", Chunks: 100, Ctx: 512},
-		{ModelID: "org/repo", Quant: "Q8_0", Dataset: "hellaswag", Chunks: 0, Ctx: 512}, // full run
-		{ModelID: "a/b/c/d", Quant: "Q4_K_XL", Dataset: "winogrande", Chunks: 4096, Ctx: 1024},
+		{ModelID: "unsloth/Qwen3.5-4B-GGUF", Quant: "Q4_K_M", Dataset: "wikitext-2", Chunks: 100, Ctx: 512, Fingerprint: "abc123def456"},
+		{ModelID: "org/repo", Quant: "Q8_0", Dataset: "hellaswag", Chunks: 0, Ctx: 512, Fingerprint: "0011223344ff"}, // full run
+		{ModelID: "a/b/c/d", Quant: "Q4_K_XL", Dataset: "winogrande", Chunks: 4096, Ctx: 1024, Fingerprint: "deadbeefcafe"},
+		{ModelID: "org/repo", Quant: "Q8_0", Dataset: "wikitext-2", Chunks: 100, Ctx: 512}, // no fingerprint -> "fnone"
 	}
 	for _, k := range keys {
 		fn := k.Filename()
@@ -37,7 +38,7 @@ func TestKLBaseFilenameRoundTrip(t *testing.T) {
 		if err != nil {
 			t.Fatalf("parse %q: %v", fn, err)
 		}
-		if back.Quant != k.Quant || back.Dataset != k.Dataset || back.Chunks != k.Chunks || back.Ctx != k.Ctx {
+		if back.Quant != k.Quant || back.Dataset != k.Dataset || back.Chunks != k.Chunks || back.Ctx != k.Ctx || back.Fingerprint != k.Fingerprint {
 			t.Errorf("round trip mismatch for %q: got %+v, want quant=%s dataset=%s chunks=%d ctx=%d",
 				fn, back, k.Quant, k.Dataset, k.Chunks, k.Ctx)
 		}
@@ -53,16 +54,18 @@ func TestKLBaseFilenameRoundTrip(t *testing.T) {
 func TestParseKLBaseFilenameErrors(t *testing.T) {
 	bad := []string{
 		"no-suffix-at-all",
-		"a--b~Q4_K_M~wikitext-2~c100.kld",        // 4 fields
-		"a~b~c~d~e~f.kld",                        // 6 fields
-		"~Q4_K_M~wikitext-2~c100~ctx512.kld",     // empty model
-		"a--b~~wikitext-2~c100~ctx512.kld",       // empty quant
-		"a--b~Q4_K_M~wikitext-2~x100~ctx512.kld", // chunks prefix
-		"a--b~Q4_K_M~wikitext-2~c100~x512.kld",   // ctx prefix
-		"a--b~Q4_K_M~wikitext-2~c~ctx512.kld",    // non-numeric chunks
-		"a--b~Q4_K_M~wikitext-2~c100~ctx.kld",    // non-numeric ctx
-		"a--b~Q4_K_M~wikitext-2~c-5~ctx512.kld",  // negative chunks
-		"a--b~Q4_K_M~wikitext-2~c100~ctx0.kld",   // zero ctx
+		"a--b~Q4_K_M~wikitext-2~c100.kld",           // 4 fields
+		"a~b~c~d~e~f~g.kld",                         // 7 fields
+		"~Q4_K_M~wikitext-2~c100~ctx512.kld",        // empty model
+		"a--b~~wikitext-2~c100~ctx512.kld",          // empty quant
+		"a--b~Q4_K_M~wikitext-2~x100~ctx512.kld",    // chunks prefix
+		"a--b~Q4_K_M~wikitext-2~c100~x512.kld",      // ctx prefix
+		"a--b~Q4_K_M~wikitext-2~c~ctx512.kld",       // non-numeric chunks
+		"a--b~Q4_K_M~wikitext-2~c100~ctx.kld",       // non-numeric ctx
+		"a--b~Q4_K_M~wikitext-2~c-5~ctx512.kld",     // negative chunks
+		"a--b~Q4_K_M~wikitext-2~c100~ctx0.kld",      // zero ctx
+		"a--b~Q4_K_M~wikitext-2~c100~ctx512~x1.kld", // fingerprint prefix
+		"a--b~Q4_K_M~wikitext-2~c100~ctx512~f.kld",  // empty fingerprint
 	}
 	for _, name := range bad {
 		if _, err := ParseKLBaseFilename(name); err == nil {
@@ -351,8 +354,129 @@ func TestFormatBytes(t *testing.T) {
 		{1 << 40, "1.0 TiB"},
 	}
 	for _, c := range cases {
-		if got := formatBytes(c.in); got != c.want {
-			t.Errorf("formatBytes(%d) = %q, want %q", c.in, got, c.want)
+		if got := FormatBytes(c.in); got != c.want {
+			t.Errorf("FormatBytes(%d) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// ---------- fingerprint ----------
+
+// The fingerprint covers the flags that change the LOGITS, so two
+// generations that would produce different reference probabilities
+// cannot share one cache entry.
+func TestKLFlagFingerprintDistinguishesNumerics(t *testing.T) {
+	f16 := []string{"--n-gpu-layers", "999", "--threads", "8", "--flash-attn", "on"}
+	q8 := []string{"--n-gpu-layers", "999", "--threads", "8", "--flash-attn", "on",
+		"--cache-type-k", "q8_0", "--cache-type-v", "q8_0"}
+	if KLFlagFingerprint(f16) == KLFlagFingerprint(q8) {
+		t.Error("an f16 and a q8_0 KV cache share a fingerprint — a config change would silently reuse stale logits")
+	}
+	noFA := []string{"--flash-attn", "off"}
+	withFA := []string{"--flash-attn", "on"}
+	if KLFlagFingerprint(noFA) == KLFlagFingerprint(withFA) {
+		t.Error("flash-attn on and off share a fingerprint")
+	}
+}
+
+// Performance-only settings do not change the reference, and a base
+// file is tens of GiB — retuning them must not discard the cache.
+func TestKLFlagFingerprintIgnoresPerformanceFlags(t *testing.T) {
+	a := []string{"--n-gpu-layers", "999", "--threads", "8", "--flash-attn", "on", "--device", "ROCm0"}
+	b := []string{"--n-gpu-layers", "40", "--threads", "16", "--flash-attn", "on", "--direct-io"}
+	if KLFlagFingerprint(a) != KLFlagFingerprint(b) {
+		t.Error("gpu layers / threads / placement changed the fingerprint; they select kernels, not arithmetic")
+	}
+}
+
+// Flag ORDER is an assembly detail, not a setting: two callers building
+// the same evaluation differently must hit the same cache entry.
+func TestKLFlagFingerprintOrderIndependent(t *testing.T) {
+	a := []string{"--cache-type-k", "q8_0", "--flash-attn", "on", "--batch-size", "512"}
+	b := []string{"--batch-size", "512", "--flash-attn", "on", "--cache-type-k", "q8_0"}
+	if KLFlagFingerprint(a) != KLFlagFingerprint(b) {
+		t.Error("fingerprint depends on flag order")
+	}
+}
+
+// A pre-fingerprint filename still lists and deletes (so it is not an
+// invisible tens-of-GiB orphan) but can never be SERVED: the current
+// key renders "~fnone", a different name from the legacy five-field
+// one.
+func TestLegacyFilenameListsButNeverServes(t *testing.T) {
+	root := t.TempDir()
+	dir := LogitsDir(root)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacy := "u--M~Q8_0~wikitext-2~c100~ctx512.kld"
+	if err := os.WriteFile(filepath.Join(dir, legacy), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	list := ListKLBases(root)
+	if len(list) != 1 || filepath.Base(list[0].Path) != legacy {
+		t.Fatalf("legacy entry not listed: %+v", list)
+	}
+	key := KLBaseKey{ModelID: "u/M", Quant: "Q8_0", Dataset: "wikitext-2", Chunks: 100, Ctx: 512,
+		Fingerprint: KLFlagFingerprint([]string{"--flash-attn", "on"})}
+	if HasKLBase(root, key) {
+		t.Error("a legacy file was served for a fingerprinted key")
+	}
+	if err := DeleteKLBaseFile(root, legacy); err != nil {
+		t.Errorf("legacy entry cannot be deleted: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, legacy)); !os.IsNotExist(err) {
+		t.Error("legacy entry still on disk after delete")
+	}
+}
+
+// ---------- delete by name ----------
+
+// The delete name arrives from an HTTP form, so it is validated as a
+// name: no directory part, must parse as a KL base filename, must
+// resolve inside the logits directory.
+func TestDeleteKLBaseFileRejectsPaths(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(LogitsDir(root), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A file one level up that a traversal would reach.
+	outside := filepath.Join(root, "victim~Q~wikitext-2~c1~ctx1~fnone.kld")
+	if err := os.WriteFile(outside, []byte("keep me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range []string{
+		"../victim~Q~wikitext-2~c1~ctx1~fnone.kld",
+		"/etc/passwd",
+		"sub/dir~Q~wikitext-2~c1~ctx1~fnone.kld",
+		"not-a-kl-base.txt",
+		"",
+	} {
+		if err := DeleteKLBaseFile(root, name); err == nil {
+			t.Errorf("DeleteKLBaseFile(%q) = nil error, want rejection", name)
+		}
+	}
+	if _, err := os.Stat(outside); err != nil {
+		t.Errorf("a file outside the logits dir was removed: %v", err)
+	}
+}
+
+// Deleting an entry that is not there is not an error: the card's
+// button must survive a double click.
+func TestDeleteKLBaseFileIdempotent(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(LogitsDir(root), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	name := "u--M~Q8_0~wikitext-2~c100~ctx512~fabc123def456.kld"
+	if err := os.WriteFile(filepath.Join(LogitsDir(root), name), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := DeleteKLBaseFile(root, name); err != nil {
+			t.Fatalf("delete %d: %v", i, err)
 		}
 	}
 }

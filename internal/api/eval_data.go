@@ -3,7 +3,8 @@ package api
 import (
 	"fmt"
 	"net/http"
-	"strconv"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/evaluate"
@@ -26,23 +27,19 @@ type evalDataDataset struct {
 	State    string // "not downloaded" | "verified" | "present, hash mismatch"
 }
 
-// evalDataLogits is one KL reference logits row. The key fields
-// round-trip the delete form: the key is parsed back from the filename,
-// and re-rendering it reproduces the filename exactly (the
-// ParseKLBaseFilename contract), so no path travels in the form.
+// evalDataLogits is one KL reference logits row. The delete form posts
+// the row's Filename, which the handler re-validates as a name (it must
+// parse as a KL base filename and resolve inside the logits directory)
+// rather than trusting it as a path.
 type evalDataLogits struct {
 	Filename   string
-	ModelLabel string // repo path (SafeModelID form) of the reference
+	ModelLabel string // reference repo path, "/" restored from SafeModelID
+	Quant      string
 	Dataset    string
 	ChunksText string // "100 chunks" | "full"
 	Size       int64
 	SizeText   string
 	AgeText    string
-	// Delete-form fields (the cache key).
-	ModelID string
-	Quant   string
-	Ctx     int
-	Chunks  int
 }
 
 // evalDataView is the card partial's data.
@@ -81,7 +78,7 @@ func (s *Server) handleEvalData(w http.ResponseWriter, r *http.Request) {
 			row.State = "present, hash mismatch"
 		}
 		if row.Size > 0 {
-			row.SizeText = formatBytes(row.Size)
+			row.SizeText = evaluate.FormatBytes(row.Size)
 		}
 		view.Datasets = append(view.Datasets, row)
 	}
@@ -89,29 +86,30 @@ func (s *Server) handleEvalData(w http.ResponseWriter, r *http.Request) {
 	for _, info := range evaluate.ListKLBases(root) {
 		k := info.Key
 		row := evalDataLogits{
-			Filename:   k.Filename(),
-			Dataset:    k.Dataset,
-			ModelID:    k.ModelID,
-			Quant:      k.Quant,
-			Ctx:        k.Ctx,
-			Chunks:     k.Chunks,
-			Size:       info.Size,
-			SizeText:   formatBytes(info.Size),
-			AgeText:    fmtDurationSince(time.Since(info.ModTime)),
+			// The name on disk, not a re-render of the key: a legacy
+			// pre-fingerprint entry re-renders differently, and the
+			// delete has to name the file that is actually there.
+			Filename: filepath.Base(info.Path),
+			Dataset:  k.Dataset,
+			Quant:    k.Quant,
+			Size:     info.Size,
+			SizeText: evaluate.FormatBytes(info.Size),
+			AgeText:  fmtDurationSince(time.Since(info.ModTime)),
+			// The filename's ModelID is the SafeModelID form (repo with
+			// "/" → "--"); the label restores the slash so the row reads
+			// as the repo path it is, with the exact filename in the
+			// tooltip.
+			ModelLabel: strings.ReplaceAll(k.ModelID, "--", "/"),
 			ChunksText: "full",
 		}
 		if k.Chunks > 0 {
 			row.ChunksText = fmt.Sprintf("%d chunks", k.Chunks)
 		}
-		// The filename's ModelID is the SafeModelID form (repo with / →
-		// --); the label re-reads it as a repo path so the row says what
-		// it is, with the exact filename available in the tooltip.
-		row.ModelLabel = k.ModelID
 		view.Logits = append(view.Logits, row)
 		view.TotalSize += info.Size
 	}
 	if view.TotalSize > 0 {
-		view.TotalText = formatBytes(view.TotalSize)
+		view.TotalText = evaluate.FormatBytes(view.TotalSize)
 	}
 
 	if isHTMX(r) {
@@ -122,11 +120,15 @@ func (s *Server) handleEvalData(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, view)
 }
 
-// handleDeleteKLLogits removes one KL reference logits file. The form
-// posts the cache key fields (the row's own cache key — the filename is
-// deterministic in the key, so no path travels in the form).
+// handleDeleteKLLogits removes one KL reference logits file, named by
+// the row's filename.
 //
 // POST /api/benchmarks/eval-data/delete-logits
+//
+// The name is form input, so it is validated as a NAME and never
+// trusted as a path: DeleteKLBaseFile rejects anything carrying a
+// directory part, anything that does not parse as a KL base filename,
+// and anything that would resolve outside the logits directory.
 //
 // Deletion is refused with 409 while a job is running, using the same
 // busy message the restore flow uses for the same conflict: a running
@@ -142,38 +144,17 @@ func (s *Server) handleDeleteKLLogits(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid form: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	modelID := r.FormValue("model_id")
-	quant := r.FormValue("quant")
-	dataset := r.FormValue("dataset")
-	chunksStr := r.FormValue("chunks")
-	ctxStr := r.FormValue("ctx")
-	if modelID == "" || quant == "" || dataset == "" || chunksStr == "" || ctxStr == "" {
-		http.Error(w, "model_id, quant, dataset, chunks, and ctx are all required", http.StatusBadRequest)
+	filename := r.FormValue("filename")
+	if filename == "" {
+		http.Error(w, "filename is required", http.StatusBadRequest)
 		return
-	}
-	chunks, err := strconv.Atoi(chunksStr)
-	if err != nil || chunks < 0 {
-		http.Error(w, "chunks must be a non-negative integer: "+chunksStr, http.StatusBadRequest)
-		return
-	}
-	ctx, err := strconv.Atoi(ctxStr)
-	if err != nil || ctx <= 0 {
-		http.Error(w, "ctx must be a positive integer: "+ctxStr, http.StatusBadRequest)
-		return
-	}
-	key := evaluate.KLBaseKey{
-		ModelID: modelID,
-		Quant:   quant,
-		Dataset: dataset,
-		Chunks:  chunks,
-		Ctx:     ctx,
 	}
 
 	root := evaluate.EvalDataRoot(s.cfg.DataDir)
-	// DeleteKLBase is idempotent (missing file is not an error) — the
-	// card's delete button is safe to double-click.
-	if err := evaluate.DeleteKLBase(root, key); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	// DeleteKLBaseFile is idempotent (missing file is not an error) —
+	// the card's delete button is safe to double-click.
+	if err := evaluate.DeleteKLBaseFile(root, filename); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 

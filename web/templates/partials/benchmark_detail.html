@@ -164,12 +164,12 @@
          list/compare views use; the raw fields follow for the
          precision the tool reported. The timing sections above are
          absent for this run by construction — it produced no t/s. */}}
-    <small><strong>Capability evaluation</strong> — <span title="Ran offline through llama-perplexity (no router), at the fixed 512-token evaluation context. Sampling parameters do not apply to these scores — they are deterministic log-likelihood measurements.">what the model can do, not how fast</span></small>
+    <small><strong>Capability evaluation</strong> — <span title="Ran offline through llama-perplexity (no router), at the fixed 512-token evaluation context, with an f16 KV cache unless the job asked for another. Sampling parameters do not apply to these scores — they are deterministic log-likelihood measurements.">what the model can do, not how fast</span></small>
     <table role="grid" style="font-size:0.85rem;margin-top:0.25rem;">
         <tbody>
-            <tr><td style="width:12rem;">Score</td><td><strong>{{evalScoreText .Eval}}</strong></td></tr>
+            <tr><td style="width:12rem;"{{with evalDoc .Eval.Mode}} title="{{.Headline}}"{{end}}>Score</td><td><strong>{{evalScoreText .Eval}}</strong></td></tr>
             <tr><td>Mode</td><td><kbd>{{.Eval.Mode}}</kbd> · dataset {{if .Eval.Dataset}}{{.Eval.Dataset}}{{else}}—{{end}}{{if .Eval.ContextSize}} · ctx {{.Eval.ContextSize}}{{end}}</td></tr>
-            {{if .Eval.Chunks}}<tr><td>Chunk cap</td><td>{{.Eval.Chunks}} (requested; 0 = full)</td></tr>{{end}}
+            {{if .Eval.Chunks}}<tr><td title="How much of the dataset was scored. Reported by the tool, not the requested cap.">Chunks scored</td><td>{{.Eval.Chunks}}</td></tr>{{end}}
             {{if .Eval.Perplexity}}
             <tr><td title="Perplexity over the wikitext-2 test set. Lower is better; the error bar is the tool's reported uncertainty.">Perplexity</td><td>{{printf "%.4f" .Eval.Perplexity}} ± {{printf "%.5f" .Eval.PerplexityErr}}</td></tr>
             {{end}}
@@ -185,10 +185,64 @@
             <tr><td title="Share of positions where both models pick the same top token — the plain-language form of the KL figure.">Same top token</td><td>{{printf "%.3f%%" .Eval.SameTopPct}} ± {{printf "%.3f" .Eval.SameTopPctErr}}</td></tr>
             {{end}}
             {{if .Eval.Reference}}
-            <tr><td title="The model these logits were measured against.">Reference</td><td><kbd>{{.Eval.Reference}}</kbd></td></tr>
+            <tr><td title="The model these logits were measured against.">Reference</td>
+                <td>{{if .Eval.ReferenceLabel}}{{.Eval.ReferenceLabel}} <small title="Registry ID"><kbd>{{.Eval.Reference}}</kbd></small>{{else}}<kbd>{{.Eval.Reference}}</kbd>{{end}}</td></tr>
             {{end}}
         </tbody>
     </table>
+
+    {{/* How to read the score. A capability result is a bare number
+         with no units and no sense of scale, so the view that shows it
+         has to explain it.
+
+         The one-line "what this measures" lives in the Score row's
+         tooltip, per this project's convention that explanatory text
+         belongs in tooltips rather than static paragraphs. The rest
+         cannot: a title attribute cannot hold a clickable link, and the
+         authoritative source is the point. So it goes in a collapsed
+         details block — one line of chrome when closed, which keeps the
+         card as uncluttered as the tooltip rule intends. */}}
+    {{with evalDoc .Eval.Mode}}
+    <details style="font-size:0.85rem;margin-top:0.5rem;">
+        <summary title="{{.Headline}}">How to read this score</summary>
+
+        <p style="margin:0.5rem 0 0;">{{.Headline}}</p>
+
+        <p style="margin:0.75rem 0 0.25rem;"><strong>Is my score good?</strong></p>
+        <table role="grid" style="font-size:0.85rem;margin:0;">
+            <thead>
+                <tr>
+                    <th style="width:16rem;">Result</th>
+                    <th style="width:8rem;">Verdict</th>
+                    <th>What it means</th>
+                </tr>
+            </thead>
+            <tbody>
+            {{range .Examples}}
+                <tr>
+                    <td>{{.Value}}</td>
+                    <td>{{.Verdict}}</td>
+                    <td>{{.Meaning}}</td>
+                </tr>
+            {{end}}
+            </tbody>
+        </table>
+
+        <p style="margin:0.75rem 0 0.25rem;"><strong>Things to watch out for</strong></p>
+        <ul style="margin:0;padding-left:1.1rem;">
+            {{range .Reading}}<li style="margin-bottom:0.3rem;">{{.}}</li>{{end}}
+        </ul>
+
+        <p style="margin:0.75rem 0 0.25rem;"><strong>Read more</strong></p>
+        <ul style="margin:0;padding-left:1.1rem;">
+            {{range .Links}}
+            <li style="margin-bottom:0.3rem;">
+                <a href="{{.URL}}" target="_blank" rel="noopener">{{.Label}}</a> — {{.Note}}
+            </li>
+            {{end}}
+        </ul>
+    </details>
+    {{end}}
     {{end}}
 
     {{if .Warnings}}

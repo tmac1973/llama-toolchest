@@ -262,10 +262,10 @@ func TestCapabilityPresetsDefined(t *testing.T) {
 		byName[p.Name] = p
 	}
 	checks := []struct {
-		name     string
-		mode     string
-		tasks    int
-		chunks   int
+		name   string
+		mode   string
+		tasks  int
+		chunks int
 	}{
 		{"perplexity-quick", "perplexity", 0, 100},
 		{"perplexity-full", "perplexity", 0, 0},
@@ -332,5 +332,75 @@ func TestExpansionOfInertSweepProducesOneCellPerCapabilityPreset(t *testing.T) {
 	}
 	if !reflect.DeepEqual(cells[0].SweepValues, map[string]string(nil)) {
 		t.Errorf("collapsed cell should carry no sweep values, got %+v", cells[0].SweepValues)
+	}
+}
+
+// A capability cell stops the router and a performance cell needs it
+// running, so alternating between them costs a full stop-load-health
+// cycle each time. Within one (build, model) the capability cells must
+// therefore come last, not interleaved by sweep combination.
+func TestCapabilityCellsGroupedLastPerModel(t *testing.T) {
+	cells := ExpandCellsWithSweeps(
+		[]string{"model-a", "model-b"},
+		[]string{"build-1"},
+		[]string{"internal-quick", "perplexity-quick"},
+		[]SweepAxis{{Field: "context_size", Values: []string{"4096", "8192", "16384"}}},
+	)
+
+	// Walk each (build, model) group and check no performance cell
+	// follows a capability cell inside it.
+	type group struct{ build, model string }
+	seenCapability := map[group]bool{}
+	transitions := 0
+	var prev group
+	var prevWasCapability bool
+	for i, c := range cells {
+		g := group{c.BuildID, c.ModelID}
+		isCap := GetPreset(c.Preset).EffectiveSource() == PresetSourceCapability
+		if isCap {
+			seenCapability[g] = true
+		} else if seenCapability[g] {
+			t.Errorf("cell %d (%s/%s/%s) is a performance cell after a capability cell in the same group",
+				i, c.BuildID, c.ModelID, c.Preset)
+		}
+		if i > 0 && g == prev && isCap != prevWasCapability {
+			transitions++
+		}
+		prev, prevWasCapability = g, isCap
+	}
+	// One crossing per model, not one per sweep combination.
+	if transitions != 2 {
+		t.Errorf("router boundary crossed %d times, want 2 (once per model)", transitions)
+	}
+}
+
+// A quantized KV cache changes the answer, not the speed, so an
+// evaluation must not silently inherit whatever cache type the model
+// happens to use for chat — the resulting perplexity would not be
+// comparable to any published figure. An explicit override still wins:
+// measuring what a quantized cache costs in quality is a good question,
+// it just has to be asked.
+func TestEvalConfigSnapshotDefaultsKVToF16(t *testing.T) {
+	saved := ConfigSnapshot{GPULayers: 999, Threads: 8, KVCacheQuant: "q8_0", FlashAttention: true}
+
+	if got := EvalConfigSnapshot(saved, nil); got.KVCacheQuant != "" {
+		t.Errorf("KVCacheQuant = %q, want \"\" (f16) when the job did not ask for one", got.KVCacheQuant)
+	}
+	// Everything else is left alone — the evaluation still runs on the
+	// GPU with the model's own layer and thread settings.
+	got := EvalConfigSnapshot(saved, nil)
+	if got.GPULayers != 999 || got.Threads != 8 || !got.FlashAttention {
+		t.Errorf("EvalConfigSnapshot changed a setting it should not have: %+v", got)
+	}
+
+	q4 := "q4_0"
+	if got := EvalConfigSnapshot(saved, &ConfigOverrides{KVCacheQuant: &q4}); got.KVCacheQuant != "q4_0" {
+		t.Errorf("an explicit kv_cache_quant override was dropped: %q", got.KVCacheQuant)
+	}
+	// An override of something else must not resurrect the saved KV
+	// quant.
+	layers := 40
+	if got := EvalConfigSnapshot(saved, &ConfigOverrides{GPULayers: &layers}); got.KVCacheQuant != "" {
+		t.Errorf("KVCacheQuant = %q after an unrelated override, want \"\"", got.KVCacheQuant)
 	}
 }

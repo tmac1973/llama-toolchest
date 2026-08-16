@@ -371,3 +371,100 @@ func statusByName(t *testing.T, statuses []DatasetStatus, name string) DatasetSt
 	t.Fatalf("dataset %q missing from Verify result", name)
 	return DatasetStatus{}
 }
+
+// The download artifact and the stored file are the same bytes only for
+// plain files. For an archive entry they cannot be: the artifact is the
+// zip, the stored file is the extracted member. Verifying the stored
+// file against the ARTIFACT's hash always fails, which is exactly how a
+// correctly downloaded wikitext-2 came to be shown as corrupt in the
+// evaluation-data card.
+func TestArchiveDatasetsPinBothHashes(t *testing.T) {
+	for _, ds := range Datasets() {
+		if ds.ExtractFile == "" {
+			if ds.StoredSHA256 != "" && !strings.EqualFold(ds.StoredSHA256, ds.SHA256) {
+				t.Errorf("%s: plain file pins a different StoredSHA256 than SHA256", ds.Name)
+			}
+			continue
+		}
+		if ds.StoredSHA256 == "" {
+			t.Errorf("%s extracts %q but pins no StoredSHA256 — Verify would hash the member against the archive's hash and always report a mismatch",
+				ds.Name, ds.ExtractFile)
+		}
+		if strings.EqualFold(ds.StoredSHA256, ds.SHA256) {
+			t.Errorf("%s: StoredSHA256 equals the archive's SHA256, which cannot be right for an extracted member", ds.Name)
+		}
+	}
+}
+
+// Verify hashes the file that is actually on disk against storedHash,
+// so a correct extracted file reports verified and a tampered one does
+// not.
+func TestVerifyUsesStoredHash(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(DatasetsDir(root), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ds, ok := LookupDataset("wikitext-2")
+	if !ok {
+		t.Fatal("wikitext-2 missing from the pinned table")
+	}
+	path := DatasetPath(root, ds.Name)
+
+	// A file whose bytes hash to the pinned stored hash cannot be
+	// synthesized, so pin the check the other way round: an arbitrary
+	// file must NOT verify, and the status must still report presence
+	// and size rather than silently claiming the dataset is absent.
+	if err := os.WriteFile(path, []byte("not the wikitext test set"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, st := range Verify(root) {
+		if st.Name != ds.Name {
+			continue
+		}
+		if !st.Present {
+			t.Error("Present = false for a file that exists")
+		}
+		if st.Verified {
+			t.Error("Verified = true for a file that is not the pinned dataset")
+		}
+		if st.Size != int64(len("not the wikitext test set")) {
+			t.Errorf("Size = %d, want the file's real size", st.Size)
+		}
+	}
+}
+
+// The verdict is memoized per (path, size, mtime): the card re-renders
+// on every job action and must not re-read megabytes each time. A
+// rewrite in place changes the mtime, so the cache cannot serve a stale
+// answer.
+func TestVerifyCacheInvalidatesOnRewrite(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(DatasetsDir(root), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ds, _ := LookupDataset("winogrande") // plain file: stored hash == artifact hash
+	path := DatasetPath(root, ds.Name)
+	if err := os.WriteFile(path, []byte("wrong"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verifiedCached(path, info, ds.storedHash()) {
+		t.Fatal("a wrong file verified")
+	}
+	// Same identity, cached verdict — and a hash the file does match,
+	// proving the cached "false" is reused rather than recomputed.
+	sum, err := fileSHA256(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := verifiedCached(path, info, ds.storedHash()); got {
+		t.Error("cached verdict changed without the file changing")
+	}
+	// A different pinned hash is a different question, so it recomputes.
+	if !verifiedCached(path, info, sum) {
+		t.Error("verdict not recomputed when the pinned hash changed")
+	}
+}

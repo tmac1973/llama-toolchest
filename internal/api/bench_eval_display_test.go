@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -414,7 +416,9 @@ func TestEvalDataCardRendersBothSections(t *testing.T) {
 		}
 	}
 	// Logits section: the entry with its size, chunks, and delete form.
-	if !strings.Contains(out, "u--M-GGUF (Q8_0)") {
+	// The label restores the "/" that SafeModelID turned into "--", so
+	// the row reads as the repo path it is.
+	if !strings.Contains(out, "u/M-GGUF (Q8_0)") {
 		t.Errorf("the logits row is missing\n%s", out)
 	}
 	if !strings.Contains(out, "100 chunks") {
@@ -429,10 +433,10 @@ func TestEvalDataCardRendersBothSections(t *testing.T) {
 	if !strings.Contains(out, `hx-post="/api/benchmarks/eval-data/delete-logits"`) {
 		t.Error("the per-row delete form is missing")
 	}
-	for _, f := range []string{"name=\"model_id\"", "name=\"quant\"", "name=\"dataset\"", "name=\"chunks\"", "name=\"ctx\""} {
-		if !strings.Contains(out, f) {
-			t.Errorf("the delete form is missing the cache key field %s", f)
-		}
+	// The delete form names the file on disk; the handler re-validates
+	// it rather than trusting it as a path.
+	if !strings.Contains(out, `name="filename" value="`+key.Filename()+`"`) {
+		t.Errorf("the delete form does not carry the row's filename\n%s", out)
 	}
 	// The regenerate-automatically note is present (deleting is safe).
 	if !strings.Contains(out, "regenerate") {
@@ -456,7 +460,7 @@ func TestEvalDataDeleteLogitsRemovesEntry(t *testing.T) {
 
 	s := benchListServer(t)
 	s.cfg = &config.Config{DataDir: dir}
-	form := "model_id=u--M-GGUF&quant=Q8_0&dataset=wikitext-2&chunks=100&ctx=512"
+	form := "filename=" + url.QueryEscape(key.Filename())
 	req := httptest.NewRequest("POST", "/api/benchmarks/eval-data/delete-logits", strings.NewReader(form))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("HX-Request", "true")
@@ -473,7 +477,7 @@ func TestEvalDataDeleteLogitsRemovesEntry(t *testing.T) {
 	if !strings.Contains(out, "No cached reference logits yet") {
 		t.Errorf("the refreshed card is missing the empty-state message\n%s", out)
 	}
-	if i := strings.Index(out, "u--M-GGUF (Q8_0)"); i != -1 {
+	if i := strings.Index(out, "u/M-GGUF (Q8_0)"); i != -1 {
 		t.Errorf("the deleted entry is still in the refreshed card; context: %q", out[max(0, i-200):i+80])
 	}
 }
@@ -489,7 +493,7 @@ func TestEvalDataDeleteRefusedWhileJobBusy(t *testing.T) {
 	s.env.mu.Unlock()
 
 	req := httptest.NewRequest("POST", "/api/benchmarks/eval-data/delete-logits",
-		strings.NewReader("model_id=x&quant=Q&dataset=d&chunks=1&ctx=1"))
+		strings.NewReader("filename=x~Q~d~c1~ctx1~fnone.kld"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	s.handleDeleteKLLogits(rec, req)
@@ -615,4 +619,200 @@ func columnIndexErr(header []string, name string) (int, error) {
 		}
 	}
 	return -1, fmt.Errorf("column %q not in header", name)
+}
+
+// countCells returns the number of <th> in the table head and the
+// number of <td> in the first data row of the rendered list, ignoring
+// the full-width detail row that follows each one.
+func countCells(t *testing.T, out string) (headers, cells int) {
+	t.Helper()
+	head := out[strings.Index(out, "<thead>"):strings.Index(out, "</thead>")]
+	// "<th>" and "<th ..." only — a bare "<th" prefix count would also
+	// match the enclosing "<thead>".
+	headers = strings.Count(head, "<th>") + strings.Count(head, "<th ")
+
+	i := strings.Index(out, `class="bench-row-group"`)
+	if i < 0 {
+		t.Fatalf("no data row in the rendered list\n%s", out)
+	}
+	row := out[i:]
+	row = row[:strings.Index(row, "</tr>")]
+	cells = strings.Count(row, "<td")
+	return headers, cells
+}
+
+// A table whose rows carry more cells than its head carries headers
+// silently shifts every column after the extra one. The Score cell is
+// conditional on the same fact as the Score header, and this checks
+// they agree — in BOTH directions, since the performance-only list is
+// the common case and the one that regressed.
+func TestBenchListColumnCountsMatch(t *testing.T) {
+	s := benchListServer(t)
+
+	rec := httptest.NewRecorder()
+	s.renderBenchmarkList(rec, []benchmark.BenchmarkRun{perfRun("r1"), perfRun("r2")})
+	headers, cells := countCells(t, rec.Body.String())
+	if headers != cells {
+		t.Errorf("performance-only list: %d headers but %d cells per row — every column after the mismatch is shifted", headers, cells)
+	}
+
+	rec = httptest.NewRecorder()
+	s.renderBenchmarkList(rec, []benchmark.BenchmarkRun{perfRun("r1"), evalRun("r2")})
+	headersEval, cellsEval := countCells(t, rec.Body.String())
+	if headersEval != cellsEval {
+		t.Errorf("mixed list: %d headers but %d cells per row", headersEval, cellsEval)
+	}
+	if headersEval != headers+1 {
+		t.Errorf("the Score column should add exactly one column: %d vs %d", headersEval, headers)
+	}
+}
+
+// The KL score names the reference the way a person reads it, not by
+// registry ID — "(vs unsloth--Qwen3.5-9B-MTP-GGUF--Qwen3.5-9B-IQ4_NL)"
+// is not a thing to put in a table cell. Runs stored before the label
+// existed fall back to the ID rather than losing the reference.
+func TestEvalScoreTextUsesReferenceLabel(t *testing.T) {
+	withLabel := &benchmark.EvalScores{
+		Mode: "kl-divergence", KLMean: 0.0123, KLMeanErr: 0.0004, SameTopPct: 97.4,
+		Reference:      "unsloth--Qwen3.5-9B-MTP-GGUF--Qwen3.5-9B-IQ4_NL",
+		ReferenceLabel: "Qwen3.5-9B (IQ4_NL)",
+	}
+	got := evalScoreText(withLabel)
+	if !strings.Contains(got, "(vs Qwen3.5-9B (IQ4_NL))") {
+		t.Errorf("score text does not use the label: %q", got)
+	}
+	if strings.Contains(got, "unsloth--") {
+		t.Errorf("score text leaked the registry ID: %q", got)
+	}
+
+	legacy := &benchmark.EvalScores{Mode: "kl-divergence", KLMean: 0.0123, Reference: "old-id"}
+	if got := evalScoreText(legacy); !strings.Contains(got, "(vs old-id)") {
+		t.Errorf("a run without a label lost its reference: %q", got)
+	}
+}
+
+// The score sort is a rank, not a raw value: one ascending sort has to
+// put the best result first for every mode at once, and accuracy runs
+// the other way from perplexity and KLD.
+func TestEvalScoreValueRanksBestFirst(t *testing.T) {
+	betterPPL := &benchmark.EvalScores{Mode: "perplexity", Perplexity: 6.1}
+	worsePPL := &benchmark.EvalScores{Mode: "perplexity", Perplexity: 9.4}
+	if evalScoreValue(betterPPL) >= evalScoreValue(worsePPL) {
+		t.Error("lower perplexity must rank first")
+	}
+
+	betterAcc := &benchmark.EvalScores{Mode: "hellaswag", Accuracy: 79.0}
+	worseAcc := &benchmark.EvalScores{Mode: "hellaswag", Accuracy: 71.5}
+	if evalScoreValue(betterAcc) >= evalScoreValue(worseAcc) {
+		t.Error("higher accuracy must rank first")
+	}
+
+	// A performance run has no score and belongs at the end, not at the
+	// top on a zero.
+	if evalScoreValue(nil) <= evalScoreValue(worsePPL) {
+		t.Error("a run with no score must sort after every scored run")
+	}
+	// The rank is rendered into an attribute and read back with
+	// parseFloat, which cannot handle "+Inf".
+	if math.IsInf(evalScoreValue(nil), 0) || math.IsNaN(evalScoreValue(nil)) {
+		t.Error("the no-score rank must be finite")
+	}
+}
+
+// Every capability preset's mode must carry interpretation guidance. A
+// score with no explanation is the thing this table exists to prevent,
+// so a new mode arriving without an entry has to fail here rather than
+// ship as a bare number.
+func TestEveryCapabilityModeHasGuidance(t *testing.T) {
+	for _, p := range benchmark.Presets() {
+		if p.EffectiveSource() != benchmark.PresetSourceCapability {
+			continue
+		}
+		d, ok := evalDocForPreset(p)
+		if !ok {
+			t.Errorf("preset %s (mode %s) has no interpretation guidance", p.Name, p.EvalMode)
+			continue
+		}
+		if d.Headline == "" {
+			t.Errorf("%s: no headline", p.EvalMode)
+		}
+		if len(d.Reading) == 0 {
+			t.Errorf("%s: no reading rules", p.EvalMode)
+		}
+		// "Is 8.043 good?" is the question a reader actually arrives
+		// with, and only a scale of worked examples answers it.
+		if len(d.Examples) < 3 {
+			t.Errorf("%s: %d worked examples — too few to show a reader where their score sits",
+				p.EvalMode, len(d.Examples))
+		}
+		for _, ex := range d.Examples {
+			if ex.Value == "" || ex.Verdict == "" || ex.Meaning == "" {
+				t.Errorf("%s: incomplete example %+v", p.EvalMode, ex)
+			}
+		}
+		if len(d.Links) == 0 {
+			t.Errorf("%s: no sources to read further", p.EvalMode)
+		}
+		for _, l := range d.Links {
+			if !strings.HasPrefix(l.URL, "https://") {
+				t.Errorf("%s: link %q is not an https URL", p.EvalMode, l.URL)
+			}
+			if l.Label == "" || l.Note == "" {
+				// The note is what stops the shared llama.cpp page from
+				// looking like the wrong link under a KL score.
+				t.Errorf("%s: link %s has no label or no note saying why to open it", p.EvalMode, l.URL)
+			}
+		}
+	}
+}
+
+// The run detail view is where someone goes to find out what their
+// score means, so the guidance and its authoritative link render there
+// with the number — not only in the help page.
+func TestBenchmarkDetailRendersScoreGuidance(t *testing.T) {
+	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
+		"templates/layout.html", "templates/partials/*.html")
+	if err != nil {
+		t.Fatalf("parse templates: %v", err)
+	}
+
+	var buf bytes.Buffer
+	evRun := evalRun("r1")
+	if err := base.ExecuteTemplate(&buf, "benchmark_detail", &evRun); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	out := buf.String()
+
+	doc, _ := evalDocFor("perplexity")
+	// The one-line "what this measures" is a tooltip, per the project's
+	// convention that explanatory text does not sit as static prose.
+	if !strings.Contains(out, `title="`+doc.Headline+`"`) {
+		t.Errorf("the headline explaining the number is missing\n%s", out)
+	}
+	for _, l := range doc.Links {
+		if !strings.Contains(out, l.URL) {
+			t.Errorf("the %s link is missing\n%s", l.Label, out)
+		}
+	}
+	if !strings.Contains(out, "How to read this score") {
+		t.Error("the reading rules are missing")
+	}
+	// The reader has to know what a good value looks like, not just
+	// which direction is better.
+	if !strings.Contains(out, "Is my score good?") {
+		t.Error("the good-versus-bad table is missing")
+	}
+	if !strings.Contains(out, "Broken") {
+		t.Error("the examples table did not render its rows")
+	}
+
+	// A performance run has no score to explain.
+	buf.Reset()
+	pr := perfRun("r2")
+	if err := base.ExecuteTemplate(&buf, "benchmark_detail", &pr); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if strings.Contains(buf.String(), "How to read this score") {
+		t.Error("a performance run must not show score guidance")
+	}
 }

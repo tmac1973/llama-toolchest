@@ -145,10 +145,10 @@ type ModelInfo struct {
 	HFRepoID    string // model.ModelID — passed to llama-benchy --tokenizer
 	Quant       string
 	SizeGiB     float64
-	SizeBytes   int64 // kept alongside the display-oriented SizeGiB
-	FilePath    string // path to the GGUF on disk
-	DisplayName string // short, human-readable name for the run
-	RouterName  string // identifier the router responds to
+	SizeBytes   int64          // kept alongside the display-oriented SizeGiB
+	FilePath    string         // path to the GGUF on disk
+	DisplayName string         // short, human-readable name for the run
+	RouterName  string         // identifier the router responds to
 	Config      ConfigSnapshot // saved baseline; ConfigOverrides overlay on this
 }
 
@@ -541,8 +541,10 @@ func (q *JobQueue) runCapabilityCell(ctx context.Context, job *BenchmarkJob, cel
 	// The recorded config and the flags that ran share this one source:
 	// the same snapshot goes on the run and into EvalFlags, which is
 	// what makes a swept gpu_assign measurably reach llama-perplexity —
-	// the config-fidelity criterion.
-	cfg := applyOverrides(modelInfo.Config, cellOv)
+	// the config-fidelity criterion. EvalConfigSnapshot, not
+	// applyOverrides: an evaluation defaults to an f16 KV cache so its
+	// score is comparable, unless the job asked for a specific one.
+	cfg := EvalConfigSnapshot(modelInfo.Config, cellOv)
 
 	run := BenchmarkRun{
 		ID:           newRunID(cell.Attempt),
@@ -599,7 +601,7 @@ func (q *JobQueue) runCapabilityCell(ctx context.Context, job *BenchmarkJob, cel
 	// c. KL only: resolve the reference (the job's override when set,
 	// else the largest installed quant of the model's own repo) and make
 	// sure its cached logits exist.
-	var klBasePath, referenceIdentity string
+	var klBasePath, referenceIdentity, referenceLabel string
 	if preset.EvalMode == evaluate.ModeKLDiv {
 		ref, err := q.env.ResolveKLReference(cell.ModelID, job.KLReference)
 		if err != nil {
@@ -630,6 +632,13 @@ func (q *JobQueue) runCapabilityCell(ctx context.Context, job *BenchmarkJob, cel
 			return nil
 		}
 		referenceIdentity = ref.ID
+		// The ID is the stable identity; the label is what the score
+		// cell reads out. Without it every KL result renders as
+		// "(vs unsloth--Qwen3.5-9B-MTP-GGUF--Qwen3.5-9B-IQ4_NL)".
+		referenceLabel = ref.DisplayName
+		if ref.Quant != "" {
+			referenceLabel += " (" + ref.Quant + ")"
+		}
 		// Generation runs with the reference model loaded (the router is
 		// already stopped — the d ordering above). Its progress lands on
 		// the stored run's ProgressDetail through the store, the same
@@ -652,6 +661,7 @@ func (q *JobQueue) runCapabilityCell(ctx context.Context, job *BenchmarkJob, cel
 
 	// f. Run the evaluation and land the parsed scores on the run.
 	// Timings fields stay zero; the detail view renders them as absent.
+	evalStart := time.Now()
 	spec := evaluate.Spec{
 		Binary:      binary,
 		ModelPath:   modelInfo.FilePath,
@@ -669,28 +679,20 @@ func (q *JobQueue) runCapabilityCell(ctx context.Context, job *BenchmarkJob, cel
 		return fail("%s: %v", preset.EvalMode, err)
 	}
 
-	scores := &EvalScores{
-		Mode:           result.Mode,
-		Dataset:        result.Dataset,
-		ContextSize:    result.ContextSize,
-		Chunks:         result.Chunks,
-		Perplexity:     result.Perplexity,
-		PerplexityErr:  result.PerplexityErr,
-		Accuracy:       result.Accuracy,
-		AccuracyCILow:  result.AccuracyCILow,
-		AccuracyCIHigh: result.AccuracyCIHigh,
-		Tasks:          result.Tasks,
-		KLMean:         result.KLMean,
-		KLMeanErr:      result.KLMeanErr,
-		KLMax:          result.KLMax,
-		KLP999:         result.KLP999,
-		SameTopPct:     result.SameTopPct,
-		SameTopPctErr:  result.SameTopPctErr,
-		Reference:      referenceIdentity,
-	}
-	run.Eval = scores
+	// EvalScores is an alias for evaluate.Result, so the engine's output
+	// IS the stored value — no field-by-field copy to fall out of step
+	// with the schema. Only the reference identity is the runner's to
+	// add.
+	result.Reference = referenceIdentity
+	result.ReferenceLabel = referenceLabel
+	run.Eval = &result
 	run.Status = StatusCompleted
-	run.DurationMs = time.Since(run.CreatedAt).Milliseconds()
+	// From when the EVALUATION started, not from when the cell's run
+	// record was created: dataset download and reference-logits
+	// generation happen in between and can take longer than the
+	// evaluation itself, which would make the recorded duration a
+	// measure of the prep rather than the work.
+	run.DurationMs = time.Since(evalStart).Milliseconds()
 	run.ProgressDetail = ""
 	q.store.Save(run)
 	return nil
@@ -717,6 +719,34 @@ func samplingFromOverrides(o *ConfigOverrides) SamplingParams {
 
 // applyOverrides returns base with non-nil ConfigOverrides fields
 // applied on top. A nil overrides argument returns base unchanged.
+// EvalConfigSnapshot returns the config a CAPABILITY cell runs at:
+// applyOverrides, then the KV cache type reset to the default f16
+// unless the job asked for a specific one.
+//
+// A quantized KV cache changes the answer, not the speed. Inheriting a
+// model's saved kv_cache_quant would mean every perplexity figure this
+// tool produces was measured through whatever cache type the user
+// happened to pick for chat — and those numbers are presented, in the
+// preset descriptions and the help page, as comparable to llama.cpp's
+// published wikitext-2 figures, which are not. So the evaluation
+// default is f16 and the measurement is comparable.
+//
+// Sweeping or fixing kv_cache_quant still works and still reaches the
+// command line: an explicit override is the user asking to measure that
+// cache type's quality cost, which is a good question. The rule is only
+// that they have to ask.
+//
+// The returned snapshot is what the run RECORDS as well as what runs,
+// so the detail view's KV Quant column shows the cache the score was
+// actually measured through.
+func EvalConfigSnapshot(base ConfigSnapshot, overrides *ConfigOverrides) ConfigSnapshot {
+	cfg := applyOverrides(base, overrides)
+	if overrides == nil || overrides.KVCacheQuant == nil {
+		cfg.KVCacheQuant = ""
+	}
+	return cfg
+}
+
 func applyOverrides(base ConfigSnapshot, overrides *ConfigOverrides) ConfigSnapshot {
 	if overrides == nil {
 		return base
@@ -802,6 +832,13 @@ func ExpandCells(modelIDs, buildIDs, presets []string) []JobCell {
 // runs is the mislabeled-results failure this package guards against
 // elsewhere. Performance presets keep the full fan-out from the same
 // job.
+//
+// Capability cells are also GROUPED LAST within each (build, model),
+// for the same restart-cost reason the rest of the ordering exists: a
+// capability cell stops the router and a performance cell needs it up,
+// so interleaving them pays a full stop-load-health-wait cycle at every
+// switch. Emitting them in two runs means a mixed job crosses that line
+// once per model instead of once per sweep combination.
 func ExpandCellsWithSweeps(modelIDs, buildIDs, presets []string, sweeps []SweepAxis) []JobCell {
 	combos := sweepCombinations(sweeps)
 	cells := make([]JobCell, 0, len(buildIDs)*len(modelIDs)*len(combos)*len(presets))
@@ -812,6 +849,7 @@ func ExpandCellsWithSweeps(modelIDs, buildIDs, presets []string, sweeps []SweepA
 			// eval-reaching configuration wins, later combos collapse
 			// onto it.
 			emitted := map[string]bool{}
+			var capabilityCells []JobCell
 			for _, combo := range combos {
 				for _, p := range presets {
 					cell := JobCell{
@@ -838,6 +876,10 @@ func ExpandCellsWithSweeps(modelIDs, buildIDs, presets []string, sweeps []SweepA
 								cell.SweepValues[k] = v
 							}
 						}
+						// Held back to the end of this (build, model) group
+						// so the router boundary is crossed once.
+						capabilityCells = append(capabilityCells, cell)
+						continue
 					} else if len(combo) > 0 {
 						// Copy: every cell owns its own map.
 						cell.SweepValues = make(map[string]string, len(combo))
@@ -848,6 +890,7 @@ func ExpandCellsWithSweeps(modelIDs, buildIDs, presets []string, sweeps []SweepA
 					cells = append(cells, cell)
 				}
 			}
+			cells = append(cells, capabilityCells...)
 		}
 	}
 	return cells

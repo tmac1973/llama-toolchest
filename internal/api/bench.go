@@ -200,14 +200,21 @@ func (s *Server) renderBenchmarkList(w http.ResponseWriter, runs []benchmark.Ben
 				buildCell = "<small>" + html.EscapeString(run.BuildRef) + "</small>"
 			}
 
-			scoreCell := "—"
-			if run.Eval != nil {
-				if e := evalScoreText(run.Eval); e != "" {
-					scoreCell = e
-				} else {
-					scoreCell = "score unavailable"
+			// The Score CELL is as conditional as its header: emitting
+			// it unconditionally would put 11 cells under 10 headers in
+			// a performance-only list and shift every column after
+			// TTFT.
+			scoreCell := ""
+			if hasEval {
+				scoreCell = "<td>—</td>"
+				if run.Eval != nil {
+					text := evalScoreText(run.Eval)
+					if text == "" {
+						text = "score unavailable"
+					}
+					scoreCell = "<td>" + text + "</td>"
+					pp, tg, ttft = "—", "—", "—"
 				}
-				pp, tg, ttft = "—", "—", "—"
 			}
 
 			fmt.Fprintf(w, `<tbody class="bench-row-group" data-model="%s" data-search="%s" style="display:none;">
@@ -218,7 +225,7 @@ func (s *Server) renderBenchmarkList(w http.ResponseWriter, runs []benchmark.Ben
 					<td>%s</td>
 					<td>%s</td>
 					<td>%s</td>
-					<td>%s</td>
+					%s
 					<td>%s</td>
 					<td><small>%s</small></td>
 					<td><small>%s</small></td>

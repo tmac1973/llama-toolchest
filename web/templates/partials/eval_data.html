@@ -70,11 +70,7 @@
                               hx-swap="outerHTML"
                               hx-include="this"
                               hx-confirm="Delete the cached logits for {{.ModelLabel}} ({{.Quant}})? The next KL job will regenerate it.">
-                            <input type="hidden" name="model_id" value="{{.ModelID}}">
-                            <input type="hidden" name="quant" value="{{.Quant}}">
-                            <input type="hidden" name="dataset" value="{{.Dataset}}">
-                            <input type="hidden" name="chunks" value="{{.Chunks}}">
-                            <input type="hidden" name="ctx" value="{{.Ctx}}">
+                            <input type="hidden" name="filename" value="{{.Filename}}">
                             <button type="submit" class="outline secondary" style="margin:0;padding:0.2rem 0.5rem;font-size:0.8rem;width:auto;">Delete</button>
                         </form>
                     </td>

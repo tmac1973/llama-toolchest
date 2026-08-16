@@ -274,20 +274,80 @@
     </ul>
 
     <h3>Capability benchmarks</h3>
-    <p>Capability presets (<code>perplexity-*</code>, <code>kl-divergence-*</code>, <code>hellaswag-*</code>, <code>winogrande-*</code>) measure what a model <em>can do</em>, not how fast. They run <code>llama-perplexity</code> directly against the model file, so the inference server is <strong>offline while a capability cell runs</strong> — the job runner stops it before the cell and restores it afterward (on success, failure, and cancel alike). A job can mix capability and performance presets; each cell shows its own kind of number in the results table, and a KL-divergence cell that <em>is</em> the reference model skips with an explanatory note instead of running an evaluation whose answer is known.</p>
+    <p>Speed benchmarks ask <em>how fast</em>. Capability benchmarks ask <em>how good</em>. Each one gives the model a fixed set of questions, or a fixed piece of writing, and scores what it does with them — so you can tell whether a smaller model file, or a different model altogether, is worth using.</p>
+    <p>These tests load the model directly instead of going through the chat server, so <strong>the inference server is switched off while one runs</strong> and switched back on afterwards, whether the job finishes, fails, or you cancel it. A job can mix them with speed benchmarks.</p>
+
+    <table role="grid" style="font-size:0.9rem;">
+        <thead>
+            <tr>
+                <th style="width:9rem;">Test</th>
+                <th>The question it asks</th>
+                <th>Reach for it when…</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>perplexity</strong></td>
+                <td>How well does this model predict ordinary written English?</td>
+                <td>You want a quick health check on a model file, or to watch one model as you change its settings.</td>
+            </tr>
+            <tr>
+                <td><strong>kl-divergence</strong></td>
+                <td>How much did shrinking this model change the way it behaves?</td>
+                <td>You are choosing between smaller and larger copies of the <em>same</em> model — Q4, Q5, Q8 and so on.</td>
+            </tr>
+            <tr>
+                <td><strong>hellaswag</strong></td>
+                <td>Does the model have everyday common sense?</td>
+                <td>You are comparing <em>different</em> models against each other.</td>
+            </tr>
+            <tr>
+                <td><strong>winogrande</strong></td>
+                <td>Does the model work out what words like "it" and "they" refer to?</td>
+                <td>The same, as a second opinion alongside HellaSwag.</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h4>What each one does</h4>
     <dl>
         <dt>perplexity-quick / perplexity-full</dt>
-        <dd>Perplexity over the wikitext-2 test set — lower is better. Quick covers 100 chunks (~2–5 min/model); full covers all ~650 chunks (~15–40 min/model) and is the number comparable to llama.cpp's published figures. Both run at the fixed 512-token context, which is what makes the two comparable to each other and to published numbers.</dd>
+        <dd>The model reads passages of Wikipedia articles, and at every word we record how surprised it was to see that word. A lower score means it predicted better. Use it to confirm a model file is sound, or to see whether a setting you changed cost you anything. One catch: a perplexity score only means something next to another score <em>from the same model</em>. Different models cut text into pieces in different ways, so their scores are not on the same scale and cannot be compared.
+            <br><small>Quick reads 100 passages (2–5 minutes per model). Full reads all ~650 (15–40 minutes) and is the version worth writing down. <a href="https://github.com/ggml-org/llama.cpp/blob/master/tools/perplexity/README.md" target="_blank" rel="noopener">How to read a perplexity score</a>.</small></dd>
+
         <dt>kl-divergence-quick / kl-divergence-full</dt>
-        <dd>How far this model's token probabilities deviate from a <strong>reference model</strong>'s — 0 means identical, lower is better. Quick covers 100 chunks; full covers all ~650 chunks, and its reference base file is tens of GiB for large-vocabulary models (a disk-space check runs before it is generated). The reference defaults to the largest installed quant of each model's own HuggingFace repo (the job form's KL reference dropdown picks otherwise). The reference's logits are generated once as a visible job step and then cached in the data directory (the Evaluation Data card on this tab shows them, with their disk cost, and a per-file delete); deleting a cache entry only means the next KL job regenerates it.</dd>
+        <dd>Runs the same Wikipedia text through two copies of one model — the one you are testing, and a larger copy used as the yardstick — and measures how far apart their guesses are. 0 means the two behave identically. This is the most sensitive way to answer "is the smaller file good enough?", because it compares the two at every single word instead of boiling everything down to one number. It needs two versions of the same model installed; by default the largest one you have is the yardstick, and the job form lets you pick a different one. That yardstick has to be measured once first, which produces a large file — tens of gigabytes for models with big vocabularies — that is then kept and reused. The Evaluation Data card lower down this tab shows it and lets you delete it.
+            <br><small>Quick reads 100 passages (2–5 minutes per model); full reads all ~650 (15–40 minutes). <a href="https://smcleod.net/2026/04/measuring-model-quantisation-quality-with-kl-divergence/" target="_blank" rel="noopener">A plain-language walkthrough of the numbers</a>, and <a href="https://github.com/ggml-org/llama.cpp/blob/master/tools/perplexity/README.md" target="_blank" rel="noopener">the llama.cpp measurement guide</a> (it covers perplexity and KL divergence together, because llama.cpp measures both with the same program).</small></dd>
+
         <dt>hellaswag-quick / hellaswag-full</dt>
-        <dd>Commonsense accuracy — the percentage of candidate sentence endings the model ranks first. Quick scores 400 tasks (~1–5 min/model); full scores the entire ~10K-task validation set (~1–3 h/model), the publishable number. The result carries the tool's 95% confidence interval and the task count.</dd>
+        <dd>The model reads the start of a sentence and picks which of four endings makes sense. The score is the percentage it got right. Because it simply counts correct answers, this score <em>can</em> be compared between completely different models — unlike perplexity. Guessing scores about 25%; people score about 95.6%.
+            <br><small>Quick asks 400 questions (1–5 minutes per model). Full asks all ~10,000 (1–3 hours). <a href="https://rowanzellers.com/hellaswag/" target="_blank" rel="noopener">About the HellaSwag test</a>.</small></dd>
+
         <dt>winogrande-quick / winogrande-full</dt>
-        <dd>Pronoun-resolution accuracy — the percentage of sentences completed with the correct referent. Quick scores 400 tasks (~1–3 min/model); full scores the entire ~1.2K-task debiased set (~5–15 min/model), the publishable number.</dd>
+        <dd>Each question is a sentence containing a word like "it" or "they" plus two things it might refer to, and the model picks one. The score is the percentage it got right, and it is comparable between different models too. Guessing scores about 50% — so the useful range runs from 50% to 100%, not from 0% — and people score about 94%.
+            <br><small>Quick asks 400 questions (1–3 minutes per model). Full asks all ~1,200 (5–15 minutes). <a href="https://arxiv.org/abs/1907.10641" target="_blank" rel="noopener">About the WinoGrande test</a>.</small></dd>
     </dl>
-    <p><strong>Quick vs. full:</strong> quick variants are sized for sweeps — cheap enough to repeat across quants, builds, or settings while still resolving real differences. Full variants are the numbers you quote: larger sample, the same fixed 512-token context, and comparable to externally published figures.</p>
-    <p><strong>Datasets:</strong> the evaluations run over three pinned, redistributable datasets, downloaded on first use (a few MB total) and verified against a pinned SHA-256: <strong>wikitext-2</strong> (test split; license CC BY-SA 3.0; used by perplexity and KL-divergence), <strong>hellaswag</strong> (validation set; license MIT), and <strong>winogrande</strong> (debiased eval set; license Apache-2.0). The Evaluation Data card shows each one's state and size.</p>
-    <p><strong>Sampling parameters do not affect these scores.</strong> Every evaluation is a deterministic log-likelihood measurement over a fixed corpus — temperature, top-p, and the rest have no role in it, so a capability cell records the load-time configuration but ignores the sampling settings. A job may still sweep those parameters for its performance presets; the capability cells simply collapse to one per distinct load-time configuration rather than fanning out over values that cannot change the answer.</p>
+
+    <h4>Which one should I run?</h4>
+    <ul>
+        <li><strong>Deciding which size of a model file to keep</strong> — <code>kl-divergence-quick</code>. Download two sizes of the same model, run it, and the number tells you directly how much the smaller one changed.</li>
+        <li><strong>Comparing two different models</strong> — <code>hellaswag-quick</code>, plus <code>winogrande-quick</code> for a second opinion. Do not use perplexity for this; it cannot compare different models.</li>
+        <li><strong>Checking a model file you just downloaded</strong> — <code>perplexity-quick</code>. A wildly high number means the file or the settings are wrong, not that the model is poor.</li>
+        <li><strong>Producing a number to publish or keep on record</strong> — the <code>-full</code> version of whichever test. It takes far longer but has a much smaller margin of error.</li>
+    </ul>
+
+    <h4>Reading the result</h4>
+    <p>Open a finished capability run in the results list and expand <strong>How to read this score</strong>. It explains what the number measures, shows a table of good and bad values so you can place your own, and links to fuller descriptions.</p>
+    <p>Two things catch people out everywhere. The number after <strong>±</strong> is the margin of error, not a range of acceptable values: if two results' ranges overlap, the test has not found a real difference between them. And a short run has a wide margin — often wider than the gap between two sizes of the same model file, which is exactly why KL divergence exists.</p>
+
+    <h4>Details worth knowing</h4>
+    <ul>
+        <li><strong>Creativity settings make no difference here.</strong> Temperature, top-p and the rest change how a model chooses between its options while writing. These tests never let it write — they read off how likely it thought each option was — so those settings cannot change the result and are ignored.</li>
+        <li><strong>Memory settings are pinned.</strong> These tests always keep the model's short-term memory of what it has just read (the KV cache) at full precision, even if you normally compress it to save space. Compressing it changes the answers rather than the speed, so leaving it as you had it would make every score depend on a chat setting. If you want to measure what that compression costs in quality, set <code>kv_cache_quant</code> in the job and it will be used.</li>
+        <li><strong>Every test reads the same amount at a time</strong> — a fixed window of 512 tokens, which is roughly 350–400 words of English. That is what makes a quick run and a full run of the same test comparable, and what makes your numbers comparable to figures published elsewhere.</li>
+        <li><strong>The test material downloads itself</strong> the first time you run one — a few megabytes in total — and is checked against a known fingerprint, so a damaged download cannot quietly change your scores. The three sets are wikitext-2 (Wikipedia articles, CC BY-SA 3.0), HellaSwag (MIT) and WinoGrande (Apache-2.0). The Evaluation Data card shows each one and its state.</li>
+        <li><strong>A model is never compared against itself.</strong> If a KL-divergence test would end up doing that, it is skipped with a note explaining why, rather than spending an hour to produce a 0.</li>
+    </ul>
 
     <h3>Actions</h3>
     <ul>

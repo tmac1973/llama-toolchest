@@ -95,7 +95,7 @@ func TestParsePerplexity(t *testing.T) {
 		t.Errorf("ContextSize = %d, want %d", res.ContextSize, EvalContextSize)
 	}
 	if res.Chunks != 100 {
-		t.Errorf("Chunks = %d, want 100 (copied from Spec.Chunks)", res.Chunks)
+		t.Errorf("Chunks = %d, want 100 (the count the output announces)", res.Chunks)
 	}
 	if res.Perplexity != 9.0123 {
 		t.Errorf("Perplexity = %v, want 9.0123", res.Perplexity)
@@ -267,4 +267,121 @@ func TestParseRejectsChangedPrecision(t *testing.T) {
 	assertParseErrorNames(t, Spec{Mode: ModeWinogrande},
 		"Final Winogrande score(400 tasks): 74.25 +/- 2.12\n",
 		"Final Winogrande score", "Winogrande line at 2-decimal precision")
+}
+
+// The real combined output llama.cpp produces today: common_init turns
+// the log prefix and timestamps on (common/common.cpp:391-392), so
+// every LOG_INF line arrives as "<M>.<SS>.<mmm>.<uuu> I <message>".
+// This block is a verbatim transcript of a two-chunk perplexity run
+// against a b10453 build — the case that made the parser fail in
+// production while the unprefixed canned outputs above kept passing.
+const perplexityPrefixedOutput = `0.00.791.925 I cmn          init: llama threadpool init, n_threads = 8
+0.00.845.476 I perplexity: tokenizing the input ..
+0.01.098.465 I perplexity: tokenization took 252.982 ms
+0.01.098.549 I perplexity: calculating perplexity over 2 chunks, n_ctx=512, batch_size=2048, n_seq=4
+0.01.589.966 I perplexity: 0.49 seconds per pass - ETA 0.00 minutes
+[1]5.5163,[2]7.5947,
+0.01.616.563 I Final estimate: PPL = 7.5947 +/- 0.93274
+`
+
+// The Winogrande final score is LOG_INF too (perplexity.cpp:1300), so
+// it carries the same prefix. Its per-task lines are plain LOG and do
+// not. A long run pushes the minute field past two digits, which the
+// prefix pattern must still accept.
+const winograndePrefixedOutput = `1	50.0000	 0.123456  0.123456  0  1
+400	74.2500	 0.123456  0.123456  1  0
+143.07.221.884 I Final Winogrande score(400 tasks): 74.2500 +/- 2.1234
+`
+
+func TestParsePerplexityWithLogPrefix(t *testing.T) {
+	res, err := parse(Spec{Mode: ModePerplexity, Chunks: 100}, perplexityPrefixedOutput)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if res.Perplexity != 7.5947 {
+		t.Errorf("Perplexity = %v, want 7.5947", res.Perplexity)
+	}
+	if res.PerplexityErr != 0.93274 {
+		t.Errorf("PerplexityErr = %v, want 0.93274", res.PerplexityErr)
+	}
+	// The header line is prefixed too, so the chunk count only parses
+	// if the prefix is stripped there as well.
+	if res.Chunks != 2 {
+		t.Errorf("Chunks = %d, want 2 (the count the tool announced, not the requested cap)", res.Chunks)
+	}
+}
+
+func TestParseWinograndeWithLogPrefix(t *testing.T) {
+	res, err := parse(Spec{Mode: ModeWinogrande, Tasks: 400}, winograndePrefixedOutput)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if res.Accuracy != 74.25 || res.Tasks != 400 {
+		t.Errorf("Accuracy/Tasks = %v/%d, want 74.25/400", res.Accuracy, res.Tasks)
+	}
+}
+
+// Colour escapes appear when the tool writes to a terminal
+// (--log-colors auto). The capture path is a pipe so they normally do
+// not, but the parser must not depend on that.
+func TestParseTolerateColourEscapes(t *testing.T) {
+	line := "\x1b[34m0.01.616.563\x1b[0m \x1b[32mI \x1b[0mFinal estimate: PPL = 7.5947 +/- 0.93274\n"
+	res, err := parse(Spec{Mode: ModePerplexity, Chunks: 2}, line)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if res.Perplexity != 7.5947 {
+		t.Errorf("Perplexity = %v, want 7.5947", res.Perplexity)
+	}
+}
+
+// Unprefixed lines must survive the stripping unchanged: HellaSwag's
+// per-task lines start with a digit and the KL block lines with a word,
+// and neither may lose a character to the prefix pattern.
+func TestStripLogPrefixLeavesUnprefixedLines(t *testing.T) {
+	for _, line := range []string{
+		"400\t74.25000000%\t[70.5511%, 77.8154%]",
+		"Mean    KLD:   0.004123 ±   0.000123",
+		"Same top p:  95.123 ±  0.543 %",
+		"[1]5.5163,[2]7.5947,",
+	} {
+		if got := stripLogPrefix(line); got != line {
+			t.Errorf("stripLogPrefix(%q) = %q, want it unchanged", line, got)
+		}
+	}
+}
+
+// A run that exits 0 without a score line (too few tokens for one
+// chunk; Winogrande under 100 tasks) must surface the tool's own output
+// in the error — that text is the only thing that tells the two apart
+// from a genuine upstream format change.
+func TestParseErrorCarriesOutputTail(t *testing.T) {
+	out := `0.00.845.476 I perplexity: tokenizing the input ..
+0.01.098.465 I perplexity: you need at least 1024 tokens for a context of 512 tokens
+`
+	_, err := parse(Spec{Mode: ModePerplexity, Chunks: 100}, out)
+	if err == nil {
+		t.Fatal("expected a parse error")
+	}
+	var pe *ParseError
+	if !errors.As(err, &pe) {
+		t.Fatalf("error is not a *ParseError: %v", err)
+	}
+	if !strings.Contains(err.Error(), "you need at least 1024 tokens") {
+		t.Errorf("error does not carry the output tail: %v", err)
+	}
+}
+
+// The announced chunk count wins over the requested cap, so a full run
+// (cap 0) records the real count instead of the "full" placeholder.
+func TestParseChunksPrefersAnnouncedCount(t *testing.T) {
+	out := strings.Replace(perplexityOutput,
+		"over 100 chunks", "over 655 chunks", 1)
+	res, err := parse(Spec{Mode: ModePerplexity, Chunks: 0}, out)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if res.Chunks != 655 {
+		t.Errorf("Chunks = %d, want 655 (announced), not the requested cap", res.Chunks)
+	}
 }

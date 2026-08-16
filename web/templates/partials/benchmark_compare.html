@@ -49,7 +49,7 @@
         <button type="button" class="outline secondary active" data-sort-key="gen"    data-sort-dir="desc" onclick="sortBenchCompare(this)">Gen tok/s ▼</button>
         <button type="button" class="outline secondary" data-sort-key="prompt" data-sort-dir="desc" onclick="sortBenchCompare(this)">Prompt tok/s ▼</button>
         <button type="button" class="outline secondary" data-sort-key="ttft"   data-sort-dir="asc"  onclick="sortBenchCompare(this)">TTFT ▲</button>
-        {{if .HasEval}}<button type="button" class="outline secondary" data-sort-key="score"  data-sort-dir="asc"  onclick="sortBenchCompare(this)" title="Sort by the capability score: lower perplexity and KLD are better, higher accuracy is better — each row's own metric, no cross-metric math.">Score ▲</button>{{end}}
+        {{if .HasEval}}<button type="button" class="outline secondary" data-sort-key="score"  data-sort-dir="asc"  onclick="sortBenchCompare(this)" title="Sort by the capability score, best result first. Each row keeps its own metric — lower perplexity and KLD are better, higher accuracy is better — and the sort normalises for that rather than comparing the raw numbers across metrics. Performance runs have no score and sort to the end.">Score ▲</button>{{end}}
     </div>
 
     {{if gt .MaxGenTPS 0.0}}
@@ -157,8 +157,12 @@
             <td>—</td>
             <td>—</td>
             {{if $.HasEval}}<td><strong>{{evalScoreText $run.Eval}}</strong></td>{{end}}
-            <td>—</td>
-            <td colspan="5">—</td>
+            <td>{{printf "%.1f" $run.SizeGiB}} GiB</td>
+            {{/* GPUs, Context, Batch, KV Quant, Flash Attn, Build — six
+                 columns, which is what the header has after Size. A
+                 short span here shifts every later column. */}}
+            <td colspan="6">—</td>
+            {{if $.HasLlamaBench}}<td>—</td>{{end}}
         </tr>
         {{end}}
         {{else}}

@@ -19,10 +19,10 @@ import (
 //	HellaSwag 77.2% [75.9–78.5] (400)   the tool's asymmetric 95% CI
 //	Winogrande 74.1% ±2.2 (400)
 //
-// The chunk/task count is the REQUESTED cap from the run's EvalScores
-// (phase 01 step 6: the final-score lines carry no actual count, so 0
-// renders as "full"). The tooltip copy on each column explains the
-// metric in plain language.
+// The chunk/task count comes from the run's EvalScores: the count the
+// tool announced it would score, or the requested cap when the output
+// carried none, and "full" only when neither was known. The tooltip
+// copy on each column explains the metric in plain language.
 
 // evalScoreText renders the run's score cell. Returns "" for runs that
 // are not capability runs (the caller renders the em-dash), and a
@@ -41,8 +41,8 @@ func evalScoreText(e *benchmark.EvalScores) string {
 		if e.SameTopPct > 0 {
 			s += fmt.Sprintf(" · same top token %.1f%%", e.SameTopPct)
 		}
-		if e.Reference != "" {
-			s += " (vs " + e.Reference + ")"
+		if ref := evalReferenceText(e); ref != "" {
+			s += " (vs " + ref + ")"
 		}
 		return s
 	case string(evaluate.ModeHellaSwag):
@@ -54,12 +54,39 @@ func evalScoreText(e *benchmark.EvalScores) string {
 	}
 }
 
-// evalScoreValue returns the comparable magnitude behind evalScoreText
-// for sorting (perplexity: lower is better; everything else: higher is
-// better). Zero for non-capability runs.
+// evalNoScoreRank is the sort rank of a run with no capability score.
+// A finite sentinel, not math.Inf: the value is rendered into a
+// data-sort attribute and read back with parseFloat, which turns "+Inf"
+// into NaN and NaN comparisons into an arbitrary order.
+const evalNoScoreRank = 1e18
+
+// evalReferenceText names the KL reference the way a person reads it:
+// the label the runner recorded, falling back to the registry ID for
+// runs stored before the label existed.
+func evalReferenceText(e *benchmark.EvalScores) string {
+	if e == nil {
+		return ""
+	}
+	if e.ReferenceLabel != "" {
+		return e.ReferenceLabel
+	}
+	return e.Reference
+}
+
+// evalScoreValue returns a RANK for sorting, not the raw score: every
+// mode is normalised so that a smaller number is a better result.
+//
+// Perplexity and KL divergence are already lower-is-better and pass
+// through. Accuracy is higher-is-better, so it is inverted (100 − acc)
+// — otherwise one ascending sort would order the perplexity rows best
+// first and the HellaSwag rows worst first in the same table.
+//
+// Performance runs sort LAST rather than first: they have no score, so
+// evalNoScoreRank keeps them out of the way of the rows the button is
+// about instead of parking them all at the top on a zero.
 func evalScoreValue(e *benchmark.EvalScores) float64 {
 	if e == nil || e.Mode == "" {
-		return 0
+		return evalNoScoreRank
 	}
 	switch e.Mode {
 	case string(evaluate.ModePerplexity):
@@ -67,15 +94,15 @@ func evalScoreValue(e *benchmark.EvalScores) float64 {
 	case string(evaluate.ModeKLDiv):
 		return e.KLMean
 	default:
-		return e.Accuracy
+		return 100 - e.Accuracy
 	}
 }
 
-// evalChunkOrTaskText renders the count in parentheses: the requested
-// chunk cap (perplexity/KL) or the task count (the accuracy modes —
-// the tool reports how many tasks were scored), or "full" when the
-// cap is 0 (the plan's rendering rule — there is no actual-count
-// parsing for chunks).
+// evalChunkOrTaskText renders the count in parentheses: the chunk count
+// (perplexity/KL) or the task count (the accuracy modes), or "full"
+// when neither is recorded — which now means only that the run predates
+// chunk-count parsing, since a current run records the real count even
+// for an uncapped one.
 func evalChunkOrTaskText(e *benchmark.EvalScores, unit string) string {
 	if e.Chunks > 0 {
 		return fmt.Sprintf("%d %s", e.Chunks, unit)
@@ -135,21 +162,6 @@ func evalMeaningText(p benchmark.Preset) string {
 		return "Pronoun-resolution accuracy — the share of sentences completed with the correct referent; higher is better."
 	}
 	return "—"
-}
-
-// formatBytes is the display form of evaluate.formatBytes (byte counts
-// in binary units) for template use.
-func formatBytes(b int64) string {
-	const unit = 1024
-	if b < unit {
-		return fmt.Sprintf("%d B", b)
-	}
-	div, exp := int64(unit), 0
-	for n := b / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
 // fmtDurationSince renders a duration as a coarse relative age for the
