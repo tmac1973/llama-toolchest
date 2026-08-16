@@ -51,7 +51,6 @@
         <button type="button" class="outline secondary" data-sort-key="name"   data-sort-dir="asc"  onclick="sortBenchCompare(this)">Name</button>
         <button type="button" class="outline secondary active" data-sort-key="gen"    data-sort-dir="desc" onclick="sortBenchCompare(this)">Gen tok/s ▼</button>
         <button type="button" class="outline secondary" data-sort-key="prompt" data-sort-dir="desc" onclick="sortBenchCompare(this)">Prompt tok/s ▼</button>
-        <button type="button" class="outline secondary" data-sort-key="ttft"   data-sort-dir="asc"  onclick="sortBenchCompare(this)">TTFT ▲</button>
         {{if .HasEval}}<button type="button" class="outline secondary" data-sort-key="score"  data-sort-dir="asc"  onclick="sortBenchCompare(this)" title="Sort by the capability score, best result first. Each row keeps its own metric — lower perplexity and KLD are better, higher accuracy is better — and the sort normalises for that rather than comparing the raw numbers across metrics. Performance runs have no score and sort to the end.">Score ▲</button>{{end}}
     </div>
 
@@ -75,7 +74,6 @@
              data-sort-name="{{$lbl.Short}}"
              data-sort-gen="{{printf "%.4f" .Summary.AvgGenTokPerSec}}"
              data-sort-prompt="{{printf "%.4f" .Summary.AvgPromptTokPerSec}}"
-             data-sort-ttft="{{printf "%.4f" .Summary.AvgTTFTMs}}"
             data-sort-score="{{printf "%.4f" (evalScoreValue .Eval)}}">
             <div class="bench-compare-label" title="{{$lbl.Full}}">{{$lbl.Short}}</div>
             <div class="bench-compare-bartrack">
@@ -100,7 +98,6 @@
              data-sort-name="{{$lbl.Short}}"
              data-sort-gen="{{printf "%.4f" .Summary.AvgGenTokPerSec}}"
              data-sort-prompt="{{printf "%.4f" .Summary.AvgPromptTokPerSec}}"
-             data-sort-ttft="{{printf "%.4f" .Summary.AvgTTFTMs}}"
             data-sort-score="{{printf "%.4f" (evalScoreValue .Eval)}}">
             <div class="bench-compare-label" title="{{$lbl.Full}}">{{$lbl.Short}}</div>
             <div class="bench-compare-bartrack">
@@ -168,7 +165,6 @@
             data-sort-name="{{(index $.Labels $run.ID).Short}}"
             data-sort-gen="0.0000"
             data-sort-prompt="0.0000"
-            data-sort-ttft="0.0000"
             data-sort-score="{{printf "%.4f" (evalScoreValue $run.Eval)}}">
             <td title="{{(index $.Labels $run.ID).Full}}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help;">{{$run.ModelName}}</td>
             <td><kbd>{{$run.Quant}}</kbd></td>
@@ -195,7 +191,6 @@
             data-sort-name="{{(index $.Labels $run.ID).Short}}"
             data-sort-gen="{{printf "%.4f" $sz.TGMean}}"
             data-sort-prompt="{{printf "%.4f" $sz.PPMean}}"
-            data-sort-ttft="{{printf "%.4f" $sz.AvgTTFTMs}}"
             data-sort-score="{{printf "%.4f" (evalScoreValue $run.Eval)}}">
             <td title="{{(index $.Labels $run.ID).Full}}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help;">{{if $run.ConfigUnverified}}<span title="Config columns for this run may not reflect what actually ran — its job declared overrides before overrides were applied. Throughput is still valid." style="color:var(--pico-del-color,#b3261e);cursor:help;">&#9888;</span> {{end}}{{$run.ModelName}}</td>
             <td><kbd>{{$run.Quant}}</kbd></td>
@@ -242,7 +237,7 @@ function sortBenchCompare(btn) {
     bar.querySelectorAll('button').forEach(function(b) { b.classList.remove('active'); });
     btn.classList.add('active');
 
-    var key = btn.dataset.sortKey;     // name | gen | prompt | ttft
+    var key = btn.dataset.sortKey;     // name | gen | prompt | score
     var dir = btn.dataset.sortDir;     // asc | desc
     var attr = 'sort' + key.charAt(0).toUpperCase() + key.slice(1);
     var view = btn.closest('#comparison-view');
