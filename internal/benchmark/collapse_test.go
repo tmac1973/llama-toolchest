@@ -2,6 +2,7 @@ package benchmark
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/tmac1973/llama-toolchest/internal/evaluate"
@@ -402,5 +403,59 @@ func TestEvalConfigSnapshotDefaultsKVToF16(t *testing.T) {
 	layers := 40
 	if got := EvalConfigSnapshot(saved, &ConfigOverrides{GPULayers: &layers}); got.KVCacheQuant != "" {
 		t.Errorf("KVCacheQuant = %q after an unrelated override, want \"\"", got.KVCacheQuant)
+	}
+}
+
+// Both sides of a KL comparison have to be measured the same way, or
+// the difference is not attributable to the compression being studied.
+// A real job set kv_cache_quant=q8_0; the model under test used it and
+// the reference logits did not, so the resulting 0.0378 mixed the
+// weight compression with a memory-cache difference between the sides.
+func TestEvalReferenceConfigMatchesArithmeticSettings(t *testing.T) {
+	ref := ConfigSnapshot{
+		GPULayers: 999, Threads: 16, GPUAssign: "0,1", TensorSplit: "1,1",
+		KVCacheQuant: "", FlashAttention: false, BatchSize: 2048, UBatchSize: 512,
+	}
+	underTest := ConfigSnapshot{
+		GPULayers: 20, Threads: 4, GPUAssign: "0", TensorSplit: "1,0",
+		KVCacheQuant: "q8_0", FlashAttention: true, BatchSize: 1024, UBatchSize: 256,
+	}
+	got := EvalReferenceConfig(ref, underTest)
+
+	// Settings that change the arithmetic come from the model under test.
+	if got.KVCacheQuant != "q8_0" {
+		t.Errorf("KVCacheQuant = %q, want q8_0 — the two sides must match", got.KVCacheQuant)
+	}
+	if !got.FlashAttention {
+		t.Error("FlashAttention not taken from the model under test")
+	}
+	if got.BatchSize != 1024 || got.UBatchSize != 256 {
+		t.Errorf("batch sizes = %d/%d, want 1024/256", got.BatchSize, got.UBatchSize)
+	}
+	// Settings that decide where and how fast it runs stay with the
+	// reference, so a large reference is not pushed onto the CPU because
+	// the model under test was configured for a smaller card.
+	if got.GPULayers != 999 || got.Threads != 16 {
+		t.Errorf("gpu layers / threads = %d/%d, want the reference's 999/16", got.GPULayers, got.Threads)
+	}
+	if got.GPUAssign != "0,1" || got.TensorSplit != "1,1" {
+		t.Errorf("placement = %q/%q, want the reference's", got.GPUAssign, got.TensorSplit)
+	}
+}
+
+// A capability score measured through a compressed memory cache reads
+// exactly like a comparable one, so the run has to say it is not.
+func TestEvalComparabilityWarning(t *testing.T) {
+	if w := evalComparabilityWarning(ConfigSnapshot{}); w != "" {
+		t.Errorf("an f16 run should carry no warning, got %q", w)
+	}
+	w := evalComparabilityWarning(ConfigSnapshot{KVCacheQuant: "q8_0"})
+	if w == "" {
+		t.Fatal("a compressed KV cache produced no warning")
+	}
+	for _, want := range []string{"q8_0", "NOT comparable", "f16"} {
+		if !strings.Contains(w, want) {
+			t.Errorf("warning does not mention %q: %s", want, w)
+		}
 	}
 }

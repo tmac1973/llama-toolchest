@@ -212,6 +212,12 @@ func (s *Server) renderBenchmarkList(w http.ResponseWriter, runs []benchmark.Ben
 					if text == "" {
 						text = "score unavailable"
 					}
+					// The caveat travels with the number: a score
+					// measured through a compressed memory cache reads
+					// exactly like a comparable one otherwise.
+					if note := evalComparabilityNote(run.Config); note != "" {
+						text += ` <span title="` + html.EscapeString(note) + `" style="cursor:help;">&#9888;</span>`
+					}
 					scoreCell = "<td>" + text + "</td>"
 					pp, tg, ttft = "—", "—", "—"
 				}

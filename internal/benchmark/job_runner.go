@@ -127,12 +127,14 @@ type JobEnv interface {
 	// a ticker and reports "generating reference logits: 2.1 of
 	// ~4.6 GiB" against the phase 02 estimate — no output parsing. On
 	// failure or cancel the partial is deleted, never cached.
-	// Generation loads the reference model with the REFERENCE's own
-	// saved ModelConfig mapped through EvalFlags (no sweep overrides)
-	// — GPU layers and placement apply, so a large reference is not
-	// silently evaluated on CPU. Enforces the phase 02 disk guard
-	// before generating.
-	EnsureKLBase(ctx context.Context, ref ModelInfo, chunks int, buildID string, progress func(string)) (string, error)
+	// Generation takes the reference's own placement, threads and GPU
+	// layers — so a large reference is not pushed onto the CPU — but
+	// every setting that changes the arithmetic from underTest, the
+	// config the comparison cell will run at (EvalReferenceConfig).
+	// Both sides must be measured the same way or the difference is
+	// not attributable to the compression being studied. Enforces the
+	// phase 02 disk guard before generating.
+	EnsureKLBase(ctx context.Context, ref ModelInfo, underTest ConfigSnapshot, chunks int, buildID string, progress func(string)) (string, error)
 
 	// RunEval executes one evaluation and returns parsed scores.
 	RunEval(ctx context.Context, spec evaluate.Spec) (evaluate.Result, error)
@@ -643,7 +645,9 @@ func (q *JobQueue) runCapabilityCell(ctx context.Context, job *BenchmarkJob, cel
 		// already stopped — the d ordering above). Its progress lands on
 		// the stored run's ProgressDetail through the store, the same
 		// transport performance runs use.
-		klBasePath, err = q.env.EnsureKLBase(ctx, ref, preset.EvalChunks, cell.BuildID, func(line string) {
+		// cfg, not the reference's own config: both sides of the
+		// comparison must be measured the same way (EvalReferenceConfig).
+		klBasePath, err = q.env.EnsureKLBase(ctx, ref, cfg, preset.EvalChunks, cell.BuildID, func(line string) {
 			run.ProgressDetail = line
 			q.store.Save(run)
 		})
@@ -686,6 +690,9 @@ func (q *JobQueue) runCapabilityCell(ctx context.Context, job *BenchmarkJob, cel
 	result.Reference = referenceIdentity
 	result.ReferenceLabel = referenceLabel
 	run.Eval = &result
+	if w := evalComparabilityWarning(cfg); w != "" {
+		run.Warnings = append(run.Warnings, w)
+	}
 	run.Status = StatusCompleted
 	// From when the EVALUATION started, not from when the cell's run
 	// record was created: dataset download and reference-logits
@@ -745,6 +752,55 @@ func EvalConfigSnapshot(base ConfigSnapshot, overrides *ConfigOverrides) ConfigS
 		cfg.KVCacheQuant = ""
 	}
 	return cfg
+}
+
+// evalComparabilityWarning returns the note to attach to a capability
+// run whose settings make its score incomparable to figures measured
+// elsewhere, or "" when there is nothing to say.
+//
+// Today that is a compressed KV cache. An evaluation defaults to f16
+// (EvalConfigSnapshot) precisely so scores stay comparable, and a job
+// that sets kv_cache_quant is taken as asking to measure that cache
+// type's quality cost. The trap is that someone reusing their everyday
+// chat settings in a benchmark job is not asking that question at all,
+// and would otherwise get a number that looks publishable and is not.
+// The run says so rather than leaving the reader to notice the config
+// column.
+func evalComparabilityWarning(cfg ConfigSnapshot) string {
+	if cfg.KVCacheQuant == "" {
+		return ""
+	}
+	return fmt.Sprintf(
+		"This score was measured with a compressed short-term memory cache (kv_cache_quant = %s), not the uncompressed f16 the evaluations default to. "+
+			"That changes the answer, not just the speed, so this number is NOT comparable to published figures or to scores from runs that used f16. "+
+			"It is still valid for comparing against other runs that used %s. Remove kv_cache_quant from the job to get a comparable score.",
+		cfg.KVCacheQuant, cfg.KVCacheQuant)
+}
+
+// EvalReferenceConfig returns the config the KL REFERENCE is measured
+// at: the reference model's own placement and performance settings,
+// with every setting that changes the ARITHMETIC taken from the model
+// under test instead.
+//
+// Both sides of a KL comparison have to be measured the same way, or
+// the difference is not attributable to the compression being studied.
+// The reference logits were previously generated at the reference's own
+// settings while the comparison ran at the cell's, so a job that set a
+// compressed KV cache produced a number mixing two effects — the weight
+// compression the user asked about, and a memory-cache difference
+// between the two sides — with nothing saying so.
+//
+// Placement, thread count and GPU layers stay with the reference: they
+// decide where and how fast it runs, not what it computes, and a large
+// reference must not be pushed onto the CPU because the model under
+// test was configured for a smaller card.
+func EvalReferenceConfig(ref, underTest ConfigSnapshot) ConfigSnapshot {
+	out := ref
+	out.KVCacheQuant = underTest.KVCacheQuant
+	out.FlashAttention = underTest.FlashAttention
+	out.BatchSize = underTest.BatchSize
+	out.UBatchSize = underTest.UBatchSize
+	return out
 }
 
 func applyOverrides(base ConfigSnapshot, overrides *ConfigOverrides) ConfigSnapshot {

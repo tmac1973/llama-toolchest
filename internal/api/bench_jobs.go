@@ -371,6 +371,11 @@ func (s *Server) validateKLJob(req jobCreateRequest) error {
 		if _, err := s.registry.Get(req.KLReference); err != nil {
 			return fmt.Errorf("KL reference model %q is not an installed model", req.KLReference)
 		}
+		for _, id := range req.ModelIDs {
+			if err := s.checkKLReferenceIsSameModel(id, req.KLReference); err != nil {
+				return err
+			}
+		}
 	}
 	// A fresh env: the resolution only reads the registry, and s.env
 	// may be unwired (tests) while the router is not job-controlled.
@@ -382,6 +387,66 @@ func (s *Server) validateKLJob(req jobCreateRequest) error {
 		}
 	}
 	return fmt.Errorf("every KL-divergence cell in this job would be the reference model's own cell — each selected model resolves to itself as its reference. Add a second quant of one of the repos, or pick a different KL reference model")
+}
+
+// checkKLReferenceIsSameModel refuses a KL reference that is provably a
+// DIFFERENT model rather than another quantization of the same one.
+//
+// KL divergence answers "how much did compressing this model change
+// it?". Between two different models the number is not a worse
+// measurement, it is not a measurement at all — a Qwen3.5-9B scored
+// against a Qwen3.5-4B produced 0.321 where the correct reference gave
+// 0.038, and nothing in the result said which one was meaningful. The
+// reference dropdown lists every installed model, so picking one from
+// another repository takes a single click.
+//
+// It refuses only on evidence, never on suspicion, because a legitimate
+// reference can live in a different repository — a re-quantization by
+// another packager, or a fine-tune measured against the model it came
+// from. In order of confidence:
+//
+//   - same HuggingFace repository: always allowed, no question.
+//   - both records name a base model and the names differ: different
+//     models. This is what catches the 4B-versus-9B case, since the two
+//     are packaged in separate repositories by the same publisher.
+//   - vocabulary sizes differ: KL divergence compares two probability
+//     distributions position by position. Over different vocabularies
+//     there is no shared distribution to compare, so the number is
+//     undefined rather than merely wrong.
+//   - architectures differ: different model families.
+//
+// Anything the registry cannot tell apart is allowed through. A missing
+// field means "unknown", never "different".
+func (s *Server) checkKLReferenceIsSameModel(modelID, refID string) error {
+	model, err := s.registry.Get(modelID)
+	if err != nil {
+		return nil // resolved elsewhere; not this check's business
+	}
+	ref, err := s.registry.Get(refID)
+	if err != nil {
+		return nil
+	}
+	if model.ModelID == ref.ModelID {
+		return nil
+	}
+
+	refuse := func(because string) error {
+		return fmt.Errorf(
+			"%s cannot be the KL reference for %s — %s. KL divergence compares a model with a compressed copy of ITSELF; between two different models the result does not mean anything. Pick another quantization of %s, or leave the reference on automatic",
+			shortenModelName(ref.ModelID), shortenModelName(model.ModelID), because, shortenModelName(model.ModelID))
+	}
+
+	if model.BaseModelRepo != "" && ref.BaseModelRepo != "" && model.BaseModelRepo != ref.BaseModelRepo {
+		return refuse(fmt.Sprintf("they are built from different models (%s and %s)", model.BaseModelRepo, ref.BaseModelRepo))
+	}
+	if model.VocabSize > 0 && ref.VocabSize > 0 && model.VocabSize != ref.VocabSize {
+		return refuse(fmt.Sprintf("they use different vocabularies (%d and %d tokens), so there is nothing to compare position by position",
+			model.VocabSize, ref.VocabSize))
+	}
+	if model.Arch != "" && ref.Arch != "" && model.Arch != ref.Arch {
+		return refuse(fmt.Sprintf("they are different model families (%s and %s)", model.Arch, ref.Arch))
+	}
+	return nil
 }
 
 // handleCreateJob expands the matrix and submits the job to the queue.
@@ -549,6 +614,7 @@ func (s *Server) renderJobDetail(w http.ResponseWriter, job *benchmark.Benchmark
 		TGTPS      string // formatted, "—" when no summary
 		PPTPS      string
 		Score      string // formatted capability score, "—" for performance cells
+		ScoreWarn  string // why the score is not comparable; "" when it is
 		ErrorShort string
 		SkipShort  string
 	}
@@ -590,6 +656,7 @@ func (s *Server) renderJobDetail(w http.ResponseWriter, job *benchmark.Benchmark
 					} else {
 						row.Score = "score unavailable"
 					}
+					row.ScoreWarn = evalComparabilityNote(run.Config)
 				} else if run.Summary != nil {
 					row.TGTPS = fmt.Sprintf("%.1f", run.Summary.AvgGenTokPerSec)
 					row.PPTPS = fmt.Sprintf("%.0f", run.Summary.AvgPromptTokPerSec)

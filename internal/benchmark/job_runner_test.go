@@ -49,6 +49,10 @@ type fakeEnv struct {
 	evalBlock chan struct{}
 	models    map[string]ModelInfo // modelID → registry entry
 	klBaseErr error
+	// klBaseConfig records the config the last reference generation
+	// would have used, so a test can check both sides of a KL
+	// comparison were measured the same way.
+	klBaseConfig ConfigSnapshot
 	// klBaseBlock, when non-nil, holds the generation open AFTER the
 	// .kld.partial is written and BEFORE the rename, giving cancel tests
 	// a window in which the partial exists on disk.
@@ -234,10 +238,15 @@ func (f *fakeEnv) EvalFlags(modelID string, snap ConfigSnapshot, _ string) ([]st
 // the phase 02 helpers), rename into place on success, delete the
 // partial on failure or cancel, and never a cache entry for a failed
 // generation.
-func (f *fakeEnv) EnsureKLBase(ctx context.Context, ref ModelInfo, chunks int, _ string, progress func(string)) (string, error) {
+func (f *fakeEnv) EnsureKLBase(ctx context.Context, ref ModelInfo, underTest ConfigSnapshot, chunks int, _ string, progress func(string)) (string, error) {
 	if f.dataDir == "" {
 		return "", fmt.Errorf("fake env has no data dir")
 	}
+	// Record what the reference would actually be generated at, so a
+	// test can assert both sides of the comparison match.
+	f.mu.Lock()
+	f.klBaseConfig = EvalReferenceConfig(ref.Config, underTest)
+	f.mu.Unlock()
 	key := evaluate.KLBaseKey{
 		ModelID: ref.HFRepoID, Quant: ref.Quant,
 		Dataset: evaluate.ModeKLDiv.DatasetName(), Chunks: chunks,

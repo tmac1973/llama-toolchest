@@ -434,7 +434,7 @@ func TestKLBaseCancelDeletesPartialAndRegenerates(t *testing.T) {
 	env.mu.Lock()
 	env.klBaseBlock = nil // release the hold so generation can finish
 	env.mu.Unlock()
-	path, err := env.EnsureKLBase(context.Background(), ref, 100, "b", nil)
+	path, err := env.EnsureKLBase(context.Background(), ref, ConfigSnapshot{}, 100, "b", nil)
 	if err != nil {
 		t.Fatalf("regeneration failed: %v", err)
 	}

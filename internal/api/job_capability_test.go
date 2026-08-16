@@ -256,7 +256,7 @@ func TestValidateKLJobUnknownReferenceIsBadRequest(t *testing.T) {
 	s := batchMatrixServer(t, models.ModelConfig{Enabled: true})
 	req := jobCreateRequest{
 		Name: "kl", ModelIDs: []string{"m", "m2"}, BuildIDs: []string{"b"},
-		Presets:   []string{"kl-divergence-quick"},
+		Presets:     []string{"kl-divergence-quick"},
 		KLReference: "ghost",
 	}
 	err := s.validateKLJob(req)
@@ -577,4 +577,51 @@ func waitRouterRunning(t *testing.T, m *process.Manager) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatal("router did not report running within 15s")
+}
+
+// A KL reference from a different model produces a number that means
+// nothing. A real run scored Qwen3.5-9B against Qwen3.5-4B and returned
+// 0.321 where the correct reference gave 0.038 — the dropdown lists
+// every installed model, so it is one click away.
+func TestKLReferenceMustBeTheSameModel(t *testing.T) {
+	s := &Server{registry: models.NewRegistry(t.TempDir(), t.TempDir())}
+
+	add := func(id, repo, quant, base, arch string, vocab int) {
+		s.registry.Add(&models.Model{
+			ID: id, ModelID: repo, Quant: quant, Filename: quant + ".gguf",
+			FilePath:      filepath.Join(t.TempDir(), quant+".gguf"),
+			BaseModelRepo: base, Arch: arch, VocabSize: vocab,
+		})
+	}
+	add("m9-iq4", "unsloth/Qwen3.5-9B-GGUF", "IQ4_NL", "Qwen/Qwen3.5-9B", "qwen35", 248320)
+	add("m9-q8", "unsloth/Qwen3.5-9B-GGUF", "Q8_0", "Qwen/Qwen3.5-9B", "qwen35", 248320)
+	add("m4-q4", "unsloth/Qwen3.5-4B-GGUF", "Q4_K_XL", "Qwen/Qwen3.5-4B", "qwen35", 248320)
+	add("other", "org/Llama-3-8B-GGUF", "Q4_K_M", "", "llama", 128256)
+	add("unknown", "org/Mystery-GGUF", "Q4_K_M", "", "", 0)
+
+	// The real case: same publisher, same architecture, same vocabulary
+	// size — only the base model name tells them apart.
+	err := s.checkKLReferenceIsSameModel("m9-iq4", "m4-q4")
+	if err == nil {
+		t.Error("a 4B reference for a 9B model was allowed")
+	} else if !strings.Contains(err.Error(), "different models") {
+		t.Errorf("refusal does not explain why: %v", err)
+	}
+
+	// Another quantization of the same repository is the normal case.
+	if err := s.checkKLReferenceIsSameModel("m9-iq4", "m9-q8"); err != nil {
+		t.Errorf("a sibling quantization was refused: %v", err)
+	}
+
+	// A different vocabulary makes the comparison undefined, not merely
+	// wrong, so it is refused even without base-model names.
+	if err := s.checkKLReferenceIsSameModel("m9-iq4", "other"); err == nil {
+		t.Error("a reference with a different vocabulary was allowed")
+	}
+
+	// What the registry cannot tell apart is allowed through: a missing
+	// field means unknown, never different.
+	if err := s.checkKLReferenceIsSameModel("m9-iq4", "unknown"); err != nil {
+		t.Errorf("an unknown-provenance reference should not be refused: %v", err)
+	}
 }

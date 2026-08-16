@@ -816,3 +816,60 @@ func TestBenchmarkDetailRendersScoreGuidance(t *testing.T) {
 		t.Error("a performance run must not show score guidance")
 	}
 }
+
+// A score measured through a compressed memory cache reads exactly like
+// a comparable one, so the caveat has to travel with the number rather
+// than living only in the run detail.
+func TestScoreCellCarriesComparabilityWarning(t *testing.T) {
+	s := benchListServer(t)
+
+	// f16: no marker.
+	plain := evalRun("r1")
+	rec := httptest.NewRecorder()
+	s.renderBenchmarkList(rec, []benchmark.BenchmarkRun{plain})
+	if strings.Contains(rec.Body.String(), "&#9888;") {
+		t.Error("an f16 run should carry no warning marker")
+	}
+
+	// Compressed KV cache: marker with the reason in its tooltip.
+	compressed := evalRun("r2")
+	compressed.Config.KVCacheQuant = "q8_0"
+	rec = httptest.NewRecorder()
+	s.renderBenchmarkList(rec, []benchmark.BenchmarkRun{compressed})
+	out := rec.Body.String()
+	if !strings.Contains(out, "&#9888;") {
+		t.Errorf("no warning marker beside a non-comparable score\n%s", out)
+	}
+	if !strings.Contains(out, "kv_cache_quant = q8_0") {
+		t.Errorf("the marker does not say what setting caused it\n%s", out)
+	}
+	// The columns must still line up — the marker lives inside the
+	// existing Score cell, it does not add one.
+	headers, cells := countCells(t, out)
+	if headers != cells {
+		t.Errorf("%d headers but %d cells per row", headers, cells)
+	}
+}
+
+// The same-top-token scale has to cover every value a run can produce.
+// A real result of 91.8% fell in a gap between the "above 99%" and
+// "below 90%" rows, leaving the reader with nothing to compare against.
+func TestSameTopTokenScaleHasNoGaps(t *testing.T) {
+	d, ok := evalDocFor("kl-divergence")
+	if !ok {
+		t.Fatal("no KL guidance")
+	}
+	var bands []string
+	for _, ex := range d.Examples {
+		if strings.HasPrefix(ex.Value, "Same top token") {
+			bands = append(bands, ex.Value)
+		}
+	}
+	if len(bands) < 4 {
+		t.Errorf("only %d same-top-token bands (%v) — a value between the extremes has nothing to compare against", len(bands), bands)
+	}
+	// The real 91.8% result must fall inside a named band.
+	if !strings.Contains(strings.Join(bands, " "), "90% to 95%") {
+		t.Errorf("no band covers the 90-95%% range: %v", bands)
+	}
+}

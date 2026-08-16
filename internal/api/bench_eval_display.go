@@ -54,6 +54,20 @@ func evalScoreText(e *benchmark.EvalScores) string {
 	}
 }
 
+// evalComparabilityNote returns the note explaining why a capability
+// score is not comparable to figures measured elsewhere, or "" when it
+// is. It mirrors benchmark.evalComparabilityWarning, which records the
+// same fact on the run itself; this is the short form for a tooltip
+// next to the number, so the caveat travels with the score instead of
+// living only in the run detail.
+func evalComparabilityNote(cfg benchmark.ConfigSnapshot) string {
+	if cfg.KVCacheQuant == "" {
+		return ""
+	}
+	return "Measured with a compressed short-term memory cache (kv_cache_quant = " + cfg.KVCacheQuant +
+		"), not the uncompressed f16 these tests default to. That changes the answer rather than the speed, so this number is not comparable to published figures or to runs that used f16."
+}
+
 // evalNoScoreRank is the sort rank of a run with no capability score.
 // A finite sentinel, not math.Inf: the value is rendered into a
 // data-sort attribute and read back with parseFloat, which turns "+Inf"

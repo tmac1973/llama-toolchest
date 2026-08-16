@@ -143,12 +143,22 @@ var evalDocs = map[evaluate.Mode]evalDoc{
 			{
 				Value:   "Same top token above 99%",
 				Verdict: "Excellent",
-				Meaning: "The two versions almost always want to say the same next word.",
+				Meaning: "The two versions disagree on fewer than one word in a hundred.",
+			},
+			{
+				Value:   "Same top token 95% to 99%",
+				Verdict: "Good",
+				Meaning: "They disagree on roughly one word in twenty to one in a hundred. Long answers may drift apart, short ones rarely will.",
+			},
+			{
+				Value:   "Same top token 90% to 95%",
+				Verdict: "Noticeable",
+				Meaning: "They disagree on about one word in ten to one in twenty. Expect answers to differ fairly often.",
 			},
 			{
 				Value:   "Same top token below 90%",
 				Verdict: "Poor",
-				Meaning: "The two versions disagree often enough to change how the model writes.",
+				Meaning: "They disagree on more than one word in ten — often enough to change how the model writes.",
 			},
 		},
 		Links: []evalLink{

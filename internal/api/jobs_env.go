@@ -519,16 +519,17 @@ const klFullRunChunksEstimate = 650
 // layers and placement apply — a large reference is not silently
 // evaluated on CPU. The phase 02 disk guard runs before generating. On
 // failure or cancel the partial is deleted, never cached.
-func (e *jobEnv) EnsureKLBase(ctx context.Context, ref benchmark.ModelInfo, chunks int, buildID string, progress func(string)) (string, error) {
+func (e *jobEnv) EnsureKLBase(ctx context.Context, ref benchmark.ModelInfo, underTest benchmark.ConfigSnapshot, chunks int, buildID string, progress func(string)) (string, error) {
 	root := evaluate.EvalDataRoot(e.s.cfg.DataDir)
 
-	// The flags come first: they are half the cache key. Generation runs
-	// at the reference's own saved config (so a large reference is not
-	// silently evaluated on CPU) through EvalConfigSnapshot, which pins
-	// the KV cache to f16 the same way a capability cell does — the
-	// reference logits are the yardstick, and a yardstick measured
-	// through a quantized cache is not one.
-	flags, err := e.EvalFlags(ref.ID, benchmark.EvalConfigSnapshot(ref.Config, nil), buildID)
+	// The flags come first: they are half the cache key. Generation
+	// keeps the reference's own placement and thread settings, so a
+	// large reference is not pushed onto the CPU, but takes every
+	// setting that changes the arithmetic from the model under test —
+	// otherwise the two sides of the comparison are measured
+	// differently and the difference is not attributable to the
+	// compression being studied.
+	flags, err := e.EvalFlags(ref.ID, benchmark.EvalReferenceConfig(ref.Config, underTest), buildID)
 	if err != nil {
 		return "", fmt.Errorf("reference %s: %w", ref.DisplayName, err)
 	}
