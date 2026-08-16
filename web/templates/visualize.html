@@ -1,0 +1,290 @@
+{{define "content"}}
+<style>
+.viz-controls {
+    display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;
+    margin:0.75rem 0 0.5rem;
+}
+.viz-controls label { margin:0; font-size:0.85rem; flex:1 1 200px; }
+.viz-controls select { margin:0; }
+.viz-controls span { cursor:help; }
+.viz-note { font-size:0.85rem; color:var(--pico-muted-color); margin:0 0 0.5rem; display:none; }
+</style>
+<article>
+    <header style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;flex-wrap:wrap;">
+        <div>
+            <strong>Visualize benchmarks</strong>
+            {{if .RunCount}}<small style="color:var(--pico-muted-color);"> — {{.RunCount}} runs{{if .Skipped}}, {{.Skipped}} left out for having no speeds{{end}}</small>{{end}}
+        </div>
+        <a href="/benchmarks" role="button" class="outline secondary" style="margin:0;padding:0.2rem 0.6rem;font-size:0.8rem;width:auto;">Back to benchmarks</a>
+    </header>
+
+    {{if .Error}}
+    <p>{{.Error}}</p>
+    {{else}}
+
+    <div class="viz-controls">
+        <label>
+            <span title="What the chart draws. Heatmap and 3D surface need two parameters that were both swept.">Chart</span>
+            <select id="viz-chart" onchange="vizRender()">
+                <option value="scatter">Scatter — one parameter against a measurement</option>
+                <option value="heatmap">Heatmap — two parameters, colour is the measurement</option>
+                <option value="surface3d">3D surface — two parameters as a landscape</option>
+                <option value="scatter3d">3D scatter — two parameters as points in space</option>
+            </select>
+        </label>
+        <label>
+            <span title="The measurement being plotted.">Measurement</span>
+            <select id="viz-metric" onchange="vizRender()"></select>
+        </label>
+        <label>
+            <span title="The parameter along the horizontal axis.">X axis</span>
+            <select id="viz-x" onchange="vizRender()"></select>
+        </label>
+        <label id="viz-y-wrap">
+            <span title="The second parameter. Only used by the charts that take two.">Y axis</span>
+            <select id="viz-y" onchange="vizRender()"></select>
+        </label>
+    </div>
+
+    <p id="viz-note" class="viz-note"></p>
+    <div id="viz-plot" style="width:100%;height:620px;"></div>
+
+    <details style="margin-top:0.5rem;">
+        <summary><small>About these charts</small></summary>
+        <ul style="font-size:0.85rem;">
+            <li><strong>Scatter</strong> is the plain reading: one parameter against one measurement, one point per run. Use it when a job swept a single parameter.</li>
+            <li><strong>Heatmap</strong> is usually the fastest way to read a two-parameter sweep. Every cell carries its number, so you compare values by reading them rather than by judging shades.</li>
+            <li><strong>3D surface</strong> shows the same data as a landscape. It makes ridges and slopes obvious, but exact values are hard to read off it — parts of the surface hide other parts. Drag to rotate.</li>
+            <li><strong>3D scatter</strong> keeps every run as its own point, so nothing is interpolated. Useful when the sweep grid has gaps.</li>
+            <li>Hover any point for that run's full configuration. Every chart has a toolbar for zoom, pan and saving a PNG.</li>
+        </ul>
+    </details>
+    {{end}}
+</article>
+
+{{if not .Error}}
+<script id="viz-data" type="application/json">{{.DataJSON}}</script>
+{{/* The FULL plotly bundle, not the smaller gl3d one. gl3d carries
+     only the 3D trace types plus 2D scatter — it has no heatmap, and
+     Plotly does not complain when a trace type is missing: it silently
+     falls back to scatter, so the heatmap rendered as a meaningless
+     diagonal line with no error anywhere. The full bundle is the only
+     one holding both the 3D traces and the 2D ones, and this page is
+     the only thing that loads it. */}}
+<script src="/static/plotly.min.js"></script>
+<script>
+(function () {
+    var DATA = JSON.parse(document.getElementById('viz-data').textContent);
+
+    // Populate the pickers from what the runs actually vary on, so the
+    // page can only offer an axis that has more than one value on it.
+    var metricSel = document.getElementById('viz-metric');
+    DATA.metrics.forEach(function (m) {
+        metricSel.add(new Option(m.label + ' (' + m.unit + ')', m.key));
+    });
+    ['viz-x', 'viz-y'].forEach(function (id, i) {
+        var sel = document.getElementById(id);
+        DATA.dimensions.forEach(function (d) {
+            sel.add(new Option(d.name, d.name));
+        });
+        // Default the two axes to different dimensions when there are
+        // two to choose from.
+        if (DATA.dimensions.length > i) sel.selectedIndex = i;
+    });
+
+    window.vizRender = vizRender;
+    vizRender();
+
+    function dim(name) {
+        return DATA.dimensions.filter(function (d) { return d.name === name; })[0];
+    }
+    function metric(key) {
+        return DATA.metrics.filter(function (m) { return m.key === key; })[0];
+    }
+    // Numeric axes are plotted as numbers so the spacing between values
+    // is real; categorical ones keep their text.
+    function coord(d, value) {
+        if (value === undefined) return null;
+        return d && d.numeric ? parseFloat(value) : value;
+    }
+
+    function note(text) {
+        var el = document.getElementById('viz-note');
+        el.textContent = text || '';
+        el.style.display = text ? '' : 'none';
+    }
+
+    function vizRender() {
+        var chart = document.getElementById('viz-chart').value;
+        var mKey = document.getElementById('viz-metric').value;
+        var xName = document.getElementById('viz-x').value;
+        var yName = document.getElementById('viz-y').value;
+        var needsTwo = chart !== 'scatter';
+
+        document.getElementById('viz-y-wrap').style.display = needsTwo ? '' : 'none';
+
+        var m = metric(mKey), x = dim(xName), y = dim(yName);
+        if (!x || !m) {
+            note('These runs do not vary on anything that can be put on an axis.');
+            Plotly.purge('viz-plot');
+            return;
+        }
+        if (needsTwo && (!y || yName === xName)) {
+            note('This chart needs two different parameters. Pick a different Y axis, or switch to the scatter chart.');
+            Plotly.purge('viz-plot');
+            return;
+        }
+        note('');
+
+        var title = m.label + ' by ' + xName + (needsTwo ? ' and ' + yName : '');
+        if (chart === 'scatter') return renderScatter(m, x, title);
+        return renderTwoAxis(chart, m, x, y, title);
+    }
+
+    function renderScatter(m, x, title) {
+        var pts = DATA.points.filter(function (p) { return p.dims[x.name] !== undefined; });
+        var trace = {
+            type: 'scatter', mode: 'markers',
+            x: pts.map(function (p) { return coord(x, p.dims[x.name]); }),
+            y: pts.map(function (p) { return p.metrics[m.key]; }),
+            text: pts.map(function (p) { return p.detail; }),
+            hovertemplate: '%{text}<extra></extra>',
+            marker: { size: 11, color: pts.map(function (p) { return p.metrics[m.key]; }),
+                      colorscale: 'Viridis', reversescale: !m.higher_is_better,
+                      showscale: false, line: { width: 1, color: 'rgba(0,0,0,0.35)' } }
+        };
+        Plotly.newPlot('viz-plot', [trace], layout(title, x.name, m.label + ' (' + m.unit + ')'), CONFIG);
+    }
+
+    // Heatmap, 3D surface and 3D scatter all read the same grid: the
+    // metric at each (x, y) pair. Missing combinations stay null, which
+    // Plotly draws as a gap rather than as a zero — a sweep with holes
+    // in it should look like it has holes.
+    function renderTwoAxis(chart, m, x, y, title) {
+        var z = y.values.map(function () { return x.values.map(function () { return null; }); });
+        DATA.points.forEach(function (p) {
+            var xi = x.values.indexOf(p.dims[x.name]);
+            var yi = y.values.indexOf(p.dims[y.name]);
+            if (xi >= 0 && yi >= 0) z[yi][xi] = p.metrics[m.key];
+        });
+        var xs = x.values.map(function (v) { return coord(x, v); });
+        var ys = y.values.map(function (v) { return coord(y, v); });
+        var scale = m.higher_is_better ? 'Viridis' : 'Viridis';
+
+        if (chart === 'heatmap') {
+            // Cells are placed at INDICES, not at the parameter's own
+            // values, with the values supplied as tick labels.
+            //
+            // Two reasons. A sweep of 1024/2048/4096/8192 on a real
+            // numeric axis draws cells of wildly different widths, and
+            // area reads as importance; every point of a grid deserves
+            // equal space. And Plotly's category axis cannot be relied
+            // on for values that look like numbers — it registered the
+            // categories but still auto-ranged the axis numerically,
+            // which put every tile outside the visible area and left a
+            // chart showing nothing but its labels. Indices are
+            // unambiguous.
+            var xi = x.values.map(function (_, i) { return i; });
+            var yi = y.values.map(function (_, i) { return i; });
+            var hover = y.values.map(function (yv, j) {
+                return x.values.map(function (xv, i) {
+                    return x.name + ' ' + xv + '<br>' + y.name + ' ' + yv + '<br>' +
+                        (z[j][i] === null ? 'no run at this combination'
+                                          : m.label + ' ' + z[j][i].toFixed(1) + ' ' + m.unit);
+                });
+            });
+            var trace = {
+                type: 'heatmap', x: xi, y: yi, z: z, text: hover,
+                colorscale: 'Viridis', reversescale: !m.higher_is_better,
+                hoverongaps: false, hovertemplate: '%{text}<extra></extra>',
+                xgap: 2, ygap: 2,
+                colorbar: { title: { text: m.unit } }
+            };
+            // The number in every cell: a heatmap you have to read by
+            // shade is a heatmap you cannot read.
+            var ann = [];
+            yi.forEach(function (yv, j) {
+                xi.forEach(function (xv, i) {
+                    if (z[j][i] === null) return;
+                    ann.push({ x: xv, y: yv, text: z[j][i].toFixed(m.key === 'ttft' ? 0 : 1),
+                               showarrow: false, font: { size: 11, color: '#fff' } });
+                });
+            });
+            var lay = layout(title, x.name, y.name);
+            lay.annotations = ann;
+            lay.xaxis.tickmode = 'array'; lay.xaxis.tickvals = xi; lay.xaxis.ticktext = x.values;
+            lay.yaxis.tickmode = 'array'; lay.yaxis.tickvals = yi; lay.yaxis.ticktext = y.values;
+            lay.xaxis.showgrid = false; lay.yaxis.showgrid = false;
+            Plotly.newPlot('viz-plot', [trace], lay, CONFIG);
+            return;
+        }
+
+        if (chart === 'surface3d') {
+            var t = { type: 'surface', x: xs, y: ys, z: z,
+                      colorscale: scale, reversescale: !m.higher_is_better,
+                      colorbar: { title: { text: m.unit } },
+                      hovertemplate: x.name + ' %{x}<br>' + y.name + ' %{y}<br>' +
+                                     m.label + ' %{z:.1f} ' + m.unit + '<extra></extra>' };
+            Plotly.newPlot('viz-plot', [t], layout3d(title, x, y, m), CONFIG);
+            return;
+        }
+
+        var pts = DATA.points.filter(function (p) {
+            return p.dims[x.name] !== undefined && p.dims[y.name] !== undefined;
+        });
+        var t3 = {
+            type: 'scatter3d', mode: 'markers',
+            x: pts.map(function (p) { return coord(x, p.dims[x.name]); }),
+            y: pts.map(function (p) { return coord(y, p.dims[y.name]); }),
+            z: pts.map(function (p) { return p.metrics[m.key]; }),
+            text: pts.map(function (p) { return p.detail; }),
+            hovertemplate: '%{text}<extra></extra>',
+            marker: { size: 6, color: pts.map(function (p) { return p.metrics[m.key]; }),
+                      colorscale: scale, reversescale: !m.higher_is_better,
+                      colorbar: { title: { text: m.unit } } }
+        };
+        Plotly.newPlot('viz-plot', [t3], layout3d(title, x, y, m), CONFIG);
+    }
+
+    // Plotly paints its own background, so the charts are told the
+    // page's colours rather than assuming a white page.
+    function themed() {
+        var css = getComputedStyle(document.body);
+        return { paper: 'rgba(0,0,0,0)', plot: 'rgba(0,0,0,0)',
+                 font: css.getPropertyValue('--pico-color') || '#333',
+                 grid: css.getPropertyValue('--pico-muted-border-color') || '#ccc' };
+    }
+    function layout(title, xt, yt) {
+        var t = themed();
+        return {
+            title: { text: title }, margin: { l: 70, r: 30, t: 50, b: 60 },
+            paper_bgcolor: t.paper, plot_bgcolor: t.plot, font: { color: t.font },
+            xaxis: { title: { text: xt }, gridcolor: t.grid, zeroline: false },
+            yaxis: { title: { text: yt }, gridcolor: t.grid, zeroline: false }
+        };
+    }
+    function layout3d(title, x, y, m) {
+        var t = themed();
+        var ax = function (name) { return { title: { text: name }, gridcolor: t.grid }; };
+        return {
+            title: { text: title }, margin: { l: 0, r: 0, t: 50, b: 0 },
+            paper_bgcolor: t.paper, font: { color: t.font },
+            scene: { xaxis: ax(x.name), yaxis: ax(y.name),
+                     zaxis: ax(m.label + ' (' + m.unit + ')') }
+        };
+    }
+
+    // newPlot, not react. Plotly.react is for feeding new data to the
+    // SAME chart; it keeps axis state across the call, and this page
+    // switches between chart kinds whose axes are not comparable —
+    // going from a numeric scatter to a category heatmap left the
+    // heatmap with the scatter's numeric range, so every tile sat
+    // outside the visible area and the chart came up empty with only
+    // its labels showing. Rebuilding each time costs nothing at these
+    // data sizes.
+    var CONFIG = { displaylogo: false, responsive: true,
+                   toImageButtonOptions: { filename: 'llama-toolchest-benchmark' } };
+})();
+</script>
+{{end}}
+{{end}}

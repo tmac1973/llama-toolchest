@@ -390,6 +390,7 @@ func (s *Server) parseTemplates() map[string]*template.Template {
 		"server.html",
 		"settings.html",
 		"help.html",
+		"visualize.html",
 	}
 	for _, pf := range pageFiles {
 		clone := template.Must(base.Clone())
@@ -419,6 +420,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/models", s.handleModelsPage)
 	r.Get("/models/browse", s.handleModelsBrowsePage)
 	r.Get("/benchmarks", s.handleBenchmarksPage)
+	r.Get("/benchmarks/visualize", s.handleVisualizePage)
 	r.Get("/server", s.handleServerPage)
 	r.Get("/settings", s.handleSettingsPage)
 	r.Get("/help", s.handleHelpPage)
@@ -466,6 +468,7 @@ func (s *Server) buildRouter() chi.Router {
 			r.Get("/compare", s.handleCompareBenchmarks)
 			r.Get("/export", s.handleExportBenchmarks)
 			r.Get("/eval-data", s.handleEvalData)
+			r.Get("/visualize", s.handleVisualizeData)
 			r.Post("/eval-data/delete-logits", s.handleDeleteKLLogits)
 			r.Delete("/batch-delete", s.handleBatchDeleteBenchmarks)
 			r.Get("/{id}", s.handleGetBenchmark)

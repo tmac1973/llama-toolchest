@@ -134,6 +134,7 @@ func (s *Server) renderBenchmarkList(w http.ResponseWriter, runs []benchmark.Ben
 		<button type="button" class="outline secondary" onclick="collapseAllBenchGroups(this)">Collapse All</button>
 		<button type="button" class="outline secondary" onclick="expandAllBenchGroups(this)">Expand All</button>
 		<button type="button" class="outline secondary" onclick="compareSelectedRuns(this)">Compare</button>
+		<button type="button" class="outline secondary" onclick="visualizeSelectedRuns(this)" title="Open charts of the selected runs in a new tab — scatter, heatmap and 3D views of a parameter sweep.">Visualize</button>
 		<button type="button" class="outline secondary" onclick="exportSelectedRuns(this, 'csv')">Export CSV</button>
 		<button type="button" class="outline secondary" onclick="exportSelectedRuns(this, 'json')">Export JSON</button>
 		<button type="button" class="outline secondary" onclick="deleteSelectedRuns(this)">Delete Selected</button>
