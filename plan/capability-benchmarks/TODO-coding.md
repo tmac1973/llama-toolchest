@@ -49,7 +49,7 @@ Marks: [ ] todo · [x] done · [!] blocked.
 - [x] 18. Job form: capability presets render in the existing preset checkbox list (attempts: 0)
   Step 7 of 7 in Phase 03 ("Capability presets, job runner integration, and the job form"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-03-runner-integration.md before writing code.
 
-## Phase 04 — Results display, export, evaluation-data card, and docs (verify: pending, repairs: 0)
+## Phase 04 — Results display, export, evaluation-data card, and docs (verify: passed, repairs: 0)
 
 - [x] 19. Results columns, conditional: a job or run list containing any run (attempts: 0)
   Step 1 of 7 in Phase 04 ("Results display, export, evaluation-data card, and docs"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-04-results-and-management.md before writing code.
