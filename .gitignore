@@ -13,3 +13,6 @@ dist/
 /config.yaml
 .claude/
 debug_output.txt
+
+# Added by the autonomous coding run: regenerable, never commit.
+vendor/
