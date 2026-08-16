@@ -257,6 +257,47 @@ func (s *Server) parseTemplates() map[string]*template.Template {
 			}
 			return (value / max) * 100
 		},
+		// evalScoreText renders a run's capability score in its
+		// mode-appropriate form ("PPL 6.234 ±0.04 (100 chunks)",
+		// "HellaSwag 77.2% [75.9–78.5] (400)", …). Shared by the
+		// results list, job cell matrix, compare table, and run detail
+		// so every surface shows the identical string.
+		"evalScoreText": func(e *benchmark.EvalScores) string {
+			return evalScoreText(e)
+		},
+		// evalScoreValue is the comparable magnitude behind evalScoreText,
+		// used only for sorting the compare view. Zero for performance
+		// runs — the score sort button is hidden in that case.
+		"evalScoreValue": func(e *benchmark.EvalScores) float64 {
+			return evalScoreValue(e)
+		},
+		// fmtBytes renders a byte count in binary units (the evaluation
+		// data card's dataset and logits sizes).
+		"fmtBytes": func(b int64) string { return formatBytes(b) },
+		// fmtAge renders an mtime as a relative age ("3 days ago") for
+		// the KL logits cache list.
+		"fmtAge": func(t time.Time) string {
+			return fmtDurationSince(time.Since(t))
+		},
+		// add is plain integer addition for template column math.
+		"add": func(a, b int) int { return a + b },
+		// tern is the classic three-argument conditional.
+		"tern": func(cond bool, a, b int) int {
+			if cond {
+				return a
+			}
+			return b
+		},
+		// evalHas reports whether a single run carries capability
+		// scores (the template-side form of hasEvalRuns).
+		"evalHas": func(e *benchmark.EvalScores) bool { return evalHas(e) },
+		// evalSizeText renders a capability preset's run size (task or
+		// chunk count, or "full") for the About modal's capability
+		// section.
+		"evalSizeText": func(p benchmark.Preset) string { return evalSizeText(p) },
+		// evalMeaningText renders what the mode's score means, in one
+		// line, for the same section.
+		"evalMeaningText": func(p benchmark.Preset) string { return evalMeaningText(p) },
 		"vramFit": func(estimatedGB float64) string {
 			metrics := s.monitor.Current()
 			numGPUs := len(metrics.GPU)
@@ -382,6 +423,8 @@ func (s *Server) buildRouter() chi.Router {
 			r.Get("/form", s.handleBenchmarkForm)
 			r.Get("/compare", s.handleCompareBenchmarks)
 			r.Get("/export", s.handleExportBenchmarks)
+			r.Get("/eval-data", s.handleEvalData)
+			r.Post("/eval-data/delete-logits", s.handleDeleteKLLogits)
 			r.Delete("/batch-delete", s.handleBatchDeleteBenchmarks)
 			r.Get("/{id}", s.handleGetBenchmark)
 			r.Delete("/{id}", s.handleDeleteBenchmark)

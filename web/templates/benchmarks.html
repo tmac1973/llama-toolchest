@@ -41,6 +41,12 @@
          hx-swap="innerHTML">
         Loading…
     </div>
+    <div id="eval-data"
+         hx-get="/api/benchmarks/eval-data"
+         hx-trigger="load, evalDataChanged from:body"
+         hx-swap="innerHTML">
+        Loading…
+    </div>
 </article>
 
 <dialog id="job-form-modal" style="max-width:720px;">
@@ -678,6 +684,15 @@ function submitNewJob() {
         })
         .catch(function(e){ err.textContent = e.message; err.style.display = ''; });
 }
+
+// The Evaluation Data card refreshes whenever a job's state can have
+// changed the disk: jobs generate and delete KL logits, and the card is
+// the only place their lifetime is managed. One listener on the same
+// jobChanged event every job action already fires (create, cancel,
+// retry, delete) covers all of them.
+document.body.addEventListener('jobChanged', function() {
+    document.body.dispatchEvent(new CustomEvent('evalDataChanged'));
+});
 
 // --- Job actions ---
 function cancelJob(id) {

@@ -159,6 +159,38 @@
     {{end}}
     {{end}}
 
+    {{if .Eval}}
+    {{/* Capability evaluation. The score reads in the same form the
+         list/compare views use; the raw fields follow for the
+         precision the tool reported. The timing sections above are
+         absent for this run by construction — it produced no t/s. */}}
+    <small><strong>Capability evaluation</strong> — <span title="Ran offline through llama-perplexity (no router), at the fixed 512-token evaluation context. Sampling parameters do not apply to these scores — they are deterministic log-likelihood measurements.">what the model can do, not how fast</span></small>
+    <table role="grid" style="font-size:0.85rem;margin-top:0.25rem;">
+        <tbody>
+            <tr><td style="width:12rem;">Score</td><td><strong>{{evalScoreText .Eval}}</strong></td></tr>
+            <tr><td>Mode</td><td><kbd>{{.Eval.Mode}}</kbd> · dataset {{if .Eval.Dataset}}{{.Eval.Dataset}}{{else}}—{{end}}{{if .Eval.ContextSize}} · ctx {{.Eval.ContextSize}}{{end}}</td></tr>
+            {{if .Eval.Chunks}}<tr><td>Chunk cap</td><td>{{.Eval.Chunks}} (requested; 0 = full)</td></tr>{{end}}
+            {{if .Eval.Perplexity}}
+            <tr><td title="Perplexity over the wikitext-2 test set. Lower is better; the error bar is the tool's reported uncertainty.">Perplexity</td><td>{{printf "%.4f" .Eval.Perplexity}} ± {{printf "%.5f" .Eval.PerplexityErr}}</td></tr>
+            {{end}}
+            {{if .Eval.Accuracy}}
+            <tr><td title="Percentage of tasks answered correctly. HellaSwag's bounds are the tool's asymmetric 95% confidence interval; Winogrande's are the symmetric ± error.">Accuracy</td>
+                <td>{{printf "%.4f%%" .Eval.Accuracy}}
+                    {{if and .Eval.AccuracyCILow .Eval.AccuracyCIHigh}} [{{printf "%.4f%%" .Eval.AccuracyCILow}}, {{printf "%.4f%%" .Eval.AccuracyCIHigh}}]{{end}}
+                    {{if .Eval.Tasks}} · {{.Eval.Tasks}} tasks{{end}}</td></tr>
+            {{end}}
+            {{if .Eval.KLMean}}
+            <tr><td title="KL divergence between this model's logits and the reference model's. 0 = identical probabilities; lower is better.">KL mean</td><td>{{printf "%.6f" .Eval.KLMean}} ± {{printf "%.6f" .Eval.KLMeanErr}}</td></tr>
+            <tr><td title="The maximum per-token divergence — one bad chunk can spike this, so the mean is the comparable figure.">KL max / p99.9</td><td>{{printf "%.6f" .Eval.KLMax}} / {{printf "%.6f" .Eval.KLP999}}</td></tr>
+            <tr><td title="Share of positions where both models pick the same top token — the plain-language form of the KL figure.">Same top token</td><td>{{printf "%.3f%%" .Eval.SameTopPct}} ± {{printf "%.3f" .Eval.SameTopPctErr}}</td></tr>
+            {{end}}
+            {{if .Eval.Reference}}
+            <tr><td title="The model these logits were measured against.">Reference</td><td><kbd>{{.Eval.Reference}}</kbd></td></tr>
+            {{end}}
+        </tbody>
+    </table>
+    {{end}}
+
     {{if .Warnings}}
     <div style="margin-top:0.5rem;">
     {{range .Warnings}}

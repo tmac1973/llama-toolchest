@@ -49,6 +49,7 @@
         <button type="button" class="outline secondary active" data-sort-key="gen"    data-sort-dir="desc" onclick="sortBenchCompare(this)">Gen tok/s ▼</button>
         <button type="button" class="outline secondary" data-sort-key="prompt" data-sort-dir="desc" onclick="sortBenchCompare(this)">Prompt tok/s ▼</button>
         <button type="button" class="outline secondary" data-sort-key="ttft"   data-sort-dir="asc"  onclick="sortBenchCompare(this)">TTFT ▲</button>
+        {{if .HasEval}}<button type="button" class="outline secondary" data-sort-key="score"  data-sort-dir="asc"  onclick="sortBenchCompare(this)" title="Sort by the capability score: lower perplexity and KLD are better, higher accuracy is better — each row's own metric, no cross-metric math.">Score ▲</button>{{end}}
     </div>
 
     {{if gt .MaxGenTPS 0.0}}
@@ -66,7 +67,8 @@
              data-sort-name="{{.ModelName}}"
              data-sort-gen="{{printf "%.4f" .Summary.AvgGenTokPerSec}}"
              data-sort-prompt="{{printf "%.4f" .Summary.AvgPromptTokPerSec}}"
-             data-sort-ttft="{{printf "%.4f" .Summary.AvgTTFTMs}}">
+             data-sort-ttft="{{printf "%.4f" .Summary.AvgTTFTMs}}"
+            data-sort-score="{{printf "%.4f" (evalScoreValue .Eval)}}">
             <div class="bench-compare-label" title="{{.ModelName}} · {{.Quant}} · {{$buildLabel}}{{if .ModelID}} ({{.ModelID}}){{end}}">{{.ModelName}} ({{.Quant}}) ({{$buildLabel}})</div>
             <div class="bench-compare-bartrack">
                 <div class="bench-compare-barfill" style="width:{{printf "%.1f" (pctOf .Summary.AvgGenTokPerSec $.MaxGenTPS)}}%;background:var(--pico-primary);"></div>
@@ -93,7 +95,8 @@
              data-sort-name="{{.ModelName}}"
              data-sort-gen="{{printf "%.4f" .Summary.AvgGenTokPerSec}}"
              data-sort-prompt="{{printf "%.4f" .Summary.AvgPromptTokPerSec}}"
-             data-sort-ttft="{{printf "%.4f" .Summary.AvgTTFTMs}}">
+             data-sort-ttft="{{printf "%.4f" .Summary.AvgTTFTMs}}"
+            data-sort-score="{{printf "%.4f" (evalScoreValue .Eval)}}">
             <div class="bench-compare-label" title="{{.ModelName}} · {{.Quant}} · {{$buildLabel}}{{if .ModelID}} ({{.ModelID}}){{end}}">{{.ModelName}} ({{.Quant}}) ({{$buildLabel}})</div>
             <div class="bench-compare-bartrack">
                 <div class="bench-compare-barfill" style="width:{{printf "%.1f" (pctOf .Summary.AvgPromptTokPerSec $.MaxPromptTPS)}}%;background:var(--pico-ins-color);"></div>
@@ -117,6 +120,7 @@
                 <th title="Prompt Processing tokens/sec, mean ± stddev across repetitions">PP t/s</th>
                 <th title="Token Generation tokens/sec, mean ± stddev">TG t/s</th>
                 <th title="Time To First Token, milliseconds">TTFT (ms)</th>
+                {{if .HasEval}}<th title="Capability evaluation score — only capability runs (perplexity / KL-divergence / HellaSwag / Winogrande) produce one; each row shows its own metric (the mode is part of the row identity, so rows of different modes are not compared against each other). PPL: perplexity — lower is better. HellaSwag / Winogrande: accuracy with confidence interval and task count. KLD: deviation from the reference — 0 = identical. Performance runs show an em-dash here.">Score</th>{{end}}
                 <th>Size</th>
                 <th>GPUs</th>
                 <th>Context</th>
@@ -131,6 +135,33 @@
         {{range .Runs}}
         {{$run := .}}
         {{$b := .EffectiveBuild}}
+        {{/* Capability runs carry no per-size timing rows (they ran
+             offline through llama-perplexity). Render them as a single
+             row whose only number is the score — the performance cells
+             are em-dashes, not zeros, so they are not mistaken for a
+             measured speed. Legacy/failed performance runs (also no
+             SizeRows) are left out, as before. */}}
+        {{if not .SizeRows}}
+        {{if evalHas $run.Eval}}
+        <tr data-run-id="{{$run.ID}}"
+            data-sort-name="{{$run.ModelName}}"
+            data-sort-gen="0.0000"
+            data-sort-prompt="0.0000"
+            data-sort-ttft="0.0000"
+            data-sort-score="{{printf "%.4f" (evalScoreValue $run.Eval)}}">
+            <td title="{{$run.ModelID}}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{$run.ModelName}}</td>
+            <td><kbd>{{$run.Quant}}</kbd></td>
+            <td>—</td>
+            <td><span title="No timing rows — this is a capability evaluation, not a speed run." style="color:var(--pico-muted-color);cursor:help;">no timing</span></td>
+            <td>—</td>
+            <td>—</td>
+            <td>—</td>
+            {{if $.HasEval}}<td><strong>{{evalScoreText $run.Eval}}</strong></td>{{end}}
+            <td>—</td>
+            <td colspan="5">—</td>
+        </tr>
+        {{end}}
+        {{else}}
         {{/* One row per prompt size, matching llama-bench. A run with no
              per-size data (legacy, or failed before producing results)
              falls back to a single row using its mixed average. */}}
@@ -139,7 +170,8 @@
             data-sort-name="{{$run.ModelName}}"
             data-sort-gen="{{printf "%.4f" $sz.TGMean}}"
             data-sort-prompt="{{printf "%.4f" $sz.PPMean}}"
-            data-sort-ttft="{{printf "%.4f" $sz.AvgTTFTMs}}">
+            data-sort-ttft="{{printf "%.4f" $sz.AvgTTFTMs}}"
+            data-sort-score="{{printf "%.4f" (evalScoreValue $run.Eval)}}">
             <td title="{{$run.ModelID}}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{if $run.ConfigUnverified}}<span title="Config columns for this run may not reflect what actually ran — its job declared overrides before overrides were applied. Throughput is still valid." style="color:var(--pico-del-color,#b3261e);cursor:help;">&#9888;</span> {{end}}{{$run.ModelName}}</td>
             <td><kbd>{{$run.Quant}}</kbd></td>
             <td>{{if $run.SweepValues}}{{range $k, $v := $run.SweepValues}}<kbd title="{{$k}}">{{$v}}</kbd> {{end}}{{else}}—{{end}}</td>
@@ -147,6 +179,12 @@
             <td>{{printf "%.0f" $sz.PPMean}}{{if gt $sz.Count 1}} <small>± {{printf "%.0f" $sz.PPStd}}</small>{{end}}</td>
             <td><strong>{{printf "%.1f" $sz.TGMean}}</strong>{{if gt $sz.Count 1}} <small>± {{printf "%.1f" $sz.TGStd}}</small>{{end}}</td>
             <td>{{printf "%.0f" $sz.AvgTTFTMs}}</td>
+            {{if $.HasEval}}
+            {{/* Each row renders its own metric — the mode is part of the
+                 row identity, so a perplexity row and a HellaSwag row in
+                 the same comparison are not compared against each other. */}}
+            <td>{{if evalHas $run.Eval}}{{evalScoreText $run.Eval}}{{else}}—{{end}}</td>
+            {{end}}
             <td>{{printf "%.1f" $run.SizeGiB}} GiB</td>
             <td>{{if $run.Config.GPUAssign}}{{$run.Config.GPUAssign}}{{else}}all{{end}}</td>
             <td>{{$run.Config.ContextSize}}</td>
@@ -158,6 +196,7 @@
             </td>
             {{if $.HasLlamaBench}}<td>{{if $run.LlamaBench}}{{printf "%.1f" $run.LlamaBench.GenTokPerSec}}{{else}}—{{end}}</td>{{end}}
         </tr>
+        {{end}}
         {{end}}
         {{end}}
         </tbody>

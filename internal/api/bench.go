@@ -139,6 +139,21 @@ func (s *Server) renderBenchmarkList(w http.ResponseWriter, runs []benchmark.Ben
 		<button type="button" class="outline secondary" onclick="deleteSelectedRuns(this)">Delete Selected</button>
 	</div>`))
 
+	// The Score column is conditional: it appears only when at least one
+	// run in the list is a capability run (run.Eval set). A pure
+	// performance list renders exactly as before.
+	hasEval := hasEvalRuns(runs)
+	scoreCol := 0
+	if hasEval {
+		scoreCol = 1
+	}
+	cols := 10 + scoreCol
+	scoreHeader := ""
+	if hasEval {
+		scoreHeader = `
+			<th title="Capability evaluation score — only capability runs (perplexity / KL-divergence / HellaSwag / Winogrande presets) produce one. PPL: perplexity on the wikitext-2 test set — lower is better; the error bar is the uncertainty. HellaSwag / Winogrande: percentage of tasks answered correctly, with the confidence interval and the task count in parentheses. KLD: deviation of this model's probabilities from the reference model's — 0 means identical, so lower is better. Performance runs show an em-dash here.">Score</th>`
+	}
+
 	w.Write([]byte(`<table role="grid">
 		<thead><tr>
 			<th style="width:2rem;"><input type="checkbox" style="margin:0;" title="Select all" onchange="document.querySelectorAll('.bench-check').forEach(function(c){c.checked=this.checked}.bind(this));"></th>
@@ -146,7 +161,7 @@ func (s *Server) renderBenchmarkList(w http.ResponseWriter, runs []benchmark.Ben
 			<th>Quant</th>
 			<th title="Prompt Processing tokens/sec — higher is better.">PP t/s</th>
 			<th title="Token Generation tokens/sec — the speed you feel during chat.">TG t/s</th>
-			<th title="Time To First Token — lower is better.">TTFT</th>
+			<th title="Time To First Token — lower is better.">TTFT</th>` + scoreHeader + `
 			<th>Build</th>
 			<th>Preset</th>
 			<th>Date</th>
@@ -156,8 +171,8 @@ func (s *Server) renderBenchmarkList(w http.ResponseWriter, runs []benchmark.Ben
 	for _, name := range names {
 		g := idx[name]
 		fmt.Fprintf(w,
-			`<tbody class="bench-group-header collapsed" data-model="%s"><tr onclick="toggleBenchGroup(this.parentElement)"><td colspan="10" class="org-cell"><span class="caret">▸</span> <strong>%s</strong> <small>(%d)</small></td></tr></tbody>`,
-			html.EscapeString(name), html.EscapeString(name), len(g.runs))
+			`<tbody class="bench-group-header collapsed" data-model="%s"><tr onclick="toggleBenchGroup(this.parentElement)"><td colspan="%d" class="org-cell"><span class="caret">▸</span> <strong>%s</strong> <small>(%d)</small></td></tr></tbody>`,
+			html.EscapeString(name), cols, html.EscapeString(name), len(g.runs))
 
 		for _, run := range g.runs {
 			search := strings.ToLower(strings.Join([]string{run.ModelName, run.Quant, run.BuildID, run.BuildRef, run.Preset}, " "))
@@ -185,11 +200,22 @@ func (s *Server) renderBenchmarkList(w http.ResponseWriter, runs []benchmark.Ben
 				buildCell = "<small>" + html.EscapeString(run.BuildRef) + "</small>"
 			}
 
+			scoreCell := "—"
+			if run.Eval != nil {
+				if e := evalScoreText(run.Eval); e != "" {
+					scoreCell = e
+				} else {
+					scoreCell = "score unavailable"
+				}
+				pp, tg, ttft = "—", "—", "—"
+			}
+
 			fmt.Fprintf(w, `<tbody class="bench-row-group" data-model="%s" data-search="%s" style="display:none;">
 				<tr>
 					<td><input type="checkbox" class="bench-check" value="%s" style="margin:0;" %s></td>
 					<td>%s%s</td>
 					<td><kbd>%s</kbd></td>
+					<td>%s</td>
 					<td>%s</td>
 					<td>%s</td>
 					<td>%s</td>
@@ -202,17 +228,19 @@ func (s *Server) renderBenchmarkList(w http.ResponseWriter, runs []benchmark.Ben
 						</span>
 					</td>
 				</tr>
-				<tr><td colspan="10" class="bench-detail"></td></tr>
+				<tr><td colspan="%d" class="bench-detail"></td></tr>
 			</tbody>`,
 				html.EscapeString(name), html.EscapeString(search),
 				html.EscapeString(run.ID), runningTitle,
 				html.EscapeString(run.ModelName), benchTag,
 				html.EscapeString(run.Quant),
 				pp, tg, ttft,
+				scoreCell,
 				buildCell,
 				html.EscapeString(run.Preset),
 				run.CreatedAt.Format("Jan 2 15:04"),
-				html.EscapeString(run.ID))
+				html.EscapeString(run.ID),
+				cols)
 		}
 	}
 

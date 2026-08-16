@@ -548,10 +548,13 @@ func (s *Server) renderJobDetail(w http.ResponseWriter, job *benchmark.Benchmark
 		BuildLbl   string
 		TGTPS      string // formatted, "—" when no summary
 		PPTPS      string
+		Score      string // formatted capability score, "—" for performance cells
 		ErrorShort string
+		SkipShort  string
 	}
 	rows := make([]cellRow, 0, len(job.Cells))
 	var done, failed int
+	hasEval := false
 	for i, c := range job.Cells {
 		switch c.Status {
 		case benchmark.CellStatusCompleted:
@@ -559,7 +562,7 @@ func (s *Server) renderJobDetail(w http.ResponseWriter, job *benchmark.Benchmark
 		case benchmark.CellStatusFailed:
 			failed++
 		}
-		row := cellRow{Idx: i, Cell: c, ModelName: shortenModelName(c.ModelID), BuildLbl: c.BuildID, TGTPS: "—", PPTPS: "—"}
+		row := cellRow{Idx: i, Cell: c, ModelName: shortenModelName(c.ModelID), BuildLbl: c.BuildID, TGTPS: "—", PPTPS: "—", Score: "—"}
 		// Pull Quant from the registry first so pending cells (no run
 		// yet) still show it; the run's value wins once it exists.
 		if m, err := s.registry.Get(c.ModelID); err == nil {
@@ -576,7 +579,18 @@ func (s *Server) renderJobDetail(w http.ResponseWriter, job *benchmark.Benchmark
 				if run.BuildID != "" {
 					row.BuildLbl = run.BuildID
 				}
-				if run.Summary != nil {
+				if run.Eval != nil {
+					// Capability cell: the score column is where its
+					// result lives; the timing columns stay em-dash
+					// (the model ran offline through llama-perplexity,
+					// so it produced no t/s).
+					hasEval = true
+					if e := evalScoreText(run.Eval); e != "" {
+						row.Score = e
+					} else {
+						row.Score = "score unavailable"
+					}
+				} else if run.Summary != nil {
 					row.TGTPS = fmt.Sprintf("%.1f", run.Summary.AvgGenTokPerSec)
 					row.PPTPS = fmt.Sprintf("%.0f", run.Summary.AvgPromptTokPerSec)
 				}
@@ -588,15 +602,24 @@ func (s *Server) renderJobDetail(w http.ResponseWriter, job *benchmark.Benchmark
 				row.ErrorShort = row.ErrorShort[:80] + "…"
 			}
 		}
+		if c.SkipReason != "" {
+			// Informational, not an error: the cell completed with a
+			// known answer (the KL reference model's own cell).
+			row.SkipShort = c.SkipReason
+			if len(row.SkipShort) > 80 {
+				row.SkipShort = row.SkipShort[:80] + "…"
+			}
+		}
 		rows = append(rows, row)
 	}
 	s.renderPartial(w, "job_detail", struct {
-		Job    *benchmark.BenchmarkJob
-		Rows   []cellRow
-		Done   int
-		Failed int
-		Total  int
-	}{Job: job, Rows: rows, Done: done, Failed: failed, Total: len(job.Cells)})
+		Job     *benchmark.BenchmarkJob
+		Rows    []cellRow
+		Done    int
+		Failed  int
+		Total   int
+		HasEval bool
+	}{Job: job, Rows: rows, Done: done, Failed: failed, Total: len(job.Cells), HasEval: hasEval})
 }
 
 // handleJobForm renders the new-job modal contents (multi-select models,
@@ -648,13 +671,13 @@ func (s *Server) handleJobForm(w http.ResponseWriter, r *http.Request) {
 		Running     bool
 		KLReference []klRepoGroup
 	}{
-		Models:     enabled,
-		Builds:     builds,
-		Presets:    benchmark.Presets(),
-		GPUOptions: models.GPUAssignOptions(numGPUs, igpuFlags(gpuList)),
-		Params:     paramViews(numGPUs, igpuFlags(gpuList)),
-		MaxCells:   maxJobCells,
-		Running:    s.process.IsRunning(),
+		Models:      enabled,
+		Builds:      builds,
+		Presets:     benchmark.Presets(),
+		GPUOptions:  models.GPUAssignOptions(numGPUs, igpuFlags(gpuList)),
+		Params:      paramViews(numGPUs, igpuFlags(gpuList)),
+		MaxCells:    maxJobCells,
+		Running:     s.process.IsRunning(),
 		KLReference: klOptions,
 	})
 }

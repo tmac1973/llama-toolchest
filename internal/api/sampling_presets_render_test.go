@@ -5,7 +5,9 @@ import (
 	"html/template"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/tmac1973/llama-toolchest/internal/benchmark"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/web"
 )
@@ -23,6 +25,28 @@ var testFuncMap = template.FuncMap{
 	"vramFit":   func(gb float64) string { return "" },
 	"hasHFRepo": func(s string) bool { return false },
 	"version":   func() string { return "test" },
+	// Capability-score rendering funcs (bench_eval_display.go). The
+	// templates must parse with every custom func present, so these
+	// mirror parseTemplates' registration.
+	"evalScoreText":  func(e *benchmark.EvalScores) string { return evalScoreText(e) },
+	"evalScoreValue": func(e *benchmark.EvalScores) float64 { return evalScoreValue(e) },
+	"evalHas":        func(e *benchmark.EvalScores) bool { return evalHas(e) },
+	"evalSizeText":   func(p benchmark.Preset) string { return evalSizeText(p) },
+	"evalMeaningText": func(p benchmark.Preset) string {
+		return evalMeaningText(p)
+	},
+	"fmtBytes": func(b int64) string { return formatBytes(b) },
+	"fmtAge":   func(t time.Time) string { return fmtDurationSince(time.Since(t)) },
+	"add":      func(a, b int) int { return a + b },
+	"tern": func(cond bool, a, b int) int {
+		if cond {
+			return a
+		}
+		return b
+	},
+	// Note: this map must stay in sync with parseTemplates' funcMap —
+	// any template referencing a missing func fails the whole partial
+	// set's parse (and renderPartial then silently renders nothing).
 }
 
 // TestSamplingPresetsPartialRenders verifies the model_config partial renders

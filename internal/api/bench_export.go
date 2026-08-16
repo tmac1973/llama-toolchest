@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/tmac1973/llama-toolchest/internal/benchmark"
+	"github.com/tmac1973/llama-toolchest/internal/evaluate"
 )
 
 // ExportEnvelope is the on-disk JSON shape for both per-job and
@@ -109,12 +110,68 @@ func writeCSVExport(w http.ResponseWriter, filename string, runs []benchmark.Ben
 	}
 }
 
+// evalExportFields renders the run's capability scores as the seven
+// export columns, in header order: mode, dataset, score, error,
+// tasks/chunks, KL statistics, reference identity. Performance runs
+// (Eval == nil) get seven empty strings — matching how the per-mode
+// throughput columns already behave (empty, not zero) — and the JSON
+// export carries the same data through the run's own EvalScores.
+//
+// Values keep the tool's own precision (the parser pins it): perplexity
+// 4+5 decimals, KL 6 decimals, accuracy 4 decimals. The score column is
+// the single headline number in raw form; the display's formatted form
+// (plan step 1) lives in evalScoreText.
+func evalExportFields(e *benchmark.EvalScores) []string {
+	out := make([]string, 7)
+	if e == nil {
+		return out
+	}
+	out[0] = e.Mode
+	out[1] = e.Dataset
+	switch e.Mode {
+	case string(evaluate.ModePerplexity):
+		out[2] = strconv.FormatFloat(e.Perplexity, 'f', 5, 64)
+		out[3] = strconv.FormatFloat(e.PerplexityErr, 'f', 5, 64)
+		out[4] = evalCountOrFull(e.Chunks)
+	case string(evaluate.ModeKLDiv):
+		out[2] = strconv.FormatFloat(e.KLMean, 'f', 6, 64)
+		out[3] = strconv.FormatFloat(e.KLMeanErr, 'f', 6, 64)
+		out[4] = evalCountOrFull(e.Chunks)
+		out[5] = fmt.Sprintf("max=%s p999=%s same_top_pct=%.3f±%.3f",
+			strconv.FormatFloat(e.KLMax, 'f', 6, 64),
+			strconv.FormatFloat(e.KLP999, 'f', 6, 64),
+			e.SameTopPct, e.SameTopPctErr)
+	case string(evaluate.ModeHellaSwag), string(evaluate.ModeWinogrande):
+		out[2] = strconv.FormatFloat(e.Accuracy, 'f', 4, 64)
+		if e.Mode == string(evaluate.ModeWinogrande) {
+			// Winogrande's error is symmetric: the half-width of its CI.
+			out[3] = strconv.FormatFloat((e.AccuracyCIHigh-e.AccuracyCILow)/2, 'f', 4, 64)
+		}
+		out[4] = strconv.Itoa(e.Tasks)
+		out[5] = fmt.Sprintf("ci_low=%.4f ci_high=%.4f", e.AccuracyCILow, e.AccuracyCIHigh)
+	}
+	out[6] = e.Reference
+	return out
+}
+
+// evalCountOrFull renders the requested chunk cap the way the display
+// does: the number, or "full" when 0 (no actual-count parsing exists).
+func evalCountOrFull(n int) string {
+	if n <= 0 {
+		return "full"
+	}
+	return strconv.Itoa(n)
+}
+
 func writeCSVCells(cw *csv.Writer, runs []benchmark.BenchmarkRun, jobs jobLookup) error {
 	header := []string{
 		"job_id", "job_name", "run_id", "created_at",
 		"model_id", "model_name", "quant",
 		"build_id", "build_profile", "git_ref", "cmake_flags",
-		"preset", "sweep", "source",
+		"preset", "sweep",
+		"eval_mode", "eval_dataset", "eval_score", "eval_error",
+		"eval_tasks_chunks", "eval_kl_stats", "eval_reference",
+		"source",
 		"prompt_tokens", "gen_tokens", "depth", "concurrency", "repetition",
 		"pp_throughput", "pp_throughput_std",
 		"tg_throughput", "tg_throughput_std",
@@ -137,6 +194,7 @@ func writeCSVCells(cw *csv.Writer, runs []benchmark.BenchmarkRun, jobs jobLookup
 			build.ID, build.Profile, build.GitRef, formatCMakeFlags(build.CMakeFlags),
 			run.Preset, formatSweepValues(run.SweepValues),
 		}
+		base = append(base, evalExportFields(run.Eval)...)
 
 		if len(run.Results) > 0 {
 			for _, r := range run.Results {
@@ -193,7 +251,10 @@ func writeCSVSummary(cw *csv.Writer, runs []benchmark.BenchmarkRun, jobs jobLook
 		"job_id", "job_name", "run_id", "created_at",
 		"model_id", "model_name", "quant",
 		"build_id", "build_profile", "git_ref", "cmake_flags",
-		"preset", "sweep", "source", "status",
+		"preset", "sweep",
+		"eval_mode", "eval_dataset", "eval_score", "eval_error",
+		"eval_tasks_chunks", "eval_kl_stats", "eval_reference",
+		"source", "status",
 		"avg_pp_throughput", "avg_tg_throughput", "avg_ttft_ms",
 		"min_tg_throughput", "max_tg_throughput",
 		"result_count", "duration_ms",
@@ -226,11 +287,14 @@ func writeCSVSummary(cw *csv.Writer, runs []benchmark.BenchmarkRun, jobs jobLook
 			run.JobID, jobName, run.ID, run.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 			run.ModelID, run.ModelName, run.Quant,
 			build.ID, build.Profile, build.GitRef, formatCMakeFlags(build.CMakeFlags),
-			run.Preset, formatSweepValues(run.SweepValues), source, run.Status,
+			run.Preset, formatSweepValues(run.SweepValues),
+		}
+		row = append(row, evalExportFields(run.Eval)...)
+		row = append(row, source, run.Status,
 			avgPP, avgTG, avgTTFT,
 			minTG, maxTG,
 			itoa(count), strconv.FormatInt(run.DurationMs, 10),
-		}
+		)
 		if err := cw.Write(row); err != nil {
 			return err
 		}

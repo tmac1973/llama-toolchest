@@ -273,6 +273,22 @@
         <li><strong>TTFT</strong> — time to first token, including prompt processing. Lower = snappier perceived response.</li>
     </ul>
 
+    <h3>Capability benchmarks</h3>
+    <p>Capability presets (<code>perplexity-*</code>, <code>kl-divergence-*</code>, <code>hellaswag-*</code>, <code>winogrande-*</code>) measure what a model <em>can do</em>, not how fast. They run <code>llama-perplexity</code> directly against the model file, so the inference server is <strong>offline while a capability cell runs</strong> — the job runner stops it before the cell and restores it afterward (on success, failure, and cancel alike). A job can mix capability and performance presets; each cell shows its own kind of number in the results table, and a KL-divergence cell that <em>is</em> the reference model skips with an explanatory note instead of running an evaluation whose answer is known.</p>
+    <dl>
+        <dt>perplexity-quick / perplexity-full</dt>
+        <dd>Perplexity over the wikitext-2 test set — lower is better. Quick covers 100 chunks (~2–5 min/model); full covers all ~650 chunks (~15–40 min/model) and is the number comparable to llama.cpp's published figures. Both run at the fixed 512-token context, which is what makes the two comparable to each other and to published numbers.</dd>
+        <dt>kl-divergence-quick / kl-divergence-full</dt>
+        <dd>How far this model's token probabilities deviate from a <strong>reference model</strong>'s — 0 means identical, lower is better. Quick covers 100 chunks; full covers all ~650 chunks, and its reference base file is tens of GiB for large-vocabulary models (a disk-space check runs before it is generated). The reference defaults to the largest installed quant of each model's own HuggingFace repo (the job form's KL reference dropdown picks otherwise). The reference's logits are generated once as a visible job step and then cached in the data directory (the Evaluation Data card on this tab shows them, with their disk cost, and a per-file delete); deleting a cache entry only means the next KL job regenerates it.</dd>
+        <dt>hellaswag-quick / hellaswag-full</dt>
+        <dd>Commonsense accuracy — the percentage of candidate sentence endings the model ranks first. Quick scores 400 tasks (~1–5 min/model); full scores the entire ~10K-task validation set (~1–3 h/model), the publishable number. The result carries the tool's 95% confidence interval and the task count.</dd>
+        <dt>winogrande-quick / winogrande-full</dt>
+        <dd>Pronoun-resolution accuracy — the percentage of sentences completed with the correct referent. Quick scores 400 tasks (~1–3 min/model); full scores the entire ~1.2K-task debiased set (~5–15 min/model), the publishable number.</dd>
+    </dl>
+    <p><strong>Quick vs. full:</strong> quick variants are sized for sweeps — cheap enough to repeat across quants, builds, or settings while still resolving real differences. Full variants are the numbers you quote: larger sample, the same fixed 512-token context, and comparable to externally published figures.</p>
+    <p><strong>Datasets:</strong> the evaluations run over three pinned, redistributable datasets, downloaded on first use (a few MB total) and verified against a pinned SHA-256: <strong>wikitext-2</strong> (test split; license CC BY-SA 3.0; used by perplexity and KL-divergence), <strong>hellaswag</strong> (validation set; license MIT), and <strong>winogrande</strong> (debiased eval set; license Apache-2.0). The Evaluation Data card shows each one's state and size.</p>
+    <p><strong>Sampling parameters do not affect these scores.</strong> Every evaluation is a deterministic log-likelihood measurement over a fixed corpus — temperature, top-p, and the rest have no role in it, so a capability cell records the load-time configuration but ignores the sampling settings. A job may still sweep those parameters for its performance presets; the capability cells simply collapse to one per distinct load-time configuration rather than fanning out over values that cannot change the answer.</p>
+
     <h3>Actions</h3>
     <ul>
         <li><strong>Detail</strong> — expands the job's cell matrix, with each cell's sweep point and per-run data.</li>

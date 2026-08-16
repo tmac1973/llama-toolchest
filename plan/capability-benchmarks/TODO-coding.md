@@ -32,7 +32,7 @@ Marks: [ ] todo · [x] done · [!] blocked.
 - [x] 11. License strings live in the dataset table and render in phase 04's UI (attempts: 0)
   Step 5 of 5 in Phase 02 ("Dataset download, verification, and the logits cache store"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-02-datasets.md before writing code.
 
-## Phase 03 — Capability presets, job runner integration, and the job form (verify: pending, repairs: 0)
+## Phase 03 — Capability presets, job runner integration, and the job form (verify: passed, repairs: 0)
 
 - [x] 12. Presets (labels follow the existing duration-hint style; all counts (attempts: 0)
   Step 1 of 7 in Phase 03 ("Capability presets, job runner integration, and the job form"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-03-runner-integration.md before writing code.
@@ -51,17 +51,17 @@ Marks: [ ] todo · [x] done · [!] blocked.
 
 ## Phase 04 — Results display, export, evaluation-data card, and docs (verify: pending, repairs: 0)
 
-- [ ] 19. Results columns, conditional: a job or run list containing any run (attempts: 0)
+- [x] 19. Results columns, conditional: a job or run list containing any run (attempts: 0)
   Step 1 of 7 in Phase 04 ("Results display, export, evaluation-data card, and docs"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-04-results-and-management.md before writing code.
-- [ ] 20. Compare view: the same conditional columns; comparing runs of (attempts: 0)
+- [x] 20. Compare view: the same conditional columns; comparing runs of (attempts: 0)
   Step 2 of 7 in Phase 04 ("Results display, export, evaluation-data card, and docs"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-04-results-and-management.md before writing code.
-- [ ] 21. Export: the CSV/JSON export gains the eval fields (mode, dataset, (attempts: 0)
+- [x] 21. Export: the CSV/JSON export gains the eval fields (mode, dataset, (attempts: 0)
   Step 3 of 7 in Phase 04 ("Results display, export, evaluation-data card, and docs"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-04-results-and-management.md before writing code.
-- [ ] 22. Evaluation Data card (Benchmarks tab, beneath the jobs list): (attempts: 0)
+- [x] 22. Evaluation Data card (Benchmarks tab, beneath the jobs list): (attempts: 0)
   Step 4 of 7 in Phase 04 ("Results display, export, evaluation-data card, and docs"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-04-results-and-management.md before writing code.
-- [ ] 23. About-benchmarks modal (`bench_about.html`): its preset table's (attempts: 0)
+- [x] 23. About-benchmarks modal (`bench_about.html`): its preset table's (attempts: 0)
   Step 5 of 7 in Phase 04 ("Results display, export, evaluation-data card, and docs"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-04-results-and-management.md before writing code.
-- [ ] 24. Help page: a "Capability benchmarks" subsection under Benchmarks — (attempts: 0)
+- [x] 24. Help page: a "Capability benchmarks" subsection under Benchmarks — (attempts: 0)
   Step 6 of 7 in Phase 04 ("Results display, export, evaluation-data card, and docs"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-04-results-and-management.md before writing code.
-- [ ] 25. Render tests: run row with `Eval` set shows the score and em-dash (attempts: 0)
+- [x] 25. Render tests: run row with `Eval` set shows the score and em-dash (attempts: 0)
   Step 7 of 7 in Phase 04 ("Results display, export, evaluation-data card, and docs"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-04-results-and-management.md before writing code.

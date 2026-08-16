@@ -111,12 +111,22 @@ type ComparisonData struct {
 	MaxGenTPS     float64
 	MaxPromptTPS  float64
 	HasLlamaBench bool
+	// HasEval is true when at least one compared run carries capability
+	// scores; the compare view then shows the Score column. Mixed
+	// comparisons (some performance, some capability) show both — each
+	// row renders its own metric (the view template calls the
+	// mode-appropriate renderer per row), and the mode is part of the
+	// row identity so no cross-metric math happens.
+	HasEval bool
 }
 
 // BuildComparison prepares data for the comparison view.
 func BuildComparison(runs []BenchmarkRun) ComparisonData {
 	c := ComparisonData{Runs: runs}
 	for _, r := range runs {
+		if r.Eval != nil {
+			c.HasEval = true
+		}
 		if r.Summary == nil {
 			continue
 		}

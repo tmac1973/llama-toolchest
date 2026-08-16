@@ -46,6 +46,7 @@
                 <th>Status</th>
                 <th title="Token Generation tokens/sec">TG t/s</th>
                 <th title="Prompt Processing tokens/sec">PP t/s</th>
+                {{if .HasEval}}<th title="Capability evaluation score — only capability cells (perplexity / KL-divergence / HellaSwag / Winogrande) produce one. PPL: perplexity on the wikitext-2 test set — lower is better; the error bar is the uncertainty. HellaSwag / Winogrande: percentage of tasks answered correctly, with the confidence interval and task count in parentheses. KLD: deviation of this model's probabilities from the reference model's — 0 means identical, so lower is better. Performance cells show an em-dash here.">Score</th>{{end}}
                 <th>Attempt</th>
                 <th></th>
             </tr>
@@ -61,9 +62,11 @@
             <td><small>{{if .Cell.SweepValues}}{{range $k, $v := .Cell.SweepValues}}<kbd>{{$k}}={{$v}}</kbd> {{end}}{{else}}—{{end}}</small></td>
             <td><span class="cell-status status-{{.Cell.Status}}">{{.Cell.Status}}</span>
                 {{if .ErrorShort}}<br><small style="color:var(--pico-del-color);" title="{{.Cell.Error}}">{{.ErrorShort}}</small>{{end}}
+                {{if .SkipShort}}<br><small style="color:var(--pico-muted-color);cursor:help;" title="{{.Cell.SkipReason}}">{{.SkipShort}}</small>{{end}}
             </td>
             <td>{{.TGTPS}}</td>
             <td>{{.PPTPS}}</td>
+            {{if $.HasEval}}<td>{{.Score}}</td>{{end}}
             <td><small>{{.Cell.Attempt}}</small></td>
             <td>
                 {{if .Cell.BenchmarkRunID}}
@@ -78,7 +81,7 @@
           parent's 2s polling swaps. The id needs to be stable, which
           .Idx (the cell's position in the immutable Cells slice) gives us.
         */}}
-        <tr id="cell-detail-{{$j.ID}}-{{.Idx}}" hx-preserve="true"><td colspan="10" class="bench-detail"></td></tr>
+        <tr id="cell-detail-{{$j.ID}}-{{.Idx}}" hx-preserve="true"><td colspan="{{add 11 (tern $.HasEval 1 0)}}" class="bench-detail"></td></tr>
         {{end}}
         </tbody>
     </table>

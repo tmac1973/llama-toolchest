@@ -1,0 +1,91 @@
+{{define "eval_data"}}
+<div class="job-list" id="eval-data-card" style="margin-top:1rem;">
+    <details class="job-row" open>
+        <summary>
+            <span class="job-row-line1">
+                <strong>Evaluation Data</strong>
+                {{if .TotalText}}<span class="job-progress">logits cache: {{.TotalText}}</span>{{end}}
+            </span>
+            <span class="job-row-line2">
+                <small>Datasets download on first use (pinned URLs, SHA-256 verified). KL reference
+                logits are generated when a job needs them and cached until deleted — both regenerate
+                automatically, so deleting is always safe.</small>
+            </span>
+        </summary>
+        <div class="job-detail-slot">
+            <small><strong>Datasets</strong> — <span title="Downloaded automatically on first use of the matching evaluation; the hash is checked on download and re-checked here.">what each evaluation runs over</span></small>
+            <table role="grid" style="font-size:0.85rem;margin-top:0.25rem;">
+                <thead>
+                    <tr>
+                        <th>Dataset</th>
+                        <th title="The dataset's license. All three are redistributable, which is why the tool downloads them directly.">License</th>
+                        <th title="On-disk size of the stored file.">Size</th>
+                        <th title="not downloaded: fetched on first use · verified: present and matching its pinned SHA-256 · present, hash mismatch: a file is there but does not match the pinned hash — delete it manually or re-download it.">State</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {{range .Datasets}}
+                <tr>
+                    <td>{{.Name}}</td>
+                    <td>{{.License}}</td>
+                    <td>{{if .SizeText}}{{.SizeText}}{{else}}—{{end}}</td>
+                    <td>
+                        {{if eq .State "not downloaded"}}
+                        <span class="cell-status status-pending" title="Downloaded automatically the first time an evaluation that uses this dataset runs.">{{.State}}</span>
+                        {{else if eq .State "verified"}}
+                        <span class="cell-status status-completed" title="Present on disk and matching its pinned SHA-256 hash.">{{.State}}</span>
+                        {{else}}
+                        <span class="cell-status status-failed" title="A file is present but does not match the pinned SHA-256 hash. Remove it manually (or re-download it) before running evaluations that use it.">{{.State}}</span>
+                        {{end}}
+                    </td>
+                </tr>
+                {{end}}
+                </tbody>
+            </table>
+
+            <small style="margin-top:0.5rem;display:block;"><strong>KL reference logits</strong> — <span title="The logits files a KL-divergence job scores against, cached per (reference model, dataset, chunk count, context size). Deleting one only makes the next KL job regenerate it; nothing else is affected.">the cache KL-divergence cells score against</span></small>
+            {{if .Logits}}
+            <table role="grid" style="font-size:0.85rem;margin-top:0.25rem;">
+                <thead>
+                    <tr>
+                        <th title="The model the logits were generated from. The quant is the reference's own quantization.">Reference model</th>
+                        <th>Dataset</th>
+                        <th title="How much of the dataset the cached base covers. 'full' means the entire set.">Chunks</th>
+                        <th title="On-disk size. Full runs of large-vocabulary models are tens of GiB — see the estimate before generating one.">Size</th>
+                        <th title="When the file was last written.">Age</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                {{range .Logits}}
+                <tr>
+                    <td title="{{.Filename}}">{{.ModelLabel}} ({{.Quant}})</td>
+                    <td>{{.Dataset}}</td>
+                    <td>{{.ChunksText}}</td>
+                    <td>{{.SizeText}}</td>
+                    <td>{{.AgeText}}</td>
+                    <td>
+                        <form hx-post="/api/benchmarks/eval-data/delete-logits"
+                              hx-target="#eval-data-card"
+                              hx-swap="outerHTML"
+                              hx-include="this"
+                              hx-confirm="Delete the cached logits for {{.ModelLabel}} ({{.Quant}})? The next KL job will regenerate it.">
+                            <input type="hidden" name="model_id" value="{{.ModelID}}">
+                            <input type="hidden" name="quant" value="{{.Quant}}">
+                            <input type="hidden" name="dataset" value="{{.Dataset}}">
+                            <input type="hidden" name="chunks" value="{{.Chunks}}">
+                            <input type="hidden" name="ctx" value="{{.Ctx}}">
+                            <button type="submit" class="outline secondary" style="margin:0;padding:0.2rem 0.5rem;font-size:0.8rem;width:auto;">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {{end}}
+                </tbody>
+            </table>
+            {{else}}
+            <p style="font-size:0.85rem;color:var(--pico-muted-color);margin-top:0.25rem;">No cached reference logits yet. A KL-divergence job generates them on first use.</p>
+            {{end}}
+        </div>
+    </details>
+</div>
+{{end}}

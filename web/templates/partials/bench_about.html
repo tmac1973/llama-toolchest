@@ -1,10 +1,11 @@
 {{define "bench_about"}}
 <h5>What benchmarks measure</h5>
-<p>Two source paths produce results, both via real HTTP requests through the running router:</p>
+<p>Performance presets (<strong>internal-*</strong>, <strong>benchy-*</strong>) produce results via real HTTP requests through the running router:</p>
 <ul>
     <li><strong>internal-*</strong> presets drive an in-process loop that sends chat completion requests with a known prose prompt sized to a target token count and reads the timings llama.cpp returns in the response body.</li>
     <li><strong>benchy-*</strong> presets shell out to <a href="https://github.com/eugr/llama-benchy" target="_blank" rel="noopener">llama-benchy</a> via <code>uvx</code>, an external API benchmarker that supports concurrency and works with sharded GGUFs (where the legacy <code>llama-bench</code> tool fell over).</li>
 </ul>
+<p>Capability presets (<strong>perplexity-*</strong>, <strong>kl-divergence-*</strong>, <strong>hellaswag-*</strong>, <strong>winogrande-*</strong>) measure quality, not speed: they load the model directly with <code>llama-perplexity</code> and do <em>not</em> go through the router, so the inference server is offline while a capability cell runs.</p>
 
 <h5>Internal prompt</h5>
 <p>Every internal request is built by repeating a fixed prose passage until it hits the target character count, prefixed with a per-rep header to defeat llama.cpp's prompt cache. Approximate sizing: <code>{{.InternalPrompt.CharsPerToken}}</code> chars/token (English BPE average).</p>
@@ -17,7 +18,7 @@
     <pre style="font-size:0.75rem;white-space:pre-wrap;margin:0.25rem 0 0;max-height:240px;overflow-y:auto;">{{.InternalPrompt.Text}}</pre>
 </details>
 
-<h5>Presets</h5>
+<h5>Performance presets</h5>
 <table role="grid" style="font-size:0.8rem;">
     <thead>
         <tr>
@@ -31,6 +32,7 @@
     </thead>
     <tbody>
     {{range .Presets}}
+        {{if ne .EffectiveSource "capability"}}
         <tr title="{{.Description}}">
             <td><kbd>{{.Name}}</kbd></td>
             <td>{{.EffectiveSource}}</td>
@@ -39,6 +41,32 @@
             <td>{{.Repetitions}}</td>
             <td>{{if .Concurrency}}{{range $i, $c := .Concurrency}}{{if $i}}, {{end}}{{$c}}{{end}}{{else}}—{{end}}</td>
         </tr>
+        {{end}}
+    {{end}}
+    </tbody>
+</table>
+
+<h5>Capability presets</h5>
+<p>All capability presets run <code>llama-perplexity</code> directly against the model at a fixed 512-token context (the inference server is offline while they run), so the table is sized by task or chunk count rather than prompt/gen/reps — the performance columns above don't apply to these.</p>
+<table role="grid" style="font-size:0.8rem;">
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Mode</th>
+            <th>Size</th>
+            <th title="What the number means.">What the score means</th>
+        </tr>
+    </thead>
+    <tbody>
+    {{range .Presets}}
+        {{if eq .EffectiveSource "capability"}}
+        <tr title="{{.Description}}">
+            <td><kbd>{{.Name}}</kbd></td>
+            <td>{{.EvalMode}}</td>
+            <td>{{evalSizeText .}}</td>
+            <td>{{evalMeaningText .}}</td>
+        </tr>
+        {{end}}
     {{end}}
     </tbody>
 </table>
