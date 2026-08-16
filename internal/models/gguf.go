@@ -16,8 +16,15 @@ type GGUFMeta struct {
 	NHead         int    `json:"n_head"`
 	NKVHead       int    `json:"n_kv_head"`
 	ContextLength int    `json:"context_length"` // max trained context size
-	SupportsTools bool   `json:"supports_tools"` // chat template references tools
-	HasVision     bool   `json:"has_vision"`     // model has a built-in vision encoder
+	// VocabSize is the tokenizer's vocabulary count, read from the LENGTH
+	// of the tokenizer.ggml.tokens array in the header (the array lengths
+	// sit in the header; the contents are seek-past, not read). Zero on
+	// files without the key and on records parsed before this field
+	// existed; consumers that need a value anyway apply their own
+	// documented fallback (the KL logits estimate in internal/evaluate).
+	VocabSize     int  `json:"vocab_size,omitempty"`
+	SupportsTools bool `json:"supports_tools"` // chat template references tools
+	HasVision     bool `json:"has_vision"`     // model has a built-in vision encoder
 
 	// Reasoning / thinking mode detected from the chat template (see
 	// detectReasoning). Reasoning is the assembled capability; ReasoningChecked
@@ -61,6 +68,9 @@ func (meta *GGUFMeta) ApplyTo(m *Model) {
 	m.NHead = meta.NHead
 	m.NKVHead = meta.NKVHead
 	m.ContextLength = meta.ContextLength
+	if meta.VocabSize > 0 {
+		m.VocabSize = meta.VocabSize
+	}
 	m.SupportsTools = meta.SupportsTools
 	m.HasBuiltinVision = meta.HasVision
 	m.Reasoning = meta.Reasoning
@@ -235,6 +245,16 @@ func ParseGGUFMeta(path string) (*GGUFMeta, error) {
 				meta.SupportsTools = strings.Contains(v, "tools")
 				meta.Reasoning = detectReasoning(v)
 				meta.ReasoningChecked = true
+			}
+			continue
+
+		// tokenizer.ggml.tokens — the vocab size IS the array length. Read
+		// only the header (element type + count) and seek past the
+		// potentially huge string contents.
+		case key == "tokenizer.ggml.tokens" && valueType == ggufTypeArray:
+			if elemType, count, ok := readGGUFArrayHeader(f); ok {
+				meta.VocabSize = int(count)
+				skipGGUFArrayBody(f, elemType, count)
 			}
 			continue
 
@@ -551,6 +571,35 @@ func ggufFixedSize(t uint32) int64 {
 	}
 }
 
+// readGGUFArrayHeader reads an array value's element type and element
+// count, leaving the reader positioned at the first element.
+func readGGUFArrayHeader(r io.ReadSeeker) (elemType uint32, count uint64, ok bool) {
+	if err := binary.Read(r, binary.LittleEndian, &elemType); err != nil {
+		return 0, 0, false
+	}
+	if err := binary.Read(r, binary.LittleEndian, &count); err != nil {
+		return 0, 0, false
+	}
+	return elemType, count, true
+}
+
+// skipGGUFArrayBody seeks past an array body whose element type and count
+// have already been read. String arrays are stepped one length at a time;
+// fixed-size element arrays are a single seek.
+func skipGGUFArrayBody(r io.ReadSeeker, elemType uint32, count uint64) {
+	if sz := ggufFixedSize(elemType); sz > 0 {
+		r.Seek(int64(count)*sz, io.SeekCurrent)
+		return
+	}
+	for i := uint64(0); i < count; i++ {
+		var length uint64
+		if binary.Read(r, binary.LittleEndian, &length) != nil {
+			return
+		}
+		r.Seek(int64(length), io.SeekCurrent)
+	}
+}
+
 func skipGGUFValue(r io.ReadSeeker, valueType uint32) {
 	// Fixed-size types: seek past
 	if sz := ggufFixedSize(valueType); sz > 0 {
@@ -567,24 +616,10 @@ func skipGGUFValue(r io.ReadSeeker, valueType uint32) {
 		r.Seek(int64(length), io.SeekCurrent)
 
 	case ggufTypeArray:
-		var elemType uint32
-		binary.Read(r, binary.LittleEndian, &elemType)
-		var count uint64
-		binary.Read(r, binary.LittleEndian, &count)
-
-		// Fixed-size element arrays: single seek
-		if sz := ggufFixedSize(elemType); sz > 0 {
-			r.Seek(int64(count)*sz, io.SeekCurrent)
+		elemType, count, ok := readGGUFArrayHeader(r)
+		if !ok {
 			return
 		}
-
-		// String arrays: seek past each string (length + content)
-		for i := uint64(0); i < count; i++ {
-			var length uint64
-			if binary.Read(r, binary.LittleEndian, &length) != nil {
-				return
-			}
-			r.Seek(int64(length), io.SeekCurrent)
-		}
+		skipGGUFArrayBody(r, elemType, count)
 	}
 }

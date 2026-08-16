@@ -75,6 +75,7 @@ type Model struct {
 	NHead            int    `json:"n_head,omitempty"`
 	NKVHead          int    `json:"n_kv_head,omitempty"`
 	ContextLength    int    `json:"context_length,omitempty"`     // max trained context
+	VocabSize        int    `json:"vocab_size,omitempty"`         // tokenizer vocab size (tokenizer.ggml.tokens length)
 	SupportsTools    bool   `json:"supports_tools,omitempty"`     // chat template handles tools
 	HasBuiltinVision bool   `json:"has_builtin_vision,omitempty"` // vision encoder baked into model
 
@@ -566,8 +567,11 @@ func (r *Registry) BackfillGGUFMeta() {
 		// Records parsed before general.sampling.* keys were read — re-parse
 		// once to pick up embedded sampling defaults and the base-model repo.
 		needsSampling := m.NLayers > 0 && !m.SamplingChecked
+		// Records parsed before vocab-size capture existed — re-parse once
+		// to pick up tokenizer.ggml.tokens' length.
+		needsVocab := m.NLayers > 0 && m.VocabSize == 0
 
-		if !needsFull && !needsVision && !needsKV && !needsReasoning && !needsSampling {
+		if !needsFull && !needsVision && !needsKV && !needsReasoning && !needsSampling && !needsVocab {
 			continue
 		}
 		meta, err := ParseGGUFMeta(m.FilePath)
@@ -618,6 +622,11 @@ func (r *Registry) BackfillGGUFMeta() {
 				}
 				m.SamplingChecked = true
 				changed = true
+			}
+			if needsVocab && meta.VocabSize > 0 {
+				m.VocabSize = meta.VocabSize
+				changed = true
+				slog.Info("backfilled vocab size", "model", m.ID, "vocab", meta.VocabSize)
 			}
 		}
 	}

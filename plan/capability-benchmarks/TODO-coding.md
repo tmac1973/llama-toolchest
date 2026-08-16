@@ -4,7 +4,7 @@ Owned by the autonomous-coding run — do not edit while a run is active.
 Marks: [ ] todo · [x] done · [!] blocked.
 
 
-## Phase 01 — Evaluation engine and binary install (verify: pending, repairs: 0)
+## Phase 01 — Evaluation engine and binary install (verify: passed, repairs: 0)
 
 - [x] 01. Mode registry in `internal/evaluate`: (attempts: 0)
   Step 1 of 6 in Phase 01 ("Evaluation engine and binary install"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-01-eval-engine.md before writing code.
@@ -21,15 +21,15 @@ Marks: [ ] todo · [x] done · [!] blocked.
 
 ## Phase 02 — Dataset download, verification, and the logits cache store (verify: pending, repairs: 0)
 
-- [ ] 07. Layout under the data dir (constant root passed in by callers — (attempts: 0)
+- [x] 07. Layout under the data dir (constant root passed in by callers — (attempts: 0)
   Step 1 of 5 in Phase 02 ("Dataset download, verification, and the logits cache store"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-02-datasets.md before writing code.
-- [ ] 08. Pinned dataset table — one struct per dataset: name, download URL, (attempts: 0)
+- [x] 08. Pinned dataset table — one struct per dataset: name, download URL, (attempts: 0)
   Step 2 of 5 in Phase 02 ("Dataset download, verification, and the logits cache store"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-02-datasets.md before writing code.
-- [ ] 09. `EnsureDataset(ctx, root, name) (path, error)`: present + hash (attempts: 0)
+- [x] 09. `EnsureDataset(ctx, root, name) (path, error)`: present + hash (attempts: 0)
   Step 3 of 5 in Phase 02 ("Dataset download, verification, and the logits cache store"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-02-datasets.md before writing code.
-- [ ] 10. Logits cache (`klcache.go`): (attempts: 0)
+- [x] 10. Logits cache (`klcache.go`): (attempts: 0)
   Step 4 of 5 in Phase 02 ("Dataset download, verification, and the logits cache store"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-02-datasets.md before writing code.
-- [ ] 11. License strings live in the dataset table and render in phase 04's UI (attempts: 0)
+- [x] 11. License strings live in the dataset table and render in phase 04's UI (attempts: 0)
   Step 5 of 5 in Phase 02 ("Dataset download, verification, and the logits cache store"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-02-datasets.md before writing code.
 
 ## Phase 03 — Capability presets, job runner integration, and the job form (verify: pending, repairs: 0)

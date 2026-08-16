@@ -15,6 +15,7 @@ import (
 
 	"github.com/tmac1973/llama-toolchest/internal/api"
 	"github.com/tmac1973/llama-toolchest/internal/config"
+	"github.com/tmac1973/llama-toolchest/internal/evaluate"
 )
 
 // Build info, populated via -ldflags by goreleaser.
@@ -99,6 +100,14 @@ func initDataDir(cfg *config.Config) error {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("creating %s: %w", dir, err)
 		}
+	}
+	// A crash mid-KL-base-generation leaves a <name>.kld.partial behind
+	// (clean exits rename it, failures delete it); remove stale corpses
+	// once at startup, next to the directory creation.
+	if n, err := evaluate.CleanStalePartials(evaluate.EvalDataRoot(cfg.DataDir)); err != nil {
+		slog.Warn("cleaning stale KL cache partials", "error", err)
+	} else if n > 0 {
+		slog.Info("removed stale KL cache partials", "count", n)
 	}
 	return nil
 }
