@@ -447,11 +447,23 @@ func (s *Server) handleCompareBenchmarks(w http.ResponseWriter, r *http.Request)
 
 	ids := strings.Split(idsParam, ",")
 	var runs []benchmark.BenchmarkRun
+	var missing []string
 	for _, id := range ids {
 		id = strings.TrimSpace(id)
-		if run, err := s.bench.Get(id); err == nil {
-			runs = append(runs, *run)
+		if id == "" {
+			continue
 		}
+		run, err := s.bench.Get(id)
+		if err != nil {
+			// Selected but no longer in the store — deleted between
+			// selecting and comparing. Recorded rather than dropped: a
+			// comparison holding fewer runs than the user picked, with
+			// nothing said about it, is how a missing contender goes
+			// unnoticed.
+			missing = append(missing, id)
+			continue
+		}
+		runs = append(runs, *run)
 	}
 
 	if len(runs) < 2 {
@@ -460,6 +472,7 @@ func (s *Server) handleCompareBenchmarks(w http.ResponseWriter, r *http.Request)
 	}
 
 	comparison := benchmark.BuildComparison(runs)
+	comparison.MissingRunIDs = missing
 
 	if isHTMX(r) {
 		respondHTML(w)

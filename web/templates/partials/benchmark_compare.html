@@ -14,6 +14,9 @@
 }
 .bench-compare-barfill { border-radius:4px; height:100%; min-width:2px; }
 .bench-compare-value { width:60px; font-size:0.85rem; }
+.bench-compare-rank { width:56px; font-size:0.75rem; text-align:right; color:var(--pico-muted-color); }
+.bench-compare-rank mark { padding:0 0.3rem; font-size:0.7rem; }
+.bench-compare-label { cursor:help; }
 
 .bench-compare-table th[data-run-id] {
     min-width:160px; max-width:280px;
@@ -52,28 +55,34 @@
         {{if .HasEval}}<button type="button" class="outline secondary" data-sort-key="score"  data-sort-dir="asc"  onclick="sortBenchCompare(this)" title="Sort by the capability score, best result first. Each row keeps its own metric — lower perplexity and KLD are better, higher accuracy is better — and the sort normalises for that rather than comparing the raw numbers across metrics. Performance runs have no score and sort to the end.">Score ▲</button>{{end}}
     </div>
 
+    {{if .MixedPromptSizes}}
+    <div class="callout" style="font-size:0.8rem;padding:0.4rem 0.6rem;margin-bottom:0.5rem;">
+        <strong>These runs did not all measure the same prompt lengths.</strong>
+        Each bar is that run's average over whatever it measured, and prompt speed climbs steeply with prompt length,
+        so the bars are not strictly comparable with one another. The details table below breaks every run out by prompt length —
+        compare rows with the same <em>Test</em> value.
+    </div>
+    {{end}}
+
     {{if gt .MaxGenTPS 0.0}}
     <small><strong>Generation Speed (tokens/sec)</strong></small>
     <div class="bench-compare-bars">
         {{range .Runs}}
         {{if .Summary}}
-        {{$b := .EffectiveBuild}}
-        {{$buildLabel := ""}}
-        {{if $b.Profile}}{{$buildLabel = $b.Profile}}{{end}}
-        {{if $b.GitRef}}{{if $buildLabel}}{{$buildLabel = printf "%s · %s" $buildLabel $b.GitRef}}{{else}}{{$buildLabel = $b.GitRef}}{{end}}{{end}}
-        {{if not $buildLabel}}{{$buildLabel = "build?"}}{{end}}
+        {{$lbl := index $.Labels .ID}}
         <div class="bench-compare-row"
              data-run-id="{{.ID}}"
-             data-sort-name="{{.ModelName}}"
+             data-sort-name="{{$lbl.Short}}"
              data-sort-gen="{{printf "%.4f" .Summary.AvgGenTokPerSec}}"
              data-sort-prompt="{{printf "%.4f" .Summary.AvgPromptTokPerSec}}"
              data-sort-ttft="{{printf "%.4f" .Summary.AvgTTFTMs}}"
             data-sort-score="{{printf "%.4f" (evalScoreValue .Eval)}}">
-            <div class="bench-compare-label" title="{{.ModelName}} · {{.Quant}} · {{$buildLabel}}{{if .ModelID}} ({{.ModelID}}){{end}}">{{.ModelName}} ({{.Quant}}) ({{$buildLabel}})</div>
+            <div class="bench-compare-label" title="{{$lbl.Full}}">{{$lbl.Short}}</div>
             <div class="bench-compare-bartrack">
                 <div class="bench-compare-barfill" style="width:{{printf "%.1f" (pctOf .Summary.AvgGenTokPerSec $.MaxGenTPS)}}%;background:var(--pico-primary);"></div>
             </div>
             <div class="bench-compare-value"><strong>{{printf "%.1f" .Summary.AvgGenTokPerSec}}</strong></div>
+            <div class="bench-compare-rank">{{if eq .ID $.BestGenRunID}}<mark title="Fastest of the compared runs on this measure.">best</mark>{{else}}<small title="How far behind the fastest run this one is.">&minus;{{printf "%.0f" (pctBehind .Summary.AvgGenTokPerSec $.MaxGenTPS)}}%</small>{{end}}</div>
         </div>
         {{end}}
         {{end}}
@@ -85,26 +94,38 @@
     <div class="bench-compare-bars">
         {{range .Runs}}
         {{if .Summary}}
-        {{$b := .EffectiveBuild}}
-        {{$buildLabel := ""}}
-        {{if $b.Profile}}{{$buildLabel = $b.Profile}}{{end}}
-        {{if $b.GitRef}}{{if $buildLabel}}{{$buildLabel = printf "%s · %s" $buildLabel $b.GitRef}}{{else}}{{$buildLabel = $b.GitRef}}{{end}}{{end}}
-        {{if not $buildLabel}}{{$buildLabel = "build?"}}{{end}}
+        {{$lbl := index $.Labels .ID}}
         <div class="bench-compare-row"
              data-run-id="{{.ID}}"
-             data-sort-name="{{.ModelName}}"
+             data-sort-name="{{$lbl.Short}}"
              data-sort-gen="{{printf "%.4f" .Summary.AvgGenTokPerSec}}"
              data-sort-prompt="{{printf "%.4f" .Summary.AvgPromptTokPerSec}}"
              data-sort-ttft="{{printf "%.4f" .Summary.AvgTTFTMs}}"
             data-sort-score="{{printf "%.4f" (evalScoreValue .Eval)}}">
-            <div class="bench-compare-label" title="{{.ModelName}} · {{.Quant}} · {{$buildLabel}}{{if .ModelID}} ({{.ModelID}}){{end}}">{{.ModelName}} ({{.Quant}}) ({{$buildLabel}})</div>
+            <div class="bench-compare-label" title="{{$lbl.Full}}">{{$lbl.Short}}</div>
             <div class="bench-compare-bartrack">
                 <div class="bench-compare-barfill" style="width:{{printf "%.1f" (pctOf .Summary.AvgPromptTokPerSec $.MaxPromptTPS)}}%;background:var(--pico-ins-color);"></div>
             </div>
             <div class="bench-compare-value"><strong>{{printf "%.0f" .Summary.AvgPromptTokPerSec}}</strong></div>
+            <div class="bench-compare-rank">{{if eq .ID $.BestPromptRunID}}<mark title="Fastest of the compared runs on this measure.">best</mark>{{else}}<small title="How far behind the fastest run this one is.">&minus;{{printf "%.0f" (pctBehind .Summary.AvgPromptTokPerSec $.MaxPromptTPS)}}%</small>{{end}}</div>
         </div>
         {{end}}
         {{end}}
+    </div>
+    {{end}}
+
+    {{if .MissingRunIDs}}
+    <div class="callout" style="font-size:0.8rem;padding:0.4rem 0.6rem;margin-bottom:0.5rem;border-left-color:var(--pico-del-color);">
+        <strong>{{len .MissingRunIDs}} selected {{if eq (len .MissingRunIDs) 1}}run is{{else}}runs are{{end}} no longer in the results</strong>
+        and could not be compared — {{if eq (len .MissingRunIDs) 1}}it was{{else}}they were{{end}} probably deleted after being selected.
+    </div>
+    {{end}}
+
+    {{if .NoResultRuns}}
+    <div class="callout" style="font-size:0.8rem;padding:0.4rem 0.6rem;margin-bottom:0.5rem;border-left-color:var(--pico-del-color);">
+        <strong>{{len .NoResultRuns}} of the selected {{if eq (len .NoResultRuns) 1}}run{{else}}runs{{end}} produced no results</strong>
+        and {{if eq (len .NoResultRuns) 1}}is{{else}}are{{end}} not shown below:
+        {{range $i, $r := .NoResultRuns}}{{if $i}}, {{end}}<kbd title="{{if $r.Error}}{{$r.Error}}{{else}}No timings and no capability score were recorded.{{end}}">{{$r.ModelName}} · {{$r.Preset}} ({{$r.Status}})</kbd>{{end}}
     </div>
     {{end}}
 
@@ -144,12 +165,12 @@
         {{if not .SizeRows}}
         {{if evalHas $run.Eval}}
         <tr data-run-id="{{$run.ID}}"
-            data-sort-name="{{$run.ModelName}}"
+            data-sort-name="{{(index $.Labels $run.ID).Short}}"
             data-sort-gen="0.0000"
             data-sort-prompt="0.0000"
             data-sort-ttft="0.0000"
             data-sort-score="{{printf "%.4f" (evalScoreValue $run.Eval)}}">
-            <td title="{{$run.ModelID}}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{$run.ModelName}}</td>
+            <td title="{{(index $.Labels $run.ID).Full}}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help;">{{$run.ModelName}}</td>
             <td><kbd>{{$run.Quant}}</kbd></td>
             <td>—</td>
             <td><span title="No timing rows — this is a capability evaluation, not a speed run." style="color:var(--pico-muted-color);cursor:help;">no timing</span></td>
@@ -171,14 +192,14 @@
              falls back to a single row using its mixed average. */}}
         {{range $sz := .SizeRows}}
         <tr data-run-id="{{$run.ID}}"
-            data-sort-name="{{$run.ModelName}}"
+            data-sort-name="{{(index $.Labels $run.ID).Short}}"
             data-sort-gen="{{printf "%.4f" $sz.TGMean}}"
             data-sort-prompt="{{printf "%.4f" $sz.PPMean}}"
             data-sort-ttft="{{printf "%.4f" $sz.AvgTTFTMs}}"
             data-sort-score="{{printf "%.4f" (evalScoreValue $run.Eval)}}">
-            <td title="{{$run.ModelID}}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{if $run.ConfigUnverified}}<span title="Config columns for this run may not reflect what actually ran — its job declared overrides before overrides were applied. Throughput is still valid." style="color:var(--pico-del-color,#b3261e);cursor:help;">&#9888;</span> {{end}}{{$run.ModelName}}</td>
+            <td title="{{(index $.Labels $run.ID).Full}}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help;">{{if $run.ConfigUnverified}}<span title="Config columns for this run may not reflect what actually ran — its job declared overrides before overrides were applied. Throughput is still valid." style="color:var(--pico-del-color,#b3261e);cursor:help;">&#9888;</span> {{end}}{{$run.ModelName}}</td>
             <td><kbd>{{$run.Quant}}</kbd></td>
-            <td>{{if $run.SweepValues}}{{range $k, $v := $run.SweepValues}}<kbd title="{{$k}}">{{$v}}</kbd> {{end}}{{else}}—{{end}}</td>
+            <td>{{if $run.SweepValues}}{{range $k, $v := $run.SweepValues}}<kbd>{{$k}}={{$v}}</kbd> {{end}}{{else}}—{{end}}</td>
             <td>{{if $sz.PromptTokens}}<kbd>{{$sz.Label}}</kbd>{{else}}<span title="Averaged across prompt sizes; not comparable to llama-bench or to runs using a different preset." style="color:var(--pico-muted-color);cursor:help;">mixed</span>{{end}}</td>
             <td>{{printf "%.0f" $sz.PPMean}}{{if gt $sz.Count 1}} <small>± {{printf "%.0f" $sz.PPStd}}</small>{{end}}</td>
             <td><strong>{{printf "%.1f" $sz.TGMean}}</strong>{{if gt $sz.Count 1}} <small>± {{printf "%.1f" $sz.TGStd}}</small>{{end}}</td>
@@ -227,19 +248,22 @@ function sortBenchCompare(btn) {
     var view = btn.closest('#comparison-view');
     if (!view) return;
 
-    // Collect run IDs + sort values from any one of the bar charts (they
-    // all carry the same dataset attributes per run).
-    var anyRow = view.querySelector('.bench-compare-row[data-run-id]');
-    if (!anyRow) return;
-    var rows = view.querySelectorAll('.bench-compare-row[data-run-id]');
+    // Collect one sort value per run from EVERY element that carries
+    // them — the bar rows and the details-table rows. Bar rows come
+    // first in the document and hold the run-level figure, so they win;
+    // a capability run has no bar and supplies its value from the table
+    // instead. Reading only the bars used to leave table-only runs with
+    // no sort position at all.
     var byId = {};
-    rows.forEach(function(r) {
-        if (byId[r.dataset.runId] !== undefined) return;
-        var v = r.dataset[attr];
+    view.querySelectorAll('[data-run-id][data-' + dashCase(attr) + ']').forEach(function(el) {
+        var id = el.dataset.runId;
+        if (byId[id] !== undefined) return;
+        var v = el.dataset[attr];
         var num = parseFloat(v);
-        byId[r.dataset.runId] = isNaN(num) ? v : num;
+        byId[id] = isNaN(num) ? v : num;
     });
     var ids = Object.keys(byId);
+    if (!ids.length) return;
     ids.sort(function(a, b) {
         var va = byId[a], vb = byId[b];
         var cmp;
@@ -258,13 +282,37 @@ function sortBenchCompare(btn) {
         ids.forEach(function(id) { if (rowMap[id]) container.appendChild(rowMap[id]); });
     });
 
-    // Re-order rows in the details table tbody. One <tr> per run, so
-    // re-appending in sorted order moves them all into place.
+    // Re-order the details table. A run contributes ONE ROW PER PROMPT
+    // SIZE, not one row — the previous code assumed one, kept only the
+    // last row for each run in its lookup, and moved that single row
+    // while its siblings stayed put. The table came out scrambled
+    // rather than sorted, which is why sorting appeared not to work at
+    // all on any run measured at more than one prompt size.
     view.querySelectorAll('.bench-compare-table tbody').forEach(function(tbody) {
-        var rowMap = {};
-        tbody.querySelectorAll('tr[data-run-id]').forEach(function(tr) { rowMap[tr.dataset.runId] = tr; });
-        ids.forEach(function(id) { if (rowMap[id]) tbody.appendChild(rowMap[id]); });
+        var groups = {}, order = [];
+        tbody.querySelectorAll('tr[data-run-id]').forEach(function(tr) {
+            var id = tr.dataset.runId;
+            if (!groups[id]) { groups[id] = []; order.push(id); }
+            groups[id].push(tr);
+        });
+        // Sorted runs first, each run's rows kept together and in their
+        // original prompt-size order.
+        ids.forEach(function(id) {
+            (groups[id] || []).forEach(function(tr) { tbody.appendChild(tr); });
+        });
+        // Then anything the sort had no value for, so no row is lost.
+        order.forEach(function(id) {
+            if (byId[id] === undefined) {
+                groups[id].forEach(function(tr) { tbody.appendChild(tr); });
+            }
+        });
     });
+}
+
+// dashCase turns a dataset property name back into its attribute name
+// ("sortGen" -> "sort-gen") so the selector can require it.
+function dashCase(prop) {
+    return prop.replace(/[A-Z]/g, function(c) { return '-' + c.toLowerCase(); });
 }
 </script>
 {{end}}

@@ -326,6 +326,16 @@ func (s *Server) templateFuncs() template.FuncMap {
 			}
 			return nil
 		},
+		// pctBehind is how far a value falls short of the best in the
+		// comparison, as a positive percentage. The bar length already
+		// shows this, but reading a gap off two bar lengths is guesswork
+		// once there are more than a handful.
+		"pctBehind": func(value, max float64) float64 {
+			if max <= 0 || value >= max {
+				return 0
+			}
+			return (max - value) / max * 100
+		},
 		"vramFit": func(estimatedGB float64) string {
 			metrics := s.monitor.Current()
 			numGPUs := len(metrics.GPU)

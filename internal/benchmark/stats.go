@@ -3,6 +3,8 @@ package benchmark
 import (
 	"math"
 	"sort"
+	"strconv"
+	"strings"
 )
 
 // ComputeSummary aggregates results into a summary.
@@ -118,27 +120,84 @@ type ComparisonData struct {
 	// mode-appropriate renderer per row), and the mode is part of the
 	// row identity so no cross-metric math happens.
 	HasEval bool
+
+	// Labels names each run by what makes it DIFFERENT from the others,
+	// keyed by run ID. Without it a swept comparison renders every bar
+	// with the same text and the winner cannot be identified — which is
+	// the whole purpose of the view. See BuildRunLabels.
+	Labels map[string]RunLabel
+
+	// BestGenRunID and BestPromptRunID are the winning runs on each bar
+	// chart, so the view can mark them instead of leaving the reader to
+	// compare bar lengths by eye.
+	BestGenRunID    string
+	BestPromptRunID string
+
+	// MixedPromptSizes is true when the compared runs did not all
+	// measure the same prompt lengths. The bar charts show each run's
+	// average across whatever it measured, and prompt throughput climbs
+	// steeply with prompt length, so averages over different size sets
+	// are not comparable with one another. The view says so rather than
+	// presenting them side by side without comment.
+	MixedPromptSizes bool
+
+	// NoResultRuns are selected runs that produced neither timings nor a
+	// capability score — a failed run, most often. They used to vanish
+	// from both the chart and the table, so a comparison could silently
+	// contain fewer runs than the user picked.
+	NoResultRuns []BenchmarkRun
+
+	// MissingRunIDs are selected runs that no longer exist in the store,
+	// deleted between selecting them and asking for the comparison. Set
+	// by the handler, not by BuildComparison, which only sees the runs
+	// that resolved.
+	MissingRunIDs []string
 }
 
 // BuildComparison prepares data for the comparison view.
 func BuildComparison(runs []BenchmarkRun) ComparisonData {
-	c := ComparisonData{Runs: runs}
+	c := ComparisonData{Runs: runs, Labels: BuildRunLabels(runs)}
+	sizeSets := map[string]bool{}
 	for _, r := range runs {
 		if r.Eval != nil {
 			c.HasEval = true
 		}
 		if r.Summary == nil {
+			if r.Eval == nil {
+				c.NoResultRuns = append(c.NoResultRuns, r)
+			}
 			continue
 		}
 		if r.Summary.AvgGenTokPerSec > c.MaxGenTPS {
 			c.MaxGenTPS = r.Summary.AvgGenTokPerSec
+			c.BestGenRunID = r.ID
 		}
 		if r.Summary.AvgPromptTokPerSec > c.MaxPromptTPS {
 			c.MaxPromptTPS = r.Summary.AvgPromptTokPerSec
+			c.BestPromptRunID = r.ID
 		}
 		if r.LlamaBench != nil {
 			c.HasLlamaBench = true
 		}
+		sizeSets[promptSizeKey(r)] = true
 	}
+	c.MixedPromptSizes = len(sizeSets) > 1
 	return c
+}
+
+// promptSizeKey renders the set of prompt lengths a run measured, so
+// two runs that measured the same lengths compare equal. A run with no
+// per-size data reports "mixed": its average is over an unknown set and
+// cannot be assumed to match anything.
+func promptSizeKey(r BenchmarkRun) string {
+	rows := r.SizeRows()
+	parts := make([]string, 0, len(rows))
+	for _, s := range rows {
+		if s.PromptTokens == 0 {
+			return "mixed"
+		}
+		parts = append(parts, strconv.Itoa(s.PromptTokens))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ",")
 }

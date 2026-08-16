@@ -873,3 +873,84 @@ func TestSameTopTokenScaleHasNoGaps(t *testing.T) {
 		t.Errorf("no band covers the 90-95%% range: %v", bands)
 	}
 }
+
+// The compare view's details table renders ONE ROW PER PROMPT SIZE, so
+// a run measured at three sizes contributes three rows sharing a
+// data-run-id. The sort code assumed one row per run, which is what
+// made sorting appear not to work; this checks the markup the fixed
+// code depends on is actually there.
+func TestCompareTableRowsShareRunID(t *testing.T) {
+	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
+		"templates/layout.html", "templates/partials/*.html")
+	if err != nil {
+		t.Fatalf("parse templates: %v", err)
+	}
+
+	multi := perfRun("multi")
+	multi.Summary.PerSize = []benchmark.SizeSummary{
+		{PromptTokens: 128, TGMean: 40, Count: 3},
+		{PromptTokens: 512, TGMean: 38, Count: 3},
+		{PromptTokens: 2048, TGMean: 30, Count: 3},
+	}
+	single := perfRun("single")
+	single.Summary.PerSize = []benchmark.SizeSummary{{PromptTokens: 512, TGMean: 44, Count: 3}}
+
+	var buf bytes.Buffer
+	if err := base.ExecuteTemplate(&buf, "benchmark_compare",
+		benchmark.BuildComparison([]benchmark.BenchmarkRun{multi, single})); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	out := buf.String()
+	if n := strings.Count(out, `data-run-id="multi"`); n < 4 {
+		t.Errorf(`data-run-id="multi" appears %d times, want 4 (one bar row per chart plus three size rows)`, n)
+	}
+	// The sort has to be able to read a value for every run from the
+	// markup, or a run has no position to sort into.
+	if !strings.Contains(out, `data-sort-gen=`) {
+		t.Error("no sort values in the rendered comparison")
+	}
+}
+
+// Bar labels must differ from one another, and the tooltip must carry
+// the settings the visible label leaves out.
+func TestCompareBarsAreDistinguishable(t *testing.T) {
+	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
+		"templates/layout.html", "templates/partials/*.html")
+	if err != nil {
+		t.Fatalf("parse templates: %v", err)
+	}
+
+	mk := func(id string, gen float64, ub string) benchmark.BenchmarkRun {
+		r := perfRun(id)
+		r.Summary.AvgGenTokPerSec = gen
+		r.SweepValues = map[string]string{"ubatch_size": ub}
+		r.Summary.PerSize = []benchmark.SizeSummary{{PromptTokens: 512, TGMean: gen, Count: 1}}
+		r.Config = benchmark.ConfigSnapshot{GPULayers: 999, ContextSize: 8192, Threads: 8}
+		return r
+	}
+	runs := []benchmark.BenchmarkRun{mk("a", 85.6, "64"), mk("b", 100.5, "256")}
+
+	var buf bytes.Buffer
+	if err := base.ExecuteTemplate(&buf, "benchmark_compare", benchmark.BuildComparison(runs)); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	out := buf.String()
+
+	for _, want := range []string{"micro-batch 64", "micro-batch 256"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("bar labels do not name the swept value %q\n", want)
+		}
+	}
+	// The winner is marked rather than left to be judged by bar length.
+	if !strings.Contains(out, ">best<") {
+		t.Error("the fastest run is not marked")
+	}
+	// And the others say how far behind they are.
+	if !strings.Contains(out, "&minus;") {
+		t.Error("no shortfall shown against the leader")
+	}
+	// The tooltip carries the full configuration.
+	if !strings.Contains(out, "threads:") {
+		t.Errorf("the label tooltip does not carry the configuration\n%s", out[:400])
+	}
+}
