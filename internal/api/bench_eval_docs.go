@@ -86,7 +86,7 @@ var evalDocs = map[evaluate.Mode]evalDoc{
 			{
 				Value:   "5 to 15",
 				Verdict: "Normal",
-				Meaning: "The usual range for a modern model on this text. Where it lands inside that range depends on the model, so this on its own is not a grade.",
+				Meaning: "The usual range for a modern model on this text. Its exact position within that range depends on the model, so this on its own is not a grade.",
 			},
 			{
 				Value:   "0.05 above the largest version of the same model",
@@ -114,26 +114,26 @@ var evalDocs = map[evaluate.Mode]evalDoc{
 	evaluate.ModeKLDiv: {
 		Headline: "KL divergence measures how differently a compressed copy of a model behaves compared with the original. 0 means no difference at all.",
 		Reading: []string{
-			"This is the right test for the question \"how much did compressing this model change it?\". It checks the model's choices at every position in the text, so it notices differences that perplexity is too blunt to see.",
+			"This is the right test for the question \"how much did compressing this model change it?\". It checks the model's choices at every position in the text, so it notices differences that perplexity is not precise enough to see.",
 			"\"Same top token\" is the same finding in everyday terms: how often both versions would have picked the same next word.",
-			"Read the average. The maximum is only the single worst spot in the whole text, and one strange sentence can make it look alarming.",
+			"Read the average. The maximum is only the single worst position in the whole text, and one strange sentence can make it look alarming.",
 			"The score only means something against the reference model named beside it. A different reference is a different measurement.",
 		},
 		Examples: []evalExample{
 			{
 				Value:   "0.000 to 0.002",
 				Verdict: "Excellent",
-				Meaning: "Practically the same model. You would not notice the difference in use. This is where llama.cpp's 8-bit copies land.",
+				Meaning: "Practically the same model. You would not notice the difference in use. This is typical of llama.cpp's 8-bit copies.",
 			},
 			{
 				Value:   "around 0.01",
 				Verdict: "Good",
-				Meaning: "A small but real change. Fine for everyday use. Roughly llama.cpp's 5-bit copies.",
+				Meaning: "A small but real change. Fine for everyday use. Typical of llama.cpp's 5-bit copies.",
 			},
 			{
 				Value:   "around 0.03",
 				Verdict: "Noticeable",
-				Meaning: "Measurably different. Expect the occasional different answer. Roughly llama.cpp's 4-bit copies.",
+				Meaning: "Measurably different. Expect the occasional different answer. Typical of llama.cpp's 4-bit copies.",
 			},
 			{
 				Value:   "0.1 or more",
@@ -156,11 +156,11 @@ var evalDocs = map[evaluate.Mode]evalDoc{
 			{
 				URL:   "https://smcleod.net/2026/04/measuring-model-quantisation-quality-with-kl-divergence/",
 				Label: "Measuring model quantisation quality with KL divergence",
-				Note:  "A plain-language walkthrough of what the number means and where the thresholds come from, worked through on Qwen models.",
+				Note:  "A plain-language explanation of what the number means and where the thresholds come from, worked through on Qwen models.",
 			},
 			{
 				URL:   "https://github.com/ggml-org/llama.cpp/discussions/4110",
-				Label: "Why KL divergence beats perplexity for this",
+				Label: "Why KL divergence is better than perplexity for this",
 				Note:  "The llama.cpp discussion that explains why perplexity is a poor way to judge compression loss and this is a better one.",
 			},
 		},

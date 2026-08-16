@@ -212,7 +212,7 @@
     <p>Predict multiple tokens per step for a speedup with no quality change. <em>Draft Model</em> uses a smaller same-architecture model as the drafter (largest and most consistent speedup). N-gram modes use pattern matching with no extra model — best for repetitive workloads. Click the <strong>?</strong> button in the Configure dialog for per-mode details.</p>
 
     <h3>Sampling</h3>
-    <p>Temperature, top-p, top-k, min-p, penalties — applied per-request with no restart needed. Leave blank to use server defaults. When a model is downloaded (or found by a scan), recommended presets are gathered automatically from three sources, in order: sampling defaults embedded in the GGUF file itself (<code>general.sampling.*</code> metadata, shipped by all major quantizers since late 2025), the Unsloth docs page for the model family (which adds thinking / non-thinking / coding variants and parameters vendors omit), and the base model's <code>generation_config.json</code> on HuggingFace. The <em>Preset</em> dropdown offers whatever was found, each labeled with its source — pick one to fill in the fields, then tweak as you like.</p>
+    <p>Temperature, top-p, top-k, min-p, penalties — applied per-request with no restart needed. Leave blank to use server defaults. When a model is downloaded (or found by a scan), recommended presets are gathered automatically from three sources, in order: sampling defaults embedded in the GGUF file itself (<code>general.sampling.*</code> metadata, included by all major quantizers since late 2025), the Unsloth docs page for the model family (which adds thinking / non-thinking / coding variants and parameters vendors omit), and the base model's <code>generation_config.json</code> on HuggingFace. The <em>Preset</em> dropdown offers whatever was found, each labeled with its source — pick one to fill in the fields, then tweak as you like.</p>
     <p>One subtlety: for recent GGUFs, blank fields do <em>not</em> mean "no sampling opinion". llama-server reads the file's embedded defaults on its own and applies them whenever nothing overrides them, and the config form notes when that's the case. Picking a preset or typing a value takes precedence.</p>
     <p>The <strong>&#8635; Refresh presets</strong> button re-runs the lookup — useful when you grabbed a model on release day, before its docs page existed.</p>
 
@@ -228,7 +228,7 @@
     <p>Gated models require a HuggingFace token — set it under <a href="/settings">Settings</a>.</p>
 
     <h3>Vision models &amp; projector files</h3>
-    <p>Some vision-capable LLMs ship as two files: the main GGUF (text+vision weights) and a separate <strong>mmproj</strong> file (the vision projector — maps image embeddings into the model's text space). On HuggingFace these usually live in the same repo, with names like <code>mmproj-<em>model</em>.gguf</code>.</p>
+    <p>Some vision-capable LLMs come as two files: the main GGUF (text+vision weights) and a separate <strong>mmproj</strong> file (the vision projector — maps image embeddings into the model's text space). On HuggingFace these usually live in the same repo, with names like <code>mmproj-<em>model</em>.gguf</code>.</p>
     <ul>
         <li><strong>Downloading the main GGUF does not automatically fetch the mmproj.</strong> You need to click it in the file list to download it too.</li>
         <li>Once the mmproj is downloaded into the same model directory, it's <strong>auto-associated</strong> with its LLM — the Configure dialog's <em>Vision Projector (mmproj)</em> field fills in automatically.</li>
@@ -260,7 +260,7 @@
 
     <h3>Parameters and sweeps</h3>
     <p>Each parameter in a job defaults to every model's own saved setting. Pick <strong>one</strong> value to use it for the whole job; pick <strong>several</strong> and each becomes its own cell. There is no separate "override" concept — one value is an override, more than one is a sweep.</p>
-    <p>Parameters marked <strong>&#8635;</strong> reload llama-server for each distinct value, which is what makes a sweep slow. Sampling settings ride along with each request and cost nothing extra. The matrix preview shows both the cell count and the estimated number of reloads before you commit.</p>
+    <p>Parameters marked <strong>&#8635;</strong> reload llama-server for each distinct value, which is what makes a sweep slow. Sampling settings are sent with each request and cost nothing extra. The matrix preview shows both the cell count and the estimated number of reloads before you commit.</p>
     <p>A job's parameters are applied to a throwaway preset file; your saved model configs are never modified, so a cancelled or crashed job cannot leave a model misconfigured.</p>
     <div class="callout">
         <strong>Finding a good micro-batch:</strong> <code>-ub</code> usually has the largest effect on prompt-processing speed, and the best value depends on both the model and the card — there is no default worth trusting. Select a model, a build and a long-context preset, then pick several micro-batch values (or use <em>Find best micro-batch</em>) and compare the PP column.
@@ -282,14 +282,14 @@
             <tr>
                 <th style="width:9rem;">Test</th>
                 <th>The question it asks</th>
-                <th>Reach for it when…</th>
+                <th>Use it when…</th>
             </tr>
         </thead>
         <tbody>
             <tr>
                 <td><strong>perplexity</strong></td>
                 <td>How well does this model predict ordinary written English?</td>
-                <td>You want a quick health check on a model file, or to watch one model as you change its settings.</td>
+                <td>You want to check that a model file is working correctly, or to watch one model as you change its settings.</td>
             </tr>
             <tr>
                 <td><strong>kl-divergence</strong></td>
@@ -312,11 +312,11 @@
     <h4>What each one does</h4>
     <dl>
         <dt>perplexity-quick / perplexity-full</dt>
-        <dd>The model reads passages of Wikipedia articles, and at every word we record how surprised it was to see that word. A lower score means it predicted better. Use it to confirm a model file is sound, or to see whether a setting you changed cost you anything. One catch: a perplexity score only means something next to another score <em>from the same model</em>. Different models cut text into pieces in different ways, so their scores are not on the same scale and cannot be compared.
+        <dd>The model reads passages of Wikipedia articles, and at every word we record how surprised it was to see that word. A lower score means it predicted better. Use it to confirm a model file is working correctly, or to see whether a setting you changed cost you anything. One limitation: a perplexity score only means something next to another score <em>from the same model</em>. Different models cut text into pieces in different ways, so their scores are not on the same scale and cannot be compared.
             <br><small>Quick reads 100 passages (2–5 minutes per model). Full reads all ~650 (15–40 minutes) and is the version worth writing down. <a href="https://github.com/ggml-org/llama.cpp/blob/master/tools/perplexity/README.md" target="_blank" rel="noopener">How to read a perplexity score</a>.</small></dd>
 
         <dt>kl-divergence-quick / kl-divergence-full</dt>
-        <dd>Runs the same Wikipedia text through two copies of one model — the one you are testing, and a larger copy used as the yardstick — and measures how far apart their guesses are. 0 means the two behave identically. This is the most sensitive way to answer "is the smaller file good enough?", because it compares the two at every single word instead of boiling everything down to one number. It needs two versions of the same model installed; by default the largest one you have is the yardstick, and the job form lets you pick a different one. That yardstick has to be measured once first, which produces a large file — tens of gigabytes for models with big vocabularies — that is then kept and reused. The Evaluation Data card lower down this tab shows it and lets you delete it.
+        <dd>Runs the same Wikipedia text through two copies of one model — the one you are testing, and a larger copy it is measured against — and measures how far apart their guesses are. 0 means the two behave identically. This is the most sensitive way to answer "is the smaller file good enough?", because it compares the two at every single word instead of reducing everything to one number. It needs two versions of the same model installed; by default the largest one you have is used for the comparison, and the job form lets you pick a different one. That larger copy has to be measured once first, which produces a large file — tens of gigabytes for models with big vocabularies — that is then kept and reused. The Evaluation Data card lower down this tab shows it and lets you delete it.
             <br><small>Quick reads 100 passages (2–5 minutes per model); full reads all ~650 (15–40 minutes). <a href="https://smcleod.net/2026/04/measuring-model-quantisation-quality-with-kl-divergence/" target="_blank" rel="noopener">A plain-language walkthrough of the numbers</a>, and <a href="https://github.com/ggml-org/llama.cpp/blob/master/tools/perplexity/README.md" target="_blank" rel="noopener">the llama.cpp measurement guide</a> (it covers perplexity and KL divergence together, because llama.cpp measures both with the same program).</small></dd>
 
         <dt>hellaswag-quick / hellaswag-full</dt>
@@ -337,15 +337,15 @@
     </ul>
 
     <h4>Reading the result</h4>
-    <p>Open a finished capability run in the results list and expand <strong>How to read this score</strong>. It explains what the number measures, shows a table of good and bad values so you can place your own, and links to fuller descriptions.</p>
-    <p>Two things catch people out everywhere. The number after <strong>±</strong> is the margin of error, not a range of acceptable values: if two results' ranges overlap, the test has not found a real difference between them. And a short run has a wide margin — often wider than the gap between two sizes of the same model file, which is exactly why KL divergence exists.</p>
+    <p>Open a finished capability run in the results list and expand <strong>How to read this score</strong>. It explains what the number measures, shows a table of good and bad values so you can see where your own score sits, and links to fuller descriptions.</p>
+    <p>Two things are easy to misread. The number after <strong>±</strong> is the margin of error, not a range of acceptable values: if two results' ranges overlap, the test has not found a real difference between them. And a short run has a wide margin — often wider than the gap between two sizes of the same model file, which is exactly why KL divergence exists.</p>
 
     <h4>Details worth knowing</h4>
     <ul>
         <li><strong>Creativity settings make no difference here.</strong> Temperature, top-p and the rest change how a model chooses between its options while writing. These tests never let it write — they read off how likely it thought each option was — so those settings cannot change the result and are ignored.</li>
         <li><strong>Memory settings are pinned.</strong> These tests always keep the model's short-term memory of what it has just read (the KV cache) at full precision, even if you normally compress it to save space. Compressing it changes the answers rather than the speed, so leaving it as you had it would make every score depend on a chat setting. If you want to measure what that compression costs in quality, set <code>kv_cache_quant</code> in the job and it will be used.</li>
         <li><strong>Every test reads the same amount at a time</strong> — a fixed window of 512 tokens, which is roughly 350–400 words of English. That is what makes a quick run and a full run of the same test comparable, and what makes your numbers comparable to figures published elsewhere.</li>
-        <li><strong>The test material downloads itself</strong> the first time you run one — a few megabytes in total — and is checked against a known fingerprint, so a damaged download cannot quietly change your scores. The three sets are wikitext-2 (Wikipedia articles, CC BY-SA 3.0), HellaSwag (MIT) and WinoGrande (Apache-2.0). The Evaluation Data card shows each one and its state.</li>
+        <li><strong>The test material downloads itself</strong> the first time you run one — a few megabytes in total — and is checked against a known fingerprint, so a damaged download cannot quietly change your scores. The three sets of test material are wikitext-2 (Wikipedia articles, CC BY-SA 3.0), HellaSwag (MIT) and WinoGrande (Apache-2.0). The Evaluation Data card shows each one and its state.</li>
         <li><strong>A model is never compared against itself.</strong> If a KL-divergence test would end up doing that, it is skipped with a note explaining why, rather than spending an hour to produce a 0.</li>
     </ul>
 
