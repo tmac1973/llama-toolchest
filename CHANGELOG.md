@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.19.0](https://github.com/tmac1973/llama-toolchest/compare/v2.18.2...v2.19.0) (2026-08-16)
+
+
+### Features
+
+* **benchmarks:** capability evaluations (perplexity, KL divergence, HellaSwag, Winogrande) ([#124](https://github.com/tmac1973/llama-toolchest/issues/124)) ([4f7ba23](https://github.com/tmac1973/llama-toolchest/commit/4f7ba23637f4b6c1af91a6d8c1b40ddce1126802))
+* **benchmarks:** visualization page for a selection of runs ([#127](https://github.com/tmac1973/llama-toolchest/issues/127)) ([3d37254](https://github.com/tmac1973/llama-toolchest/commit/3d372542c923710e0bb60caaaa7c46ce9814b707))
+
+
+### Bug Fixes
+
+* **benchmarks:** make "Compare Selected" able to show which run won ([#126](https://github.com/tmac1973/llama-toolchest/issues/126)) ([c9cc03c](https://github.com/tmac1973/llama-toolchest/commit/c9cc03c819e15cec25f5774105cc1d83c8e31aa3))
+
 ## [2.18.2](https://github.com/tmac1973/llama-toolchest/compare/v2.18.1...v2.18.2) (2026-08-15)
 
 
