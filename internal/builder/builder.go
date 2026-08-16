@@ -574,6 +574,23 @@ func (b *Builder) runBuild(ctx context.Context, prof BuildProfile, srcDir string
 		}
 	}
 
+	// Copy llama-perplexity if it exists (used for capability
+	// evaluations, which run it directly without llama-server). A
+	// missing binary is NOT a build failure: builds made before this
+	// step existed (old refs, exotic layouts) simply lack it, and
+	// capability cells detect the absence at run time with a rebuild
+	// hint.
+	for _, perplexityCandidate := range llamaPerplexityCandidates(buildDir) {
+		if _, err := os.Stat(perplexityCandidate); err == nil {
+			dstPerplexity := filepath.Join(outDir, "llama-perplexity")
+			if err := copyFile(perplexityCandidate, dstPerplexity); err == nil {
+				os.Chmod(dstPerplexity, 0o755)
+				sendLog("    Installed: llama-perplexity")
+			}
+			break
+		}
+	}
+
 	// Cleanup temp build dir
 	os.RemoveAll(buildDir)
 
@@ -880,6 +897,17 @@ func copyFile(src, dst string) error {
 
 	_, err = io.Copy(out, in)
 	return err
+}
+
+// llamaPerplexityCandidates returns the build-output locations the
+// install step searches for the llama-perplexity binary, mirroring the
+// llama-server search (bin/ across llama.cpp versions). The list is a
+// function so tests can pin it; a build whose layout differs simply
+// ships without the binary, which capability cells handle at run time.
+func llamaPerplexityCandidates(buildDir string) []string {
+	return []string{
+		filepath.Join(buildDir, "bin", "llama-perplexity"),
+	}
 }
 
 // findCUDAHostCompiler probes for a side-by-side g++ that nvcc will

@@ -182,6 +182,24 @@ func TestApplyOptionOverridesIgnoresStaleOverrides(t *testing.T) {
 	}
 }
 
+// The install step copies llama-perplexity next to llama-server so
+// capability evaluations can run it directly. The candidate list is the
+// unit under test (a real build is manual): it must name the
+// build-output location the install loop searches, or new builds would
+// silently stop shipping the binary and every capability cell would
+// fail with a rebuild hint.
+func TestInstallCandidatesIncludeLlamaPerplexity(t *testing.T) {
+	buildDir := t.TempDir()
+	candidates := llamaPerplexityCandidates(buildDir)
+	want := filepath.Join(buildDir, "bin", "llama-perplexity")
+	for _, c := range candidates {
+		if c == want {
+			return
+		}
+	}
+	t.Errorf("llama-perplexity install candidates missing %q: %v", want, candidates)
+}
+
 // setEnvDefault must never clobber a value the operator exported around
 // the service — same precedence rule as applyExtraEnv.
 func TestSetEnvDefault(t *testing.T) {

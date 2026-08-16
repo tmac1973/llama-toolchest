@@ -311,6 +311,33 @@ func gpuPlacementParams(c *ModelConfig, backend string) []specParam {
 	return out
 }
 
+// GPUPlacementFlags returns the GPU placement flags for a model config,
+// formatted as CLI flags ("--name value" pairs) ready to append to a
+// llama.cpp command line.
+//
+// It is the exported CLI-formatted view of gpuPlacementParams: one
+// placement implementation, three consumers. The preset emitter (INI)
+// and the llama-server arg builder keep calling the unexported function
+// with their own formatting; this wrapper serves the command-line
+// callers (the capability-evaluation flag path, via
+// evaluate.SnapshotSubset.PlacementFlags).
+//
+// Placement is computed from the full ModelConfig, not the benchmark
+// ConfigSnapshot: the snapshot carries neither SplitMode nor MainGPU,
+// so a swept gpu_assign only becomes a tensor-split through the
+// merge-and-resolve the caller performs first.
+func GPUPlacementFlags(c *ModelConfig, backend string) []string {
+	params := gpuPlacementParams(c, backend)
+	if len(params) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(params)*2)
+	for _, p := range params {
+		out = append(out, "--"+p.Name, p.Value)
+	}
+	return out
+}
+
 // trimSplit keeps only the split entries at the given indices ("1,1,0,0"
 // with [0 1] → "1,1"), matching the renumbering a device list applies.
 func trimSplit(tensorSplit string, gpus []int) string {

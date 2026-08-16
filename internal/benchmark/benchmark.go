@@ -65,6 +65,11 @@ type BenchmarkRun struct {
 	LlamaBench  *LlamaBenchResult   `json:"llama_bench,omitempty"`
 	LlamaBenchy []LlamaBenchyResult `json:"llama_benchy,omitempty"`
 
+	// Eval holds capability-evaluation scores (perplexity, KL
+	// divergence, HellaSwag, Winogrande) for runs of capability
+	// presets. Nil on performance runs.
+	Eval *EvalScores `json:"eval,omitempty"`
+
 	// Command line that was actually executed for benchy presets, captured
 	// at run time so the detail view and "About" modal can disclose it.
 	BenchyCommand string `json:"benchy_command,omitempty"`
@@ -212,6 +217,55 @@ type LlamaBenchResult struct {
 	PromptTokens    int     `json:"pp_tokens"`
 	GenTokens       int     `json:"tg_tokens"`
 	Repetitions     int     `json:"repetitions"`
+}
+
+// EvalScores holds the capability-evaluation result of one benchmark
+// run. Produced by internal/evaluate (which returns its own Result type
+// because it must not import this package; the job runner copies the
+// fields over). Defined here because the run's JSON schema owns the
+// tags. Additive and omitempty like every schema addition: nil on
+// performance-only runs, and each field group omits itself when its
+// mode did not produce it.
+type EvalScores struct {
+	// Mode is the evaluation mode that produced the scores
+	// ("perplexity", "kl-divergence", "hellaswag", "winogrande").
+	Mode string `json:"mode"`
+	// Dataset is the canonical name of the dataset the mode ran over.
+	Dataset string `json:"dataset,omitempty"`
+	// ContextSize is the evaluation context the scores were computed
+	// at. It is score-determining (it is the perplexity chunk size), so
+	// it is recorded for every mode.
+	ContextSize int `json:"context_size,omitempty"`
+	// Chunks is the requested chunk cap for perplexity/KL; 0 = full.
+	// The final-score lines carry no actual chunk count, so this is the
+	// request, not the outcome. Unset for the accuracy modes.
+	Chunks int `json:"chunks,omitempty"`
+
+	// Perplexity mode.
+	Perplexity    float64 `json:"perplexity,omitempty"`
+	PerplexityErr float64 `json:"perplexity_err,omitempty"`
+
+	// HellaSwag / Winogrande modes. Accuracy is a percentage; the CI
+	// bounds are asymmetric as printed by HellaSwag and
+	// symmetric-derived (acc ± err) for Winogrande.
+	Accuracy       float64 `json:"accuracy,omitempty"`
+	AccuracyCILow  float64 `json:"accuracy_ci_low,omitempty"`
+	AccuracyCIHigh float64 `json:"accuracy_ci_high,omitempty"`
+	// Tasks is the number of tasks actually scored, as parsed from the
+	// tool output.
+	Tasks int `json:"tasks,omitempty"`
+
+	// KL divergence mode (comparison against the reference logits).
+	KLMean        float64 `json:"kl_mean,omitempty"`
+	KLMeanErr     float64 `json:"kl_mean_err,omitempty"`
+	KLMax         float64 `json:"kl_max,omitempty"`
+	KLP999        float64 `json:"kl_p999,omitempty"`
+	SameTopPct    float64 `json:"same_top_pct,omitempty"`
+	SameTopPctErr float64 `json:"same_top_pct_err,omitempty"`
+
+	// Reference is the identity of the model the KL divergence was
+	// measured against. Filled by the runner; empty for other modes.
+	Reference string `json:"reference,omitempty"`
 }
 
 // TimingSample is one observed timing from real usage.

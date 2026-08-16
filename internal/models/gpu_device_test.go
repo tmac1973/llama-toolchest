@@ -147,3 +147,56 @@ func TestDeviceListBackends(t *testing.T) {
 		}
 	}
 }
+
+// GPUPlacementFlags is the exported CLI-formatted view of
+// gpuPlacementParams: the same placement the preset INI and
+// EffectiveFlagsFor emit, as "--name value" pairs for command lines
+// (the capability-evaluation flag path). It must agree with
+// EffectiveFlagsFor on what a GPU subset produces.
+func TestGPUPlacementFlagsDeviceList(t *testing.T) {
+	cfg := &ModelConfig{Enabled: true, ContextSize: 8192, GPULayers: 999, Threads: 8,
+		GPUAssign: "tensor-2", TensorSplit: "1,1,0,0", SplitMode: "tensor"}
+	got := GPUPlacementFlags(cfg, "rocm")
+	want := []string{"--device", "ROCm0,ROCm1", "--tensor-split", "1,1", "--split-mode", "tensor"}
+	if len(got) != len(want) {
+		t.Fatalf("GPUPlacementFlags = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("GPUPlacementFlags[%d] = %q, want %q (full: %v)", i, got[i], want[i], got)
+		}
+	}
+	// Cross-check against the llama-server arg builder: every pair the
+	// wrapper emits must appear in EffectiveFlagsFor verbatim.
+	flags := cfg.EffectiveFlagsFor(false, "rocm")
+	for i := 0; i+1 < len(got); i += 2 {
+		if !strings.Contains(flags, got[i]+" "+got[i+1]) {
+			t.Errorf("wrapper emits %q %q but EffectiveFlagsFor lacks it: %s", got[i], got[i+1], flags)
+		}
+	}
+}
+
+// A custom split without a device-name backend falls back to the
+// padded split plus split-mode / main-gpu, in the wrapper's CLI form.
+func TestGPUPlacementFlagsPaddedSplit(t *testing.T) {
+	cfg := &ModelConfig{Enabled: true, ContextSize: 4096, GPULayers: 999, Threads: 8,
+		TensorSplit: "0,0,1,1", SplitMode: "layer", MainGPU: 2}
+	got := GPUPlacementFlags(cfg, "rocm")
+	want := []string{"--tensor-split", "0,0,1,1", "--split-mode", "layer", "--main-gpu", "2"}
+	if len(got) != len(want) {
+		t.Fatalf("GPUPlacementFlags = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("GPUPlacementFlags[%d] = %q, want %q (full: %v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+// A config with nothing to place emits nothing — the wrapper returns
+// nil rather than an empty-but-non-nil slice.
+func TestGPUPlacementFlagsEmpty(t *testing.T) {
+	if got := GPUPlacementFlags(&ModelConfig{Enabled: true, ContextSize: 4096, GPULayers: 999}, "rocm"); got != nil {
+		t.Errorf("unrestricted config should emit no placement flags, got %v", got)
+	}
+}
