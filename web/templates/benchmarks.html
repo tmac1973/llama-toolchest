@@ -727,6 +727,17 @@ function deleteJob(id, disposition) {
         document.body.dispatchEvent(new CustomEvent('jobChanged'));
     });
 }
+// The job matrix and the ad-hoc run list are two separate selection
+// surfaces, each with its own checkboxes. Both need every action, or an
+// action reachable from one is invisible from the other — which is
+// where sweeps actually live, since a sweep is a job.
+function visualizeSelectedCells(btn) {
+    var checks = btn.closest('.job-detail').querySelectorAll('.cell-check:checked');
+    if (checks.length < 2) { alert('Select at least 2 cells to visualize.'); return; }
+    var ids = Array.from(checks).map(function(c){return c.value;}).join(',');
+    window.open('/benchmarks/visualize?ids=' + encodeURIComponent(ids), '_blank', 'noopener');
+}
+
 function compareSelectedCells(btn) {
     var checks = btn.closest('.job-detail').querySelectorAll('.cell-check:checked');
     if (checks.length < 2) { alert('Select at least 2 cells to compare.'); return; }

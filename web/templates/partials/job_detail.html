@@ -89,6 +89,9 @@
     <div style="display:flex;gap:0.5rem;margin-top:0.5rem;flex-wrap:wrap;">
         <button type="button" class="outline secondary" style="margin:0;padding:0.2rem 0.6rem;font-size:0.8rem;width:auto;"
                 onclick="compareSelectedCells(this)">Compare selected</button>
+        <button type="button" class="outline secondary" style="margin:0;padding:0.2rem 0.6rem;font-size:0.8rem;width:auto;"
+                title="Open charts of the selected cells in a new tab — scatter, heatmap and 3D views of a parameter sweep."
+                onclick="visualizeSelectedCells(this)">Visualize selected</button>
         {{if eq $j.Status "running"}}
         <button type="button" class="outline secondary" style="margin:0;padding:0.2rem 0.6rem;font-size:0.8rem;width:auto;"
                 onclick="cancelJob('{{$j.ID}}')">Cancel</button>

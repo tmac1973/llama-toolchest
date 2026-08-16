@@ -155,3 +155,48 @@ func TestVisualizeDataEndpoint(t *testing.T) {
 		t.Errorf("payload = %d points, %d metrics", len(v.Points), len(v.Metrics))
 	}
 }
+
+// The job matrix and the ad-hoc run list are separate selection
+// surfaces with separate checkboxes and separate action buttons. A
+// sweep IS a job, so an action that exists only on the run list is
+// invisible exactly where it is most wanted — which is what happened:
+// Visualize shipped on the run list and not on the job matrix.
+func TestBothSelectionSurfacesOfferEveryAction(t *testing.T) {
+	s := vizServer(t, vizSweepRun("a", 85.6, "64"), vizSweepRun("b", 100.5, "256"))
+
+	// The ad-hoc run list toolbar.
+	rec := httptest.NewRecorder()
+	s.renderBenchmarkList(rec, []benchmark.BenchmarkRun{vizSweepRun("a", 85.6, "64")})
+	list := rec.Body.String()
+
+	// The job matrix.
+	store := s.bench
+	job := benchmark.BenchmarkJob{
+		ID: "j1", Name: "sweep", Kind: benchmark.JobKindBatch,
+		Status: benchmark.JobStatusCompleted,
+		Cells: []benchmark.JobCell{
+			{ModelID: "m", BuildID: "b", Preset: "internal-quick",
+				Status: benchmark.CellStatusCompleted, BenchmarkRunID: "a", Attempt: 1},
+		},
+	}
+	store.SaveJob(job)
+	saved, err := store.GetJob("j1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec = httptest.NewRecorder()
+	s.renderJobDetail(rec, saved)
+	matrix := rec.Body.String()
+
+	for _, tc := range []struct{ surface, body, compare, visualize string }{
+		{"ad-hoc run list", list, "compareSelectedRuns", "visualizeSelectedRuns"},
+		{"job matrix", matrix, "compareSelectedCells", "visualizeSelectedCells"},
+	} {
+		if !strings.Contains(tc.body, tc.compare) {
+			t.Errorf("%s has no compare action", tc.surface)
+		}
+		if !strings.Contains(tc.body, tc.visualize) {
+			t.Errorf("%s has no visualize action — a sweep lives in a job, so this is where it is needed most", tc.surface)
+		}
+	}
+}
