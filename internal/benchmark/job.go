@@ -64,6 +64,11 @@ type BenchmarkJob struct {
 	// value acts as the baseline for whatever isn't being swept.
 	Sweeps []SweepAxis `json:"sweeps,omitempty"`
 
+	// KLReference names the registry model the kl-divergence cells
+	// compare against; empty means automatic (the largest installed
+	// quant of each model's own HF repo). Ignored by non-KL cells.
+	KLReference string `json:"kl_reference,omitempty"`
+
 	// Expanded matrix
 	Cells []JobCell `json:"cells,omitempty"`
 }
@@ -108,8 +113,18 @@ type JobCell struct {
 	Error          string `json:"error,omitempty"`
 
 	// SweepValues holds this cell's point on each swept axis, keyed by
-	// sweep field name. Empty for jobs that sweep nothing.
+	// sweep field name. Empty for jobs that sweep nothing. Capability
+	// cells carry only the eval-reaching axes (the rest collapse — see
+	// ExpandCellsWithSweeps), so this is the complete story of what
+	// varied for the cell.
 	SweepValues map[string]string `json:"sweep_values,omitempty"`
+
+	// SkipReason explains a cell that completed without producing a run
+	// (the KL reference model's own cell — its difference from itself is
+	// zero). Rendered wherever cell status renders; empty for every
+	// other cell. Deliberately distinct from Error: a skipped-with-reason
+	// cell is not a failure, and retry must not re-run it.
+	SkipReason string `json:"skip_reason,omitempty"`
 }
 
 // newAdhocJob synthesizes the catch-all "Ad-Hoc Runs" pseudo-job that

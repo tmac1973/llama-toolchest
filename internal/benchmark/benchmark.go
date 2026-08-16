@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tmac1973/llama-toolchest/internal/evaluate"
 	"github.com/tmac1973/llama-toolchest/internal/monitor"
 )
 
@@ -283,8 +284,9 @@ type TimingSample struct {
 // shells out to `uvx llama-benchy` against the same router. Empty defaults
 // to internal so older preset definitions stay valid.
 const (
-	PresetSourceInternal = "internal"
-	PresetSourceBenchy   = "benchy"
+	PresetSourceInternal   = "internal"
+	PresetSourceBenchy     = "benchy"
+	PresetSourceCapability = "capability"
 )
 
 // Preset defines benchmark parameters.
@@ -292,11 +294,19 @@ type Preset struct {
 	Name         string
 	Label        string
 	Description  string
-	Source       string // "" | "internal" | "benchy"
+	Source       string // "" | "internal" | "benchy" | "capability"
 	PromptTokens []int
 	GenTokens    int
 	Repetitions  int
 	Concurrency  []int // benchy only; defaults to [1] if empty
+
+	// Capability presets only (Source == PresetSourceCapability).
+	// EvalMode names the evaluation the cell runs; EvalTasks and
+	// EvalChunks are the run limits (0 = full run). Performance presets
+	// leave all three zero.
+	EvalMode   evaluate.Mode
+	EvalTasks  int
+	EvalChunks int
 }
 
 // EffectiveSource returns the dispatch key, defaulting empty → internal.
@@ -358,6 +368,76 @@ func Presets() []Preset {
 			Description:  "Three-run llama-benchy benchmark at 2048-token prompts. Replaces the legacy llama-bench raw inference test for sharded models.",
 			Source:       PresetSourceBenchy,
 			PromptTokens: []int{2048}, GenTokens: 128, Repetitions: 3, Concurrency: []int{1},
+		},
+		// Capability presets run llama-perplexity directly against the
+		// model (no router), all at the fixed evaluation context of
+		// 512 tokens — the perplexity chunk size, and the context
+		// llama.cpp's published wikitext figures use. That fixed context
+		// is what makes "all chunks" / "all tasks" a defined quantity
+		// for the full variants.
+		{
+			Name:        "perplexity-quick",
+			Label:       "perplexity-quick — 100 chunks of wikitext-2 (~2-5 min/model)",
+			Description: "Perplexity over the first 100 chunks of the wikitext-2 test set at a fixed 512-token context: lower is better, and differences between quants of one model show up in the error bar. Runs llama-perplexity directly, so the inference server is offline while the cell runs.",
+			Source:      PresetSourceCapability,
+			EvalMode:    evaluate.ModePerplexity,
+			EvalChunks:  100,
+		},
+		{
+			Name:        "perplexity-full",
+			Label:       "perplexity-full — all ~650 chunks of wikitext-2 (~15-40 min/model)",
+			Description: "Perplexity over the entire wikitext-2 test set (about 650 chunks at the fixed 512-token context). The publishable number; comparable to the figures llama.cpp quotes for models. Runs llama-perplexity directly, so the inference server is offline while the cell runs.",
+			Source:      PresetSourceCapability,
+			EvalMode:    evaluate.ModePerplexity,
+			EvalChunks:  0,
+		},
+		{
+			Name:        "kl-divergence-quick",
+			Label:       "kl-divergence-quick — 100 chunks vs the reference quant (~2-5 min/model)",
+			Description: "KL divergence between this model's logits and the reference model's over the first 100 chunks of wikitext-2 at the fixed 512-token context: zero means identical probabilities, so it measures how much a quantization changed the model. The reference defaults to the largest installed quant of the same repo; its logits are generated once (a visible step) and cached. The inference server is offline while the cell runs.",
+			Source:      PresetSourceCapability,
+			EvalMode:    evaluate.ModeKLDiv,
+			EvalChunks:  100,
+		},
+		{
+			Name:        "kl-divergence-full",
+			Label:       "kl-divergence-full — all ~650 chunks vs the reference quant (~15-40 min/model; base is tens of GiB for large-vocab models)",
+			Description: "KL divergence against the reference model over the entire wikitext-2 test set at the fixed 512-token context. The full-run reference base is tens of GiB for large-vocab models and is gated by a disk-space check before generation; it is generated once and cached. The inference server is offline while the cell runs.",
+			Source:      PresetSourceCapability,
+			EvalMode:    evaluate.ModeKLDiv,
+			EvalChunks:  0,
+		},
+		{
+			Name:        "hellaswag-quick",
+			Label:       "hellaswag-quick — 400 HellaSwag tasks (~1-5 min/model)",
+			Description: "HellaSwag commonsense accuracy on 400 tasks: the percentage of candidate endings the model ranks first, matching the preprocessing llama.cpp uses so scores are comparable to published numbers. Runs llama-perplexity directly, so the inference server is offline while the cell runs.",
+			Source:      PresetSourceCapability,
+			EvalMode:    evaluate.ModeHellaSwag,
+			EvalTasks:   400,
+		},
+		{
+			Name:        "hellaswag-full",
+			Label:       "hellaswag-full — all ~10K HellaSwag tasks (~1-3 h/model)",
+			Description: "HellaSwag commonsense accuracy on the full validation set (~10K tasks), the publishable number. Runs llama-perplexity directly, so the inference server is offline while the cell runs.",
+			Source:      PresetSourceCapability,
+			EvalMode:    evaluate.ModeHellaSwag,
+			EvalTasks:   0,
+		},
+		{
+			Name:        "winogrande-quick",
+			Label:       "winogrande-quick — 400 Winogrande tasks (~1-3 min/model)",
+			Description: "Winogrande pronoun-resolution accuracy on 400 tasks of the debiased eval set: the percentage of sentences the model completes with the correct referent. Runs llama-perplexity directly, so the inference server is offline while the cell runs.",
+			Source:      PresetSourceCapability,
+			EvalMode:    evaluate.ModeWinogrande,
+			EvalTasks:   400,
+		},
+		{
+			Name:        "winogrande-full",
+			Label:       "winogrande-full — all ~1.2K Winogrande tasks (~5-15 min/model)",
+			Description: "Winogrande pronoun-resolution accuracy on the entire debiased eval set (~1.2K tasks), the publishable number. Runs llama-perplexity directly, so the inference server is offline while the cell runs.",
+			Source:      PresetSourceCapability,
+			EvalMode:    evaluate.ModeWinogrande,
+			EvalTasks:   0,
 		},
 	}
 }
@@ -672,6 +752,7 @@ type JobDefinition struct {
 	Presets     []string
 	Overrides   *ConfigOverrides
 	Sweeps      []SweepAxis
+	KLReference string
 }
 
 // cellIdentity keys a cell for match-up across an edit. Sweep values are
@@ -732,6 +813,7 @@ func (s *Store) UpdateJobDefinition(id string, def JobDefinition) (*BenchmarkJob
 	name, description := def.Name, def.Description
 	modelIDs, buildIDs, presets := def.ModelIDs, def.BuildIDs, def.Presets
 	overrides := def.Overrides
+	klReference := def.KLReference
 	if id == AdhocJobID {
 		return nil, fmt.Errorf("cannot edit the synthetic %q job", AdhocJobID)
 	}
@@ -797,6 +879,7 @@ func (s *Store) UpdateJobDefinition(id string, def JobDefinition) (*BenchmarkJob
 	job.Presets = presets
 	job.Overrides = overrides
 	job.Sweeps = def.Sweeps
+	job.KLReference = klReference
 	job.Cells = newCells
 	job.Status = JobStatusPending
 	job.StartedAt = time.Time{}

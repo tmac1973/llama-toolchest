@@ -14,6 +14,7 @@ import (
 
 	"github.com/tmac1973/llama-toolchest/internal/benchmark"
 	"github.com/tmac1973/llama-toolchest/internal/builder"
+	"github.com/tmac1973/llama-toolchest/internal/evaluate"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/monitor"
 )
@@ -32,6 +33,13 @@ type jobEnv struct {
 	jobBuildID string                         // build this job wants; "" = user's
 	jobConfigs map[string]*models.ModelConfig // substitute configs; nil = user's
 	ownsRouter bool                           // a job has taken over the router
+	// stoppedForEval records that THIS JOB stopped a running router for
+	// a capability evaluation (StopRouterForEval). It is the same
+	// ownership fact ownsRouter records, but ClearEphemeralConfig needs
+	// to tell "the job stopped it" from "the user stopped it mid-job" —
+	// both read as IsRunning() == false — and only the first case may
+	// restart the router on cleanup.
+	stoppedForEval bool
 }
 
 // routerOwnedByJob reports whether a benchmark job currently controls the
@@ -229,14 +237,23 @@ func (e *jobEnv) ApplyEphemeralConfig(ctx context.Context, modelID string, cfg b
 
 // ClearEphemeralConfig hands the router back to the user's saved build
 // and config. A no-op when no job took it over.
+//
+// Eval-stop case: when this job stopped a running router for a
+// capability evaluation (stoppedForEval), "not running" does not mean
+// the user stopped it — the job did, and cleanup has to restart the
+// router, restoring the pre-job state. The user-stop semantics (leave
+// it stopped) apply only to the performance-job case.
 func (e *jobEnv) ClearEphemeralConfig(ctx context.Context) error {
 	e.mu.Lock()
 	owned := e.ownsRouter
+	stoppedForEval := e.stoppedForEval
 	e.jobBuildID = ""
 	e.jobConfigs = nil
+	e.ownsRouter = false
+	e.stoppedForEval = false
 	e.mu.Unlock()
 
-	if !owned {
+	if !owned && !stoppedForEval {
 		slog.Debug("benchmark job ended; router was never taken over, nothing to restore")
 		return nil
 	}
@@ -246,8 +263,13 @@ func (e *jobEnv) ClearEphemeralConfig(ctx context.Context) error {
 	// only thing to undo is which build and preset the process is
 	// running. If the user stopped the router mid-job, leave it stopped:
 	// their next start already picks up their own settings.
-	if !e.s.process.IsRunning() {
-		e.releaseRouter()
+	//
+	// The eval-stop case is the exception: this job stopped a running
+	// router for an evaluation, so "stopped" is our doing, not the
+	// user's, and the router goes back up — including on failure and
+	// cancel, which is exactly when this path runs with the job context
+	// dead.
+	if !e.s.process.IsRunning() && !stoppedForEval {
 		slog.Info("router is stopped; benchmark job released it without restarting")
 		return nil
 	}
@@ -274,6 +296,350 @@ func (e *jobEnv) releaseRouter() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.ownsRouter = false
+}
+
+// StopRouterForEval stops llama-server so an evaluation can own the GPU.
+// It records that THIS JOB stopped a RUNNING router: ownsRouter (the same
+// flag EnsureBuildActive/ApplyEphemeralConfig set) AND stoppedForEval, so
+// ClearEphemeralConfig at job end restarts the router instead of treating
+// "not running" as a user stop. When the router was already stopped (by
+// the user, before the job) nothing is recorded and cleanup leaves it
+// stopped. Idempotent: a second call for the same job changes nothing.
+func (e *jobEnv) StopRouterForEval(ctx context.Context) error {
+	e.mu.Lock()
+	if e.stoppedForEval {
+		e.mu.Unlock()
+		return nil
+	}
+	wasRunning := e.s.process.IsRunning()
+	if wasRunning {
+		e.stoppedForEval = true
+		e.ownsRouter = true
+	}
+	e.mu.Unlock()
+
+	if !wasRunning {
+		slog.Info("router already stopped before the evaluation; leaving it stopped")
+		return nil
+	}
+	if err := e.s.process.Stop(); err != nil {
+		return fmt.Errorf("stop router for evaluation: %w", err)
+	}
+	// Wait for the process to actually die so the evaluation gets
+	// exclusive VRAM; a Stop() that returned early would let
+	// llama-perplexity fight llama-server for the model.
+	deadline := time.Now().Add(30 * time.Second)
+	for e.s.process.IsRunning() && time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	if e.s.process.IsRunning() {
+		return fmt.Errorf("router did not stop in time for the evaluation")
+	}
+	slog.Info("router stopped for evaluation")
+	return nil
+}
+
+// EvalBinary returns the path to the build's llama-perplexity, installed
+// next to llama-server. A build made before the install step existed
+// lacks it: the error names the fix (rebuild) rather than failing deep
+// in the cell with a bare "not found".
+func (e *jobEnv) EvalBinary(buildID string) (string, error) {
+	b, ok := e.s.builder.Find(buildID)
+	if !ok {
+		return "", fmt.Errorf("build %s not found", buildID)
+	}
+	bin := filepath.Join(filepath.Dir(b.BinaryPath), "llama-perplexity")
+	if _, err := os.Stat(bin); err != nil {
+		return "", fmt.Errorf("build %s has no llama-perplexity binary — it predates the binary's installation; rebuild the build to install it", buildID)
+	}
+	return bin, nil
+}
+
+// EnsureEvalData downloads/verifies the mode's pinned dataset under the
+// eval-data root (phase 02's EnsureDataset: stat short-circuit, then
+// temp download → SHA-256 verify → rename).
+func (e *jobEnv) EnsureEvalData(ctx context.Context, mode evaluate.Mode) (string, error) {
+	return evaluate.EnsureDataset(ctx, evaluate.EvalDataRoot(e.s.cfg.DataDir), mode.DatasetName())
+}
+
+// modelInfoBundle folds a registry model into the JobRunner's ModelInfo
+// shape. One builder for both ResolveModel and ResolveKLReference so the
+// two cannot drift about which fields exist.
+func (e *jobEnv) modelInfoBundle(m *models.Model) (benchmark.ModelInfo, error) {
+	cfg, err := e.s.registry.GetConfig(m.ID)
+	if err != nil {
+		return benchmark.ModelInfo{}, err
+	}
+	return benchmark.ModelInfo{
+		ID:          m.ID,
+		HFRepoID:    m.ModelID,
+		Quant:       m.Quant,
+		SizeGiB:     models.BytesToGiB(m.SizeBytes),
+		SizeBytes:   m.SizeBytes,
+		FilePath:    m.FilePath,
+		DisplayName: shortenModelName(m.ModelID),
+		RouterName:  e.s.registry.RouterName(m.ID),
+		Config: benchmark.ConfigSnapshot{
+			GPULayers:      cfg.GPULayers,
+			ContextSize:    cfg.ContextSize,
+			GPUAssign:      cfg.GPUAssign,
+			TensorSplit:    cfg.TensorSplit,
+			FlashAttention: cfg.FlashAttention,
+			KVCacheQuant:   cfg.KVCacheQuant,
+			DirectIO:       cfg.DirectIO,
+			Threads:        cfg.Threads,
+			BatchSize:      cfg.BatchSize,
+			UBatchSize:     cfg.UBatchSize,
+			SpecType:       cfg.SpecType,
+			DraftModelPath: cfg.DraftModelPath,
+			DraftMax:       cfg.DraftMax,
+			DraftMin:       cfg.DraftMin,
+			DraftPMin:      cfg.DraftPMin,
+			NgramSizeN:     cfg.NgramSizeN,
+			NgramSizeM:     cfg.NgramSizeM,
+		},
+	}, nil
+}
+
+// resolveKLReference picks the KL reference for modelID: overrideID when
+// set, else the largest installed quant (by SizeBytes) sharing the
+// model's HF repo. Errors when no distinct candidate exists — the model
+// is the only installed quant of its repo, so there is nothing to
+// compare it against.
+func (e *jobEnv) resolveKLReference(modelID, overrideID string) (benchmark.ModelInfo, error) {
+	if overrideID != "" {
+		m, err := e.s.registry.Get(overrideID)
+		if err != nil {
+			return benchmark.ModelInfo{}, fmt.Errorf("KL reference model %s is not installed: %w", overrideID, err)
+		}
+		return e.modelInfoBundle(m)
+	}
+	base, err := e.s.registry.Get(modelID)
+	if err != nil {
+		return benchmark.ModelInfo{}, fmt.Errorf("resolve model %s: %w", modelID, err)
+	}
+	// The reference is the largest installed quant of the repo — the
+	// model itself included, so in a multi-quant job every model (and
+	// the largest quant's own cell) resolves against the same
+	// reference. A cell whose reference is itself is the skip case the
+	// runner handles; an error is reserved for the repo with no
+	// distinct candidate at all.
+	var best *models.Model
+	others := 0
+	for _, m := range e.s.registry.List() {
+		if m.ModelID != base.ModelID {
+			continue
+		}
+		if m.ID != modelID {
+			others++
+		}
+		if best == nil || m.SizeBytes > best.SizeBytes {
+			best = m
+		}
+	}
+	if best == nil {
+		return benchmark.ModelInfo{}, fmt.Errorf("no installed quant found for %s", modelID)
+	}
+	if best.ID == modelID && others == 0 {
+		return benchmark.ModelInfo{}, fmt.Errorf("no KL reference for %s: it is the only installed quant of %s — install a second quant of that repo, or pick a reference model", modelID, base.ModelID)
+	}
+	return e.modelInfoBundle(best)
+}
+
+// ResolveKLReference implements the JobEnv method over the registry.
+func (e *jobEnv) ResolveKLReference(modelID, overrideID string) (benchmark.ModelInfo, error) {
+	return e.resolveKLReference(modelID, overrideID)
+}
+
+// buildBackend returns the build's backend profile (the first argument
+// to models.GPUPlacementFlags — it decides whether device names exist
+// and what they are called).
+func (e *jobEnv) buildBackend(buildID string) string {
+	if b, ok := e.s.builder.Find(buildID); ok {
+		return b.Profile
+	}
+	return ""
+}
+
+// EvalFlags builds the complete llama-perplexity flag list for a cell.
+// It is the single place config becomes CLI flags: the same merge and
+// validation the performance path applies before restarting the router
+// (applySnapshotToConfig → resolveGPUAssignment → ValidateBatchSizes),
+// then the merged config through the phase 01 allow-list
+// (evaluate.MapConfigFlags) with placement rendered via
+// models.GPUPlacementFlags for the build's backend.
+func (e *jobEnv) EvalFlags(modelID string, snap benchmark.ConfigSnapshot, buildID string) ([]string, error) {
+	base, err := e.s.registry.GetConfig(modelID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve config for %s: %w", modelID, err)
+	}
+	merged := applySnapshotToConfig(*base, snap)
+	if err := resolveGPUAssignment(&merged, *base, len(e.s.monitor.Current().GPU)); err != nil {
+		return nil, fmt.Errorf("%s: %w", modelID, err)
+	}
+	if err := merged.ValidateBatchSizes(); err != nil {
+		// The same named message the performance path refuses with:
+		// a -ub > -b sweep fails here, not with the loader's raw error.
+		return nil, fmt.Errorf("%s: %w", modelID, err)
+	}
+	subset := evaluate.SnapshotSubset{
+		GPULayers:      merged.GPULayers,
+		Threads:        merged.Threads,
+		BatchSize:      merged.BatchSize,
+		UBatchSize:     merged.UBatchSize,
+		FlashAttention: merged.FlashAttention,
+		KVCacheQuant:   merged.KVCacheQuant,
+		DirectIO:       merged.DirectIO,
+		PlacementFlags: models.GPUPlacementFlags(&merged, e.buildBackend(buildID)),
+	}
+	return evaluate.MapConfigFlags(subset), nil
+}
+
+// klFullRunChunksEstimate is the chunk count a FULL run (0 = no cap) is
+// estimated at for the disk guard: the wikitext-2 test set yields about
+// 650 chunks at the fixed 512-token context. An overestimate is fine —
+// the guard may refuse early, never under-reserve.
+const klFullRunChunksEstimate = 650
+
+// EnsureKLBase returns the cached logits path for (reference, dataset,
+// chunks, ctx), generating it first when absent.
+//
+// Progress: the generation's own output is newline-less fragments, so it
+// polls the growing .kld.partial file (the phase 02 interruption-safe
+// temp path — generation never writes the final name directly) on a
+// ticker and reports "generating reference logits: X of ~Y GiB" against
+// the phase 02 estimate. No output parsing.
+//
+// Generation loads the reference model with the reference's OWN saved
+// ModelConfig mapped through EvalFlags (no sweep overrides), so GPU
+// layers and placement apply — a large reference is not silently
+// evaluated on CPU. The phase 02 disk guard runs before generating. On
+// failure or cancel the partial is deleted, never cached.
+func (e *jobEnv) EnsureKLBase(ctx context.Context, ref benchmark.ModelInfo, chunks int, buildID string, progress func(string)) (string, error) {
+	root := evaluate.EvalDataRoot(e.s.cfg.DataDir)
+	key := evaluate.KLBaseKey{
+		ModelID: ref.HFRepoID,
+		Quant:   ref.Quant,
+		Dataset: evaluate.ModeKLDiv.DatasetName(),
+		Chunks:  chunks,
+		Ctx:     evaluate.EvalContextSize,
+	}
+	if evaluate.HasKLBase(root, key) {
+		return evaluate.KLBasePath(root, key), nil
+	}
+
+	estChunks := chunks
+	if estChunks <= 0 {
+		estChunks = klFullRunChunksEstimate
+	}
+	var vocab int
+	if m, err := e.s.registry.Get(ref.ID); err == nil {
+		vocab = m.VocabSize
+	}
+	estimate := evaluate.KLBaseSizeEstimate(estChunks, evaluate.EvalContextSize, vocab)
+	if err := evaluate.CheckKLBaseSpace(root, estimate); err != nil {
+		return "", err
+	}
+
+	binary, err := e.EvalBinary(buildID)
+	if err != nil {
+		return "", err
+	}
+	datasetPath, err := e.EnsureEvalData(ctx, evaluate.ModeKLDiv)
+	if err != nil {
+		return "", fmt.Errorf("dataset for KL base generation: %w", err)
+	}
+	flags, err := e.EvalFlags(ref.ID, ref.Config, buildID)
+	if err != nil {
+		return "", fmt.Errorf("reference %s: %w", ref.DisplayName, err)
+	}
+
+	if err := os.MkdirAll(evaluate.LogitsDir(root), 0o755); err != nil {
+		return "", err
+	}
+	partial := evaluate.KLBasePartialPath(root, key)
+	final := evaluate.KLBasePath(root, key)
+
+	if progress != nil {
+		progress(fmt.Sprintf("generating reference logits for %s — ~%s", ref.DisplayName, evaluateFormatBytes(estimate)))
+	}
+
+	// The ticker reports file growth; progress only stores into the run,
+	// so it is safe to call off the job goroutine. The WaitGroup makes
+	// the goroutine fully done before EnsureKLBase returns, so no
+	// progress write can race the caller's post-generation run writes.
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				if progress == nil {
+					continue
+				}
+				if info, err := os.Stat(partial); err == nil {
+					progress(fmt.Sprintf("generating reference logits: %.1f of ~%.1f GiB",
+						float64(info.Size())/1024/1024/1024, float64(estimate)/1024/1024/1024))
+				}
+			}
+		}
+	}()
+
+	spec := evaluate.Spec{
+		Binary:      binary,
+		ModelPath:   ref.FilePath,
+		Mode:        evaluate.ModeKLDiv,
+		DatasetPath: datasetPath,
+		Chunks:      chunks,
+		KLBasePath:  partial,
+		Flags:       flags,
+	}
+	genErr := evaluate.GenerateKLBase(ctx, spec)
+	close(done)
+	wg.Wait()
+
+	if genErr != nil {
+		// Failure or cancel: the partial is a corpse, never a cache
+		// entry. A later EnsureKLBase regenerates from scratch.
+		os.Remove(partial)
+		return "", genErr
+	}
+	if err := os.Rename(partial, final); err != nil {
+		os.Remove(partial)
+		return "", fmt.Errorf("installing KL base logits: %w", err)
+	}
+	return final, nil
+}
+
+// evaluateFormatBytes is the byte formatter the KL guard errors use.
+// (evaluate.formatBytes is unexported; the progress lines only need the
+// same units.)
+func evaluateFormatBytes(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+// RunEval implements the JobEnv method over the phase 01 engine.
+func (e *jobEnv) RunEval(ctx context.Context, spec evaluate.Spec) (evaluate.Result, error) {
+	return evaluate.Run(ctx, spec)
 }
 
 // applySnapshotToConfig overlays a benchmark ConfigSnapshot onto a copy
@@ -347,36 +713,7 @@ func (e *jobEnv) ResolveModel(modelID string) (benchmark.ModelInfo, error) {
 	if err != nil {
 		return benchmark.ModelInfo{}, err
 	}
-	cfg, err := e.s.registry.GetConfig(modelID)
-	if err != nil {
-		return benchmark.ModelInfo{}, err
-	}
-	return benchmark.ModelInfo{
-		HFRepoID:    m.ModelID,
-		Quant:       m.Quant,
-		SizeGiB:     models.BytesToGiB(m.SizeBytes),
-		DisplayName: shortenModelName(m.ModelID),
-		RouterName:  e.s.registry.RouterName(modelID),
-		Config: benchmark.ConfigSnapshot{
-			GPULayers:      cfg.GPULayers,
-			ContextSize:    cfg.ContextSize,
-			GPUAssign:      cfg.GPUAssign,
-			TensorSplit:    cfg.TensorSplit,
-			FlashAttention: cfg.FlashAttention,
-			KVCacheQuant:   cfg.KVCacheQuant,
-			DirectIO:       cfg.DirectIO,
-			Threads:        cfg.Threads,
-			BatchSize:      cfg.BatchSize,
-			UBatchSize:     cfg.UBatchSize,
-			SpecType:       cfg.SpecType,
-			DraftModelPath: cfg.DraftModelPath,
-			DraftMax:       cfg.DraftMax,
-			DraftMin:       cfg.DraftMin,
-			DraftPMin:      cfg.DraftPMin,
-			NgramSizeN:     cfg.NgramSizeN,
-			NgramSizeM:     cfg.NgramSizeM,
-		},
-	}, nil
+	return e.modelInfoBundle(m)
 }
 
 // ResolveBuild reuses the same builder lookup the migration uses.

@@ -79,10 +79,26 @@
         <legend>Presets</legend>
         {{range .Presets}}
         <label>
-            <input type="checkbox" name="preset" value="{{.Name}}" onchange="updateMatrixCount()">
+            <input type="checkbox" name="preset" value="{{.Name}}"
+                   data-source="{{.Source}}"{{if and (eq .Source "capability") (eq .EvalMode "kl-divergence")}} data-kl="1"{{end}}
+                   onchange="updateMatrixCount();updateKLReferenceRow()">
             <span>{{.Label}}</span>
         </label>
         {{end}}
+        <label id="kl-reference-row" style="display:none;margin-top:0.4rem;">
+            <strong>KL reference model</strong> <small style="color:var(--pico-muted-color);">(the quant kl-divergence compares against)</small>
+            <select name="kl_reference">
+                <option value="">automatic — largest quant of each model's repo</option>
+                {{range .KLReference}}
+                <optgroup label="{{.Repo}}">
+                    {{range .Models}}
+                    <option value="{{.ID}}">{{.ModelID}} ({{.Quant}}, {{printf "%.1f" (divGB .SizeBytes)}} GiB)</option>
+                    {{end}}
+                </optgroup>
+                {{end}}
+            </select>
+            <small style="color:var(--pico-muted-color);">A model compared against itself is skipped (its difference from itself is zero).</small>
+        </label>
     </fieldset>
 
     <details open>
@@ -98,7 +114,7 @@
         </p>
 
         {{range $p := .Params}}
-        <div class="param-row" data-param="{{.Name}}" data-sep="{{.Separator}}" data-restarts="{{if .RestartsRouter}}1{{end}}">
+        <div class="param-row" data-param="{{.Name}}" data-sep="{{.Separator}}" data-restarts="{{if .RestartsRouter}}1{{end}}" data-affects-eval="{{if .AffectsEval}}1{{end}}">
             {{if .FreeText}}
             <div class="param-freetext">
                 <div class="param-freetext-head">

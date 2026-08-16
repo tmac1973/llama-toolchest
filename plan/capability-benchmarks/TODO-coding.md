@@ -19,7 +19,7 @@ Marks: [ ] todo · [x] done · [!] blocked.
 - [x] 06. `Result` struct mirrors `benchmark.EvalScores` fields: mode, dataset (attempts: 0)
   Step 6 of 6 in Phase 01 ("Evaluation engine and binary install"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-01-eval-engine.md before writing code.
 
-## Phase 02 — Dataset download, verification, and the logits cache store (verify: pending, repairs: 0)
+## Phase 02 — Dataset download, verification, and the logits cache store (verify: passed, repairs: 0)
 
 - [x] 07. Layout under the data dir (constant root passed in by callers — (attempts: 0)
   Step 1 of 5 in Phase 02 ("Dataset download, verification, and the logits cache store"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-02-datasets.md before writing code.
@@ -34,19 +34,19 @@ Marks: [ ] todo · [x] done · [!] blocked.
 
 ## Phase 03 — Capability presets, job runner integration, and the job form (verify: pending, repairs: 0)
 
-- [ ] 12. Presets (labels follow the existing duration-hint style; all counts (attempts: 0)
+- [x] 12. Presets (labels follow the existing duration-hint style; all counts (attempts: 0)
   Step 1 of 7 in Phase 03 ("Capability presets, job runner integration, and the job form"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-03-runner-integration.md before writing code.
-- [ ] 13. `JobEnv` additions (implemented in `jobs_env.go` with the api server's (attempts: 0)
+- [x] 13. `JobEnv` additions (implemented in `jobs_env.go` with the api server's (attempts: 0)
   Step 2 of 7 in Phase 03 ("Capability presets, job runner integration, and the job form"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-03-runner-integration.md before writing code.
-- [ ] 14. Cell expansion — the collapse rule: capability cells run only what (attempts: 0)
+- [x] 14. Cell expansion — the collapse rule: capability cells run only what (attempts: 0)
   Step 3 of 7 in Phase 03 ("Capability presets, job runner integration, and the job form"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-03-runner-integration.md before writing code.
-- [ ] 15. Capability cell execution (the branch in the cell loop — entered (attempts: 0)
+- [x] 15. Capability cell execution (the branch in the cell loop — entered (attempts: 0)
   Step 4 of 7 in Phase 03 ("Capability presets, job runner integration, and the job form"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-03-runner-integration.md before writing code.
-- [ ] 16. Router lifecycle: a capability cell following a performance cell (attempts: 0)
+- [x] 16. Router lifecycle: a capability cell following a performance cell (attempts: 0)
   Step 5 of 7 in Phase 03 ("Capability presets, job runner integration, and the job form"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-03-runner-integration.md before writing code.
-- [ ] 17. Single-run quick-benchmark form: `bench.go:467` feeds (attempts: 0)
+- [x] 17. Single-run quick-benchmark form: `bench.go:467` feeds (attempts: 0)
   Step 6 of 7 in Phase 03 ("Capability presets, job runner integration, and the job form"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-03-runner-integration.md before writing code.
-- [ ] 18. Job form: capability presets render in the existing preset checkbox list (attempts: 0)
+- [x] 18. Job form: capability presets render in the existing preset checkbox list (attempts: 0)
   Step 7 of 7 in Phase 03 ("Capability presets, job runner integration, and the job form"). Implement EXACTLY this step as specified — read it in full under "## Steps" in plan/capability-benchmarks/phase-03-runner-integration.md before writing code.
 
 ## Phase 04 — Results display, export, evaluation-data card, and docs (verify: pending, repairs: 0)

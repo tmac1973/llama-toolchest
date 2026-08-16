@@ -60,6 +60,23 @@ type SweepField struct {
 	// llama-server reloads, which is what makes a sweep expensive.
 	// Sampling params are sent per request and cost nothing.
 	RestartsRouter bool
+	// AffectsEval marks the fields that reach the capability-evaluation
+	// command line, directly through MapConfigFlags (kv cache quant,
+	// batch/ubatch, flash attention, gpu layers, threads, direct_io) or
+	// through the placement resolution (gpu_assign and tensor_split,
+	// which become --device/--tensor-split). A capability preset
+	// collapses its cells over every OTHER axis: sweeping a parameter
+	// the evaluation never sees would produce byte-identical
+	// invocations under different labels — the mislabeled-results
+	// failure this package guards against everywhere else.
+	//
+	// Deliberately NOT RestartsRouter: three load-time axes restart the
+	// router yet never reach the eval — context_size (replaced by the
+	// fixed evaluation context), spec_type (speculative decoding is
+	// excluded from evaluations), and any future axis of that kind — so
+	// keying the collapse on RestartsRouter would fan capability cells
+	// out into identical runs.
+	AffectsEval bool
 	// Separator splits a value list. Exposed rather than hardcoded so the
 	// form's live cell-count estimate splits exactly the way the parser
 	// does — tensor_split values contain commas and so use "|".
@@ -337,6 +354,8 @@ func (f SweepField) canonical(raw string) string {
 var sweepFields = map[string]SweepField{
 	"gpu_layers": intField("gpu_layers", "GPU Layers", "Layers offloaded to GPU. 999 offloads everything.", "0,20,40,999",
 		func(o *ConfigOverrides, v *int) { o.GPULayers = v }),
+	// AffectsEval: the evaluation runs at its own fixed context, so the
+	// model-config context size never reaches llama-perplexity.
 	"context_size": intField("context_size", "Context Size", "Context window in tokens. Must fit the prompts the preset sends.", "4096,8192,32768",
 		func(o *ConfigOverrides, v *int) { o.ContextSize = v }),
 	"ubatch_size": intField("ubatch_size", "Micro-batch (-ub)", "Physical compute batch. The main prompt-processing knob; must be <= batch size. Blank leaves llama.cpp's default of 512.", "64,128,256,512,1024,2048",
@@ -351,6 +370,9 @@ var sweepFields = map[string]SweepField{
 		func(o *ConfigOverrides, v *bool) { o.DirectIO = v }),
 	"kv_cache_quant": strField("kv_cache_quant", "KV Cache Quant", "KV cache type, e.g. f16, q8_0, q4_0. Trades memory for accuracy.", "f16,q8_0",
 		func(o *ConfigOverrides, v *string) { o.KVCacheQuant = v }),
+	// gpu_assign and tensor_split reach the evaluation only through the
+	// placement resolution (they become --device / --tensor-split via
+	// models.GPUPlacementFlags), which is why they are AffectsEval.
 	"gpu_assign": strField("gpu_assign", "GPU Assignment", "Which GPUs to use, e.g. all or 0,1.", "all,0",
 		func(o *ConfigOverrides, v *string) { o.GPUAssign = v }),
 	"tensor_split": strField("tensor_split", "Tensor Split", "Proportional split across GPUs, e.g. 1,1.", "1,1|3,1",
@@ -385,6 +407,26 @@ var sweepFields = map[string]SweepField{
 }
 
 func init() {
+	// AffectsEval classification: exactly the fields that reach the
+	// capability-evaluation command line — the phase 01 direct mapping
+	// (kv cache quant, batch/ubatch, flash attention, gpu layers,
+	// threads, direct_io) plus the placement pair (gpu_assign,
+	// tensor_split), which become --device / --tensor-split through
+	// models.GPUPlacementFlags. The registry stays the single source: a
+	// new mapped or excluded flag has exactly this one place to be
+	// reflected. Everything else — the sampling params, context_size,
+	// spec_type — keeps the zero value and collapses for capability
+	// presets.
+	for _, name := range []string{
+		"gpu_layers", "ubatch_size", "batch_size", "threads",
+		"flash_attention", "direct_io", "kv_cache_quant",
+		"gpu_assign", "tensor_split",
+	} {
+		f := sweepFields[name]
+		f.AffectsEval = true
+		sweepFields[name] = f
+	}
+
 	// top_k is a sampling param despite being an int; intField defaults
 	// to RestartsRouter, so correct it here rather than complicating the
 	// constructor for a single case.

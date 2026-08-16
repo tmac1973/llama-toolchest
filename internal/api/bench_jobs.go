@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tmac1973/llama-toolchest/internal/benchmark"
+	"github.com/tmac1973/llama-toolchest/internal/evaluate"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
@@ -72,6 +74,18 @@ type jobListEntry struct {
 	AdhocRuns int
 }
 
+// klRepoGroup is one repo's models in the job form's KL reference
+// dropdown (installed models grouped by HF repo).
+type klRepoGroup struct {
+	Repo   string
+	Models []*models.Model
+}
+
+// buildOpt is one build in the job form's build list.
+type buildOpt struct {
+	ID, Profile, GitRef, Tag string
+}
+
 // jobCreateRequest is the JSON body POST /api/benchmark-jobs accepts.
 type jobCreateRequest struct {
 	Name        string                     `json:"name"`
@@ -86,6 +100,10 @@ type jobCreateRequest struct {
 	// it. Supersedes Overrides/Sweeps for form callers; the older fields
 	// remain for JSON API callers and already-saved jobs.
 	Params map[string][]string `json:"params,omitempty"`
+	// KLReference names the registry model the kl-divergence cells
+	// compare against; empty = automatic (the largest installed quant of
+	// each model's own HF repo). Posted by the job form's KL dropdown.
+	KLReference string `json:"kl_reference,omitempty"`
 }
 
 // resolveSweeps normalizes the accepted input shapes into overrides and
@@ -128,15 +146,62 @@ func validateJobRequest(req jobCreateRequest) error {
 	}
 	// A sweep of every axis multiplies fast. Refuse obviously runaway
 	// matrices rather than letting someone queue a week of work by
-	// pasting a long list.
-	cells := len(req.ModelIDs) * len(req.BuildIDs) * len(req.Presets)
-	for _, sw := range req.Sweeps {
-		cells *= len(sw.Values)
+	// pasting a long list. The count applies the capability collapse
+	// rule: a capability preset gets one cell per distinct eval-reaching
+	// configuration, so axes without AffectsEval do not multiply it.
+	cells := 0
+	for _, name := range req.Presets {
+		mult := 1
+		capability := benchmark.GetPreset(name).EffectiveSource() == benchmark.PresetSourceCapability
+		for _, sw := range req.Sweeps {
+			if capability {
+				if f, ok := benchmark.LookupSweepField(sw.Field); ok && !f.AffectsEval {
+					continue
+				}
+			}
+			mult *= len(sw.Values)
+		}
+		cells += len(req.ModelIDs) * len(req.BuildIDs) * mult
 	}
 	if cells > maxJobCells {
 		return fmt.Errorf("this matrix expands to %d cells, above the %d limit — narrow a sweep or split the job", cells, maxJobCells)
 	}
+	if err := validateCapabilitySweeps(req); err != nil {
+		return err
+	}
 	return nil
+}
+
+// validateCapabilitySweeps refuses a capability-only job whose only
+// variation is a sweep that never reaches the evaluation: after the
+// collapse every cell would be one identical run per preset.
+//
+// Refused ONLY when ALL FOUR hold — capability-only presets, at least
+// one sweep axis configured, no configured axis has AffectsEval, and
+// models × builds == 1. Precisely NOT refused: sweep-free capability
+// jobs (the flagship four-quant job — zero sweeps is the normal case),
+// and multi-model or multi-build jobs with inert sweeps (after collapse
+// the cells still vary by model/build — meaningful).
+//
+// A job mixing benchy, capability, and a sampling axis gets the benchy
+// refusal first (ValidateSamplingSupport), unchanged.
+func validateCapabilitySweeps(req jobCreateRequest) error {
+	allCapability := len(req.Presets) > 0
+	for _, name := range req.Presets {
+		if benchmark.GetPreset(name).EffectiveSource() != benchmark.PresetSourceCapability {
+			allCapability = false
+			break
+		}
+	}
+	if !allCapability || len(req.Sweeps) == 0 || len(req.ModelIDs)*len(req.BuildIDs) != 1 {
+		return nil
+	}
+	for _, sw := range req.Sweeps {
+		if f, ok := benchmark.LookupSweepField(sw.Field); ok && f.AffectsEval {
+			return nil
+		}
+	}
+	return errors.New("the swept parameters do not affect capability evaluations — nothing would vary between cells; drop the sweeps or add a performance preset that uses them")
 }
 
 // maxJobCells caps matrix size. Each cell is a full benchmark and most
@@ -280,6 +345,45 @@ func (s *Server) validateGPUAssignment(overrides *benchmark.ConfigOverrides, swe
 	return nil
 }
 
+// validateKLJob refuses a KL job whose every cell would be skipped at
+// run time (the runner skips a KL cell whose resolved reference IS the
+// cell's own model — an expensive eval whose answer is known is waste).
+//
+// A reference that is merely AMONG the job's models is fine — that is
+// the primary all-quants flow; only its own cell skips. Refused when
+// every selected model resolves to itself: a single-model job whose
+// model is the only installed quant of its repo, an explicit reference
+// naming the only model, or every model being its own repo's largest
+// (and only) quant. The message names what to add.
+func (s *Server) validateKLJob(req jobCreateRequest) error {
+	hasKL := false
+	for _, name := range req.Presets {
+		p := benchmark.GetPreset(name)
+		if p.EffectiveSource() == benchmark.PresetSourceCapability && p.EvalMode == evaluate.ModeKLDiv {
+			hasKL = true
+			break
+		}
+	}
+	if !hasKL {
+		return nil
+	}
+	if req.KLReference != "" {
+		if _, err := s.registry.Get(req.KLReference); err != nil {
+			return fmt.Errorf("KL reference model %q is not an installed model", req.KLReference)
+		}
+	}
+	// A fresh env: the resolution only reads the registry, and s.env
+	// may be unwired (tests) while the router is not job-controlled.
+	env := newJobEnv(s)
+	for _, id := range req.ModelIDs {
+		ref, err := env.resolveKLReference(id, req.KLReference)
+		if err == nil && ref.ID != id {
+			return nil // at least one model's cells would run
+		}
+	}
+	return fmt.Errorf("every KL-divergence cell in this job would be the reference model's own cell — each selected model resolves to itself as its reference. Add a second quant of one of the repos, or pick a different KL reference model")
+}
+
 // handleCreateJob expands the matrix and submits the job to the queue.
 // Returns 409 when another job is already running.
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
@@ -304,6 +408,10 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if err := s.validateKLJob(req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	job := benchmark.BenchmarkJob{
 		ID:          newJobID(),
@@ -317,6 +425,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		Presets:     req.Presets,
 		Overrides:   req.Overrides,
 		Sweeps:      req.Sweeps,
+		KLReference: req.KLReference,
 		Cells:       benchmark.ExpandCellsWithSweeps(req.ModelIDs, req.BuildIDs, req.Presets, req.Sweeps),
 	}
 
@@ -364,6 +473,10 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if err := s.validateKLJob(req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	updated, err := s.bench.UpdateJobDefinition(id, benchmark.JobDefinition{
 		Name:        req.Name,
@@ -373,6 +486,7 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 		Presets:     req.Presets,
 		Overrides:   req.Overrides,
 		Sweeps:      req.Sweeps,
+		KLReference: req.KLReference,
 	})
 	if err != nil {
 		// "synthetic" is the adhoc-edit refusal; anything else means the
@@ -495,9 +609,6 @@ func (s *Server) handleJobForm(w http.ResponseWriter, r *http.Request) {
 			enabled = append(enabled, m)
 		}
 	}
-	type buildOpt struct {
-		ID, Profile, GitRef, Tag string
-	}
 	var builds []buildOpt
 	for _, b := range s.builder.List() {
 		if b.Status != "success" {
@@ -507,14 +618,35 @@ func (s *Server) handleJobForm(w http.ResponseWriter, r *http.Request) {
 	}
 	gpuList := s.monitor.Current().GPU
 	numGPUs := len(gpuList)
+
+	// The KL reference dropdown lists every installed model, grouped by
+	// HF repo, so "the other quant of this repo" is one glance away.
+	groups := map[string]*klRepoGroup{}
+	var groupOrder []string
+	for _, m := range enabled {
+		g, ok := groups[m.ModelID]
+		if !ok {
+			g = &klRepoGroup{Repo: m.ModelID}
+			groups[m.ModelID] = g
+			groupOrder = append(groupOrder, m.ModelID)
+		}
+		g.Models = append(g.Models, m)
+	}
+	sort.Slice(groupOrder, func(i, j int) bool { return groupOrder[i] < groupOrder[j] })
+	klOptions := make([]klRepoGroup, 0, len(groupOrder))
+	for _, repo := range groupOrder {
+		klOptions = append(klOptions, *groups[repo])
+	}
+
 	s.renderPartial(w, "job_form", struct {
-		Models     []*models.Model
-		Builds     []buildOpt
-		Presets    []benchmark.Preset
-		GPUOptions []models.GPUOption
-		Params     []paramView
-		MaxCells   int
-		Running    bool
+		Models      []*models.Model
+		Builds      []buildOpt
+		Presets     []benchmark.Preset
+		GPUOptions  []models.GPUOption
+		Params      []paramView
+		MaxCells    int
+		Running     bool
+		KLReference []klRepoGroup
 	}{
 		Models:     enabled,
 		Builds:     builds,
@@ -523,6 +655,7 @@ func (s *Server) handleJobForm(w http.ResponseWriter, r *http.Request) {
 		Params:     paramViews(numGPUs, igpuFlags(gpuList)),
 		MaxCells:   maxJobCells,
 		Running:    s.process.IsRunning(),
+		KLReference: klOptions,
 	})
 }
 

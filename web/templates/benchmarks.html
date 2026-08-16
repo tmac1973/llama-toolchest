@@ -251,6 +251,7 @@ function openJobForm() {
             slot.innerHTML = html;
             htmx.process(slot);
             updateMatrixCount();
+            updateKLReferenceRow();
         });
     modal.showModal();
 }
@@ -273,6 +274,7 @@ function openJobEditForm(id) {
         htmx.process(slot);
         prefillJobForm(job);
         updateMatrixCount();
+        updateKLReferenceRow();
     }).catch(function(e){
         slot.textContent = e.message;
     });
@@ -291,6 +293,10 @@ function prefillJobForm(job) {
     setChecked('model', job.model_ids);
     setChecked('build', job.build_ids);
     setChecked('preset', job.presets);
+    // The KL reference dropdown: restore a saved explicit reference, or
+    // leave the "automatic" default.
+    var klSel = form.elements.kl_reference;
+    if (klSel) klSel.value = job.kl_reference || '';
     // Rebuild the parameter controls from the job's stored shape. Saved
     // jobs still carry overrides and sweeps separately, so both are
     // folded back into one selection per parameter — a fixed override is
@@ -564,7 +570,8 @@ function updateMatrixCount() {
     if (!form) return;
     var m = form.querySelectorAll('input[name=model]:checked').length;
     var b = form.querySelectorAll('input[name=build]:checked').length;
-    var p = form.querySelectorAll('input[name=preset]:checked').length;
+    var presetChecks = form.querySelectorAll('input[name=preset]:checked');
+    var p = presetChecks.length;
     var preview = document.getElementById('job-matrix-preview');
     var btn = document.getElementById('job-submit-btn');
     if (!(m && b && p)) {
@@ -573,22 +580,48 @@ function updateMatrixCount() {
         return;
     }
 
-    var sweepCells = 1, reloadPoints = 1, desc = '';
+    // The swept axes, with what each one costs. data-affects-eval marks
+    // the parameters that reach the capability-evaluation command line;
+    // capability presets collapse over everything else (one cell per
+    // distinct eval-reaching configuration — the runner expands exactly
+    // this way, so the estimate can't overcount).
+    var sweeps = [];
+    var reloadPoints = 1;
+    var desc = '';
     paramRows(form).forEach(function(row){
         var n = paramValues(row).length;
         if (n < 2) return;                        // one value fixes it, no extra cells
-        sweepCells *= n;
+        sweeps.push({
+            n: n,
+            param: row.getAttribute('data-param'),
+            affectsEval: !!row.getAttribute('data-affects-eval')
+        });
         if (row.getAttribute('data-restarts')) reloadPoints *= n;
         desc += ' × ' + n + ' ' + row.getAttribute('data-param');
     });
 
-    var cells = m*b*p*sweepCells;
+    var cells = 0, collapsed = false, anyPerf = false;
+    presetChecks.forEach(function(cb){
+        var cap = cb.getAttribute('data-source') === 'capability';
+        if (!cap) anyPerf = true;
+        var mult = 1;
+        sweeps.forEach(function(s){
+            if (cap && !s.affectsEval) { collapsed = true; return; }
+            mult *= s.n;
+        });
+        cells += m*b*mult;
+    });
+
     var text = m+' models × '+b+' builds × '+p+' presets'+desc+' = '+cells+' cells';
+    if (collapsed) {
+        text += ' (capability presets collapsed to their eval-relevant parameters)';
+    }
 
     // Reloads are what make a sweep slow, so surface them next to the
     // cell count. Matches the runner: one reload per distinct
-    // (model, config), amortized across presets.
-    if (sweepCells > 1 || form.querySelector('.param-summary[data-active]')) {
+    // (model, config), amortized across presets. Capability cells run
+    // with the router stopped, so they never reload.
+    if (anyPerf && (sweeps.length || form.querySelector('.param-summary[data-active]'))) {
         var reloads = m*b*reloadPoints;
         text += ' · ~'+reloads+' llama-server reload'+(reloads===1?'':'s');
     }
@@ -601,6 +634,19 @@ function updateMatrixCount() {
         return;
     }
     btn.disabled = false;
+}
+
+// The KL reference model dropdown is only relevant when a kl-divergence
+// preset is checked; hidden by default.
+function updateKLReferenceRow() {
+    var form = document.getElementById('new-job-form');
+    var rowEl = document.getElementById('kl-reference-row');
+    if (!form || !rowEl) return;
+    var any = false;
+    form.querySelectorAll('input[name=preset]').forEach(function(c){
+        if (c.checked && c.getAttribute('data-kl') === '1') any = true;
+    });
+    rowEl.style.display = any ? '' : 'none';
 }
 function submitNewJob() {
     var form = document.getElementById('new-job-form');
@@ -616,6 +662,8 @@ function submitNewJob() {
         params: readParams(form),
         overrides: Object.keys(unmappedOverrides).length ? unmappedOverrides : null,
     };
+    var klSel = form.elements.kl_reference;
+    if (klSel && klSel.value) payload.kl_reference = klSel.value;
     var isEdit = !!editingJobID;
     var url = isEdit ? '/api/benchmark-jobs/'+encodeURIComponent(editingJobID) : '/api/benchmark-jobs';
     var method = isEdit ? 'PUT' : 'POST';

@@ -174,6 +174,15 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 
 	case PresetSourceInternal, "":
 		// fallthrough to internal API loop below
+	case PresetSourceCapability:
+		// Capability presets run llama-perplexity directly against the
+		// model, never through the router — the cell loop branches on
+		// them before ever calling Run. Reaching this case is a bug in
+		// the caller, not a state the user can produce.
+		run.Status = StatusFailed
+		run.Error = "capability presets run through the job runner, not the router benchmark loop"
+		send("error", run.Error, 0)
+		return
 	default:
 		run.Status = StatusFailed
 		run.Error = fmt.Sprintf("unknown preset source: %q", cfg.Preset.Source)

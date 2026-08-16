@@ -458,13 +458,29 @@ func (s *Server) handleBenchmarkForm(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Capability presets are filtered out of the quick-benchmark form as
+	// a product decision: the path itself does NOT bypass the cell loop
+	// (handleStartBenchmark builds a 1-cell job for the same JobQueue, so
+	// a capability preset POSTed here or via the JSON API would run
+	// correctly), but the form has no KL-reference selector, its "router
+	// is not running — start the server first" gate is meaningless for
+	// capability cells (they stop the router), and its single-run
+	// framing is built around timing results.
+	var quickPresets []benchmark.Preset
+	for _, p := range benchmark.Presets() {
+		if p.EffectiveSource() == benchmark.PresetSourceCapability {
+			continue
+		}
+		quickPresets = append(quickPresets, p)
+	}
+
 	s.renderPartial(w, "benchmark_form", struct {
 		Models  []*models.Model
 		Presets []benchmark.Preset
 		Running bool
 	}{
 		Models:  enabledModels,
-		Presets: benchmark.Presets(),
+		Presets: quickPresets,
 		Running: s.process.IsRunning(),
 	})
 }

@@ -3,13 +3,16 @@ package benchmark
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/tmac1973/llama-toolchest/internal/evaluate"
 	"github.com/tmac1973/llama-toolchest/internal/monitor"
 )
 
@@ -31,6 +34,30 @@ type fakeEnv struct {
 	buildRestarts int
 
 	applyErr error
+
+	// Capability-cell machinery (see the method set below). The fake
+	// models a router that starts RUNNING (running bool), a build with
+	// or without the eval binary, dataset paths under dataDir, and a
+	// KL logits cache under dataDir/logits so EnsureKLBase exercises the
+	// real partial/rename discipline of the phase 02 layout.
+	running    bool
+	evalBinary string
+	evalData   map[evaluate.Mode]string // mode → dataset path
+	evalResult evaluate.Result
+	evalErr    error
+	// evalBlock, when non-nil, blocks RunEval until closed (cancel tests).
+	evalBlock chan struct{}
+	models    map[string]ModelInfo // modelID → registry entry
+	klBaseErr error
+	// klBaseBlock, when non-nil, holds the generation open AFTER the
+	// .kld.partial is written and BEFORE the rename, giving cancel tests
+	// a window in which the partial exists on disk.
+	klBaseBlock chan struct{}
+	stops       int
+	evalCalls   []evaluate.Spec
+
+	// dataDir hosts the KL logits cache (EnsureKLBase) and dataset files.
+	dataDir string
 }
 
 func (f *fakeEnv) CheckBuildRunnable(context.Context, string) error { return nil }
@@ -46,7 +73,11 @@ func (f *fakeEnv) EnsureBuildActive(_ context.Context, id string, configFollows 
 	return nil
 }
 
-func (f *fakeEnv) ResolveModel(string) (ModelInfo, error) {
+func (f *fakeEnv) ResolveModel(id string) (ModelInfo, error) {
+	if m, ok := f.models[id]; ok {
+		// Copy: the runner applies overrides onto this.
+		return m, nil
+	}
 	return ModelInfo{
 		HFRepoID:    "u/M-GGUF",
 		DisplayName: "M",
@@ -104,6 +135,178 @@ func (f *fakeEnv) CurrentMetrics() monitor.Metrics { return monitor.Metrics{} }
 func (f *fakeEnv) RouterURL() string               { return f.routerURL }
 func (f *fakeEnv) HFToken() string                 { return "" }
 func (f *fakeEnv) HFCacheDir() string              { return "" }
+
+// --- JobEnv capability methods ---------------------------------------
+
+// StopRouterForEval mirrors the real implementation's recording rules:
+// only a stop of a RUNNING router records ownership (the cleanup flag),
+// so a user-stopped router is left stopped at job end. Idempotent.
+func (f *fakeEnv) StopRouterForEval(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stops++
+	if f.running {
+		f.running = false
+		f.dirty = true // this job stopped a running router: cleanup owes a restart
+	}
+	return nil
+}
+
+func (f *fakeEnv) EvalBinary(string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.evalBinary == "" {
+		return "", fmt.Errorf("build b has no llama-perplexity binary — it predates the binary's installation; rebuild the build to install it")
+	}
+	return f.evalBinary, nil
+}
+
+func (f *fakeEnv) EnsureEvalData(_ context.Context, mode evaluate.Mode) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.evalData == nil {
+		return "", fmt.Errorf("dataset for mode %s is unavailable", mode)
+	}
+	if p, ok := f.evalData[mode]; ok {
+		return p, nil
+	}
+	return "", fmt.Errorf("dataset for mode %s is unavailable", mode)
+}
+
+// ResolveKLReference mirrors the real policy: override wins when set;
+// otherwise the largest installed quant of the same HF repo (by
+// SizeBytes) — the model itself included, so a multi-quant job
+// resolves every cell (including the largest quant's own) against the
+// same reference, and the runner skips the self cell. Error when the
+// repo has no distinct candidate at all.
+func (f *fakeEnv) ResolveKLReference(modelID, overrideID string) (ModelInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if overrideID != "" {
+		m, ok := f.models[overrideID]
+		if !ok {
+			return ModelInfo{}, fmt.Errorf("KL reference model %s is not installed", overrideID)
+		}
+		return m, nil
+	}
+	base, ok := f.models[modelID]
+	if !ok {
+		return ModelInfo{}, fmt.Errorf("resolve model %s: not installed", modelID)
+	}
+	var best *ModelInfo
+	others := 0
+	for id := range f.models {
+		if f.models[id].HFRepoID != base.HFRepoID {
+			continue
+		}
+		if id != modelID {
+			others++
+		}
+		m := f.models[id]
+		if best == nil || m.SizeBytes > best.SizeBytes {
+			best = &m
+		}
+	}
+	if best == nil {
+		return ModelInfo{}, fmt.Errorf("no installed quant found for %s", modelID)
+	}
+	if best.ID == modelID && others == 0 {
+		return ModelInfo{}, fmt.Errorf("no KL reference for %s: it is the only installed quant of its repo", modelID)
+	}
+	return *best, nil
+}
+
+func (f *fakeEnv) EvalFlags(modelID string, snap ConfigSnapshot, _ string) ([]string, error) {
+	if snap.UBatchSize > 0 && snap.BatchSize > 0 && snap.UBatchSize > snap.BatchSize {
+		// The same named message ValidateBatchSizes produces.
+		return nil, fmt.Errorf("%s: micro-batch %d exceeds batch size %d — micro-batch must be less than or equal to batch",
+			modelID, snap.UBatchSize, snap.BatchSize)
+	}
+	return []string{
+		"--n-gpu-layers", fmt.Sprintf("%d", snap.GPULayers),
+		"--threads", fmt.Sprintf("%d", snap.Threads),
+	}, nil
+}
+
+// EnsureKLBase implements the real cache contract against a temp dir:
+// cache hit on the final file, disk-guard-free generation to the
+// .kld.partial path otherwise (the caller owns the file discipline via
+// the phase 02 helpers), rename into place on success, delete the
+// partial on failure or cancel, and never a cache entry for a failed
+// generation.
+func (f *fakeEnv) EnsureKLBase(ctx context.Context, ref ModelInfo, chunks int, _ string, progress func(string)) (string, error) {
+	if f.dataDir == "" {
+		return "", fmt.Errorf("fake env has no data dir")
+	}
+	key := evaluate.KLBaseKey{
+		ModelID: ref.HFRepoID, Quant: ref.Quant,
+		Dataset: evaluate.ModeKLDiv.DatasetName(), Chunks: chunks,
+		Ctx: evaluate.EvalContextSize,
+	}
+	final := evaluate.KLBasePath(f.dataDir, key)
+	partial := evaluate.KLBasePartialPath(f.dataDir, key)
+	if evaluate.HasKLBase(f.dataDir, key) {
+		return final, nil
+	}
+	f.mu.Lock()
+	err := f.klBaseErr
+	f.mu.Unlock()
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(evaluate.LogitsDir(f.dataDir), 0o755); err != nil {
+		return "", err
+	}
+	if progress != nil {
+		progress("generating reference logits")
+	}
+	if err := os.WriteFile(partial, []byte("logits"), 0o644); err != nil {
+		return "", err
+	}
+	f.mu.Lock()
+	block := f.klBaseBlock
+	f.mu.Unlock()
+	if block != nil {
+		select {
+		case <-block:
+		case <-ctx.Done():
+			os.Remove(partial)
+			return "", ctx.Err()
+		}
+	}
+	if ctx.Err() != nil {
+		os.Remove(partial)
+		return "", ctx.Err()
+	}
+	if err := os.Rename(partial, final); err != nil {
+		os.Remove(partial)
+		return "", err
+	}
+	return final, nil
+}
+
+func (f *fakeEnv) RunEval(ctx context.Context, spec evaluate.Spec) (evaluate.Result, error) {
+	f.mu.Lock()
+	f.evalCalls = append(f.evalCalls, spec)
+	res, err := f.evalResult, f.evalErr
+	block := f.evalBlock
+	f.mu.Unlock()
+	if block != nil {
+		select {
+		case <-block:
+		case <-ctx.Done():
+			return evaluate.Result{}, ctx.Err()
+		}
+	}
+	if err != nil {
+		return evaluate.Result{}, err
+	}
+	out := res
+	if out.Mode == "" {
+		out.Mode = string(spec.Mode)
+	}
+	return out, nil
+}
 
 func (f *fakeEnv) snapshotCalls() ([]ConfigSnapshot, int) {
 	f.mu.Lock()
