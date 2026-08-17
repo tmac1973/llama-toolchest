@@ -8,6 +8,10 @@
 .viz-controls select { margin:0; }
 .viz-controls span { cursor:help; }
 .viz-note { font-size:0.85rem; color:var(--pico-muted-color); margin:0 0 0.5rem; display:none; }
+/* This page is the one place where a bigger window should mean a
+   bigger chart, so lift the layout's 1200px cap and Pico's container
+   width for it. The plot itself is responsive and follows. */
+main.container { max-width: none; }
 </style>
 <article>
     <header style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;flex-wrap:wrap;">
@@ -47,7 +51,7 @@
     </div>
 
     <p id="viz-note" class="viz-note"></p>
-    <div id="viz-plot" style="width:100%;height:620px;"></div>
+    <div id="viz-plot" style="width:100%;height:max(620px, calc(100vh - 330px));"></div>
 
     <details style="margin-top:0.5rem;">
         <summary><small>About these charts</small></summary>
@@ -108,6 +112,14 @@
         return d && d.numeric ? parseFloat(value) : value;
     }
 
+    // The detail text arrives with real newlines (the compare view puts
+    // it in a title attribute, where those work). Plotly hover labels
+    // only break lines on <br>, so without this the whole configuration
+    // renders as one line running off both edges of the chart.
+    function hoverDetail(p) {
+        return p.detail.replace(/\n/g, '<br>');
+    }
+
     function note(text) {
         var el = document.getElementById('viz-note');
         el.textContent = text || '';
@@ -147,7 +159,7 @@
             type: 'scatter', mode: 'markers',
             x: pts.map(function (p) { return coord(x, p.dims[x.name]); }),
             y: pts.map(function (p) { return p.metrics[m.key]; }),
-            text: pts.map(function (p) { return p.detail; }),
+            text: pts.map(hoverDetail),
             hovertemplate: '%{text}<extra></extra>',
             marker: { size: 11, color: pts.map(function (p) { return p.metrics[m.key]; }),
                       colorscale: 'Viridis', reversescale: !m.higher_is_better,
@@ -237,7 +249,7 @@
             x: pts.map(function (p) { return coord(x, p.dims[x.name]); }),
             y: pts.map(function (p) { return coord(y, p.dims[y.name]); }),
             z: pts.map(function (p) { return p.metrics[m.key]; }),
-            text: pts.map(function (p) { return p.detail; }),
+            text: pts.map(hoverDetail),
             hovertemplate: '%{text}<extra></extra>',
             marker: { size: 6, color: pts.map(function (p) { return p.metrics[m.key]; }),
                       colorscale: scale, reversescale: !m.higher_is_better,
@@ -258,6 +270,7 @@
         var t = themed();
         return {
             title: { text: title }, margin: { l: 70, r: 30, t: 50, b: 60 },
+            hoverlabel: { align: 'left' },
             paper_bgcolor: t.paper, plot_bgcolor: t.plot, font: { color: t.font },
             xaxis: { title: { text: xt }, gridcolor: t.grid, zeroline: false },
             yaxis: { title: { text: yt }, gridcolor: t.grid, zeroline: false }
@@ -268,6 +281,7 @@
         var ax = function (name) { return { title: { text: name }, gridcolor: t.grid }; };
         return {
             title: { text: title }, margin: { l: 0, r: 0, t: 50, b: 0 },
+            hoverlabel: { align: 'left' },
             paper_bgcolor: t.paper, font: { color: t.font },
             scene: { xaxis: ax(x.name), yaxis: ax(y.name),
                      zaxis: ax(m.label + ' (' + m.unit + ')') }
