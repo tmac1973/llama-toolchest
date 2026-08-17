@@ -31,22 +31,34 @@ main.container { max-width: none; }
             <span title="What the chart draws. Heatmap and 3D surface need two parameters that were both swept.">Chart</span>
             <select id="viz-chart" onchange="vizRender()">
                 <option value="scatter">Scatter — one parameter against a measurement</option>
+                <option value="leaderboard">Leaderboard — every run ranked by the measurement</option>
                 <option value="heatmap">Heatmap — two parameters, colour is the measurement</option>
+                <option value="facets">Faceted heatmaps — one panel per value of a third parameter</option>
+                <option value="pareto">Pareto — prompt speed vs generation speed trade-off</option>
+                <option value="parcoords">Parallel coordinates — all parameters and measurements side by side</option>
                 <option value="surface3d">3D surface — two parameters as a landscape</option>
                 <option value="scatter3d">3D scatter — two parameters as points in space</option>
             </select>
         </label>
-        <label>
+        <label id="viz-metric-wrap">
             <span title="The measurement being plotted.">Measurement</span>
             <select id="viz-metric" onchange="vizRender()"></select>
         </label>
-        <label>
+        <label id="viz-x-wrap">
             <span title="The parameter along the horizontal axis.">X axis</span>
             <select id="viz-x" onchange="vizRender()"></select>
         </label>
         <label id="viz-y-wrap">
             <span title="The second parameter. Only used by the charts that take two.">Y axis</span>
             <select id="viz-y" onchange="vizRender()"></select>
+        </label>
+        <label id="viz-panel-wrap">
+            <span title="The third parameter — the faceted view draws one panel per value of it.">Panels</span>
+            <select id="viz-panel" onchange="vizRender()"></select>
+        </label>
+        <label id="viz-color-wrap">
+            <span title="The parameter that colours the points, so its values can be told apart.">Colour by</span>
+            <select id="viz-color" onchange="vizRender()"></select>
         </label>
     </div>
 
@@ -57,9 +69,14 @@ main.container { max-width: none; }
         <summary><small>About these charts</small></summary>
         <ul style="font-size:0.85rem;">
             <li><strong>Scatter</strong> is the plain reading: one parameter against one measurement, one point per run. Use it when a job swept a single parameter.</li>
+            <li><strong>Leaderboard</strong> is the direct answer to "which run won": every run as a bar, sorted best-first, with its value on the bar. Start here.</li>
             <li><strong>Heatmap</strong> is usually the fastest way to read a two-parameter sweep. Every cell carries its number, so you compare values by reading them rather than by judging shades.</li>
+            <li><strong>Faceted heatmaps</strong> handle a third parameter: one heatmap panel per value of it, all sharing a single colour scale so panels can be compared directly. The chart for "several quants, each swept over batch and micro-batch".</li>
+            <li><strong>Pareto</strong> plots prompt speed against generation speed when the two pull in different directions. Up and right is better; the ringed points are the frontier — configurations nothing else beats on both.</li>
+            <li><strong>Parallel coordinates</strong> draws every run as a line crossing one axis per parameter and measurement. Drag along an axis to keep only the lines through that band — the tool for "what do my fastest runs have in common?". This is the one chart without hover.</li>
             <li><strong>3D surface</strong> shows the same data as a landscape. It makes ridges and slopes obvious, but exact values are hard to read off it — parts of the surface hide other parts. Drag to rotate.</li>
             <li><strong>3D scatter</strong> keeps every run as its own point, so nothing is interpolated. Useful when the sweep grid has gaps.</li>
+            <li>When runs from more than one configuration land on the same heatmap cell — a parameter not on the axes varies — the cell shows the <em>best</em> value and a note above the chart says how many cells did.</li>
             <li>Hover any point for that run's full configuration. Every chart has a toolbar for zoom, pan and saving a PNG.</li>
         </ul>
     </details>
@@ -86,18 +103,29 @@ main.container { max-width: none; }
     DATA.metrics.forEach(function (m) {
         metricSel.add(new Option(m.label + ' (' + m.unit + ')', m.key));
     });
-    ['viz-x', 'viz-y'].forEach(function (id, i) {
+    ['viz-x', 'viz-y', 'viz-panel'].forEach(function (id, i) {
         var sel = document.getElementById(id);
         DATA.dimensions.forEach(function (d) {
             sel.add(new Option(d.name, d.name));
         });
-        // Default the two axes to different dimensions when there are
-        // two to choose from.
+        // Default each picker to a different dimension when there are
+        // enough to go around.
         if (DATA.dimensions.length > i) sel.selectedIndex = i;
     });
+    var colorSel = document.getElementById('viz-color');
+    colorSel.add(new Option('— none —', ''));
+    DATA.dimensions.forEach(function (d) { colorSel.add(new Option(d.name, d.name)); });
+    if (DATA.dimensions.length) colorSel.selectedIndex = 1;
 
-    window.vizRender = vizRender;
-    vizRender();
+    // Some charts need more vertical room than the CSS default gives the
+    // plot div (a long leaderboard, several facet rows). They ask for a
+    // minimum; the viewport-based default still wins when it is larger.
+    var plotEl = document.getElementById('viz-plot');
+    var defaultPlotHeight = plotEl.style.height;
+    function setPlotHeight(px) {
+        plotEl.style.height = px ? 'max(' + px + 'px, ' + defaultPlotHeight + ')'
+                                 : defaultPlotHeight;
+    }
 
     function dim(name) {
         return DATA.dimensions.filter(function (d) { return d.name === name; })[0];
@@ -123,34 +151,62 @@ main.container { max-width: none; }
     function note(text) {
         var el = document.getElementById('viz-note');
         el.textContent = text || '';
-        el.style.display = text ? '' : 'none';
+        // 'block', not '': an empty inline display falls back to the
+        // stylesheet's display:none, which kept every note invisible.
+        el.style.display = text ? 'block' : 'none';
     }
+
+    // Which pickers each chart uses. A picker a chart ignores is hidden
+    // rather than greyed out — a disabled control begs the question of
+    // what would enable it.
+    var CONTROLS = {
+        scatter:     { metric: true, x: true },
+        leaderboard: { metric: true },
+        heatmap:     { metric: true, x: true, y: true },
+        facets:      { metric: true, x: true, y: true, panel: true },
+        pareto:      { color: true },
+        parcoords:   { metric: true },
+        surface3d:   { metric: true, x: true, y: true },
+        scatter3d:   { metric: true, x: true, y: true }
+    };
 
     function vizRender() {
         var chart = document.getElementById('viz-chart').value;
-        var mKey = document.getElementById('viz-metric').value;
-        var xName = document.getElementById('viz-x').value;
-        var yName = document.getElementById('viz-y').value;
-        var needsTwo = chart !== 'scatter';
+        var spec = CONTROLS[chart] || {};
+        [['metric', 'viz-metric-wrap'], ['x', 'viz-x-wrap'], ['y', 'viz-y-wrap'],
+         ['panel', 'viz-panel-wrap'], ['color', 'viz-color-wrap']].forEach(function (c) {
+            document.getElementById(c[1]).style.display = spec[c[0]] ? '' : 'none';
+        });
 
-        document.getElementById('viz-y-wrap').style.display = needsTwo ? '' : 'none';
+        var m = metric(document.getElementById('viz-metric').value);
+        var x = dim(document.getElementById('viz-x').value);
+        var y = dim(document.getElementById('viz-y').value);
+        var pnl = dim(document.getElementById('viz-panel').value);
 
-        var m = metric(mKey), x = dim(xName), y = dim(yName);
-        if (!x || !m) {
+        if ((spec.x && !x) || (spec.metric && !m)) {
             note('These runs do not vary on anything that can be put on an axis.');
             Plotly.purge('viz-plot');
             return;
         }
-        if (needsTwo && (!y || yName === xName)) {
+        if (spec.y && (!y || y.name === x.name)) {
             note('This chart needs two different parameters. Pick a different Y axis, or switch to the scatter chart.');
             Plotly.purge('viz-plot');
             return;
         }
+        if (spec.panel && (!pnl || pnl.name === x.name || pnl.name === y.name)) {
+            note('Faceted heatmaps need a third parameter for the panels, different from both axes. Pick another under Panels, or switch to the plain heatmap.');
+            Plotly.purge('viz-plot');
+            return;
+        }
         note('');
+        setPlotHeight(0);
 
-        var title = m.label + ' by ' + xName + (needsTwo ? ' and ' + yName : '');
-        if (chart === 'scatter') return renderScatter(m, x, title);
-        return renderTwoAxis(chart, m, x, y, title);
+        if (chart === 'scatter') return renderScatter(m, x, m.label + ' by ' + x.name);
+        if (chart === 'leaderboard') return renderLeaderboard(m);
+        if (chart === 'facets') return renderFacets(m, x, y, pnl);
+        if (chart === 'pareto') return renderPareto(dim(document.getElementById('viz-color').value));
+        if (chart === 'parcoords') return renderParcoords(m);
+        return renderTwoAxis(chart, m, x, y, m.label + ' by ' + x.name + ' and ' + y.name);
     }
 
     function renderScatter(m, x, title) {
@@ -168,17 +224,47 @@ main.container { max-width: none; }
         Plotly.newPlot('viz-plot', [trace], layout(title, x.name, m.label + ' (' + m.unit + ')'), CONFIG);
     }
 
-    // Heatmap, 3D surface and 3D scatter all read the same grid: the
-    // metric at each (x, y) pair. Missing combinations stay null, which
-    // Plotly draws as a gap rather than as a zero — a sweep with holes
-    // in it should look like it has holes.
-    function renderTwoAxis(chart, m, x, y, title) {
+    // fmt renders a metric value the way the charts print it: whole
+    // milliseconds for time to first token, one decimal for the speeds.
+    function fmt(m, v) { return v.toFixed(m.key === 'ttft' ? 0 : 1); }
+
+    // buildGrid places each run's metric on the (x, y) index grid the
+    // heatmap family reads. Missing combinations stay null, which Plotly
+    // draws as a gap rather than a zero — a sweep with holes in it
+    // should look like it has holes.
+    //
+    // When several runs land on the same cell — a third parameter varies
+    // that the two axes cannot show — the cell keeps the BEST value and
+    // the collision is counted so the caller can say so. It used to keep
+    // whichever run happened to come last, which silently showed an
+    // arbitrary configuration's numbers.
+    function buildGrid(pts, m, x, y) {
         var z = y.values.map(function () { return x.values.map(function () { return null; }); });
-        DATA.points.forEach(function (p) {
+        var collisions = 0;
+        pts.forEach(function (p) {
             var xi = x.values.indexOf(p.dims[x.name]);
             var yi = y.values.indexOf(p.dims[y.name]);
-            if (xi >= 0 && yi >= 0) z[yi][xi] = p.metrics[m.key];
+            if (xi < 0 || yi < 0) return;
+            var v = p.metrics[m.key], cur = z[yi][xi];
+            if (cur === null) { z[yi][xi] = v; return; }
+            collisions++;
+            z[yi][xi] = m.higher_is_better ? Math.max(cur, v) : Math.min(cur, v);
         });
+        return { z: z, collisions: collisions };
+    }
+
+    function collisionNote(collisions) {
+        if (!collisions) return;
+        note(collisions + ' cell' + (collisions === 1 ? ' has' : 's have') +
+             ' runs from more than one configuration (a parameter not on the axes varies) — each cell shows its best value. The faceted heatmaps chart can split that parameter out.');
+    }
+
+    // Heatmap, 3D surface and 3D scatter all read the same grid: the
+    // metric at each (x, y) pair.
+    function renderTwoAxis(chart, m, x, y, title) {
+        var grid = buildGrid(DATA.points, m, x, y);
+        var z = grid.z;
+        if (chart !== 'scatter3d') collisionNote(grid.collisions);
         var xs = x.values.map(function (v) { return coord(x, v); });
         var ys = y.values.map(function (v) { return coord(y, v); });
         var scale = m.higher_is_better ? 'Viridis' : 'Viridis';
@@ -202,7 +288,7 @@ main.container { max-width: none; }
                 return x.values.map(function (xv, i) {
                     return x.name + ' ' + xv + '<br>' + y.name + ' ' + yv + '<br>' +
                         (z[j][i] === null ? 'no run at this combination'
-                                          : m.label + ' ' + z[j][i].toFixed(1) + ' ' + m.unit);
+                                          : m.label + ' ' + fmt(m, z[j][i]) + ' ' + m.unit);
                 });
             });
             var trace = {
@@ -218,7 +304,7 @@ main.container { max-width: none; }
             yi.forEach(function (yv, j) {
                 xi.forEach(function (xv, i) {
                     if (z[j][i] === null) return;
-                    ann.push({ x: xv, y: yv, text: z[j][i].toFixed(m.key === 'ttft' ? 0 : 1),
+                    ann.push({ x: xv, y: yv, text: fmt(m, z[j][i]),
                                showarrow: false, font: { size: 11, color: '#fff' } });
                 });
             });
@@ -256,6 +342,233 @@ main.container { max-width: none; }
                       colorbar: { title: { text: m.unit } } }
         };
         Plotly.newPlot('viz-plot', [t3], layout3d(title, x, y, m), CONFIG);
+    }
+
+    // The categorical palette, in fixed assignment order. Validated for
+    // colour-vision-deficiency separation, chroma, and contrast against
+    // this page's dark surface (all its themes but Light are dark).
+    // Identity is never colour alone: every coloured trace is also in
+    // the legend and carries its full configuration on hover.
+    var CAT = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181',
+               '#008300', '#9085e9', '#e66767'];
+    // A ninth category cannot get a distinguishable hue, so it and
+    // everything after fold to grey rather than cycling the palette.
+    var CAT_OVERFLOW = '#6b7079';
+
+    // The leaderboard answers the first question directly: which run
+    // won. Best at the top, its value on the bar, config on hover.
+    function renderLeaderboard(m) {
+        // Ascending for higher-is-better: Plotly draws the first bar of
+        // a category axis at the BOTTOM, so ascending puts the winner
+        // on top.
+        var pts = DATA.points.slice().sort(function (a, b) {
+            return m.higher_is_better
+                ? a.metrics[m.key] - b.metrics[m.key]
+                : b.metrics[m.key] - a.metrics[m.key];
+        });
+        // Short labels are almost always unique (BuildRunLabels widens
+        // until they are), but true repeat runs can share one, and a
+        // category axis would silently stack their bars — suffix dupes.
+        var counts = {};
+        var labels = pts.map(function (p) {
+            counts[p.label] = (counts[p.label] || 0) + 1;
+            return counts[p.label] > 1 ? p.label + ' (' + counts[p.label] + ')' : p.label;
+        });
+        var trace = {
+            type: 'bar', orientation: 'h',
+            x: pts.map(function (p) { return p.metrics[m.key]; }),
+            y: labels,
+            customdata: pts.map(hoverDetail),
+            hovertemplate: '%{customdata}<extra></extra>',
+            texttemplate: '%{x:.' + (m.key === 'ttft' ? 0 : 1) + 'f}',
+            textposition: 'auto',
+            marker: { color: pts.map(function (p) { return p.metrics[m.key]; }),
+                      colorscale: 'Viridis', reversescale: !m.higher_is_better }
+        };
+        var lay = layout(m.label + ' — best on top', m.label + ' (' + m.unit + ')', '');
+        lay.yaxis.type = 'category';
+        lay.yaxis.automargin = true;
+        setPlotHeight(34 * pts.length + 160);
+        Plotly.newPlot('viz-plot', [trace], lay, CONFIG);
+    }
+
+    // The Pareto view is for when the two speeds pull in different
+    // directions: it shows what each configuration trades away. The
+    // frontier — runs no other run beats on BOTH speeds — is ringed.
+    function renderPareto(colorDim) {
+        var pts = DATA.points.filter(function (p) {
+            return p.metrics.prompt > 0 && p.metrics.gen > 0;
+        });
+        if (pts.length < 2) {
+            note('These runs did not record both prompt and generation speeds, so there is no trade-off to draw.');
+            Plotly.purge('viz-plot');
+            return;
+        }
+        // Frontier scan: walk in descending prompt order keeping the
+        // best generation speed seen; a run not beating it is dominated.
+        var byPrompt = pts.slice().sort(function (a, b) {
+            return b.metrics.prompt - a.metrics.prompt || b.metrics.gen - a.metrics.gen;
+        });
+        var bestGen = -Infinity, onFront = {};
+        byPrompt.forEach(function (p) {
+            if (p.metrics.gen > bestGen) { bestGen = p.metrics.gen; onFront[p.run_id] = true; }
+        });
+
+        var traces = [];
+        if (colorDim) {
+            // One trace per value: a legend entry each, colours assigned
+            // in the dimension's sorted order so they never reshuffle.
+            colorDim.values.forEach(function (v, i) {
+                var group = pts.filter(function (p) { return p.dims[colorDim.name] === v; });
+                if (group.length) traces.push(paretoTrace(group, colorDim.name + ' ' + v,
+                                                          i < CAT.length ? CAT[i] : CAT_OVERFLOW));
+            });
+            var rest = pts.filter(function (p) { return p.dims[colorDim.name] === undefined; });
+            if (rest.length) traces.push(paretoTrace(rest, 'no ' + colorDim.name, CAT_OVERFLOW));
+        } else {
+            traces.push(paretoTrace(pts, 'runs', CAT[0]));
+        }
+        var front = pts.filter(function (p) { return onFront[p.run_id]; })
+            .sort(function (a, b) { return a.metrics.prompt - b.metrics.prompt; });
+        traces.push({
+            type: 'scatter', mode: 'lines+markers', name: 'Pareto frontier',
+            x: front.map(function (p) { return p.metrics.prompt; }),
+            y: front.map(function (p) { return p.metrics.gen; }),
+            line: { dash: 'dot', width: 1.5, color: themed().font },
+            marker: { symbol: 'circle-open', size: 17, line: { width: 1.5 } },
+            hoverinfo: 'skip'
+        });
+        Plotly.newPlot('viz-plot', traces,
+            layout('Prompt vs generation speed — up and right is better',
+                   'Prompt speed (tok/s)', 'Generation speed (tok/s)'),
+            CONFIG);
+    }
+    function paretoTrace(group, name, color) {
+        return {
+            type: 'scatter', mode: 'markers', name: name,
+            x: group.map(function (p) { return p.metrics.prompt; }),
+            y: group.map(function (p) { return p.metrics.gen; }),
+            text: group.map(hoverDetail),
+            hovertemplate: '%{text}<extra></extra>',
+            marker: { size: 11, color: color, line: { width: 1, color: 'rgba(0,0,0,0.35)' } }
+        };
+    }
+
+    // Faceted heatmaps: the two-parameter grid, once per value of a
+    // third parameter, every panel on ONE shared colour scale — that
+    // shared scale is the point, it is what makes panels comparable.
+    function renderFacets(m, x, y, pnl) {
+        var n = pnl.values.length;
+        var cols = Math.min(n, 3), rows = Math.ceil(n / cols);
+        var t = themed();
+        var lay = {
+            title: { text: m.label + ' by ' + x.name + ' and ' + y.name + ' — one panel per ' + pnl.name },
+            grid: { rows: rows, columns: cols, pattern: 'independent',
+                    xgap: 0.16, ygap: rows > 1 ? 0.22 : 0 },
+            margin: { l: 70, r: 30, t: 80, b: 60 },
+            paper_bgcolor: t.paper, plot_bgcolor: t.plot, font: { color: t.font },
+            coloraxis: { colorscale: 'Viridis', reversescale: !m.higher_is_better,
+                         colorbar: { title: { text: m.unit } } },
+            annotations: []
+        };
+        var xi = x.values.map(function (_, i) { return i; });
+        var yi = y.values.map(function (_, i) { return i; });
+        var traces = [], collisions = 0;
+        pnl.values.forEach(function (pv, k) {
+            var axn = k === 0 ? '' : String(k + 1);
+            var inPanel = DATA.points.filter(function (p) { return p.dims[pnl.name] === pv; });
+            var grid = buildGrid(inPanel, m, x, y);
+            collisions += grid.collisions;
+            var hover = y.values.map(function (yv, j) {
+                return x.values.map(function (xv, i) {
+                    return pnl.name + ' ' + pv + '<br>' + x.name + ' ' + xv + '<br>' + y.name + ' ' + yv + '<br>' +
+                        (grid.z[j][i] === null ? 'no run at this combination'
+                                               : m.label + ' ' + fmt(m, grid.z[j][i]) + ' ' + m.unit);
+                });
+            });
+            traces.push({
+                type: 'heatmap', x: xi, y: yi, z: grid.z, text: hover,
+                coloraxis: 'coloraxis', hoverongaps: false,
+                hovertemplate: '%{text}<extra></extra>', xgap: 2, ygap: 2,
+                xaxis: 'x' + axn, yaxis: 'y' + axn
+            });
+            // The panel's name, pinned above its own plot area.
+            lay.annotations.push({
+                xref: 'x' + axn + ' domain', yref: 'y' + axn + ' domain',
+                x: 0.5, y: 1, yshift: 16, showarrow: false,
+                text: pnl.name + ' ' + pv, font: { size: 12 }
+            });
+            // Cell values, same reasoning as the single heatmap.
+            yi.forEach(function (yv, j) {
+                xi.forEach(function (xv, i) {
+                    if (grid.z[j][i] === null) return;
+                    lay.annotations.push({
+                        xref: 'x' + axn, yref: 'y' + axn, x: xv, y: yv,
+                        text: fmt(m, grid.z[j][i]), showarrow: false,
+                        font: { size: 10, color: '#fff' }
+                    });
+                });
+            });
+            // Axis titles only on the outer edge — repeating them in
+            // every panel drowns the numbers.
+            lay['xaxis' + axn] = { tickmode: 'array', tickvals: xi, ticktext: x.values,
+                                   showgrid: false,
+                                   title: Math.floor(k / cols) === rows - 1 ? { text: x.name } : undefined };
+            lay['yaxis' + axn] = { tickmode: 'array', tickvals: yi, ticktext: y.values,
+                                   showgrid: false,
+                                   title: k % cols === 0 ? { text: y.name } : undefined };
+        });
+        collisionNote(collisions);
+        if (rows > 1) setPlotHeight(rows * 300 + 160);
+        Plotly.newPlot('viz-plot', traces, lay, CONFIG);
+    }
+
+    // Parallel coordinates: every run as a line crossing one axis per
+    // parameter and measurement. Drag along an axis to keep only the
+    // lines through that band — the tool for "what do my fastest runs
+    // have in common". Plotly's parcoords has no hover; brushing is the
+    // interaction.
+    function renderParcoords(m) {
+        if (!DATA.dimensions.length) {
+            note('These runs do not vary on anything that can be put on an axis.');
+            Plotly.purge('viz-plot');
+            return;
+        }
+        var t = themed();
+        // Parameter axes are index-coded with the values as tick labels
+        // — the same equal-spacing decision as the heatmap — and a run
+        // missing a parameter (outside that sweep) gets an explicit "—"
+        // slot instead of a broken line.
+        var axes = DATA.dimensions.map(function (d) {
+            var missing = false;
+            var vals = DATA.points.map(function (p) {
+                var i = d.values.indexOf(p.dims[d.name]);
+                if (i < 0) { missing = true; return d.values.length; }
+                return i;
+            });
+            var ticks = d.values.slice();
+            if (missing) ticks.push('—');
+            return { label: d.name, values: vals,
+                     tickvals: ticks.map(function (_, i) { return i; }),
+                     ticktext: ticks };
+        });
+        DATA.metrics.forEach(function (mm) {
+            axes.push({ label: mm.label + ' (' + mm.unit + ')',
+                        values: DATA.points.map(function (p) { return p.metrics[mm.key]; }) });
+        });
+        var trace = {
+            type: 'parcoords', dimensions: axes,
+            line: { color: DATA.points.map(function (p) { return p.metrics[m.key]; }),
+                    colorscale: 'Viridis', reversescale: !m.higher_is_better,
+                    showscale: true, colorbar: { title: { text: m.unit } } },
+            labelfont: { color: t.font }, tickfont: { color: t.font },
+            rangefont: { color: t.font }
+        };
+        Plotly.newPlot('viz-plot', [trace], {
+            title: { text: 'Every run across all parameters — lines coloured by ' + m.label.toLowerCase() },
+            margin: { l: 90, r: 60, t: 90, b: 30 },
+            paper_bgcolor: t.paper, font: { color: t.font }
+        }, CONFIG);
     }
 
     // Plotly paints its own background, so the charts are told the
@@ -298,6 +611,12 @@ main.container { max-width: none; }
     // data sizes.
     var CONFIG = { displaylogo: false, responsive: true,
                    toImageButtonOptions: { filename: 'llama-toolchest-benchmark' } };
+
+    // The first render happens LAST: everything above it is function
+    // declarations (hoisted) plus var-assigned tables like CONTROLS and
+    // CONFIG, which hold their values only once execution passes them.
+    window.vizRender = vizRender;
+    vizRender();
 })();
 </script>
 {{end}}
