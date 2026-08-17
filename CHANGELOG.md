@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.21.0](https://github.com/tmac1973/llama-toolchest/compare/v2.20.0...v2.21.0) (2026-08-17)
+
+
+### Features
+
+* **benchmarks:** leaderboard, Pareto, faceted heatmaps, parallel coordinates ([#131](https://github.com/tmac1973/llama-toolchest/issues/131)) ([cf2c9db](https://github.com/tmac1973/llama-toolchest/commit/cf2c9db92f58892f0435e3988bab3ac4490a66b2))
+
 ## [2.20.0](https://github.com/tmac1973/llama-toolchest/compare/v2.19.0...v2.20.0) (2026-08-17)
 
 
