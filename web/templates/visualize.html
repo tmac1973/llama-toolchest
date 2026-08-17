@@ -573,9 +573,18 @@ main.container { max-width: none; }
 
     // Plotly paints its own background, so the charts are told the
     // page's colours rather than assuming a white page.
+    //
+    // The background is the RESOLVED card colour, not transparent. On
+    // screen the two are indistinguishable — the plot sits on the card
+    // either way — but the toolbar's PNG snapshot bakes in whatever
+    // these are: a transparent export put this theme's pale labels on
+    // nothing, which reads as a checkerboard with the axes missing in
+    // any image viewer.
     function themed() {
         var css = getComputedStyle(document.body);
-        return { paper: 'rgba(0,0,0,0)', plot: 'rgba(0,0,0,0)',
+        var bg = (css.getPropertyValue('--pico-card-background-color') || '').trim()
+                 || '#fff';
+        return { paper: bg, plot: bg,
                  font: css.getPropertyValue('--pico-color') || '#333',
                  grid: css.getPropertyValue('--pico-muted-border-color') || '#ccc' };
     }
