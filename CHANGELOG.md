@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.21.1](https://github.com/tmac1973/llama-toolchest/compare/v2.21.0...v2.21.1) (2026-08-17)
+
+
+### Bug Fixes
+
+* **benchmarks:** solid background in exported chart PNGs ([#133](https://github.com/tmac1973/llama-toolchest/issues/133)) ([ae62dbb](https://github.com/tmac1973/llama-toolchest/commit/ae62dbb3a2cdc71669df2a4dd63681ccb5200bfb))
+
 ## [2.21.0](https://github.com/tmac1973/llama-toolchest/compare/v2.20.0...v2.21.0) (2026-08-17)
 
 
