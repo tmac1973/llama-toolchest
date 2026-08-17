@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.20.0](https://github.com/tmac1973/llama-toolchest/compare/v2.19.0...v2.20.0) (2026-08-17)
+
+
+### Features
+
+* **models:** remember which sampling preset is applied ([#130](https://github.com/tmac1973/llama-toolchest/issues/130)) ([22fbbed](https://github.com/tmac1973/llama-toolchest/commit/22fbbedf16d68eba720d9c24b925c92e81627232))
+
+
+### Bug Fixes
+
+* **benchmarks:** readable hover text and full-width visualization page ([#128](https://github.com/tmac1973/llama-toolchest/issues/128)) ([b80b0a5](https://github.com/tmac1973/llama-toolchest/commit/b80b0a569049b1709c1f5ac5eccd89e92d758ce2))
+
 ## [2.19.0](https://github.com/tmac1973/llama-toolchest/compare/v2.18.2...v2.19.0) (2026-08-16)
 
 
