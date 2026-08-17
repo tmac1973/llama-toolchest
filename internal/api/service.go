@@ -855,6 +855,14 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		cfg.DirectIO = r.FormValue("direct_io") == "on"
 		cfg.ExtraFlags = r.FormValue("extra_flags")
 
+		// "__clear__" is the picker's action entry, not a preset name; it
+		// never reaches here in normal flow (the JS resets the picker before
+		// the save fires) but must not be stored if it does.
+		if preset := r.FormValue("sampling_preset"); preset != "__clear__" {
+			cfg.SamplingPreset = preset
+		} else {
+			cfg.SamplingPreset = ""
+		}
 		cfg.Temperature = parseOptionalFloat(r.FormValue("temperature"))
 		cfg.TopP = parseOptionalFloat(r.FormValue("top_p"))
 		cfg.TopK = parseOptionalInt(r.FormValue("top_k"))

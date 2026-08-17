@@ -388,24 +388,24 @@
     <small style="display: block; opacity: 0.7;">This model ships embedded sampling defaults — llama-server already applies them when the fields below are blank. Pick a preset to see or override the values.</small>
     {{end}}
     {{if .SamplingPresets}}
-    <label title="Apply a sampling preset recommended by the model's publisher — gathered at download time from the GGUF file's embedded defaults, the Unsloth docs, and the base model's generation_config.json. Fills in the fields below — you can edit afterward.">
+    <label title="Apply a sampling preset recommended by the model's publisher — gathered at download time from the GGUF file's embedded defaults, the Unsloth docs, and the base model's generation_config.json. Fills in the fields below and stays selected so you can see which preset is running. Editing a field by hand deselects it — the values are yours from then on.">
         Preset
-        <select class="sampling-preset-picker"
+        <select class="sampling-preset-picker" name="sampling_preset"
                 data-presets="{{.SamplingPresetsJSON}}"
                 onchange="applySamplingPreset(this);">
-            <option value="">— pick to apply —</option>
+            <option value="">— none —</option>
             {{range .SamplingPresets}}
-            <option value="{{.Name}}" title="{{.Description}}">{{.Label}}{{if ne .Name "default"}} ({{.Name}}){{end}}</option>
+            <option value="{{.Name}}" title="{{.Description}}" {{if eq $.Config.SamplingPreset .Name}}selected{{end}}>{{.Label}}{{if ne .Name "default"}} ({{.Name}}){{end}}</option>
             {{end}}
             <option value="__clear__">Clear all (use server defaults)</option>
         </select>
     </label>
     <script>
     if (typeof window.applySamplingPreset !== 'function') {
+        window.samplingPresetFields = ['temperature','top_p','top_k','min_p','presence_penalty','repeat_penalty'];
         window.applySamplingPreset = function(sel) {
             if (sel.value === '') return;
             var form = sel.closest('form');
-            var fields = ['temperature','top_p','top_k','min_p','presence_penalty','repeat_penalty'];
             var clear = sel.value === '__clear__';
             var preset = null;
             if (!clear) {
@@ -415,17 +415,33 @@
                 } catch (e) { return; }
                 if (!preset) return;
             }
-            fields.forEach(function(name) {
+            window.samplingPresetFields.forEach(function(name) {
                 var inp = form.querySelector('[name="'+name+'"]');
                 if (!inp) return;
                 var v = clear ? null : preset[name];
                 inp.value = (v === undefined || v === null) ? '' : v;
             });
-            sel.value = '';
-            // Fire one synthetic change to trigger the existing auto-save.
-            var trig = form.querySelector('[name="temperature"]') || form;
-            trig.dispatchEvent(new Event('change', {bubbles: true}));
+            // "Clear all" is an action, not a state — reset the picker so
+            // "__clear__" is never what gets saved. A named preset stays
+            // selected: the picker is a form field now, so the selection is
+            // saved with the values and re-rendered on the next open.
+            if (clear) sel.value = '';
+            // No synthetic change needed: the user's change on the picker
+            // itself bubbles to the form and fires the auto-save, which
+            // serializes the already-filled fields after its debounce.
         };
+        // Hand-editing a sampling field means the values are no longer the
+        // preset's — deselect it so the saved state doesn't claim otherwise.
+        // Delegated from the document because the form is replaced on every
+        // auto-save swap. Preset application can't trip this: it fills
+        // inputs without dispatching events on them.
+        document.addEventListener('change', function(e) {
+            var t = e.target;
+            if (!t.name || window.samplingPresetFields.indexOf(t.name) === -1) return;
+            var form = t.closest('form');
+            var sel = form && form.querySelector('.sampling-preset-picker');
+            if (sel && sel.value) sel.value = '';
+        });
     }
     </script>
     {{end}}

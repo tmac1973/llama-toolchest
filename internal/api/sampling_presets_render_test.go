@@ -44,6 +44,7 @@ func TestSamplingPresetsPartialRenders(t *testing.T) {
 	topK := 20
 	cfg := &models.ModelConfig{
 		Enabled: true, GPULayers: 999, ContextSize: 8192, Threads: 8,
+		SamplingPreset: "thinking",
 	}
 	presets := []models.SamplingPreset{
 		{
@@ -95,6 +96,14 @@ func TestSamplingPresetsPartialRenders(t *testing.T) {
 	}
 	if !strings.Contains(out, "Thinking mode") {
 		t.Errorf("expected option label; output=\n%s", out)
+	}
+	// The applied preset persists on the config and its option renders
+	// selected, so reopening the panel shows which preset is running.
+	if !strings.Contains(out, `value="thinking" title="From README — for enable_thinking=True" selected`) {
+		t.Errorf("expected the stored preset's option to render selected; output=\n%s", out)
+	}
+	if !strings.Contains(out, `name="sampling_preset"`) {
+		t.Errorf("expected picker to be a named form field so the selection is saved; output=\n%s", out)
 	}
 }
 

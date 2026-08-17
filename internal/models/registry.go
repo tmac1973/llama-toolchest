@@ -163,6 +163,13 @@ type ModelConfig struct {
 	// chat-template auto-detection is wrong or absent. nil = use detection.
 	ReasoningOverride *ReasoningCapability `json:"reasoning,omitempty"`
 
+	// SamplingPreset names the publisher preset whose values currently fill
+	// the sampling fields below, so the UI can show which preset is running.
+	// Cleared when the user hand-edits a sampling field: at that point the
+	// values are no longer the preset's. Purely descriptive — launch and
+	// request behavior read only the individual fields.
+	SamplingPreset string `json:"sampling_preset,omitempty"`
+
 	// Sampling parameters — nil means use llama.cpp server default.
 	Temperature     *float64 `json:"temperature,omitempty"`
 	TopP            *float64 `json:"top_p,omitempty"`
