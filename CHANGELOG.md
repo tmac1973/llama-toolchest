@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.22.1](https://github.com/tmac1973/llama-toolchest/compare/v2.22.0...v2.22.1) (2026-08-18)
+
+
+### Bug Fixes
+
+* **benchmarks:** open visualizations in the current tab ([#140](https://github.com/tmac1973/llama-toolchest/issues/140)) ([96fd5ee](https://github.com/tmac1973/llama-toolchest/commit/96fd5eea984965a6094d03c4adb1dbf252b90774))
+
 ## [2.22.0](https://github.com/tmac1973/llama-toolchest/compare/v2.21.2...v2.22.0) (2026-08-18)
 
 
