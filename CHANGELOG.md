@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.21.2](https://github.com/tmac1973/llama-toolchest/compare/v2.21.1...v2.21.2) (2026-08-18)
+
+
+### Bug Fixes
+
+* **models:** surface rejected config saves instead of freezing silently ([#135](https://github.com/tmac1973/llama-toolchest/issues/135)) ([611f004](https://github.com/tmac1973/llama-toolchest/commit/611f004b3ee8770a301177e4c175ce72baec491e))
+
 ## [2.21.1](https://github.com/tmac1973/llama-toolchest/compare/v2.21.0...v2.21.1) (2026-08-17)
 
 
