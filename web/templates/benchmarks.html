@@ -125,16 +125,18 @@ function compareSelectedRuns(btn) {
         .then(function(){ view.scrollIntoView({behavior:'smooth'}); });
 }
 
-// The charts open in their own tab: the plotting library is larger than
-// everything else this application serves put together, so the pages
-// people use all day must never load it.
+// The charts are their own PAGE — only it loads the plotting library,
+// which is larger than everything else this application serves put
+// together, so the pages people use all day never load it. It navigates
+// in the current tab: "Back to benchmarks" (or the browser back button)
+// returns here, rather than leaving a pile of chart tabs behind.
 function visualizeSelectedRuns(btn) {
     var root = benchContainer(btn);
     if (!root) return;
     var checks = root.querySelectorAll('.bench-check:checked');
     if (checks.length < 2) { alert('Select at least two benchmarks to visualize.'); return; }
     var ids = Array.from(checks).map(function(c){return c.value;}).join(',');
-    window.open('/benchmarks/visualize?ids=' + encodeURIComponent(ids), '_blank', 'noopener');
+    window.location.href = '/benchmarks/visualize?ids=' + encodeURIComponent(ids);
 }
 
 function exportSelectedRuns(btn, format) {
@@ -735,7 +737,7 @@ function visualizeSelectedCells(btn) {
     var checks = btn.closest('.job-detail').querySelectorAll('.cell-check:checked');
     if (checks.length < 2) { alert('Select at least 2 cells to visualize.'); return; }
     var ids = Array.from(checks).map(function(c){return c.value;}).join(',');
-    window.open('/benchmarks/visualize?ids=' + encodeURIComponent(ids), '_blank', 'noopener');
+    window.location.href = '/benchmarks/visualize?ids=' + encodeURIComponent(ids);
 }
 
 function compareSelectedCells(btn) {

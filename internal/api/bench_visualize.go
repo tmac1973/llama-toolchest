@@ -13,10 +13,11 @@ import (
 //
 // "Compare Selected" is the quick read: which of these won. This is the
 // slower one — where the ridge is in a two-parameter sweep, whether a
-// setting has a knee, whether two parameters interact. It opens in its
-// own tab so its chart library, which is larger than everything else
-// the application serves put together, is never loaded by the pages
-// people use all day.
+// setting has a knee, whether two parameters interact. It is its own
+// page so its chart library, which is larger than everything else the
+// application serves put together, is never loaded by the pages people
+// use all day; navigation stays in the current tab, with "Back to
+// benchmarks" returning to the list.
 //
 // The data is embedded in the page rather than fetched: the payload is
 // a few kilobytes for any realistic selection, and embedding means the
