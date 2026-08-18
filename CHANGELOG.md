@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.22.0](https://github.com/tmac1973/llama-toolchest/compare/v2.21.2...v2.22.0) (2026-08-18)
+
+
+### Features
+
+* **builds:** support llama.cpp semver release tags alongside b-tags ([#139](https://github.com/tmac1973/llama-toolchest/issues/139)) ([158e8cd](https://github.com/tmac1973/llama-toolchest/commit/158e8cdc84c026419251055d8f759f09e0e2cde8))
+
+
+### Bug Fixes
+
+* **models:** stop restart indicators overlapping the model name ([#137](https://github.com/tmac1973/llama-toolchest/issues/137)) ([55d60b9](https://github.com/tmac1973/llama-toolchest/commit/55d60b9aed67d90e8b2bca90a3a010fa2b8ee3b6))
+
 ## [2.21.2](https://github.com/tmac1973/llama-toolchest/compare/v2.21.1...v2.21.2) (2026-08-18)
 
 
