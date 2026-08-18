@@ -1,11 +1,18 @@
 {{define "model_config"}}
+{{/* A rejected save (validation 400, server error) leaves the form
+     unswapped, and htmx is silent about it — without the error handlers
+     the form just looks frozen: nothing the user changes appears to do
+     anything, including changes whose re-render would reveal new fields
+     (picking a speculative-decoding mode). Surface the response text. */}}
 <form id="model-config-form"
       hx-put="/api/models/{{.ModelID}}/config"
       hx-target="this"
       hx-swap="outerHTML focus-scroll:false show:none"
       hx-trigger="submit, change delay:500ms"
-      hx-on::before-request="window._cfgScrollY=window.scrollY"
-      hx-on::after-settle="window.scrollTo({top:window._cfgScrollY,behavior:'instant'})">
+      hx-on::before-request="window._cfgScrollY=window.scrollY; var e=this.querySelector('.cfg-save-error'); if(e){e.style.display='none';}"
+      hx-on::after-settle="window.scrollTo({top:window._cfgScrollY,behavior:'instant'})"
+      hx-on::response-error="var e=this.querySelector('.cfg-save-error'); if(e){e.textContent='Not saved: '+(event.detail.xhr.responseText.trim()||('server returned '+event.detail.xhr.status)); e.style.display='block';}"
+      hx-on::send-error="var e=this.querySelector('.cfg-save-error'); if(e){e.textContent='Not saved: could not reach the server.'; e.style.display='block';}">
 
     <div class="model-config-header">
         <span>Configure <span class="mc-owner">— {{.ModelID}}</span></span>
@@ -501,6 +508,7 @@
                style="opacity: 0.7; cursor: default;">
     </label>
 
+    <small class="cfg-save-error" style="display:none;color:var(--pico-del-color);font-weight:600;"></small>
     <small style="color: var(--pico-muted-color);">Changes are saved automatically. Launch parameters require a server restart to apply.</small>
 </form>
 {{end}}
