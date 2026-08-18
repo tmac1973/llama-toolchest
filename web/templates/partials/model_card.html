@@ -4,23 +4,26 @@
          data-search="{{.SearchText}}">
     <div class="model-card-row">
         <div class="model-card-toggle">
-            <span style="display: inline-flex; align-items: center; gap: 0.25rem;">
-                <input type="checkbox" role="switch" style="margin: 0;"
-                       {{if .IsEnabled}}checked{{end}}
-                       {{if or .IsOrphan .IsIncomplete}}disabled{{end}}
-                       title="{{if .IsOrphan}}Model file is missing — cannot be enabled{{else if .IsIncomplete}}Download is incomplete — resume it before enabling{{else}}Enable this model for the inference server{{end}}"
-                       {{if not (or .IsOrphan .IsIncomplete)}}
-                       hx-put="/api/models/{{.ID}}/enable"
-                       hx-target="closest .model-card"
-                       hx-swap="outerHTML"
-                       hx-vals='js:{"enabled": event.target.checked ? "true" : "false"}'
-                       {{end}}>
-                {{if .PendingEnable}}<span title="Restart server to make this model available" style="cursor: help; color: var(--pico-primary);">&#x21bb;</span>{{end}}
-                {{if .PendingDisable}}<span title="Restart server to remove this model" style="cursor: help; color: var(--pico-del-color);">&#x2298;</span>{{end}}
-                {{if .NeedsReload}}<span title="Restart server to apply config changes" style="cursor: help; color: var(--pico-primary);">&#x21bb;</span>{{end}}
-            </span>
+            <input type="checkbox" role="switch" style="margin: 0;"
+                   {{if .IsEnabled}}checked{{end}}
+                   {{if or .IsOrphan .IsIncomplete}}disabled{{end}}
+                   title="{{if .IsOrphan}}Model file is missing — cannot be enabled{{else if .IsIncomplete}}Download is incomplete — resume it before enabling{{else}}Enable this model for the inference server{{end}}"
+                   {{if not (or .IsOrphan .IsIncomplete)}}
+                   hx-put="/api/models/{{.ID}}/enable"
+                   hx-target="closest .model-card"
+                   hx-swap="outerHTML"
+                   hx-vals='js:{"enabled": event.target.checked ? "true" : "false"}'
+                   {{end}}>
         </div>
         <div class="model-card-name">
+            {{/* The restart indicators live in the name cell, not the
+                 toggle cell: the toggle column is a fixed 2.5rem (grid
+                 alignment across cards needs fixed widths), so anything
+                 beside the switch overflowed it and painted over the
+                 model name. Here they flow with the text instead. */}}
+            {{if .PendingEnable}}<span title="Restart server to make this model available" style="cursor: help; color: var(--pico-primary); margin-right: 0.2rem;">&#x21bb;</span>{{end}}
+            {{if .PendingDisable}}<span title="Restart server to remove this model" style="cursor: help; color: var(--pico-del-color); margin-right: 0.2rem;">&#x2298;</span>{{end}}
+            {{if .NeedsReload}}<span title="Restart server to apply config changes" style="cursor: help; color: var(--pico-primary); margin-right: 0.2rem;">&#x21bb;</span>{{end}}
             {{.ModelID}}
             {{if hasHFRepo .ModelID}}<a href="https://huggingface.co/{{.ModelID}}" target="_blank" rel="noopener" title="Open on HuggingFace" style="text-decoration:none;color:var(--pico-muted-color);font-size:0.85em;margin-left:0.15rem;">&#x2197;</a>{{end}}
             {{if .HasVision}} <mark style="padding:0 0.3rem;font-size:0.75rem;">vision</mark>{{end}}
