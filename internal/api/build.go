@@ -154,9 +154,33 @@ func (s *Server) handleListRefs(w http.ResponseWriter, r *http.Request) {
 	if isHTMX(r) {
 		respondHTML(w)
 		w.Write([]byte(`<option value="latest">latest</option>`))
-		for _, ref := range refs {
-			w.Write([]byte(`<option value="` + ref + `">` + ref + `</option>`))
+		// Two tag families since upstream added semver releases (Aug
+		// 2026): v* release tags and b* nightlies. Group them so the
+		// picker says which is which; "latest" still means the newest
+		// nightly. Tag names come from the upstream remote — escape them.
+		// Releases are labeled with the nightly they were cut from
+		// ("v0.2.0 (b10500)") so their position on the b-scale is
+		// readable without leaving the picker. Values stay bare tags.
+		anchors := s.builder.ReleaseAnchors()
+		writeGroup := func(label string, match func(string) bool) {
+			opts := ""
+			for _, ref := range refs {
+				if match(ref) {
+					e := html.EscapeString(ref)
+					text := e
+					if n, found := anchors[ref]; found {
+						text = fmt.Sprintf("%s (b%d)", e, n)
+					}
+					opts += `<option value="` + e + `">` + text + `</option>`
+				}
+			}
+			if opts != "" {
+				w.Write([]byte(`<optgroup label="` + label + `">` + opts + `</optgroup>`))
+			}
 		}
+		isRelease := func(ref string) bool { return strings.HasPrefix(ref, "v") }
+		writeGroup("Releases", isRelease)
+		writeGroup("Nightly builds", func(ref string) bool { return !isRelease(ref) })
 		return
 	}
 

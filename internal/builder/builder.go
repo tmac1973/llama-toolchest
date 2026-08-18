@@ -46,6 +46,13 @@ type BuildResult struct {
 	StartedAt  time.Time         `json:"started_at"`
 	FinishedAt time.Time         `json:"finished_at,omitempty"`
 	Error      string            `json:"error,omitempty"`
+	// CommitCount is `git rev-list --count HEAD` of the built checkout.
+	// llama.cpp's bN nightly tags ARE the master commit count, so this
+	// number ranks builds of ANY ref — semver release tags (v0.x.y,
+	// introduced upstream Aug 2026), branches, bare SHAs — on the same
+	// scale as b-tags. Zero on builds from before the field existed;
+	// those fall back to parsing the b-number out of GitRef.
+	CommitCount int `json:"commit_count,omitempty"`
 }
 
 const buildLogHistorySize = 2000
@@ -63,8 +70,9 @@ type Builder struct {
 	logBcasts   map[string]*broadcast.Broadcaster[string] // build ID → log stream
 	lastBuildID string                                    // most recent build ID
 
-	refsMu     sync.Mutex
-	cachedRefs []string
+	refsMu        sync.Mutex
+	cachedRefs    []string
+	cachedAnchors map[string]int // release tag → its nightly b-number
 
 	// Saved build-flag presets (see flag_presets.go), loaded lazily.
 	fpMu        sync.Mutex
@@ -105,9 +113,9 @@ func (b *Builder) Find(id string) (*BuildResult, bool) {
 	return nil, false
 }
 
-// LatestSuccessfulBuild returns the successful build with the newest GitRef
-// (e.g. "b8779" > "b8778"). Non-numeric refs like branch names or SHAs
-// are ranked below numeric b-tags; among them, newest StartedAt wins.
+// LatestSuccessfulBuild returns the successful build of the newest
+// upstream code: highest buildRank (upstream commit count) first, with
+// unrankable builds below ranked ones and ordered by newest StartedAt.
 // Returns nil if no successful build exists.
 func (b *Builder) LatestSuccessfulBuild() *BuildResult {
 	b.mu.Lock()
@@ -123,8 +131,8 @@ func (b *Builder) LatestSuccessfulBuild() *BuildResult {
 		return nil
 	}
 	sort.SliceStable(ok, func(i, j int) bool {
-		ni, oki := refTagNumber(ok[i].GitRef)
-		nj, okj := refTagNumber(ok[j].GitRef)
+		ni, oki := buildRank(ok[i])
+		nj, okj := buildRank(ok[j])
 		switch {
 		case oki && okj:
 			if ni != nj {
@@ -139,6 +147,18 @@ func (b *Builder) LatestSuccessfulBuild() *BuildResult {
 	})
 	res := ok[0]
 	return &res
+}
+
+// buildRank places a build on llama.cpp's own version scale: the master
+// commit count. Recorded directly on newer builds; recovered from the
+// bN tag (whose N is that same count) on builds from before CommitCount
+// existed. A legacy build of a branch or bare SHA has neither and is
+// unrankable — (0, false).
+func buildRank(r BuildResult) (int, bool) {
+	if r.CommitCount > 0 {
+		return r.CommitCount, true
+	}
+	return refTagNumber(r.GitRef)
 }
 
 // refTagNumber extracts N from refs shaped like "bN" (llama.cpp's release
@@ -282,7 +302,7 @@ func (b *Builder) Build(ctx context.Context, profile string, gitRef string, tag 
 		return nil, fmt.Errorf("repo setup: %w", err)
 	}
 
-	resolvedRef, sha, err := b.checkoutRef(ctx, srcDir, gitRef, logCh)
+	resolvedRef, sha, commitCount, err := b.checkoutRef(ctx, srcDir, gitRef, logCh)
 	if err != nil {
 		close(logCh)
 		return nil, fmt.Errorf("checkout: %w", err)
@@ -290,6 +310,7 @@ func (b *Builder) Build(ctx context.Context, profile string, gitRef string, tag 
 
 	result.GitRef = resolvedRef
 	result.GitSHA = sha
+	result.CommitCount = commitCount
 
 	// Compute ID. Tag wins. If untagged and the bare ID is already taken
 	// by a build with different flags, auto-suffix a short hash of this
@@ -634,21 +655,34 @@ func (b *Builder) ensureRepo(ctx context.Context, srcDir string, logCh chan stri
 	return b.runCmd(ctx, filepath.Dir(srcDir), logCh, "", nil, "git", "clone", llamaCppRepo, filepath.Base(srcDir))
 }
 
-// checkoutRef checks out the given ref and returns (resolvedRef, sha, error).
-// If ref is "latest", it resolves to the latest b* release tag.
-func (b *Builder) checkoutRef(ctx context.Context, srcDir string, ref string, logCh chan string) (string, string, error) {
+// checkoutRef checks out the given ref and returns (resolvedRef, sha,
+// commitCount, error). commitCount is `git rev-list --count HEAD` of the
+// checkout — llama.cpp's own version scale (its bN tags are exactly that
+// count) — and is 0 if counting fails; ranking then falls back to the
+// ref's tag number.
+//
+// If ref is "latest", it resolves to the newest bN nightly tag — the
+// meaning "latest" has always had here. Upstream added semver release
+// tags (v0.x.y) in Aug 2026 alongside the nightlies; those are offered
+// in the ref picker but never chosen implicitly. Should upstream ever
+// stop cutting b-tags, the newest v-tag is the fallback, then HEAD.
+func (b *Builder) checkoutRef(ctx context.Context, srcDir string, ref string, logCh chan string) (string, string, int, error) {
 	if ref == "latest" {
-		// Find latest b* release tag (current llama.cpp release format).
-		// Use --sort=-v:refname for proper version ordering.
-		out, err := exec.CommandContext(ctx, "git", "-C", srcDir, "tag", "--sort=-v:refname", "-l", "b*").Output()
-		if err != nil {
-			return "", "", fmt.Errorf("listing tags: %w%s", err, exitErrDetail(err))
+		// --sort=-v:refname gives proper version ordering within a family.
+		ref = ""
+		for _, family := range []string{"b*", "v*"} {
+			out, err := exec.CommandContext(ctx, "git", "-C", srcDir, "tag", "--sort=-v:refname", "-l", family).Output()
+			if err != nil {
+				return "", "", 0, fmt.Errorf("listing tags: %w%s", err, exitErrDetail(err))
+			}
+			tags := strings.Split(strings.TrimSpace(string(out)), "\n")
+			if len(tags) > 0 && tags[0] != "" {
+				ref = tags[0]
+				break
+			}
 		}
-		tags := strings.Split(strings.TrimSpace(string(out)), "\n")
-		if len(tags) == 0 || tags[0] == "" {
+		if ref == "" {
 			ref = "HEAD"
-		} else {
-			ref = tags[0]
 		}
 		sendLog(logCh, fmt.Sprintf("==> Latest tag: %s", ref))
 	}
@@ -661,18 +695,30 @@ func (b *Builder) checkoutRef(ctx context.Context, srcDir string, ref string, lo
 	// half-updated) can't block future builds with "Please commit your
 	// changes or stash them".
 	if err := b.runCmd(ctx, srcDir, logCh, "", nil, "git", "checkout", "--force", ref); err != nil {
-		return "", "", err
+		return "", "", 0, err
 	}
 
 	out, err := exec.CommandContext(ctx, "git", "-C", srcDir, "rev-parse", "HEAD").Output()
 	if err != nil {
-		return "", "", fmt.Errorf("rev-parse: %w%s", err, exitErrDetail(err))
+		return "", "", 0, fmt.Errorf("rev-parse: %w%s", err, exitErrDetail(err))
 	}
-	return ref, strings.TrimSpace(string(out)), nil
+	sha := strings.TrimSpace(string(out))
+
+	// Best-effort: a build is still usable without its count, it just
+	// ranks by its ref's tag number (or not at all) instead.
+	count := 0
+	if cout, err := exec.CommandContext(ctx, "git", "-C", srcDir, "rev-list", "--count", "HEAD").Output(); err == nil {
+		count, _ = strconv.Atoi(strings.TrimSpace(string(cout)))
+	} else {
+		slog.Warn("counting commits failed; build will rank by ref only", "ref", ref, "error", err)
+	}
+	return ref, sha, count, nil
 }
 
-// FetchRefs pulls the latest tags from the llama.cpp remote and returns the
-// available b* release tags. Results are cached; call this to refresh.
+// FetchRefs pulls the latest tags from the llama.cpp remote and returns
+// the available tags: v* semver release tags first (few, stable), then
+// the b* nightly tags — each family newest-first. Results are cached;
+// call this to refresh.
 //
 // The remote fetch is best-effort: if it fails (no network, transient error,
 // timeout), we still return whatever tags are already in the local clone so
@@ -692,22 +738,44 @@ func (b *Builder) FetchRefs() ([]string, error) {
 		slog.Warn("git fetch failed; returning cached tags", "error", err)
 	}
 
-	out, err := exec.Command("git", "-C", srcDir, "tag", "--sort=-v:refname", "-l", "b*").Output()
-	if err != nil {
-		return nil, fmt.Errorf("listing tags: %w", err)
+	// The two families are listed separately: mixing them in one
+	// -v:refname sort would interleave v0.x.y between b-numbers
+	// meaninglessly. Prefix keeps them distinguishable downstream.
+	var refs []string
+	var releases []string
+	for _, family := range []string{"v*", "b*"} {
+		out, err := exec.Command("git", "-C", srcDir, "tag", "--sort=-v:refname", "-l", family).Output()
+		if err != nil {
+			return nil, fmt.Errorf("listing tags: %w", err)
+		}
+		for _, t := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			if t = strings.TrimSpace(t); t != "" {
+				refs = append(refs, t)
+				if family == "v*" {
+					releases = append(releases, t)
+				}
+			}
+		}
 	}
 
-	tags := strings.Split(strings.TrimSpace(string(out)), "\n")
-	var refs []string
-	for _, t := range tags {
-		t = strings.TrimSpace(t)
-		if t != "" {
-			refs = append(refs, t)
+	// Anchor each release to the nightly scale: its commit count IS the
+	// b-number of the nightly it was cut from (upstream tags releases on
+	// nightlies, and bN = commit count N). Releases are few, so one
+	// rev-list per tag is cheap; failures just leave that tag unanchored.
+	anchors := make(map[string]int, len(releases))
+	for _, tag := range releases {
+		out, err := exec.Command("git", "-C", srcDir, "rev-list", "--count", tag).Output()
+		if err != nil {
+			continue
+		}
+		if n, err := strconv.Atoi(strings.TrimSpace(string(out))); err == nil && n > 0 {
+			anchors[tag] = n
 		}
 	}
 
 	b.refsMu.Lock()
 	b.cachedRefs = refs
+	b.cachedAnchors = anchors
 	b.refsMu.Unlock()
 
 	return refs, nil
@@ -719,6 +787,19 @@ func (b *Builder) CachedRefs() []string {
 	defer b.refsMu.Unlock()
 	out := make([]string, len(b.cachedRefs))
 	copy(out, b.cachedRefs)
+	return out
+}
+
+// ReleaseAnchors returns, for each release tag from the last FetchRefs,
+// the nightly b-number that release corresponds to (its commit count).
+// The UI uses it to label releases like "v0.2.0 (b10500)".
+func (b *Builder) ReleaseAnchors() map[string]int {
+	b.refsMu.Lock()
+	defer b.refsMu.Unlock()
+	out := make(map[string]int, len(b.cachedAnchors))
+	for k, v := range b.cachedAnchors {
+		out[k] = v
+	}
 	return out
 }
 
