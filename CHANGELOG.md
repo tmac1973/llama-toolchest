@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.22.2](https://github.com/tmac1973/llama-toolchest/compare/v2.22.1...v2.22.2) (2026-08-25)
+
+
+### Bug Fixes
+
+* **setup:** detect ROCm by what's installed, not by package name ([#143](https://github.com/tmac1973/llama-toolchest/issues/143)) ([ff5a399](https://github.com/tmac1973/llama-toolchest/commit/ff5a3997665a1fe4b2dd73d383f86dbba282ae4a)), closes [#142](https://github.com/tmac1973/llama-toolchest/issues/142)
+
 ## [2.22.1](https://github.com/tmac1973/llama-toolchest/compare/v2.22.0...v2.22.1) (2026-08-18)
 
 
