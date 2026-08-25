@@ -126,6 +126,283 @@ host_find_nvcc() {
     return 1
 }
 
+# Locate a ROCm tool, looking past PATH. ROCm installs under /opt/rocm (or
+# $ROCM_PATH) and only some packagings drop symlinks into /usr/bin, so a
+# plain `command -v` misses a perfectly good install. Mirrors FindROCmTool
+# in internal/builder/detect.go so setup.sh and the builder agree on what
+# counts as "ROCm is here". Echoes the absolute path (returns 0); silent
+# on miss (returns 1).
+host_find_rocm_tool() {
+    local name="$1"
+    if command -v "$name" >/dev/null 2>&1; then
+        command -v "$name"
+        return 0
+    fi
+    local -a dirs=()
+    [[ -n "${ROCM_PATH:-}" ]] && dirs+=("${ROCM_PATH}/bin")
+    dirs+=(/opt/rocm/bin)
+    local d
+    for d in "${dirs[@]}"; do
+        if [[ -x "$d/$name" ]]; then
+            echo "$d/$name"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Echo the ROCm install prefix. There is no single answer: AMD's own
+# packages land in /opt/rocm, Fedora's native RPMs install into /usr with
+# no /opt/rocm at all, and source builds go wherever they were configured.
+# Ask hipconfig — it reports the prefix of the install it belongs to —
+# before falling back to guesses. Returns 1 if no prefix is identifiable.
+host_rocm_prefix() {
+    if [[ -n "${ROCM_PATH:-}" && -d "${ROCM_PATH}" ]]; then
+        echo "${ROCM_PATH}"
+        return 0
+    fi
+    local hipconfig prefix
+    if hipconfig="$(host_find_rocm_tool hipconfig)"; then
+        prefix="$("$hipconfig" --rocmpath 2>/dev/null)"
+        if [[ -n "$prefix" && -d "$prefix" ]]; then
+            echo "$prefix"
+            return 0
+        fi
+    fi
+    if [[ -d /opt/rocm ]]; then
+        echo /opt/rocm
+        return 0
+    fi
+    local hipcc
+    if hipcc="$(host_find_rocm_tool hipcc)"; then
+        prefix="$(dirname "$(dirname "$hipcc")")"
+        if [[ -d "$prefix" ]]; then
+            echo "$prefix"
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Whether the host already has everything llama.cpp's HIP backend needs to
+# compile, regardless of how it got there. Package names for ROCm differ
+# between AMD's own repo, Debian/Ubuntu's native packaging, and source or
+# TheRock installs, so name-based detection reports false "missing" on
+# hosts that build fine. Probe capabilities instead: the hipcc compiler
+# plus the cmake config packages that llama.cpp's find_package() calls
+# resolve. rocwmma and rccl are deliberately not required — they are
+# optional accelerations, not build blockers.
+host_rocm_sdk_usable() {
+    host_find_rocm_tool hipcc >/dev/null 2>&1 || return 1
+    local prefix
+    prefix="$(host_rocm_prefix)" || return 1
+    local lib
+    for lib in hip rocblas hipblas; do
+        compgen -G "${prefix}/lib*/cmake/${lib}/${lib}-config.cmake" >/dev/null 2>&1 || return 1
+    done
+    return 0
+}
+
+# Whether an apt package name resolves to something installable. Used to
+# choose between naming schemes rather than emitting a name apt will
+# reject. A package present in the index but with no candidate version
+# (Candidate: (none)) does not count.
+host_apt_pkg_available() {
+    LC_ALL=C apt-cache policy "$1" 2>/dev/null | grep -q '^ *Candidate: [^(]'
+}
+
+# Pick the apt package name to use for one ROCm component. Candidates are
+# passed AMD-repo name first, Debian/Ubuntu-native name second (AMD ships
+# rocblas-dev, Debian ships librocblas-dev for the same thing).
+#   returns 0, echoes nothing  — one of the candidates is already installed
+#   returns 0, echoes a name   — install this one
+#   returns 1                  — no configured repo carries any candidate
+# Callers decide what to do with the last case; emitting an unresolvable
+# name is never right when a resolvable one exists, which is the bug this
+# replaces.
+host_apt_rocm_pkg() {
+    local pkg
+    for pkg in "$@"; do
+        if dpkg -s "$pkg" >/dev/null 2>&1; then
+            return 0
+        fi
+    done
+    for pkg in "$@"; do
+        if host_apt_pkg_available "$pkg"; then
+            echo "$pkg"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Whether AMD's ROCm apt repository is configured. Match the /rocm path
+# specifically, not just the repo.radeon.com host: `amdgpu-install` adds
+# repo.radeon.com/amdgpu (kernel driver) and /graphics without adding the
+# ROCm package repo, which is exactly how a host ends up reporting a live
+# ROCm runtime while apt can't resolve a single ROCm dev package. Treating
+# the driver repo as "ROCm is configured" would skip the one fix that
+# helps. Immune to how the sources file was named.
+host_rocm_apt_repo_configured() {
+    grep -rqs 'repo\.radeon\.com/rocm' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null
+}
+
+# Whether to prefer AMD's package names over the distro's. Both name the
+# same libraries but install different ROCm versions, and mixing them is
+# worse than either alone — AMD's land under /opt/rocm, the distro's under
+# /usr, and a build that picks up 6.x headers against a 7.x runtime fails
+# in ways that look like llama.cpp bugs. So: complete whichever install is
+# already here. An existing /opt/rocm or a configured ROCm repo means AMD;
+# anything else means the distro's own packaging.
+host_rocm_prefer_amd_packages() {
+    host_rocm_apt_repo_configured && return 0
+    [[ -d /opt/rocm ]] && return 0
+    return 1
+}
+
+# Register AMD's ROCm apt repository. Debian/Ubuntu now ship ROCm natively
+# in universe, but that lags AMD's releases by a lot, so users on new
+# hardware need AMD's repo to get a version their GPU supports. Follows
+# AMD's documented registration (keyring + sources entry + pin), using the
+# "latest" channel so we do not hardcode a ROCm version that ages out.
+# Returns 1 if we could not reach the repo or the release has no build for
+# this distro codename — caller continues with whatever apt already has.
+host_install_amd_rocm_repo_debian() {
+    if host_rocm_apt_repo_configured; then
+        return 0
+    fi
+
+    local codename=""
+    if [[ -r /etc/os-release ]]; then
+        # UBUNTU_CODENAME is what derivatives (Mint, Pop, Zorin) set to the
+        # upstream suite; VERSION_CODENAME on those names the derivative
+        # release, which AMD does not publish for.
+        codename="$(. /etc/os-release && echo "${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}")"
+    fi
+    if [[ -z "$codename" ]]; then
+        warn "Couldn't determine the distro codename — skipping AMD ROCm repo setup."
+        return 1
+    fi
+
+    log "AMD's ROCm apt repository is not configured."
+    log "Without it, apt only sees the ROCm version your distro packages, which"
+    log "may be too old for a recent GPU."
+    if ! prompt_confirm "Add AMD's ROCm repository now? (repo.radeon.com, codename ${codename})"; then
+        warn "Skipped — continuing with the packages apt already knows about."
+        return 1
+    fi
+
+    local rocm_url="https://repo.radeon.com/rocm/apt/latest"
+    if ! curl -fsI "${rocm_url}/dists/${codename}/Release" >/dev/null 2>&1; then
+        warn "AMD publishes no ROCm build for '${codename}' at ${rocm_url}."
+        log "Pick a supported release from:"
+        echo "    https://rocm.docs.amd.com/projects/install-on-linux/en/latest/install/quick-start.html"
+        return 1
+    fi
+
+    run_sudo install -d -m 0755 /etc/apt/keyrings || return 1
+    curl -fsSL https://repo.radeon.com/rocm/rocm.gpg.key \
+        | gpg --dearmor \
+        | run_sudo tee /etc/apt/keyrings/rocm.gpg >/dev/null || return 1
+    run_sudo chmod 0644 /etc/apt/keyrings/rocm.gpg || return 1
+
+    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] ${rocm_url} ${codename} main" \
+        | run_sudo tee /etc/apt/sources.list.d/rocm.list >/dev/null || return 1
+
+    # AMD's documented pin. Their packages and the distro's native ROCm
+    # collide on file paths under /opt/rocm; without the pin apt can mix
+    # the two into an install that does not link.
+    printf 'Package: *\nPin: release o=repo.radeon.com\nPin-Priority: 600\n' \
+        | run_sudo tee /etc/apt/preferences.d/rocm-pin-600 >/dev/null || return 1
+
+    run_sudo apt-get update -qq || return 1
+    ok "AMD ROCm repository configured (${codename})"
+    return 0
+}
+
+# Echo the apt candidate names for an optional component, in the order
+# host_rocm_prefer_amd_packages dictates.
+host_rocm_optional_names() {
+    local amd distro
+    case "$1" in
+        rocwmma) amd="rocwmma-dev"; distro="librocwmma-dev" ;;
+        rccl)    amd="rccl-dev";    distro="librccl-dev" ;;
+        *)       return 1 ;;
+    esac
+    if host_rocm_prefer_amd_packages; then
+        echo "$amd $distro"
+    else
+        echo "$distro $amd"
+    fi
+}
+
+# Echo the human names of the optional ROCm extras whose headers aren't on
+# disk ("rocWMMA RCCL"); empty if both are present or ROCm isn't installed.
+host_rocm_optional_absent() {
+    local prefix
+    prefix="$(host_rocm_prefix)" || return 0
+    local -a absent=()
+    [[ -e "${prefix}/include/rocwmma/rocwmma.hpp" ]] || absent+=("rocWMMA")
+    if [[ ! -e "${prefix}/include/rccl/rccl.h" && ! -e "${prefix}/include/rccl.h" ]]; then
+        absent+=("RCCL")
+    fi
+    echo "${absent[*]}"
+}
+
+# rocWMMA and RCCL back two opt-in toggles in the ROCm build profile
+# (GGML_HIP_ROCWMMA_FATTN, GGML_HIP_RCCL — see internal/builder/profiles.go).
+# Neither blocks a build, so neither belongs in the missing-packages list —
+# listing them there is what turned an optional accelerant into a hard
+# "SDK missing" verdict. Offer them separately, clearly marked optional.
+host_offer_rocm_optional() {
+    [[ "$1" == "rocm" ]] || return 0
+    # Only worth raising once the required set is in place — otherwise the
+    # user has a bigger problem than an opt-in toggle.
+    [[ -z "$(host_missing_gpu_sdk_packages rocm)" ]] || return 0
+    local absent
+    absent="$(host_rocm_optional_absent)"
+    [[ -n "$absent" ]] || return 0
+
+    local -a pkgs=()
+    local item
+    for item in $absent; do
+        # Unquoted on purpose: host_apt_rocm_pkg echoes nothing when the
+        # component is already installed or unavailable, and an empty
+        # element would become a bogus "" argument to the installer.
+        # shellcheck disable=SC2207
+        case "${item}:${DISTRO_FAMILY}" in
+            rocWMMA:fedora) pkgs+=("rocwmma-devel") ;;
+            rocWMMA:debian) pkgs+=($(host_apt_rocm_pkg $(host_rocm_optional_names rocwmma))) ;;
+            RCCL:fedora)    pkgs+=("rccl-devel") ;;
+            RCCL:debian)    pkgs+=($(host_apt_rocm_pkg $(host_rocm_optional_names rccl))) ;;
+        esac
+    done
+
+    log "Optional ROCm extras not installed: ${absent}"
+    log "These back opt-in build toggles (rocWMMA FlashAttention, RCCL collectives)."
+    if [[ ${#pkgs[@]} -eq 0 ]]; then
+        # Unknown distro, or no package name resolves — say what's absent
+        # and leave it there rather than guessing at a command.
+        return 0
+    fi
+
+    local -a inst_cmd
+    case "$DISTRO_FAMILY" in
+        fedora) inst_cmd=(dnf install -y) ;;
+        debian) inst_cmd=(apt-get install -y) ;;
+        *)      return 0 ;;
+    esac
+    log "Run: sudo ${inst_cmd[0]} ${inst_cmd[1]} ${pkgs[*]}"
+    if prompt_confirm "Install them now? (optional — the build works without them)"; then
+        if run_sudo "${inst_cmd[@]}" "${pkgs[@]}"; then
+            ok "Optional ROCm extras installed"
+        else
+            warn "Optional ROCm extras failed to install — the toggles that need them will stay unavailable."
+        fi
+    fi
+    return 0
+}
+
 # Map a GPU backend to the package list needed for llama.cpp to compile
 # against it on this distro family. Echoes a space-separated list (empty
 # if everything is already present, or if we don't know how to detect
@@ -136,21 +413,66 @@ host_missing_gpu_sdk_packages() {
 
     case "$backend" in
         rocm)
+            # A usable toolchain on disk beats any package-name check —
+            # ROCm gets installed from AMD's repo, from the distro, or
+            # from source, and only the first of those matches the names
+            # below. See host_rocm_sdk_usable.
+            if host_rocm_sdk_usable; then
+                echo ""
+                return 0
+            fi
             case "$DISTRO_FAMILY" in
                 fedora)
                     # Fedora's native ROCm packages. Versioned together by
                     # the distro, so dnf resolves a consistent set.
-                    for pkg in rocm-hip-devel rocblas-devel hipblas-devel rocm-cmake rocwmma-devel rccl-devel; do
+                    for pkg in rocm-hip-devel rocblas-devel hipblas-devel rocm-cmake; do
                         rpm -q "$pkg" >/dev/null 2>&1 || need+=("$pkg")
                     done
                     ;;
                 debian)
-                    # Debian/Ubuntu don't ship ROCm in default repos —
-                    # users add AMD's apt repo first. Names below match
-                    # AMD's repo (https://repo.radeon.com).
-                    for pkg in rocm-hip-runtime-dev rocblas-dev hipblas-dev rocm-cmake rocwmma-dev rccl-dev; do
-                        dpkg -s "$pkg" >/dev/null 2>&1 || need+=("$pkg")
+                    # Two naming schemes are in play: AMD's own repo
+                    # (rocblas-dev) and Debian/Ubuntu's native packaging in
+                    # universe (librocblas-dev). Which one applies depends
+                    # on which repos the host has, so ask apt per component
+                    # instead of hardcoding either — hardcoding AMD's names
+                    # is what made `apt-get install` fail with "Unable to
+                    # locate package" on distro-packaged hosts.
+                    local candidates pkg_choice
+                    local -a unresolved=() components=()
+                    if host_rocm_prefer_amd_packages; then
+                        components=(
+                            "hipcc"
+                            "rocm-hip-runtime-dev libamdhip64-dev"
+                            "rocblas-dev librocblas-dev"
+                            "hipblas-dev libhipblas-dev"
+                            "rocm-cmake"
+                        )
+                    else
+                        components=(
+                            "hipcc"
+                            "libamdhip64-dev rocm-hip-runtime-dev"
+                            "librocblas-dev rocblas-dev"
+                            "libhipblas-dev hipblas-dev"
+                            "rocm-cmake"
+                        )
+                    fi
+                    for candidates in "${components[@]}"; do
+                        # shellcheck disable=SC2086
+                        if pkg_choice="$(host_apt_rocm_pkg $candidates)"; then
+                            if [[ -n "$pkg_choice" ]]; then
+                                need+=("$pkg_choice")
+                            fi
+                        else
+                            # No repo on this host carries it under any
+                            # name. Report the preferred spelling — for an
+                            # existing /opt/rocm that's AMD's, and AMD's
+                            # repo is what the caller offers to add next.
+                            unresolved+=("${candidates%% *}")
+                        fi
                     done
+                    if [[ ${#unresolved[@]} -gt 0 ]]; then
+                        need+=("${unresolved[@]}")
+                    fi
                     ;;
             esac
             ;;
@@ -325,6 +647,7 @@ host_install_gpu_sdk() {
         esac
         host_warn_cuda_offpath "$backend"
         host_warn_cuda_version_for_gpu "$backend"
+        host_offer_rocm_optional "$backend"
         return 0
     fi
 
@@ -348,12 +671,17 @@ host_install_gpu_sdk() {
             fi
             ;;
         debian)
-            log "Run: sudo apt-get install $missing"
-            if [[ "$backend" == "rocm" ]]; then
-                log "Note: ROCm is not in Debian/Ubuntu default repos. If apt can't find these, follow:"
-                echo "    https://rocm.docs.amd.com/projects/install-on-linux/en/latest/install/quick-start.html"
-                echo "    to add AMD's apt repo first, then re-run setup.sh install --host."
+            # Offer AMD's repo before naming packages: which names exist
+            # depends on which repos are configured, so adding one changes
+            # the answer. Recent Debian/Ubuntu do carry ROCm natively in
+            # universe, but it trails AMD's releases — on new hardware the
+            # distro version can be too old to build for the GPU.
+            if [[ "$backend" == "rocm" ]] && ! host_rocm_apt_repo_configured; then
+                if host_install_amd_rocm_repo_debian; then
+                    missing="$(host_missing_gpu_sdk_packages "$backend")"
+                fi
             fi
+            log "Run: sudo apt-get install $missing"
             if [[ "$backend" == "cuda" ]]; then
                 log "Note: CUDA toolkit comes from NVIDIA's apt repo, not the distro default. See:"
                 echo "    https://developer.nvidia.com/cuda-downloads?target_os=Linux"
@@ -374,6 +702,7 @@ host_install_gpu_sdk() {
     esac
     host_warn_cuda_offpath "$backend"
     host_warn_cuda_version_for_gpu "$backend"
+    host_offer_rocm_optional "$backend"
     return 0
 }
 
@@ -876,7 +1205,15 @@ host_report_sdk_deps() {
         fi
         missing="$(host_missing_gpu_sdk_packages "$backend")"
         if [[ -z "$missing" ]]; then
-            printf "    %-7s %s\n" "$backend" "OK"
+            local optional=""
+            if [[ "$backend" == "rocm" ]]; then
+                optional="$(host_rocm_optional_absent)"
+            fi
+            if [[ -n "$optional" ]]; then
+                printf "    %-7s %s\n" "$backend" "OK (optional not installed: $optional)"
+            else
+                printf "    %-7s %s\n" "$backend" "OK"
+            fi
         else
             printf "    %-7s missing: %s\n" "$backend" "$missing"
             printf "            %s %s\n" "$inst_cmd" "$missing"
