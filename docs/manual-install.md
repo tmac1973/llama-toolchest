@@ -65,7 +65,13 @@ sudo systemctl edit llama-toolchest    # add under [Service]:
 
 The package doesn't pull GPU SDKs — install them yourself for the backend you want to compile against:
 
-- **ROCm** — `rocm-hip-devel` (Fedora) / `rocm-dev` (Debian)
+- **ROCm** — `rocm-hip-devel` (Fedora) / `rocm-dev` (Debian/Ubuntu)
+  - The minimal Debian/Ubuntu set, if `rocm-dev` pulls more than you want:
+    `hipcc libamdhip64-dev librocblas-dev libhipblas-dev rocm-cmake`
+  - `libamdhip64-dev` is the one to check first: it ships the
+    `hip-lang-config.cmake` that `enable_language(HIP)` needs, and without it
+    the build stops at "does not contain the HIP runtime CMake package" even
+    though `hipcc` is on PATH.
 - **CUDA** — `cuda-toolkit` (Fedora/Debian via NVIDIA's repo)
 - **Vulkan** — see [Vulkan section in README](../README.md#vulkan)
 

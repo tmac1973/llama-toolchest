@@ -184,6 +184,72 @@ host_rocm_prefix() {
     return 1
 }
 
+# Echo every prefix that could hold a ROCm install, one per line. There
+# is no single answer and the consumers disagree: llama.cpp's
+# ggml-hip/CMakeLists.txt takes $ROCM_PATH, else /opt/rocm, else /usr;
+# the builder (internal/builder/builder.go) derives ROCM_PATH from the
+# directory holding hipconfig; and Debian/Ubuntu register /opt/rocm
+# through update-alternatives while the files themselves live under
+# /usr. Checking only one prefix is how a host with a complete toolchain
+# gets told its SDK is missing — probe all of them.
+host_rocm_prefix_candidates() {
+    local -a out=()
+    local p tool
+    [[ -n "${ROCM_PATH:-}" ]] && out+=("${ROCM_PATH}")
+    if p="$(host_rocm_prefix 2>/dev/null)"; then
+        out+=("$p")
+    fi
+    for tool in hipconfig hipcc; do
+        if p="$(host_find_rocm_tool "$tool")"; then
+            out+=("$(dirname "$(dirname "$p")")")
+        fi
+    done
+    out+=(/opt/rocm /usr)
+    printf '%s\n' "${out[@]}" | awk 'NF && !seen[$0]++'
+}
+
+# Whether one ROCm cmake config package is on disk somewhere cmake will
+# look. Three library layouts are in play and they are not
+# interchangeable: AMD's own (<prefix>/lib/cmake/<pkg>), Fedora's
+# (<prefix>/lib64/cmake/<pkg>) and Debian multiarch
+# (<prefix>/lib/x86_64-linux-gnu/cmake/<pkg>) — the last is the one
+# CMakeDetermineHIPCompiler reports in its "expected at one of" error.
+host_rocm_have_cmake_pkg() {
+    local pkg="$1" prefix
+    while read -r prefix; do
+        [[ -n "$prefix" ]] || continue
+        if compgen -G "${prefix}/lib/cmake/${pkg}/${pkg}-config.cmake" >/dev/null 2>&1; then
+            return 0
+        fi
+        if compgen -G "${prefix}/lib64/cmake/${pkg}/${pkg}-config.cmake" >/dev/null 2>&1; then
+            return 0
+        fi
+        if compgen -G "${prefix}/lib/*/cmake/${pkg}/${pkg}-config.cmake" >/dev/null 2>&1; then
+            return 0
+        fi
+    done < <(host_rocm_prefix_candidates)
+    return 1
+}
+
+# The cmake config packages llama.cpp's HIP backend needs, in the order
+# it asks for them. hip-lang is first because enable_language(HIP) — the
+# very first thing ggml-hip does — fails on its absence, and it is the
+# one a "hipcc is installed, so ROCm is fine" check misses: on
+# Debian/Ubuntu hipcc and hip-lang-config.cmake ship in different
+# packages (hipcc vs libamdhip64-dev).
+HOST_ROCM_CMAKE_PKGS=(hip-lang hip rocblas hipblas)
+
+# Echo the cmake config packages that are absent; empty when the host can
+# compile the HIP backend.
+host_rocm_missing_cmake_pkgs() {
+    local pkg
+    local -a absent=()
+    for pkg in "${HOST_ROCM_CMAKE_PKGS[@]}"; do
+        host_rocm_have_cmake_pkg "$pkg" || absent+=("$pkg")
+    done
+    echo "${absent[*]}"
+}
+
 # Whether the host already has everything llama.cpp's HIP backend needs to
 # compile, regardless of how it got there. Package names for ROCm differ
 # between AMD's own repo, Debian/Ubuntu's native packaging, and source or
@@ -194,21 +260,32 @@ host_rocm_prefix() {
 # optional accelerations, not build blockers.
 host_rocm_sdk_usable() {
     host_find_rocm_tool hipcc >/dev/null 2>&1 || return 1
-    local prefix
-    prefix="$(host_rocm_prefix)" || return 1
-    local lib
-    for lib in hip rocblas hipblas; do
-        compgen -G "${prefix}/lib*/cmake/${lib}/${lib}-config.cmake" >/dev/null 2>&1 || return 1
-    done
-    return 0
+    [[ -z "$(host_rocm_missing_cmake_pkgs)" ]]
 }
 
 # Whether an apt package name resolves to something installable. Used to
 # choose between naming schemes rather than emitting a name apt will
 # reject. A package present in the index but with no candidate version
 # (Candidate: (none)) does not count.
+#
+# Deliberately not a pipeline: under `set -o pipefail`, `apt-cache policy
+# | grep -q` reports failure whenever grep short-circuits on the match
+# and apt-cache dies of SIGPIPE, or whenever apt-cache exits non-zero
+# over an unrelated sources.list complaint. Either one makes every
+# package look unavailable, which is how a host that carries the whole
+# ROCm stack in `universe` ends up being handed AMD's package names.
 host_apt_pkg_available() {
-    LC_ALL=C apt-cache policy "$1" 2>/dev/null | grep -q '^ *Candidate: [^(]'
+    local policy
+    policy="$(LC_ALL=C apt-cache policy "$1" 2>/dev/null)" || true
+    grep -q '^[[:space:]]*Candidate:[[:space:]]*[^([:space:]]' <<<"$policy"
+}
+
+# Whether a package is installed, as opposed to merely known to dpkg.
+# `dpkg -s` exits 0 for a removed-but-not-purged package (Status:
+# deinstall ok config-files), which would have us skip installing
+# something that isn't there.
+host_dpkg_installed() {
+    [[ "$(dpkg-query -W -f='${db:Status-Status}' "$1" 2>/dev/null)" == "installed" ]]
 }
 
 # Pick the apt package name to use for one ROCm component. Candidates are
@@ -223,7 +300,7 @@ host_apt_pkg_available() {
 host_apt_rocm_pkg() {
     local pkg
     for pkg in "$@"; do
-        if dpkg -s "$pkg" >/dev/null 2>&1; then
+        if host_dpkg_installed "$pkg"; then
             return 0
         fi
     done
@@ -256,7 +333,19 @@ host_rocm_apt_repo_configured() {
 # anything else means the distro's own packaging.
 host_rocm_prefer_amd_packages() {
     host_rocm_apt_repo_configured && return 0
-    [[ -d /opt/rocm ]] && return 0
+    # An /opt/rocm made of symlinks into /usr is Debian/Ubuntu's own
+    # packaging, not AMD's: the distro registers /opt/rocm through
+    # update-alternatives so software that hardcodes the path still
+    # works, while the files live in /usr. Treating that as "AMD is
+    # installed here" picks AMD's package names on a host whose repos
+    # only carry the distro's — every name then fails to resolve and
+    # apt-get aborts without installing anything (issue #142).
+    if [[ -d /opt/rocm ]]; then
+        local libdir
+        libdir="$(readlink -f /opt/rocm/lib 2>/dev/null || true)"
+        [[ "$libdir" == /usr/* ]] && return 1
+        return 0
+    fi
     return 1
 }
 
@@ -439,9 +528,16 @@ host_missing_gpu_sdk_packages() {
                     # locate package" on distro-packaged hosts.
                     local candidates pkg_choice
                     local -a unresolved=() components=()
+                    #
+                    # hipcc-rocm is listed as an alternative to hipcc, not
+                    # a preference: both ship /usr/bin/hipcc and conflict,
+                    # so on a host that already has one, naming the other
+                    # makes apt swap a working compiler for an identical
+                    # one. Installing fresh still picks hipcc — that is the
+                    # package that pulls the matching clang and device libs.
                     if host_rocm_prefer_amd_packages; then
                         components=(
-                            "hipcc"
+                            "hipcc hipcc-rocm"
                             "rocm-hip-runtime-dev libamdhip64-dev"
                             "rocblas-dev librocblas-dev"
                             "hipblas-dev libhipblas-dev"
@@ -449,7 +545,7 @@ host_missing_gpu_sdk_packages() {
                         )
                     else
                         components=(
-                            "hipcc"
+                            "hipcc hipcc-rocm"
                             "libamdhip64-dev rocm-hip-runtime-dev"
                             "librocblas-dev rocblas-dev"
                             "libhipblas-dev hipblas-dev"
@@ -681,14 +777,46 @@ host_install_gpu_sdk() {
                     missing="$(host_missing_gpu_sdk_packages "$backend")"
                 fi
             fi
-            log "Run: sudo apt-get install $missing"
-            if [[ "$backend" == "cuda" ]]; then
-                log "Note: CUDA toolkit comes from NVIDIA's apt repo, not the distro default. See:"
-                echo "    https://developer.nvidia.com/cuda-downloads?target_os=Linux"
+            # apt-get install is all-or-nothing: a single name it can't
+            # locate aborts the run and installs none of the others. Split
+            # the list so the resolvable packages still land, and say
+            # plainly what no configured repo carries.
+            local pkg
+            local -a apt_pkgs=() apt_unknown=()
+            # shellcheck disable=SC2086  # $missing is a space-separated list
+            for pkg in $missing; do
+                if host_apt_pkg_available "$pkg"; then
+                    apt_pkgs+=("$pkg")
+                else
+                    apt_unknown+=("$pkg")
+                fi
+            done
+            if [[ ${#apt_unknown[@]} -gt 0 ]]; then
+                warn "No configured apt repo carries: ${apt_unknown[*]}"
+                case "$backend" in
+                    cuda)
+                        log "The CUDA toolkit comes from NVIDIA's apt repo, not the distro default. See:"
+                        echo "    https://developer.nvidia.com/cuda-downloads?target_os=Linux"
+                        ;;
+                    rocm)
+                        log "Refresh the index and make sure the component carrying ROCm is enabled:"
+                        echo "    sudo apt-get update"
+                        echo "    sudo add-apt-repository universe   # Ubuntu ships ROCm in universe"
+                        log "Or add AMD's own repo, if they publish for this release:"
+                        echo "    https://rocm.docs.amd.com/projects/install-on-linux/en/latest/install/quick-start.html"
+                        ;;
+                    *)
+                        log "Refresh the package index and try again: sudo apt-get update"
+                        ;;
+                esac
             fi
+            if [[ ${#apt_pkgs[@]} -eq 0 ]]; then
+                warn "Nothing installable left — the first llama.cpp build with the $backend profile will fail."
+                return 1
+            fi
+            log "Run: sudo apt-get install ${apt_pkgs[*]}"
             if prompt_confirm "Install now?"; then
-                # shellcheck disable=SC2086
-                sudo apt-get install -y $missing || return 1
+                sudo apt-get install -y "${apt_pkgs[@]}" || return 1
                 ok "$backend SDK packages installed"
             else
                 warn "Skipped — first llama.cpp build with the $backend profile will fail until these are installed."
@@ -702,7 +830,29 @@ host_install_gpu_sdk() {
     esac
     host_warn_cuda_offpath "$backend"
     host_warn_cuda_version_for_gpu "$backend"
+    host_verify_rocm_buildable "$backend"
     host_offer_rocm_optional "$backend"
+    return 0
+}
+
+# Re-probe after installing, and say so when the host still can't compile
+# the HIP backend. Package names resolving is not the same as a usable
+# toolchain: a host can end up with hipcc and no hip-lang-config.cmake,
+# and the only sign of it is cmake failing several minutes into the first
+# build from the UI. Report it here instead.
+host_verify_rocm_buildable() {
+    [[ "$1" == "rocm" ]] || return 0
+    local absent
+    absent="$(host_rocm_missing_cmake_pkgs)"
+    [[ -n "$absent" ]] || return 0
+    warn "ROCm is still not buildable: no cmake config for ${absent}"
+    log "llama.cpp's HIP backend resolves these via find_package(); without"
+    log "them the build fails at 'does not contain the HIP runtime CMake package'."
+    case "$DISTRO_FAMILY" in
+        debian) log "On Debian/Ubuntu they ship in: libamdhip64-dev librocblas-dev libhipblas-dev" ;;
+        fedora) log "On Fedora they ship in: rocm-hip-devel rocblas-devel hipblas-devel" ;;
+    esac
+    log "Searched: $(host_rocm_prefix_candidates | tr '\n' ' ')"
     return 0
 }
 
