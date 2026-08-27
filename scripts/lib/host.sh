@@ -84,9 +84,9 @@ host_check_build_toolchain() {
         warn "Missing build prerequisites: ${missing[*]}"
         log "These are needed to build the llama-toolchest binary and (later) llama.cpp from the UI."
         log "Install via your package manager:"
-        echo "    Debian/Ubuntu:  sudo apt-get install golang cmake ninja-build git build-essential"
-        echo "    Fedora:         sudo dnf install golang cmake ninja-build git gcc-c++ make"
-        echo "    Arch:           sudo pacman -S go cmake ninja git base-devel"
+        echo "    Debian/Ubuntu:  sudo apt-get install golang cmake ninja-build git build-essential libssl-dev"
+        echo "    Fedora:         sudo dnf install golang cmake ninja-build git gcc-c++ make openssl-devel"
+        echo "    Arch:           sudo pacman -S go cmake ninja git base-devel openssl"
         return 1
     fi
     return 0
@@ -1487,6 +1487,20 @@ host_report_toolchain_deps() {
             exit_code=1
         fi
     done
+    # Headers, not a binary — the openssl CLI is installed nearly
+    # everywhere while the dev package usually isn't. llama.cpp's
+    # LLAMA_OPENSSL defaults ON; without these cmake only warns
+    # ("OpenSSL not found, HTTPS support disabled") and the server it
+    # builds can't fetch over HTTPS. Not a build blocker, so this warns
+    # rather than failing the report.
+    if [[ -e /usr/include/openssl/ssl.h ]]; then
+        printf "    %-7s %s\n" "openssl" "OK"
+    else
+        local ssl_pkg="libssl-dev"
+        [[ "$DISTRO_FAMILY" == "fedora" ]] && ssl_pkg="openssl-devel"
+        printf "    %-7s %s\n" "openssl" "missing headers — llama.cpp will build without HTTPS support"
+        printf "            %s %s\n" "$inst_cmd" "$ssl_pkg"
+    fi
     return $exit_code
 }
 

@@ -79,6 +79,11 @@ nfpms:
           - git
           - gcc-c++
           - make
+          # llama.cpp's LLAMA_OPENSSL defaults ON and its HTTPS client
+          # (common/http.h, tools/server) needs the headers. Without them
+          # cmake only warns, and the server it builds silently cannot
+          # speak HTTPS.
+          - openssl-devel
       deb:
         dependencies:
           - cmake
@@ -86,6 +91,8 @@ nfpms:
           - git
           - build-essential
           - pkg-config
+          # See openssl-devel above.
+          - libssl-dev
     # No BLAS recommend: the CPU build profile doesn't pass -DGGML_BLAS=ON
     # and GPU builds (cuda/rocm/vulkan/metal) don't use BLAS at all, so
     # pulling in openblas-devel/libopenblas-dev would just waste ~270 MiB
