@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.23.0](https://github.com/tmac1973/llama-toolchest/compare/v2.22.3...v2.23.0) (2026-08-27)
+
+
+### Features
+
+* **models:** first-class control for per-layer embedding tables ([#149](https://github.com/tmac1973/llama-toolchest/issues/149)) ([4b4d53b](https://github.com/tmac1973/llama-toolchest/commit/4b4d53b7313c06ac2312a6dd54a5fb8641f74782))
+
 ## [2.22.3](https://github.com/tmac1973/llama-toolchest/compare/v2.22.2...v2.22.3) (2026-08-27)
 
 
