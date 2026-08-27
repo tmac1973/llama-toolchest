@@ -231,6 +231,45 @@ host_rocm_have_cmake_pkg() {
     return 1
 }
 
+# Echo the clang++ that can compile HIP device code, or nothing. Mirrors
+# findHIPCompiler in internal/builder/builder.go so setup.sh and the
+# builder agree on what counts as a usable HIP compiler. Ask hipconfig
+# first (a ROCm that ships its own llvm knows best), then the usual ROCm
+# roots, then a distro clang — but only one with the AMD device bitcode
+# beside it, since Debian/Ubuntu package those per LLVM version and the
+# newest clang on the box is regularly the wrong one.
+host_find_hip_clang() {
+    local hipconfig dir root
+    if hipconfig="$(host_find_rocm_tool hipconfig)"; then
+        dir="$("$hipconfig" --hipclangpath 2>/dev/null)" || dir=""
+        if [[ -n "$dir" && -x "${dir}/clang++" ]]; then
+            echo "${dir}/clang++"
+            return 0
+        fi
+    fi
+    for root in "${ROCM_PATH:-}" /opt/rocm /usr/lib/rocm /usr/lib64/rocm; do
+        [[ -n "$root" ]] || continue
+        if [[ -x "${root}/llvm/bin/clang++" ]]; then
+            echo "${root}/llvm/bin/clang++"
+            return 0
+        fi
+    done
+    local best="" best_ver=-1 candidate ver
+    for candidate in /usr/lib/llvm-*/bin/clang++; do
+        [[ -x "$candidate" ]] || continue
+        root="$(dirname "$(dirname "$candidate")")"
+        compgen -G "${root}/lib/clang/*/amdgcn/bitcode" >/dev/null 2>&1 || continue
+        ver="${root##*/llvm-}"
+        [[ "$ver" =~ ^[0-9]+$ ]] || continue
+        if (( ver > best_ver )); then
+            best="$candidate"
+            best_ver="$ver"
+        fi
+    done
+    [[ -n "$best" ]] || return 1
+    echo "$best"
+}
+
 # The cmake config packages llama.cpp's HIP backend needs, in the order
 # it asks for them. hip-lang is first because enable_language(HIP) — the
 # very first thing ggml-hip does — fails on its absence, and it is the
@@ -842,6 +881,19 @@ host_install_gpu_sdk() {
 # build from the UI. Report it here instead.
 host_verify_rocm_buildable() {
     [[ "$1" == "rocm" ]] || return 0
+    # enable_language(HIP) needs a clang that can target amdgcn. cmake asks
+    # hipconfig where it is and otherwise looks for a bare "clang++" on
+    # PATH; on Debian/Ubuntu neither lands, because the HIP clang installs
+    # as /usr/lib/llvm-N/bin/clang++ with no unversioned symlink. The
+    # builder passes -DCMAKE_HIP_COMPILER when it can find one — say so
+    # here when it can't, since nothing else will.
+    if ! host_find_hip_clang >/dev/null; then
+        warn "No HIP-capable clang++ found — llama.cpp's ROCm build needs one."
+        case "$DISTRO_FAMILY" in
+            debian) log "On Debian/Ubuntu it comes with hipcc (which pulls the matching clang-N and rocm-device-libs-N)." ;;
+            fedora) log "On Fedora it ships in rocm-llvm, at /usr/lib64/rocm/llvm/bin/clang++." ;;
+        esac
+    fi
     local absent
     absent="$(host_rocm_missing_cmake_pkgs)"
     [[ -n "$absent" ]] || return 0
