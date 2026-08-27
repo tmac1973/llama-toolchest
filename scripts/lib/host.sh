@@ -429,19 +429,22 @@ host_install_amd_rocm_repo_debian() {
         return 1
     fi
 
+    # Ask AMD what they publish before asking the user anything. AMD
+    # covers LTS releases and lags the interim ones — there is no build
+    # for Ubuntu 26.04's 'resolute', for instance — and prompting for a
+    # repository that cannot be added is worse than noise: in a
+    # non-interactive run the unanswerable prompt aborts the install.
+    local rocm_url="https://repo.radeon.com/rocm/apt/latest"
+    if ! curl -fsI "${rocm_url}/dists/${codename}/Release" >/dev/null 2>&1; then
+        log "AMD publishes no ROCm build for '${codename}' — using the distro's packages."
+        return 1
+    fi
+
     log "AMD's ROCm apt repository is not configured."
     log "Without it, apt only sees the ROCm version your distro packages, which"
     log "may be too old for a recent GPU."
     if ! prompt_confirm "Add AMD's ROCm repository now? (repo.radeon.com, codename ${codename})"; then
         warn "Skipped — continuing with the packages apt already knows about."
-        return 1
-    fi
-
-    local rocm_url="https://repo.radeon.com/rocm/apt/latest"
-    if ! curl -fsI "${rocm_url}/dists/${codename}/Release" >/dev/null 2>&1; then
-        warn "AMD publishes no ROCm build for '${codename}' at ${rocm_url}."
-        log "Pick a supported release from:"
-        echo "    https://rocm.docs.amd.com/projects/install-on-linux/en/latest/install/quick-start.html"
         return 1
     fi
 
