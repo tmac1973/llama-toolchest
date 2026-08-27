@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.22.3](https://github.com/tmac1973/llama-toolchest/compare/v2.22.2...v2.22.3) (2026-08-27)
+
+
+### Bug Fixes
+
+* **builder:** make the ROCm host build actually compile on Debian/Ubuntu ([#147](https://github.com/tmac1973/llama-toolchest/issues/147)) ([d3dd0ee](https://github.com/tmac1973/llama-toolchest/commit/d3dd0eebc5d1e17e51c950b68561ff6499e08ee8))
+* **setup:** don't offer AMD's ROCm repo where AMD publishes none ([#148](https://github.com/tmac1973/llama-toolchest/issues/148)) ([05c9996](https://github.com/tmac1973/llama-toolchest/commit/05c9996352750fdea7c5bfda7b35356f2634e73e))
+* **setup:** install the ROCm dev packages the HIP build actually needs ([#145](https://github.com/tmac1973/llama-toolchest/issues/145)) ([4ec7a19](https://github.com/tmac1973/llama-toolchest/commit/4ec7a19c57ac44c400310e788dd21aacdc8fc13d))
+
 ## [2.22.2](https://github.com/tmac1973/llama-toolchest/compare/v2.22.1...v2.22.2) (2026-08-25)
 
 
