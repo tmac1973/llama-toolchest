@@ -470,24 +470,46 @@ func (b *Builder) runBuild(ctx context.Context, prof BuildProfile, srcDir string
 			binDir := filepath.Dir(tool)
 			buildEnv = prependPath(buildEnv, binDir)
 			root := filepath.Dir(binDir)
-			buildEnv = setEnvDefault(buildEnv, "ROCM_PATH", root)
-			buildEnv = setEnvDefault(buildEnv, "HIP_PATH", root)
-			if devlib := filepath.Join(root, "amdgcn", "bitcode"); dirExists(devlib) {
-				buildEnv = setEnvDefault(buildEnv, "HIP_DEVICE_LIB_PATH", devlib)
+
+			// Two ROCm layouts, and what helps one breaks the other.
+			//
+			// Arch-family (and AMD's own) install a self-contained ROCm
+			// under /opt/rocm whose clang lives at <root>/lib/llvm/bin;
+			// that clang can't locate its own ROCm and needs ROCM_PATH to
+			// find it. Debian/Ubuntu and Fedora instead spread ROCm across
+			// /usr, and there ROCM_PATH=/usr is actively harmful: clang
+			// takes it as the ROCm root and looks for the device bitcode
+			// at /usr/amdgcn/bitcode, while the distro ships it beside the
+			// compiler in /usr/lib/llvm-N/lib/clang/N/amdgcn/bitcode. It
+			// then fails with "cannot find ROCm device library", which
+			// surfaces as "The HIP compiler identification is unknown" —
+			// and since cmake derives CMAKE_HIP_LIBRARY_ARCHITECTURE from
+			// that identification, it also stops searching the multiarch
+			// directory holding hip-lang-config.cmake and dies on "does
+			// not contain the HIP runtime CMake package" with the config
+			// sitting right there.
+			//
+			// So: point cmake at the root with a cache variable, which
+			// costs clang nothing, and only export ROCM_PATH for the
+			// layout that actually needs it.
+			if root == "/usr" {
+				if !hasCMakeArg(cmakeArgs, "CMAKE_HIP_COMPILER_ROCM_ROOT") {
+					cmakeArgs = append(cmakeArgs, "-DCMAKE_HIP_COMPILER_ROCM_ROOT="+root)
+				}
+			} else {
+				buildEnv = setEnvDefault(buildEnv, "ROCM_PATH", root)
+				buildEnv = setEnvDefault(buildEnv, "HIP_PATH", root)
+				if devlib := filepath.Join(root, "amdgcn", "bitcode"); dirExists(devlib) {
+					buildEnv = setEnvDefault(buildEnv, "HIP_DEVICE_LIB_PATH", devlib)
+				}
 			}
 		}
-		// cmake's enable_language(HIP) asks `hipconfig --hipclangpath` where
-		// the HIP clang lives and otherwise falls back to a bare "clang++" on
-		// PATH. On Debian/Ubuntu neither answer lands: hipconfig points at a
-		// directory that doesn't exist, and the clang HIP needs is installed
-		// as the versioned /usr/lib/llvm-N/bin/clang++ with no unversioned
-		// symlink. cmake then reports "The HIP compiler identification is
-		// unknown", and — because it derives CMAKE_HIP_LIBRARY_ARCHITECTURE
-		// from that identification — stops searching the multiarch directory
-		// where the distro put hip-lang-config.cmake. The build dies on
-		// "does not contain the HIP runtime CMake package" with the config
-		// sitting right there. Pin the compiler ourselves, exactly as the
-		// cuda profile pins nvcc below.
+		// cmake asks `hipconfig --hipclangpath` for the HIP clang and
+		// otherwise falls back to a bare "clang++" on PATH. On Debian/Ubuntu
+		// neither answer lands: hipconfig names a directory with no clang++
+		// in it, and the clang HIP needs is installed as the versioned
+		// /usr/lib/llvm-N/bin/clang++ with no unversioned symlink. Pin it
+		// ourselves, exactly as the cuda profile pins nvcc below.
 		if !hasCMakeArg(cmakeArgs, "CMAKE_HIP_COMPILER") {
 			if hipcc := findHIPCompiler(buildEnv); hipcc != "" {
 				cmakeArgs = append(cmakeArgs, "-DCMAKE_HIP_COMPILER="+hipcc)

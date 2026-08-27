@@ -270,6 +270,23 @@ host_find_hip_clang() {
     echo "$best"
 }
 
+# llama.cpp's HIP backend hard-fails below this — see the version gate in
+# ggml/src/ggml-hip/CMakeLists.txt ("At least ROCM/HIP V6.1 is required").
+# Worth checking up front: Ubuntu 24.04 packages ROCm 5.7, so a host can
+# have every dev package installed, a working HIP compiler, and still be
+# unable to build.
+HOST_ROCM_MIN_VERSION="6.1"
+
+# Echo the installed ROCm version as major.minor (e.g. "6.4"), or nothing
+# if it can't be determined.
+host_rocm_version() {
+    local hipconfig raw
+    hipconfig="$(host_find_rocm_tool hipconfig)" || return 1
+    raw="$("$hipconfig" --version 2>/dev/null)" || return 1
+    [[ "$raw" =~ ([0-9]+)\.([0-9]+) ]] || return 1
+    echo "${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+}
+
 # The cmake config packages llama.cpp's HIP backend needs, in the order
 # it asks for them. hip-lang is first because enable_language(HIP) — the
 # very first thing ggml-hip does — fails on its absence, and it is the
@@ -892,6 +909,19 @@ host_verify_rocm_buildable() {
         case "$DISTRO_FAMILY" in
             debian) log "On Debian/Ubuntu it comes with hipcc (which pulls the matching clang-N and rocm-device-libs-N)." ;;
             fedora) log "On Fedora it ships in rocm-llvm, at /usr/lib64/rocm/llvm/bin/clang++." ;;
+        esac
+    fi
+    local version
+    if version="$(host_rocm_version)" && ! host_version_ge "$version" "$HOST_ROCM_MIN_VERSION"; then
+        warn "ROCm ${version} is too old — llama.cpp's HIP backend requires ${HOST_ROCM_MIN_VERSION} or newer."
+        log "The build will stop at \"At least ROCM/HIP V6.1 is required\" no matter"
+        log "which dev packages are installed. Recent GPUs need newer still: RDNA4"
+        log "(gfx1201) isn't recognised by compilers before ROCm 6.3."
+        case "$DISTRO_FAMILY" in
+            debian) log "Ubuntu 24.04 packages ROCm 5.7. Either add AMD's ROCm repo:"
+                    echo "    https://rocm.docs.amd.com/projects/install-on-linux/en/latest/install/quick-start.html"
+                    log "or move to a release whose own packages are new enough (25.10+ ship 7.x)." ;;
+            fedora) log "Update rocm-hip-devel, or use AMD's repo for a newer release." ;;
         esac
     fi
     local absent
