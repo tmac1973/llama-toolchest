@@ -54,6 +54,21 @@ type GGUFMeta struct {
 	SamplingRepeatPenalty *float64 `json:"sampling_repeat_penalty,omitempty"`
 	SamplingChecked       bool     `json:"sampling_checked"`
 
+	// PLEBytes is the on-disk size of per_layer_token_embd.weight, the
+	// per-layer / n-gram embedding table carried by Gemma-3N, Gemma-4 and
+	// Qwen4-Exp. Zero when the file has no such tensor, which is the case
+	// for every other architecture. It is read from the tensor-info block
+	// rather than inferred from the architecture name, so a new model that
+	// adopts the same table is picked up without a code change.
+	//
+	// The table is the reason this parser looks past the metadata at all:
+	// it can be tens of gigabytes (97.7 GiB unquantized on
+	// Qwen3.8-Flash-Next), and llama.cpp reads its rows on demand from the
+	// mmap rather than making it resident. Counting it as VRAM, as a plain
+	// file-size estimate does, overstates the requirement by more than the
+	// rest of the model put together.
+	PLEBytes int64 `json:"ple_bytes,omitempty"`
+
 	// BaseModelRepo is the upstream "org/repo" this quant derives from, per
 	// general.base_model.0.repo_url. Used to locate the base model's
 	// generation_config.json when the file has no embedded sampling keys.
@@ -84,6 +99,7 @@ func (meta *GGUFMeta) ApplyTo(m *Model) {
 	m.KVSWAPerTok = meta.KVSWAPerTok
 	m.SlidingWindow = meta.SlidingWindow
 	m.SamplingChecked = meta.SamplingChecked
+	m.PLEBytes = meta.PLEBytes
 	if meta.BaseModelRepo != "" {
 		m.BaseModelRepo = meta.BaseModelRepo
 	}
@@ -163,6 +179,9 @@ func ParseGGUFMeta(path string) (*GGUFMeta, error) {
 
 	meta := &GGUFMeta{}
 
+	// GGUF's documented default when general.alignment is absent.
+	alignment := int64(32)
+
 	// Locals gathered across the metadata scan, reduced into the KV-cache
 	// scaling factors once architecture-prefixed keys are all read. The full
 	// scan (no early exit) is cheap: values we don't capture are seek-skipped.
@@ -194,6 +213,15 @@ func ParseGGUFMeta(path string) (*GGUFMeta, error) {
 		}
 
 		switch {
+		case key == "general.alignment":
+			// Padding between the tensor-info block and the data region.
+			// Defaults to 32 when absent; only the last tensor's computed
+			// size depends on it (see scanPLETensorBytes).
+			if v, ok := readGGUFScalarInt(f, valueType); ok && v > 0 {
+				alignment = int64(v)
+			}
+			continue
+
 		case key == "general.architecture" && valueType == ggufTypeString:
 			if v, err := readGGUFString(f); err == nil {
 				meta.Architecture = v
@@ -342,6 +370,13 @@ func ParseGGUFMeta(path string) (*GGUFMeta, error) {
 	}
 
 	computeKVScaling(meta, headCountKV, kvHeadCounts, keyLen, valLen, keyLenSWA, valLenSWA, slidingWindow, swaPattern)
+
+	// The KV loop consumed every key and either read or seek-skipped every
+	// value, so the reader is now sitting on the tensor-info block. A file
+	// truncated mid-header, or one whose tensor section we can't make sense
+	// of, leaves PLEBytes at zero — the metadata gathered above is still
+	// good, so a failure here must not fail the parse.
+	meta.PLEBytes = scanPLETensorBytes(f, tensorCount, alignment)
 
 	// A successful parse means reasoning was evaluated even if no chat template
 	// was present — in which case Reasoning stays the unsupported zero value.
@@ -627,4 +662,97 @@ func skipGGUFValue(r io.ReadSeeker, valueType uint32) {
 		}
 		skipGGUFArrayBody(r, elemType, count)
 	}
+}
+
+// pleTensorName is the tensor llama.cpp marks TENSOR_READ_LAZY: the
+// per-layer / n-gram embedding table. The name is shared across every
+// architecture that carries one (Gemma-3N, Gemma-4, Qwen4-Exp), because
+// they all reuse the same LLM_TENSOR_PER_LAYER_TOKEN_EMBD entry in
+// llama.cpp's tensor-name table.
+//
+// Matching on the tensor name rather than the architecture is deliberate:
+// eligibility for on-demand reading is a property llama.cpp assigns in
+// create_tensor(), and the set of architectures using it grows. A name
+// match picks up the next one for free; an architecture allowlist would
+// need editing every time.
+const pleTensorName = "per_layer_token_embd.weight"
+
+// scanPLETensorBytes reads the tensor-info block and returns the size in
+// bytes of the PLE table, or 0 if the file has no such tensor or the block
+// can't be read. The reader must be positioned at the start of the block,
+// which is where the metadata scan leaves it.
+//
+// Sizes come from the gaps between tensor data offsets rather than from
+// each tensor's dimensions and quantization type. Both are correct, but
+// the offsets need no table of ggml block sizes, so a GGUF quantized with
+// a type this build has never heard of still measures correctly — and
+// there is a steady supply of new ones. The cost is that a computed size
+// includes any alignment padding that follows the tensor, at most
+// alignment-1 bytes against a table measured in gigabytes.
+func scanPLETensorBytes(f io.ReadSeeker, tensorCount uint64, alignment int64) int64 {
+	// A malformed count would otherwise have us loop for a very long time
+	// on a file that isn't going to yield anything.
+	const maxTensors = 1 << 20
+	if tensorCount == 0 || tensorCount > maxTensors || alignment <= 0 {
+		return 0
+	}
+
+	var pleOffset int64 = -1
+	offsets := make([]int64, 0, tensorCount)
+
+	for i := uint64(0); i < tensorCount; i++ {
+		name, err := readGGUFString(f)
+		if err != nil {
+			return 0
+		}
+		nDims, err := readUint32(f)
+		if err != nil || nDims > 4 {
+			return 0
+		}
+		// Dimensions are read past; the offsets alone give us the size.
+		if _, err := f.Seek(int64(nDims)*8, io.SeekCurrent); err != nil {
+			return 0
+		}
+		if _, err := readUint32(f); err != nil { // ggml type
+			return 0
+		}
+		var offset uint64
+		if err := binary.Read(f, binary.LittleEndian, &offset); err != nil {
+			return 0
+		}
+		offsets = append(offsets, int64(offset))
+		if name == pleTensorName {
+			pleOffset = int64(offset)
+		}
+	}
+	if pleOffset < 0 {
+		return 0
+	}
+
+	// The data region starts after the tensor-info block, padded up to the
+	// alignment; every offset above is relative to that point.
+	infoEnd, err := f.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return 0
+	}
+	dataStart := ((infoEnd + alignment - 1) / alignment) * alignment
+	fileSize, err := f.Seek(0, io.SeekEnd)
+	if err != nil || fileSize <= dataStart {
+		return 0
+	}
+
+	// The next offset after this tensor's bounds it. Scanning for the
+	// smallest offset greater than ours avoids assuming the tensors were
+	// written in offset order. When nothing follows, the tensor runs to the
+	// end of the file.
+	next := fileSize - dataStart
+	for _, off := range offsets {
+		if off > pleOffset && off < next {
+			next = off
+		}
+	}
+	if next <= pleOffset {
+		return 0
+	}
+	return next - pleOffset
 }

@@ -114,8 +114,44 @@ func VRAMEstimateForConfig(m *Model, cfg *ModelConfig) float64 {
 	if ctx == 0 {
 		ctx = m.ContextLength
 	}
-	// Weight memory: file size is a good proxy for quantized weights in VRAM.
-	return BytesToGiB(m.SizeBytes) + m.KVCacheGB(ctx, cfg.KVCacheQuant) + AuxFilesVRAMGB(cfg) + vramOverheadGB
+	// Weight memory: file size is a good proxy for quantized weights in VRAM,
+	// minus any part of the file that never becomes resident.
+	weightsGB := BytesToGiB(m.SizeBytes - lazyPLEBytes(m, cfg))
+	return weightsGB + m.KVCacheGB(ctx, cfg.KVCacheQuant) + AuxFilesVRAMGB(cfg) + vramOverheadGB
+}
+
+// pleAutoMinBytes mirrors auto_lazy_min_size in llama.cpp's model loader:
+// under the default auto mode, only tables above this size are read on
+// demand. Smaller ones stay resident, because the per-row read latency
+// costs more than the memory is worth on a small model.
+const pleAutoMinBytes = 4 * 1024 * 1024 * 1024
+
+// lazyPLEBytes returns the number of bytes of the model file that
+// llama.cpp will read on demand rather than load, which is the part a VRAM
+// estimate must not count. Zero when the model has no per-layer embedding
+// table, or when the table is configured to stay resident.
+//
+// The conditions deliberately track llama.cpp's own (llama-model-loader.cpp,
+// TENSOR_READ_LAZY): lazy reading needs mmap, so it does not apply when the
+// model is loaded with direct I/O.
+func lazyPLEBytes(m *Model, cfg *ModelConfig) int64 {
+	if m.PLEBytes <= 0 || cfg == nil {
+		return 0
+	}
+	if cfg.DirectIO {
+		return 0
+	}
+	switch cfg.PLEMode {
+	case "off":
+		return 0
+	case "on":
+		return m.PLEBytes
+	default: // auto
+		if m.PLEBytes > pleAutoMinBytes {
+			return m.PLEBytes
+		}
+		return 0
+	}
 }
 
 // AuxFilesVRAMGB sums the on-disk sizes of auxiliary GGUFs that load into VRAM

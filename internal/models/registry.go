@@ -68,6 +68,12 @@ type Model struct {
 	VRAMEstGB    float64   `json:"vram_est_gb"`
 	DownloadedAt time.Time `json:"downloaded_at"`
 
+	// PLEBytes is the size of the per-layer / n-gram embedding table, when
+	// the model has one (Gemma-3N, Gemma-4, Qwen4-Exp). Zero everywhere
+	// else, which is what makes it double as the "does this model have a
+	// PLE table" test. See GGUFMeta.PLEBytes.
+	PLEBytes int64 `json:"ple_bytes,omitempty"`
+
 	// Architecture parameters parsed from GGUF header.
 	Arch          string `json:"arch,omitempty"`
 	NLayers       int    `json:"n_layers,omitempty"`
@@ -131,8 +137,14 @@ type ModelConfig struct {
 	Threads        int    `json:"threads"`
 	FlashAttention bool   `json:"flash_attention"`
 	Jinja          bool   `json:"jinja"`
-	KVCacheQuant   string `json:"kv_cache_quant"`            // "", "q8_0", "q4_0"
-	DirectIO       bool   `json:"direct_io"`                 // bypass page cache, load straight to VRAM
+	KVCacheQuant   string `json:"kv_cache_quant"` // "", "q8_0", "q4_0"
+	DirectIO       bool   `json:"direct_io"`      // bypass page cache, load straight to VRAM
+	// PLEMode controls llama.cpp's --tensor-read-lazy for the per-layer /
+	// n-gram embedding table. "" is auto (llama.cpp's default: on-demand
+	// for tensors over 4 GiB), "on" streams the rows from the model file
+	// on every model, "off" keeps the table resident. Only meaningful for
+	// models with Model.PLEBytes > 0; ignored otherwise.
+	PLEMode        string `json:"ple_mode,omitempty"`        // "", "on", "off"
 	MmprojPath     string `json:"mmproj_path,omitempty"`     // path to mmproj GGUF for vision models
 	MmprojDisabled bool   `json:"mmproj_disabled,omitempty"` // skip --mmproj at launch even when MmprojPath is set; preserves the path so it can be re-enabled without retyping
 	MtpPath        string `json:"mtp_path,omitempty"`        // path to a separate MTP drafter-head GGUF (gemma-4 style); loaded via --model-draft under spec_type=draft-mtp. Empty for self-speculation MTP (Qwen3.6/DeepSeek-V3) where the head is baked into the main GGUF.
@@ -295,6 +307,9 @@ func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool, backend string) string
 		}
 		if c.DirectIO {
 			parts = append(parts, "--direct-io")
+		}
+		if c.PLEMode == "on" || c.PLEMode == "off" {
+			parts = append(parts, "--tensor-read-lazy", c.PLEMode)
 		}
 		if c.MmprojPath != "" && !c.MmprojDisabled {
 			parts = append(parts, "--mmproj", c.MmprojPath)

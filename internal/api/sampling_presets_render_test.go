@@ -68,6 +68,8 @@ func TestSamplingPresetsPartialRenders(t *testing.T) {
 		SamplingPresets     []models.SamplingPreset
 		SamplingPresetsJSON string
 		HasEmbeddedDefault  bool
+		HasPLE              bool
+		PLESizeLabel        string
 	}{
 		ModelID:             "test-id",
 		Config:              cfg,
@@ -130,6 +132,8 @@ func TestSamplingPresetsPartialHidden(t *testing.T) {
 		SamplingPresets     []models.SamplingPreset
 		SamplingPresetsJSON string
 		HasEmbeddedDefault  bool
+		HasPLE              bool
+		PLESizeLabel        string
 	}{
 		ModelID: "test-id",
 		Config:  &models.ModelConfig{Enabled: true, GPULayers: 999, ContextSize: 8192},

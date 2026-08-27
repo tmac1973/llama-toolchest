@@ -785,6 +785,8 @@ func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 			SamplingPresets     []models.SamplingPreset
 			SamplingPresetsJSON string
 			HasEmbeddedDefault  bool
+			HasPLE              bool
+			PLESizeLabel        string
 		}{
 			ModelID:             id,
 			Config:              cfg,
@@ -801,6 +803,11 @@ func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 			SamplingPresets:     samplingPresets,
 			SamplingPresetsJSON: samplingPresetsJSON,
 			HasEmbeddedDefault:  hasEmbeddedDefault,
+			// The per-layer embedding control is only meaningful for the
+			// handful of architectures that carry such a table, so it is
+			// rendered only when this model actually has one.
+			HasPLE:       model != nil && model.PLEBytes > 0,
+			PLESizeLabel: pleSizeLabel(model),
 		}
 		s.renderPartial(w, "model_config", data)
 		return
@@ -853,6 +860,14 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		cfg.Jinja = r.FormValue("jinja") == "on"
 		cfg.KVCacheQuant = r.FormValue("kv_cache_quant")
 		cfg.DirectIO = r.FormValue("direct_io") == "on"
+		// Anything other than the two explicit modes means auto, which is
+		// stored as empty so the preset omits the flag entirely.
+		switch v := r.FormValue("ple_mode"); v {
+		case "on", "off":
+			cfg.PLEMode = v
+		default:
+			cfg.PLEMode = ""
+		}
 		cfg.ExtraFlags = r.FormValue("extra_flags")
 
 		// "__clear__" is the picker's action entry, not a preset name; it
@@ -989,4 +1004,13 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 	}
 
 	s.handleGetModelConfig(w, r)
+}
+
+// pleSizeLabel renders the per-layer embedding table's size for the model
+// config form, e.g. "28.8 GB". Empty when the model has no such table.
+func pleSizeLabel(m *models.Model) string {
+	if m == nil || m.PLEBytes <= 0 {
+		return ""
+	}
+	return models.FormatVRAM(models.BytesToGiB(m.PLEBytes))
 }

@@ -153,6 +153,13 @@ func writeConfigParams(b *strings.Builder, cfg *ModelConfig, isEmbedding bool, b
 		if cfg.DirectIO {
 			b.WriteString("direct-io = true\n")
 		}
+		// --tensor-read-lazy governs whether the per-layer / n-gram
+		// embedding table is streamed from the model file or made
+		// resident. Empty means auto, llama.cpp's own default, so emit
+		// nothing rather than pinning a value that may drift from theirs.
+		if cfg.PLEMode == "on" || cfg.PLEMode == "off" {
+			b.WriteString(fmt.Sprintf("tensor-read-lazy = %s\n", cfg.PLEMode))
+		}
 		if cfg.MmprojPath != "" && !cfg.MmprojDisabled {
 			b.WriteString(fmt.Sprintf("mmproj = %s\n", cfg.MmprojPath))
 		}

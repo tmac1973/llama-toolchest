@@ -132,6 +132,19 @@
         </label>
     </div>
 
+    {{if .HasPLE}}
+    <div class="grid">
+        <label title="How to hold the per-layer (n-gram) embedding table, which this model carries in addition to its weights. Streaming reads its rows from the model file as they are needed instead of holding the whole table in memory — it is not counted toward the VRAM estimate when streamed. Auto follows llama.cpp: stream tables over 4 GiB, keep smaller ones resident. Streaming needs memory mapping, so it does not apply when Direct I/O is on.">
+            Per-Layer Embeddings ({{.PLESizeLabel}} table)
+            <select name="ple_mode">
+                <option value="" {{if eq .Config.PLEMode ""}}selected{{end}}>Auto (stream if over 4 GiB)</option>
+                <option value="on" {{if eq .Config.PLEMode "on"}}selected{{end}}>Stream from model file</option>
+                <option value="off" {{if eq .Config.PLEMode "off"}}selected{{end}}>Keep resident in memory</option>
+            </select>
+        </label>
+    </div>
+    {{end}}
+
     <div class="grid">
         <label title="Quantize the KV cache to reduce VRAM usage. q8_0 saves ~50% KV memory with minimal quality loss. q4_0 saves ~75% but may affect output quality.">
             KV Cache Quantization
