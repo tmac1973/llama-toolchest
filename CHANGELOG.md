@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.25.0](https://github.com/tmac1973/llama-toolchest/compare/v2.24.0...v2.25.0) (2026-08-28)
+
+
+### Features
+
+* **browse:** exclude streamed embedding tables from the VRAM estimate ([#153](https://github.com/tmac1973/llama-toolchest/issues/153)) ([a0d23cb](https://github.com/tmac1973/llama-toolchest/commit/a0d23cb1e458b851f4fc890551af502fa0040b27))
+
 ## [2.24.0](https://github.com/tmac1973/llama-toolchest/compare/v2.23.0...v2.24.0) (2026-08-28)
 
 
