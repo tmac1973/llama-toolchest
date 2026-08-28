@@ -73,7 +73,7 @@
         <a href="#builds">Builds</a>
         <a href="#models">Models</a>
         <a href="#model-config">Model config</a>
-        <a href="#search-hf">Search HF</a>
+        <a href="#search-hf">Download Models</a>
         <a href="#benchmarks">Benchmarks</a>
         <a href="#settings">Settings</a>
         <a href="#api">Using the API</a>
@@ -83,7 +83,7 @@
     <h2 id="quickstart">Quickstart</h2>
     <ol>
         <li><strong>Build llama.cpp.</strong> Go to <a href="/builds">Builds</a>, pick a profile that matches your hardware (CUDA, ROCm, Vulkan, CPU), and start a build. Builds are cached and reused.</li>
-        <li><strong>Download a model.</strong> On <a href="/models/browse">Search HF</a>, search for a GGUF repo (e.g. <code>unsloth/Qwen3.5-4B-GGUF</code>) and download a quant (<code>Q4_K_M</code> is a good balance for most).</li>
+        <li><strong>Download a model.</strong> On <a href="/models/browse">Download Models</a>, search for a GGUF repo (e.g. <code>unsloth/Qwen3.5-4B-GGUF</code>) and download a quant (<code>Q4_K_M</code> is a good balance for most).</li>
         <li><strong>Enable it.</strong> On <a href="/models">Models</a>, flip the "On" switch for the model(s) you want the server to serve.</li>
         <li><strong>Tune for VRAM.</strong> Click <em>Configure</em> on a model to adjust what matters most: <em>Context Size</em> (smaller = less KV cache = less VRAM) and <em>KV Cache Quant</em> (<code>q8_0</code> roughly halves KV memory with little quality cost). Watch the <em>VRAM Est.</em> column update so you can see the model fit.</li>
         <li><strong>Start the server.</strong> Go to <a href="/server">Server</a> and click <em>Start</em>. Use the <span class="inline-icon"><svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor" aria-hidden="true"><path d="M4 3l9 5-9 5z"/></svg></span> icon in the Available Models card to force-load a model into VRAM, or let the router load it on the first request.</li>
@@ -224,9 +224,9 @@
         Most config changes require a <strong>server restart</strong> to take effect (the flags are baked into the preset file that llama-server reads at startup). Sampling params apply per-request with no restart.
     </div>
 
-    <h2 id="search-hf">Search HF</h2>
-    <p>Search HuggingFace for GGUF repos, browse files, and download specific quants. Downloads resume on interruption. Large models are shown with their total size so you know what you're committing to. After a download completes, recommended sampling presets are fetched automatically in the background and appear in <em>Configure → Sampling</em>.</p>
-    <p>Gated models require a HuggingFace token — set it under <a href="/settings">Settings</a>.</p>
+    <h2 id="search-hf">Download Models</h2>
+    <p>Search <strong>HuggingFace</strong> or <strong>ModelScope</strong> for GGUF repos, browse files, and download specific quants — pick the host with the radio buttons above the search box. Downloads resume on interruption. Large models are shown with their total size so you know what you're committing to. After a download completes, recommended sampling presets are fetched automatically in the background and appear in <em>Configure → Sampling</em>.</p>
+    <p>ModelScope mirrors most of the popular GGUF repositories and can be the faster of the two depending on where you are. Gated models require a token for the host you are downloading from — set it under <a href="/settings">Settings</a>.</p>
 
     <h3>Vision models &amp; projector files</h3>
     <p>Some vision-capable LLMs come as two files: the main GGUF (text+vision weights) and a separate <strong>mmproj</strong> file (the vision projector — maps image embeddings into the model's text space). On HuggingFace these usually live in the same repo, with names like <code>mmproj-<em>model</em>.gguf</code>.</p>

@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tmac1973/llama-toolchest/internal/models"
+	"github.com/tmac1973/llama-toolchest/internal/modelsource"
 )
 
 func (s *Server) handleListEmbeddingModels(w http.ResponseWriter, r *http.Request) {
@@ -138,7 +139,8 @@ func (s *Server) handleDownloadEmbeddingPreset(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	downloadID, err := s.downloader.Start(r.Context(), repo, filename, 0)
+	// Curated embedding presets are HuggingFace repos by construction.
+	downloadID, err := s.downloader.Start(r.Context(), modelsource.SourceHuggingFace, repo, filename, 0)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

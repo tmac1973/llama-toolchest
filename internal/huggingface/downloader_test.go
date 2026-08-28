@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/tmac1973/llama-toolchest/internal/broadcast"
+
+	"github.com/tmac1973/llama-toolchest/internal/modelsource"
 )
 
 // seedActive injects a download entry with the given last status, simulating
@@ -27,7 +29,7 @@ func TestStartRefusesWhileDownloading(t *testing.T) {
 	d := NewDownloader(t.TempDir(), t.TempDir(), "")
 	seedActive(d, "org--Repo-GGUF--file", "downloading")
 
-	if _, err := d.Start(context.Background(), "org/Repo-GGUF", "file.gguf", 0); err == nil {
+	if _, err := d.Start(context.Background(), modelsource.SourceHuggingFace, "org/Repo-GGUF", "file.gguf", 0); err == nil {
 		t.Fatal("Start should refuse while the same download is in progress")
 	}
 }
@@ -40,7 +42,7 @@ func TestStartReplacesTerminalEntry(t *testing.T) {
 		d := NewDownloader(t.TempDir(), t.TempDir(), "")
 		seedActive(d, "org--Repo-GGUF--file", status)
 
-		id, err := d.Start(context.Background(), "org/Repo-GGUF", "file.gguf", 0)
+		id, err := d.Start(context.Background(), modelsource.SourceHuggingFace, "org/Repo-GGUF", "file.gguf", 0)
 		if err != nil {
 			t.Fatalf("Start after %q entry: %v", status, err)
 		}

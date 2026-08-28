@@ -22,6 +22,8 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/evaluate"
 	"github.com/tmac1973/llama-toolchest/internal/huggingface"
 	"github.com/tmac1973/llama-toolchest/internal/models"
+	"github.com/tmac1973/llama-toolchest/internal/modelscope"
+	"github.com/tmac1973/llama-toolchest/internal/modelsource"
 	"github.com/tmac1973/llama-toolchest/internal/monitor"
 	"github.com/tmac1973/llama-toolchest/internal/presets"
 	"github.com/tmac1973/llama-toolchest/internal/process"
@@ -36,6 +38,7 @@ type Server struct {
 	router      chi.Router
 	builder     *builder.Builder
 	hfClient    *huggingface.Client
+	msClient    *modelscope.Client
 	downloader  *huggingface.Downloader
 	registry    *models.Registry
 	presets     *presets.Fetcher
@@ -166,6 +169,7 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 		configPath:     configPath,
 		builder:        bld,
 		hfClient:       huggingface.NewClient(cfg.HFToken),
+		msClient:       modelscope.NewClient(cfg.MSToken),
 		downloader:     huggingface.NewDownloader(cfg.DataDir, cfg.ModelsPath(), cfg.HFToken),
 		registry:       models.NewRegistry(cfg.DataDir, cfg.ModelsPath()),
 		presets:        presets.NewFetcher(filepath.Join(cfg.DataDir, "cache", "presets"), cfg.HFToken),
@@ -178,6 +182,13 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 	s.env = newJobEnv(s)
 	s.jobs = benchmark.NewJobQueue(s.bench, s.env)
 	s.downloader.SetOnComplete(s.onDownloadComplete)
+	// The downloader is source-agnostic apart from URL construction and
+	// auth; teach it where ModelScope files live so a download started
+	// against that source resolves correctly.
+	s.downloader.RegisterProvider(modelsource.SourceModelScope, huggingface.Provider{
+		URL:   s.msClient.DownloadURL,
+		Token: cfg.MSToken,
+	})
 	s.registry.BackfillGGUFMeta()
 	if n := s.registry.DeduplicateModels(); n > 0 {
 		slog.Info("removed duplicate model entries", "count", n)
@@ -348,12 +359,18 @@ func (s *Server) templateFuncs() template.FuncMap {
 			// Default to layer mode (no tensor parallelism) for rough estimates
 			return models.VRAMFitLabel(estimatedGB, perGPU, numGPUs, 0)
 		},
-		// hasHFRepo reports whether a model_id looks like an org/repo
-		// pair we can deep-link to on huggingface.co — i.e. it has at
-		// least one slash and isn't an absolute path. Scanned local
-		// models without that shape don't get a link.
-		"hasHFRepo": func(modelID string) bool {
-			return strings.Contains(modelID, "/") && !strings.HasPrefix(modelID, "/")
+		// sourceModelURL is the repository page for a model, asked of that
+		// source's own client so each host spells its own URLs. Empty when
+		// the id isn't a linkable owner/name pair, which is how the
+		// templates decide whether to render a link at all.
+		"sourceModelURL": func(source, modelID string) string {
+			return s.sourceClient(source).ModelURL(modelID)
+		},
+		"sourceName": func(source string) string {
+			if modelsource.NormalizeSource(source) == modelsource.SourceModelScope {
+				return "ModelScope"
+			}
+			return "HuggingFace"
 		},
 		"version": func() string {
 			v := s.version
@@ -801,4 +818,14 @@ func (s *Server) render(w http.ResponseWriter, name string, data any) {
 		slog.Error("template render error", "name", name, "error", err)
 		http.Error(w, "template error", http.StatusInternalServerError)
 	}
+}
+
+// sourceClient returns the client for a source id, defaulting to
+// HuggingFace for an empty or unrecognized one so old links and any
+// caller that predates the source parameter keep working.
+func (s *Server) sourceClient(source string) modelsource.Client {
+	if modelsource.NormalizeSource(source) == modelsource.SourceModelScope {
+		return s.msClient
+	}
+	return s.hfClient
 }

@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/broadcast"
+
+	"github.com/tmac1973/llama-toolchest/internal/modelsource"
 )
 
 // DownloadStatus tracks progress of a model download.
@@ -62,26 +64,70 @@ func (dl *download) last() DownloadStatus {
 }
 
 // CompletionFunc is called when a download finishes successfully.
-type CompletionFunc func(downloadID, modelID, filename string, sizeBytes int64)
+type CompletionFunc func(source, downloadID, modelID, filename string, sizeBytes int64)
 
 // Downloader manages resumable GGUF downloads from HuggingFace.
+// Provider supplies the per-source parts of a download: where a file
+// lives and how to authenticate for it. The rest of the downloader —
+// resume, shard handling, disk accounting, progress — is the same
+// whichever host the bytes come from.
+type Provider struct {
+	// URL returns the download URL for one file in a repository.
+	URL func(modelID, filename string) string
+	// Token is the bearer token for this source, empty for anonymous.
+	Token string
+}
+
 type Downloader struct {
 	dataDir    string
 	modelsDir  string
 	token      string
 	onComplete CompletionFunc
 
+	// providers is keyed by modelsource source id. A download names its
+	// source; an unknown or empty one falls back to HuggingFace, which is
+	// what every download recorded before this existed came from.
+	providers map[string]Provider
+
 	mu     sync.Mutex
 	active map[string]*download
 }
 
 func NewDownloader(dataDir, modelsDir, token string) *Downloader {
-	return &Downloader{
+	d := &Downloader{
 		dataDir:   dataDir,
 		modelsDir: modelsDir,
 		token:     token,
 		active:    make(map[string]*download),
+		providers: make(map[string]Provider),
 	}
+	d.providers[modelsource.SourceHuggingFace] = Provider{
+		URL:   func(modelID, filename string) string { return hfDownloadURL(modelID, filename) },
+		Token: token,
+	}
+	return d
+}
+
+// RegisterProvider adds or replaces the provider for a source.
+func (d *Downloader) RegisterProvider(source string, p Provider) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.providers[source] = p
+}
+
+// provider returns the provider for a source, falling back to
+// HuggingFace so an empty source keeps behaving as it always did.
+func (d *Downloader) provider(source string) Provider {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if p, ok := d.providers[source]; ok && p.URL != nil {
+		return p
+	}
+	return d.providers[modelsource.SourceHuggingFace]
+}
+
+func hfDownloadURL(modelID, filename string) string {
+	return fmt.Sprintf("https://huggingface.co/%s/resolve/main/%s", modelID, filename)
 }
 
 // SetOnComplete registers a callback invoked when a download finishes.
@@ -94,7 +140,7 @@ func (d *Downloader) SetOnComplete(fn CompletionFunc) {
 // in-flight reservation in AvailableForDownload is accurate from the moment
 // Start returns, before the download goroutine has done its own HEAD. Pass 0
 // when the size is unknown.
-func (d *Downloader) Start(ctx context.Context, modelID, filename string, expectedBytes int64) (string, error) {
+func (d *Downloader) Start(ctx context.Context, source, modelID, filename string, expectedBytes int64) (string, error) {
 	// Create a stable download ID — replace all slashes to keep it URL-safe
 	safeName := SafeModelID(modelID)
 	safeFilename := SafeFileID(filename)
@@ -142,7 +188,7 @@ func (d *Downloader) Start(ctx context.Context, modelID, filename string, expect
 	d.active[downloadID] = dl
 	d.mu.Unlock()
 
-	go d.run(dlCtx, downloadID, modelID, filename, dl)
+	go d.run(dlCtx, source, downloadID, modelID, filename, dl)
 
 	return downloadID, nil
 }
@@ -250,7 +296,7 @@ func (d *Downloader) Cancel(downloadID string) error {
 	return nil
 }
 
-func (d *Downloader) run(ctx context.Context, downloadID, modelID, filename string, dl *download) {
+func (d *Downloader) run(ctx context.Context, source, downloadID, modelID, filename string, dl *download) {
 	defer close(dl.done)
 	// Cancelled before we ever ran (pause immediately after resume, or a
 	// test's admission-only Start): report the terminal status and exit
@@ -292,7 +338,7 @@ func (d *Downloader) run(ctx context.Context, downloadID, modelID, filename stri
 	// Get combined total size via HEAD requests for accurate progress
 	var combinedTotal int64
 	if len(filenames) > 1 {
-		combinedTotal = d.fetchCombinedSize(ctx, modelID, filenames)
+		combinedTotal = d.fetchCombinedSize(ctx, source, modelID, filenames)
 	}
 
 	// Download each file (single file or all shards sequentially)
@@ -310,7 +356,7 @@ func (d *Downloader) run(ctx context.Context, downloadID, modelID, filename stri
 			label = fmt.Sprintf("%s [%d/%d]", fn, i+1, len(filenames))
 		}
 
-		downloaded, err := d.downloadFile(ctx, downloadID, modelID, fn, label, modelDir, totalDownloaded, combinedTotal, dl)
+		downloaded, err := d.downloadFile(ctx, source, downloadID, modelID, fn, label, modelDir, totalDownloaded, combinedTotal, dl)
 		if err != nil {
 			// A mid-file cancellation surfaces as ctx.Err() from downloadFile —
 			// report it as "cancelled" like the between-files check above, not
@@ -337,22 +383,23 @@ func (d *Downloader) run(ctx context.Context, downloadID, modelID, filename stri
 	slog.Info("download complete", "model", modelID, "file", filename, "shards", len(filenames), "size", totalDownloaded)
 
 	if d.onComplete != nil {
-		d.onComplete(downloadID, modelID, filenames[0], totalDownloaded)
+		d.onComplete(source, downloadID, modelID, filenames[0], totalDownloaded)
 	}
 }
 
 // fetchCombinedSize does HEAD requests to get the total size of all shard files.
-func (d *Downloader) fetchCombinedSize(ctx context.Context, modelID string, filenames []string) int64 {
+func (d *Downloader) fetchCombinedSize(ctx context.Context, source, modelID string, filenames []string) int64 {
 	client := &http.Client{Timeout: 30 * time.Second}
+	p := d.provider(source)
 	var total int64
 	for _, fn := range filenames {
-		dlURL := fmt.Sprintf("https://huggingface.co/%s/resolve/main/%s", modelID, fn)
+		dlURL := p.URL(modelID, fn)
 		req, err := http.NewRequestWithContext(ctx, "HEAD", dlURL, nil)
 		if err != nil {
 			continue
 		}
-		if d.token != "" {
-			req.Header.Set("Authorization", "Bearer "+d.token)
+		if p.Token != "" {
+			req.Header.Set("Authorization", "Bearer "+p.Token)
 		}
 		resp, err := client.Do(req)
 		if err != nil {
@@ -368,7 +415,7 @@ func (d *Downloader) fetchCombinedSize(ctx context.Context, modelID string, file
 
 // downloadFile downloads a single file, reporting progress with a base offset for multi-shard tracking.
 // Returns the number of bytes downloaded for this file.
-func (d *Downloader) downloadFile(ctx context.Context, downloadID, modelID, filename, label, modelDir string,
+func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, modelID, filename, label, modelDir string,
 	baseDownloaded, combinedTotal int64, dl *download) (int64, error) {
 
 	sendProgress := func(status DownloadStatus) {
@@ -392,14 +439,14 @@ func (d *Downloader) downloadFile(ctx context.Context, downloadID, modelID, file
 		existingSize = info.Size()
 	}
 
-	dlURL := fmt.Sprintf("https://huggingface.co/%s/resolve/main/%s", modelID, filename)
-	req, err := http.NewRequestWithContext(ctx, "GET", dlURL, nil)
+	p := d.provider(source)
+	req, err := http.NewRequestWithContext(ctx, "GET", p.URL(modelID, filename), nil)
 	if err != nil {
 		return 0, err
 	}
 
-	if d.token != "" {
-		req.Header.Set("Authorization", "Bearer "+d.token)
+	if p.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+p.Token)
 	}
 	if existingSize > 0 {
 		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", existingSize))
@@ -416,8 +463,15 @@ func (d *Downloader) downloadFile(ctx context.Context, downloadID, modelID, file
 		return 0, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
+	// Whether the body is the whole file or just the tail we asked for
+	// cannot be decided from the status code alone. ModelScope answers a
+	// ranged request with 200 plus a Content-Range header rather than the
+	// 206 the RFC requires (see modelscope.DownloadURL), and reading that
+	// as "the server ignored my Range" would truncate the partial file
+	// below and write only the tail into it — a corrupt model that looks
+	// complete. A Content-Range header means partial, whatever the status.
 	fileTotal := resp.ContentLength
-	if resp.StatusCode == http.StatusPartialContent {
+	if responseIsPartial(resp) {
 		fileTotal += existingSize
 	} else {
 		existingSize = 0
@@ -493,4 +547,11 @@ func (d *Downloader) downloadFile(ctx context.Context, downloadID, modelID, file
 	}
 
 	return downloaded, nil
+}
+
+// responseIsPartial reports whether a response to a ranged request
+// carries only part of the file. See the call site for why the status
+// code is not sufficient on its own.
+func responseIsPartial(resp *http.Response) bool {
+	return resp.StatusCode == http.StatusPartialContent || resp.Header.Get("Content-Range") != ""
 }

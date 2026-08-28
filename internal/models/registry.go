@@ -68,6 +68,12 @@ type Model struct {
 	VRAMEstGB    float64   `json:"vram_est_gb"`
 	DownloadedAt time.Time `json:"downloaded_at"`
 
+	// Source is the repository host this model was downloaded from, one
+	// of the modelsource ids. Empty on records written before a second
+	// source existed, and on models found by a disk scan, both of which
+	// are treated as HuggingFace.
+	Source string `json:"source,omitempty"`
+
 	// PLEBytes is the size of the per-layer / n-gram embedding table, when
 	// the model has one (Gemma-3N, Gemma-4, Qwen4-Exp). Zero everywhere
 	// else, which is what makes it double as the "does this model have a

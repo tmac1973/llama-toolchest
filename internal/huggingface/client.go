@@ -157,6 +157,15 @@ func (c *Client) populateFileSizes(ctx context.Context, modelID string, detail *
 	}
 }
 
+// ModelURL returns the human-facing page for a repository, for the link
+// next to a search result.
+func (c *Client) ModelURL(modelID string) string {
+	if modelID == "" || strings.HasPrefix(modelID, "/") || !strings.Contains(modelID, "/") {
+		return ""
+	}
+	return "https://huggingface.co/" + modelID
+}
+
 func (c *Client) setAuth(req *http.Request) {
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)

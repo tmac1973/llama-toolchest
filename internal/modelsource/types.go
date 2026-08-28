@@ -7,6 +7,8 @@
 // like huggingface.ModelFile keep working and mean exactly this type.
 package modelsource
 
+import "context"
+
 // SearchResult is one model repository returned by a search.
 type SearchResult struct {
 	ID        string   `json:"id"`
@@ -31,4 +33,40 @@ type File struct {
 type Detail struct {
 	ID    string `json:"id"`
 	Files []File `json:"files"`
+}
+
+// Source ids for the model repositories llama-toolchest can use. They are
+// persisted on download records and model registry entries, so the string
+// values are part of the on-disk format and must not change.
+const (
+	SourceHuggingFace = "hf"
+	SourceModelScope  = "modelscope"
+)
+
+// KnownSource reports whether id names a source this build understands.
+// The empty string is HuggingFace: every record written before a second
+// source existed came from there.
+func KnownSource(id string) bool {
+	return id == "" || id == SourceHuggingFace || id == SourceModelScope
+}
+
+// NormalizeSource maps an empty or unrecognized source id onto
+// HuggingFace, the default.
+func NormalizeSource(id string) string {
+	if id == SourceModelScope {
+		return SourceModelScope
+	}
+	return SourceHuggingFace
+}
+
+// Client is what a model source must provide for the browse-and-download
+// flow. Both the HuggingFace and ModelScope clients implement it, which
+// is what lets the API layer pick one by source id and leave every
+// downstream handler, template and struct untouched.
+type Client interface {
+	Search(ctx context.Context, query string) ([]SearchResult, error)
+	GetModel(ctx context.Context, modelID string) (*Detail, error)
+	// ModelURL is the human-facing repository page, or empty when the id
+	// is not a linkable owner/name pair.
+	ModelURL(modelID string) string
 }

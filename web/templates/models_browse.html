@@ -1,10 +1,20 @@
 {{define "content"}}
-<h1>Search HuggingFace</h1>
+<h1>Download Models</h1>
 
 <form hx-get="/api/hf/search"
       hx-target="#hf-results"
       hx-swap="innerHTML"
       hx-indicator="#search-spinner">
+    <fieldset role="group" style="margin-bottom:0.5rem;">
+        <label style="display:inline-flex;align-items:center;gap:0.35rem;margin-right:1rem;font-weight:normal;">
+            <input type="radio" name="source" value="hf" checked>
+            HuggingFace
+        </label>
+        <label style="display:inline-flex;align-items:center;gap:0.35rem;font-weight:normal;">
+            <input type="radio" name="source" value="modelscope">
+            ModelScope
+        </label>
+    </fieldset>
     <div class="grid">
         <input type="search" name="q" placeholder="Search GGUF models..." autofocus>
         <button type="submit">Search</button>

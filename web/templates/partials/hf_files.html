@@ -44,7 +44,7 @@
                 {{else}}
                     <button type="button"
                             hx-post="/api/hf/download"
-                            hx-vals='{"model_id":"{{$.ID}}","filename":"{{$f.Filename}}","size":"{{$f.Size}}"}'
+                            hx-vals='{"model_id":"{{$.ID}}","filename":"{{$f.Filename}}","size":"{{$f.Size}}","source":"{{$.Source}}"}'
                             hx-target="#dl-{{cssID $.ID}}-{{$i}}"
                             hx-swap="innerHTML">
                         Download
