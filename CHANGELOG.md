@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.24.0](https://github.com/tmac1973/llama-toolchest/compare/v2.23.0...v2.24.0) (2026-08-28)
+
+
+### Features
+
+* **models:** search and download from ModelScope alongside HuggingFace ([#151](https://github.com/tmac1973/llama-toolchest/issues/151)) ([32443d0](https://github.com/tmac1973/llama-toolchest/commit/32443d0a756d02a498eb1b6551563e7861af5443))
+
 ## [2.23.0](https://github.com/tmac1973/llama-toolchest/compare/v2.22.3...v2.23.0) (2026-08-27)
 
 
