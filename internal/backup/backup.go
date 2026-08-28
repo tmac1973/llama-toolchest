@@ -61,9 +61,12 @@ type Settings struct {
 	ModelsMax *int    `json:"models_max,omitempty"`
 	AutoStart *bool   `json:"auto_start,omitempty"`
 	LogLevel  *string `json:"log_level,omitempty"`
-	HFToken   *string `json:"hf_token,omitempty"` // only with includeSecrets, and only when non-empty
-	MSToken   *string `json:"ms_token,omitempty"` // ModelScope; same rules as HFToken
-	APIKey    *string `json:"api_key,omitempty"`  // only with includeSecrets, and only when non-empty
+	// DefaultModelSource is a plain preference, not a secret, so it
+	// travels with every backup.
+	DefaultModelSource *string `json:"default_model_source,omitempty"`
+	HFToken            *string `json:"hf_token,omitempty"` // only with includeSecrets, and only when non-empty
+	MSToken            *string `json:"ms_token,omitempty"` // ModelScope; same rules as HFToken
+	APIKey             *string `json:"api_key,omitempty"`  // only with includeSecrets, and only when non-empty
 }
 
 // RuntimeEnv mirrors the global EnvSet: curated variable values plus the
@@ -110,6 +113,11 @@ func Assemble(cfg *config.Config, b *builder.Builder, reg *models.Registry, gpus
 		ModelsMax: ptr(cfg.ModelsMax),
 		AutoStart: ptr(cfg.AutoStart),
 		LogLevel:  ptr(cfg.LogLevel),
+	}
+	// Only when set: an empty value would restore as "no preference",
+	// which the target already has, so there is nothing to say.
+	if cfg.DefaultModelSource != "" {
+		s.DefaultModelSource = ptr(cfg.DefaultModelSource)
 	}
 	// Secrets: only with the explicit flag, and never as empty strings —
 	// an empty emitted secret could blank a target's credential on

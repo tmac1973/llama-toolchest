@@ -7,11 +7,11 @@
       hx-indicator="#search-spinner">
     <fieldset role="group" style="margin-bottom:0.5rem;">
         <label style="display:inline-flex;align-items:center;gap:0.35rem;margin-right:1rem;font-weight:normal;">
-            <input type="radio" name="source" value="hf" checked>
+            <input type="radio" name="source" value="hf" {{if ne .DefaultSource "modelscope"}}checked{{end}}>
             HuggingFace
         </label>
         <label style="display:inline-flex;align-items:center;gap:0.35rem;font-weight:normal;">
-            <input type="radio" name="source" value="modelscope">
+            <input type="radio" name="source" value="modelscope" {{if eq .DefaultSource "modelscope"}}checked{{end}}>
             ModelScope
         </label>
     </fieldset>

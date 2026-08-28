@@ -31,6 +31,7 @@ func renderSettings(t *testing.T, hasHF, hasMS bool) string {
 		HasAPIKey        bool
 		HasHFToken       bool
 		HasMSToken       bool
+		DefaultSource    string
 		HasExtURL        bool
 		ExternalURL      string
 		DataDir          string
@@ -149,5 +150,89 @@ func TestUpdateSettingsPersistsMSToken(t *testing.T) {
 	}
 	if !strings.Contains(string(saved), "ms_persisted") {
 		t.Errorf("ms_token missing from the saved config:\n%s", saved)
+	}
+}
+
+func TestSettingsPageDefaultSourceSelect(t *testing.T) {
+	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
+		"templates/layout.html", "templates/settings.html", "templates/partials/*.html")
+	if err != nil {
+		t.Fatalf("parse templates: %v", err)
+	}
+	render := func(def string) string {
+		data := struct {
+			pageData
+			ProxyEndpoint    string
+			LlamaPort        int
+			HasAPIKey        bool
+			HasHFToken       bool
+			HasMSToken       bool
+			DefaultSource    string
+			HasExtURL        bool
+			ExternalURL      string
+			DataDir          string
+			ModelsDir        string
+			DefaultModelsDir string
+			AutoStart        bool
+			RuntimeEnvOpts   []config.RuntimeEnvOption
+			RuntimeEnv       map[string]string
+			RuntimeEnvExtra  string
+			EnvBackends      []string
+			ActiveBackend    string
+			EnvWarnings      []string
+			EffectiveEnv     []envLine
+		}{DefaultSource: def}
+		var buf bytes.Buffer
+		if err := base.ExecuteTemplate(&buf, "content", data); err != nil {
+			t.Fatalf("execute (default=%q): %v", def, err)
+		}
+		return buf.String()
+	}
+
+	// The selected option must reflect the stored preference, or saving
+	// the form would silently reset it to HuggingFace.
+	ms := render("modelscope")
+	if !strings.Contains(ms, `value="modelscope" selected`) {
+		t.Error("ModelScope preference not preselected on the settings page")
+	}
+	if strings.Contains(ms, `value="hf" selected`) {
+		t.Error("both options marked selected")
+	}
+	hf := render("")
+	if !strings.Contains(hf, `value="hf" selected`) {
+		t.Error("unset preference should preselect HuggingFace")
+	}
+	if !strings.Contains(hf, `name="default_model_source"`) {
+		t.Error("settings page missing the default source control")
+	}
+}
+
+// The preference round-trips through the settings API, and an
+// unrecognized value is normalized rather than stored.
+func TestUpdateSettingsDefaultSource(t *testing.T) {
+	dir := t.TempDir()
+	s := &Server{cfg: &config.Config{DataDir: dir}, configPath: filepath.Join(dir, "c.yaml")}
+	put := func(body string) {
+		req := httptest.NewRequest("PUT", "/api/settings", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		s.handleUpdateSettings(httptest.NewRecorder(), req)
+	}
+
+	put(`{"default_model_source":"modelscope"}`)
+	if s.cfg.DefaultModelSource != "modelscope" {
+		t.Errorf("DefaultModelSource = %q, want modelscope", s.cfg.DefaultModelSource)
+	}
+	put(`{"default_model_source":"nonsense"}`)
+	if s.cfg.DefaultModelSource != "hf" {
+		t.Errorf("DefaultModelSource = %q, want an unrecognized value normalized to hf", s.cfg.DefaultModelSource)
+	}
+
+	// Form path: a select always posts, so presence means chosen.
+	form := url.Values{"default_model_source": {"modelscope"}}
+	req := httptest.NewRequest("PUT", "/api/settings", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	s.handleUpdateSettings(httptest.NewRecorder(), req)
+	if s.cfg.DefaultModelSource != "modelscope" {
+		t.Errorf("form path: DefaultModelSource = %q, want modelscope", s.cfg.DefaultModelSource)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/config"
+	"github.com/tmac1973/llama-toolchest/internal/modelsource"
 	"gopkg.in/yaml.v3"
 )
 
@@ -21,6 +22,7 @@ type settingsResponse struct {
 	HasAPIKey     bool   `json:"has_api_key"`
 	HasHFToken    bool   `json:"has_hf_token"`
 	HasMSToken    bool   `json:"has_ms_token"`
+	DefaultSource string `json:"default_model_source"`
 	DataDir       string `json:"data_dir"`
 }
 
@@ -38,6 +40,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		HasAPIKey:     s.cfg.APIKey != "",
 		HasHFToken:    s.cfg.HFToken != "",
 		HasMSToken:    s.cfg.MSToken != "",
+		DefaultSource: s.defaultModelSource(),
 		DataDir:       s.cfg.DataDir,
 	}
 
@@ -68,6 +71,8 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			APIKey    *string `json:"api_key,omitempty"`
 			HFToken   *string `json:"hf_token,omitempty"`
 			MSToken   *string `json:"ms_token,omitempty"`
+
+			DefaultModelSource *string `json:"default_model_source,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -85,6 +90,11 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		if update.MSToken != nil {
 			s.cfg.MSToken = *update.MSToken
 		}
+		// Normalized on the way in so an unrecognized value can't be
+		// persisted and then silently mean HuggingFace forever after.
+		if update.DefaultModelSource != nil {
+			s.cfg.DefaultModelSource = modelsource.NormalizeSource(*update.DefaultModelSource)
+		}
 	} else {
 		r.ParseForm()
 		if v := r.FormValue("api_key"); v != "" {
@@ -95,6 +105,12 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if v := r.FormValue("ms_token"); v != "" {
 			s.cfg.MSToken = v
+		}
+		// A select always posts a value, so presence of the field means
+		// the user chose; unlike the token fields there is no "left
+		// blank means leave alone" case.
+		if r.Form.Has("default_model_source") {
+			s.cfg.DefaultModelSource = modelsource.NormalizeSource(r.FormValue("default_model_source"))
 		}
 		if r.Form.Has("external_url") {
 			s.cfg.ExternalURL = r.FormValue("external_url")

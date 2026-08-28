@@ -16,7 +16,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/tmac1973/llama-toolchest/internal/huggingface"
 	"github.com/tmac1973/llama-toolchest/internal/models"
-	"github.com/tmac1973/llama-toolchest/internal/modelsource"
 )
 
 // hfFileView decorates a HuggingFace ModelFile with local-state flags used
@@ -45,7 +44,7 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	source := modelsource.NormalizeSource(r.URL.Query().Get("source"))
+	source := s.requestSource(r.URL.Query().Get("source"))
 	results, err := s.sourceClient(source).Search(r.Context(), query)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
@@ -74,7 +73,7 @@ func (s *Server) handleHFModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	source := modelsource.NormalizeSource(r.URL.Query().Get("source"))
+	source := s.requestSource(r.URL.Query().Get("source"))
 	detail, err := s.sourceClient(source).GetModel(r.Context(), modelID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
@@ -132,7 +131,7 @@ func (s *Server) handleHFDownload(w http.ResponseWriter, r *http.Request) {
 		req.Size, _ = strconv.ParseInt(r.FormValue("size"), 10, 64)
 		req.Source = r.FormValue("source")
 	}
-	req.Source = modelsource.NormalizeSource(req.Source)
+	req.Source = s.requestSource(req.Source)
 
 	// Inline mode: callers whose swap target can't host the table-shaped
 	// download_progress partial (the restore report rows, the pending

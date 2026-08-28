@@ -587,7 +587,13 @@ func (s *Server) handleBenchmarksPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleModelsBrowsePage(w http.ResponseWriter, r *http.Request) {
-	s.render(w, "models_browse.html", pageData{Title: "Browse HuggingFace", Nav: "browse"})
+	s.render(w, "models_browse.html", struct {
+		pageData
+		DefaultSource string
+	}{
+		pageData:      pageData{Title: "Download Models", Nav: "browse"},
+		DefaultSource: s.defaultModelSource(),
+	})
 }
 
 func (s *Server) handleServicePage(w http.ResponseWriter, r *http.Request) {
@@ -622,6 +628,7 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		HasAPIKey        bool
 		HasHFToken       bool
 		HasMSToken       bool
+		DefaultSource    string
 		HasExtURL        bool
 		ExternalURL      string
 		DataDir          string
@@ -642,6 +649,7 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		HasAPIKey:        s.cfg.APIKey != "",
 		HasHFToken:       s.cfg.HFToken != "",
 		HasMSToken:       s.cfg.MSToken != "",
+		DefaultSource:    s.defaultModelSource(),
 		HasExtURL:        s.cfg.ExternalURL != "",
 		ExternalURL:      s.cfg.ExternalURL,
 		DataDir:          s.cfg.DataDir,
@@ -820,6 +828,34 @@ func (s *Server) render(w http.ResponseWriter, name string, data any) {
 		slog.Error("template render error", "name", name, "error", err)
 		http.Error(w, "template error", http.StatusInternalServerError)
 	}
+}
+
+// requestSource resolves which model source a browse request is aimed
+// at: the explicit parameter when there is one, otherwise the user's
+// configured default.
+//
+// Deliberately not the same as modelsource.NormalizeSource, which maps an
+// empty id onto HuggingFace. That one answers a question about a stored
+// record — a model downloaded before a second source existed came from
+// HuggingFace, and no preference set later changes where it came from.
+// This one answers a question about a new request, where the preference
+// is exactly what should apply. Conflating them would make every
+// pre-existing model's "open model page" link follow the preference and
+// point at a host it was never on.
+func (s *Server) requestSource(explicit string) string {
+	if explicit != "" {
+		return modelsource.NormalizeSource(explicit)
+	}
+	return s.defaultModelSource()
+}
+
+// defaultModelSource is the configured browse default, falling back to
+// HuggingFace when unset or unrecognized.
+func (s *Server) defaultModelSource() string {
+	if s.cfg == nil {
+		return modelsource.SourceHuggingFace
+	}
+	return modelsource.NormalizeSource(s.cfg.DefaultModelSource)
 }
 
 // sourceClient returns the client for a source id, defaulting to

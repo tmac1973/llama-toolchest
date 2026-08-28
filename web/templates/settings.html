@@ -257,11 +257,18 @@
 </article>
 
 <article>
-    <header>Model Source Tokens</header>
-    <p>Required only for gated or private repositories. Public models download without a token from either source.</p>
+    <header>Model Sources</header>
+    <p>Which repository the <a href="/models/browse">Download Models</a> page searches by default — you can still switch per search. Tokens are needed only for gated or private repositories; public models download without one from either source.</p>
     <form hx-put="/api/settings"
           hx-target="#hf-token-status"
           hx-swap="innerHTML">
+        <label>
+            Default search source
+            <select name="default_model_source">
+                <option value="hf" {{if ne .DefaultSource "modelscope"}}selected{{end}}>HuggingFace</option>
+                <option value="modelscope" {{if eq .DefaultSource "modelscope"}}selected{{end}}>ModelScope</option>
+            </select>
+        </label>
         <label>
             HuggingFace Token
             <input type="password" name="hf_token"

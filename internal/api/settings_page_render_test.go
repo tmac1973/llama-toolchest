@@ -32,6 +32,7 @@ func TestSettingsPageRendersEnvSection(t *testing.T) {
 		HasAPIKey        bool
 		HasHFToken       bool
 		HasMSToken       bool
+		DefaultSource    string
 		HasExtURL        bool
 		ExternalURL      string
 		DataDir          string

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tmac1973/llama-toolchest/internal/config"
 	"github.com/tmac1973/llama-toolchest/internal/modelscope"
 	"github.com/tmac1973/llama-toolchest/internal/modelsource"
 	"github.com/tmac1973/llama-toolchest/web"
@@ -93,22 +94,50 @@ func TestFileListCarriesSourceIntoDownload(t *testing.T) {
 	}
 }
 
-// The browse page's only new control is the source radio; both options
-// must be present and HuggingFace preselected.
-func TestBrowsePageHasSourceRadio(t *testing.T) {
+// The browse page's only new control is the source radio, and its
+// initial position comes from the configured default — the whole point
+// of the setting.
+func TestBrowsePageRadioFollowsConfiguredDefault(t *testing.T) {
 	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
 		"templates/layout.html", "templates/models_browse.html")
 	if err != nil {
 		t.Fatalf("parse templates: %v", err)
 	}
-	var buf bytes.Buffer
-	if err := base.ExecuteTemplate(&buf, "content", nil); err != nil {
-		t.Fatalf("execute: %v", err)
+	render := func(def string) string {
+		var buf bytes.Buffer
+		data := struct {
+			pageData
+			DefaultSource string
+		}{DefaultSource: def}
+		if err := base.ExecuteTemplate(&buf, "content", data); err != nil {
+			t.Fatalf("execute (default=%q): %v", def, err)
+		}
+		return buf.String()
 	}
-	out := buf.String()
-	for _, want := range []string{`name="source" value="hf" checked`, `name="source" value="modelscope"`} {
-		if !strings.Contains(out, want) {
-			t.Errorf("browse page missing %q; output=\n%s", want, out)
+
+	// checkedValue reports which radio carries the checked attribute.
+	checkedValue := func(out string) string {
+		for _, v := range []string{"hf", "modelscope"} {
+			i := strings.Index(out, `value="`+v+`"`)
+			if i < 0 {
+				t.Fatalf("radio %q missing from the page", v)
+			}
+			rest := out[i:]
+			if end := strings.Index(rest, ">"); end > 0 && strings.Contains(rest[:end], "checked") {
+				return v
+			}
+		}
+		return ""
+	}
+
+	for _, tc := range []struct{ configured, want string }{
+		{"", "hf"},                   // unset falls back to HuggingFace
+		{"hf", "hf"},                 //
+		{"modelscope", "modelscope"}, // the setting takes effect
+		{"nonsense", "hf"},           // an unrecognized value must not leave nothing selected
+	} {
+		if got := checkedValue(render(tc.configured)); got != tc.want {
+			t.Errorf("default %q: %q is checked, want %q", tc.configured, got, tc.want)
 		}
 	}
 }
@@ -119,5 +148,52 @@ func TestModelScopeClientIsASource(t *testing.T) {
 	var c modelsource.Client = modelscope.NewClient("")
 	if _, err := c.GetModel(context.Background(), "not-an-id"); err == nil {
 		t.Error("GetModel should reject an id that isn't owner/name")
+	}
+}
+
+// The configured default answers "where should this new request go", not
+// "where did this model come from". A model downloaded before ModelScope
+// existed has an empty stored source and came from HuggingFace; setting
+// the default to ModelScope must not repoint its link at a host it was
+// never on.
+func TestDefaultSourceDoesNotRewriteStoredRecords(t *testing.T) {
+	s := &Server{cfg: &config.Config{DefaultModelSource: modelsource.SourceModelScope}}
+
+	// A new request with no explicit source follows the preference...
+	if got := s.requestSource(""); got != modelsource.SourceModelScope {
+		t.Errorf("requestSource(\"\") = %q, want the configured default", got)
+	}
+	// ...while an explicit one still wins.
+	if got := s.requestSource(modelsource.SourceHuggingFace); got != modelsource.SourceHuggingFace {
+		t.Errorf("requestSource(hf) = %q, want hf", got)
+	}
+	// But a stored record with no source is still HuggingFace, whatever
+	// the preference says — this is what the model-card link uses.
+	if got := modelsource.NormalizeSource(""); got != modelsource.SourceHuggingFace {
+		t.Errorf("NormalizeSource(\"\") = %q, want hf regardless of preference", got)
+	}
+	url := s.sourceClient(modelsource.NormalizeSource("")).ModelURL("unsloth/Qwen3-8B-GGUF")
+	if !strings.HasPrefix(url, "https://huggingface.co/") {
+		t.Errorf("pre-existing model links to %q, want huggingface.co", url)
+	}
+}
+
+// An unset or unrecognized preference must resolve to HuggingFace rather
+// than leaving the browse page with nothing selected.
+func TestDefaultModelSourceFallback(t *testing.T) {
+	for _, tc := range []struct{ configured, want string }{
+		{"", modelsource.SourceHuggingFace},
+		{"hf", modelsource.SourceHuggingFace},
+		{"nonsense", modelsource.SourceHuggingFace},
+		{"modelscope", modelsource.SourceModelScope},
+	} {
+		s := &Server{cfg: &config.Config{DefaultModelSource: tc.configured}}
+		if got := s.defaultModelSource(); got != tc.want {
+			t.Errorf("configured %q: defaultModelSource = %q, want %q", tc.configured, got, tc.want)
+		}
+	}
+	// A nil config must not panic — the render tests construct bare Servers.
+	if got := (&Server{}).defaultModelSource(); got != modelsource.SourceHuggingFace {
+		t.Errorf("zero Server: %q, want hf", got)
 	}
 }
