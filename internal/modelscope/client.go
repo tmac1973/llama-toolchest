@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/models"
@@ -48,7 +49,25 @@ const (
 // repositories, which is all of them that matter here, need no auth.
 type Client struct {
 	httpClient *http.Client
-	token      string
+
+	// token is guarded because Settings can replace it while a search or
+	// a listing is in flight on another goroutine.
+	mu    sync.RWMutex
+	token string
+}
+
+// SetToken replaces the access token, so one saved in Settings applies to
+// the next request rather than the next restart.
+func (c *Client) SetToken(token string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.token = token
+}
+
+func (c *Client) authToken() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.token
 }
 
 func NewClient(token string) *Client {
@@ -310,7 +329,7 @@ func ResponseIsPartial(resp *http.Response) bool {
 }
 
 func (c *Client) setAuth(req *http.Request) {
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
+	if tok := c.authToken(); tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
 	}
 }

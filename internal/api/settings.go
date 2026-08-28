@@ -170,6 +170,10 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 
 	// Persist config
 	s.saveConfigLocked()
+	// A token saved here has to reach the live clients, or it would only
+	// take effect on the next restart while the page cheerfully reports
+	// it as set.
+	s.applySourceCredentialsLocked()
 
 	if isHTMX(r) {
 		respondHTML(w)

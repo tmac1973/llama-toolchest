@@ -830,6 +830,26 @@ func (s *Server) render(w http.ResponseWriter, name string, data any) {
 	}
 }
 
+// applySourceCredentials pushes the currently configured tokens into the
+// live clients, the preset fetcher and the downloader's providers.
+//
+// The alternative — rebuilding the clients — would mean reassigning
+// pointers that request handlers read from other goroutines. Instead each
+// holder owns its token behind its own lock and this only swaps the
+// values, so nothing a concurrent request is already using changes
+// underneath it. In-flight downloads pick the new credential up on their
+// next file, because the provider is read per file rather than captured
+// for the whole job.
+//
+// Callers must hold cfgMu, which every settings mutation already does.
+func (s *Server) applySourceCredentialsLocked() {
+	s.hfClient.SetToken(s.cfg.HFToken)
+	s.msClient.SetToken(s.cfg.MSToken)
+	s.presets.SetToken(s.cfg.HFToken)
+	s.downloader.SetProviderToken(modelsource.SourceHuggingFace, s.cfg.HFToken)
+	s.downloader.SetProviderToken(modelsource.SourceModelScope, s.cfg.MSToken)
+}
+
 // requestSource resolves which model source a browse request is aimed
 // at: the explicit parameter when there is one, otherwise the user's
 // configured default.

@@ -81,7 +81,6 @@ type Provider struct {
 type Downloader struct {
 	dataDir    string
 	modelsDir  string
-	token      string
 	onComplete CompletionFunc
 
 	// providers is keyed by modelsource source id. A download names its
@@ -97,7 +96,6 @@ func NewDownloader(dataDir, modelsDir, token string) *Downloader {
 	d := &Downloader{
 		dataDir:   dataDir,
 		modelsDir: modelsDir,
-		token:     token,
 		active:    make(map[string]*download),
 		providers: make(map[string]Provider),
 	}
@@ -106,6 +104,21 @@ func NewDownloader(dataDir, modelsDir, token string) *Downloader {
 		Token: token,
 	}
 	return d
+}
+
+// SetProviderToken updates one source's credential in place, keeping its
+// URL builder. Used when a token is saved in Settings; in-flight
+// downloads pick it up on their next file, since the provider is read
+// per file rather than captured for the whole job.
+func (d *Downloader) SetProviderToken(source, token string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	p, ok := d.providers[source]
+	if !ok {
+		return
+	}
+	p.Token = token
+	d.providers[source] = p
 }
 
 // RegisterProvider adds or replaces the provider for a source.

@@ -2,15 +2,22 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"html/template"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/tmac1973/llama-toolchest/internal/config"
+	"github.com/tmac1973/llama-toolchest/internal/huggingface"
+	"github.com/tmac1973/llama-toolchest/internal/modelscope"
+	"github.com/tmac1973/llama-toolchest/internal/modelsource"
+	"github.com/tmac1973/llama-toolchest/internal/presets"
 	"github.com/tmac1973/llama-toolchest/web"
 )
 
@@ -54,6 +61,28 @@ func renderSettings(t *testing.T, hasHF, hasMS bool) string {
 	return buf.String()
 }
 
+// newSettingsServer builds the minimum Server that handleUpdateSettings
+// needs: a config, somewhere to persist it, and the live clients whose
+// credentials a save now pushes into.
+func newSettingsServer(t *testing.T, cfg *config.Config) *Server {
+	t.Helper()
+	dir := t.TempDir()
+	cfg.DataDir = dir
+	s := &Server{
+		cfg:        cfg,
+		configPath: filepath.Join(dir, "llama-toolchest.yaml"),
+		hfClient:   huggingface.NewClient(cfg.HFToken),
+		msClient:   modelscope.NewClient(cfg.MSToken),
+		presets:    presets.NewFetcher(filepath.Join(dir, "cache"), cfg.HFToken),
+		downloader: huggingface.NewDownloader(dir, dir, cfg.HFToken),
+	}
+	s.downloader.RegisterProvider(modelsource.SourceModelScope, huggingface.Provider{
+		URL:   s.msClient.DownloadURL,
+		Token: cfg.MSToken,
+	})
+	return s
+}
+
 func TestSettingsPageHasBothTokenFields(t *testing.T) {
 	out := renderSettings(t, false, false)
 	for _, want := range []string{`name="hf_token"`, `name="ms_token"`} {
@@ -85,11 +114,7 @@ func TestSettingsPagePlaceholdersReportPresenceOnly(t *testing.T) {
 // wrong would wipe a working HuggingFace token the first time someone
 // saved a ModelScope one.
 func TestUpdateSettingsLeavesTheOtherTokenAlone(t *testing.T) {
-	dir := t.TempDir()
-	s := &Server{
-		cfg:        &config.Config{HFToken: "hf_existing", MSToken: "ms_existing", DataDir: dir},
-		configPath: filepath.Join(dir, "llama-toolchest.yaml"),
-	}
+	s := newSettingsServer(t, &config.Config{HFToken: "hf_existing", MSToken: "ms_existing"})
 
 	form := url.Values{"ms_token": {"ms_new"}, "hf_token": {""}}
 	req := httptest.NewRequest("PUT", "/api/settings", strings.NewReader(form.Encode()))
@@ -107,11 +132,7 @@ func TestUpdateSettingsLeavesTheOtherTokenAlone(t *testing.T) {
 // The JSON path treats a present key as authoritative, including an
 // explicit empty string, which is how a token gets cleared.
 func TestUpdateSettingsJSONSetsAndClears(t *testing.T) {
-	dir := t.TempDir()
-	s := &Server{
-		cfg:        &config.Config{MSToken: "ms_existing", DataDir: dir},
-		configPath: filepath.Join(dir, "llama-toolchest.yaml"),
-	}
+	s := newSettingsServer(t, &config.Config{MSToken: "ms_existing"})
 	put := func(body string) {
 		req := httptest.NewRequest("PUT", "/api/settings", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -136,9 +157,8 @@ func TestUpdateSettingsJSONSetsAndClears(t *testing.T) {
 
 // The token must reach the config file, or it is forgotten on restart.
 func TestUpdateSettingsPersistsMSToken(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "llama-toolchest.yaml")
-	s := &Server{cfg: &config.Config{DataDir: dir}, configPath: path}
+	s := newSettingsServer(t, &config.Config{})
+	path := s.configPath
 
 	req := httptest.NewRequest("PUT", "/api/settings", strings.NewReader(`{"ms_token":"ms_persisted"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -210,8 +230,7 @@ func TestSettingsPageDefaultSourceSelect(t *testing.T) {
 // The preference round-trips through the settings API, and an
 // unrecognized value is normalized rather than stored.
 func TestUpdateSettingsDefaultSource(t *testing.T) {
-	dir := t.TempDir()
-	s := &Server{cfg: &config.Config{DataDir: dir}, configPath: filepath.Join(dir, "c.yaml")}
+	s := newSettingsServer(t, &config.Config{})
 	put := func(body string) {
 		req := httptest.NewRequest("PUT", "/api/settings", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -235,4 +254,77 @@ func TestUpdateSettingsDefaultSource(t *testing.T) {
 	if s.cfg.DefaultModelSource != "modelscope" {
 		t.Errorf("form path: DefaultModelSource = %q, want modelscope", s.cfg.DefaultModelSource)
 	}
+}
+
+// The point of applying credentials on save: a token set in Settings must
+// reach the next outbound request, not the next restart. Assert on the
+// Authorization header a client actually sends, since that is the only
+// thing that decides whether a gated repo downloads.
+func TestSavedTokenReachesTheWire(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Write([]byte(`{"Code":200,"Success":true,"Data":{"Model":{"Models":[]}}}`))
+	}))
+	defer srv.Close()
+
+	s := newSettingsServer(t, &config.Config{})
+	ms := modelscope.NewClient("")
+	ms.SetHTTPClientForTest(srv.Client(), srv.URL)
+	s.msClient = ms
+
+	// Before: no credential.
+	if _, err := ms.Search(context.Background(), "q"); err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if gotAuth != "" {
+		t.Fatalf("unexpected Authorization before a token was set: %q", gotAuth)
+	}
+
+	// Save a token through the real handler.
+	req := httptest.NewRequest("PUT", "/api/settings", strings.NewReader(`{"ms_token":"ms_live"}`))
+	req.Header.Set("Content-Type", "application/json")
+	s.handleUpdateSettings(httptest.NewRecorder(), req)
+
+	// After: the very next request carries it, with no restart.
+	if _, err := ms.Search(context.Background(), "q"); err != nil {
+		t.Fatalf("search after save: %v", err)
+	}
+	if gotAuth != "Bearer ms_live" {
+		t.Errorf("Authorization = %q, want the token saved a moment ago", gotAuth)
+	}
+}
+
+// Swapping a token while requests are in flight must not race: that is
+// the reason the token lives behind a lock inside each client rather than
+// the Server swapping client pointers. Run with -race to mean anything.
+func TestTokenSwapIsSafeUnderConcurrency(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"Code":200,"Success":true,"Data":{"Model":{"Models":[]}}}`))
+	}))
+	defer srv.Close()
+
+	c := modelscope.NewClient("start")
+	c.SetHTTPClientForTest(srv.Client(), srv.URL)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				c.Search(context.Background(), "q")
+			}
+		}()
+	}
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				c.SetToken("tok")
+			}
+		}(i)
+	}
+	wg.Wait()
 }

@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/models"
@@ -38,15 +39,34 @@ const (
 type Fetcher struct {
 	HFBase   string
 	DocsBase string
-	Token    string // HF bearer token, optional (higher rate limits, gated mirrors)
 	CacheDir string // on-disk cache for docs fetches; "" disables caching
 	Client   *http.Client
+
+	// token is the HF bearer token (optional: higher rate limits, gated
+	// mirrors). Guarded because Settings can replace it while a
+	// background preset backfill is mid-fetch.
+	mu    sync.RWMutex
+	token string
+}
+
+// SetToken replaces the HuggingFace token, so a token saved in Settings
+// applies to the next fetch instead of the next restart.
+func (f *Fetcher) SetToken(token string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.token = token
+}
+
+func (f *Fetcher) authToken() string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.token
 }
 
 // NewFetcher returns a Fetcher caching docs fetches under cacheDir.
 func NewFetcher(cacheDir, hfToken string) *Fetcher {
 	return &Fetcher{
-		Token:    hfToken,
+		token:    hfToken,
 		CacheDir: cacheDir,
 		Client:   &http.Client{Timeout: 15 * time.Second},
 	}
@@ -153,8 +173,8 @@ func (f *Fetcher) get(ctx context.Context, url string, withAuth bool) ([]byte, e
 			return nil, err
 		}
 		req.Header.Set("User-Agent", userAgent)
-		if withAuth && f.Token != "" {
-			req.Header.Set("Authorization", "Bearer "+f.Token)
+		if tok := f.authToken(); withAuth && tok != "" {
+			req.Header.Set("Authorization", "Bearer "+tok)
 		}
 		resp, err := f.Client.Do(req)
 		if err != nil {
