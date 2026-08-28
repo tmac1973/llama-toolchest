@@ -50,16 +50,19 @@ func GroupShards(files []File) []File {
 		})
 		var totalSize int64
 		var shardNames []string
+		var shardSizes []int64
 		for _, s := range g.shards {
 			totalSize += s.Size
 			shardNames = append(shardNames, s.Filename)
+			shardSizes = append(shardSizes, s.Size)
 		}
 		result = append(result, File{
-			Filename:  g.shards[0].Filename,
-			Size:      totalSize,
-			Quant:     g.shards[0].Quant,
-			VRAMEstGB: EstimateVRAM(totalSize),
-			Shards:    shardNames,
+			Filename:   g.shards[0].Filename,
+			Size:       totalSize,
+			Quant:      g.shards[0].Quant,
+			VRAMEstGB:  EstimateVRAM(totalSize),
+			Shards:     shardNames,
+			ShardSizes: shardSizes,
 		})
 	}
 

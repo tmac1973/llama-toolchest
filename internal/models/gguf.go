@@ -149,6 +149,15 @@ func ParseGGUFMeta(path string) (*GGUFMeta, error) {
 		return nil, err
 	}
 	defer f.Close()
+	return ParseGGUFMetaFrom(f)
+}
+
+// ParseGGUFMetaFrom reads the same metadata from an arbitrary seekable
+// source. Split out from ParseGGUFMeta so a GGUF that isn't on disk yet
+// can be inspected over ranged HTTP reads — see modelsource.ProbePLE,
+// which uses it to answer "how much of this download never reaches VRAM"
+// before anyone commits to the download.
+func ParseGGUFMetaFrom(f io.ReadSeeker) (*GGUFMeta, error) {
 
 	// Magic: "GGUF"
 	var magic [4]byte

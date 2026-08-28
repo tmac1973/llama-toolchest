@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -11,11 +12,13 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tmac1973/llama-toolchest/internal/huggingface"
 	"github.com/tmac1973/llama-toolchest/internal/models"
+	"github.com/tmac1973/llama-toolchest/internal/modelsource"
 )
 
 // hfFileView decorates a HuggingFace ModelFile with local-state flags used
@@ -89,6 +92,13 @@ func (s *Server) handleHFModel(w http.ResponseWriter, r *http.Request) {
 		FreeBytes:      s.downloader.FreeBytes(),
 		SafetyMargin:   huggingface.DiskSafetyMarginBytes,
 	}
+	// Measure how much of each candidate is streamed rather than loaded,
+	// so the VRAM column reflects what actually reaches the card. Only
+	// the large files are probed and each is a small ranged read, but
+	// they are done together so the listing is not serialized behind
+	// them.
+	s.probeStreamedBytes(r.Context(), source, detail)
+
 	for _, f := range detail.Files {
 		fv := hfFileView{ModelFile: f}
 		if _, ok := s.registry.HasFile(detail.ID, f.Filename); ok {
@@ -475,4 +485,86 @@ func (s *Server) onDownloadComplete(source, downloadID, modelID, filename string
 	// in the background — the GGUF-embedded default was already attached via
 	// meta.ApplyTo above.
 	go s.enrichModelPresets(m.ID)
+}
+
+// probeStreamedBytes fills in StreamedBytes for the files in detail,
+// adjusting their VRAM estimate to exclude a per-layer embedding table
+// that llama.cpp will stream from disk.
+//
+// The correction is worth the trouble: on Qwen3.8-Flash-Next the table is
+// about 40% of the download, so the uncorrected estimate calls a model
+// too large for a card it comfortably fits on. Results are cached per
+// (source, repo, file) because the answer is a property of the published
+// file and does not change.
+func (s *Server) probeStreamedBytes(ctx context.Context, source string, detail *modelsource.Detail) {
+	client := s.sourceClient(source)
+	token := s.sourceToken(source)
+
+	// Bound the whole batch: a listing must not hang on a slow host.
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	for i := range detail.Files {
+		f := &detail.Files[i]
+		if cached, ok := s.cachedProbe(source, detail.ID, f.Filename); ok {
+			applyProbe(f, cached)
+			continue
+		}
+		names, sizes := f.Shards, f.ShardSizes
+		if len(names) == 0 {
+			names, sizes = []string{f.Filename}, []int64{f.Size}
+		}
+		if len(sizes) != len(names) {
+			continue
+		}
+		shards := make([]modelsource.ShardURL, 0, len(names))
+		for j, n := range names {
+			shards = append(shards, modelsource.ShardURL{URL: client.DownloadURL(detail.ID, n), Size: sizes[j]})
+		}
+
+		wg.Add(1)
+		go func(f *modelsource.File, shards []modelsource.ShardURL) {
+			defer wg.Done()
+			res := modelsource.ProbePLE(ctx, nil, token, shards, f.Size)
+			if res.Probed {
+				s.storeProbe(source, detail.ID, f.Filename, res)
+			}
+			applyProbe(f, res)
+		}(f, shards)
+	}
+	wg.Wait()
+}
+
+// applyProbe records a probe result on a file and rewrites its VRAM
+// estimate to cover only the part that becomes resident.
+func applyProbe(f *modelsource.File, res modelsource.ProbeResult) {
+	if !res.Probed {
+		return
+	}
+	f.StreamProbed = true
+	f.StreamedBytes = res.StreamedBytes
+	if res.StreamedBytes > 0 && res.StreamedBytes < f.Size {
+		f.VRAMEstGB = modelsource.EstimateVRAM(f.Size - res.StreamedBytes)
+	}
+}
+
+func probeKey(source, modelID, filename string) string {
+	return source + "\x00" + modelID + "\x00" + filename
+}
+
+func (s *Server) cachedProbe(source, modelID, filename string) (modelsource.ProbeResult, bool) {
+	s.probeMu.RLock()
+	defer s.probeMu.RUnlock()
+	r, ok := s.probeCache[probeKey(source, modelID, filename)]
+	return r, ok
+}
+
+func (s *Server) storeProbe(source, modelID, filename string, res modelsource.ProbeResult) {
+	s.probeMu.Lock()
+	defer s.probeMu.Unlock()
+	if s.probeCache == nil {
+		s.probeCache = make(map[string]modelsource.ProbeResult)
+	}
+	s.probeCache[probeKey(source, modelID, filename)] = res
 }

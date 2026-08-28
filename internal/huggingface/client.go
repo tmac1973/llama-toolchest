@@ -176,6 +176,13 @@ func (c *Client) populateFileSizes(ctx context.Context, modelID string, detail *
 	}
 }
 
+// DownloadURL returns the URL for one file in a repository. The same
+// form the downloader uses, exposed so other callers (the header probe)
+// do not have to rebuild it.
+func (c *Client) DownloadURL(modelID, filename string) string {
+	return "https://huggingface.co/" + modelID + "/resolve/main/" + filename
+}
+
 // ModelURL returns the human-facing page for a repository, for the link
 // next to a search result.
 func (c *Client) ModelURL(modelID string) string {

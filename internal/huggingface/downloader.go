@@ -140,7 +140,7 @@ func (d *Downloader) provider(source string) Provider {
 }
 
 func hfDownloadURL(modelID, filename string) string {
-	return fmt.Sprintf("https://huggingface.co/%s/resolve/main/%s", modelID, filename)
+	return (&Client{}).DownloadURL(modelID, filename)
 }
 
 // SetOnComplete registers a callback invoked when a download finishes.

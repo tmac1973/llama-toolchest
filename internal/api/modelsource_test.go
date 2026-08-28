@@ -197,3 +197,81 @@ func TestDefaultModelSourceFallback(t *testing.T) {
 		t.Errorf("zero Server: %q, want hf", got)
 	}
 }
+
+// A streamed table must be excluded from the VRAM estimate and shown as
+// such, or the fit verdict stays wrong in exactly the case the probe
+// exists to fix.
+func TestFileListShowsStreamedPortion(t *testing.T) {
+	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
+		"templates/layout.html", "templates/partials/*.html")
+	if err != nil {
+		t.Fatalf("parse templates: %v", err)
+	}
+	const gib = int64(1) << 30
+	view := hfModelView{
+		ID:     "unsloth/Qwen3.8-Flash-Next-GGUF",
+		Source: modelsource.SourceModelScope,
+		Files: []hfFileView{{
+			ModelFile: modelsource.File{
+				Filename: "q.gguf", Size: 68 * gib, Quant: "UD_IQ1_S",
+				StreamedBytes: 27 * gib, StreamProbed: true,
+				VRAMEstGB: modelsource.EstimateVRAM(41 * gib),
+			},
+			FitsOnDisk: true,
+		}},
+		AvailableBytes: 1 << 46,
+	}
+	var buf bytes.Buffer
+	if err := base.ExecuteTemplate(&buf, "hf_files", view); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "streamed from disk") {
+		t.Errorf("streamed portion not surfaced; output=\n%s", out)
+	}
+	// The full download is still what lands on disk, so Size must not be
+	// quietly reduced to the resident part.
+	if !strings.Contains(out, "68.0 GiB") {
+		t.Error("Size column should still show the whole download")
+	}
+	if !strings.Contains(out, "45.1 GiB") {
+		t.Errorf("VRAM estimate should cover only the resident part; output=\n%s", out)
+	}
+}
+
+// applyProbe is what turns a measurement into a corrected estimate, and
+// its edge cases decide whether a bad probe can make things worse.
+func TestApplyProbe(t *testing.T) {
+	const gib = int64(1) << 30
+	base := modelsource.File{Size: 68 * gib, VRAMEstGB: modelsource.EstimateVRAM(68 * gib)}
+
+	// A probe that did not run leaves the estimate exactly as it was.
+	f := base
+	applyProbe(&f, modelsource.ProbeResult{})
+	if f.VRAMEstGB != base.VRAMEstGB || f.StreamProbed {
+		t.Errorf("unprobed file was modified: %+v", f)
+	}
+
+	// A completed probe finding no table records the fact but changes
+	// nothing, so the listing does not re-probe it.
+	f = base
+	applyProbe(&f, modelsource.ProbeResult{Probed: true})
+	if !f.StreamProbed || f.VRAMEstGB != base.VRAMEstGB {
+		t.Errorf("no-table probe should record and not adjust: %+v", f)
+	}
+
+	// A real table is subtracted.
+	f = base
+	applyProbe(&f, modelsource.ProbeResult{Probed: true, StreamedBytes: 27 * gib})
+	if want := modelsource.EstimateVRAM(41 * gib); f.VRAMEstGB != want {
+		t.Errorf("VRAMEstGB = %.2f, want %.2f", f.VRAMEstGB, want)
+	}
+
+	// A nonsensical measurement larger than the file must not produce a
+	// negative estimate.
+	f = base
+	applyProbe(&f, modelsource.ProbeResult{Probed: true, StreamedBytes: 999 * gib})
+	if f.VRAMEstGB != base.VRAMEstGB {
+		t.Errorf("oversized measurement changed the estimate to %.2f", f.VRAMEstGB)
+	}
+}

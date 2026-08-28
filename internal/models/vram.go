@@ -120,11 +120,14 @@ func VRAMEstimateForConfig(m *Model, cfg *ModelConfig) float64 {
 	return weightsGB + m.KVCacheGB(ctx, cfg.KVCacheQuant) + AuxFilesVRAMGB(cfg) + vramOverheadGB
 }
 
-// pleAutoMinBytes mirrors auto_lazy_min_size in llama.cpp's model loader:
+// PLEAutoMinBytes mirrors auto_lazy_min_size in llama.cpp's model loader:
 // under the default auto mode, only tables above this size are read on
 // demand. Smaller ones stay resident, because the per-row read latency
 // costs more than the memory is worth on a small model.
-const pleAutoMinBytes = 4 * 1024 * 1024 * 1024
+const PLEAutoMinBytes = 4 * 1024 * 1024 * 1024
+
+// pleAutoMinBytes is the unexported spelling this file already used.
+const pleAutoMinBytes = PLEAutoMinBytes
 
 // lazyPLEBytes returns the number of bytes of the model file that
 // llama.cpp will read on demand rather than load, which is the part a VRAM

@@ -25,8 +25,18 @@ type File struct {
 	Size      int64    `json:"size"`
 	Quant     string   `json:"quant"`
 	VRAMEstGB float64  `json:"vram_est_gb"`
-	Shards    []string `json:"shards,omitempty"`    // all shard filenames if split; nil for single files
-	IsMMProj  bool     `json:"is_mmproj,omitempty"` // true for vision projector files
+	Shards    []string `json:"shards,omitempty"` // all shard filenames if split; nil for single files
+	// ShardSizes parallels Shards. Grouping sums the shards into Size,
+	// but the individual lengths are what a header probe needs, so keep
+	// them rather than paying a HEAD per shard to ask again.
+	ShardSizes []int64 `json:"shard_sizes,omitempty"`
+	// StreamedBytes is the part of this download that llama.cpp reads
+	// from disk on demand and never makes resident (the per-layer
+	// embedding table). Zero when there is none, or when it was not
+	// measured — see StreamProbed.
+	StreamedBytes int64 `json:"streamed_bytes,omitempty"`
+	StreamProbed  bool  `json:"stream_probed,omitempty"`
+	IsMMProj      bool  `json:"is_mmproj,omitempty"` // true for vision projector files
 }
 
 // Detail holds one repository's GGUF files.
@@ -69,4 +79,6 @@ type Client interface {
 	// ModelURL is the human-facing repository page, or empty when the id
 	// is not a linkable owner/name pair.
 	ModelURL(modelID string) string
+	// DownloadURL locates one file within a repository.
+	DownloadURL(modelID, filename string) string
 }

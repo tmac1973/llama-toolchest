@@ -31,14 +31,20 @@ import (
 )
 
 type Server struct {
-	cfg         *config.Config
-	configPath  string // path the cfg was loaded from; saveConfig writes back here
-	version     string // injected by main via SetVersion; "" = dev build
-	pages       map[string]*template.Template
-	router      chi.Router
-	builder     *builder.Builder
-	hfClient    *huggingface.Client
-	msClient    *modelscope.Client
+	cfg        *config.Config
+	configPath string // path the cfg was loaded from; saveConfig writes back here
+	version    string // injected by main via SetVersion; "" = dev build
+	pages      map[string]*template.Template
+	router     chi.Router
+	builder    *builder.Builder
+	hfClient   *huggingface.Client
+	msClient   *modelscope.Client
+
+	// probeCache memoizes remote GGUF header probes, keyed by source,
+	// repo and file. A published file's layout does not change, so the
+	// answer is good for the life of the process.
+	probeMu     sync.RWMutex
+	probeCache  map[string]modelsource.ProbeResult
 	downloader  *huggingface.Downloader
 	registry    *models.Registry
 	presets     *presets.Fetcher
@@ -876,6 +882,18 @@ func (s *Server) defaultModelSource() string {
 		return modelsource.SourceHuggingFace
 	}
 	return modelsource.NormalizeSource(s.cfg.DefaultModelSource)
+}
+
+// sourceToken returns the credential for a source, for callers that make
+// their own requests rather than going through a client.
+func (s *Server) sourceToken(source string) string {
+	if s.cfg == nil {
+		return ""
+	}
+	if modelsource.NormalizeSource(source) == modelsource.SourceModelScope {
+		return s.cfg.MSToken
+	}
+	return s.cfg.HFToken
 }
 
 // sourceClient returns the client for a source id, defaulting to
