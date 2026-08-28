@@ -139,6 +139,10 @@ func Apply(f *File, sel Selections, deps Deps) Report {
 			s.HFToken = nil
 			rep.Warnings = append(rep.Warnings, "settings: empty hf_token ignored")
 		}
+		if s.MSToken != nil && *s.MSToken == "" {
+			s.MSToken = nil
+			rep.Warnings = append(rep.Warnings, "settings: empty ms_token ignored")
+		}
 		if s.APIKey != nil && *s.APIKey == "" {
 			s.APIKey = nil
 			rep.Warnings = append(rep.Warnings, "settings: empty api_key ignored")

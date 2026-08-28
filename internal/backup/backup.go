@@ -62,6 +62,7 @@ type Settings struct {
 	AutoStart *bool   `json:"auto_start,omitempty"`
 	LogLevel  *string `json:"log_level,omitempty"`
 	HFToken   *string `json:"hf_token,omitempty"` // only with includeSecrets, and only when non-empty
+	MSToken   *string `json:"ms_token,omitempty"` // ModelScope; same rules as HFToken
 	APIKey    *string `json:"api_key,omitempty"`  // only with includeSecrets, and only when non-empty
 }
 
@@ -117,6 +118,9 @@ func Assemble(cfg *config.Config, b *builder.Builder, reg *models.Registry, gpus
 	if includeSecrets {
 		if cfg.HFToken != "" {
 			s.HFToken = ptr(cfg.HFToken)
+		}
+		if cfg.MSToken != "" {
+			s.MSToken = ptr(cfg.MSToken)
 		}
 		if cfg.APIKey != "" {
 			s.APIKey = ptr(cfg.APIKey)

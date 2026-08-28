@@ -137,6 +137,10 @@ func (s *Server) restoreDeps() backup.Deps {
 				s.cfg.HFToken = *in.HFToken
 				changed = append(changed, "hf_token")
 			}
+			if in.MSToken != nil && s.cfg.MSToken != *in.MSToken {
+				s.cfg.MSToken = *in.MSToken
+				changed = append(changed, "ms_token")
+			}
 			if in.APIKey != nil && s.cfg.APIKey != *in.APIKey {
 				s.cfg.APIKey = *in.APIKey
 				changed = append(changed, "api_key")

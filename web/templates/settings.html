@@ -164,7 +164,7 @@
                             if (l && l[0] !== '#') envCount++;
                         });
                     }
-                    var hasSecrets = !!(s.hf_token || s.api_key);
+                    var hasSecrets = !!(s.hf_token || s.ms_token || s.api_key);
                     setSection('sec-label-settings', b[0], !!d.settings,
                         'Settings' + (hasSecrets ? ' ⚠ contains secrets' : ''));
                     setSection('sec-label-env', b[1], !!env, 'Runtime env (' + envCount + ')');
@@ -257,15 +257,20 @@
 </article>
 
 <article>
-    <header>HuggingFace Token</header>
-    <p>Required for gated model downloads.</p>
+    <header>Model Source Tokens</header>
+    <p>Required only for gated or private repositories. Public models download without a token from either source.</p>
     <form hx-put="/api/settings"
           hx-target="#hf-token-status"
           hx-swap="innerHTML">
         <label>
-            HF Token
+            HuggingFace Token
             <input type="password" name="hf_token"
                    placeholder="{{if .HasHFToken}}(token is set){{else}}hf_...{{end}}">
+        </label>
+        <label>
+            ModelScope Token
+            <input type="password" name="ms_token"
+                   placeholder="{{if .HasMSToken}}(token is set){{else}}ms_...{{end}}">
         </label>
         <button type="submit">Save</button>
     </form>

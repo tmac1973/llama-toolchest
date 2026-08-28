@@ -31,6 +31,7 @@ func TestSettingsPageRendersEnvSection(t *testing.T) {
 		LlamaPort        int
 		HasAPIKey        bool
 		HasHFToken       bool
+		HasMSToken       bool
 		HasExtURL        bool
 		ExternalURL      string
 		DataDir          string

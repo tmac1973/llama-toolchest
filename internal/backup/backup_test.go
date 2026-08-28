@@ -23,7 +23,7 @@ func testState(t *testing.T) (*config.Config, *builder.Builder, *models.Registry
 	cfg := &config.Config{
 		ListenAddr: ":3000", DataDir: dataDir, LlamaPort: 8080,
 		LogLevel: "info", ModelsMax: 2, AutoStart: true,
-		HFToken: "hf_secret_token", APIKey: "api_secret_key",
+		HFToken: "hf_secret_token", MSToken: "ms_secret_token", APIKey: "api_secret_key",
 		RuntimeEnv:      map[string]string{"ROCBLAS_USE_HIPBLASLT": "1"},
 		RuntimeEnvExtra: "FOO=bar",
 	}
@@ -99,14 +99,14 @@ func TestAssembleNoSecretsByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, secret := range []string{"hf_secret_token", "api_secret_key", "hf_token", "api_key"} {
+	for _, secret := range []string{"hf_secret_token", "ms_secret_token", "api_secret_key", "hf_token", "ms_token", "api_key"} {
 		if bytes.Contains(data, []byte(secret)) {
 			t.Errorf("secrets-off export contains %q", secret)
 		}
 	}
 
 	withSecrets, _ := Assemble(cfg, b, reg, nil, true).Marshal()
-	for _, want := range []string{`"hf_token": "hf_secret_token"`, `"api_key": "api_secret_key"`} {
+	for _, want := range []string{`"hf_token": "hf_secret_token"`, `"ms_token": "ms_secret_token"`, `"api_key": "api_secret_key"`} {
 		if !bytes.Contains(withSecrets, []byte(want)) {
 			t.Errorf("secrets-on export missing %s", want)
 		}
@@ -118,7 +118,7 @@ func TestAssembleNoSecretsByDefault(t *testing.T) {
 // credential on restore.
 func TestAssembleNeverEmitsEmptySecrets(t *testing.T) {
 	cfg, b, reg := testState(t)
-	cfg.HFToken, cfg.APIKey = "", ""
+	cfg.HFToken, cfg.MSToken, cfg.APIKey = "", "", ""
 	data, _ := Assemble(cfg, b, reg, nil, true).Marshal()
 	for _, key := range []string{"hf_token", "api_key"} {
 		if bytes.Contains(data, []byte(key)) {
