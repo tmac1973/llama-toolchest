@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -68,6 +71,11 @@ type GGUFMeta struct {
 	// file-size estimate does, overstates the requirement by more than the
 	// rest of the model put together.
 	PLEBytes int64 `json:"ple_bytes,omitempty"`
+	// PLEChecked mirrors ReasoningChecked and the rest: it records that
+	// the tensor table was inspected, so a record written before split
+	// models were scanned correctly can be told apart from one whose file
+	// genuinely has no table.
+	PLEChecked bool `json:"ple_checked,omitempty"`
 
 	// BaseModelRepo is the upstream "org/repo" this quant derives from, per
 	// general.base_model.0.repo_url. Used to locate the base model's
@@ -100,6 +108,7 @@ func (meta *GGUFMeta) ApplyTo(m *Model) {
 	m.SlidingWindow = meta.SlidingWindow
 	m.SamplingChecked = meta.SamplingChecked
 	m.PLEBytes = meta.PLEBytes
+	m.PLEChecked = meta.PLEChecked
 	if meta.BaseModelRepo != "" {
 		m.BaseModelRepo = meta.BaseModelRepo
 	}
@@ -149,7 +158,16 @@ func ParseGGUFMeta(path string) (*GGUFMeta, error) {
 		return nil, err
 	}
 	defer f.Close()
-	return ParseGGUFMetaFrom(f)
+	meta, err := ParseGGUFMetaFrom(f)
+	if err != nil {
+		return nil, err
+	}
+	// A split model keeps its tensor table in a later shard; see
+	// scanShardsForPLE.
+	if meta.PLEBytes == 0 {
+		meta.PLEBytes = scanShardsForPLE(path)
+	}
+	return meta, nil
 }
 
 // ParseGGUFMetaFrom reads the same metadata from an arbitrary seekable
@@ -394,6 +412,7 @@ func ParseGGUFMetaFrom(f io.ReadSeeker) (*GGUFMeta, error) {
 	// general.sampling.* keys were looked for, present or not.
 	meta.ReasoningChecked = true
 	meta.SamplingChecked = true
+	meta.PLEChecked = true
 	if meta.Reasoning.Toggle == "" {
 		meta.Reasoning.Toggle = ReasoningToggleNone
 	}
@@ -764,4 +783,62 @@ func scanPLETensorBytes(f io.ReadSeeker, tensorCount uint64, alignment int64) in
 		return 0
 	}
 	return next - pleOffset
+}
+
+// ggufShardPattern matches a split GGUF filename like
+// "model-00001-of-00005.gguf". The naming is llama.cpp's, shared by every
+// publisher that splits with its tooling.
+var ggufShardPattern = regexp.MustCompile(`^(.+)-(\d{5})-of-(\d{5})\.gguf$`)
+
+// ExpandShards returns every shard filename of a split GGUF, or a
+// single-element slice for an unsplit one.
+func ExpandShards(filename string) []string {
+	m := ggufShardPattern.FindStringSubmatch(filename)
+	if m == nil {
+		return []string{filename}
+	}
+	base := m[1]
+	total, _ := strconv.Atoi(m[3])
+	shards := make([]string, total)
+	for i := range total {
+		shards[i] = fmt.Sprintf("%s-%05d-of-%05d.gguf", base, i+1, total)
+	}
+	return shards
+}
+
+// scanShardsForPLE looks for the per-layer embedding table in the sibling
+// shards of a split GGUF.
+//
+// A split model's first shard — the one the registry records and the one
+// callers hand to ParseGGUFMeta — holds all the metadata and, in the
+// splits publishers actually ship, no tensors at all. So the architecture
+// parses correctly from it while the tensor table, and with it the
+// embedding table's size, sits in a later shard. Without this the
+// per-layer embedding control never appears for exactly the models that
+// have one, since a table big enough to matter belongs to a model big
+// enough to be split.
+//
+// Returns 0 for an unsplit file, for siblings that aren't on disk (a
+// partial download), or when no shard carries the table.
+func scanShardsForPLE(path string) int64 {
+	dir, name := filepath.Split(path)
+	shards := ExpandShards(name)
+	if len(shards) < 2 {
+		return 0
+	}
+	for _, sh := range shards {
+		if sh == name {
+			continue // already parsed by the caller
+		}
+		f, err := os.Open(filepath.Join(dir, sh))
+		if err != nil {
+			continue
+		}
+		meta, err := ParseGGUFMetaFrom(f)
+		f.Close()
+		if err == nil && meta.PLEBytes > 0 {
+			return meta.PLEBytes
+		}
+	}
+	return 0
 }

@@ -3,6 +3,7 @@ package models
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -164,5 +165,148 @@ func TestPLETensorScanToleratesTruncation(t *testing.T) {
 	}
 	if meta.PLEBytes != 0 {
 		t.Errorf("PLEBytes = %d, want 0 on a truncated tensor block", meta.PLEBytes)
+	}
+}
+
+// writeSplitGGUF writes a shard set into dir: shard 1 carries the
+// metadata and no tensors at all, later shards carry tensors and no
+// metadata. That is the shape publishers actually ship, and the shape
+// that made the per-layer embedding control never appear.
+func writeSplitGGUF(t *testing.T, dir, base string, total int, pleShard int, pleSize int64) string {
+	t.Helper()
+	for i := 1; i <= total; i++ {
+		var buf bytes.Buffer
+		writeStr := func(s string) {
+			binary.Write(&buf, binary.LittleEndian, uint64(len(s)))
+			buf.WriteString(s)
+		}
+		var tensors []pleTensor
+		kv := 0
+		if i == 1 {
+			kv = 1 // metadata shard: architecture only, zero tensors
+		} else if i == pleShard {
+			tensors = []pleTensor{
+				{"token_embd.weight", 0},
+				{pleTensorName, 4096},
+				{"output.weight", uint64(4096 + pleSize)},
+			}
+		} else {
+			tensors = []pleTensor{{fmt.Sprintf("blk.%d.attn_q.weight", i), 0}}
+		}
+
+		buf.WriteString("GGUF")
+		binary.Write(&buf, binary.LittleEndian, uint32(3))
+		binary.Write(&buf, binary.LittleEndian, uint64(len(tensors)))
+		binary.Write(&buf, binary.LittleEndian, uint64(kv))
+		if kv > 0 {
+			writeStr("general.architecture")
+			binary.Write(&buf, binary.LittleEndian, ggufTypeString)
+			writeStr("qwen4exp")
+		}
+		for _, tn := range tensors {
+			writeStr(tn.name)
+			binary.Write(&buf, binary.LittleEndian, uint32(1))
+			binary.Write(&buf, binary.LittleEndian, uint64(8))
+			binary.Write(&buf, binary.LittleEndian, uint32(0))
+			binary.Write(&buf, binary.LittleEndian, tn.offset)
+		}
+		for buf.Len()%32 != 0 {
+			buf.WriteByte(0)
+		}
+		// Enough trailing data for the last tensor in the shard to have a
+		// length; the PLE table's size comes from the gap to the tensor
+		// after it, so this only has to be non-empty.
+		buf.Write(make([]byte, 8192))
+
+		name := fmt.Sprintf("%s-%05d-of-%05d.gguf", base, i, total)
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// The table's size is the gap between its offset and the next
+		// tensor's, so the shard has to actually be that long or the
+		// arithmetic clamps to the file end. Extend it sparsely: the
+		// bytes are never read, and the file costs nothing on disk.
+		if i == pleShard && pleSize > 0 {
+			if err := os.Truncate(path, 4096+pleSize+8192); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	return filepath.Join(dir, fmt.Sprintf("%s-%05d-of-%05d.gguf", base, 1, total))
+}
+
+// Parsing shard 1 of a split model must still find the table, which lives
+// in a later shard. This is the case that shipped broken: architecture
+// parsed, table missed, control hidden.
+func TestPLEFoundInLaterShard(t *testing.T) {
+	dir := t.TempDir()
+	const pleSize = int64(6) << 30
+	first := writeSplitGGUF(t, dir, "Qwen3.8-Flash-Next-UD-Q4_K_XL", 4, 2, pleSize)
+
+	meta, err := ParseGGUFMeta(first)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if meta.Architecture != "qwen4exp" {
+		t.Errorf("Architecture = %q; the metadata shard should still be read", meta.Architecture)
+	}
+	if meta.PLEBytes != pleSize {
+		t.Errorf("PLEBytes = %d, want %d from the shard that carries the table", meta.PLEBytes, pleSize)
+	}
+	if !meta.PLEChecked {
+		t.Error("PLEChecked should be set once the shards have been inspected")
+	}
+}
+
+// The table can be in any shard, not just the second.
+func TestPLEFoundInAnyShard(t *testing.T) {
+	const pleSize = int64(5) << 30
+	for _, shard := range []int{2, 3, 4} {
+		dir := t.TempDir()
+		first := writeSplitGGUF(t, dir, "m-UD-Q4_K_XL", 4, shard, pleSize)
+		meta, err := ParseGGUFMeta(first)
+		if err != nil {
+			t.Fatalf("shard %d: %v", shard, err)
+		}
+		if meta.PLEBytes != pleSize {
+			t.Errorf("table in shard %d: PLEBytes = %d, want %d", shard, meta.PLEBytes, pleSize)
+		}
+	}
+}
+
+// A split model without such a table reports zero, and says it looked.
+func TestSplitModelWithoutPLE(t *testing.T) {
+	dir := t.TempDir()
+	first := writeSplitGGUF(t, dir, "plain-Q4_K_M", 3, 0, 0) // no shard carries one
+	meta, err := ParseGGUFMeta(first)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if meta.PLEBytes != 0 {
+		t.Errorf("PLEBytes = %d, want 0", meta.PLEBytes)
+	}
+	if !meta.PLEChecked {
+		t.Error("PLEChecked should be set even when nothing was found")
+	}
+}
+
+// A partial download leaves siblings missing; that must not fail the
+// parse, since the metadata read from shard 1 is still good.
+func TestSplitModelWithMissingShards(t *testing.T) {
+	dir := t.TempDir()
+	first := writeSplitGGUF(t, dir, "partial-UD-Q4_K_XL", 4, 2, 6<<30)
+	if err := os.Remove(filepath.Join(dir, "partial-UD-Q4_K_XL-00002-of-00004.gguf")); err != nil {
+		t.Fatal(err)
+	}
+	meta, err := ParseGGUFMeta(first)
+	if err != nil {
+		t.Fatalf("parse should survive a missing shard: %v", err)
+	}
+	if meta.Architecture != "qwen4exp" {
+		t.Errorf("Architecture = %q, want the metadata to survive", meta.Architecture)
+	}
+	if meta.PLEBytes != 0 {
+		t.Errorf("PLEBytes = %d, want 0 when the shard holding it is absent", meta.PLEBytes)
 	}
 }

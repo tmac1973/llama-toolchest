@@ -1,10 +1,11 @@
 package modelsource
 
 import (
-	"fmt"
 	"regexp"
 	"sort"
 	"strconv"
+
+	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
 // EstimateVRAM returns estimated VRAM in GB.
@@ -74,18 +75,7 @@ func GroupShards(files []File) []File {
 	return append(result, singles...)
 }
 
-// ExpandShards returns all shard filenames for a split GGUF, or a single-element
-// slice for non-split files. Exported for use by the downloader.
-func ExpandShards(filename string) []string {
-	m := shardPattern.FindStringSubmatch(filename)
-	if m == nil {
-		return []string{filename}
-	}
-	base := m[1]
-	total, _ := strconv.Atoi(m[3])
-	shards := make([]string, total)
-	for i := range total {
-		shards[i] = fmt.Sprintf("%s-%05d-of-%05d.gguf", base, i+1, total)
-	}
-	return shards
-}
+// ExpandShards returns all shard filenames for a split GGUF, or a
+// single-element slice for non-split files. The naming rule lives in
+// models, which needs it to find a split model's tensor table.
+func ExpandShards(filename string) []string { return models.ExpandShards(filename) }

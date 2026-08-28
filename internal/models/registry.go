@@ -79,6 +79,11 @@ type Model struct {
 	// else, which is what makes it double as the "does this model have a
 	// PLE table" test. See GGUFMeta.PLEBytes.
 	PLEBytes int64 `json:"ple_bytes,omitempty"`
+	// PLEChecked records that the tensor table was inspected. Records
+	// written before split models were scanned correctly have it false
+	// and get re-parsed once, which is how an already-downloaded model
+	// picks up its table size without being downloaded again.
+	PLEChecked bool `json:"ple_checked,omitempty"`
 
 	// Architecture parameters parsed from GGUF header.
 	Arch          string `json:"arch,omitempty"`
@@ -606,8 +611,11 @@ func (r *Registry) BackfillGGUFMeta() {
 		// not on VocabSize == 0, so a file that simply has no such key is
 		// asked once rather than at every startup.
 		needsVocab := m.NLayers > 0 && !m.VocabChecked
+		// Records parsed before a split model's later shards were
+		// scanned — re-parse once to find the per-layer embedding table.
+		needsPLE := m.NLayers > 0 && !m.PLEChecked
 
-		if !needsFull && !needsVision && !needsKV && !needsReasoning && !needsSampling && !needsVocab {
+		if !needsFull && !needsVision && !needsKV && !needsReasoning && !needsSampling && !needsVocab && !needsPLE {
 			continue
 		}
 		meta, err := ParseGGUFMeta(m.FilePath)
