@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.25.1](https://github.com/tmac1973/llama-toolchest/compare/v2.25.0...v2.25.1) (2026-08-29)
+
+
+### Bug Fixes
+
+* **models:** find the embedding table in a split model's later shards ([#155](https://github.com/tmac1973/llama-toolchest/issues/155)) ([9c19f0b](https://github.com/tmac1973/llama-toolchest/commit/9c19f0b0462bcb6f1c9b0e0d1a7843a10f381942))
+
 ## [2.25.0](https://github.com/tmac1973/llama-toolchest/compare/v2.24.0...v2.25.0) (2026-08-28)
 
 
