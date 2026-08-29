@@ -198,9 +198,11 @@ func TestDefaultModelSourceFallback(t *testing.T) {
 	}
 }
 
-// A streamed table must be excluded from the VRAM estimate and shown as
-// such, or the fit verdict stays wrong in exactly the case the probe
-// exists to fix.
+// The per-layer embedding table must be excluded from the VRAM estimate
+// and shown as such, or the fit verdict stays wrong in exactly the case
+// the probe exists to fix. The wording says system memory rather than
+// streaming: the table is off the card whatever the streaming mode, which
+// is what measurement showed.
 func TestFileListShowsStreamedPortion(t *testing.T) {
 	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
 		"templates/layout.html", "templates/partials/*.html")
@@ -226,8 +228,8 @@ func TestFileListShowsStreamedPortion(t *testing.T) {
 		t.Fatalf("execute: %v", err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, "streamed from disk") {
-		t.Errorf("streamed portion not surfaced; output=\n%s", out)
+	if !strings.Contains(out, "held in system memory") {
+		t.Errorf("off-card portion not surfaced; output=\n%s", out)
 	}
 	// The full download is still what lands on disk, so Size must not be
 	// quietly reduced to the resident part.

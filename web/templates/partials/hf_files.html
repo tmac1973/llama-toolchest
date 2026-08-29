@@ -18,22 +18,16 @@
             <td><small>{{$f.Filename}}{{if $f.Shards}} ({{len $f.Shards}} parts){{end}}{{if $f.IsMMProj}} <mark style="padding:0 0.3rem;">vision</mark>{{end}}</small></td>
             <td><kbd>{{$f.Quant}}</kbd></td>
             <td>{{printf "%.1f" (divGB $f.Size)}} GiB</td>
-            <td>
-                {{printf "%.1f" $f.VRAMEstGB}} GiB
-                {{if gt $f.StreamedBytes 0}}<br><small title="This architecture keeps its per-layer embedding table on disk and reads rows on demand, so that part never occupies VRAM. Assumes the default Per-Layer Embeddings setting; choosing &quot;Keep resident in memory&quot; after download would add it back.">+{{printf "%.1f" (divGB $f.StreamedBytes)}} GiB streamed from disk</small>{{end}}
-            </td>
-            <td>
-                {{$fit := vramFit $f.VRAMEstGB}}
-                {{if eq $fit "too_large"}}
-                    <del>Too Large</del>
-                {{else if eq $fit "fits"}}
-                    <ins>Fits</ins>
-                {{else if eq $fit ""}}
-                    —
-                {{else}}
-                    <mark>{{$fit}}</mark>
-                {{end}}
-            </td>
+            <td><span id="vram-{{cssID $.ID}}-{{$i}}">
+                {{- if $f.EstimatePending -}}
+                    <small aria-busy="true" title="Reading this model's headers to find the part that never occupies VRAM.">Calculating…</small>
+                {{- else -}}
+                    {{template "hf_vram_cell" $f}}
+                {{- end -}}
+            </span></td>
+            <td><span id="fit-{{cssID $.ID}}-{{$i}}">
+                {{- if $f.EstimatePending -}}<small>—</small>{{- else -}}{{template "hf_fit_cell" $f}}{{- end -}}
+            </span></td>
             <td>
                 {{if $f.AlreadyDownloaded}}
                     <ins title="Already in your local model registry">Downloaded</ins>
@@ -59,4 +53,33 @@
         {{end}}
     </tbody>
 </table>
+{{if .AnyPending}}
+<div hx-get="/api/hf/model/estimates?id={{.ID}}&source={{.Source}}"
+     hx-trigger="load" hx-swap="none"></div>
+{{end}}
+{{end}}
+
+{{/* One file's VRAM figure. Shared so the deferred fill and the first
+     render cannot drift into showing different things. */}}
+{{define "hf_vram_cell"}}
+{{printf "%.1f" .VRAMEstGB}} GiB
+{{- if gt .StreamedBytes 0}}<br><small title="This architecture keeps its per-layer embedding table in system memory rather than on the graphics card, so that part does not count toward the VRAM estimate. It is still part of the download and still takes disk space.">+{{printf "%.1f" (divGB .StreamedBytes)}} GiB held in system memory</small>{{end}}
+{{end}}
+
+{{define "hf_fit_cell"}}
+{{- $fit := vramFit .VRAMEstGB -}}
+{{if eq $fit "too_large"}}<del>Too Large</del>
+{{else if eq $fit "fits"}}<ins>Fits</ins>
+{{else if eq $fit ""}}—
+{{else}}<mark>{{$fit}}</mark>{{end}}
+{{end}}
+
+{{/* The deferred fill: only the two cells per file, swapped in place, so
+     nothing else on the page is disturbed — a download started in the
+     meantime keeps its progress row. */}}
+{{define "hf_file_estimates"}}
+{{range $i, $f := .Files}}
+<span id="vram-{{cssID $.ID}}-{{$i}}" hx-swap-oob="true">{{template "hf_vram_cell" $f}}</span>
+<span id="fit-{{cssID $.ID}}-{{$i}}" hx-swap-oob="true">{{template "hf_fit_cell" $f}}</span>
+{{end}}
 {{end}}

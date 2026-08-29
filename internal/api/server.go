@@ -43,8 +43,15 @@ type Server struct {
 	// probeCache memoizes remote GGUF header probes, keyed by source,
 	// repo and file. A published file's layout does not change, so the
 	// answer is good for the life of the process.
-	probeMu     sync.RWMutex
-	probeCache  map[string]modelsource.ProbeResult
+	probeMu    sync.RWMutex
+	probeCache map[string]modelsource.ProbeResult
+
+	// detailCache holds a repository's file list for long enough to serve
+	// one page: the listing and the deferred request that fills in its
+	// VRAM figures both need it, and fetching twice per click would double
+	// the calls made against a host that rate-limits.
+	detailMu    sync.RWMutex
+	detailCache map[string]detailEntry
 	downloader  *huggingface.Downloader
 	registry    *models.Registry
 	presets     *presets.Fetcher
@@ -519,6 +526,7 @@ func (s *Server) buildRouter() chi.Router {
 		r.Route("/hf", func(r chi.Router) {
 			r.Get("/search", s.handleHFSearch)
 			r.Get("/model", s.handleHFModel)
+			r.Get("/model/estimates", s.handleHFModelEstimates)
 			r.Post("/download", s.handleHFDownload)
 			r.Get("/downloads", s.handleHFActiveDownloads)
 			r.Get("/downloads-panel", s.handleDownloadsPanel)
@@ -561,6 +569,16 @@ func (s *Server) buildRouter() chi.Router {
 
 	return r
 }
+
+// detailEntry is one cached repository listing and when it was fetched.
+type detailEntry struct {
+	detail *modelsource.Detail
+	at     time.Time
+}
+
+// detailCacheTTL is short on purpose: a repository's contents can change,
+// and this only has to outlive a single page's two requests.
+const detailCacheTTL = 90 * time.Second
 
 // pageData holds common template data for page rendering.
 type pageData struct {

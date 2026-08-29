@@ -47,6 +47,17 @@ const (
 	probeMinBytes = 8 * 1024 * 1024 * 1024
 )
 
+// ProbeApplies reports whether ProbePLE would actually inspect a file,
+// given its total size and shard count. Exported because the UI needs to
+// know in advance which files have an answer coming — a file that will
+// never be probed should show its final estimate immediately rather than a
+// placeholder that resolves to the same number.
+//
+// Kept beside the conditions it mirrors so the two cannot drift.
+func ProbeApplies(totalBytes int64, shards int) bool {
+	return totalBytes >= probeMinBytes && shards >= 2
+}
+
 // ProbeResult is what a remote header probe learned about one file.
 type ProbeResult struct {
 	// StreamedBytes is the part of the download that never occupies VRAM:

@@ -28,6 +28,13 @@ type hfFileView struct {
 	huggingface.ModelFile
 	AlreadyDownloaded bool
 	FitsOnDisk        bool
+	// EstimatePending marks a file whose VRAM figure is still being
+	// measured. The measurement reads a slice of each shard's header over
+	// the network, which for a listing of large quants is the difference
+	// between a list that appears at once and one that appears after
+	// several seconds. Such a file renders a placeholder and is filled in
+	// when the answer arrives.
+	EstimatePending bool
 }
 
 // hfModelView is the template payload for the HF file-list partial.
@@ -38,6 +45,10 @@ type hfModelView struct {
 	AvailableBytes int64 // free - margin - in-flight
 	FreeBytes      int64
 	SafetyMargin   int64
+	// AnyPending drives the one deferred request that fills the pending
+	// cells. Absent when every file already has its answer, so a listing
+	// of small files or a repeat visit costs no second round trip.
+	AnyPending bool
 }
 
 func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
@@ -77,7 +88,7 @@ func (s *Server) handleHFModel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	source := s.requestSource(r.URL.Query().Get("source"))
-	detail, err := s.sourceClient(source).GetModel(r.Context(), modelID)
+	detail, err := s.modelDetail(r.Context(), source, modelID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
@@ -92,15 +103,16 @@ func (s *Server) handleHFModel(w http.ResponseWriter, r *http.Request) {
 		FreeBytes:      s.downloader.FreeBytes(),
 		SafetyMargin:   huggingface.DiskSafetyMarginBytes,
 	}
-	// Measure how much of each candidate is streamed rather than loaded,
-	// so the VRAM column reflects what actually reaches the card. Only
-	// the large files are probed and each is a small ranged read, but
-	// they are done together so the listing is not serialized behind
-	// them.
-	s.probeStreamedBytes(r.Context(), source, detail)
+	// Apply only what is already known. Measuring the rest reads a slice
+	// of every shard's header over the network, and doing that here is
+	// what made the file list take seconds to appear: the listing was
+	// serialized behind every probe in it. Those files render a
+	// placeholder and are filled in by one deferred request.
+	pending := s.applyCachedProbes(source, detail)
 
 	for _, f := range detail.Files {
-		fv := hfFileView{ModelFile: f}
+		fv := hfFileView{ModelFile: f, EstimatePending: pending[f.Filename]}
+		view.AnyPending = view.AnyPending || fv.EstimatePending
 		if _, ok := s.registry.HasFile(detail.ID, f.Filename); ok {
 			fv.AlreadyDownloaded = true
 		} else {
@@ -485,6 +497,91 @@ func (s *Server) onDownloadComplete(source, downloadID, modelID, filename string
 	// in the background — the GGUF-embedded default was already attached via
 	// meta.ApplyTo above.
 	go s.enrichModelPresets(m.ID)
+}
+
+// modelDetail fetches a repository's file list, briefly cached.
+//
+// The cache exists because the listing is now fetched twice for one click:
+// once to render the files, once by the deferred request that fills in
+// their VRAM figures. Without it that would double the calls this makes
+// against a host that rate-limits. The window is short because a
+// repository's contents can change; it only has to outlive one page.
+func (s *Server) modelDetail(ctx context.Context, source, modelID string) (*modelsource.Detail, error) {
+	key := source + "\x00" + modelID
+	s.detailMu.RLock()
+	e, ok := s.detailCache[key]
+	s.detailMu.RUnlock()
+	if ok && time.Since(e.at) < detailCacheTTL {
+		return copyDetail(e.detail), nil
+	}
+
+	detail, err := s.sourceClient(source).GetModel(ctx, modelID)
+	if err != nil {
+		return nil, err
+	}
+	s.detailMu.Lock()
+	if s.detailCache == nil {
+		s.detailCache = map[string]detailEntry{}
+	}
+	s.detailCache[key] = detailEntry{detail: copyDetail(detail), at: time.Now()}
+	s.detailMu.Unlock()
+	return detail, nil
+}
+
+// copyDetail returns a detail whose Files can be mutated without touching
+// the cached copy — applyProbe writes into them.
+func copyDetail(d *modelsource.Detail) *modelsource.Detail {
+	out := *d
+	out.Files = append([]modelsource.File(nil), d.Files...)
+	return &out
+}
+
+// applyCachedProbes fills in every VRAM figure already known, and reports
+// which files still need measuring. A file the probe would skip is not
+// pending: its estimate is final now, and showing a placeholder that
+// resolves to the same number would be a lie about what is happening.
+func (s *Server) applyCachedProbes(source string, detail *modelsource.Detail) map[string]bool {
+	pending := map[string]bool{}
+	for i := range detail.Files {
+		f := &detail.Files[i]
+		if cached, ok := s.cachedProbe(source, detail.ID, f.Filename); ok {
+			applyProbe(f, cached)
+			continue
+		}
+		shards := len(f.Shards)
+		if shards == 0 {
+			shards = 1
+		}
+		if modelsource.ProbeApplies(f.Size, shards) {
+			pending[f.Filename] = true
+		}
+	}
+	return pending
+}
+
+// handleHFModelEstimates measures the files a listing left pending and
+// returns just the cells that changed, swapped into the page in place.
+// The listing itself is already on screen by the time this is asked for.
+func (s *Server) handleHFModelEstimates(w http.ResponseWriter, r *http.Request) {
+	modelID := r.URL.Query().Get("id")
+	if modelID == "" {
+		http.Error(w, "missing id parameter", http.StatusBadRequest)
+		return
+	}
+	source := s.requestSource(r.URL.Query().Get("source"))
+	detail, err := s.modelDetail(r.Context(), source, modelID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	s.probeStreamedBytes(r.Context(), source, detail)
+
+	view := hfModelView{ID: detail.ID, Source: source, Files: make([]hfFileView, 0, len(detail.Files))}
+	for _, f := range detail.Files {
+		view.Files = append(view.Files, hfFileView{ModelFile: f})
+	}
+	respondHTML(w)
+	s.renderPartial(w, "hf_file_estimates", view)
 }
 
 // probeStreamedBytes fills in StreamedBytes for the files in detail,
