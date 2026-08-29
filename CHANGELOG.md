@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.26.0](https://github.com/tmac1973/llama-toolchest/compare/v2.25.2...v2.26.0) (2026-08-29)
+
+
+### Features
+
+* **benchmarks:** sweep per-layer embedding mode and extra flags ([#160](https://github.com/tmac1973/llama-toolchest/issues/160)) ([c73a485](https://github.com/tmac1973/llama-toolchest/commit/c73a4854c290464410b550e270cac5b215222ba0))
+* **browse:** show the file list at once, fill VRAM figures as they arrive ([#168](https://github.com/tmac1973/llama-toolchest/issues/168)) ([34cccf4](https://github.com/tmac1973/llama-toolchest/commit/34cccf40b7312214f479b71be4b3b137c95c4c30))
+* **memreport:** parse llama.cpp's per-buffer memory report ([#163](https://github.com/tmac1973/llama-toolchest/issues/163)) ([41a1736](https://github.com/tmac1973/llama-toolchest/commit/41a1736d2c6a56a4ec4056b5068c484f227ff11e))
+* **models:** estimate VRAM from what llama.cpp actually allocates ([#167](https://github.com/tmac1973/llama-toolchest/issues/167)) ([1a85e0e](https://github.com/tmac1973/llama-toolchest/commit/1a85e0e376668c2938a37288d089e375859c3877))
+* **settings:** curate the llama.cpp log verbosity, and expose the PLE table size ([#162](https://github.com/tmac1973/llama-toolchest/issues/162)) ([b3004ef](https://github.com/tmac1973/llama-toolchest/commit/b3004efa0271467eee59eb47f208a4bcb4827f67))
+
+
+### Bug Fixes
+
+* **models:** make the Flash Attention toggle actually turn it off ([#164](https://github.com/tmac1973/llama-toolchest/issues/164)) ([4894b10](https://github.com/tmac1973/llama-toolchest/commit/4894b10b397330536ad303d3cd09548fb9b28d68))
+* **models:** reject flash attention off with a quantized KV cache ([#165](https://github.com/tmac1973/llama-toolchest/issues/165)) ([0370648](https://github.com/tmac1973/llama-toolchest/commit/0370648f5fc0078b397321e5a016725334088127))
+* **models:** stop counting recurrent layers in a hybrid's KV cache ([#166](https://github.com/tmac1973/llama-toolchest/issues/166)) ([b0bf873](https://github.com/tmac1973/llama-toolchest/commit/b0bf873edd80191849b95a7b75469700f2af622d))
+
 ## [2.25.2](https://github.com/tmac1973/llama-toolchest/compare/v2.25.1...v2.25.2) (2026-08-29)
 
 
