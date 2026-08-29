@@ -64,3 +64,26 @@ func TestTensorSplitRequiresFlashAttention(t *testing.T) {
 		}
 	}
 }
+
+// llama.cpp's second requirement, found when an A/B of flash attention
+// failed to load at all: "quantized V cache requires flash_attn to be
+// enabled". More likely to be met by accident than the tensor-split rule,
+// since a quantized cache is a common way to save memory.
+func TestQuantizedKVCacheRequiresFlashAttention(t *testing.T) {
+	for _, quant := range []string{"q8_0", "q4_0"} {
+		bad := &ModelConfig{FlashAttention: false, KVCacheQuant: quant}
+		if err := bad.ValidateFlashAttention(); err == nil {
+			t.Errorf("accepted flash attention off with a %s cache", quant)
+		} else if !strings.Contains(err.Error(), quant) {
+			t.Errorf("error does not name the cache type: %v", err)
+		}
+	}
+	for _, ok := range []*ModelConfig{
+		{FlashAttention: true, KVCacheQuant: "q8_0"},
+		{FlashAttention: false, KVCacheQuant: ""},
+	} {
+		if err := ok.ValidateFlashAttention(); err != nil {
+			t.Errorf("rejected a valid pair (fa=%v kv=%q): %v", ok.FlashAttention, ok.KVCacheQuant, err)
+		}
+	}
+}

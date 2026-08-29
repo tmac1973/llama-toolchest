@@ -205,6 +205,65 @@ remainder reconciles. Reading those figures as totals under-counts by the number
 of cards, which is why `memreport.ScaleAggregates` exists and why the card count
 has to come from the model's GPU assignment — the log never states it.
 
+## What drives compute buffers
+
+Compute was the term the estimate omits and the one that varies most between
+models — 1.48 GiB on the 27B against 24.40 GiB on Flash-Next at the same
+262144 context. Two things were tested.
+
+### Flash attention: large, and now measurable
+
+A/B on two layer-split models, KV quantization off so both arms load:
+
+| Model | ctx | ubatch | FA on | FA off | increase |
+|---|---|---|---|---|---|
+| Qwen3.6-35B-A3B | 32768 | 512 | 0.83 | 5.23 | **+4.40** |
+| Qwen3.8-Flash-Next | 32768 | 1024 | 4.87 | 23.87 | **+19.00** |
+
+Flash attention is worth roughly a 5-6x reduction in compute buffers on both.
+On Flash-Next that is 19 GiB of VRAM from one toggle.
+
+This only became testable at all once the toggle was fixed — before that,
+turning it off wrote nothing and llama.cpp defaulted to auto, so both arms of
+any A/B were the same run.
+
+### It is NOT what makes the two models differ
+
+The hypothesis was that `qwen4exp` gets no flash-attention kernel and so pays
+for a materialised score matrix. That is **wrong**: flash attention is active on
+Flash-Next and saves 19 GiB there. Both models get it.
+
+What actually separates them is how compute scales with context *while flash
+attention is on*:
+
+| Model | ctx 32768 | ctx 262144 | growth over 8x context |
+|---|---|---|---|
+| Qwen3.8-27B | 0.60 | 1.48 | 2.5x |
+| Qwen3.8-Flash-Next | 4.87 | 24.40 | 5.0x |
+
+The 27B is nearly flat; Flash-Next grows almost linearly with context. Both are
+hybrids carrying recurrent state, so the presence of a recurrent path does not
+explain it either. Whatever needs context-proportional scratch on `qwen4exp` is
+still unidentified, and it is the last thing between here and a formula.
+
+### Two combinations llama.cpp refuses
+
+Both found by loads that failed outright, both now rejected on save:
+
+- `SPLIT_MODE_TENSOR requires flash_attn to be enabled`
+- `quantized V cache requires flash_attn to be enabled`
+
+The second is the one a user meets by accident, since a quantized cache is a
+common way to save memory.
+
+### Worth acting on now
+
+Flash-Next at its saved config spends 24.40 GiB of VRAM on compute buffers,
+and that term is linear in micro-batch: dropping ubatch from 1024 to 256 took
+it to 6.66 GiB, freeing about 18 GiB, at some prefill throughput cost. That is
+a larger saving than anything the per-layer embedding controls can offer, and
+it is available today.
+
 ## Not recommended: a fourth "system RAM" placement option
 
 The option was conceived to free VRAM by moving the table to host memory. The

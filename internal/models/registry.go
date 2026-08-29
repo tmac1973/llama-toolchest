@@ -257,6 +257,13 @@ func (c *ModelConfig) ValidateFlashAttention() error {
 	if !c.FlashAttention && c.SplitMode == "tensor" {
 		return fmt.Errorf("flash attention cannot be turned off while the GPU assignment splits by tensor — llama.cpp refuses to load that combination; choose a layer split, or leave flash attention on")
 	}
+	// The second of llama.cpp's two requirements, and the one a user is
+	// more likely to meet by accident: a quantized cache is a common
+	// memory-saving choice, and turning flash attention off then fails
+	// with "quantized V cache requires flash_attn to be enabled".
+	if !c.FlashAttention && c.KVCacheQuant != "" {
+		return fmt.Errorf("flash attention cannot be turned off while the KV cache is quantized to %s — llama.cpp refuses to load that combination; set KV Cache Quantization to off, or leave flash attention on", c.KVCacheQuant)
+	}
 	return nil
 }
 
