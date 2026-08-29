@@ -134,7 +134,7 @@
 
     {{if .HasPLE}}
     <div class="grid">
-        <label title="How to hold the per-layer (n-gram) embedding table, which this model carries in addition to its weights. Streaming reads its rows from the model file as they are needed instead of holding the whole table in memory — it is not counted toward the VRAM estimate when streamed. Auto follows llama.cpp: stream tables over 4 GiB, keep smaller ones resident. Streaming needs memory mapping, so it does not apply when Direct I/O is on.">
+        <label title="How the per-layer embedding table is held in system memory. This model carries one in addition to its weights. The table is never placed on the GPU, whichever setting you choose, so this does not change the VRAM estimate — it trades system memory against loading and lookup speed. Streaming reads the table&#39;s rows from the model file as they are needed rather than holding all of it in memory at once, which uses less system memory and is slightly slower. Auto follows llama.cpp: stream tables over 4 GiB, keep smaller ones in memory. Streaming needs memory mapping, so it does not apply when Direct I/O is on.">
             Per-Layer Embeddings ({{.PLESizeLabel}} table)
             <select name="ple_mode">
                 <option value="" {{if eq .Config.PLEMode ""}}selected{{end}}>Auto (stream if over 4 GiB)</option>

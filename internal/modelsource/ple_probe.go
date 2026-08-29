@@ -49,9 +49,9 @@ const (
 
 // ProbeResult is what a remote header probe learned about one file.
 type ProbeResult struct {
-	// StreamedBytes is the part of the download that llama.cpp reads from
-	// disk on demand and never makes resident. Zero when the file has no
-	// such table, or has one small enough to stay resident.
+	// StreamedBytes is the part of the download that never occupies VRAM:
+	// the per-layer embedding table, which llama.cpp holds host-mapped at
+	// every size. Zero when the file has no such table.
 	StreamedBytes int64
 	// Probed records that the header was actually read. False means the
 	// probe was skipped or failed, and StreamedBytes says nothing.
@@ -129,7 +129,7 @@ func ProbePLE(ctx context.Context, client *http.Client, token string, shards []S
 			continue
 		}
 		if meta.PLEBytes > 0 {
-			return ProbeResult{StreamedBytes: streamedBytes(meta.PLEBytes), Probed: true}
+			return ProbeResult{StreamedBytes: offDeviceBytes(meta.PLEBytes), Probed: true}
 		}
 	}
 	// Every shard parsed and none held a table: that is a real answer,
@@ -137,15 +137,18 @@ func ProbePLE(ctx context.Context, client *http.Client, token string, shards []S
 	return ProbeResult{StreamedBytes: 0, Probed: true}
 }
 
-// streamedBytes applies llama.cpp's own rule for what gets streamed under
-// the default --tensor-read-lazy auto: tables over 4 GiB, and only those.
-// Deliberately the same threshold the post-download estimate uses, so the
-// number shown before downloading and the number shown after agree.
-func streamedBytes(pleBytes int64) int64 {
-	if pleBytes > models.PLEAutoMinBytes {
-		return pleBytes
-	}
-	return 0
+// offDeviceBytes is the part of a download that never occupies VRAM.
+//
+// This used to apply llama.cpp's 4 GiB streaming threshold, on the reading
+// that only a streamed table stayed out of VRAM. Measurement says the table
+// is held host-mapped at every size and in every mode, so the whole of it
+// is off-device regardless — see plan/ple-vram-findings.md. The threshold
+// governs host residency, which was never what this number is for.
+//
+// Kept the same rule as the post-download estimate, so the figure shown
+// before downloading and the one shown after still agree.
+func offDeviceBytes(pleBytes int64) int64 {
+	return pleBytes
 }
 
 // tensorCount reads a GGUF file's tensor count from its 24-byte header,

@@ -90,6 +90,12 @@ type Model struct {
 	// full-attention interval, so nothing about the numbers themselves
 	// reveals which parser produced them.
 	KVRecurrentChecked bool `json:"kv_recurrent_checked,omitempty"`
+	// TokenEmbdBytes, IndexerKeyLength and AttnLayers feed the VRAM
+	// estimate; see GGUFMeta for what each means. All three are filled by
+	// the same re-parse that sets KVRecurrentChecked.
+	TokenEmbdBytes   int64 `json:"token_embd_bytes,omitempty"`
+	IndexerKeyLength int   `json:"indexer_key_length,omitempty"`
+	AttnLayers       int   `json:"attn_layers,omitempty"`
 
 	// Architecture parameters parsed from GGUF header.
 	Arch          string `json:"arch,omitempty"`
@@ -716,6 +722,9 @@ func (r *Registry) BackfillGGUFMeta() {
 				// model that was already correct is not re-parsed forever.
 				m.KVRecurrentChecked = true
 				changed = true
+				m.TokenEmbdBytes = meta.TokenEmbdBytes
+				m.IndexerKeyLength = meta.IndexerKeyLength
+				m.AttnLayers = meta.AttnLayers
 				if meta.KVFullPerTok != m.KVFullPerTok || meta.KVSWAPerTok != m.KVSWAPerTok {
 					slog.Info("corrected KV scaling for recurrent layers", "model", m.ID,
 						"kv_full_per_tok", meta.KVFullPerTok, "was", m.KVFullPerTok)

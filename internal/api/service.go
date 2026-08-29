@@ -129,7 +129,7 @@ func (s *Server) handlePS(w http.ResponseWriter, r *http.Request) {
 					pm.VRAMEstGB = regModel.VRAMEstGB
 					if cfg != nil {
 						pm.ContextSize = cfg.ContextSize
-						pm.VRAMEstGB = models.VRAMEstimateForConfig(regModel, cfg)
+						pm.VRAMEstGB = models.VRAMEstimateForConfigOn(regModel, cfg, models.DeviceCountForConfig(cfg, len(s.monitor.Current().GPU)))
 					}
 				}
 				result = append(result, pm)
@@ -664,7 +664,7 @@ func (s *Server) handleModelVRAMEstimate(w http.ResponseWriter, r *http.Request)
 	cfg.ContextSize = contextSize
 	cfg.KVCacheQuant = kvCacheQuant
 
-	total := models.VRAMEstimateForConfig(model, cfg)
+	total := models.VRAMEstimateForConfigOn(model, cfg, models.DeviceCountForConfig(cfg, len(s.monitor.Current().GPU)))
 	kvGB := model.KVCacheGB(contextSize, kvCacheQuant)
 	weightsGB := models.BytesToGiB(model.SizeBytes)
 	extraGB := models.AuxFilesVRAMGB(cfg)
@@ -732,7 +732,7 @@ func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 		// Mark disabled/recommended options
 		if numGPUs > 0 && model != nil {
 			perGPUGB := float64(metrics.GPU[0].VRAMTotalMB) / 1024.0
-			modelVRAM := models.VRAMEstimateForConfig(model, cfg)
+			modelVRAM := models.VRAMEstimateForConfigOn(model, cfg, models.DeviceCountForConfig(cfg, len(s.monitor.Current().GPU)))
 			allModels := s.registry.List()
 			allConfigs := make(map[string]*models.ModelConfig)
 			for _, m := range allModels {
@@ -1000,7 +1000,7 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 	// Update VRAM estimate in model list
 	if isHTMX(r) {
 		if model, err := s.registry.Get(id); err == nil {
-			vramGB := models.VRAMEstimateForConfig(model, cfg)
+			vramGB := models.VRAMEstimateForConfigOn(model, cfg, models.DeviceCountForConfig(cfg, len(s.monitor.Current().GPU)))
 			w.Header().Set("HX-Trigger", fmt.Sprintf(
 				`{"vramUpdated":{"id":%q,"vram":"%.1f GiB"},"gpuMapChanged":true}`,
 				id, vramGB))

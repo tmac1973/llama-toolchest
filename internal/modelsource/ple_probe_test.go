@@ -165,7 +165,11 @@ func TestProbeSkippedBelowThreshold(t *testing.T) {
 
 // A table under llama.cpp's 4 GiB lazy threshold stays resident, so it
 // must not be subtracted — the estimate is already right for it.
-func TestProbeIgnoresSmallTable(t *testing.T) {
+// A table below llama.cpp's 4 GiB streaming threshold is still held
+// host-mapped, so it is still off-device and still excluded. This test
+// asserted the opposite until the placement was measured; the threshold
+// governs host residency, not which device holds the table.
+func TestProbeReportsSmallTableAsOffDevice(t *testing.T) {
 	data := buildGGUF(t, 0, []tensorSpec{
 		{pleTensorNameForTest, 0},
 		{"output.weight", 1 << 30}, // 1 GiB table
@@ -179,8 +183,8 @@ func TestProbeIgnoresSmallTable(t *testing.T) {
 	if !got.Probed {
 		t.Fatal("probe did not complete")
 	}
-	if got.StreamedBytes != 0 {
-		t.Errorf("streamed = %d, want 0 for a table under the lazy threshold", got.StreamedBytes)
+	if got.StreamedBytes != 1<<30 {
+		t.Errorf("off-device = %d, want the whole 1 GiB table", got.StreamedBytes)
 	}
 }
 

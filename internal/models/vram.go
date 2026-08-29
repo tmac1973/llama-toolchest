@@ -114,10 +114,77 @@ func VRAMEstimateForConfig(m *Model, cfg *ModelConfig) float64 {
 	if ctx == 0 {
 		ctx = m.ContextLength
 	}
-	// Weight memory: file size is a good proxy for quantized weights in VRAM,
-	// minus any part of the file that never becomes resident.
-	weightsGB := BytesToGiB(m.SizeBytes - lazyPLEBytes(m, cfg))
-	return weightsGB + m.KVCacheGB(ctx, cfg.KVCacheQuant) + AuxFilesVRAMGB(cfg) + vramOverheadGB
+	return VRAMEstimateForConfigOn(m, cfg, DeviceCountForConfig(cfg, 0))
+}
+
+// Per-device coefficients, fitted to llama.cpp's own buffer report across
+// eleven measured loads: four architectures, one and four cards, 3.4 to 99
+// GiB of VRAM. See plan/ple-vram-findings.md for the corpus and the method,
+// and vram_corpus_test.go for the points themselves.
+//
+// They are empirical, and honestly so: they come from one ROCm machine, and
+// a different backend may allocate differently. The guardrail that makes
+// that acceptable is the direction of error — every coefficient is set so
+// the estimate lands at or above measured on the whole corpus. Telling
+// someone a model fits when it does not is the failure worth avoiding.
+const (
+	// Graph scratch, per device. Linear in micro-batch, weakly in context.
+	computeMiBPerUBatchTok = 0.2911
+	computeMiBPerCtxTok    = 0.00090
+	// A sparse-attention model scores every cached position against every
+	// token of the micro-batch before it can take the top-k, and holds
+	// about six tensors of that shape at once. This is the term that makes
+	// such a model cost multiples of an ordinary one at the same context.
+	indexerScratchCopies = 5.69
+	// CUDA/HIP context and allocations llama.cpp does not itemise. Constant
+	// per device across the corpus.
+	vramPerDeviceOverheadGB = 0.85
+)
+
+// VRAMEstimateForConfigOn estimates VRAM for a model spread over devices
+// cards. The count matters because graph scratch and driver overhead are
+// per device, not per model: the same config across four cards costs four
+// times the scratch of one.
+func VRAMEstimateForConfigOn(m *Model, cfg *ModelConfig, cards int) float64 {
+	if cards < 1 {
+		cards = 1
+	}
+	ctx := cfg.ContextSize
+	if ctx == 0 {
+		ctx = m.ContextLength
+	}
+
+	// Weights, less the parts llama.cpp holds host-mapped rather than on a
+	// device. Two tensors do that on every model measured: the per-layer
+	// embedding table where one exists, and the input embedding table,
+	// which is mapped even on models with no per-layer table at all.
+	resident := m.SizeBytes - m.PLEBytes - m.TokenEmbdBytes
+	if resident < 0 {
+		resident = m.SizeBytes
+	}
+	gb := BytesToGiB(resident)
+
+	gb += m.KVCacheGB(ctx, cfg.KVCacheQuant)
+
+	// Graph scratch.
+	ub := cfg.EffectiveUBatchSize()
+	perCard := computeMiBPerUBatchTok*float64(ub) + computeMiBPerCtxTok*float64(ctx)
+	gb += float64(cards) * perCard / 1024
+
+	// Sparse attention: a key cache of its own, plus scratch that scales
+	// with context times micro-batch on every device.
+	if m.IndexerKeyLength > 0 {
+		layers := m.AttnLayers
+		if layers == 0 {
+			layers = m.NLayers
+		}
+		gb += float64(layers) * float64(ctx) * float64(m.IndexerKeyLength) * 4 / (1024 * 1024 * 1024)
+		gb += float64(cards) * indexerScratchCopies * float64(ctx) * float64(ub) * 4 / (1024 * 1024 * 1024)
+	}
+
+	gb += AuxFilesVRAMGB(cfg)
+	gb += float64(cards) * vramPerDeviceOverheadGB
+	return gb
 }
 
 // PLEAutoMinBytes mirrors auto_lazy_min_size in llama.cpp's model loader:
@@ -125,37 +192,6 @@ func VRAMEstimateForConfig(m *Model, cfg *ModelConfig) float64 {
 // demand. Smaller ones stay resident, because the per-row read latency
 // costs more than the memory is worth on a small model.
 const PLEAutoMinBytes = 4 * 1024 * 1024 * 1024
-
-// pleAutoMinBytes is the unexported spelling this file already used.
-const pleAutoMinBytes = PLEAutoMinBytes
-
-// lazyPLEBytes returns the number of bytes of the model file that
-// llama.cpp will read on demand rather than load, which is the part a VRAM
-// estimate must not count. Zero when the model has no per-layer embedding
-// table, or when the table is configured to stay resident.
-//
-// The conditions deliberately track llama.cpp's own (llama-model-loader.cpp,
-// TENSOR_READ_LAZY): lazy reading needs mmap, so it does not apply when the
-// model is loaded with direct I/O.
-func lazyPLEBytes(m *Model, cfg *ModelConfig) int64 {
-	if m.PLEBytes <= 0 || cfg == nil {
-		return 0
-	}
-	if cfg.DirectIO {
-		return 0
-	}
-	switch cfg.PLEMode {
-	case "off":
-		return 0
-	case "on":
-		return m.PLEBytes
-	default: // auto
-		if m.PLEBytes > pleAutoMinBytes {
-			return m.PLEBytes
-		}
-		return 0
-	}
-}
 
 // AuxFilesVRAMGB sums the on-disk sizes of auxiliary GGUFs that load into VRAM
 // alongside the main model: the vision projector (mmproj), a separate MTP

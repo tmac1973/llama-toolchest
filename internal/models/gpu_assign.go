@@ -382,6 +382,45 @@ func tensorAssignGPUs(assign string, numGPUs int) ([]int, bool) {
 	return nil, false
 }
 
+// DeviceCountForConfig returns how many devices a config actually spreads
+// the model over, which the VRAM estimate needs because graph scratch and
+// driver overhead are charged per device rather than per model.
+//
+// numGPUs is what the host has; pass 0 when it is unknown, and an
+// assignment that means "all of them" then resolves to one. That
+// under-counts rather than over-counts, so a caller without the hardware
+// figure gets an estimate that is too low — which is why the callers that
+// can supply it do.
+func DeviceCountForConfig(cfg *ModelConfig, numGPUs int) int {
+	if cfg == nil {
+		return max(1, numGPUs)
+	}
+	// An explicit split names its devices: the entries that get a non-zero
+	// share are the ones holding anything.
+	if ts := strings.TrimSpace(cfg.TensorSplit); ts != "" {
+		n := 0
+		for _, part := range strings.Split(ts, ",") {
+			if v, err := strconv.ParseFloat(strings.TrimSpace(part), 64); err == nil && v > 0 {
+				n++
+			}
+		}
+		if n > 0 {
+			return n
+		}
+	}
+	switch {
+	case strings.HasPrefix(cfg.GPUAssign, "tensor"):
+		if gpus, ok := tensorAssignGPUs(cfg.GPUAssign, max(1, numGPUs)); ok && len(gpus) > 0 {
+			return len(gpus)
+		}
+	case cfg.GPUAssign != "" && cfg.GPUAssign != "all" && cfg.GPUAssign != "custom":
+		if gpus := parseIntList(cfg.GPUAssign); len(gpus) > 0 {
+			return len(gpus)
+		}
+	}
+	return max(1, numGPUs)
+}
+
 // AssignGPUsOutOfRange reports whether a GPU assignment references GPU
 // indices this machine doesn't have. Used by the backup restore engine
 // to detect configs imported from a box with more GPUs.

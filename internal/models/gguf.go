@@ -76,6 +76,20 @@ type GGUFMeta struct {
 	// models were scanned correctly can be told apart from one whose file
 	// genuinely has no table.
 	PLEChecked bool `json:"ple_checked,omitempty"`
+	// TokenEmbdBytes is the on-disk size of token_embd.weight, which
+	// llama.cpp holds host-mapped rather than on a device. Measured from
+	// the tensor block for the same reason as PLEBytes: publishers quantize
+	// it independently of the body.
+	TokenEmbdBytes int64 `json:"token_embd_bytes,omitempty"`
+	// IndexerKeyLength is attention.indexer.key_length, present only on
+	// sparse-attention architectures. Non-zero means the model ranks the
+	// whole cache before attending, which costs both a key cache of its
+	// own and graph scratch proportional to context x micro-batch.
+	IndexerKeyLength int `json:"indexer_key_length,omitempty"`
+	// AttnLayers counts the layers that actually hold a KV cache. Equal to
+	// NLayers on a plain model; smaller on a hybrid, where the rest carry
+	// recurrent state.
+	AttnLayers int `json:"attn_layers,omitempty"`
 	// KVRecurrentChecked records that the KV factors were computed by a
 	// parser that knows recurrent layers hold no cache. Records written
 	// before that have plausible non-zero factors which are simply too
@@ -115,6 +129,9 @@ func (meta *GGUFMeta) ApplyTo(m *Model) {
 	m.PLEBytes = meta.PLEBytes
 	m.PLEChecked = meta.PLEChecked
 	m.KVRecurrentChecked = meta.KVRecurrentChecked
+	m.TokenEmbdBytes = meta.TokenEmbdBytes
+	m.IndexerKeyLength = meta.IndexerKeyLength
+	m.AttnLayers = meta.AttnLayers
 	if meta.BaseModelRepo != "" {
 		m.BaseModelRepo = meta.BaseModelRepo
 	}
@@ -170,8 +187,14 @@ func ParseGGUFMeta(path string) (*GGUFMeta, error) {
 	}
 	// A split model keeps its tensor table in a later shard; see
 	// scanShardsForPLE.
-	if meta.PLEBytes == 0 {
-		meta.PLEBytes = scanShardsForPLE(path)
+	if meta.PLEBytes == 0 || meta.TokenEmbdBytes == 0 {
+		ple, emb := scanShardsForTensors(path)
+		if meta.PLEBytes == 0 {
+			meta.PLEBytes = ple
+		}
+		if meta.TokenEmbdBytes == 0 {
+			meta.TokenEmbdBytes = emb
+		}
 	}
 	return meta, nil
 }
@@ -391,6 +414,11 @@ func ParseGGUFMetaFrom(f io.ReadSeeker) (*GGUFMeta, error) {
 				slidingWindow = v
 				continue
 			}
+		case arch != "" && key == arch+".attention.indexer.key_length":
+			if v, ok := readGGUFScalarInt(f, valueType); ok {
+				meta.IndexerKeyLength = v
+				continue
+			}
 		case arch != "" && key == arch+".full_attention_interval":
 			if v, ok := readGGUFScalarInt(f, valueType); ok {
 				fullAttnInterval = v
@@ -427,7 +455,7 @@ func ParseGGUFMetaFrom(f io.ReadSeeker) (*GGUFMeta, error) {
 	// truncated mid-header, or one whose tensor section we can't make sense
 	// of, leaves PLEBytes at zero — the metadata gathered above is still
 	// good, so a failure here must not fail the parse.
-	meta.PLEBytes = scanPLETensorBytes(f, tensorCount, alignment)
+	meta.PLEBytes, meta.TokenEmbdBytes = scanPLETensorBytes(f, tensorCount, alignment)
 
 	// A successful parse means reasoning was evaluated even if no chat template
 	// was present — in which case Reasoning stays the unsupported zero value.
@@ -509,6 +537,7 @@ func computeKVScaling(meta *GGUFMeta, headCountKV int, kvHeadCounts []int, keyLe
 		if isRecurrentLayer(i, fullAttnInterval, recurrentLayers) {
 			continue
 		}
+		meta.AttnLayers++
 		kv := defaultKV
 		if i < len(kvHeadCounts) {
 			kv = kvHeadCounts[i]
@@ -755,6 +784,15 @@ func skipGGUFValue(r io.ReadSeeker, valueType uint32) {
 // need editing every time.
 const pleTensorName = "per_layer_token_embd.weight"
 
+// tokenEmbdTensorName is the input embedding table. llama.cpp leaves it
+// host-mapped rather than copying it to a device — measured on every
+// model in the corpus, including ones with no per-layer table at all — so
+// a VRAM estimate must not count it either. Its size is read from the
+// tensor block rather than computed from vocab x n_embd, because
+// publishers routinely quantize it differently from the body: both UD
+// quants measured keep it at Q8_0 inside a Q4 model.
+const tokenEmbdTensorName = "token_embd.weight"
+
 // scanPLETensorBytes reads the tensor-info block and returns the size in
 // bytes of the PLE table, or 0 if the file has no such tensor or the block
 // can't be read. The reader must be positioned at the start of the block,
@@ -767,72 +805,82 @@ const pleTensorName = "per_layer_token_embd.weight"
 // there is a steady supply of new ones. The cost is that a computed size
 // includes any alignment padding that follows the tensor, at most
 // alignment-1 bytes against a table measured in gigabytes.
-func scanPLETensorBytes(f io.ReadSeeker, tensorCount uint64, alignment int64) int64 {
+func scanPLETensorBytes(f io.ReadSeeker, tensorCount uint64, alignment int64) (pleBytes, embBytes int64) {
 	// A malformed count would otherwise have us loop for a very long time
 	// on a file that isn't going to yield anything.
 	const maxTensors = 1 << 20
 	if tensorCount == 0 || tensorCount > maxTensors || alignment <= 0 {
-		return 0
+		return 0, 0
 	}
 
 	var pleOffset int64 = -1
+	var embOffset int64 = -1
 	offsets := make([]int64, 0, tensorCount)
 
 	for i := uint64(0); i < tensorCount; i++ {
 		name, err := readGGUFString(f)
 		if err != nil {
-			return 0
+			return 0, 0
 		}
 		nDims, err := readUint32(f)
 		if err != nil || nDims > 4 {
-			return 0
+			return 0, 0
 		}
 		// Dimensions are read past; the offsets alone give us the size.
 		if _, err := f.Seek(int64(nDims)*8, io.SeekCurrent); err != nil {
-			return 0
+			return 0, 0
 		}
 		if _, err := readUint32(f); err != nil { // ggml type
-			return 0
+			return 0, 0
 		}
 		var offset uint64
 		if err := binary.Read(f, binary.LittleEndian, &offset); err != nil {
-			return 0
+			return 0, 0
 		}
 		offsets = append(offsets, int64(offset))
 		if name == pleTensorName {
 			pleOffset = int64(offset)
 		}
+		if name == tokenEmbdTensorName {
+			embOffset = int64(offset)
+		}
 	}
-	if pleOffset < 0 {
-		return 0
+	if pleOffset < 0 && embOffset < 0 {
+		return 0, 0
 	}
 
 	// The data region starts after the tensor-info block, padded up to the
 	// alignment; every offset above is relative to that point.
 	infoEnd, err := f.Seek(0, io.SeekCurrent)
 	if err != nil {
-		return 0
+		return 0, 0
 	}
 	dataStart := ((infoEnd + alignment - 1) / alignment) * alignment
 	fileSize, err := f.Seek(0, io.SeekEnd)
 	if err != nil || fileSize <= dataStart {
-		return 0
+		return 0, 0
 	}
 
-	// The next offset after this tensor's bounds it. Scanning for the
-	// smallest offset greater than ours avoids assuming the tensors were
-	// written in offset order. When nothing follows, the tensor runs to the
-	// end of the file.
-	next := fileSize - dataStart
-	for _, off := range offsets {
-		if off > pleOffset && off < next {
-			next = off
+	// The next offset after a tensor bounds it. Scanning for the smallest
+	// offset greater than ours avoids assuming the tensors were written in
+	// offset order. When nothing follows, the tensor runs to the end of
+	// the file.
+	sizeAt := func(off int64) int64 {
+		if off < 0 {
+			return 0
 		}
+		next := fileSize - dataStart
+		for _, o := range offsets {
+			if o > off && o < next {
+				next = o
+			}
+		}
+		if next <= off {
+			return 0
+		}
+		return next - off
 	}
-	if next <= pleOffset {
-		return 0
-	}
-	return next - pleOffset
+	return sizeAt(pleOffset), sizeAt(embOffset)
 }
 
 // ggufShardPattern matches a split GGUF filename like
@@ -870,11 +918,11 @@ func ExpandShards(filename string) []string {
 //
 // Returns 0 for an unsplit file, for siblings that aren't on disk (a
 // partial download), or when no shard carries the table.
-func scanShardsForPLE(path string) int64 {
+func scanShardsForTensors(path string) (pleBytes, embBytes int64) {
 	dir, name := filepath.Split(path)
 	shards := ExpandShards(name)
 	if len(shards) < 2 {
-		return 0
+		return 0, 0
 	}
 	for _, sh := range shards {
 		if sh == name {
@@ -886,9 +934,18 @@ func scanShardsForPLE(path string) int64 {
 		}
 		meta, err := ParseGGUFMetaFrom(f)
 		f.Close()
-		if err == nil && meta.PLEBytes > 0 {
-			return meta.PLEBytes
+		if err != nil {
+			continue
+		}
+		if pleBytes == 0 {
+			pleBytes = meta.PLEBytes
+		}
+		if embBytes == 0 {
+			embBytes = meta.TokenEmbdBytes
+		}
+		if pleBytes > 0 && embBytes > 0 {
+			break
 		}
 	}
-	return 0
+	return pleBytes, embBytes
 }

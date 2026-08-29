@@ -396,7 +396,7 @@ func (s *Server) renderModelCard(w http.ResponseWriter, m *models.Model, routerK
 	gpuLabel := ""
 	var aliases []string
 	if cfg, err := s.registry.GetConfig(m.ID); err == nil {
-		vramGB = models.VRAMEstimateForConfig(m, cfg)
+		vramGB = models.VRAMEstimateForConfigOn(m, cfg, models.DeviceCountForConfig(cfg, len(s.monitor.Current().GPU)))
 		enabled = cfg.Enabled
 		if cfg.MmprojPath != "" {
 			hasVision = true

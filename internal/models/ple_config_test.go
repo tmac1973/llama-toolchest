@@ -35,49 +35,52 @@ func TestPLEModeEmitsTensorReadLazy(t *testing.T) {
 
 const testPLEBytes = 30 * 1024 * 1024 * 1024 // 30 GiB, comfortably over the auto threshold
 
-// A streamed table is never resident, so it must not be counted toward the
-// VRAM estimate — the bug this fixes had a 30 GiB table inflating the
-// estimate past every consumer GPU.
-func TestVRAMExcludesStreamedPLETable(t *testing.T) {
-	// 40 GiB file, 30 GiB of which is the PLE table.
+// The table is never on a device, whatever the mode. Measured on four
+// architectures: llama.cpp reports it under CPU_Mapped, and total VRAM is
+// identical with the mode on, off and auto — see plan/ple-vram-findings.md.
+//
+// This replaces a pair of tests asserting the opposite. They encoded the
+// belief the feature was built on: that "resident" meant resident in VRAM
+// and streaming saved GPU memory. Hardware says streaming saves host
+// memory and changes VRAM by nothing.
+func TestPLEModeDoesNotChangeVRAM(t *testing.T) {
 	m := &Model{
 		SizeBytes: 40 * 1024 * 1024 * 1024,
 		PLEBytes:  testPLEBytes,
-		NLayers:   48, NEmbd: 4096, NHead: 32, NKVHead: 8, ContextLength: 4096,
+		NLayers:   48, AttnLayers: 48, NEmbd: 4096, NHead: 32, NKVHead: 8,
+		KVFullPerTok: 48 * 8 * 256, ContextLength: 4096,
 	}
-	base := func(mode string, directIO bool) float64 {
+	est := func(mode string, directIO bool) float64 {
 		return VRAMEstimateForConfig(m, &ModelConfig{ContextSize: 4096, PLEMode: mode, DirectIO: directIO})
 	}
-
-	auto, on, off := base("", false), base("on", false), base("off", false)
-	if auto != on {
-		t.Errorf("auto (%.2f) should match on (%.2f) for a table over 4 GiB", auto, on)
+	want := est("", false)
+	for _, mode := range []string{"on", "off"} {
+		if got := est(mode, false); got != want {
+			t.Errorf("mode %q gave %.4f, want %.4f — the table is host-mapped in every mode", mode, got, want)
+		}
 	}
-	if got := off - on; got < 29 || got > 31 {
-		t.Errorf("off minus on = %.2f GiB, want ~30 (the table)", got)
-	}
-	// Streaming needs mmap, so direct I/O has to count the table again.
-	if dio := base("", true); dio != off {
-		t.Errorf("direct I/O estimate %.2f should match resident %.2f", dio, off)
+	// Direct I/O changes how the file is read, not where the table lives.
+	if got := est("", true); got != want {
+		t.Errorf("direct I/O gave %.4f, want %.4f", got, want)
 	}
 }
 
-// Under auto, llama.cpp keeps tables below 4 GiB resident, so a small one
-// must still be counted.
-func TestVRAMCountsSmallPLETableUnderAuto(t *testing.T) {
-	m := &Model{
+// And it is excluded from the estimate at every size. The old code only
+// excluded tables over 4 GiB, mirroring llama.cpp's streaming threshold —
+// but that threshold governs host residency, which was never the question.
+func TestSmallPLETableAlsoExcluded(t *testing.T) {
+	base := Model{
 		SizeBytes: 8 * 1024 * 1024 * 1024,
-		PLEBytes:  2 * 1024 * 1024 * 1024, // under the 4 GiB threshold
-		NLayers:   32, NEmbd: 2048, NHead: 16, NKVHead: 4, ContextLength: 4096,
+		NLayers:   32, AttnLayers: 32, NEmbd: 2048, NHead: 16, NKVHead: 4,
+		KVFullPerTok: 32 * 4 * 128, ContextLength: 4096,
 	}
-	auto := VRAMEstimateForConfig(m, &ModelConfig{ContextSize: 4096})
-	off := VRAMEstimateForConfig(m, &ModelConfig{ContextSize: 4096, PLEMode: "off"})
-	if auto != off {
-		t.Errorf("auto (%.2f) should match off (%.2f) below the 4 GiB threshold", auto, off)
-	}
-	// ...but an explicit "on" streams it regardless of size.
-	if on := VRAMEstimateForConfig(m, &ModelConfig{ContextSize: 4096, PLEMode: "on"}); on >= auto {
-		t.Errorf("explicit on (%.2f) should be below auto (%.2f)", on, auto)
+	withTable := base
+	withTable.PLEBytes = 2 * 1024 * 1024 * 1024 // well under the 4 GiB threshold
+	cfg := &ModelConfig{ContextSize: 4096}
+
+	diff := VRAMEstimateForConfig(&base, cfg) - VRAMEstimateForConfig(&withTable, cfg)
+	if diff < 1.9 || diff > 2.1 {
+		t.Errorf("a 2 GiB table changed the estimate by %.2f GiB, want the whole 2", diff)
 	}
 }
 

@@ -328,6 +328,42 @@ table is already in host memory in every mode, so there is nothing to free. The
 10.59 GiB that variant B saves is a buffer effect and would be better exposed,
 if wanted at all, as what it is rather than as a placement control.
 
+## The revised estimate
+
+Terms, each grounded in a measured buffer report rather than fitted blind:
+
+| Term | Basis |
+|---|---|
+| Weights | file size less the per-layer table and the input embedding, both held `CPU_Mapped` on every model measured |
+| KV cache | attention layers only; recurrent layers hold no cache (shipped separately) |
+| Graph scratch | `0.2911 MiB x ubatch + 0.0009 MiB x ctx` per device |
+| Sparse-attention scratch | `5.69 x n_kv x ubatch x 4` per device, only on models carrying indexer keys |
+| Indexer key cache | `attn_layers x n_kv x key_length x 4` |
+| Per-device overhead | 0.85 GiB |
+
+Scored against the eleven measured points:
+
+| | current | revised |
+|---|---|---|
+| mean absolute error | 7.74 GiB | **0.99 GiB** |
+| worst error | +20.91 | +2.55 |
+| under-predicts | 3 of 11 | **0 of 11** |
+
+The guardrail is the direction, not the average: no point may come in under
+what the hardware used. An estimate that is high costs someone headroom; one
+that is low tells them a model fits when it does not.
+
+### What it rests on
+
+One ROCm machine, four architectures, one and four cards, 3.4 to 99 GiB. The
+weight and KV terms are structural and should travel. The three fitted
+coefficients are empirical and may not: a different backend can allocate
+scratch differently. They are set so the corpus never under-predicts, which
+is what makes shipping them defensible on this much evidence.
+
+The corpus lives in `internal/models/vram_corpus_test.go`. Adding a machine
+or an architecture means adding points there and re-checking both tests.
+
 ## Measurement plan for the estimator
 
 The estimator cannot be corrected from per-GPU totals alone — they conflate
