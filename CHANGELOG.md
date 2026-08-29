@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.25.2](https://github.com/tmac1973/llama-toolchest/compare/v2.25.1...v2.25.2) (2026-08-29)
+
+
+### Bug Fixes
+
+* **models:** apply the per-layer embedding scan to already-downloaded models ([#157](https://github.com/tmac1973/llama-toolchest/issues/157)) ([1d3c0b2](https://github.com/tmac1973/llama-toolchest/commit/1d3c0b2033f206a92ab9b9e1b1deb94446a8dfe0))
+
 ## [2.25.1](https://github.com/tmac1973/llama-toolchest/compare/v2.25.0...v2.25.1) (2026-08-29)
 
 
