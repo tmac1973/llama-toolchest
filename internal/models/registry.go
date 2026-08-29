@@ -84,15 +84,12 @@ type Model struct {
 	// and get re-parsed once, which is how an already-downloaded model
 	// picks up its table size without being downloaded again.
 	PLEChecked bool `json:"ple_checked,omitempty"`
-	// KVRecurrentChecked distinguishes KV factors computed before
-	// recurrent layers were excluded from ones computed after. The old
-	// values are non-zero and plausible, just too large by the
-	// full-attention interval, so nothing about the numbers themselves
-	// reveals which parser produced them.
-	KVRecurrentChecked bool `json:"kv_recurrent_checked,omitempty"`
+	// GGUFMetaVersion is the parser generation this record's metadata came
+	// from. Below the current one means re-read; see GGUFMetaVersion.
+	GGUFMetaVersion int `json:"gguf_meta_version,omitempty"`
 	// TokenEmbdBytes, IndexerKeyLength and AttnLayers feed the VRAM
 	// estimate; see GGUFMeta for what each means. All three are filled by
-	// the same re-parse that sets KVRecurrentChecked.
+	// the same re-read that raises GGUFMetaVersion.
 	TokenEmbdBytes   int64 `json:"token_embd_bytes,omitempty"`
 	IndexerKeyLength int   `json:"indexer_key_length,omitempty"`
 	AttnLayers       int   `json:"attn_layers,omitempty"`
@@ -622,130 +619,59 @@ func (r *Registry) ListNeedingPresetFetch() []string {
 	return ids
 }
 
-// BackfillGGUFMeta parses GGUF metadata for any models missing architecture
-// info. Called at startup to handle models downloaded before GGUF parsing existed.
+// GGUFMetaVersion is the parser generation a record's metadata came from.
+// Bump it whenever the parser learns something existing records need a
+// re-read to gain — a new field, or a correction to one already stored.
+//
+// This replaced a set of per-field triggers that each asked whether some
+// value looked unset. That worked only when a missing value was
+// distinguishable from a wrong one, and twice it was not: the per-layer
+// embedding size was written by a path that silently dropped it, and a
+// hybrid's KV factors were non-zero, plausible and four times too large.
+// Both shipped, deployed, and changed nothing for models already on disk.
+// A version is not fooled by a value that looks reasonable.
+//
+// Version history, so a bump is a deliberate act:
+//
+//	1 — recurrent layers excluded from KV scaling; token-embedding size,
+//	    indexer key length and attention-layer count added for the VRAM
+//	    estimate.
+const GGUFMetaVersion = 1
+
+// BackfillGGUFMeta re-reads GGUF metadata for records written by an older
+// parser, in one pass at startup.
+//
+// Every field is applied through ApplyTo rather than field by field. The
+// old shape had a block per field, and a field whose block was forgotten
+// was parsed, discarded, and never noticed — which is exactly how the
+// per-layer embedding table went missing for every downloaded model. There
+// is now no per-field step to forget.
 func (r *Registry) BackfillGGUFMeta() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	changed := false
 	for _, m := range r.data.Models {
-		needsFull := m.NLayers == 0
-		needsVision := m.NLayers > 0 && !m.HasBuiltinVision // re-check for vision field
-		// Records parsed before KV scaling factors existed have layers but no
-		// per-token factors — re-parse once to repopulate them.
-		needsKV := m.NLayers > 0 && m.KVFullPerTok == 0 && m.KVSWAPerTok == 0
-		// A hybrid's factors were over-counted by the full-attention
-		// interval before recurrent layers were excluded. Those records
-		// hold a non-zero, plausible, wrong number, so needsKV above
-		// cannot see them — re-parse once, keyed on the flag.
-		needsKVRecurrent := m.NLayers > 0 && !m.KVRecurrentChecked
-		// Records parsed before reasoning detection existed have no reasoning
-		// verdict — re-parse once to inspect the chat template.
-		needsReasoning := m.NLayers > 0 && !m.ReasoningChecked
-		// Records parsed before general.sampling.* keys were read — re-parse
-		// once to pick up embedded sampling defaults and the base-model repo.
-		needsSampling := m.NLayers > 0 && !m.SamplingChecked
-		// Records parsed before vocab-size capture existed — re-parse once
-		// to pick up tokenizer.ggml.tokens' length. Keyed on VocabChecked,
-		// not on VocabSize == 0, so a file that simply has no such key is
-		// asked once rather than at every startup.
-		needsVocab := m.NLayers > 0 && !m.VocabChecked
-		// Records parsed before a split model's later shards were
-		// scanned — re-parse once to find the per-layer embedding table.
-		needsPLE := m.NLayers > 0 && !m.PLEChecked
-
-		if !needsFull && !needsVision && !needsKV && !needsKVRecurrent && !needsReasoning && !needsSampling && !needsVocab && !needsPLE {
+		if m.GGUFMetaVersion >= GGUFMetaVersion {
 			continue
 		}
 		meta, err := ParseGGUFMeta(m.FilePath)
 		if err != nil {
-			if needsFull {
-				slog.Warn("failed to parse GGUF metadata", "model", m.ID, "error", err)
-			}
+			// Left un-versioned deliberately: a file that is temporarily
+			// unreadable — an unmounted volume, a download still moving
+			// into place — should be re-read next start rather than
+			// frozen at whatever an older parser wrote.
+			slog.Warn("failed to parse GGUF metadata", "model", m.ID, "error", err)
 			continue
 		}
-		if needsFull {
-			meta.ApplyTo(m)
-			changed = true
-			slog.Info("backfilled GGUF metadata", "model", m.ID, "arch", meta.Architecture,
-				"layers", meta.NLayers, "kv_heads", meta.NKVHead, "ctx", meta.ContextLength,
-				"vision", meta.HasVision)
-		} else {
-			if meta.HasVision && !m.HasBuiltinVision {
-				m.HasBuiltinVision = true
-				changed = true
-				slog.Info("detected built-in vision", "model", m.ID)
-			}
-			if needsKV && (meta.KVFullPerTok > 0 || meta.KVSWAPerTok > 0) {
-				m.KVFullPerTok = meta.KVFullPerTok
-				m.KVSWAPerTok = meta.KVSWAPerTok
-				m.SlidingWindow = meta.SlidingWindow
-				if m.NKVHead == 0 {
-					m.NKVHead = meta.NKVHead
-				}
-				changed = true
-				slog.Info("backfilled KV scaling", "model", m.ID,
-					"kv_full_per_tok", meta.KVFullPerTok, "kv_swa_per_tok", meta.KVSWAPerTok,
-					"sliding_window", meta.SlidingWindow)
-			}
-			if needsReasoning && meta.ReasoningChecked {
-				m.Reasoning = meta.Reasoning
-				m.ReasoningChecked = true
-				changed = true
-				slog.Info("backfilled reasoning capability", "model", m.ID,
-					"supported", meta.Reasoning.Supported, "toggle", meta.Reasoning.Toggle)
-			}
-			if needsSampling && meta.SamplingChecked {
-				if m.BaseModelRepo == "" {
-					m.BaseModelRepo = meta.BaseModelRepo
-				}
-				if p := meta.EmbeddedSamplingPreset(); p != nil {
-					m.SamplingPresets = UpsertSamplingPreset(m.SamplingPresets, *p)
-					slog.Info("backfilled embedded sampling defaults", "model", m.ID)
-				}
-				m.SamplingChecked = true
-				changed = true
-			}
-			if needsVocab {
-				// The question was asked; record that, whatever the
-				// answer, so it is not asked again.
-				m.VocabChecked = true
-				changed = true
-				if meta.VocabSize > 0 {
-					m.VocabSize = meta.VocabSize
-					slog.Info("backfilled vocab size", "model", m.ID, "vocab", meta.VocabSize)
-				}
-			}
-			if needsKVRecurrent {
-				// Record the question as asked whatever the answer, so a
-				// model that was already correct is not re-parsed forever.
-				m.KVRecurrentChecked = true
-				changed = true
-				m.TokenEmbdBytes = meta.TokenEmbdBytes
-				m.IndexerKeyLength = meta.IndexerKeyLength
-				m.AttnLayers = meta.AttnLayers
-				if meta.KVFullPerTok != m.KVFullPerTok || meta.KVSWAPerTok != m.KVSWAPerTok {
-					slog.Info("corrected KV scaling for recurrent layers", "model", m.ID,
-						"kv_full_per_tok", meta.KVFullPerTok, "was", m.KVFullPerTok)
-					m.KVFullPerTok = meta.KVFullPerTok
-					m.KVSWAPerTok = meta.KVSWAPerTok
-					m.SlidingWindow = meta.SlidingWindow
-				}
-			}
-			if needsPLE {
-				// Record that the tensor table was inspected whatever
-				// the answer, so a model that simply has no table is
-				// not re-scanned at every startup — for a split model
-				// that scan opens every shard.
-				m.PLEChecked = true
-				changed = true
-				if meta.PLEBytes > 0 {
-					m.PLEBytes = meta.PLEBytes
-					slog.Info("backfilled per-layer embedding table", "model", m.ID, "ple_bytes", meta.PLEBytes)
-				}
-			}
-		}
+		before := m.KVFullPerTok
+		meta.ApplyTo(m)
+		m.GGUFMetaVersion = GGUFMetaVersion
+		changed = true
+		slog.Info("re-read GGUF metadata", "model", m.ID, "version", GGUFMetaVersion,
+			"arch", meta.Architecture, "layers", meta.NLayers, "attn_layers", meta.AttnLayers,
+			"kv_full_per_tok", meta.KVFullPerTok, "was", before,
+			"ple_bytes", meta.PLEBytes, "token_embd_bytes", meta.TokenEmbdBytes)
 	}
 	if changed {
 		r.save()

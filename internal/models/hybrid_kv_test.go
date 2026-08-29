@@ -156,8 +156,8 @@ func TestBackfillCorrectsStaleHybridKV(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !m.KVRecurrentChecked {
-		t.Error("KVRecurrentChecked not set — the model would be re-parsed at every startup")
+	if m.GGUFMetaVersion != GGUFMetaVersion {
+		t.Error("version not recorded — the model would be re-parsed at every startup")
 	}
 	// Interval 4 over 8 layers leaves 2 attending.
 	if want := 2 * 2 * (256 + 256); m.KVFullPerTok != want {

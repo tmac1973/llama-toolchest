@@ -90,11 +90,6 @@ type GGUFMeta struct {
 	// NLayers on a plain model; smaller on a hybrid, where the rest carry
 	// recurrent state.
 	AttnLayers int `json:"attn_layers,omitempty"`
-	// KVRecurrentChecked records that the KV factors were computed by a
-	// parser that knows recurrent layers hold no cache. Records written
-	// before that have plausible non-zero factors which are simply too
-	// large, so "is it zero" cannot tell them apart — only this can.
-	KVRecurrentChecked bool `json:"kv_recurrent_checked,omitempty"`
 
 	// BaseModelRepo is the upstream "org/repo" this quant derives from, per
 	// general.base_model.0.repo_url. Used to locate the base model's
@@ -128,7 +123,6 @@ func (meta *GGUFMeta) ApplyTo(m *Model) {
 	m.SamplingChecked = meta.SamplingChecked
 	m.PLEBytes = meta.PLEBytes
 	m.PLEChecked = meta.PLEChecked
-	m.KVRecurrentChecked = meta.KVRecurrentChecked
 	m.TokenEmbdBytes = meta.TokenEmbdBytes
 	m.IndexerKeyLength = meta.IndexerKeyLength
 	m.AttnLayers = meta.AttnLayers
@@ -465,7 +459,6 @@ func ParseGGUFMetaFrom(f io.ReadSeeker) (*GGUFMeta, error) {
 	meta.ReasoningChecked = true
 	meta.SamplingChecked = true
 	meta.PLEChecked = true
-	meta.KVRecurrentChecked = true
 	if meta.Reasoning.Toggle == "" {
 		meta.Reasoning.Toggle = ReasoningToggleNone
 	}
