@@ -677,6 +677,18 @@ func (r *Registry) BackfillGGUFMeta() {
 					slog.Info("backfilled vocab size", "model", m.ID, "vocab", meta.VocabSize)
 				}
 			}
+			if needsPLE {
+				// Record that the tensor table was inspected whatever
+				// the answer, so a model that simply has no table is
+				// not re-scanned at every startup — for a split model
+				// that scan opens every shard.
+				m.PLEChecked = true
+				changed = true
+				if meta.PLEBytes > 0 {
+					m.PLEBytes = meta.PLEBytes
+					slog.Info("backfilled per-layer embedding table", "model", m.ID, "ple_bytes", meta.PLEBytes)
+				}
+			}
 		}
 	}
 	if changed {
