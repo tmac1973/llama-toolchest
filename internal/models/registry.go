@@ -84,6 +84,12 @@ type Model struct {
 	// and get re-parsed once, which is how an already-downloaded model
 	// picks up its table size without being downloaded again.
 	PLEChecked bool `json:"ple_checked,omitempty"`
+	// KVRecurrentChecked distinguishes KV factors computed before
+	// recurrent layers were excluded from ones computed after. The old
+	// values are non-zero and plausible, just too large by the
+	// full-attention interval, so nothing about the numbers themselves
+	// reveals which parser produced them.
+	KVRecurrentChecked bool `json:"kv_recurrent_checked,omitempty"`
 
 	// Architecture parameters parsed from GGUF header.
 	Arch          string `json:"arch,omitempty"`
@@ -623,6 +629,11 @@ func (r *Registry) BackfillGGUFMeta() {
 		// Records parsed before KV scaling factors existed have layers but no
 		// per-token factors — re-parse once to repopulate them.
 		needsKV := m.NLayers > 0 && m.KVFullPerTok == 0 && m.KVSWAPerTok == 0
+		// A hybrid's factors were over-counted by the full-attention
+		// interval before recurrent layers were excluded. Those records
+		// hold a non-zero, plausible, wrong number, so needsKV above
+		// cannot see them — re-parse once, keyed on the flag.
+		needsKVRecurrent := m.NLayers > 0 && !m.KVRecurrentChecked
 		// Records parsed before reasoning detection existed have no reasoning
 		// verdict — re-parse once to inspect the chat template.
 		needsReasoning := m.NLayers > 0 && !m.ReasoningChecked
@@ -638,7 +649,7 @@ func (r *Registry) BackfillGGUFMeta() {
 		// scanned — re-parse once to find the per-layer embedding table.
 		needsPLE := m.NLayers > 0 && !m.PLEChecked
 
-		if !needsFull && !needsVision && !needsKV && !needsReasoning && !needsSampling && !needsVocab && !needsPLE {
+		if !needsFull && !needsVision && !needsKV && !needsKVRecurrent && !needsReasoning && !needsSampling && !needsVocab && !needsPLE {
 			continue
 		}
 		meta, err := ParseGGUFMeta(m.FilePath)
@@ -698,6 +709,19 @@ func (r *Registry) BackfillGGUFMeta() {
 				if meta.VocabSize > 0 {
 					m.VocabSize = meta.VocabSize
 					slog.Info("backfilled vocab size", "model", m.ID, "vocab", meta.VocabSize)
+				}
+			}
+			if needsKVRecurrent {
+				// Record the question as asked whatever the answer, so a
+				// model that was already correct is not re-parsed forever.
+				m.KVRecurrentChecked = true
+				changed = true
+				if meta.KVFullPerTok != m.KVFullPerTok || meta.KVSWAPerTok != m.KVSWAPerTok {
+					slog.Info("corrected KV scaling for recurrent layers", "model", m.ID,
+						"kv_full_per_tok", meta.KVFullPerTok, "was", m.KVFullPerTok)
+					m.KVFullPerTok = meta.KVFullPerTok
+					m.KVSWAPerTok = meta.KVSWAPerTok
+					m.SlidingWindow = meta.SlidingWindow
 				}
 			}
 			if needsPLE {

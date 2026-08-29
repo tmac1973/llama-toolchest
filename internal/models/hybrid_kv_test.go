@@ -1,9 +1,50 @@
 package models
 
 import (
+	"bytes"
+	"encoding/binary"
+	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"testing"
 )
+
+// writeHybridGGUF builds a minimal GGUF carrying the hparams the KV
+// scaling needs plus full_attention_interval, so the backfill has a real
+// file to re-parse.
+func writeHybridGGUF(t *testing.T, dir, name string, layers, interval, kvHeads, headDim int) string {
+	t.Helper()
+	var b bytes.Buffer
+	wstr := func(s string) {
+		binary.Write(&b, binary.LittleEndian, uint64(len(s)))
+		b.WriteString(s)
+	}
+	kv := func(k string, v uint32) {
+		wstr(k)
+		binary.Write(&b, binary.LittleEndian, ggufTypeUint32)
+		binary.Write(&b, binary.LittleEndian, v)
+	}
+	b.WriteString("GGUF")
+	binary.Write(&b, binary.LittleEndian, uint32(3))
+	binary.Write(&b, binary.LittleEndian, uint64(0)) // no tensors
+	binary.Write(&b, binary.LittleEndian, uint64(8))
+	wstr("general.architecture")
+	binary.Write(&b, binary.LittleEndian, ggufTypeString)
+	wstr("hyb")
+	kv("hyb.block_count", uint32(layers))
+	kv("hyb.embedding_length", uint32(kvHeads*headDim))
+	kv("hyb.attention.head_count", uint32(kvHeads))
+	kv("hyb.attention.head_count_kv", uint32(kvHeads))
+	kv("hyb.attention.key_length", uint32(headDim))
+	kv("hyb.attention.value_length", uint32(headDim))
+	kv("hyb.full_attention_interval", uint32(interval))
+	p := filepath.Join(dir, name)
+	if err := os.WriteFile(p, b.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
 
 // A hybrid model interleaves recurrent (linear-attention) layers, which
 // hold no KV cache. Counting them made the estimate too large by the
@@ -81,5 +122,45 @@ func TestNonHybridUnaffected(t *testing.T) {
 		if isRecurrentLayer(il, 0, nil) {
 			t.Fatalf("layer %d treated as recurrent without either key", il)
 		}
+	}
+}
+
+// The correction is worthless if it cannot reach a model already in the
+// registry, and those records cannot be spotted by their values: the old
+// factors are non-zero and plausible, just too large. Keyed on a flag
+// instead — the same mistake as the per-layer embedding backfill, which
+// went unnoticed because the value it wrote was also merely absent.
+func TestBackfillCorrectsStaleHybridKV(t *testing.T) {
+	dir := t.TempDir()
+	cfgDir := filepath.Join(dir, "config")
+	modelsDir := filepath.Join(dir, "models")
+	for _, d := range []string{cfgDir, modelsDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := writeHybridGGUF(t, modelsDir, "hybrid.gguf", 8, 4, 2, 256)
+
+	// A record as an older build wrote it: every layer counted.
+	const stale = 8 * 2 * (256 + 256)
+	raw := fmt.Sprintf(`{"models":{"h":{"id":"h","filename":"hybrid.gguf","file_path":%q,`+
+		`"n_layers":8,"n_embd":512,"n_head":2,"kv_full_per_tok":%d}}}`, path, stale)
+	if err := os.WriteFile(filepath.Join(cfgDir, "models.json"), []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r := NewRegistry(dir, modelsDir)
+	r.BackfillGGUFMeta()
+
+	m, err := r.Get("h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m.KVRecurrentChecked {
+		t.Error("KVRecurrentChecked not set — the model would be re-parsed at every startup")
+	}
+	// Interval 4 over 8 layers leaves 2 attending.
+	if want := 2 * 2 * (256 + 256); m.KVFullPerTok != want {
+		t.Errorf("KVFullPerTok = %d, want %d (stale value was %d)", m.KVFullPerTok, want, stale)
 	}
 }
