@@ -140,8 +140,15 @@ func writeConfigParams(b *strings.Builder, cfg *ModelConfig, isEmbedding bool, b
 		b.WriteString("embeddings = true\n")
 	}
 	if !isEmbedding {
+		// Emitted in both directions. Writing nothing for "off" left
+		// llama.cpp on its own default, which is auto — flash attention
+		// enabled wherever the backend supports it. The toggle therefore
+		// did nothing when turned off, while the config, the model info
+		// panel and the capability evaluation all reported it as off.
 		if cfg.FlashAttention {
 			b.WriteString("flash-attn = on\n")
+		} else {
+			b.WriteString("flash-attn = off\n")
 		}
 		if cfg.Jinja {
 			b.WriteString("jinja = true\n")

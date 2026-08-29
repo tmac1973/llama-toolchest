@@ -244,6 +244,22 @@ func (c *ModelConfig) ValidateBatchSizes() error {
 	return nil
 }
 
+// ValidateFlashAttention rejects the one combination llama.cpp refuses to
+// load: tensor-split placement without flash attention. It fails there
+// with "SPLIT_MODE_TENSOR requires flash_attn to be enabled", after the
+// weights have been read and with nothing in the UI to connect it back to
+// the toggle that caused it.
+//
+// This became reachable only once the flag was emitted for "off" at all;
+// before that the setting was silently discarded, so the pair could be
+// saved and the model would load with flash attention on regardless.
+func (c *ModelConfig) ValidateFlashAttention() error {
+	if !c.FlashAttention && c.SplitMode == "tensor" {
+		return fmt.Errorf("flash attention cannot be turned off while the GPU assignment splits by tensor — llama.cpp refuses to load that combination; choose a layer split, or leave flash attention on")
+	}
+	return nil
+}
+
 // SamplingOverrides returns a map of non-nil sampling parameters suitable
 // for merging into an OpenAI-compatible request body.
 func (c *ModelConfig) SamplingOverrides() map[string]any {

@@ -976,6 +976,10 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if err := cfg.ValidateFlashAttention(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	if err := s.registry.SetConfig(id, cfg); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
