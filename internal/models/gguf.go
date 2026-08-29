@@ -221,6 +221,11 @@ func ParseGGUFMetaFrom(f io.ReadSeeker) (*GGUFMeta, error) {
 		valLenSWA     int   // attention.value_length_swa
 		slidingWindow int   // attention.sliding_window size
 		swaPattern    []bool
+		// Hybrid models interleave recurrent (linear-attention) layers,
+		// which hold no KV cache at all. Either key identifies them; the
+		// explicit array wins when both are present, matching llama.cpp.
+		fullAttnInterval int    // full_attention_interval
+		recurrentLayers  []bool // attention.recurrent_layers
 	)
 
 	for i := uint64(0); i < kvCount; i++ {
@@ -380,6 +385,18 @@ func ParseGGUFMetaFrom(f io.ReadSeeker) (*GGUFMeta, error) {
 				slidingWindow = v
 				continue
 			}
+		case arch != "" && key == arch+".full_attention_interval":
+			if v, ok := readGGUFScalarInt(f, valueType); ok {
+				fullAttnInterval = v
+				continue
+			}
+		case arch != "" && key == arch+".attention.recurrent_layers":
+			if valueType == ggufTypeArray {
+				for _, x := range readGGUFArrayInts(f) {
+					recurrentLayers = append(recurrentLayers, x != 0)
+				}
+				continue
+			}
 		case arch != "" && key == arch+".attention.sliding_window_pattern":
 			// Per-layer bool array (gemma-3/4): true = local/sliding-window
 			// layer. Other layouts (scalar interval) are left unmodeled, which
@@ -396,7 +413,8 @@ func ParseGGUFMetaFrom(f io.ReadSeeker) (*GGUFMeta, error) {
 		skipGGUFValue(f, valueType)
 	}
 
-	computeKVScaling(meta, headCountKV, kvHeadCounts, keyLen, valLen, keyLenSWA, valLenSWA, slidingWindow, swaPattern)
+	computeKVScaling(meta, headCountKV, kvHeadCounts, keyLen, valLen, keyLenSWA, valLenSWA, slidingWindow, swaPattern,
+		fullAttnInterval, recurrentLayers)
 
 	// The KV loop consumed every key and either read or seek-skipped every
 	// value, so the reader is now sitting on the tensor-info block. A file
@@ -420,11 +438,29 @@ func ParseGGUFMetaFrom(f io.ReadSeeker) (*GGUFMeta, error) {
 	return meta, nil
 }
 
+// isRecurrentLayer reports whether layer il holds recurrent state rather
+// than a KV cache, following llama.cpp's own rule: an explicit
+// attention.recurrent_layers array when the GGUF carries one, otherwise
+// every layer except each full_attention_interval-th.
+//
+// Both are absent on a non-hybrid model, where every layer attends and
+// this returns false throughout — so nothing changes for those.
+func isRecurrentLayer(il, fullAttnInterval int, recurrentLayers []bool) bool {
+	if il < len(recurrentLayers) {
+		return recurrentLayers[il]
+	}
+	if fullAttnInterval > 0 {
+		return (il+1)%fullAttnInterval != 0
+	}
+	return false
+}
+
 // computeKVScaling reduces the raw per-layer attention parameters into the
 // compact KV-cache scaling factors stored on GGUFMeta. Falls back to uniform
 // full attention with head_dim = n_embd/n_head when the richer keys are absent,
 // which reproduces the legacy estimate exactly for non-gemma architectures.
-func computeKVScaling(meta *GGUFMeta, headCountKV int, kvHeadCounts []int, keyLen, valLen, keyLenSWA, valLenSWA, slidingWindow int, swaPattern []bool) {
+func computeKVScaling(meta *GGUFMeta, headCountKV int, kvHeadCounts []int, keyLen, valLen, keyLenSWA, valLenSWA, slidingWindow int, swaPattern []bool,
+	fullAttnInterval int, recurrentLayers []bool) {
 	if meta.NLayers == 0 {
 		return
 	}
@@ -459,6 +495,13 @@ func computeKVScaling(meta *GGUFMeta, headCountKV int, kvHeadCounts []int, keyLe
 
 	full, swa, maxKV := 0, 0, meta.NKVHead
 	for i := 0; i < meta.NLayers; i++ {
+		// A recurrent layer carries linear-attention state instead of a KV
+		// cache, so it contributes nothing here. Counting them made the
+		// estimate for a hybrid too large by the full-attention interval —
+		// four times over on both Qwen hybrids measured.
+		if isRecurrentLayer(i, fullAttnInterval, recurrentLayers) {
+			continue
+		}
 		kv := defaultKV
 		if i < len(kvHeadCounts) {
 			kv = kvHeadCounts[i]

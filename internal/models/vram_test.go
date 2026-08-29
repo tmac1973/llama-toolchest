@@ -18,7 +18,7 @@ func approx(t *testing.T, label string, got, want, tol float64) {
 // scaling the legacy formula assumes: nLayers · nKVHead · (k_dim+v_dim) per tok.
 func TestComputeKVScalingUniform(t *testing.T) {
 	meta := &GGUFMeta{NLayers: 4, NEmbd: 512, NHead: 8} // headDim = 64
-	computeKVScaling(meta, 2 /*kv*/, nil, 0, 0, 0, 0, 0, nil)
+	computeKVScaling(meta, 2 /*kv*/, nil, 0, 0, 0, 0, 0, nil, 0, nil)
 
 	if want := 4 * 2 * (64 + 64); meta.KVFullPerTok != want {
 		t.Errorf("KVFullPerTok = %d, want %d", meta.KVFullPerTok, want)
@@ -35,7 +35,7 @@ func TestComputeKVScalingUniform(t *testing.T) {
 // when the latter isn't a whole number (e.g. Qwen3.6: 5120/24 = 213.3).
 func TestComputeKVScalingExplicitHeadDim(t *testing.T) {
 	meta := &GGUFMeta{NLayers: 64, NEmbd: 5120, NHead: 24}
-	computeKVScaling(meta, 4 /*kv*/, nil, 256 /*keyLen*/, 256 /*valLen*/, 0, 0, 0, nil)
+	computeKVScaling(meta, 4 /*kv*/, nil, 256 /*keyLen*/, 256 /*valLen*/, 0, 0, 0, nil, 0, nil)
 
 	if want := 64 * 4 * (256 + 256); meta.KVFullPerTok != want {
 		t.Errorf("KVFullPerTok = %d, want %d", meta.KVFullPerTok, want)
@@ -48,7 +48,7 @@ func TestComputeKVScalingGemma(t *testing.T) {
 	meta := &GGUFMeta{NLayers: 6, NEmbd: 3840, NHead: 16}
 	kvHeads := []int{8, 8, 8, 8, 8, 1}
 	swa := []bool{true, true, true, true, true, false}
-	computeKVScaling(meta, 0, kvHeads, 512, 512, 256, 256, 1024, swa)
+	computeKVScaling(meta, 0, kvHeads, 512, 512, 256, 256, 1024, swa, 0, nil)
 
 	// 5 sliding-window layers: 8 kv heads × (256+256)
 	if want := 5 * 8 * (256 + 256); meta.KVSWAPerTok != want {
