@@ -177,6 +177,11 @@ type SnapshotSubset struct {
 //     NgramSizeN, NgramSizeM: speculative decoding — scoring is a fixed
 //     greedy next-token pass over a fixed corpus, there is nothing for
 //     a drafter to accelerate.
+//   - PLEMode, ExtraFlags: load-time settings. --tensor-read-lazy
+//     governs host residency during load and ExtraFlags is arbitrary
+//     user text; neither changes a deterministic greedy scoring pass,
+//     and mapping raw flag text into the evaluation command line would
+//     let a sweep silently rewrite the invocation being scored.
 //   - parallel slots, sampling, mmproj, context-shift (ModelConfig
 //     fields the snapshot never carries): irrelevant to or incompatible
 //     with single-stream deterministic scoring.

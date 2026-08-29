@@ -401,6 +401,8 @@ func (e *jobEnv) modelInfoBundle(m *models.Model) (benchmark.ModelInfo, error) {
 			DraftPMin:      cfg.DraftPMin,
 			NgramSizeN:     cfg.NgramSizeN,
 			NgramSizeM:     cfg.NgramSizeM,
+			PLEMode:        cfg.PLEMode,
+			ExtraFlags:     cfg.ExtraFlags,
 		},
 	}, nil
 }
@@ -672,6 +674,8 @@ func applySnapshotToConfig(base models.ModelConfig, snap benchmark.ConfigSnapsho
 	out.NgramSizeM = snap.NgramSizeM
 	out.FlashAttention = snap.FlashAttention
 	out.DirectIO = snap.DirectIO
+	out.PLEMode = snap.PLEMode
+	out.ExtraFlags = snap.ExtraFlags
 	return out
 }
 

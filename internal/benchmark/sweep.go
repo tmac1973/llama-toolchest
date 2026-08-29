@@ -368,6 +368,48 @@ var sweepFields = map[string]SweepField{
 		func(o *ConfigOverrides, v *bool) { o.FlashAttention = v }),
 	"direct_io": boolField("direct_io", "Direct I/O", "Bypasses the page cache when loading weights.",
 		func(o *ConfigOverrides, v *bool) { o.DirectIO = v }),
+	// "auto" is llama.cpp's own default and is stored as the empty
+	// string so the preset omits the flag entirely. It needs the
+	// explicit spelling because a blank sweep value means "use the
+	// model's saved setting", which is a different thing — the same
+	// reason spec_type spells out "none".
+	"ple_mode": {
+		Name: "ple_mode", Label: "Per-Layer Embeddings", Kind: SweepKindStr,
+		Help:    "How the per-layer embedding table is held. Auto follows llama.cpp and reads it on demand above 4 GiB. Only meaningful for models that carry such a table.",
+		Example: "auto,on,off", RestartsRouter: true, Separator: ",",
+		Choices: []SweepChoice{
+			{Value: "auto", Label: "Auto (stream if over 4 GiB)"},
+			{Value: "on", Label: "Stream from model file"},
+			{Value: "off", Label: "Keep resident"},
+		},
+		set: func(o *ConfigOverrides, raw string) error {
+			v := strings.TrimSpace(raw)
+			switch v {
+			case "auto":
+				v = ""
+			case "on", "off":
+			default:
+				return fmt.Errorf("%q is not a per-layer embedding mode (use auto, on or off)", raw)
+			}
+			o.PLEMode = &v
+			return nil
+		},
+	},
+	// Separator "|" rather than "," because flag values contain commas
+	// of their own — an --override-tensor pattern list is the motivating
+	// case, and splitting it on commas would shred one flag into several
+	// bogus sweep points.
+	"extra_flags": {
+		Name: "extra_flags", Label: "Extra Flags", Kind: SweepKindStr,
+		Help:           "Raw llama-server flags, appended verbatim to the preset. Separate sweep points with | since flag values contain spaces and commas.",
+		Example:        "--load-mode none|--load-mode mmap",
+		RestartsRouter: true, Separator: "|", FreeText: true,
+		set: func(o *ConfigOverrides, raw string) error {
+			v := strings.TrimSpace(raw)
+			o.ExtraFlags = &v
+			return nil
+		},
+	},
 	"kv_cache_quant": strField("kv_cache_quant", "KV Cache Quant", "KV cache type, e.g. f16, q8_0, q4_0. Trades memory for accuracy.", "f16,q8_0",
 		func(o *ConfigOverrides, v *string) { o.KVCacheQuant = v }),
 	// gpu_assign and tensor_split reach the evaluation only through the

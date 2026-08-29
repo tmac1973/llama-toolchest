@@ -116,6 +116,13 @@ type ConfigSnapshot struct {
 	DraftPMin      string `json:"draft_p_min,omitempty"`
 	NgramSizeN     int    `json:"ngram_size_n,omitempty"`
 	NgramSizeM     int    `json:"ngram_size_m,omitempty"`
+
+	// PLEMode and ExtraFlags reach llama-server through the preset INI
+	// (tensor-read-lazy, and the raw flag text appended verbatim). Both
+	// are load-time settings that never reach the capability evaluation
+	// — see the excluded list on evaluate.MapConfigFlags.
+	PLEMode    string `json:"ple_mode,omitempty"`
+	ExtraFlags string `json:"extra_flags,omitempty"`
 }
 
 // GPUSnapshot captures GPU hardware at benchmark time.

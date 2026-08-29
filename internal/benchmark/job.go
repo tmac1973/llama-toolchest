@@ -84,6 +84,8 @@ type ConfigOverrides struct {
 	FlashAttention *bool    `json:"flash_attention,omitempty"`
 	KVCacheQuant   *string  `json:"kv_cache_quant,omitempty"`
 	DirectIO       *bool    `json:"direct_io,omitempty"`
+	PLEMode        *string  `json:"ple_mode,omitempty"`
+	ExtraFlags     *string  `json:"extra_flags,omitempty"`
 	GPUAssign      *string  `json:"gpu_assign,omitempty"`
 	TensorSplit    *string  `json:"tensor_split,omitempty"`
 	SpecType       *string  `json:"spec_type,omitempty"`

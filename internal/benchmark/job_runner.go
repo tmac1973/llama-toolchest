@@ -859,6 +859,12 @@ func applyOverrides(base ConfigSnapshot, overrides *ConfigOverrides) ConfigSnaps
 	if overrides.NgramSizeM != nil {
 		out.NgramSizeM = *overrides.NgramSizeM
 	}
+	if overrides.PLEMode != nil {
+		out.PLEMode = *overrides.PLEMode
+	}
+	if overrides.ExtraFlags != nil {
+		out.ExtraFlags = *overrides.ExtraFlags
+	}
 	return out
 }
 

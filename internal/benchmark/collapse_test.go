@@ -228,6 +228,9 @@ func TestSweepFieldAffectsEvalClassification(t *testing.T) {
 		"context_size": false, "spec_type": false,
 		"temperature": false, "top_p": false, "min_p": false,
 		"repeat_penalty": false, "top_k": false,
+		// Both are load-time settings the evaluation never sees; see
+		// the excluded list on evaluate.MapConfigFlags.
+		"ple_mode": false, "extra_flags": false,
 	}
 	for name, want := range wantTrue {
 		if affects[name] != want {
