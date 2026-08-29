@@ -1,6 +1,7 @@
 # Per-layer embeddings and the VRAM estimate: measured findings
 
-Status: investigation complete, no code changes proposed yet.
+Status: investigation complete. Step 1 of the measurement plan is done;
+steps 2-6 are open.
 Date: 2026-08-29.
 Measured on `compute` — llama-toolchest v2.25.1 (plus the PR #157 backfill fix),
 llama.cpp build `b10679-rocm`, 4x AMD Radeon AI PRO R9700 (32 GiB each, gfx1201),
@@ -138,11 +139,41 @@ if wanted at all, as what it is rather than as a placement control.
 The estimator cannot be corrected from per-GPU totals alone — they conflate
 weights, KV and compute buffers. The work needs a decomposition first.
 
-**Step 1 — get llama.cpp's own buffer report.** The router forwards only
-`srv`/`slot`/`load`/`cmn` categories, so `load_tensors: ... buffer size` lines
-never reach `/api/service/logs`. Either widen what the router captures, or run
-`llama-server` directly in the container for measurement runs. Without this every
-subsequent step is inference from totals.
+**Step 1 — get llama.cpp's own buffer report. Done.** The cause was not
+filtering in toolchest, which broadcasts every line the router emits
+(`process/manager.go:153`). It was log verbosity: llama.cpp's default of 3 passes
+warnings from the core library but drops its INFO lines, so `W load:` arrived and
+`I load:` did not. The router passes its environment to every model instance it
+starts, so raising `LLAMA_ARG_LOG_VERBOSITY` reaches the children that do the
+loading. It is now a curated Settings option.
+
+Verbosity 4 is the level to use. Measured on one Qwen3.8-27B load:
+
+| Verbosity | Lines per load | Buffer report |
+|---|---|---|
+| 3 (default) | 168 | no |
+| 4 | 916 | yes |
+| 5 | 11,874 | yes, plus per-layer and per-tensor debug |
+
+At 4 the report reads (device names as llama.cpp prints them):
+
+```
+load_tensors:         CPU_Mapped model buffer size =  1288.28 MiB
+load_tensors:             Meta() model buffer size =  7252.51 MiB
+llama_kv_cache:           Meta() KV buffer size    =  4096.00 MiB
+llama_kv_cache:  size = 16384.00 MiB (262144 cells, 16 layers, 4/1 seqs),
+                 K (f16): 8192.00 MiB, V (f16): 8192.00 MiB
+llama_memory_recurrent:   Meta() RS buffer size    =   448.88 MiB
+sched_reserve:            Meta() compute buffer size =  384.95 MiB
+sched_reserve:         ROCm_Host compute buffer size =  276.02 MiB
+llama_context:         ROCm_Host output buffer size  =    3.79 MiB
+```
+
+That is the decomposition the estimator needs: weights split by device and by
+whether they are mmap-backed, KV with its K/V breakdown, recurrent state, and
+compute buffers. Note `CPU_Mapped` appearing for weights on a model with no
+per-layer embedding table at all — more than the PLE table can sit off-GPU, which
+step 4 should account for.
 
 **Step 2 — build a repeatable harness.** For each (model, context, batch,
 ubatch, kv quant, ngl, ple_mode) point: load, record per-GPU VRAM, host RSS, and

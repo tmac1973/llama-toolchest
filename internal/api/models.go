@@ -101,6 +101,11 @@ func withPublicNames(list []*models.Model) []map[string]any {
 			"context_length":     m.ContextLength,
 			"supports_tools":     m.SupportsTools,
 			"has_builtin_vision": m.HasBuiltinVision,
+			// The per-layer embedding table drives both the config
+			// selector's visibility and the VRAM estimate, so a client
+			// reading this list cannot explain either number without it.
+			"ple_bytes":   m.PLEBytes,
+			"ple_checked": m.PLEChecked,
 		}
 		out = append(out, entry)
 	}

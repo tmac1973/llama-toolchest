@@ -38,6 +38,18 @@ type RuntimeEnvOption struct {
 func RuntimeEnvOptions() []RuntimeEnvOption {
 	return []RuntimeEnvOption{
 		{
+			Name:  "LLAMA_ARG_LOG_VERBOSITY",
+			Label: "Model loading detail",
+			Help: "How much llama.cpp reports while loading a model. The router passes its own " +
+				"environment to every model instance it starts, so this reaches them too. " +
+				"3 is llama.cpp's default. 4 adds the per-buffer memory report — model weights, " +
+				"KV cache, recurrent state and compute buffers, each with the device holding it — " +
+				"which is the only place those figures are stated and the way to check a VRAM " +
+				"estimate against what was really allocated. 5 adds per-layer and per-tensor debug " +
+				"output and is very noisy: roughly 12,000 log lines per model load against 900 at 4.",
+			Values: []string{"", "3", "4", "5"},
+		},
+		{
 			Name:  "GGML_CUDA_CUBLAS_COMPUTE_TYPE",
 			Label: "cuBLAS/hipBLAS compute type",
 			Help: "Accumulator precision for GEMMs that fall through to cuBLAS/hipBLAS. " +
