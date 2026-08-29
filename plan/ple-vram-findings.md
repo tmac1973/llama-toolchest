@@ -1,7 +1,7 @@
 # Per-layer embeddings and the VRAM estimate: measured findings
 
-Status: investigation complete. Step 1 of the measurement plan is done;
-steps 2-6 are open.
+Status: investigation complete. Steps 1 and 3 of the measurement plan are
+done and step 4 is answered for one model; steps 2, 5 and 6 are open.
 Date: 2026-08-29.
 Measured on `compute` — llama-toolchest v2.25.1 (plus the PR #157 backfill fix),
 llama.cpp build `b10679-rocm`, 4x AMD Radeon AI PRO R9700 (32 GiB each, gfx1201),
@@ -127,6 +127,41 @@ dangerous direction for a control users size their hardware against.
 - **PR #157** (backfill) is unaffected — it fixes delivery of a correctly
   measured value, and that value is confirmed correct above.
 
+## The decomposition, measured
+
+One load of Qwen3.8-Flash-Next at its saved config, verbosity 4, captured
+through `/api/service/logs` and parsed by `internal/memreport`.
+
+| Term | GiB | Where |
+|---|---|---|
+| Model weights | 76.23 | ROCm0-3 |
+| Model weights | 27.45 | `CPU_Mapped` — host, of which 26.82 is the PLE table |
+| KV cache | 4.38 | ROCm0-3 (two caches: 816 and 306 MiB per card) |
+| Recurrent state | 0.44 | ROCm0-3 |
+| Compute buffers | 24.40 | ROCm0-3 |
+| Compute buffers | 51.04 | `ROCm_Host` |
+| Output | 0.004 | `ROCm_Host` |
+
+Weights across all devices total 103.68 GiB against a 103.69 GiB file, so the
+report accounts for the model completely. GPU terms total 105.45 GiB against
+107.35 GiB measured from the GPU counters, leaving 1.90 GiB of context overhead
+the report does not itemise.
+
+Against the estimate:
+
+| | Estimate | Actual | Error |
+|---|---|---|---|
+| Weights | 103.69 | 76.23 | **−27.46** |
+| Everything else | 10.57 | 31.12 | **+20.55** |
+| Total | 114.26 | 107.35 | −6.91 |
+
+The two errors are each roughly four times the net, and they have opposite
+signs. That is the cancellation, now itemised rather than inferred.
+
+The 51.04 GiB host-side compute buffer also explains the ~53 GiB of host memory
+that appears during a load. It was read as page cache earlier in this
+investigation; it is a pinned allocation.
+
 ## Not recommended: a fourth "system RAM" placement option
 
 The option was conceived to free VRAM by moving the table to host memory. The
@@ -175,6 +210,9 @@ compute buffers. Note `CPU_Mapped` appearing for weights on a model with no
 per-layer embedding table at all — more than the PLE table can sit off-GPU, which
 step 4 should account for.
 
+**Step 3 — decompose one load.** Done for Qwen3.8-Flash-Next; see the table
+below. `internal/memreport` parses the report into per-device, per-kind totals.
+
 **Step 2 — build a repeatable harness.** For each (model, context, batch,
 ubatch, kv quant, ngl, ple_mode) point: load, record per-GPU VRAM, host RSS, and
 the per-buffer breakdown. Prerequisite: add `ple_mode` and `extra_flags` as
@@ -188,15 +226,17 @@ this whole investigation to be driven by hand.
 - 3 context sizes each, including one very large (>=128K)
 - both single-GPU and 4-GPU placement
 
-**Step 4 — test three specific hypotheses.**
-- *H1*: the PLE table never counts toward VRAM on any architecture. If it holds,
-  the table should be excluded from the weight term unconditionally, not only
-  when streamed.
-- *H2*: compute buffers scale with ubatch and are not modelled at all today.
-  Suspected to be the bulk of the ~20 GiB shortfall at 262K context.
-- *H3*: the KV model under-predicts for hybrid attention (SWA, linear attention).
-  `kv_full_per_tok` / `kv_swa_per_tok` are captured but the blend may be wrong
-  for `qwen4exp`.
+**Step 4 — test three specific hypotheses.** Answered for Qwen3.8-Flash-Next by
+the decomposition below; still open for every other architecture.
+- *H1 — confirmed.* The table is held `CPU_Mapped`, so it is host memory and
+  never counts toward VRAM. It should be excluded from the weight term
+  unconditionally, not only when streamed. Note the host-mapped weights exceed
+  the table by 0.63 GiB, so excluding exactly the table would still be wrong.
+- *H2 — confirmed, and it is the dominant term.* Compute buffers take 24.40 GiB
+  of VRAM on this load and are not modelled at all.
+- *H3 — disproved here.* The KV cache is 4.38 GiB, comfortably inside the
+  ~10.57 GiB the estimate allows for everything that is not weights. KV is not
+  the problem; compute buffers are.
 
 **Step 5 — validate, with a guardrail.** Accept a revised model only if it
 never under-predicts measured VRAM across the corpus. Over-prediction is a
