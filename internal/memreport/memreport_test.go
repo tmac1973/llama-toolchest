@@ -283,3 +283,83 @@ func TestFlashNextHasASingleReserveRound(t *testing.T) {
 		t.Errorf("sum %.2f and peak %.2f disagree; this load reserves once per device", sum, max)
 	}
 }
+
+// Qwen3.8-27B at ctx 8192, ub 512, split across four cards in
+// tensor-parallel mode. Every buffer lands on "Meta()", llama.cpp's
+// aggregate device, and the figures are per card. The model file is
+// 29.30 GiB and total VRAM measured 31.43 GiB.
+const tensorParallelLog = `[33359] 0.03.006.881 I load_tensors:   CPU_Mapped model buffer size =  1288.28 MiB
+[33359] 0.03.006.883 I load_tensors:       Meta() model buffer size =  7041.71 MiB
+[33359] 0.17.012.010 I llama_context:  ROCm_Host  output buffer size =     3.79 MiB
+[33359] 0.17.027.641 I llama_kv_cache:     Meta() KV buffer size =   128.00 MiB
+[33359] 0.17.050.759 I llama_memory_recurrent:     Meta() RS buffer size =   149.62 MiB
+[33359] 0.17.102.122 I sched_reserve:     Meta() compute buffer size =   130.02 MiB
+[33359] 0.17.102.129 I sched_reserve:  ROCm_Host compute buffer size =    28.02 MiB`
+
+func TestAggregateDeviceIsRecognised(t *testing.T) {
+	r := parseAll(t, tensorParallelLog)
+	var agg, plain int
+	for _, e := range r.Entries {
+		if e.IsAggregate() {
+			agg++
+		} else {
+			plain++
+		}
+	}
+	if agg != 4 || plain != 3 {
+		t.Errorf("got %d aggregate and %d plain entries, want 4 and 3", agg, plain)
+	}
+	// An aggregate is still device memory, not host.
+	for _, e := range r.Entries {
+		if e.IsAggregate() && !e.OnGPU() {
+			t.Errorf("%s classified as host", e.Device)
+		}
+	}
+}
+
+// Reading per-card figures as totals is the failure this guards against:
+// it under-counts a four-card load to a quarter of the weights.
+func TestScalingAggregatesReconcilesWithFileSize(t *testing.T) {
+	r := parseAll(t, tensorParallelLog)
+	const fileGiB, cards = 29.30, 4
+
+	unscaled := r.SumMiB(func(e Entry) bool { return e.Kind == KindModel }) / gib
+	if unscaled > fileGiB/2 {
+		t.Fatalf("unscaled weights %.2f GiB; fixture no longer shows the under-count", unscaled)
+	}
+
+	scaled := r.ScaleAggregates(cards).SumMiB(func(e Entry) bool { return e.Kind == KindModel }) / gib
+	if math.Abs(scaled-fileGiB) > 1.0 {
+		t.Errorf("scaled weights %.2f GiB, want within 1 GiB of the file's %.2f", scaled, fileGiB)
+	}
+}
+
+// Scaling must leave real per-device entries alone — only the aggregate
+// stands for more than one card.
+func TestScalingLeavesRealDevicesAlone(t *testing.T) {
+	r := parseAll(t, tensorParallelLog).ScaleAggregates(4)
+	host := r.SumMiB(func(e Entry) bool { return !e.OnGPU() })
+	if !close(host, 1288.28+3.79+28.02) {
+		t.Errorf("host total %.2f MiB changed under scaling", host)
+	}
+}
+
+// A report with no aggregate entries — the layer-split case — must be
+// unaffected, so callers can scale unconditionally from their GPU config.
+func TestScalingIsInertWithoutAggregates(t *testing.T) {
+	r := parseAll(t, flashNextLog)
+	before := r.SumMiB(nil)
+	if after := r.ScaleAggregates(4).SumMiB(nil); !close(before, after) {
+		t.Errorf("scaling changed a report with no aggregates: %.2f -> %.2f", before, after)
+	}
+}
+
+func TestScalingByOneOrZeroIsIdentity(t *testing.T) {
+	r := parseAll(t, tensorParallelLog)
+	want := r.SumMiB(nil)
+	for _, n := range []int{0, 1} {
+		if got := r.ScaleAggregates(n).SumMiB(nil); !close(got, want) {
+			t.Errorf("ScaleAggregates(%d) = %.2f, want %.2f", n, got, want)
+		}
+	}
+}

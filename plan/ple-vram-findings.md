@@ -1,7 +1,8 @@
 # Per-layer embeddings and the VRAM estimate: measured findings
 
-Status: investigation complete. Steps 1 and 3 of the measurement plan are
-done and step 4 is answered for one model; steps 2, 5 and 6 are open.
+Status: investigation complete. Steps 1 and 3 are done, step 4 is answered
+for two models, step 2 is partly done (two of the corpus, swept by hand);
+steps 5 and 6 are open.
 Date: 2026-08-29.
 Measured on `compute` — llama-toolchest v2.25.1 (plus the PR #157 backfill fix),
 llama.cpp build `b10679-rocm`, 4x AMD Radeon AI PRO R9700 (32 GiB each, gfx1201),
@@ -161,6 +162,48 @@ signs. That is the cancellation, now itemised rather than inferred.
 The 51.04 GiB host-side compute buffer also explains the ~53 GiB of host memory
 that appears during a load. It was read as page cache earlier in this
 investigation; it is a pinned allocation.
+
+## A second model, swept
+
+Qwen3.8-27B (`qwen35`, dense, 29.30 GiB, no PLE table), split tensor-parallel
+across four cards. Context and micro-batch swept independently; every figure
+below is a total after scaling the aggregate device.
+
+| ctx | ubatch | weights | KV | RS | compute | predicted | measured | residual |
+|---|---|---|---|---|---|---|---|---|
+| 8192 | 512 | 27.51 | 0.48 | 0.60 | 0.52 | 29.11 | 31.43 | **2.32** |
+| 32768 | 512 | 27.51 | 2.00 | 0.60 | 0.60 | 30.71 | 33.01 | **2.30** |
+| 131072 | 512 | 27.51 | 8.00 | 0.60 | 0.96 | 37.07 | 39.38 | **2.31** |
+| 262144 | 512 | 27.51 | 16.00 | 0.60 | 1.48 | 45.59 | 47.87 | **2.28** |
+| 32768 | 128 | 27.51 | 2.00 | 0.60 | 0.20 | 30.31 | 32.61 | **2.30** |
+| 32768 | 2048 | 27.51 | 2.00 | 0.60 | 2.40 | 32.51 | 34.82 | **2.31** |
+
+Two results.
+
+**The unreported remainder is a constant.** Across a 31 to 48 GiB range and both
+sweeps it stays within 2.28-2.32 GiB, a spread of 0.04. So the buffer report
+plus a fixed per-context overhead accounts for measured VRAM — there is no
+missing term that scales. That is the shape a corrected estimate should take.
+
+**Both variable terms are linear, in different things.** KV is linear in context
+and independent of micro-batch (0.48 -> 2.00 -> 8.00 -> 16.00 as context
+quadruples, unchanged at 128 vs 2048 ubatch). Compute is linear in micro-batch
+and grows weakly with context (0.20 -> 0.60 -> 2.40 across a 16x ubatch range).
+The current estimate models neither.
+
+Compute buffers are not always small: 1.48 GiB here at 262144 context against
+24.40 GiB on Qwen3.8-Flash-Next at the same context. Whatever sets that scale is
+architectural and is the next thing worth isolating.
+
+### Aggregate devices report per card
+
+A tensor-parallel split puts every buffer on `Meta()`, llama.cpp's stand-in for
+several cards addressed as one, and the sizes reported against it are per card
+rather than totals. The 27B reports 7041.71 MiB of `Meta()` weights on a 29.30
+GiB model; multiplying by the four cards it spans and adding the host-mapped
+remainder reconciles. Reading those figures as totals under-counts by the number
+of cards, which is why `memreport.ScaleAggregates` exists and why the card count
+has to come from the model's GPU assignment — the log never states it.
 
 ## Not recommended: a fourth "system RAM" placement option
 

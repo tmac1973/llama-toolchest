@@ -54,6 +54,18 @@ type Entry struct {
 // cards.
 func (e Entry) OnGPU() bool { return !isHostDevice(e.Device) }
 
+// IsAggregate reports whether the device is llama.cpp's stand-in for
+// several cards addressed as one, which is what a tensor-parallel split
+// produces.
+//
+// This matters because buffer sizes reported against an aggregate are
+// PER UNDERLYING CARD, not totals. A 29.30 GiB model split across four
+// cards reports 7041.71 MiB of Meta() weights; multiplying by four and
+// adding the host-mapped remainder is what reconciles with the file.
+// Reading those figures as totals under-counts a tensor-parallel load by
+// the number of cards it spans.
+func (e Entry) IsAggregate() bool { return strings.HasPrefix(e.Device, "Meta(") }
+
 func isHostDevice(device string) bool {
 	return device == "CPU" ||
 		strings.HasPrefix(device, "CPU_") ||
@@ -104,6 +116,27 @@ func ParseLine(line string) (Entry, bool) {
 		return Entry{Instance: m[1], Category: m[2], Device: m[3], Kind: KindRecurrent, MiB: mib}, true
 	}
 	return Entry{}, false
+}
+
+// ScaleAggregates returns a copy with every aggregate-device entry
+// multiplied by cards, turning per-card figures into totals.
+//
+// The log never states how many cards an aggregate spans, so the caller
+// supplies it from the model's GPU assignment. Passing 1, or calling
+// nothing at all, leaves a tensor-parallel report under-counted; passing
+// a count for a report that has no aggregate entries is harmless.
+func (r Report) ScaleAggregates(cards int) Report {
+	if cards <= 1 {
+		return r
+	}
+	out := Report{Entries: make([]Entry, len(r.Entries))}
+	copy(out.Entries, r.Entries)
+	for i := range out.Entries {
+		if out.Entries[i].IsAggregate() {
+			out.Entries[i].MiB *= float64(cards)
+		}
+	}
+	return out
 }
 
 // Report collects the entries seen for one model load.
