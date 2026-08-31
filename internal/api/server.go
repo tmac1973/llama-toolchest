@@ -310,6 +310,18 @@ func (s *Server) templateFuncs() template.FuncMap {
 		"evalScoreText": func(e *benchmark.EvalScores) string {
 			return evalScoreText(e)
 		},
+		// constCol marks a column of the compare table that every run
+		// agrees on. Such a column is hidden until the reader asks for
+		// it, because a table wide enough to need sideways scrolling
+		// hides the columns that do differ. A nil map means there was
+		// nothing to compare (fewer than two runs), so nothing is
+		// collapsed.
+		"constCol": func(varies map[string]bool, name string) string {
+			if varies == nil || varies[name] {
+				return ""
+			}
+			return "bc-const"
+		},
 		// memText and memDetail render a run's measured footprint: the
 		// figure for a table cell, and the breakdown behind it for the
 		// cell's tooltip. A run with nothing measured reads as an

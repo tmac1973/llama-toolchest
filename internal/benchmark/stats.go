@@ -1,6 +1,7 @@
 package benchmark
 
 import (
+	"fmt"
 	"math"
 	"sort"
 	"strconv"
@@ -133,6 +134,25 @@ type ComparisonData struct {
 	BestGenRunID    string
 	BestPromptRunID string
 
+	// Varies says, per descriptive column of the details table, whether
+	// the compared runs actually differ on it. A column every run agrees
+	// on carries no information about which run won, and a wide table
+	// that has to be scrolled sideways hides the columns that do. The
+	// view marks such columns constant, folds their shared value into
+	// Common above the table, and offers a control to show them anyway.
+	//
+	// Keys are the column names used in the template. A key that is
+	// absent means "show it": a comparison of fewer than two runs has
+	// nothing to collapse, and a column not listed here was never a
+	// candidate.
+	Varies map[string]bool
+
+	// Common lists the columns every compared run agrees on, with the
+	// value they share, in table order. This is where the collapsed
+	// columns go: dropping them without saying what they held would
+	// leave the reader to assume rather than read.
+	Common []CommonColumn
+
 	// MixedPromptSizes is true when the compared runs did not all
 	// measure the same prompt lengths. The bar charts show each run's
 	// average across whatever it measured, and prompt throughput climbs
@@ -182,7 +202,141 @@ func BuildComparison(runs []BenchmarkRun) ComparisonData {
 		sizeSets[promptSizeKey(r)] = true
 	}
 	c.MixedPromptSizes = len(sizeSets) > 1
+	c.Varies, c.Common = compareColumnVariance(runs)
 	return c
+}
+
+// CommonColumn is one descriptive column the compared runs all agree on.
+type CommonColumn struct {
+	Name  string
+	Value string
+}
+
+// compareColumns are the details table's descriptive columns: name, and
+// the text the cell shows.
+//
+// The formatting is duplicated from the template on purpose, and it has
+// to stay in step — a shared value stated one way in the summary line
+// and another in the cell that the "show every column" control reveals
+// would read as two different facts. compare_columns_test.go pins each
+// one against the template's own fallbacks.
+//
+// The measured columns are deliberately absent: throughput, score and
+// VRAM are what the reader came for, and a comparison where two runs
+// scored identically is still a comparison about those numbers. Model is
+// absent too — it anchors each row and carries the run's full label and
+// any unverified warning, so it stays even when every run shares it.
+func compareColumns() []struct {
+	Name  string
+	Value func(BenchmarkRun) string
+} {
+	type col = struct {
+		Name  string
+		Value func(BenchmarkRun) string
+	}
+	return []col{
+		{"quant", func(r BenchmarkRun) string { return r.Quant }},
+		{"sweep", func(r BenchmarkRun) string { return sweepCellText(r) }},
+		{"prompt sizes", func(r BenchmarkRun) string { return r.PromptSizesText() }},
+		{"size", func(r BenchmarkRun) string { return fmt.Sprintf("%.1f GiB", r.SizeGiB) }},
+		{"GPUs", func(r BenchmarkRun) string {
+			if r.Config.GPUAssign == "" {
+				return "all"
+			}
+			return r.Config.GPUAssign
+		}},
+		{"context", func(r BenchmarkRun) string { return strconv.Itoa(r.Config.ContextSize) }},
+		{"batch", func(r BenchmarkRun) string { return batchCellText(r) }},
+		{"KV cache", func(r BenchmarkRun) string {
+			if r.Config.KVCacheQuant == "" {
+				return "f16"
+			}
+			return r.Config.KVCacheQuant
+		}},
+		{"flash attention", func(r BenchmarkRun) string {
+			if r.Config.FlashAttention {
+				return "yes"
+			}
+			return "no"
+		}},
+		{"build", func(r BenchmarkRun) string { return compareBuildCellText(r) }},
+	}
+}
+
+// compareColumnVariance splits the descriptive columns into those that
+// differ across the compared runs and those that do not.
+//
+// Below two runs there is nothing to compare, so nothing is collapsed:
+// a single run's table is a statement of what it was, and every column
+// of it is worth reading.
+func compareColumnVariance(runs []BenchmarkRun) (map[string]bool, []CommonColumn) {
+	if len(runs) < 2 {
+		return nil, nil
+	}
+	varies := map[string]bool{}
+	var common []CommonColumn
+	for _, c := range compareColumns() {
+		first := c.Value(runs[0])
+		differs := false
+		for _, r := range runs[1:] {
+			if c.Value(r) != first {
+				differs = true
+				break
+			}
+		}
+		varies[c.Name] = differs
+		// A column that is blank in every row is hidden with no note.
+		// "build —" or "sweep —" in the summary states an absence as
+		// though it were a shared setting; there is nothing to say.
+		if !differs && first != "" && first != "—" {
+			common = append(common, CommonColumn{Name: c.Name, Value: first})
+		}
+	}
+	return varies, common
+}
+
+// sweepCellText, batchCellText and compareBuildCellText mirror the three
+// cells whose text the template assembles rather than prints.
+func sweepCellText(r BenchmarkRun) string {
+	if len(r.SweepValues) == 0 {
+		return "—"
+	}
+	keys := make([]string, 0, len(r.SweepValues))
+	for k := range r.SweepValues {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+"="+r.SweepValues[k])
+	}
+	return strings.Join(parts, " ")
+}
+
+func batchCellText(r BenchmarkRun) string {
+	if r.Config.BatchSize == 0 && r.Config.UBatchSize == 0 {
+		return "—"
+	}
+	part := func(n int) string {
+		if n == 0 {
+			return "—"
+		}
+		return strconv.Itoa(n)
+	}
+	return part(r.Config.BatchSize) + "/" + part(r.Config.UBatchSize)
+}
+
+func compareBuildCellText(r BenchmarkRun) string {
+	b := r.EffectiveBuild()
+	switch {
+	case b.Profile != "" && b.GitRef != "":
+		return b.Profile + " · " + b.GitRef
+	case b.Profile != "":
+		return b.Profile
+	case b.GitRef != "":
+		return b.GitRef
+	}
+	return "—"
 }
 
 // promptSizeKey renders the set of prompt lengths a run measured, so

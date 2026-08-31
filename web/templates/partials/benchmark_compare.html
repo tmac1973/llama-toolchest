@@ -18,6 +18,44 @@
 .bench-compare-rank mark { padding:0 0.3rem; font-size:0.7rem; }
 .bench-compare-label { cursor:help; }
 
+/* The details table is wider than the page whenever a comparison varies
+   on much. Overlay scrollbars — the default on most desktops now — draw
+   nothing until the pointer is already moving, so the table looks
+   truncated rather than scrollable. Ask for a bar that stays. */
+.bench-compare-scroll {
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--pico-muted-border-color) transparent;
+}
+.bench-compare-scroll::-webkit-scrollbar { height: 10px; }
+.bench-compare-scroll::-webkit-scrollbar-track {
+    background: var(--pico-background-color);
+    border-radius: 5px;
+}
+.bench-compare-scroll::-webkit-scrollbar-thumb {
+    background: var(--pico-muted-border-color);
+    border-radius: 5px;
+}
+.bench-compare-scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--pico-muted-color);
+}
+
+/* Columns every compared run agrees on. Hidden by default and revealed
+   by the toggle, rather than left out of the markup, so "show every
+   column" needs no round trip and the row stays intact. */
+.bench-compare-table.hide-constant .bc-const { display: none; }
+.bench-compare-common {
+    font-size: 0.8rem; color: var(--pico-muted-color);
+    margin: 0 0 0.4rem;
+}
+.bench-compare-common kbd { font-size: 0.75rem; }
+.bench-compare-colbar {
+    display:flex; gap:0.5rem; align-items:center;
+    font-size:0.8rem; margin-bottom:0.4rem; flex-wrap:wrap;
+}
+.bench-compare-colbar label { margin:0; display:flex; gap:0.35rem; align-items:center; }
+.bench-compare-colbar input { margin:0; }
+
 .bench-compare-table th[data-run-id] {
     min-width:160px; max-width:280px;
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
@@ -127,26 +165,44 @@
     {{end}}
 
     <small><strong>Details</strong></small>
-    <div style="overflow-x:auto;">
-    <table role="grid" class="bench-compare-table" style="font-size:0.85rem;">
+    {{if .Common}}
+    <p class="bench-compare-common">
+        <strong>The same for every run:</strong>
+        {{range $i, $c := .Common}}{{if $i}} · {{end}}{{$c.Name}} <kbd>{{$c.Value}}</kbd>{{end}}
+    </p>
+    <div class="bench-compare-colbar">
+        <label title="These columns hold the same value in every compared run, so they say nothing about which run won. They are folded into the line above; tick to put them back in the table.">
+            <input type="checkbox" role="switch" class="bench-compare-showall"
+                   onchange="toggleConstantColumns(this)">
+            Show the {{len .Common}} column{{if ne (len .Common) 1}}s{{end}} every run shares
+        </label>
+        <small class="bench-compare-widehint" hidden>The table is wider than the page — scroll it sideways.</small>
+    </div>
+    {{else}}
+    <div class="bench-compare-colbar">
+        <small class="bench-compare-widehint" hidden>The table is wider than the page — scroll it sideways.</small>
+    </div>
+    {{end}}
+    <div class="bench-compare-scroll">
+    <table role="grid" class="bench-compare-table hide-constant" style="font-size:0.85rem;">
         <thead>
             <tr>
                 <th>Model</th>
-                <th>Quant</th>
-                <th title="Which point of a parameter sweep this run measured">Sweep</th>
-                <th title="The prompt lengths this run measured, which is what its averages cover. Prompt speed climbs steeply with prompt length, so two runs are only strictly comparable when this column matches. Hover a value for the breakdown by length.">Prompt sizes</th>
+                <th class="{{constCol .Varies "quant"}}">Quant</th>
+                <th class="{{constCol .Varies "sweep"}}" title="Which point of a parameter sweep this run measured">Sweep</th>
+                <th class="{{constCol .Varies "prompt sizes"}}" title="The prompt lengths this run measured, which is what its averages cover. Prompt speed climbs steeply with prompt length, so two runs are only strictly comparable when this column matches. Hover a value for the breakdown by length.">Prompt sizes</th>
                 <th title="Prompt Processing tokens/sec, averaged over everything this run measured — the same figure as the bar chart above.">PP t/s</th>
                 <th title="Token Generation tokens/sec, averaged over everything this run measured — the same figure as the bar chart above.">TG t/s</th>
                 <th title="Time To First Token in milliseconds, averaged over everything this run measured.">TTFT (ms)</th>
                 {{if .HasEval}}<th title="Capability evaluation score — only capability runs (perplexity / KL-divergence / HellaSwag / Winogrande) produce one; each row shows its own metric (the mode is part of the row identity, so rows of different modes are not compared against each other). PPL: perplexity — lower is better. HellaSwag / Winogrande: accuracy with confidence interval and task count. KLD: deviation from the reference — 0 = identical. Performance runs show an em-dash here.">Score</th>{{end}}
-                <th>Size</th>
+                <th class="{{constCol .Varies "size"}}">Size</th>
                 <th title="GPU memory the load actually used, in GiB, read from llama.cpp's own report as it allocated — not an estimate. Hover a value for the split between weights, KV cache and working buffers. An em-dash means the run recorded none: llama.cpp reports its buffers only at Model loading detail 4, on the Settings page.">VRAM</th>
-                <th>GPUs</th>
-                <th>Context</th>
-                <th title="Batch / micro-batch (-b / -ub). A dash means llama.cpp's default.">Batch b/ub</th>
-                <th>KV Quant</th>
-                <th>Flash Attn</th>
-                <th>Build</th>
+                <th class="{{constCol .Varies "GPUs"}}">GPUs</th>
+                <th class="{{constCol .Varies "context"}}">Context</th>
+                <th class="{{constCol .Varies "batch"}}" title="Batch / micro-batch (-b / -ub). A dash means llama.cpp's default.">Batch b/ub</th>
+                <th class="{{constCol .Varies "KV cache"}}">KV Quant</th>
+                <th class="{{constCol .Varies "flash attention"}}">Flash Attn</th>
+                <th class="{{constCol .Varies "build"}}">Build</th>
                 {{if .HasLlamaBench}}<th title="llama-bench TG t/s (legacy)">lb TG</th>{{end}}
             </tr>
         </thead>
@@ -168,23 +224,28 @@
             data-sort-prompt="0.0000"
             data-sort-score="{{printf "%.4f" (evalScoreValue $run.Eval)}}">
             <td title="{{(index $.Labels $run.ID).Full}}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help;">{{$run.ModelName}}</td>
-            <td><kbd>{{$run.Quant}}</kbd></td>
-            <td>—</td>
-            <td><span title="A capability evaluation reads the model&#39;s own predictions over a fixed text; it measures no speed and no prompt lengths." style="color:var(--pico-muted-color);cursor:help;">not a speed run</span></td>
+            <td class="{{constCol $.Varies "quant"}}"><kbd>{{$run.Quant}}</kbd></td>
+            <td class="{{constCol $.Varies "sweep"}}">—</td>
+            <td class="{{constCol $.Varies "prompt sizes"}}"><span title="A capability evaluation reads the model&#39;s own predictions over a fixed text; it measures no speed and no prompt lengths." style="color:var(--pico-muted-color);cursor:help;">not a speed run</span></td>
             <td>—</td>
             <td>—</td>
             <td>—</td>
             {{if $.HasEval}}<td><strong>{{evalScoreText $run.Eval}}</strong></td>{{end}}
-            <td>{{printf "%.1f" $run.SizeGiB}} GiB</td>
+            <td class="{{constCol $.Varies "size"}}">{{printf "%.1f" $run.SizeGiB}} GiB</td>
             {{/* A capability run is measured with the router stopped, so
                  there is no load for the memory reader to watch and this
-                 cell is always an em-dash. Rendered rather than folded
-                 into the span below so the column keeps its tooltip. */}}
+                 cell is always an em-dash. */}}
             <td title="{{memDetail $run.Memory}}" style="cursor:help;">{{memText $run.Memory}}</td>
-            {{/* GPUs, Context, Batch, KV Quant, Flash Attn, Build — six
-                 columns, which is what the header has after VRAM. A
-                 short span here shifts every later column. */}}
-            <td colspan="6">—</td>
+            {{/* One cell per column rather than a span: a span cannot
+                 carry the per-column class that hides a column every run
+                 agrees on, and would leave the row a different width
+                 from the header the moment one was hidden. */}}
+            <td class="{{constCol $.Varies "GPUs"}}">—</td>
+            <td class="{{constCol $.Varies "context"}}">—</td>
+            <td class="{{constCol $.Varies "batch"}}">—</td>
+            <td class="{{constCol $.Varies "KV cache"}}">—</td>
+            <td class="{{constCol $.Varies "flash attention"}}">—</td>
+            <td class="{{constCol $.Varies "build"}}">—</td>
             {{if $.HasLlamaBench}}<td>—</td>{{end}}
         </tr>
         {{end}}
@@ -203,9 +264,9 @@
             data-sort-prompt="{{printf "%.4f" $s.AvgPromptTokPerSec}}"
             data-sort-score="{{printf "%.4f" (evalScoreValue $run.Eval)}}">
             <td title="{{(index $.Labels $run.ID).Full}}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help;">{{if $run.ConfigUnverified}}<span title="Config columns for this run may not reflect what actually ran — its job declared overrides before overrides were applied. Throughput is still valid." style="color:var(--pico-del-color,#b3261e);cursor:help;">&#9888;</span> {{end}}{{$run.ModelName}}</td>
-            <td><kbd>{{$run.Quant}}</kbd></td>
-            <td>{{if $run.SweepValues}}{{range $k, $v := $run.SweepValues}}<kbd>{{$k}}={{$v}}</kbd> {{end}}{{else}}—{{end}}</td>
-            <td title="{{$run.PromptSizesDetail}}" style="cursor:help;">{{with $run.PromptSizesText}}{{.}}{{else}}—{{end}}</td>
+            <td class="{{constCol $.Varies "quant"}}"><kbd>{{$run.Quant}}</kbd></td>
+            <td class="{{constCol $.Varies "sweep"}}">{{if $run.SweepValues}}{{range $k, $v := $run.SweepValues}}<kbd>{{$k}}={{$v}}</kbd> {{end}}{{else}}—{{end}}</td>
+            <td class="{{constCol $.Varies "prompt sizes"}}" title="{{$run.PromptSizesDetail}}" style="cursor:help;">{{with $run.PromptSizesText}}{{.}}{{else}}—{{end}}</td>
             <td>{{printf "%.0f" $s.AvgPromptTokPerSec}}</td>
             <td><strong>{{printf "%.1f" $s.AvgGenTokPerSec}}</strong></td>
             <td>{{printf "%.0f" $s.AvgTTFTMs}}</td>
@@ -215,14 +276,14 @@
                  the same comparison are not compared against each other. */}}
             <td>{{if evalHas $run.Eval}}{{evalScoreText $run.Eval}}{{else}}—{{end}}</td>
             {{end}}
-            <td>{{printf "%.1f" $run.SizeGiB}} GiB</td>
+            <td class="{{constCol $.Varies "size"}}">{{printf "%.1f" $run.SizeGiB}} GiB</td>
             <td title="{{memDetail $run.Memory}}" style="cursor:help;">{{memText $run.Memory}}</td>
-            <td>{{if $run.Config.GPUAssign}}{{$run.Config.GPUAssign}}{{else}}all{{end}}</td>
-            <td>{{$run.Config.ContextSize}}</td>
-            <td>{{if or $run.Config.BatchSize $run.Config.UBatchSize}}{{if $run.Config.BatchSize}}{{$run.Config.BatchSize}}{{else}}—{{end}}/{{if $run.Config.UBatchSize}}{{$run.Config.UBatchSize}}{{else}}—{{end}}{{else}}—{{end}}</td>
-            <td>{{or $run.Config.KVCacheQuant "f16"}}</td>
-            <td>{{if $run.Config.FlashAttention}}yes{{else}}no{{end}}</td>
-            <td title="{{$b.Tag}}{{if $b.GitSHA}} · {{$b.GitSHA}}{{end}}">
+            <td class="{{constCol $.Varies "GPUs"}}">{{if $run.Config.GPUAssign}}{{$run.Config.GPUAssign}}{{else}}all{{end}}</td>
+            <td class="{{constCol $.Varies "context"}}">{{$run.Config.ContextSize}}</td>
+            <td class="{{constCol $.Varies "batch"}}">{{if or $run.Config.BatchSize $run.Config.UBatchSize}}{{if $run.Config.BatchSize}}{{$run.Config.BatchSize}}{{else}}—{{end}}/{{if $run.Config.UBatchSize}}{{$run.Config.UBatchSize}}{{else}}—{{end}}{{else}}—{{end}}</td>
+            <td class="{{constCol $.Varies "KV cache"}}">{{or $run.Config.KVCacheQuant "f16"}}</td>
+            <td class="{{constCol $.Varies "flash attention"}}">{{if $run.Config.FlashAttention}}yes{{else}}no{{end}}</td>
+            <td class="{{constCol $.Varies "build"}}" title="{{$b.Tag}}{{if $b.GitSHA}} · {{$b.GitSHA}}{{end}}">
                 {{if $b.Profile}}{{$b.Profile}}{{end}}{{if $b.GitRef}} · {{$b.GitRef}}{{end}}{{if and (not $b.Profile) (not $b.GitRef)}}—{{end}}
             </td>
             {{if $.HasLlamaBench}}<td>{{if $run.LlamaBench}}{{printf "%.1f" $run.LlamaBench.GenTokPerSec}}{{else}}—{{end}}</td>{{end}}
@@ -238,7 +299,37 @@
 (function() {
     // Initial sort matches the active button (Gen tok/s desc).
     sortBenchCompare(document.querySelector('.bench-sort-bar button.active'));
+    benchCompareWidthHint();
 })();
+
+// toggleConstantColumns puts back the columns every compared run shares.
+// They are in the markup either way, so this needs no round trip — and
+// the width hint is re-checked, since revealing six columns is exactly
+// what makes a table need scrolling.
+function toggleConstantColumns(cb) {
+    var view = cb.closest('#comparison-view') || document;
+    view.querySelectorAll('.bench-compare-table').forEach(function (t) {
+        t.classList.toggle('hide-constant', !cb.checked);
+    });
+    benchCompareWidthHint();
+}
+
+// benchCompareWidthHint says so when the table is wider than its box.
+// A persistent scrollbar is asked for in CSS, but a browser configured
+// for overlay scrollbars can still draw nothing until the pointer moves,
+// and a table that is cut off with no visible bar reads as a table that
+// ends there.
+function benchCompareWidthHint() {
+    document.querySelectorAll('.bench-compare-scroll').forEach(function (box) {
+        var wrap = box.parentElement;
+        if (!wrap) return;
+        var hint = wrap.querySelector('.bench-compare-widehint');
+        if (!hint) return;
+        hint.hidden = box.scrollWidth <= box.clientWidth + 1;
+    });
+}
+
+window.addEventListener('resize', benchCompareWidthHint);
 
 function sortBenchCompare(btn) {
     if (!btn) return;
