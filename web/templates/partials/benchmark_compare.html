@@ -140,6 +140,7 @@
                 <th title="Time To First Token in milliseconds, averaged over everything this run measured.">TTFT (ms)</th>
                 {{if .HasEval}}<th title="Capability evaluation score — only capability runs (perplexity / KL-divergence / HellaSwag / Winogrande) produce one; each row shows its own metric (the mode is part of the row identity, so rows of different modes are not compared against each other). PPL: perplexity — lower is better. HellaSwag / Winogrande: accuracy with confidence interval and task count. KLD: deviation from the reference — 0 = identical. Performance runs show an em-dash here.">Score</th>{{end}}
                 <th>Size</th>
+                <th title="GPU memory the load actually used, in GiB, read from llama.cpp's own report as it allocated — not an estimate. Hover a value for the split between weights, KV cache and working buffers. An em-dash means the run recorded none: llama.cpp reports its buffers only at Model loading detail 4, on the Settings page.">VRAM</th>
                 <th>GPUs</th>
                 <th>Context</th>
                 <th title="Batch / micro-batch (-b / -ub). A dash means llama.cpp's default.">Batch b/ub</th>
@@ -175,8 +176,13 @@
             <td>—</td>
             {{if $.HasEval}}<td><strong>{{evalScoreText $run.Eval}}</strong></td>{{end}}
             <td>{{printf "%.1f" $run.SizeGiB}} GiB</td>
+            {{/* A capability run is measured with the router stopped, so
+                 there is no load for the memory reader to watch and this
+                 cell is always an em-dash. Rendered rather than folded
+                 into the span below so the column keeps its tooltip. */}}
+            <td title="{{memDetail $run.Memory}}" style="cursor:help;">{{memText $run.Memory}}</td>
             {{/* GPUs, Context, Batch, KV Quant, Flash Attn, Build — six
-                 columns, which is what the header has after Size. A
+                 columns, which is what the header has after VRAM. A
                  short span here shifts every later column. */}}
             <td colspan="6">—</td>
             {{if $.HasLlamaBench}}<td>—</td>{{end}}
@@ -210,6 +216,7 @@
             <td>{{if evalHas $run.Eval}}{{evalScoreText $run.Eval}}{{else}}—{{end}}</td>
             {{end}}
             <td>{{printf "%.1f" $run.SizeGiB}} GiB</td>
+            <td title="{{memDetail $run.Memory}}" style="cursor:help;">{{memText $run.Memory}}</td>
             <td>{{if $run.Config.GPUAssign}}{{$run.Config.GPUAssign}}{{else}}all{{end}}</td>
             <td>{{$run.Config.ContextSize}}</td>
             <td>{{if or $run.Config.BatchSize $run.Config.UBatchSize}}{{if $run.Config.BatchSize}}{{$run.Config.BatchSize}}{{else}}—{{end}}/{{if $run.Config.UBatchSize}}{{$run.Config.UBatchSize}}{{else}}—{{end}}{{else}}—{{end}}</td>

@@ -22,6 +22,15 @@ type RunConfig struct {
 	HFToken    string // forwarded as HF_TOKEN to llama-benchy (avoids HF rate limiting)
 	HFHome     string // forwarded as HF_HOME so the tokenizer cache persists across runs
 	Sampling   SamplingParams
+
+	// Memory returns what the model's current load allocated, once it is
+	// loaded. Nil, or a false second return, when nothing was measured —
+	// llama.cpp itemises its buffers only at log verbosity 4, so a cell
+	// run with the default setting has timings and no footprint.
+	//
+	// A callback rather than a value because the load happens inside
+	// Run: the figure does not exist when the RunConfig is built.
+	Memory func(modelID string) (MemorySnapshot, bool)
 }
 
 // SamplingParams are per-request generation settings. Unlike everything
@@ -137,6 +146,17 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 		run.Error = fmt.Sprintf("warmup failed after retries: %v", warmupErr)
 		send("error", run.Error, 0)
 		return
+	}
+
+	// The model is up and has served a request, so everything it will
+	// allocate has been allocated. Recorded before the benchmark rather
+	// than after, so a cell that fails mid-run still reports what it
+	// cost to load — which is often the answer being looked for when a
+	// cell fails.
+	if cfg.Memory != nil {
+		if mem, ok := cfg.Memory(run.ModelID); ok {
+			run.Memory = &mem
+		}
 	}
 
 	// Step 3: Run benchmarks (internal API loop or llama-benchy shell-out).

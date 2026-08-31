@@ -138,6 +138,12 @@ type JobEnv interface {
 
 	// RunEval executes one evaluation and returns parsed scores.
 	RunEval(ctx context.Context, spec evaluate.Spec) (evaluate.Result, error)
+
+	// MeasuredMemory returns what the model's current load allocated, as
+	// llama.cpp reported it while loading. False when nothing was
+	// measured: the report appears only at log verbosity 4, and the
+	// model may have been loaded before the reader was watching.
+	MeasuredMemory(modelID string) (MemorySnapshot, bool)
 }
 
 // ModelInfo bundles registry data for a single model so the JobRunner
@@ -494,6 +500,7 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 		HFToken:    q.env.HFToken(),
 		HFHome:     q.env.HFCacheDir(),
 		Sampling:   samplingFromOverrides(cellOv),
+		Memory:     q.env.MeasuredMemory,
 	}, nil)
 
 	final, err := q.store.Get(run.ID)

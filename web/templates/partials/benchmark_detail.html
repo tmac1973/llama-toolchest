@@ -32,6 +32,22 @@
             <small>
                 {{range .GPUs}}GPU {{.Index}}: {{.Name}} ({{printf "%.0f" (divf .VRAMTotalMiB 1024.0)}} GiB)<br>{{end}}
             </small>
+            <small><strong>Memory used</strong>
+                <span title="{{memDetail .Memory}}" style="cursor:help;">&#9432;</span>
+            </small><br>
+            <small>
+                {{with .Memory}}
+                {{printf "%.1f" .GPUGiB}} GiB on the GPUs —
+                {{printf "%.1f" .WeightsGiB}} weights,
+                {{printf "%.1f" .KVGiB}} KV cache,
+                {{printf "%.1f" .ComputeGiB}} working buffers
+                {{if ge .HostGiB 0.05}}<br>{{printf "%.1f" .HostGiB}} GiB in system memory{{end}}
+                {{if and (gt .CardDeltaGiB 0.0) (not .Contended)}}<br>Cards reported {{printf "%.1f" .CardDeltaGiB}} GiB, {{printf "%.1f" .Unreported}} above what llama.cpp itemises{{end}}
+                {{if .Contended}}<br>Another model was loading at the same time, so the card total could not be attributed{{end}}
+                {{else}}
+                Not measured — llama.cpp reports what it allocated only at Model loading detail 4, on the <a href="/settings">Settings</a> page.
+                {{end}}
+            </small>
         </div>
     </div>
 

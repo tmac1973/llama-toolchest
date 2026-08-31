@@ -66,6 +66,16 @@ type BenchmarkRun struct {
 	LlamaBench  *LlamaBenchResult   `json:"llama_bench,omitempty"`
 	LlamaBenchy []LlamaBenchyResult `json:"llama_benchy,omitempty"`
 
+	// Memory is what the load actually allocated, read from llama.cpp's
+	// own buffer report while the model was loading. Nil when the report
+	// was not available — llama.cpp prints it only at log verbosity 4 —
+	// and on every run recorded before this was captured.
+	//
+	// Distinct from the VRAM estimate shown elsewhere in the UI: this is
+	// measurement. A cell already pays for the load, so it costs nothing
+	// to record what that load cost.
+	Memory *MemorySnapshot `json:"memory,omitempty"`
+
 	// Eval holds capability-evaluation scores (perplexity, KL
 	// divergence, HellaSwag, Winogrande) for runs of capability
 	// presets. Nil on performance runs.
@@ -95,6 +105,37 @@ type BenchmarkRun struct {
 	// from jobs that declared overrides back when overrides were never
 	// applied. Never set on runs produced after that fix.
 	ConfigUnverified bool `json:"config_unverified,omitempty"`
+}
+
+// MemorySnapshot is one load's memory footprint, in GiB, as llama.cpp
+// itemised it while allocating.
+//
+// The four GPU terms add up to GPUGiB: they are every kind llama.cpp
+// reports, and keeping them apart is what lets a sweep answer "what did
+// that setting cost, and to which part of the footprint".
+type MemorySnapshot struct {
+	GPUGiB       float64 `json:"gpu_gib"`
+	WeightsGiB   float64 `json:"weights_gib"`
+	KVGiB        float64 `json:"kv_gib"`      // attention cache and recurrent state
+	ComputeGiB   float64 `json:"compute_gib"` // compute and output buffers
+	HostGiB      float64 `json:"host_gib"`    // weights left mapped, pinned staging, spilled layers
+	CardDeltaGiB float64 `json:"card_gib"`    // what the GPU counters rose by, 0 when not captured
+	Cards        int     `json:"cards"`
+
+	// Contended marks a load that overlapped another. Its own buffer
+	// figures are still sound — those are attributed per instance — but
+	// CardDeltaGiB covers both models and is left at zero.
+	Contended bool `json:"contended,omitempty"`
+}
+
+// Unreported is what the card counters saw that llama.cpp never
+// itemised: context and allocator overhead. Zero when the counters were
+// not captured.
+func (m MemorySnapshot) Unreported() float64 {
+	if m.CardDeltaGiB == 0 {
+		return 0
+	}
+	return m.CardDeltaGiB - m.GPUGiB
 }
 
 // ConfigSnapshot freezes model config at benchmark time.

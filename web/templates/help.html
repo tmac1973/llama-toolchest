@@ -355,8 +355,17 @@
     <ul>
         <li><strong>Detail</strong> — expands the job's cell matrix, with each cell's sweep point and per-run data.</li>
         <li><strong>Compare</strong> — check multiple rows and hit Compare to see them side by side, within or across jobs.</li>
-        <li><strong>Export</strong> — CSV or JSON, including the build's CMake flags and each run's sweep point so rows stay distinguishable outside the UI.</li>
+        <li><strong>Export</strong> — CSV or JSON, including the build's CMake flags, each run's sweep point, and the memory each load used, so rows stay distinguishable outside the UI.</li>
         <li><strong>Retry failed</strong> — re-runs only the cells that failed, keeping completed results.</li>
+    </ul>
+
+    <h3>Memory used</h3>
+    <p>Every benchmark cell loads the model, so every cell records what that load cost: the <strong>VRAM</strong> column in the comparison table, the <em>Memory used</em> block on a run's detail, a set of memory metrics in the visualization, and six columns in the CSV and JSON exports. That is what makes the trade visible — a bigger micro-batch buys prompt-processing speed and spends GPU memory, and a sweep now shows both sides of it on your own hardware instead of one.</p>
+    <p>These are measured figures, read from llama.cpp's own report as it allocates, not the estimate shown on the Models page. Three things to know when reading them:</p>
+    <ul>
+        <li><strong>They only exist at <em>Model loading detail</em> 4</strong> (<a href="/settings">Settings</a>). Below that llama.cpp itemises nothing, and a cell records its speed with no memory figure. Runs from before this was measured show an em-dash rather than a zero.</li>
+        <li><strong>The card total is a little higher</strong> than the sum llama.cpp reports — context and allocator overhead it does not count. Both figures are shown where there is room for both.</li>
+        <li><strong>Capability tests record nothing.</strong> They run with the server stopped, so there is no load to watch.</li>
     </ul>
 
     <div class="callout">

@@ -310,6 +310,13 @@ func (s *Server) templateFuncs() template.FuncMap {
 		"evalScoreText": func(e *benchmark.EvalScores) string {
 			return evalScoreText(e)
 		},
+		// memText and memDetail render a run's measured footprint: the
+		// figure for a table cell, and the breakdown behind it for the
+		// cell's tooltip. A run with nothing measured reads as an
+		// em-dash, the same as any other absent measurement here — a
+		// zero would claim the model used no memory.
+		"memText":   memText,
+		"memDetail": memDetail,
 		// evalScoreValue is the comparable magnitude behind evalScoreText,
 		// used only for sorting the compare view. Zero for performance
 		// runs — the score sort button is hidden in that case.

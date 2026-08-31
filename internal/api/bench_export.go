@@ -29,7 +29,10 @@ type ExportEnvelope struct {
 
 // v2: runs carry size_gib / gpus[].vram_total_mib instead of the
 // misnamed size_gb / vram_total_mb (the values were always binary units).
-const exportEnvelopeVersion = 2
+// v3: runs may carry `memory` — what the load actually allocated,
+// itemised. Absent on every run recorded before it was measured, and on
+// any run whose router was below log verbosity 4.
+const exportEnvelopeVersion = 3
 
 const (
 	exportFormatCSV  = "csv"
@@ -69,6 +72,36 @@ func formatSweepValues(values map[string]string) string {
 	}
 	sort.Strings(parts)
 	return strings.Join(parts, " ")
+}
+
+// memoryExportFields renders a run's measured footprint as the six
+// memory columns, in header order. A run with nothing measured gets six
+// empty strings rather than zeros: llama.cpp reports its buffers only at
+// log verbosity 4, and a zero would read as "this model used no memory"
+// instead of "nobody looked".
+//
+// card_gib is empty for a load that overlapped another, because that
+// figure covers both models. The per-instance columns beside it are
+// still that model's own.
+func memoryExportFields(m *benchmark.MemorySnapshot) []string {
+	if m == nil {
+		return []string{"", "", "", "", "", ""}
+	}
+	card := ""
+	if m.CardDeltaGiB > 0 {
+		card = ftoa(m.CardDeltaGiB)
+	}
+	return []string{
+		ftoa(m.GPUGiB), ftoa(m.WeightsGiB), ftoa(m.KVGiB),
+		ftoa(m.ComputeGiB), ftoa(m.HostGiB), card,
+	}
+}
+
+// memoryExportHeader names those columns. GiB throughout, matching the
+// model sizes already in these exports.
+var memoryExportHeader = []string{
+	"mem_gpu_gib", "mem_weights_gib", "mem_kv_gib",
+	"mem_compute_gib", "mem_host_gib", "mem_card_gib",
 }
 
 // jobByID looks up a job pointer in a slice without scanning twice.
@@ -171,6 +204,8 @@ func writeCSVCells(cw *csv.Writer, runs []benchmark.BenchmarkRun, jobs jobLookup
 		"preset", "sweep",
 		"eval_mode", "eval_dataset", "eval_score", "eval_error",
 		"eval_tasks_chunks", "eval_kl_stats", "eval_reference",
+		"mem_gpu_gib", "mem_weights_gib", "mem_kv_gib",
+		"mem_compute_gib", "mem_host_gib", "mem_card_gib",
 		"source",
 		"prompt_tokens", "gen_tokens", "depth", "concurrency", "repetition",
 		"pp_throughput", "pp_throughput_std",
@@ -195,6 +230,9 @@ func writeCSVCells(cw *csv.Writer, runs []benchmark.BenchmarkRun, jobs jobLookup
 			run.Preset, formatSweepValues(run.SweepValues),
 		}
 		base = append(base, evalExportFields(run.Eval)...)
+		// Memory is a property of the load, so it repeats on every row
+		// of a run — the same way build and preset do.
+		base = append(base, memoryExportFields(run.Memory)...)
 
 		if len(run.Results) > 0 {
 			for _, r := range run.Results {
@@ -254,6 +292,8 @@ func writeCSVSummary(cw *csv.Writer, runs []benchmark.BenchmarkRun, jobs jobLook
 		"preset", "sweep",
 		"eval_mode", "eval_dataset", "eval_score", "eval_error",
 		"eval_tasks_chunks", "eval_kl_stats", "eval_reference",
+		"mem_gpu_gib", "mem_weights_gib", "mem_kv_gib",
+		"mem_compute_gib", "mem_host_gib", "mem_card_gib",
 		"source", "status",
 		"avg_pp_throughput", "avg_tg_throughput", "avg_ttft_ms",
 		"min_tg_throughput", "max_tg_throughput",
@@ -290,6 +330,7 @@ func writeCSVSummary(cw *csv.Writer, runs []benchmark.BenchmarkRun, jobs jobLook
 			run.Preset, formatSweepValues(run.SweepValues),
 		}
 		row = append(row, evalExportFields(run.Eval)...)
+		row = append(row, memoryExportFields(run.Memory)...)
 		row = append(row, source, run.Status,
 			avgPP, avgTG, avgTTFT,
 			minTG, maxTG,

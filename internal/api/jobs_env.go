@@ -15,6 +15,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/benchmark"
 	"github.com/tmac1973/llama-toolchest/internal/builder"
 	"github.com/tmac1973/llama-toolchest/internal/evaluate"
+	"github.com/tmac1973/llama-toolchest/internal/memreport"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/monitor"
 )
@@ -723,6 +724,43 @@ func (e *jobEnv) ResolveBuild(buildID string) benchmark.BuildSnapshot {
 }
 
 func (e *jobEnv) CurrentMetrics() monitor.Metrics { return e.s.monitor.Current() }
+
+// MeasuredMemory hands the cell what llama.cpp reported allocating for
+// this model's current load. The collector is already watching the
+// router log for the Available Models tooltip; a benchmark cell is just
+// another load, so the figure is there for the asking.
+func (e *jobEnv) MeasuredMemory(modelID string) (benchmark.MemorySnapshot, bool) {
+	m, err := e.s.registry.Get(modelID)
+	if err != nil {
+		return benchmark.MemorySnapshot{}, false
+	}
+	meas, note, ok := e.s.measurementFor(m)
+	if !ok || len(meas.Report.Entries) == 0 {
+		return benchmark.MemorySnapshot{}, false
+	}
+	cards := note.cards
+	if cards < 1 {
+		cards = 1
+	}
+	report := meas.Report.ScaleAggregates(cards)
+
+	snap := benchmark.MemorySnapshot{
+		GPUGiB:     gib(report.GPUMiB(true)),
+		WeightsGiB: gib(gpuOf(report, memreport.KindModel)),
+		KVGiB:      gib(gpuOf(report, memreport.KindKV) + gpuOf(report, memreport.KindRecurrent)),
+		ComputeGiB: gib(gpuOf(report, memreport.KindCompute) + gpuOf(report, memreport.KindOutput)),
+		HostGiB:    gib(report.HostMiB(true)),
+		Cards:      cards,
+		Contended:  note.contended,
+	}
+	// A card figure taken while a second model was loading describes
+	// both of them. Recording it would put a number in a results table
+	// that nothing supports, so it is left out and the reason kept.
+	if !note.contended {
+		snap.CardDeltaGiB = note.measuredGiB()
+	}
+	return snap, true
+}
 
 func (e *jobEnv) RouterURL() string {
 	return fmt.Sprintf("http://localhost:%d", e.s.cfg.LlamaPort)

@@ -77,6 +77,21 @@ var vizMetrics = []VizMetric{
 	{Key: "ttft", Label: "Time to first token", Unit: "ms", HigherIsBetter: false},
 }
 
+// vizMemoryMetrics are offered only when the runs carry a measured
+// footprint. Lower is better on all of them, which is the point of
+// plotting them beside the speeds: a setting that buys throughput
+// usually spends memory, and the trade is what the chart is for.
+//
+// Kept separate from vizMetrics because they are conditional. A metric
+// in the picker that plots nothing is worse than one that is absent.
+var vizMemoryMetrics = []VizMetric{
+	{Key: "mem_gpu", Label: "GPU memory", Unit: "GiB", HigherIsBetter: false},
+	{Key: "mem_weights", Label: "GPU memory: weights", Unit: "GiB", HigherIsBetter: false},
+	{Key: "mem_kv", Label: "GPU memory: KV cache", Unit: "GiB", HigherIsBetter: false},
+	{Key: "mem_compute", Label: "GPU memory: working buffers", Unit: "GiB", HigherIsBetter: false},
+	{Key: "mem_host", Label: "System memory", Unit: "GiB", HigherIsBetter: false},
+}
+
 // BuildVisualization turns a set of runs into the visualization
 // payload: the dimensions they vary on, the metrics available, and one
 // point per run that produced timings.
@@ -84,7 +99,9 @@ func BuildVisualization(runs []BenchmarkRun) VizData {
 	labels := BuildRunLabels(runs)
 	dims := comparisonDimensions(runs)
 
-	out := VizData{Metrics: vizMetrics}
+	// Copied, because the memory metrics are appended conditionally and
+	// appending to the package-level slice would leak into the next call.
+	out := VizData{Metrics: append([]VizMetric(nil), vizMetrics...)}
 
 	// Only runs with timings can be plotted. Collect them first so the
 	// dimensions describe what is actually on the chart rather than
@@ -122,6 +139,17 @@ func BuildVisualization(runs []BenchmarkRun) VizData {
 		})
 	}
 
+	// Offer the memory metrics only when something carries them. A run
+	// measured before this existed, or under a router below log
+	// verbosity 4, has timings and no footprint; the page drops those
+	// points from a memory chart and says how many it dropped.
+	for _, r := range plotted {
+		if r.Memory != nil {
+			out.Metrics = append(out.Metrics, vizMemoryMetrics...)
+			break
+		}
+	}
+
 	for _, r := range plotted {
 		p := VizPoint{
 			RunID:  r.ID,
@@ -133,6 +161,16 @@ func BuildVisualization(runs []BenchmarkRun) VizData {
 				"prompt": r.Summary.AvgPromptTokPerSec,
 				"ttft":   r.Summary.AvgTTFTMs,
 			},
+		}
+		// Absent rather than zero: a missing key is a point the chart
+		// leaves out, while a zero is a claim that the model used no
+		// memory.
+		if m := r.Memory; m != nil {
+			p.Metrics["mem_gpu"] = m.GPUGiB
+			p.Metrics["mem_weights"] = m.WeightsGiB
+			p.Metrics["mem_kv"] = m.KVGiB
+			p.Metrics["mem_compute"] = m.ComputeGiB
+			p.Metrics["mem_host"] = m.HostGiB
 		}
 		for _, d := range dims {
 			if v := d.Value(r); v != "" {

@@ -74,11 +74,12 @@ package:
 scrape-sampling-presets:
 	go run ./scripts/scrape-sampling-presets
 
-# Runs the benchmark job form's parameter-control JavaScript against a
-# DOM stub. Part of `go test ./...`, but skipped when node is missing —
-# this target fails loudly instead, so CI can't quietly lose the
+# Runs the page JavaScript that is worth executing — the benchmark job
+# form's parameter controls, and the visualization's metric filter —
+# against a DOM stub. Part of `go test ./...`, but skipped when node is
+# missing; this target fails loudly instead, so CI can't quietly lose the
 # coverage.
 .PHONY: js-test
 js-test:
 	@command -v node >/dev/null || { echo "node is required for js-test"; exit 1; }
-	go test ./internal/api/ -run TestParameterControlsJS -v
+	go test ./internal/api/ -run 'TestParameterControlsJS|TestVisualizeMetricFilterJS' -v

@@ -86,13 +86,15 @@ func mustRead(t *testing.T, path string) string {
 	return string(b)
 }
 
-// extractFunctions pulls named top-level function declarations out of a
-// source blob by brace matching.
+// extractFunctions pulls named function declarations out of a source
+// blob by brace matching. Leading indentation is allowed: a page whose
+// script lives inside an IIFE (visualize.html) declares its functions
+// indented, and they are just as testable.
 func extractFunctions(src string, names []string) (string, []string) {
 	var out strings.Builder
 	var missing []string
 	for _, n := range names {
-		re := regexp.MustCompile(`(?m)^function ` + n + `\(`)
+		re := regexp.MustCompile(`(?m)^[ \t]*function ` + n + `\(`)
 		loc := re.FindStringIndex(src)
 		if loc == nil {
 			missing = append(missing, n)

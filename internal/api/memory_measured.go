@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tmac1973/llama-toolchest/internal/benchmark"
 	"github.com/tmac1973/llama-toolchest/internal/memreport"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/monitor"
@@ -373,3 +374,34 @@ func join(lines ...string) string {
 	return strings.Join(lines, "\n")
 }
 
+// memText is a benchmark run's measured GPU footprint as a table cell.
+func memText(m *benchmark.MemorySnapshot) string {
+	if m == nil {
+		return "—"
+	}
+	return fmt.Sprintf("%.1f", m.GPUGiB)
+}
+
+// memDetail is the breakdown behind that cell, for its tooltip. Every
+// figure the run recorded, said in full, because a single number in a
+// results table is exactly where a reader needs to know what it counts.
+func memDetail(m *benchmark.MemorySnapshot) string {
+	if m == nil {
+		return "Not measured. llama.cpp reports what it allocated only when Model loading detail is set to 4 or higher, on the Settings page, and runs recorded before that was captured have nothing to show."
+	}
+	lines := []string{
+		fmt.Sprintf("%.1f GiB of GPU memory across %d card(s) — %.1f weights, %.1f KV cache, %.1f working buffers.",
+			m.GPUGiB, m.Cards, m.WeightsGiB, m.KVGiB, m.ComputeGiB),
+	}
+	if m.HostGiB >= 0.05 {
+		lines = append(lines, fmt.Sprintf("Another %.1f GiB in system memory.", m.HostGiB))
+	}
+	switch {
+	case m.Contended:
+		lines = append(lines, "Another model was loading at the same time, so the card counters could not be attributed to this load. The figures above are this model's own — llama.cpp reports them per instance.")
+	case m.CardDeltaGiB > 0:
+		lines = append(lines, fmt.Sprintf("The cards themselves reported %.1f GiB, %.1f more than llama.cpp itemises: context and allocator overhead it does not count.",
+			m.CardDeltaGiB, m.Unreported()))
+	}
+	return join(lines...)
+}

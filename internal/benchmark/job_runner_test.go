@@ -30,6 +30,7 @@ type fakeEnv struct {
 	cleared       int
 	clearedT      []time.Time
 	dirty         bool
+	memReport     *MemorySnapshot
 	buildSwitches []string
 	buildRestarts int
 
@@ -136,9 +137,20 @@ func (f *fakeEnv) ResolveBuild(id string) BuildSnapshot {
 	return BuildSnapshot{ID: id, Profile: "rocm", GitRef: "b1"}
 }
 func (f *fakeEnv) CurrentMetrics() monitor.Metrics { return monitor.Metrics{} }
-func (f *fakeEnv) RouterURL() string               { return f.routerURL }
-func (f *fakeEnv) HFToken() string                 { return "" }
-func (f *fakeEnv) HFCacheDir() string              { return "" }
+
+// MeasuredMemory reports what memReport holds, so a test can drive both
+// the "the load was measured" and "verbosity was too low" paths.
+func (f *fakeEnv) MeasuredMemory(modelID string) (MemorySnapshot, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.memReport == nil {
+		return MemorySnapshot{}, false
+	}
+	return *f.memReport, true
+}
+func (f *fakeEnv) RouterURL() string  { return f.routerURL }
+func (f *fakeEnv) HFToken() string    { return "" }
+func (f *fakeEnv) HFCacheDir() string { return "" }
 
 // --- JobEnv capability methods ---------------------------------------
 

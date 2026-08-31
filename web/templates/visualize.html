@@ -127,6 +127,18 @@ main.container { max-width: none; }
                                  : defaultPlotHeight;
     }
 
+    // POINTS is DATA.points restricted to the runs that have a value for
+    // the metric being plotted. Not every run carries every metric: a run
+    // measured before memory was recorded, or under a router below log
+    // verbosity 4, has timings and no footprint. Such a run has to be
+    // left out of a memory chart rather than drawn at zero, which would
+    // claim it used none.
+    var POINTS = DATA.points;
+    function pointsWith(m) {
+        if (!m) return DATA.points;
+        return DATA.points.filter(function (p) { return p.metrics[m.key] !== undefined; });
+    }
+
     function dim(name) {
         return DATA.dimensions.filter(function (d) { return d.name === name; })[0];
     }
@@ -198,7 +210,16 @@ main.container { max-width: none; }
             Plotly.purge('viz-plot');
             return;
         }
-        note('');
+        POINTS = pointsWith(spec.metric ? m : null);
+        if (spec.metric && !POINTS.length) {
+            note('None of these runs recorded ' + m.label.toLowerCase() + '. Memory is measured only when llama.cpp is set to Model loading detail 4, on the Settings page.');
+            Plotly.purge('viz-plot');
+            return;
+        }
+        var dropped = DATA.points.length - POINTS.length;
+        note(dropped ? dropped + (dropped === 1 ? ' run is' : ' runs are') +
+                       ' not shown: no ' + m.label.toLowerCase() + ' was recorded for ' +
+                       (dropped === 1 ? 'it.' : 'them.') : '');
         setPlotHeight(0);
 
         if (chart === 'scatter') return renderScatter(m, x, m.label + ' by ' + x.name);
@@ -210,7 +231,7 @@ main.container { max-width: none; }
     }
 
     function renderScatter(m, x, title) {
-        var pts = DATA.points.filter(function (p) { return p.dims[x.name] !== undefined; });
+        var pts = POINTS.filter(function (p) { return p.dims[x.name] !== undefined; });
         var trace = {
             type: 'scatter', mode: 'markers',
             x: pts.map(function (p) { return coord(x, p.dims[x.name]); }),
@@ -262,7 +283,7 @@ main.container { max-width: none; }
     // Heatmap, 3D surface and 3D scatter all read the same grid: the
     // metric at each (x, y) pair.
     function renderTwoAxis(chart, m, x, y, title) {
-        var grid = buildGrid(DATA.points, m, x, y);
+        var grid = buildGrid(POINTS, m, x, y);
         var z = grid.z;
         if (chart !== 'scatter3d') collisionNote(grid.collisions);
         var xs = x.values.map(function (v) { return coord(x, v); });
@@ -327,7 +348,7 @@ main.container { max-width: none; }
             return;
         }
 
-        var pts = DATA.points.filter(function (p) {
+        var pts = POINTS.filter(function (p) {
             return p.dims[x.name] !== undefined && p.dims[y.name] !== undefined;
         });
         var t3 = {
@@ -361,7 +382,7 @@ main.container { max-width: none; }
         // Ascending for higher-is-better: Plotly draws the first bar of
         // a category axis at the BOTTOM, so ascending puts the winner
         // on top.
-        var pts = DATA.points.slice().sort(function (a, b) {
+        var pts = POINTS.slice().sort(function (a, b) {
             return m.higher_is_better
                 ? a.metrics[m.key] - b.metrics[m.key]
                 : b.metrics[m.key] - a.metrics[m.key];
@@ -476,7 +497,7 @@ main.container { max-width: none; }
         var traces = [], collisions = 0;
         pnl.values.forEach(function (pv, k) {
             var axn = k === 0 ? '' : String(k + 1);
-            var inPanel = DATA.points.filter(function (p) { return p.dims[pnl.name] === pv; });
+            var inPanel = POINTS.filter(function (p) { return p.dims[pnl.name] === pv; });
             var grid = buildGrid(inPanel, m, x, y);
             collisions += grid.collisions;
             var hover = y.values.map(function (yv, j) {
@@ -541,7 +562,7 @@ main.container { max-width: none; }
         // slot instead of a broken line.
         var axes = DATA.dimensions.map(function (d) {
             var missing = false;
-            var vals = DATA.points.map(function (p) {
+            var vals = POINTS.map(function (p) {
                 var i = d.values.indexOf(p.dims[d.name]);
                 if (i < 0) { missing = true; return d.values.length; }
                 return i;
@@ -552,13 +573,17 @@ main.container { max-width: none; }
                      tickvals: ticks.map(function (_, i) { return i; }),
                      ticktext: ticks };
         });
+        // A metric axis needs a value on every line it crosses; one that
+        // some run lacks would break the line rather than gap it, so
+        // such a metric is left off this chart entirely.
         DATA.metrics.forEach(function (mm) {
-            axes.push({ label: mm.label + ' (' + mm.unit + ')',
-                        values: DATA.points.map(function (p) { return p.metrics[mm.key]; }) });
+            var vals = POINTS.map(function (p) { return p.metrics[mm.key]; });
+            if (vals.some(function (v) { return v === undefined; })) return;
+            axes.push({ label: mm.label + ' (' + mm.unit + ')', values: vals });
         });
         var trace = {
             type: 'parcoords', dimensions: axes,
-            line: { color: DATA.points.map(function (p) { return p.metrics[m.key]; }),
+            line: { color: POINTS.map(function (p) { return p.metrics[m.key]; }),
                     colorscale: 'Viridis', reversescale: !m.higher_is_better,
                     showscale: true, colorbar: { title: { text: m.unit } } },
             labelfont: { color: t.font }, tickfont: { color: t.font },
