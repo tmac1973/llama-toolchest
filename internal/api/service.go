@@ -527,6 +527,13 @@ func (s *Server) startRouterWith(opt routerOptions) error {
 		"env", extraEnv,
 	)
 
+	// Ports are allocated per model instance and reused freely between
+	// router runs, so measurements in flight against the old run's ports
+	// must not collect the new run's buffers. Done before the start, not
+	// after, so there is no window where a spawn line lands on a mapping
+	// that is about to be cleared.
+	s.memory.Reset()
+
 	if err := s.process.Start(process.RouterConfig{
 		BinaryPath: build.BinaryPath,
 		PresetPath: presetPath,

@@ -21,6 +21,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/config"
 	"github.com/tmac1973/llama-toolchest/internal/evaluate"
 	"github.com/tmac1973/llama-toolchest/internal/huggingface"
+	"github.com/tmac1973/llama-toolchest/internal/memreport"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/modelscope"
 	"github.com/tmac1973/llama-toolchest/internal/modelsource"
@@ -85,6 +86,13 @@ type Server struct {
 	// env is the JobEnv handed to the queue, kept so interactive handlers
 	// can ask whether a job currently controls the router.
 	env *jobEnv
+
+	// memory records what each load actually allocated, read off the
+	// router's log stream by watchRouterMemory. Distinct from the VRAM
+	// estimate everywhere else in the UI: this is measurement, and it
+	// exists only for models that have been loaded since the server
+	// started. See internal/api/memory_measured.go.
+	memory *memreport.Collector
 }
 
 // jobEnv returns the benchmark job environment, if wired.
@@ -191,7 +199,11 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 		bench:          benchmark.NewStore(cfg.DataDir, builderResolver(bld)),
 		dirtyModels:    make(map[string]bool),
 		runningConfigs: make(map[string]*models.ModelConfig),
+		memory:         memreport.NewCollector(),
 	}
+	// Subscribes to the router log for the life of the process. Started
+	// before anything can launch the router, so no load goes unwatched.
+	go s.watchRouterMemory()
 	s.env = newJobEnv(s)
 	s.jobs = benchmark.NewJobQueue(s.bench, s.env)
 	s.downloader.SetOnComplete(s.onDownloadComplete)
@@ -783,7 +795,15 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 				`onclick="copyFromButton(this)">%s</button>`,
 				html.EscapeString(copySVG), html.EscapeString(checkSVG), html.EscapeString(pn), copySVG)
 
-			fmt.Fprintf(&buf, `<div class="available-model-row">%s%s<code>%s</code>%s</div>`,
+			// What this model actually took the last time it loaded,
+			// against what it is estimated to take. Per model, because
+			// the answer depends on the configuration each one runs.
+			cfg, err := s.registry.GetConfig(m.ID)
+			if err != nil {
+				cfg = nil
+			}
+			fmt.Fprintf(&buf, `<div class="available-model-row" title="%s">%s%s<code>%s</code>%s</div>`,
+				html.EscapeString(s.memoryTooltip(m, cfg, state)),
 				loadIcon, copyBtn, html.EscapeString(pn), tag)
 			shown++
 		}

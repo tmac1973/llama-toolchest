@@ -30,10 +30,13 @@ const (
 
 // Entry is one "<device> <kind> buffer size = N MiB" observation.
 type Entry struct {
-	// Instance is the child process id llama.cpp's router prefixes onto
-	// lines from the model instance that is doing the loading. Empty for
-	// lines the router itself emitted. Reports from concurrently loading
-	// models interleave in one stream, so this is what separates them.
+	// Instance is the port llama.cpp's router prefixes onto lines from
+	// the model instance that is doing the loading — the router logs
+	// "[%5d] " with the child's port, not its pid. Empty for lines the
+	// router itself emitted. Reports from concurrently loading models
+	// interleave in one stream, so this is what separates them. The
+	// router states which model holds a port when it spawns the
+	// instance; Collector reads both and pairs them up.
 	Instance string
 	// Category is the llama.cpp function that logged the line
 	// (load_tensors, llama_kv_cache, sched_reserve, ...). Kept because
@@ -72,18 +75,23 @@ func isHostDevice(device string) bool {
 		strings.HasSuffix(device, "_Host")
 }
 
-// lineRE matches an optional "[pid] " prefix, llama.cpp's timestamp and
+// lineRE matches an optional "[port] " prefix, llama.cpp's timestamp and
 // level, the logging function, and then the buffer report itself. The
 // device name is deliberately \S+ rather than a list: "Meta()" carries
 // parentheses and backend names grow, so an allowlist would silently
 // drop the very numbers this exists to collect.
+//
+// The prefix allows leading spaces because the router writes it with
+// "[%5d] ": a port below 10000 arrives padded, and a prefix that failed
+// to match would drop the line entirely rather than merely lose its
+// instance.
 var lineRE = regexp.MustCompile(
-	`^(?:\[(\d+)\] )?[\d.]+ [A-Z] (\w+):\s+(\S+)\s+(model|KV|compute|output)\s+buffer size\s*=\s*([\d.]+)\s*MiB`)
+	`^(?:\[\s*(\d+)\] )?[\d.]+ [A-Z] (\w+):\s+(\S+)\s+(model|KV|compute|output)\s+buffer size\s*=\s*([\d.]+)\s*MiB`)
 
 // recurrentRE is separate because llama.cpp spells recurrent state "RS"
 // in the buffer line while naming the function llama_memory_recurrent.
 var recurrentRE = regexp.MustCompile(
-	`^(?:\[(\d+)\] )?[\d.]+ [A-Z] (\w+):\s+(\S+)\s+RS\s+buffer size\s*=\s*([\d.]+)\s*MiB`)
+	`^(?:\[\s*(\d+)\] )?[\d.]+ [A-Z] (\w+):\s+(\S+)\s+RS\s+buffer size\s*=\s*([\d.]+)\s*MiB`)
 
 // ParseLine extracts one entry, reporting false for any line that is not
 // a buffer report — which is the overwhelming majority of the stream.
@@ -153,20 +161,21 @@ func (r *Report) Add(line string) bool {
 	return ok
 }
 
-// ForInstance returns the entries a single model instance logged. The
-// router interleaves output from every child, so totals taken without
-// this are the sum of whatever happened to be loading.
-func (r Report) ForInstance(pid string) Report {
+// ForInstance returns the entries a single model instance logged, keyed
+// by the port in Entry.Instance. The router interleaves output from every
+// child, so totals taken without this are the sum of whatever happened to
+// be loading.
+func (r Report) ForInstance(port string) Report {
 	var out Report
 	for _, e := range r.Entries {
-		if e.Instance == pid {
+		if e.Instance == port {
 			out.Entries = append(out.Entries, e)
 		}
 	}
 	return out
 }
 
-// Instances lists the child process ids present, in first-seen order.
+// Instances lists the instance ports present, in first-seen order.
 func (r Report) Instances() []string {
 	seen := map[string]bool{}
 	var out []string

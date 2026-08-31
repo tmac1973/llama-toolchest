@@ -20,6 +20,7 @@ A web-based management interface for [llama.cpp](https://github.com/ggerganov/ll
 - **Speculative decoding** — Pair a small draft model with a large model; draft picker auto-filters by architecture.
 - **Capability detection** — Tool calling, vision, and reasoning-mode detection from GGUF metadata, surfaced as badges and via the `capabilities` block on `/api/service/loaded-models` (single-round-trip auto-discovery).
 - **VRAM estimation** — Architecture-aware estimates from GGUF metadata, accounting for KV cache size and quantization.
+- **Measured memory** — What llama.cpp really allocated on the last load — weights, KV cache and working buffers, per GPU — read from its own buffer report and shown beside the estimate in the Available Models tooltip. Needs *Model loading detail* 4 in Settings.
 - **Benchmarks** — Batch jobs sweeping models × builds × presets × any model parameter, with results compared across runs and exported to CSV/JSON.
 - **OpenAI-compatible API** — Chat completions (streaming, tool calling, JSON schema), completions, embeddings, model listing. Optional Bearer auth.
 - **Built-in chat UI** — llama.cpp's native chat interface with a model-selector dropdown.

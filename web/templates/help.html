@@ -129,6 +129,7 @@
         <li>A <strong><span class="inline-icon"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="5" y="5" width="8" height="9" rx="1"/><path d="M3 11V3.5A.5.5 0 0 1 3.5 3H10"/></svg></span> copy</strong> icon — copies the public name to the clipboard.</li>
         <li>A <code>loaded</code> / <code>loading</code> tag when the router has it resident.</li>
     </ul>
+    <p>Hover a row to see what that model <em>actually</em> used the last time it loaded — GPU memory split into weights, KV cache and working buffers, per card, with anything left in system memory — next to the estimate for the current settings. The measured figures are read from llama.cpp's own report as it allocates, so they only exist for models loaded since the server started, and only when <em>Model loading detail</em> is set to 4 or higher on the <a href="/settings">Settings</a> page. The tooltip says which of these you are looking at, and says so plainly when there is nothing measured yet. A card's own reported usage runs a few hundred MiB per GPU above the measured figure, for driver overhead llama.cpp does not count.</p>
 
     <h3>Inventory &amp; API Endpoint cards</h3>
     <p>Build/model counts and the OpenAI-compatible base URL for your clients.</p>
