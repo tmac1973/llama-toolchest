@@ -141,11 +141,52 @@ const (
 	vramPerDeviceOverheadGB = 0.85
 )
 
+// VRAMBreakdown is the estimate term by term, in GiB. The terms are named
+// for what llama.cpp reports, so an estimate can be checked against a
+// measured load piece by piece rather than only in total — which is what
+// a total alone cannot do: the estimate this replaced was accurate on one
+// model purely because a 27 GiB over-count of weights cancelled a 20 GiB
+// under-count of everything else.
+//
+// Which measured figure each term answers to:
+//
+//	Weights, Aux    model buffers on a device
+//	KVCache         KV and recurrent-state buffers
+//	IndexerCache    the sparse-attention key cache
+//	Compute         compute and output buffers
+//	IndexerScratch  the rest of the compute buffers on a sparse model
+//	Overhead        nothing — it is the remainder llama.cpp never itemises,
+//	                the gap between its own accounting and the card counters
+type VRAMBreakdown struct {
+	Weights        float64
+	Aux            float64
+	KVCache        float64
+	IndexerCache   float64
+	Compute        float64
+	IndexerScratch float64
+	Overhead       float64
+}
+
+// Total is the figure the UI shows.
+func (b VRAMBreakdown) Total() float64 {
+	return b.Weights + b.Aux + b.KVCache + b.IndexerCache + b.Compute + b.IndexerScratch + b.Overhead
+}
+
+// Reported is the part of the estimate llama.cpp itemises while loading,
+// which is what a measured buffer report can be compared against.
+func (b VRAMBreakdown) Reported() float64 { return b.Total() - b.Overhead }
+
 // VRAMEstimateForConfigOn estimates VRAM for a model spread over devices
 // cards. The count matters because graph scratch and driver overhead are
 // per device, not per model: the same config across four cards costs four
 // times the scratch of one.
 func VRAMEstimateForConfigOn(m *Model, cfg *ModelConfig, cards int) float64 {
+	return VRAMBreakdownForConfigOn(m, cfg, cards).Total()
+}
+
+// VRAMBreakdownForConfigOn is VRAMEstimateForConfigOn with its terms kept
+// apart. Same arithmetic; the split exists so each term can be measured.
+func VRAMBreakdownForConfigOn(m *Model, cfg *ModelConfig, cards int) VRAMBreakdown {
 	if cards < 1 {
 		cards = 1
 	}
@@ -153,6 +194,8 @@ func VRAMEstimateForConfigOn(m *Model, cfg *ModelConfig, cards int) float64 {
 	if ctx == 0 {
 		ctx = m.ContextLength
 	}
+
+	var b VRAMBreakdown
 
 	// Weights, less the parts llama.cpp holds host-mapped rather than on a
 	// device. Two tensors do that on every model measured: the per-layer
@@ -162,14 +205,14 @@ func VRAMEstimateForConfigOn(m *Model, cfg *ModelConfig, cards int) float64 {
 	if resident < 0 {
 		resident = m.SizeBytes
 	}
-	gb := BytesToGiB(resident)
+	b.Weights = BytesToGiB(resident)
 
-	gb += m.KVCacheGB(ctx, cfg.KVCacheQuant)
+	b.KVCache = m.KVCacheGB(ctx, cfg.KVCacheQuant)
 
 	// Graph scratch.
 	ub := cfg.EffectiveUBatchSize()
 	perCard := computeMiBPerUBatchTok*float64(ub) + computeMiBPerCtxTok*float64(ctx)
-	gb += float64(cards) * perCard / 1024
+	b.Compute = float64(cards) * perCard / 1024
 
 	// Sparse attention: a key cache of its own, plus scratch that scales
 	// with context times micro-batch on every device.
@@ -178,13 +221,13 @@ func VRAMEstimateForConfigOn(m *Model, cfg *ModelConfig, cards int) float64 {
 		if layers == 0 {
 			layers = m.NLayers
 		}
-		gb += float64(layers) * float64(ctx) * float64(m.IndexerKeyLength) * 4 / (1024 * 1024 * 1024)
-		gb += float64(cards) * indexerScratchCopies * float64(ctx) * float64(ub) * 4 / (1024 * 1024 * 1024)
+		b.IndexerCache = float64(layers) * float64(ctx) * float64(m.IndexerKeyLength) * 4 / (1024 * 1024 * 1024)
+		b.IndexerScratch = float64(cards) * indexerScratchCopies * float64(ctx) * float64(ub) * 4 / (1024 * 1024 * 1024)
 	}
 
-	gb += AuxFilesVRAMGB(cfg)
-	gb += float64(cards) * vramPerDeviceOverheadGB
-	return gb
+	b.Aux = AuxFilesVRAMGB(cfg)
+	b.Overhead = float64(cards) * vramPerDeviceOverheadGB
+	return b
 }
 
 // PLEAutoMinBytes mirrors auto_lazy_min_size in llama.cpp's model loader:

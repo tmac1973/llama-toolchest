@@ -408,7 +408,16 @@ step 4 should account for.
 **Step 3 — decompose one load.** Done for Qwen3.8-Flash-Next; see the table
 below. `internal/memreport` parses the report into per-device, per-kind totals.
 
-**Step 2 — build a repeatable harness.** For each (model, context, batch,
+**Step 2 — build a repeatable harness. Partly done.** Every load is now
+measured as it happens: `internal/memreport.Collector` reads the router log
+stream, pairs each instance's buffer report with the model that spawned it, and
+the toolchest brackets the load with GPU-counter readings taken at the spawn
+line and at the child's `ready`. `GET /api/models/{id}/vram-corpus` prints the
+result as a `corpusPoint` literal ready to paste into the corpus, refusing to
+present a card figure taken while a second model was loading. What is still
+missing is the sweep: driving the axes automatically rather than by hand.
+
+**Step 2 (original).** For each (model, context, batch,
 ubatch, kv quant, ngl, ple_mode) point: load, record per-GPU VRAM, host RSS, and
 the per-buffer breakdown. Prerequisite: add `ple_mode` and `extra_flags` as
 benchmark sweep axes (`ConfigOverrides` in `benchmark/job.go:78`, catalogue in

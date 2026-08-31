@@ -534,6 +534,7 @@ func (s *Server) buildRouter() chi.Router {
 			r.Put("/{id}/config", s.handleUpdateModelConfig)
 			r.Post("/{id}/refresh-presets", s.handleRefreshPresets)
 			r.Get("/{id}/vram-estimate", s.handleModelVRAMEstimate)
+			r.Get("/{id}/vram-corpus", s.handleVRAMCorpus)
 		})
 		r.Route("/hf", func(r chi.Router) {
 			r.Get("/search", s.handleHFSearch)
