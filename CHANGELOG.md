@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.27.0](https://github.com/tmac1973/llama-toolchest/compare/v2.26.0...v2.27.0) (2026-09-01)
+
+
+### Features
+
+* **benchmarks:** hide the compare columns every run shares ([#169](https://github.com/tmac1973/llama-toolchest/issues/169)) ([0a1c43e](https://github.com/tmac1973/llama-toolchest/commit/0a1c43ec55e3cba64a2e3f6d214ffced4546b446))
+* **benchmarks:** record the memory each cell's load used ([#169](https://github.com/tmac1973/llama-toolchest/issues/169)) ([c5d14bf](https://github.com/tmac1973/llama-toolchest/commit/c5d14bf1c27a8ae2565ec7035de6123442602bd7))
+* **memreport:** measure what a model load actually allocates ([#169](https://github.com/tmac1973/llama-toolchest/issues/169)) ([cf6316b](https://github.com/tmac1973/llama-toolchest/commit/cf6316b7d64a7c54a0f44a94f36db4ae3d8baac6))
+* **models:** check the VRAM estimate term by term, not just in total ([#169](https://github.com/tmac1973/llama-toolchest/issues/169)) ([6e54f4a](https://github.com/tmac1973/llama-toolchest/commit/6e54f4ac7f321f806dcec4a5485d2a34d8ccd457))
+
 ## [2.26.0](https://github.com/tmac1973/llama-toolchest/compare/v2.25.2...v2.26.0) (2026-08-29)
 
 
