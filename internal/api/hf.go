@@ -446,10 +446,11 @@ func (s *Server) onDownloadComplete(source, downloadID, modelID, filename string
 
 	meta, _ := models.ParseGGUFMeta(filePath)
 
-	// MTP drafter heads (e.g. gemma-4's gemma4-assistant) aren't runnable
-	// models — they load via --model-draft. Don't register; auto-associate
-	// with sibling main models like we do for mmproj.
-	if meta != nil && models.IsMTPHeadArch(meta.Architecture) {
+	// MTP drafter heads (gemma-4's gemma4-assistant, unsloth's
+	// Qwen3.8-Flash-Next heads) aren't runnable models — they load via
+	// --model-draft. Don't register; auto-associate with sibling main
+	// models like we do for mmproj.
+	if meta != nil && meta.IsMTPHead() {
 		slog.Info("MTP drafter head downloaded, associating with sibling models", "file", filePath)
 		s.registry.AutoDetectMTP()
 		return

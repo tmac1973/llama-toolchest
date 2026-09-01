@@ -227,6 +227,12 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 	if n := s.registry.AutoDetectMMProj(); n > 0 {
 		slog.Info("auto-detected mmproj files", "count", n)
 	}
+	// Runs unconditionally rather than only inside ScanModels: a head the
+	// backfill just dropped leaves its main model with no MtpPath, and a
+	// scan that finds nothing new would not re-attach it.
+	if n := s.registry.AutoDetectMTP(); n > 0 {
+		slog.Info("auto-detected MTP drafter heads", "count", n)
+	}
 	if orphans := s.registry.FindOrphans(); len(orphans) > 0 {
 		for _, m := range orphans {
 			slog.Warn("model file missing", "id", m.ID, "path", m.FilePath)

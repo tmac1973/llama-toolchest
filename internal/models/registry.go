@@ -93,6 +93,11 @@ type Model struct {
 	TokenEmbdBytes   int64 `json:"token_embd_bytes,omitempty"`
 	IndexerKeyLength int   `json:"indexer_key_length,omitempty"`
 	AttnLayers       int   `json:"attn_layers,omitempty"`
+	// MTPHead marks a standalone MTP drafter head that was registered as
+	// an ordinary model by a parser that couldn't recognize it. Records
+	// carrying it are dropped on the next backfill; nothing should serve
+	// one or offer it as a draft candidate. See GGUFMeta.IsMTPHead.
+	MTPHead bool `json:"mtp_head,omitempty"`
 
 	// Architecture parameters parsed from GGUF header.
 	Arch          string `json:"arch,omitempty"`
@@ -636,7 +641,10 @@ func (r *Registry) ListNeedingPresetFetch() []string {
 //	1 — recurrent layers excluded from KV scaling; token-embedding size,
 //	    indexer key length and attention-layer count added for the VRAM
 //	    estimate.
-const GGUFMetaVersion = 1
+//	2 — NextN layer count and block-tensor layout added, so a standalone
+//	    MTP drafter head that reports a runnable architecture is
+//	    recognized as a head. Records for one are dropped by the backfill.
+const GGUFMetaVersion = 2
 
 // BackfillGGUFMeta re-reads GGUF metadata for records written by an older
 // parser, in one pass at startup.
@@ -668,6 +676,18 @@ func (r *Registry) BackfillGGUFMeta() {
 		meta.ApplyTo(m)
 		m.GGUFMetaVersion = GGUFMetaVersion
 		changed = true
+
+		// A head registered by a parser that couldn't tell it from a model.
+		// Drop the record — ScanModels declines to create it now, and
+		// AutoDetectMTP attaches the file to its main model instead. The
+		// file itself is untouched; only the mistaken registration goes.
+		if m.MTPHead {
+			slog.Info("dropping registry entry for MTP drafter head", "model", m.ID,
+				"file", m.FilePath, "arch", meta.Architecture)
+			delete(r.data.Models, m.ID)
+			delete(r.data.Configs, m.ID)
+			continue
+		}
 		slog.Info("re-read GGUF metadata", "model", m.ID, "version", GGUFMetaVersion,
 			"arch", meta.Architecture, "layers", meta.NLayers, "attn_layers", meta.AttnLayers,
 			"kv_full_per_tok", meta.KVFullPerTok, "was", before,
@@ -976,10 +996,11 @@ func (r *Registry) ScanModels() int {
 			meta.ApplyTo(m)
 		}
 
-		// Skip standalone MTP / drafter "assistant" heads (e.g. gemma-4's
-		// gemma4-assistant). They're loaded via --model-draft alongside a main
-		// model, not served on their own — auto-associated by AutoDetectMTP below.
-		if IsMTPHeadArch(m.Arch) {
+		// Skip standalone MTP / drafter heads (gemma-4's gemma4-assistant,
+		// unsloth's Qwen3.8-Flash-Next heads). They're loaded via --model-draft
+		// alongside a main model, not served on their own — auto-associated by
+		// AutoDetectMTP below. Set by ApplyTo from the parsed metadata.
+		if m.MTPHead {
 			return nil
 		}
 
@@ -1115,8 +1136,37 @@ func (r *Registry) AutoDetectMMProj() int {
 // Detection is by architecture, not filename: Qwen's self-speculation MTP
 // models also carry "MTP" in their name but ARE runnable (the head is baked
 // into a normal qwen3 arch), so they must keep registering as ordinary models.
+//
+// This catches only the heads that declare an architecture of their own.
+// Prefer GGUFMeta.IsMTPHead, which also catches the ones that don't.
 func IsMTPHeadArch(arch string) bool {
 	return strings.Contains(strings.ToLower(arch), "assistant")
+}
+
+// IsMTPHead reports whether a GGUF is a standalone MTP / NextN drafter head
+// rather than a runnable model.
+//
+// An architecture name alone is not enough. gemma-4's head announces itself
+// as "gemma4-assistant", but unsloth's Qwen3.8-Flash-Next heads report
+// "qwen4exp" — the same architecture as the 111 GB model they draft for, at
+// the same embedding width. Nothing in the metadata distinguishes them, and
+// treating one as a model makes it a plausible-looking draft candidate for
+// the other, which is a configuration that cannot load.
+//
+// What does distinguish them is the tensor table. A head declares the full
+// block_count of its target but ships only the trailing NextN block: it has
+// blk.N tensors without a blk.0. Requiring that it carry blocks at all keeps
+// the first shard of a split model — which holds the metadata and, as
+// publishers ship them, no tensors — from being mistaken for one.
+//
+// Both flavors of head are covered, whether or not they carry their own
+// copies of token_embd/output: the shared variant borrows those from the
+// target at runtime, and the difference is invisible here.
+func (meta *GGUFMeta) IsMTPHead() bool {
+	if IsMTPHeadArch(meta.Architecture) {
+		return true
+	}
+	return meta.NextNPredictLayers > 0 && meta.HasBlockTensors && !meta.HasTrunkBlock0
 }
 
 // FindMTP looks for a separate MTP drafter-head GGUF associated with the given
@@ -1170,7 +1220,7 @@ func findMTPInDir(dir string) string {
 			continue
 		}
 		path := filepath.Join(dir, name)
-		if meta, err := ParseGGUFMeta(path); err == nil && IsMTPHeadArch(meta.Architecture) {
+		if meta, err := ParseGGUFMeta(path); err == nil && meta.IsMTPHead() {
 			return path
 		}
 	}
@@ -1236,6 +1286,15 @@ func (r *Registry) FindDraftCandidates(id string) []DraftCandidate {
 		}
 		// Skip embedding models
 		if m.IsEmbedding() {
+			continue
+		}
+		// Skip MTP drafter heads. They match on architecture and are far
+		// under the size bar, so they look like ideal draft candidates —
+		// but they carry no trunk and cannot load as a draft model. They
+		// belong on the config's MtpPath under spec_type=draft-mtp, which
+		// AutoDetectMTP sets. Only reaches here for a head registered by
+		// an older parser; the backfill drops those.
+		if m.MTPHead {
 			continue
 		}
 		candidates = append(candidates, DraftCandidate{
