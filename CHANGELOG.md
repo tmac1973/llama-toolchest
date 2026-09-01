@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.27.1](https://github.com/tmac1973/llama-toolchest/compare/v2.27.0...v2.27.1) (2026-09-01)
+
+
+### Bug Fixes
+
+* **models:** detect MTP drafter heads that share the model's architecture ([#171](https://github.com/tmac1973/llama-toolchest/issues/171)) ([aedfb96](https://github.com/tmac1973/llama-toolchest/commit/aedfb962ed2e69060b2183e23756b998db4a2894))
+
 ## [2.27.0](https://github.com/tmac1973/llama-toolchest/compare/v2.26.0...v2.27.0) (2026-09-01)
 
 
