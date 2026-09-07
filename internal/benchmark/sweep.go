@@ -43,6 +43,15 @@ type SweepChoice struct {
 	// name the encoded Value starts with.
 	Params []models.SpecModeParam
 	Mode   string
+	// Slot is "draft" or "assist" for a speculative mode choice, "" for
+	// everything else. A draft choice also carries AssistModes and
+	// AssistParamsByMode, so its expandable section can offer an n-gram
+	// assist alongside its own settings: that is what reaches all
+	// twenty-five combinations from eleven checkboxes, on a field that
+	// has no custom-entry box to fall back on.
+	Slot               string
+	AssistModes        []models.SpecMode
+	AssistParamsByMode map[string][]models.SpecModeParam
 }
 
 // SweepField describes one sweepable parameter. The set function is the
@@ -179,34 +188,79 @@ func specModeParams(mode string) []models.SpecModeParam {
 	return models.SpecAssistParams(mode)
 }
 
-// specValue is a parsed spec_type sweep value: a mode plus any
-// parameter settings from the mode's expandable section.
-type specValue struct {
-	mode   string
-	params map[string]string // key -> raw value, keys from models.SpecModeParams
+// nonEmpty returns the non-empty arguments, for naming whichever slots a
+// value actually uses in an error message.
+func nonEmpty(vals ...string) []string {
+	var out []string
+	for _, v := range vals {
+		if v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
-// parseSpecValue parses the three accepted shapes: "none", a bare mode
-// name, or "mode:key=value,key=value". Keys must belong to the mode
-// (per models.SpecModeParams) and integer parameters must parse.
+// specValue is a parsed spec_type sweep value: up to one draft method,
+// up to one n-gram assist, and any parameter settings from their
+// expandable sections.
+type specValue struct {
+	mode   string            // draft method, "" if none
+	assist string            // n-gram assist, "" if none
+	params map[string]string // draft_* and assist_* keys
+}
+
+// parseSpecValue parses the accepted shapes: "none", a bare mode name,
+// "mode:key=value,key=value", and either of those with the two modes
+// joined by "+" — "draft-mtp+ngram-mod:draft_max=3,assist_n_max=64".
+//
+// "+" joins the modes rather than the "," llama.cpp's own flag uses,
+// because "," already separates the parameters inside a value. (The
+// field's own value separator is ";" for the same reason.) The parameter
+// keys are disjoint across the two slots, so one flat key=value list
+// still covers both.
 func parseSpecValue(raw string) (specValue, error) {
 	v := strings.TrimSpace(raw)
 	out := specValue{params: map[string]string{}}
 	if v == "none" {
-		return out, nil // mode "" = speculative decoding off
+		// The off entry, and never a mode name — the validation below
+		// must not see it. llama.cpp treats "none" inside a real list as
+		// poison, discarding every other mode, so it is never emitted
+		// as a list member either.
+		return out, nil
 	}
-	mode, rest, hasParams := strings.Cut(v, ":")
-	mode = strings.TrimSpace(mode)
-	// Validity is membership in one of the two mode lists, not "has
-	// settings": ngram-cache is a real mode that takes no settings.
-	if !models.IsDraftMode(mode) && !models.IsAssistMode(mode) {
-		return out, fmt.Errorf("%q is not a speculative decoding mode", mode)
+	modes, rest, hasParams := strings.Cut(v, ":")
+
+	segments := strings.Split(modes, "+")
+	if len(segments) > 2 {
+		return out, fmt.Errorf("%q names %d speculative modes; at most one draft method and one n-gram method can run together", modes, len(segments))
 	}
-	allowed := specModeParams(mode)
-	out.mode = mode
+	for _, seg := range segments {
+		seg = strings.TrimSpace(seg)
+		switch {
+		case models.IsDraftMode(seg):
+			if out.mode != "" {
+				return out, fmt.Errorf("%q and %q are both draft methods; only one can run at a time", out.mode, seg)
+			}
+			out.mode = seg
+		case models.IsAssistMode(seg):
+			// Validity is membership in the mode lists, not "has
+			// settings": ngram-cache is a real mode that takes none.
+			if out.assist != "" {
+				return out, fmt.Errorf("%q and %q are both n-gram methods; only one can run at a time", out.assist, seg)
+			}
+			out.assist = seg
+		default:
+			return out, fmt.Errorf("%q is not a speculative decoding mode", seg)
+		}
+	}
+
 	if !hasParams {
 		return out, nil
 	}
+	// Keys are allowed only for a slot this value actually uses, so
+	// "draft-mtp:assist_n_max=64" is caught here rather than silently
+	// dropped when the value is applied.
+	allowed := append(models.SpecDraftParams(out.mode), models.SpecAssistParams(out.assist)...)
 	allowedKeys := map[string]bool{}
 	for _, p := range allowed {
 		allowedKeys[p.Key] = true
@@ -222,7 +276,7 @@ func parseSpecValue(raw string) (specValue, error) {
 			return out, fmt.Errorf("%q is not a key=value setting", pair)
 		}
 		if !allowedKeys[k] {
-			return out, fmt.Errorf("%q is not a setting of the %s mode", k, mode)
+			return out, fmt.Errorf("%q is not a setting of %s", k, strings.Join(nonEmpty(out.mode, out.assist), " + "))
 		}
 		if k == "draft_p_min" {
 			if _, err := strconv.ParseFloat(val, 64); err != nil {
@@ -247,16 +301,12 @@ func applySpecValue(o *ConfigOverrides, raw string) error {
 	if err != nil {
 		return err
 	}
-	// A value names one mode, which belongs to one slot; the other slot
-	// is explicitly cleared rather than left to inherit, so a cell that
-	// selects a mode runs that mode and nothing else.
-	var draft, assist string
-	if models.IsDraftMode(sv.mode) {
-		draft = sv.mode
-	} else {
-		assist = sv.mode
-	}
-	o.SpecType, o.SpecAssist = &draft, &assist
+	// Both slots are written, including when one is empty: an empty slot
+	// in a swept value means "off for this cell", not "inherit the
+	// model's saved mode". Parameters the value doesn't mention are left
+	// nil, which does inherit — the same rule as every other parameter.
+	mode, assist := sv.mode, sv.assist
+	o.SpecType, o.SpecAssist = &mode, &assist
 	for k, val := range sv.params {
 		switch k {
 		case "draft_max":
@@ -291,20 +341,32 @@ func applySpecValue(o *ConfigOverrides, raw string) error {
 	return nil
 }
 
-// encodeSpecValue renders a mode with its parameters' current values in
-// the encoded form the parser accepts, skipping empty values (empty =
-// inherit the model's saved setting). Bare mode when nothing is set.
-func encodeSpecValue(mode string, params []models.SpecModeParam) string {
+// encodeSpecValue renders one or both slots with their parameters'
+// current values in the encoded form the parser accepts, skipping empty
+// values (empty = inherit the model's saved setting). Bare mode names
+// when nothing is set.
+func encodeSpecValue(mode, assist string, params []models.SpecModeParam) string {
+	var names []string
+	if mode != "" {
+		names = append(names, mode)
+	}
+	if assist != "" {
+		names = append(names, assist)
+	}
+	if len(names) == 0 {
+		return "none"
+	}
 	var pairs []string
 	for _, p := range params {
 		if p.Default != "" {
 			pairs = append(pairs, p.Key+"="+p.Default)
 		}
 	}
+	out := strings.Join(names, "+")
 	if len(pairs) == 0 {
-		return mode
+		return out
 	}
-	return mode + ":" + strings.Join(pairs, ",")
+	return out + ":" + strings.Join(pairs, ",")
 }
 
 // canonicalSpecValue renders a spec value in its parsed, sorted form so
@@ -316,11 +378,22 @@ func canonicalSpecValue(raw string) string {
 	if err != nil {
 		return strings.TrimSpace(raw)
 	}
-	if sv.mode == "" {
+	if sv.mode == "" && sv.assist == "" {
 		return "none"
 	}
+	var names []string
+	if sv.mode != "" {
+		names = append(names, sv.mode)
+	}
+	if sv.assist != "" {
+		names = append(names, sv.assist)
+	}
+	// The draft method always sorts first, so "ngram-mod+draft-mtp" and
+	// "draft-mtp+ngram-mod" dedup to one cell — the modes are a set, not
+	// an order: common_speculative_init walks a fixed priority regardless.
+	out := strings.Join(names, "+")
 	if len(sv.params) == 0 {
-		return sv.mode
+		return out
 	}
 	keys := make([]string, 0, len(sv.params))
 	for k := range sv.params {
@@ -331,7 +404,7 @@ func canonicalSpecValue(raw string) string {
 	for i, k := range keys {
 		pairs[i] = k + "=" + sv.params[k]
 	}
-	return sv.mode + ":" + strings.Join(pairs, ",")
+	return out + ":" + strings.Join(pairs, ",")
 }
 
 func floatField(name, label, help, example string, apply func(*ConfigOverrides, *float64)) SweepField {
@@ -684,13 +757,17 @@ func init() {
 	))
 	// "none" (not an empty value, which would be dropped as unset) is the
 	// explicit off entry; the field's set function maps it to "".
-	set("spec_type", false, choices(
-		"none", "Off (no speculative decoding)",
-		"draft", "Draft Model", "draft-mtp", "MTP (self-speculation)",
-		"ngram-simple", "N-gram Simple", "ngram-cache", "N-gram Cache",
-		"ngram-map-k", "N-gram Map-K", "ngram-map-k4v", "N-gram Map-K4V",
-		"ngram-mod", "N-gram Mod",
-	))
+	// Eleven entries: five draft methods, five n-gram methods, and off.
+	// Built from the shared mode tables so the labels cannot drift from
+	// the model config form's two pickers.
+	specChoicePairs := []string{"none", "Off (no speculative decoding)"}
+	for _, m := range models.DraftModes() {
+		specChoicePairs = append(specChoicePairs, m.Name, m.Label)
+	}
+	for _, m := range models.AssistModes() {
+		specChoicePairs = append(specChoicePairs, m.Name, m.Label)
+	}
+	set("spec_type", false, choices(specChoicePairs...))
 	set("temperature", true, choices("0", "0 (greedy)", "0.7", "0.7", "1.0", "1.0"))
 	set("top_p", true, choices("0.9", "0.9", "0.95", "0.95", "1.0", "1.0 (off)"))
 	set("top_k", true, choices("20", "20", "40", "40", "0", "0 (disabled)"))
@@ -716,13 +793,33 @@ func init() {
 	// selecting a mode in a job then behaves exactly like selecting it
 	// on the model config form, and what the inputs show is what
 	// submits. Editing an input re-encodes the value in the browser.
+	// A draft choice additionally carries the n-gram assist dropdown and
+	// every assist mode's settings, rendered hidden and revealed by that
+	// dropdown, so a combination is built without leaving the checkbox.
+	assistParamsByMode := map[string][]models.SpecModeParam{}
+	for _, m := range models.AssistModes() {
+		assistParamsByMode[m.Name] = models.SpecAssistParams(m.Name)
+	}
+
 	st := sweepFields["spec_type"]
 	for i := range st.Choices {
 		mode := st.Choices[i].Value
-		st.Choices[i].Params = specModeParams(mode)
-		if len(st.Choices[i].Params) > 0 {
-			st.Choices[i].Mode = mode
-			st.Choices[i].Value = encodeSpecValue(mode, st.Choices[i].Params)
+		switch {
+		case models.IsDraftMode(mode):
+			st.Choices[i].Slot = "draft"
+			st.Choices[i].Params = models.SpecDraftParams(mode)
+			st.Choices[i].AssistModes = models.AssistModes()
+			st.Choices[i].AssistParamsByMode = assistParamsByMode
+		case models.IsAssistMode(mode):
+			st.Choices[i].Slot = "assist"
+			st.Choices[i].Params = models.SpecAssistParams(mode)
+		default:
+			continue // the "none" entry
+		}
+		st.Choices[i].Mode = mode
+		st.Choices[i].Value = encodeSpecValue(mode, "", st.Choices[i].Params)
+		if st.Choices[i].Slot == "assist" {
+			st.Choices[i].Value = encodeSpecValue("", mode, st.Choices[i].Params)
 		}
 	}
 	sweepFields["spec_type"] = st

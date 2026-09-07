@@ -141,5 +141,53 @@ ok(JSON.stringify(back.spec_type)==='["ngram-cache"]',
 ok(unmappedOverrides.draft_model_path==='/d.gguf',
    'an override with no control is carried through, not deleted');
 
+// 12. Speculative decoding: a draft method and an n-gram assist combine
+// inside one checkbox, which is the only way all twenty-five pairings are
+// reachable on a row that has no custom-entry box.
+const sp=row('spec_type');
+sp.querySelector('.param-inherit').checked=true;
+sp.querySelectorAll('.param-value').forEach(c=>{ c.checked=false; });
+
+const mtpBox=sp.querySelectorAll('.spec-params').find(b=>b.getAttribute('data-mode')==='draft-mtp');
+const mtpSel=mtpBox.querySelector('.spec-assist-select');
+const mtpMax=mtpBox.querySelectorAll('.spec-param-input').find(i=>i.getAttribute('data-key')==='draft_max');
+
+// Editing a setting selects the mode, and encodes only that slot.
+mtpMax.value='3'; updateSpecValue(mtpMax);
+ok(JSON.stringify(readParams(form).spec_type)==='["draft-mtp:draft_max=3,draft_min=0"]',
+   'draft slot alone encodes without a "+", got '+JSON.stringify(readParams(form).spec_type));
+
+// Choosing an assist appends it and reveals only that mode's settings.
+mtpSel.value='ngram-mod'; updateSpecValue(mtpSel);
+ok(readParams(form).spec_type[0]==='draft-mtp+ngram-mod:draft_max=3,draft_min=0,assist_n_max=64,assist_n_min=48,assist_n_match=24',
+   'assist joins with "+" and contributes its own keys, got '+JSON.stringify(readParams(form).spec_type));
+ok(mtpBox.querySelectorAll('.spec-assist-params').find(d=>d.getAttribute('data-assist')==='ngram-simple').hidden===true,
+   'a non-selected assist stays hidden so its defaults never reach the value');
+
+// Switching the assist swaps which keys appear.
+mtpSel.value='ngram-simple'; updateSpecValue(mtpSel);
+ok(readParams(form).spec_type[0].indexOf('assist_size_n=12')!==-1 &&
+   readParams(form).spec_type[0].indexOf('assist_n_max')===-1,
+   'switching the assist swaps its settings, got '+JSON.stringify(readParams(form).spec_type));
+
+// Back to None drops the segment and every assist key.
+mtpSel.value=''; updateSpecValue(mtpSel);
+ok(readParams(form).spec_type[0]==='draft-mtp:draft_max=3,draft_min=0',
+   'clearing the assist drops the "+" segment, got '+JSON.stringify(readParams(form).spec_type));
+
+// 13. A saved combined value restores onto the checkbox, the dropdown and
+// both slots' inputs.
+sp.querySelectorAll('.param-value').forEach(c=>{ c.checked=false; });
+addParamValue(sp, 'draft-mtp+ngram-mod:draft_max=5,assist_n_max=32');
+ok(readParams(form).spec_type[0]==='draft-mtp+ngram-mod:draft_max=5,assist_n_max=32',
+   'a combined value round-trips, got '+JSON.stringify(readParams(form).spec_type));
+ok(mtpSel.value==='ngram-mod', 'restore selects the assist dropdown, got '+mtpSel.value);
+ok(mtpMax.value==='5', 'restore fills the draft input, got '+mtpMax.value);
+const modBox=mtpBox.querySelectorAll('.spec-assist-params').find(d=>d.getAttribute('data-assist')==='ngram-mod');
+ok(modBox.querySelectorAll('.spec-param-input').find(i=>i.getAttribute('data-key')==='assist_n_max').value==='32',
+   'restore fills the assist input');
+ok(modBox.querySelectorAll('.spec-param-input').find(i=>i.getAttribute('data-key')==='assist_n_min').value==='',
+   'a key the saved value omits is cleared, not left at its default');
+
 console.log(fails===0 ? '\nALL PASS' : '\n'+fails+' FAILURES');
 process.exit(fails?1:0);

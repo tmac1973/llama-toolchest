@@ -49,6 +49,7 @@ func TestParameterControlsJS(t *testing.T) {
 		"paramRows", "paramValues", "onParamInheritToggle", "onParamValueToggle",
 		"addParamCustom", "addParamValue", "syncParamRow", "readParams",
 		"numEq", "fillUbatchLadder", "updateMatrixCount", "prefillJobForm",
+		"updateSpecValue",
 	}
 	extracted, missing := extractFunctions(js.String(), wanted)
 	if len(missing) > 0 {

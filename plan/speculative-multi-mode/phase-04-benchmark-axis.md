@@ -8,8 +8,10 @@ the project.
 
 Extend the `spec_type` sweep axis so a cell can name a draft method, an n-gram
 assist, or both, with each slot's parameters. The encoded form joins the two
-mode names with `+` and keeps `,` between parameters, because the field's
-`Separator` is already `","` and the sweep splits value lists on it. In the job
+mode names with `+` and keeps `,` between parameters, because `,` already
+separates the parameters inside a value. (The field's own value separator is
+`";"` — it already had to be, for that same reason. The source report said `","`
+and that is wrong.) In the job
 form, each draft-method choice's expandable section gains an "N-gram assist"
 dropdown and the assist's parameter fields. Eleven choices (five draft methods, five n-gram
 methods, and off) then reach thirty-six values: off, each mode alone, and all
@@ -176,7 +178,7 @@ way in.
     checkbox, so old jobs restore unchanged.
 
 12. **Cell-count estimate.** No change needed: the field's `Separator` is still
-    `","`, and `+` appears only inside a single value. Add a case to the JS
+    `";"`, and `+` appears only inside a single value. Add a case to the JS
     tests that pins this, because it is exactly the kind of thing a later
     separator change would break silently.
 

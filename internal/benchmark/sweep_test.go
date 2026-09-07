@@ -2,7 +2,10 @@ package benchmark
 
 import (
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
 func TestSweepCombinationsCartesianProduct(t *testing.T) {
@@ -244,5 +247,177 @@ func TestCellIdentityUnsweptCellsMatch(t *testing.T) {
 	b := JobCell{ModelID: "m", BuildID: "b", Preset: "p"}
 	if identify(a) != identify(b) {
 		t.Error("identical unswept cells must share an identity")
+	}
+}
+
+func TestSpecValueRoundTripsBothSlots(t *testing.T) {
+	cases := []struct {
+		raw          string
+		mode, assist string
+		params       map[string]string
+	}{
+		{"none", "", "", map[string]string{}},
+		{"draft-mtp", "draft-mtp", "", map[string]string{}},
+		{"draft-mtp:draft_max=3", "draft-mtp", "", map[string]string{"draft_max": "3"}},
+		{"ngram-mod:assist_n_max=64", "", "ngram-mod", map[string]string{"assist_n_max": "64"}},
+		{"draft-mtp+ngram-mod", "draft-mtp", "ngram-mod", map[string]string{}},
+		{
+			"draft-mtp+ngram-mod:draft_max=3,assist_n_max=64,assist_n_match=24",
+			"draft-mtp", "ngram-mod",
+			map[string]string{"draft_max": "3", "assist_n_max": "64", "assist_n_match": "24"},
+		},
+		{
+			"draft+ngram-simple:draft_p_min=0.75,assist_size_n=12,assist_min_hits=1",
+			"draft", "ngram-simple",
+			map[string]string{"draft_p_min": "0.75", "assist_size_n": "12", "assist_min_hits": "1"},
+		},
+		// ngram-cache takes no settings but is still a real mode.
+		{"draft-eagle3+ngram-cache", "draft-eagle3", "ngram-cache", map[string]string{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.raw, func(t *testing.T) {
+			sv, err := parseSpecValue(tc.raw)
+			if err != nil {
+				t.Fatalf("parse %q: %v", tc.raw, err)
+			}
+			if sv.mode != tc.mode || sv.assist != tc.assist {
+				t.Errorf("slots = %q/%q, want %q/%q", sv.mode, sv.assist, tc.mode, tc.assist)
+			}
+			if !reflect.DeepEqual(sv.params, tc.params) {
+				t.Errorf("params = %v, want %v", sv.params, tc.params)
+			}
+			// Canonicalising is idempotent, so dedup is stable.
+			c1 := canonicalSpecValue(tc.raw)
+			if c2 := canonicalSpecValue(c1); c1 != c2 {
+				t.Errorf("canonical not idempotent: %q then %q", c1, c2)
+			}
+		})
+	}
+}
+
+func TestCanonicalSpecValueDedupsOrderAndSpacing(t *testing.T) {
+	// The modes are a set, not an order: common_speculative_init builds a
+	// bitmask and walks a fixed priority, so these are the same cell.
+	a := canonicalSpecValue("draft-mtp+ngram-mod:assist_n_max=64,draft_max=3")
+	b := canonicalSpecValue(" ngram-mod + draft-mtp : draft_max=3 , assist_n_max=64 ")
+	if a != b {
+		t.Errorf("values differing only in order/spacing did not dedup:\n%q\n%q", a, b)
+	}
+	if !strings.HasPrefix(a, "draft-mtp+ngram-mod:") {
+		t.Errorf("canonical form should put the draft method first, got %q", a)
+	}
+}
+
+func TestParseSpecValueRejections(t *testing.T) {
+	cases := []struct{ raw, wantSubstr string }{
+		{"draft+draft-mtp", "both draft methods"},
+		{"ngram-mod+ngram-simple", "both n-gram methods"},
+		{"draft-mtp+ngram-mod+ngram-simple", "at most one draft method"},
+		{"draft-mtp:assist_n_max=64", "is not a setting"},
+		{"ngram-mod:draft_p_min=0.5", "is not a setting"},
+		{"draft-mtp:draft_max=abc", "is not an integer"},
+		{"draft:draft_p_min=nope", "is not a number"},
+		{"nonsense", "is not a speculative decoding mode"},
+		// "none" is a real llama.cpp value that poisons a list; it is only
+		// ever the standalone off entry, never a list member.
+		{"none+ngram-mod", "is not a speculative decoding mode"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.raw, func(t *testing.T) {
+			_, err := parseSpecValue(tc.raw)
+			if err == nil {
+				t.Fatalf("parse %q: want an error", tc.raw)
+			}
+			if !strings.Contains(err.Error(), tc.wantSubstr) {
+				t.Errorf("error = %q, want it to mention %q", err, tc.wantSubstr)
+			}
+		})
+	}
+}
+
+func TestApplySpecValueWritesBothSlots(t *testing.T) {
+	var o ConfigOverrides
+	if err := applySpecValue(&o, "draft-mtp+ngram-mod:draft_max=3,assist_n_max=64"); err != nil {
+		t.Fatal(err)
+	}
+	if o.SpecType == nil || *o.SpecType != "draft-mtp" {
+		t.Errorf("SpecType = %v, want draft-mtp", o.SpecType)
+	}
+	if o.SpecAssist == nil || *o.SpecAssist != "ngram-mod" {
+		t.Errorf("SpecAssist = %v, want ngram-mod", o.SpecAssist)
+	}
+	if o.DraftMax == nil || *o.DraftMax != 3 || o.AssistNMax == nil || *o.AssistNMax != 64 {
+		t.Errorf("parameters not applied: %+v", o)
+	}
+
+	// A value naming one mode must clear the other slot, not inherit it:
+	// "MTP alone" has to actually mean alone, even on a model whose saved
+	// config has an assist.
+	var solo ConfigOverrides
+	if err := applySpecValue(&solo, "draft-mtp:draft_max=3"); err != nil {
+		t.Fatal(err)
+	}
+	if solo.SpecAssist == nil || *solo.SpecAssist != "" {
+		t.Errorf("SpecAssist = %v, want an explicit empty string", solo.SpecAssist)
+	}
+
+	var off ConfigOverrides
+	if err := applySpecValue(&off, "none"); err != nil {
+		t.Fatal(err)
+	}
+	if off.SpecType == nil || *off.SpecType != "" || off.SpecAssist == nil || *off.SpecAssist != "" {
+		t.Errorf("none should clear both slots, got %+v", off)
+	}
+}
+
+func TestSpecChoicesCoverEveryMode(t *testing.T) {
+	got := map[string]string{}
+	for _, c := range sweepFields["spec_type"].Choices {
+		got[c.Mode] = c.Slot
+	}
+	// Eleven entries: five draft, five n-gram, and off (which has no mode).
+	if n := len(sweepFields["spec_type"].Choices); n != 11 {
+		t.Errorf("want 11 spec_type choices, got %d", n)
+	}
+	for _, m := range models.DraftModes() {
+		if got[m.Name] != "draft" {
+			t.Errorf("%s slot = %q, want draft", m.Name, got[m.Name])
+		}
+	}
+	for _, m := range models.AssistModes() {
+		if got[m.Name] != "assist" {
+			t.Errorf("%s slot = %q, want assist", m.Name, got[m.Name])
+		}
+	}
+	// Only a draft choice carries the assist dropdown, which is what makes
+	// two draft methods unreachable from the form.
+	for _, c := range sweepFields["spec_type"].Choices {
+		if (len(c.AssistModes) > 0) != (c.Slot == "draft") {
+			t.Errorf("%q: AssistModes present = %v, slot = %q", c.Value, len(c.AssistModes) > 0, c.Slot)
+		}
+	}
+	// Every encoded choice value must parse.
+	for _, c := range sweepFields["spec_type"].Choices {
+		if _, err := parseSpecValue(c.Value); err != nil {
+			t.Errorf("choice %q does not parse: %v", c.Value, err)
+		}
+	}
+}
+
+// spec_type's value separator is ";" — it already had to be, because an
+// encoded value's parameters are comma-separated. "+" appears only inside
+// a single value, so the form's live cell-count estimate, which splits on
+// the separator, keeps counting correctly.
+func TestSpecTypeSeparatorUnchanged(t *testing.T) {
+	if sep := sweepFields["spec_type"].Separator; sep != ";" {
+		t.Errorf("spec_type separator = %q, want %q", sep, ";")
+	}
+	// A combined value must survive a split on the separator intact.
+	raw := "draft-mtp+ngram-mod:draft_max=3,assist_n_max=64"
+	if parts := strings.Split(raw, ";"); len(parts) != 1 {
+		t.Errorf("combined value split into %d parts on the separator", len(parts))
+	}
+	if _, err := parseSpecValue(raw); err != nil {
+		t.Errorf("combined value does not parse: %v", err)
 	}
 }

@@ -42,6 +42,8 @@
 .spec-params .spec-param { display: flex; align-items: center; gap: 0.5rem; margin: 0.15rem 0; }
 .spec-params .spec-param small { min-width: 10rem; color: var(--pico-muted-color); }
 .spec-params .spec-param-input { margin: 0; width: 7rem; font-size: 0.85rem; padding: 0.1rem 0.4rem; height: auto; }
+.spec-params .spec-assist-select { margin: 0; width: 11rem; font-size: 0.85rem; padding: 0.1rem 0.4rem; height: auto; }
+.spec-params .spec-assist-params { margin-left: 1rem; border-left: 2px solid var(--pico-muted-border-color); padding-left: 0.5rem; }
 
 </style>
 
@@ -143,10 +145,10 @@
                     {{range .Choices}}
                     <label>
                         <input type="checkbox" class="param-value" data-param-value="{{$p.Name}}"
-                               value="{{.Value}}"{{if .Params}} data-mode="{{.Mode}}"{{end}} onchange="onParamValueToggle(this)">
+                               value="{{.Value}}"{{if .Mode}} data-mode="{{.Mode}}"{{end}} onchange="onParamValueToggle(this)">
                         {{.Label}}
                     </label>
-                    {{if .Params}}
+                    {{if .Mode}}
                     <details class="spec-params" data-mode="{{.Mode}}">
                         <summary><small>settings</small></summary>
                         {{range .Params}}
@@ -157,6 +159,28 @@
                                    placeholder="model's saved value"
                                    oninput="updateSpecValue(this)">
                         </label>
+                        {{end}}
+                        {{if eq .Slot "draft"}}
+                        <label class="spec-param" title="Runs alongside the draft method. Loads no extra file and uses no extra memory. When both propose tokens for the same step, the n-gram proposal is the one used.">
+                            <small>N-gram assist</small>
+                            <select class="spec-assist-select" onchange="updateSpecValue(this)">
+                                <option value="">None</option>
+                                {{range .AssistModes}}<option value="{{.Name}}">{{.Label}}</option>{{end}}
+                            </select>
+                        </label>
+                        {{range $mode, $params := .AssistParamsByMode}}
+                        <div class="spec-assist-params" data-assist="{{$mode}}" hidden>
+                            {{range $params}}
+                            <label class="spec-param" title="Clear the field to use the model's saved value.">
+                                <small>{{.Label}}</small>
+                                <input type="text" inputmode="decimal" class="spec-param-input"
+                                       data-key="{{.Key}}" value="{{.Default}}"
+                                       placeholder="model's saved value"
+                                       oninput="updateSpecValue(this)">
+                            </label>
+                            {{end}}
+                        </div>
+                        {{end}}
                         {{end}}
                     </details>
                     {{end}}

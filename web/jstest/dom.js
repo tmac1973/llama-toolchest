@@ -70,6 +70,59 @@ function mkTextRow(param, sep){
   return row;
 }
 
+
+// A spec_type row as the job form renders it: each mode choice carries a
+// data-mode checkbox and an expandable settings box, and a draft choice's
+// box also carries the n-gram assist dropdown with every assist mode's
+// settings, rendered hidden and revealed by that dropdown.
+function mkSpecRow(){
+  const row=new El('div'); row.className='param-row';
+  row.setAttribute('data-param','spec_type');
+  row.setAttribute('data-sep',';');
+  row.setAttribute('data-restarts','1');
+  const menu=new El('details'); menu.className='param-menu'; row.appendChild(menu);
+  const summary=new El('span'); summary.className='param-summary';
+  summary.setAttribute('data-summary-for','spec_type'); menu.appendChild(summary);
+  const optsEl=new El('div'); optsEl.className='param-options'; menu.appendChild(optsEl);
+  const inh=new El('input'); inh.type='checkbox'; inh.className='param-inherit'; inh.checked=true;
+  inh.setAttribute('data-param-inherit','spec_type'); optsEl.appendChild(inh);
+
+  const assistParams={'ngram-mod':[['assist_n_max','64'],['assist_n_min','48'],['assist_n_match','24']],
+                      'ngram-simple':[['assist_size_n','12'],['assist_size_m','48'],['assist_min_hits','1']],
+                      'ngram-cache':[]};
+  const modes=[['none','',[],null],
+               ['draft-mtp','draft-mtp',[['draft_max','6'],['draft_min','0']],'draft'],
+               ['ngram-mod:assist_n_max=64,assist_n_min=48,assist_n_match=24','ngram-mod',
+                [['assist_n_max','64'],['assist_n_min','48'],['assist_n_match','24']],'assist'],
+               ['ngram-cache','ngram-cache',[],'assist']];
+
+  for(const [value,mode,params,slot] of modes){
+    const cb=new El('input'); cb.type='checkbox'; cb.className='param-value'; cb.value=value;
+    cb.setAttribute('data-param-value','spec_type');
+    if(mode) cb.setAttribute('data-mode',mode);
+    optsEl.appendChild(cb);
+    if(!mode) continue;
+    const box=new El('details'); box.className='spec-params';
+    box.setAttribute('data-mode',mode); optsEl.appendChild(box);
+    for(const [key,def] of params){
+      const inp=new El('input'); inp.className='spec-param-input';
+      inp.setAttribute('data-key',key); inp.value=def; box.appendChild(inp);
+    }
+    if(slot!=='draft') continue;
+    const sel=new El('select'); sel.className='spec-assist-select'; sel.value='';
+    box.appendChild(sel);
+    for(const am of Object.keys(assistParams)){
+      const d=new El('div'); d.className='spec-assist-params';
+      d.setAttribute('data-assist',am); d.hidden=true; box.appendChild(d);
+      for(const [key,def] of assistParams[am]){
+        const inp=new El('input'); inp.className='spec-param-input';
+        inp.setAttribute('data-key',key); inp.value=def; d.appendChild(inp);
+      }
+    }
+  }
+  return row;
+}
+
 const form=new El('form');
 form.setAttribute('data-max-cells','500');
 // Matrix selections, without which updateMatrixCount bails immediately.
@@ -79,7 +132,7 @@ form.appendChild(mkCheck('build','b1',true));
 form.appendChild(mkCheck('preset','internal-quick',true));
 form.appendChild(mkRow('ubatch_size',['64','128','256','512','1024','2048'],{restarts:1,custom:1}));
 form.appendChild(mkRow('gpu_assign',['all','0','1','0-1'],{restarts:1,custom:1}));
-form.appendChild(mkRow('spec_type',['draft','draft-mtp'],{restarts:1}));         // no custom box
+form.appendChild(mkSpecRow());                                                   // no custom box
 form.appendChild(mkRow('temperature',['0','0.7','1.0'],{custom:1}));
 form.appendChild(mkTextRow('tensor_split','|'));
 const _byId={};
