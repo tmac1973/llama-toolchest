@@ -18,13 +18,21 @@ earn on recall (the report's 4×). No code is written in this phase.
 
 ## Steps
 
-1. **The model is `unsloth--Qwen3.5-9B-MTP-GGUF--Qwen3.5-9B-UD-Q8_K_XL`.** It is
-   the largest model installed on this machine that carries an MTP head
-   (12.3 GiB), so generation is the bottleneck — the condition under which
-   speculative decoding matters at all. Its MTP head is baked into the main
-   GGUF, so `draft-mtp` runs as self-speculation with no separate head file,
-   which is the configuration the report's C1 and C7 rows used. Record the build
-   ID and the GPU configuration in `results.md` alongside it; a throughput
+1. **The model is `unsloth--Qwen3.5-9B-MTP-GGUF--Qwen3.5-9B-IQ4_NL`** (5.3 GiB).
+   Its MTP head is baked into the main GGUF, so `draft-mtp` runs as
+   self-speculation with no separate head file — the configuration the report's
+   C1 and C7 rows used — and it is already configured that way here.
+
+   Not the 12.3 GiB `UD-Q8_K_XL` from the same repo, despite generation being
+   more clearly the bottleneck on a larger model: GPU 0 is a Radeon RX 9070 XT
+   with 15.9 GiB total and about 2.4 GiB already in use, so a 12.3 GiB model
+   would leave no room for the KV cache and compute buffers and would end up
+   partially offloaded. Partial offload dominates generation throughput, which
+   would swamp the effect being measured. The second device has 2 GiB and is not
+   a candidate.
+
+   Record the build ID (`b10453-rocm-optimized` is the build the source report
+   was verified against) and the GPU configuration in `results.md`; a throughput
    number without them is not reusable.
 
 2. **Build the job.** One benchmark job, one model, one build, sweeping two
