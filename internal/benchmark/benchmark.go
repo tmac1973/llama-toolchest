@@ -323,6 +323,11 @@ type Preset struct {
 	Repetitions  int
 	Concurrency  []int // benchy only; defaults to [1] if empty
 
+	// PromptStyle selects the instruction wrapped around the passage.
+	// Zero value is PromptStyleAnalyze, so an existing preset keeps the
+	// workload it has always had and no stored result is invalidated.
+	PromptStyle PromptStyle
+
 	// Capability presets only (Source == PresetSourceCapability).
 	// EvalMode names the evaluation the cell runs; EvalTasks and
 	// EvalChunks are the run limits (0 = full run). Performance presets
@@ -356,6 +361,14 @@ func Presets() []Preset {
 			Description:  "Three repetitions of end-to-end requests at 128, 512, and 2048-token prompts (128 gen tokens each).",
 			Source:       PresetSourceInternal,
 			PromptTokens: []int{128, 512, 2048}, GenTokens: 128, Repetitions: 3,
+		},
+		{
+			Name:         "internal-echo",
+			Label:        "internal-echo — 3 reps × 2048-token prompt, 512 gen, recall workload (~2 min)",
+			Description:  "Three repetitions of a 2048-token prompt asking the model to reproduce the passage verbatim, with 512 generated tokens. Generation is recall of text already in the context rather than new prose, which is the workload where n-gram speculative decoding pays off: a file being rewritten, a structured response, a tool-call loop. Compare against internal-standard, whose prompts ask for new text, to see what a speculative setting costs on one workload and earns on the other.",
+			Source:       PresetSourceInternal,
+			PromptTokens: []int{2048}, GenTokens: 512, Repetitions: 3,
+			PromptStyle: PromptStyleEcho,
 		},
 		{
 			Name:         "internal-thorough",

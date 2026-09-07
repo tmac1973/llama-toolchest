@@ -233,7 +233,7 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 
 			// run.ID is unique per cell, so no two cells can send the
 			// same prompt and hit each other's cache.
-			result, err := r.runOneTest(ctx, cfg.RouterURL, cfg.RouterName, promptTokens, cfg.Preset.GenTokens, rep, cfg.Sampling, run.ID)
+			result, err := r.runOneTest(ctx, cfg.RouterURL, cfg.RouterName, promptTokens, cfg.Preset.GenTokens, rep, cfg.Sampling, run.ID, cfg.Preset.PromptStyle)
 			if err != nil {
 				lastErr = err
 				slog.Error("benchmark test failed", "prompt_tokens", promptTokens, "rep", rep, "error", err)
@@ -376,6 +376,35 @@ const BenchPromptPrefixTemplate = "This is benchmark repetition number %d. Pleas
 // ~4 chars/token under most BPE tokenizers).
 const BenchPromptCharsPerToken = 4
 
+// PromptStyle selects the instruction wrapped around the benchmark
+// passage. The two styles produce opposite generation workloads, and that
+// is the point: an n-gram speculative method measures exactly baseline on
+// PromptStyleAnalyze, which asks for new prose, and several times
+// baseline on PromptStyleEcho, where generation is recall of text already
+// in the context.
+type PromptStyle string
+
+const (
+	// PromptStyleAnalyze asks the model to respond to the passage. It is
+	// the zero value, so every preset that does not say otherwise keeps
+	// the behaviour it has always had.
+	PromptStyleAnalyze PromptStyle = ""
+	PromptStyleEcho    PromptStyle = "echo"
+)
+
+// BenchPromptEchoPrefixTemplate asks the model to reproduce the passage
+// rather than respond to it. Exposed so the About modal can show the
+// actual template, the same as the analysis prefix.
+const BenchPromptEchoPrefixTemplate = "This is benchmark repetition number %d. Reproduce the following text exactly, character for character, with no commentary and no introduction.\n\n"
+
+// promptPrefixTemplate returns the per-repetition prefix for a style.
+func promptPrefixTemplate(style PromptStyle) string {
+	if style == PromptStyleEcho {
+		return BenchPromptEchoPrefixTemplate
+	}
+	return BenchPromptPrefixTemplate
+}
+
 // buildPrompt constructs a prompt of approximately the target token count
 // by repeating the benchmark text. The repetition parameter varies the
 // prompt to defeat llama.cpp's prompt cache.
@@ -392,7 +421,7 @@ const BenchPromptCharsPerToken = 4
 // prompt_n collapsing from 213 to 4 and prompt-processing throughput
 // reported as ~90 t/s instead of ~1380: a meaningless number presented
 // as a measurement.
-func buildPromptFor(nonce string, targetTokens int, repetition int) string {
+func buildPromptFor(nonce string, targetTokens int, repetition int, style PromptStyle) string {
 	targetChars := targetTokens * BenchPromptCharsPerToken
 	var b strings.Builder
 	// Everything that distinguishes this request goes first, before the
@@ -406,9 +435,18 @@ func buildPromptFor(nonce string, targetTokens int, repetition int) string {
 	// prompt_n of 6309/6795/13070/25630, which sum to the real sizes, and
 	// its throughput figures measured incremental prefill at increasing
 	// depth rather than the full prefill each row claimed.
-	b.WriteString(fmt.Sprintf("Benchmark %s, target %d tokens, repetition %d.\n\n",
-		nonce, targetTokens, repetition))
-	b.WriteString(fmt.Sprintf(BenchPromptPrefixTemplate, repetition))
+	// The style belongs on this line too: both prefixes below open with
+	// "This is benchmark repetition number N", so two prompts that differ
+	// only in style would otherwise share their first ~80 characters. It
+	// is appended only when non-default, so an analysis prompt stays
+	// byte-identical to what every existing preset has always sent.
+	styleMark := ""
+	if style != PromptStyleAnalyze {
+		styleMark = ", style " + string(style)
+	}
+	b.WriteString(fmt.Sprintf("Benchmark %s, target %d tokens, repetition %d%s.\n\n",
+		nonce, targetTokens, repetition, styleMark))
+	b.WriteString(fmt.Sprintf(promptPrefixTemplate(style), repetition))
 	for b.Len() < targetChars {
 		b.WriteString(BenchPromptText)
 	}
@@ -422,14 +460,14 @@ func buildPromptFor(nonce string, targetTokens int, repetition int) string {
 // buildPrompt is the nonce-free form, kept for callers that don't need
 // cache isolation (warmup).
 func buildPrompt(targetTokens int, repetition int) string {
-	return buildPromptFor("", targetTokens, repetition)
+	return buildPromptFor("", targetTokens, repetition, PromptStyleAnalyze)
 }
 
 // sendCompletion sends a chat completion and returns the timings.
 func (r *Runner) sendCompletion(ctx context.Context, routerURL, model string, promptTokens, genTokens int) error {
 	// Warmup only needs the model resident; sampling settings are
 	// irrelevant to that and are left at server defaults.
-	_, err := r.sendCompletionWithTimings(ctx, routerURL, model, promptTokens, genTokens, 0, SamplingParams{}, "")
+	_, err := r.sendCompletionWithTimings(ctx, routerURL, model, promptTokens, genTokens, 0, SamplingParams{}, "", PromptStyleAnalyze)
 	return err
 }
 
@@ -443,8 +481,8 @@ type timingsResponse struct {
 	PredictedPerSec float64 `json:"predicted_per_second"`
 }
 
-func (r *Runner) sendCompletionWithTimings(ctx context.Context, routerURL, model string, promptTokens, genTokens, repetition int, sampling SamplingParams, nonce string) (*timingsResponse, error) {
-	prompt := buildPromptFor(nonce, promptTokens, repetition)
+func (r *Runner) sendCompletionWithTimings(ctx context.Context, routerURL, model string, promptTokens, genTokens, repetition int, sampling SamplingParams, nonce string, style PromptStyle) (*timingsResponse, error) {
+	prompt := buildPromptFor(nonce, promptTokens, repetition, style)
 	reqPayload := map[string]any{
 		"model":      model,
 		"max_tokens": genTokens,
@@ -492,8 +530,8 @@ func (r *Runner) sendCompletionWithTimings(ctx context.Context, routerURL, model
 }
 
 // runOneTest runs a single benchmark test point.
-func (r *Runner) runOneTest(ctx context.Context, routerURL, model string, promptTokens, genTokens, rep int, sampling SamplingParams, nonce string) (*BenchmarkResult, error) {
-	timings, err := r.sendCompletionWithTimings(ctx, routerURL, model, promptTokens, genTokens, rep, sampling, nonce)
+func (r *Runner) runOneTest(ctx context.Context, routerURL, model string, promptTokens, genTokens, rep int, sampling SamplingParams, nonce string, style PromptStyle) (*BenchmarkResult, error) {
+	timings, err := r.sendCompletionWithTimings(ctx, routerURL, model, promptTokens, genTokens, rep, sampling, nonce, style)
 	if err != nil {
 		return nil, err
 	}

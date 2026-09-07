@@ -423,20 +423,20 @@ func TestValidateSamplingSupportAllowsConfigSweepWithBenchy(t *testing.T) {
 // prompt-processing rate is cache-lookup overhead reported as a
 // measurement.
 func TestPromptsDifferPerCell(t *testing.T) {
-	a := buildPromptFor("bench-1-1-1", 256, 1)
-	b := buildPromptFor("bench-2-2-1", 256, 1)
+	a := buildPromptFor("bench-1-1-1", 256, 1, PromptStyleAnalyze)
+	b := buildPromptFor("bench-2-2-1", 256, 1, PromptStyleAnalyze)
 	if a == b {
 		t.Error("two cells produced identical prompts; the second would hit the prompt cache")
 	}
 	// Same nonce and repetition must still be reproducible.
-	if buildPromptFor("bench-1-1-1", 256, 1) != a {
+	if buildPromptFor("bench-1-1-1", 256, 1, PromptStyleAnalyze) != a {
 		t.Error("prompt generation must be deterministic for a given cell")
 	}
 }
 
 // The existing per-repetition variation must survive.
 func TestPromptsDifferPerRepetition(t *testing.T) {
-	if buildPromptFor("x", 256, 1) == buildPromptFor("x", 256, 2) {
+	if buildPromptFor("x", 256, 1, PromptStyleAnalyze) == buildPromptFor("x", 256, 2, PromptStyleAnalyze) {
 		t.Error("repetitions must differ")
 	}
 }
@@ -445,7 +445,7 @@ func TestPromptsDifferPerRepetition(t *testing.T) {
 func TestPromptSizeUnaffectedByNonce(t *testing.T) {
 	want := 256 * BenchPromptCharsPerToken
 	for _, n := range []string{"", "bench-1784407486983-1-1"} {
-		if got := len(buildPromptFor(n, 256, 1)); got != want {
+		if got := len(buildPromptFor(n, 256, 1, PromptStyleAnalyze)); got != want {
 			t.Errorf("nonce %q: prompt is %d chars, want %d", n, got, want)
 		}
 	}
@@ -456,8 +456,8 @@ func TestPromptSizeUnaffectedByNonce(t *testing.T) {
 // every size after the first measured incremental prefill while
 // reporting only the newly-processed token count.
 func TestPromptsOfDifferentSizesDoNotSharePrefix(t *testing.T) {
-	short := buildPromptFor("cell-1", 256, 1)
-	long := buildPromptFor("cell-1", 512, 1)
+	short := buildPromptFor("cell-1", 256, 1, PromptStyleAnalyze)
+	long := buildPromptFor("cell-1", 512, 1, PromptStyleAnalyze)
 
 	n := len(short)
 	if len(long) < n {
@@ -568,5 +568,81 @@ func TestSpecValueParsingAndCanonical(t *testing.T) {
 	}
 	if len(axes) != 0 {
 		t.Errorf("equivalent values should dedup to a fixed override, got axes %+v", axes)
+	}
+}
+
+// The two prompt styles must ask for opposite work — that is the whole
+// reason internal-echo exists. An n-gram speculative method measures
+// exactly baseline on the analysis prompt, so without a recall prompt the
+// benefit of combining modes cannot be measured here at all.
+func TestPromptStylesAskForOppositeWork(t *testing.T) {
+	analyze := buildPromptFor("n", 2048, 1, PromptStyleAnalyze)
+	echo := buildPromptFor("n", 2048, 1, PromptStyleEcho)
+
+	if !strings.Contains(analyze, "analyze the following text") {
+		t.Errorf("analysis prompt lost its instruction:\n%s", analyze[:200])
+	}
+	if strings.Contains(analyze, "Reproduce the following text") {
+		t.Errorf("analysis prompt should not ask for reproduction")
+	}
+	if !strings.Contains(echo, "Reproduce the following text exactly") {
+		t.Errorf("echo prompt lost its instruction:\n%s", echo[:200])
+	}
+	if strings.Contains(echo, "analyze the following text") {
+		t.Errorf("echo prompt should not ask for analysis")
+	}
+	// Both are sized the same way, so a comparison between them is a
+	// comparison of workload and nothing else.
+	if len(analyze) != len(echo) {
+		t.Errorf("styles produced different lengths: %d vs %d", len(analyze), len(echo))
+	}
+	if want := 2048 * BenchPromptCharsPerToken; len(echo) != want {
+		t.Errorf("echo prompt length = %d, want %d", len(echo), want)
+	}
+}
+
+// An echo prompt is by construction the most cacheable thing the
+// benchmark sends, so the cache-defeating discipline matters more here,
+// not less: a cached prefill would report a meaningless number.
+func TestEchoPromptsStillDefeatTheCache(t *testing.T) {
+	const head = 80
+	cases := []struct{ name, a, b string }{
+		{"style", buildPromptFor("n", 256, 1, PromptStyleAnalyze), buildPromptFor("n", 256, 1, PromptStyleEcho)},
+		{"nonce", buildPromptFor("a", 256, 1, PromptStyleEcho), buildPromptFor("b", 256, 1, PromptStyleEcho)},
+		{"repetition", buildPromptFor("n", 256, 1, PromptStyleEcho), buildPromptFor("n", 256, 2, PromptStyleEcho)},
+		{"size", buildPromptFor("n", 256, 1, PromptStyleEcho), buildPromptFor("n", 512, 1, PromptStyleEcho)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.a[:head] == tc.b[:head] {
+				t.Errorf("prompts differing by %s share their first %d chars:\n%s", tc.name, head, tc.a[:head])
+			}
+		})
+	}
+}
+
+func TestInternalEchoPresetUsesTheRecallStyle(t *testing.T) {
+	p := GetPreset("internal-echo")
+	if p.Name != "internal-echo" {
+		t.Fatalf("internal-echo not registered; GetPreset fell back to %q", p.Name)
+	}
+	if p.PromptStyle != PromptStyleEcho {
+		t.Errorf("internal-echo style = %q, want %q", p.PromptStyle, PromptStyleEcho)
+	}
+	// 512 generated tokens has to fit inside the passage being echoed, or
+	// the model runs out of source text and drifts into invention.
+	if p.GenTokens >= p.PromptTokens[0] {
+		t.Errorf("gen tokens %d should be well inside the %d-token passage", p.GenTokens, p.PromptTokens[0])
+	}
+
+	// Every other preset keeps the workload it has always had, so no
+	// stored result is invalidated.
+	for _, other := range Presets() {
+		if other.Name == "internal-echo" {
+			continue
+		}
+		if other.PromptStyle != PromptStyleAnalyze {
+			t.Errorf("%s changed prompt style to %q", other.Name, other.PromptStyle)
+		}
 	}
 }

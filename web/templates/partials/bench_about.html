@@ -9,9 +9,14 @@
 
 <h5>Internal prompt</h5>
 <p>Every internal request is built by repeating a fixed prose passage until it hits the target character count, prefixed with a per-rep header to defeat llama.cpp's prompt cache. Approximate sizing: <code>{{.InternalPrompt.CharsPerToken}}</code> chars/token (English BPE average).</p>
+<p>Two prefixes are in use, and they ask for opposite work. Most presets ask the model to <strong>analyse</strong> the passage, so it generates new prose. <strong>internal-echo</strong> asks it to <strong>reproduce</strong> the passage, so generation is recall of text already in the context — the workload where n-gram speculative decoding pays off and where an analysis prompt shows nothing.</p>
 <details>
-    <summary><small>Per-repetition prefix template</small></summary>
+    <summary><small>Analysis prefix (most internal presets)</small></summary>
     <pre style="font-size:0.75rem;white-space:pre-wrap;margin:0.25rem 0 0;">{{.InternalPrompt.RepetitionPrefix}}</pre>
+</details>
+<details>
+    <summary><small>Recall prefix (internal-echo)</small></summary>
+    <pre style="font-size:0.75rem;white-space:pre-wrap;margin:0.25rem 0 0;">{{.InternalPrompt.EchoPrefix}}</pre>
 </details>
 <details>
     <summary><small>Prose passage</small></summary>

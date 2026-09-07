@@ -12,6 +12,7 @@ type AboutBenchmarks struct {
 	InternalPrompt struct {
 		Text             string `json:"text"`
 		RepetitionPrefix string `json:"repetition_prefix"`
+		EchoPrefix       string `json:"echo_prefix"`
 		CharsPerToken    int    `json:"chars_per_token"`
 	} `json:"internal_prompt"`
 	Presets        []benchmark.Preset     `json:"presets"`
@@ -39,6 +40,7 @@ func (s *Server) handleBenchmarksAbout(w http.ResponseWriter, r *http.Request) {
 	}
 	about.InternalPrompt.Text = benchmark.BenchPromptText
 	about.InternalPrompt.RepetitionPrefix = benchmark.BenchPromptPrefixTemplate
+	about.InternalPrompt.EchoPrefix = benchmark.BenchPromptEchoPrefixTemplate
 	about.InternalPrompt.CharsPerToken = benchmark.BenchPromptCharsPerToken
 
 	for _, p := range about.Presets {
