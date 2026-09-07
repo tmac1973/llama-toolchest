@@ -28,7 +28,7 @@
         {{if .DirectIO}} · direct_io={{deref .DirectIO}}{{end}}
         {{if .GPUAssign}} · gpu_assign={{deref .GPUAssign}}{{end}}
         {{if .TensorSplit}} · tensor_split={{deref .TensorSplit}}{{end}}
-        {{if .SpecType}} · spec_type={{deref .SpecType}}{{end}}
+        {{if .SpecType}} · spec_type={{deref .SpecType}}{{end}}{{if .SpecAssist}} · spec_assist={{deref .SpecAssist}}{{end}}
         {{end}}
     </small>
     {{end}}

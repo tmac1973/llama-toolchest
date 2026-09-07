@@ -749,7 +749,7 @@ func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 			detectedMTP = models.FindMTP(model.FilePath)
 			isEmbedding = model.IsEmbedding()
 			if !isEmbedding {
-				draftCandidates = s.registry.FindDraftCandidates(id)
+				draftCandidates = s.registry.FindDraftCandidates(id, cfg.SpecType)
 			}
 		}
 

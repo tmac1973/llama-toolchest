@@ -1305,14 +1305,29 @@ type DraftCandidate struct {
 	Arch     string
 }
 
-// FindDraftCandidates returns models that could serve as draft models for
-// the given model: same architecture family, significantly smaller.
-func (r *Registry) FindDraftCandidates(id string) []DraftCandidate {
+// FindDraftCandidates returns models that could serve as the drafter for
+// the given model under the given speculative mode: same architecture
+// family and significantly smaller, which is what makes a draft model
+// usable at all.
+//
+// The head-based methods (draft-eagle3, draft-dflash, draft-dspark) skip
+// both of those checks. Their drafter is not a smaller model of the same
+// family, it is a trained extra layer converted to its own GGUF, so it
+// matches neither filter — applying them would leave the picker empty for
+// exactly the modes that need it.
+func (r *Registry) FindDraftCandidates(id, mode string) []DraftCandidate {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	headBased := IsHeadBasedDraftMode(mode)
+
 	target, ok := r.data.Models[id]
-	if !ok || target.Arch == "" {
+	if !ok {
+		return nil
+	}
+	// A target with no recorded architecture can still take a converted
+	// head; it just cannot be matched against a draft model.
+	if target.Arch == "" && !headBased {
 		return nil
 	}
 
@@ -1321,13 +1336,15 @@ func (r *Registry) FindDraftCandidates(id string) []DraftCandidate {
 		if m.ID == id {
 			continue
 		}
-		// Same architecture family
-		if m.Arch != target.Arch {
-			continue
-		}
-		// Must be significantly smaller (< 40% of target size)
-		if m.SizeBytes >= target.SizeBytes*4/10 {
-			continue
+		if !headBased {
+			// Same architecture family
+			if m.Arch != target.Arch {
+				continue
+			}
+			// Must be significantly smaller (< 40% of target size)
+			if m.SizeBytes >= target.SizeBytes*4/10 {
+				continue
+			}
 		}
 		// Skip embedding models
 		if m.IsEmbedding() {

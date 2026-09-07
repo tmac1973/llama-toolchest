@@ -181,7 +181,10 @@ func configLiteral(cfg *models.ModelConfig) string {
 	if cfg.MtpPath != "" && !cfg.MtpDisabled {
 		f = append(f, fmt.Sprintf("MtpPath: %q", cfg.MtpPath))
 	}
-	if cfg.SpecType == "draft" && cfg.DraftModelPath != "" {
+	// Any draft method that loads a drafter from DraftModelPath, not just
+	// "draft" — the head-based methods load one too, and a corpus entry
+	// captured under one of them must record it.
+	if models.IsDraftMode(cfg.SpecType) && cfg.DraftModelPath != "" {
 		f = append(f, fmt.Sprintf("SpecType: %q, DraftModelPath: %q", cfg.SpecType, cfg.DraftModelPath))
 	}
 	return "ModelConfig{" + strings.Join(f, ", ") + "}"

@@ -139,6 +139,17 @@ func TestAuxFilesVRAMGB(t *testing.T) {
 		{"mtp disabled", ModelConfig{MtpPath: mtp, MtpDisabled: true}, 0},
 		{"draft path but not draft mode", ModelConfig{SpecType: "draft-mtp", DraftModelPath: draft}, 0},
 		{"mtp head under draft-mtp", ModelConfig{SpecType: "draft-mtp", MtpPath: mtp}, 2},
+		// The head-based methods load their converted head from
+		// DraftModelPath, so it has to be counted the same way "draft" is.
+		{"eagle3 head", ModelConfig{SpecType: "draft-eagle3", DraftModelPath: draft}, 3},
+		{"dflash head", ModelConfig{SpecType: "draft-dflash", DraftModelPath: draft}, 3},
+		{"dspark head", ModelConfig{SpecType: "draft-dspark", DraftModelPath: draft}, 3},
+		// draft-mtp's head comes from MtpPath and is counted there; a
+		// stray DraftModelPath must not be counted a second time.
+		{"draft-mtp counts its head once", ModelConfig{SpecType: "draft-mtp", MtpPath: mtp, DraftModelPath: draft}, 2},
+		// The n-gram assist loads no file at all.
+		{"assist alone", ModelConfig{SpecAssist: "ngram-mod", AssistNMax: 64}, 0},
+		{"assist adds nothing to a draft method", ModelConfig{SpecType: "draft", DraftModelPath: draft, SpecAssist: "ngram-mod"}, 3},
 		{"missing file counts zero", ModelConfig{MmprojPath: filepath.Join(dir, "nope.gguf")}, 0},
 	}
 	for _, tc := range cases {

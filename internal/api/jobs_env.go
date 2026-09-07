@@ -400,6 +400,13 @@ func (e *jobEnv) modelInfoBundle(m *models.Model) (benchmark.ModelInfo, error) {
 			DraftMax:       cfg.DraftMax,
 			DraftMin:       cfg.DraftMin,
 			DraftPMin:      cfg.DraftPMin,
+			SpecAssist:     cfg.SpecAssist,
+			AssistNMax:     cfg.AssistNMax,
+			AssistNMin:     cfg.AssistNMin,
+			AssistNMatch:   cfg.AssistNMatch,
+			AssistSizeN:    cfg.AssistSizeN,
+			AssistSizeM:    cfg.AssistSizeM,
+			AssistMinHits:  cfg.AssistMinHits,
 			NgramSizeN:     cfg.NgramSizeN,
 			NgramSizeM:     cfg.NgramSizeM,
 			PLEMode:        cfg.PLEMode,
@@ -671,6 +678,13 @@ func applySnapshotToConfig(base models.ModelConfig, snap benchmark.ConfigSnapsho
 	out.DraftMax = snap.DraftMax
 	out.DraftMin = snap.DraftMin
 	out.DraftPMin = snap.DraftPMin
+	out.SpecAssist = snap.SpecAssist
+	out.AssistNMax = snap.AssistNMax
+	out.AssistNMin = snap.AssistNMin
+	out.AssistNMatch = snap.AssistNMatch
+	out.AssistSizeN = snap.AssistSizeN
+	out.AssistSizeM = snap.AssistSizeM
+	out.AssistMinHits = snap.AssistMinHits
 	out.NgramSizeN = snap.NgramSizeN
 	out.NgramSizeM = snap.NgramSizeM
 	out.FlashAttention = snap.FlashAttention
@@ -806,6 +820,13 @@ func configDiff(base, merged models.ModelConfig) []string {
 	add("draft-max", base.DraftMax, merged.DraftMax)
 	add("draft-min", base.DraftMin, merged.DraftMin)
 	add("draft-p-min", base.DraftPMin, merged.DraftPMin)
+	add("spec-assist", base.SpecAssist, merged.SpecAssist)
+	add("ngram-mod-n-max", base.AssistNMax, merged.AssistNMax)
+	add("ngram-mod-n-min", base.AssistNMin, merged.AssistNMin)
+	add("ngram-mod-n-match", base.AssistNMatch, merged.AssistNMatch)
+	add("size-n", base.AssistSizeN, merged.AssistSizeN)
+	add("size-m", base.AssistSizeM, merged.AssistSizeM)
+	add("min-hits", base.AssistMinHits, merged.AssistMinHits)
 	add("ngram-size-n", base.NgramSizeN, merged.NgramSizeN)
 	add("ngram-size-m", base.NgramSizeM, merged.NgramSizeM)
 	if len(out) == 0 {

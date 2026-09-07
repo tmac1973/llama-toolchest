@@ -174,9 +174,11 @@ type SnapshotSubset struct {
 //     SplitMode / MainGPU); they reach the command line only as the
 //     resolved PlacementFlags.
 //   - SpecType, DraftModelPath, DraftMax, DraftMin, DraftPMin,
-//     NgramSizeN, NgramSizeM: speculative decoding — scoring is a fixed
-//     greedy next-token pass over a fixed corpus, there is nothing for
-//     a drafter to accelerate.
+//     SpecAssist, AssistNMax, AssistNMin, AssistNMatch, AssistSizeN,
+//     AssistSizeM, AssistMinHits, NgramSizeN, NgramSizeM: speculative
+//     decoding, in both the draft-method and n-gram assist slots —
+//     scoring is a fixed greedy next-token pass over a fixed corpus,
+//     there is nothing for a drafter to accelerate.
 //   - PLEMode, ExtraFlags: load-time settings. --tensor-read-lazy
 //     governs host residency during load and ExtraFlags is arbitrary
 //     user text; neither changes a deterministic greedy scoring pass,

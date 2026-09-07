@@ -195,13 +195,15 @@ func memoryFingerprint(cfg *models.ModelConfig) string {
 		return ""
 	}
 	return fmt.Sprintf(
-		"ctx=%d par=%d b=%d ub=%d kv=%s fa=%t ngl=%d gpus=%s split=%s/%s main=%d ple=%s mmproj=%s/%t spec=%s draft=%s mtp=%s/%t dctx=%d dngl=%d ddev=%s dmoe=%d dkv=%s extra=%s",
+		"ctx=%d par=%d b=%d ub=%d kv=%s fa=%t ngl=%d gpus=%s split=%s/%s main=%d ple=%s mmproj=%s/%t spec=%s draft=%s mtp=%s/%t dctx=%d dngl=%d ddev=%s dmoe=%d dkv=%s assist=%s/%d/%d/%d/%d/%d/%d extra=%s",
 		cfg.ContextSize, cfg.Parallel, cfg.EffectiveBatchSize(), cfg.EffectiveUBatchSize(),
 		cfg.KVCacheQuant, cfg.FlashAttention, cfg.GPULayers, cfg.GPUAssign,
 		cfg.SplitMode, cfg.TensorSplit, cfg.MainGPU, cfg.PLEMode,
 		cfg.MmprojPath, cfg.MmprojDisabled,
 		cfg.SpecType, cfg.DraftModelPath, cfg.MtpPath, cfg.MtpDisabled,
 		cfg.DraftCtxSize, cfg.DraftGPULayers, cfg.DraftDevice, cfg.DraftCPUMoE, cfg.DraftKVCacheQuant,
+		cfg.SpecAssist, cfg.AssistNMax, cfg.AssistNMin, cfg.AssistNMatch,
+		cfg.AssistSizeN, cfg.AssistSizeM, cfg.AssistMinHits,
 		cfg.ExtraFlags,
 	)
 }

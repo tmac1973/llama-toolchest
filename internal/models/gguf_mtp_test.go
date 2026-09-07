@@ -175,10 +175,49 @@ func TestFindDraftCandidatesSkipsMTPHead(t *testing.T) {
 	}
 
 	var got []string
-	for _, c := range r.FindDraftCandidates("target") {
+	for _, c := range r.FindDraftCandidates("target", "draft") {
 		got = append(got, c.ID)
 	}
 	if len(got) != 1 || got[0] != "real-draft" {
 		t.Errorf("FindDraftCandidates = %v, want [real-draft] only", got)
+	}
+}
+
+// A converted EAGLE-3 / DFlash / DSpark head is a trained extra layer in
+// its own GGUF, so it matches neither the architecture filter nor the
+// size bar that make the draft-model picker safe. Applying them would
+// leave the picker empty for exactly the modes that need it.
+func TestFindDraftCandidatesRelaxedForHeadBasedModes(t *testing.T) {
+	r := &Registry{
+		dataDir:   t.TempDir(),
+		modelsDir: t.TempDir(),
+		data: registryData{
+			Models: map[string]*Model{
+				"target": {ID: "target", Arch: "qwen4exp", SizeBytes: 100 << 30},
+				// Wrong architecture and far too large for the 40% bar.
+				"eagle-head": {ID: "eagle-head", Arch: "eagle3", SizeBytes: 90 << 30},
+				// Excluded whatever the mode: it cannot load as a drafter.
+				"mtp-head": {ID: "mtp-head", Arch: "qwen4exp", SizeBytes: 3 << 30, MTPHead: true},
+			},
+			Configs: map[string]*ModelConfig{},
+		},
+	}
+
+	ids := func(mode string) []string {
+		var got []string
+		for _, c := range r.FindDraftCandidates("target", mode) {
+			got = append(got, c.ID)
+		}
+		return got
+	}
+
+	if got := ids("draft"); len(got) != 0 {
+		t.Errorf("draft mode should still filter by arch and size, got %v", got)
+	}
+	for _, mode := range []string{"draft-eagle3", "draft-dflash", "draft-dspark"} {
+		got := ids(mode)
+		if len(got) != 1 || got[0] != "eagle-head" {
+			t.Errorf("%s candidates = %v, want [eagle-head] only", mode, got)
+		}
 	}
 }

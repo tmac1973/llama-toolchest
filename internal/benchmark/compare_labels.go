@@ -97,7 +97,7 @@ func comparisonDimensions(runs []BenchmarkRun) []runDimension {
 		{Name: "GPUs", Value: func(r BenchmarkRun) string { return r.Config.GPUAssign }},
 		{Name: "tensor split", Value: func(r BenchmarkRun) string { return r.Config.TensorSplit }},
 		{Name: "threads", Value: func(r BenchmarkRun) string { return itoaOrEmpty(r.Config.Threads) }},
-		{Name: "speculative decoding", Value: func(r BenchmarkRun) string { return r.Config.SpecType }},
+		{Name: "speculative decoding", Value: func(r BenchmarkRun) string { return specLabel(r.Config) }},
 	}
 	for _, d := range cfg {
 		if swept[configFieldForDimension(d.Name)] {
@@ -423,4 +423,25 @@ func (r BenchmarkRun) PromptSizesDetail() string {
 		}
 	}
 	return b.String()
+}
+
+// specLabel renders a run's speculative configuration for the comparison
+// table: both slots when both ran, otherwise whichever one did.
+//
+// The separator is " + " rather than the comma llama.cpp's own flag uses,
+// because this is a table cell read at a glance, and it matches the "+"
+// the sweep encoding joins two modes with.
+//
+// Runs recorded before speculative decoding had two slots carry a
+// draftless mode in SpecType and nothing in SpecAssist, so they keep
+// rendering exactly as they always did.
+func specLabel(c ConfigSnapshot) string {
+	switch {
+	case c.SpecType != "" && c.SpecAssist != "":
+		return c.SpecType + " + " + c.SpecAssist
+	case c.SpecType != "":
+		return c.SpecType
+	default:
+		return c.SpecAssist
+	}
 }

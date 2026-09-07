@@ -120,3 +120,69 @@ func TestSamplingOmitsUnsetFields(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyOverridesCarriesBothSpeculativeSlots(t *testing.T) {
+	// A job built after the split names both slots. applySpecValue always
+	// writes both pointers — clearing the one the value does not name —
+	// so a cell that selects a mode runs that mode and nothing else.
+	st, sa := "draft-mtp", "ngram-mod"
+	dmax, nmax, nmin, nmatch := 3, 64, 48, 24
+
+	got := applyOverrides(ConfigSnapshot{}, &ConfigOverrides{
+		SpecType: &st, DraftMax: &dmax,
+		SpecAssist: &sa, AssistNMax: &nmax, AssistNMin: &nmin, AssistNMatch: &nmatch,
+	})
+
+	want := ConfigSnapshot{
+		SpecType: st, DraftMax: dmax,
+		SpecAssist: sa, AssistNMax: nmax, AssistNMin: nmin, AssistNMatch: nmatch,
+	}
+	if got != want {
+		t.Errorf("applyOverrides dropped a speculative field:\ngot  %+v\nwant %+v", got, want)
+	}
+}
+
+func TestApplyOverridesKeepsLegacySpecShapeVerbatim(t *testing.T) {
+	// The shape a job stored before speculative decoding had two slots
+	// holds. The snapshot is a record of what was *requested*, so it must
+	// come through unchanged — models.NormalizeSpec runs on the launch
+	// path, which is what makes such a job launch as it always did
+	// without its stored history being rewritten.
+	st := "ngram-mod"
+	dmax, dmin, nsn := 64, 48, 24
+
+	got := applyOverrides(ConfigSnapshot{}, &ConfigOverrides{
+		SpecType: &st, DraftMax: &dmax, DraftMin: &dmin, NgramSizeN: &nsn,
+	})
+
+	want := ConfigSnapshot{SpecType: st, DraftMax: dmax, DraftMin: dmin, NgramSizeN: nsn}
+	if got != want {
+		t.Errorf("legacy job shape was altered:\ngot  %+v\nwant %+v", got, want)
+	}
+	if got.SpecAssist != "" {
+		t.Errorf("snapshot should not be normalised here, got SpecAssist=%q", got.SpecAssist)
+	}
+}
+
+func TestSpecLabelJoinsBothSlots(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  ConfigSnapshot
+		want string
+	}{
+		{"both", ConfigSnapshot{SpecType: "draft-mtp", SpecAssist: "ngram-mod"}, "draft-mtp + ngram-mod"},
+		{"draft only", ConfigSnapshot{SpecType: "draft-mtp"}, "draft-mtp"},
+		{"assist only", ConfigSnapshot{SpecAssist: "ngram-mod"}, "ngram-mod"},
+		{"off", ConfigSnapshot{}, ""},
+		// A run recorded before the split carries a draftless name in
+		// SpecType and must keep rendering exactly as it did.
+		{"legacy draftless", ConfigSnapshot{SpecType: "ngram-mod"}, "ngram-mod"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := specLabel(tc.cfg); got != tc.want {
+				t.Errorf("specLabel = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

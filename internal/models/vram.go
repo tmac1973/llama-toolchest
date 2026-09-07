@@ -250,7 +250,15 @@ func AuxFilesVRAMGB(cfg *ModelConfig) float64 {
 	if cfg.MtpPath != "" && !cfg.MtpDisabled {
 		gb += fileSizeGB(cfg.MtpPath)
 	}
-	if cfg.SpecType == "draft" && cfg.DraftModelPath != "" {
+	// Every draft method except draft-mtp loads its drafter — a smaller
+	// model of the same family, or a converted EAGLE-3 / DFlash / DSpark
+	// head — from DraftModelPath. draft-mtp is excluded because its head
+	// comes from MtpPath and is already counted just above, so each
+	// method contributes exactly once.
+	//
+	// The n-gram assist is deliberately absent: it matches text already in
+	// the context and loads no file, so it adds nothing here.
+	if IsDraftMode(cfg.SpecType) && cfg.SpecType != "draft-mtp" && cfg.DraftModelPath != "" {
 		gb += fileSizeGB(cfg.DraftModelPath)
 	}
 	return gb
