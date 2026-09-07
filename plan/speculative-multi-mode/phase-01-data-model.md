@@ -51,6 +51,22 @@ nothing breaks between phases.
   parser routes a draftless `spec_type` through `NormalizeSpec`. The two-picker
   rework is phase 03.
 
+The benchmark package cannot be left out of this phase, because the sweep axis
+renders parameter *keys* from the shared table into its encoded values and maps
+them onto `ConfigOverrides`. Splitting the table changes the keys for draftless
+modes, so the override fields must split with it or a swept assist setting is
+silently dropped:
+
+- `internal/benchmark/job.go` — `ConfigOverrides` gains `SpecAssist` and the six
+  `Assist*` pointers; `NgramSizeN` / `NgramSizeM` stay for stored jobs.
+- `internal/benchmark/benchmark.go` — `ConfigSnapshot` gains the matching value
+  fields, so a run records what it ran with.
+- `internal/benchmark/job_runner.go` — apply the new overrides.
+- `internal/benchmark/sweep.go` — `specModeParams` picks the right table;
+  mode validity becomes membership in the two lists rather than "has settings"
+  (`ngram-cache` is a real mode with no settings); `applySpecValue` writes both
+  slot pointers and the six assist keys; `specParamTags` lists the new tags.
+
 ## Steps
 
 1. **Create `internal/models/specmodes.go`.**
@@ -239,7 +255,21 @@ nothing breaks between phases.
    this with the two pickers' own field names; the two default functions and the
    ordering survive unchanged.
 
-7. **Tests.** In `internal/models/spec_smoke_test.go`:
+7. **Benchmark plumbing.** `parseSpecValue` currently rejects a mode whose
+   parameter list is empty, which would start rejecting `ngram-cache` the
+   moment `SpecAssistParams` returns nil for it — check
+   `IsDraftMode || IsAssistMode` instead. `applySpecValue` must set *both* slot
+   pointers, clearing the one the value does not name, so a cell that selects a
+   mode runs that mode alone. Do not normalise in `applyOverrides`: it returns a
+   `ConfigSnapshot`, which is a record of what was requested, and the launch
+   path normalises anyway.
+
+   `TestKeepUnsweepableDropsExpressibleFields` will fail until every new
+   `ConfigOverrides` field is listed in `specParamTags` — that guard exists
+   precisely to catch a field the sweep can express but the registry does not
+   name.
+
+8. **Tests.** In `internal/models/spec_smoke_test.go`:
    - `TestSpecCombinedFlags` — `draft-mtp` + `ngram-mod` produces exactly one
      `--spec-type draft-mtp,ngram-mod`, plus `--spec-draft-n-max 3`,
      `--spec-ngram-mod-n-max 64`, `--spec-ngram-mod-n-min 48`,

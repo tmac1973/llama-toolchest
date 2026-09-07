@@ -28,11 +28,12 @@ fields to `ConfigOverrides`, so phase 04 is purely encoding and UI.
   slot.
 - `internal/api/service.go` — pass the selected mode to `FindDraftCandidates`.
 - `internal/api/jobs_env.go` — snapshot, restore and diff the assist fields.
-- `internal/benchmark/job.go` — `ConfigOverrides` gains the assist pointers.
-- `internal/benchmark/job_runner.go` — apply them.
-- `internal/benchmark/benchmark.go` — `RunConfig` records them.
 - `internal/benchmark/compare_labels.go` — the speculative label shows both
   slots.
+
+`ConfigOverrides`, `ConfigSnapshot` and the override merge already gained their
+assist fields in phase 01, which could not split the shared parameter table
+without them.
 - `internal/evaluate/evaluate.go` — update the field list in the comment at
   line 176.
 - `web/templates/partials/job_detail.html` — show the assist alongside the mode.
@@ -82,34 +83,7 @@ fields to `ConfigOverrides`, so phase 04 is purely encoding and UI.
    there are no stale stored values to invalidate. The comment above the
    function says so — leave it accurate.
 
-6. **`internal/benchmark/job.go`.** Add to `ConfigOverrides`, after
-   `NgramSizeM`:
-
-   ```go
-   SpecAssist    *string `json:"spec_assist,omitempty"`
-   AssistNMax    *int    `json:"assist_n_max,omitempty"`
-   AssistNMin    *int    `json:"assist_n_min,omitempty"`
-   AssistNMatch  *int    `json:"assist_n_match,omitempty"`
-   AssistSizeN   *int    `json:"assist_size_n,omitempty"`
-   AssistSizeM   *int    `json:"assist_size_m,omitempty"`
-   AssistMinHits *int    `json:"assist_min_hits,omitempty"`
-   ```
-
-   Keep `NgramSizeN` and `NgramSizeM` — stored jobs still carry them, and the
-   runner must keep honouring them.
-
-7. **`internal/benchmark/job_runner.go:848`.** Add the seven
-   `if overrides.X != nil { out.X = *overrides.X }` blocks alongside the
-   existing ones, then call `models.NormalizeSpec(&out)` once at the end of the
-   merge. That single call is what makes a stored job carrying
-   `spec_type: ngram-mod` produce the same launch as a new job carrying
-   `spec_assist: ngram-mod` — the tolerant read path, applied where history
-   actually enters the system.
-
-8. **`internal/benchmark/benchmark.go:153`.** Add the matching value fields to
-   `RunConfig` so a completed run records what it actually ran with.
-
-9. **`internal/benchmark/compare_labels.go:100`.** Replace
+6. **`internal/benchmark/compare_labels.go:100`.** Replace
    `func(r BenchmarkRun) string { return r.Config.SpecType }` with a helper that
    joins the two slots the way the flag does:
 
@@ -132,11 +106,11 @@ fields to `ConfigOverrides`, so phase 04 is purely encoding and UI.
    this change have `SpecAssist` empty and a draftless name in `SpecType`, so
    they keep rendering exactly as they did.
 
-10. **`web/templates/partials/job_detail.html:31`.** Extend the override summary
+7. **`web/templates/partials/job_detail.html:31`.** Extend the override summary
     line: `{{if .SpecAssist}} · spec_assist={{deref .SpecAssist}}{{end}}` after
     the existing `spec_type` clause.
 
-11. **`internal/api/jobs_env.go`.** Add `SpecAssist` and the six assist values to
+8. **`internal/api/jobs_env.go`.** Add `SpecAssist` and the six assist values to
     the snapshot struct (near line 398), to the restore path (near line 669),
     and to the flag diff (near line 805) as
     `add("spec-assist", base.SpecAssist, merged.SpecAssist)` plus
@@ -144,7 +118,7 @@ fields to `ConfigOverrides`, so phase 04 is purely encoding and UI.
     `add("ngram-mod-n-match", …)`, `add("size-n", …)`, `add("size-m", …)`,
     `add("min-hits", …)`.
 
-12. **`internal/evaluate/evaluate.go:176`.** The comment lists the config fields
+9. **`internal/evaluate/evaluate.go:176`.** The comment lists the config fields
     the evaluation path deliberately ignores. Add `SpecAssist` and the assist
     parameters to that list — speculative decoding is excluded from capability
     evaluations, and the comment is the only record of why.
@@ -167,9 +141,10 @@ go vet ./...
   differs from the target and whose size is 90% of it, `mode: "draft"` returns
   nothing and `mode: "draft-eagle3"` returns it.
 - A `job_runner` round-trip test: `ConfigOverrides{SpecType: ptr("ngram-mod"),
-  DraftMax: ptr(64)}` — the shape a stored job holds — merges to a config that
-  emits `--spec-type ngram-mod --spec-ngram-mod-n-max 64`, unchanged from
-  before.
+  DraftMax: ptr(64)}` — the shape a stored job holds — merges to a snapshot that
+  launches as `--spec-type ngram-mod --spec-ngram-mod-n-max 64`, unchanged from
+  before. The snapshot itself keeps the legacy shape: it records what was
+  requested, and the launch path normalises.
 - Manually: open a saved benchmark job that used `ngram-mod` and confirm the
   job detail page still renders its override summary; re-run one cell and
   confirm the launched command is unchanged.

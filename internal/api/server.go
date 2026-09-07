@@ -215,6 +215,9 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 		Token: cfg.MSToken,
 	})
 	s.registry.BackfillGGUFMeta()
+	if n := s.registry.BackfillSpecAssist(); n > 0 {
+		slog.Info("migrated draftless speculative configs", "configs", n)
+	}
 	if n := s.registry.DeduplicateModels(); n > 0 {
 		slog.Info("removed duplicate model entries", "count", n)
 	}

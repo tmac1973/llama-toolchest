@@ -169,6 +169,16 @@ func boolField(name, label, help string, apply func(*ConfigOverrides, *bool)) Sw
 	}
 }
 
+// specModeParams returns whichever slot's parameter table the mode
+// belongs to. A sweep value still names a single mode; the draft and
+// assist key namespaces are disjoint, so one lookup is unambiguous.
+func specModeParams(mode string) []models.SpecModeParam {
+	if models.IsDraftMode(mode) {
+		return models.SpecDraftParams(mode)
+	}
+	return models.SpecAssistParams(mode)
+}
+
 // specValue is a parsed spec_type sweep value: a mode plus any
 // parameter settings from the mode's expandable section.
 type specValue struct {
@@ -187,10 +197,12 @@ func parseSpecValue(raw string) (specValue, error) {
 	}
 	mode, rest, hasParams := strings.Cut(v, ":")
 	mode = strings.TrimSpace(mode)
-	allowed := models.SpecModeParams(mode)
-	if len(allowed) == 0 {
+	// Validity is membership in one of the two mode lists, not "has
+	// settings": ngram-cache is a real mode that takes no settings.
+	if !models.IsDraftMode(mode) && !models.IsAssistMode(mode) {
 		return out, fmt.Errorf("%q is not a speculative decoding mode", mode)
 	}
+	allowed := specModeParams(mode)
 	out.mode = mode
 	if !hasParams {
 		return out, nil
@@ -235,8 +247,16 @@ func applySpecValue(o *ConfigOverrides, raw string) error {
 	if err != nil {
 		return err
 	}
-	mode := sv.mode
-	o.SpecType = &mode
+	// A value names one mode, which belongs to one slot; the other slot
+	// is explicitly cleared rather than left to inherit, so a cell that
+	// selects a mode runs that mode and nothing else.
+	var draft, assist string
+	if models.IsDraftMode(sv.mode) {
+		draft = sv.mode
+	} else {
+		assist = sv.mode
+	}
+	o.SpecType, o.SpecAssist = &draft, &assist
 	for k, val := range sv.params {
 		switch k {
 		case "draft_max":
@@ -248,12 +268,24 @@ func applySpecValue(o *ConfigOverrides, raw string) error {
 		case "draft_p_min":
 			v := val
 			o.DraftPMin = &v
-		case "ngram_size_n":
+		case "assist_n_max":
 			n, _ := strconv.Atoi(val)
-			o.NgramSizeN = &n
-		case "ngram_size_m":
+			o.AssistNMax = &n
+		case "assist_n_min":
 			n, _ := strconv.Atoi(val)
-			o.NgramSizeM = &n
+			o.AssistNMin = &n
+		case "assist_n_match":
+			n, _ := strconv.Atoi(val)
+			o.AssistNMatch = &n
+		case "assist_size_n":
+			n, _ := strconv.Atoi(val)
+			o.AssistSizeN = &n
+		case "assist_size_m":
+			n, _ := strconv.Atoi(val)
+			o.AssistSizeM = &n
+		case "assist_min_hits":
+			n, _ := strconv.Atoi(val)
+			o.AssistMinHits = &n
 		}
 	}
 	return nil
@@ -687,7 +719,7 @@ func init() {
 	st := sweepFields["spec_type"]
 	for i := range st.Choices {
 		mode := st.Choices[i].Value
-		st.Choices[i].Params = models.SpecModeParams(mode)
+		st.Choices[i].Params = specModeParams(mode)
 		if len(st.Choices[i].Params) > 0 {
 			st.Choices[i].Mode = mode
 			st.Choices[i].Value = encodeSpecValue(mode, st.Choices[i].Params)
@@ -782,9 +814,15 @@ func MergeOverrides(base, derived *ConfigOverrides) *ConfigOverrides {
 
 // specParamTags are ConfigOverrides fields expressible through
 // spec_type's encoded values rather than registry entries of their own.
+// Both slots are in here: applySpecValue writes spec_assist and the
+// assist parameters from the same encoded value it writes spec_type from,
+// so params own all of them.
 var specParamTags = map[string]bool{
 	"draft_max": true, "draft_min": true, "draft_p_min": true,
-	"ngram_size_n": true, "ngram_size_m": true,
+	"spec_assist": true, "assist_n_max": true, "assist_n_min": true,
+	"assist_n_match": true, "assist_size_n": true, "assist_size_m": true,
+	"assist_min_hits": true,
+	"ngram_size_n":    true, "ngram_size_m": true,
 }
 
 // IsSweepable reports whether a parameter has a form control, i.e.

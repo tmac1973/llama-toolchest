@@ -150,13 +150,24 @@ type ConfigSnapshot struct {
 	Threads        int    `json:"threads"`
 	BatchSize      int    `json:"batch_size,omitempty"`
 	UBatchSize     int    `json:"ubatch_size,omitempty"`
+	// Speculative decoding runs in two slots: a draft method and a
+	// draftless n-gram assist, either of which may be empty. Runs
+	// recorded before the split carry a draftless mode in SpecType and
+	// its settings in NgramSizeN/M; models.NormalizeSpec reads those.
 	SpecType       string `json:"spec_type,omitempty"`
 	DraftModelPath string `json:"draft_model_path,omitempty"`
 	DraftMax       int    `json:"draft_max,omitempty"`
 	DraftMin       int    `json:"draft_min,omitempty"`
 	DraftPMin      string `json:"draft_p_min,omitempty"`
-	NgramSizeN     int    `json:"ngram_size_n,omitempty"`
-	NgramSizeM     int    `json:"ngram_size_m,omitempty"`
+	SpecAssist     string `json:"spec_assist,omitempty"`
+	AssistNMax     int    `json:"assist_n_max,omitempty"`
+	AssistNMin     int    `json:"assist_n_min,omitempty"`
+	AssistNMatch   int    `json:"assist_n_match,omitempty"`
+	AssistSizeN    int    `json:"assist_size_n,omitempty"`
+	AssistSizeM    int    `json:"assist_size_m,omitempty"`
+	AssistMinHits  int    `json:"assist_min_hits,omitempty"`
+	NgramSizeN     int    `json:"ngram_size_n,omitempty"` // legacy; migrated by models.NormalizeSpec
+	NgramSizeM     int    `json:"ngram_size_m,omitempty"` // legacy; migrated by models.NormalizeSpec
 
 	// PLEMode and ExtraFlags reach llama-server through the preset INI
 	// (tensor-read-lazy, and the raw flag text appended verbatim). Both

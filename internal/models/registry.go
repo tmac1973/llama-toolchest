@@ -175,14 +175,31 @@ type ModelConfig struct {
 	MtpPath        string `json:"mtp_path,omitempty"`        // path to a separate MTP drafter-head GGUF (gemma-4 style); loaded via --model-draft under spec_type=draft-mtp. Empty for self-speculation MTP (Qwen3.6/DeepSeek-V3) where the head is baked into the main GGUF.
 	MtpDisabled    bool   `json:"mtp_disabled,omitempty"`    // skip the separate --model-draft MTP head at launch even when MtpPath is set; preserves the path so it can be re-enabled
 
-	// Speculative decoding
-	SpecType       string `json:"spec_type,omitempty"`        // "", "draft", "draft-mtp", "ngram-simple", "ngram-cache", etc.
-	DraftModelPath string `json:"draft_model_path,omitempty"` // path to draft model (when spec_type="draft")
+	// Speculative decoding, draft-method slot. See specmodes.go for why
+	// there are two slots and specDecodingParams for what each emits.
+	SpecType       string `json:"spec_type,omitempty"`        // "", "draft", "draft-mtp", "draft-eagle3", "draft-dflash", "draft-dspark" — draft methods only; the draftless mode lives in SpecAssist
+	DraftModelPath string `json:"draft_model_path,omitempty"` // path to the draft model or converted head (every draft method except self-speculation draft-mtp, which uses MtpPath)
 	DraftMax       int    `json:"draft_max,omitempty"`        // max draft tokens per step
 	DraftMin       int    `json:"draft_min,omitempty"`        // min draft tokens per step
 	DraftPMin      string `json:"draft_p_min,omitempty"`      // min probability threshold (string to allow empty=default)
-	NgramSizeN     int    `json:"ngram_size_n,omitempty"`     // n-gram lookup length
-	NgramSizeM     int    `json:"ngram_size_m,omitempty"`     // n-gram draft length
+
+	// Speculative decoding, draftless n-gram assist slot. Runs alongside
+	// the draft method above: llama.cpp accepts a comma-separated
+	// --spec-type list mixing one draft method with one draftless one,
+	// and the two do not share a draft length.
+	SpecAssist    string `json:"spec_assist,omitempty"`     // "", "ngram-mod", "ngram-simple", "ngram-cache", "ngram-map-k", "ngram-map-k4v"
+	AssistNMax    int    `json:"assist_n_max,omitempty"`    // --spec-ngram-mod-n-max
+	AssistNMin    int    `json:"assist_n_min,omitempty"`    // --spec-ngram-mod-n-min
+	AssistNMatch  int    `json:"assist_n_match,omitempty"`  // --spec-ngram-mod-n-match
+	AssistSizeN   int    `json:"assist_size_n,omitempty"`   // --spec-<mode>-size-n
+	AssistSizeM   int    `json:"assist_size_m,omitempty"`   // --spec-<mode>-size-m
+	AssistMinHits int    `json:"assist_min_hits,omitempty"` // --spec-<mode>-min-hits
+
+	// Legacy: the config form still posts these until the two-picker
+	// rework lands, and NormalizeSpec migrates them into the Assist*
+	// fields above. Nothing else reads them.
+	NgramSizeN int `json:"ngram_size_n,omitempty"`
+	NgramSizeM int `json:"ngram_size_m,omitempty"`
 
 	// Draft model resource overrides. Apply to spec_type="draft" and to
 	// gemma-4-style draft-mtp (separate head loaded via --model-draft). Not
@@ -1230,6 +1247,34 @@ func findMTPInDir(dir string) string {
 // AutoDetectMTP scans all registered models and sets MtpPath on configs where a
 // separate MTP drafter head exists in or near the model directory but isn't
 // configured yet.
+// BackfillSpecAssist migrates configs written before speculative decoding
+// had two slots, where a draftless mode sat in SpecType and its settings
+// in the draft-length fields. Runs once at startup; NormalizeSpec is
+// idempotent, so a second run finds nothing and saves nothing.
+//
+// Read paths tolerate the old shape anyway (specDecodingParams and the
+// benchmark override merge both normalise), which is what keeps stored
+// benchmark history working without being rewritten. This exists so the
+// registry on disk converges on one shape rather than staying mixed
+// indefinitely.
+func (r *Registry) BackfillSpecAssist() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	migrated := 0
+	for _, cfg := range r.data.Configs {
+		if cfg == nil || !IsAssistMode(cfg.SpecType) {
+			continue
+		}
+		NormalizeSpec(cfg)
+		migrated++
+	}
+	if migrated > 0 {
+		r.save()
+	}
+	return migrated
+}
+
 func (r *Registry) AutoDetectMTP() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
