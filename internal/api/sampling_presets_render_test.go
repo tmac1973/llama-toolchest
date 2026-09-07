@@ -60,9 +60,15 @@ func TestSamplingPresetsPartialRenders(t *testing.T) {
 		EffectiveFlags      string
 		MaxContext          int
 		HasMMProj           bool
+		HasMTP              bool
 		HasBuiltinVision    bool
 		IsEmbedding         bool
 		DraftCandidates     []models.DraftCandidate
+		DraftModes          []models.SpecMode
+		AssistModes         []models.SpecMode
+		DraftParams         []models.SpecModeParam
+		AssistParams        []models.SpecModeParam
+		EffectiveSpecType   string
 		GPUOptions          []models.GPUOption
 		NumGPUs             int
 		SamplingPresets     []models.SamplingPreset
@@ -124,9 +130,15 @@ func TestSamplingPresetsPartialHidden(t *testing.T) {
 		EffectiveFlags      string
 		MaxContext          int
 		HasMMProj           bool
+		HasMTP              bool
 		HasBuiltinVision    bool
 		IsEmbedding         bool
 		DraftCandidates     []models.DraftCandidate
+		DraftModes          []models.SpecMode
+		AssistModes         []models.SpecMode
+		DraftParams         []models.SpecModeParam
+		AssistParams        []models.SpecModeParam
+		EffectiveSpecType   string
 		GPUOptions          []models.GPUOption
 		NumGPUs             int
 		SamplingPresets     []models.SamplingPreset

@@ -1,5 +1,7 @@
 package models
 
+import "fmt"
+
 // Speculative decoding has two independent slots. llama.cpp accepts a
 // comma-separated --spec-type list and its docs sanction exactly one
 // shape of combination:
@@ -152,4 +154,39 @@ func NormalizeSpec(c *ModelConfig) {
 	// DraftPMin is left alone: it is a draft-method knob, and a draftless
 	// config that carries one was never emitting it anyway.
 	c.DraftPMin = ""
+}
+
+// EffectiveSpecType returns the comma-separated --spec-type value this
+// config launches with, or "" when speculative decoding is off.
+//
+// The config form shows it verbatim so the list a user has built is
+// visible without reading the whole flag line, and so a launch failure
+// can be quoted straight off the form.
+func (c *ModelConfig) EffectiveSpecType() string {
+	for _, p := range specDecodingParams(c) {
+		if p.Name == "spec-type" {
+			return p.Value
+		}
+	}
+	return ""
+}
+
+// ValidateSpec rejects a mode name in the wrong slot. The two-picker form
+// cannot produce one, but a hand-edited registry or a crafted POST can,
+// and llama-server treats an unknown --spec-type name as a fatal startup
+// error whose message a user would not connect back to this form.
+func (c *ModelConfig) ValidateSpec() error {
+	if c.SpecType != "" && !IsDraftMode(c.SpecType) {
+		if IsAssistMode(c.SpecType) {
+			return fmt.Errorf("%q is an n-gram method — it belongs in the n-gram assist, not the draft method", c.SpecType)
+		}
+		return fmt.Errorf("%q is not a draft method", c.SpecType)
+	}
+	if c.SpecAssist != "" && !IsAssistMode(c.SpecAssist) {
+		if IsDraftMode(c.SpecAssist) {
+			return fmt.Errorf("%q is a draft method — it belongs in the draft method, not the n-gram assist", c.SpecAssist)
+		}
+		return fmt.Errorf("%q is not an n-gram method", c.SpecAssist)
+	}
+	return nil
 }

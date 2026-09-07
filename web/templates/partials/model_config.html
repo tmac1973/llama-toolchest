@@ -234,26 +234,40 @@
                 <dt><strong>N-gram Map-K4V</strong></dt>
                 <dd>Experimental variant that tracks up to 4 different continuations per pattern and picks the most frequent one. Useful for patterns that lead to a few different outputs.</dd>
 
-                <dt><strong>N-gram Mod</strong> (recommended draftless)</dt>
-                <dd>Uses a lightweight shared hash pool (~16 MB) to learn patterns across requests. Patterns from one conversation benefit the next. Best general-purpose draftless mode — especially good for reasoning models, code, and multi-turn chat. Cold start is slow but improves over time.</dd>
+                <dt><strong>N-gram Mod</strong> (recommended n-gram assist)</dt>
+                <dd>Uses a lightweight shared hash pool (~16 MB) to learn patterns across requests. Patterns from one conversation benefit the next. Best general-purpose n-gram method — especially good for reasoning models, code, and multi-turn chat. Cold start is slow but improves over time.</dd>
+
+                <dt><strong>EAGLE-3</strong>, <strong>DFlash</strong>, <strong>DSpark</strong></dt>
+                <dd>Each loads a small trained head built for one specific model, published alongside it. A head is not a smaller model of the same family, so the drafter list for these modes is not filtered by architecture or size — pick the converted head for this model. They claim higher acceptance than a same-size draft model at a fraction of the memory. The settings are left blank because there is no measured guidance for them here; run a benchmark sweep to find good values rather than trusting a guess.</dd>
             </dl>
 
+            <h5>Running both at once</h5>
+            <p>A draft method and an n-gram assist can run together, and they cost each other nothing on new text. On text the model is repeating — a file it is rewriting, a structured response, a tool-call loop — the n-gram assist is several times faster than a draft method alone. Neither one gives you both: an n-gram method is no help at all on genuinely new text, and a draft method gives up most of the speed on repeated text.</p>
+            <p>When both propose tokens for the same step, <strong>the n-gram proposal is the one used</strong>. That is worth knowing when you read a benchmark result: if a combined run comes out slower than the draft method alone on new text, it is because weak n-gram matches are displacing good draft proposals. Whether that happens depends on the model and the hardware, so measure it — the benchmark sweep can run the same model with the draft method alone and with both, side by side.</p>
+
             <h5>Parameters</h5>
+            <p>Each slot has its own settings, because the two do not share a draft length: MTP might draft 3 tokens while N-gram Mod drafts 64, and both are in effect at once.</p>
             <dl>
-                <dt><strong>Draft Max</strong> (default: 16)</dt>
-                <dd>Maximum tokens to draft per step. Higher = more aggressive speculation. Use 32-64 for MoE models. Reduce for dense models if acceptance is low.</dd>
+                <dt><strong>Draft tokens max / min</strong> (draft method)</dt>
+                <dd>How many tokens the draft method proposes per step, and how many it always proposes before verifying. Higher maximums mean more aggressive speculation; 32-64 suits MoE models, less for dense ones if acceptance is low. Leave blank to use llama.cpp's own defaults of 3 and 0.</dd>
 
-                <dt><strong>Draft Min</strong> (default: 0)</dt>
-                <dd>Minimum tokens to always draft before verification. For N-gram Mod with dense models, try 48.</dd>
+                <dt><strong>Draft probability min</strong> (draft method)</dt>
+                <dd>Stops drafting once a token's probability falls below this. Lower drafts more tokens at a lower acceptance rate; higher drafts fewer, more accurate ones. Mainly useful for Draft Model — MTP and the trained heads have their own acceptance logic.</dd>
 
-                <dt><strong>Min Probability</strong> (default: 0.75)</dt>
-                <dd>Only for Draft Model mode. Stops drafting when token probability drops below this threshold. Lower = more aggressive (more tokens drafted, lower acceptance). Higher = conservative (fewer but more accurate drafts).</dd>
+                <dt><strong>Assist tokens max / min</strong> (N-gram Mod)</dt>
+                <dd>How long a continuation N-gram Mod proposes. Much larger than a draft model's, because a matched pattern can be replayed at length: 64 and 48 are the recommended starting values.</dd>
 
-                <dt><strong>N-gram Lookup Size</strong> (default: 12)</dt>
-                <dd>How many recent tokens to use as the search key. Larger = fewer but more precise matches. For N-gram Mod, use 24.</dd>
+                <dt><strong>Match length</strong> (N-gram Mod, default: 24)</dt>
+                <dd>How many recent tokens must match before a continuation is proposed. Longer means fewer but more reliable matches.</dd>
 
-                <dt><strong>N-gram Draft Size</strong> (default: 48)</dt>
-                <dd>How many tokens following a match to propose as the draft. Larger values give bigger speedups when patterns repeat extensively.</dd>
+                <dt><strong>Lookup size</strong> (other n-gram methods, default: 12)</dt>
+                <dd>How many recent tokens are used as the search key. Larger means fewer but more precise matches.</dd>
+
+                <dt><strong>Draft size</strong> (other n-gram methods, default: 48)</dt>
+                <dd>How many tokens following a match are proposed. Larger values pay off more when patterns repeat at length.</dd>
+
+                <dt><strong>Minimum hits</strong> (other n-gram methods, default: 1)</dt>
+                <dd>How many times a pattern must have been seen before it is proposed. Higher is more selective: fewer drafts, higher acceptance.</dd>
             </dl>
 
             <h5>When to use it</h5>
@@ -265,29 +279,47 @@
             <h5>When to skip it</h5>
             <ul>
                 <li>Small/fast models — overhead exceeds gains</li>
-                <li>VRAM-constrained and no draft model — try N-gram Mod instead</li>
+                <li>VRAM-constrained and no draft model — try N-gram Mod on its own, with the draft method left Disabled</li>
                 <li>Very short completions (few tokens) — not enough to amortize</li>
                 <li>Acceptance rate consistently below ~50% — will slow things down</li>
             </ul>
         </article>
     </dialog>
     <div class="grid">
-        <label title="Speculative decoding mode. Draft model uses a smaller model to propose tokens. N-gram modes use pattern matching from the prompt — no extra model needed.">
-            Mode
+        <label title="A model or trained head proposes tokens that the main model verifies in parallel. Only one draft method can run at a time.">
+            Draft method
             <select name="spec_type">
                 <option value="" {{if eq .Config.SpecType ""}}selected{{end}}>Disabled</option>
-                <option value="draft" {{if eq .Config.SpecType "draft"}}selected{{end}}>Draft Model{{if not .DraftCandidates}} (no compatible models){{end}}</option>
-                <option value="draft-mtp" {{if eq .Config.SpecType "draft-mtp"}}selected{{end}}>MTP (self-speculation)</option>
-                <option value="ngram-simple" {{if eq .Config.SpecType "ngram-simple"}}selected{{end}}>N-gram Simple</option>
-                <option value="ngram-cache" {{if eq .Config.SpecType "ngram-cache"}}selected{{end}}>N-gram Cache</option>
-                <option value="ngram-map-k" {{if eq .Config.SpecType "ngram-map-k"}}selected{{end}}>N-gram Map-K</option>
-                <option value="ngram-map-k4v" {{if eq .Config.SpecType "ngram-map-k4v"}}selected{{end}}>N-gram Map-K4V</option>
-                <option value="ngram-mod" {{if eq .Config.SpecType "ngram-mod"}}selected{{end}}>N-gram Mod</option>
+                {{range .DraftModes}}
+                <option value="{{.Name}}" {{if eq $.Config.SpecType .Name}}selected{{end}}>{{.Label}}{{if and (eq .Name "draft") (not $.DraftCandidates)}} (no compatible models){{end}}</option>
+                {{end}}
+            </select>
+        </label>
+        <label title="Matches repeated text in the prompt and the generation so far, and proposes what came next. Loads no extra file and uses no extra memory, and runs alongside the draft method. When both propose tokens for the same step, the n-gram proposal is the one used.">
+            N-gram assist
+            <select name="spec_assist">
+                <option value="" {{if eq .Config.SpecAssist ""}}selected{{end}}>None</option>
+                {{range .AssistModes}}
+                <option value="{{.Name}}" {{if eq $.Config.SpecAssist .Name}}selected{{end}}>{{.Label}}</option>
+                {{end}}
             </select>
         </label>
         {{if eq .Config.SpecType "draft"}}
         <label title="A smaller model of the same architecture proposes tokens that the main model verifies in parallel.">
             Draft Model
+            <select name="draft_model_path">
+                <option value="">None</option>
+                {{range .DraftCandidates}}
+                <option value="{{.FilePath}}" {{if eq $.Config.DraftModelPath .FilePath}}selected{{end}}>
+                    {{.Filename}} ({{printf "%.1f" .SizeGB}} GiB)
+                </option>
+                {{end}}
+            </select>
+        </label>
+        {{end}}
+        {{if or (eq .Config.SpecType "draft-eagle3") (or (eq .Config.SpecType "draft-dflash") (eq .Config.SpecType "draft-dspark"))}}
+        <label title="The converted head for this model. The list is not filtered by architecture or size, because a head is a trained extra layer rather than a smaller model of the same family.">
+            Drafter Head
             <select name="draft_model_path">
                 <option value="">None</option>
                 {{range .DraftCandidates}}
@@ -311,28 +343,28 @@
         </label>
         {{end}}
     </div>
-    {{if ne .Config.SpecType ""}}
+    {{if .DraftParams}}
     <div class="grid">
-        <label title="Maximum tokens to draft per step. Higher = more aggressive speculation. MoE models benefit from longer drafts. Default: 16">
-            Draft Max
-            <input type="number" name="draft_max" value="{{.Config.DraftMax}}"
-                   min="0" max="128" placeholder="16">
+        <label title="Maximum tokens the draft method proposes per step. Higher means more aggressive speculation. MoE models benefit from longer drafts. llama.cpp default: 3">
+            Draft tokens max
+            <input type="number" name="draft_max" value="{{if gt .Config.DraftMax 0}}{{.Config.DraftMax}}{{end}}"
+                   min="0" max="128" placeholder="3">
         </label>
-        <label title="Minimum tokens to draft before verification. Dense models can use lower values. Default: 0">
-            Draft Min
-            <input type="number" name="draft_min" value="{{.Config.DraftMin}}"
+        <label title="Minimum tokens to draft before verification. Dense models can use lower values. llama.cpp default: 0">
+            Draft tokens min
+            <input type="number" name="draft_min" value="{{if gt .Config.DraftMin 0}}{{.Config.DraftMin}}{{end}}"
                    min="0" max="64" placeholder="0">
         </label>
-        <label title="Minimum probability for accepting a drafted token. Lower = accept more drafts. Default: 0.75">
-            Min Probability
+        <label title="Stop drafting once a token's probability falls below this. Lower drafts more tokens at a lower acceptance rate; higher drafts fewer, more accurate ones. Leave blank to use llama.cpp's default.">
+            Draft probability min
             <input type="number" name="draft_p_min" step="0.05" min="0" max="1"
                    value="{{.Config.DraftPMin}}"
-                   placeholder="0.75">
+                   placeholder="server default">
         </label>
     </div>
     {{end}}
-    {{if or (eq .Config.SpecType "draft") (and (eq .Config.SpecType "draft-mtp") .HasMTP)}}
-    <small><strong>Draft model resources</strong> — leave blank to inherit llama-server defaults. Set these when the draft/MTP head needs its own GPU offload, context, or cache type (e.g. <code>--device-draft CUDA0</code> on multi-GPU).</small>
+    {{if or (eq .Config.SpecType "draft") (or (and (eq .Config.SpecType "draft-mtp") .HasMTP) (or (eq .Config.SpecType "draft-eagle3") (or (eq .Config.SpecType "draft-dflash") (eq .Config.SpecType "draft-dspark"))))}}
+    <small><strong>Draft model resources</strong> — leave blank to inherit llama-server defaults. Set these when the draft model or head needs its own GPU offload, context, or cache type (e.g. <code>--device-draft CUDA0</code> on multi-GPU). They apply whenever a drafter is loaded through <code>--model-draft</code>, so not to self-speculation MTP, where the draft <em>is</em> the main model.</small>
     <div class="grid">
         <label title="Context size for the draft model. Default: inherits from main ctx-size.">
             Draft Ctx Size
@@ -377,20 +409,50 @@
     <small>gemma-4's separate <code>gemma4-assistant</code> head needs a llama.cpp build of <strong>b9549 or newer</strong>. Older builds report <em>"model type gemma4_assistant not supported"</em> — rebuild from the Builds tab if needed.</small>
     {{end}}
     {{end}}
-    {{if and (ne .Config.SpecType "") (ne .Config.SpecType "draft") (ne .Config.SpecType "draft-mtp")}}
+    {{if eq .Config.SpecAssist "ngram-mod"}}
     <div class="grid">
-        <label title="Length of the n-gram used for lookup in generation history. Default: 12">
-            N-gram Lookup Size
-            <input type="number" name="ngram_size_n" value="{{.Config.NgramSizeN}}"
-                   min="0" max="64" placeholder="12">
+        <label title="Maximum tokens the n-gram assist proposes per step. N-gram Mod drafts much longer sequences than a draft model does. Default: 64">
+            Assist tokens max
+            <input type="number" name="assist_n_max" value="{{if gt .Config.AssistNMax 0}}{{.Config.AssistNMax}}{{end}}"
+                   min="0" max="512" placeholder="64">
         </label>
-        <label title="Length of the draft sequence generated from n-gram matches. Default: 48">
-            N-gram Draft Size
-            <input type="number" name="ngram_size_m" value="{{.Config.NgramSizeM}}"
-                   min="0" max="128" placeholder="48">
+        <label title="Minimum tokens the n-gram assist proposes before verification. Default: 48">
+            Assist tokens min
+            <input type="number" name="assist_n_min" value="{{if gt .Config.AssistNMin 0}}{{.Config.AssistNMin}}{{end}}"
+                   min="0" max="512" placeholder="48">
+        </label>
+        <label title="How many recent tokens must match before the assist proposes a continuation. Longer means fewer but more reliable matches. Default: 24">
+            Match length
+            <input type="number" name="assist_n_match" value="{{if gt .Config.AssistNMatch 0}}{{.Config.AssistNMatch}}{{end}}"
+                   min="0" max="128" placeholder="24">
         </label>
     </div>
     {{end}}
+    {{if and (ne .Config.SpecAssist "") (ne .Config.SpecAssist "ngram-mod") (ne .Config.SpecAssist "ngram-cache")}}
+    <div class="grid">
+        <label title="How many recent tokens are used as the search key. Larger means fewer but more precise matches. Default: 12">
+            Lookup size
+            <input type="number" name="assist_size_n" value="{{if gt .Config.AssistSizeN 0}}{{.Config.AssistSizeN}}{{end}}"
+                   min="0" max="64" placeholder="12">
+        </label>
+        <label title="How many tokens following a match are proposed as the draft. Larger values pay off more when patterns repeat at length. Default: 48">
+            Draft size
+            <input type="number" name="assist_size_m" value="{{if gt .Config.AssistSizeM 0}}{{.Config.AssistSizeM}}{{end}}"
+                   min="0" max="128" placeholder="48">
+        </label>
+        <label title="How many times a pattern must have been seen before the assist will propose it. Higher is more selective. Default: 1">
+            Minimum hits
+            <input type="number" name="assist_min_hits" value="{{if gt .Config.AssistMinHits 0}}{{.Config.AssistMinHits}}{{end}}"
+                   min="0" max="64" placeholder="1">
+        </label>
+    </div>
+    {{end}}
+    {{if eq .Config.SpecAssist "ngram-cache"}}
+    <small>N-gram Cache takes no settings.</small>
+    {{end}}
+    <small><strong>Effective <code>--spec-type</code>:</strong>
+        {{if .EffectiveSpecType}}<code>{{.EffectiveSpecType}}</code>{{else}}speculative decoding is off — no <code>--spec-type</code> flag is passed{{end}}
+    </small>
 
     <hr style="margin: 1rem 0 0.5rem;">
     <small><strong>Sampling</strong> — applied per-request, no restart needed. Leave blank for server defaults.

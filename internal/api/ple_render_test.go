@@ -27,9 +27,15 @@ func renderModelConfig(t *testing.T, cfg *models.ModelConfig, hasPLE bool, sizeL
 		EffectiveFlags      string
 		MaxContext          int
 		HasMMProj           bool
+		HasMTP              bool
 		HasBuiltinVision    bool
 		IsEmbedding         bool
 		DraftCandidates     []models.DraftCandidate
+		DraftModes          []models.SpecMode
+		AssistModes         []models.SpecMode
+		DraftParams         []models.SpecModeParam
+		AssistParams        []models.SpecModeParam
+		EffectiveSpecType   string
 		GPUOptions          []models.GPUOption
 		NumGPUs             int
 		SamplingPresets     []models.SamplingPreset
@@ -40,8 +46,15 @@ func renderModelConfig(t *testing.T, cfg *models.ModelConfig, hasPLE bool, sizeL
 	}{
 		ModelID:      "test-id",
 		Config:       cfg,
-		HasPLE:       hasPLE,
-		PLESizeLabel: sizeLabel,
+		DraftModes:   models.DraftModes(),
+		AssistModes:  models.AssistModes(),
+		DraftParams:  models.SpecDraftParams(cfg.SpecType),
+		AssistParams: models.SpecAssistParams(cfg.SpecAssist),
+		HasMTP:       cfg.MtpPath != "",
+
+		EffectiveSpecType: cfg.EffectiveSpecType(),
+		HasPLE:            hasPLE,
+		PLESizeLabel:      sizeLabel,
 	}
 	var buf bytes.Buffer
 	if err := base.ExecuteTemplate(&buf, "model_config", data); err != nil {

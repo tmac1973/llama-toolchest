@@ -373,3 +373,52 @@ func TestSpecOffEmitsNothing(t *testing.T) {
 		t.Errorf("speculative decoding off should emit no --spec-type, got: %s", got)
 	}
 }
+
+func TestValidateSpecRejectsWrongSlot(t *testing.T) {
+	// The two pickers cannot produce these, but a hand-edited registry or
+	// a crafted POST can, and llama-server treats an unknown --spec-type
+	// name as a fatal startup error.
+	cases := []struct {
+		name    string
+		cfg     ModelConfig
+		wantErr bool
+	}{
+		{"empty is fine", ModelConfig{}, false},
+		{"draft in draft slot", ModelConfig{SpecType: "draft-mtp"}, false},
+		{"assist in assist slot", ModelConfig{SpecAssist: "ngram-mod"}, false},
+		{"both slots filled", ModelConfig{SpecType: "draft-mtp", SpecAssist: "ngram-mod"}, false},
+		{"assist in draft slot", ModelConfig{SpecType: "ngram-mod"}, true},
+		{"draft in assist slot", ModelConfig{SpecAssist: "draft-mtp"}, true},
+		{"unknown draft name", ModelConfig{SpecType: "draft-mtp-adaptive"}, true},
+		{"unknown assist name", ModelConfig{SpecAssist: "ngram-whatever"}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.cfg.ValidateSpec()
+			if (err != nil) != tc.wantErr {
+				t.Errorf("ValidateSpec() error = %v, wantErr %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestEffectiveSpecType(t *testing.T) {
+	cases := []struct {
+		cfg  ModelConfig
+		want string
+	}{
+		{ModelConfig{}, ""},
+		{ModelConfig{SpecType: "draft-mtp"}, "draft-mtp"},
+		{ModelConfig{SpecType: "draft"}, "draft-simple"},
+		{ModelConfig{SpecAssist: "ngram-mod"}, "ngram-mod"},
+		{ModelConfig{SpecType: "draft-mtp", SpecAssist: "ngram-mod"}, "draft-mtp,ngram-mod"},
+		// A config still in the pre-split shape reads the same as its
+		// migrated equivalent.
+		{ModelConfig{SpecType: "ngram-mod"}, "ngram-mod"},
+	}
+	for _, tc := range cases {
+		if got := tc.cfg.EffectiveSpecType(); got != tc.want {
+			t.Errorf("EffectiveSpecType(%+v) = %q, want %q", tc.cfg, got, tc.want)
+		}
+	}
+}
