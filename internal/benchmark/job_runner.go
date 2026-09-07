@@ -158,6 +158,10 @@ type ModelInfo struct {
 	DisplayName string         // short, human-readable name for the run
 	RouterName  string         // identifier the router responds to
 	Config      ConfigSnapshot // saved baseline; ConfigOverrides overlay on this
+	// Reasoning is how this model's thinking mode is turned off, detected
+	// from its chat template. The recall workload needs it; nothing else
+	// does.
+	Reasoning ReasoningControl
 }
 
 // JobQueue serializes job execution: only one job runs at a time. Submit
@@ -500,6 +504,7 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 		HFToken:    q.env.HFToken(),
 		HFHome:     q.env.HFCacheDir(),
 		Sampling:   samplingFromOverrides(cellOv),
+		Reasoning:  modelInfo.Reasoning,
 		Memory:     q.env.MeasuredMemory,
 	}, nil)
 

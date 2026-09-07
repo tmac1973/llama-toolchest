@@ -384,6 +384,7 @@ func (e *jobEnv) modelInfoBundle(m *models.Model) (benchmark.ModelInfo, error) {
 		FilePath:    m.FilePath,
 		DisplayName: shortenModelName(m.ModelID),
 		RouterName:  e.s.registry.RouterName(m.ID),
+		Reasoning:   reasoningControl(m, cfg),
 		Config: benchmark.ConfigSnapshot{
 			GPULayers:      cfg.GPULayers,
 			ContextSize:    cfg.ContextSize,
@@ -833,4 +834,17 @@ func configDiff(base, merged models.ModelConfig) []string {
 		return []string{"none"}
 	}
 	return out
+}
+
+// reasoningControl translates the model's detected reasoning capability
+// into the shape the benchmark runner uses. Only the recall workload acts
+// on it: a reasoning model asked to reproduce a passage will otherwise
+// spend its whole generation budget deliberating, which is new prose and
+// measures nothing an n-gram method can accelerate.
+func reasoningControl(m *models.Model, cfg *models.ModelConfig) benchmark.ReasoningControl {
+	r := m.EffectiveReasoning(cfg)
+	if !r.Supported {
+		return benchmark.ReasoningControl{Toggle: models.ReasoningToggleNone}
+	}
+	return benchmark.ReasoningControl{Toggle: r.Toggle, Kwarg: r.Kwarg}
 }

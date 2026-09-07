@@ -646,3 +646,32 @@ func TestInternalEchoPresetUsesTheRecallStyle(t *testing.T) {
 		}
 	}
 }
+
+// A reasoning model asked to reproduce a passage will spend its whole
+// generation budget deliberating about how to, which is new prose — so
+// internal-echo would measure the same workload as internal-standard and
+// the recall case would silently not be tested. Turning thinking off for
+// the echo style is what makes the preset mean what it says.
+func TestEchoStyleTurnsThinkingOff(t *testing.T) {
+	cases := []struct {
+		name string
+		rc   ReasoningControl
+		want map[string]any
+	}{
+		{"qwen-style kwarg", ReasoningControl{Toggle: "chat_template_kwargs", Kwarg: "enable_thinking"},
+			map[string]any{"chat_template_kwargs": map[string]any{"enable_thinking": false}}},
+		{"openai-style effort", ReasoningControl{Toggle: "reasoning_effort"},
+			map[string]any{"reasoning_effort": "none"}},
+		{"no reasoning mode", ReasoningControl{Toggle: "none"}, map[string]any{}},
+		{"kwarg mechanism with no key", ReasoningControl{Toggle: "chat_template_kwargs"}, map[string]any{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := map[string]any{}
+			tc.rc.applyThinkingOff(got)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("applyThinkingOff = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
