@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.28.0](https://github.com/tmac1973/llama-toolchest/compare/v2.27.0...v2.28.0) (2026-09-08)
+
+
+### Features
+
+* **spec:** run a draft method and an n-gram assist together ([#174](https://github.com/tmac1973/llama-toolchest/issues/174)) ([a11f91a](https://github.com/tmac1973/llama-toolchest/commit/a11f91ae259bf71d4693c16443ab6ff3a160a7f1))
+
+
+### Bug Fixes
+
+* **models:** detect MTP drafter heads that share the model's architecture ([#171](https://github.com/tmac1973/llama-toolchest/issues/171)) ([aedfb96](https://github.com/tmac1973/llama-toolchest/commit/aedfb962ed2e69060b2183e23756b998db4a2894))
+
 ## [2.27.0](https://github.com/tmac1973/llama-toolchest/compare/v2.26.0...v2.27.0) (2026-09-01)
 
 
