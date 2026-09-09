@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.28.1](https://github.com/tmac1973/llama-toolchest/compare/v2.28.0...v2.28.1) (2026-09-09)
+
+
+### Bug Fixes
+
+* **benchmarks:** stop Ad-Hoc Runs claiming completed while a run is going ([#175](https://github.com/tmac1973/llama-toolchest/issues/175)) ([5258b48](https://github.com/tmac1973/llama-toolchest/commit/5258b483ccaa1c26d43678a555edc41c04cc07c5))
+
 ## [2.28.0](https://github.com/tmac1973/llama-toolchest/compare/v2.27.0...v2.28.0) (2026-09-08)
 
 
