@@ -118,12 +118,110 @@ func (b *helperBackend) Prepare(ctx context.Context, id string) (llmcall.Target,
 		}
 	}
 
+	// A router that has just been started answers /models only once it
+	// has read its preset, which takes a moment. Asking to load before
+	// then reads as "this model is not in the preset" and fails a run
+	// that would have worked a second later.
+	if err := s.waitForRouterModel(ctx, routerName, m); err != nil {
+		return llmcall.Target{}, err
+	}
+
 	body, _ := json.Marshal(map[string]string{"model": routerName})
 	if err := s.ensureModelLoadedForRequest(ctx, body); err != nil {
 		return llmcall.Target{}, fmt.Errorf("loading the helper model: %w", err)
 	}
 	rc := reasoningControl(m, cfg)
 	return llmcall.Target{RouterName: routerName, Thinking: llmcall.Thinking{Toggle: rc.Toggle, Kwarg: rc.Kwarg}}, nil
+}
+
+// routerReadyTimeout bounds the wait for a just-started router to list
+// its models. Generous: the router reads every model's metadata first.
+const routerReadyTimeout = 90 * time.Second
+
+// routerSettle is how long a router must have been answering before a
+// model missing from its list counts as really missing rather than not
+// listed yet.
+const routerSettle = 5 * time.Second
+
+// routerWait is what waitForRouterModel needs, as functions, so the loop
+// can be tested without a live router.
+type routerWait struct {
+	running  func() bool
+	answers  func() (int, error) // how many models the router lists
+	knows    func() bool
+	restart  func() error
+	name     string
+	settle   time.Duration
+	timeout  time.Duration
+	interval time.Duration
+}
+
+// waitForRouterModel waits until the router lists the model.
+func (s *Server) waitForRouterModel(ctx context.Context, routerName string, m *models.Model) error {
+	return waitForRouterModel(ctx, routerWait{
+		running: s.process.IsRunning,
+		answers: func() (int, error) {
+			list, err := s.process.ListModels()
+			return len(list), err
+		},
+		knows: func() bool { return s.routerKnows(routerName, m) },
+		restart: func() error {
+			if err := s.process.Stop(); err != nil {
+				slog.Debug("stop before helper restart", "error", err)
+			}
+			return s.startRouter()
+		},
+		name:     m.PublicName(),
+		settle:   routerSettle,
+		timeout:  routerReadyTimeout,
+		interval: time.Second,
+	})
+}
+
+// waitForRouterModel waits for a router to list a model, restarting it
+// once if it is answering and the model is not there — which is what
+// happens when the preset was written after the router started.
+func waitForRouterModel(ctx context.Context, w routerWait) error {
+	deadline := time.Now().Add(w.timeout)
+	restarted := false
+	// A router answering /models may still be filling its list, so a
+	// missing model only counts after it has been answering for a while.
+	var answeringSince time.Time
+	for {
+		if !w.running() {
+			return fmt.Errorf("the server stopped while the helper model %s was being prepared", w.name)
+		}
+		listed, err := w.answers()
+		if err == nil && answeringSince.IsZero() {
+			answeringSince = time.Now()
+		}
+		settled := !answeringSince.IsZero() && time.Since(answeringSince) > w.settle
+		switch {
+		case err != nil:
+			// Not answering yet; keep waiting.
+		case w.knows():
+			return nil
+		case !settled:
+			// Answering, but perhaps not with everything yet.
+		case !restarted:
+			slog.Info("restarting the router: the helper model is not in its list", "model", w.name, "listed", listed)
+			restarted = true
+			if err := w.restart(); err != nil {
+				return fmt.Errorf("restarting the server for the helper model: %w", err)
+			}
+			deadline, answeringSince = time.Now().Add(w.timeout), time.Time{}
+		default:
+			return fmt.Errorf("the server was restarted, but the helper model %s is still not in its list. Check that the model is enabled on the Models page", w.name)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(w.interval):
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("the server did not become ready within %s while preparing the helper model %s", w.timeout, w.name)
+		}
+	}
 }
 
 // routerKnows reports whether the running router lists the model, which

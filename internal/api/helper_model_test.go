@@ -1,11 +1,14 @@
 package api
 
 import (
+	"context"
+	"errors"
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/huggingface"
 	"github.com/tmac1973/llama-toolchest/internal/models"
@@ -109,4 +112,72 @@ func TestHelperPanelAndSave(t *testing.T) {
 	if strings.Contains(out, "/api/helper-model/download") {
 		t.Error("download button shown although the recommended model is installed")
 	}
+}
+
+// The wait loop: a router that is not answering yet is waited for; one
+// that answers without the model is restarted once and then given
+// another chance; and a model that never appears is reported plainly.
+func TestWaitForRouterModel(t *testing.T) {
+	base := func() routerWait {
+		return routerWait{
+			running: func() bool { return true }, name: "helper",
+			settle: 5 * time.Millisecond, timeout: 2 * time.Second, interval: time.Millisecond,
+			restart: func() error { return nil },
+		}
+	}
+
+	t.Run("waits for a router that is still starting", func(t *testing.T) {
+		calls := 0
+		w := base()
+		w.answers = func() (int, error) {
+			calls++
+			if calls < 5 {
+				return 0, errors.New("connection refused")
+			}
+			return 4, nil
+		}
+		w.knows = func() bool { return calls >= 5 }
+		if err := waitForRouterModel(context.Background(), w); err != nil {
+			t.Fatalf("err = %v", err)
+		}
+	})
+
+	t.Run("restarts once when the model is missing", func(t *testing.T) {
+		restarts := 0
+		w := base()
+		w.answers = func() (int, error) { return 3, nil }
+		w.knows = func() bool { return restarts > 0 }
+		w.restart = func() error { restarts++; return nil }
+		if err := waitForRouterModel(context.Background(), w); err != nil {
+			t.Fatalf("err = %v", err)
+		}
+		if restarts != 1 {
+			t.Errorf("restarts = %d, want 1", restarts)
+		}
+	})
+
+	t.Run("reports a model that never appears", func(t *testing.T) {
+		restarts := 0
+		w := base()
+		w.answers = func() (int, error) { return 3, nil }
+		w.knows = func() bool { return false }
+		w.restart = func() error { restarts++; return nil }
+		err := waitForRouterModel(context.Background(), w)
+		if err == nil || !strings.Contains(err.Error(), "still not in its list") {
+			t.Errorf("err = %v", err)
+		}
+		if restarts != 1 {
+			t.Errorf("restarts = %d, want exactly 1", restarts)
+		}
+	})
+
+	t.Run("gives up when the server stops", func(t *testing.T) {
+		w := base()
+		w.running = func() bool { return false }
+		w.answers = func() (int, error) { return 0, errors.New("no") }
+		w.knows = func() bool { return false }
+		if err := waitForRouterModel(context.Background(), w); err == nil || !strings.Contains(err.Error(), "server stopped") {
+			t.Errorf("err = %v", err)
+		}
+	})
 }

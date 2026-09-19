@@ -130,3 +130,23 @@ ignores it. A downloaded helper model remains an ordinary installed model.
 - **Still to check by hand:** that the active llama.cpp build accepts
   `response_format` with a `json_schema`, and that Qwen3.5-4B returns
   valid JSON with thinking turned off.
+
+## After the first real run (fix)
+
+Preparing the helper failed with "model … is not in the router preset;
+restart the router to pick it up", and the run fell back to the hardware
+fit. The restart had happened: the router process was up, but its HTTP API
+had not started answering `/models` yet, so the model looked absent.
+
+`Prepare` now waits for the router to list the helper before asking for the
+load (`waitForRouterModel`):
+
+- while the router is not answering, it keeps waiting, up to 90 seconds;
+- a router that has been answering for more than 5 seconds without the
+  model is restarted once — that is the case where the preset was written
+  after the router started — and then given another 90 seconds;
+- if the model still does not appear, the error says to check that the
+  model is enabled.
+
+The loop takes its dependencies as functions so it is tested without a live
+router.
