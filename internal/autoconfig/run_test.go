@@ -253,3 +253,25 @@ func TestRunSpeaksAboutBuiltInMTP(t *testing.T) {
 		t.Errorf("draft method not kept, or MTP not mentioned: %q / %q", res.Proposed.SpecType, note(res))
 	}
 }
+
+// The n-gram assist is never turned on unmeasured, and the note names the
+// combination with a draft method, which is the part nobody guesses.
+func TestRunLeavesTheNgramAssistToAutotune(t *testing.T) {
+	reg := runRegistry(t) // has built-in MTP
+	res, err := Run(context.Background(), Deps{Registry: reg, Hardware: gpu24()}, runModelID, models.ContextShort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Proposed.SpecAssist != "" {
+		t.Errorf("an n-gram assist was turned on without measuring it: %q", res.Proposed.SpecAssist)
+	}
+	var note string
+	for _, n := range res.Notes {
+		if strings.Contains(n.Reason, "n-gram assist") {
+			note = n.Reason
+		}
+	}
+	if !strings.Contains(note, "alongside draft-mtp") {
+		t.Errorf("the note does not name running it alongside the draft method: %q", note)
+	}
+}

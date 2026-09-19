@@ -141,8 +141,17 @@ func Run(ctx context.Context, d Deps, id string, class models.ContextClass) (*Re
 	if res.Proposed.ContextSize != fit.Config.ContextSize {
 		res.Fit.EstimateGiB = models.VRAMEstimateForConfigOn(m, &res.Proposed, max(1, models.DeviceCountForConfig(&res.Proposed, len(d.Hardware.GPUs))))
 	}
+	// The n-gram assist is measured, never assumed: it drafts from text
+	// already in the context, so it wins on answers that repeat the
+	// prompt and costs a little on those that do not. Which one a model
+	// is used for is not something a model card knows.
 	if res.Proposed.SpecAssist == "" {
-		addNote(models.ProfileNote{Origin: "default", Reason: "Autotune can test adding an n-gram assist to speculative decoding, which often speeds up code editing further."})
+		reason := "Autotune can test an n-gram assist. It speeds up answers that repeat text from the prompt, such as editing code or summarising a document, and Autotune measures whether it helps here."
+		if res.Proposed.SpecType != "" {
+			reason = "Autotune can test running an n-gram assist alongside " + res.Proposed.SpecType +
+				". The two together are often faster than either alone on answers that repeat text from the prompt, such as editing code or summarising a document, and Autotune measures whether that holds on this machine."
+		}
+		addNote(models.ProfileNote{Origin: "default", Reason: reason})
 	}
 
 	models.NormalizeSpec(&res.Proposed)

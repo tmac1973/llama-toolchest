@@ -168,3 +168,22 @@ Phase 09. The exported fetcher helpers can stay.
   named.
 - **No live test.** The planned `-tags live` test was not written. The manual
   check in Phase 09 covers the same ground against a real helper.
+
+## The n-gram assist is not read from the card
+
+Decided while testing: nothing about the n-gram assist goes into the
+helper's prompt, and Autoconfigure never turns one on.
+
+- A model card cannot know: the assist is a llama.cpp feature, and running
+  one alongside a draft method is specific to the build. Cards describe the
+  model, and increasingly name vLLM or SGLang flags.
+- Asking a 4B model about settings its source does not mention is how a
+  confident wrong answer gets in.
+- Whether it helps depends on the machine and the workload: it drafts from
+  text already in the context, so it wins on answers that repeat the prompt
+  and costs a little on those that do not.
+
+Autotune measures it instead: its speculative stage tests each draft method
+alone, each assist alone, and the draft x assist pairs, with the noise rule
+keeping the simpler setting when the difference is inside the measured
+spread. Autoconfigure says so in a note that names the combination.
