@@ -83,7 +83,7 @@
         <tr>
             <td title="{{.Help}}" style="cursor:help;">{{.Label}}</td>
             <td>{{.Current}}</td>
-            <td><strong>{{.Proposed}}</strong></td>
+            <td>{{if .Kept}}<small title="Autoconfigure looked at this setting and would choose the same thing.">kept as it is</small>{{else}}<strong>{{.Proposed}}</strong>{{end}}</td>
             <td>{{range $i, $w := .Why}}{{if $i}}<br>{{end}}{{$w}}{{end}}</td>
             <td><small>{{.Source}}</small></td>
         </tr>

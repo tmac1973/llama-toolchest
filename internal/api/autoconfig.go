@@ -320,7 +320,9 @@ func (s *Server) renderAutoconfigMessage(w http.ResponseWriter, id string, b pan
 	}{id, b})
 }
 
-// reviewRow is one setting in the review table.
+// reviewRow is one setting in the review table. Kept marks a setting
+// Autoconfigure looked at and left as it is — worth showing when there is
+// a reason for it, so "already right" does not read as "overlooked".
 type reviewRow struct {
 	Label    string
 	Help     string
@@ -328,6 +330,7 @@ type reviewRow struct {
 	Proposed string
 	Why      []string
 	Source   string
+	Kept     bool
 }
 
 // autoconfigReviewData is what the autoconfig_review partial renders.
@@ -377,14 +380,18 @@ func (s *Server) autoconfigReviewData(id, name string, run autoconfigRun) autoco
 	for _, f := range reviewFields {
 		cur, prop := f.show(&res.Base), f.show(&res.Proposed)
 		row := reviewRow{Label: f.label, Help: fieldHelp[f.key], Current: cur, Proposed: prop, Why: why[f.key], Source: origin[f.key]}
-		if cur != prop {
+		switch {
+		case cur != prop:
 			d.Changed = append(d.Changed, row)
-		} else {
+		case len(row.Why) > 0:
+			// Already what Autoconfigure would choose, or carrying advice
+			// that could not be used: shown with the changes, marked as
+			// kept, because saying nothing reads as overlooking it.
+			row.Kept = true
+			d.Changed = append(d.Changed, row)
+		default:
 			row.Why = nil
 			d.Unchanged = append(d.Unchanged, row)
-			// A note about a field the proposal left alone (the card's
-			// advice that could not be used) still belongs on screen.
-			d.General = append(d.General, why[f.key]...)
 		}
 	}
 	return d

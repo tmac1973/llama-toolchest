@@ -200,3 +200,56 @@ func TestRunFinishesTheSpeculativeNote(t *testing.T) {
 		t.Errorf("note = %q, suggestions = %+v", find(res), res.Suggestions)
 	}
 }
+
+// Built-in MTP: turned on when it is off, and said to be kept when it is
+// already on. Saying nothing about it reads as having missed it.
+func TestRunSpeaksAboutBuiltInMTP(t *testing.T) {
+	note := func(res *Result) string {
+		for _, n := range res.Notes {
+			if n.Field == "spec_type" && n.Origin == "model file" {
+				return n.Reason
+			}
+		}
+		return ""
+	}
+
+	reg := runRegistry(t) // the test model has one MTP layer
+	res, err := Run(context.Background(), Deps{Registry: reg, Hardware: gpu24()}, runModelID, models.ContextShort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Proposed.SpecType != "draft-mtp" || !strings.Contains(note(res), "own draft layers") {
+		t.Errorf("MTP not turned on: %q / %q", res.Proposed.SpecType, note(res))
+	}
+
+	// Already on: kept, and said so.
+	cfg, _ := reg.GetConfig(runModelID)
+	on := *cfg
+	on.SpecType, on.DraftMax = "draft-mtp", 6
+	if err := reg.SetConfig(runModelID, &on); err != nil {
+		t.Fatal(err)
+	}
+	res, err = Run(context.Background(), Deps{Registry: reg, Hardware: gpu24()}, runModelID, models.ContextShort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Proposed.SpecType != "draft-mtp" || res.Proposed.DraftMax != 6 {
+		t.Errorf("an existing MTP setting was changed: %+v", res.Proposed)
+	}
+	if !strings.Contains(note(res), "Already on and kept") {
+		t.Errorf("nothing said about the MTP already on: %q", note(res))
+	}
+
+	// Another draft method: kept, with MTP mentioned as an alternative.
+	on.SpecType, on.DraftModelPath = "draft", "/models/small.gguf"
+	if err := reg.SetConfig(runModelID, &on); err != nil {
+		t.Fatal(err)
+	}
+	res, err = Run(context.Background(), Deps{Registry: reg, Hardware: gpu24()}, runModelID, models.ContextShort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Proposed.SpecType != "draft" || !strings.Contains(note(res), "Autotune can compare") {
+		t.Errorf("draft method not kept, or MTP not mentioned: %q / %q", res.Proposed.SpecType, note(res))
+	}
+}

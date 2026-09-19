@@ -76,12 +76,23 @@ func Run(ctx context.Context, d Deps, id string, class models.ContextClass) (*Re
 	}
 
 	// A model with its own draft layers gets them turned on whatever the
-	// card says: speculative decoding does not change the answers.
-	if m.NextNLayers > 0 && res.Proposed.SpecType == "" {
-		p := Proposal{Field: "spec_type", Value: "draft-mtp", Origin: "model file",
-			Reason: "This model includes its own draft layers (multi-token prediction, MTP), which usually speed up generation with no change to the answers."}
-		ApplyProposal(&res.Proposed, p)
-		addNote(models.ProfileNote{Field: p.Field, Reason: p.Reason, Origin: p.Origin})
+	// card says: speculative decoding does not change the answers. When
+	// they are already on, say so rather than saying nothing — an unspoken
+	// setting reads as an overlooked one.
+	if m.NextNLayers > 0 {
+		const mtpWhy = "This model includes its own draft layers (multi-token prediction, MTP), which usually speed up generation with no change to the answers."
+		switch res.Proposed.SpecType {
+		case "":
+			p := Proposal{Field: "spec_type", Value: "draft-mtp", Origin: "model file", Reason: mtpWhy}
+			ApplyProposal(&res.Proposed, p)
+			addNote(models.ProfileNote{Field: p.Field, Reason: p.Reason, Origin: p.Origin})
+		case "draft-mtp":
+			addNote(models.ProfileNote{Field: "spec_type", Origin: "model file",
+				Reason: "Already on and kept. " + mtpWhy})
+		default:
+			addNote(models.ProfileNote{Field: "spec_type", Origin: "model file",
+				Reason: fmt.Sprintf("Kept your %s setting. This model also has its own draft layers (MTP), which Autotune can compare against it.", res.Proposed.SpecType)})
+		}
 	}
 
 	var checked Checked

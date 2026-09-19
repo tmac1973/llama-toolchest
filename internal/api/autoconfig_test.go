@@ -214,3 +214,35 @@ func TestGPUAssignText(t *testing.T) {
 		}
 	}
 }
+
+// A setting that is already what Autoconfigure would choose is shown with
+// the changes, marked as kept, rather than hidden among the untouched
+// ones: this is how a user learns that MTP is already on.
+func TestReviewShowsSettingsItKeptOnPurpose(t *testing.T) {
+	s := newHelperServer(t)
+	base, _ := s.registry.GetConfig(profTestID)
+	withMTP := *base
+	withMTP.SpecType = "draft-mtp"
+	withMTP.DraftMax = 6
+	if err := s.registry.SetConfig(profTestID, &withMTP); err != nil {
+		t.Fatal(err)
+	}
+	proposed := withMTP
+	s.autoconf.run = &autoconfigRun{modelID: profTestID, done: true, result: &autoconfig.Result{
+		ModelID: profTestID, Base: withMTP, Proposed: proposed,
+		Notes: []models.ProfileNote{
+			{Field: "spec_type", Origin: "model file", Reason: "Already on and kept. This model includes its own draft layers."},
+		},
+	}}
+	out := s.doAutoconfig(t, "GET", "/api/models/"+profTestID+"/autoconfig/status", nil)
+	table := out[strings.Index(out, "<tbody>"):strings.Index(out, "</tbody>")]
+	if !strings.Contains(table, "Speculative decoding") || !strings.Contains(table, "Already on and kept") {
+		t.Errorf("a setting kept on purpose is not shown with the changes:\n%s", table)
+	}
+	if !strings.Contains(table, "kept as it is") {
+		t.Error("the kept row is not marked as kept")
+	}
+	if !strings.Contains(out, "Settings left as they are") {
+		t.Error("the untouched settings are no longer collapsed")
+	}
+}

@@ -200,3 +200,18 @@ integrated GPU):
   a model whose file has no MTP layers it says so plainly.
 - **The helper is told to leave out advice for other servers.** The run
   listed vLLM and SGLang flags under "the model card also mentions".
+
+## Second round of review fixes
+
+Running Autoconfigure on a model whose MTP was already on showed nothing
+about it, which read as Autoconfigure having missed it:
+
+- **Settings kept on purpose are shown with the changes**, marked "kept as
+  it is", when there is a reason for them. Only settings nobody has
+  anything to say about stay in the collapsed "Settings left as they are"
+  list, and a reason now sits next to its setting instead of in the list of
+  general notes at the bottom (which is where the six repeated sampling
+  lines came from).
+- **Built-in MTP always says something**: turned on when it is off, "Already
+  on and kept" when it is on, and when another draft method is set, that it
+  is kept with MTP as something Autotune can compare against.
