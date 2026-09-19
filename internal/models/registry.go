@@ -113,11 +113,6 @@ type Model struct {
 	// fixed (see HelperConfig), it is not offered for chat or
 	// benchmarks, and the only thing to do with it is remove it.
 	HelperRole bool `json:"helper_role,omitempty"`
-	// AutoconfigDismissed hides the model card's Autoconfigure
-	// suggestion. The suggestion is shown for every model that has no
-	// Autoconfig profile yet, so this records the user saying "not this
-	// one" rather than the app remembering to offer it.
-	AutoconfigDismissed bool `json:"autoconfig_dismissed,omitempty"`
 	// Mixture-of-experts layout, for --n-cpu-moe (see GGUFMeta). All zero
 	// on a dense model.
 	ExpertCount      int   `json:"expert_count,omitempty"`
@@ -738,25 +733,6 @@ func (r *Registry) ListHelpers() []*Model {
 		}
 	}
 	return out
-}
-
-// SetAutoconfigDismissed hides or restores the model card's
-// Autoconfigure suggestion.
-func (r *Registry) SetAutoconfigDismissed(id string, on bool) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if err := r.writableLocked(); err != nil {
-		return err
-	}
-	m, ok := r.data.Models[id]
-	if !ok {
-		return fmt.Errorf("model not found: %s", id)
-	}
-	if m.AutoconfigDismissed == on {
-		return nil
-	}
-	m.AutoconfigDismissed = on
-	return r.save()
 }
 
 // SetSamplingPresets replaces the sampling presets on a model record and

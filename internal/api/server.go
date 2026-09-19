@@ -581,7 +581,6 @@ func (s *Server) buildRouter() chi.Router {
 			r.Get("/{id}/autoconfig/status", s.handleAutoconfigStatus)
 			r.Post("/{id}/autoconfig/save", s.handleAutoconfigSave)
 			r.Post("/{id}/autoconfig/discard", s.handleAutoconfigDiscard)
-			r.Post("/{id}/autoconfig/dismiss-hint", s.handleAutoconfigDismissHint)
 			r.Post("/{id}/profiles", s.handleSaveProfile)
 			r.Post("/{id}/profiles/apply", s.handleApplyProfile)
 			r.Post("/{id}/profiles/delete", s.handleDeleteProfile)

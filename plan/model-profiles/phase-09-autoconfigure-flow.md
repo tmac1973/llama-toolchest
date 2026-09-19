@@ -227,3 +227,10 @@ Below 1200px the actions move to a line of their own under the row: the
 fixed columns otherwise left the model name a few characters wide.
 Checked in a headless browser at 1024px and 1280px, with a fourth button
 in place.
+
+## The hint is gone
+
+The model card suggestion ("Autoconfigure can suggest settings for this
+model") was removed, along with its dismiss action and the record field
+behind it. The card already has an Autoconfigure button on the same line;
+two ways to start the same thing on one row is noise.

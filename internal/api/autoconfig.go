@@ -293,17 +293,6 @@ func (s *Server) handleAutoconfigDiscard(w http.ResponseWriter, r *http.Request)
 	respondHTML(w)
 }
 
-// handleAutoconfigDismissHint hides the model card's suggestion for this
-// model. Autoconfigure stays available from the button.
-func (s *Server) handleAutoconfigDismissHint(w http.ResponseWriter, r *http.Request) {
-	id := s.registry.ResolveID(chi.URLParam(r, "id"))
-	if err := s.registry.SetAutoconfigDismissed(id, true); err != nil {
-		http.Error(w, err.Error(), registryErrorStatus(err, http.StatusNotFound))
-		return
-	}
-	respondHTML(w)
-}
-
 func (s *Server) clearAutoconfigRun(id string) {
 	s.autoconf.mu.Lock()
 	defer s.autoconf.mu.Unlock()

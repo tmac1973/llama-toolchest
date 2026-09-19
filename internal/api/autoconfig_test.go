@@ -130,42 +130,16 @@ func TestAutoconfigSaveAndApply(t *testing.T) {
 	}
 }
 
-// The suggestion is shown on every model that has not been through
-// Autoconfigure, and stops once the model has an Autoconfig profile or
-// the user dismisses it.
-func TestAutoconfigHintShownUntilUsedOrDismissed(t *testing.T) {
-	s := newHelperServer(t)
-	show := func() bool {
-		return strings.Contains(s.renderCard(t), "Autoconfigure can suggest settings")
-	}
-	if !show() {
-		t.Error("a model that has never been autoconfigured shows no suggestion")
-	}
-	s.doAutoconfig(t, "POST", "/api/models/"+profTestID+"/autoconfig/dismiss-hint", nil)
-	if m, _ := s.registry.Get(profTestID); !m.AutoconfigDismissed {
-		t.Error("dismiss was not recorded")
-	}
-	if show() {
-		t.Error("the suggestion survived being dismissed")
-	}
-
-	// A model with an Autoconfig profile does not need the suggestion.
-	if err := s.registry.SetAutoconfigDismissed(profTestID, false); err != nil {
-		t.Fatal(err)
-	}
-	finishedRun(t, s)
-	s.doAutoconfig(t, "POST", "/api/models/"+profTestID+"/autoconfig/save", url.Values{"apply": {"0"}})
-	if show() {
-		t.Error("the suggestion is still shown after an Autoconfig profile was saved")
-	}
-}
-
 // The card offers the button and a place to render into.
 func TestModelCardOffersAutoconfigure(t *testing.T) {
 	s := newHelperServer(t)
 	out := s.renderCard(t)
 	if !strings.Contains(out, "Autoconfigure\n") || !strings.Contains(out, `id="autoconfig-`) {
 		t.Errorf("card lacks the button or the container:\n%s", out)
+	}
+	// One way in, not two: the button, with no hint line beside it.
+	if strings.Contains(out, "can suggest settings") {
+		t.Error("the card still carries an Autoconfigure hint")
 	}
 }
 

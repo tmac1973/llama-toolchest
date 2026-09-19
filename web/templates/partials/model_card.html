@@ -117,15 +117,6 @@
             {{end}}
         </div>
     </div>
-    {{if .ShowAutoconfigHint}}
-    <p class="autoconfig-hint" style="margin:0.25rem 0 0 2.5rem;">
-        <small>&#10024; Autoconfigure can suggest settings for this model.
-            <a href="#" hx-get="/api/models/{{.ID}}/autoconfig" hx-target="#autoconfig-{{cssID .ID}}" hx-swap="innerHTML">Start</a>
-            ·
-            <a href="#" hx-post="/api/models/{{.ID}}/autoconfig/dismiss-hint" hx-target="closest .autoconfig-hint" hx-swap="outerHTML"
-               title="Hide this suggestion. Autoconfigure stays available from the button above.">Dismiss</a></small>
-    </p>
-    {{end}}
     <div class="model-card-config" id="autoconfig-{{cssID .ID}}"></div>
     <div class="model-card-config" id="model-config-{{cssID .ID}}"></div>
 </article>
