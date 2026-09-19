@@ -17,63 +17,6 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/process"
 )
 
-// applyDraftDefaults resets the draft-method parameters to the recommended
-// values for the selected draft mode. Call this only on a mode *change* —
-// calling it on every save would clobber user-tuned values within an
-// existing mode (the form parser already loaded them from the request
-// into cfg).
-//
-// It touches only the draft slot, and applyAssistDefaults only the assist
-// slot: with two independent slots, one function resetting everything
-// would wipe a tuned draft depth the moment the user changed the n-gram
-// assist.
-func applyDraftDefaults(cfg *models.ModelConfig) {
-	// Zero everything in the slot, then apply the mode's recommended
-	// defaults from the shared table — the same one the benchmark job
-	// form renders, so the two surfaces cannot disagree.
-	cfg.DraftMax = 0
-	cfg.DraftMin = 0
-	cfg.DraftPMin = ""
-	for _, p := range models.SpecDraftParams(cfg.SpecType) {
-		switch p.Key {
-		case "draft_max":
-			cfg.DraftMax, _ = strconv.Atoi(p.Default)
-		case "draft_min":
-			cfg.DraftMin, _ = strconv.Atoi(p.Default)
-		case "draft_p_min":
-			cfg.DraftPMin = p.Default
-		}
-	}
-}
-
-// applyAssistDefaults resets the n-gram assist parameters to the
-// recommended values for the selected assist mode. Same rule as
-// applyDraftDefaults: only on a mode change.
-func applyAssistDefaults(cfg *models.ModelConfig) {
-	cfg.AssistNMax = 0
-	cfg.AssistNMin = 0
-	cfg.AssistNMatch = 0
-	cfg.AssistSizeN = 0
-	cfg.AssistSizeM = 0
-	cfg.AssistMinHits = 0
-	for _, p := range models.SpecAssistParams(cfg.SpecAssist) {
-		switch p.Key {
-		case "assist_n_max":
-			cfg.AssistNMax, _ = strconv.Atoi(p.Default)
-		case "assist_n_min":
-			cfg.AssistNMin, _ = strconv.Atoi(p.Default)
-		case "assist_n_match":
-			cfg.AssistNMatch, _ = strconv.Atoi(p.Default)
-		case "assist_size_n":
-			cfg.AssistSizeN, _ = strconv.Atoi(p.Default)
-		case "assist_size_m":
-			cfg.AssistSizeM, _ = strconv.Atoi(p.Default)
-		case "assist_min_hits":
-			cfg.AssistMinHits, _ = strconv.Atoi(p.Default)
-		}
-	}
-}
-
 // parseOptionalFloat returns a *float64 if s is non-empty and valid, else nil.
 func parseOptionalFloat(s string) *float64 {
 	s = strings.TrimSpace(s)
@@ -1085,10 +1028,10 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		// modes — preserves any custom values they tuned within an existing
 		// mode (e.g. lowering ngram-mod's n-min from 48 to 12).
 		if cfg.SpecType != prevSpecType {
-			applyDraftDefaults(cfg)
+			cfg.ApplyDraftDefaults()
 		}
 		if cfg.SpecAssist != prevSpecAssist {
-			applyAssistDefaults(cfg)
+			cfg.ApplyAssistDefaults()
 		}
 	}
 

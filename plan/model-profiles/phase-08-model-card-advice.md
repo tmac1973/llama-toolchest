@@ -133,3 +133,38 @@ settings with reasons. This phase saves and displays nothing.
 ## Rollback
 Revert the commit. Nothing outside `internal/autoconfig` calls it until
 Phase 09. The exported fetcher helpers can stay.
+
+## As implemented
+
+- **A flat schema.** The advice schema is a flat form with nullable values:
+  - sampling values plus one `sampling_quote`;
+  - `thinking` plus a quote;
+  - `draft_method`, `draft_repo` and `assist_mode` plus one
+    `speculative_quote`;
+  - `recommended_context` plus a quote;
+  - `other_notes` (at most 5).
+
+  Every key is required and extra keys are refused. A small model fills a
+  flat form more reliably than nested optional objects, and the quote fields
+  let the review screen show the card's own words.
+- **Not in the schema.** `jinja` is left out, because the app always turns
+  it on. `thinking` becomes a note only: whether a request thinks is chosen
+  per request by the client, and there is no setting that means "default
+  thinking off".
+- **What becomes a setting.** Only these fields can come from advice:
+  sampling values and the preset name, `spec_type` (with its default
+  parameters) and `draft_model_path` when the file is installed, and
+  `context_size` (lower only, under Maximum). `ApplyProposal` ignores every
+  other field.
+- **Default draft parameters.** `applyDraftDefaults` / `applyAssistDefaults`
+  moved from `internal/api` to `models.ModelConfig.ApplyDraftDefaults` /
+  `ApplyAssistDefaults`, so autoconfigure can use them.
+- **Card budget.** `CardCharsForContext(ctx)` sizes the card to the helper's
+  context at 3 characters per token, 4,000 to 48,000 characters, with
+  `DefaultCardChars` = 24,000.
+- **When drafts are suggested.** Draft suggestions are looked for only when
+  the card recommends a draft method that is not installed. The family
+  search is used for a plain `draft` recommendation with no repository
+  named.
+- **No live test.** The planned `-tags live` test was not written. The manual
+  check in Phase 09 covers the same ground against a real helper.

@@ -1,5 +1,7 @@
 package models
 
+import "strconv"
+
 // SpecModeParam is one tunable parameter of a speculative decoding mode,
 // with the recommended default the model config form applies when the
 // mode is selected. The benchmark job form shows the same parameters
@@ -62,5 +64,62 @@ func SpecAssistParams(mode string) []SpecModeParam {
 	default:
 		// ngram-cache takes no settings.
 		return nil
+	}
+}
+
+// ApplyDraftDefaults resets the draft-method parameters to the recommended
+// values for the selected draft mode. Call this only on a mode *change* —
+// calling it on every save would clobber user-tuned values within an
+// existing mode (the form parser already loaded them from the request
+// into cfg).
+//
+// It touches only the draft slot, and ApplyAssistDefaults only the assist
+// slot: with two independent slots, one function resetting everything
+// would wipe a tuned draft depth the moment the user changed the n-gram
+// assist.
+func (cfg *ModelConfig) ApplyDraftDefaults() {
+	// Zero everything in the slot, then apply the mode's recommended
+	// defaults from the shared table — the same one the benchmark job
+	// form renders, so the two surfaces cannot disagree.
+	cfg.DraftMax = 0
+	cfg.DraftMin = 0
+	cfg.DraftPMin = ""
+	for _, p := range SpecDraftParams(cfg.SpecType) {
+		switch p.Key {
+		case "draft_max":
+			cfg.DraftMax, _ = strconv.Atoi(p.Default)
+		case "draft_min":
+			cfg.DraftMin, _ = strconv.Atoi(p.Default)
+		case "draft_p_min":
+			cfg.DraftPMin = p.Default
+		}
+	}
+}
+
+// ApplyAssistDefaults resets the n-gram assist parameters to the
+// recommended values for the selected assist mode. Same rule as
+// ApplyDraftDefaults: only on a mode change.
+func (cfg *ModelConfig) ApplyAssistDefaults() {
+	cfg.AssistNMax = 0
+	cfg.AssistNMin = 0
+	cfg.AssistNMatch = 0
+	cfg.AssistSizeN = 0
+	cfg.AssistSizeM = 0
+	cfg.AssistMinHits = 0
+	for _, p := range SpecAssistParams(cfg.SpecAssist) {
+		switch p.Key {
+		case "assist_n_max":
+			cfg.AssistNMax, _ = strconv.Atoi(p.Default)
+		case "assist_n_min":
+			cfg.AssistNMin, _ = strconv.Atoi(p.Default)
+		case "assist_n_match":
+			cfg.AssistNMatch, _ = strconv.Atoi(p.Default)
+		case "assist_size_n":
+			cfg.AssistSizeN, _ = strconv.Atoi(p.Default)
+		case "assist_size_m":
+			cfg.AssistSizeM, _ = strconv.Atoi(p.Default)
+		case "assist_min_hits":
+			cfg.AssistMinHits, _ = strconv.Atoi(p.Default)
+		}
 	}
 }

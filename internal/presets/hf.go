@@ -12,6 +12,11 @@ import (
 // the repo's HF tags, for quants old enough to lack general.base_model.* in
 // the GGUF header. Plain "base_model:org/repo" tags are preferred over
 // "base_model:quantized:org/repo" (the former names the true upstream).
+// ResolveBaseRepo is resolveBaseRepo for callers outside this package.
+func (f *Fetcher) ResolveBaseRepo(ctx context.Context, repoID string) string {
+	return f.resolveBaseRepo(ctx, repoID)
+}
+
 func (f *Fetcher) resolveBaseRepo(ctx context.Context, repoID string) string {
 	body, err := f.get(ctx, f.hfBase()+"/api/models/"+repoID, true)
 	if err != nil {

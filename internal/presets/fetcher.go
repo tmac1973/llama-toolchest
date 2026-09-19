@@ -202,8 +202,15 @@ func (f *Fetcher) get(ctx context.Context, url string, withAuth bool) ([]byte, e
 // cachedGet is get with an on-disk cache (TTL docsCacheTTL). Used for docs
 // fetches, which are shared across models; HF per-repo fetches skip caching.
 func (f *Fetcher) cachedGet(ctx context.Context, url string) ([]byte, error) {
+	return f.CachedGet(ctx, url, false)
+}
+
+// CachedGet is the cached fetch for callers outside this package, such as
+// autoconfigure reading model cards. withAuth sends the Hugging Face token,
+// which gated repositories need.
+func (f *Fetcher) CachedGet(ctx context.Context, url string, withAuth bool) ([]byte, error) {
 	if f.CacheDir == "" {
-		return f.get(ctx, url, false)
+		return f.get(ctx, url, withAuth)
 	}
 	sum := sha256.Sum256([]byte(url))
 	path := filepath.Join(f.CacheDir, hex.EncodeToString(sum[:8])+".cache")
@@ -212,7 +219,7 @@ func (f *Fetcher) cachedGet(ctx context.Context, url string) ([]byte, error) {
 			return body, nil
 		}
 	}
-	body, err := f.get(ctx, url, false)
+	body, err := f.get(ctx, url, withAuth)
 	if err != nil {
 		return nil, err
 	}

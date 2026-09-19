@@ -18,7 +18,7 @@ func TestApplyDefaultsTouchOnlyTheirOwnSlot(t *testing.T) {
 		SpecAssist: "ngram-mod", AssistNMax: 99, AssistNMin: 7, AssistNMatch: 5,
 	}
 
-	applyAssistDefaults(cfg)
+	cfg.ApplyAssistDefaults()
 	if cfg.DraftMax != 3 || cfg.DraftMin != 1 || cfg.DraftPMin != "0.5" {
 		t.Errorf("assist defaults clobbered the draft slot: %+v", cfg)
 	}
@@ -27,7 +27,7 @@ func TestApplyDefaultsTouchOnlyTheirOwnSlot(t *testing.T) {
 	}
 
 	cfg.DraftMax, cfg.DraftMin, cfg.DraftPMin = 3, 1, "0.5"
-	applyDraftDefaults(cfg)
+	cfg.ApplyDraftDefaults()
 	if cfg.AssistNMax != 64 || cfg.AssistNMin != 48 || cfg.AssistNMatch != 24 {
 		t.Errorf("draft defaults clobbered the assist slot: %+v", cfg)
 	}
@@ -41,7 +41,7 @@ func TestApplyDefaultsTouchOnlyTheirOwnSlot(t *testing.T) {
 func TestApplyDraftDefaultsLeavesHeadModesBlank(t *testing.T) {
 	for _, mode := range []string{"draft-eagle3", "draft-dflash", "draft-dspark"} {
 		cfg := &models.ModelConfig{SpecType: mode, DraftMax: 16, DraftMin: 2, DraftPMin: "0.9"}
-		applyDraftDefaults(cfg)
+		cfg.ApplyDraftDefaults()
 		if cfg.DraftMax != 0 || cfg.DraftMin != 0 || cfg.DraftPMin != "" {
 			t.Errorf("%s should apply no defaults, got %+v", mode, cfg)
 		}
@@ -52,7 +52,7 @@ func TestApplyDraftDefaultsLeavesHeadModesBlank(t *testing.T) {
 // the previous assist mode left behind.
 func TestApplyAssistDefaultsClearsForSettinglessMode(t *testing.T) {
 	cfg := &models.ModelConfig{SpecAssist: "ngram-cache", AssistNMax: 64, AssistSizeN: 12}
-	applyAssistDefaults(cfg)
+	cfg.ApplyAssistDefaults()
 	if cfg.AssistNMax != 0 || cfg.AssistSizeN != 0 {
 		t.Errorf("ngram-cache should carry no settings, got %+v", cfg)
 	}
