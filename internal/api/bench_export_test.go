@@ -141,3 +141,32 @@ func TestFormatCMakeFlagsEmpty(t *testing.T) {
 		t.Errorf("nil flags = %q, want empty", got)
 	}
 }
+
+// Both CSV scopes carry the saved profile, and profile_edited is empty
+// for a run that was not from a profile.
+func TestCSVExportCarriesProfile(t *testing.T) {
+	runs, jobs := twoBuildRuns()
+	runs[0].Config.ProfileName = "Fast"
+	runs[0].Config.ProfileEdited = true
+
+	for name, write := range map[string]func(*csv.Writer) error{
+		"cells":   func(cw *csv.Writer) error { return writeCSVCells(cw, runs, jobs) },
+		"summary": func(cw *csv.Writer) error { return writeCSVSummary(cw, runs, jobs) },
+	} {
+		rows := parseCSV(t, write)
+		col := map[string]int{}
+		for i, h := range rows[0] {
+			col[h] = i
+		}
+		p, e := col["profile"], col["profile_edited"]
+		if p == 0 || e == 0 {
+			t.Fatalf("%s: profile columns missing from header %v", name, rows[0])
+		}
+		if rows[1][p] != "Fast" || rows[1][e] != "true" {
+			t.Errorf("%s: first run profile = %q/%q, want Fast/true", name, rows[1][p], rows[1][e])
+		}
+		if last := rows[len(rows)-1]; last[p] != "" || last[e] != "" {
+			t.Errorf("%s: run without a profile = %q/%q, want empty", name, last[p], last[e])
+		}
+	}
+}

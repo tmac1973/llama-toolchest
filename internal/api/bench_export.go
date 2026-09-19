@@ -201,7 +201,7 @@ func writeCSVCells(cw *csv.Writer, runs []benchmark.BenchmarkRun, jobs jobLookup
 		"job_id", "job_name", "run_id", "created_at",
 		"model_id", "model_name", "quant",
 		"build_id", "build_profile", "git_ref", "cmake_flags",
-		"preset", "sweep",
+		"preset", "sweep", "profile", "profile_edited",
 		"eval_mode", "eval_dataset", "eval_score", "eval_error",
 		"eval_tasks_chunks", "eval_kl_stats", "eval_reference",
 		"mem_gpu_gib", "mem_weights_gib", "mem_kv_gib",
@@ -228,6 +228,7 @@ func writeCSVCells(cw *csv.Writer, runs []benchmark.BenchmarkRun, jobs jobLookup
 			run.ModelID, run.ModelName, run.Quant,
 			build.ID, build.Profile, build.GitRef, formatCMakeFlags(build.CMakeFlags),
 			run.Preset, formatSweepValues(run.SweepValues),
+			run.Config.ProfileName, profileEditedCSV(run.Config),
 		}
 		base = append(base, evalExportFields(run.Eval)...)
 		// Memory is a property of the load, so it repeats on every row
@@ -284,12 +285,21 @@ func writeCSVCells(cw *csv.Writer, runs []benchmark.BenchmarkRun, jobs jobLookup
 	return nil
 }
 
+// profileEditedCSV is the profile_edited column: empty when the run was
+// not from a profile, otherwise true or false.
+func profileEditedCSV(c benchmark.ConfigSnapshot) string {
+	if c.ProfileName == "" {
+		return ""
+	}
+	return strconv.FormatBool(c.ProfileEdited)
+}
+
 func writeCSVSummary(cw *csv.Writer, runs []benchmark.BenchmarkRun, jobs jobLookup) error {
 	header := []string{
 		"job_id", "job_name", "run_id", "created_at",
 		"model_id", "model_name", "quant",
 		"build_id", "build_profile", "git_ref", "cmake_flags",
-		"preset", "sweep",
+		"preset", "sweep", "profile", "profile_edited",
 		"eval_mode", "eval_dataset", "eval_score", "eval_error",
 		"eval_tasks_chunks", "eval_kl_stats", "eval_reference",
 		"mem_gpu_gib", "mem_weights_gib", "mem_kv_gib",
@@ -328,6 +338,7 @@ func writeCSVSummary(cw *csv.Writer, runs []benchmark.BenchmarkRun, jobs jobLook
 			run.ModelID, run.ModelName, run.Quant,
 			build.ID, build.Profile, build.GitRef, formatCMakeFlags(build.CMakeFlags),
 			run.Preset, formatSweepValues(run.SweepValues),
+			run.Config.ProfileName, profileEditedCSV(run.Config),
 		}
 		row = append(row, evalExportFields(run.Eval)...)
 		row = append(row, memoryExportFields(run.Memory)...)

@@ -98,6 +98,12 @@ func comparisonDimensions(runs []BenchmarkRun) []runDimension {
 		{Name: "tensor split", Value: func(r BenchmarkRun) string { return r.Config.TensorSplit }},
 		{Name: "threads", Value: func(r BenchmarkRun) string { return itoaOrEmpty(r.Config.Threads) }},
 		{Name: "speculative decoding", Value: func(r BenchmarkRun) string { return specLabel(r.Config) }},
+		{Name: "profile", Value: func(r BenchmarkRun) string {
+			if r.Config.ProfileName == "" {
+				return ""
+			}
+			return ProfileCellText(r.Config)
+		}},
 	}
 	for _, d := range cfg {
 		if swept[configFieldForDimension(d.Name)] {

@@ -24,6 +24,7 @@
                 {{if .Config.BatchSize}} | Batch: {{.Config.BatchSize}}{{end}}
                 {{if .Config.UBatchSize}} | Micro-batch: {{.Config.UBatchSize}}{{end}}
                 {{if .Config.SpecType}} | Spec: {{.Config.SpecType}}{{end}}
+                {{if .Config.ProfileName}}<br><span title="The saved profile the model's settings came from when this run started. &quot;(edited)&quot; means what ran was not exactly that profile: its settings had been changed since, or the job overrode or swept one of them." style="cursor:help;">Profile: {{profileCell .Config}}</span>{{end}}
                 {{if .SweepValues}}<br>Sweep point: {{range $k, $v := .SweepValues}}<kbd>{{$k}}={{$v}}</kbd> {{end}}{{end}}
             </small>
         </div>

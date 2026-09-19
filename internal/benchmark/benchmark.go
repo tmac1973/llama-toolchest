@@ -177,6 +177,27 @@ type ConfigSnapshot struct {
 	// — see the excluded list on evaluate.MapConfigFlags.
 	PLEMode    string `json:"ple_mode,omitempty"`
 	ExtraFlags string `json:"extra_flags,omitempty"`
+
+	// GPU placement as launched. SplitMode and MainGPU are derived from
+	// GPUAssign when the config is saved, but they are what llama-server
+	// actually receives, and a sweep can set split mode on its own.
+	SplitMode string `json:"split_mode,omitempty"`
+	MainGPU   int    `json:"main_gpu,omitempty"`
+	Parallel  int    `json:"parallel,omitempty"`
+
+	// Draft model resources, for the draft methods that load a second
+	// model.
+	DraftCtxSize      int    `json:"draft_ctx_size,omitempty"`
+	DraftGPULayers    int    `json:"draft_gpu_layers,omitempty"`
+	DraftKVCacheQuant string `json:"draft_kv_cache_quant,omitempty"`
+
+	// ProfileName is the saved profile the model's config came from when
+	// the run started, and ProfileEdited is true when what ran differed
+	// from it: the live config had been changed since, or the job
+	// overrode or swept a setting. Only a run with ProfileEdited false ran
+	// the profile exactly.
+	ProfileName   string `json:"profile_name,omitempty"`
+	ProfileEdited bool   `json:"profile_edited,omitempty"`
 }
 
 // GPUSnapshot captures GPU hardware at benchmark time.
@@ -563,8 +584,10 @@ const maxTimingSamples = 1000
 // was a bare JSON array of runs; v2 wraps them with a jobs list; v3
 // flags runs whose recorded config was never actually applied; v4
 // renames size_gb → size_gib and vram_total_mb → vram_total_mib (the
-// values were always binary units — the old names were wrong).
-const schemaVersion = 4
+// values were always binary units — the old names were wrong); v5 adds
+// the config profile and GPU placement to the config snapshot (new
+// fields only, no migration).
+const schemaVersion = 5
 
 // benchmarkFile is the v2 envelope. v1 files are detected by an
 // unmarshal failure into this shape and a successful retry as []BenchmarkRun.

@@ -259,8 +259,22 @@ func compareColumns() []struct {
 			}
 			return "no"
 		}},
+		{"profile", func(r BenchmarkRun) string { return ProfileCellText(r.Config) }},
 		{"build", func(r BenchmarkRun) string { return compareBuildCellText(r) }},
 	}
+}
+
+// ProfileCellText is how a run's saved profile reads in the comparison
+// table and the CSV export: the name, marked when what ran differed from
+// it, or an em-dash when the config was not from a profile.
+func ProfileCellText(c ConfigSnapshot) string {
+	if c.ProfileName == "" {
+		return "—"
+	}
+	if c.ProfileEdited {
+		return c.ProfileName + " (edited)"
+	}
+	return c.ProfileName
 }
 
 // compareColumnVariance splits the descriptive columns into those that

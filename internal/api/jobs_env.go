@@ -375,6 +375,7 @@ func (e *jobEnv) modelInfoBundle(m *models.Model) (benchmark.ModelInfo, error) {
 	if err != nil {
 		return benchmark.ModelInfo{}, err
 	}
+	profile, edited := e.s.registry.ActiveProfileState(m.ID)
 	return benchmark.ModelInfo{
 		ID:          m.ID,
 		HFRepoID:    m.ModelID,
@@ -385,34 +386,7 @@ func (e *jobEnv) modelInfoBundle(m *models.Model) (benchmark.ModelInfo, error) {
 		DisplayName: shortenModelName(m.ModelID),
 		RouterName:  e.s.registry.RouterName(m.ID),
 		Reasoning:   reasoningControl(m, cfg),
-		Config: benchmark.ConfigSnapshot{
-			GPULayers:      cfg.GPULayers,
-			ContextSize:    cfg.ContextSize,
-			GPUAssign:      cfg.GPUAssign,
-			TensorSplit:    cfg.TensorSplit,
-			FlashAttention: cfg.FlashAttention,
-			KVCacheQuant:   cfg.KVCacheQuant,
-			DirectIO:       cfg.DirectIO,
-			Threads:        cfg.Threads,
-			BatchSize:      cfg.BatchSize,
-			UBatchSize:     cfg.UBatchSize,
-			SpecType:       cfg.SpecType,
-			DraftModelPath: cfg.DraftModelPath,
-			DraftMax:       cfg.DraftMax,
-			DraftMin:       cfg.DraftMin,
-			DraftPMin:      cfg.DraftPMin,
-			SpecAssist:     cfg.SpecAssist,
-			AssistNMax:     cfg.AssistNMax,
-			AssistNMin:     cfg.AssistNMin,
-			AssistNMatch:   cfg.AssistNMatch,
-			AssistSizeN:    cfg.AssistSizeN,
-			AssistSizeM:    cfg.AssistSizeM,
-			AssistMinHits:  cfg.AssistMinHits,
-			NgramSizeN:     cfg.NgramSizeN,
-			NgramSizeM:     cfg.NgramSizeM,
-			PLEMode:        cfg.PLEMode,
-			ExtraFlags:     cfg.ExtraFlags,
-		},
+		Config:      benchmark.SnapshotFromConfig(*cfg, profile, edited),
 	}, nil
 }
 

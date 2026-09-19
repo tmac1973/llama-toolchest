@@ -66,3 +66,22 @@ Revert the commit. Runs recorded meanwhile carry extra JSON fields that the
 older code ignores. `benchmarks.json` will have `version: 5`, which a build
 that has Phase 01 but not this phase refuses to write. To go back that far,
 set the version to 4 by hand.
+
+## As implemented
+
+- **One builder.** There was only one literal snapshot builder
+  (`modelInfoBundle` in `internal/api/jobs_env.go`); the second one the
+  plan expected in `bench.go` does not exist. It is replaced by
+  `benchmark.SnapshotFromConfig` in `internal/benchmark/snapshot.go`.
+- **How "edited" is decided.** `markProfileEdited` compares the cell's final
+  snapshot with the model's own, rather than asking whether the job had
+  overrides. It therefore also catches the f16 KV cache that capability
+  (evaluation) cells default to. `ConfigSnapshot` must stay comparable with
+  `==` (all scalar fields); the runner's reuse check already depends on that.
+- **Where the profile shows.**
+  - The compare table has a "Profile" column that uses the existing
+    varies/common mechanism: it is folded into the "same for every run" line
+    when all runs share it.
+  - Chart labels gain a "profile" dimension.
+  - The run detail page shows "Profile: name (edited)".
+- **CSV:** both scopes gain `profile` and `profile_edited`.

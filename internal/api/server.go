@@ -276,6 +276,9 @@ func (s *Server) templateFuncs() template.FuncMap {
 		// cssID sanitizes a string so it's safe to use as both an HTML id
 		// attribute and a CSS selector (see domID in hf.go).
 		"cssID": domID,
+		// profileCell renders a run's saved profile for the comparison
+		// table: the name, "(edited)" when what ran differed from it.
+		"profileCell": benchmark.ProfileCellText,
 		// deref turns a pointer like *int / *bool / *string / *float64
 		// into its underlying value for templates. Non-pointers pass
 		// through; nil pointers return empty string.
