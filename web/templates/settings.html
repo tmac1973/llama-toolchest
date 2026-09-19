@@ -170,8 +170,9 @@
                     setSection('sec-label-env', b[1], !!env, 'Runtime env (' + envCount + ')');
                     setSection('sec-label-flags', b[2], (d.flag_presets || []).length > 0,
                         'Flag presets (' + (d.flag_presets || []).length + ')');
-                    setSection('sec-label-models', b[3], (d.model_configs || []).length > 0,
-                        'Model configs (' + (d.model_configs || []).length + ')');
+                    var nConfigs = (d.model_configs || []).length, nProfiles = (d.profiles || []).length;
+                    setSection('sec-label-models', b[3], nConfigs + nProfiles > 0,
+                        'Model configs (' + nConfigs + ')' + (nProfiles ? ' and saved profiles (' + nProfiles + ')' : ''));
                     parsedOK = true;
                     msg.innerHTML = hasSecrets
                         ? '<small><mark>&#9888; this file contains secrets (HF token / API key)</mark></small>'

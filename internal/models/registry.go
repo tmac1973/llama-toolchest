@@ -220,6 +220,12 @@ type ModelConfig struct {
 	// chat-template auto-detection is wrong or absent. nil = use detection.
 	ReasoningOverride *ReasoningCapability `json:"reasoning,omitempty"`
 
+	// ActiveProfile names the saved profile this config was last saved as
+	// or restored from. It is a label, not a link: whether the config
+	// still matches that profile is worked out by comparing the two (see
+	// Registry.ActiveProfileState).
+	ActiveProfile string `json:"active_profile,omitempty"`
+
 	// SamplingPreset names the publisher preset whose values currently fill
 	// the sampling fields below, so the UI can show which preset is running.
 	// Cleared when the user hand-edits a sampling field: at that point the
@@ -403,7 +409,10 @@ func (c *ModelConfig) EffectiveFlags() string {
 // this one does not know, and saving over it would silently drop them, so
 // such a file makes the registry read-only instead. A file with no version
 // (every file written before the field existed) is read as current.
-const RegistrySchemaVersion = 1
+//
+//	1 — the version field itself
+//	2 — config_profiles
+const RegistrySchemaVersion = 2
 
 // ErrRegistryReadOnly is matched by errors.Is on every refusal from a
 // read-only registry. The error text itself is the plain-language reason.
@@ -421,6 +430,10 @@ type registryData struct {
 	// PendingConfigs holds backup-imported configs awaiting their model
 	// (see pending.go). Additive: older binaries ignore the field.
 	PendingConfigs []PendingConfig `json:"pending_configs,omitempty"`
+	// Profiles are named config snapshots, keyed by model identity rather
+	// than registry ID (see profiles.go). They stay when their model is
+	// deleted.
+	Profiles []ConfigProfile `json:"config_profiles,omitempty"`
 }
 
 // Registry manages local model storage and metadata.
@@ -641,6 +654,13 @@ func (r *Registry) SetConfig(id string, cfg *ModelConfig) error {
 	}
 	if _, ok := r.data.Models[id]; !ok {
 		return fmt.Errorf("model not found: %s", id)
+	}
+	// The config form never posts the profile label, so an autosave would
+	// otherwise erase it on every change. Profile methods set it directly.
+	if cfg.ActiveProfile == "" {
+		if prev, ok := r.data.Configs[id]; ok && prev != nil {
+			cfg.ActiveProfile = prev.ActiveProfile
+		}
 	}
 	r.data.Configs[id] = cfg
 	return r.save()

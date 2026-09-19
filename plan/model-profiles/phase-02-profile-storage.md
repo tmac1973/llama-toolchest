@@ -123,3 +123,28 @@ later.
 Revert the commit. A build with Phase 01 but not this phase refuses to write
 a schema-2 file (the gate works as intended). To go back fully, also remove
 `config_profiles` from `models.json` and set `schema_version` back to 1.
+
+## As implemented
+
+- **Identity, not registry ID.** A profile is filed under the model's
+  repository and file name (`RepoID`, `Filename`), not under the registry ID.
+  `ScanModels` builds registry IDs differently from a download (compare
+  `api/hf.go` with `ScanModels`), so a profile keyed by registry ID would be
+  lost when a deleted model is found again by a scan. The registry methods
+  still take a registry ID and look up the identity from the model.
+- **No pending step for backups.** Because profiles are keyed by identity,
+  a restored profile for a model that is not installed is stored as it is
+  (`ImportProfile`) and appears as soon as a matching file registers.
+- **Backup.** `File.Profiles` holds the full `models.ConfigProfile` records.
+  They restore under the existing "Model configs" checkbox, whose label in
+  the restore preview now reads "Model configs (N) and saved profiles (M)".
+  Paths are made relative on export and resolved on import, and the GPU
+  assignment is fitted to the target machine, as for model configs. That
+  code is now shared in `normalizeTopology`.
+- **Extra registry methods:** `AllProfiles` (for export) and `ImportProfile`
+  (for restore).
+- **Tests:** `internal/models/profiles_test.go` includes reflection tests
+  showing that `ProfileEqual` notices a change in every field except
+  `Enabled`, `Aliases` and `ActiveProfile`, and that `cloneConfig` copies
+  every pointer and slice field. `internal/backup/profiles_test.go` covers
+  the export → restore round trip.

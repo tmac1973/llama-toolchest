@@ -198,6 +198,10 @@ func (s *Server) restoreDeps() backup.Deps {
 				SavedAt:  time.Now().UTC(),
 			})
 		},
+		ImportProfile: func(p models.ConfigProfile) error {
+			_, err := s.registry.ImportProfile(p)
+			return err
+		},
 		NumGPUs:   len(s.monitor.Current().GPU),
 		ModelsDir: s.cfg.ModelsPath(),
 	}

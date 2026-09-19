@@ -14,8 +14,9 @@ import (
 // value errors (bad preset names, unknown env vars, unparseable GPU
 // assigns, missing paths) are per-item concerns handled during Apply.
 // Shape errors are exactly: invalid JSON, an unsupported version, a
-// model config entry with an empty model_id/quant/filename, or a flag
-// preset with an empty name/profile. All shape errors are collected into
+// model config entry with an empty model_id/quant/filename, a profile
+// with an empty repo_id/filename/name, or a flag preset with an empty
+// name/profile. All shape errors are collected into
 // one rejection; nothing is applied if Parse fails.
 func Parse(data []byte) (*File, error) {
 	var f File
@@ -29,6 +30,11 @@ func Parse(data []byte) (*File, error) {
 	for i, mc := range f.ModelConfigs {
 		if mc.ModelID == "" || mc.Quant == "" || mc.Filename == "" {
 			shape = append(shape, fmt.Sprintf("model_configs[%d]: model_id, quant, and filename are required", i))
+		}
+	}
+	for i, p := range f.Profiles {
+		if p.RepoID == "" || p.Filename == "" || strings.TrimSpace(p.Name) == "" {
+			shape = append(shape, fmt.Sprintf("profiles[%d]: repo_id, filename, and name are required", i))
 		}
 	}
 	for i, p := range f.FlagPresets {
@@ -81,6 +87,7 @@ type Report struct {
 	Error               string         `json:"error,omitempty"`
 	Applied             []string       `json:"applied,omitempty"`
 	AppliedModelConfigs int            `json:"applied_model_configs"`
+	AppliedProfiles     int            `json:"applied_profiles"`
 	Notes               []string       `json:"notes,omitempty"`
 	Warnings            []string       `json:"warnings,omitempty"`
 	Skipped             []SkippedItem  `json:"skipped,omitempty"`
@@ -109,8 +116,11 @@ type Deps struct {
 	// SavePending holds a missing model's config for auto-claim. Nil
 	// disables pending (the entry stays a skip).
 	SavePending func(MissingModel) error
-	NumGPUs     int
-	ModelsDir   string
+	// ImportProfile stores a restored profile under its own identity,
+	// whether or not the model is installed.
+	ImportProfile func(models.ConfigProfile) error
+	NumGPUs       int
+	ModelsDir     string
 }
 
 // Apply runs the selected sections item by item. It never deletes:
@@ -211,21 +221,7 @@ func Apply(f *File, sel Selections, deps Deps) Report {
 			cfg := mc.Config
 
 			// Topology normalization first.
-			if a := cfg.GPUAssign; a != "" && a != "custom" {
-				switch {
-				case deps.NumGPUs == 0:
-					rep.Warnings = append(rep.Warnings, ident+": no GPUs detected — GPU assignment imported verbatim")
-				case models.AssignGPUsOutOfRange(a, deps.NumGPUs):
-					cfg.GPUAssign = "all"
-					cfg.TensorSplit, cfg.SplitMode, cfg.MainGPU = models.ResolveGPUAssign("all", deps.NumGPUs)
-					rep.Warnings = append(rep.Warnings, fmt.Sprintf(
-						"%s: GPU assignment %q references GPUs this machine doesn't have — reset to all GPUs", ident, a))
-				default:
-					cfg.TensorSplit, cfg.SplitMode, cfg.MainGPU = models.ResolveGPUAssign(a, deps.NumGPUs)
-				}
-			} else if a == "custom" {
-				rep.Warnings = append(rep.Warnings, ident+": custom tensor split imported verbatim — verify it against this machine's GPUs")
-			}
+			rep.Warnings = append(rep.Warnings, normalizeTopology(&cfg, ident, deps.NumGPUs)...)
 
 			ids := deps.InstalledModels(mc.ModelID, mc.Quant)
 			if len(ids) == 0 {
@@ -254,14 +250,53 @@ func Apply(f *File, sel Selections, deps Deps) Report {
 				rep.Applied = append(rep.Applied, "model config: "+ident)
 			}
 		}
+		// Profiles restore with the model configs: they are the same
+		// settings, saved under a name.
+		for _, p := range f.Profiles {
+			ident := fmt.Sprintf("%s %s profile %q", p.RepoID, p.Filename, p.Name)
+			rep.Warnings = append(rep.Warnings, normalizeTopology(&p.Config, ident, deps.NumGPUs)...)
+			rep.Warnings = append(rep.Warnings, prefixAll(ident, models.ResolveConfigPaths(&p.Config, deps.ModelsDir))...)
+			if deps.ImportProfile == nil {
+				rep.Skipped = append(rep.Skipped, SkippedItem{ident, "profiles are not supported here"})
+				continue
+			}
+			if err := deps.ImportProfile(p); err != nil {
+				rep.Skipped = append(rep.Skipped, SkippedItem{ident, err.Error()})
+				continue
+			}
+			rep.AppliedProfiles++
+			rep.Applied = append(rep.Applied, "profile: "+ident)
+		}
 	} else {
-		note("model configs", len(f.ModelConfigs) > 0)
+		note("model configs", len(f.ModelConfigs) > 0 || len(f.Profiles) > 0)
 	}
 
 	if restartReminder {
 		rep.Notes = append(rep.Notes, "these changes take effect on the next server restart")
 	}
 	return rep
+}
+
+// normalizeTopology fits a config's GPU assignment to this machine and
+// returns warnings, each prefixed with ident.
+func normalizeTopology(cfg *models.ModelConfig, ident string, numGPUs int) []string {
+	a := cfg.GPUAssign
+	switch {
+	case a == "":
+		return nil
+	case a == "custom":
+		return []string{ident + ": custom tensor split imported verbatim — verify it against this machine's GPUs"}
+	case numGPUs == 0:
+		return []string{ident + ": no GPUs detected — GPU assignment imported verbatim"}
+	case models.AssignGPUsOutOfRange(a, numGPUs):
+		cfg.GPUAssign = "all"
+		cfg.TensorSplit, cfg.SplitMode, cfg.MainGPU = models.ResolveGPUAssign("all", numGPUs)
+		return []string{fmt.Sprintf(
+			"%s: GPU assignment %q references GPUs this machine doesn't have — reset to all GPUs", ident, a)}
+	default:
+		cfg.TensorSplit, cfg.SplitMode, cfg.MainGPU = models.ResolveGPUAssign(a, numGPUs)
+		return nil
+	}
 }
 
 func prefixAll(prefix string, msgs []string) []string {

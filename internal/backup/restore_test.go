@@ -69,11 +69,12 @@ var errInvalidName = errors.New("invalid name: lowercase letters, digits, and hy
 func TestParseRejectsWholeFile(t *testing.T) {
 	rec := newRecorder(2, "")
 	cases := map[string]string{
-		"truncated":     `{"version": 1, "settings":`,
-		"wrong version": `{"version": 2}`,
-		"no identity":   `{"version": 1, "model_configs": [{"quant": "Q4"}]}`,
-		"no filename":   `{"version": 1, "model_configs": [{"model_id": "a/b", "quant": "Q4"}]}`,
-		"bad preset":    `{"version": 1, "flag_presets": [{"name": "x"}]}`,
+		"truncated":       `{"version": 1, "settings":`,
+		"wrong version":   `{"version": 2}`,
+		"no identity":     `{"version": 1, "model_configs": [{"quant": "Q4"}]}`,
+		"no filename":     `{"version": 1, "model_configs": [{"model_id": "a/b", "quant": "Q4"}]}`,
+		"bad preset":      `{"version": 1, "flag_presets": [{"name": "x"}]}`,
+		"unnamed profile": `{"version": 1, "profiles": [{"repo_id": "a/b", "filename": "c.gguf", "name": " "}]}`,
 	}
 	for name, data := range cases {
 		f, err := Parse([]byte(data))

@@ -2,8 +2,9 @@
 // and the engines that produce (Assemble) and consume (Parse/Apply) it.
 //
 // The backup carries intent, not artifacts: server preference settings,
-// the runtime environment, saved build flag sets, and per-model launch
-// configs keyed by stable HF identity (ModelID, Quant). It deliberately
+// the runtime environment, saved build flag sets, per-model launch
+// configs keyed by stable HF identity (ModelID, Quant), and saved config
+// profiles keyed by (ModelID, Filename). It deliberately
 // excludes anything machine-specific or rebuildable — build binaries,
 // GGUF files, registry metadata, deployment-identity settings (exported
 // for reference only, never applied).
@@ -37,6 +38,9 @@ type File struct {
 	RuntimeEnv   *RuntimeEnv          `json:"runtime_env,omitempty"`
 	FlagPresets  []builder.FlagPreset `json:"flag_presets,omitempty"`
 	ModelConfigs []ModelConfigExport  `json:"model_configs,omitempty"`
+	// Profiles are the saved config profiles, including those whose model
+	// is not installed. They restore with the model configs section.
+	Profiles []models.ConfigProfile `json:"profiles,omitempty"`
 }
 
 // SourceInfo documents the origin server. Restore ignores it entirely —
@@ -141,8 +145,20 @@ func Assemble(cfg *config.Config, b *builder.Builder, reg *models.Registry, gpus
 	f.FlagPresets = b.FlagPresets("") // already name-sorted
 
 	f.ModelConfigs = assembleModelConfigs(reg, cfg.ModelsPath())
+	f.Profiles = assembleProfiles(reg, cfg.ModelsPath())
 
 	return f
+}
+
+// assembleProfiles exports every stored profile with its file paths made
+// relative to the models dir, the same way model configs are. The
+// registry already keeps them sorted, so the output is deterministic.
+func assembleProfiles(reg *models.Registry, modelsDir string) []models.ConfigProfile {
+	profiles := reg.AllProfiles()
+	for i := range profiles {
+		relativizePaths(&profiles[i].Config, modelsDir)
+	}
+	return profiles
 }
 
 // assembleModelConfigs emits one entry per (ModelID, Quant) identity.
