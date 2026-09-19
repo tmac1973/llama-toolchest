@@ -42,7 +42,7 @@ type Server struct {
 	hfClient   *huggingface.Client
 	// llm asks a locally served model for structured answers
 	// (autoconfigure); see helper_model.go.
-	llm      *llmcall.Client
+	llm *llmcall.Client
 	// autoconf tracks the one autoconfigure run allowed at a time.
 	autoconf autoconfigState
 	msClient *modelscope.Client
