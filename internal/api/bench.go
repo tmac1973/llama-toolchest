@@ -505,7 +505,9 @@ func (s *Server) handleTimings(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleBenchmarkForm(w http.ResponseWriter, r *http.Request) {
 	respondHTML(w)
 
-	allModels := s.registry.List()
+	// Helper models are not benchmark targets: their settings are fixed,
+	// so there is nothing to compare.
+	allModels := s.registry.ListServing()
 	var enabledModels []*models.Model
 	for _, m := range allModels {
 		if cfg, err := s.registry.GetConfig(m.ID); err == nil && cfg.Enabled {

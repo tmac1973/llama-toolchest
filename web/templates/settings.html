@@ -287,7 +287,7 @@
 
 <article>
     <header>Autoconfigure helper model</header>
-    <p>Autoconfigure uses a small model to read a model's documentation (its model card) and suggest settings for it.</p>
+    <p>Autoconfigure uses a small model of its own to read a model's documentation (its model card) and suggest settings for it. It is loaded only while Autoconfigure runs, unloaded afterwards, and is not offered for chat or benchmarks. Its settings are managed for you.</p>
     <div id="helper-model-panel" hx-get="/api/helper-model/panel" hx-trigger="load" hx-swap="innerHTML">
         <small>Loading…</small>
     </div>

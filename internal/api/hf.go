@@ -481,6 +481,10 @@ func (s *Server) onDownloadComplete(source, downloadID, modelID, filename string
 		return
 	}
 
+	// A model downloaded for Autoconfigure's own use is marked as such,
+	// which keeps it out of the chat, benchmark and /v1 lists.
+	s.claimDownloadedHelper(m)
+
 	// Check if an mmproj file already exists in the same directory
 	if mmproj := models.FindMMProj(filePath); mmproj != "" {
 		if cfg, err := s.registry.GetConfig(m.ID); err == nil && cfg.MmprojPath == "" {

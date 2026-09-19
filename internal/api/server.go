@@ -239,6 +239,8 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 	// Runs unconditionally rather than only inside ScanModels: a head the
 	// backfill just dropped leaves its main model with no MtpPath, and a
 	// scan that finds nothing new would not re-attach it.
+	s.adoptExistingHelper()
+
 	if n := s.registry.AutoDetectMTP(); n > 0 {
 		slog.Info("auto-detected MTP drafter heads", "count", n)
 	}
@@ -283,6 +285,8 @@ func (s *Server) templateFuncs() template.FuncMap {
 		// cssID sanitizes a string so it's safe to use as both an HTML id
 		// attribute and a CSS selector (see domID in hf.go).
 		"cssID": domID,
+		// groupThousands writes a number with thousands separators.
+		"groupThousands": groupThousands,
 		// profileCell renders a run's saved profile for the comparison
 		// table: the name, "(edited)" when what ran differed from it.
 		"profileCell": benchmark.ProfileCellText,
@@ -559,6 +563,8 @@ func (s *Server) buildRouter() chi.Router {
 		r.Route("/models", func(r chi.Router) {
 			r.Get("/", s.handleListModels)
 			r.Get("/embeddings", s.handleListEmbeddingModels)
+			r.Get("/helpers", s.handleListHelperModels)
+			r.Post("/helpers/remove", s.handleRemoveHelperFromList)
 			r.Post("/scan", s.handleScanModels)
 			r.Get("/embedding-presets", s.handleEmbeddingPresets)
 			r.Post("/embedding-presets/download", s.handleDownloadEmbeddingPreset)
@@ -608,7 +614,7 @@ func (s *Server) buildRouter() chi.Router {
 		})
 		r.Get("/ps", s.handlePS)
 		r.Get("/helper-model/panel", s.handleHelperPanel)
-		r.Put("/helper-model", s.handleSetHelperModel)
+		r.Post("/helper-model/remove", s.handleRemoveHelperModel)
 		r.Post("/helper-model/download", s.handleDownloadHelperModel)
 		r.Route("/settings", func(r chi.Router) {
 			r.Get("/", s.handleGetSettings)

@@ -16,7 +16,9 @@ func (s *Server) handleGPUMap(w http.ResponseWriter, r *http.Request) {
 		return // render nothing when no GPUs detected
 	}
 
-	allModels := s.registry.List()
+	// Helper models are loaded only for a moment during Autoconfigure, so
+	// they are not part of what is planned onto the GPUs.
+	allModels := s.registry.ListServing()
 	allConfigs := make(map[string]*models.ModelConfig)
 	for _, m := range allModels {
 		if c, err := s.registry.GetConfig(m.ID); err == nil {

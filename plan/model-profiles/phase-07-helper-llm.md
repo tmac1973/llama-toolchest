@@ -155,3 +155,30 @@ The first version of that wait used `process.IsRunning`, which is only true
 once the router's first health check has passed. A router that had just
 been started reports "starting", so the wait ended immediately with "the
 server stopped". It now treats running and starting alike (`routerAlive`).
+
+## Helper models are the app's own (rework)
+
+The helper was registered like any other model: it appeared in the model
+list with the ordinary 8,192-token default (too small for a model card),
+its settings could be edited, and it was offered for chat and benchmarks.
+It is infrastructure, so it is now app-managed:
+
+- **A role on the record.** `Model.HelperRole` marks a model the app
+  downloaded for itself. `Registry.ListServing()` and `ListHelpers()` split
+  the two. A download claims the role through `Config.PendingHelper`, which
+  survives a restart mid-download, and an already-installed recommended
+  model is adopted at startup.
+- **Fixed settings.** `models.HelperConfig` gives every layer to the GPU,
+  flash attention and jinja on, no speculative decoding and no sampling
+  values. Only the context is chosen: 32K, 16K or 8K, the largest that fits
+  the GPU, never more than the model was trained for. They are applied when
+  the helper is adopted or downloaded, and again before every use, so a hand
+  edit is corrected rather than failing later.
+- **Not offered elsewhere.** Helper models are left out of the chat and
+  embedding lists, `/v1/models`, the benchmark and job pickers, and the GPU
+  allocation map. They stay in the router preset, because that is how they
+  are loaded.
+- **Their own section.** The Models page ends with "Helper models": what the
+  managed settings are, and a Remove button to free the disk.
+- **No picker in Settings.** The Settings section now shows whether a helper
+  is installed, its managed settings, and Download or Remove.

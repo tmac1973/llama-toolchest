@@ -4,33 +4,23 @@
     {{if eq .Kind "ok"}}<small>&#10003; {{.Text}}</small>{{else}}<mark>&#9888; {{.Text}}</mark>{{end}}
 </p>
 {{end}}
+{{if .Installed}}
 <p>
-    {{if .Current}}
-    Autoconfigure uses <strong>{{.Current}}</strong>{{if .CurrentIsDefault}} (the recommended model){{end}}.
-    {{else}}
-    No helper model is installed yet, so Autoconfigure cannot read model cards.
-    {{end}}
+    <strong>{{.Name}}</strong> is installed ({{printf "%.1f" .SizeGiB}} GiB).
+    <br><small title="These settings are fixed so the helper model always works: everything on the GPU, and a context large enough to hold a model card. The context is chosen from your GPU's memory.">Settings are managed by llama-toolchest: {{groupThousands .ContextSize}} tokens of context, all layers on the GPU.</small>
 </p>
-<form hx-put="/api/helper-model" hx-target="#helper-model-panel" hx-swap="innerHTML">
-    <label title="The model Autoconfigure asks to read model cards. A small model is enough. It is loaded only while Autoconfigure runs, and unloaded afterwards; any other loaded model may be unloaded to make room.">
-        Helper model
-        <select name="helper_model_id">
-            {{range .Options}}<option value="{{.ID}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
-        </select>
-    </label>
-    <button type="submit">Save</button>
-</form>
-{{if not .DefaultInstalled}}
-<p>
-    {{if .Downloading}}
-    <small>The recommended model is downloading. Progress is in the Downloads panel on the Models page.</small>
-    {{else}}
-    <button type="button" class="secondary"
-            hx-post="/api/helper-model/download" hx-target="#helper-model-panel" hx-swap="innerHTML"
-            title="Downloads {{.DefaultLabel}} from Hugging Face, about 3 GB. It becomes the helper automatically unless you choose another model above.">
-        Download recommended ({{.DefaultLabel}}, about 3 GB)
-    </button>
-    {{end}}
-</p>
+<button type="button" class="outline secondary" style="width:auto;"
+        hx-post="/api/helper-model/remove" hx-target="#helper-model-panel" hx-swap="innerHTML"
+        hx-confirm="Remove the helper model and delete its files? Autoconfigure will offer to download it again when it needs it."
+        title="Delete the helper model to free disk space.">Remove</button>
+{{else if .Downloading}}
+<p><small aria-busy="true">Downloading the helper model. Progress is in the Downloads panel on the Models page.</small></p>
+{{else}}
+<p>No helper model is installed, so Autoconfigure cannot read model cards. It still works from what fits on your hardware.</p>
+<button type="button" class="secondary" style="width:auto;"
+        hx-post="/api/helper-model/download" hx-target="#helper-model-panel" hx-swap="innerHTML"
+        title="Downloads {{.DefaultLabel}} from Hugging Face, about 3 GB. It is loaded only while Autoconfigure runs and unloaded afterwards.">
+    Download helper model ({{.DefaultLabel}}, about 3 GB)
+</button>
 {{end}}
 {{end}}

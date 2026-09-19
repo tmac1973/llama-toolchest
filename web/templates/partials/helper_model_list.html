@@ -1,0 +1,29 @@
+{{define "helper_model_list"}}
+<hr>
+<div style="display:flex;justify-content:space-between;align-items:center;padding:0 0.25rem 0.5rem 0;">
+    <h4 style="margin:0;" title="Models llama-toolchest downloaded for its own use: reading a model's documentation for Autoconfigure. They are loaded only while that runs, unloaded afterwards, and are not offered for chat or benchmarks.">Helper models</h4>
+</div>
+{{range .}}
+<article class="model-card" id="model-card-{{cssID .ID}}">
+    <div class="model-card-row">
+        <div class="model-card-toggle"><span title="Helper models are managed by llama-toolchest." style="color:var(--pico-muted-color);">&#9881;</span></div>
+        <div class="model-card-name">
+            {{.ModelID}}
+            <mark style="padding:0 0.3rem;font-size:0.75rem;background:var(--pico-muted-border-color);color:var(--pico-color);">helper</mark>
+            <br><small style="color:var(--pico-muted-color);"
+                       title="These settings are fixed so the helper always works: every layer on the GPU, and a context large enough to hold a model card. The context is chosen from your GPU's memory.">Managed settings: {{groupThousands .ContextSize}} tokens of context, all layers on the GPU. Used by Autoconfigure only.</small>
+        </div>
+        <div class="model-card-quant"><kbd>{{.Quant}}</kbd></div>
+        <div class="model-card-vram">—</div>
+        <div class="model-card-size">{{printf "%.1f" .SizeGiB}} GiB</div>
+        <div class="model-card-actions">
+            <button type="button" class="outline secondary"
+                    hx-post="/api/models/helpers/remove"
+                    hx-target="#helper-list" hx-swap="innerHTML"
+                    hx-confirm="Remove the helper model and delete its files? Autoconfigure will offer to download it again when it needs it."
+                    title="Delete this helper model to free disk space.">Remove</button>
+        </div>
+    </div>
+</article>
+{{end}}
+{{end}}

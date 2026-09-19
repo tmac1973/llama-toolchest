@@ -42,7 +42,9 @@ func (s *Server) openAIModel(m *models.Model, cfg *models.ModelConfig) map[strin
 
 // handleV1Models returns an OpenAI-compatible model list with meta extensions.
 func (s *Server) handleV1Models(w http.ResponseWriter, r *http.Request) {
-	all := s.registry.List()
+	// Helper models are the app's own and are never advertised to
+	// clients.
+	all := s.registry.ListServing()
 
 	var data []map[string]any
 	for _, m := range all {

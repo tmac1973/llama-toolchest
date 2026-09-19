@@ -23,7 +23,7 @@
         <p><mark>&#9888; No helper model is installed, so the model's documentation will not be read. The settings will come from what fits on this machine only.</mark>
             <a href="/settings">Install a helper model in Settings.</a></p>
         {{else}}
-        <p><small>Reads the documentation with {{.Helper}}{{if .HelperIsDflt}} (the recommended helper){{end}}. It is loaded for about a minute and unloaded afterwards. The server starts or restarts if that is needed to load it.</small></p>
+        <p><small>Reads the documentation with the helper model {{.Helper}}. It is loaded for about a minute and unloaded afterwards. The server starts or restarts if that is needed to load it.</small></p>
         {{if .OtherLoaded}}
         <p><mark>&#9888; Loading the helper model may unload: {{range $i, $m := .OtherLoaded}}{{if $i}}, {{end}}{{$m}}{{end}}.</mark></p>
         {{end}}

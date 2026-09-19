@@ -81,11 +81,10 @@ func (s *Server) otherLoadedModels(skipRouterName string) []string {
 
 // autoconfigDialogData is what the autoconfig_dialog partial renders.
 type autoconfigDialogData struct {
-	ModelID      string
-	ModelName    string
-	Helper       string // helper model name, "" when none is installed
-	HelperIsDflt bool
-	BusyReason   string
+	ModelID    string
+	ModelName  string
+	Helper     string // helper model name, "" when none is installed
+	BusyReason string
 	OtherLoaded  []string
 	Classes      []contextClassOption
 }
@@ -123,8 +122,8 @@ func (s *Server) handleAutoconfigDialog(w http.ResponseWriter, r *http.Request) 
 	}
 	d := autoconfigDialogData{ModelID: id, ModelName: m.PublicName(), Classes: contextClassOptions(m.ContextLength)}
 	helperRouter := ""
-	if h, chosen := s.helperModel(); h != nil {
-		d.Helper, d.HelperIsDflt = h.PublicName(), !chosen
+	if h := s.helperModel(); h != nil {
+		d.Helper = h.PublicName()
 		helperRouter = s.registry.RouterName(h.ID)
 	}
 	if s.routerBusyWithJob() {
@@ -184,13 +183,13 @@ func (s *Server) handleAutoconfigStart(w http.ResponseWriter, r *http.Request) {
 			s.autoconf.mu.Unlock()
 		},
 	}
-	helper, _ := s.helperModel()
+	helper := s.helperModel()
 	if helper != nil {
+		// The helper is put on its fixed settings before it is used, so
+		// the card budget is sized from those, not from what is stored
+		// now.
 		deps.HelperID = helper.ID
-		deps.HelperContext = helperMinContext
-		if cfg, err := s.registry.GetConfig(helper.ID); err == nil && cfg.ContextSize > helperMinContext {
-			deps.HelperContext = cfg.ContextSize
-		}
+		deps.HelperContext = models.HelperConfig(helper, s.helperVRAMBudget()).ContextSize
 	}
 
 	go func() {

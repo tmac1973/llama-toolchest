@@ -107,6 +107,12 @@ type Model struct {
 	// head). Zero on a standalone head, which carries the key but is not
 	// a model anyone runs.
 	NextNLayers int `json:"nextn_layers,omitempty"`
+	// HelperRole marks a model the app downloaded for its own use:
+	// reading model cards for Autoconfigure, and later Autotune. It is
+	// loaded only for those, and unloaded afterwards. Its settings are
+	// fixed (see HelperConfig), it is not offered for chat or
+	// benchmarks, and the only thing to do with it is remove it.
+	HelperRole bool `json:"helper_role,omitempty"`
 	// AutoconfigDismissed hides the model card's Autoconfigure
 	// suggestion. The suggestion is shown for every model that has no
 	// Autoconfig profile yet, so this records the user saying "not this
@@ -691,6 +697,47 @@ func (r *Registry) SetConfig(id string, cfg *ModelConfig) error {
 	}
 	r.data.Configs[id] = cfg
 	return r.save()
+}
+
+// SetHelperRole marks or unmarks a model as the app's helper model.
+func (r *Registry) SetHelperRole(id string, on bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.writableLocked(); err != nil {
+		return err
+	}
+	m, ok := r.data.Models[id]
+	if !ok {
+		return fmt.Errorf("model not found: %s", id)
+	}
+	if m.HelperRole == on {
+		return nil
+	}
+	m.HelperRole = on
+	return r.save()
+}
+
+// ListServing returns the models available for chat, embeddings and
+// benchmarks: everything except the app's own helper models.
+func (r *Registry) ListServing() []*Model {
+	var out []*Model
+	for _, m := range r.List() {
+		if !m.HelperRole {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// ListHelpers returns the app's helper models.
+func (r *Registry) ListHelpers() []*Model {
+	var out []*Model
+	for _, m := range r.List() {
+		if m.HelperRole {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // SetAutoconfigDismissed hides or restores the model card's

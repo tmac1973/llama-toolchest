@@ -41,6 +41,9 @@
 <div id="embedding-list" hx-get="/api/models/embeddings" hx-trigger="load, modelsChanged from:body" hx-swap="innerHTML">
 </div>
 
+<div id="helper-list" hx-get="/api/models/helpers" hx-trigger="load, modelsChanged from:body" hx-swap="innerHTML">
+</div>
+
 <script>
 (function() {
     // --- VRAM estimate update from config save ---

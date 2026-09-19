@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http/httptest"
-	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -49,69 +48,167 @@ func TestPickHelperFileChoosesTheRecommendedQuant(t *testing.T) {
 	}
 }
 
-func TestHelperModelResolution(t *testing.T) {
+// A model becomes the helper by being downloaded as one, and an
+// already-installed recommended model is adopted at startup.
+func TestHelperModelIsTheOneDownloadedAsSuch(t *testing.T) {
 	s := newHelperServer(t)
-	if m, _ := s.helperModel(); m != nil {
-		t.Fatalf("helper without any installed = %v", m.ID)
+	if m := s.helperModel(); m != nil {
+		t.Fatalf("helper without one installed = %v", m.ID)
 	}
-	def := addDefaultHelper(t, s)
-	if m, chosen := s.helperModel(); m == nil || m.ID != def || chosen {
-		t.Fatalf("default not used when installed and nothing chosen: %v %v", m, chosen)
+	id := addDefaultHelper(t, s)
+	if m := s.helperModel(); m != nil {
+		t.Fatalf("an ordinary model was taken as the helper: %v", m.ID)
 	}
-	s.cfg.HelperModelID = profTestID
-	if m, chosen := s.helperModel(); m == nil || m.ID != profTestID || !chosen {
-		t.Fatalf("chosen model not used: %v %v", m, chosen)
+
+	// Installed before helper models had a role: adopted at startup.
+	s.adoptExistingHelper()
+	m := s.helperModel()
+	if m == nil || m.ID != id {
+		t.Fatalf("recommended model not adopted: %v", m)
 	}
-	s.cfg.HelperModelID = "gone"
-	if m, chosen := s.helperModel(); m == nil || m.ID != def || chosen {
-		t.Errorf("an uninstalled choice should fall back to the default: %v %v", m, chosen)
+	if !m.HelperRole {
+		t.Error("the adopted model is not marked as a helper")
+	}
+	// A second start changes nothing.
+	s.adoptExistingHelper()
+	if len(s.registry.ListHelpers()) != 1 {
+		t.Errorf("helpers = %d, want 1", len(s.registry.ListHelpers()))
 	}
 }
 
-func TestEnsureHelperConfigRaisesContextAndEnables(t *testing.T) {
+// A finished download claims the helper role only when it is the file the
+// Settings panel asked for.
+func TestClaimDownloadedHelper(t *testing.T) {
+	s := newHelperServer(t)
+	id := addDefaultHelper(t, s)
+	m, _ := s.registry.Get(id)
+
+	s.claimDownloadedHelper(m)
+	if len(s.registry.ListHelpers()) != 0 {
+		t.Fatal("a download nobody asked for became the helper")
+	}
+
+	s.cfg.PendingHelper = m.ModelID + "|" + m.Filename
+	s.claimDownloadedHelper(m)
+	if h := s.helperModel(); h == nil || h.ID != id {
+		t.Fatalf("the requested download did not become the helper: %v", h)
+	}
+	if s.cfg.PendingHelper != "" {
+		t.Error("the pending marker was not cleared")
+	}
+	if cfg, _ := s.registry.GetConfig(id); cfg.ContextSize < models.HelperContextSmall {
+		t.Errorf("the helper was left on ordinary defaults: context %d", cfg.ContextSize)
+	}
+}
+
+// Helper models are the app's own: not in the chat list, not offered to
+// clients, and not benchmark targets.
+func TestHelperModelIsNotOfferedElsewhere(t *testing.T) {
+	s := newHelperServer(t)
+	id := addDefaultHelper(t, s)
+	if err := s.registry.SetHelperRole(id, true); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range s.registry.ListServing() {
+		if m.ID == id {
+			t.Error("the helper model is in the serving list")
+		}
+	}
+	if len(s.registry.ListHelpers()) != 1 {
+		t.Error("the helper model is not in the helper list")
+	}
+}
+
+// The helper's settings are not the user's: they are recomputed before
+// every use, and a hand edit is corrected.
+func TestEnsureHelperConfigAppliesFixedSettings(t *testing.T) {
 	s := newHelperServer(t)
 	id := addDefaultHelper(t, s)
 	cfg, _ := s.registry.GetConfig(id)
-	next := *cfg
-	next.Enabled, next.ContextSize = false, 8192
-	s.registry.SetConfig(id, &next)
+	edited := *cfg
+	edited.Enabled, edited.ContextSize, edited.GPULayers, edited.SpecType = false, 8192, 5, "draft-mtp"
+	s.registry.SetConfig(id, &edited)
 
 	changed, err := s.ensureHelperConfig(id)
 	if err != nil || !changed {
 		t.Fatalf("ensureHelperConfig = %v, %v; want a change", changed, err)
 	}
-	cfg, _ = s.registry.GetConfig(id)
-	if !cfg.Enabled || cfg.ContextSize != helperMinContext {
-		t.Errorf("helper config = enabled %v, ctx %d", cfg.Enabled, cfg.ContextSize)
+	got, _ := s.registry.GetConfig(id)
+	if !got.Enabled || got.GPULayers != 999 || got.SpecType != "" || got.ContextSize < models.HelperContextSmall {
+		t.Errorf("helper config = %+v", got)
 	}
 	if changed, _ := s.ensureHelperConfig(id); changed {
 		t.Error("a second call changed it again")
 	}
 }
 
-func TestHelperPanelAndSave(t *testing.T) {
+// The Settings panel offers a download when there is no helper, and its
+// managed settings plus Remove when there is.
+func TestHelperPanel(t *testing.T) {
 	s := newHelperServer(t)
-	rec := httptest.NewRecorder()
-	s.handleHelperPanel(rec, httptest.NewRequest("GET", "/api/helper-model/panel", nil))
-	out := rec.Body.String()
-	if !strings.Contains(out, "No helper model is installed yet") || !strings.Contains(out, "/api/helper-model/download") {
+	panel := func() string {
+		rec := httptest.NewRecorder()
+		s.handleHelperPanel(rec, httptest.NewRequest("GET", "/api/helper-model/panel", nil))
+		return rec.Body.String()
+	}
+	out := panel()
+	if !strings.Contains(out, "No helper model is installed") || !strings.Contains(out, "/api/helper-model/download") {
 		t.Errorf("empty panel lacks the explanation or the download button:\n%s", out)
 	}
 
-	addDefaultHelper(t, s)
-	req := httptest.NewRequest("PUT", "/api/helper-model", strings.NewReader(url.Values{"helper_model_id": {profTestID}}.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec = httptest.NewRecorder()
-	s.handleSetHelperModel(rec, req)
-	out = rec.Body.String()
-	if s.cfg.HelperModelID != profTestID || !strings.Contains(out, "Autoconfigure will use") {
-		t.Errorf("save did not take: id %q\n%s", s.cfg.HelperModelID, out)
+	id := addDefaultHelper(t, s)
+	if err := s.registry.SetHelperRole(id, true); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(out, "context was raised") {
-		t.Errorf("the context change is not reported:\n%s", out)
+	out = panel()
+	for _, want := range []string{"is installed", "Settings are managed by llama-toolchest", "tokens of context", "/api/helper-model/remove"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("panel missing %q:\n%s", want, out)
+		}
 	}
 	if strings.Contains(out, "/api/helper-model/download") {
-		t.Error("download button shown although the recommended model is installed")
+		t.Error("download button shown although a helper is installed")
+	}
+
+	// Removing it frees the disk and brings the download offer back.
+	rec := httptest.NewRecorder()
+	s.handleRemoveHelperModel(rec, httptest.NewRequest("POST", "/api/helper-model/remove", nil))
+	if !strings.Contains(rec.Body.String(), "Removed") || len(s.registry.ListHelpers()) != 0 {
+		t.Errorf("remove failed:\n%s", rec.Body.String())
+	}
+	if !strings.Contains(panel(), "/api/helper-model/download") {
+		t.Error("the download offer did not come back")
+	}
+}
+
+// The Models page lists helper models in a section of their own, with
+// their managed settings and nothing to configure.
+func TestHelperModelsSectionOnModelsPage(t *testing.T) {
+	s := newHelperServer(t)
+	id := addDefaultHelper(t, s)
+	list := func() string {
+		req := httptest.NewRequest("GET", "/api/models/helpers", nil)
+		req.Header.Set("HX-Request", "true")
+		rec := httptest.NewRecorder()
+		s.handleListHelperModels(rec, req)
+		return rec.Body.String()
+	}
+	if out := list(); strings.TrimSpace(out) != "" {
+		t.Errorf("a section was rendered with no helper models:\n%s", out)
+	}
+	if err := s.registry.SetHelperRole(id, true); err != nil {
+		t.Fatal(err)
+	}
+	out := list()
+	for _, want := range []string{"Helper models", "Managed settings", "tokens of context", "/api/models/helpers/remove"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("helper section missing %q:\n%s", want, out)
+		}
+	}
+	for _, gone := range []string{"/config", "autoconfig"} {
+		if strings.Contains(out, gone) {
+			t.Errorf("helper section offers %q", gone)
+		}
 	}
 }
 

@@ -755,7 +755,8 @@ func (s *Server) renderJobDetail(w http.ResponseWriter, job *benchmark.Benchmark
 func (s *Server) handleJobForm(w http.ResponseWriter, r *http.Request) {
 	respondHTML(w)
 	var enabled []*models.Model
-	for _, m := range s.registry.List() {
+	// Helper models are not benchmark targets (see handleBenchmarkForm).
+	for _, m := range s.registry.ListServing() {
 		if cfg, err := s.registry.GetConfig(m.ID); err == nil && cfg.Enabled {
 			enabled = append(enabled, m)
 		}

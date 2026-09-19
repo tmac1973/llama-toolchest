@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"sort"
 	"sync"
 	"time"
 
@@ -27,23 +26,37 @@ const (
 	defaultHelperLabel = "Qwen3.5-4B"
 )
 
-// helperMinContext is the context the helper model needs: a trimmed model
-// card, the instructions, and a 2,048-token answer.
-const helperMinContext = 16384
-
-// helperModel returns the model autoconfigure uses: the one chosen in
-// Settings when it is installed, otherwise the recommended default when
-// that is installed, otherwise nil. chosen reports which.
-func (s *Server) helperModel() (m *models.Model, chosen bool) {
-	s.cfgMu.Lock()
-	id := s.cfg.HelperModelID
-	s.cfgMu.Unlock()
-	if id != "" {
-		if m, err := s.registry.Get(id); err == nil {
-			return m, true
-		}
+// helperModel returns the app's helper model, or nil when none is
+// installed. It is not a user choice: a model becomes the helper by being
+// downloaded as one.
+func (s *Server) helperModel() *models.Model {
+	if h := s.registry.ListHelpers(); len(h) > 0 {
+		return h[0]
 	}
-	return s.installedDefaultHelper(), false
+	return nil
+}
+
+// adoptExistingHelper marks an already-installed recommended model as the
+// helper at startup. It covers the installs that downloaded one before
+// helper models had a role of their own.
+func (s *Server) adoptExistingHelper() {
+	if len(s.registry.ListHelpers()) > 0 {
+		return
+	}
+	m := s.installedDefaultHelper()
+	if m == nil {
+		return
+	}
+	if err := s.registry.SetHelperRole(m.ID, true); err != nil {
+		slog.Debug("adopt helper model", "model", m.ID, "error", err)
+		return
+	}
+	// Put it on the fixed settings straight away, so what is stored
+	// matches what the Models page says about it.
+	if _, err := s.ensureHelperConfig(m.ID); err != nil {
+		slog.Warn("could not set the helper model's settings", "model", m.ID, "error", err)
+	}
+	slog.Info("marked the installed recommended model as the helper model", "model", m.ID)
 }
 
 // installedDefaultHelper returns the recommended helper model if it is
@@ -242,39 +255,50 @@ func (s *Server) routerKnows(routerName string, m *models.Model) bool {
 	return known
 }
 
-// ensureHelperConfig makes sure the helper model is enabled (the router
-// only serves enabled models) and has room for a model card. It reports
-// whether it changed anything.
+// ensureHelperConfig puts the helper model on its fixed settings, sized
+// to the GPU, and reports whether anything changed. It runs before every
+// use, so a helper registered with the ordinary defaults — or edited by
+// hand — is corrected rather than failing in a way nobody can explain.
 func (s *Server) ensureHelperConfig(id string) (bool, error) {
 	cfg, err := s.registry.GetConfig(id)
 	if err != nil {
 		return false, err
 	}
-	m, _ := s.registry.Get(id)
-	next := *cfg
-	changed := false
-	if !next.Enabled {
-		next.Enabled = true
-		changed = true
+	m, err := s.registry.Get(id)
+	if err != nil {
+		return false, err
 	}
-	ctx := next.ContextSize
-	if ctx == 0 && m != nil {
-		ctx = m.ContextLength // "model default"
-	}
-	if ctx < helperMinContext {
-		next.ContextSize = helperMinContext
-		changed = true
-	}
-	if !changed {
+	want := models.HelperConfig(m, s.helperVRAMBudget())
+	if models.ProfileEqual(*cfg, want) && cfg.Enabled == want.Enabled {
 		return false, nil
 	}
-	if err := s.registry.SetConfig(id, &next); err != nil {
+	want.Aliases = cfg.Aliases
+	if err := s.registry.SetConfig(id, &want); err != nil {
 		return false, err
 	}
 	if _, err := s.registry.WritePresetINI(s.activeBackend()); err != nil {
 		slog.Warn("failed to regenerate preset INI", "error", err)
 	}
+	slog.Info("helper model set to its fixed settings", "model", id, "context", want.ContextSize)
 	return true, nil
+}
+
+// helperVRAMBudget is the GPU memory a helper model may use: the largest
+// dedicated GPU, less the same safety margin the fit planner leaves.
+func (s *Server) helperVRAMBudget() float64 {
+	best := 0.0
+	for _, g := range s.hardware().GPUs {
+		if g.IsIGPU {
+			continue
+		}
+		if gib := float64(g.VRAMTotalMiB) / 1024; gib > best {
+			best = gib
+		}
+	}
+	if best == 0 {
+		return 0
+	}
+	return best * 0.92
 }
 
 // unloadHelper frees the GPU after autoconfigure. Failure is logged, not
@@ -286,6 +310,29 @@ func (s *Server) unloadHelper(id string) {
 	if err := s.process.UnloadModel(s.registry.RouterName(id)); err != nil {
 		slog.Warn("could not unload the helper model", "model", id, "error", err)
 	}
+}
+
+// claimDownloadedHelper marks a finished download as the app's helper
+// model when it is the one the Settings panel asked for.
+func (s *Server) claimDownloadedHelper(m *models.Model) {
+	s.cfgMu.Lock()
+	pending := s.cfg.PendingHelper
+	s.cfgMu.Unlock()
+	if pending == "" || pending != m.ModelID+"|"+m.Filename {
+		return
+	}
+	if err := s.registry.SetHelperRole(m.ID, true); err != nil {
+		slog.Warn("could not mark the downloaded helper model", "model", m.ID, "error", err)
+		return
+	}
+	s.cfgMu.Lock()
+	s.cfg.PendingHelper = ""
+	s.saveConfigLocked()
+	s.cfgMu.Unlock()
+	if _, err := s.ensureHelperConfig(m.ID); err != nil {
+		slog.Warn("could not set the helper model's settings", "model", m.ID, "error", err)
+	}
+	slog.Info("helper model installed", "model", m.ID)
 }
 
 // pickHelperFile chooses the recommended quant from a repository listing.
@@ -301,47 +348,26 @@ func pickHelperFile(d *modelsource.Detail) (modelsource.File, bool) {
 	return modelsource.File{}, false
 }
 
-// helperOption is one entry in the helper model picker.
-type helperOption struct {
-	ID       string
-	Label    string
-	Selected bool
-}
-
-// helperPanelData is what the helper_model_panel partial renders.
+// helperPanelData is what the helper_model_panel partial renders. The
+// helper model is not a choice: it is installed, or it is not.
 type helperPanelData struct {
-	Options          []helperOption
-	Current          string // label of the model in use, "" when none
-	CurrentIsDefault bool   // the recommended model is in use because nothing else was chosen
-	DefaultInstalled bool
-	Downloading      bool
-	DefaultLabel     string
-	Banner           *panelBanner
+	Installed    bool
+	Name         string
+	SizeGiB      float64
+	ContextSize  int
+	Downloading  bool
+	DefaultLabel string
+	Banner       *panelBanner
 }
 
 func (s *Server) helperPanelData() helperPanelData {
 	d := helperPanelData{DefaultLabel: defaultHelperLabel + " (" + defaultHelperQuant + ")"}
-	s.cfgMu.Lock()
-	chosenID := s.cfg.HelperModelID
-	s.cfgMu.Unlock()
-
-	var list []*models.Model
-	for _, m := range s.registry.List() {
-		if !m.IsEmbedding() && !m.MTPHead {
-			list = append(list, m)
-		}
+	if m := s.helperModel(); m != nil {
+		d.Installed = true
+		d.Name = m.PublicName()
+		d.SizeGiB = models.BytesToGiB(m.SizeBytes)
+		d.ContextSize = models.HelperConfig(m, s.helperVRAMBudget()).ContextSize
 	}
-	sort.Slice(list, func(i, j int) bool { return list[i].PublicName() < list[j].PublicName() })
-	d.Options = append(d.Options, helperOption{ID: "", Label: "Recommended: " + d.DefaultLabel, Selected: chosenID == ""})
-	for _, m := range list {
-		d.Options = append(d.Options, helperOption{ID: m.ID, Label: m.PublicName(), Selected: m.ID == chosenID})
-	}
-
-	if m, chosen := s.helperModel(); m != nil {
-		d.Current = m.PublicName()
-		d.CurrentIsDefault = !chosen
-	}
-	d.DefaultInstalled = s.installedDefaultHelper() != nil
 	for _, st := range s.downloader.ListActive() {
 		if st.ModelID == defaultHelperRepo && st.Status == "downloading" {
 			d.Downloading = true
@@ -362,34 +388,36 @@ func (s *Server) handleHelperPanel(w http.ResponseWriter, r *http.Request) {
 	s.renderHelperPanel(w, nil)
 }
 
-// handleSetHelperModel saves the helper choice (form: helper_model_id; ""
-// is the recommended default) and gives the chosen model room for a model
-// card.
-func (s *Server) handleSetHelperModel(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
-	id := r.FormValue("helper_model_id")
-	if id != "" {
-		if _, err := s.registry.Get(id); err != nil {
-			s.renderHelperPanel(w, &panelBanner{"error", "That model is not installed."})
-			return
-		}
+// removeHelper deletes the helper model and its files, and reports what
+// was freed. Removing it is the only thing there is to manage about a
+// helper model: it is downloaded when Autoconfigure needs one, and
+// removed to free the disk.
+func (s *Server) removeHelper() (name string, freedGiB float64, err error) {
+	m := s.helperModel()
+	if m == nil {
+		return "", 0, errors.New("no helper model is installed")
 	}
-	s.cfgMu.Lock()
-	s.cfg.HelperModelID = id
-	s.saveConfigLocked()
-	s.cfgMu.Unlock()
+	name, freedGiB = m.PublicName(), models.BytesToGiB(m.SizeBytes)
+	if err := s.registry.Delete(m.ID); err != nil {
+		return "", 0, err
+	}
+	if _, err := s.registry.WritePresetINI(s.activeBackend()); err != nil {
+		slog.Warn("failed to regenerate preset INI after removing the helper model", "error", err)
+	}
+	return name, freedGiB, nil
+}
 
-	msg := "Autoconfigure will use the recommended model when it is installed."
-	if m, _ := s.helperModel(); m != nil {
-		msg = "Autoconfigure will use " + m.PublicName() + "."
-		if changed, err := s.ensureHelperConfig(m.ID); err != nil {
-			s.renderHelperPanel(w, &panelBanner{"error", "Saved, but its settings could not be updated: " + err.Error()})
-			return
-		} else if changed {
-			msg += fmt.Sprintf(" Its context was raised to %d tokens so model cards fit.", helperMinContext)
-		}
+// handleRemoveHelperModel removes the helper model from the Settings
+// panel and re-renders that panel.
+func (s *Server) handleRemoveHelperModel(w http.ResponseWriter, r *http.Request) {
+	name, gib, err := s.removeHelper()
+	if err != nil {
+		s.renderHelperPanel(w, &panelBanner{"error", "Not removed: " + err.Error()})
+		return
 	}
-	s.renderHelperPanel(w, &panelBanner{"ok", msg})
+	w.Header().Set("HX-Trigger", "modelsChanged")
+	s.renderHelperPanel(w, &panelBanner{"ok", fmt.Sprintf(
+		"Removed %s and freed %.1f GiB. Autoconfigure will offer to download it again when it needs it.", name, gib)})
 }
 
 // handleDownloadHelperModel starts the download of the recommended helper
@@ -411,6 +439,10 @@ func (s *Server) handleDownloadHelperModel(w http.ResponseWriter, r *http.Reques
 		s.renderHelperPanel(w, &panelBanner{"error", fmt.Sprintf("Not enough disk space: the model needs %.1f GiB.", models.BytesToGiB(f.Size))})
 		return
 	}
+	s.cfgMu.Lock()
+	s.cfg.PendingHelper = defaultHelperRepo + "|" + f.Filename
+	s.saveConfigLocked()
+	s.cfgMu.Unlock()
 	if _, err := s.downloader.Start(context.Background(), modelsource.SourceHuggingFace, defaultHelperRepo, f.Filename, f.Size); err != nil {
 		if errors.Is(err, context.Canceled) {
 			return

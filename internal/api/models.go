@@ -14,7 +14,7 @@ import (
 )
 
 func (s *Server) handleListEmbeddingModels(w http.ResponseWriter, r *http.Request) {
-	embeddingModels := filterModels(s.registry.List(), true)
+	embeddingModels := filterModels(s.registry.ListServing(), true)
 	pending := filterPending(s.registry.PendingConfigs(), true)
 
 	if isHTMX(r) {
@@ -29,9 +29,45 @@ func (s *Server) handleListEmbeddingModels(w http.ResponseWriter, r *http.Reques
 	respondJSON(w, withPublicNames(embeddingModels))
 }
 
+// handleListHelperModels renders the helper models section: the models
+// llama-toolchest downloaded for its own use. Their settings are fixed,
+// so the section shows what they are and offers only removal.
+func (s *Server) handleListHelperModels(w http.ResponseWriter, r *http.Request) {
+	helpers := s.registry.ListHelpers()
+	if !isHTMX(r) {
+		respondJSON(w, withPublicNames(helpers))
+		return
+	}
+	respondHTML(w)
+	if len(helpers) == 0 {
+		return // no heading for a section with nothing in it
+	}
+	type helperRow struct {
+		models.Model
+		SizeGiB     float64
+		ContextSize int
+	}
+	rows := make([]helperRow, 0, len(helpers))
+	for _, m := range helpers {
+		rows = append(rows, helperRow{Model: *m, SizeGiB: models.BytesToGiB(m.SizeBytes),
+			ContextSize: models.HelperConfig(m, s.helperVRAMBudget()).ContextSize})
+	}
+	s.renderPartial(w, "helper_model_list", rows)
+}
+
+// handleRemoveHelperFromList removes the helper model from the Models
+// page and re-renders the section, which disappears with it.
+func (s *Server) handleRemoveHelperFromList(w http.ResponseWriter, r *http.Request) {
+	if _, _, err := s.removeHelper(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.handleListHelperModels(w, r)
+}
+
 func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 	// Filter out embedding models — they have their own section
-	modelList := filterModels(s.registry.List(), false)
+	modelList := filterModels(s.registry.ListServing(), false)
 	pending := filterPending(s.registry.PendingConfigs(), false)
 
 	if isHTMX(r) {
