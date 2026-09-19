@@ -146,7 +146,7 @@ func Run(ctx context.Context, d Deps, id string, class models.ContextClass) (*Re
 	}
 
 	if checked.WantDraft != "" && d.Hub != nil {
-		progress("Looking for the draft files the model card recommends")
+		progress("Looking for the file that speculative decoding would need")
 		installed := func(repo, file string) bool {
 			for _, x := range d.Registry.List() {
 				if x.ModelID == repo && x.Filename == file {
@@ -156,6 +156,20 @@ func Run(ctx context.Context, d Deps, id string, class models.ContextClass) (*Re
 			return false
 		}
 		res.Suggestions = FindDraftSuggestions(ctx, d.Hub, m, checked, installed)
+	}
+	// Finish the speculative-decoding note now that it is known whether a
+	// file for it can be downloaded. Without this it would end by pointing
+	// at a list of suggested downloads that may be empty.
+	if checked.WantDraft != "" {
+		tail := " No file for it was found to download, so speculative decoding stays off."
+		if len(res.Suggestions) > 0 {
+			tail = " The suggested downloads below can provide it."
+		}
+		for i, n := range notes["spec_type"] {
+			if n.Origin == "model card" {
+				notes["spec_type"][i].Reason += tail
+			}
+		}
 	}
 
 	for _, f := range order {

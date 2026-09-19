@@ -11,16 +11,21 @@ import (
 
 	"github.com/tmac1973/llama-toolchest/internal/llmcall"
 	"github.com/tmac1973/llama-toolchest/internal/models"
+	"github.com/tmac1973/llama-toolchest/internal/modelsource"
 )
 
 const runModelID = "unsloth--Qwen3.5-9B-GGUF--Qwen3.5-9B-Q4_K_M"
 
-func runRegistry(t *testing.T) *models.Registry {
+func runRegistry(t *testing.T) *models.Registry { return runRegistryWithMTP(t, 1) }
+
+// runRegistryWithMTP registers the test model; nextN is how many built-in
+// MTP draft layers it has.
+func runRegistryWithMTP(t *testing.T, nextN int) *models.Registry {
 	t.Helper()
 	dir := t.TempDir()
 	reg := models.NewRegistry(dir, filepath.Join(dir, "models"))
 	m := &models.Model{ID: runModelID, ModelID: "testorg/Test-9B-GGUF", Filename: "Qwen3.5-9B-Q4_K_M.gguf",
-		NLayers: 36, NEmbd: 4096, NHead: 32, NKVHead: 8, ContextLength: 262144, SizeBytes: 5 << 30, NextNLayers: 1}
+		NLayers: 36, NEmbd: 4096, NHead: 32, NKVHead: 8, ContextLength: 262144, SizeBytes: 5 << 30, NextNLayers: nextN}
 	if err := reg.Add(m); err != nil {
 		t.Fatal(err)
 	}
@@ -141,5 +146,57 @@ func TestRunSurvivesAHelperFailure(t *testing.T) {
 	}
 	if !found || res.Proposed.ContextSize != 32768 {
 		t.Errorf("fallback result = %+v", res)
+	}
+}
+
+// When the card recommends a draft method this machine cannot serve, the
+// note says what can be done about it, and never points at an empty list
+// of downloads.
+func TestRunFinishesTheSpeculativeNote(t *testing.T) {
+	const answer = `{"temperature": null, "top_p": null, "top_k": null, "min_p": null, "presence_penalty": null,
+		"repeat_penalty": null, "sampling_quote": "", "thinking": null, "thinking_quote": "",
+		"draft_method": "draft-mtp", "draft_repo": null, "assist_mode": null, "speculative_quote": "use MTP",
+		"recommended_context": null, "context_quote": "", "other_notes": []}`
+	deps := func(hub Hub) Deps {
+		return Deps{
+			Registry: runRegistryWithMTP(t, 0), Hardware: gpu24(), HFBase: "https://hf.test", Hub: hub,
+			Fetcher: &fakeFetcher{pages: map[string]string{
+				"https://hf.test/testorg/Test-9B-GGUF/raw/main/README.md": readTestdata(t, "unsloth_card.md"),
+			}},
+			LLM: helperServer(t, answer), HelperID: "helper",
+		}
+	}
+	find := func(res *Result) string {
+		for _, n := range res.Notes {
+			if n.Field == "spec_type" && n.Origin == "model card" {
+				return n.Reason
+			}
+		}
+		return ""
+	}
+
+	// Nothing to download: say so.
+	res, err := Run(context.Background(), deps(fakeHub{}), runModelID, models.ContextMedium)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reason := find(res)
+	if !strings.Contains(reason, "no MTP layers") || !strings.Contains(reason, "stays off") {
+		t.Errorf("note = %q", reason)
+	}
+	if strings.Contains(reason, "suggested downloads") {
+		t.Error("the note points at downloads that do not exist")
+	}
+
+	// A head published next to the model: point at it.
+	hub := fakeHub{repos: map[string][]modelsource.File{
+		"testorg/Test-9B-GGUF": {{Filename: "Test-9B-MTP-Q8_0.gguf", Quant: "Q8_0", Size: 1 << 20}},
+	}}
+	res, err = Run(context.Background(), deps(hub), runModelID, models.ContextMedium)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Suggestions) != 1 || !strings.Contains(find(res), "suggested downloads below") {
+		t.Errorf("note = %q, suggestions = %+v", find(res), res.Suggestions)
 	}
 }

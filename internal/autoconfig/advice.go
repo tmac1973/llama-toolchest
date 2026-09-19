@@ -109,7 +109,7 @@ Rules:
 - draft_method: "draft-mtp" when the card says the model has multi-token prediction (MTP) layers or an MTP head for speculative decoding; "draft" when it recommends a separate smaller draft model; "draft-eagle3", "draft-dflash" or "draft-dspark" when it names that kind of head; otherwise null.
 - draft_repo: the Hugging Face repository (owner/name) the card names for that draft model or head, or null.
 - recommended_context: a context length the card recommends running with, in tokens, or null.
-- other_notes: at most five short sentences about anything else the card says about running this model with llama.cpp. Leave it empty when there is nothing.`
+- other_notes: at most five short sentences about anything else the card says about running this model with llama.cpp. Leave out instructions for other servers, such as vLLM, SGLang or TGI, and anything about training or fine-tuning. Leave it empty when there is nothing.`
 
 // Ask has the helper model with registry ID helperID read card and fill
 // in the advice form. An empty card is not sent: there is nothing to read.
@@ -261,7 +261,11 @@ func Validate(adv Advice, in Inputs) Checked {
 					Reason: "The installed draft model " + c.Filename + "."})
 		default:
 			out.WantDraft, out.DraftRepo = mode, repo
-			out.note("spec_type", "model card", quoted("The model card recommends speculative decoding ("+mode+"), but the file it needs is not installed. See the suggested downloads.", adv.SpeculativeQuote))
+			reason := "The model card recommends speculative decoding (" + mode + "), but the file it needs is not installed."
+			if mode == "draft-mtp" {
+				reason = "The model card mentions multi-token prediction (MTP), but this model file carries no MTP layers, so llama.cpp cannot use it. A separate MTP head published for this model would be needed."
+			}
+			out.note("spec_type", "model card", quoted(reason, adv.SpeculativeQuote))
 		}
 	}
 	if adv.AssistMode != nil && *adv.AssistMode != "none" && models.IsAssistMode(*adv.AssistMode) {

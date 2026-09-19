@@ -177,3 +177,26 @@ profiles. The `autoconfig_hint` field is ignored by older code.
   - that it reads a real model card and its advice appears in the review;
   - that it is unloaded afterwards;
   - how the review screen looks in a browser.
+
+## After the first real run (fixes)
+
+From a run against a real machine card (Qwen3.5-4B, RX 9070 XT plus an
+integrated GPU):
+
+- **The suggestion is now shown until it has been used.** It was set only
+  on new downloads, so models installed earlier never saw it. A model now
+  shows it whenever it has no Autoconfig profile and the user has not
+  dismissed it (`Model.AutoconfigDismissed` replaces `AutoconfigHint`).
+- **A row no longer repeats the same reason.** A publisher preset carries
+  its sentence on each of its six values, which read as a mistake in the
+  Temperature cell.
+- **GPU assignment reads as words** in the review ("GPU 0", "all GPUs")
+  rather than the card's compact "gpu:0" tag. Proposing GPU 0 on that
+  machine is correct: "all GPUs" would put layers on the integrated GPU.
+- **The speculative-decoding note says what can be done.** It pointed at
+  "the suggested downloads" even when none were found. It now ends with
+  either "The suggested downloads below can provide it." or "No file for it
+  was found to download, so speculative decoding stays off.", and for MTP on
+  a model whose file has no MTP layers it says so plainly.
+- **The helper is told to leave out advice for other servers.** The run
+  listed vLLM and SGLang flags under "the model card also mentions".

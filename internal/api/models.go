@@ -434,6 +434,10 @@ func (s *Server) renderModelCard(w http.ResponseWriter, m *models.Model, routerK
 		SearchText:     searchText,
 		CanAutoconfig:  !m.IsEmbedding() && !isOrphan && !isIncomplete,
 	}
+	if data.CanAutoconfig && !m.AutoconfigDismissed {
+		_, err := s.registry.GetProfile(m.ID, autoconfigProfileName)
+		data.ShowAutoconfigHint = err != nil
+	}
 	s.renderPartial(w, "model_card", data)
 }
 
@@ -455,6 +459,9 @@ type modelCardView struct {
 	ResumeFilename string
 	SearchText     string
 	CanAutoconfig  bool
+	// ShowAutoconfigHint suggests Autoconfigure on models that have never
+	// been through it.
+	ShowAutoconfigHint bool
 }
 
 // renderModelList renders the shared model list used by both chat and embedding

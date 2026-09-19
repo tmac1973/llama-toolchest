@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -199,9 +200,6 @@ func (s *Server) handleAutoconfigStart(w http.ResponseWriter, r *http.Request) {
 		if helper != nil {
 			s.unloadHelper(helper.ID)
 		}
-		if err := s.registry.SetAutoconfigHint(id, false); err != nil {
-			slog.Debug("clear autoconfig hint", "model", id, "error", err)
-		}
 		if errors.Is(err, context.DeadlineExceeded) {
 			err = fmt.Errorf("Autoconfigure took longer than %s and was stopped", autoconfigTimeout)
 		}
@@ -296,10 +294,11 @@ func (s *Server) handleAutoconfigDiscard(w http.ResponseWriter, r *http.Request)
 	respondHTML(w)
 }
 
-// handleAutoconfigDismissHint hides the model card's suggestion.
+// handleAutoconfigDismissHint hides the model card's suggestion for this
+// model. Autoconfigure stays available from the button.
 func (s *Server) handleAutoconfigDismissHint(w http.ResponseWriter, r *http.Request) {
 	id := s.registry.ResolveID(chi.URLParam(r, "id"))
-	if err := s.registry.SetAutoconfigHint(id, false); err != nil {
+	if err := s.registry.SetAutoconfigDismissed(id, true); err != nil {
 		http.Error(w, err.Error(), registryErrorStatus(err, http.StatusNotFound))
 		return
 	}
@@ -366,7 +365,12 @@ func (s *Server) autoconfigReviewData(id, name string, run autoconfigRun) autoco
 			continue
 		}
 		key := reviewKey(n.Field)
-		why[key] = append(why[key], n.Reason)
+		// The same reason can arrive twice — a preset that sets several
+		// values carries its sentence on each of them — and reads as a
+		// mistake when repeated in one cell.
+		if !slices.Contains(why[key], n.Reason) {
+			why[key] = append(why[key], n.Reason)
+		}
 		if origin[key] == "" {
 			origin[key] = n.Origin
 		}
@@ -436,7 +440,7 @@ var reviewFields = []reviewField{
 		return strconv.Itoa(c.GPULayers)
 	}},
 	{"cpu_moe", "CPU expert layers", func(c *models.ModelConfig) string { return showInt("none", c.CPUMoE) }},
-	{"gpu_assign", "GPU assignment", func(c *models.ModelConfig) string { return models.GPUAssignLabel(c.GPUAssign) }},
+	{"gpu_assign", "GPU assignment", func(c *models.ModelConfig) string { return gpuAssignText(c.GPUAssign) }},
 	{"flash_attention", "Flash attention", func(c *models.ModelConfig) string {
 		if c.FlashAttention {
 			return "on"
@@ -469,6 +473,23 @@ var reviewFields = []reviewField{
 	{"min_p", "Min-p", func(c *models.ModelConfig) string { return showFloat(c.MinP) }},
 	{"presence_penalty", "Presence penalty", func(c *models.ModelConfig) string { return showFloat(c.PresencePenalty) }},
 	{"repeat_penalty", "Repeat penalty", func(c *models.ModelConfig) string { return showFloat(c.RepeatPenalty) }},
+}
+
+// gpuAssignText spells out a GPU assignment for the review table, where
+// the model card's compact "gpu:0" tag would not read as a sentence.
+func gpuAssignText(assign string) string {
+	switch {
+	case assign == "" || assign == "all":
+		return "all GPUs"
+	case assign == "custom":
+		return "a custom split"
+	case strings.HasPrefix(assign, "tensor-"), strings.HasPrefix(assign, "tensor:"):
+		return "tensor parallelism over GPUs " + strings.TrimPrefix(strings.TrimPrefix(assign, "tensor-"), "tensor:")
+	case strings.ContainsAny(assign, ",-"):
+		return "GPUs " + assign
+	default:
+		return "GPU " + assign
+	}
 }
 
 // groupThousands writes n with thousands separators.
