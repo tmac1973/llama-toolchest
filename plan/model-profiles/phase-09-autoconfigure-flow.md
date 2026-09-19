@@ -215,3 +215,15 @@ about it, which read as Autoconfigure having missed it:
 - **Built-in MTP always says something**: turned on when it is off, "Already
   on and kept" when it is on, and when another draft method is set, that it
   is kept with MTP as something Autotune can compare against.
+
+## Model card layout
+
+Three buttons in one row overflowed into the Size column, and a fourth is
+coming with Autotune. The card's action area is now a 2×2 grid
+(`.model-card-buttons`), its column is 15rem, and the quant column is 7rem
+so a long quant name like `UD_Q8_K_XL` no longer sits on the VRAM figure.
+
+Below 1200px the actions move to a line of their own under the row: the
+fixed columns otherwise left the model name a few characters wide.
+Checked in a headless browser at 1024px and 1280px, with a fourth button
+in place.

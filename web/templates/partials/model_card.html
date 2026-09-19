@@ -45,7 +45,7 @@
                 Remove
             </button>
             {{else if .IsIncomplete}}
-            <div role="group">
+            <div class="model-card-buttons">
                 <button type="button" class="outline"
                         title="Resume the download — picks up from the files already on disk"
                         hx-post="/api/hf/download"
@@ -63,7 +63,7 @@
                 </button>
             </div>
             {{else}}
-            <div role="group">
+            <div class="model-card-buttons">
                 <button type="button" class="outline"
                         hx-get="/api/models/{{.ID}}/config"
                         hx-target="#model-config-{{cssID .ID}}"
