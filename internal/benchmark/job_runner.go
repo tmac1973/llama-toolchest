@@ -207,6 +207,11 @@ func (q *JobQueue) Status() (*BenchmarkJob, bool) {
 // Submit accepts a new job and starts it in a background goroutine.
 // Returns ErrJobAlreadyRunning when another job is in flight.
 func (q *JobQueue) Submit(job BenchmarkJob) error {
+	// A job run against a read-only store would be recorded in memory only
+	// and lost at the next restart.
+	if err := q.store.Writable(); err != nil {
+		return err
+	}
 	q.mu.Lock()
 	if q.current != nil {
 		q.mu.Unlock()

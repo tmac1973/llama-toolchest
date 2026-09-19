@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"log/slog"
@@ -627,7 +628,7 @@ func (s *Server) handleModelEnable(w http.ResponseWriter, r *http.Request) {
 
 	cfg.Enabled = enabled
 	if err := s.registry.SetConfig(id, cfg); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), registryErrorStatus(err, http.StatusInternalServerError))
 		return
 	}
 
@@ -723,6 +724,46 @@ func (s *Server) handleModelVRAMEstimate(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+// registryErrorStatus is the HTTP status for a failed registry write: 409
+// when the registry is read-only (the request was fine; the file on disk
+// is what needs attention), otherwise fallback.
+func registryErrorStatus(err error, fallback int) int {
+	if errors.Is(err, models.ErrRegistryReadOnly) {
+		return http.StatusConflict
+	}
+	return fallback
+}
+
+// modelConfigPanelData is what the model_config partial renders. It is a
+// named type so the render tests build the same shape the handler does.
+type modelConfigPanelData struct {
+	ModelID             string
+	Config              *models.ModelConfig
+	EffectiveFlags      string
+	MaxContext          int
+	HasMMProj           bool
+	HasMTP              bool
+	HasBuiltinVision    bool
+	IsEmbedding         bool
+	DraftCandidates     []models.DraftCandidate
+	DraftModes          []models.SpecMode
+	AssistModes         []models.SpecMode
+	DraftParams         []models.SpecModeParam
+	AssistParams        []models.SpecModeParam
+	EffectiveSpecType   string
+	GPUOptions          []models.GPUOption
+	GPUAssignWarning    string
+	NumGPUs             int
+	SamplingPresets     []models.SamplingPreset
+	SamplingPresetsJSON string
+	HasEmbeddedDefault  bool
+	HasPLE              bool
+	PLESizeLabel        string
+	// ReadOnlyReason is set when models.json cannot be saved; the panel
+	// says why before the user edits anything.
+	ReadOnlyReason string
+}
+
 // handleGetModelConfig returns the launch config for a model.
 func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 	id := s.registry.ResolveID(chi.URLParam(r, "id"))
@@ -804,30 +845,7 @@ func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		data := struct {
-			ModelID             string
-			Config              *models.ModelConfig
-			EffectiveFlags      string
-			MaxContext          int
-			HasMMProj           bool
-			HasMTP              bool
-			HasBuiltinVision    bool
-			IsEmbedding         bool
-			DraftCandidates     []models.DraftCandidate
-			DraftModes          []models.SpecMode
-			AssistModes         []models.SpecMode
-			DraftParams         []models.SpecModeParam
-			AssistParams        []models.SpecModeParam
-			EffectiveSpecType   string
-			GPUOptions          []models.GPUOption
-			GPUAssignWarning    string
-			NumGPUs             int
-			SamplingPresets     []models.SamplingPreset
-			SamplingPresetsJSON string
-			HasEmbeddedDefault  bool
-			HasPLE              bool
-			PLESizeLabel        string
-		}{
+		data := modelConfigPanelData{
 			ModelID:             id,
 			Config:              cfg,
 			EffectiveFlags:      cfg.EffectiveFlagsFor(isEmbedding, s.activeBackend()),
@@ -851,8 +869,9 @@ func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 			// The per-layer embedding control is only meaningful for the
 			// handful of architectures that carry such a table, so it is
 			// rendered only when this model actually has one.
-			HasPLE:       model != nil && model.PLEBytes > 0,
-			PLESizeLabel: pleSizeLabel(model),
+			HasPLE:         model != nil && model.PLEBytes > 0,
+			PLESizeLabel:   pleSizeLabel(model),
+			ReadOnlyReason: s.registry.ReadOnlyReason(),
 		}
 		s.renderPartial(w, "model_config", data)
 		return
@@ -1045,7 +1064,7 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := s.registry.SetConfig(id, cfg); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), registryErrorStatus(err, http.StatusInternalServerError))
 		return
 	}
 

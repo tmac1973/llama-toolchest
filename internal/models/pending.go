@@ -26,11 +26,13 @@ type PendingConfig struct {
 func (r *Registry) SetPendingConfig(p PendingConfig) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if err := r.writableLocked(); err != nil {
+		return err
+	}
 	for i := range r.data.PendingConfigs {
 		if r.data.PendingConfigs[i].ModelID == p.ModelID && r.data.PendingConfigs[i].Quant == p.Quant {
 			r.data.PendingConfigs[i] = p
-			r.save()
-			return nil
+			return r.save()
 		}
 	}
 	r.data.PendingConfigs = append(r.data.PendingConfigs, p)
@@ -41,8 +43,7 @@ func (r *Registry) SetPendingConfig(p PendingConfig) error {
 		}
 		return a.Quant < b.Quant
 	})
-	r.save()
-	return nil
+	return r.save()
 }
 
 // PendingConfigs returns a copy of the pending entries, sorted.
@@ -55,18 +56,20 @@ func (r *Registry) PendingConfigs() []PendingConfig {
 }
 
 // DiscardPendingConfig removes a pending entry, reporting whether it
-// existed.
-func (r *Registry) DiscardPendingConfig(modelID, quant string) bool {
+// existed. The error is set only when the registry refused the change.
+func (r *Registry) DiscardPendingConfig(modelID, quant string) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if err := r.writableLocked(); err != nil {
+		return false, err
+	}
 	for i, p := range r.data.PendingConfigs {
 		if p.ModelID == modelID && p.Quant == quant {
 			r.data.PendingConfigs = append(r.data.PendingConfigs[:i], r.data.PendingConfigs[i+1:]...)
-			r.save()
-			return true
+			return true, r.save()
 		}
 	}
-	return false
+	return false, nil
 }
 
 // claimPendingLocked attaches a pending config to a just-registered

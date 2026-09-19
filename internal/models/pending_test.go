@@ -115,10 +115,10 @@ func TestPendingUpsertAndDiscard(t *testing.T) {
 	if len(got) != 1 || got[0].Config.ContextSize != 2000 {
 		t.Fatalf("upsert failed: %+v", got)
 	}
-	if !reg.DiscardPendingConfig("org/a-GGUF", "Q4_K_M") {
+	if ok, _ := reg.DiscardPendingConfig("org/a-GGUF", "Q4_K_M"); !ok {
 		t.Error("discard reported missing")
 	}
-	if reg.DiscardPendingConfig("org/a-GGUF", "Q4_K_M") {
+	if ok, _ := reg.DiscardPendingConfig("org/a-GGUF", "Q4_K_M"); ok {
 		t.Error("second discard should report missing")
 	}
 	if len(reg.PendingConfigs()) != 0 {

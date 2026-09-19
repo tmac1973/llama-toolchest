@@ -19,6 +19,13 @@
         <span class="mc-restart">Restart required</span>
     </div>
 
+    {{if .ReadOnlyReason}}
+    <p role="alert" style="margin:0.5rem 0;"
+       title="The file on disk has not been changed. Fix or restore models.json, or upgrade llama-toolchest, then restart it.">
+        <mark>&#9888; {{.ReadOnlyReason}}</mark>
+    </p>
+    {{end}}
+
     <label title="Friendly names for this model. Clients can use these instead of the full ID. Comma-separated, e.g. qwen3:latest, my-chat-model">
         Aliases
         <input type="text" name="aliases" value="{{range $i, $a := .Config.Aliases}}{{if $i}}, {{end}}{{$a}}{{end}}"

@@ -325,7 +325,7 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 		err = s.registry.Delete(id)
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		http.Error(w, err.Error(), registryErrorStatus(err, http.StatusNotFound))
 		return
 	}
 

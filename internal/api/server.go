@@ -647,8 +647,19 @@ func (s *Server) handleModelsPage(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "models.html", pageData{Title: "Models", Nav: "models"})
 }
 
+// benchmarksPageData is what benchmarks.html renders.
+type benchmarksPageData struct {
+	pageData
+	// ReadOnlyReason is set when benchmarks.json cannot be saved; the page
+	// says why, and new jobs are refused until it is fixed.
+	ReadOnlyReason string
+}
+
 func (s *Server) handleBenchmarksPage(w http.ResponseWriter, r *http.Request) {
-	s.render(w, "benchmarks.html", pageData{Title: "Benchmarks", Nav: "benchmarks"})
+	s.render(w, "benchmarks.html", benchmarksPageData{
+		pageData:       pageData{Title: "Benchmarks", Nav: "benchmarks"},
+		ReadOnlyReason: s.bench.ReadOnlyReason(),
+	})
 }
 
 func (s *Server) handleModelsBrowsePage(w http.ResponseWriter, r *http.Request) {

@@ -100,3 +100,34 @@ reverted on its own.
 Revert the commit. The files written by this phase are ordinary JSON with one
 extra `schema_version` key that older builds ignore, so reverting is safe at
 any point.
+
+## As implemented
+
+Differences from the steps above, and why:
+
+- **Benchmark store refusal points.** `Save` and `SaveJob` still update
+  memory on a read-only store. The job runner calls them while a job runs,
+  and refusing there would stop the running job from being tracked. Instead,
+  the refusal comes up front in:
+  - `JobQueue.Submit` (so `RetryFailed` and quick runs are covered too);
+  - `Delete`, `DeleteJob` and `UpdateJobDefinition`.
+
+  `persist()` refuses to write as the last line of defence. A newer-version
+  file also skips the load-time fix-ups, which would otherwise rewrite it.
+- **One atomic writer.** The write-then-rename code lives in the new
+  `internal/atomicfile` package, used by both stores, instead of a copy in
+  each.
+- **Named view types.** The config panel's data is now the named
+  `modelConfigPanelData`, and the Benchmarks page's is `benchmarksPageData`.
+  The render tests use the same types instead of copying the fields, so
+  adding a field (as Phase 03 does) cannot break them.
+- **HTTP status.** A refusal from a read-only registry returns 409
+  (`registryErrorStatus`), not 500 or 404.
+- **`DiscardPendingConfig`** now returns `(bool, error)`.
+- **Download completion.** When the registry refuses to register a finished
+  download, `onDownloadComplete` logs it and stops. The file stays on disk,
+  and a later scan registers it.
+- **Pre-existing test failures.** Two tests in `internal/builder`
+  (`TestFetchRefsListsBothTagFamilies`, `TestCheckoutRefLatestAndCount`) fail
+  on machines with `tag.gpgsign=true` in the global git config, before and
+  after this phase. They are unrelated to it.

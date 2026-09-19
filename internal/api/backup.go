@@ -210,7 +210,12 @@ func (s *Server) restoreDeps() backup.Deps {
 func (s *Server) handleDiscardPending(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	modelID, quant := r.FormValue("model_id"), r.FormValue("quant")
-	if !s.registry.DiscardPendingConfig(modelID, quant) {
+	found, err := s.registry.DiscardPendingConfig(modelID, quant)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	if !found {
 		http.Error(w, fmt.Sprintf("no pending config for %s %s", modelID, quant), http.StatusNotFound)
 		return
 	}

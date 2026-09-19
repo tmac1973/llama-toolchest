@@ -54,29 +54,7 @@ func TestSamplingPresetsPartialRenders(t *testing.T) {
 			Temperature: &temp, TopP: &topP, TopK: &topK,
 		},
 	}
-	data := struct {
-		ModelID             string
-		Config              *models.ModelConfig
-		EffectiveFlags      string
-		MaxContext          int
-		HasMMProj           bool
-		HasMTP              bool
-		HasBuiltinVision    bool
-		IsEmbedding         bool
-		DraftCandidates     []models.DraftCandidate
-		DraftModes          []models.SpecMode
-		AssistModes         []models.SpecMode
-		DraftParams         []models.SpecModeParam
-		AssistParams        []models.SpecModeParam
-		EffectiveSpecType   string
-		GPUOptions          []models.GPUOption
-		NumGPUs             int
-		SamplingPresets     []models.SamplingPreset
-		SamplingPresetsJSON string
-		HasEmbeddedDefault  bool
-		HasPLE              bool
-		PLESizeLabel        string
-	}{
+	data := modelConfigPanelData{
 		ModelID:             "test-id",
 		Config:              cfg,
 		SamplingPresets:     presets,
@@ -124,29 +102,7 @@ func TestSamplingPresetsPartialHidden(t *testing.T) {
 		t.Fatalf("parse templates: %v", err)
 	}
 
-	data := struct {
-		ModelID             string
-		Config              *models.ModelConfig
-		EffectiveFlags      string
-		MaxContext          int
-		HasMMProj           bool
-		HasMTP              bool
-		HasBuiltinVision    bool
-		IsEmbedding         bool
-		DraftCandidates     []models.DraftCandidate
-		DraftModes          []models.SpecMode
-		AssistModes         []models.SpecMode
-		DraftParams         []models.SpecModeParam
-		AssistParams        []models.SpecModeParam
-		EffectiveSpecType   string
-		GPUOptions          []models.GPUOption
-		NumGPUs             int
-		SamplingPresets     []models.SamplingPreset
-		SamplingPresetsJSON string
-		HasEmbeddedDefault  bool
-		HasPLE              bool
-		PLESizeLabel        string
-	}{
+	data := modelConfigPanelData{
 		ModelID: "test-id",
 		Config:  &models.ModelConfig{Enabled: true, GPULayers: 999, ContextSize: 8192},
 	}

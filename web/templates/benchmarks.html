@@ -20,6 +20,13 @@
 .job-meta, .job-desc { font-size:0.75rem; }
 </style>
 
+{{if .ReadOnlyReason}}
+<p role="alert"
+   title="The file on disk has not been changed. Fix or restore benchmarks.json, or upgrade llama-toolchest, then restart it. New benchmark jobs are refused until then.">
+    <mark>&#9888; {{.ReadOnlyReason}}</mark>
+</p>
+{{end}}
+
 <article id="jobs-section">
     <header>
         <div style="display:flex;justify-content:space-between;align-items:center;">
