@@ -98,3 +98,35 @@ in the app that asks a model for something other than a benchmark.
 ## Rollback
 Revert the commit. The `helper_model_id` key stays in the YAML and older code
 ignores it. A downloaded helper model remains an ordinary installed model.
+
+## As implemented
+
+- **The default is found, not recorded.** `HelperModelID` holds only an
+  explicit choice. When it is empty, or names a model that is no longer
+  installed, the helper is the installed `unsloth/Qwen3.5-4B-GGUF` Q4_K_M,
+  if present (`Server.helperModel`). The download button therefore just
+  starts a normal download, with nothing to remember or complete afterwards.
+- **`llmcall` backend.** `llmcall` depends on nothing in the app. A
+  `Backend` interface (`Busy`, `Prepare`, `RouterURL`) replaces the plan's
+  `NewClient(routerURL, proc, reg, busy)`; the API layer implements it as
+  `helperBackend`.
+- **Preparing the helper.** `Prepare`:
+  1. enables the helper and raises its context to 16,384 if needed;
+  2. starts the router if it is stopped, or restarts it when it does not
+     know the helper (downloaded after it started) or the helper's config
+     was just changed;
+  3. loads the helper through the same load-and-wait path the `/v1` proxy
+     uses.
+
+  The router reads its model list and settings when it starts, so this is
+  the only way a new helper becomes loadable without asking the user to
+  restart the server.
+- **Answer checks.** The client decodes the answer strictly (no fields
+  outside the schema), retries once with the error, and reports an answer
+  cut off by the token limit as such.
+- **Settings UI.** The Settings section loads as a partial
+  (`/api/helper-model/panel`), so the Settings page's data struct is
+  unchanged.
+- **Still to check by hand:** that the active llama.cpp build accepts
+  `response_format` with a `json_schema`, and that Qwen3.5-4B returns
+  valid JSON with thinking turned off.

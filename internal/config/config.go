@@ -42,6 +42,11 @@ type Config struct {
 	// RuntimeEnv (and overriding it when the same name is set in both).
 	// Any variable is accepted; known-risky ones warn on save.
 	RuntimeEnvExtra string `yaml:"runtime_env_extra,omitempty"`
+
+	// HelperModelID is the registry ID of the model autoconfigure uses to
+	// read model cards. Empty means the recommended default when it is
+	// installed (see api/helper_model.go).
+	HelperModelID string `yaml:"helper_model_id,omitempty"`
 }
 
 // ModelsPath returns the directory where GGUF models live. ModelsDir wins

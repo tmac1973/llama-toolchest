@@ -21,6 +21,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/config"
 	"github.com/tmac1973/llama-toolchest/internal/evaluate"
 	"github.com/tmac1973/llama-toolchest/internal/huggingface"
+	"github.com/tmac1973/llama-toolchest/internal/llmcall"
 	"github.com/tmac1973/llama-toolchest/internal/memreport"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/modelscope"
@@ -39,7 +40,10 @@ type Server struct {
 	router     chi.Router
 	builder    *builder.Builder
 	hfClient   *huggingface.Client
-	msClient   *modelscope.Client
+	// llm asks a locally served model for structured answers
+	// (autoconfigure); see helper_model.go.
+	llm      *llmcall.Client
+	msClient *modelscope.Client
 
 	// probeCache memoizes remote GGUF header probes, keyed by source,
 	// repo and file. A published file's layout does not change, so the
@@ -242,6 +246,7 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 		}
 	}
 	s.pages = s.parseTemplates()
+	s.llm = &llmcall.Client{Backend: &helperBackend{s: s}, HTTP: &http.Client{Timeout: 5 * time.Minute}}
 	s.router = s.buildRouter()
 
 	if cfg.AutoStart {
@@ -594,6 +599,9 @@ func (s *Server) buildRouter() chi.Router {
 			r.Get("/loaded-models", s.handleLoadedModels)
 		})
 		r.Get("/ps", s.handlePS)
+		r.Get("/helper-model/panel", s.handleHelperPanel)
+		r.Put("/helper-model", s.handleSetHelperModel)
+		r.Post("/helper-model/download", s.handleDownloadHelperModel)
 		r.Route("/settings", func(r chi.Router) {
 			r.Get("/", s.handleGetSettings)
 			r.Put("/", s.handleUpdateSettings)
