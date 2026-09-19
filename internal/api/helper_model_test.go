@@ -13,6 +13,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/huggingface"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/modelsource"
+	"github.com/tmac1973/llama-toolchest/internal/process"
 )
 
 func newHelperServer(t *testing.T) *Server {
@@ -120,7 +121,7 @@ func TestHelperPanelAndSave(t *testing.T) {
 func TestWaitForRouterModel(t *testing.T) {
 	base := func() routerWait {
 		return routerWait{
-			running: func() bool { return true }, name: "helper",
+			alive: func() bool { return true }, name: "helper",
 			settle: 5 * time.Millisecond, timeout: 2 * time.Second, interval: time.Millisecond,
 			restart: func() error { return nil },
 		}
@@ -173,11 +174,25 @@ func TestWaitForRouterModel(t *testing.T) {
 
 	t.Run("gives up when the server stops", func(t *testing.T) {
 		w := base()
-		w.running = func() bool { return false }
+		w.alive = func() bool { return false }
 		w.answers = func() (int, error) { return 0, errors.New("no") }
 		w.knows = func() bool { return false }
 		if err := waitForRouterModel(context.Background(), w); err == nil || !strings.Contains(err.Error(), "server stopped") {
 			t.Errorf("err = %v", err)
 		}
 	})
+}
+
+// A router that has just been started reports "starting" until its first
+// health check passes. Treating that as stopped ended a run that was
+// about to work.
+func TestRouterAlive(t *testing.T) {
+	for state, want := range map[string]bool{
+		process.StateRunning: true, process.StateStarting: true,
+		process.StateStopped: false, process.StateFailed: false, "": false,
+	} {
+		if got := routerAlive(state); got != want {
+			t.Errorf("routerAlive(%q) = %v, want %v", state, got, want)
+		}
+	}
 }

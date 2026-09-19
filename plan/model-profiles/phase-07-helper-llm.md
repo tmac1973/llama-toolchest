@@ -150,3 +150,8 @@ load (`waitForRouterModel`):
 
 The loop takes its dependencies as functions so it is tested without a live
 router.
+
+The first version of that wait used `process.IsRunning`, which is only true
+once the router's first health check has passed. A router that had just
+been started reports "starting", so the wait ended immediately with "the
+server stopped". It now treats running and starting alike (`routerAlive`).

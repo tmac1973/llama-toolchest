@@ -14,6 +14,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/llmcall"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/modelsource"
+	"github.com/tmac1973/llama-toolchest/internal/process"
 )
 
 // The recommended helper model: small enough to load next to nothing
@@ -146,7 +147,8 @@ const routerSettle = 5 * time.Second
 // routerWait is what waitForRouterModel needs, as functions, so the loop
 // can be tested without a live router.
 type routerWait struct {
-	running  func() bool
+	// alive reports that the router is running or still starting up.
+	alive    func() bool
 	answers  func() (int, error) // how many models the router lists
 	knows    func() bool
 	restart  func() error
@@ -159,7 +161,9 @@ type routerWait struct {
 // waitForRouterModel waits until the router lists the model.
 func (s *Server) waitForRouterModel(ctx context.Context, routerName string, m *models.Model) error {
 	return waitForRouterModel(ctx, routerWait{
-		running: s.process.IsRunning,
+		// Not IsRunning: that is false while the router is starting,
+		// which is exactly the state this wait exists for.
+		alive: func() bool { return routerAlive(s.process.GetStatus().State) },
 		answers: func() (int, error) {
 			list, err := s.process.ListModels()
 			return len(list), err
@@ -178,6 +182,13 @@ func (s *Server) waitForRouterModel(ctx context.Context, routerName string, m *m
 	})
 }
 
+// routerAlive reports whether the router is up or on its way up. A
+// router that has just been started is "starting" until its first health
+// check passes, which is most of the window this wait covers.
+func routerAlive(state string) bool {
+	return state == process.StateRunning || state == process.StateStarting
+}
+
 // waitForRouterModel waits for a router to list a model, restarting it
 // once if it is answering and the model is not there — which is what
 // happens when the preset was written after the router started.
@@ -188,8 +199,8 @@ func waitForRouterModel(ctx context.Context, w routerWait) error {
 	// missing model only counts after it has been answering for a while.
 	var answeringSince time.Time
 	for {
-		if !w.running() {
-			return fmt.Errorf("the server stopped while the helper model %s was being prepared", w.name)
+		if !w.alive() {
+			return fmt.Errorf("the server stopped while the helper model %s was being prepared. Its log is on the Server page", w.name)
 		}
 		listed, err := w.answers()
 		if err == nil && answeringSince.IsZero() {
