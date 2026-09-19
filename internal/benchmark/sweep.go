@@ -467,6 +467,8 @@ var sweepFields = map[string]SweepField{
 		func(o *ConfigOverrides, v *int) { o.UBatchSize = v }),
 	"batch_size": intField("batch_size", "Batch (-b)", "Logical batch size. Must be >= micro-batch. Blank leaves llama.cpp's default of 2048.", "1024,2048,4096",
 		func(o *ConfigOverrides, v *int) { o.BatchSize = v }),
+	"cpu_moe": intField("cpu_moe", "CPU expert layers (--n-cpu-moe)", "Mixture-of-experts models only: keeps the expert weights of this many layers in system memory. Lets a model larger than the GPU run; each step down moves less to the CPU and runs faster. 0 keeps everything on the GPU.", "0,8,16,32",
+		func(o *ConfigOverrides, v *int) { o.CPUMoE = v }),
 	"threads": intField("threads", "Threads", "CPU threads. Matters mainly when layers run on CPU.", "4,8,16",
 		func(o *ConfigOverrides, v *int) { o.Threads = v }),
 	"flash_attention": boolField("flash_attention", "Flash Attention", "Enables the flash-attention kernel. Required for some quantized KV cache types.",
@@ -566,7 +568,7 @@ func init() {
 	// presets.
 	for _, name := range []string{
 		"gpu_layers", "ubatch_size", "batch_size", "threads",
-		"flash_attention", "direct_io", "kv_cache_quant",
+		"flash_attention", "direct_io", "kv_cache_quant", "cpu_moe",
 		"gpu_assign", "tensor_split",
 	} {
 		f := sweepFields[name]
@@ -746,6 +748,9 @@ func init() {
 	))
 	set("gpu_layers", true, choices(
 		"0", "0 (CPU only)", "20", "20", "40", "40", "60", "60", "999", "999 (all)",
+	))
+	set("cpu_moe", true, choices(
+		"0", "0 (all on GPU)", "8", "8", "16", "16", "24", "24", "32", "32", "48", "48",
 	))
 	set("threads", true, choices(
 		"4", "4", "8", "8", "16", "16", "32", "32",

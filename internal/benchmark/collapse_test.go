@@ -223,6 +223,7 @@ func TestSweepFieldAffectsEvalClassification(t *testing.T) {
 		"gpu_layers": true, "ubatch_size": true, "batch_size": true,
 		"threads": true, "flash_attention": true, "direct_io": true,
 		"kv_cache_quant": true, "gpu_assign": true, "tensor_split": true,
+		"cpu_moe": true,
 	}
 	wantFalse := map[string]bool{
 		"context_size": false, "spec_type": false,

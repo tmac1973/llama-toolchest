@@ -57,6 +57,22 @@
             <input type="number" name="gpu_layers" value="{{.Config.GPULayers}}"
                    min="0" max="999" placeholder="999 = all layers">
         </label>
+        {{if .HasExperts}}
+        <label title="Mixture-of-experts models only. Keeps the expert weights of this many layers in system memory instead of GPU memory. Use it when the model does not fit on the GPU: it is much faster than lowering GPU Layers, because each token only reads the few experts it uses. 0 keeps everything on the GPU. At most {{.NLayers}}.">
+            CPU Expert Layers
+            <input type="number" name="cpu_moe" value="{{if gt .Config.CPUMoE 0}}{{.Config.CPUMoE}}{{end}}"
+                   min="0" max="{{.NLayers}}" placeholder="0 = all on GPU">
+            <small>Effective: {{if gt .Config.CPUMoE 0}}<code>--n-cpu-moe {{.Config.CPUMoE}}</code>{{else}}not set (all experts on the GPU){{end}}</small>
+        </label>
+        {{end}}
+        {{if .HasExperts}}
+        <label title="Mixture-of-experts models only. Keeps the expert weights of this many layers in system memory instead of GPU memory. Use it when the model does not fit on the GPU: it is much faster than lowering GPU Layers, because each token only reads the few experts it uses. 0 keeps everything on the GPU. At most {{.NLayers}}.">
+            CPU Expert Layers
+            <input type="number" name="cpu_moe" value="{{if gt .Config.CPUMoE 0}}{{.Config.CPUMoE}}{{end}}"
+                   min="0" max="{{.NLayers}}" placeholder="0 = all on GPU">
+            <small>Effective: {{if gt .Config.CPUMoE 0}}<code>--n-cpu-moe {{.Config.CPUMoE}}</code>{{else}}not set (all experts on the GPU){{end}}</small>
+        </label>
+        {{end}}
         {{if not .IsEmbedding}}
         {{$cs := .Config.ContextSize}}
         {{$mc := .MaxContext}}
@@ -137,6 +153,10 @@
                    min="1" placeholder="8">
         </label>
     </div>
+    {{if .CPURAMLabel}}
+    <small title="The part of the model's weights these settings keep in system memory rather than GPU memory: layers left off the GPU by GPU Layers, and expert layers kept on the CPU by CPU Expert Layers. The GPU memory estimate on the model card already leaves this out."
+           style="display:block;margin-bottom:0.75rem;cursor:help;">{{.CPURAMLabel}}</small>
+    {{end}}
 
 
     {{if not .IsEmbedding}}

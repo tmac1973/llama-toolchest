@@ -840,6 +840,9 @@ func applyOverrides(base ConfigSnapshot, overrides *ConfigOverrides) ConfigSnaps
 	if overrides.UBatchSize != nil {
 		out.UBatchSize = *overrides.UBatchSize
 	}
+	if overrides.CPUMoE != nil {
+		out.CPUMoE = *overrides.CPUMoE
+	}
 	if overrides.FlashAttention != nil {
 		out.FlashAttention = *overrides.FlashAttention
 	}

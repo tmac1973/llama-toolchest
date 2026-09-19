@@ -165,6 +165,12 @@ type VRAMBreakdown struct {
 	Compute        float64
 	IndexerScratch float64
 	Overhead       float64
+
+	// CPURAM is not part of the GPU total: it is the weights the config
+	// keeps in system memory instead — layers left off the GPU
+	// (gpu_layers below the layer count) and expert layers kept on the CPU
+	// (cpu_moe).
+	CPURAM float64
 }
 
 // Total is the figure the UI shows.
@@ -205,7 +211,12 @@ func VRAMBreakdownForConfigOn(m *Model, cfg *ModelConfig, cards int) VRAMBreakdo
 	if resident < 0 {
 		resident = m.SizeBytes
 	}
-	b.Weights = BytesToGiB(resident)
+	onCPU := CPUWeightBytes(m, cfg)
+	if onCPU > resident {
+		onCPU = resident
+	}
+	b.Weights = BytesToGiB(resident - onCPU)
+	b.CPURAM = BytesToGiB(onCPU)
 
 	b.KVCache = m.KVCacheGB(ctx, cfg.KVCacheQuant)
 
@@ -228,6 +239,47 @@ func VRAMBreakdownForConfigOn(m *Model, cfg *ModelConfig, cards int) VRAMBreakdo
 	b.Aux = AuxFilesVRAMGB(cfg)
 	b.Overhead = float64(cards) * vramPerDeviceOverheadGB
 	return b
+}
+
+// CPUWeightBytes estimates the model weights a config keeps in system
+// memory rather than on a GPU: the expert tensors of the first CPUMoE
+// layers, and the layers gpu_layers leaves off the GPU. Both are
+// approximations spread evenly over layers, which matches how uniform
+// transformer layers are; the estimate stays conservative because what is
+// not moved is still counted on the GPU.
+func CPUWeightBytes(m *Model, cfg *ModelConfig) int64 {
+	if m.NLayers <= 0 {
+		return 0
+	}
+	var moved int64
+
+	// --n-cpu-moe N counts layers from 0, dense leading layers included,
+	// so only the part of that range that carries experts moves.
+	var expertMoved int64
+	if cfg.CPUMoE > 0 && m.ExpertBytes > 0 && m.ExpertLayers > 0 {
+		n := cfg.CPUMoE - m.ExpertLayerFirst
+		if n > m.ExpertLayers {
+			n = m.ExpertLayers
+		}
+		if n > 0 {
+			expertMoved = m.ExpertBytes / int64(m.ExpertLayers) * int64(n)
+		}
+	}
+	moved += expertMoved
+
+	// gpu_layers counts from the top: llama.cpp offloads the last N
+	// layers, so the rest stay on the CPU. 999 (or anything at or above
+	// the layer count) offloads all of them. Zero is left out: many
+	// callers build a config with only the fields they care about, where
+	// a zero means "not set" rather than "CPU only", and counting it as a
+	// full move would report a model as fitting that does not.
+	if cfg.GPULayers > 0 && cfg.GPULayers < m.NLayers {
+		body := m.SizeBytes - m.PLEBytes - m.TokenEmbdBytes - expertMoved
+		if body > 0 {
+			moved += body / int64(m.NLayers) * int64(m.NLayers-cfg.GPULayers)
+		}
+	}
+	return moved
 }
 
 // PLEAutoMinBytes mirrors auto_lazy_min_size in llama.cpp's model loader:

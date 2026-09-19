@@ -759,6 +759,13 @@ type modelConfigPanelData struct {
 	HasEmbeddedDefault  bool
 	HasPLE              bool
 	PLESizeLabel        string
+	// HasExperts shows the CPU Expert Layers field (mixture-of-experts
+	// models only); NLayers bounds it.
+	HasExperts bool
+	NLayers    int
+	// CPURAMLabel says how much of the weights stay in system memory with
+	// these settings, or is empty when everything is on the GPU.
+	CPURAMLabel string
 	// ReadOnlyReason is set when models.json cannot be saved; the panel
 	// says why before the user edits anything.
 	ReadOnlyReason string
@@ -908,6 +915,13 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 		PLESizeLabel:   pleSizeLabel(model),
 		ReadOnlyReason: s.registry.ReadOnlyReason(),
 	}
+	if model != nil {
+		data.HasExperts = model.ExpertCount > 0
+		data.NLayers = model.NLayers
+		if gib := models.VRAMBreakdownForConfigOn(model, cfg, models.DeviceCountForConfig(cfg, numGPUs)).CPURAM; gib >= 0.05 {
+			data.CPURAMLabel = fmt.Sprintf("About %.1f GiB of the model's weights stay in system memory with these settings.", gib)
+		}
+	}
 	data.Profiles, data.ActiveProfile, data.ProfileEdited = s.profileBarData(id)
 	return data, nil
 }
@@ -951,6 +965,7 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		cfg.Parallel, _ = strconv.Atoi(r.FormValue("parallel"))
 		cfg.BatchSize, _ = strconv.Atoi(r.FormValue("batch_size"))
 		cfg.UBatchSize, _ = strconv.Atoi(r.FormValue("ubatch_size"))
+		cfg.CPUMoE, _ = strconv.Atoi(r.FormValue("cpu_moe"))
 		cfg.Threads, _ = strconv.Atoi(r.FormValue("threads"))
 		cfg.FlashAttention = r.FormValue("flash_attention") == "on"
 		cfg.Jinja = r.FormValue("jinja") == "on"
@@ -1079,6 +1094,14 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 
 	// Reject an unusable batch pair here rather than letting llama-server
 	// clamp or fail at model load, where the cause is far less obvious.
+	if cfg.CPUMoE < 0 {
+		http.Error(w, "CPU expert layers cannot be negative", http.StatusBadRequest)
+		return
+	}
+	if m, err := s.registry.Get(id); err == nil && m.NLayers > 0 && cfg.CPUMoE > m.NLayers {
+		http.Error(w, fmt.Sprintf("CPU expert layers can be at most %d, the number of layers in this model", m.NLayers), http.StatusBadRequest)
+		return
+	}
 	if err := cfg.ValidateBatchSizes(); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

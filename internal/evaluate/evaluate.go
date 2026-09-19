@@ -142,6 +142,11 @@ type SnapshotSubset struct {
 	FlashAttention bool
 	KVCacheQuant   string
 	DirectIO       bool
+	// CPUMoE is --n-cpu-moe: expert layers kept in system memory. Mapped
+	// for the same reason as GPULayers — it decides where the weights live,
+	// and a large mixture-of-experts model that only fits with it would
+	// otherwise fail to load for the evaluation.
+	CPUMoE int
 	// PlacementFlags are the GPU placement flags (--split-mode,
 	// --main-gpu, --device, trimmed --tensor-split) formatted by the
 	// caller via models.GPUPlacementFlags. Placement is NOT derivable
@@ -157,7 +162,7 @@ type SnapshotSubset struct {
 //
 // Mapped from SnapshotSubset: --n-gpu-layers, --threads, --batch-size,
 // --ubatch-size, --flash-attn on|off, --cache-type-k/-v (KV quant),
-// --direct-io, then the caller's PlacementFlags. --batch-size /
+// --direct-io, --n-cpu-moe, then the caller's PlacementFlags. --batch-size /
 // --ubatch-size follow the ModelConfig convention (zero = don't emit,
 // the tool keeps its own defaults); --flash-attn is always emitted so
 // the evaluation pins the state explicitly instead of inheriting the
@@ -184,9 +189,16 @@ type SnapshotSubset struct {
 //     user text; neither changes a deterministic greedy scoring pass,
 //     and mapping raw flag text into the evaluation command line would
 //     let a sweep silently rewrite the invocation being scored.
-//   - parallel slots, sampling, mmproj, context-shift (ModelConfig
-//     fields the snapshot never carries): irrelevant to or incompatible
-//     with single-stream deterministic scoring.
+//   - SplitMode, MainGPU: reach the command line through PlacementFlags,
+//     like GPUAssign.
+//   - Parallel: parallel slots are incompatible with single-stream
+//     deterministic scoring.
+//   - DraftCtxSize, DraftGPULayers, DraftKVCacheQuant: the draft model's
+//     resources; there is no drafter in an evaluation.
+//   - ProfileName, ProfileEdited: labels, not settings.
+//   - sampling, mmproj, context-shift (ModelConfig fields the snapshot
+//     never carries): irrelevant to or incompatible with single-stream
+//     deterministic scoring.
 func MapConfigFlags(snap SnapshotSubset) []string {
 	var flags []string
 	flags = append(flags, "--n-gpu-layers", strconv.Itoa(snap.GPULayers))
@@ -207,6 +219,9 @@ func MapConfigFlags(snap SnapshotSubset) []string {
 	}
 	if snap.DirectIO {
 		flags = append(flags, "--direct-io")
+	}
+	if snap.CPUMoE > 0 {
+		flags = append(flags, "--n-cpu-moe", strconv.Itoa(snap.CPUMoE))
 	}
 	flags = append(flags, snap.PlacementFlags...)
 	return flags

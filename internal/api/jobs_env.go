@@ -479,6 +479,7 @@ func (e *jobEnv) EvalFlags(modelID string, snap benchmark.ConfigSnapshot, buildI
 		FlashAttention: merged.FlashAttention,
 		KVCacheQuant:   merged.KVCacheQuant,
 		DirectIO:       merged.DirectIO,
+		CPUMoE:         merged.CPUMoE,
 		PlacementFlags: models.GPUPlacementFlags(&merged, e.buildBackend(buildID)),
 	}
 	return evaluate.MapConfigFlags(subset), nil
@@ -645,6 +646,7 @@ func applySnapshotToConfig(base models.ModelConfig, snap benchmark.ConfigSnapsho
 	out.Threads = snap.Threads
 	out.BatchSize = snap.BatchSize
 	out.UBatchSize = snap.UBatchSize
+	out.CPUMoE = snap.CPUMoE
 	out.GPUAssign = snap.GPUAssign
 	out.TensorSplit = snap.TensorSplit
 	out.KVCacheQuant = snap.KVCacheQuant

@@ -81,6 +81,7 @@ type ConfigOverrides struct {
 	Threads        *int    `json:"threads,omitempty"`
 	BatchSize      *int    `json:"batch_size,omitempty"`
 	UBatchSize     *int    `json:"ubatch_size,omitempty"`
+	CPUMoE         *int    `json:"cpu_moe,omitempty"`
 	FlashAttention *bool   `json:"flash_attention,omitempty"`
 	KVCacheQuant   *string `json:"kv_cache_quant,omitempty"`
 	DirectIO       *bool   `json:"direct_io,omitempty"`

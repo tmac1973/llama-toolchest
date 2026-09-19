@@ -97,6 +97,19 @@ type GGUFMeta struct {
 	// GGUF, and a standalone drafter head — so on its own it does not
 	// tell the two apart. IsMTPHead does.
 	NextNPredictLayers int `json:"nextn_predict_layers,omitempty"`
+
+	// ExpertCount and ExpertUsedCount are {arch}.expert_count and
+	// {arch}.expert_used_count: non-zero only on a mixture-of-experts
+	// model. ExpertBytes is the on-disk size of every expert tensor
+	// (blk.N.ffn_*_exps.*), the part --n-cpu-moe can keep in system
+	// memory. ExpertLayerFirst and ExpertLayers say which layers carry
+	// experts: some MoE models begin with dense layers, and --n-cpu-moe N
+	// counts layers from 0 whether they have experts or not.
+	ExpertCount      int   `json:"expert_count,omitempty"`
+	ExpertUsedCount  int   `json:"expert_used_count,omitempty"`
+	ExpertBytes      int64 `json:"expert_bytes,omitempty"`
+	ExpertLayerFirst int   `json:"expert_layer_first,omitempty"`
+	ExpertLayers     int   `json:"expert_layers,omitempty"`
 	// HasBlockTensors and HasTrunkBlock0 describe the shape of the tensor
 	// table: whether the file carries any blk.N.* tensors at all, and
 	// whether blk.0 is among them. A drafter head declares the full
@@ -141,6 +154,18 @@ func (meta *GGUFMeta) ApplyTo(m *Model) {
 	m.IndexerKeyLength = meta.IndexerKeyLength
 	m.AttnLayers = meta.AttnLayers
 	m.MTPHead = meta.IsMTPHead()
+	// Built-in MTP layers make the model its own drafter (draft-mtp with
+	// no separate head). A standalone head carries the same key but is not
+	// a model anyone runs, so it does not count.
+	m.NextNLayers = 0
+	if !m.MTPHead {
+		m.NextNLayers = meta.NextNPredictLayers
+	}
+	m.ExpertCount = meta.ExpertCount
+	m.ExpertUsedCount = meta.ExpertUsedCount
+	m.ExpertBytes = meta.ExpertBytes
+	m.ExpertLayerFirst = meta.ExpertLayerFirst
+	m.ExpertLayers = meta.ExpertLayers
 	if meta.BaseModelRepo != "" {
 		m.BaseModelRepo = meta.BaseModelRepo
 	}
@@ -196,13 +221,18 @@ func ParseGGUFMeta(path string) (*GGUFMeta, error) {
 	}
 	// A split model keeps its tensor table in a later shard; see
 	// scanShardsForPLE.
-	if meta.PLEBytes == 0 || meta.TokenEmbdBytes == 0 {
-		ple, emb := scanShardsForTensors(path)
+	if sh, ok := scanShardsForTensors(path); ok {
 		if meta.PLEBytes == 0 {
-			meta.PLEBytes = ple
+			meta.PLEBytes = sh.PLEBytes
 		}
 		if meta.TokenEmbdBytes == 0 {
-			meta.TokenEmbdBytes = emb
+			meta.TokenEmbdBytes = sh.TokenEmbdBytes
+		}
+		// Expert tensors are spread over every shard, so they are summed
+		// across all of them, the first included.
+		meta.ExpertBytes += sh.ExpertBytes
+		for l := range sh.expertLayerSet {
+			meta.addExpertLayer(l)
 		}
 	}
 	return meta, nil
@@ -428,6 +458,16 @@ func ParseGGUFMetaFrom(f io.ReadSeeker) (*GGUFMeta, error) {
 				meta.IndexerKeyLength = v
 				continue
 			}
+		case arch != "" && key == arch+".expert_count":
+			if v, ok := readGGUFScalarInt(f, valueType); ok {
+				meta.ExpertCount = v
+				continue
+			}
+		case arch != "" && key == arch+".expert_used_count":
+			if v, ok := readGGUFScalarInt(f, valueType); ok {
+				meta.ExpertUsedCount = v
+				continue
+			}
 		case arch != "" && key == arch+".nextn_predict_layers":
 			if v, ok := readGGUFScalarInt(f, valueType); ok {
 				meta.NextNPredictLayers = v
@@ -472,6 +512,8 @@ func ParseGGUFMetaFrom(f io.ReadSeeker) (*GGUFMeta, error) {
 	scan := scanTensorBlock(f, tensorCount, alignment)
 	meta.PLEBytes, meta.TokenEmbdBytes = scan.PLEBytes, scan.TokenEmbdBytes
 	meta.HasBlockTensors, meta.HasTrunkBlock0 = scan.HasBlockTensors, scan.HasTrunkBlock0
+	meta.ExpertBytes = scan.ExpertBytes
+	meta.ExpertLayerFirst, meta.ExpertLayers = scan.expertLayerSpan()
 
 	// A successful parse means reasoning was evaluated even if no chat template
 	// was present — in which case Reasoning stays the unsupported zero value.
@@ -826,6 +868,53 @@ type tensorScan struct {
 	TokenEmbdBytes  int64
 	HasBlockTensors bool
 	HasTrunkBlock0  bool
+	// ExpertBytes sums the expert tensors; expertLayerSet holds the layer
+	// numbers they belong to.
+	ExpertBytes    int64
+	expertLayerSet map[int]bool
+}
+
+// expertTensorPattern matches the MoE expert weights --n-cpu-moe moves:
+// blk.N.ffn_{gate,up,down,gate_up}_exps.weight (and its scales). Shared
+// experts are named _shexp and stay on the GPU, so they do not match.
+var expertTensorPattern = regexp.MustCompile(`^blk\.(\d+)\.ffn_[a-z_]*_exps\.`)
+
+// expertLayerSpan returns the first layer with experts and how many layers
+// have them.
+func (s tensorScan) expertLayerSpan() (first, count int) {
+	return layerSpan(s.expertLayerSet)
+}
+
+func layerSpan(set map[int]bool) (first, count int) {
+	first = -1
+	for l := range set {
+		if first < 0 || l < first {
+			first = l
+		}
+	}
+	if first < 0 {
+		return 0, 0
+	}
+	return first, len(set)
+}
+
+// addExpertLayer records one more expert layer found in another shard.
+// The per-shard sets are merged through the stored span, which assumes
+// expert layers are contiguous — true of every MoE layout llama.cpp
+// supports, where only a leading run of layers is dense.
+func (meta *GGUFMeta) addExpertLayer(l int) {
+	if meta.ExpertLayers == 0 {
+		meta.ExpertLayerFirst, meta.ExpertLayers = l, 1
+		return
+	}
+	last := meta.ExpertLayerFirst + meta.ExpertLayers - 1
+	switch {
+	case l < meta.ExpertLayerFirst:
+		meta.ExpertLayers += meta.ExpertLayerFirst - l
+		meta.ExpertLayerFirst = l
+	case l > last:
+		meta.ExpertLayers += l - last
+	}
 }
 
 // scanTensorBlock reads the tensor-info block in a single pass, returning
@@ -852,6 +941,7 @@ func scanTensorBlock(f io.ReadSeeker, tensorCount uint64, alignment int64) tenso
 	var scan tensorScan
 	var pleOffset int64 = -1
 	var embOffset int64 = -1
+	var expertOffsets []int64
 	offsets := make([]int64, 0, tensorCount)
 
 	for i := uint64(0); i < tensorCount; i++ {
@@ -881,6 +971,15 @@ func scanTensorBlock(f io.ReadSeeker, tensorCount uint64, alignment int64) tenso
 		if name == tokenEmbdTensorName {
 			embOffset = int64(offset)
 		}
+		if m := expertTensorPattern.FindStringSubmatch(name); m != nil {
+			expertOffsets = append(expertOffsets, int64(offset))
+			if l, err := strconv.Atoi(m[1]); err == nil {
+				if scan.expertLayerSet == nil {
+					scan.expertLayerSet = map[int]bool{}
+				}
+				scan.expertLayerSet[l] = true
+			}
+		}
 		if strings.HasPrefix(name, blockTensorPrefix) {
 			scan.HasBlockTensors = true
 			if strings.HasPrefix(name, trunkBlock0Prefix) {
@@ -890,7 +989,7 @@ func scanTensorBlock(f io.ReadSeeker, tensorCount uint64, alignment int64) tenso
 	}
 	// The block layout stands on its own: a file can carry layers while
 	// having neither of the two tensors measured below.
-	if pleOffset < 0 && embOffset < 0 {
+	if pleOffset < 0 && embOffset < 0 && len(expertOffsets) == 0 {
 		return scan
 	}
 
@@ -927,6 +1026,9 @@ func scanTensorBlock(f io.ReadSeeker, tensorCount uint64, alignment int64) tenso
 	}
 	scan.PLEBytes = sizeAt(pleOffset)
 	scan.TokenEmbdBytes = sizeAt(embOffset)
+	for _, off := range expertOffsets {
+		scan.ExpertBytes += sizeAt(off)
+	}
 	return scan
 }
 
@@ -963,14 +1065,17 @@ func ExpandShards(filename string) []string {
 // have one, since a table big enough to matter belongs to a model big
 // enough to be split.
 //
-// Returns 0 for an unsplit file, for siblings that aren't on disk (a
-// partial download), or when no shard carries the table.
-func scanShardsForTensors(path string) (pleBytes, embBytes int64) {
+// It returns ok=false for an unsplit file. For a split one it reports
+// the first shard that carries each table (0 when none does, or when
+// siblings are not on disk yet) and the expert tensors summed over every
+// other shard.
+func scanShardsForTensors(path string) (tensorScan, bool) {
 	dir, name := filepath.Split(path)
 	shards := ExpandShards(name)
 	if len(shards) < 2 {
-		return 0, 0
+		return tensorScan{}, false
 	}
+	var out tensorScan
 	for _, sh := range shards {
 		if sh == name {
 			continue // already parsed by the caller
@@ -984,15 +1089,19 @@ func scanShardsForTensors(path string) (pleBytes, embBytes int64) {
 		if err != nil {
 			continue
 		}
-		if pleBytes == 0 {
-			pleBytes = meta.PLEBytes
+		if out.PLEBytes == 0 {
+			out.PLEBytes = meta.PLEBytes
 		}
-		if embBytes == 0 {
-			embBytes = meta.TokenEmbdBytes
+		if out.TokenEmbdBytes == 0 {
+			out.TokenEmbdBytes = meta.TokenEmbdBytes
 		}
-		if pleBytes > 0 && embBytes > 0 {
-			break
+		out.ExpertBytes += meta.ExpertBytes
+		for l := meta.ExpertLayerFirst; l < meta.ExpertLayerFirst+meta.ExpertLayers; l++ {
+			if out.expertLayerSet == nil {
+				out.expertLayerSet = map[int]bool{}
+			}
+			out.expertLayerSet[l] = true
 		}
 	}
-	return pleBytes, embBytes
+	return out, true
 }

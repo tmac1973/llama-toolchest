@@ -100,3 +100,29 @@ in the VRAM estimate.
 Revert the commit. `cpu_moe` values saved in configs or profiles are ignored
 by older code, because unknown JSON fields are dropped on the next save. That
 removes the value but has no other effect.
+
+## As implemented
+
+- **Expert layer span.** Besides the expert byte total, the parser records
+  which layers carry experts (`ExpertLayerFirst`, `ExpertLayers`).
+  `--n-cpu-moe N` counts layers from 0, dense leading layers included, so
+  the VRAM estimate moves only the expert bytes of layers that have them.
+- **Split models.** Expert tensors are summed over every shard. The shard
+  scan now always runs for a split file, not only when the embedding tables
+  were missing.
+- **Partial GPU offload is now estimated.** `CPUWeightBytes` also accounts
+  for `gpu_layers` below the layer count, which the estimator ignored
+  before; Phase 06 needs this for dense models that do not fit. A
+  `gpu_layers` of 0 is still read as "not set", as before, because many
+  callers build configs with only the fields they care about. The fit
+  planner therefore never goes below 1 GPU layer.
+- **`VRAMBreakdown.CPURAM`** reports what stays in system memory. The panel
+  shows it as "About N GiB of the model's weights stay in system memory with
+  these settings", with a tooltip.
+- **Evaluations.** `cpu_moe` is passed to capability evaluations
+  (`--n-cpu-moe` in `evaluate.MapConfigFlags`) and is classified
+  `AffectsEval`. It decides where weights live, like `gpu_layers`, and a
+  large MoE model that only fits with it would otherwise fail to load for an
+  evaluation.
+- **Save check.** The config save refuses a negative value or one above the
+  model's layer count.

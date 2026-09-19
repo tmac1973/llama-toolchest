@@ -133,6 +133,9 @@ func writeConfigParams(b *strings.Builder, cfg *ModelConfig, isEmbedding bool, b
 	if cfg.Parallel > 1 {
 		b.WriteString(fmt.Sprintf("parallel = %d\n", cfg.Parallel))
 	}
+	if cfg.CPUMoE > 0 {
+		b.WriteString(fmt.Sprintf("n-cpu-moe = %d\n", cfg.CPUMoE))
+	}
 	for _, p := range gpuPlacementParams(cfg, backend) {
 		b.WriteString(fmt.Sprintf("%s = %s\n", p.Name, p.Value))
 	}

@@ -41,6 +41,7 @@ func SnapshotFromConfig(cfg models.ModelConfig, profile string, edited bool) Con
 		SplitMode:         cfg.SplitMode,
 		MainGPU:           cfg.MainGPU,
 		Parallel:          cfg.Parallel,
+		CPUMoE:            cfg.CPUMoE,
 		DraftCtxSize:      cfg.DraftCtxSize,
 		DraftGPULayers:    cfg.DraftGPULayers,
 		DraftKVCacheQuant: cfg.DraftKVCacheQuant,

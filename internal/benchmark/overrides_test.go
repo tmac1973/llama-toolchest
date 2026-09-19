@@ -39,7 +39,7 @@ func TestApplyOverridesCoversEveryConfigSnapshotField(t *testing.T) {
 	// Build an overrides struct with every pointer field populated, then
 	// assert applyOverrides moved each one onto the snapshot. Catches a
 	// field added to both structs but forgotten in applyOverrides.
-	ngl, ctx, threads := 42, 4242, 24
+	ngl, ctx, threads, cpuMoE := 42, 4242, 24, 12
 	fa, dio := true, true
 	kv, ga, ts, st, dmp := "q4_0", "0", "1,2", "draft", "/models/draft.gguf"
 
@@ -54,12 +54,14 @@ func TestApplyOverridesCoversEveryConfigSnapshotField(t *testing.T) {
 		TensorSplit:    &ts,
 		SpecType:       &st,
 		DraftModelPath: &dmp,
+		CPUMoE:         &cpuMoE,
 	})
 
 	want := ConfigSnapshot{
 		GPULayers: ngl, ContextSize: ctx, Threads: threads,
 		FlashAttention: fa, DirectIO: dio, KVCacheQuant: kv,
 		GPUAssign: ga, TensorSplit: ts, SpecType: st, DraftModelPath: dmp,
+		CPUMoE: cpuMoE,
 	}
 	if got != want {
 		t.Errorf("applyOverrides dropped a field:\ngot  %+v\nwant %+v", got, want)

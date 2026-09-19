@@ -184,6 +184,8 @@ type ConfigSnapshot struct {
 	SplitMode string `json:"split_mode,omitempty"`
 	MainGPU   int    `json:"main_gpu,omitempty"`
 	Parallel  int    `json:"parallel,omitempty"`
+	// CPUMoE is --n-cpu-moe: expert layers kept in system memory.
+	CPUMoE int `json:"cpu_moe,omitempty"`
 
 	// Draft model resources, for the draft methods that load a second
 	// model.

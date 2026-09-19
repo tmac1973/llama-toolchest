@@ -101,6 +101,18 @@ type Model struct {
 	// carrying it are dropped on the next backfill; nothing should serve
 	// one or offer it as a draft candidate. See GGUFMeta.IsMTPHead.
 	MTPHead bool `json:"mtp_head,omitempty"`
+	// NextNLayers is the number of built-in MTP draft layers: non-zero
+	// means the model can draft for itself (draft-mtp with no separate
+	// head). Zero on a standalone head, which carries the key but is not
+	// a model anyone runs.
+	NextNLayers int `json:"nextn_layers,omitempty"`
+	// Mixture-of-experts layout, for --n-cpu-moe (see GGUFMeta). All zero
+	// on a dense model.
+	ExpertCount      int   `json:"expert_count,omitempty"`
+	ExpertUsedCount  int   `json:"expert_used_count,omitempty"`
+	ExpertBytes      int64 `json:"expert_bytes,omitempty"`
+	ExpertLayerFirst int   `json:"expert_layer_first,omitempty"`
+	ExpertLayers     int   `json:"expert_layers,omitempty"`
 
 	// Architecture parameters parsed from GGUF header.
 	Arch          string `json:"arch,omitempty"`
@@ -155,6 +167,12 @@ type ModelConfig struct {
 	GPUAssign   string `json:"gpu_assign,omitempty"` // "all", "0", "0-1", "custom", etc.
 	ContextSize int    `json:"context_size"`
 	Parallel    int    `json:"parallel,omitempty"` // n parallel sequence slots; 0/1 = no extra slots, >1 divides ctx_size across slots
+	// CPUMoE maps to --n-cpu-moe: the expert weights of the first N layers
+	// stay in system memory. The fastest way to run a mixture-of-experts
+	// model larger than VRAM, because only the few experts each token uses
+	// are read from there. 0 keeps everything on the GPU. Meaningful only
+	// when Model.ExpertCount > 0.
+	CPUMoE int `json:"cpu_moe,omitempty"`
 	// BatchSize/UBatchSize map to --batch-size / --ubatch-size. Zero means
 	// "don't emit", leaving llama.cpp on its own defaults (2048 / 512), so
 	// existing models are unaffected. UBatchSize is the physical compute
@@ -356,6 +374,9 @@ func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool, backend string) string
 	}
 	if c.Parallel > 1 {
 		parts = append(parts, "--parallel", strconv.Itoa(c.Parallel))
+	}
+	if c.CPUMoE > 0 {
+		parts = append(parts, "--n-cpu-moe", strconv.Itoa(c.CPUMoE))
 	}
 	for _, p := range gpuPlacementParams(c, backend) {
 		parts = append(parts, "--"+p.Name, p.Value)
@@ -720,7 +741,10 @@ func (r *Registry) ListNeedingPresetFetch() []string {
 //	2 — NextN layer count and block-tensor layout added, so a standalone
 //	    MTP drafter head that reports a runnable architecture is
 //	    recognized as a head. Records for one are dropped by the backfill.
-const GGUFMetaVersion = 2
+//	3 — built-in MTP layer count copied to the model record, and the
+//	    mixture-of-experts layout (expert counts, expert tensor bytes and
+//	    which layers carry them) added for --n-cpu-moe.
+const GGUFMetaVersion = 3
 
 // BackfillGGUFMeta re-reads GGUF metadata for records written by an older
 // parser, in one pass at startup.
