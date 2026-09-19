@@ -1,6 +1,7 @@
 package benchmark
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -218,6 +219,11 @@ type specValue struct {
 // field's own value separator is ";" for the same reason.) The parameter
 // keys are disjoint across the two slots, so one flat key=value list
 // still covers both.
+// SpecDraftModelKey is the spec-value setting that names the file a
+// draft method loads, e.g.
+// "draft+ngram-mod:draft_model=org--repo--file,draft_max=16".
+const SpecDraftModelKey = "draft_model"
+
 func parseSpecValue(raw string) (specValue, error) {
 	v := strings.TrimSpace(raw)
 	out := specValue{params: map[string]string{}}
@@ -265,6 +271,12 @@ func parseSpecValue(raw string) (specValue, error) {
 	for _, p := range allowed {
 		allowedKeys[p.Key] = true
 	}
+	// draft_model names the file a draft method loads: a registry ID or
+	// an absolute path, resolved when the cell runs. It belongs to every
+	// draft method, which is why it is not in the parameter tables.
+	if out.mode != "" {
+		allowedKeys[SpecDraftModelKey] = true
+	}
 	for _, pair := range strings.Split(rest, ",") {
 		pair = strings.TrimSpace(pair)
 		if pair == "" {
@@ -278,7 +290,11 @@ func parseSpecValue(raw string) (specValue, error) {
 		if !allowedKeys[k] {
 			return out, fmt.Errorf("%q is not a setting of %s", k, strings.Join(nonEmpty(out.mode, out.assist), " + "))
 		}
-		if k == "draft_p_min" {
+		if k == SpecDraftModelKey {
+			if val == "" {
+				return out, errors.New("draft_model needs a model ID or a file path")
+			}
+		} else if k == "draft_p_min" {
 			if _, err := strconv.ParseFloat(val, 64); err != nil {
 				return out, fmt.Errorf("draft_p_min %q is not a number", val)
 			}
@@ -307,6 +323,11 @@ func applySpecValue(o *ConfigOverrides, raw string) error {
 	// nil, which does inherit — the same rule as every other parameter.
 	mode, assist := sv.mode, sv.assist
 	o.SpecType, o.SpecAssist = &mode, &assist
+	if file, ok := sv.params[SpecDraftModelKey]; ok {
+		// A registry ID or a path; runCell resolves it.
+		f := file
+		o.DraftModelPath = &f
+	}
 	for k, val := range sv.params {
 		switch k {
 		case "draft_max":
@@ -365,6 +386,39 @@ func encodeSpecValue(mode, assist string, params []models.SpecModeParam) string 
 	out := strings.Join(names, "+")
 	if len(pairs) == 0 {
 		return out
+	}
+	return out + ":" + strings.Join(pairs, ",")
+}
+
+// EncodeSpecValue renders a spec value from its parts: a draft method, an
+// n-gram assist, and settings for either. Empty modes give "none". The
+// output is the canonical form, so two calls with the same parts produce
+// the same cell.
+func EncodeSpecValue(mode, assist string, params map[string]string) string {
+	var names []string
+	if mode != "" {
+		names = append(names, mode)
+	}
+	if assist != "" {
+		names = append(names, assist)
+	}
+	if len(names) == 0 {
+		return "none"
+	}
+	out := strings.Join(names, "+")
+	keys := make([]string, 0, len(params))
+	for k, v := range params {
+		if v != "" {
+			keys = append(keys, k)
+		}
+	}
+	if len(keys) == 0 {
+		return out
+	}
+	sort.Strings(keys)
+	pairs := make([]string, 0, len(keys))
+	for _, k := range keys {
+		pairs = append(pairs, k+"="+params[k])
 	}
 	return out + ":" + strings.Join(pairs, ",")
 }
@@ -471,6 +525,8 @@ var sweepFields = map[string]SweepField{
 		func(o *ConfigOverrides, v *int) { o.CPUMoE = v }),
 	"threads": intField("threads", "Threads", "CPU threads. Matters mainly when layers run on CPU.", "4,8,16",
 		func(o *ConfigOverrides, v *int) { o.Threads = v }),
+	"split_mode": strField("split_mode", "Split Mode", "How a model spread over several GPUs is divided: by layer, or by tensor (which needs flash attention). Only meaningful with more than one GPU.", "layer,tensor",
+		func(o *ConfigOverrides, v *string) { o.SplitMode = v }),
 	"flash_attention": boolField("flash_attention", "Flash Attention", "Enables the flash-attention kernel. Required for some quantized KV cache types.",
 		func(o *ConfigOverrides, v *bool) { o.FlashAttention = v }),
 	"direct_io": boolField("direct_io", "Direct I/O", "Bypasses the page cache when loading weights.",
@@ -569,7 +625,7 @@ func init() {
 	for _, name := range []string{
 		"gpu_layers", "ubatch_size", "batch_size", "threads",
 		"flash_attention", "direct_io", "kv_cache_quant", "cpu_moe",
-		"gpu_assign", "tensor_split",
+		"gpu_assign", "tensor_split", "split_mode",
 	} {
 		f := sweepFields[name]
 		f.AffectsEval = true
@@ -757,6 +813,9 @@ func init() {
 	))
 	set("flash_attention", false, choices("true", "on", "false", "off"))
 	set("direct_io", false, choices("true", "on", "false", "off"))
+	set("split_mode", false, choices(
+		"layer", "layer (default)", "tensor", "tensor",
+	))
 	set("kv_cache_quant", true, choices(
 		"f16", "f16 (no quant)", "q8_0", "q8_0", "q4_0", "q4_0",
 	))

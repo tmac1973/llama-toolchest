@@ -43,7 +43,7 @@ func TestApplyOverridesCoversEveryConfigSnapshotField(t *testing.T) {
 	fa, dio := true, true
 	kv, ga, ts, st, dmp := "q4_0", "0", "1,2", "draft", "/models/draft.gguf"
 
-	got := applyOverrides(ConfigSnapshot{}, &ConfigOverrides{
+	got := ApplyOverrides(ConfigSnapshot{}, &ConfigOverrides{
 		GPULayers:      &ngl,
 		ContextSize:    &ctx,
 		Threads:        &threads,
@@ -70,7 +70,7 @@ func TestApplyOverridesCoversEveryConfigSnapshotField(t *testing.T) {
 
 func TestApplyOverridesNilLeavesBaseUntouched(t *testing.T) {
 	base := ConfigSnapshot{GPULayers: 999, ContextSize: 8192, Threads: 8}
-	if got := applyOverrides(base, nil); got != base {
+	if got := ApplyOverrides(base, nil); got != base {
 		t.Errorf("nil overrides mutated base: got %+v want %+v", got, base)
 	}
 }
@@ -130,7 +130,7 @@ func TestApplyOverridesCarriesBothSpeculativeSlots(t *testing.T) {
 	st, sa := "draft-mtp", "ngram-mod"
 	dmax, nmax, nmin, nmatch := 3, 64, 48, 24
 
-	got := applyOverrides(ConfigSnapshot{}, &ConfigOverrides{
+	got := ApplyOverrides(ConfigSnapshot{}, &ConfigOverrides{
 		SpecType: &st, DraftMax: &dmax,
 		SpecAssist: &sa, AssistNMax: &nmax, AssistNMin: &nmin, AssistNMatch: &nmatch,
 	})
@@ -153,7 +153,7 @@ func TestApplyOverridesKeepsLegacySpecShapeVerbatim(t *testing.T) {
 	st := "ngram-mod"
 	dmax, dmin, nsn := 64, 48, 24
 
-	got := applyOverrides(ConfigSnapshot{}, &ConfigOverrides{
+	got := ApplyOverrides(ConfigSnapshot{}, &ConfigOverrides{
 		SpecType: &st, DraftMax: &dmax, DraftMin: &dmin, NgramSizeN: &nsn,
 	})
 

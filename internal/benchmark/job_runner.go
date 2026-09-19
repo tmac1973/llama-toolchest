@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/evaluate"
+	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/monitor"
 )
 
@@ -45,6 +46,10 @@ type JobEnv interface {
 	// the registry (HF repo id for tokenizer, router-served name, saved
 	// config to apply overrides on top of, display fields).
 	ResolveModel(modelID string) (ModelInfo, error)
+
+	// ResolveModelPath returns the file of an installed model, for a
+	// sweep value that names a draft model by its registry ID.
+	ResolveModelPath(modelID string) (string, error)
 
 	// ApplyEphemeralConfig makes modelID run under cfg, restarting the
 	// router so it takes effect. Implementations must not persist the
@@ -449,7 +454,12 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 		return fmt.Errorf("build %s no longer exists", cell.BuildID)
 	}
 
-	cfg := markProfileEdited(applyOverrides(modelInfo.Config, cellOv), modelInfo.Config)
+	cfg := markProfileEdited(ApplyOverrides(modelInfo.Config, cellOv), modelInfo.Config)
+	// A spec value may name its draft file by model ID; turn it into the
+	// path the launch reads before anything is applied or recorded.
+	if err := resolveSnapshotDraftFile(&cfg, q.env.ResolveModelPath); err != nil {
+		return err
+	}
 
 	// Make the merged config real before measuring anything. Without
 	// this the cell benchmarks the model's saved config and then records
@@ -743,6 +753,18 @@ func samplingFromOverrides(o *ConfigOverrides) SamplingParams {
 
 // applyOverrides returns base with non-nil ConfigOverrides fields
 // applied on top. A nil overrides argument returns base unchanged.
+// resolveSnapshotDraftFile turns a draft file named by a model ID into
+// its path, on the snapshot rather than a config: the same rule as
+// ResolveDraftFile, which the profile-saving path uses.
+func resolveSnapshotDraftFile(cfg *ConfigSnapshot, resolve func(id string) (string, error)) error {
+	tmp := models.ModelConfig{SpecType: cfg.SpecType, DraftModelPath: cfg.DraftModelPath, MtpPath: cfg.MtpPath}
+	if err := ResolveDraftFile(&tmp, resolve); err != nil {
+		return err
+	}
+	cfg.DraftModelPath, cfg.MtpPath = tmp.DraftModelPath, tmp.MtpPath
+	return nil
+}
+
 // EvalConfigSnapshot returns the config a CAPABILITY cell runs at:
 // applyOverrides, then the KV cache type reset to the default f16
 // unless the job asked for a specific one.
@@ -764,7 +786,7 @@ func samplingFromOverrides(o *ConfigOverrides) SamplingParams {
 // so the detail view's KV Quant column shows the cache the score was
 // actually measured through.
 func EvalConfigSnapshot(base ConfigSnapshot, overrides *ConfigOverrides) ConfigSnapshot {
-	cfg := applyOverrides(base, overrides)
+	cfg := ApplyOverrides(base, overrides)
 	if overrides == nil || overrides.KVCacheQuant == nil {
 		cfg.KVCacheQuant = ""
 	}
@@ -820,7 +842,9 @@ func EvalReferenceConfig(ref, underTest ConfigSnapshot) ConfigSnapshot {
 	return out
 }
 
-func applyOverrides(base ConfigSnapshot, overrides *ConfigOverrides) ConfigSnapshot {
+// ApplyOverrides is applyOverrides for callers outside this package: it
+// layers a job cell's overrides onto a config snapshot.
+func ApplyOverrides(base ConfigSnapshot, overrides *ConfigOverrides) ConfigSnapshot {
 	if overrides == nil {
 		return base
 	}
@@ -842,6 +866,9 @@ func applyOverrides(base ConfigSnapshot, overrides *ConfigOverrides) ConfigSnaps
 	}
 	if overrides.CPUMoE != nil {
 		out.CPUMoE = *overrides.CPUMoE
+	}
+	if overrides.SplitMode != nil {
+		out.SplitMode = *overrides.SplitMode
 	}
 	if overrides.FlashAttention != nil {
 		out.FlashAttention = *overrides.FlashAttention

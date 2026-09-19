@@ -158,18 +158,21 @@ type ConfigSnapshot struct {
 	// its settings in NgramSizeN/M; models.NormalizeSpec reads those.
 	SpecType       string `json:"spec_type,omitempty"`
 	DraftModelPath string `json:"draft_model_path,omitempty"`
-	DraftMax       int    `json:"draft_max,omitempty"`
-	DraftMin       int    `json:"draft_min,omitempty"`
-	DraftPMin      string `json:"draft_p_min,omitempty"`
-	SpecAssist     string `json:"spec_assist,omitempty"`
-	AssistNMax     int    `json:"assist_n_max,omitempty"`
-	AssistNMin     int    `json:"assist_n_min,omitempty"`
-	AssistNMatch   int    `json:"assist_n_match,omitempty"`
-	AssistSizeN    int    `json:"assist_size_n,omitempty"`
-	AssistSizeM    int    `json:"assist_size_m,omitempty"`
-	AssistMinHits  int    `json:"assist_min_hits,omitempty"`
-	NgramSizeN     int    `json:"ngram_size_n,omitempty"` // legacy; migrated by models.NormalizeSpec
-	NgramSizeM     int    `json:"ngram_size_m,omitempty"` // legacy; migrated by models.NormalizeSpec
+	// MtpPath is the separate MTP head draft-mtp loads, when the model
+	// has one rather than its own layers.
+	MtpPath       string `json:"mtp_path,omitempty"`
+	DraftMax      int    `json:"draft_max,omitempty"`
+	DraftMin      int    `json:"draft_min,omitempty"`
+	DraftPMin     string `json:"draft_p_min,omitempty"`
+	SpecAssist    string `json:"spec_assist,omitempty"`
+	AssistNMax    int    `json:"assist_n_max,omitempty"`
+	AssistNMin    int    `json:"assist_n_min,omitempty"`
+	AssistNMatch  int    `json:"assist_n_match,omitempty"`
+	AssistSizeN   int    `json:"assist_size_n,omitempty"`
+	AssistSizeM   int    `json:"assist_size_m,omitempty"`
+	AssistMinHits int    `json:"assist_min_hits,omitempty"`
+	NgramSizeN    int    `json:"ngram_size_n,omitempty"` // legacy; migrated by models.NormalizeSpec
+	NgramSizeM    int    `json:"ngram_size_m,omitempty"` // legacy; migrated by models.NormalizeSpec
 
 	// PLEMode and ExtraFlags reach llama-server through the preset INI
 	// (tensor-read-lazy, and the raw flag text appended verbatim). Both
@@ -353,6 +356,11 @@ type Preset struct {
 	// workload it has always had and no stored result is invalidated.
 	PromptStyle PromptStyle
 
+	// Hidden keeps a preset out of the pickers. Autotune's presets are
+	// hidden: they exist to be comparable across its own stages, not to
+	// be chosen from a list, and they would only add noise to one.
+	Hidden bool
+
 	// Capability presets only (Source == PresetSourceCapability).
 	// EvalMode names the evaluation the cell runs; EvalTasks and
 	// EvalChunks are the run limits (0 = full run). Performance presets
@@ -394,6 +402,23 @@ func Presets() []Preset {
 			Source:       PresetSourceInternal,
 			PromptTokens: []int{2048}, GenTokens: 512, Repetitions: 3,
 			PromptStyle: PromptStyleEcho,
+		},
+		{
+			Name:         "autotune-chat",
+			Label:        "autotune-chat — 3 reps, 512 and 4096-token prompts (~1 min)",
+			Description:  "Autotune's general-chat workload: a short prompt for response time and a long one for prompt speed, with 256 generated tokens of new prose. Hidden from the pickers because it exists to be compared across autotune's own runs.",
+			Source:       PresetSourceInternal,
+			PromptTokens: []int{512, 4096}, GenTokens: 256, Repetitions: 3,
+			Hidden: true,
+		},
+		{
+			Name:         "autotune-code",
+			Label:        "autotune-code — 3 reps × 1536-token prompt, code edit (~2 min)",
+			Description:  "Autotune's coding workload: a source file to return with mechanical edits, 512 generated tokens. Most of the answer repeats the prompt, which is where speculative decoding pays off. Hidden from the pickers for the same reason as autotune-chat.",
+			Source:       PresetSourceInternal,
+			PromptTokens: []int{1536}, GenTokens: 512, Repetitions: 3,
+			PromptStyle: PromptStyleCode,
+			Hidden:      true,
 		},
 		{
 			Name:         "internal-thorough",
@@ -510,6 +535,21 @@ var presetAliases = map[string]string{
 	"quick":    "internal-quick",
 	"standard": "internal-standard",
 	"thorough": "internal-thorough",
+}
+
+// VisiblePresets returns the presets a user may choose from: everything
+// except autotune's own, which are comparable within an autotune run and
+// would only clutter a picker. GetPreset still resolves them, so a stored
+// result or a running job finds its preset either way.
+func VisiblePresets() []Preset {
+	all := Presets()
+	out := make([]Preset, 0, len(all))
+	for _, p := range all {
+		if !p.Hidden {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // GetPreset returns a preset by name, falling back to "internal-standard".

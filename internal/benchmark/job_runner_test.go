@@ -91,6 +91,10 @@ func (f *fakeEnv) ResolveModel(id string) (ModelInfo, error) {
 	}, nil
 }
 
+func (f *fakeEnv) ResolveModelPath(id string) (string, error) {
+	return "/models/" + id + ".gguf", nil
+}
+
 func (f *fakeEnv) ApplyEphemeralConfig(_ context.Context, _ string, cfg ConfigSnapshot) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

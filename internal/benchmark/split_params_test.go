@@ -523,7 +523,7 @@ func TestSpecParamsFlowToSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	snap := applyOverrides(ConfigSnapshot{DraftMax: 16, DraftMin: 3}, o)
+	snap := ApplyOverrides(ConfigSnapshot{DraftMax: 16, DraftMin: 3}, o)
 	if snap.SpecType != "draft-mtp" || snap.DraftMax != 6 || snap.DraftPMin != "0.75" {
 		t.Fatalf("spec params did not reach the snapshot: %+v", snap)
 	}
@@ -635,9 +635,10 @@ func TestInternalEchoPresetUsesTheRecallStyle(t *testing.T) {
 		t.Errorf("gen tokens %d should be well inside the %d-token passage", p.GenTokens, p.PromptTokens[0])
 	}
 
-	// Every other preset keeps the workload it has always had, so no
-	// stored result is invalidated.
-	for _, other := range Presets() {
+	// Every preset a user can choose keeps the workload it has always
+	// had, so no stored result is invalidated. Autotune's presets are
+	// hidden and new, so they are free to use another style.
+	for _, other := range VisiblePresets() {
 		if other.Name == "internal-echo" {
 			continue
 		}

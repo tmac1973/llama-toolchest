@@ -16,7 +16,7 @@ func TestPLEModeSweepReachesSnapshot(t *testing.T) {
 		if err := sweepFields["ple_mode"].set(&o, tt.raw); err != nil {
 			t.Fatalf("%s: %v", tt.raw, err)
 		}
-		if got := applyOverrides(ConfigSnapshot{}, &o).PLEMode; got != tt.want {
+		if got := ApplyOverrides(ConfigSnapshot{}, &o).PLEMode; got != tt.want {
 			t.Errorf("ple_mode %q reached the snapshot as %q, want %q", tt.raw, got, tt.want)
 		}
 	}
@@ -42,7 +42,7 @@ func TestExtraFlagsSweepKeepsCommasIntact(t *testing.T) {
 	if err := f.set(&o, raw); err != nil {
 		t.Fatal(err)
 	}
-	if got := applyOverrides(ConfigSnapshot{}, &o).ExtraFlags; got != raw {
+	if got := ApplyOverrides(ConfigSnapshot{}, &o).ExtraFlags; got != raw {
 		t.Errorf("extra_flags reached the snapshot as %q, want it verbatim", got)
 	}
 }

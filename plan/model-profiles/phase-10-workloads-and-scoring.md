@@ -171,3 +171,30 @@ The measuring pieces autotune needs, all testable without a GPU:
 Revert the commit. The hidden presets and the new spec key are unused until
 Phase 11. Runs recorded with the new presets stay in history and display
 normally.
+
+## As implemented
+
+- **The swept draft file rides on `DraftModelPath`.** The plan added a
+  `DraftModel` override field, but two guard tests exist to catch an
+  override with no destination and a field the sweep registry does not
+  account for, and a second field would have had neither. A spec value's
+  `draft_model` therefore writes the unresolved ID into `DraftModelPath`,
+  and `runCell` resolves it (`ResolveDraftFile`) before the cell runs and
+  before the run records it, moving it to `MtpPath` for `draft-mtp`.
+- **`MtpPath` in the snapshot** came forward from Phase 11 to here, since
+  that is where the draft file is resolved.
+- **`SplitMode` and `MainGPU` are copied only when the snapshot has them.**
+  They are derived from the GPU assignment when a config is saved, and runs
+  recorded before the snapshot carried them have neither; copying a blank
+  would erase the placement a config derived. A swept `split_mode` is
+  applied after `resolveGPUAssignment`, so it wins.
+- **`split_mode` is `AffectsEval`**: it reaches the evaluation command line
+  through the placement flags, like `gpu_assign`.
+- **Scoring**: `ScoreRuns` reads the per-size row nearest the size a goal
+  asks about, because llama.cpp reports what it actually tokenized. Speeds
+  average over a mixed workload's shapes; response times add up, since the
+  workload is one of each. Response time is carried as negative seconds so
+  that higher is better for every goal.
+- **`Pick`** takes the fastest candidate, then replaces it with any plainer
+  one the fastest does not `Beat` — the noise rule — and also returns the
+  full ranking for choosing finalists.

@@ -524,7 +524,7 @@ func (s *Server) handleBenchmarkForm(w http.ResponseWriter, r *http.Request) {
 	// capability cells (they stop the router), and its single-run
 	// framing is built around timing results.
 	var quickPresets []benchmark.Preset
-	for _, p := range benchmark.Presets() {
+	for _, p := range benchmark.VisiblePresets() {
 		if p.EffectiveSource() == benchmark.PresetSourceCapability {
 			continue
 		}

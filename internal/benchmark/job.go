@@ -82,6 +82,7 @@ type ConfigOverrides struct {
 	BatchSize      *int    `json:"batch_size,omitempty"`
 	UBatchSize     *int    `json:"ubatch_size,omitempty"`
 	CPUMoE         *int    `json:"cpu_moe,omitempty"`
+	SplitMode      *string `json:"split_mode,omitempty"`
 	FlashAttention *bool   `json:"flash_attention,omitempty"`
 	KVCacheQuant   *string `json:"kv_cache_quant,omitempty"`
 	DirectIO       *bool   `json:"direct_io,omitempty"`
@@ -90,6 +91,10 @@ type ConfigOverrides struct {
 	GPUAssign      *string `json:"gpu_assign,omitempty"`
 	TensorSplit    *string `json:"tensor_split,omitempty"`
 	SpecType       *string `json:"spec_type,omitempty"`
+	// DraftModelPath is the draft file a cell loads. A sweep value may
+	// put a model registry ID here instead of a path; runCell resolves it
+	// before the cell runs and before the run records it, because only
+	// the runner can look a registry ID up.
 	DraftModelPath *string `json:"draft_model_path,omitempty"`
 	DraftMax       *int    `json:"draft_max,omitempty"`
 	DraftMin       *int    `json:"draft_min,omitempty"`

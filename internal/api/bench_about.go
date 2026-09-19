@@ -36,7 +36,7 @@ type BenchyCommandExample struct {
 // raw struct.
 func (s *Server) handleBenchmarksAbout(w http.ResponseWriter, r *http.Request) {
 	about := AboutBenchmarks{
-		Presets: benchmark.Presets(),
+		Presets: benchmark.VisiblePresets(),
 	}
 	about.InternalPrompt.Text = benchmark.BenchPromptText
 	about.InternalPrompt.RepetitionPrefix = benchmark.BenchPromptPrefixTemplate

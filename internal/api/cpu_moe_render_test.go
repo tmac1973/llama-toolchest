@@ -51,7 +51,7 @@ func TestCPUMoEFieldOnlyForMoEModels(t *testing.T) {
 // A swept or overridden cpu_moe reaches the config the benchmark launches.
 func TestSnapshotCarriesCPUMoEToLaunchConfig(t *testing.T) {
 	snap := benchmark.SnapshotFromConfig(models.ModelConfig{CPUMoE: 7}, "", false)
-	if got := applySnapshotToConfig(models.ModelConfig{}, snap); got.CPUMoE != 7 {
+	if got := benchmark.ApplySnapshotToConfig(models.ModelConfig{}, snap); got.CPUMoE != 7 {
 		t.Errorf("launch config CPUMoE = %d, want 7", got.CPUMoE)
 	}
 }

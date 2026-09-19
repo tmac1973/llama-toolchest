@@ -802,7 +802,7 @@ func (s *Server) handleJobForm(w http.ResponseWriter, r *http.Request) {
 	}{
 		Models:      enabled,
 		Builds:      builds,
-		Presets:     benchmark.Presets(),
+		Presets:     benchmark.VisiblePresets(),
 		GPUOptions:  models.GPUAssignOptions(numGPUs, igpuFlags(gpuList)),
 		Params:      paramViews(numGPUs, igpuFlags(gpuList)),
 		MaxCells:    maxJobCells,
