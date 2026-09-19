@@ -495,7 +495,7 @@
             padding: 6px;
             background: var(--pico-card-sectioning-background-color);
         }
-        .model-card-config > form {
+        .model-card-config > .model-config-panel {
             font-size: 0.85rem;
             margin: 0;
             background: var(--pico-card-background-color);
@@ -503,6 +503,23 @@
             border-radius: 9px;
             padding: 14px 16px;
         }
+        .model-config-panel > form { margin: 0; }
+        /* Saved profiles: sits between the header and the autosaving form,
+           outside it, so browsing the list never triggers a save. */
+        .profile-bar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: flex-end;
+            gap: 0.5rem;
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--pico-muted-border-color);
+        }
+        .profile-bar label { margin: 0; flex: 1 1 14rem; }
+        .profile-bar select, .profile-bar input { margin: 0; }
+        .profile-bar button { margin: 0; width: auto; }
+        .profile-status { flex-basis: 100%; color: var(--pico-muted-color); }
+        .profile-banner { margin: 0 0 10px; }
         /* Owner header naming which model this config belongs to. */
         .model-config-header {
             display: flex;

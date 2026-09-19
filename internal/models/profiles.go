@@ -3,6 +3,7 @@ package models
 import (
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -417,4 +418,39 @@ func (r *Registry) ImportProfile(p ConfigProfile) (replaced bool, err error) {
 	p.Config = profileFields(p.Config)
 	replaced = r.upsertProfileLocked(p)
 	return replaced, r.save()
+}
+
+// ValidateProfileConfig runs the checks a config must pass before it
+// replaces a live config: the ones a config save runs, plus that every
+// file it names still exists. A profile is a config from another time,
+// and one pointing at a deleted draft model would otherwise fail minutes
+// into a load, with nothing in the UI connecting the failure to the
+// restore.
+func ValidateProfileConfig(c ModelConfig) error {
+	if err := c.ValidateBatchSizes(); err != nil {
+		return err
+	}
+	if err := c.ValidateFlashAttention(); err != nil {
+		return err
+	}
+	if err := c.ValidateSpec(); err != nil {
+		return err
+	}
+	files := []struct {
+		label, path string
+		skip        bool
+	}{
+		{"vision projector (mmproj)", c.MmprojPath, c.MmprojDisabled},
+		{"MTP draft head", c.MtpPath, c.MtpDisabled},
+		{"draft model", c.DraftModelPath, false},
+	}
+	for _, f := range files {
+		if f.path == "" || f.skip {
+			continue
+		}
+		if st, err := os.Stat(f.path); err != nil || st.IsDir() {
+			return fmt.Errorf("the %s this profile uses is no longer on disk: %s", f.label, f.path)
+		}
+	}
+	return nil
 }

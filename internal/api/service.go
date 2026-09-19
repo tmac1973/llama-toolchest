@@ -762,6 +762,16 @@ type modelConfigPanelData struct {
 	// ReadOnlyReason is set when models.json cannot be saved; the panel
 	// says why before the user edits anything.
 	ReadOnlyReason string
+
+	// Saved-profile bar (see models_profiles.go).
+	Profiles      []profileOption
+	ActiveProfile string // "" when the config is not from a saved profile
+	ProfileEdited bool   // the config was changed since that profile
+	// Banner reports the result of the last profile action.
+	Banner *panelBanner
+	// StatusOOB marks the profile status line for an out-of-band swap, in
+	// the autosave response only.
+	StatusOOB bool
 }
 
 // handleGetModelConfig returns the launch config for a model.
@@ -774,110 +784,132 @@ func (s *Server) handleGetModelConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	model, _ := s.registry.Get(id)
-
 	if isHTMX(r) {
+		data, err := s.configPanelData(id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
 		respondHTML(w)
-
-		maxContext := 0
-		detectedMMProj := ""
-		detectedMTP := ""
-		isEmbedding := false
-		var draftCandidates []models.DraftCandidate
-		if model != nil {
-			maxContext = model.ContextLength
-			detectedMMProj = models.FindMMProj(model.FilePath)
-			detectedMTP = models.FindMTP(model.FilePath)
-			isEmbedding = model.IsEmbedding()
-			if !isEmbedding {
-				draftCandidates = s.registry.FindDraftCandidates(id, cfg.SpecType)
-			}
-		}
-
-		hasBuiltinVision := model != nil && model.HasBuiltinVision
-
-		// GPU assignment options
-		metrics := s.monitor.Current()
-		numGPUs := len(metrics.GPU)
-		gpuOptions := models.GPUAssignOptions(numGPUs, igpuFlags(metrics.GPU))
-
-		// Migration: map legacy and pre-iGPU-audit configs onto the
-		// current dropdown values.
-		migrateGPUAssign(cfg, gpuOptions, numGPUs)
-
-		// Mark disabled/recommended options
-		if numGPUs > 0 && model != nil {
-			perGPUGB := float64(metrics.GPU[0].VRAMTotalMB) / 1024.0
-			modelVRAM := models.VRAMEstimateForConfigOn(model, cfg, models.DeviceCountForConfig(cfg, len(s.monitor.Current().GPU)))
-			allModels := s.registry.List()
-			allConfigs := make(map[string]*models.ModelConfig)
-			for _, m := range allModels {
-				if c, err := s.registry.GetConfig(m.ID); err == nil {
-					allConfigs[m.ID] = c
-				}
-			}
-			existing := models.ComputeAllocations(allModels, allConfigs, numGPUs)
-			// Exclude the current model from existing allocations
-			var filtered []models.GPUAllocation
-			for _, a := range existing {
-				if a.ModelID != id {
-					filtered = append(filtered, a)
-				}
-			}
-			models.MarkRecommended(gpuOptions, modelVRAM, perGPUGB, filtered)
-		}
-
-		var samplingPresets []models.SamplingPreset
-		var samplingPresetsJSON string
-		var hasEmbeddedDefault bool
-		if model != nil && !isEmbedding {
-			samplingPresets = model.EffectiveSamplingPresets()
-			if len(samplingPresets) > 0 {
-				if b, err := json.Marshal(samplingPresets); err == nil {
-					samplingPresetsJSON = string(b)
-				}
-			}
-			for _, p := range samplingPresets {
-				if p.Source == "gguf" {
-					hasEmbeddedDefault = true
-					break
-				}
-			}
-		}
-
-		data := modelConfigPanelData{
-			ModelID:             id,
-			Config:              cfg,
-			EffectiveFlags:      cfg.EffectiveFlagsFor(isEmbedding, s.activeBackend()),
-			MaxContext:          maxContext,
-			HasMMProj:           cfg.MmprojPath != "" || detectedMMProj != "",
-			HasMTP:              cfg.MtpPath != "" || detectedMTP != "",
-			HasBuiltinVision:    hasBuiltinVision,
-			IsEmbedding:         isEmbedding,
-			DraftCandidates:     draftCandidates,
-			DraftModes:          models.DraftModes(),
-			AssistModes:         models.AssistModes(),
-			DraftParams:         models.SpecDraftParams(cfg.SpecType),
-			AssistParams:        models.SpecAssistParams(cfg.SpecAssist),
-			EffectiveSpecType:   cfg.EffectiveSpecType(),
-			GPUOptions:          gpuOptions,
-			GPUAssignWarning:    s.gpuAssignWarning(cfg, metrics.GPU),
-			NumGPUs:             numGPUs,
-			SamplingPresets:     samplingPresets,
-			SamplingPresetsJSON: samplingPresetsJSON,
-			HasEmbeddedDefault:  hasEmbeddedDefault,
-			// The per-layer embedding control is only meaningful for the
-			// handful of architectures that carry such a table, so it is
-			// rendered only when this model actually has one.
-			HasPLE:         model != nil && model.PLEBytes > 0,
-			PLESizeLabel:   pleSizeLabel(model),
-			ReadOnlyReason: s.registry.ReadOnlyReason(),
+		// The config form's own autosave (a PUT that ends here) swaps only
+		// the form, and refreshes the profile status line out of band.
+		if r.Method == http.MethodPut {
+			data.StatusOOB = true
+			s.renderPartial(w, "model_config_autosave", data)
+			return
 		}
 		s.renderPartial(w, "model_config", data)
 		return
 	}
 
 	respondJSON(w, cfg)
+}
+
+// configPanelData builds everything the model config panel renders: the
+// form and the saved-profile bar.
+func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
+	cfg, err := s.registry.GetConfig(id)
+	if err != nil {
+		return modelConfigPanelData{}, err
+	}
+	model, _ := s.registry.Get(id)
+
+	maxContext := 0
+	detectedMMProj := ""
+	detectedMTP := ""
+	isEmbedding := false
+	var draftCandidates []models.DraftCandidate
+	if model != nil {
+		maxContext = model.ContextLength
+		detectedMMProj = models.FindMMProj(model.FilePath)
+		detectedMTP = models.FindMTP(model.FilePath)
+		isEmbedding = model.IsEmbedding()
+		if !isEmbedding {
+			draftCandidates = s.registry.FindDraftCandidates(id, cfg.SpecType)
+		}
+	}
+
+	hasBuiltinVision := model != nil && model.HasBuiltinVision
+
+	// GPU assignment options
+	metrics := s.monitor.Current()
+	numGPUs := len(metrics.GPU)
+	gpuOptions := models.GPUAssignOptions(numGPUs, igpuFlags(metrics.GPU))
+
+	// Migration: map legacy and pre-iGPU-audit configs onto the
+	// current dropdown values.
+	migrateGPUAssign(cfg, gpuOptions, numGPUs)
+
+	// Mark disabled/recommended options
+	if numGPUs > 0 && model != nil {
+		perGPUGB := float64(metrics.GPU[0].VRAMTotalMB) / 1024.0
+		modelVRAM := models.VRAMEstimateForConfigOn(model, cfg, models.DeviceCountForConfig(cfg, len(s.monitor.Current().GPU)))
+		allModels := s.registry.List()
+		allConfigs := make(map[string]*models.ModelConfig)
+		for _, m := range allModels {
+			if c, err := s.registry.GetConfig(m.ID); err == nil {
+				allConfigs[m.ID] = c
+			}
+		}
+		existing := models.ComputeAllocations(allModels, allConfigs, numGPUs)
+		// Exclude the current model from existing allocations
+		var filtered []models.GPUAllocation
+		for _, a := range existing {
+			if a.ModelID != id {
+				filtered = append(filtered, a)
+			}
+		}
+		models.MarkRecommended(gpuOptions, modelVRAM, perGPUGB, filtered)
+	}
+
+	var samplingPresets []models.SamplingPreset
+	var samplingPresetsJSON string
+	var hasEmbeddedDefault bool
+	if model != nil && !isEmbedding {
+		samplingPresets = model.EffectiveSamplingPresets()
+		if len(samplingPresets) > 0 {
+			if b, err := json.Marshal(samplingPresets); err == nil {
+				samplingPresetsJSON = string(b)
+			}
+		}
+		for _, p := range samplingPresets {
+			if p.Source == "gguf" {
+				hasEmbeddedDefault = true
+				break
+			}
+		}
+	}
+
+	data := modelConfigPanelData{
+		ModelID:             id,
+		Config:              cfg,
+		EffectiveFlags:      cfg.EffectiveFlagsFor(isEmbedding, s.activeBackend()),
+		MaxContext:          maxContext,
+		HasMMProj:           cfg.MmprojPath != "" || detectedMMProj != "",
+		HasMTP:              cfg.MtpPath != "" || detectedMTP != "",
+		HasBuiltinVision:    hasBuiltinVision,
+		IsEmbedding:         isEmbedding,
+		DraftCandidates:     draftCandidates,
+		DraftModes:          models.DraftModes(),
+		AssistModes:         models.AssistModes(),
+		DraftParams:         models.SpecDraftParams(cfg.SpecType),
+		AssistParams:        models.SpecAssistParams(cfg.SpecAssist),
+		EffectiveSpecType:   cfg.EffectiveSpecType(),
+		GPUOptions:          gpuOptions,
+		GPUAssignWarning:    s.gpuAssignWarning(cfg, metrics.GPU),
+		NumGPUs:             numGPUs,
+		SamplingPresets:     samplingPresets,
+		SamplingPresetsJSON: samplingPresetsJSON,
+		HasEmbeddedDefault:  hasEmbeddedDefault,
+		// The per-layer embedding control is only meaningful for the
+		// handful of architectures that carry such a table, so it is
+		// rendered only when this model actually has one.
+		HasPLE:         model != nil && model.PLEBytes > 0,
+		PLESizeLabel:   pleSizeLabel(model),
+		ReadOnlyReason: s.registry.ReadOnlyReason(),
+	}
+	data.Profiles, data.ActiveProfile, data.ProfileEdited = s.profileBarData(id)
+	return data, nil
 }
 
 // handleUpdateModelConfig updates the launch config for a model.
@@ -1068,6 +1100,14 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	s.afterConfigChange(w, r, id, cfg)
+	s.handleGetModelConfig(w, r)
+}
+
+// afterConfigChange does what every change to a model's live config needs
+// once it is saved: regenerate the preset INI, mark the model as needing a
+// reload, and tell the page the VRAM estimate changed.
+func (s *Server) afterConfigChange(w http.ResponseWriter, r *http.Request, id string, cfg *models.ModelConfig) {
 	// Regenerate preset INI so the router picks up changes on next load/reload
 	if _, err := s.registry.WritePresetINI(s.activeBackend()); err != nil {
 		slog.Warn("failed to regenerate preset INI", "error", err)
@@ -1088,8 +1128,6 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 				id, vramGB))
 		}
 	}
-
-	s.handleGetModelConfig(w, r)
 }
 
 // pleSizeLabel renders the per-layer embedding table's size for the model

@@ -1,0 +1,53 @@
+{{define "profile_bar"}}
+{{/* Saved profiles. Deliberately outside the config <form>: the form
+     autosaves every field it contains on change, so a picker inside it
+     would save the config each time the list was browsed, and the name
+     box would be posted with every save. Each control includes only the
+     bar's own fields. */}}
+{{with .Banner}}
+<p class="profile-banner" role="{{if eq .Kind "ok"}}status{{else}}alert{{end}}">
+    {{if eq .Kind "ok"}}<small>&#10003; {{.Text}}</small>{{else}}<mark>&#9888; {{.Text}}</mark>{{end}}
+</p>
+{{end}}
+<div class="profile-bar">
+    <label title="Saved profiles are named copies of this model's settings. Restore one to put its settings back; save the current settings under a new or existing name.">
+        Saved profiles
+        <select name="profile" {{if or (not .Profiles) .ReadOnlyReason}}disabled{{end}}>
+            {{if not .Profiles}}<option value="">No saved profiles yet</option>{{end}}
+            {{range .Profiles}}<option value="{{.Name}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+        </select>
+    </label>
+    <button type="button" class="secondary"
+            hx-post="/api/models/{{.ModelID}}/profiles/apply"
+            hx-include="closest .profile-bar"
+            hx-target="#model-config-panel-{{cssID .ModelID}}" hx-swap="outerHTML"
+            title="Replace the settings below with the ones saved in this profile. They take effect the next time this model loads."
+            {{if or (not .Profiles) .ReadOnlyReason}}disabled{{end}}>Restore</button>
+    <button type="button" class="outline secondary"
+            hx-post="/api/models/{{.ModelID}}/profiles/delete"
+            hx-include="closest .profile-bar"
+            hx-target="#model-config-panel-{{cssID .ModelID}}" hx-swap="outerHTML"
+            hx-confirm="Delete the selected profile? The settings below are not changed."
+            title="Delete the selected profile. The settings below are not changed."
+            {{if or (not .Profiles) .ReadOnlyReason}}disabled{{end}}>Delete</button>
+    <label title="The name to save the current settings under. Saving under the name of an existing profile replaces it.">
+        Profile name
+        <input type="text" name="profile_name" value="{{.ActiveProfile}}" maxlength="64"
+               placeholder="e.g. Long context" {{if .ReadOnlyReason}}disabled{{end}}>
+    </label>
+    <button type="button"
+            hx-post="/api/models/{{.ModelID}}/profiles"
+            hx-include="closest .profile-bar"
+            hx-target="#model-config-panel-{{cssID .ModelID}}" hx-swap="outerHTML"
+            title="Save a copy of the current settings under this name, so you can come back to them later."
+            {{if .ReadOnlyReason}}disabled{{end}}>Save as profile</button>
+    {{template "profile_status" .}}
+</div>
+{{end}}
+
+{{define "profile_status"}}
+<small class="profile-status" id="profile-status-{{cssID .ModelID}}"{{if .StatusOOB}} hx-swap-oob="true"{{end}}
+       title="Compares the settings below with the saved profile they were last saved as or restored from.">
+    {{if .ActiveProfile}}{{if .ProfileEdited}}Based on profile <strong>{{.ActiveProfile}}</strong>, changed since.{{else}}Matches profile <strong>{{.ActiveProfile}}</strong>.{{end}}{{else}}These settings are not saved as a profile.{{end}}
+</small>
+{{end}}

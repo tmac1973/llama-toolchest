@@ -106,3 +106,31 @@ save.
 ## Rollback
 Revert the commit. The stored profiles from Phase 02 remain in `models.json`
 and are simply not shown.
+
+## As implemented
+
+- **Template split.** `model_config` is now the whole panel: the header,
+  the read-only banner, `profile_bar`, then `model_config_form` (the form
+  itself). The form's autosave still swaps only the form (`hx-target="this"`).
+  The PUT response is `model_config_autosave`: the form plus
+  `profile_status`, marked `hx-swap-oob`. "Changed since" therefore stays
+  current, and the whole bar is not re-rendered, which would clear a profile
+  name being typed.
+- **Header and banner moved.** The header and the read-only banner moved
+  out of the form into the panel. The card styling moved from
+  `.model-card-config > form` to `.model-card-config > .model-config-panel`
+  in `layout.html`.
+- **Refactors.**
+  - `configPanelData(id)` builds the panel data; `handleGetModelConfig` and
+    the profile handlers share it.
+  - `afterConfigChange` holds the post-save steps (preset INI, dirty mark,
+    VRAM trigger), extracted from `handleUpdateModelConfig`.
+- **Delete confirmation.** It reads "Delete the selected profile? The
+  settings below are not changed." It does not name the profile, because
+  `hx-confirm` text is fixed when the page renders.
+- **Status wording.**
+  - "Matches profile X."
+  - "Based on profile X, changed since."
+  - "These settings are not saved as a profile."
+- **Still to check by hand:** the layout of the bar in a real browser. The
+  tests check the markup and the handler behavior only.
