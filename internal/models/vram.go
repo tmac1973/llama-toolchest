@@ -166,10 +166,10 @@ type VRAMBreakdown struct {
 	IndexerScratch float64
 	Overhead       float64
 
-	// CPURAM is not part of the GPU total: it is the weights the config
-	// keeps in system memory instead — layers left off the GPU
-	// (gpu_layers below the layer count) and expert layers kept on the CPU
-	// (cpu_moe).
+	// CPURAM is not part of the GPU total: it is what the config keeps in
+	// system memory instead — the weights and KV cache of layers left off
+	// the GPU (gpu_layers below the layer count), and expert layers kept
+	// on the CPU (cpu_moe).
 	CPURAM float64
 }
 
@@ -219,6 +219,14 @@ func VRAMBreakdownForConfigOn(m *Model, cfg *ModelConfig, cards int) VRAMBreakdo
 	b.CPURAM = BytesToGiB(onCPU)
 
 	b.KVCache = m.KVCacheGB(ctx, cfg.KVCacheQuant)
+	// llama.cpp keeps each layer's KV cache on the device that runs the
+	// layer, so layers left on the CPU take their share of it to system
+	// memory. Same "zero is not set" rule as the weights.
+	if cfg.GPULayers > 0 && cfg.GPULayers < m.NLayers && m.NLayers > 0 {
+		onGPU := b.KVCache * float64(cfg.GPULayers) / float64(m.NLayers)
+		b.CPURAM += b.KVCache - onGPU
+		b.KVCache = onGPU
+	}
 
 	// Graph scratch.
 	ub := cfg.EffectiveUBatchSize()

@@ -110,3 +110,28 @@ Each case also checks that every changed field has exactly one note.
 ## Rollback
 Revert the commit. Nothing calls `PlanFit` until Phase 09. The default
 threads change affects only models added afterwards.
+
+## As implemented
+
+- **Order of steps (changed from the plan).** The planner first tries every
+  context size, from the requested one down to 4096, with only the GPU-side
+  options: f16 KV, then q8_0 KV, then MoE expert offload. Only when none of
+  those fits does a dense model get a partial GPU offload, starting at the
+  requested context.
+
+  The plan's order (offload layers, then halve the context) produced
+  unusable results in testing: an 8B model asked for 128K "fit" with 2 of 36
+  layers on the GPU, where 64K with every layer on the GPU was available.
+  Expert offload stays in the first group, because it costs little speed.
+- **KV cache follows its layer.** The VRAM estimate now keeps on the GPU
+  only the share of the KV cache that belongs to GPU layers, because
+  llama.cpp places each layer's KV cache on that layer's device. The rest
+  counts toward `CPURAM`. Without this, a partial offload was estimated with
+  the whole KV cache on the GPU.
+- **Full config returned.** `FitResult.Config` is the whole proposed config
+  (the base with the fit settings applied), not only the changed fields.
+  `FitResult` also carries `CPURAMGiB`.
+- **Placement** uses the config form's own "all (discrete) GPUs" option
+  (`GPUAssignOptions`), so the integrated-GPU rules match the form.
+- **Default threads.** New models get `ThreadsFor(runtime.NumCPU())`: half
+  the logical cores.

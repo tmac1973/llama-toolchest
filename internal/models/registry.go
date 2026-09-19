@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -508,7 +509,7 @@ func (r *Registry) Add(m *Model) error {
 			TensorSplit:    "",
 			SplitMode:      "",
 			ContextSize:    8192,
-			Threads:        8,
+			Threads:        ThreadsFor(runtime.NumCPU()),
 			FlashAttention: true,
 			Jinja:          true,
 		}

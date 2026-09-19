@@ -177,6 +177,13 @@ func TestVRAMWithPartialOffload(t *testing.T) {
 	if d := full.Weights - half.Weights; d < 4.99 || d > 5.01 {
 		t.Errorf("half the layers on the GPU dropped the weights by %.2f GiB, want 5", d)
 	}
+	// The KV cache of the layers left on the CPU goes with them.
+	if d := full.KVCache - 2*half.KVCache; d < -0.001 || d > 0.001 {
+		t.Errorf("KV cache on the GPU = %.3f GiB with half the layers, want half of %.3f", half.KVCache, full.KVCache)
+	}
+	if want := 5 + full.KVCache/2; half.CPURAM < want-0.01 || half.CPURAM > want+0.01 {
+		t.Errorf("CPURAM = %.2f GiB, want %.2f (weights and KV of the CPU layers)", half.CPURAM, want)
+	}
 	zero := VRAMBreakdownForConfigOn(m, &ModelConfig{ContextSize: 4096}, 1)
 	if zero.Weights != full.Weights || zero.CPURAM != 0 {
 		t.Errorf("gpu_layers 0 changed the estimate: %+v", zero)
