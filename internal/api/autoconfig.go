@@ -81,12 +81,12 @@ func (s *Server) otherLoadedModels(skipRouterName string) []string {
 
 // autoconfigDialogData is what the autoconfig_dialog partial renders.
 type autoconfigDialogData struct {
-	ModelID    string
-	ModelName  string
-	Helper     string // helper model name, "" when none is installed
-	BusyReason string
-	OtherLoaded  []string
-	Classes      []contextClassOption
+	ModelID     string
+	ModelName   string
+	Helper      string // helper model name, "" when none is installed
+	BusyReason  string
+	OtherLoaded []string
+	Classes     []contextClassOption
 }
 
 type contextClassOption struct {
