@@ -10,24 +10,9 @@ import (
 	"github.com/tmac1973/llama-toolchest/web"
 )
 
-// modelCardData mirrors the anonymous struct renderModelCard builds, so the
-// partial can be exercised standalone.
-type modelCardData struct {
-	models.Model
-	IsActive       bool
-	IsEnabled      bool
-	PendingEnable  bool
-	PendingDisable bool
-	NeedsReload    bool
-	HasVision      bool
-	GPULabel       string
-	ServiceState   string
-	VRAMGB         float64
-	IsOrphan       bool
-	IsIncomplete   bool
-	ResumeFilename string
-	SearchText     string
-}
+// modelCardData is the handler's own view type, so the partial can be
+// exercised standalone without a copy of the struct to keep in step.
+type modelCardData = modelCardView
 
 func renderModelCardPartial(t *testing.T, data modelCardData) string {
 	t.Helper()

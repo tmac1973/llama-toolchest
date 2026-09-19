@@ -42,6 +42,14 @@
             title="Save a copy of the current settings under this name, so you can come back to them later."
             {{if .ReadOnlyReason}}disabled{{end}}>Save as profile</button>
     {{template "profile_status" .}}
+    {{with .ProfileNotes}}
+    <details class="profile-notes" style="flex-basis:100%;margin:0;">
+        <summary title="The reasons recorded when this profile was made."><small>Why these settings</small></summary>
+        <ul style="margin:0.25rem 0;">
+            {{range .}}<li><small>{{.Reason}}{{if .Origin}} <em>({{.Origin}})</em>{{end}}</small></li>{{end}}
+        </ul>
+    </details>
+    {{end}}
 </div>
 {{end}}
 

@@ -107,6 +107,10 @@ type Model struct {
 	// head). Zero on a standalone head, which carries the key but is not
 	// a model anyone runs.
 	NextNLayers int `json:"nextn_layers,omitempty"`
+	// AutoconfigHint asks the model card to suggest Autoconfigure. Set
+	// when a download finishes; cleared when the user runs Autoconfigure
+	// or dismisses the hint.
+	AutoconfigHint bool `json:"autoconfig_hint,omitempty"`
 	// Mixture-of-experts layout, for --n-cpu-moe (see GGUFMeta). All zero
 	// on a dense model.
 	ExpertCount      int   `json:"expert_count,omitempty"`
@@ -685,6 +689,24 @@ func (r *Registry) SetConfig(id string, cfg *ModelConfig) error {
 		}
 	}
 	r.data.Configs[id] = cfg
+	return r.save()
+}
+
+// SetAutoconfigHint sets or clears the model card's Autoconfigure hint.
+func (r *Registry) SetAutoconfigHint(id string, on bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.writableLocked(); err != nil {
+		return err
+	}
+	m, ok := r.data.Models[id]
+	if !ok {
+		return fmt.Errorf("model not found: %s", id)
+	}
+	if m.AutoconfigHint == on {
+		return nil
+	}
+	m.AutoconfigHint = on
 	return r.save()
 }
 

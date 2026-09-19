@@ -717,6 +717,9 @@ type modelConfigPanelData struct {
 	Profiles      []profileOption
 	ActiveProfile string // "" when the config is not from a saved profile
 	ProfileEdited bool   // the config was changed since that profile
+	// ProfileNotes explain the active profile's settings, when
+	// autoconfigure or autotune wrote it.
+	ProfileNotes []models.ProfileNote
 	// Banner reports the result of the last profile action.
 	Banner *panelBanner
 	// StatusOOB marks the profile status line for an out-of-band swap, in
@@ -866,6 +869,11 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 		}
 	}
 	data.Profiles, data.ActiveProfile, data.ProfileEdited = s.profileBarData(id)
+	if data.ActiveProfile != "" {
+		if p, err := s.registry.GetProfile(id, data.ActiveProfile); err == nil {
+			data.ProfileNotes = p.Notes
+		}
+	}
 	return data, nil
 }
 

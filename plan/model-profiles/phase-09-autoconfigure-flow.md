@@ -146,3 +146,34 @@ After a download, the model card suggests running it.
 ## Rollback
 Revert the commit. Profiles already saved as "Autoconfig" stay as ordinary
 profiles. The `autoconfig_hint` field is ignored by older code.
+
+## As implemented
+
+- **Polling, not SSE.** Progress is polled once a second
+  (`GET /api/models/{id}/autoconfig/status`, which returns the progress
+  partial until the run is done and then the review). A run keeps its
+  result after the browser leaves, so polling needs no connection state,
+  and it reuses the plain partial rendering.
+- **Refusals show as messages.** A start refused because a benchmark is
+  running or another run is active renders a message instead of an HTTP
+  error, because htmx does not swap in a non-2xx response.
+- **Help texts.** `fieldHelp` (`internal/api/field_help.go`) holds the
+  review table's help texts. The config form's own tooltips were not
+  rewritten to read from it; that would be a large template change for no
+  change in behavior.
+- **Thinking stays a note.** The card's thinking advice is a note only (see
+  Phase 08).
+- **Named view type.** The model card's view data is now the named
+  `modelCardView`; its render test aliases it instead of copying the fields.
+- **Hint and container.** New downloads get `AutoconfigHint` (not embedding
+  models). Running autoconfigure or dismissing the hint clears it. The card
+  holds an `#autoconfig-<id>` container that reuses the config panel's
+  styling.
+- **Smoke test.** Run against a real server on this machine (16 GB GPU, no
+  helper model): dialog, run, review, save and apply all worked, and the
+  model's built-in MTP was proposed.
+- **Still to check by hand, with a GPU and the helper model installed:**
+  - that the helper loads (including the router restart when needed);
+  - that it reads a real model card and its advice appears in the review;
+  - that it is unloaded afterwards;
+  - how the review screen looks in a browser.

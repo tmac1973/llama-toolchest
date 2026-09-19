@@ -43,6 +43,8 @@ type Server struct {
 	// llm asks a locally served model for structured answers
 	// (autoconfigure); see helper_model.go.
 	llm      *llmcall.Client
+	// autoconf tracks the one autoconfigure run allowed at a time.
+	autoconf autoconfigState
 	msClient *modelscope.Client
 
 	// probeCache memoizes remote GGUF header probes, keyed by source,
@@ -568,6 +570,12 @@ func (s *Server) buildRouter() chi.Router {
 			r.Put("/{id}/enable", s.handleModelEnable)
 			r.Get("/{id}/config", s.handleGetModelConfig)
 			r.Put("/{id}/config", s.handleUpdateModelConfig)
+			r.Get("/{id}/autoconfig", s.handleAutoconfigDialog)
+			r.Post("/{id}/autoconfig", s.handleAutoconfigStart)
+			r.Get("/{id}/autoconfig/status", s.handleAutoconfigStatus)
+			r.Post("/{id}/autoconfig/save", s.handleAutoconfigSave)
+			r.Post("/{id}/autoconfig/discard", s.handleAutoconfigDiscard)
+			r.Post("/{id}/autoconfig/dismiss-hint", s.handleAutoconfigDismissHint)
 			r.Post("/{id}/profiles", s.handleSaveProfile)
 			r.Post("/{id}/profiles/apply", s.handleApplyProfile)
 			r.Post("/{id}/profiles/delete", s.handleDeleteProfile)

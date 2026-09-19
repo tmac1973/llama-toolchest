@@ -467,6 +467,9 @@ func (s *Server) onDownloadComplete(source, downloadID, modelID, filename string
 		FilePath:     filePath,
 		VRAMEstGB:    models.EstimateVRAM(sizeBytes),
 		DownloadedAt: time.Now(),
+		// A fresh download is when a suggestion is most useful. Embedding
+		// models have nothing for autoconfigure to tune.
+		AutoconfigHint: !models.IsEmbeddingModel(modelID),
 	}
 
 	// Architecture-aware VRAM estimation from the GGUF header parsed above.

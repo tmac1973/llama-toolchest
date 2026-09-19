@@ -417,22 +417,7 @@ func (s *Server) renderModelCard(w http.ResponseWriter, m *models.Model, routerK
 		strings.Join(aliases, " "),
 	}, " "))
 
-	data := struct {
-		models.Model
-		IsActive       bool
-		IsEnabled      bool
-		PendingEnable  bool
-		PendingDisable bool
-		NeedsReload    bool
-		HasVision      bool
-		GPULabel       string
-		ServiceState   string
-		VRAMGB         float64
-		IsOrphan       bool
-		IsIncomplete   bool
-		ResumeFilename string
-		SearchText     string
-	}{
+	data := modelCardView{
 		Model:          *m,
 		IsActive:       state == "loaded" || state == "loading",
 		IsEnabled:      enabled,
@@ -447,8 +432,29 @@ func (s *Server) renderModelCard(w http.ResponseWriter, m *models.Model, routerK
 		IsIncomplete:   isIncomplete,
 		ResumeFilename: m.Filename,
 		SearchText:     searchText,
+		CanAutoconfig:  !m.IsEmbedding() && !isOrphan && !isIncomplete,
 	}
 	s.renderPartial(w, "model_card", data)
+}
+
+// modelCardView is what the model_card partial renders. Named so the
+// render tests build the same shape.
+type modelCardView struct {
+	models.Model
+	IsActive       bool
+	IsEnabled      bool
+	PendingEnable  bool
+	PendingDisable bool
+	NeedsReload    bool
+	HasVision      bool
+	GPULabel       string
+	ServiceState   string
+	VRAMGB         float64
+	IsOrphan       bool
+	IsIncomplete   bool
+	ResumeFilename string
+	SearchText     string
+	CanAutoconfig  bool
 }
 
 // renderModelList renders the shared model list used by both chat and embedding

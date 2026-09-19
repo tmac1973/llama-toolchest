@@ -1,0 +1,159 @@
+{{/* Autoconfigure: the start dialog, progress while it runs, the review
+     of what it proposes, and the message after saving. All render into
+     the model card's #autoconfig-<id> container, which reuses the config
+     panel's styling. */}}
+
+{{define "autoconfig_dialog"}}
+<div class="model-config-panel">
+    <div class="model-config-header">
+        <span>Autoconfigure <span class="mc-owner">— {{.ModelName}}</span></span>
+    </div>
+    <p>Autoconfigure suggests settings for this model: it works out what fits on this machine, and reads the model's documentation for the publisher's advice. You review every setting before anything is saved.</p>
+    <form hx-post="/api/models/{{.ModelID}}/autoconfig" hx-target="#autoconfig-{{cssID .ModelID}}" hx-swap="innerHTML">
+        <fieldset>
+            <legend title="The context is how much text the model can hold at once: the conversation so far plus any documents you give it. More context needs more GPU memory, so this choice decides most of the other settings.">How long are your conversations or documents?</legend>
+            {{range .Classes}}
+            <label title="{{.Help}}">
+                <input type="radio" name="context_class" value="{{.Value}}"{{if .Checked}} checked{{end}}>
+                {{.Label}}
+            </label>
+            {{end}}
+        </fieldset>
+        {{if not .Helper}}
+        <p><mark>&#9888; No helper model is installed, so the model's documentation will not be read. The settings will come from what fits on this machine only.</mark>
+            <a href="/settings">Install a helper model in Settings.</a></p>
+        {{else}}
+        <p><small>Reads the documentation with {{.Helper}}{{if .HelperIsDflt}} (the recommended helper){{end}}. It is loaded for about a minute and unloaded afterwards. The server starts or restarts if that is needed to load it.</small></p>
+        {{if .OtherLoaded}}
+        <p><mark>&#9888; Loading the helper model may unload: {{range $i, $m := .OtherLoaded}}{{if $i}}, {{end}}{{$m}}{{end}}.</mark></p>
+        {{end}}
+        {{end}}
+        {{if .BusyReason}}<p><mark>&#9888; {{.BusyReason}}</mark></p>{{end}}
+        <div role="group">
+            <button type="submit" {{if .BusyReason}}disabled{{end}}>Start</button>
+            <button type="button" class="secondary"
+                    onclick="document.getElementById('autoconfig-{{cssID .ModelID}}').innerHTML='';">Cancel</button>
+        </div>
+    </form>
+</div>
+{{end}}
+
+{{define "autoconfig_progress"}}
+<div class="model-config-panel"
+     hx-get="/api/models/{{.ModelID}}/autoconfig/status"
+     hx-trigger="every 1s"
+     hx-target="#autoconfig-{{cssID .ModelID}}"
+     hx-swap="innerHTML">
+    <div class="model-config-header">
+        <span>Autoconfigure <span class="mc-owner">— {{.ModelName}}</span></span>
+    </div>
+    <p aria-busy="true">{{.Progress}}…</p>
+    <small>You can leave this page; the result waits here until you save or discard it.</small>
+</div>
+{{end}}
+
+{{define "autoconfig_review"}}
+<div class="model-config-panel">
+    <div class="model-config-header">
+        <span>Autoconfigure <span class="mc-owner">— {{.ModelName}}</span></span>
+    </div>
+    {{if .Error}}
+    <p role="alert"><mark>&#9888; Autoconfigure did not finish: {{.Error}}</mark></p>
+    <div role="group">
+        <button type="button" hx-post="/api/models/{{.ModelID}}/autoconfig/discard"
+                hx-target="#autoconfig-{{cssID .ModelID}}" hx-swap="innerHTML">Close</button>
+    </div>
+    {{else}}
+    <p title="The GPU memory these settings are estimated to use, against what is available after a safety margin left for the driver and other programs. System memory is what stays on the CPU side: layers or expert weights that did not fit on the GPU.">
+        Estimated <strong>{{printf "%.1f" .EstimateGiB}} GiB</strong> of {{printf "%.1f" .BudgetGiB}} GiB of GPU memory{{if gt .CPURAMGiB 0.05}}, and {{printf "%.1f" .CPURAMGiB}} GiB in system memory{{end}}.
+    </p>
+    {{if not .Fits}}<p role="alert"><mark>&#9888; This model does not fit on this machine even with the settings below. Choose a smaller quantization of it.</mark></p>{{end}}
+
+    {{if .Changed}}
+    <table class="autoconfig-review">
+        <thead><tr>
+            <th>Setting</th>
+            <th title="What the model uses now.">Now</th>
+            <th title="What Autoconfigure proposes.">Proposed</th>
+            <th>Why</th>
+            <th title="Where the proposal comes from: the hardware fit (what fits on this machine), the model card, the publisher's sampling settings, or the model file itself.">Source</th>
+        </tr></thead>
+        <tbody>
+        {{range .Changed}}
+        <tr>
+            <td title="{{.Help}}" style="cursor:help;">{{.Label}}</td>
+            <td>{{.Current}}</td>
+            <td><strong>{{.Proposed}}</strong></td>
+            <td>{{range $i, $w := .Why}}{{if $i}}<br>{{end}}{{$w}}{{end}}</td>
+            <td><small>{{.Source}}</small></td>
+        </tr>
+        {{end}}
+        </tbody>
+    </table>
+    {{else}}
+    <p>The current settings already match what Autoconfigure would choose.</p>
+    {{end}}
+
+    {{if .Unchanged}}
+    <details>
+        <summary>Settings left as they are ({{len .Unchanged}})</summary>
+        <table class="autoconfig-review">
+            <tbody>
+            {{range .Unchanged}}<tr><td title="{{.Help}}" style="cursor:help;">{{.Label}}</td><td>{{.Current}}</td></tr>{{end}}
+            </tbody>
+        </table>
+    </details>
+    {{end}}
+
+    {{if .General}}
+    <ul class="autoconfig-notes">
+        {{range .General}}<li><small>{{.}}</small></li>{{end}}
+    </ul>
+    {{end}}
+
+    {{if .Suggestions}}
+    <p><strong>Suggested downloads</strong> <small>— after a download finishes, run Autoconfigure again to include it.</small></p>
+    <ul>
+        {{range .Suggestions}}
+        <li>
+            <strong>{{.Filename}}</strong> from {{.Repo}} ({{printf "%.1f" (divGB .SizeBytes)}} GiB) — <small>{{.Why}}</small>
+            <span id="ac-dl-{{cssID .Filename}}">
+                <button type="button" class="outline" style="width:auto;padding:0.1rem 0.5rem;"
+                        hx-post="/api/hf/download"
+                        hx-vals='{"model_id":"{{.Repo}}","filename":"{{.Filename}}","size":"{{.SizeBytes}}","inline":"1"}'
+                        hx-target="#ac-dl-{{cssID .Filename}}" hx-swap="innerHTML">Download</button>
+            </span>
+        </li>
+        {{end}}
+    </ul>
+    {{end}}
+
+    {{if .Sources}}<p><small>Read the model cards of: {{range $i, $s := .Sources}}{{if $i}}, {{end}}{{$s}}{{end}}.</small></p>{{end}}
+
+    <div role="group">
+        <button type="button"
+                hx-post="/api/models/{{.ModelID}}/autoconfig/save" hx-vals='{"apply":"0"}'
+                hx-target="#autoconfig-{{cssID .ModelID}}" hx-swap="innerHTML"
+                title="Save these settings as the profile &quot;Autoconfig&quot;. The model keeps its current settings until you restore the profile from Configure.">Save as profile</button>
+        <button type="button" class="secondary"
+                hx-post="/api/models/{{.ModelID}}/autoconfig/save" hx-vals='{"apply":"1"}'
+                hx-target="#autoconfig-{{cssID .ModelID}}" hx-swap="innerHTML"
+                title="Save these settings as the profile &quot;Autoconfig&quot; and use them now. They take effect the next time this model loads.">Save and apply</button>
+        <button type="button" class="outline secondary"
+                hx-post="/api/models/{{.ModelID}}/autoconfig/discard"
+                hx-target="#autoconfig-{{cssID .ModelID}}" hx-swap="innerHTML"
+                title="Close without saving anything.">Discard</button>
+    </div>
+    {{end}}
+</div>
+{{end}}
+
+{{define "autoconfig_message"}}
+<div class="model-config-panel">
+    <p role="{{if eq .Banner.Kind "ok"}}status{{else}}alert{{end}}">
+        {{if eq .Banner.Kind "ok"}}&#10003; {{.Banner.Text}}{{else}}<mark>&#9888; {{.Banner.Text}}</mark>{{end}}
+    </p>
+    <button type="button" class="outline secondary" style="width:auto;"
+            onclick="document.getElementById('autoconfig-{{cssID .ModelID}}').innerHTML='';">Close</button>
+</div>
+{{end}}
