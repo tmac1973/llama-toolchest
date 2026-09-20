@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.29.1](https://github.com/tmac1973/llama-toolchest/compare/v2.29.0...v2.29.1) (2026-09-20)
+
+
+### Bug Fixes
+
+* **vram:** count the memory a layer split and speculative decoding really use ([#180](https://github.com/tmac1973/llama-toolchest/issues/180)) ([37a7e8c](https://github.com/tmac1973/llama-toolchest/commit/37a7e8c4f12a94b4c425d9824269328778d06143))
+
 ## [2.29.0](https://github.com/tmac1973/llama-toolchest/compare/v2.28.1...v2.29.0) (2026-09-20)
 
 
