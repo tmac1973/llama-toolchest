@@ -81,12 +81,12 @@
                     Autoconfigure
                 </button>
                 <button type="button" class="outline"
-                        title="Measures this model at different settings and saves the fastest ones as profiles. It changes only settings that cannot change the model's answers, and keeps the profile's context size and memory settings as they are — so set the model up with Autoconfigure, or by hand, first."
+                        title="{{if .Autotune.Summary}}{{.Autotune.Summary}}{{else}}Measures this model at different settings and saves the fastest ones as profiles. It changes only settings that cannot change the model's answers, and keeps the profile's context size and memory settings as they are — so set the model up with Autoconfigure, or by hand, first.{{end}}"
                         hx-get="/api/models/{{.ID}}/autotune"
                         hx-target="#autotune-{{cssID .ID}}"
                         hx-swap="innerHTML"
                         hx-on::before-request="let t=document.getElementById('autotune-{{cssID .ID}}'); if(t.innerHTML.trim()){t.innerHTML=''; event.preventDefault();}">
-                    Autotune
+                    {{.Autotune.ButtonLabel}}
                 </button>
                 {{end}}
                 <button type="button" class="outline secondary"
@@ -125,6 +125,18 @@
             {{end}}
         </div>
     </div>
+    {{if .Autotune.Summary}}
+    <p class="model-card-autotune">
+        <small>
+            {{.Autotune.Summary}}
+            <a href="#"
+               hx-get="/api/models/{{.ID}}/autotune"
+               hx-target="#autotune-{{cssID .ID}}"
+               hx-swap="innerHTML"
+               hx-on::before-request="let t=document.getElementById('autotune-{{cssID .ID}}'); if(t.innerHTML.trim()){t.innerHTML=''; event.preventDefault();}">Open</a>
+        </small>
+    </p>
+    {{end}}
     <div class="model-card-config" id="autoconfig-{{cssID .ID}}"></div>
     <div class="model-card-config" id="autotune-{{cssID .ID}}"></div>
     <div class="model-card-config" id="model-config-{{cssID .ID}}"></div>

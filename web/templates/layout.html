@@ -495,6 +495,12 @@
         }
         .model-card-buttons button {
             width: 100%;
+            /* A label longer than its column must shorten rather than
+               spill over the button beside it. */
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         /* Narrow windows: the fixed columns leave the model name a few
            characters wide, so the actions move to a line of their own
@@ -513,6 +519,21 @@
                 grid-template-columns: repeat(2, max-content);
                 justify-content: end;
             }
+        }
+        /* The state of the model's latest autotune run, always visible so a
+           finished run is not hidden behind the button that started it. */
+        .model-card-autotune {
+            margin: 0;
+            padding: 5px 10px;
+            border-top: 1px solid var(--pico-muted-border-color);
+            background: var(--pico-card-sectioning-background-color);
+        }
+        .model-card-autotune small {
+            color: var(--pico-muted-color);
+        }
+        .model-card-autotune a {
+            margin-left: 0.4em;
+            white-space: nowrap;
         }
         /* Configure panel inside the card. When populated, the owning card's
            border turns accent so a stack of open configs never blurs together,

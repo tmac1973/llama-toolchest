@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/tmac1973/llama-toolchest/internal/autotune"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/modelsource"
 )
@@ -470,6 +471,14 @@ func (s *Server) renderModelCard(w http.ResponseWriter, m *models.Model, routerK
 		SearchText:     searchText,
 		CanAutoconfig:  !m.IsEmbedding() && !isOrphan && !isIncomplete,
 	}
+	// nil in the render tests, which build a server without the store.
+	var latest *autotune.Autotune
+	if s.tuneStore != nil {
+		if rec, ok := s.tuneStore.LatestForModel(m.ID); ok {
+			latest = rec
+		}
+	}
+	data.Autotune = latest.Card()
 	s.renderPartial(w, "model_card", data)
 }
 
@@ -491,6 +500,10 @@ type modelCardView struct {
 	ResumeFilename string
 	SearchText     string
 	CanAutoconfig  bool
+	// Autotune is the state of this model's latest autotune run, so a
+	// finished run is visible on the card rather than only behind the
+	// button that started it.
+	Autotune autotune.CardState
 }
 
 // renderModelList renders the shared model list used by both chat and embedding

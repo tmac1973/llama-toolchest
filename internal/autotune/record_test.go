@@ -178,3 +178,58 @@ func TestStoreHandsOutCopies(t *testing.T) {
 		t.Errorf("two readers share one record: %s", again.Status)
 	}
 }
+
+// The model card has to show that a run finished. Without it a run that
+// ended while the user was on another page left no trace: the button
+// still said "Autotune", and the results were only reachable by pressing
+// it again on the chance that something was behind it.
+func TestCardStateSaysWhatHappened(t *testing.T) {
+	saved := Outcome{Saved: true, ProfileName: "Autotune – fastest generation and response"}
+	cases := []struct {
+		name       string
+		rec        *Autotune
+		wantButton string
+		wantIn     string
+	}{
+		{"never measured", nil, "Autotune", ""},
+		{"running", &Autotune{Status: StatusRunning}, "Autotune running", "keeps going"},
+		{"finished with a profile", &Autotune{Status: StatusDone, Results: map[Goal]Outcome{
+			GoalGeneration: saved, GoalResponse: saved,
+		}}, "Autotune results", "saved 1 faster profile"},
+		{"finished with nothing to change", &Autotune{Status: StatusDone, Results: map[Goal]Outcome{
+			GoalGeneration: {Saved: false},
+		}}, "Autotune results", "already the fastest"},
+		{"failed", &Autotune{Status: StatusFailed}, "Resume", "see why"},
+		{"cancelled", &Autotune{Status: StatusCancelled}, "Resume", "continue"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.rec.Card()
+			if got.ButtonLabel != tc.wantButton {
+				t.Errorf("ButtonLabel = %q, want %q", got.ButtonLabel, tc.wantButton)
+			}
+			if tc.wantIn == "" {
+				if got.Summary != "" {
+					t.Errorf("Summary = %q, want none", got.Summary)
+				}
+				return
+			}
+			if !strings.Contains(got.Summary, tc.wantIn) {
+				t.Errorf("Summary = %q, want it to mention %q", got.Summary, tc.wantIn)
+			}
+		})
+	}
+}
+
+// Two goals won by the same profile count as one saved profile, not two.
+func TestCardStateCountsProfilesNotGoals(t *testing.T) {
+	one := Outcome{Saved: true, ProfileName: "Autotune – fastest generation and response"}
+	rec := &Autotune{Status: StatusDone, Results: map[Goal]Outcome{
+		GoalGeneration: one,
+		GoalResponse:   one,
+		GoalPrompt:     {Saved: true, ProfileName: "Autotune – fastest prompt"},
+	}}
+	if got := rec.Card().Saved; got != 2 {
+		t.Errorf("Saved = %d, want 2 distinct profiles", got)
+	}
+}

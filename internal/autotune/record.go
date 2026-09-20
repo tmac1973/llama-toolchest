@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -370,4 +371,65 @@ func (a *Autotune) clone() *Autotune {
 		return &shallow
 	}
 	return &out
+}
+
+// CardState is the one-line state of a model's latest autotune run, for
+// the model card: a short label for the button and a sentence saying
+// what happened. Both are empty when the model has never been measured.
+type CardState struct {
+	// Status is the run's status, so the card can style it.
+	Status string
+	// ID is the run the card links to.
+	ID string
+	// ButtonLabel says what the Autotune button will show.
+	ButtonLabel string
+	// Summary is the sentence under the buttons. Empty while nothing
+	// has been decided yet.
+	Summary string
+	// Saved is how many profiles the run wrote.
+	Saved int
+}
+
+// Card describes a run for the model card.
+func (a *Autotune) Card() CardState {
+	if a == nil {
+		return CardState{ButtonLabel: "Autotune"}
+	}
+	c := CardState{Status: a.Status, ID: a.ID, ButtonLabel: "Autotune"}
+	switch a.Status {
+	case StatusRunning, StatusPlanned:
+		c.ButtonLabel = "Autotune running"
+		c.Summary = "Autotune is measuring this model. You can leave this page; it keeps going."
+		if st := runningStage(a); st != nil {
+			c.Summary = fmt.Sprintf("Autotune is measuring this model: %s. "+
+				"You can leave this page; it keeps going.", strings.ToLower(st.Title))
+		}
+	case StatusDone:
+		c.ButtonLabel = "Autotune results"
+		names := map[string]bool{}
+		for _, g := range Goals {
+			if o, ok := a.Results[g]; ok && o.Saved && o.ProfileName != "" {
+				names[o.ProfileName] = true
+			}
+		}
+		c.Saved = len(names)
+		switch c.Saved {
+		case 0:
+			c.Summary = "Autotune finished: your starting profile was already the fastest. Nothing was changed."
+		case 1:
+			c.Summary = "Autotune finished and saved 1 faster profile. Open the results to see it."
+		default:
+			c.Summary = fmt.Sprintf("Autotune finished and saved %d faster profiles. Open the results to see them.", c.Saved)
+		}
+	case StatusFailed:
+		c.ButtonLabel = "Resume"
+		c.Summary = "Autotune stopped before it finished. Open it to see why, and to continue from where it stopped."
+	case StatusCancelled:
+		c.ButtonLabel = "Resume"
+		c.Summary = "Autotune was stopped. Open it to continue from where it stopped, or to start again."
+	case StatusInterrupted:
+		c.ButtonLabel = "Resume"
+		c.Summary = "Autotune stopped when the server did. Open it to continue from where it stopped."
+	}
+	return c
 }
