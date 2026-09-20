@@ -37,6 +37,10 @@ type fakeEnv struct {
 	buildRestarts int
 
 	applyErr error
+	// applyErrFor fails only the cells whose config it picks out, so a
+	// test can model a setting this machine cannot run rather than a
+	// machine that can run nothing.
+	applyErrFor func(ConfigSnapshot) error
 
 	// Capability-cell machinery (see the method set below). The fake
 	// models a router that starts RUNNING (running bool), a build with
@@ -109,6 +113,11 @@ func (f *fakeEnv) ApplyEphemeralConfig(_ context.Context, _ string, cfg ConfigSn
 	f.dirty = true
 	if f.applyErr != nil {
 		return f.applyErr
+	}
+	if f.applyErrFor != nil {
+		if err := f.applyErrFor(cfg); err != nil {
+			return err
+		}
 	}
 	f.applied = append(f.applied, cfg)
 	f.appliedT = append(f.appliedT, time.Now())

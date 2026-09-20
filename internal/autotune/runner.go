@@ -407,7 +407,10 @@ func (r *Runner) readStage(rec *Autotune, job *benchmark.BenchmarkJob) ([]Candid
 			runsByKey[key] = map[string]*benchmark.BenchmarkRun{}
 			order = append(order, key)
 		}
-		if cell.Status == benchmark.CellStatusFailed && cell.Error != "" {
+		// A skipped cell carries a reason when its setting was written
+		// off after failing the same way every time. That belongs in the
+		// list of what could not be measured, like any other failure.
+		if (cell.Status == benchmark.CellStatusFailed || cell.Status == benchmark.CellStatusSkipped) && cell.Error != "" {
 			if _, have := failures[key]; !have {
 				failures[key] = cell.Error
 			}

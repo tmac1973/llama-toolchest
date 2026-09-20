@@ -341,6 +341,8 @@ func (q *JobQueue) run(ctx context.Context, job BenchmarkJob, rj *runningJob) {
 		}
 	}()
 
+	writeOffs := newWriteOffTracker()
+
 	for i := range job.Cells {
 		cell := &job.Cells[i]
 
@@ -349,12 +351,24 @@ func (q *JobQueue) run(ctx context.Context, job BenchmarkJob, rj *runningJob) {
 		// don't re-run.
 		if cell.Status == CellStatusCompleted {
 			anyCompleted = true
+			writeOffs.recordSuccess(cell.SweepValues)
 			continue
 		}
 
 		if ctx.Err() != nil {
 			cell.Status = CellStatusSkipped
 			q.store.SaveJob(job)
+			continue
+		}
+
+		// A setting that has already failed the same way every time it
+		// was measured is not measured again.
+		if reason, skip := writeOffs.writeOff(cell.SweepValues, anyCompleted); skip {
+			cell.Status = CellStatusSkipped
+			cell.Error = reason
+			q.store.SaveJob(job)
+			slog.Info("skipping a cell whose setting has already failed",
+				"job", job.ID, "model", cell.ModelID, "sweep", cell.SweepValues)
 			continue
 		}
 
@@ -381,11 +395,13 @@ func (q *JobQueue) run(ctx context.Context, job BenchmarkJob, rj *runningJob) {
 		if cellErr != nil {
 			cell.Status = CellStatusFailed
 			cell.Error = cellErr.Error()
+			writeOffs.recordFailure(cell.SweepValues, cell.Error)
 			q.store.SaveJob(job)
 			slog.Warn("job cell failed", "job", job.ID, "model", cell.ModelID, "build", cell.BuildID, "preset", cell.Preset, "error", cellErr)
 			continue
 		}
 
+		writeOffs.recordSuccess(cell.SweepValues)
 		cell.Status = CellStatusCompleted
 		slog.Info("benchmark cell completed",
 			"job", job.ID, "model", cell.ModelID, "sweep", cell.SweepValues)
@@ -1182,4 +1198,80 @@ func sweepCombinations(sweeps []SweepAxis) []map[string]string {
 		combos = next
 	}
 	return combos
+}
+
+// failuresBeforeWriteOff is how many times one sweep value has to fail,
+// with the same error every time and never a success, before the rest of
+// its cells are abandoned. One failure can be a fluke — a router that
+// was still settling, a cell cancelled mid-load. Two the same is a
+// setting this machine will not run.
+const failuresBeforeWriteOff = 2
+
+// writeOffTracker watches sweep values that fail the same way every time
+// they are measured. A setting the machine cannot run — a tensor split
+// where the GPUs cannot reach each other, say — otherwise costs a model
+// load and a timeout once per remaining combination, which on a wide
+// sweep is most of an hour spent proving the same thing.
+type writeOffTracker struct {
+	fails     map[string]int
+	reason    map[string]string
+	succeeded map[string]bool
+}
+
+func newWriteOffTracker() *writeOffTracker {
+	return &writeOffTracker{
+		fails:     map[string]int{},
+		reason:    map[string]string{},
+		succeeded: map[string]bool{},
+	}
+}
+
+func writeOffKey(field, value string) string { return field + "=" + value }
+
+// recordFailure notes that every value this cell carried failed with err.
+// A value that fails with a different error each time is not written off:
+// the errors have to agree for the value itself to be the cause.
+func (w *writeOffTracker) recordFailure(values map[string]string, err string) {
+	for field, value := range values {
+		k := writeOffKey(field, value)
+		if prev, seen := w.reason[k]; seen && prev != err {
+			// A second, different failure. Neither explains the value on
+			// its own, so start the count again rather than write it off
+			// on the strength of two unrelated problems.
+			w.fails[k] = 1
+			w.reason[k] = err
+			continue
+		}
+		w.fails[k]++
+		w.reason[k] = err
+	}
+}
+
+// recordSuccess clears every value the cell carried: a value that has
+// worked once is not the reason anything else failed.
+func (w *writeOffTracker) recordSuccess(values map[string]string) {
+	for field, value := range values {
+		w.succeeded[writeOffKey(field, value)] = true
+	}
+}
+
+// writeOff returns the reason to skip this cell, and whether to skip it.
+//
+// anyCompleted has to be true: until something has been measured, a run
+// of failures says the job is wrong — the wrong build, a model that will
+// not load at all — rather than any one setting being at fault, and
+// blaming a setting would put a misleading reason on every cell.
+func (w *writeOffTracker) writeOff(values map[string]string, anyCompleted bool) (string, bool) {
+	if !anyCompleted {
+		return "", false
+	}
+	for field, value := range values {
+		k := writeOffKey(field, value)
+		if w.succeeded[k] || w.fails[k] < failuresBeforeWriteOff {
+			continue
+		}
+		return fmt.Sprintf("not measured: every setting measured with %s = %s failed the same way, "+
+			"so the rest were not tried. The error was: %s", field, value, w.reason[k]), true
+	}
+	return "", false
 }
