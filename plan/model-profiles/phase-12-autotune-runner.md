@@ -127,3 +127,27 @@ timings depend on the cell's config (e.g. higher TG when `spec_type` contains
 ## Rollback
 Revert the commit. The record store and planner from Phase 11 remain unused.
 Profiles already saved by autotune stay as ordinary profiles.
+
+## As implemented
+
+- **Resume carries cells, not definitions.** `UpdateJobDefinition` rebuilds
+  a job's cells as a full product of its sweep axes, which is not autotune's
+  explicit cell list, so the runner copies the completed cells from the
+  previous attempt onto the freshly planned job (`carryCompleted`). The job
+  runner already skips completed cells.
+- **Failures are read from the job's cells**, not only its runs: a config
+  this machine refuses never reaches the router, so it has no run at all.
+  That is exactly the case worth reporting.
+- **A stage with nothing to measure** carries the previous stage's finalists
+  forward, so a model with no speculative decoding still reaches the
+  confirming stage.
+- **Only the confirming stage decides.** Its numbers were all measured
+  minutes apart under the same conditions, rather than an hour apart across
+  stages.
+- **Tests** use a fake job environment and a fake router whose speeds depend
+  on the config each cell applied — a prompt batch of 1024 reads fastest,
+  MTP writes faster, an n-gram assist on top faster again — so a whole run
+  is exercised end to end in about a second.
+- **A bug the tests found:** the settings stage offered a draft length to an
+  n-gram-only finalist, which llama.cpp has no setting for; every cell of
+  that stage failed. It is now only offered where there is a draft method.

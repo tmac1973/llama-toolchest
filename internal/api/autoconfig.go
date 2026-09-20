@@ -495,3 +495,16 @@ func groupThousands(n int) string {
 	}
 	return s
 }
+
+// gpuBusyReason says in plain language what is using the GPU now, or "".
+// Autoconfigure and autotune both ask before they start: they restart the
+// router and load models, which would interrupt whatever else is running.
+func (s *Server) gpuBusyReason() string {
+	if s.routerBusyWithJob() {
+		return "a benchmark is running"
+	}
+	if run, ok := s.autoconfigSnapshot(); ok && !run.done {
+		return "Autoconfigure is running"
+	}
+	return ""
+}

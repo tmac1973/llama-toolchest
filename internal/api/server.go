@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/tmac1973/llama-toolchest/internal/autotune"
 	"github.com/tmac1973/llama-toolchest/internal/benchmark"
 	"github.com/tmac1973/llama-toolchest/internal/builder"
 	"github.com/tmac1973/llama-toolchest/internal/config"
@@ -45,7 +46,10 @@ type Server struct {
 	llm *llmcall.Client
 	// autoconf tracks the one autoconfigure run allowed at a time.
 	autoconf autoconfigState
-	msClient *modelscope.Client
+	// tuner runs autotune; tuneStore keeps its records.
+	tuner     *autotune.Runner
+	tuneStore *autotune.Store
+	msClient  *modelscope.Client
 
 	// probeCache memoizes remote GGUF header probes, keyed by source,
 	// repo and file. A published file's layout does not change, so the
@@ -251,6 +255,22 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 	}
 	s.pages = s.parseTemplates()
 	s.llm = &llmcall.Client{Backend: &helperBackend{s: s}, HTTP: &http.Client{Timeout: 5 * time.Minute}}
+	s.tuneStore = autotune.NewStore(cfg.DataDir)
+	s.tuner = autotune.NewRunner(autotune.Deps{
+		Store: s.tuneStore, Runs: s.bench, Jobs: s.jobs, Registry: s.registry,
+		ActiveBuild: s.activeBuild,
+		Hardware: func() (int, int) {
+			hw := s.hardware()
+			cards := 0
+			for _, g := range hw.GPUs {
+				if !g.IsIGPU {
+					cards++
+				}
+			}
+			return max(1, cards), hw.LogicalCores
+		},
+		Busy: s.gpuBusyReason,
+	})
 	s.router = s.buildRouter()
 
 	if cfg.AutoStart {

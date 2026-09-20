@@ -326,12 +326,13 @@ func Describe(values map[string]string) string {
 	sort.Strings(keys)
 	parts := make([]string, 0, len(keys))
 	for _, k := range keys {
-		parts = append(parts, describeValue(k, values[k]))
+		parts = append(parts, DescribeValue(k, values[k]))
 	}
 	return strings.Join(parts, ", ")
 }
 
-func describeValue(field, value string) string {
+// DescribeValue turns one sweep value into plain language.
+func DescribeValue(field, value string) string {
 	switch field {
 	case "ubatch_size":
 		return "prompt batch " + value

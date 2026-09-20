@@ -271,7 +271,13 @@ func planSpecParams(in PlanInput) []map[string]string {
 			continue // nothing to tune
 		}
 		mode, assist, params := splitSpec(spec)
-		draftValues := paramValues(params, "draft_max", models.SpecDraftParams(mode), 3)
+		// Only a draft method has a draft length; an n-gram assist on its
+		// own would be handed a setting it does not have, and the cell
+		// would fail rather than measure anything.
+		draftValues := []string{""}
+		if mode != "" {
+			draftValues = paramValues(params, "draft_max", models.SpecDraftParams(mode), 3)
+		}
 		assistKey := assistParamKey(assist)
 		assistValues := paramValues(params, assistKey, models.SpecAssistParams(assist), 0)
 
