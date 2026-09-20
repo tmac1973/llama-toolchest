@@ -1076,3 +1076,55 @@ func ValidateSamplingSupport(presets []string, overrides *ConfigOverrides, sweep
 	return fmt.Errorf("%s cannot apply sampling settings (%s) — llama-benchy runs with a fixed argument list, so those cells would measure the same thing under different labels. Use an internal-* preset, or drop the sampling parameters",
 		strings.Join(benchy, ", "), strings.Join(used, ", "))
 }
+
+// SweepChips renders a cell's sweep point as the short labels the result
+// tables show, one per setting, in a stable order.
+//
+// The speculative value is the reason this exists. EncodeSpecValue packs
+// a whole speculative configuration into one string —
+// "draft-mtp+ngram-map-k4v:assist_min_hits=1,assist_size_m=48,..." — which
+// as a single label is long enough to stretch the column past the edge of
+// the pane and push the measurements out of sight. Split into its parts
+// it wraps at sensible points, and the setting that differs between two
+// rows can be found by looking rather than by reading a hundred
+// characters twice.
+//
+// Deliberately forgiving, unlike parseSpecValue: this renders whatever is
+// stored, including a value written by a build that knew modes this one
+// does not. A label nobody can read is better than a table cell that
+// fails to render.
+const sweepFieldSpecType = "spec_type"
+
+func SweepChips(values map[string]string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(values))
+	for k := range values {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		v := values[k]
+		if k != sweepFieldSpecType {
+			out = append(out, k+"="+v)
+			continue
+		}
+		// "modes:k=v,k=v" — the modes stay with the field name, and each
+		// setting becomes a label of its own. A value with no settings
+		// (or an empty list after the colon) is left whole.
+		modes, params, hasParams := strings.Cut(v, ":")
+		out = append(out, k+"="+modes)
+		if !hasParams {
+			continue
+		}
+		for _, p := range strings.Split(params, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				out = append(out, p)
+			}
+		}
+	}
+	return out
+}

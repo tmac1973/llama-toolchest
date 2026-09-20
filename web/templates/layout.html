@@ -520,6 +520,20 @@
                 justify-content: end;
             }
         }
+        /* The sweep column carries one label per setting, and a wide sweep
+           can carry a dozen. Capped so the column can never grow the table
+           past the pane and push the measurements — status, tokens per
+           second — off the right edge, which is what a reader is watching
+           a running job for. The labels wrap inside the cap instead. */
+        .sweep-cell {
+            max-width: 26rem;
+            white-space: normal;
+            overflow-wrap: anywhere;
+        }
+        .sweep-cell kbd {
+            display: inline-block;
+            margin-bottom: 0.15rem;
+        }
         /* The state of the model's latest autotune run, always visible so a
            finished run is not hidden behind the button that started it. */
         .model-card-autotune {
