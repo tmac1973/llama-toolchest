@@ -182,6 +182,21 @@
     <h3>Incomplete &amp; missing files</h3>
     <p>If a registered model's download was interrupted, its card carries an <code>incomplete</code> badge and a <strong>Resume</strong> button; it can't be enabled until the download finishes. If a model's GGUF has gone missing from disk entirely, it's flagged as an orphan and likewise can't be enabled — remove it or re-download.</p>
 
+    <h2 id="profiles">Profiles, Autoconfigure and Autotune</h2>
+    <p>A model's settings decide how fast it runs and how much memory it needs. Three things help you keep good ones.</p>
+
+    <h3>Saved profiles</h3>
+    <p>A <strong>profile</strong> is a named copy of one model's settings. Save the settings you have under a name, and you can come back to them later, however much you change in between. The profile bar sits at the top of the Configure panel: pick a profile and <strong>Restore</strong> it, or type a name and <strong>Save as profile</strong>. Restoring takes effect the next time the model loads. Profiles survive removing and downloading the model again, and travel in a backup.</p>
+
+    <h3>Autoconfigure</h3>
+    <p><strong>Autoconfigure</strong> suggests settings for a model. It asks one question — how long your conversations or documents are — then works out what fits in your GPU memory, and reads the model's documentation (its model card) with a small helper model for the publisher's advice about running it. You see every proposed setting with a reason before anything is saved, and you choose whether to save it as a profile or use it straight away.</p>
+    <p>The helper model is llama-toolchest's own: it is downloaded from the Settings page, loaded only while Autoconfigure runs, unloaded afterwards, and is not offered for chat or benchmarks.</p>
+
+    <h3>Autotune</h3>
+    <p><strong>Autotune</strong> measures rather than suggests. Starting from a profile you choose, it runs the model at many settings and saves the fastest ones. It only changes settings that cannot change what the model answers — batch sizes, GPU placement, threads and speculative decoding — so a faster profile is faster at the same work.</p>
+    <p>It asks what you use the model for, because that decides which settings win: <em>speculative decoding</em> guesses several tokens ahead and checks them in one step, which pays off most when the answer repeats the prompt, as in editing code. It measures in four stages — batch sizes, then speculative decoding including a draft method and an n-gram assist together, then the draft settings, then a confirming round — and saves up to three profiles: the fastest generation, the fastest prompt reading, and the fastest full answer. A setting only wins when it is faster by more than the measurements vary between runs, so the simpler setting is kept when the difference is noise.</p>
+    <p>Each stage is an ordinary benchmark job, so you can read the measurements on the Benchmarks page. While Autotune runs, the server restarts for each setting and cannot answer other requests; you can stop it at any time and keep what it has measured, then continue later.</p>
+
     <h2 id="model-config">Model config (Configure dialog)</h2>
 
     <h3>GPU Assignment</h3>

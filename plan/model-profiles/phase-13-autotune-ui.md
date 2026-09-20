@@ -134,3 +134,31 @@ The screens a non-expert uses:
 Revert the commit. The runner from Phase 12 remains, but nothing starts it.
 Records and saved profiles stay; the profiles remain usable from the profile
 bar.
+
+## As implemented
+
+- **Inline on the model card**, not a page of its own: the Autotune button
+  opens the dialog in the card, like Autoconfigure, and the same container
+  shows progress and then the results. A run's state lives in the record, so
+  leaving the page and coming back shows where it is.
+- **Polling, not SSE**, for the same reason as Phase 09.
+- **The estimate follows the choices.** Changing the profile or the kind of
+  work re-renders the line under the form. The first stage is planned
+  exactly and the later ones at the size they could reach, so the number
+  quoted is not smaller than the run turns out to be.
+- **A model with no profile is offered one**: a button saves the live
+  settings as "Current settings", because autotune measures from a profile
+  rather than from a config that can change under it.
+- **Refusals render as messages**, as in Phase 09.
+- **The results screen** shows one card per goal, with the measurement, the
+  other two numbers, the settings in plain language, and a "Use these
+  settings" button that restores that profile. A goal the starting profile
+  already wins says so and offers nothing.
+- **Elsewhere:** a stage job's detail says it is part of an autotune run;
+  the profile bar labels a measured profile with what it was faster at; the
+  Help page gains a "Profiles, Autoconfigure and Autotune" section.
+- **Checked in a browser**: the dialog and the results were rendered from a
+  real server with a scripted finished run, and the wording tightened from
+  what that showed (a headline that repeated its own card title, "code
+  work" rather than the words the dialog used, and "Autoconfig
+  (autoconfig)" in the profile picker).

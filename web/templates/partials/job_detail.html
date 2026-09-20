@@ -17,6 +17,9 @@
      hx-trigger="every 2s"
      hx-swap="outerHTML"
      {{end}}>
+    {{if $j.AutotuneID}}
+    <small title="Autotune measures one stage per job, so its measurements are ordinary benchmark runs you can read here."><strong>Part of an Autotune run</strong> — {{$j.AutotuneStage}} stage. Its results are on the model's card, under Autotune.</small><br>
+    {{end}}
     {{if $j.Overrides}}
     <small><strong>Overrides applied:</strong>
         {{with $j.Overrides}}

@@ -553,6 +553,14 @@
         .profile-banner { margin: 0 0 10px; }
         .autoconfig-review td, .autoconfig-review th { vertical-align: top; font-size: 0.8rem; }
         .autoconfig-notes { margin: 0.5rem 0; }
+        /* Autotune's four stages, and one result card per goal. */
+        .autotune-steps { margin: 0.5rem 0; padding-left: 1.2rem; }
+        .autotune-steps li { margin-bottom: 0.2rem; }
+        .autotune-step-waiting { color: var(--pico-muted-color); }
+        .autotune-step-done::marker { content: "\2713  "; }
+        .autotune-step-stopped { color: var(--pico-del-color); }
+        .autotune-result { margin: 0.5rem 0; padding: 0.5rem 0.75rem; }
+        .autotune-result header { margin-bottom: 0.25rem; padding: 0; background: none; }
         /* Owner header naming which model this config belongs to. */
         .model-config-header {
             display: flex;

@@ -618,3 +618,32 @@ func EstimateMinutes(cells, presets int, sizeGiB, secondsPerCell float64) int {
 	}
 	return minutes
 }
+
+// EstimateRun is how many cells a whole run measures and roughly how long
+// it takes. The first stage is planned exactly; the later ones are
+// estimated at the size they could reach, so the number quoted before a
+// run is not smaller than the run turns out to be.
+func EstimateRun(in PlanInput, uc UseCase, sizeGiB, secondsPerCell float64) (cells, minutes int) {
+	presets := len(Workloads[uc])
+	if presets == 0 {
+		presets = 1
+	}
+	batch, _, _ := PlanStage(StageBatch, in)
+	cells = len(batch)
+
+	drafts, _ := draftOptions(in)
+	assists := len(models.AssistModes())
+	spec := 1 + len(drafts) + assists + len(drafts)*assists
+	if spec > maxCells {
+		spec = maxCells
+	}
+	cells += spec
+
+	// The settings stage tunes what the previous one chose, capped at 12
+	// per finalist, and the confirming stage measures the finalists
+	// against the starting profile.
+	cells += 12
+	cells += 7
+
+	return cells, EstimateMinutes(cells*presets, presets, sizeGiB, secondsPerCell)
+}

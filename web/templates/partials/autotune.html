@@ -1,0 +1,181 @@
+{{/* Autotune: the start dialog, progress while it measures, and the
+     results. All render into the model card's #autotune-<id> container,
+     which reuses the config panel's styling. */}}
+
+{{define "autotune_dialog"}}
+<div class="model-config-panel">
+    <div class="model-config-header">
+        <span>Autotune <span class="mc-owner">— {{.ModelName}}</span></span>
+    </div>
+    {{with .Banner}}
+    <p role="{{if eq .Kind "ok"}}status{{else}}alert{{end}}">
+        {{if eq .Kind "ok"}}<small>&#10003; {{.Text}}</small>{{else}}<mark>&#9888; {{.Text}}</mark>{{end}}
+    </p>
+    {{end}}
+    <p>Autotune measures this model at different settings and saves the fastest ones as profiles. It changes only settings that cannot change the model's answers, so a faster profile is faster at the same work.</p>
+
+    {{if .NoProfiles}}
+    <p><mark>&#9888; Autotune measures from a saved profile, and this model has none.</mark></p>
+    <p>
+        <button type="button"
+                hx-post="/api/models/{{.ModelID}}/autotune/save-current"
+                hx-target="#autotune-{{cssID .ModelID}}" hx-swap="innerHTML"
+                title="Saves this model's current settings as a profile, so Autotune has a starting point that cannot change while it measures.">
+            Save the current settings as a profile
+        </button>
+        or run Autoconfigure first.
+    </p>
+    {{else}}
+    <form hx-post="/api/models/{{.ModelID}}/autotune"
+          hx-target="#autotune-{{cssID .ModelID}}" hx-swap="innerHTML">
+        <label title="Autotune keeps this profile's context size, memory settings and sampling exactly as they are. Those change what the model answers; Autotune only changes how fast it answers.">
+            Start from profile
+            <select name="profile"
+                    hx-post="/api/models/{{.ModelID}}/autotune/estimate"
+                    hx-include="closest form" hx-target="#autotune-estimate-{{cssID .ModelID}}" hx-swap="innerHTML">
+                {{range .Profiles}}<option value="{{.Name}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+            </select>
+        </label>
+        <fieldset>
+            <legend title="Speculative decoding pays off on answers that repeat the prompt, so what you use the model for decides which settings win.">What do you use this model for?</legend>
+            {{range .UseCases}}
+            <label title="{{.Help}}">
+                <input type="radio" name="use_case" value="{{.Value}}"{{if .Checked}} checked{{end}}
+                       hx-post="/api/models/{{$.ModelID}}/autotune/estimate"
+                       hx-include="closest form" hx-target="#autotune-estimate-{{cssID $.ModelID}}" hx-swap="innerHTML">
+                {{.Label}}
+            </label>
+            {{end}}
+        </fieldset>
+
+        <p id="autotune-estimate-{{cssID .ModelID}}">{{template "autotune_estimate" .}}</p>
+
+        {{if .Skipped}}
+        <details>
+            <summary><small>Some speculative decoding methods cannot be measured on this machine ({{len .Skipped}})</small></summary>
+            <ul>{{range .Skipped}}<li><small>{{.}}</small></li>{{end}}</ul>
+            <small>Autoconfigure can suggest draft files to download for the ones that need them.</small>
+        </details>
+        {{end}}
+
+        <p role="alert"><mark>&#9888; While Autotune runs, the server restarts for each setting and cannot answer other requests. You can stop it at any time and keep what it has measured.</mark></p>
+        {{if .BusyReason}}<p><mark>&#9888; {{.BusyReason}}</mark></p>{{end}}
+        <div role="group">
+            <button type="submit" {{if .BusyReason}}disabled{{end}}>Start</button>
+            <button type="button" class="secondary"
+                    onclick="document.getElementById('autotune-{{cssID .ModelID}}').innerHTML='';">Cancel</button>
+        </div>
+    </form>
+    {{end}}
+</div>
+{{end}}
+
+{{define "autotune_estimate"}}
+<small title="An estimate: a measurement takes as long as the model takes to load plus the time to run the prompts. The first stage measures the real time and the estimate is replaced by it.">
+    {{if .Cells}}About {{.Cells}} settings to measure, roughly {{.Minutes}} minutes.{{else}}Choose a profile to see how long this takes.{{end}}
+</small>
+{{end}}
+
+{{define "autotune_progress"}}
+<div class="model-config-panel"
+     hx-get="/api/models/{{.ModelID}}/autotune/status"
+     hx-trigger="every 2s"
+     hx-target="#autotune-{{cssID .ModelID}}" hx-swap="innerHTML">
+    <div class="model-config-header">
+        <span>Autotune <span class="mc-owner">— {{.ModelName}}</span></span>
+        <span class="mc-restart">{{.Run.Status}}</span>
+    </div>
+    {{with .Banner}}
+    <p role="{{if eq .Kind "ok"}}status{{else}}alert{{end}}">
+        {{if eq .Kind "ok"}}<small>&#10003; {{.Text}}</small>{{else}}<mark>&#9888; {{.Text}}</mark>{{end}}
+    </p>
+    {{end}}
+
+    <ol class="autotune-steps">
+        {{range .Steps}}
+        <li class="autotune-step-{{.State}}">
+            {{.Title}}
+            {{if eq .State "running"}}<span aria-busy="true"></span>{{end}}
+            {{if .Summary}}<br><small title="What this stage found, carried into the next one.">{{.Summary}}</small>{{end}}
+        </li>
+        {{end}}
+    </ol>
+
+    {{if .Current}}<p><small>Measuring: <strong>{{.Current}}</strong>{{if .CellsTotal}} — {{.CellsDone}} of {{.CellsTotal}} in this stage{{end}}{{if .MinutesLeft}}, about {{.MinutesLeft}} minutes left in this stage{{end}}</small></p>{{end}}
+    <small>You can leave this page. The results wait here until you read them.</small>
+
+    <div role="group" style="margin-top:0.5rem;">
+        {{if .Cancellable}}
+        <button type="button" class="outline secondary"
+                hx-post="/api/models/{{.ModelID}}/autotune/cancel"
+                hx-target="#autotune-{{cssID .ModelID}}" hx-swap="innerHTML"
+                hx-confirm="Stop Autotune? What it has measured so far is kept, and you can continue later."
+                title="Stops after the measurement in progress.">Stop</button>
+        {{end}}
+        {{if .Resumable}}
+        <button type="button"
+                hx-post="/api/models/{{.ModelID}}/autotune/resume"
+                hx-target="#autotune-{{cssID .ModelID}}" hx-swap="innerHTML"
+                title="Continues from the stage it stopped at. Nothing already measured is measured again.">Continue</button>
+        <button type="button" class="outline secondary"
+                onclick="document.getElementById('autotune-{{cssID .ModelID}}').innerHTML='';">Close</button>
+        {{end}}
+    </div>
+</div>
+{{end}}
+
+{{define "autotune_results"}}
+<div class="model-config-panel">
+    <div class="model-config-header">
+        <span>Autotune results <span class="mc-owner">— {{.ModelName}}</span></span>
+    </div>
+    {{with .Banner}}
+    <p role="{{if eq .Kind "ok"}}status{{else}}alert{{end}}">
+        {{if eq .Kind "ok"}}<small>&#10003; {{.Text}}</small>{{else}}<mark>&#9888; {{.Text}}</mark>{{end}}
+    </p>
+    {{end}}
+    {{if .Run.Error}}<p role="alert"><mark>&#9888; {{.Run.Error}}</mark></p>{{end}}
+
+    {{range .Results}}
+    <article class="autotune-result">
+        <header><strong>{{.Goal}}</strong></header>
+        {{if .Saved}}
+        <p>{{.Headline}}<br><small title="The other two measurements of the same settings.">Also measured: {{.Detail}}.</small></p>
+        {{if .Settings}}
+        <p><small>Settings: {{range $i, $s := .Settings}}{{if $i}}, {{end}}{{$s}}{{end}}.</small></p>
+        {{end}}
+        <button type="button"
+                hx-post="/api/models/{{$.ModelID}}/autotune/restore"
+                hx-vals='{"profile": "{{.ProfileName}}"}'
+                hx-target="#autotune-{{cssID $.ModelID}}" hx-swap="innerHTML"
+                title="Puts these settings into use. They take effect the next time this model loads; the profile stays saved either way.">
+            Use these settings
+        </button>
+        {{else}}
+        <p><small>{{.Message}}</small></p>
+        {{end}}
+    </article>
+    {{end}}
+
+    {{if .Failed}}
+    <details>
+        <summary><small>Settings that could not be measured ({{len .Failed}})</small></summary>
+        <ul>{{range .Failed}}<li><small>{{.Label}}: {{.Error}}</small></li>{{end}}</ul>
+    </details>
+    {{end}}
+
+    <p><small title="Another kind of work may prefer other settings: speculative decoding in particular depends on how much of the answer repeats the prompt.">
+        Measured for {{.UseCaseLabel}} work, from the {{.Run.BaseProfile}} profile{{if .Run.BuildID}}, on build {{.Run.BuildID}}{{end}}.
+        {{if .ConfirmJob}}<a href="/benchmarks" title="The benchmark job behind these numbers.">See the measurements</a>.{{end}}
+    </small></p>
+
+    <div role="group">
+        <button type="button" class="outline secondary"
+                hx-get="/api/models/{{.ModelID}}/autotune"
+                hx-target="#autotune-{{cssID .ModelID}}" hx-swap="innerHTML"
+                title="Measure again, from a profile and a kind of work you choose.">Run again</button>
+        <button type="button" class="outline secondary"
+                onclick="document.getElementById('autotune-{{cssID .ModelID}}').innerHTML='';">Close</button>
+    </div>
+</div>
+{{end}}

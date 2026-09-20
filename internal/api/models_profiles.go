@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -36,12 +37,42 @@ func (s *Server) profileBarData(id string) ([]profileOption, string, bool) {
 		if p.BuildID != "" {
 			label += ", build " + p.BuildID
 		}
-		if p.Source != "" && p.Source != models.ProfileSourceUser {
-			label += " (" + p.Source + ")"
+		if suffix := profileSourceSuffix(p); suffix != "" {
+			label += " " + suffix
 		}
 		opts = append(opts, profileOption{Name: p.Name, Label: label, Selected: p.Name == active})
 	}
 	return opts, active, edited
+}
+
+// profileLabel is a profile in a picker: its name, what wrote it, and
+// what it was measured to be good at.
+func profileLabel(p models.ConfigProfile) string {
+	if suffix := profileSourceSuffix(p); suffix != "" {
+		return p.Name + " " + suffix
+	}
+	return p.Name
+}
+
+// profileSourceSuffix says where a profile came from, and for one
+// autotune measured, what it was faster at — the reason to pick it out
+// of a list. It stays silent when the name already says it.
+func profileSourceSuffix(p models.ConfigProfile) string {
+	if m := p.Measured; m != nil {
+		switch {
+		case m.BaselineTG > 0 && m.TGTokPerSec > m.BaselineTG:
+			return fmt.Sprintf("(measured %.0f%% faster generation)", (m.TGTokPerSec/m.BaselineTG-1)*100)
+		case m.BaselinePP > 0 && m.PPTokPerSec > m.BaselinePP:
+			return fmt.Sprintf("(measured %.0f%% faster prompts)", (m.PPTokPerSec/m.BaselinePP-1)*100)
+		}
+	}
+	if p.Source == "" || p.Source == models.ProfileSourceUser {
+		return ""
+	}
+	if strings.HasPrefix(strings.ToLower(p.Name), p.Source) {
+		return "" // "Autoconfig (autoconfig)" says nothing twice
+	}
+	return "(" + p.Source + ")"
 }
 
 // renderConfigPanel re-renders the whole config panel (profile bar and
