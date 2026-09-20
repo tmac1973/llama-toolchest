@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.29.0](https://github.com/tmac1973/llama-toolchest/compare/v2.28.1...v2.29.0) (2026-09-20)
+
+
+### Features
+
+* Autotune — measure a model's settings and keep the fastest ([#179](https://github.com/tmac1973/llama-toolchest/issues/179)) ([bf5467e](https://github.com/tmac1973/llama-toolchest/commit/bf5467e97504af9b5ff37d93f9cd0ed128697d9f))
+* saved model profiles and Autoconfigure ([#177](https://github.com/tmac1973/llama-toolchest/issues/177)) ([7587a73](https://github.com/tmac1973/llama-toolchest/commit/7587a73daba897bacb145234a720d71358b13b08))
+
 ## [2.28.1](https://github.com/tmac1973/llama-toolchest/compare/v2.28.0...v2.28.1) (2026-09-09)
 
 
