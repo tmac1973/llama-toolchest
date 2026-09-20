@@ -139,6 +139,35 @@ const (
 	// CUDA/HIP context and allocations llama.cpp does not itemise. Constant
 	// per device across the corpus.
 	vramPerDeviceOverheadGB = 0.85
+	// What a layer split costs in graph scratch over a tensor-parallel
+	// one, on top of the per-card figure above.
+	//
+	// Every point the coefficients were fitted on was split
+	// tensor-parallel, where the cards act as one device and share one
+	// set of buffers. A layer split gives each card its own, and
+	// llama.cpp then runs the layers as a pipeline, keeping several
+	// copies of the graph in flight so a card is not idle waiting for
+	// the one before it. Its default is four copies.
+	//
+	// Four does not cover what was measured: the same model at the same
+	// context and micro-batch took 4.99 GiB of graph scratch split by
+	// layer over three NVIDIA cards against 0.96 GiB tensor-parallel
+	// over four AMD ones. This is the measured ratio, and it stands on
+	// that single pair — the backend differs as well as the split, so
+	// part of it may not be the split at all. It is kept at the measured
+	// figure rather than the explainable four because the estimate
+	// decides whether a model is offered at a context it can load at,
+	// and promising a fit that fails is the error worth avoiding.
+	layerSplitComputeCopies = 6.5
+	// A hybrid model's linear-attention layers keep a state buffer
+	// instead of a KV cache. It does not grow with the context: the 27B
+	// held the same 0.60 GiB across a sweep from 8,192 to 262,144
+	// tokens, which is what makes a flat per-layer figure the right
+	// shape. Split by layer it measured 1.75 GiB for the same model,
+	// hence the second constant — one pair, like the compute factor
+	// above.
+	recurrentStateGiBPerLayer = 0.0125
+	recurrentLayerSplitCopies = 2.9
 )
 
 // VRAMBreakdown is the estimate term by term, in GiB. The terms are named
@@ -151,7 +180,9 @@ const (
 // Which measured figure each term answers to:
 //
 //	Weights, Aux    model buffers on a device
-//	KVCache         KV and recurrent-state buffers
+//	KVCache, SpecKV  the attention caches: the model's, and the draft
+//	                 context's when speculative decoding is on
+//	Recurrent       the linear-attention state buffers of a hybrid model
 //	IndexerCache    the sparse-attention key cache
 //	Compute         compute and output buffers
 //	IndexerScratch  the rest of the compute buffers on a sparse model
@@ -163,7 +194,10 @@ type VRAMBreakdown struct {
 	KVCache float64
 	// SpecKV is the KV cache of the speculative draft context, which is
 	// separate from the model's own and is not quantized.
-	SpecKV         float64
+	SpecKV float64
+	// Recurrent is the state buffer of a hybrid model's linear-attention
+	// layers. Unlike a KV cache it does not grow with the context.
+	Recurrent      float64
 	IndexerCache   float64
 	Compute        float64
 	IndexerScratch float64
@@ -178,7 +212,7 @@ type VRAMBreakdown struct {
 
 // Total is the figure the UI shows.
 func (b VRAMBreakdown) Total() float64 {
-	return b.Weights + b.Aux + b.KVCache + b.SpecKV + b.IndexerCache + b.Compute + b.IndexerScratch + b.Overhead
+	return b.Weights + b.Aux + b.KVCache + b.SpecKV + b.Recurrent + b.IndexerCache + b.Compute + b.IndexerScratch + b.Overhead
 }
 
 // Reported is the part of the estimate llama.cpp itemises while loading,
@@ -234,7 +268,7 @@ func VRAMBreakdownForConfigOn(m *Model, cfg *ModelConfig, cards int) VRAMBreakdo
 	// Graph scratch.
 	ub := cfg.EffectiveUBatchSize()
 	perCard := computeMiBPerUBatchTok*float64(ub) + computeMiBPerCtxTok*float64(ctx)
-	b.Compute = float64(cards) * perCard / 1024
+	b.Compute = float64(cards) * perCard / 1024 * layerSplitComputeFactor(cfg, cards)
 
 	// Sparse attention: a key cache of its own, plus scratch that scales
 	// with context times micro-batch on every device.
@@ -248,6 +282,16 @@ func VRAMBreakdownForConfigOn(m *Model, cfg *ModelConfig, cards int) VRAMBreakdo
 	}
 
 	b.SpecKV = SpecKVCacheGB(m, cfg, ctx)
+
+	// Hybrid models: the layers that are not attention layers keep a
+	// recurrent state buffer instead of a KV cache.
+	if m.AttnLayers > 0 && m.AttnLayers < m.NLayers {
+		recurrent := float64(m.NLayers - m.AttnLayers)
+		b.Recurrent = recurrent * recurrentStateGiBPerLayer
+		if layerSplitComputeFactor(cfg, cards) > 1 {
+			b.Recurrent *= recurrentLayerSplitCopies
+		}
+	}
 
 	b.Aux = AuxFilesVRAMGB(cfg)
 	b.Overhead = float64(cards) * vramPerDeviceOverheadGB
@@ -290,12 +334,34 @@ func SpecKVCacheGB(m *Model, cfg *ModelConfig, ctx int) float64 {
 	if layers > m.NLayers {
 		layers = m.NLayers
 	}
-	// Full attention, deliberately: the draft context caches every
-	// position it drafts over. Taking a share of the model's own cache
-	// instead would understate it badly on a model whose layers mostly
-	// cache a sliding window, which is where the context is longest and
-	// the term matters most.
+	// Full attention at f16, deliberately. The draft context caches
+	// every position it drafts over, so a share of the model's own
+	// cache would understate it badly on a model whose layers mostly
+	// cache a sliding window — which is where the context is longest
+	// and the term matters most.
+	//
+	// The model's own per-token rate is the best measure of a layer
+	// available: it counts elements per token across the attention
+	// layers, so dividing by them gives one layer's rate directly,
+	// without having to guess a head size from the embedding width.
+	if m.KVFullPerTok > 0 && m.AttnLayers > 0 {
+		perLayer := float64(m.KVFullPerTok) / float64(m.AttnLayers)
+		return perLayer * float64(layers) * float64(ctx) * kvBytesPerElem("") / (1024 * 1024 * 1024)
+	}
 	return EstimateKVCacheGB(layers, m.NKVHead, m.NHead, m.NEmbd, ctx, "")
+}
+
+// layerSplitComputeFactor is how much the graph scratch is multiplied by
+// on this placement: one for a single card or a tensor-parallel split,
+// and layerSplitComputeCopies for a layer split over several cards.
+//
+// A split mode is only read when there is more than one card to split
+// over. An empty mode is llama.cpp's default, which is a layer split.
+func layerSplitComputeFactor(cfg *ModelConfig, cards int) float64 {
+	if cards < 2 || cfg.SplitMode == "tensor" {
+		return 1
+	}
+	return layerSplitComputeCopies
 }
 
 // CPUWeightBytes estimates the model weights a config keeps in system

@@ -176,3 +176,68 @@ func TestGroupDigits(t *testing.T) {
 		}
 	}
 }
+
+// The planner offered a 27B model its full 262,144-token context on
+// three 16 GiB cards. It did not load: the estimate was 6 GiB short of
+// what the machine actually used, because a layer split pays for several
+// copies of the compute graph, a hybrid model keeps recurrent state, and
+// speculative decoding runs a second context with a cache of its own.
+// None of the three were modelled. Measured on that machine: 40.27 GiB
+// at 131,072 tokens.
+func TestPlanFitDoesNotOfferAContextThatCannotLoad(t *testing.T) {
+	hw := Hardware{
+		GPUs: []GPUSpec{
+			{Index: 0, Name: "NVIDIA RTX A4000", VRAMTotalMiB: 16376},
+			{Index: 1, Name: "NVIDIA RTX A4000", VRAMTotalMiB: 16376},
+			{Index: 2, Name: "NVIDIA RTX A4000", VRAMTotalMiB: 16376},
+		},
+		LogicalCores: 16, RAMTotalMiB: 64225,
+	}
+	m := &Model{
+		ID: "qwen3.8-27b", NLayers: 65, AttnLayers: 16, NEmbd: 5120, NHead: 24,
+		NKVHead: 4, KVFullPerTok: 32768, ContextLength: 262144, NextNLayers: 1,
+		SizeBytes: gibBytes(29.30), TokenEmbdBytes: gibBytes(1.258),
+	}
+
+	res := PlanFit(m, ModelConfig{Enabled: true, SpecType: "draft-mtp"}, hw, ContextMax)
+	if !res.Fits {
+		t.Fatalf("no context fitted at all; the planner proposed %d", res.Config.ContextSize)
+	}
+	if res.Config.ContextSize >= 262144 {
+		t.Errorf("planned %d tokens, which ran out of memory on the machine this is from",
+			res.Config.ContextSize)
+	}
+	if res.Config.ContextSize < 32768 {
+		t.Errorf("planned only %d tokens; the machine runs this model at 131072",
+			res.Config.ContextSize)
+	}
+
+	// The estimate has to cover what the machine really used, or the
+	// planner is back to proposing a config that cannot load.
+	cfg := ModelConfig{ContextSize: 131072, KVCacheQuant: "q8_0", GPULayers: 999,
+		SpecType: "draft-mtp", SplitMode: "layer", UBatchSize: 512}
+	if got := VRAMEstimateForConfigOn(m, &cfg, 3); got < 40.27 {
+		t.Errorf("estimate at 131072 is %.2f GiB against 40.27 measured", got)
+	}
+}
+
+// A tensor-parallel split shares one set of graph buffers, so it must not
+// be charged for the copies a layer split pays for.
+func TestLayerSplitCostsMoreGraphScratchThanTensorParallel(t *testing.T) {
+	m := &Model{NLayers: 65, AttnLayers: 16, NEmbd: 5120, NHead: 24, NKVHead: 4,
+		KVFullPerTok: 32768, ContextLength: 262144, SizeBytes: gibBytes(29.30)}
+	base := ModelConfig{ContextSize: 131072, UBatchSize: 512, GPULayers: 999}
+
+	tensor, layer, one := base, base, base
+	tensor.SplitMode = "tensor"
+	layer.SplitMode = "layer"
+	one.SplitMode = "layer"
+
+	if a, b := VRAMBreakdownForConfigOn(m, &tensor, 3).Compute, VRAMBreakdownForConfigOn(m, &layer, 3).Compute; a >= b {
+		t.Errorf("tensor-parallel scratch %.2f GiB is not less than a layer split's %.2f", a, b)
+	}
+	// One card cannot pipeline against itself, whatever the mode says.
+	if a, b := VRAMBreakdownForConfigOn(m, &one, 1).Compute, VRAMBreakdownForConfigOn(m, &tensor, 1).Compute; a != b {
+		t.Errorf("a single card was charged for a split: %.2f vs %.2f", a, b)
+	}
+}
