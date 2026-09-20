@@ -123,23 +123,19 @@ func Run(ctx context.Context, d Deps, id string, class models.ContextClass) (*Re
 		})
 	}
 
-	// Advice may not change what the fit decided, except a lower context
-	// under Maximum (Validate only proposes that case).
+	// Advice never changes what the fit decided about memory: the context
+	// size, the KV cache type and where the layers run are the planner's,
+	// because only it knows this machine. A card that says otherwise is
+	// recorded as a note.
 	for _, p := range checked.Proposals {
 		if p.Field == "spec_type" && res.Proposed.SpecType == p.Value {
 			continue // already on, from the model file
 		}
 		ApplyProposal(&res.Proposed, p)
-		if p.Field == "context_size" {
-			notes["context_size"] = nil // the fit's reason no longer applies; the field keeps its place
-		}
 		addNote(models.ProfileNote{Field: p.Field, Reason: p.Reason, Origin: p.Origin})
 	}
 	for _, n := range checked.Notes {
 		addNote(n)
-	}
-	if res.Proposed.ContextSize != fit.Config.ContextSize {
-		res.Fit.EstimateGiB = models.VRAMEstimateForConfigOn(m, &res.Proposed, max(1, models.DeviceCountForConfig(&res.Proposed, len(d.Hardware.GPUs))))
 	}
 	// The n-gram assist is measured, never assumed: it drafts from text
 	// already in the context, so it wins on answers that repeat the

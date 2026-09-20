@@ -520,11 +520,28 @@
                 justify-content: end;
             }
         }
-        /* The sweep column carries one label per setting, and a wide sweep
-           can carry a dozen. Capped so the column can never grow the table
-           past the pane and push the measurements — status, tokens per
-           second — off the right edge, which is what a reader is watching
-           a running job for. The labels wrap inside the cap instead. */
+        /* The results table of a benchmark job shares its width between
+           eleven columns, and two of them hold prose: the sweep point and
+           a cell's error or skip reason. How the browser shares the width
+           follows the narrowest each column can be squeezed to, so those
+           two decide the table.
+
+           The sweep column used to lose that contest outright. Its labels
+           are allowed to break anywhere, which makes one character its
+           smallest possible width, so it gave up everything it had to any
+           other column that asked — a sweep of four settings ended up
+           three characters wide, one letter per line, beside a status
+           column wide enough for a sentence. A floor under the sweep
+           column and a ceiling over the status column settle it: neither
+           can take the other's width, and the labels wrap inside the
+           floor rather than being shredded. The cap on the sweep column
+           is what stops a sweep of a dozen settings from growing the
+           table past the pane and pushing the measurements out of sight.
+
+           Tighter cell padding pays for the floor. Pico gives every cell
+           1rem on each side, which across eleven columns is more of the
+           pane than the measurements themselves get. At 1080p this is the
+           difference between the table fitting and not. */
         .sweep-cell {
             max-width: 26rem;
             white-space: normal;
@@ -533,6 +550,20 @@
         .sweep-cell kbd {
             display: inline-block;
             margin-bottom: 0.15rem;
+        }
+        /* The floor is only worth paying for when a sweep was measured:
+           a job without one would spend it on a column of em-dashes. */
+        .has-sweep .sweep-cell,
+        .bench-compare-table .sweep-cell {
+            min-width: 11rem;
+        }
+        .status-cell {
+            max-width: 11rem;
+        }
+        .job-cells th,
+        .job-cells td {
+            padding-left: 0.4rem;
+            padding-right: 0.4rem;
         }
         /* The state of the model's latest autotune run, always visible so a
            finished run is not hidden behind the button that started it. */

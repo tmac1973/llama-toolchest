@@ -54,6 +54,22 @@
             if (cell) cell.textContent = detail.vram;
         }
     });
+
+    // --- Configure panel reload after Autoconfigure or Autotune saves ---
+    // Those panels save a profile, and may put it into use, from a panel of
+    // their own. The Configure panel below them is then showing the settings
+    // from before the save, and its profile picker is missing the profile
+    // that was just written. Reload it in place, so the card is up to date
+    // without reloading the page. Closed panel: nothing to do — opening it
+    // fetches the current settings anyway.
+    document.body.addEventListener('modelConfigStale', function(e) {
+        var detail = e.detail;
+        if (!detail || !detail.id || !detail.dom) return;
+        var panel = document.getElementById('model-config-' + detail.dom);
+        if (!panel || !panel.innerHTML.trim()) return;
+        htmx.ajax('GET', '/api/models/' + detail.id + '/config',
+                  { target: panel, swap: 'innerHTML' });
+    });
 })();
 
 // --- Model list: text filter ---

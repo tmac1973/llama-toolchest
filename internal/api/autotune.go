@@ -180,6 +180,7 @@ func (s *Server) handleAutotuneSaveCurrent(w http.ResponseWriter, r *http.Reques
 		s.renderAutotuneDialog(w, id, &panelBanner{"error", "The settings could not be saved: " + err.Error()})
 		return
 	}
+	s.markConfigPanelStale(w, r, id) // the new profile belongs in Configure's picker
 	s.renderAutotuneDialog(w, id, &panelBanner{"ok",
 		fmt.Sprintf("Saved the current settings as the profile %q. Autotune will measure from it.", currentSettingsProfile)})
 }
@@ -271,6 +272,7 @@ func (s *Server) handleAutotuneRestore(w http.ResponseWriter, r *http.Request) {
 	if cfg, err := s.registry.GetConfig(id); err == nil {
 		s.afterConfigChange(w, r, id, cfg)
 	}
+	s.markConfigPanelStale(w, r, id)
 	s.renderAutotuneStatus(w, id, rec, &panelBanner{"ok",
 		fmt.Sprintf("Restored profile %q. It takes effect the next time this model loads.", p.Name)})
 }

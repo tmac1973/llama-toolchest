@@ -162,10 +162,6 @@ func ApplyProposal(cfg *models.ModelConfig, p Proposal) {
 		}
 	case "sampling_preset":
 		cfg.SamplingPreset, _ = p.Value.(string)
-	case "context_size":
-		if v, ok := p.Value.(int); ok {
-			cfg.ContextSize = v
-		}
 	case "spec_type":
 		mode, _ := p.Value.(string)
 		if mode != cfg.SpecType {
@@ -272,17 +268,23 @@ func Validate(adv Advice, in Inputs) Checked {
 		out.note("spec_assist", "model card", quoted("The model card mentions the "+*adv.AssistMode+" n-gram assist. Autotune measures whether it helps on this machine.", adv.SpeculativeQuote))
 	}
 
-	// Context: the planner owns it. The one exception is a card that
-	// recommends less than "Maximum" would give, when the user asked for
-	// the maximum.
+	// Context: the planner owns it, whichever size was asked for. A card
+	// that names a different number becomes a note and nothing more.
+	//
+	// It used to lower the context when the user had asked for the
+	// maximum, on the reasoning that a publisher knows where its model
+	// stops being reliable. That reading was wrong twice over. "Maximum"
+	// is an instruction, not a preference to be weighed against a
+	// paragraph of prose; and the number the helper model reads out of
+	// the prose is often not the one the card states — a card saying
+	// "262,144 tokens by default, extensible to 1,010,000 with YaRN" has
+	// been read as a recommendation of 131,072, which then silently
+	// halved a context that fitted on the machine with room to spare.
 	if adv.RecommendedContext != nil {
 		rc := *adv.RecommendedContext
 		switch {
 		case rc < 2048 || rc > m.ContextLength && m.ContextLength > 0:
 			// Out of range: not worth mentioning.
-		case in.Class == models.ContextMax && rc < in.Fit.Config.ContextSize:
-			out.Proposals = append(out.Proposals, Proposal{Field: "context_size", Value: rc, Origin: "model card",
-				Reason: quoted(fmt.Sprintf("The model card recommends %d tokens, less than the maximum.", rc), adv.ContextQuote)})
 		case rc != in.Fit.Config.ContextSize:
 			out.note("context_size", "model card", quoted(fmt.Sprintf("The model card recommends a context of %d tokens. The size you chose is kept.", rc), adv.ContextQuote))
 		}

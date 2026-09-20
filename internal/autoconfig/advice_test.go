@@ -104,17 +104,25 @@ func TestValidateSpeculative(t *testing.T) {
 	}
 }
 
-func TestValidateContextOnlyLowersUnderMaximum(t *testing.T) {
+// The context the user asked for is the planner's to decide, and the card
+// never overrules it — least of all under Maximum, where the helper model
+// reading "262,144 tokens by default, extensible to 1,010,000 with YaRN"
+// as a recommendation of 131,072 used to halve a context that fitted on
+// the machine with room to spare.
+func TestValidateNeverChangesTheContext(t *testing.T) {
 	c := Validate(Advice{RecommendedContext: ip(16384)}, baseInputs())
 	if _, ok := proposal(c, "context_size"); ok || !hasNote(c, "size you chose is kept") {
 		t.Errorf("medium class: context changed or not explained: %+v", c)
 	}
 	in := baseInputs()
 	in.Class = models.ContextMax
-	in.Fit.Config.ContextSize = 131072
-	c = Validate(Advice{RecommendedContext: ip(32768)}, in)
-	if p, ok := proposal(c, "context_size"); !ok || p.Value != 32768 {
-		t.Errorf("maximum class: recommended context not proposed: %+v", c)
+	in.Fit.Config.ContextSize = 262144
+	c = Validate(Advice{RecommendedContext: ip(131072)}, in)
+	if _, ok := proposal(c, "context_size"); ok {
+		t.Errorf("maximum class: the card lowered the requested maximum: %+v", c)
+	}
+	if !hasNote(c, "size you chose is kept") {
+		t.Errorf("maximum class: the card's recommendation is not recorded: %+v", c)
 	}
 	c = Validate(Advice{RecommendedContext: ip(1 << 30)}, in)
 	if _, ok := proposal(c, "context_size"); ok {

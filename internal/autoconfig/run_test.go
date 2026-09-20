@@ -107,6 +107,63 @@ func TestRunMergesFitAndCard(t *testing.T) {
 	}
 }
 
+// Maximum means maximum. A 48 GiB machine has room for this model's whole
+// 262,144-token context, and the run used to hand back 131,072 because the
+// helper model read the card's "262,144 tokens by default, extensible to
+// 1,010,000 with YaRN" as a recommendation of 131,072. The card is worth
+// recording and is not worth overruling an explicit choice with.
+func TestRunKeepsTheMaximumContextTheCardDisagreesWith(t *testing.T) {
+	const answer = `{"temperature": null, "top_p": null, "top_k": null, "min_p": null, "presence_penalty": null,
+		"repeat_penalty": null, "sampling_quote": "", "thinking": null, "thinking_quote": "",
+		"draft_method": null, "draft_repo": null, "assist_mode": null, "speculative_quote": "",
+		"recommended_context": 131072, "context_quote": "262,144 tokens by default", "other_notes": []}`
+	hw := models.Hardware{GPUs: []models.GPUSpec{{Index: 0, VRAMTotalMiB: 48 * 1024}}, LogicalCores: 16, RAMTotalMiB: 64 * 1024}
+	d := Deps{
+		Registry: runRegistry(t), Hardware: hw, HFBase: "https://hf.test",
+		Fetcher: &fakeFetcher{pages: map[string]string{
+			"https://hf.test/testorg/Test-9B-GGUF/raw/main/README.md": readTestdata(t, "unsloth_card.md"),
+		}},
+		LLM: helperServer(t, answer), HelperID: "helper",
+	}
+	res, err := Run(context.Background(), d, runModelID, models.ContextMax)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Proposed.ContextSize != 262144 {
+		t.Errorf("context = %d, want the model's full 262144", res.Proposed.ContextSize)
+	}
+	if res.Proposed.ContextSize != res.Fit.Config.ContextSize {
+		t.Errorf("context %d differs from what the fit decided (%d)", res.Proposed.ContextSize, res.Fit.Config.ContextSize)
+	}
+	var kept bool
+	for _, n := range res.Notes {
+		if n.Field == "context_size" && strings.Contains(n.Reason, "size you chose is kept") {
+			kept = true
+		}
+	}
+	if !kept {
+		t.Errorf("the card's recommendation is not recorded: %+v", res.Notes)
+	}
+}
+
+// A context that does not fit is reduced by the planner, and the KV cache
+// drops to 8 bits before the context is halved — never to 4 bits, which
+// the planner does not offer at all.
+func TestRunTradesKVPrecisionForContextBeforeHalvingIt(t *testing.T) {
+	reg := runRegistry(t)
+	hw := models.Hardware{GPUs: []models.GPUSpec{{Index: 0, VRAMTotalMiB: 32 * 1024}}, LogicalCores: 16, RAMTotalMiB: 64 * 1024}
+	res, err := Run(context.Background(), Deps{Registry: reg, Hardware: hw}, runModelID, models.ContextMax)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Proposed.KVCacheQuant != "q8_0" {
+		t.Errorf("kv_cache_quant = %q, want q8_0", res.Proposed.KVCacheQuant)
+	}
+	if res.Proposed.ContextSize != 262144 {
+		t.Errorf("context = %d; an 8-bit KV cache fits the full 262144 here", res.Proposed.ContextSize)
+	}
+}
+
 func TestRunWithoutHelperUsesTheFitAlone(t *testing.T) {
 	reg := runRegistry(t)
 	res, err := Run(context.Background(), Deps{Registry: reg, Hardware: gpu24()}, runModelID, models.ContextShort)

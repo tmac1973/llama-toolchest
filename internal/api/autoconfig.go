@@ -282,6 +282,10 @@ func (s *Server) handleAutoconfigSave(w http.ResponseWriter, r *http.Request) {
 	} else {
 		msg += " Restore it from Configure whenever you want to use it."
 	}
+	// Either way the Configure panel below is now out of date: the new
+	// profile is missing from its picker, and after an apply the form
+	// shows the settings from before it.
+	s.markConfigPanelStale(w, r, id)
 	s.clearAutoconfigRun(id)
 	s.renderAutoconfigMessage(w, id, panelBanner{"ok", msg})
 }

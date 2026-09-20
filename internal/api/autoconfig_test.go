@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -11,6 +12,11 @@ import (
 )
 
 func (s *Server) doAutoconfig(t *testing.T, method, path string, form url.Values) string {
+	t.Helper()
+	return s.doAutoconfigRec(t, method, path, form).Body.String()
+}
+
+func (s *Server) doAutoconfigRec(t *testing.T, method, path string, form url.Values) *httptest.ResponseRecorder {
 	t.Helper()
 	r := s.buildRouter()
 	var body *strings.Reader
@@ -24,7 +30,7 @@ func (s *Server) doAutoconfig(t *testing.T, method, path string, form url.Values
 	req.Header.Set("HX-Request", "true")
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
-	return rec.Body.String()
+	return rec
 }
 
 // finishedRun puts a completed autoconfigure result in place for the test
@@ -218,5 +224,37 @@ func TestReviewShowsSettingsItKeptOnPurpose(t *testing.T) {
 	}
 	if !strings.Contains(out, "Settings left as they are") {
 		t.Error("the untouched settings are no longer collapsed")
+	}
+}
+
+// Saving from the Autoconfigure panel leaves the Configure panel below it
+// showing the settings from before the save, with the new profile missing
+// from its picker. The page reloads that panel when it is open, on this
+// signal — without it the only way to see what was saved was to reload the
+// whole page.
+func TestAutoconfigSaveTellsThePageTheConfigPanelIsStale(t *testing.T) {
+	for _, apply := range []string{"0", "1"} {
+		s := newHelperServer(t)
+		finishedRun(t, s)
+		rec := s.doAutoconfigRec(t, "POST", "/api/models/"+profTestID+"/autoconfig/save", url.Values{"apply": {apply}})
+
+		var ev map[string]any
+		if err := json.Unmarshal([]byte(rec.Header().Get("HX-Trigger")), &ev); err != nil {
+			t.Fatalf("apply=%s: HX-Trigger %q is not an event object: %v", apply, rec.Header().Get("HX-Trigger"), err)
+		}
+		stale, ok := ev["modelConfigStale"].(map[string]any)
+		if !ok {
+			t.Fatalf("apply=%s: no modelConfigStale event: %v", apply, ev)
+		}
+		if stale["id"] != profTestID || stale["dom"] != domID(profTestID) {
+			t.Errorf("apply=%s: event names %v, want id %q and dom %q", apply, stale, profTestID, domID(profTestID))
+		}
+		// Applying also moves the VRAM estimate. One header carries both:
+		// neither signal may drop the other.
+		if apply == "1" {
+			if _, ok := ev["vramUpdated"]; !ok {
+				t.Errorf("the VRAM update was lost from the header: %v", ev)
+			}
+		}
 	}
 }

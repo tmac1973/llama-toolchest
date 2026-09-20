@@ -36,7 +36,7 @@
     </small>
     {{end}}
 
-    <table role="grid" style="font-size:0.85rem;margin-top:0.5rem;">
+    <table role="grid" class="job-cells{{if .HasSweep}} has-sweep{{end}}" style="font-size:0.85rem;margin-top:0.5rem;">
         <thead>
             <tr>
                 <th style="width:2rem;"><input type="checkbox" id="cell-check-all-{{$j.ID}}" hx-preserve="true" style="margin:0;"
@@ -46,7 +46,7 @@
                 <th>Build</th>
                 <th>Preset</th>
                 <th class="sweep-cell">Sweep</th>
-                <th>Status</th>
+                <th class="status-cell">Status</th>
                 <th title="Token Generation tokens/sec">TG t/s</th>
                 <th title="Prompt Processing tokens/sec">PP t/s</th>
                 {{if .HasEval}}<th title="Capability evaluation score — only capability cells (perplexity / KL-divergence / HellaSwag / Winogrande) produce one. PPL: perplexity on the wikitext-2 test set — lower is better; the error bar is the uncertainty. HellaSwag / Winogrande: percentage of tasks answered correctly, with the confidence interval and task count in parentheses. KLD: deviation of this model's probabilities from the reference model's — 0 means identical, so lower is better. Performance cells show an em-dash here.">Score</th>{{end}}
@@ -63,7 +63,7 @@
             <td><kbd>{{.BuildLbl}}</kbd></td>
             <td><small>{{.Cell.Preset}}</small></td>
             <td class="sweep-cell"><small>{{if .Cell.SweepValues}}{{range sweepChips .Cell.SweepValues}}<kbd>{{.}}</kbd> {{end}}{{else}}—{{end}}</small></td>
-            <td><span class="cell-status status-{{.Cell.Status}}">{{.Cell.Status}}</span>
+            <td class="status-cell"><span class="cell-status status-{{.Cell.Status}}">{{.Cell.Status}}</span>
                 {{if .ErrorShort}}<br><small style="color:var(--pico-del-color);" title="{{.Cell.Error}}">{{.ErrorShort}}</small>{{end}}
                 {{if .SkipShort}}<br><small style="color:var(--pico-muted-color);cursor:help;" title="{{.Cell.SkipReason}}">{{.SkipShort}}</small>{{end}}
             </td>

@@ -1078,6 +1078,40 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 	s.handleGetModelConfig(w, r)
 }
 
+// addHXTrigger adds one event to the response's HX-Trigger header without
+// dropping any event already there. Several steps of one request can each
+// have something to tell the page — a VRAM estimate and a stale panel, say
+// — and the header holds only one value.
+func addHXTrigger(w http.ResponseWriter, name string, detail any) {
+	events := map[string]any{}
+	if cur := w.Header().Get("HX-Trigger"); cur != "" {
+		if err := json.Unmarshal([]byte(cur), &events); err != nil {
+			// A bare event name rather than a JSON object.
+			events = map[string]any{cur: true}
+		}
+	}
+	events[name] = detail
+	b, err := json.Marshal(events)
+	if err != nil {
+		slog.Warn("failed to encode HX-Trigger", "event", name, "error", err)
+		return
+	}
+	w.Header().Set("HX-Trigger", string(b))
+}
+
+// markConfigPanelStale tells the page that model id's settings have
+// changed underneath an open Configure panel, so it can reload that panel
+// in place. Autoconfigure and Autotune save profiles and change the live
+// config from their own panels; without this the Configure panel below
+// them keeps showing the settings from before the save, and the new
+// profile is missing from its picker, until the page is reloaded.
+func (s *Server) markConfigPanelStale(w http.ResponseWriter, r *http.Request, id string) {
+	if !isHTMX(r) {
+		return
+	}
+	addHXTrigger(w, "modelConfigStale", map[string]string{"id": id, "dom": domID(id)})
+}
+
 // afterConfigChange does what every change to a model's live config needs
 // once it is saved: regenerate the preset INI, mark the model as needing a
 // reload, and tell the page the VRAM estimate changed.
@@ -1097,9 +1131,8 @@ func (s *Server) afterConfigChange(w http.ResponseWriter, r *http.Request, id st
 	if isHTMX(r) {
 		if model, err := s.registry.Get(id); err == nil {
 			vramGB := models.VRAMEstimateForConfigOn(model, cfg, models.DeviceCountForConfig(cfg, len(s.monitor.Current().GPU)))
-			w.Header().Set("HX-Trigger", fmt.Sprintf(
-				`{"vramUpdated":{"id":%q,"vram":"%.1f GiB"},"gpuMapChanged":true}`,
-				id, vramGB))
+			addHXTrigger(w, "vramUpdated", map[string]string{"id": id, "vram": fmt.Sprintf("%.1f GiB", vramGB)})
+			addHXTrigger(w, "gpuMapChanged", true)
 		}
 	}
 }

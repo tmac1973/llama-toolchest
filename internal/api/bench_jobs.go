@@ -682,7 +682,15 @@ func (s *Server) renderJobDetail(w http.ResponseWriter, job *benchmark.Benchmark
 	rows := make([]cellRow, 0, len(job.Cells))
 	var done, failed int
 	hasEval := false
+	// Whether any cell measured a sweep point at all. The sweep column
+	// has a minimum width so its labels stay readable (see .sweep-cell);
+	// a job with no sweep has nothing to put there, and would be paying
+	// that width for a column of em-dashes.
+	hasSweep := false
 	for i, c := range job.Cells {
+		if len(c.SweepValues) > 0 {
+			hasSweep = true
+		}
 		switch c.Status {
 		case benchmark.CellStatusCompleted:
 			done++
@@ -741,13 +749,14 @@ func (s *Server) renderJobDetail(w http.ResponseWriter, job *benchmark.Benchmark
 		rows = append(rows, row)
 	}
 	s.renderPartial(w, "job_detail", struct {
-		Job     *benchmark.BenchmarkJob
-		Rows    []cellRow
-		Done    int
-		Failed  int
-		Total   int
-		HasEval bool
-	}{Job: job, Rows: rows, Done: done, Failed: failed, Total: len(job.Cells), HasEval: hasEval})
+		Job      *benchmark.BenchmarkJob
+		Rows     []cellRow
+		Done     int
+		Failed   int
+		Total    int
+		HasEval  bool
+		HasSweep bool
+	}{Job: job, Rows: rows, Done: done, Failed: failed, Total: len(job.Cells), HasEval: hasEval, HasSweep: hasSweep})
 }
 
 // handleJobForm renders the new-job modal contents (multi-select models,
