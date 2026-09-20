@@ -216,6 +216,11 @@ func TestJobQueueWait(t *testing.T) {
 	if _, err := q2.Wait(ctx, "job-slow"); err == nil {
 		t.Error("a cancelled wait should return its context's error")
 	}
+	// Giving up on the wait does not stop the job: let it finish before
+	// the test's directories go away under it.
+	if _, err := q2.Wait(context.Background(), "job-slow"); err != nil {
+		t.Errorf("waiting for the job to finish: %v", err)
+	}
 }
 
 // A job measuring a saved profile runs that profile's settings, sends its
