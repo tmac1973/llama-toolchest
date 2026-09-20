@@ -187,3 +187,24 @@ func TestDescribe(t *testing.T) {
 		t.Errorf("two values = %q", got)
 	}
 }
+
+func TestCommonFailure(t *testing.T) {
+	load404 := "failed to load model: HTTP 404: File Not Found"
+	cases := []struct {
+		name   string
+		failed []FailedCell
+		want   string
+	}{
+		{"none", nil, ""},
+		{"all the same", []FailedCell{{Label: "a", Error: load404}, {Label: "b", Error: load404}}, load404},
+		{"different", []FailedCell{{Label: "a", Error: load404}, {Label: "b", Error: "out of memory"}}, ""},
+		{"empty reason", []FailedCell{{Label: "a"}}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := commonFailure(tc.failed); got != tc.want {
+				t.Errorf("commonFailure = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

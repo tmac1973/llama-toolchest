@@ -306,6 +306,14 @@ func (r *Runner) runStage(ctx context.Context, rec *Autotune, stageKey string) e
 		return context.Canceled
 	}
 	if len(cands) == 0 {
+		// Every cell failing almost always means one thing went wrong for
+		// all of them — the model would not load at all, say. Put that
+		// reason in the message rather than making the reader open the
+		// list of failures to find it.
+		if why := commonFailure(stage.Failed); why != "" {
+			return fmt.Errorf("the %s stage measured nothing: every setting failed, each with the same problem — %s",
+				StageTitle(stageKey), why)
+		}
 		return fmt.Errorf("the %s stage measured nothing: every setting failed", StageTitle(stageKey))
 	}
 	slog.Info("autotune stage done", "run", rec.ID, "stage", stageKey,
@@ -702,4 +710,23 @@ func (r *Runner) resolveModelPath(id string) (string, error) {
 		return "", err
 	}
 	return m.FilePath, nil
+}
+
+// commonFailure returns the error every failed cell reported, or "" when
+// they did not all fail the same way. Used to explain a stage that
+// measured nothing.
+func commonFailure(failed []FailedCell) string {
+	if len(failed) == 0 {
+		return ""
+	}
+	first := strings.TrimSpace(failed[0].Error)
+	if first == "" {
+		return ""
+	}
+	for _, f := range failed[1:] {
+		if strings.TrimSpace(f.Error) != first {
+			return ""
+		}
+	}
+	return first
 }

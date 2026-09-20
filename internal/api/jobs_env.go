@@ -194,24 +194,31 @@ func (e *jobEnv) restartRouter(ctx context.Context, what string) error {
 	return fmt.Errorf("timed out waiting for router after %s", what)
 }
 
-// ApplyEphemeralConfig makes modelID run under cfg for the next
-// benchmark cell, restarting the router so it re-reads the preset.
+// mergeBenchConfig builds the config one benchmark cell runs under:
+// base (the model's saved config, or the profile the job measures from)
+// with the cell's swept values applied, checked for anything the router
+// would reject.
 //
-// The substitute config travels as a start parameter and is written to a
-// separate preset file — the user's models.json and preset.ini are never
-// modified, and an interactive restart cannot pick it up. Callers must
-// pair this with ClearEphemeralConfig.
-func (e *jobEnv) ApplyEphemeralConfig(ctx context.Context, modelID string, cfg benchmark.ConfigSnapshot, base *models.ModelConfig) error {
-	if base == nil {
-		saved, err := e.s.registry.GetConfig(modelID)
-		if err != nil {
-			return fmt.Errorf("resolve config for %s: %w", modelID, err)
-		}
-		base = saved
+// saved is always the model's live config, even when base is a profile.
+func mergeBenchConfig(modelID string, saved, base models.ModelConfig, cfg benchmark.ConfigSnapshot, gpuCount int) (models.ModelConfig, error) {
+	merged := benchmark.ApplySnapshotToConfig(base, cfg)
+	// Enabled and Aliases say who the model is to the router, not how it
+	// runs, so they always come from the saved config. A saved profile
+	// stores them cleared on purpose (models.ApplyProfile puts the live
+	// ones back when a profile is applied), so a job measuring from a
+	// profile would otherwise write a preset with the model left out
+	// altogether, and every cell would fail to load it with "404 File
+	// Not Found".
+	merged.Enabled = saved.Enabled
+	merged.Aliases = append([]string(nil), saved.Aliases...)
+	if !merged.Enabled {
+		// A model that is turned off is left out of the preset, so the
+		// router would answer every load with a 404. Say so instead.
+		return merged, fmt.Errorf("%s is turned off, so the server cannot load it. "+
+			"Turn the model on on the Models page and run this again", modelID)
 	}
-	merged := benchmark.ApplySnapshotToConfig(*base, cfg)
-	if err := resolveGPUAssignment(&merged, *base, len(e.s.monitor.Current().GPU)); err != nil {
-		return fmt.Errorf("%s: %w", modelID, err)
+	if err := resolveGPUAssignment(&merged, base, gpuCount); err != nil {
+		return merged, fmt.Errorf("%s: %w", modelID, err)
 	}
 	// A swept split mode wins over the one resolveGPUAssignment derives:
 	// the sweep asked for it by name.
@@ -223,7 +230,29 @@ func (e *jobEnv) ApplyEphemeralConfig(ctx context.Context, modelID string, cfg b
 		// benchmark path has to as well, or a -ub sweep past the batch
 		// size either measures the same clamped value under several
 		// labels or fails the cell with a confusing loader error.
-		return fmt.Errorf("%s: %w", modelID, err)
+		return merged, fmt.Errorf("%s: %w", modelID, err)
+	}
+	return merged, nil
+}
+
+// ApplyEphemeralConfig makes modelID run under cfg for the next
+// benchmark cell, restarting the router so it re-reads the preset.
+//
+// The substitute config travels as a start parameter and is written to a
+// separate preset file — the user's models.json and preset.ini are never
+// modified, and an interactive restart cannot pick it up. Callers must
+// pair this with ClearEphemeralConfig.
+func (e *jobEnv) ApplyEphemeralConfig(ctx context.Context, modelID string, cfg benchmark.ConfigSnapshot, base *models.ModelConfig) error {
+	saved, err := e.s.registry.GetConfig(modelID)
+	if err != nil {
+		return fmt.Errorf("resolve config for %s: %w", modelID, err)
+	}
+	if base == nil {
+		base = saved
+	}
+	merged, err := mergeBenchConfig(modelID, *saved, *base, cfg, len(e.s.monitor.Current().GPU))
+	if err != nil {
+		return err
 	}
 
 	slog.Info("applying benchmark config",

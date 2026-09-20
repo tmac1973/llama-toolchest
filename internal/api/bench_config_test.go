@@ -351,3 +351,65 @@ func TestSpecParamsReachLaunchFlags(t *testing.T) {
 		t.Errorf("explicit off should emit no speculative flags: %s", flags)
 	}
 }
+
+// A job that measures from a saved profile must still write a preset in
+// which the model is turned on and keeps its aliases. Profiles store
+// those two fields cleared on purpose, and taking them from the profile
+// left the model out of the benchmark preset entirely: every cell then
+// failed with "404 File Not Found" from the router.
+func TestMergeBenchConfigKeepsModelIdentityFromSavedConfig(t *testing.T) {
+	saved := baseConfig()
+	profile := baseConfig()
+	profile.Enabled = false
+	profile.Aliases = nil
+	profile.ContextSize = 32768
+
+	// The cell's snapshot is taken from the profile and then swept, the
+	// way the job runner builds it.
+	snap := benchmark.ConfigSnapshot{ContextSize: profile.ContextSize, BatchSize: 2048}
+	got, err := mergeBenchConfig("m", saved, profile, snap, 1)
+	if err != nil {
+		t.Fatalf("mergeBenchConfig: %v", err)
+	}
+	if !got.Enabled {
+		t.Error("Enabled = false; the model would be left out of the preset and every load would 404")
+	}
+	if len(got.Aliases) != 1 || got.Aliases[0] != "keep-me" {
+		t.Errorf("Aliases = %v, want the saved config's [keep-me]", got.Aliases)
+	}
+	if got.ContextSize != 32768 {
+		t.Errorf("ContextSize = %d, want the profile's 32768", got.ContextSize)
+	}
+	if got.BatchSize != 2048 {
+		t.Errorf("BatchSize = %d, want the cell's 2048", got.BatchSize)
+	}
+}
+
+// Aliases are copied, not shared: the merged config is handed to the
+// preset writer while the registry keeps serving the saved one.
+func TestMergeBenchConfigCopiesAliases(t *testing.T) {
+	saved := baseConfig()
+	got, err := mergeBenchConfig("m", saved, saved, benchmark.ConfigSnapshot{}, 1)
+	if err != nil {
+		t.Fatalf("mergeBenchConfig: %v", err)
+	}
+	got.Aliases[0] = "changed"
+	if saved.Aliases[0] != "keep-me" {
+		t.Errorf("the saved config's aliases were modified: %v", saved.Aliases)
+	}
+}
+
+// A model the user turned off cannot be benchmarked at all, so say that
+// rather than letting the router answer every cell with a 404.
+func TestMergeBenchConfigRefusesDisabledModel(t *testing.T) {
+	saved := baseConfig()
+	saved.Enabled = false
+
+	_, err := mergeBenchConfig("m", saved, saved, benchmark.ConfigSnapshot{}, 1)
+	if err == nil {
+		t.Fatal("a turned-off model was accepted")
+	}
+	if !strings.Contains(err.Error(), "turned off") {
+		t.Errorf("error = %q, want it to say the model is turned off", err)
+	}
+}
