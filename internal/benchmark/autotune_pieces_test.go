@@ -1,6 +1,7 @@
 package benchmark
 
 import (
+	"context"
 	"reflect"
 	"strings"
 	"testing"
@@ -171,5 +172,90 @@ func TestApplySnapshotToConfigCoversEveryField(t *testing.T) {
 		if reflect.ValueOf(out).FieldByName(f.Name).IsZero() {
 			t.Errorf("ApplySnapshotToConfig drops %s", f.Name)
 		}
+	}
+}
+
+// Wait returns the finished job without polling, and gives up when its
+// caller does.
+func TestJobQueueWait(t *testing.T) {
+	router := newFakeRouter(t)
+	env := &fakeEnv{routerURL: router.URL, saved: ConfigSnapshot{GPULayers: 999, ContextSize: 8192, Threads: 8}}
+	store := NewStore(t.TempDir(), nil)
+	q := NewJobQueue(store, env)
+
+	if err := q.Submit(oneCellJob(nil)); err != nil {
+		t.Fatal(err)
+	}
+	job, err := q.Wait(context.Background(), "job-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.Status != JobStatusCompleted {
+		t.Errorf("status = %s, want completed", job.Status)
+	}
+
+	// A job this process never ran answers from the store.
+	if _, err := q.Wait(context.Background(), "job-1"); err != nil {
+		t.Errorf("waiting on a finished job: %v", err)
+	}
+	if _, err := q.Wait(context.Background(), "never-submitted"); err == nil {
+		t.Error("waiting on an unknown job should report it is unknown")
+	}
+
+	// A cancelled wait returns, leaving the job alone.
+	router2 := newFakeRouter(t)
+	env2 := &fakeEnv{routerURL: router2.URL, saved: env.saved}
+	q2 := NewJobQueue(NewStore(t.TempDir(), nil), env2)
+	slow := oneCellJob(nil)
+	slow.ID = "job-slow"
+	if err := q2.Submit(slow); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := q2.Wait(ctx, "job-slow"); err == nil {
+		t.Error("a cancelled wait should return its context's error")
+	}
+}
+
+// A job measuring a saved profile runs that profile's settings, sends its
+// sampling values, and leaves the live config alone.
+func TestJobRunsAgainstABaseProfile(t *testing.T) {
+	router := newFakeRouter(t)
+	live := ConfigSnapshot{GPULayers: 999, ContextSize: 8192, Threads: 8, UBatchSize: 512}
+	env := &fakeEnv{routerURL: router.URL, saved: live}
+
+	temp := 0.6
+	profile := models.ModelConfig{Enabled: true, GPULayers: 999, ContextSize: 8192, Threads: 8,
+		UBatchSize: 1024, Jinja: true, Temperature: &temp}
+	job := oneCellJob(nil)
+	job.BaseProfile = &BaseProfile{Name: "Fast", Config: profile}
+
+	done, store := runJob(t, job, env)
+	if done.Status != JobStatusCompleted {
+		t.Fatalf("status = %s", done.Status)
+	}
+	runs := store.RunsForJob(done.ID)
+	if len(runs) != 1 {
+		t.Fatalf("runs = %d", len(runs))
+	}
+	if runs[0].Config.UBatchSize != 1024 {
+		t.Errorf("recorded ubatch = %d, want the profile's 1024", runs[0].Config.UBatchSize)
+	}
+	if runs[0].Config.ProfileName != "Fast" || runs[0].Config.ProfileEdited {
+		t.Errorf("recorded profile = %q edited=%v", runs[0].Config.ProfileName, runs[0].Config.ProfileEdited)
+	}
+	// The first request is the warm-up, which deliberately carries no
+	// sampling; the measured ones do.
+	bodies := router.completionBodies()
+	if len(bodies) < 2 {
+		t.Fatalf("recorded %d completion requests", len(bodies))
+	}
+	last := bodies[len(bodies)-1]
+	if got, ok := last["temperature"].(float64); !ok || got != 0.6 {
+		t.Errorf("temperature sent = %v, want the profile's 0.6", last["temperature"])
+	}
+	if env.appliedBase == nil || env.appliedBase.UBatchSize != 1024 {
+		t.Errorf("the ephemeral config was not built from the profile: %+v", env.appliedBase)
 	}
 }

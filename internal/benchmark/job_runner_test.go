@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/evaluate"
+	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/monitor"
 )
 
@@ -26,6 +27,7 @@ type fakeEnv struct {
 	saved     ConfigSnapshot
 
 	applied       []ConfigSnapshot // one per ApplyEphemeralConfig call
+	appliedBase   *models.ModelConfig
 	appliedT      []time.Time
 	cleared       int
 	clearedT      []time.Time
@@ -95,7 +97,10 @@ func (f *fakeEnv) ResolveModelPath(id string) (string, error) {
 	return "/models/" + id + ".gguf", nil
 }
 
-func (f *fakeEnv) ApplyEphemeralConfig(_ context.Context, _ string, cfg ConfigSnapshot) error {
+func (f *fakeEnv) ApplyEphemeralConfig(_ context.Context, _ string, cfg ConfigSnapshot, base *models.ModelConfig) error {
+	f.mu.Lock()
+	f.appliedBase = base
+	f.mu.Unlock()
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	// The real implementation arms the override and marks the router

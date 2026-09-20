@@ -201,10 +201,13 @@ func (e *jobEnv) restartRouter(ctx context.Context, what string) error {
 // separate preset file — the user's models.json and preset.ini are never
 // modified, and an interactive restart cannot pick it up. Callers must
 // pair this with ClearEphemeralConfig.
-func (e *jobEnv) ApplyEphemeralConfig(ctx context.Context, modelID string, cfg benchmark.ConfigSnapshot) error {
-	base, err := e.s.registry.GetConfig(modelID)
-	if err != nil {
-		return fmt.Errorf("resolve config for %s: %w", modelID, err)
+func (e *jobEnv) ApplyEphemeralConfig(ctx context.Context, modelID string, cfg benchmark.ConfigSnapshot, base *models.ModelConfig) error {
+	if base == nil {
+		saved, err := e.s.registry.GetConfig(modelID)
+		if err != nil {
+			return fmt.Errorf("resolve config for %s: %w", modelID, err)
+		}
+		base = saved
 	}
 	merged := benchmark.ApplySnapshotToConfig(*base, cfg)
 	if err := resolveGPUAssignment(&merged, *base, len(e.s.monitor.Current().GPU)); err != nil {

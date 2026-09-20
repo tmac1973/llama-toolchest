@@ -2,6 +2,8 @@ package benchmark
 
 import (
 	"time"
+
+	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
 // AdhocJobID is the synthetic catch-all job that holds runs not produced
@@ -59,6 +61,15 @@ type BenchmarkJob struct {
 	Presets   []string         `json:"presets,omitempty"`
 	Overrides *ConfigOverrides `json:"overrides,omitempty"`
 
+	// BaseProfile measures from a saved profile's settings rather than
+	// the model's live config. Autotune starts from a profile the user
+	// chose, and must neither depend on the live config nor change it.
+	BaseProfile *BaseProfile `json:"base_profile,omitempty"`
+	// AutotuneID and AutotuneStage link a job to the autotune run that
+	// submitted it, and name the stage it measures.
+	AutotuneID    string `json:"autotune_id,omitempty"`
+	AutotuneStage string `json:"autotune_stage,omitempty"`
+
 	// Sweeps expand the matrix: every combination of every axis becomes
 	// its own cell. Overrides still apply to all of them, so a fixed
 	// value acts as the baseline for whatever isn't being swept.
@@ -71,6 +82,15 @@ type BenchmarkJob struct {
 
 	// Expanded matrix
 	Cells []JobCell `json:"cells,omitempty"`
+}
+
+// BaseProfile is the saved profile a job measures from: the name, for
+// the record, and the whole config, because the fields a snapshot does
+// not carry — sampling, jinja, the vision projector — have to come from
+// the profile too.
+type BaseProfile struct {
+	Name   string             `json:"name"`
+	Config models.ModelConfig `json:"config"`
 }
 
 // ConfigOverrides applies on top of each model's saved ModelConfig for

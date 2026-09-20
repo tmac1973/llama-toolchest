@@ -207,3 +207,25 @@ Everything the autotune runner needs except the running itself:
 ## Rollback
 Revert the commit. `base_profile` and the `autotune_*` job fields are ignored
 by older code. `autotune.json` is left on disk, unused.
+
+## As implemented
+
+- **`BaseProfile` also decides the sampling.** A cell measuring a profile
+  sends that profile's sampling values, not the live config's: speculative
+  decoding accepts fewer drafts at a high temperature, so sampling is part
+  of what is being measured. The profile is applied even for a cell with no
+  overrides, because that cell is the baseline and the baseline has to be
+  the profile.
+- **`Wait`** keeps one channel per job submitted in this process. A job that
+  already finished, or one this process never ran, answers from the store.
+- **Stage caps.** A stage is capped at 40 cells, the settings stage at 12
+  per finalist, and each stage builds on at most 3 finalists from the one
+  before. On a machine with many cores, drafts and GPUs the product would
+  otherwise grow past what anyone will wait for.
+- **Draft candidates are ordered smallest first**, and at most two are
+  measured for a plain draft model (one for a converted head, which is
+  specific to the model): a drafter only pays while it is much cheaper than
+  the model it drafts for.
+- **The record store** follows the Phase 01 pattern (versioned, gated,
+  atomic write) and keeps the 50 most recent runs, since a run holds every
+  candidate it measured.
