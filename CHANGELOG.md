@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.29.4](https://github.com/tmac1973/llama-toolchest/compare/v2.29.3...v2.29.4) (2026-09-20)
+
+
+### Bug Fixes
+
+* show a saved profile straight away, keep the maximum context that was asked for, and give the sweep column room to be read ([#186](https://github.com/tmac1973/llama-toolchest/issues/186)) ([a9637a7](https://github.com/tmac1973/llama-toolchest/commit/a9637a702df214268e1009c188de168a791c5896))
+
 ## [2.29.3](https://github.com/tmac1973/llama-toolchest/compare/v2.29.2...v2.29.3) (2026-09-20)
 
 
