@@ -13,21 +13,27 @@
     </p>
     {{end}}
     <p>Autotune measures this model at different settings and saves the fastest ones as profiles. It changes only settings that cannot change the model's answers, so a faster profile is faster at the same work.</p>
+    <p><small title="Autotune measures speed. It keeps the profile's context size, KV cache type, GPU layers and expert offload exactly as they are, so it cannot notice that they are wrong — it would measure the fastest version of a bad fit.">
+        <strong>Set the model up first.</strong> Autotune keeps the profile's context size, memory settings and sampling as they are: it makes a working setup faster, it does not make a wrong one right. Run Autoconfigure, or configure the model by hand, before measuring.
+    </small></p>
 
     {{if .NoProfiles}}
     <p><mark>&#9888; Autotune measures from a saved profile, and this model has none.</mark></p>
+    <p>Run <strong>Autoconfigure</strong> first: it works out the context size and memory settings that fit this machine and saves them as a profile, which is what Autotune then measures from.</p>
     <p>
-        <button type="button"
+        <button type="button" class="secondary"
                 hx-post="/api/models/{{.ModelID}}/autotune/save-current"
                 hx-target="#autotune-{{cssID .ModelID}}" hx-swap="innerHTML"
-                title="Saves this model's current settings as a profile, so Autotune has a starting point that cannot change while it measures.">
-            Save the current settings as a profile
+                title="Saves this model's current settings as a profile, so Autotune has a starting point that cannot change while it measures. Only worth doing when you have already set this model up yourself.">
+            Or save the current settings as a profile
         </button>
-        or run Autoconfigure first.
     </p>
     {{else}}
     <form hx-post="/api/models/{{.ModelID}}/autotune"
           hx-target="#autotune-{{cssID .ModelID}}" hx-swap="innerHTML">
+        {{if not .HasAutoconfig}}
+        <p><small><mark>&#9888; This model has no Autoconfigure profile. If you have not set its context size and memory settings up yourself, run Autoconfigure first — Autotune keeps them as they are.</mark></small></p>
+        {{end}}
         <label title="Autotune keeps this profile's context size, memory settings and sampling exactly as they are. Those change what the model answers; Autotune only changes how fast it answers.">
             Start from profile
             <select name="profile"
@@ -71,8 +77,8 @@
 {{end}}
 
 {{define "autotune_estimate"}}
-<small title="An estimate: a measurement takes as long as the model takes to load plus the time to run the prompts. The first stage measures the real time and the estimate is replaced by it.">
-    {{if .Cells}}About {{.Cells}} settings to measure, roughly {{.Minutes}} minutes.{{else}}Choose a profile to see how long this takes.{{end}}
+<small title="An upper bound: each stage narrows to a few finalists, and how many depends on what the measurements show, so a run usually measures fewer settings than this. One measurement costs a model load plus the prompts. Once the first stage has run, the time left is worked out from what it actually took.">
+    {{if .Cells}}Up to {{.Cells}} settings to measure, about {{.Minutes}} minutes at most. Usually less: each stage narrows to its winners.{{else}}Choose a profile to see how long this takes.{{end}}
 </small>
 {{end}}
 

@@ -112,11 +112,11 @@ func TestAutotuneEstimateFollowsTheChoices(t *testing.T) {
 
 // fmtSscan pulls "roughly N minutes" out of the rendered estimate.
 func fmtSscan(s string, n *int) (int, error) {
-	i := strings.Index(s, "roughly ")
+	i := strings.Index(s, "about ")
 	if i < 0 {
 		return 0, errNoEstimate
 	}
-	rest := s[i+len("roughly "):]
+	rest := s[i+len("about "):]
 	j := strings.Index(rest, " ")
 	if j < 0 {
 		return 0, errNoEstimate
@@ -283,5 +283,40 @@ func TestAutotuneStoppedRunCanBeLeftBehind(t *testing.T) {
 	out = s.doTune(t, "GET", "/api/models/"+profTestID+"/autotune", nil)
 	if !strings.Contains(out, "every setting failed") || !strings.Contains(out, "autotune?new=1") {
 		t.Errorf("a failed run does not explain itself or offer a new run:\n%s", out)
+	}
+}
+
+// Autotune does not do Autoconfigure's job, and says so: the dialog tells
+// the user to set the model up first, and warns when nothing has.
+func TestAutotuneDialogSendsYouToAutoconfigureFirst(t *testing.T) {
+	s := newTuneServer(t)
+
+	// No profile at all: Autoconfigure is the recommendation, and saving
+	// the current settings is the alternative.
+	out := s.doTune(t, "GET", "/api/models/"+profTestID+"/autotune", nil)
+	if !strings.Contains(out, "Run <strong>Autoconfigure</strong> first") {
+		t.Errorf("a model with no profile is not sent to Autoconfigure:\n%s", out)
+	}
+
+	// A profile, but not one Autoconfigure wrote: still worth a warning,
+	// because nothing has checked that the settings fit this machine.
+	if _, err := s.registry.SaveProfile(profTestID, "Mine", models.ProfileSourceUser, "b1"); err != nil {
+		t.Fatal(err)
+	}
+	out = s.doTune(t, "GET", "/api/models/"+profTestID+"/autotune", nil)
+	if !strings.Contains(out, "no Autoconfigure profile") {
+		t.Errorf("no warning without an Autoconfigure profile:\n%s", out)
+	}
+	if !strings.Contains(out, "Set the model up first") {
+		t.Errorf("the dialog does not say what Autotune leaves alone:\n%s", out)
+	}
+
+	// With an Autoconfigure profile the warning goes away.
+	if _, err := s.registry.SaveProfile(profTestID, autoconfigProfileName, models.ProfileSourceAutoconfig, "b1"); err != nil {
+		t.Fatal(err)
+	}
+	out = s.doTune(t, "GET", "/api/models/"+profTestID+"/autotune", nil)
+	if strings.Contains(out, "no Autoconfigure profile") {
+		t.Errorf("the warning is still shown with an Autoconfigure profile:\n%s", out)
 	}
 }

@@ -26,6 +26,10 @@ type autotuneDialogData struct {
 	Minutes    int
 	Skipped    []string
 	BusyReason string
+	// HasAutoconfig reports an Autoconfigure profile among the choices.
+	// Without one, nothing has checked that this model's context size and
+	// memory settings fit the machine, and Autotune will not notice.
+	HasAutoconfig bool
 	// NoProfiles offers to save the live settings as a profile first:
 	// autotune measures from a profile, not from a config that can change
 	// under it.
@@ -85,6 +89,11 @@ func (s *Server) renderAutotuneDialog(w http.ResponseWriter, id string, banner *
 		if p.Name == autoconfigProfileName && i > 0 {
 			d.Profiles = append([]profileOption{p}, append(d.Profiles[:i], d.Profiles[i+1:]...)...)
 			break
+		}
+	}
+	for _, p := range d.Profiles {
+		if p.Name == autoconfigProfileName {
+			d.HasAutoconfig = true
 		}
 	}
 	d.NoProfiles = len(d.Profiles) == 0

@@ -162,3 +162,25 @@ bar.
   what that showed (a headline that repeated its own card title, "code
   work" rather than the words the dialog used, and "Autoconfig
   (autoconfig)" in the profile picker).
+
+## Autotune does not replace Autoconfigure
+
+The two change different settings, and Autotune cannot notice that a model
+is set up badly: it keeps the starting profile's context size, KV cache
+type, GPU layers, expert offload and sampling exactly as they are, and
+measures the fastest version of whatever it is given.
+
+So the screens say so:
+
+- the model card's button says Autotune keeps those settings, and to set
+  the model up with Autoconfigure or by hand first;
+- the dialog opens with "Set the model up first", and warns when the model
+  has no Autoconfigure profile;
+- a model with no profile at all is pointed at Autoconfigure, with saving
+  the current settings offered as the alternative for someone who
+  configured it themselves;
+- the Help page lists which settings each feature owns.
+
+The estimate is also worded as an upper bound ("up to N settings … usually
+less"), because the middle stages narrow to their winners and the count
+depends on what the measurements show.

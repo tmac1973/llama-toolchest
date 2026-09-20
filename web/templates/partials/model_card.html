@@ -81,7 +81,7 @@
                     Autoconfigure
                 </button>
                 <button type="button" class="outline"
-                        title="Measures this model at different settings and saves the fastest ones as profiles. It changes only settings that cannot change the model's answers."
+                        title="Measures this model at different settings and saves the fastest ones as profiles. It changes only settings that cannot change the model's answers, and keeps the profile's context size and memory settings as they are — so set the model up with Autoconfigure, or by hand, first."
                         hx-get="/api/models/{{.ID}}/autotune"
                         hx-target="#autotune-{{cssID .ID}}"
                         hx-swap="innerHTML"

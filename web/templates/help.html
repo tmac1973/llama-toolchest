@@ -195,6 +195,16 @@
     <h3>Autotune</h3>
     <p><strong>Autotune</strong> measures rather than suggests. Starting from a profile you choose, it runs the model at many settings and saves the fastest ones. It only changes settings that cannot change what the model answers — batch sizes, GPU placement, threads and speculative decoding — so a faster profile is faster at the same work.</p>
     <p>It asks what you use the model for, because that decides which settings win: <em>speculative decoding</em> guesses several tokens ahead and checks them in one step, which pays off most when the answer repeats the prompt, as in editing code. It measures in four stages — batch sizes, then speculative decoding including a draft method and an n-gram assist together, then the draft settings, then a confirming round — and saves up to three profiles: the fastest generation, the fastest prompt reading, and the fastest full answer. A setting only wins when it is faster by more than the measurements vary between runs, so the simpler setting is kept when the difference is noise.</p>
+
+    <h3>Set the model up before you measure it</h3>
+    <p>The two do different jobs, and Autotune does not include Autoconfigure. Run Autoconfigure first, or configure the model yourself, and measure afterwards.</p>
+    <dl>
+        <dt>Autoconfigure decides</dt>
+        <dd>the settings that have to be right for the model to run well at all: context size, KV cache type, how many layers are on the GPU, expert offload for mixture-of-experts models, GPU placement, and the publisher's sampling values. These change what the model can do and how it answers.</dd>
+        <dt>Autotune measures</dt>
+        <dd>the settings that only change speed: batch and micro-batch sizes, flash attention, split mode, thread count, and speculative decoding. It keeps everything in the first list exactly as the profile has it.</dd>
+    </dl>
+    <p>So Autotune cannot notice that a model is set up badly. Given a profile with a context far larger than the machine can hold, or half the layers on the CPU when they would all fit on the GPU, it will measure that faithfully and hand you the fastest version of it.</p>
     <p>Each stage is an ordinary benchmark job, so you can read the measurements on the Benchmarks page. While Autotune runs, the server restarts for each setting and cannot answer other requests; you can stop it at any time and keep what it has measured, then continue later.</p>
 
     <h2 id="model-config">Model config (Configure dialog)</h2>
