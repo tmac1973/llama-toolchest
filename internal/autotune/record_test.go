@@ -151,3 +151,30 @@ func stageKeys(rec *Autotune) []string {
 	}
 	return out
 }
+
+// The store and the runner must not share a record: the runner mutates
+// its copy for minutes at a time while the screens read what is stored.
+func TestStoreHandsOutCopies(t *testing.T) {
+	s := NewStore(t.TempDir())
+	rec := newRec("at-1", "m", time.Now())
+	rec.SetStage(StageRecord{Key: StageBatch, Status: StatusDone})
+	if err := s.Save(rec); err != nil {
+		t.Fatal(err)
+	}
+
+	// Mutating the record that was saved must not change what is stored.
+	rec.Status = StatusRunning
+	rec.Stages[0].Status = StatusRunning
+	rec.Skipped = append(rec.Skipped, "later")
+	stored, _ := s.Get("at-1")
+	if stored.Status != StatusPlanned || stored.Stages[0].Status != StatusDone || len(stored.Skipped) != 0 {
+		t.Errorf("the store shares its record with the caller: %+v", stored)
+	}
+
+	// And a copy handed out cannot be changed from under a later reader.
+	stored.Status = StatusFailed
+	again, _ := s.Get("at-1")
+	if again.Status != StatusPlanned {
+		t.Errorf("two readers share one record: %s", again.Status)
+	}
+}

@@ -293,7 +293,10 @@ func (r *Runner) runStage(ctx context.Context, rec *Autotune, stageKey string) e
 		stage.Status = StatusCancelled
 	}
 	rec.SetStage(stage)
-	if stageKey == StageBatch && rec.SecondsPerCell == 0 {
+	if stageKey == StageBatch && rec.SecondsPerCell == 0 && done.Status == benchmark.JobStatusCompleted {
+		// Only a stage that ran to the end divides its time by its cells;
+		// a stage stopped after two of forty would put the time per cell
+		// out by an order of magnitude, and it is never recomputed.
 		rec.SecondsPerCell = secondsPerCell(done)
 	}
 	if err := r.save(rec); err != nil {
@@ -456,7 +459,10 @@ func runError(run *benchmark.BenchmarkRun) string {
 // finalists picks the winner for each goal and carries them forward, so
 // the next stage builds on at most one setting per goal.
 func finalists(cands []Candidate, base benchmark.ConfigSnapshot, stageKey string) []Candidate {
-	byKey := map[string]*Candidate{}
+	// Indexes, not pointers: appending to out reallocates it, and a
+	// pointer taken before that would update an abandoned copy — the
+	// goal would silently vanish from the finalist.
+	at := map[string]int{}
 	var out []Candidate
 	for _, g := range Goals {
 		winner, _, ok := Pick(cands, g, base)
@@ -464,13 +470,13 @@ func finalists(cands []Candidate, base benchmark.ConfigSnapshot, stageKey string
 			continue
 		}
 		k := winner.Key()
-		if existing, seen := byKey[k]; seen {
-			existing.Goals = append(existing.Goals, g)
+		if i, seen := at[k]; seen {
+			out[i].Goals = append(out[i].Goals, g)
 			continue
 		}
 		winner.Goals = []Goal{g}
 		out = append(out, winner)
-		byKey[k] = &out[len(out)-1]
+		at[k] = len(out) - 1
 	}
 	return out
 }
@@ -519,6 +525,15 @@ func (r *Runner) conclude(rec *Autotune) {
 			continue
 		}
 		out := Outcome{Goal: g, Winner: winner, Baseline: baseline}
+		if _, measured := baseline.Scores[g]; !measured {
+			// Without the starting profile's own number there is nothing
+			// to compare against, and claiming either way would be made
+			// up.
+			out.Message = fmt.Sprintf("The %q profile could not be measured for %s, so there is nothing to compare against.",
+				rec.BaseProfile, GoalLabel(g))
+			rec.Results[g] = out
+			continue
+		}
 		if winner.Key() == "" || !Beats(winner.Scores[g], baseline.Scores[g]) {
 			out.Message = fmt.Sprintf("Your %q profile is already the %s.", rec.BaseProfile, GoalLabel(g))
 			rec.Results[g] = out

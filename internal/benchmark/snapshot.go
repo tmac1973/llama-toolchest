@@ -144,8 +144,12 @@ func ConfigForValues(base models.ModelConfig, values map[string]string, resolve 
 	}
 	snap := SnapshotFromConfig(base, "", false)
 	out := ApplySnapshotToConfig(base, ApplyOverrides(snap, ov))
-	if err := ResolveDraftFile(&out, resolve); err != nil {
-		return base, err
+	// Only a draft file these values named is resolved; the base config's
+	// own draft model stays where it is.
+	if ov != nil && ov.DraftModelPath != nil {
+		if err := ResolveDraftFile(&out, resolve); err != nil {
+			return base, err
+		}
 	}
 	return out, nil
 }

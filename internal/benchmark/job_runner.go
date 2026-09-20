@@ -308,6 +308,10 @@ func (q *JobQueue) run(ctx context.Context, job BenchmarkJob, rj *runningJob) {
 	defer func() {
 		q.mu.Lock()
 		q.current = nil
+		// The channel is closed for whoever is waiting, and dropped: a
+		// server that runs jobs for weeks would otherwise keep one per
+		// job forever. Wait falls back to the stored status.
+		delete(q.done, job.ID)
 		q.mu.Unlock()
 		close(rj.done)
 	}()
@@ -495,9 +499,14 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 	}
 	cfg := markProfileEdited(ApplyOverrides(baseSnap, cellOv), baseSnap)
 	// A spec value may name its draft file by model ID; turn it into the
-	// path the launch reads before anything is applied or recorded.
-	if err := resolveSnapshotDraftFile(&cfg, q.env.ResolveModelPath); err != nil {
-		return err
+	// path the launch reads before anything is applied or recorded. Only
+	// a file the cell itself named is touched: the model's own draft
+	// model must not be moved into the MTP slot by a cell that merely
+	// switched the method.
+	if cellOv != nil && cellOv.DraftModelPath != nil {
+		if err := resolveSnapshotDraftFile(&cfg, q.env.ResolveModelPath); err != nil {
+			return err
+		}
 	}
 
 	// Make the merged config real before measuring anything. Without

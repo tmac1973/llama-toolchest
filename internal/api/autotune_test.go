@@ -255,3 +255,33 @@ func TestModelCardOffersAutotune(t *testing.T) {
 		t.Errorf("card lacks the button or the container:\n%s", out)
 	}
 }
+
+// A run that was stopped must not trap the model: the screen offers to
+// continue it, and to start a new one with different choices.
+func TestAutotuneStoppedRunCanBeLeftBehind(t *testing.T) {
+	s := newTuneServer(t)
+	if _, err := s.registry.SaveProfile(profTestID, autoconfigProfileName, models.ProfileSourceAutoconfig, "b1"); err != nil {
+		t.Fatal(err)
+	}
+	s.tuneStore.Save(&autotune.Autotune{ID: "at-old", ModelID: profTestID, BaseProfile: "Autoconfig",
+		UseCase: autotune.UseChat, Status: autotune.StatusCancelled, CreatedAt: time.Now()})
+
+	out := s.doTune(t, "GET", "/api/models/"+profTestID+"/autotune", nil)
+	if !strings.Contains(out, "autotune/resume") || !strings.Contains(out, "autotune?new=1") {
+		t.Errorf("a stopped run offers no way to continue or to start again:\n%s", out)
+	}
+	fresh := s.doTune(t, "GET", "/api/models/"+profTestID+"/autotune?new=1", nil)
+	if !strings.Contains(fresh, "What do you use this model for?") {
+		t.Errorf("the start dialog is unreachable after a stopped run:\n%s", fresh)
+	}
+
+	// The same for a failed run, which the status screen does not show at
+	// all.
+	s.tuneStore.Save(&autotune.Autotune{ID: "at-bad", ModelID: profTestID, BaseProfile: "Autoconfig",
+		UseCase: autotune.UseChat, Status: autotune.StatusFailed, Error: "every setting failed",
+		CreatedAt: time.Now().Add(time.Minute)})
+	out = s.doTune(t, "GET", "/api/models/"+profTestID+"/autotune", nil)
+	if !strings.Contains(out, "every setting failed") || !strings.Contains(out, "autotune?new=1") {
+		t.Errorf("a failed run does not explain itself or offer a new run:\n%s", out)
+	}
+}

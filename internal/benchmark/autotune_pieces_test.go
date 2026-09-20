@@ -264,3 +264,33 @@ func TestJobRunsAgainstABaseProfile(t *testing.T) {
 		t.Errorf("the ephemeral config was not built from the profile: %+v", env.appliedBase)
 	}
 }
+
+// A cell that only switches the speculative method must not move the
+// model's own draft model into the MTP slot: draft-mtp loads a head, and
+// the profile's draft model is not one.
+func TestDraftFileOnlyMovesWhenTheCellNamedIt(t *testing.T) {
+	base := models.ModelConfig{Enabled: true, GPULayers: 999, ContextSize: 8192,
+		SpecType: "draft", DraftModelPath: "/models/small-draft.gguf", MtpPath: "/models/head.gguf"}
+
+	// The cell switches to MTP without naming a file.
+	got, err := ConfigForValues(base, map[string]string{"spec_type": "draft-mtp:draft_max=6"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MtpPath != "/models/head.gguf" {
+		t.Errorf("MtpPath = %q, want the profile's own head", got.MtpPath)
+	}
+	if got.DraftModelPath != "/models/small-draft.gguf" {
+		t.Errorf("DraftModelPath = %q, want the profile's own draft model", got.DraftModelPath)
+	}
+
+	// A cell that does name one still resolves it into the right slot.
+	got, err = ConfigForValues(base, map[string]string{"spec_type": "draft-mtp:draft_model=other-head"},
+		func(id string) (string, error) { return "/models/" + id + ".gguf", nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MtpPath != "/models/other-head.gguf" {
+		t.Errorf("MtpPath = %q, want the head the cell named", got.MtpPath)
+	}
+}

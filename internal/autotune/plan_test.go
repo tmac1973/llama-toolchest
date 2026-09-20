@@ -228,15 +228,81 @@ func TestBuildStageJob(t *testing.T) {
 }
 
 func TestEstimateMinutes(t *testing.T) {
-	// 12 cells of a 5 GiB model, two presets: load plus measurement.
-	if got := EstimateMinutes(12, 2, 5, 0); got < 15 || got > 30 {
-		t.Errorf("estimate = %d minutes, want roughly 20", got)
+	// 24 job cells of a 5 GiB model: each loads it and measures one
+	// preset, so about 20 seconds of load plus 45 of measuring.
+	if got := EstimateMinutes(24, 5, 0); got < 20 || got > 35 {
+		t.Errorf("estimate = %d minutes, want roughly 26", got)
 	}
 	// A measured time per cell replaces the guess.
-	if got := EstimateMinutes(10, 2, 5, 30); got != 5 {
+	if got := EstimateMinutes(10, 5, 30); got != 5 {
 		t.Errorf("estimate with a measured 30s per cell = %d, want 5", got)
 	}
-	if got := EstimateMinutes(0, 2, 5, 0); got != 0 {
+	if got := EstimateMinutes(0, 5, 0); got != 0 {
 		t.Errorf("no cells = %d minutes", got)
+	}
+}
+
+// The quoted estimate must not be smaller than the run turns out to be:
+// the middle stages build on several finalists, and a mixed workload
+// measures every setting twice.
+func TestEstimateRunIsNotOptimistic(t *testing.T) {
+	in := baseInput()
+	in.Model.NextNLayers = 1
+	cells, minutes := EstimateRun(in, UseMixed, 5, 0)
+
+	batch, _, _ := PlanStage(StageBatch, in)
+	in.Finalists[StageBatch] = []Candidate{
+		{Values: map[string]string{"ubatch_size": "1024"}},
+		{Values: map[string]string{"ubatch_size": "512"}},
+		{Values: map[string]string{"ubatch_size": "256"}},
+	}
+	spec, _, _ := PlanStage(StageSpec, in)
+	if cells < len(batch)+len(spec) {
+		t.Errorf("estimate of %d settings is below the %d the first two stages alone plan",
+			cells, len(batch)+len(spec))
+	}
+	chatCells, chatMinutes := EstimateRun(in, UseChat, 5, 0)
+	if chatCells != cells || chatMinutes >= minutes {
+		t.Errorf("mixed (%d cells, %d min) should take longer than chat (%d, %d) for the same settings",
+			cells, minutes, chatCells, chatMinutes)
+	}
+}
+
+// llama.cpp refuses a tensor split without flash attention, so that pair
+// must never be planned: it would load nothing and cost a model load.
+func TestPlanBatchNeverPairsTensorSplitWithFlashAttentionOff(t *testing.T) {
+	in := baseInput()
+	in.Cards = 2
+	cells, _, _ := PlanStage(StageBatch, in)
+	for _, c := range cells {
+		if c["split_mode"] == "tensor" && c["flash_attention"] == "false" {
+			t.Fatalf("planned a combination llama.cpp refuses to load: %v", c)
+		}
+	}
+	// Both are still measured, just not together.
+	if got := values(cells, "split_mode"); !got["tensor"] {
+		t.Error("the tensor split is no longer measured at all")
+	}
+	if got := values(cells, "flash_attention"); !got["false"] {
+		t.Error("flash attention off is no longer measured at all")
+	}
+}
+
+// A candidate with no response measurement must not displace a measured
+// one from the confirming stage.
+func TestPlanConfirmIgnoresUnmeasuredCandidates(t *testing.T) {
+	in := baseInput()
+	in.Finalists = map[string][]Candidate{
+		StageBatch: {
+			{Values: map[string]string{"ubatch_size": "4096"}}, // failed: no scores
+			{Values: map[string]string{"ubatch_size": "1024"}, Scores: map[Goal]Score{GoalResponse: {Value: -5}}},
+			{Values: map[string]string{"ubatch_size": "512"}, Scores: map[Goal]Score{GoalResponse: {Value: -6}}},
+		},
+	}
+	cells, _, _ := PlanStage(StageConfirm, in)
+	for _, c := range cells {
+		if c["ubatch_size"] == "4096" {
+			t.Fatalf("an unmeasured candidate reached the confirming stage: %v", cells)
+		}
 	}
 }

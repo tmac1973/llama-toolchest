@@ -30,9 +30,18 @@ type PlanInput struct {
 	Finalists map[string][]Candidate
 }
 
-// maxCells bounds a single stage, so a machine with many drafts or cores
-// cannot turn one stage into an afternoon.
-const maxCells = 40
+const (
+	// maxCells bounds a single stage, so a machine with many drafts or
+	// cores cannot turn one stage into an afternoon.
+	maxCells = 40
+	// carryLimit is how many finalists a stage builds on.
+	carryLimit = 3
+	// specParamsPerFinalist bounds the draft-settings stage.
+	specParamsPerFinalist = 12
+	// confirmCells is the size of the confirming stage: the finalists
+	// against the starting profile.
+	confirmCells = 7
+)
 
 // PlanStage returns the cells a stage measures: each one a set of sweep
 // values layered on the starting profile. The first cell of the first
@@ -87,6 +96,13 @@ func planBatch(in PlanInput) []map[string]string {
 	cells := crossBool(base, "flash_attention", flashOptions(in.Base))
 	if in.Cards > 1 {
 		cells = crossValues(cells, "split_mode", []string{"layer", "tensor"})
+		// llama.cpp refuses a tensor split without flash attention, so
+		// that pair would load nothing and only fill the "could not be
+		// measured" list. The cross above can produce it whatever the
+		// profile says, because both values are being varied.
+		cells = keep(cells, func(c map[string]string) bool {
+			return !(c["split_mode"] == "tensor" && c["flash_attention"] == "false")
+		})
 	}
 	if onCPU(in) && in.Cores >= 4 {
 		cells = crossValues(cells, "threads", threadOptions(in.Cores))
@@ -281,11 +297,10 @@ func planSpecParams(in PlanInput) []map[string]string {
 		assistKey := assistParamKey(assist)
 		assistValues := paramValues(params, assistKey, models.SpecAssistParams(assist), 0)
 
-		const perFinalist = 12
 		added := 0
 		for _, d := range draftValues {
 			for _, a := range assistValues {
-				if added >= perFinalist {
+				if added >= specParamsPerFinalist {
 					break
 				}
 				next := map[string]string{}
@@ -388,7 +403,7 @@ func splitSpec(value string) (mode, assist string, params map[string]string) {
 // starting profile.
 func planConfirm(in PlanInput) []map[string]string {
 	batch := topByResponse(in.Finalists[StageBatch], 2)
-	spec := distinct(append(append([]Candidate{}, in.Finalists[StageSpecParams]...), in.Finalists[StageSpec]...), 3)
+	spec := distinct(append(append([]Candidate{}, in.Finalists[StageSpecParams]...), in.Finalists[StageSpec]...), carryLimit)
 
 	cells := []map[string]string{{}} // the starting profile
 	for _, b := range batch {
@@ -410,8 +425,19 @@ func planConfirm(in PlanInput) []map[string]string {
 }
 
 // topByResponse returns the n candidates with the best response time.
+// Candidates that have no response measurement are left out: a missing
+// score reads as zero, and response times are negative seconds, so an
+// unmeasured candidate would otherwise outrank every measured one.
 func topByResponse(cands []Candidate, n int) []Candidate {
-	ranked := append([]Candidate{}, cands...)
+	var ranked []Candidate
+	for _, c := range cands {
+		if _, ok := c.Scores[GoalResponse]; ok {
+			ranked = append(ranked, c)
+		}
+	}
+	if len(ranked) == 0 {
+		ranked = append(ranked, cands...) // nothing measured: keep the order planned
+	}
 	sort.SliceStable(ranked, func(i, j int) bool {
 		return ranked[i].Scores[GoalResponse].Value > ranked[j].Scores[GoalResponse].Value
 	})
@@ -443,7 +469,7 @@ func distinct(cands []Candidate, n int) []Candidate {
 // an earlier stage, or the starting profile alone before it has run.
 func carryForward(in PlanInput, stage string) []map[string]string {
 	var out []map[string]string
-	for _, c := range distinct(in.Finalists[stage], 3) {
+	for _, c := range distinct(in.Finalists[stage], carryLimit) {
 		out = append(out, copyValues(c.Values))
 	}
 	if len(out) == 0 {
@@ -463,6 +489,17 @@ func copyValues(v map[string]string) map[string]string {
 func withValue(base map[string]string, key, value string) map[string]string {
 	out := copyValues(base)
 	out[key] = value
+	return out
+}
+
+// keep filters planned cells, for the combinations that cannot run.
+func keep(cells []map[string]string, ok func(map[string]string) bool) []map[string]string {
+	var out []map[string]string
+	for _, c := range cells {
+		if ok(c) {
+			out = append(out, c)
+		}
+	}
 	return out
 }
 
@@ -600,17 +637,17 @@ const (
 	presetSeconds = 45.0
 )
 
-// EstimateMinutes is how long a set of cells takes for a model of
-// sizeGiB, measuring presets per cell. secondsPerCell, when a previous
-// stage measured one, replaces the estimate.
-func EstimateMinutes(cells, presets int, sizeGiB, secondsPerCell float64) int {
+// EstimateMinutes is how long a number of job cells takes for a model of
+// sizeGiB: each cell loads the model and measures one preset.
+// secondsPerCell, once a stage has measured one, replaces the estimate.
+func EstimateMinutes(cells int, sizeGiB, secondsPerCell float64) int {
 	per := secondsPerCell
 	if per <= 0 {
 		load := sizeGiB * loadSecondsPerGiB
 		if load < minLoadSeconds {
 			load = minLoadSeconds
 		}
-		per = load + presetSeconds*float64(presets)
+		per = load + presetSeconds
 	}
 	minutes := int((float64(cells)*per)/60 + 0.5)
 	if minutes < 1 && cells > 0 {
@@ -631,19 +668,25 @@ func EstimateRun(in PlanInput, uc UseCase, sizeGiB, secondsPerCell float64) (cel
 	batch, _, _ := PlanStage(StageBatch, in)
 	cells = len(batch)
 
+	// Both middle stages build on the finalists of the one before, up to
+	// carryLimit of them, so the estimate has to allow for that fan-out
+	// or it would promise less than the run does.
 	drafts, _ := draftOptions(in)
 	assists := len(models.AssistModes())
-	spec := 1 + len(drafts) + assists + len(drafts)*assists
+	spec := (1 + len(drafts) + assists + len(drafts)*assists) * carryLimit
 	if spec > maxCells {
 		spec = maxCells
 	}
 	cells += spec
 
-	// The settings stage tunes what the previous one chose, capped at 12
-	// per finalist, and the confirming stage measures the finalists
-	// against the starting profile.
-	cells += 12
-	cells += 7
+	params := specParamsPerFinalist * carryLimit
+	if params > maxCells {
+		params = maxCells
+	}
+	cells += params
+	cells += confirmCells
 
-	return cells, EstimateMinutes(cells*presets, presets, sizeGiB, secondsPerCell)
+	// One cell runs one preset, so a workload with two presets has twice
+	// the cells rather than cells that each take twice as long.
+	return cells, EstimateMinutes(cells*presets, sizeGiB, secondsPerCell)
 }

@@ -267,6 +267,11 @@ func (s *Store) save() error {
 const maxStoredRuns = 50
 
 // Save stores a run, replacing one with the same ID.
+//
+// The record is copied in and out of the store. The runner mutates its
+// own record for minutes at a time between saves, while the screens poll
+// what is stored; sharing one struct between them would be a data race
+// on every field, including a slice being sorted in place.
 func (s *Store) Save(rec *Autotune) error {
 	if rec == nil || rec.ID == "" {
 		return errors.New("an autotune run needs an ID")
@@ -277,13 +282,14 @@ func (s *Store) Save(rec *Autotune) error {
 		return err
 	}
 	rec.UpdatedAt = time.Now().UTC()
+	stored := rec.clone()
 	for i, r := range s.runs {
 		if r.ID == rec.ID {
-			s.runs[i] = rec
+			s.runs[i] = stored
 			return s.save()
 		}
 	}
-	s.runs = append(s.runs, rec)
+	s.runs = append(s.runs, stored)
 	sort.SliceStable(s.runs, func(i, j int) bool { return s.runs[i].CreatedAt.After(s.runs[j].CreatedAt) })
 	if len(s.runs) > maxStoredRuns {
 		s.runs = s.runs[:maxStoredRuns]
@@ -291,28 +297,30 @@ func (s *Store) Save(rec *Autotune) error {
 	return s.save()
 }
 
-// Get returns a run by ID.
+// Get returns a copy of a run.
 func (s *Store) Get(id string) (*Autotune, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, r := range s.runs {
 		if r.ID == id {
-			return r, true
+			return r.clone(), true
 		}
 	}
 	return nil, false
 }
 
-// List returns every stored run, newest first.
+// List returns copies of every stored run, newest first.
 func (s *Store) List() []*Autotune {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make([]*Autotune, len(s.runs))
-	copy(out, s.runs)
+	out := make([]*Autotune, 0, len(s.runs))
+	for _, r := range s.runs {
+		out = append(out, r.clone())
+	}
 	return out
 }
 
-// LatestForModel returns the most recent run for a model.
+// LatestForModel returns a copy of the most recent run for a model.
 func (s *Store) LatestForModel(modelID string) (*Autotune, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -325,17 +333,41 @@ func (s *Store) LatestForModel(modelID string) (*Autotune, bool) {
 			best = r
 		}
 	}
-	return best, best != nil
+	if best == nil {
+		return nil, false
+	}
+	return best.clone(), true
 }
 
-// Active returns the run that is going, if any.
+// Active returns a copy of the run that is going, if any.
 func (s *Store) Active() (*Autotune, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, r := range s.runs {
 		if r.Status == StatusRunning || r.Status == StatusPlanned {
-			return r, true
+			return r.clone(), true
 		}
 	}
 	return nil, false
+}
+
+// clone is a deep copy, so a stored record and the one the runner is
+// working on never share a slice or a map.
+func (a *Autotune) clone() *Autotune {
+	if a == nil {
+		return nil
+	}
+	data, err := json.Marshal(a)
+	if err != nil {
+		slog.Error("could not copy an autotune record", "run", a.ID, "error", err)
+		shallow := *a
+		return &shallow
+	}
+	var out Autotune
+	if err := json.Unmarshal(data, &out); err != nil {
+		slog.Error("could not copy an autotune record", "run", a.ID, "error", err)
+		shallow := *a
+		return &shallow
+	}
+	return &out
 }

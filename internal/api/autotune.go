@@ -53,9 +53,16 @@ func useCaseOptions() []useCaseOption {
 // this model that is going or waiting to be read.
 func (s *Server) handleAutotuneDialog(w http.ResponseWriter, r *http.Request) {
 	id := s.registry.ResolveID(chi.URLParam(r, "id"))
-	if rec, ok := s.tuneStore.LatestForModel(id); ok && rec.Status != autotune.StatusDone {
-		s.renderAutotuneStatus(w, id, rec, nil)
-		return
+	// The button shows the model's latest run — its progress, or its
+	// results — so nothing measured is hidden behind a fresh dialog.
+	// "new" asks for the dialog itself, from "Run again" and from a run
+	// that was stopped and will not be continued; without it a model
+	// could never be measured again with different choices.
+	if r.URL.Query().Get("new") != "1" {
+		if rec, ok := s.tuneStore.LatestForModel(id); ok {
+			s.renderAutotuneStatus(w, id, rec, nil)
+			return
+		}
 	}
 	s.renderAutotuneDialog(w, id, nil)
 }

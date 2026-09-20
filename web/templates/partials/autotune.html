@@ -118,6 +118,10 @@
                 hx-target="#autotune-{{cssID .ModelID}}" hx-swap="innerHTML"
                 title="Continues from the stage it stopped at. Nothing already measured is measured again.">Continue</button>
         <button type="button" class="outline secondary"
+                hx-get="/api/models/{{.ModelID}}/autotune?new=1"
+                hx-target="#autotune-{{cssID .ModelID}}" hx-swap="innerHTML"
+                title="Leaves this run where it is and starts again, from a profile and a kind of work you choose.">Start a new run</button>
+        <button type="button" class="outline secondary"
                 onclick="document.getElementById('autotune-{{cssID .ModelID}}').innerHTML='';">Close</button>
         {{end}}
     </div>
@@ -171,7 +175,7 @@
 
     <div role="group">
         <button type="button" class="outline secondary"
-                hx-get="/api/models/{{.ModelID}}/autotune"
+                hx-get="/api/models/{{.ModelID}}/autotune?new=1"
                 hx-target="#autotune-{{cssID .ModelID}}" hx-swap="innerHTML"
                 title="Measure again, from a profile and a kind of work you choose.">Run again</button>
         <button type="button" class="outline secondary"
