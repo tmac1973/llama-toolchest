@@ -189,7 +189,7 @@
             <tr>
                 <th>Model</th>
                 <th class="{{constCol .Varies "quant"}}">Quant</th>
-                <th class="{{constCol .Varies "sweep"}}" title="Which point of a parameter sweep this run measured">Sweep</th>
+                <th class="sweep-cell {{constCol .Varies "sweep"}}" title="Which point of a parameter sweep this run measured">Sweep</th>
                 <th class="{{constCol .Varies "prompt sizes"}}" title="The prompt lengths this run measured, which is what its averages cover. Prompt speed climbs steeply with prompt length, so two runs are only strictly comparable when this column matches. Hover a value for the breakdown by length.">Prompt sizes</th>
                 <th title="Prompt Processing tokens/sec, averaged over everything this run measured — the same figure as the bar chart above.">PP t/s</th>
                 <th title="Token Generation tokens/sec, averaged over everything this run measured — the same figure as the bar chart above.">TG t/s</th>
@@ -267,7 +267,7 @@
             data-sort-score="{{printf "%.4f" (evalScoreValue $run.Eval)}}">
             <td title="{{(index $.Labels $run.ID).Full}}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help;">{{if $run.ConfigUnverified}}<span title="Config columns for this run may not reflect what actually ran — its job declared overrides before overrides were applied. Throughput is still valid." style="color:var(--pico-del-color,#b3261e);cursor:help;">&#9888;</span> {{end}}{{$run.ModelName}}</td>
             <td class="{{constCol $.Varies "quant"}}"><kbd>{{$run.Quant}}</kbd></td>
-            <td class="{{constCol $.Varies "sweep"}}">{{if $run.SweepValues}}{{range $k, $v := $run.SweepValues}}<kbd>{{$k}}={{$v}}</kbd> {{end}}{{else}}—{{end}}</td>
+            <td class="sweep-cell {{constCol $.Varies "sweep"}}">{{if $run.SweepValues}}{{range sweepChips $run.SweepValues}}<kbd>{{.}}</kbd> {{end}}{{else}}—{{end}}</td>
             <td class="{{constCol $.Varies "prompt sizes"}}" title="{{$run.PromptSizesDetail}}" style="cursor:help;">{{with $run.PromptSizesText}}{{.}}{{else}}—{{end}}</td>
             <td>{{printf "%.0f" $s.AvgPromptTokPerSec}}</td>
             <td><strong>{{printf "%.1f" $s.AvgGenTokPerSec}}</strong></td>

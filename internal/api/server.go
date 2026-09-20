@@ -370,8 +370,12 @@ func (s *Server) templateFuncs() template.FuncMap {
 		// cell's tooltip. A run with nothing measured reads as an
 		// em-dash, the same as any other absent measurement here — a
 		// zero would claim the model used no memory.
-		"memText":   memText,
-		"memDetail": memDetail,
+		// sweepChips renders a cell's sweep point as one short label per
+		// setting. See benchmark.SweepChips for why the speculative
+		// value is split rather than shown as it is stored.
+		"sweepChips": benchmark.SweepChips,
+		"memText":    memText,
+		"memDetail":  memDetail,
 		// evalScoreValue is the comparable magnitude behind evalScoreText,
 		// used only for sorting the compare view. Zero for performance
 		// runs — the score sort button is hidden in that case.

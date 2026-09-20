@@ -154,7 +154,12 @@ func TestCompareTableHidesColumnsEveryRunShares(t *testing.T) {
 	if !strings.Contains(out, `<th class="bc-const">Quant</th>`) {
 		t.Errorf("Quant is identical in both runs and should be marked constant\n%s", out)
 	}
-	if !strings.Contains(out, `<th class="" title="Which point of a parameter sweep`) {
+	// The sweep column carries its own width class; what matters here is
+	// that it is not also marked constant.
+	if !strings.Contains(out, `title="Which point of a parameter sweep`) {
+		t.Fatalf("the sweep column is missing\n%s", out)
+	}
+	if strings.Contains(out, `<th class="sweep-cell bc-const"`) {
 		t.Errorf("the swept column must not be marked constant\n%s", out)
 	}
 	if !strings.Contains(out, "The same for every run:") {
