@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.29.2](https://github.com/tmac1973/llama-toolchest/compare/v2.29.1...v2.29.2) (2026-09-20)
+
+
+### Bug Fixes
+
+* give the CUDA container the shared memory NCCL needs, and stop re-measuring a setting that keeps failing ([#182](https://github.com/tmac1973/llama-toolchest/issues/182)) ([8410ea2](https://github.com/tmac1973/llama-toolchest/commit/8410ea2c2f8306de3800ae6f37150325ef47ba6f))
+
 ## [2.29.1](https://github.com/tmac1973/llama-toolchest/compare/v2.29.0...v2.29.1) (2026-09-20)
 
 
