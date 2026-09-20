@@ -20,6 +20,11 @@ services:
       - "${LLAMA_TOOLCHEST_BIND:-}${LLAMA_TOOLCHEST_INFERENCE_PORT:-8080}:8080"   # llama-server router (chat UI + inference)
     volumes:
       - llama-toolchest-data:/data:z
+    ipc: host                    # GPUs talk to each other through shared memory:
+                                 # NCCL on NVIDIA, and ROCm's own transport. Without
+                                 # it a tensor-parallel split aborts with
+                                 # "CUDA error: unhandled system error" once the
+                                 # cards first have to exchange partial results.
     env_file:
       - path: .env
         required: false

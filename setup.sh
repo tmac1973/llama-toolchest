@@ -1444,7 +1444,12 @@ generate_quadlet_app() {
     local gpu_args=""
 
     if [[ "$GPU_VENDOR" == "cuda" ]]; then
-        gpu_args="AddDevice=nvidia.com/gpu=all"
+        # --ipc=host: a tensor-parallel split has the cards exchange partial
+        # results through NCCL, which needs shared memory. The container's
+        # own /dev/shm is too small for it, and the load aborts with
+        # "CUDA error: unhandled system error" after the weights have loaded.
+        gpu_args="AddDevice=nvidia.com/gpu=all
+PodmanArgs=--ipc=host"
     elif [[ "$GPU_VENDOR" == "rocm" ]]; then
         local hsa_env=""
         if [[ -n "$AMD_GFX_VERSION" ]]; then

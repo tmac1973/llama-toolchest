@@ -23,7 +23,11 @@ services:
     group_add:
       - "${HOST_VIDEO_GID:-video}"
       - "${HOST_RENDER_GID:-render}"
-    ipc: host                    # ROCm needs shared memory for GPU communication
+    ipc: host                    # GPUs talk to each other through shared memory:
+                                 # NCCL on NVIDIA, and ROCm's own transport. Without
+                                 # it a tensor-parallel split aborts with
+                                 # "CUDA error: unhandled system error" once the
+                                 # cards first have to exchange partial results.
     security_opt:
       - seccomp=unconfined      # required for ROCm
     ulimits:
