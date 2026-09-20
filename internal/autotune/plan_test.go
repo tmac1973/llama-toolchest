@@ -30,8 +30,10 @@ func TestPlanBatchStage(t *testing.T) {
 	if len(cells) == 0 || len(cells[0]) != 0 {
 		t.Fatalf("the first cell must be the starting profile: %v", cells)
 	}
-	if len(cells) != 11 {
-		t.Errorf("cells = %d, want 11 (5 batch pairs × flash on/off, plus the baseline)", len(cells))
+	// 5 batch pairs with flash attention on, the smallest pair again
+	// with it off, plus the baseline.
+	if len(cells) != 7 {
+		t.Errorf("cells = %d, want 7 (5 batch pairs, one flash-off probe, the baseline)", len(cells))
 	}
 	if got := values(cells, "split_mode"); len(got) != 1 {
 		t.Errorf("split mode measured on one GPU: %v", got)
@@ -45,6 +47,26 @@ func TestPlanBatchStage(t *testing.T) {
 	}
 	if !fields["ubatch_size"] || !fields["flash_attention"] {
 		t.Errorf("axes = %v", fields)
+	}
+}
+
+// Flash attention off is measured at the smallest prompt batch only.
+// Without it the attention workspace grows with the prompt batch times
+// the context size, so at a long context the larger prompt batches run
+// out of memory and fail to load — half a stage spent on nothing.
+func TestPlanBatchMeasuresFlashOffAtOnePromptBatchOnly(t *testing.T) {
+	cells, _, _ := PlanStage(StageBatch, baseInput())
+	var off []map[string]string
+	for _, c := range cells {
+		if c["flash_attention"] == "false" {
+			off = append(off, c)
+		}
+	}
+	if len(off) != 1 {
+		t.Fatalf("flash attention off measured in %d cells, want 1: %v", len(off), off)
+	}
+	if off[0]["ubatch_size"] != "256" {
+		t.Errorf("flash-off prompt batch = %q, want the smallest (256)", off[0]["ubatch_size"])
 	}
 }
 
@@ -304,5 +326,68 @@ func TestPlanConfirmIgnoresUnmeasuredCandidates(t *testing.T) {
 		if c["ubatch_size"] == "4096" {
 			t.Fatalf("an unmeasured candidate reached the confirming stage: %v", cells)
 		}
+	}
+}
+
+// The registry lists every installed model for the head-based methods,
+// because its picker cannot tell a converted head from anything else and
+// the user chooses. Autotune chooses on its own, so it must not offer an
+// ordinary chat model as an EAGLE3 head: llama.cpp refuses to load it,
+// and the run spends minutes failing once per method.
+func TestPlanSpecSkipsHeadMethodsWithoutAHead(t *testing.T) {
+	in := baseInput()
+	in.Model.NextNLayers = 1
+	in.DraftCandidates = func(mode string) []models.DraftCandidate {
+		if mode == "draft" {
+			return nil
+		}
+		// What the registry really returns for a head-based mode: every
+		// installed model, filters deliberately not applied.
+		return []models.DraftCandidate{
+			{ID: "unsloth--Qwen3.5-4B-GGUF--Qwen3.5-4B-Q4_K_M", Filename: "Qwen3.5-4B-Q4_K_M.gguf", SizeGB: 2.5},
+		}
+	}
+	cells, _, skipped := PlanStage(StageSpec, in)
+
+	for v := range values(cells, "spec_type") {
+		for _, mode := range []string{"draft-eagle3", "draft-dflash", "draft-dspark"} {
+			if strings.Contains(v, mode) {
+				t.Errorf("%s was measured with a chat model as its head: %q", mode, v)
+			}
+		}
+	}
+	joined := strings.Join(skipped, " | ")
+	for _, name := range []string{"EAGLE3", "DFlash", "DSpark"} {
+		if !strings.Contains(joined, name) {
+			t.Errorf("skipped does not mention %s: %v", name, skipped)
+		}
+	}
+}
+
+// A file whose name says which method it belongs to is measured.
+func TestPlanSpecUsesAnInstalledHead(t *testing.T) {
+	in := baseInput()
+	in.DraftCandidates = func(mode string) []models.DraftCandidate {
+		if mode == "draft" {
+			return nil
+		}
+		return []models.DraftCandidate{
+			{ID: "chat-model", Filename: "Qwen3.5-4B-Q4_K_M.gguf", SizeGB: 2.5},
+			{ID: "head", Filename: "Qwen3.5-9B-EAGLE3-Q8_0.gguf", SizeGB: 0.3},
+		}
+	}
+	cells, _, _ := PlanStage(StageSpec, in)
+
+	var found string
+	for v := range values(cells, "spec_type") {
+		if strings.HasPrefix(v, "draft-eagle3") {
+			found = v
+		}
+	}
+	if found == "" {
+		t.Fatal("an installed EAGLE3 head was not measured")
+	}
+	if !strings.Contains(found, "head") || strings.Contains(found, "chat-model") {
+		t.Errorf("EAGLE3 used %q, want the head rather than the chat model", found)
 	}
 }

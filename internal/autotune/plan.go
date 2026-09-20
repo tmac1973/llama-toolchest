@@ -93,7 +93,19 @@ func planBatch(in PlanInput) []map[string]string {
 
 	// Flash attention off is only worth measuring where llama.cpp would
 	// load it: it refuses a tensor split or a quantized KV cache without.
-	cells := crossBool(base, "flash_attention", flashOptions(in.Base))
+	//
+	// It is measured at one prompt batch only, not across the whole
+	// grid. Without flash attention the attention workspace grows with
+	// the prompt batch multiplied by the context size, so at a long
+	// context every prompt batch above the smallest runs out of memory
+	// and fails to load — half the stage spent on cells that cannot run.
+	// The smallest prompt batch is the one with a chance of loading, and
+	// measuring it there answers the only question worth asking: is this
+	// machine faster without flash attention at all?
+	cells := crossBool(base, "flash_attention", []bool{true})
+	if allowsFlashOff(in.Base) && len(base) > 0 {
+		cells = append(cells, withValue(base[0], "flash_attention", "false"))
+	}
 	if in.Cards > 1 {
 		cells = crossValues(cells, "split_mode", []string{"layer", "tensor"})
 		// llama.cpp refuses a tensor split without flash attention, so
@@ -112,15 +124,13 @@ func planBatch(in PlanInput) []map[string]string {
 	return append([]map[string]string{{}}, cells...)
 }
 
-// flashOptions is the flash-attention values worth measuring: both, or
-// only the one the profile can run.
-func flashOptions(base models.ModelConfig) []bool {
+// allowsFlashOff reports whether the profile would load at all with
+// flash attention turned off. llama.cpp refuses it alongside a tensor
+// split or a quantized KV cache.
+func allowsFlashOff(base models.ModelConfig) bool {
 	off := base
 	off.FlashAttention = false
-	if off.ValidateFlashAttention() != nil {
-		return []bool{true}
-	}
-	return []bool{true, false}
+	return off.ValidateFlashAttention() == nil
 }
 
 // onCPU reports whether part of the model runs on the CPU, which is the
@@ -221,6 +231,17 @@ func draftOptions(in PlanInput) ([]draftOption, []string) {
 		if in.DraftCandidates != nil {
 			cands = in.DraftCandidates(mode)
 		}
+		if models.IsHeadBasedDraftMode(mode) {
+			// The registry lists every installed model for these modes on
+			// purpose: their drafter is a converted head rather than a
+			// smaller model of the same family, so it matches no filter,
+			// and the config form needs the whole list for the user to
+			// pick from. Autotune picks on its own, and an ordinary chat
+			// model is never a head — offering one only costs minutes and
+			// a "failed to load" per method. Keep the files that say
+			// which method they are for.
+			cands = headsFor(mode, cands)
+		}
 		if len(cands) == 0 {
 			skipped = append(skipped, fmt.Sprintf("%s: no file for it is installed", draftName(mode)))
 			continue
@@ -242,6 +263,40 @@ func draftOptions(in PlanInput) ([]draftOption, []string) {
 		}
 	}
 	return out, skipped
+}
+
+// headMarkers are the words a converted draft head carries in its name,
+// by method. Publishers name these files after the method that made
+// them ("…-EAGLE3-GGUF", "…-DFlash.gguf"), which is the only signal in
+// the file itself that says what it is: a head has no architecture of
+// its own to match against and no size rule separating it from a small
+// chat model.
+var headMarkers = map[string][]string{
+	"draft-eagle3": {"eagle3", "eagle-3", "eagle"},
+	"draft-dflash": {"dflash", "d-flash"},
+	"draft-dspark": {"dspark", "d-spark"},
+}
+
+// headsFor keeps the candidates whose name says they are a head for this
+// method. Matching on the name is a weak test, but the alternative is
+// treating every installed model as a head for every method, which is
+// how an ordinary chat model came to be measured as an EAGLE3 head.
+func headsFor(mode string, cands []models.DraftCandidate) []models.DraftCandidate {
+	markers := headMarkers[mode]
+	if len(markers) == 0 {
+		return nil
+	}
+	var out []models.DraftCandidate
+	for _, c := range cands {
+		name := strings.ToLower(c.ID + " " + c.Filename)
+		for _, m := range markers {
+			if strings.Contains(name, m) {
+				out = append(out, c)
+				break
+			}
+		}
+	}
+	return out
 }
 
 func draftName(mode string) string {
