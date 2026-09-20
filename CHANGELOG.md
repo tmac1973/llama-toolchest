@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.29.3](https://github.com/tmac1973/llama-toolchest/compare/v2.29.2...v2.29.3) (2026-09-20)
+
+
+### Bug Fixes
+
+* **benchmarks:** keep the results visible when a sweep is wide ([#184](https://github.com/tmac1973/llama-toolchest/issues/184)) ([3deb02b](https://github.com/tmac1973/llama-toolchest/commit/3deb02b8e3c6bab258e9c65d0624ab60eefb78b8))
+
 ## [2.29.2](https://github.com/tmac1973/llama-toolchest/compare/v2.29.1...v2.29.2) (2026-09-20)
 
 
