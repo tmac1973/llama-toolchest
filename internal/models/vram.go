@@ -158,9 +158,12 @@ const (
 //	Overhead        nothing — it is the remainder llama.cpp never itemises,
 //	                the gap between its own accounting and the card counters
 type VRAMBreakdown struct {
-	Weights        float64
-	Aux            float64
-	KVCache        float64
+	Weights float64
+	Aux     float64
+	KVCache float64
+	// SpecKV is the KV cache of the speculative draft context, which is
+	// separate from the model's own and is not quantized.
+	SpecKV         float64
 	IndexerCache   float64
 	Compute        float64
 	IndexerScratch float64
@@ -175,7 +178,7 @@ type VRAMBreakdown struct {
 
 // Total is the figure the UI shows.
 func (b VRAMBreakdown) Total() float64 {
-	return b.Weights + b.Aux + b.KVCache + b.IndexerCache + b.Compute + b.IndexerScratch + b.Overhead
+	return b.Weights + b.Aux + b.KVCache + b.SpecKV + b.IndexerCache + b.Compute + b.IndexerScratch + b.Overhead
 }
 
 // Reported is the part of the estimate llama.cpp itemises while loading,
@@ -244,9 +247,55 @@ func VRAMBreakdownForConfigOn(m *Model, cfg *ModelConfig, cards int) VRAMBreakdo
 		b.IndexerScratch = float64(cards) * indexerScratchCopies * float64(ctx) * float64(ub) * 4 / (1024 * 1024 * 1024)
 	}
 
+	b.SpecKV = SpecKVCacheGB(m, cfg, ctx)
+
 	b.Aux = AuxFilesVRAMGB(cfg)
 	b.Overhead = float64(cards) * vramPerDeviceOverheadGB
 	return b
+}
+
+// specDraftLayers is how many layers of KV cache the draft context holds
+// when the count is not known from the file: the drafter's own layer,
+// and the one it predicts from.
+const specDraftLayers = 2
+
+// SpecKVCacheGB estimates the KV cache of the speculative draft context,
+// which llama.cpp allocates separately from the model's own.
+//
+// It is the term that was missing when a 27B model with built-in MTP was
+// planned at its full 262,144-token context: everything else fitted, and
+// the load failed at "failed to allocate buffer for kv cache" while
+// creating the draft context. The cache is worth nothing at a short
+// context and gigabytes at a long one, which is exactly where a planner
+// has to get it right.
+//
+// Two things make it larger than its share of layers suggests. It is not
+// quantized — the model's cache-type setting does not reach it, so it is
+// f16 whatever the main cache is — and it spans the drafter's layers
+// plus the one it predicts from.
+func SpecKVCacheGB(m *Model, cfg *ModelConfig, ctx int) float64 {
+	if m == nil || cfg == nil || !IsDraftMode(cfg.SpecType) || m.NLayers <= 0 {
+		return 0
+	}
+	if ctx <= 0 {
+		ctx = m.ContextLength
+	}
+	if ctx <= 0 {
+		return 0
+	}
+	layers := specDraftLayers
+	if n := m.NextNLayers; n > 0 && n+1 > layers {
+		layers = n + 1
+	}
+	if layers > m.NLayers {
+		layers = m.NLayers
+	}
+	// Full attention, deliberately: the draft context caches every
+	// position it drafts over. Taking a share of the model's own cache
+	// instead would understate it badly on a model whose layers mostly
+	// cache a sliding window, which is where the context is longest and
+	// the term matters most.
+	return EstimateKVCacheGB(layers, m.NKVHead, m.NHead, m.NEmbd, ctx, "")
 }
 
 // CPUWeightBytes estimates the model weights a config keeps in system
