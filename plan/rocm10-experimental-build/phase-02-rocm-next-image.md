@@ -111,22 +111,36 @@ unresolved-variable warning.
 
 ## Test plan
 
+**Every `podman run` below needs `--entrypoint`.** The built image sets
+`ENTRYPOINT ["llama-toolchest", …]`, so a bare `podman run <image> bash -lc '…'`
+passes `bash` and its arguments to `llama-toolchest`, which ignores them and
+starts the server listening on :3000 — the command appears to hang rather than
+failing. Phase 01's inventory commands did not need this because the AMD base
+image has no entrypoint; the moment the `.deb` is installed, it does.
+
 1. **Image builds.** The `podman build` above completes. Record the final image
    size in this phase's notes.
-2. **ROCm survives the build.** `podman run --rm llama-toolchest:rocm-next-test
-   bash -lc 'cat /opt/rocm/core/.info/version; command -v hipcc'` reports
+2. **ROCm survives the build.** `podman run --rm --entrypoint bash
+   llama-toolchest:rocm-next-test -lc 'cat /opt/rocm/core/.info/version; command -v hipcc'` reports
    `10.0.0` and a `hipcc` path — confirming the `.deb` install did not disturb
    the base's ROCm. Note the path: this image has no `/opt/rocm/.info/version`
    (Phase 01), which is why Phase 04 reads both layouts.
-3. **The app is installed and runnable.** `podman run --rm
-   llama-toolchest:rocm-next-test llama-toolchest --help` exits 0.
+3. **The app is installed and runnable.** `podman run --rm --entrypoint
+   llama-toolchest llama-toolchest:rocm-next-test --help` exits 0.
 4. **The toolchain the Builds page needs is present.** `podman run --rm
-   llama-toolchest:rocm-next-test bash -lc 'cmake --version && ninja --version &&
-   git --version && c++ --version'` all succeed — this is what the `.deb`'s
+   --entrypoint bash llama-toolchest:rocm-next-test -lc 'cmake --version &&
+   ninja --version && git --version && c++ --version'` all succeed — this is what the `.deb`'s
    dependencies are for, and it is the thing most likely to differ from Fedora.
-5. **GPU visible with devices attached.** `podman run --rm --device /dev/kfd
-   --device /dev/dri --group-add video --group-add render --security-opt
-   seccomp=unconfined llama-toolchest:rocm-next-test rocminfo | grep -m1 gfx1201`
+5. **GPU visible with devices attached.** Pass the host's numeric video and
+   render GIDs, not the group names — rootless podman maps names in the
+   container's own `/etc/group`, which does not have the host's:
+   ```
+   podman run --rm --device /dev/kfd --device /dev/dri \
+     --group-add "$(getent group video | cut -d: -f3)" \
+     --group-add "$(getent group render | cut -d: -f3)" \
+     --security-opt seccomp=unconfined --entrypoint rocminfo \
+     llama-toolchest:rocm-next-test | grep -E 'Marketing Name|gfx1201'
+   ```
    finds the card. This is the first point the host driver is exercised.
 6. **The base tag is overridable.** Re-run the build with
    `--build-arg ROCM_BASE_IMAGE=docker.io/rocm/dev-ubuntu-24.04:7.14.1-full` and
@@ -139,7 +153,7 @@ unresolved-variable warning.
    `Dockerfile.rocm` or `docker-compose.rocm.yml`.
 8. **No cmake workaround is needed.** Confirm the HIP cmake config is where
    Phase 01 Step 5 recorded it:
-   `podman run --rm llama-toolchest:rocm-next-test ls /opt/rocm/lib/cmake/hip/hip-config.cmake`
+   `podman run --rm --entrypoint ls llama-toolchest:rocm-next-test /opt/rocm/lib/cmake/hip/hip-config.cmake`
    must succeed. That single check is the whole test — do not also probe with
    `cmake --find-package`, which reports a different thing and would give two
    pass criteria for one test. If the file is elsewhere, record it for Phase 05

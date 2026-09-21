@@ -1,0 +1,123 @@
+# Runtime image — experimental ROCm variant, built on AMD's own ROCm image.
+#
+# Why this file exists alongside Dockerfile.rocm: ROCm 10 is published only as
+# container images. repo.radeon.com's el9, el10, rhel9 and rhel10 paths all stop
+# at 7.2.4, and so does the amdgpu-install path the ROCm install documentation
+# describes, so Dockerfile.rocm cannot reach anything newer however long we wait.
+# The 7.14.x line is in the same position. Starting from an AMD-published image
+# is the only route to a current ROCm.
+#
+# The base image supplies the whole ROCm SDK, which is why there is no
+# repo.radeon.com block below — the one in Dockerfile.rocm has no equivalent
+# here. ROCM_BASE_IMAGE selects the release; any tag from
+# https://hub.docker.com/r/rocm/dev-ubuntu-24.04/tags works, and setup.sh passes
+# the one the user chose.
+#
+# Ubuntu, not Fedora, because that is what AMD publishes. The .deb and the .rpm
+# come from the same nfpm template in .goreleaser.yaml, with Debian dependency
+# names already declared, so this costs nothing but the package manager.
+#
+# Default: install the released .deb from the GitHub releases page. The package's
+# hard deps — cmake, ninja-build, git, build-essential, pkg-config, libssl-dev —
+# come along automatically, which is the only reason this image has a build
+# toolchain at all (the base has g++ and nothing else).
+#
+# To install a locally-built snapshot package instead (dev iteration):
+#   make package-snapshot
+#   docker build --build-arg INSTALL_PACKAGE=dist/llama-toolchest_<ver>_linux_amd64.deb \
+#                -f Dockerfile.rocm-next .
+#
+# To pin a specific release version (avoid hitting the GH API at build time):
+#   docker build --build-arg LLAMA_TOOLCHEST_VERSION=1.0.0 -f Dockerfile.rocm-next .
+#
+# To try a different ROCm release:
+#   docker build --build-arg ROCM_BASE_IMAGE=docker.io/rocm/dev-ubuntu-24.04:7.14.1-full \
+#                -f Dockerfile.rocm-next .
+
+ARG ROCM_BASE_IMAGE=docker.io/rocm/dev-ubuntu-24.04:10.0.0-full
+FROM ${ROCM_BASE_IMAGE}
+
+# Re-declared after FROM: an ARG used by FROM is out of scope in the build
+# stage, and the LABEL below reads it.
+ARG ROCM_BASE_IMAGE
+ARG INSTALL_PACKAGE=""
+ARG LLAMA_TOOLCHEST_VERSION="latest"
+ARG TARGETARCH=amd64
+
+# Informational only — nothing reads this. It is here so `podman image inspect`
+# on a built image says which ROCm it came from; setup.sh tracks the choice in
+# .env, not from the image.
+LABEL org.opencontainers.image.base.name="${ROCM_BASE_IMAGE}"
+
+# ROCm environment. The base image already sets ROCM_PATH and puts
+# /opt/rocm/bin on PATH, and sets nothing else, so only the HIP variables are
+# needed here. Same values as Dockerfile.rocm; all three directories are present
+# in the base image.
+ENV HIP_PATH=/opt/rocm \
+  HIP_CLANG_PATH=/opt/rocm/llvm/bin \
+  HIP_DEVICE_LIB_PATH=/opt/rocm/amdgcn/bitcode
+
+# Keep apt's downloaded archives in a build cache mount rather than discarding
+# them, so repeated builds don't re-download the toolchain. docker-clean is
+# Debian's hook that deletes them; it has to go for the cache to be of any use.
+RUN rm -f /etc/apt/apt.conf.d/docker-clean
+
+# Runtime prerequisites only. Everything else — the build toolchain and
+# libssl-dev — arrives as a dependency of the package installed below, so it is
+# deliberately not repeated here: two lists of the same packages drift apart.
+#
+# Note what is NOT done here: the package lists are left in place. The package
+# install below uses apt-get and needs them to resolve its dependencies, so the
+# cleanup waits until that has run.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+      curl ca-certificates
+
+# uv is required by the llama-benchy benchmark integration — the benchmark
+# runner shells out to `uvx llama-benchy`. Install system-wide so the
+# llama-toolchest service finds it on $PATH.
+RUN curl -LsSf https://astral.sh/uv/install.sh \
+    | env UV_INSTALL_DIR=/usr/local/bin INSTALLER_NO_MODIFY_PATH=1 sh
+
+RUN --mount=type=bind,target=/build_context \
+    --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    set -e; \
+    if [ -n "${INSTALL_PACKAGE}" ]; then \
+        echo "Installing local snapshot: /build_context/${INSTALL_PACKAGE}"; \
+        apt-get install -y "/build_context/${INSTALL_PACKAGE}"; \
+    else \
+        if [ "${LLAMA_TOOLCHEST_VERSION}" = "latest" ]; then \
+            VERSION=$(curl -fsSL https://api.github.com/repos/tmac1973/llama-toolchest/releases/latest \
+                | grep -m1 '"tag_name"' | sed 's/.*"v\?\([^"]*\)".*/\1/'); \
+        else \
+            VERSION="${LLAMA_TOOLCHEST_VERSION}"; \
+        fi; \
+        echo "Installing release v${VERSION} (linux/${TARGETARCH})"; \
+        curl -fsSL -o /tmp/llama-toolchest.deb \
+            "https://github.com/tmac1973/llama-toolchest/releases/download/v${VERSION}/llama-toolchest_${VERSION}_linux_${TARGETARCH}.deb"; \
+        apt-get install -y /tmp/llama-toolchest.deb; \
+        rm /tmp/llama-toolchest.deb; \
+    fi; \
+    rm -rf /var/lib/apt/lists/*
+# ^ apt-get, not dpkg -i: dpkg would leave the package's dependencies
+#   unresolved and the build toolchain missing. The lists are removed here,
+#   after the last apt-get in the image.
+
+RUN mkdir -p /data/config /data/builds /data/models /data/llama.cpp
+
+RUN cat > /data/config/llama-toolchest.yaml <<'EOF'
+listen_addr: ":3000"
+data_dir: "/data"
+llama_port: 8080
+log_level: "info"
+EOF
+
+VOLUME ["/data"]
+
+# llama-toolchest web UI
+EXPOSE 3000
+# llama-server instances (chat UI + inference)
+EXPOSE 8080
+
+ENTRYPOINT ["llama-toolchest", "--config", "/data/config/llama-toolchest.yaml"]
