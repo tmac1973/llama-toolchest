@@ -14,8 +14,9 @@ problem: 7.14.1 shipped on 31 August 2026, after 10.0.0, and is likewise
 container-only. Nothing newer than 7.2.4 can reach `Dockerfile.rocm` as written,
 however long we wait, because the packages are not there to install.
 
-Meanwhile AMD does ship `rocm/dev-ubuntu-24.04:10.0.0-full` — a stable-tagged,
-8.22 GB image carrying the full ROCm 10.0.0 userspace. Anyone who wants to try
+Meanwhile AMD does ship `rocm/dev-ubuntu-24.04:10.0.0-full` — a stable-tagged
+image carrying the full ROCm 10.0.0 SDK, 8.22 GB to download and 20.8 GB on
+disk. Anyone who wants to try
 ROCm 10 on this project today has to hand-edit the Dockerfile and work out the
 Fedora-to-Ubuntu packaging differences themselves.
 
@@ -98,11 +99,17 @@ with an AMD GPU, in container mode.
 - **The base image supplies ROCm.** `rocm/dev-ubuntu-24.04:10.0.0-full` sets
   `ROCM_PATH=/opt/rocm` and puts `/opt/rocm/bin` on `PATH`, so the ROCm install
   block in `Dockerfile.rocm` has no equivalent in the experimental Dockerfile.
-  Whether it carries `hipcc`, `hipblas-dev` and the rocWMMA headers under those
-  names is unverified and must be confirmed by inspecting the pulled image, not
-  assumed. The image contains no kernel components and relies on the host driver.
-- **Version detection.** `/opt/rocm/.info/version` holds the ROCm version
-  (`7.2.4` on the current host) and is the source for the build stamp.
+  Phase 01 confirmed by inspection that it carries `hipcc`, the hipBLAS/rocBLAS
+  libraries and headers, the HIP CMake configs and — incidentally — the rocWMMA
+  headers, on Ubuntu 24.04.4 with `g++` but without `cmake`, `ninja`, `git` or
+  `pkg-config`. The image contains no kernel components and relies on the host
+  driver.
+- **Version detection differs between the two images.** The RPM layout has
+  `/opt/rocm/.info/version` (`7.2.4` on the current host); AMD's TheRock-built
+  Ubuntu images have `/opt/rocm/core/.info/version` (`10.0.0`) and no file at the
+  first path. The build stamp reads both, in that order. It must not use
+  `hipconfig --version`, which reports HIP's own component version —
+  `7.15.26333-0000000` on ROCm 10.0.0 — and would label a ROCm 10 build as 7.x.
 - **Kernel detection is limited.** `/sys/module/amdgpu/version` exists only for
   DKMS installs; on an in-tree `amdgpu` (this host, `7.2.3-1-cachyos`) it is
   absent. `uname -r` is the only signal always available, so the check reads

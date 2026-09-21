@@ -48,8 +48,9 @@ Qwen3.5 GGUF models are already installed, which is enough to test a load.
 5. **Confirm the GPU inside the container.**
    `podman exec llama-toolchest rocminfo | grep -E 'gfx1201|Marketing Name'`
    finds the RX 9070 XT. Also record `podman exec llama-toolchest cat
-   /opt/rocm/.info/version` — it must read `10.0.0`, and it is what the build
-   stamp will use.
+   /opt/rocm/core/.info/version` — it must read `10.0.0`, and it is the path the
+   build stamp reads in this image (Phase 01 found `/opt/rocm/.info/version`
+   absent here).
 6. **Build llama.cpp.** From the Builds page, build the ROCm profile with
    `GGML_HIP=ON` at the same ref used in Steps 1 and 2 — not merely "a recent
    ref", so the comparison holds. Do not enable `GGML_HIP_ROCWMMA_FATTN`: the overview

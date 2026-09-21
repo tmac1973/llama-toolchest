@@ -34,7 +34,9 @@ would risk flagging a build that works perfectly.
 1. **The field.** Add to `BuildResult` (`internal/builder/builder.go:37`):
    ```go
    // BuiltAgainst is the GPU toolchain this build was compiled against,
-   // as "<backend> <version>" — e.g. "rocm 10.0.0". A llama-server
+   // as "<backend> <version>" — e.g. "rocm 10.0.0", read from the ROCm
+   // release version file rather than from hipconfig, whose number is
+   // HIP's own and reads as 7.x even on ROCm 10. A llama-server
    // linked against one ROCm line does not run under another, and the
    // build directory outlives the container image, so this is what lets
    // the Builds page say which builds need rebuilding. Empty on builds
@@ -45,22 +47,32 @@ would risk flagging a build that works perfectly.
    `omitempty` plus "empty means unknown" mirrors the `CommitCount` precedent
    directly above it, so `builds.json` written by an older version still loads.
 2. **Detection.** Create `internal/builder/buildenv.go` with:
-   - `func backendVersion(backend, rocmInfoPath string) string` — the testable
-     core. For `rocm`, read the file at `rocmInfoPath` (normally
-     `/opt/rocm/.info/version`), trim whitespace, and take the first
-     whitespace-separated field so a longer line cannot become the version; if
-     that file is missing or empty, fall back to parsing the version out of
-     `hipconfig --version`. Both sources are defined here unconditionally, so
-     this does not depend on what Phase 01 found. For `cuda`, run
-     `nvcc --version` and extract the `release X.Y` number. For anything else,
-     return `""`. Any error returns `""` — an unreadable toolchain must not fail
-     a build.
+   - `func backendVersion(backend string, rocmInfoPaths []string) string` — the
+     testable core. For `rocm`, read each path in order and use the first that
+     yields a non-empty value, trimming whitespace and taking the first
+     whitespace-separated field so a longer line cannot become the version. The
+     production order, both confirmed by Phase 01, is:
+     1. `/opt/rocm/.info/version` — the Fedora/RPM layout the stable image uses,
+        which reports `7.2.4` there.
+     2. `/opt/rocm/core/.info/version` — the TheRock layout the AMD Ubuntu images
+        use, which reports `10.0.0`. `/opt/rocm/core` is a symlink through
+        `/etc/alternatives/core`, so this path names no version and keeps working
+        across releases.
+     Do **not** fall back to `hipconfig --version`. Phase 01 found it reports
+     `7.15.26333-0000000` in the ROCm 10.0.0 image — that is HIP's own component
+     version, not the ROCm release, and stamping it would label a ROCm 10 build
+     as 7.x and make the mismatch comparison wrong in the most confusing way
+     available. If neither file is readable the answer is unknown, which the rest
+     of the design already handles.
+     For `cuda`, run `nvcc --version` and extract the `release X.Y` number. For
+     anything else, return `""`. Any error returns `""` — an unreadable toolchain
+     must not fail a build.
    - `func BuildEnvStamp(backend string) string` — calls `backendVersion` with
-     the real path and returns `""` or `backend + " " + version`.
+     the real path list and returns `""` or `backend + " " + version`.
    - `func CurrentBuildEnv(backend string) string` — the same value for the
      running process, memoised per backend (a `sync.Mutex`-guarded map, since
-     `sync.Once` cannot be keyed), because `/opt/rocm/.info/version` cannot
-     change while the process lives.
+     `sync.Once` cannot be keyed), because neither version file can change while
+     the process lives.
    - `func StampMismatch(buildStamp, currentStamp string) bool` — true only when
      both are non-empty, their backend words are equal, and their version words
      differ. Different backends return false: a CUDA build listed on a ROCm host
@@ -133,9 +145,14 @@ would risk flagging a build that works perfectly.
    cmake-flags fallback further down the handler ("cmake flags not recorded —
    this build predates flag tracking"), which is the phrasing being echoed.
 9. **Tests.** In `internal/builder/buildenv_test.go`:
-   - `backendVersion("rocm", path)` against a temp file containing `10.0.0`, a
+   - `backendVersion("rocm", paths)` against a temp file containing `10.0.0`, a
      file with trailing whitespace and a trailing newline, a file with extra
      fields on the line, a missing path, and an empty file.
+   - Path ordering: first path present wins; first path missing falls through to
+     the second; first path present but empty also falls through; both missing
+     returns `""`. The fall-through cases are the ones that matter — the stable
+     image has only the first path and the ROCm 10 image only the second, so a
+     bug here would stamp one of the two images as unknown.
    - `backendVersion("vulkan", …)` and an unknown backend return `""`.
    - A table for `StampMismatch`: equal stamps false; `rocm 7.2.4` vs
      `rocm 10.0.0` true; either side empty false; `cuda 12.4` vs `rocm 10.0.0`

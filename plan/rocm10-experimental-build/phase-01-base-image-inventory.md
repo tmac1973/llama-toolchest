@@ -27,10 +27,12 @@ plan folder; its output is a findings document the next phase reads.
    Record the pulled size and digest. Expect roughly 8.2 GB.
 2. Confirm the ROCm version the image reports, which is also the source the build
    stamp will read in Phase 04:
-   `podman run --rm docker.io/rocm/dev-ubuntu-24.04:10.0.0-full cat /opt/rocm/.info/version`
-   Expect `10.0.0`. If the file is absent, record what `hipconfig --version` and
-   `ls /opt/rocm/.info/` report instead. This is recorded for reference only —
-   Phase 04 decides its own detection order and does not depend on this finding.
+   Try both layouts, because the Fedora image and the AMD Ubuntu images differ:
+   `podman run --rm <image> bash -lc 'for p in /opt/rocm/.info/version /opt/rocm/core/.info/version; do printf "%s: " "$p"; cat "$p" 2>/dev/null || echo absent; done'`
+   Result on 24.04:10.0.0-full — the first is absent, the second reports
+   `10.0.0`. Record the HIP number too (`hipconfig --version`) and label it as
+   HIP's own version, which it is: it reads `7.15.26333-0000000` on ROCm 10.0.0
+   and must never be used as the ROCm version.
 3. Inventory the compiler and tools. For each of `hipcc`, `hipconfig`,
    `amdclang++`, `rocminfo`, `rocm_agent_enumerator`, record the path and version:
    `podman run --rm <image> bash -lc 'for t in hipcc hipconfig amdclang++ rocminfo rocm_agent_enumerator; do printf "%s: " "$t"; command -v "$t" || echo MISSING; done'`

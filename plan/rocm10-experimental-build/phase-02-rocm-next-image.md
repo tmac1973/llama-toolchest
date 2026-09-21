@@ -44,10 +44,10 @@ that will be wrong within a year.
      HIP_DEVICE_LIB_PATH=/opt/rocm/amdgcn/bitcode
    ```
    These are the same values `Dockerfile.rocm` sets. Do not set `ROCM_PATH` or
-   `PATH`: the base image already sets both, confirmed by inspection. Phase 01
-   Step 7 records whether these three directories exist in the image; if it found
-   one missing or elsewhere, use the path it recorded instead and say so in a
-   comment.
+   `PATH`: the base image already sets both, and nothing else — Phase 01 Step 7
+   confirmed the base sets exactly `ROCM_PATH` and `PATH`, so all three of the
+   above are needed. It also confirmed all three directories exist at these
+   paths, so no correction is required.
 3. Install the runtime prerequisites with `apt-get`, not `dnf`:
    `curl` and `ca-certificates`. Not `libssl-dev` — the `.deb` already depends on
    it (Step 4), and naming it twice is the drift this step warns against. Use
@@ -55,10 +55,9 @@ that will be wrong within a year.
    delete `/var/lib/apt/lists/*` here: Step 4 installs the `.deb` with `apt-get`
    and needs those lists to resolve its dependencies. The cleanup belongs at the
    end of Step 4, after the last `apt-get`.
-   Those two are the whole list, with one defined exception: if Phase 01's
-   conclusion was **Go with additions**, add exactly the packages it named, each
-   on its own line with a comment citing the finding that called for it.
-   Everything else the image needs — the build toolchain (`cmake`,
+   Those two are the whole list. Phase 01 concluded plain **Go**, not "Go with
+   additions", so the exception that rule allowed for does not apply and nothing
+   further is added here. Everything else the image needs — the build toolchain (`cmake`,
    `ninja-build`, `git`, `build-essential`, `pkg-config`) and `libssl-dev` —
    arrives through the `.deb`'s declared dependencies in Step 4, so do not
    install any of that here and risk the two lists drifting apart.
@@ -115,9 +114,10 @@ unresolved-variable warning.
 1. **Image builds.** The `podman build` above completes. Record the final image
    size in this phase's notes.
 2. **ROCm survives the build.** `podman run --rm llama-toolchest:rocm-next-test
-   bash -lc 'cat /opt/rocm/.info/version; command -v hipcc'` reports `10.0.0`
-   and a `hipcc` path — confirming the `.deb` install did not disturb the base's
-   ROCm.
+   bash -lc 'cat /opt/rocm/core/.info/version; command -v hipcc'` reports
+   `10.0.0` and a `hipcc` path — confirming the `.deb` install did not disturb
+   the base's ROCm. Note the path: this image has no `/opt/rocm/.info/version`
+   (Phase 01), which is why Phase 04 reads both layouts.
 3. **The app is installed and runnable.** `podman run --rm
    llama-toolchest:rocm-next-test llama-toolchest --help` exits 0.
 4. **The toolchain the Builds page needs is present.** `podman run --rm
@@ -130,7 +130,9 @@ unresolved-variable warning.
    finds the card. This is the first point the host driver is exercised.
 6. **The base tag is overridable.** Re-run the build with
    `--build-arg ROCM_BASE_IMAGE=docker.io/rocm/dev-ubuntu-24.04:7.14.1-full` and
-   confirm `/opt/rocm/.info/version` reports a 7.14 version. Proves the argument
+   confirm the version file reports a 7.14 version — check both
+   `/opt/rocm/.info/version` and `/opt/rocm/core/.info/version`, since which
+   layout a TheRock-era image uses is exactly what Phase 04 has to tolerate. Proves the argument
    is wired and gives Phase 05 a second ROCm line to test the mismatch flag
    against. Delete that test image afterwards.
 7. **The stable path is untouched.** `git diff --stat` shows no change to
