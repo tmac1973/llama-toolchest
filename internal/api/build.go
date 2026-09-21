@@ -197,9 +197,9 @@ func (s *Server) handleListBuilds(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		respondHTML(w)
-		w.Write([]byte(`<table role="grid"><thead><tr><th>Build</th><th>SHA</th><th>Status</th><th>Date</th><th></th></tr></thead><tbody>`))
+		w.Write([]byte(`<table role="grid"><thead><tr><th>Build</th><th>SHA</th><th>Status</th><th title="The GPU toolchain this build was compiled against. A llama-server built against one ROCm version does not run under another, so a build that does not match the running container needs rebuilding.">Built against</th><th>Date</th><th></th></tr></thead><tbody>`))
 		for _, b := range builds {
-			s.renderPartial(w, "build_card", b)
+			s.renderPartial(w, "build_card", s.buildRowFor(&b))
 		}
 		w.Write([]byte(`</tbody></table>`))
 		return
@@ -330,6 +330,74 @@ func (s *Server) resolveActiveBuild() *builder.BuildResult {
 	return s.resolveBuild(s.activeBuild())
 }
 
+// buildRow is a build plus what the Builds page needs to say about it. The
+// BuildResult is embedded so the template's existing field references keep
+// working unchanged.
+//
+// One text field and one title field cover all three states, so the template
+// carries no wording of its own and the table and the info modal cannot drift
+// apart.
+type buildRow struct {
+	*builder.BuildResult
+	// BuiltAgainstText is the stamp, or an em-dash when the build has none.
+	BuiltAgainstText string
+	// Mismatch is true only when both stamps are known, name the same
+	// backend, and differ.
+	Mismatch bool
+	// BuiltAgainstTitle explains the cell: why it is flagged, or why it is
+	// blank. Empty only when the build is stamped and matches.
+	BuiltAgainstTitle string
+}
+
+// notRecordedTitle is the tooltip for a build with no stamp. Worded as a
+// near-twin of the cmake-flags fallback further down this file ("cmake flags
+// not recorded — this build predates flag tracking") so the two read as one
+// convention. Used verbatim by both the table and the info modal.
+const notRecordedTitle = "Not recorded — this build predates build-environment tracking."
+
+// titleAttr renders a title attribute, or nothing when there is no title to
+// give. Kept here so the modal and the template agree on when a tooltip exists.
+func titleAttr(title string) string {
+	if title == "" {
+		return ""
+	}
+	return fmt.Sprintf(` title="%s" style="cursor:help;"`, html.EscapeString(title))
+}
+
+// buildRowFor decides what the page says about one build.
+func (s *Server) buildRowFor(b *builder.BuildResult) buildRow {
+	row := buildRow{BuildResult: b, BuiltAgainstText: "—"}
+	if b == nil {
+		return row
+	}
+	current := s.currentBuildEnvFor(buildBackend(b))
+	switch {
+	case b.BuiltAgainst == "":
+		row.BuiltAgainstTitle = notRecordedTitle
+	case builder.StampMismatch(b.BuiltAgainst, current):
+		row.BuiltAgainstText = b.BuiltAgainst
+		row.Mismatch = true
+		backend, _, _ := strings.Cut(b.BuiltAgainst, " ")
+		row.BuiltAgainstTitle = fmt.Sprintf(
+			"Built against %s; this container runs %s. A llama-server built against one %s version does not run under another, so this build needs rebuilding before it will load. Nothing has been deleted — it is still here if you switch back.",
+			b.BuiltAgainst, current, backend)
+	default:
+		row.BuiltAgainstText = b.BuiltAgainst
+	}
+	return row
+}
+
+// currentBuildEnvFor reports the toolchain the running container has, through
+// an overridable field so tests can decide what "current" is. Without that seam
+// a render test would pass or fail according to whichever ROCm happens to be
+// installed on the machine running `go test`.
+func (s *Server) currentBuildEnvFor(backend string) string {
+	if s.currentBuildEnv != nil {
+		return s.currentBuildEnv(backend)
+	}
+	return builder.CurrentBuildEnv(backend)
+}
+
 // buildBackend returns a build's backend ("rocm", "cuda", ...), resolved
 // through its profile. It selects the llama.cpp device-name prefix
 // (ROCm0, CUDA0, ...) when the preset emits per-model device lists.
@@ -386,10 +454,19 @@ func (s *Server) handleBuildInfo(w http.ResponseWriter, r *http.Request) {
 	if found.Tag != "" {
 		fmt.Fprintf(w, `<dt><strong>Tag</strong></dt><dd>%s</dd>`, html.EscapeString(found.Tag))
 	}
+	row := s.buildRowFor(found)
+	mismatchMark := ""
+	if row.Mismatch {
+		mismatchMark = ` <span style="color:var(--pico-del-color);">&#9888;</span>`
+	}
 	fmt.Fprintf(w, `<dt><strong>Status</strong></dt><dd>%s</dd>
+		<dt><strong>Built against</strong></dt><dd%s>%s%s</dd>
 		<dt><strong>Started</strong></dt><dd>%s</dd>
 	</dl>`,
 		html.EscapeString(found.Status),
+		titleAttr(row.BuiltAgainstTitle),
+		html.EscapeString(row.BuiltAgainstText),
+		mismatchMark,
 		found.StartedAt.Format("2006-01-02 15:04:05"))
 
 	if len(found.CMakeFlags) == 0 {

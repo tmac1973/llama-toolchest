@@ -3,6 +3,14 @@
     <td><kbd>{{.ID}}</kbd></td>
     <td><code>{{slice .GitSHA 0 7}}</code></td>
     <td>{{.Status}}</td>
+    {{/* Built against: the GPU toolchain this build was compiled against.
+         Both the text and the tooltip come from buildRowFor, so this cell
+         carries no wording of its own and cannot drift from the info modal.
+         An unstamped build is already an em-dash here, the same as any other
+         absent value in the app, and its tooltip says why. */}}
+    <td{{with .BuiltAgainstTitle}} title="{{.}}" style="cursor:help;"{{end}}>
+        {{.BuiltAgainstText}}{{if .Mismatch}} <span style="color:var(--pico-del-color);">&#9888;</span>{{end}}
+    </td>
     <td>{{.StartedAt.Format "2006-01-02 15:04"}}</td>
     <td>
         <span style="display:flex;gap:0.5rem;">

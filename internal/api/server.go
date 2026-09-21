@@ -51,6 +51,13 @@ type Server struct {
 	tuneStore *autotune.Store
 	msClient  *modelscope.Client
 
+	// currentBuildEnv reports the GPU toolchain this process is running
+	// with, for the Builds page's build-environment comparison. Nil in
+	// production, where builder.CurrentBuildEnv is used; a test sets it so
+	// "current" is decided by the test rather than by whichever ROCm
+	// happens to be installed on the machine running it.
+	currentBuildEnv func(backend string) string
+
 	// probeCache memoizes remote GGUF header probes, keyed by source,
 	// repo and file. A published file's layout does not change, so the
 	// answer is good for the life of the process.
