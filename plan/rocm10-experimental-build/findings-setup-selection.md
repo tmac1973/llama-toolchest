@@ -201,3 +201,30 @@ reports whether the GPU is reachable: a container started without `/dev/kfd`
 then said nothing at all, despite plainly having a ROCm SDK installed. It now
 asks each GPU backend for its version and takes the first that answers, which
 is the actual question — what this container would compile against.
+
+
+## Losing .env silently moved model storage
+
+Reported while switching between the variants: setup.sh had forgotten the host
+model directory. It had not — `.env` was gone, and I had deleted it myself while
+testing the variant flags, after the container was already installed.
+
+The round-trip itself is correct, and was verified by driving `write_env_file`
+and `load_env_ports` directly: install as experimental with a models directory,
+read it back, switch to stable, read it back again — the directory and the
+variant both survive in both directions.
+
+But the failure mode this exposed is worth guarding regardless of who deleted
+the file. `.env` is gitignored, so a fresh clone, a clean checkout or a stray
+delete loses it — and losing it is not a harmless reset to defaults. Model
+storage silently reverts to the container's internal volume, the bind mount
+disappears on the next rebuild, and every model vanishes from the Models page
+with nothing on screen explaining why. The user is left to remember a path they
+typed once.
+
+`recover_models_dir_from_container` now asks the installed container, which
+knows the answer, when `.env` does not name a directory. It says what it found
+and why it matters. Four paths tested: recovery when `.env` is missing and a
+container is installed; silence when `.env` names a directory (which always
+wins); a no-op when no container is installed; and a no-op when the recorded
+mount no longer exists on disk.

@@ -2184,6 +2184,32 @@ require_value() {
     printf '%s' "$val"
 }
 
+# recover_models_dir_from_container adopts the model directory an already
+# installed container has bind-mounted, when .env does not name one.
+#
+# .env is gitignored and easy to lose — a fresh clone, a stray delete, a clean
+# checkout — and losing it is not a harmless reset. Model storage silently
+# reverts to the container's internal volume, the bind mount disappears, and
+# every model vanishes from the Models page with nothing on screen to say why.
+# The installed container knows the answer, so ask it rather than making the
+# user remember a path.
+recover_models_dir_from_container() {
+    [[ -z "$LLAMA_TOOLCHEST_MODELS_DIR" ]] || return 0
+    [[ -n "$CONTAINER_CMD" ]] || return 0
+
+    local src
+    src="$($CONTAINER_CMD inspect llama-toolchest \
+        --format '{{range .Mounts}}{{if eq .Destination "/data/models"}}{{.Source}}{{end}}{{end}}' 2>/dev/null)" || true
+    [[ -n "$src" && -d "$src" ]] || return 0
+
+    LLAMA_TOOLCHEST_MODELS_DIR="$src"
+    export LLAMA_TOOLCHEST_MODELS_DIR
+    warn "No model directory in .env, but the installed container has one mounted."
+    log "Using the container's:  ${src}"
+    log "Without this, a rebuild would move model storage to the container's own"
+    log "volume and your models would disappear from the Models page."
+}
+
 # prompt_confirm asks a yes/no question and returns 0 for yes.
 #
 # The optional second argument is the answer an empty reply takes: "yes" (the
@@ -2733,6 +2759,9 @@ main() {
     detect_container_runtime
     detect_distro
     load_env_ports
+    # .env is the normal source; the installed container is the fallback when
+    # it has been lost.
+    recover_models_dir_from_container
 
     # ── Commands that don't need prerequisite checks ──
     case "$command" in
