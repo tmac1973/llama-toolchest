@@ -781,17 +781,44 @@ func (s *Server) handleServicePage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleServerPage(w http.ResponseWriter, r *http.Request) {
+	choices, allMismatched := s.serverBuildChoices(s.cfg.ActiveBuild)
+
+	// Whether "Auto (newest ref)" would itself land on a build that cannot run
+	// here. Without this the one option that looks safest is the one that
+	// silently picks a broken build.
+	autoMismatch := false
+	if row := s.buildRowFor(s.resolveBuild("")); row.BuildResult != nil {
+		autoMismatch = row.Mismatch
+	}
+
 	data := struct {
 		pageData
-		ActiveBuild     string
-		ModelsMax       int
-		AvailableBuilds interface{}
+		ActiveBuild string
+		ModelsMax   int
+		// BuildChoices is every build with its runnability; AnyDisabled and
+		// AllMismatched drive the hint under the picker, because an <option>
+		// title attribute is not shown by every browser and the reason a
+		// build is refused has to be readable without hovering.
+		BuildChoices  []serverBuildChoice
+		AnyDisabled   bool
+		AllMismatched bool
+		AutoMismatch  bool
+		RunningEnv    string
 	}{
-		pageData:        pageData{Title: "Server", Nav: "server"},
-		ActiveBuild:     s.cfg.ActiveBuild,
-		ModelsMax:       s.cfg.ModelsMax,
-		AvailableBuilds: s.builder.List(),
+		pageData:      pageData{Title: "Server", Nav: "server"},
+		ActiveBuild:   s.cfg.ActiveBuild,
+		ModelsMax:     s.cfg.ModelsMax,
+		BuildChoices:  choices,
+		AllMismatched: allMismatched,
+		AutoMismatch:  autoMismatch,
 	}
+	for _, c := range choices {
+		if c.Disabled {
+			data.AnyDisabled = true
+			break
+		}
+	}
+	data.RunningEnv, _ = s.buildEnvBanner()
 	s.render(w, "server.html", data)
 }
 

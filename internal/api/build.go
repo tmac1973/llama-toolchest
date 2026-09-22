@@ -401,6 +401,54 @@ func (s *Server) buildRowFor(b *builder.BuildResult) buildRow {
 	return row
 }
 
+// serverBuildChoice is one entry in the Server page's build picker: a build,
+// whether it can run here, and whether the picker refuses it.
+type serverBuildChoice struct {
+	buildRow
+	// Disabled makes the option unselectable. Three deliberate exceptions,
+	// each of which would otherwise leave someone stuck:
+	//   - a build with no stamp is never disabled, because it cannot be judged;
+	//   - when every stamped build mismatches, none is disabled, since
+	//     refusing all of them would offer nothing that can be started;
+	//   - the build already selected is never disabled, because a disabled
+	//     selected <option> cannot be submitted and the form would silently
+	//     post a different value on the next change.
+	Disabled bool
+}
+
+// serverBuildChoices builds the Server page's picker. allMismatched is true
+// when nothing here could run: every successful build was built somewhere else,
+// so refusing them all would leave nothing to start.
+//
+// The test is "is there any candidate", not "does every stamped build
+// mismatch". An unstamped build is a candidate — it cannot be judged, so it
+// might well work — and while one exists there is somewhere to fall back to and
+// the mismatches can safely be refused.
+func (s *Server) serverBuildChoices(activeBuild string) (choices []serverBuildChoice, allMismatched bool) {
+	builds := s.builder.List()
+	successful, candidates := 0, 0
+	rows := make([]buildRow, 0, len(builds))
+	for i := range builds {
+		row := s.buildRowFor(&builds[i])
+		rows = append(rows, row)
+		if builds[i].Status == builder.BuildStatusSuccess {
+			successful++
+			if !row.Mismatch {
+				candidates++
+			}
+		}
+	}
+	allMismatched = successful > 0 && candidates == 0
+
+	choices = make([]serverBuildChoice, 0, len(rows))
+	for _, row := range rows {
+		c := serverBuildChoice{buildRow: row}
+		c.Disabled = row.Mismatch && !allMismatched && row.ID != activeBuild
+		choices = append(choices, c)
+	}
+	return choices, allMismatched
+}
+
 // currentBuildEnvFor reports the toolchain the running container has, through
 // an overridable field so tests can decide what "current" is. Without that seam
 // a render test would pass or fail according to whichever ROCm happens to be
