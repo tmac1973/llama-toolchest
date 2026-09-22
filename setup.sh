@@ -1483,7 +1483,11 @@ render_caddyfile() {
 configure_secure() {
     # Offer it interactively when the user didn't pass --secure/--no-secure.
     if [[ "$SECURE_EXPLICIT" != true && "$INTERACTIVE" == true && "$ASSUME_YES" != true ]]; then
-        if prompt_confirm "Enable access control + HTTPS (Caddy reverse proxy)?"; then
+        # Defaults to no: this adds a Caddy reverse proxy, a login and TLS in
+        # front of the server, which is a larger change than an install
+        # otherwise makes and is wrong to switch on by pressing Enter. It can
+        # be turned on later with ./setup.sh install --secure.
+        if prompt_confirm "Enable access control + HTTPS (Caddy reverse proxy)?" no; then
             SECURE=true
         fi
     fi
@@ -2180,21 +2184,41 @@ require_value() {
     printf '%s' "$val"
 }
 
+# prompt_confirm asks a yes/no question and returns 0 for yes.
+#
+# The optional second argument is the answer an empty reply takes: "yes" (the
+# default, shown as [Y/n]) or "no" (shown as [y/N]). Use "no" for anything that
+# turns on machinery the user did not ask for — pressing Enter through an
+# install should not switch features on.
+#
+# --yes takes the DEFAULT rather than always answering yes, which is what makes
+# a default-no question safe to automate. Every existing caller defaults to
+# yes, so this is unchanged for them.
 prompt_confirm() {
-    local prompt="$1"
-    # --yes auto-confirms; a non-TTY without --yes can't answer, so fail loudly
-    # rather than block or silently assume.
+    local prompt="$1" default="${2:-yes}" hint="[Y/n]"
+    if [[ "$default" == "no" ]]; then
+        hint="[y/N]"
+    fi
+
+    # --yes accepts the default; a non-TTY without --yes can't answer, so fail
+    # loudly rather than block or silently assume.
     if [[ "$ASSUME_YES" == true ]]; then
+        if [[ "$default" == "no" ]]; then return 1; fi
         return 0
     fi
     if [[ "$INTERACTIVE" != true ]]; then
         fatal "Non-interactive shell and --yes not given; cannot answer: '${prompt}'. Re-run with --yes (and any required flags)."
     fi
+
     local answer
-    read -rp "$(echo -e "${BOLD}${prompt}${NC} [Y/n] ")" answer
-    case "${answer:-Y}" in
-        [Yy]*|"") return 0 ;;
-        *)        return 1 ;;
+    read -rp "$(echo -e "${BOLD}${prompt}${NC} ${hint} ")" answer
+    if [[ -z "$answer" ]]; then
+        if [[ "$default" == "no" ]]; then return 1; fi
+        return 0
+    fi
+    case "$answer" in
+        [Yy]*) return 0 ;;
+        *)     return 1 ;;
     esac
 }
 
