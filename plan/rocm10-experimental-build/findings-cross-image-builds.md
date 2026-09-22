@@ -34,12 +34,21 @@ Three places, deliberately different in strength:
 tooltip. Never blocks: the stamp can be absent, and a build that merely *looks*
 wrong may be fine.
 
-**Server page — refuses.** The build picker renders mismatched builds
-struck-through and unselectable, because this is where the confusing failure
-actually happened: picking one here produces a loader error that says nothing
-about images or ROCm versions, and the user has no way to connect the two.
-`Auto (newest ref)` says so too when it would land on an unusable build, since
-it is otherwise the option that looks safest.
+**Server page — refuses.** The build picker renders mismatched builds marked
+and unselectable, because this is where the confusing failure actually happened:
+picking one here produces a loader error that says nothing about images or ROCm
+versions, and the user has no way to connect the two. `Auto (newest ref)` says
+so too when it would land on an unusable build, since it is otherwise the option
+that looks safest.
+
+**The marker is text, not CSS, and that was learned the hard way.** The first
+version set `style="text-decoration:line-through"` on the `<option>`. The
+attribute was in the HTML and the browser ignored it — an `<option>` takes
+almost no styling, because the dropdown is drawn by the platform rather than
+laid out by the page. So the build appeared unselectable with no visible reason.
+The option now carries a warning sign and the words "cannot run in this image";
+the browser greys out a disabled option by itself, so the text only has to
+supply the reason.
 
 Three cases stay selectable, each because refusing them would be worse:
 
@@ -52,9 +61,11 @@ Three cases stay selectable, each because refusing them would be worse:
   submitted, so the form would silently post a different value on the next
   change. It is marked but not refused.
 
-The explanation sits under the picker as visible text rather than only in an
-`<option title>`, because browsers do not reliably show tooltips on options and
-"why is that one crossed out" has to be answerable without a mouse.
+The explanation is the select's own tooltip. It started as a line of text under
+the control, on the reasoning that an `<option title>` is not shown reliably —
+true, but it cluttered a page that has eight other controls, and the marker in
+the option text already answers "which one" without hovering. The tooltip
+answers "why", and is absent entirely when every build can run.
 
 **The router — reports.** No server-side block on starting a mismatched build.
 Deliberate: the stamp is a proxy, the escape hatches above exist for a reason,

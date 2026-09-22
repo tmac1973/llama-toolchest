@@ -795,31 +795,48 @@ func (s *Server) handleServerPage(w http.ResponseWriter, r *http.Request) {
 		pageData
 		ActiveBuild string
 		ModelsMax   int
-		// BuildChoices is every build with its runnability; AnyDisabled and
-		// AllMismatched drive the hint under the picker, because an <option>
-		// title attribute is not shown by every browser and the reason a
-		// build is refused has to be readable without hovering.
-		BuildChoices  []serverBuildChoice
-		AnyDisabled   bool
-		AllMismatched bool
-		AutoMismatch  bool
-		RunningEnv    string
+		// BuildChoices is every build with its runnability. PickerHint is the
+		// select's tooltip: the marked options say which builds cannot run,
+		// and this says why, without a line of text under the control.
+		BuildChoices []serverBuildChoice
+		AutoMismatch bool
+		PickerHint   string
 	}{
-		pageData:      pageData{Title: "Server", Nav: "server"},
-		ActiveBuild:   s.cfg.ActiveBuild,
-		ModelsMax:     s.cfg.ModelsMax,
-		BuildChoices:  choices,
-		AllMismatched: allMismatched,
-		AutoMismatch:  autoMismatch,
+		pageData:     pageData{Title: "Server", Nav: "server"},
+		ActiveBuild:  s.cfg.ActiveBuild,
+		ModelsMax:    s.cfg.ModelsMax,
+		BuildChoices: choices,
+		AutoMismatch: autoMismatch,
 	}
+	data.PickerHint = s.buildPickerHint(choices, allMismatched)
+	s.render(w, "server.html", data)
+}
+
+// buildPickerHint is the Server page build picker's tooltip. Empty when every
+// build can run here, so the control carries no tooltip at all rather than one
+// explaining a situation that does not apply.
+func (s *Server) buildPickerHint(choices []serverBuildChoice, allMismatched bool) string {
+	marked := false
 	for _, c := range choices {
-		if c.Disabled {
-			data.AnyDisabled = true
+		if c.Mismatch {
+			marked = true
 			break
 		}
 	}
-	data.RunningEnv, _ = s.buildEnvBanner()
-	s.render(w, "server.html", data)
+	if !marked {
+		return ""
+	}
+	running, _ := s.buildEnvBanner()
+	where := "the one running now"
+	if running != "" {
+		where = running
+	}
+	if allMismatched {
+		return "Every build listed was compiled in a different container image than " + where +
+			", so any of them may fail to load. They can still be chosen, because refusing all of them would leave nothing to start — but rebuilding on the Builds page is what will work."
+	}
+	return "Builds marked with a warning sign were compiled in a different container image than " + where +
+		", and cannot be chosen. Rebuild them on the Builds page to use them here; nothing has been deleted."
 }
 
 func (s *Server) handleHelpPage(w http.ResponseWriter, r *http.Request) {

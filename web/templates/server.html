@@ -93,12 +93,18 @@
                     <div class="grid">
                         <label>
                             Build
-                            {{/* Builds compiled in a different container image are struck
-                                 through and unselectable: starting one produces a loader
-                                 error that says nothing about the cause. See
-                                 serverBuildChoices for the three cases that are
-                                 deliberately left selectable. */}}
-                            <select name="active_build">
+                            {{/* Builds compiled in a different container image are marked
+                                 and unselectable: starting one produces a loader error
+                                 that says nothing about the cause. See serverBuildChoices
+                                 for the three cases deliberately left selectable.
+
+                                 The marker is TEXT, not CSS. An <option> takes almost no
+                                 styling — the dropdown is drawn by the platform, and
+                                 text-decoration is ignored on every browser tried here, so
+                                 a struck-through style silently did nothing. The browser
+                                 does grey out a disabled option, so the text only has to
+                                 supply the reason. */}}
+                            <select name="active_build" {{with .PickerHint}}title="{{.}}"{{end}}>
                                 <option value="" {{if eq .ActiveBuild ""}}selected{{end}}>
                                     Auto (newest ref){{if .AutoMismatch}} — picks a build that cannot run here{{end}}
                                 </option>
@@ -106,9 +112,8 @@
                                 <option value="{{.ID}}"
                                         {{if eq .ID $.ActiveBuild}}selected{{end}}
                                         {{if .Disabled}}disabled{{end}}
-                                        {{with .BuiltAgainstTitle}}title="{{.}}"{{end}}
-                                        {{if .Mismatch}}style="text-decoration:line-through;"{{end}}>
-                                    {{.ID}} ({{.Profile}}){{if .Mismatch}} — built against {{.BuiltAgainstText}}{{end}}
+                                        {{with .BuiltAgainstTitle}}title="{{.}}"{{end}}>
+                                    {{if .Mismatch}}&#9888; {{end}}{{.ID}} ({{.Profile}}){{if .Mismatch}} — cannot run in this image{{end}}
                                 </option>
                                 {{end}}
                             </select>
@@ -120,27 +125,6 @@
                         </label>
                     </div>
                 </form>
-                {{/* Always visible, not only on hover: an <option> title is not
-                     shown by every browser, and "why is that one crossed out"
-                     has to be answerable without a mouse. */}}
-                {{if or .AnyDisabled .AllMismatched .AutoMismatch}}
-                <p style="margin:0.25rem 0 0;">
-                    <small{{if .AllMismatched}} style="color:var(--pico-del-color);"{{end}}>
-                        {{if .AllMismatched}}
-                        &#9888; Every build here was compiled in a different container image
-                        {{with .RunningEnv}}than the one running now ({{.}}){{end}}, so any of them
-                        may fail to load. They are still selectable because refusing all of them
-                        would leave nothing to start — but rebuilding on the Builds page is what
-                        will actually work.
-                        {{else}}
-                        Struck-through builds were compiled in a different container image
-                        {{with .RunningEnv}}than the one running now ({{.}}){{end}} and cannot be
-                        selected. Rebuild them on the Builds page to use them here; nothing has
-                        been deleted.
-                        {{end}}
-                    </small>
-                </p>
-                {{end}}
                 <div id="build-save-status"></div>
                 <div id="server-action-error" class="server-action-error"></div>
                 <div role="group">

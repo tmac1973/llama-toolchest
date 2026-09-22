@@ -45,7 +45,7 @@ func optionFor(t *testing.T, page, id string) string {
 	return ""
 }
 
-// A build compiled in another image is struck through and unselectable; one
+// A build compiled in another image is marked and unselectable; one
 // that matches is left alone. This is the case that produced a loader error
 // with nothing on screen explaining it.
 func TestServerPickerDisablesBuildsFromAnotherImage(t *testing.T) {
@@ -64,20 +64,26 @@ func TestServerPickerDisablesBuildsFromAnotherImage(t *testing.T) {
 	if !strings.Contains(elsewhere, "disabled") {
 		t.Errorf("a build from another image is selectable:\n%s", elsewhere)
 	}
-	if !strings.Contains(elsewhere, "line-through") {
-		t.Errorf("a build from another image is not struck through:\n%s", elsewhere)
+	// The marker has to be in the TEXT. An <option> ignores
+	// text-decoration on every browser tried, so a CSS strikethrough
+	// silently did nothing — this asserts the visible marker instead.
+	if !strings.Contains(elsewhere, "&#9888;") {
+		t.Errorf("a build from another image carries no visible marker:\n%s", elsewhere)
 	}
-	if !strings.Contains(elsewhere, "rocm 7.2.4") {
-		t.Errorf("the option does not say what it was built against:\n%s", elsewhere)
+	if !strings.Contains(elsewhere, "cannot run in this image") {
+		t.Errorf("the option does not say what is wrong with it:\n%s", elsewhere)
+	}
+	if strings.Contains(page, "line-through") {
+		t.Error("CSS strikethrough is back; an <option> does not render it")
 	}
 
-	// The reason must be readable without hovering, because an <option>
-	// title is not shown by every browser.
-	if !strings.Contains(page, "Struck-through builds were compiled in a different container image") {
-		t.Errorf("no visible explanation under the picker:\n%s", page)
+	// The explanation lives in the select's tooltip, not in a line of text
+	// under the control.
+	if !strings.Contains(page, `<select name="active_build" title="`) {
+		t.Errorf("the picker has no tooltip:\n%s", page)
 	}
-	if !strings.Contains(page, "rocm 10.0.0") {
-		t.Errorf("the explanation does not name what is running:\n%s", page)
+	if !strings.Contains(page, "cannot be chosen") || !strings.Contains(page, "rocm 10.0.0") {
+		t.Errorf("the tooltip does not explain the rule and name what is running:\n%s", page)
 	}
 }
 
@@ -96,7 +102,7 @@ func TestServerPickerKeepsBuildsWhenAllOfThemMismatch(t *testing.T) {
 		}
 	}
 	if !strings.Contains(page, "would leave nothing to start") {
-		t.Errorf("the hint does not explain why they are still selectable:\n%s", page)
+		t.Errorf("the tooltip does not explain why they are still selectable:\n%s", page)
 	}
 }
 
@@ -109,8 +115,8 @@ func TestServerPickerNeverRefusesAnUnstampedBuild(t *testing.T) {
 	page := serverPage(t, s)
 
 	legacy := optionFor(t, page, "b10453-legacy")
-	if strings.Contains(legacy, "disabled") || strings.Contains(legacy, "line-through") {
-		t.Errorf("an unstamped build was refused:\n%s", legacy)
+	if strings.Contains(legacy, "disabled") || strings.Contains(legacy, "&#9888;") {
+		t.Errorf("an unstamped build was refused or marked:\n%s", legacy)
 	}
 	// The stamped mismatch alongside it is still refused.
 	if !strings.Contains(optionFor(t, page, "b-stamped"), "disabled") {
@@ -132,7 +138,7 @@ func TestServerPickerNeverRefusesTheSelectedBuild(t *testing.T) {
 		t.Errorf("the selected build was refused, which breaks the form:\n%s", chosen)
 	}
 	// It is still marked, so the user can see the problem.
-	if !strings.Contains(chosen, "line-through") {
+	if !strings.Contains(chosen, "&#9888;") {
 		t.Errorf("the selected mismatch is not marked at all:\n%s", chosen)
 	}
 }
@@ -160,8 +166,12 @@ func TestServerPickerWarnsWhenAutoPicksABadBuild(t *testing.T) {
 func TestServerPickerWithNoBuilds(t *testing.T) {
 	s := pickerServer(t, "rocm 10.0.0", "", nil)
 	page := serverPage(t, s)
-	if strings.Contains(page, "Struck-through builds") || strings.Contains(page, "cannot run here") {
+	if strings.Contains(page, "cannot run") || strings.Contains(page, "different container image") {
 		t.Errorf("the page warned about builds that do not exist:\n%s", page)
+	}
+	// And no tooltip at all when there is nothing to explain.
+	if strings.Contains(page, `<select name="active_build" title=`) {
+		t.Errorf("the picker carries a tooltip with no mismatched builds:\n%s", page)
 	}
 	if !strings.Contains(page, "Auto (newest ref)") {
 		t.Errorf("the picker did not render:\n%s", page)
