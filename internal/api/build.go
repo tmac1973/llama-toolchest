@@ -365,6 +365,15 @@ func titleAttr(title string) string {
 }
 
 // buildRowFor decides what the page says about one build.
+//
+// The mismatch wording is deliberately "may fail to load" rather than "will
+// not run". Measured on this project's own two images: a llama-server built
+// under ROCm 10.0.0 loads and enumerates the GPU under ROCm 7.2.4, because both
+// ship the same hipBLAS soname. What actually breaks is narrower — a build
+// carries the library search paths of the image that made it, and those paths
+// may not exist in another image. That is a real failure, and it happened here,
+// but it is not the same as an incompatible ABI and should not be described as
+// one.
 func (s *Server) buildRowFor(b *builder.BuildResult) buildRow {
 	row := buildRow{BuildResult: b, BuiltAgainstText: "—"}
 	if b == nil {
@@ -377,10 +386,9 @@ func (s *Server) buildRowFor(b *builder.BuildResult) buildRow {
 	case builder.StampMismatch(b.BuiltAgainst, current):
 		row.BuiltAgainstText = b.BuiltAgainst
 		row.Mismatch = true
-		backend, _, _ := strings.Cut(b.BuiltAgainst, " ")
 		row.BuiltAgainstTitle = fmt.Sprintf(
-			"Built against %s; this container runs %s. A llama-server built against one %s version does not run under another, so this build needs rebuilding before it will load. Nothing has been deleted — it is still here if you switch back.",
-			b.BuiltAgainst, current, backend)
+			"Built against %s; this container runs %s. A build carries the library paths of the image it was made in, so it may fail to load here — rebuild it if the server does not start. Nothing has been deleted; it is still here if you switch back to %s.",
+			b.BuiltAgainst, current, b.BuiltAgainst)
 	default:
 		row.BuiltAgainstText = b.BuiltAgainst
 	}

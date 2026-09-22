@@ -97,8 +97,12 @@ func TestBuildsListFlagsOnlyAGenuineMismatch(t *testing.T) {
 	if !strings.Contains(rows["b-differs"], "rocm 7.2.4") || !strings.Contains(rows["b-differs"], "rocm 10.0.0") {
 		t.Errorf("the flagged row's tooltip does not name both versions\n%s", rows["b-differs"])
 	}
-	if !strings.Contains(rows["b-differs"], "needs rebuilding") {
-		t.Errorf("the flagged row does not say what to do about it\n%s", rows["b-differs"])
+	// "may fail to load", not "will not run": a cross-version build was
+	// measured loading successfully on this project's own images, so the
+	// wording must not promise a failure it cannot guarantee.
+	if !strings.Contains(rows["b-differs"], "may fail to load") ||
+		!strings.Contains(rows["b-differs"], "rebuild it if the server does not start") {
+		t.Errorf("the flagged row does not describe the risk accurately\n%s", rows["b-differs"])
 	}
 
 	if strings.Contains(rows["b-unstamped"], "&#9888;") {

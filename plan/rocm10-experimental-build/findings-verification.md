@@ -191,3 +191,40 @@ anyone.
   verification; either can be deleted.
 - `.env` records the experimental variant, so a bare `./setup.sh install` will
   offer `next` as its default.
+
+
+## The cross-version failure was not an ABI problem
+
+Worth correcting, because the first explanation was wrong and the wording built
+on it was too strong.
+
+When the container was switched to stable, the ROCm 10 build failed to start
+with `libhipblas.so.3: cannot open shared object file`. The obvious reading —
+that a build against one ROCm cannot run against another — is not what happened.
+Both images ship the **same soname**: `libhipblas.so.3.2.70204` on Fedora and
+`libhipblas.so.3.6` on ROCm 10, both providing `libhipblas.so.3`.
+
+Tested directly, with only the library path supplied:
+
+```
+LD_LIBRARY_PATH=$build:/opt/rocm/lib  llama-server --version      -> works
+LD_LIBRARY_PATH=$build:/opt/rocm/lib  llama-server --list-devices ->
+  ROCm0: AMD Radeon RX 9070 XT (16304 MiB, 12496 MiB free)
+```
+
+A llama-server built under ROCm 10.0.0 loads, links and enumerates the GPU under
+ROCm 7.2.4. The real failure is narrower and less dramatic: a build carries the
+library search paths of the image that made it, and the ROCm 10 image bakes no
+usable ROCm path into `libggml-hip.so` (see the RUNPATH table above), so nothing
+finds hipBLAS in an image without an `ld.so.conf.d` entry.
+
+The flag is still worth having — it predicted a real failure, and did so
+correctly. But the tooltip now says "may fail to load — rebuild it if the server
+does not start" instead of asserting the build "does not run", and the render
+test asserts the softer wording so it cannot drift back. Promising a failure
+that does not always occur would teach the reader to disbelieve the flag.
+
+It also raises an option not taken: adding `$ROCM_PATH/lib` to the router's
+`LD_LIBRARY_PATH` would have made cross-version builds work outright. That is a
+larger decision — it would mask genuine mismatches rather than surface them —
+and is left alone here.
