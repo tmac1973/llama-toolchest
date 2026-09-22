@@ -129,7 +129,15 @@ func (b *Builder) Find(id string) (*BuildResult, bool) {
 // upstream code: highest buildRank (upstream commit count) first, with
 // unrankable builds below ranked ones and ordered by newest StartedAt.
 // Returns nil if no successful build exists.
-func (b *Builder) LatestSuccessfulBuild() *BuildResult {
+// SuccessfulBuildsRanked returns every successful build, newest first on
+// llama.cpp's own version scale (see buildRank), falling back to build time for
+// refs that cannot be placed on it.
+//
+// Exposed as a list, not just its head, because the caller sometimes needs to
+// look past the newest one — the router skips builds that cannot run in the
+// current container image, and it needs the same ordering to do that rather
+// than a second copy of this ranking.
+func (b *Builder) SuccessfulBuildsRanked() []BuildResult {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -138,9 +146,6 @@ func (b *Builder) LatestSuccessfulBuild() *BuildResult {
 		if br.Status == BuildStatusSuccess {
 			ok = append(ok, br)
 		}
-	}
-	if len(ok) == 0 {
-		return nil
 	}
 	sort.SliceStable(ok, func(i, j int) bool {
 		ni, oki := buildRank(ok[i])
@@ -157,7 +162,15 @@ func (b *Builder) LatestSuccessfulBuild() *BuildResult {
 		}
 		return ok[i].StartedAt.After(ok[j].StartedAt)
 	})
-	res := ok[0]
+	return ok
+}
+
+func (b *Builder) LatestSuccessfulBuild() *BuildResult {
+	ranked := b.SuccessfulBuildsRanked()
+	if len(ranked) == 0 {
+		return nil
+	}
+	res := ranked[0]
 	return &res
 }
 

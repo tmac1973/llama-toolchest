@@ -37,9 +37,10 @@ wrong may be fine.
 **Server page — refuses.** The build picker renders mismatched builds marked
 and unselectable, because this is where the confusing failure actually happened:
 picking one here produces a loader error that says nothing about images or ROCm
-versions, and the user has no way to connect the two. `Auto (newest ref)` says
-so too when it would land on an unusable build, since it is otherwise the option
-that looks safest.
+versions, and the user has no way to connect the two. `Auto (newest ref)` no longer lands on
+an unusable build in the first place: it resolves to the newest build that can
+run in this image, not simply the newest. It still says so when nothing can run,
+since then there is no better choice to make.
 
 **The marker is text, not CSS, and that was learned the hard way.** The first
 version set `style="text-decoration:line-through"` on the `<option>`. The
@@ -67,7 +68,17 @@ true, but it cluttered a page that has eight other controls, and the marker in
 the option text already answers "which one" without hovering. The tooltip
 answers "why", and is absent entirely when every build can run.
 
-**The router — reports.** No server-side block on starting a mismatched build.
-Deliberate: the stamp is a proxy, the escape hatches above exist for a reason,
-and an API caller that has decided to try one should be allowed to. The loader
-error it gets is now the last line of defence rather than the first.
+**The router — chooses well, then reports.** With no build saved, the router
+picks the newest that can run here rather than the newest outright. That is the
+same ranking as before (llama.cpp's own version scale, falling back to build
+time) with unusable builds skipped, and unstamped builds still counted as
+candidates because they cannot be judged. When every build was made elsewhere it
+takes the newest anyway: refusing to start at all is worse than a loader error
+that names the problem.
+
+An explicit choice is still honoured, even when it cannot run. The picker
+refuses those in the UI; an API caller that names one has decided, and the
+loader error is then the answer. No server-side block, deliberately — the stamp
+is a proxy for "built elsewhere", not a diagnosis, and one of the two observed
+failure directions turns out to be a working binary missing only a library
+path.

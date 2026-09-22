@@ -179,3 +179,83 @@ func TestServerPickerWithNoBuilds(t *testing.T) {
 }
 
 var _ = models.NewRegistry
+
+// "Auto" must pick the newest build that can actually run here, not simply the
+// newest. Without this, the option that looks safest silently chooses a build
+// compiled in the other image and the router fails to start.
+func TestAutoResolvesToTheNewestRunnableBuild(t *testing.T) {
+	// b10500 is newer than b10400 on llama.cpp's scale, but was built
+	// elsewhere. Auto must reach past it.
+	s := pickerServer(t, "rocm 10.0.0", "", []builder.BuildResult{
+		{ID: "b10400-here", Profile: "rocm", GitRef: "b10400", GitSHA: "aaaaaaaaaa",
+			Status: builder.BuildStatusSuccess, BuiltAgainst: "rocm 10.0.0", CommitCount: 10400},
+		{ID: "b10500-elsewhere", Profile: "rocm", GitRef: "b10500", GitSHA: "bbbbbbbbbb",
+			Status: builder.BuildStatusSuccess, BuiltAgainst: "rocm 7.2.4", CommitCount: 10500},
+	})
+	got := s.resolveBuild("")
+	if got == nil || got.ID != "b10400-here" {
+		t.Fatalf("Auto resolved to %v, want b10400-here (the newest that can run)", got)
+	}
+
+	// And the page therefore has nothing to warn about.
+	if page := serverPage(t, s); strings.Contains(page, "picks a build that cannot run here") {
+		t.Errorf("Auto warned even though it now picks a runnable build:\n%s", page)
+	}
+}
+
+// An unstamped build cannot be judged, so Auto may still choose it — the
+// alternative is skipping builds that probably work.
+func TestAutoWillTakeAnUnstampedBuild(t *testing.T) {
+	s := pickerServer(t, "rocm 10.0.0", "", []builder.BuildResult{
+		{ID: "b10400-stamped-elsewhere", Profile: "rocm", GitRef: "b10400", GitSHA: "aaaaaaaaaa",
+			Status: builder.BuildStatusSuccess, BuiltAgainst: "rocm 7.2.4", CommitCount: 10400},
+		{ID: "b10300-legacy", Profile: "rocm", GitRef: "b10300", GitSHA: "cccccccccc",
+			Status: builder.BuildStatusSuccess, CommitCount: 10300},
+	})
+	if got := s.resolveBuild(""); got == nil || got.ID != "b10300-legacy" {
+		t.Fatalf("Auto resolved to %v, want b10300-legacy (unstamped, so a candidate)", got)
+	}
+}
+
+// When nothing can run here, Auto still returns the newest rather than
+// nothing: refusing to start at all is worse than a loader error that names
+// the problem.
+func TestAutoFallsBackWhenNothingCanRun(t *testing.T) {
+	s := pickerServer(t, "rocm 10.0.0", "", []builder.BuildResult{
+		{ID: "b10400-elsewhere", Profile: "rocm", GitRef: "b10400", GitSHA: "aaaaaaaaaa",
+			Status: builder.BuildStatusSuccess, BuiltAgainst: "rocm 7.2.4", CommitCount: 10400},
+		{ID: "b10500-elsewhere", Profile: "rocm", GitRef: "b10500", GitSHA: "bbbbbbbbbb",
+			Status: builder.BuildStatusSuccess, BuiltAgainst: "rocm 7.2.4", CommitCount: 10500},
+	})
+	if got := s.resolveBuild(""); got == nil || got.ID != "b10500-elsewhere" {
+		t.Fatalf("Auto resolved to %v, want the newest as a last resort", got)
+	}
+}
+
+// An explicitly chosen build is honoured even when it cannot run here: the
+// picker refuses those, and a caller that names one has decided.
+func TestExplicitChoiceBeatsRunnability(t *testing.T) {
+	s := pickerServer(t, "rocm 10.0.0", "b10400-elsewhere", []builder.BuildResult{
+		{ID: "b10400-elsewhere", Profile: "rocm", GitRef: "b10400", GitSHA: "aaaaaaaaaa",
+			Status: builder.BuildStatusSuccess, BuiltAgainst: "rocm 7.2.4", CommitCount: 10400},
+		{ID: "b10500-here", Profile: "rocm", GitRef: "b10500", GitSHA: "bbbbbbbbbb",
+			Status: builder.BuildStatusSuccess, BuiltAgainst: "rocm 10.0.0", CommitCount: 10500},
+	})
+	if got := s.resolveBuild("b10400-elsewhere"); got == nil || got.ID != "b10400-elsewhere" {
+		t.Fatalf("an explicit choice was overridden: %v", got)
+	}
+}
+
+// With no stamps anywhere — every build predating this feature — Auto behaves
+// exactly as it did before: newest wins.
+func TestAutoUnchangedWithNoStamps(t *testing.T) {
+	s := pickerServer(t, "rocm 10.0.0", "", []builder.BuildResult{
+		{ID: "b10400", Profile: "rocm", GitRef: "b10400", GitSHA: "aaaaaaaaaa",
+			Status: builder.BuildStatusSuccess, CommitCount: 10400},
+		{ID: "b10500", Profile: "rocm", GitRef: "b10500", GitSHA: "bbbbbbbbbb",
+			Status: builder.BuildStatusSuccess, CommitCount: 10500},
+	})
+	if got := s.resolveBuild(""); got == nil || got.ID != "b10500" {
+		t.Fatalf("Auto resolved to %v, want b10500 (newest, as before)", got)
+	}
+}

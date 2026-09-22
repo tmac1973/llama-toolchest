@@ -485,11 +485,37 @@ func (s *Server) activeBackend() string {
 // lock don't read it again unguarded.
 func (s *Server) resolveBuild(id string) *builder.BuildResult {
 	if id != "" {
+		// An explicit choice is honoured even when it cannot run here. The
+		// picker marks and refuses those, and an API caller that names one
+		// anyway has decided; the loader error is then the answer.
 		if b, ok := s.builder.Find(id); ok && b.Status == builder.BuildStatusSuccess {
 			return b
 		}
 	}
-	return s.builder.LatestSuccessfulBuild()
+
+	// No choice saved: the newest build that can actually run in this
+	// container image, rather than simply the newest.
+	//
+	// Without the filter, "Auto" picks a build compiled in the other image and
+	// the router fails to start, which is the most confusing possible default
+	// — the one option that looks safest silently choosing a broken build.
+	// Builds with no stamp are not skipped: they cannot be judged, so they
+	// stay candidates.
+	ranked := s.builder.SuccessfulBuildsRanked()
+	for i := range ranked {
+		if !builder.StampMismatch(ranked[i].BuiltAgainst, s.currentBuildEnvFor(buildBackend(&ranked[i]))) {
+			res := ranked[i]
+			return &res
+		}
+	}
+	// Every build was made somewhere else. Return the newest anyway: the
+	// alternative is refusing to start at all, and the same reasoning applies
+	// here as in the picker's last-resort case.
+	if len(ranked) > 0 {
+		res := ranked[0]
+		return &res
+	}
+	return nil
 }
 
 func (s *Server) handleBuildInfo(w http.ResponseWriter, r *http.Request) {
