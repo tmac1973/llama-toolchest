@@ -20,9 +20,9 @@ turned out to be fundamentally broken.
 | 6 · `GGML_HIP` build of llama.cpp | **pass — about 106 seconds** |
 | 7 · build stamp recorded | pass — see below; the mismatch *flag* is still untested |
 | 8 · model loads and generates | pass, with throughput measured below |
-| 9 · flagged build still activates | not yet run |
-| 10 · a second ROCm line | not yet run |
-| 11 · return to stable, nothing lost | not yet run |
+| 9 · flagged build still activates | pass — allowed, then failed exactly as the tooltip predicted |
+| 10 · a second ROCm line | not run; see below |
+| 11 · return to stable, nothing lost | pass — the ROCm 10 build survived and is flagged |
 
 ## Throughput on ROCm 10
 
@@ -48,10 +48,34 @@ Two notes on method, because the first attempt produced nonsense:
 
 Generation is remarkably stable — three runs within 0.8 tok/s of each other.
 
-**There is no ROCm 7.2.4 comparison yet, and this is not a like-for-like number
-without one.** Getting it needs step 11: switch back to stable, build llama.cpp
-at the same ref, and measure the same model again. Until then this figure says
-only "ROCm 10 performs reasonably", not "ROCm 10 is faster or slower than 7.2.4".
+## The comparison, after switching back to stable
+
+Same model, same llama.cpp ref (`v0.4.1`, commit b29c606e2), same cmake flags,
+same measurement method, same machine:
+
+| | ROCm 10.0.0 | ROCm 7.2.4 |
+|---|---|---|
+| generation | 116.3 tok/s | **116.3 tok/s** |
+| prompt processing | 5,732 tok/s | 5,306 tok/s |
+| generation runs | 115.56 / 116.32 / 116.30 | 115.39 / 116.26 / 116.46 |
+| prompt runs | 3,672 / 5,732 / 5,855 | 2,829 / 5,306 / 5,696 |
+
+**Generation is identical** — 116.3 tok/s on both, and the individual runs
+interleave. There is nothing to choose between them.
+
+**Prompt processing looks ~8% better on ROCm 10, and that should not be
+believed.** Look at the run spread: 2,829 to 5,696 on stable and 3,672 to 5,855
+on ROCm 10. The first run of each set is a warm-up and the remaining two differ
+by more than the gap between the two medians. Three samples cannot separate an
+8% difference from that much variance. The honest reading is no measurable
+difference in either direction.
+
+One caveat that cannot be removed by more samples: the two containers use
+different compilers — gcc 15.3.1 on Fedora, gcc 13.3.0 on Ubuntu 24.04. This is
+a comparison of two *images*, not purely of two ROCm versions.
+
+The useful conclusion for the documentation is the plain one: on this hardware
+ROCm 10 is neither faster nor slower in any way these measurements can detect.
 
 ## The build stamp, verified for real
 
@@ -94,3 +118,77 @@ Phase 02 findings along with the test-plan gap that allowed it.
 Dockerfile installs the released package, so the first working container had
 neither the variant selector nor the build stamp in it. `--from-source` now
 works in container mode; step 3 of this phase requires it.
+
+
+## Steps 9 and 11, verified together
+
+Switching back to stable did the work of three steps at once, as expected once
+step 2 had been skipped:
+
+**The flag fires on a real build.** With the container on ROCm 7.2.4, the
+ROCm 10 build is marked, and the tooltip reads:
+
+> Built against rocm 10.0.0; this container runs rocm 7.2.4. A llama-server
+> built against one rocm version does not run under another, so this build needs
+> rebuilding before it will load. Nothing has been deleted — it is still here if
+> you switch back.
+
+Exactly one build is flagged. The banner now reads `Running rocm 7.2.4` with no
+"built on" fragment, because the Fedora image sets no base-image variable —
+the case tested in Phase 04 and now confirmed in reality.
+
+**A flagged build can still be activated, and fails as predicted.** Starting the
+router with it produced:
+
+```
+llama-server: error while loading shared libraries: libhipblas.so.3
+==> Router exited with error: exit status 127
+```
+
+The app did not block the choice, and the failure is the one the tooltip
+described. That is the whole design: inform, do not prevent.
+
+**Nothing was deleted.** `v0.4.1-rocm-rocm-optimized` is still listed with its
+stamp intact after the switch.
+
+## Why Dockerfile.rocm does not need the linker fix
+
+Worth recording, because the same error string appears in two unrelated places
+and the obvious explanation is wrong.
+
+Neither image has an `/etc/ld.so.conf.d` entry for ROCm — the Fedora image's
+directory is empty, and `ldconfig -p` knows no ROCm library in either. So the
+earlier claim that "the Fedora image never had this problem because the ROCm
+RPMs ship the ld.so.conf.d entry" was wrong about the mechanism.
+
+The real difference is what cmake bakes into `libggml-hip.so`:
+
+| image | RUNPATH of libggml-hip.so |
+|---|---|
+| Fedora, ROCm 7.2.4 | `[/data/llama.cpp/build-rocm/bin::/opt/rocm/lib]` |
+| Ubuntu, ROCm 10 | `[/data/llama.cpp/build-rocm/bin:]` |
+
+Under ROCm 10 the ROCm library directory is absent from the runpath — note the
+empty entry where it should be, and that `/opt/rocm/lib` there is a symlink
+through `/etc/alternatives`. So the stable image works by accident of what cmake
+records, and `Dockerfile.rocm-next` needed the `ld.so.conf.d` entry to stop
+depending on that. `Dockerfile.rocm` is left alone: it works, and adding the
+entry there would be a change with no failure to justify it.
+
+## Step 10 not run
+
+Rebuilding on `7.14.1-full` was not exercised end to end. Phase 02's test 6
+already built that base and confirmed it reports `7.14.1`, so the version
+argument is proven; what step 10 would add is a third full install cycle for
+little more information. Worth doing if the 7.14 line is ever recommended to
+anyone.
+
+## State left on the machine
+
+- The container is on the **stable** variant, with the router running the
+  `v0.4.1-rocm-stable-cmp` build.
+- Two builds exist: `v0.4.1-rocm-rocm-optimized` (ROCm 10, flagged) and
+  `v0.4.1-rocm-stable-cmp` (ROCm 7.2.4, in use). Both were made during
+  verification; either can be deleted.
+- `.env` records the experimental variant, so a bare `./setup.sh install` will
+  offer `next` as its default.
