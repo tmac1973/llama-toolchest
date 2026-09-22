@@ -2690,9 +2690,6 @@ main() {
             ;;
     esac
 
-    # ── Check prerequisites and show summary (install, rebuild, status) ──
-    check_prerequisites
-
     # ── Which ROCm container (AMD only, container mode) ──
     # Asked only on an interactive install that did not name a variant. A value
     # restored from .env becomes the prompt's DEFAULT (see prompt_rocm_variant),
@@ -2715,6 +2712,12 @@ main() {
     if [[ "$GPU_VENDOR" == "rocm" && "$command" != "status" ]]; then
         warn_rocm_variant_switch
     fi
+
+    # ── Check prerequisites and show summary (install, rebuild, status) ──
+    # AFTER the variant is settled, not before: check_prerequisites builds the
+    # actions list by calling dockerfile(), so running it first made the list
+    # say Dockerfile.rocm while the summary said Dockerfile.rocm-next.
+    check_prerequisites
 
     print_summary
 

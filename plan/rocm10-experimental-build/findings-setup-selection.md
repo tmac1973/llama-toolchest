@@ -73,15 +73,22 @@ keeps it on Enter; answering `1` from `next` returns to stable and clears the
 pinned image; answering `2` from stable takes a tag; and a machine pinned to
 another AMD repository keeps that repository on Enter.
 
-## Two bugs found by running it
+## Three bugs found by running it
 
-**The actions list disagreed with the summary.** `setup.sh:543` built its
-"Build container image (Dockerfile.rocm)" line by interpolating `GPU_VENDOR`
-rather than calling `dockerfile()`, so with the experimental variant selected
-the summary said `Dockerfile.rocm-next` and the step list said `Dockerfile.rocm`.
-The plan's Step 3 said every other caller "then follows automatically", which was
-true only of callers that actually call the function. Now fixed to use
-`$(dockerfile)`.
+**The actions list disagreed with the summary — twice.** `setup.sh:543` built
+its "Build container image (Dockerfile.rocm)" line by interpolating
+`GPU_VENDOR` rather than calling `dockerfile()`, so with the experimental
+variant selected the summary said `Dockerfile.rocm-next` and the step list said
+`Dockerfile.rocm`. The plan's Step 3 claimed every other caller "then follows
+automatically", which was true only of callers that actually call the function.
+
+Switching it to `$(dockerfile)` did not fix it, which only a real install
+revealed: `check_prerequisites` builds that list and ran *before* the variant
+prompt, so it asked `dockerfile()` a question the user had not been asked yet
+and got `Dockerfile.rocm` from an unset variant. The variant block now runs
+first and `check_prerequisites` after it. Worth noting the failure mode — the
+call was correct and the ordering made it lie, so reading the diff would not
+have caught it.
 
 **Pressing Enter at the tag prompt could silently change repository.** The first
 implementation defaulted the empty answer to the *tag* it had displayed, which
