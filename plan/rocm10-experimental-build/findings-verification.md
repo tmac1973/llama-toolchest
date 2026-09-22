@@ -1,7 +1,7 @@
 # Phase 05 findings — end-to-end verification
 
-In progress, 21–22 September 2026. Steps 3–8 are done; 9–11 need an interactive
-install and are outstanding.
+Completed 21–22 September 2026. Every step except 10 was run; step 10 was
+skipped deliberately, for the reason given at the end.
 
 Machine: Radeon RX 9070 XT (gfx1201, RDNA 4), kernel `7.2.3-1-cachyos`, podman
 6.1.1, 16 GiB VRAM.
@@ -18,7 +18,7 @@ turned out to be fundamentally broken.
 | 4 · image and app start | pass — the Builds page confirms the tree it runs |
 | 5 · GPU visible in the container | pass — gfx1201, "AMD Radeon RX 9070 XT" |
 | 6 · `GGML_HIP` build of llama.cpp | **pass — about 106 seconds** |
-| 7 · build stamp recorded | pass — see below; the mismatch *flag* is still untested |
+| 7 · build stamp recorded and the flag fires | pass |
 | 8 · model loads and generates | pass, with throughput measured below |
 | 9 · flagged build still activates | pass — allowed, then failed exactly as the tooltip predicted |
 | 10 · a second ROCm line | not run; see below |
@@ -88,9 +88,9 @@ v0.4.1-rocm-rocm-optimized   built_against='rocm 10.0.0'   not flagged
 ```
 
 The banner names the toolchain and the base image, the build recorded its own
-stamp, and it is correctly *not* flagged because it matches what is running.
-The mismatch flag itself has not fired yet — nothing on this machine is stamped
-with a different ROCm line.
+stamp, and it is correctly *not* flagged because it matched what was running at
+the time. The flag itself is covered further down, once a second ROCm line
+existed to compare against.
 
 ## A plan step was skipped, and it improved the order
 
@@ -98,13 +98,12 @@ Step 2 asked for a stamped ROCm 7.2.4 build *before* switching, so the mismatch
 flag would have something to act on. The switch happened first, so no 7.2.4
 build exists in this container.
 
-That turns out to be better. The ROCm 10 build is now the thing that will be
-flagged when the container switches to another line, so step 11 — returning to
-stable — verifies steps 7, 9 and 11 at once: the flag fires on a real build, a
-flagged build can still be activated, and nothing was deleted. One install
-instead of two.
+That turned out better. The ROCm 10 build became the thing that got flagged when
+the container switched back, so returning to stable verified steps 7, 9 and 11
+at once — the flag firing on a real build, a flagged build still activating, and
+nothing being deleted. One install instead of two.
 
-## Two failures on the way, both fixed
+## Two failures on the way, both fixed and both found only by running it
 
 **The image could not run what it built.** The first container built llama.cpp
 successfully and then could not start it:
