@@ -67,6 +67,25 @@ ENV HIP_PATH=/opt/rocm \
   HIP_CLANG_PATH=/opt/rocm/llvm/bin \
   HIP_DEVICE_LIB_PATH=/opt/rocm/amdgcn/bitcode
 
+# Put the ROCm libraries on the dynamic linker's search path.
+#
+# This is NOT optional, and its absence is invisible until runtime. AMD's image
+# has no /etc/ld.so.conf.d entry for ROCm — `ldconfig -p` does not know
+# libhipblas exists — because the ROCm tools inside it find their libraries
+# through RPATH. Anything built afterwards does not inherit that, so a
+# llama-server compiled here links fine, installs fine, and then dies on
+# startup with:
+#
+#   error while loading shared libraries: libhipblas.so.3:
+#   cannot open shared object file
+#
+# The Fedora image never had this problem because the ROCm RPMs ship the
+# ld.so.conf.d entry themselves. /opt/rocm/lib is a symlink through
+# /etc/alternatives, which ldconfig follows.
+RUN printf '%s\n' /opt/rocm/lib /opt/rocm/llvm/lib > /etc/ld.so.conf.d/rocm.conf \
+    && ldconfig \
+    && ldconfig -p | grep -q libhipblas
+
 # Keep apt's downloaded archives in a build cache mount rather than discarding
 # them, so repeated builds don't re-download the toolchain. docker-clean is
 # Debian's hook that deletes them; it has to go for the cache to be of any use.

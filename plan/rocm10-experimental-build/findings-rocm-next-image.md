@@ -76,3 +76,52 @@ numerically; only the ad-hoc test command was wrong.
 - Only `HIP_PATH`, `HIP_CLANG_PATH` and `HIP_DEVICE_LIB_PATH` are set. The base
   sets `ROCM_PATH` and `PATH` and nothing else, and re-setting them would be
   noise that later diverges from the base.
+
+
+## The image was broken at runtime, and the test plan could not see it
+
+Found by the first real use of the container: Autoconfigure reported "the helper
+model could not read the model card", and the server log said
+
+```
+llama-server: error while loading shared libraries: libhipblas.so.3:
+cannot open shared object file
+==> Router exited with error: exit status 127
+```
+
+The library is present — Phase 01 recorded `libhipblas.so.3` in `/opt/rocm/lib`
+— but AMD's image has **no `/etc/ld.so.conf.d` entry for ROCm**. `ldconfig -p`
+did not know `libhipblas` existed. The ROCm tools inside the image do not need
+one because they find their libraries through RPATH; anything built afterwards
+does not inherit that.
+
+The reason it is specifically a *transitive* failure is worth recording, because
+the binary looks correctly linked. `llama-server`'s own RUNPATH is:
+
+```
+[/data/llama.cpp/build-rocm/bin:/opt/rocm/core-10.0/lib:/opt/rocm/lib:]
+```
+
+— it includes `/opt/rocm/lib`. But `libggml-hip.so`, which is what actually
+needs hipBLAS, has:
+
+```
+[/data/llama.cpp/build-rocm/bin:]
+```
+
+— only the build directory, which the builder deletes after the build.
+`DT_RUNPATH` applies only to the direct dependencies of the object that
+declares it, so `llama-server`'s path was never consulted for hipBLAS. The
+Fedora image never hit this because the ROCm RPMs ship the `ld.so.conf.d` entry
+themselves.
+
+Fixed by writing `/opt/rocm/lib` and `/opt/rocm/llvm/lib` to
+`/etc/ld.so.conf.d/rocm.conf` and running `ldconfig`, with a
+`ldconfig -p | grep -q libhipblas` assertion in the same layer so the image
+fails to build if it ever stops working.
+
+**The test-plan gap is the real lesson.** Eight checks passed on this image and
+every one of them tested that it could *build* — hipcc present, cmake configs
+present, toolchain present, a compile succeeding. Not one tested that a linked
+binary could start. A ninth check now does, and it is the cheap one:
+`ldconfig -p | grep -c libhipblas`.

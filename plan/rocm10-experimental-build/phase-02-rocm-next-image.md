@@ -151,7 +151,29 @@ image has no entrypoint; the moment the `.deb` is installed, it does.
    against. Delete that test image afterwards.
 7. **The stable path is untouched.** `git diff --stat` shows no change to
    `Dockerfile.rocm` or `docker-compose.rocm.yml`.
-8. **No cmake workaround is needed.** Confirm the HIP cmake config is where
+8. **A linked binary can actually RUN, not just compile.** This is the check
+   whose absence let a broken image ship: every other test here proves the
+   image can *build*, and none proves that what it builds can start.
+   ```
+   podman run --rm --entrypoint bash llama-toolchest:rocm-next-test \
+     -lc 'ldconfig -p | grep -c libhipblas'
+   ```
+   must report a non-zero count. AMD's image has no `/etc/ld.so.conf.d` entry
+   for ROCm, because its own tools find their libraries through RPATH — and
+   `DT_RUNPATH` does not apply to transitive dependencies, so a freshly built
+   `libggml-hip.so` cannot find `libhipblas` however well `llama-server` itself
+   is linked. The symptom is a successful build followed by
+   `error while loading shared libraries: libhipblas.so.3` at startup.
+   Where a `llama-server` build already exists in the data volume, run it too:
+   ```
+   podman run --rm --entrypoint bash -v llama-toolchest-data:/data \
+     llama-toolchest:rocm-next-test \
+     -lc 'd=/data/builds/<id>; LD_LIBRARY_PATH=$d $d/llama-server --version'
+   ```
+   `LD_LIBRARY_PATH` is set here because that is what the app does when it
+   launches the router (see `internal/api/jobs_env.go`), so the test matches
+   how the binary is really started.
+9. **No cmake workaround is needed.** Confirm the HIP cmake config is where
    Phase 01 Step 5 recorded it:
    `podman run --rm --entrypoint ls llama-toolchest:rocm-next-test /opt/rocm/lib/cmake/hip/hip-config.cmake`
    must succeed. That single check is the whole test — do not also probe with
