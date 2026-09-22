@@ -23,10 +23,12 @@ Image sizes, for the Phase 06 documentation: **21.1 GB** on ROCm 10.0.0 and
 20.4 GB on 7.14.1. Almost all of it is the base image — 20.8 GB and 20.2 GB
 respectively — so the application layers add under a gigabyte.
 
-No comparison against the stable Fedora image: it is not built on this machine
-(this host runs a host-mode install, so `podman images` has no
-`localhost/llama-toolchest:latest`). If Phase 06 wants that comparison, build
-the stable image first and measure it — do not estimate it.
+The stable Fedora image was not built at the time of writing, so no comparison
+was possible then. It has since been built during the Phase 05 switch test and
+**measures 14.1 GB** (Fedora Linux, ROCm 7.2.4), against 21.1 GB for the
+experimental one. Worth recording that the first README draft guessed "~8 GB"
+for it — wrong by 6 GB, and caught only because the note above said to measure
+rather than estimate.
 
 ## The version source, confirmed twice over
 

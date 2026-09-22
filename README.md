@@ -54,6 +54,8 @@ Host mode is managed via `systemctl --user start|stop|status llama-toolchest` (u
 
 By default `--host` auto-detects your primary GPU and asks whether to also install the Vulkan SDK as a portable fallback. To pick explicitly — including stacking multiple SDKs in one install — pass any combination of `--cuda`, `--rocm`, `--vulkan`. Each implies `--host`.
 
+The similarly named `--rocm-next` and `--rocm-image` are different: they choose which ROCm *container* to build and do **not** imply `--host`. See [GPU Backend Notes → ROCm](#choosing-a-rocm-version-container-mode).
+
 ```bash
 ./setup.sh install --rocm --vulkan    # AMD GPU + Vulkan as a fallback
 ./setup.sh install --vulkan           # Vulkan-only (cross-vendor)
@@ -96,7 +98,8 @@ Runtime (container only):
 Info:
   status      Show detected environment and planned actions
   deps        Verify prerequisites and print install commands for anything missing
-  detect      Print detected GPU backend (cuda/rocm/vulkan/cpu)
+  detect      Print detected GPU backend (cuda/rocm/vulkan/cpu); for AMD also
+              prints which ROCm container variant would be used
   help        Show full help
 ```
 
@@ -111,11 +114,13 @@ If you'd rather skip `setup.sh` and install the released `.deb`/`.rpm` packages 
 | GPU | Backend | Build profiles | Notes |
 |-----|---------|----------------|-------|
 | NVIDIA (Maxwell+) | CUDA 12.8 | cuda, cpu, vulkan† | GTX 900 series and newer. Driver >= 570. |
-| AMD | ROCm 7.2 | rocm, cpu, vulkan† | RDNA and newer. |
+| AMD | ROCm 7.2 (default), ROCm 10 ‡ | rocm, cpu, vulkan† | RDNA and newer. |
 | Other (Intel Arc, etc.) | Vulkan† | vulkan, cpu | Cross-vendor; install with `./setup.sh install --vulkan`. |
 | None | CPU-only | cpu | No GPU required. |
 
 † Vulkan is host-install only — see [GPU Backend Notes → Vulkan](#vulkan).
+
+‡ ROCm 10 is container mode only, because AMD publishes it only as a container image — see [GPU Backend Notes → ROCm](#rocm).
 
 CUDA and ROCm provide native GPU compute for best performance; Vulkan is portable but typically slower than the vendor-specific backend on the same hardware.
 
@@ -180,6 +185,44 @@ In a [secure install](docs/secure.md), Caddy fronts these on `443` (UI/API/`/v1`
 ### ROCm
 
 `setup.sh` auto-detects the AMD GPU architecture and sets `HSA_OVERRIDE_GFX_VERSION` in `.env` when needed. Only required for older GPUs not natively supported by ROCm 7.2 (RDNA 1 → `10.1.0`, Vega → `9.0.0`).
+
+#### Choosing a ROCm version (container mode)
+
+Container installs offer two ROCm versions. An AMD install asks which, defaulting to whichever is already installed:
+
+```bash
+./setup.sh install                              # asks; stable on a fresh machine
+./setup.sh install --rocm-next                  # experimental, latest known release
+./setup.sh install --rocm-image 10.0.0-full     # experimental, pinned to a tag
+```
+
+`ROCM_VARIANT=stable|next` and `ROCM_BASE_IMAGE=<tag>` are the environment equivalents. The choice is stored in `.env`, so `rebuild`, `up` and `down` keep it without re-passing anything, and `./setup.sh detect` prints which one is in use.
+
+| | Stable | Experimental |
+|---|---|---|
+| ROCm | 7.2.4 | 10.0.0 (any tag you name) |
+| Base image | Fedora 43 + RPMs from `repo.radeon.com` | `rocm/dev-ubuntu-24.04` |
+| Image size | 14.1 GB | 21.1 GB |
+| Dockerfile | `Dockerfile.rocm` | `Dockerfile.rocm-next` |
+
+**Why the experimental one exists.** ROCm 10 is published *only* as a container image. `repo.radeon.com`'s `el9`, `el10`, `rhel9` and `rhel10` paths all stop at 7.2.4, as does the `amdgpu-install` route, so the Fedora image cannot reach anything newer however long you wait. The 7.14.x line is in the same position. Building on an AMD-published image is the only way to get a current ROCm.
+
+Any tag from [rocm/dev-ubuntu-24.04](https://hub.docker.com/r/rocm/dev-ubuntu-24.04/tags) works, and a full image reference is accepted too. `10.0.0-full` and `7.14.1-full` are both known to build here. The tag is checked before anything is downloaded, so a typo fails in about a second rather than part-way through a 20 GB pull.
+
+**What it requires.** ROCm 10 supports RDNA 1 and newer plus the CDNA cards — it does **not** need RDNA 4. The host kernel it needs depends on your card, not on ROCm, because the container carries no kernel components: RDNA 4 wants 6.12, RDNA 3 6.0, RDNA 2 5.9, RDNA 1 5.3. `setup.sh` checks your card against both lists and warns without blocking.
+
+**Is it faster?** On an RX 9070 XT, with the same llama.cpp and the same settings:
+
+| workload | ROCm 7.2.4 | ROCm 10.0.0 |
+|---|---|---|
+| generation, no speculative decoding | 116.3 tok/s | 116.3 tok/s |
+| MTP + n-gram assist, warm | 206.9 tok/s | **258.4 tok/s** |
+
+So: nothing measurable for ordinary generation, and about 25% for speculative decoding once the n-gram assist has warmed up. Two caveats. The images use different compilers (gcc 15.3.1 on Fedora, 13.3.0 on Ubuntu), so this compares images rather than purely ROCm versions. And an n-gram assist gets faster the more it has seen of the text it is generating — the same measurement reads 87 tok/s cold and 207 warm — so any figure needs to say which it is.
+
+**Switching means rebuilding llama.cpp.** A build is linked against the libraries of the image it was made in, so a build from one ROCm version may fail to load under the other. Nothing is deleted: the Builds page marks builds that cannot run in the current image and explains why, the Server tab refuses to select them, and switching back makes them work again. This is the same rule as the one under [Switching modes](#switching-modes) above, for the same reason: a `llama-server` is built for the place it will run.
+
+`--rocm` host installs are unaffected and cannot use ROCm 10: `repo.radeon.com` has no 10.x packages for a host install to fetch.
 
 ### CUDA
 
