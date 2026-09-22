@@ -25,11 +25,44 @@ switch-warning cases:
 | next → the same next is silent | pass |
 | next → a different tag warns | pass |
 
-The kernel pre-flight was verified by temporarily raising `ROCM_KERNEL_FLOOR` to
+The kernel pre-flight was verified by temporarily raising this card's floor to
 `9.0`: it warned, named the running kernel (`7.2.3-1-cachyos`), the floor, and
 the amdgpu version as "(not reported)" — correct for an in-tree driver with no
 `/sys/module/amdgpu/version` — and the run continued to the build confirmation
-rather than aborting. The constant was restored to `6.14`.
+rather than aborting. The table entry was restored.
+
+## The kernel floor was wrong, and wrong in shape
+
+The first implementation warned below a single `ROCM_KERNEL_FLOOR="6.14"`,
+described in the prompt as "where the AMD driver gained support for RDNA 4
+cards". Two errors, both caught by the user reading the prompt on a real run.
+
+The number was invented. I had reasoned it from when the RX 9070 launched rather
+than looked it up. The Gentoo AMDGPU wiki, which tracks this per generation,
+gives RDNA 4 as kernel **6.12** (6.15+ recommended) — not 6.14.
+
+The shape was worse. A single floor asserted an RDNA 4 requirement to everyone,
+including RDNA 2 and RDNA 3 owners for whom it is simply false: RDNA 3 needs
+6.0, RDNA 2 needs 5.9, RDNA 1 needs 5.3. An RDNA 2 owner on a 6.1 kernel would
+have been warned their machine was too old when it was fine. And the wording
+implied ROCm 10 is an RDNA 4 release, which Phase 01's own package inventory
+contradicts: ROCm 10.0.0 ships code for gfx1010 through gfx1250 plus the CDNA
+parts — RDNA 1 and newer.
+
+The check is now card-aware. `rocm_gfx_kernel_floor` maps the detected gfx
+target to the kernel version in which the AMD driver gained support for that
+generation, and `ROCM10_GFX_TARGETS` holds the target list measured from the
+base image's own packages. Two questions are asked instead of one: does ROCm 10
+ship code for this card, and is the kernel new enough for *this* card. Where
+there is no figure on record — the CDNA parts, gfx1250, an unreadable target —
+the kernel and driver versions are reported and no comparison is made, rather
+than a number being invented for them.
+
+Verified across the whole table: gfx1201 → 6.12 RDNA 4, gfx1151 → 6.10,
+gfx1100 → 6.0, gfx1032 → 5.9, gfx1010 → 5.3, gfx900 → 4.15, and gfx942 /
+gfx1250 / unknown → no figure. A simulated gfx902 is correctly reported as
+outside ROCm 10's target list. On this machine the check now reads
+"Host kernel 7.2.3-1-cachyos is new enough for RDNA 4 (needs 6.12)".
 
 The interactive prompt was exercised through a harness that extracts
 `prompt_rocm_variant` and `rocm_base_image` from `setup.sh` verbatim and drives

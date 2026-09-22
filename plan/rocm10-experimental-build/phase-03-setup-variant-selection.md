@@ -34,9 +34,11 @@ today.
    - `ROCM_BASE_IMAGE=""` — the full base image reference for `next`.
    - Two readonly constants: `ROCM_NEXT_IMAGE_REPO="docker.io/rocm/dev-ubuntu-24.04"`
      and `ROCM_NEXT_DEFAULT_TAG="10.0.0-full"`.
-   - `ROCM_KERNEL_FLOOR="6.14"`, with a comment saying this is where RDNA 4
-     `amdgpu` support landed, that it is a floor for the host driver rather than
-     for ROCm itself, and that AMD documents no ROCm-10-specific kernel minimum.
+   - `ROCM10_GFX_TARGETS`, the list of gfx targets ROCm 10.0.0 ships code for,
+     taken from the base image's own package list. ROCm 10 does **not** require
+     RDNA 4: it covers RDNA 1 and newer plus the CDNA parts. There is no single
+     `ROCM_KERNEL_FLOOR`, because the kernel a machine needs depends on its
+     card and not on ROCm — see `rocm_gfx_kernel_floor` in Step 9.
 2. **Resolve the image reference in one place.** Add
    `rocm_base_image()`: if `ROCM_BASE_IMAGE` already contains a `/` treat it as a
    full reference and echo it unchanged; if it is a bare tag echo
@@ -61,7 +63,8 @@ today.
    Under option 2, three lines, in plain language:
    - that ROCm 10 is published only as a container image, which is why this is
      the only way to get it;
-   - that it needs a host kernel of `6.14` or newer for the AMD driver;
+   - that ROCm 10 supports RDNA 1 and newer and the CDNA cards, and that the
+     kernel needed depends on the card rather than on ROCm, and is checked;
    - that `llama.cpp` builds made under one ROCm version must be rebuilt under
      another, and that nothing is deleted when switching.
    The menu's default is whatever is already installed, not a fixed `1`: the
@@ -126,8 +129,15 @@ today.
    place as Step 8's validation — when the variant is `next`, immediately before
    `print_summary()` — so its warning appears above the summary and ahead of the
    confirmation prompt:
-   - Read the running kernel with `uname -r` and compare its `major.minor`
-     numerically against `ROCM_KERNEL_FLOOR`.
+   - Warn when the detected gfx target is not in `ROCM10_GFX_TARGETS`.
+   - Look the card's kernel floor up with `rocm_gfx_kernel_floor`, which maps
+     gfx target to the kernel version where the AMD driver gained support for
+     that generation (RDNA 4 → 6.12, RDNA 3.5 → 6.10, RDNA 3 → 6.0, RDNA 2 →
+     5.9, RDNA 1 → 5.3, Vega → 4.15; figures from the Gentoo AMDGPU wiki).
+     The CDNA parts are absent on purpose, so no figure is asserted for them.
+   - Compare `uname -r`'s `major.minor` against that floor. When the target is
+     unknown or has no figure on record, report the kernel and driver and make
+     no comparison rather than inventing one.
    - If `/sys/module/amdgpu/version` exists (DKMS installs only) include its
      contents in the message; on an in-tree `amdgpu` it is absent, so treat that
      as "not reported" rather than a problem.
@@ -217,9 +227,10 @@ script has pre-existing findings; the gate is "no new ones", not "clean".
    after a partial pull.
 6. **Invalid variant rejected.** `ROCM_VARIANT=sideways ./setup.sh detect` fails
    with a message naming `stable` and `next`.
-7. **Kernel warning fires.** Temporarily *raise* `ROCM_KERNEL_FLOOR` above the
+7. **Kernel warning fires.** Temporarily *raise* this card's floor above the
    running kernel — this host reports `7.2.3-1-cachyos`, which is already well
-   past the real `6.14` floor, so set it to `9.0` to force the warning. Run
+   past every floor in the table, so temporarily edit this card's entry in
+   `rocm_gfx_kernel_floor` to `9.0` to force the warning. Run
    `./setup.sh install --rocm-next` (not `detect` — per Step 9 the check runs in
    the install flow), confirm the warning appears above the summary naming both
    the kernel found and the floor, and that the run reaches the confirmation

@@ -41,7 +41,8 @@ Qwen3.5 GGUF models are already installed, which is enough to test a load.
 3. **Install through the real route.** Run
    `./setup.sh install --rocm-image 10.0.0-full` and record, in order: that the
    tag validation passed, what the kernel pre-flight said (this kernel is well
-   above the 6.14 floor, so expect no warning), and that the switch warning
+   above the 6.12 floor RDNA 4 needs, so expect the "new enough" line rather
+   than a warning), and that the switch warning
    appeared because the previous variant was stable.
 4. **Confirm the image and the app.** The container starts, the UI answers on the
    management port, and the Builds page loads. Record the built image size.

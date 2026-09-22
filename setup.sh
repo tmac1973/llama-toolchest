@@ -14,6 +14,7 @@ readonly CDI_USER_DIR="${HOME}/.config/containers/cdi"
 GPU_VENDOR=""           # cuda, rocm, cpu
 GPU_INFO=""             # human-readable GPU description
 AMD_GFX_VERSION=""      # HSA_OVERRIDE_GFX_VERSION value (empty = not needed)
+AMD_GFX_TARGET=""       # detected gfx target, e.g. gfx1201 (empty = unknown)
 HOST_VIDEO_GID=""       # host video group GID
 HOST_RENDER_GID=""      # host render group GID
 
@@ -71,11 +72,10 @@ esac
 # what exists.
 readonly ROCM_NEXT_IMAGE_REPO="docker.io/rocm/dev-ubuntu-24.04"
 readonly ROCM_NEXT_DEFAULT_TAG="10.0.0-full"
-# Kernel floor for the experimental variant: where the AMD driver gained RDNA 4
-# support. It is a floor for the HOST DRIVER, not for ROCm — the container
-# carries no kernel components, and AMD documents no ROCm-10-specific kernel
-# minimum. Warned about, never enforced.
-readonly ROCM_KERNEL_FLOOR="6.14"
+# GPU targets ROCm 10.0.0 ships code for, read from the package list of
+# rocm/dev-ubuntu-24.04:10.0.0-full (amdrocm-core-sdk10.0-gfx*). RDNA 1 and
+# newer, plus the CDNA datacenter parts — ROCm 10 does NOT require RDNA 4.
+readonly ROCM10_GFX_TARGETS="gfx1010 gfx1011 gfx1012 gfx1030 gfx1031 gfx1032 gfx1033 gfx1034 gfx1035 gfx1036 gfx1100 gfx1101 gfx1102 gfx1103 gfx1150 gfx1151 gfx1152 gfx1153 gfx1200 gfx1201 gfx1250 gfx908 gfx90a gfx942 gfx950"
 
 # ── Non-interactive + secure-install state ──
 # ASSUME_YES (--yes/-y): skip confirmations and never block on a prompt.
@@ -171,6 +171,7 @@ detect_amd_gfx_version() {
     fi
 
     [[ -z "$gfx_target" ]] && return
+    AMD_GFX_TARGET="$gfx_target"
 
     # Map gfx target to HSA_OVERRIDE_GFX_VERSION
     # Only set the override for GPUs not natively supported by ROCm 7.2
@@ -1254,8 +1255,9 @@ prompt_rocm_variant() {
     echo "  2) Experimental  ROCm 10 on AMD's Ubuntu image${mark2}"
     echo ""
     echo "     ROCm 10 is published only as a container image, so this is the only"
-    echo "     way to run it. It needs a host kernel of ${ROCM_KERNEL_FLOOR} or newer, because that"
-    echo "     is where the AMD driver gained support for RDNA 4 cards."
+    echo "     way to run it. It supports RDNA 1 and newer, and the CDNA cards."
+    echo "     Your kernel has to be new enough for your own card's driver, which"
+    echo "     is checked below — the version differs by card, not by ROCm."
     echo "     Any llama.cpp builds you already have were compiled against the other"
     echo "     ROCm version and will need rebuilding. None of them are deleted, so"
     echo "     switching back makes them work again."
@@ -1295,33 +1297,85 @@ validate_rocm_base_image() {
     ok "Base image found."
 }
 
-# check_rocm_host_kernel warns when the host kernel predates RDNA 4 support in
-# the AMD driver. A warning, not a refusal: the floor is approximate, and the
-# experimental path is for people who want to try things.
+# rocm_gfx_kernel_floor echoes "<major.minor> <family>" for the detected card:
+# the kernel version in which the AMD driver gained support for it. Nothing when
+# the card is unknown or has no figure worth quoting, in which case no version
+# comparison is made rather than an invented one.
+#
+# The kernel a card needs depends on the CARD, not on ROCm — ROCm 10 itself
+# supports RDNA 1 and newer (see ROCM10_GFX_TARGETS). Figures from the Gentoo
+# AMDGPU wiki, which tracks them per generation:
+# https://wiki.gentoo.org/wiki/AMDGPU
+# The CDNA parts (gfx908/90a/942/950) are deliberately absent: no figure is
+# quoted for them here, so none is asserted.
+rocm_gfx_kernel_floor() {
+    case "${1:-}" in
+        gfx1200|gfx1201)                     echo "6.12 RDNA 4" ;;
+        gfx1150|gfx1151|gfx1152|gfx1153)     echo "6.10 RDNA 3.5" ;;
+        gfx1100|gfx1101|gfx1102|gfx1103)     echo "6.0 RDNA 3" ;;
+        gfx1030|gfx1031|gfx1032|gfx1033|gfx1034|gfx1035|gfx1036)
+                                             echo "5.9 RDNA 2" ;;
+        gfx1010|gfx1011|gfx1012|gfx1013)     echo "5.3 RDNA 1" ;;
+        gfx900|gfx902|gfx904|gfx906|gfx909|gfx90c)
+                                             echo "4.15 Vega" ;;
+    esac
+}
+
+# check_rocm_host_kernel reports whether this machine's GPU and driver can be
+# expected to work with the experimental variant, before a 20 GB pull.
+#
+# Two separate questions, and neither is a refusal — the experimental path is
+# for people who want to try things:
+#   1. Does ROCm 10 ship code for this card at all?
+#   2. Is the host kernel new enough for the AMD driver to drive it? The answer
+#      depends on the card, not on ROCm, so the floor is looked up per target
+#      and no comparison is made when the target is unknown.
 check_rocm_host_kernel() {
-    local running major minor floor_major floor_minor drv="(not reported)"
+    local running major minor drv="(not reported)" floor family fl_major fl_minor
     running="$(uname -r)"
     major="${running%%.*}"
     minor="${running#*.}"; minor="${minor%%.*}"
     major="${major//[^0-9]/}"; minor="${minor//[^0-9]/}"
     major="${major:-0}"; minor="${minor:-0}"
-    floor_major="${ROCM_KERNEL_FLOOR%%.*}"
-    floor_minor="${ROCM_KERNEL_FLOOR##*.}"
 
-    if [[ ! -e /dev/kfd ]]; then
-        warn "/dev/kfd is missing — the AMD kernel driver is not loaded, so the container will not reach the GPU."
-    fi
     # Present only for DKMS installs; an in-tree amdgpu has no version file,
     # which is not a problem, so it reads as "not reported".
     if [[ -r /sys/module/amdgpu/version ]]; then
         drv="$(cat /sys/module/amdgpu/version)"
     fi
 
-    if (( major < floor_major || (major == floor_major && minor < floor_minor) )); then
-        warn "Host kernel ${running} is older than ${ROCM_KERNEL_FLOOR} (amdgpu driver version: ${drv})."
-        log "${ROCM_KERNEL_FLOOR} is where the AMD driver gained RDNA 4 support. This is a requirement"
-        log "of the host kernel, not of ROCm — the container carries no kernel components."
-        log "Continuing anyway; the GPU may not work."
+    # The compute interface. Without it nothing else matters.
+    if [[ ! -e /dev/kfd ]]; then
+        warn "/dev/kfd is missing — the AMD compute driver is not loaded, so the container will not reach the GPU."
+    fi
+
+    # 1. Is the card in ROCm 10's target list?
+    if [[ -n "$AMD_GFX_TARGET" ]]; then
+        if [[ " ${ROCM10_GFX_TARGETS} " != *" ${AMD_GFX_TARGET} "* ]]; then
+            warn "ROCm 10 does not ship code for ${AMD_GFX_TARGET}, which is what this machine reports."
+            log "It covers RDNA 1 and newer and the CDNA cards. Yours may still work through"
+            log "HSA_OVERRIDE_GFX_VERSION, but it is not a supported target."
+        fi
+    else
+        log "Could not read this machine's GPU target, so its driver requirements were not checked."
+    fi
+
+    # 2. Is the kernel new enough for THIS card's driver?
+    read -r floor family <<<"$(rocm_gfx_kernel_floor "$AMD_GFX_TARGET")"
+    if [[ -z "$floor" ]]; then
+        log "Host kernel ${running}, amdgpu ${drv}. No kernel requirement is on record for"
+        log "${AMD_GFX_TARGET:-this GPU}, so it was not checked — if the container cannot see the card,"
+        log "the host driver is the first thing to suspect."
+        return 0
+    fi
+    fl_major="${floor%%.*}"
+    fl_minor="${floor##*.}"
+    if (( major < fl_major || (major == fl_major && minor < fl_minor) )); then
+        warn "Host kernel ${running} is older than ${floor}, where the AMD driver gained ${family} support (amdgpu ${drv})."
+        log "That is a requirement of your card and the host kernel, not of ROCm — the"
+        log "container carries no kernel components. Continuing anyway; the GPU may not work."
+    else
+        ok "Host kernel ${running} is new enough for ${family} (needs ${floor}; amdgpu ${drv})."
     fi
 }
 
@@ -2169,8 +2223,9 @@ SDKs in a single run; each implies --host):
 Experimental ROCm container (AMD, container mode; these do NOT imply --host,
 unlike --rocm above — ROCm 10 is published only as a container image):
   --rocm-next     Build on AMD's own ROCm image instead of Fedora + RPMs,
-                  which is the only way to get ROCm 10. Needs a host kernel
-                  of 6.14 or newer for the AMD driver.
+                  which is the only way to get ROCm 10. Supports RDNA 1 and
+                  newer and the CDNA cards; the host kernel your card needs
+                  depends on the card, and setup.sh checks it.
   --rocm-image T  Same, with the base image pinned to tag T (for example
                   10.0.0-full). A full image reference works too. See the
                   ROCm section of the README.

@@ -48,10 +48,12 @@ caveat or failure — rather than what was hoped for.
      `https://hub.docker.com/r/rocm/dev-ubuntu-24.04/tags`). Name the tags
      confirmed working in Phase 05 — `10.0.0-full` and `7.14.1-full` if both
      passed there.
-   - **What it requires.** A host kernel of 6.14 or newer, because that is where
-     RDNA 4 `amdgpu` support landed. Say that setup.sh warns but does not block,
-     and that the requirement is on the host driver, not on ROCm — the container
-     carries no kernel components.
+   - **What it requires.** That ROCm 10 supports RDNA 1 and newer and the CDNA
+     cards — it does *not* require RDNA 4 — and that the host kernel needed
+     depends on the card, not on ROCm: RDNA 4 wants 6.12, RDNA 3 6.0, RDNA 2
+     5.9, RDNA 1 5.3. Say that setup.sh checks the detected card against both
+     lists and warns without blocking, and that the requirement is on the host
+     driver, because the container carries no kernel components.
    - **Switching.** `llama.cpp` builds are compiled against one ROCm version and
      will not load under another, so switching means rebuilding from the Builds
      page. Say that nothing is deleted, so switching back makes the old builds
