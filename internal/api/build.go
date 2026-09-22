@@ -367,13 +367,19 @@ func titleAttr(title string) string {
 // buildRowFor decides what the page says about one build.
 //
 // The mismatch wording is deliberately "may fail to load" rather than "will
-// not run". Measured on this project's own two images: a llama-server built
-// under ROCm 10.0.0 loads and enumerates the GPU under ROCm 7.2.4, because both
-// ship the same hipBLAS soname. What actually breaks is narrower — a build
-// carries the library search paths of the image that made it, and those paths
-// may not exist in another image. That is a real failure, and it happened here,
-// but it is not the same as an incompatible ABI and should not be described as
-// one.
+// not run", and says "linked against the libraries" rather than naming ROCm as
+// the cause. Both were measured on this project's own two images.
+//
+// A build made under ROCm 10.0.0 loads and enumerates the GPU under ROCm 7.2.4
+// once the library path is available, because both ship the same hipBLAS
+// soname — so "will not run" would be false.
+//
+// And the failures that do occur are not always about ROCm. Going one way, the
+// ROCm 10 image bakes no usable ROCm path into libggml-hip.so, so nothing finds
+// hipBLAS. Going the other, a Fedora-built binary fails on Ubuntu with
+// "libcrypto.so.3: version OPENSSL_3.3.0 not found" — an OpenSSL symbol
+// version, nothing to do with ROCm at all. The stamp is a useful proxy for
+// "this was built somewhere else"; it is not a diagnosis.
 func (s *Server) buildRowFor(b *builder.BuildResult) buildRow {
 	row := buildRow{BuildResult: b, BuiltAgainstText: "—"}
 	if b == nil {
@@ -387,7 +393,7 @@ func (s *Server) buildRowFor(b *builder.BuildResult) buildRow {
 		row.BuiltAgainstText = b.BuiltAgainst
 		row.Mismatch = true
 		row.BuiltAgainstTitle = fmt.Sprintf(
-			"Built against %s; this container runs %s. A build carries the library paths of the image it was made in, so it may fail to load here — rebuild it if the server does not start. Nothing has been deleted; it is still here if you switch back to %s.",
+			"Built against %s; this container runs %s. A build is linked against the libraries of the image it was made in, so it may fail to load here — rebuild it if the server does not start. Nothing has been deleted; it is still here if you switch back to %s.",
 			b.BuiltAgainst, current, b.BuiltAgainst)
 	default:
 		row.BuiltAgainstText = b.BuiltAgainst

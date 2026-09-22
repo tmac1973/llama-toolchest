@@ -80,11 +80,65 @@ There is a second, smaller effect underneath: the first run after an idle period
 is slow on any configuration, including MTP with no assist (80.7 against 99.2),
 which is GPU clocks ramping rather than anything in llama.cpp.
 
-## To complete the comparison
+## The comparison: ROCm 10 is about 25% faster here
 
-The ROCm 10 half needs the container switched back and the same protocol run:
-one fresh prompt for the cold figure, then the same prompt repeated until the
-number stops moving for the plateau. With a plateau standard deviation of 0.7,
-a difference of even 2% between ROCm lines would be clearly visible — which
-makes this, properly run, a far sharper instrument than the plain-generation
-test that found nothing.
+Same model, same config, same llama.cpp ref, same prompt, same protocol.
+
+| | ROCm 10.0.0 | ROCm 7.2.4 | difference |
+|---|---|---|---|
+| **plateau** | **258.37 tok/s** | 206.90 tok/s | **+24.9%** |
+| plateau stdev | 0.52 | 0.70 | |
+| plateau spread | 257.39 – 258.78 | 206.30 – 208.00 | no overlap |
+| cold (run 1) | 87.80 tok/s | 86.90 tok/s | +1.0% |
+| runs to plateau | ~6 | ~12 | |
+
+**This is a real difference and not a measurement artifact.** The spreads are
+1.4 and 1.7 tok/s wide and sit 49 tok/s apart. Every one of the six plateau runs
+on ROCm 10 is faster than every one of the six on 7.2.4. Where the
+plain-generation comparison produced medians inside each other's noise, this
+produces two cleanly separated distributions.
+
+Note also that ROCm 10 reaches its plateau in about six runs against twelve, and
+plateaus higher — so the assist is both learning faster and paying off more.
+
+**Cold is unchanged.** 87.8 against 86.9 is within run-to-run variation. The
+gain appears only once the assist is drafting well, which is consistent with
+where it should appear: a warm assist submits many draft tokens per step for
+batched verification, and that is the regime the two runtimes differ in. Plain
+single-stream decode, one token at a time, was identical on both.
+
+## Caveats, in order of how much they should bother you
+
+**Different compilers.** The two images are gcc 13.3.0 (Ubuntu 24.04) and
+15.3.1 (Fedora 43). This is a comparison of two images, and part of the
+difference could be the compiler rather than ROCm. Weakly mitigated by the
+plain-generation test, which found no difference across the same two images —
+but that exercises different code, so it does not settle it. Settling it
+properly would need ROCm 7.2.4 and ROCm 10 on the same distribution, which is
+not something AMD publishes.
+
+**The generated text was not compared.** At temperature 0 with a fixed seed the
+output should be identical, but two ROCm versions could differ in floating-point
+detail, and if the text diverged the n-gram acceptance rate would differ too —
+which would mean part of the 25% is different content rather than more speed.
+The ROCm 10 output is recorded for a future check: 256 tokens, all of them
+`reasoning_content`, 1047 characters, sha256 beginning `22779d1725`. The
+equivalent was not captured on 7.2.4, which was an oversight — capture it on
+both sides next time.
+
+**All 256 tokens were thinking tokens.** Qwen3.5 reasons before answering and
+never reached its final answer inside 256 tokens (`finish_reason: length`), so
+this measures generation of reasoning text. That is real generation work and
+identical in shape on both sides, so the comparison holds — but it is not a
+measurement of answering a question end to end.
+
+## What this means in practice
+
+For a repetitive workload with MTP and the n-gram assist warm — editing code,
+summarising similar documents, anything that regenerates text resembling what
+it has already produced — ROCm 10 is worth about 25% on this hardware. For a
+cold prompt, or for generation without speculative decoding, it is worth
+nothing measurable.
+
+That is a more useful conclusion than either measurement alone would have given,
+and it is the opposite of what the first comparison suggested.

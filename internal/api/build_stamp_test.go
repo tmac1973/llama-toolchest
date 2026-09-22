@@ -99,8 +99,11 @@ func TestBuildsListFlagsOnlyAGenuineMismatch(t *testing.T) {
 	}
 	// "may fail to load", not "will not run": a cross-version build was
 	// measured loading successfully on this project's own images, so the
-	// wording must not promise a failure it cannot guarantee.
-	if !strings.Contains(rows["b-differs"], "may fail to load") ||
+	// wording must not promise a failure it cannot guarantee. And "linked
+	// against the libraries", not "built against this ROCm" — one real
+	// cross-image failure was an OpenSSL symbol version, not ROCm at all.
+	if !strings.Contains(rows["b-differs"], "linked against the libraries") ||
+		!strings.Contains(rows["b-differs"], "may fail to load") ||
 		!strings.Contains(rows["b-differs"], "rebuild it if the server does not start") {
 		t.Errorf("the flagged row does not describe the risk accurately\n%s", rows["b-differs"])
 	}
