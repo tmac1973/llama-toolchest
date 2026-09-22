@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.30.1](https://github.com/tmac1973/llama-toolchest/compare/v2.30.0...v2.30.1) (2026-09-22)
+
+
+### Bug Fixes
+
+* recover from a llama.cpp clone that never finished, instead of retrying a fetch that cannot succeed ([#190](https://github.com/tmac1973/llama-toolchest/issues/190)) ([6329012](https://github.com/tmac1973/llama-toolchest/commit/6329012bfbf26019e0dd5a2dc5af4485d19a38d3))
+
 ## [2.30.0](https://github.com/tmac1973/llama-toolchest/compare/v2.29.4...v2.30.0) (2026-09-22)
 
 
