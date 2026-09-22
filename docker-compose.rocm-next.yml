@@ -18,6 +18,14 @@ services:
         # base image layers stay cached. Falls back to "latest" if unset,
         # in which case the Dockerfile resolves it at build time itself.
         LLAMA_TOOLCHEST_VERSION: "${LLAMA_TOOLCHEST_VERSION:-latest}"
+        # Development: set by setup.sh --from-source in container mode. A
+        # binary built from the local tree, which replaces the packaged one
+        # after the package is installed for its dependencies. Empty for a
+        # normal build.
+        LOCAL_BINARY: "${LOCAL_BINARY:-}"
+        # Development: install a locally built .deb/.rpm instead of the
+        # released one. Empty for a normal build.
+        INSTALL_PACKAGE: "${INSTALL_PACKAGE:-}"
         # Which ROCm release to build against. setup.sh writes this to
         # .env from the variant chosen at install time; the default here
         # is what a bare `compose build` with no .env uses. Any tag from

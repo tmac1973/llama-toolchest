@@ -22,6 +22,13 @@
 # come along automatically, which is the only reason this image has a build
 # toolchain at all (the base has g++ and nothing else).
 #
+# To test the local working tree (what setup.sh --from-source does in
+# container mode): build the binary and pass it as LOCAL_BINARY. The released
+# package is still installed for its dependencies; only the program is yours.
+#   CGO_ENABLED=0 go build -o dist/llama-toolchest-local ./cmd/llama-toolchest
+#   docker build --build-arg LOCAL_BINARY=dist/llama-toolchest-local \
+#                -f Dockerfile.rocm-next .
+#
 # To install a locally-built snapshot package instead (dev iteration):
 #   make package-snapshot
 #   docker build --build-arg INSTALL_PACKAGE=dist/llama-toolchest_<ver>_linux_amd64.deb \
@@ -44,10 +51,13 @@ ARG INSTALL_PACKAGE=""
 ARG LLAMA_TOOLCHEST_VERSION="latest"
 ARG TARGETARCH=amd64
 
-# Informational only — nothing reads this. It is here so `podman image inspect`
-# on a built image says which ROCm it came from; setup.sh tracks the choice in
-# .env, not from the image.
+# The base this image was built on, in two forms. The label is for
+# `podman image inspect`; the environment variable is for the app, which shows
+# it on the Builds page — from inside the container there is otherwise no way to
+# know which ROCm image the container came from, only which ROCm version is
+# installed. Neither is load-bearing: setup.sh tracks the choice in .env.
 LABEL org.opencontainers.image.base.name="${ROCM_BASE_IMAGE}"
+ENV LLAMA_TOOLCHEST_ROCM_BASE_IMAGE="${ROCM_BASE_IMAGE}"
 
 # ROCm environment. The base image already sets ROCM_PATH and puts
 # /opt/rocm/bin on PATH, and sets nothing else, so only the HIP variables are
@@ -103,6 +113,24 @@ RUN --mount=type=bind,target=/build_context \
 # ^ apt-get, not dpkg -i: dpkg would leave the package's dependencies
 #   unresolved and the build toolchain missing. The lists are removed here,
 #   after the last apt-get in the image.
+
+# Development override: replace the packaged binary with one built from the
+# local tree. setup.sh --from-source in container mode sets this; it is empty
+# for a normal build, and then this step does nothing.
+#
+# The package above is still installed in full, which is the point — it brings
+# the dependencies (cmake, ninja, git, the compiler) and the systemd units, so
+# only the program itself differs from a release. The binary is built
+# CGO_ENABLED=0 and the web templates and static files are compiled into it via
+# go:embed, so copying this one file replaces both the code and the UI.
+ARG LOCAL_BINARY=""
+RUN --mount=type=bind,target=/build_context \
+    set -e; \
+    if [ -n "${LOCAL_BINARY}" ]; then \
+        echo "Replacing packaged binary with local build: ${LOCAL_BINARY}"; \
+        install -m 0755 "/build_context/${LOCAL_BINARY}" /usr/bin/llama-toolchest; \
+        llama-toolchest --version; \
+    fi
 
 RUN mkdir -p /data/config /data/builds /data/models /data/llama.cpp
 

@@ -1,5 +1,17 @@
 {{define "content"}}
 <h1>Builds</h1>
+{{/* What this container runs, which is the other half of each build's
+     "Built against" column below. Without it the page can say a build is
+     stale but not what it is stale against — and after switching ROCm
+     variants this is the first thing worth confirming. Rendered only when
+     detection found something, so it never states a guess. */}}
+{{if .BuildEnv}}
+<p style="margin-top:-0.5rem;">
+    <small class="mono" title="The GPU toolchain this container is running. Builds in the list below record the toolchain they were compiled against; one that does not match this needs rebuilding before it will load.">
+        Running <strong>{{.BuildEnv}}</strong>{{if .BaseImage}} · built on <kbd>{{.BaseImage}}</kbd>{{end}}
+    </small>
+</p>
+{{end}}
 
 <article>
     <header>New Build</header>

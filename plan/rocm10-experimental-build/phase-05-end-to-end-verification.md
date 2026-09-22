@@ -30,8 +30,10 @@ Qwen3.5 GGUF models are already installed, which is enough to test a load.
    from — every llama.cpp build in this phase uses that same ref, so the
    throughput comparison in Step 8 measures ROCm versions rather than two
    different llama.cpp revisions.
-2. **Make a stamped baseline build on the stable image.** Still on ROCm 7.2.4,
-   build llama.cpp once from the Builds page at the ref from Step 1. This is
+2. **Make a stamped baseline build on the stable image.** Still on ROCm 7.2.4 —
+   and on a container built with `--from-source`, or nothing will be stamped at
+   all (see Step 3) — build llama.cpp once from the Builds page at the ref from
+   Step 1. This is
    necessary, not optional: Phase 04 stamps only new builds, and the existing
    builds carry no stamp, so without this step there is nothing that can ever be
    flagged and Steps 7 and 9 could not be verified at all. Confirm the new build
@@ -39,13 +41,26 @@ Qwen3.5 GGUF models are already installed, which is enough to test a load.
    build ID, and its generation and prompt throughput on
    `Qwen3.5-4B-UD-Q4_K_XL` — that is the baseline Step 8 compares against.
 3. **Install through the real route.** Run
-   `./setup.sh install --rocm-image 10.0.0-full` and record, in order: that the
+   `./setup.sh install --container --from-source --rocm-image 10.0.0-full`.
+
+   `--from-source` is not optional here, and the reason is easy to miss: the
+   Dockerfiles install the *released* package from GitHub, so a plain install
+   produces a container running the last release — which has neither the build
+   stamp from Phase 04 nor the variant work from Phase 03. Steps 2, 7 and 9
+   would all be unverifiable against it. `--from-source` builds this tree and
+   installs it over the packaged binary, keeping the package's dependencies.
+
+   Record, in order: that the
    tag validation passed, what the kernel pre-flight said (this kernel is well
    above the 6.12 floor RDNA 4 needs, so expect the "new enough" line rather
    than a warning), and that the switch warning
    appeared because the previous variant was stable.
 4. **Confirm the image and the app.** The container starts, the UI answers on the
    management port, and the Builds page loads. Record the built image size.
+   The Builds page should now name the toolchain at the top —
+   "Running rocm 10.0.0 · built on docker.io/rocm/dev-ubuntu-24.04:10.0.0-full"
+   — which also confirms the container is running this tree rather than the
+   release, since the release has no such line.
 5. **Confirm the GPU inside the container.**
    `podman exec llama-toolchest rocminfo | grep -E 'gfx1201|Marketing Name'`
    finds the RX 9070 XT. Also record `podman exec llama-toolchest cat

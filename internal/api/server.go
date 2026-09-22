@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -699,14 +700,51 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleBuildsPage(w http.ResponseWriter, r *http.Request) {
+	env, base := s.buildEnvBanner()
 	data := struct {
 		pageData
 		Backends []builder.Backend
+		// BuildEnv is the GPU toolchain this container runs, e.g.
+		// "rocm 10.0.0", and BaseImage the image it was built from when
+		// that is known. Shown at the top of the page: it is the other
+		// half of each build's "Built against" column, and without it the
+		// page can say a build is stale but not what it is stale against.
+		BuildEnv  string
+		BaseImage string
 	}{
-		pageData: pageData{Title: "Builds", Nav: "builds"},
-		Backends: builder.DetectBackends(),
+		pageData:  pageData{Title: "Builds", Nav: "builds"},
+		Backends:  builder.DetectBackends(),
+		BuildEnv:  env,
+		BaseImage: base,
 	}
 	s.render(w, "builds.html", data)
+}
+
+// buildEnvBanner reports the toolchain this container runs and the container
+// image it came from. The toolchain is detected; the base image can only be
+// told to us, because from inside the container there is no way to read the
+// image's own metadata — Dockerfile.rocm-next sets it as an environment
+// variable. Either may be empty, in which case the page says less rather than
+// guessing.
+func (s *Server) buildEnvBanner() (env, baseImage string) {
+	// Ask each GPU backend for its version and take the first that answers.
+	//
+	// Deliberately not DetectBackends()'s Available flag: that reports whether
+	// the GPU is reachable, and a container started without /dev/kfd would
+	// then say nothing at all even though a ROCm SDK is plainly installed.
+	// The question here is which toolchain the container carries, which is
+	// what a build gets compiled against — a separate thing from whether the
+	// card is currently visible.
+	//
+	// Also not the active build's backend: the banner describes the container
+	// and has to work with no builds at all, which is the state right after a
+	// variant switch.
+	for _, backend := range []string{"rocm", "cuda"} {
+		if env = s.currentBuildEnvFor(backend); env != "" {
+			return env, os.Getenv("LLAMA_TOOLCHEST_ROCM_BASE_IMAGE")
+		}
+	}
+	return "", ""
 }
 
 func (s *Server) handleModelsPage(w http.ResponseWriter, r *http.Request) {

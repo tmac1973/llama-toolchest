@@ -135,3 +135,69 @@ code-reading substitute:
   never select the experimental path by accident.
 - `shellcheck` is not installed on this machine, so the plan's "no new findings"
   gate could not be run. `bash -n` is clean.
+
+## Added during implementation: `--from-source` for containers
+
+Not in the plan, and it should have been. Running `./setup.sh install` and
+selecting the experimental variant produces a container running the *last
+release*, because every container Dockerfile downloads the released `.deb` or
+`.rpm` from GitHub. Nothing in this branch is in it. Host mode has had
+`--from-source` for exactly this, but container mode had no equivalent — so
+there was no way to test local changes in a container at all.
+
+That is not a nice-to-have for this project: Phase 05 cannot verify the build
+stamp or the mismatch flag against a container that does not contain them.
+
+`--from-source` now means "build from this tree" in both modes. On its own it
+still implies `--host`, as it always has; with `--container` it builds the tree
+into the image. Flag order does not matter, because the mode is only defaulted
+when the user has not named one.
+
+**It installs a binary, not a package.** The released package is still installed
+in full — that is what brings in `cmake`, `ninja`, `git` and the compiler that
+llama.cpp builds need, plus the systemd units — and then the locally built
+binary replaces `/usr/bin/llama-toolchest`. Two properties make this work:
+`CGO_ENABLED=0`, so the binary runs on Fedora, Ubuntu or Debian bases alike, and
+`go:embed` for the templates and static files, so one file carries the UI as
+well as the code. It needs nothing but the Go toolchain — no goreleaser (which
+is not installed here anyway), no nfpm.
+
+Wired through all four container Dockerfiles and all five compose files, since a
+`LOCAL_BINARY` build argument the compose file never sets is no use. The
+Makefile's `package-snapshot` comment already claimed to be "used by the dev
+container rebuild flow"; that flow did not exist until now, and this is a
+simpler one than the comment imagined.
+
+Verified: the flag builds `dist/llama-toolchest-local` (statically linked,
+version reported as `v2.29.4-7-gcb068c9-dirty`), the image carries it, `cmake`,
+`ninja`, `git` and `hipcc` all survive, and the install summary gains a
+`Program  built from this tree` line so it is obvious which one you are getting.
+
+## Added during implementation: the container's own toolchain on the Builds page
+
+Also not in the plan, and the missing half of Phase 04. The container's ROCm
+version was computed in exactly one place and only ever appeared inside a
+mismatch tooltip — so it was visible only when a mismatched build existed. The
+page could say a build was stale without saying what it was stale against, and
+after switching variants there are no builds at all, which is precisely when the
+question matters most.
+
+The Builds page now carries one line under the heading:
+
+```
+Running rocm 10.0.0 · built on docker.io/rocm/dev-ubuntu-24.04:10.0.0-full
+```
+
+The base image cannot be detected from inside a container, so
+`Dockerfile.rocm-next` sets `LLAMA_TOOLCHEST_ROCM_BASE_IMAGE` alongside the
+label it already had. The stable Fedora image sets neither, and then the line
+reads `Running rocm 7.2.4` with no "built on" fragment rather than an empty one.
+
+Two design corrections while building it. The first version asked
+`activeBackend()`, which resolves the active build and panics with no config —
+the banner describes the container, not a build, so it must not touch the
+config. The second asked `DetectBackends()` for an *available* backend, which
+reports whether the GPU is reachable: a container started without `/dev/kfd`
+then said nothing at all, despite plainly having a ROCm SDK installed. It now
+asks each GPU backend for its version and takes the first that answers, which
+is the actual question — what this container would compile against.

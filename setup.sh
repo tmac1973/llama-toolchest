@@ -36,6 +36,11 @@ INSTALL_MODE_EXPLICIT="${INSTALL_MODE:+true}"
 INSTALL_MODE_EXPLICIT="${INSTALL_MODE_EXPLICIT:-false}"
 INSTALL_MODE="${INSTALL_MODE:-container}"  # host or container; default container preserves existing behavior
 HOST_INSTALL_MODE="${HOST_INSTALL_MODE:-package}"  # for --host: "package" (download released .deb/.rpm) or "source" (go build locally)
+# --from-source in CONTAINER mode: build the binary from this tree and install
+# it into the image over the packaged one. Container mode only reads this;
+# host mode uses HOST_INSTALL_MODE above.
+FROM_SOURCE=false
+LOCAL_BINARY=""         # path, relative to the build context, of that binary
 HOST_SDK_BACKENDS=()    # backends to install host SDKs for (--cuda/--rocm/--vulkan); empty means autodetect+prompt
 MIGRATE_DIRECTION=""    # "to-host" or "to-container" when command=migrate
 
@@ -1406,6 +1411,43 @@ warn_rocm_variant_switch() {
     echo ""
 }
 
+# build_local_binary compiles this working tree for the container and echoes
+# nothing; it sets LOCAL_BINARY to the path the compose build arg expects,
+# relative to the build context (the repository root).
+#
+# Why a binary and not a package: the image still installs the released
+# .deb/.rpm, which is what brings in cmake, ninja, git and the compiler that
+# llama.cpp builds need, plus the systemd units. Only the program is replaced.
+# That keeps the dev image faithful to a release in everything except the code,
+# and needs nothing but the Go toolchain — no goreleaser, no nfpm.
+#
+# The web templates and static files are compiled in via go:embed, so the one
+# file carries the UI as well as the code.
+build_local_binary() {
+    need_cmd go || fatal "--from-source needs the Go toolchain to build this tree. Install Go, or drop --from-source to install the released package."
+
+    local out="dist/llama-toolchest-local" arch version commit
+    arch="$(go env GOARCH)"
+    version="$(git -C "$SCRIPT_DIR" describe --tags --always --dirty 2>/dev/null || echo dev)"
+    commit="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
+
+    log "Building llama-toolchest from this tree (${version}, linux/${arch})..."
+    mkdir -p "${SCRIPT_DIR}/dist"
+    # Same settings as the release build (.goreleaser.yaml): CGO off so the
+    # binary runs on whatever base image the variant uses, and the version
+    # stamped in so the container reports the tree it came from rather than
+    # claiming to be a release.
+    ( cd "$SCRIPT_DIR" && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" \
+        go build -trimpath \
+          -ldflags "-s -w -X main.version=${version} -X main.commit=${commit} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          -o "$out" ./cmd/llama-toolchest ) \
+        || fatal "Building from source failed. Fix the build, or drop --from-source."
+
+    LOCAL_BINARY="$out"
+    export LOCAL_BINARY
+    ok "Built ${out} (${version})."
+}
+
 # caddy_hash_password hashes plaintext via the caddy image, feeding the secret
 # on STDIN (newline-terminated — hash-password reads a line) so it never appears
 # in argv / ps. Echoes the resulting hash. Caddy's basic_auth accepts both
@@ -2082,6 +2124,11 @@ print_summary() {
             echo -e "  ${CYAN}ROCm${NC}          stable (7.2.4, Fedora)"
         fi
     fi
+    if [[ -n "${LOCAL_BINARY:-}" ]]; then
+        echo -e "  ${CYAN}Program${NC}       built from this tree (${LOCAL_BINARY})"
+    else
+        echo -e "  ${CYAN}Program${NC}       released package from GitHub"
+    fi
     echo -e "  ${CYAN}UI port${NC}       ${LLAMA_TOOLCHEST_PORT}"
     echo -e "  ${CYAN}Inference port${NC} ${LLAMA_TOOLCHEST_INFERENCE_PORT}"
     if [[ -n "$LLAMA_TOOLCHEST_MODELS_DIR" ]]; then
@@ -2208,9 +2255,13 @@ Install modes:
   --from-package  Implies --host. Download the latest GitHub release
                   for this distro+arch and install via dnf/apt. This is
                   the default for --host.
-  --from-source   Implies --host. Build the binary from the local source
-                  via `go build` instead of installing a release package.
-                  Useful for testing uncommitted changes.
+  --from-source   Build the binary from the local source via `go build`
+                  instead of installing a release package. Useful for
+                  testing uncommitted changes. On its own it implies
+                  --host; with --container it builds this tree into the
+                  container image instead, where the released package is
+                  still installed for its dependencies and only the
+                  program itself is replaced.
 
 Backend selection (host mode, additive — stack flags to install multiple
 SDKs in a single run; each implies --host):
@@ -2331,6 +2382,7 @@ Examples:
   ./setup.sh install --rocm-image 10.0.0-full  # container install on ROCm 10 (experimental)
   ./setup.sh install --vulkan           # host install, Vulkan SDK only (cross-vendor)
   ./setup.sh install --from-source      # host install, build from local source
+  ./setup.sh install --container --from-source  # container running this working tree
   ./setup.sh install --secure           # container install behind Caddy (asks TLS/login)
   ./setup.sh install --secure --tls self-signed \
       --auth-user admin --auth-hash "$(caddy hash-password --plaintext s3cret)" --yes
@@ -2360,7 +2412,18 @@ main() {
         case "$1" in
             --host)         INSTALL_MODE="host"; INSTALL_MODE_EXPLICIT=true ;;
             --container)    INSTALL_MODE="container"; INSTALL_MODE_EXPLICIT=true ;;
-            --from-source)  INSTALL_MODE="host"; HOST_INSTALL_MODE="source"; INSTALL_MODE_EXPLICIT=true ;;
+            # --from-source means "build from this tree" in BOTH modes. It
+            # still implies --host on its own, as it always has; combined with
+            # --container it builds the tree into the container image instead.
+            # The mode is only defaulted when the user has not named one, so
+            # --container --from-source and --from-source --container agree.
+            --from-source)
+                HOST_INSTALL_MODE="source"
+                FROM_SOURCE=true
+                if [[ "$INSTALL_MODE_EXPLICIT" != true ]]; then
+                    INSTALL_MODE="host"; INSTALL_MODE_EXPLICIT=true
+                fi
+                ;;
             --from-package) INSTALL_MODE="host"; HOST_INSTALL_MODE="package"; INSTALL_MODE_EXPLICIT=true ;;
             # Backend flags are additive and host-mode-only (vulkan can't run
             # in containers without driver passthrough we don't manage; for
@@ -2711,6 +2774,14 @@ main() {
     fi
     if [[ "$GPU_VENDOR" == "rocm" && "$command" != "status" ]]; then
         warn_rocm_variant_switch
+    fi
+
+    # ── Build from this tree, when asked (container mode) ──
+    # Before the summary, so the summary can say the image will carry a local
+    # build, and before the confirmation, so a compile error costs seconds
+    # rather than surfacing after the image layers are done.
+    if [[ "$FROM_SOURCE" == true && "$command" != "status" ]]; then
+        build_local_binary
     fi
 
     # ── Check prerequisites and show summary (install, rebuild, status) ──
