@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -50,6 +51,13 @@ type Server struct {
 	tuner     *autotune.Runner
 	tuneStore *autotune.Store
 	msClient  *modelscope.Client
+
+	// currentBuildEnv reports the GPU toolchain this process is running
+	// with, for the Builds page's build-environment comparison. Nil in
+	// production, where builder.CurrentBuildEnv is used; a test sets it so
+	// "current" is decided by the test rather than by whichever ROCm
+	// happens to be installed on the machine running it.
+	currentBuildEnv func(backend string) string
 
 	// probeCache memoizes remote GGUF header probes, keyed by source,
 	// repo and file. A published file's layout does not change, so the
@@ -692,14 +700,51 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleBuildsPage(w http.ResponseWriter, r *http.Request) {
+	env, base := s.buildEnvBanner()
 	data := struct {
 		pageData
 		Backends []builder.Backend
+		// BuildEnv is the GPU toolchain this container runs, e.g.
+		// "rocm 10.0.0", and BaseImage the image it was built from when
+		// that is known. Shown at the top of the page: it is the other
+		// half of each build's "Built against" column, and without it the
+		// page can say a build is stale but not what it is stale against.
+		BuildEnv  string
+		BaseImage string
 	}{
-		pageData: pageData{Title: "Builds", Nav: "builds"},
-		Backends: builder.DetectBackends(),
+		pageData:  pageData{Title: "Builds", Nav: "builds"},
+		Backends:  builder.DetectBackends(),
+		BuildEnv:  env,
+		BaseImage: base,
 	}
 	s.render(w, "builds.html", data)
+}
+
+// buildEnvBanner reports the toolchain this container runs and the container
+// image it came from. The toolchain is detected; the base image can only be
+// told to us, because from inside the container there is no way to read the
+// image's own metadata — Dockerfile.rocm-next sets it as an environment
+// variable. Either may be empty, in which case the page says less rather than
+// guessing.
+func (s *Server) buildEnvBanner() (env, baseImage string) {
+	// Ask each GPU backend for its version and take the first that answers.
+	//
+	// Deliberately not DetectBackends()'s Available flag: that reports whether
+	// the GPU is reachable, and a container started without /dev/kfd would
+	// then say nothing at all even though a ROCm SDK is plainly installed.
+	// The question here is which toolchain the container carries, which is
+	// what a build gets compiled against — a separate thing from whether the
+	// card is currently visible.
+	//
+	// Also not the active build's backend: the banner describes the container
+	// and has to work with no builds at all, which is the state right after a
+	// variant switch.
+	for _, backend := range []string{"rocm", "cuda"} {
+		if env = s.currentBuildEnvFor(backend); env != "" {
+			return env, os.Getenv("LLAMA_TOOLCHEST_ROCM_BASE_IMAGE")
+		}
+	}
+	return "", ""
 }
 
 func (s *Server) handleModelsPage(w http.ResponseWriter, r *http.Request) {
@@ -736,18 +781,62 @@ func (s *Server) handleServicePage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleServerPage(w http.ResponseWriter, r *http.Request) {
+	choices, allMismatched := s.serverBuildChoices(s.cfg.ActiveBuild)
+
+	// Whether "Auto (newest ref)" would itself land on a build that cannot run
+	// here. Without this the one option that looks safest is the one that
+	// silently picks a broken build.
+	autoMismatch := false
+	if row := s.buildRowFor(s.resolveBuild("")); row.BuildResult != nil {
+		autoMismatch = row.Mismatch
+	}
+
 	data := struct {
 		pageData
-		ActiveBuild     string
-		ModelsMax       int
-		AvailableBuilds interface{}
+		ActiveBuild string
+		ModelsMax   int
+		// BuildChoices is every build with its runnability. PickerHint is the
+		// select's tooltip: the marked options say which builds cannot run,
+		// and this says why, without a line of text under the control.
+		BuildChoices []serverBuildChoice
+		AutoMismatch bool
+		PickerHint   string
 	}{
-		pageData:        pageData{Title: "Server", Nav: "server"},
-		ActiveBuild:     s.cfg.ActiveBuild,
-		ModelsMax:       s.cfg.ModelsMax,
-		AvailableBuilds: s.builder.List(),
+		pageData:     pageData{Title: "Server", Nav: "server"},
+		ActiveBuild:  s.cfg.ActiveBuild,
+		ModelsMax:    s.cfg.ModelsMax,
+		BuildChoices: choices,
+		AutoMismatch: autoMismatch,
 	}
+	data.PickerHint = s.buildPickerHint(choices, allMismatched)
 	s.render(w, "server.html", data)
+}
+
+// buildPickerHint is the Server page build picker's tooltip. Empty when every
+// build can run here, so the control carries no tooltip at all rather than one
+// explaining a situation that does not apply.
+func (s *Server) buildPickerHint(choices []serverBuildChoice, allMismatched bool) string {
+	marked := false
+	for _, c := range choices {
+		if c.Mismatch {
+			marked = true
+			break
+		}
+	}
+	if !marked {
+		return ""
+	}
+	running, _ := s.buildEnvBanner()
+	where := "the one running now"
+	if running != "" {
+		where = running
+	}
+	if allMismatched {
+		return "Every build listed was compiled in a different container image than " + where +
+			", so any of them may fail to load. They can still be chosen, because refusing all of them would leave nothing to start — but rebuilding on the Builds page is what will work."
+	}
+	return "Builds marked with a warning sign were compiled in a different container image than " + where +
+		", and cannot be chosen. Rebuild them on the Builds page to use them here; nothing has been deleted."
 }
 
 func (s *Server) handleHelpPage(w http.ResponseWriter, r *http.Request) {

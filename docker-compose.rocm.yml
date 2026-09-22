@@ -11,6 +11,14 @@ services:
         # layers stay cached. Falls back to "latest" if unset, in which
         # case the Dockerfile resolves it at build time itself.
         LLAMA_TOOLCHEST_VERSION: "${LLAMA_TOOLCHEST_VERSION:-latest}"
+        # Development: set by setup.sh --from-source in container mode. A
+        # binary built from the local tree, which replaces the packaged one
+        # after the package is installed for its dependencies. Empty for a
+        # normal build.
+        LOCAL_BINARY: "${LOCAL_BINARY:-}"
+        # Development: install a locally built .deb/.rpm instead of the
+        # released one. Empty for a normal build.
+        INSTALL_PACKAGE: "${INSTALL_PACKAGE:-}"
     # Pin the built image name so it matches the Quadlet unit (generate_quadlet
     # in setup.sh). Without this, compose tags the build as
     # <project>_<service> (localhost/llama-toolchest_llama-toolchest) and the

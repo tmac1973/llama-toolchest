@@ -14,6 +14,7 @@ readonly CDI_USER_DIR="${HOME}/.config/containers/cdi"
 GPU_VENDOR=""           # cuda, rocm, cpu
 GPU_INFO=""             # human-readable GPU description
 AMD_GFX_VERSION=""      # HSA_OVERRIDE_GFX_VERSION value (empty = not needed)
+AMD_GFX_TARGET=""       # detected gfx target, e.g. gfx1201 (empty = unknown)
 HOST_VIDEO_GID=""       # host video group GID
 HOST_RENDER_GID=""      # host render group GID
 
@@ -35,8 +36,51 @@ INSTALL_MODE_EXPLICIT="${INSTALL_MODE:+true}"
 INSTALL_MODE_EXPLICIT="${INSTALL_MODE_EXPLICIT:-false}"
 INSTALL_MODE="${INSTALL_MODE:-container}"  # host or container; default container preserves existing behavior
 HOST_INSTALL_MODE="${HOST_INSTALL_MODE:-package}"  # for --host: "package" (download released .deb/.rpm) or "source" (go build locally)
+# --from-source in CONTAINER mode: build the binary from this tree and install
+# it into the image over the packaged one. Container mode only reads this;
+# host mode uses HOST_INSTALL_MODE above.
+FROM_SOURCE=false
+LOCAL_BINARY=""         # path, relative to the build context, of that binary
 HOST_SDK_BACKENDS=()    # backends to install host SDKs for (--cuda/--rocm/--vulkan); empty means autodetect+prompt
 MIGRATE_DIRECTION=""    # "to-host" or "to-container" when command=migrate
+
+# ── Experimental ROCm container variant ──
+# ROCm 10 is published ONLY as a container image: repo.radeon.com's el9, el10,
+# rhel9 and rhel10 paths all stop at 7.2.4, and so does the amdgpu-install path,
+# so Dockerfile.rocm cannot reach anything newer however long we wait. The 7.14.x
+# line is in the same position. The "next" variant builds on an AMD-published
+# ROCm image instead — see Dockerfile.rocm-next.
+#
+# "" = undecided (the prompt will ask, and empty behaves as stable everywhere),
+# "stable" = Dockerfile.rocm, "next" = Dockerfile.rocm-next.
+# Container-only: there are no 10.x packages for a host install to use.
+ROCM_VARIANT="${ROCM_VARIANT:-}"
+ROCM_BASE_IMAGE="${ROCM_BASE_IMAGE:-}"
+# Set BEFORE any default, so an inherited env var counts as explicit and
+# suppresses both the prompt and the value stored in .env. Mirrors
+# INSTALL_MODE_EXPLICIT.
+ROCM_VARIANT_EXPLICIT=false
+if [[ -n "$ROCM_VARIANT" || -n "$ROCM_BASE_IMAGE" ]]; then
+    ROCM_VARIANT_EXPLICIT=true
+fi
+# A base image on its own means the experimental variant; naming a ROCm release
+# and then getting the stable one would be a surprise.
+if [[ -n "$ROCM_BASE_IMAGE" && -z "$ROCM_VARIANT" ]]; then
+    ROCM_VARIANT="next"
+fi
+case "$ROCM_VARIANT" in
+    ""|stable|next) ;;
+    *) echo "ROCM_VARIANT must be 'stable' or 'next' (got '${ROCM_VARIANT}')" >&2; exit 1 ;;
+esac
+# The AMD repository a bare tag is qualified against, and the release used when
+# no tag is given. Check https://hub.docker.com/r/rocm/dev-ubuntu-24.04/tags for
+# what exists.
+readonly ROCM_NEXT_IMAGE_REPO="docker.io/rocm/dev-ubuntu-24.04"
+readonly ROCM_NEXT_DEFAULT_TAG="10.0.0-full"
+# GPU targets ROCm 10.0.0 ships code for, read from the package list of
+# rocm/dev-ubuntu-24.04:10.0.0-full (amdrocm-core-sdk10.0-gfx*). RDNA 1 and
+# newer, plus the CDNA datacenter parts — ROCm 10 does NOT require RDNA 4.
+readonly ROCM10_GFX_TARGETS="gfx1010 gfx1011 gfx1012 gfx1030 gfx1031 gfx1032 gfx1033 gfx1034 gfx1035 gfx1036 gfx1100 gfx1101 gfx1102 gfx1103 gfx1150 gfx1151 gfx1152 gfx1153 gfx1200 gfx1201 gfx1250 gfx908 gfx90a gfx942 gfx950"
 
 # ── Non-interactive + secure-install state ──
 # ASSUME_YES (--yes/-y): skip confirmations and never block on a prompt.
@@ -132,6 +176,7 @@ detect_amd_gfx_version() {
     fi
 
     [[ -z "$gfx_target" ]] && return
+    AMD_GFX_TARGET="$gfx_target"
 
     # Map gfx target to HSA_OVERRIDE_GFX_VERSION
     # Only set the override for GPUs not natively supported by ROCm 7.2
@@ -500,8 +545,10 @@ check_prerequisites() {
         ACTIONS+=("Enable SELinux container_use_devices boolean")
     fi
 
-    # Build + run is always an action
-    ACTIONS+=("Build container image (Dockerfile.${GPU_VENDOR})")
+    # Build + run is always an action. Names the file via dockerfile() rather
+    # than interpolating GPU_VENDOR, so the ROCm variant is reflected here as
+    # well as in print_summary — otherwise the two disagree.
+    ACTIONS+=("Build container image ($(dockerfile))")
     ACTIONS+=("Start llama-toolchest service")
 }
 
@@ -892,6 +939,18 @@ load_env_ports() {
     val="$(grep '^LLAMA_TOOLCHEST_MODELS_DIR=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
     [[ -n "$val" ]] && LLAMA_TOOLCHEST_MODELS_DIR="$val" || true
 
+    # Remember the ROCm container variant so up/down/rebuild reuse it without
+    # re-passing a flag. An explicit flag or env var this run always wins. The
+    # restored value does NOT suppress the install prompt — it becomes the
+    # prompt's default, which is what lets an experimental machine be returned
+    # to stable interactively.
+    if [[ "$ROCM_VARIANT_EXPLICIT" != true ]]; then
+        val="$(grep '^ROCM_VARIANT=' "$env_file" 2>/dev/null | cut -d= -f2-)" || true
+        [[ -n "$val" ]] && ROCM_VARIANT="$val" || true
+        val="$(grep '^ROCM_BASE_IMAGE=' "$env_file" 2>/dev/null | cut -d= -f2-)" || true
+        [[ -n "$val" ]] && ROCM_BASE_IMAGE="$val" || true
+    fi
+
     # Remember a prior secure install so up/down/rebuild re-add the Caddy
     # overlay without needing --secure again. An explicit --secure/--no-secure
     # on this run always wins.
@@ -1023,6 +1082,10 @@ migrate_legacy_volume() {
 # ─── Container operations ────────────────────────────────────────────────────
 
 compose_file() {
+    if [[ "$GPU_VENDOR" == "rocm" && "${ROCM_VARIANT:-}" == "next" ]]; then
+        echo "docker-compose.rocm-next.yml"
+        return
+    fi
     echo "docker-compose.${GPU_VENDOR}.yml"
 }
 
@@ -1041,6 +1104,10 @@ compose_cmd() {
 }
 
 dockerfile() {
+    if [[ "$GPU_VENDOR" == "rocm" && "${ROCM_VARIANT:-}" == "next" ]]; then
+        echo "Dockerfile.rocm-next"
+        return
+    fi
     echo "Dockerfile.${GPU_VENDOR}"
 }
 
@@ -1091,6 +1158,18 @@ write_env_file() {
     if [[ -n "$HOST_RENDER_GID" ]]; then
         echo "HOST_RENDER_GID=${HOST_RENDER_GID}" >> "$env_file"
     fi
+
+    # Which ROCm container was chosen. ROCM_BASE_IMAGE has to be in .env rather
+    # than merely exported: docker-compose.rocm-next.yml substitutes it into a
+    # build arg, and compose reads .env from the project directory for that.
+    if [[ "$GPU_VENDOR" == "rocm" ]]; then
+        echo "ROCM_VARIANT=${ROCM_VARIANT:-stable}" >> "$env_file"
+        if [[ "${ROCM_VARIANT:-}" == "next" ]]; then
+            ROCM_BASE_IMAGE="$(rocm_base_image)"
+            echo "ROCM_BASE_IMAGE=${ROCM_BASE_IMAGE}" >> "$env_file"
+            export ROCM_BASE_IMAGE
+        fi
+    fi
 }
 
 # ─── Secure (Caddy reverse proxy) configuration ──────────────────────────────
@@ -1122,6 +1201,251 @@ prompt_install_mode() {
         *) err "Invalid choice: $choice"; prompt_install_mode; return ;;
     esac
     INSTALL_MODE_EXPLICIT=true
+}
+
+# ─── Experimental ROCm variant ───────────────────────────────────────────────
+
+# rocm_base_image echoes the full base image reference for the "next" variant.
+# A value containing a "/" is a complete reference and passes through unchanged
+# (so another AMD repository, e.g. dev-ubuntu-26.04, can be named); a bare tag
+# is qualified with the AMD repository; empty takes the default release.
+rocm_base_image() {
+    if [[ -z "$ROCM_BASE_IMAGE" ]]; then
+        echo "${ROCM_NEXT_IMAGE_REPO}:${ROCM_NEXT_DEFAULT_TAG}"
+    elif [[ "$ROCM_BASE_IMAGE" == */* ]]; then
+        echo "$ROCM_BASE_IMAGE"
+    else
+        echo "${ROCM_NEXT_IMAGE_REPO}:${ROCM_BASE_IMAGE}"
+    fi
+}
+
+# rocm_variant_label describes a variant for a message. Takes the image
+# reference as a second argument rather than reading the global, so it can
+# describe the PREVIOUS variant as well as the current one.
+rocm_variant_label() {
+    case "${1:-stable}" in
+        next) echo "experimental${2:+ — ${2}}" ;;
+        *)    echo "stable — ROCm 7.2.4 on Fedora" ;;
+    esac
+}
+
+# prompt_rocm_variant asks which ROCm container to build. The default is
+# whichever variant is already installed, so pressing Enter keeps it rather
+# than silently moving an experimental machine back to stable.
+prompt_rocm_variant() {
+    local cur="${ROCM_VARIANT:-stable}" default_n=1 cur_ref cur_shown mark1="" mark2=""
+    if [[ "$cur" == "next" ]]; then
+        default_n=2
+        mark2="   (current)"
+    else
+        mark1="   (current)"
+    fi
+    # Two values, deliberately. cur_ref is the full reference and is what an
+    # empty answer keeps — reducing it to a bare tag would silently move a
+    # machine pinned to another AMD repository (dev-ubuntu-26.04, say) onto the
+    # default one. cur_shown is what the prompt displays: just the tag for the
+    # usual repository, the whole reference when it is not the usual one, so
+    # what is on offer is never ambiguous.
+    cur_ref="$(rocm_base_image)"
+    if [[ "$cur_ref" == "${ROCM_NEXT_IMAGE_REPO}:"* ]]; then
+        cur_shown="${cur_ref##*:}"
+    else
+        cur_shown="$cur_ref"
+    fi
+
+    echo ""
+    echo -e "${BOLD}ROCm version${NC}"
+    echo ""
+    echo "  1) Stable        ROCm 7.2.4 on Fedora — the tested default${mark1}"
+    echo "  2) Experimental  ROCm 10 on AMD's Ubuntu image${mark2}"
+    echo ""
+    echo "     ROCm 10 is published only as a container image, so this is the only"
+    echo "     way to run it. It supports RDNA 1 and newer, and the CDNA cards."
+    echo "     Your kernel has to be new enough for your own card's driver, which"
+    echo "     is checked below — the version differs by card, not by ROCm."
+    echo "     Any llama.cpp builds you already have were compiled against the other"
+    echo "     ROCm version and will need rebuilding. None of them are deleted, so"
+    echo "     switching back makes them work again."
+    echo ""
+    local choice
+    read -rp "$(echo -e "  ${BOLD}Choose${NC} [${default_n}]: ")" choice
+    case "${choice:-$default_n}" in
+        1) ROCM_VARIANT="stable"; ROCM_BASE_IMAGE="" ;;
+        2)
+            ROCM_VARIANT="next"
+            local tag
+            read -rp "$(echo -e "  ${BOLD}Base image tag${NC} [${cur_shown}]: ")" tag
+            ROCM_BASE_IMAGE="${tag:-$cur_ref}"
+            ;;
+        *) err "Invalid choice: $choice"; prompt_rocm_variant; return ;;
+    esac
+}
+
+# validate_rocm_base_image fails before anything is built when the tag does not
+# exist, so a typo costs seconds instead of a partial 20 GB pull. Uses the
+# container runtime that container mode already requires, rather than adding a
+# curl or skopeo dependency.
+validate_rocm_base_image() {
+    local ref
+    ref="$(rocm_base_image)"
+    if [[ -z "$CONTAINER_CMD" ]]; then
+        warn "Cannot check ${ref} yet — no container runtime detected. The build will fail later if that tag does not exist."
+        return 0
+    fi
+    log "Checking the ROCm base image exists: ${ref}"
+    if ! $CONTAINER_CMD manifest inspect "$ref" >/dev/null 2>&1; then
+        err "ROCm base image not found: ${ref}"
+        log "The tag may not exist, or the registry may be unreachable."
+        log "Available tags: https://hub.docker.com/r/rocm/dev-ubuntu-24.04/tags"
+        exit 1
+    fi
+    ok "Base image found."
+}
+
+# rocm_gfx_kernel_floor echoes "<major.minor> <family>" for the detected card:
+# the kernel version in which the AMD driver gained support for it. Nothing when
+# the card is unknown or has no figure worth quoting, in which case no version
+# comparison is made rather than an invented one.
+#
+# The kernel a card needs depends on the CARD, not on ROCm — ROCm 10 itself
+# supports RDNA 1 and newer (see ROCM10_GFX_TARGETS). Figures from the Gentoo
+# AMDGPU wiki, which tracks them per generation:
+# https://wiki.gentoo.org/wiki/AMDGPU
+# The CDNA parts (gfx908/90a/942/950) are deliberately absent: no figure is
+# quoted for them here, so none is asserted.
+rocm_gfx_kernel_floor() {
+    case "${1:-}" in
+        gfx1200|gfx1201)                     echo "6.12 RDNA 4" ;;
+        gfx1150|gfx1151|gfx1152|gfx1153)     echo "6.10 RDNA 3.5" ;;
+        gfx1100|gfx1101|gfx1102|gfx1103)     echo "6.0 RDNA 3" ;;
+        gfx1030|gfx1031|gfx1032|gfx1033|gfx1034|gfx1035|gfx1036)
+                                             echo "5.9 RDNA 2" ;;
+        gfx1010|gfx1011|gfx1012|gfx1013)     echo "5.3 RDNA 1" ;;
+        gfx900|gfx902|gfx904|gfx906|gfx909|gfx90c)
+                                             echo "4.15 Vega" ;;
+    esac
+}
+
+# check_rocm_host_kernel reports whether this machine's GPU and driver can be
+# expected to work with the experimental variant, before a 20 GB pull.
+#
+# Two separate questions, and neither is a refusal — the experimental path is
+# for people who want to try things:
+#   1. Does ROCm 10 ship code for this card at all?
+#   2. Is the host kernel new enough for the AMD driver to drive it? The answer
+#      depends on the card, not on ROCm, so the floor is looked up per target
+#      and no comparison is made when the target is unknown.
+check_rocm_host_kernel() {
+    local running major minor drv="(not reported)" floor family fl_major fl_minor
+    running="$(uname -r)"
+    major="${running%%.*}"
+    minor="${running#*.}"; minor="${minor%%.*}"
+    major="${major//[^0-9]/}"; minor="${minor//[^0-9]/}"
+    major="${major:-0}"; minor="${minor:-0}"
+
+    # Present only for DKMS installs; an in-tree amdgpu has no version file,
+    # which is not a problem, so it reads as "not reported".
+    if [[ -r /sys/module/amdgpu/version ]]; then
+        drv="$(cat /sys/module/amdgpu/version)"
+    fi
+
+    # The compute interface. Without it nothing else matters.
+    if [[ ! -e /dev/kfd ]]; then
+        warn "/dev/kfd is missing — the AMD compute driver is not loaded, so the container will not reach the GPU."
+    fi
+
+    # 1. Is the card in ROCm 10's target list?
+    if [[ -n "$AMD_GFX_TARGET" ]]; then
+        if [[ " ${ROCM10_GFX_TARGETS} " != *" ${AMD_GFX_TARGET} "* ]]; then
+            warn "ROCm 10 does not ship code for ${AMD_GFX_TARGET}, which is what this machine reports."
+            log "It covers RDNA 1 and newer and the CDNA cards. Yours may still work through"
+            log "HSA_OVERRIDE_GFX_VERSION, but it is not a supported target."
+        fi
+    else
+        log "Could not read this machine's GPU target, so its driver requirements were not checked."
+    fi
+
+    # 2. Is the kernel new enough for THIS card's driver?
+    read -r floor family <<<"$(rocm_gfx_kernel_floor "$AMD_GFX_TARGET")"
+    if [[ -z "$floor" ]]; then
+        log "Host kernel ${running}, amdgpu ${drv}. No kernel requirement is on record for"
+        log "${AMD_GFX_TARGET:-this GPU}, so it was not checked — if the container cannot see the card,"
+        log "the host driver is the first thing to suspect."
+        return 0
+    fi
+    fl_major="${floor%%.*}"
+    fl_minor="${floor##*.}"
+    if (( major < fl_major || (major == fl_major && minor < fl_minor) )); then
+        warn "Host kernel ${running} is older than ${floor}, where the AMD driver gained ${family} support (amdgpu ${drv})."
+        log "That is a requirement of your card and the host kernel, not of ROCm — the"
+        log "container carries no kernel components. Continuing anyway; the GPU may not work."
+    else
+        ok "Host kernel ${running} is new enough for ${family} (needs ${floor}; amdgpu ${drv})."
+    fi
+}
+
+# warn_rocm_variant_switch says what changing ROCm version means for existing
+# llama.cpp builds. It never deletes anything: a binary linked against one ROCm
+# still works if you switch back.
+warn_rocm_variant_switch() {
+    local env_file="${SCRIPT_DIR}/.env" prev="stable" prev_img="" cur_img="" v
+    if [[ -f "$env_file" ]]; then
+        v="$(grep '^ROCM_VARIANT=' "$env_file" 2>/dev/null | cut -d= -f2-)" || true
+        if [[ -n "$v" ]]; then prev="$v"; fi
+        prev_img="$(grep '^ROCM_BASE_IMAGE=' "$env_file" 2>/dev/null | cut -d= -f2-)" || true
+    fi
+    if [[ "${ROCM_VARIANT:-stable}" == "next" ]]; then
+        cur_img="$(rocm_base_image)"
+    fi
+    if [[ "$prev" == "${ROCM_VARIANT:-stable}" && "$prev_img" == "$cur_img" ]]; then
+        return 0
+    fi
+
+    echo ""
+    warn "The ROCm version is changing."
+    log "  from: $(rocm_variant_label "$prev" "$prev_img")"
+    log "    to: $(rocm_variant_label "${ROCM_VARIANT:-stable}" "$cur_img")"
+    log "Your llama.cpp builds were compiled against the old ROCm and will not load"
+    log "under the new one. Rebuild them from the Builds page once this finishes."
+    log "Nothing is deleted — switching back makes the old builds work again."
+    echo ""
+}
+
+# build_local_binary compiles this working tree for the container and echoes
+# nothing; it sets LOCAL_BINARY to the path the compose build arg expects,
+# relative to the build context (the repository root).
+#
+# Why a binary and not a package: the image still installs the released
+# .deb/.rpm, which is what brings in cmake, ninja, git and the compiler that
+# llama.cpp builds need, plus the systemd units. Only the program is replaced.
+# That keeps the dev image faithful to a release in everything except the code,
+# and needs nothing but the Go toolchain — no goreleaser, no nfpm.
+#
+# The web templates and static files are compiled in via go:embed, so the one
+# file carries the UI as well as the code.
+build_local_binary() {
+    need_cmd go || fatal "--from-source needs the Go toolchain to build this tree. Install Go, or drop --from-source to install the released package."
+
+    local out="dist/llama-toolchest-local" arch version commit
+    arch="$(go env GOARCH)"
+    version="$(git -C "$SCRIPT_DIR" describe --tags --always --dirty 2>/dev/null || echo dev)"
+    commit="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
+
+    log "Building llama-toolchest from this tree (${version}, linux/${arch})..."
+    mkdir -p "${SCRIPT_DIR}/dist"
+    # Same settings as the release build (.goreleaser.yaml): CGO off so the
+    # binary runs on whatever base image the variant uses, and the version
+    # stamped in so the container reports the tree it came from rather than
+    # claiming to be a release.
+    ( cd "$SCRIPT_DIR" && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" \
+        go build -trimpath \
+          -ldflags "-s -w -X main.version=${version} -X main.commit=${commit} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          -o "$out" ./cmd/llama-toolchest ) \
+        || fatal "Building from source failed. Fix the build, or drop --from-source."
+
+    LOCAL_BINARY="$out"
+    export LOCAL_BINARY
+    ok "Built ${out} (${version})."
 }
 
 # caddy_hash_password hashes plaintext via the caddy image, feeding the secret
@@ -1159,7 +1483,11 @@ render_caddyfile() {
 configure_secure() {
     # Offer it interactively when the user didn't pass --secure/--no-secure.
     if [[ "$SECURE_EXPLICIT" != true && "$INTERACTIVE" == true && "$ASSUME_YES" != true ]]; then
-        if prompt_confirm "Enable access control + HTTPS (Caddy reverse proxy)?"; then
+        # Defaults to no: this adds a Caddy reverse proxy, a login and TLS in
+        # front of the server, which is a larger change than an install
+        # otherwise makes and is wrong to switch on by pressing Enter. It can
+        # be turned on later with ./setup.sh install --secure.
+        if prompt_confirm "Enable access control + HTTPS (Caddy reverse proxy)?" no; then
             SECURE=true
         fi
     fi
@@ -1793,6 +2121,18 @@ print_summary() {
     echo -e "  ${CYAN}Distro${NC}        ${DISTRO_NAME}"
     echo -e "  ${CYAN}Dockerfile${NC}    ${df}"
     echo -e "  ${CYAN}Compose file${NC}  ${cf}"
+    if [[ "$GPU_VENDOR" == "rocm" ]]; then
+        if [[ "${ROCM_VARIANT:-stable}" == "next" ]]; then
+            echo -e "  ${CYAN}ROCm${NC}          experimental — $(rocm_base_image)"
+        else
+            echo -e "  ${CYAN}ROCm${NC}          stable (7.2.4, Fedora)"
+        fi
+    fi
+    if [[ -n "${LOCAL_BINARY:-}" ]]; then
+        echo -e "  ${CYAN}Program${NC}       built from this tree (${LOCAL_BINARY})"
+    else
+        echo -e "  ${CYAN}Program${NC}       released package from GitHub"
+    fi
     echo -e "  ${CYAN}UI port${NC}       ${LLAMA_TOOLCHEST_PORT}"
     echo -e "  ${CYAN}Inference port${NC} ${LLAMA_TOOLCHEST_INFERENCE_PORT}"
     if [[ -n "$LLAMA_TOOLCHEST_MODELS_DIR" ]]; then
@@ -1844,21 +2184,67 @@ require_value() {
     printf '%s' "$val"
 }
 
+# recover_models_dir_from_container adopts the model directory an already
+# installed container has bind-mounted, when .env does not name one.
+#
+# .env is gitignored and easy to lose — a fresh clone, a stray delete, a clean
+# checkout — and losing it is not a harmless reset. Model storage silently
+# reverts to the container's internal volume, the bind mount disappears, and
+# every model vanishes from the Models page with nothing on screen to say why.
+# The installed container knows the answer, so ask it rather than making the
+# user remember a path.
+recover_models_dir_from_container() {
+    [[ -z "$LLAMA_TOOLCHEST_MODELS_DIR" ]] || return 0
+    [[ -n "$CONTAINER_CMD" ]] || return 0
+
+    local src
+    src="$($CONTAINER_CMD inspect llama-toolchest \
+        --format '{{range .Mounts}}{{if eq .Destination "/data/models"}}{{.Source}}{{end}}{{end}}' 2>/dev/null)" || true
+    [[ -n "$src" && -d "$src" ]] || return 0
+
+    LLAMA_TOOLCHEST_MODELS_DIR="$src"
+    export LLAMA_TOOLCHEST_MODELS_DIR
+    warn "No model directory in .env, but the installed container has one mounted."
+    log "Using the container's:  ${src}"
+    log "Without this, a rebuild would move model storage to the container's own"
+    log "volume and your models would disappear from the Models page."
+}
+
+# prompt_confirm asks a yes/no question and returns 0 for yes.
+#
+# The optional second argument is the answer an empty reply takes: "yes" (the
+# default, shown as [Y/n]) or "no" (shown as [y/N]). Use "no" for anything that
+# turns on machinery the user did not ask for — pressing Enter through an
+# install should not switch features on.
+#
+# --yes takes the DEFAULT rather than always answering yes, which is what makes
+# a default-no question safe to automate. Every existing caller defaults to
+# yes, so this is unchanged for them.
 prompt_confirm() {
-    local prompt="$1"
-    # --yes auto-confirms; a non-TTY without --yes can't answer, so fail loudly
-    # rather than block or silently assume.
+    local prompt="$1" default="${2:-yes}" hint="[Y/n]"
+    if [[ "$default" == "no" ]]; then
+        hint="[y/N]"
+    fi
+
+    # --yes accepts the default; a non-TTY without --yes can't answer, so fail
+    # loudly rather than block or silently assume.
     if [[ "$ASSUME_YES" == true ]]; then
+        if [[ "$default" == "no" ]]; then return 1; fi
         return 0
     fi
     if [[ "$INTERACTIVE" != true ]]; then
         fatal "Non-interactive shell and --yes not given; cannot answer: '${prompt}'. Re-run with --yes (and any required flags)."
     fi
+
     local answer
-    read -rp "$(echo -e "${BOLD}${prompt}${NC} [Y/n] ")" answer
-    case "${answer:-Y}" in
-        [Yy]*|"") return 0 ;;
-        *)        return 1 ;;
+    read -rp "$(echo -e "${BOLD}${prompt}${NC} ${hint} ")" answer
+    if [[ -z "$answer" ]]; then
+        if [[ "$default" == "no" ]]; then return 1; fi
+        return 0
+    fi
+    case "$answer" in
+        [Yy]*) return 0 ;;
+        *)     return 1 ;;
     esac
 }
 
@@ -1919,9 +2305,13 @@ Install modes:
   --from-package  Implies --host. Download the latest GitHub release
                   for this distro+arch and install via dnf/apt. This is
                   the default for --host.
-  --from-source   Implies --host. Build the binary from the local source
-                  via `go build` instead of installing a release package.
-                  Useful for testing uncommitted changes.
+  --from-source   Build the binary from the local source via `go build`
+                  instead of installing a release package. Useful for
+                  testing uncommitted changes. On its own it implies
+                  --host; with --container it builds this tree into the
+                  container image instead, where the released package is
+                  still installed for its dependencies and only the
+                  program itself is replaced.
 
 Backend selection (host mode, additive — stack flags to install multiple
 SDKs in a single run; each implies --host):
@@ -1930,6 +2320,16 @@ SDKs in a single run; each implies --host):
   --vulkan        Install the Vulkan SDK (loader headers, glslc, vulkaninfo)
                   Vulkan-only is fine; combined with --cuda or --rocm gives
                   you a portable fallback alongside the vendor backend.
+
+Experimental ROCm container (AMD, container mode; these do NOT imply --host,
+unlike --rocm above — ROCm 10 is published only as a container image):
+  --rocm-next     Build on AMD's own ROCm image instead of Fedora + RPMs,
+                  which is the only way to get ROCm 10. Supports RDNA 1 and
+                  newer and the CDNA cards; the host kernel your card needs
+                  depends on the card, and setup.sh checks it.
+  --rocm-image T  Same, with the base image pinned to tag T (for example
+                  10.0.0-full). A full image reference works too. See the
+                  ROCm section of the README.
 
 If no backend flag and no GPU= env is set, setup.sh auto-detects the
 primary GPU and asks whether to add Vulkan as a secondary SDK. With no
@@ -1998,7 +2398,8 @@ Info:
               rocm/vulkan). Without --host, checks container runtime,
               compose, and GPU integration (NVIDIA toolkit / SELinux).
               Exits non-zero if anything is missing.
-  detect      Print detected GPU backend (cuda/rocm/cpu/vulkan/metal) and exit
+  detect      Print detected GPU backend (cuda/rocm/cpu/vulkan/metal) and exit.
+              For AMD it also prints which ROCm container variant would be used
   help        Show this help message
 
 Host-mode lifecycle is managed via systemd directly:
@@ -2009,6 +2410,11 @@ Environment variables:
   GPU=cuda|rocm|vulkan|cpu      Override GPU auto-detection (single
                                 backend; for multi-SDK host installs
                                 use --cuda/--rocm/--vulkan flags instead)
+  ROCM_VARIANT=stable|next      Which ROCm container to build (container mode,
+                                AMD only). Same as --rocm-next; stored in .env
+                                so rebuild/up/down reuse it.
+  ROCM_BASE_IMAGE=<tag|ref>     ROCm base image for the experimental variant,
+                                e.g. 10.0.0-full. Implies ROCM_VARIANT=next.
   RUNTIME=docker|podman         Override container runtime auto-detection
   INSTALL_MODE=host|container   Same as --host / --container
   ASSUME_YES=1                  Same as --yes
@@ -2023,8 +2429,10 @@ Examples:
   ./setup.sh install                    # detect, install prereqs, build & run (asks mode)
   ./setup.sh install --host             # install latest released package on the host
   ./setup.sh install --rocm --vulkan    # host install, install both ROCm and Vulkan SDKs
+  ./setup.sh install --rocm-image 10.0.0-full  # container install on ROCm 10 (experimental)
   ./setup.sh install --vulkan           # host install, Vulkan SDK only (cross-vendor)
   ./setup.sh install --from-source      # host install, build from local source
+  ./setup.sh install --container --from-source  # container running this working tree
   ./setup.sh install --secure           # container install behind Caddy (asks TLS/login)
   ./setup.sh install --secure --tls self-signed \
       --auth-user admin --auth-hash "$(caddy hash-password --plaintext s3cret)" --yes
@@ -2054,7 +2462,18 @@ main() {
         case "$1" in
             --host)         INSTALL_MODE="host"; INSTALL_MODE_EXPLICIT=true ;;
             --container)    INSTALL_MODE="container"; INSTALL_MODE_EXPLICIT=true ;;
-            --from-source)  INSTALL_MODE="host"; HOST_INSTALL_MODE="source"; INSTALL_MODE_EXPLICIT=true ;;
+            # --from-source means "build from this tree" in BOTH modes. It
+            # still implies --host on its own, as it always has; combined with
+            # --container it builds the tree into the container image instead.
+            # The mode is only defaulted when the user has not named one, so
+            # --container --from-source and --from-source --container agree.
+            --from-source)
+                HOST_INSTALL_MODE="source"
+                FROM_SOURCE=true
+                if [[ "$INSTALL_MODE_EXPLICIT" != true ]]; then
+                    INSTALL_MODE="host"; INSTALL_MODE_EXPLICIT=true
+                fi
+                ;;
             --from-package) INSTALL_MODE="host"; HOST_INSTALL_MODE="package"; INSTALL_MODE_EXPLICIT=true ;;
             # Backend flags are additive and host-mode-only (vulkan can't run
             # in containers without driver passthrough we don't manage; for
@@ -2063,6 +2482,13 @@ main() {
             --cuda)         INSTALL_MODE="host"; INSTALL_MODE_EXPLICIT=true; HOST_SDK_BACKENDS+=("cuda") ;;
             --rocm)         INSTALL_MODE="host"; INSTALL_MODE_EXPLICIT=true; HOST_SDK_BACKENDS+=("rocm") ;;
             --vulkan)       INSTALL_MODE="host"; INSTALL_MODE_EXPLICIT=true; HOST_SDK_BACKENDS+=("vulkan") ;;
+            # The ROCm container variant. Unlike --rocm (which installs the host
+            # SDK), these are container-only and do NOT imply --host: ROCm 10
+            # exists only as a container image. --rocm-image both selects the
+            # experimental variant and pins the release, so one flag is enough.
+            --rocm-next)      ROCM_VARIANT="next"; ROCM_VARIANT_EXPLICIT=true ;;
+            --rocm-image)     ROCM_BASE_IMAGE="$(require_value "$1" "${2:-}")"; ROCM_VARIANT="next"; ROCM_VARIANT_EXPLICIT=true; shift ;;
+            --rocm-image=*)   ROCM_BASE_IMAGE="${1#*=}"; ROCM_VARIANT="next"; ROCM_VARIANT_EXPLICIT=true ;;
             # Direction flags for the `migrate` command. Mutually exclusive
             # — passing both is an error. Each implies its target mode for
             # the purpose of post-flag dispatch.
@@ -2275,6 +2701,16 @@ main() {
         done
         unset _b
 
+        # The experimental ROCm variant is container-only. Say so rather than
+        # silently installing 7.2.4 when the user asked for 10: repo.radeon.com
+        # has no 10.x packages in any path, so a host install cannot provide it.
+        if [[ "${ROCM_VARIANT:-}" == "next" && "$command" == "install" ]]; then
+            warn "ROCm 10 is published only as a container image, so a host install cannot use it."
+            log "Host mode will install the ROCm SDK from repo.radeon.com as usual."
+            log "For ROCm 10, use container mode:  ./setup.sh install --rocm-image ${ROCM_NEXT_DEFAULT_TAG}"
+            echo ""
+        fi
+
         case "$command" in
             install)   host_install ;;
             uninstall) host_uninstall ;;
@@ -2306,15 +2742,26 @@ main() {
         detect_gpu
     fi
 
-    # Short-circuit for detect command
+    # Short-circuit for detect command. The first line stays exactly as it was
+    # — it is the machine-readable backend name and something may be parsing it.
     if [[ "$command" == "detect" ]]; then
         echo "$GPU_VENDOR"
+        if [[ "$GPU_VENDOR" == "rocm" ]]; then
+            load_env_ports
+            echo "rocm variant: ${ROCM_VARIANT:-stable}"
+            if [[ "${ROCM_VARIANT:-}" == "next" ]]; then
+                echo "rocm base image: $(rocm_base_image)"
+            fi
+        fi
         exit 0
     fi
 
     detect_container_runtime
     detect_distro
     load_env_ports
+    # .env is the normal source; the installed container is the fallback when
+    # it has been lost.
+    recover_models_dir_from_container
 
     # ── Commands that don't need prerequisite checks ──
     case "$command" in
@@ -2359,8 +2806,43 @@ main() {
             ;;
     esac
 
+    # ── Which ROCm container (AMD only, container mode) ──
+    # Asked only on an interactive install that did not name a variant. A value
+    # restored from .env becomes the prompt's DEFAULT (see prompt_rocm_variant),
+    # not a reason to skip asking — otherwise a machine already on the
+    # experimental variant could never be returned to stable interactively.
+    # rebuild/up/down never ask and reuse the stored value.
+    if [[ "$GPU_VENDOR" == "rocm" && "$command" == "install" \
+          && "$ROCM_VARIANT_EXPLICIT" != true && "$INTERACTIVE" == true && "$ASSUME_YES" != true ]]; then
+        prompt_rocm_variant
+    fi
+    : "${ROCM_VARIANT:=stable}"
+
+    # Pre-flight for the experimental variant, before the summary and the
+    # build confirmation so all three messages land together and can be read
+    # before committing to a 20 GB pull.
+    if [[ "$GPU_VENDOR" == "rocm" && "$ROCM_VARIANT" == "next" ]]; then
+        validate_rocm_base_image
+        check_rocm_host_kernel
+    fi
+    if [[ "$GPU_VENDOR" == "rocm" && "$command" != "status" ]]; then
+        warn_rocm_variant_switch
+    fi
+
+    # ── Build from this tree, when asked (container mode) ──
+    # Before the summary, so the summary can say the image will carry a local
+    # build, and before the confirmation, so a compile error costs seconds
+    # rather than surfacing after the image layers are done.
+    if [[ "$FROM_SOURCE" == true && "$command" != "status" ]]; then
+        build_local_binary
+    fi
+
     # ── Check prerequisites and show summary (install, rebuild, status) ──
+    # AFTER the variant is settled, not before: check_prerequisites builds the
+    # actions list by calling dockerfile(), so running it first made the list
+    # say Dockerfile.rocm while the summary said Dockerfile.rocm-next.
     check_prerequisites
+
     print_summary
 
     if [[ "$command" == "status" ]]; then

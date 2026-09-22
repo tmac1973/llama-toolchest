@@ -1,0 +1,261 @@
+package api
+
+import (
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/tmac1973/llama-toolchest/internal/builder"
+	"github.com/tmac1973/llama-toolchest/internal/config"
+	"github.com/tmac1973/llama-toolchest/internal/models"
+)
+
+// pickerServer is a Server whose builder holds the given builds, with a fixed
+// idea of the running toolchain and a chosen active build.
+func pickerServer(t *testing.T, current, active string, builds []builder.BuildResult) *Server {
+	t.Helper()
+	s := stampServer(t, current, builds)
+	s.cfg = &config.Config{ActiveBuild: active}
+	return s
+}
+
+func serverPage(t *testing.T, s *Server) string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	s.handleServerPage(rec, httptest.NewRequest("GET", "/server", nil))
+	if rec.Code != 200 {
+		t.Fatalf("server page: HTTP %d — %s", rec.Code, rec.Body.String())
+	}
+	return rec.Body.String()
+}
+
+// optionFor returns the <option> element for a build id.
+func optionFor(t *testing.T, page, id string) string {
+	t.Helper()
+	for _, chunk := range strings.Split(page, "<option")[1:] {
+		end := strings.Index(chunk, "</option>")
+		if end < 0 {
+			continue
+		}
+		if strings.Contains(chunk[:end], ">"+id+" (") || strings.Contains(chunk[:end], `value="`+id+`"`) {
+			return chunk[:end]
+		}
+	}
+	t.Fatalf("no <option> for %q in:\n%s", id, page)
+	return ""
+}
+
+// A build compiled in another image is marked and unselectable; one
+// that matches is left alone. This is the case that produced a loader error
+// with nothing on screen explaining it.
+func TestServerPickerDisablesBuildsFromAnotherImage(t *testing.T) {
+	s := pickerServer(t, "rocm 10.0.0", "", []builder.BuildResult{
+		{ID: "b-here", Profile: "rocm", GitSHA: "aaaaaaaaaa", GitRef: "v0.4.1", Status: builder.BuildStatusSuccess, BuiltAgainst: "rocm 10.0.0"},
+		{ID: "b-elsewhere", Profile: "rocm", GitSHA: "bbbbbbbbbb", GitRef: "v0.4.1", Status: builder.BuildStatusSuccess, BuiltAgainst: "rocm 7.2.4"},
+	})
+	page := serverPage(t, s)
+
+	here := optionFor(t, page, "b-here")
+	if strings.Contains(here, "disabled") || strings.Contains(here, "line-through") {
+		t.Errorf("a matching build was refused:\n%s", here)
+	}
+
+	elsewhere := optionFor(t, page, "b-elsewhere")
+	if !strings.Contains(elsewhere, "disabled") {
+		t.Errorf("a build from another image is selectable:\n%s", elsewhere)
+	}
+	// The marker has to be in the TEXT. An <option> ignores
+	// text-decoration on every browser tried, so a CSS strikethrough
+	// silently did nothing — this asserts the visible marker instead.
+	if !strings.Contains(elsewhere, "&#9888;") {
+		t.Errorf("a build from another image carries no visible marker:\n%s", elsewhere)
+	}
+	if !strings.Contains(elsewhere, "cannot run in this image") {
+		t.Errorf("the option does not say what is wrong with it:\n%s", elsewhere)
+	}
+	if strings.Contains(page, "line-through") {
+		t.Error("CSS strikethrough is back; an <option> does not render it")
+	}
+
+	// The explanation lives in the select's tooltip, not in a line of text
+	// under the control.
+	if !strings.Contains(page, `<select name="active_build" title="`) {
+		t.Errorf("the picker has no tooltip:\n%s", page)
+	}
+	if !strings.Contains(page, "cannot be chosen") || !strings.Contains(page, "rocm 10.0.0") {
+		t.Errorf("the tooltip does not explain the rule and name what is running:\n%s", page)
+	}
+}
+
+// Refusing every build would leave nothing that can be started, which is worse
+// than letting one be tried. They stay selectable and the hint says so.
+func TestServerPickerKeepsBuildsWhenAllOfThemMismatch(t *testing.T) {
+	s := pickerServer(t, "rocm 10.0.0", "", []builder.BuildResult{
+		{ID: "b-one", Profile: "rocm", GitSHA: "aaaaaaaaaa", GitRef: "v0.4.1", Status: builder.BuildStatusSuccess, BuiltAgainst: "rocm 7.2.4"},
+		{ID: "b-two", Profile: "rocm", GitSHA: "bbbbbbbbbb", GitRef: "v0.4.0", Status: builder.BuildStatusSuccess, BuiltAgainst: "rocm 7.2.4"},
+	})
+	page := serverPage(t, s)
+
+	for _, id := range []string{"b-one", "b-two"} {
+		if opt := optionFor(t, page, id); strings.Contains(opt, "disabled") {
+			t.Errorf("%s was refused although every build mismatches:\n%s", id, opt)
+		}
+	}
+	if !strings.Contains(page, "would leave nothing to start") {
+		t.Errorf("the tooltip does not explain why they are still selectable:\n%s", page)
+	}
+}
+
+// A build with no stamp cannot be judged, so it must never be refused.
+func TestServerPickerNeverRefusesAnUnstampedBuild(t *testing.T) {
+	s := pickerServer(t, "rocm 10.0.0", "", []builder.BuildResult{
+		{ID: "b-stamped", Profile: "rocm", GitSHA: "aaaaaaaaaa", GitRef: "v0.4.1", Status: builder.BuildStatusSuccess, BuiltAgainst: "rocm 7.2.4"},
+		{ID: "b10453-legacy", Profile: "rocm", GitSHA: "cccccccccc", GitRef: "b10453", Status: builder.BuildStatusSuccess},
+	})
+	page := serverPage(t, s)
+
+	legacy := optionFor(t, page, "b10453-legacy")
+	if strings.Contains(legacy, "disabled") || strings.Contains(legacy, "&#9888;") {
+		t.Errorf("an unstamped build was refused or marked:\n%s", legacy)
+	}
+	// The stamped mismatch alongside it is still refused.
+	if !strings.Contains(optionFor(t, page, "b-stamped"), "disabled") {
+		t.Error("the stamped mismatch should still be refused")
+	}
+}
+
+// A disabled selected <option> cannot be submitted, so the form would post a
+// different value on the next change. The active build is therefore never
+// refused, however badly it matches.
+func TestServerPickerNeverRefusesTheSelectedBuild(t *testing.T) {
+	s := pickerServer(t, "rocm 10.0.0", "b-chosen", []builder.BuildResult{
+		{ID: "b-chosen", Profile: "rocm", GitSHA: "aaaaaaaaaa", GitRef: "v0.4.1", Status: builder.BuildStatusSuccess, BuiltAgainst: "rocm 7.2.4"},
+		{ID: "b-other", Profile: "rocm", GitSHA: "bbbbbbbbbb", GitRef: "v0.4.0", Status: builder.BuildStatusSuccess, BuiltAgainst: "rocm 7.2.4"},
+	})
+	page := serverPage(t, s)
+	chosen := optionFor(t, page, "b-chosen")
+	if strings.Contains(chosen, "disabled") {
+		t.Errorf("the selected build was refused, which breaks the form:\n%s", chosen)
+	}
+	// It is still marked, so the user can see the problem.
+	if !strings.Contains(chosen, "&#9888;") {
+		t.Errorf("the selected mismatch is not marked at all:\n%s", chosen)
+	}
+}
+
+// "Auto (newest ref)" looks like the safe choice; if it resolves to a build
+// that cannot run here, that has to be said on the option itself.
+func TestServerPickerWarnsWhenAutoPicksABadBuild(t *testing.T) {
+	s := pickerServer(t, "rocm 10.0.0", "", []builder.BuildResult{
+		{ID: "b-elsewhere", Profile: "rocm", GitSHA: "bbbbbbbbbb", GitRef: "v0.4.1", Status: builder.BuildStatusSuccess, BuiltAgainst: "rocm 7.2.4"},
+	})
+	if page := serverPage(t, s); !strings.Contains(page, "picks a build that cannot run here") {
+		t.Errorf("Auto does not warn that it would pick an unusable build:\n%s", page)
+	}
+
+	// And stays quiet when Auto is fine.
+	s = pickerServer(t, "rocm 10.0.0", "", []builder.BuildResult{
+		{ID: "b-here", Profile: "rocm", GitSHA: "aaaaaaaaaa", GitRef: "v0.4.1", Status: builder.BuildStatusSuccess, BuiltAgainst: "rocm 10.0.0"},
+	})
+	if page := serverPage(t, s); strings.Contains(page, "picks a build that cannot run here") {
+		t.Errorf("Auto warned when the build it picks is fine:\n%s", page)
+	}
+}
+
+// With no builds at all the page must still render, and say nothing.
+func TestServerPickerWithNoBuilds(t *testing.T) {
+	s := pickerServer(t, "rocm 10.0.0", "", nil)
+	page := serverPage(t, s)
+	if strings.Contains(page, "cannot run") || strings.Contains(page, "different container image") {
+		t.Errorf("the page warned about builds that do not exist:\n%s", page)
+	}
+	// And no tooltip at all when there is nothing to explain.
+	if strings.Contains(page, `<select name="active_build" title=`) {
+		t.Errorf("the picker carries a tooltip with no mismatched builds:\n%s", page)
+	}
+	if !strings.Contains(page, "Auto (newest ref)") {
+		t.Errorf("the picker did not render:\n%s", page)
+	}
+}
+
+var _ = models.NewRegistry
+
+// "Auto" must pick the newest build that can actually run here, not simply the
+// newest. Without this, the option that looks safest silently chooses a build
+// compiled in the other image and the router fails to start.
+func TestAutoResolvesToTheNewestRunnableBuild(t *testing.T) {
+	// b10500 is newer than b10400 on llama.cpp's scale, but was built
+	// elsewhere. Auto must reach past it.
+	s := pickerServer(t, "rocm 10.0.0", "", []builder.BuildResult{
+		{ID: "b10400-here", Profile: "rocm", GitRef: "b10400", GitSHA: "aaaaaaaaaa",
+			Status: builder.BuildStatusSuccess, BuiltAgainst: "rocm 10.0.0", CommitCount: 10400},
+		{ID: "b10500-elsewhere", Profile: "rocm", GitRef: "b10500", GitSHA: "bbbbbbbbbb",
+			Status: builder.BuildStatusSuccess, BuiltAgainst: "rocm 7.2.4", CommitCount: 10500},
+	})
+	got := s.resolveBuild("")
+	if got == nil || got.ID != "b10400-here" {
+		t.Fatalf("Auto resolved to %v, want b10400-here (the newest that can run)", got)
+	}
+
+	// And the page therefore has nothing to warn about.
+	if page := serverPage(t, s); strings.Contains(page, "picks a build that cannot run here") {
+		t.Errorf("Auto warned even though it now picks a runnable build:\n%s", page)
+	}
+}
+
+// An unstamped build cannot be judged, so Auto may still choose it — the
+// alternative is skipping builds that probably work.
+func TestAutoWillTakeAnUnstampedBuild(t *testing.T) {
+	s := pickerServer(t, "rocm 10.0.0", "", []builder.BuildResult{
+		{ID: "b10400-stamped-elsewhere", Profile: "rocm", GitRef: "b10400", GitSHA: "aaaaaaaaaa",
+			Status: builder.BuildStatusSuccess, BuiltAgainst: "rocm 7.2.4", CommitCount: 10400},
+		{ID: "b10300-legacy", Profile: "rocm", GitRef: "b10300", GitSHA: "cccccccccc",
+			Status: builder.BuildStatusSuccess, CommitCount: 10300},
+	})
+	if got := s.resolveBuild(""); got == nil || got.ID != "b10300-legacy" {
+		t.Fatalf("Auto resolved to %v, want b10300-legacy (unstamped, so a candidate)", got)
+	}
+}
+
+// When nothing can run here, Auto still returns the newest rather than
+// nothing: refusing to start at all is worse than a loader error that names
+// the problem.
+func TestAutoFallsBackWhenNothingCanRun(t *testing.T) {
+	s := pickerServer(t, "rocm 10.0.0", "", []builder.BuildResult{
+		{ID: "b10400-elsewhere", Profile: "rocm", GitRef: "b10400", GitSHA: "aaaaaaaaaa",
+			Status: builder.BuildStatusSuccess, BuiltAgainst: "rocm 7.2.4", CommitCount: 10400},
+		{ID: "b10500-elsewhere", Profile: "rocm", GitRef: "b10500", GitSHA: "bbbbbbbbbb",
+			Status: builder.BuildStatusSuccess, BuiltAgainst: "rocm 7.2.4", CommitCount: 10500},
+	})
+	if got := s.resolveBuild(""); got == nil || got.ID != "b10500-elsewhere" {
+		t.Fatalf("Auto resolved to %v, want the newest as a last resort", got)
+	}
+}
+
+// An explicitly chosen build is honoured even when it cannot run here: the
+// picker refuses those, and a caller that names one has decided.
+func TestExplicitChoiceBeatsRunnability(t *testing.T) {
+	s := pickerServer(t, "rocm 10.0.0", "b10400-elsewhere", []builder.BuildResult{
+		{ID: "b10400-elsewhere", Profile: "rocm", GitRef: "b10400", GitSHA: "aaaaaaaaaa",
+			Status: builder.BuildStatusSuccess, BuiltAgainst: "rocm 7.2.4", CommitCount: 10400},
+		{ID: "b10500-here", Profile: "rocm", GitRef: "b10500", GitSHA: "bbbbbbbbbb",
+			Status: builder.BuildStatusSuccess, BuiltAgainst: "rocm 10.0.0", CommitCount: 10500},
+	})
+	if got := s.resolveBuild("b10400-elsewhere"); got == nil || got.ID != "b10400-elsewhere" {
+		t.Fatalf("an explicit choice was overridden: %v", got)
+	}
+}
+
+// With no stamps anywhere — every build predating this feature — Auto behaves
+// exactly as it did before: newest wins.
+func TestAutoUnchangedWithNoStamps(t *testing.T) {
+	s := pickerServer(t, "rocm 10.0.0", "", []builder.BuildResult{
+		{ID: "b10400", Profile: "rocm", GitRef: "b10400", GitSHA: "aaaaaaaaaa",
+			Status: builder.BuildStatusSuccess, CommitCount: 10400},
+		{ID: "b10500", Profile: "rocm", GitRef: "b10500", GitSHA: "bbbbbbbbbb",
+			Status: builder.BuildStatusSuccess, CommitCount: 10500},
+	})
+	if got := s.resolveBuild(""); got == nil || got.ID != "b10500" {
+		t.Fatalf("Auto resolved to %v, want b10500 (newest, as before)", got)
+	}
+}

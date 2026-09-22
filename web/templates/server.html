@@ -93,11 +93,27 @@
                     <div class="grid">
                         <label>
                             Build
-                            <select name="active_build">
-                                <option value="" {{if eq .ActiveBuild ""}}selected{{end}}>Auto (newest ref)</option>
-                                {{range .AvailableBuilds}}
-                                <option value="{{.ID}}" {{if eq .ID $.ActiveBuild}}selected{{end}}>
-                                    {{.ID}} ({{.Profile}})
+                            {{/* Builds compiled in a different container image are marked
+                                 and unselectable: starting one produces a loader error
+                                 that says nothing about the cause. See serverBuildChoices
+                                 for the three cases deliberately left selectable.
+
+                                 The marker is TEXT, not CSS. An <option> takes almost no
+                                 styling — the dropdown is drawn by the platform, and
+                                 text-decoration is ignored on every browser tried here, so
+                                 a struck-through style silently did nothing. The browser
+                                 does grey out a disabled option, so the text only has to
+                                 supply the reason. */}}
+                            <select name="active_build" {{with .PickerHint}}title="{{.}}"{{end}}>
+                                <option value="" {{if eq .ActiveBuild ""}}selected{{end}}>
+                                    Auto (newest ref){{if .AutoMismatch}} — picks a build that cannot run here{{end}}
+                                </option>
+                                {{range .BuildChoices}}
+                                <option value="{{.ID}}"
+                                        {{if eq .ID $.ActiveBuild}}selected{{end}}
+                                        {{if .Disabled}}disabled{{end}}
+                                        {{with .BuiltAgainstTitle}}title="{{.}}"{{end}}>
+                                    {{if .Mismatch}}&#9888; {{end}}{{.ID}} ({{.Profile}}){{if .Mismatch}} — cannot run in this image{{end}}
                                 </option>
                                 {{end}}
                             </select>

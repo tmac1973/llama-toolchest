@@ -1,9 +1,22 @@
+# Experimental ROCm variant — see Dockerfile.rocm-next.
+#
+# Identical to docker-compose.rocm.yml apart from the Dockerfile it builds and
+# the ROCM_BASE_IMAGE build argument: same image name, same devices, same group
+# and IPC settings, so the Quadlet unit and everything else treats the two
+# interchangeably. ROCm 10 is published only as a container image, which is why
+# this variant exists at all.
 services:
   llama-toolchest:
     build:
       context: .
+      dockerfile: Dockerfile.rocm-next
       args:
-        # See docker-compose.rocm.yml for the rationale.
+        # setup.sh resolves the latest release tag from GH and exports
+        # LLAMA_TOOLCHEST_VERSION before invoking compose, so this build
+        # arg pins the .deb being installed. Only the package-install
+        # layer's cache invalidates when the version changes — the ROCm
+        # base image layers stay cached. Falls back to "latest" if unset,
+        # in which case the Dockerfile resolves it at build time itself.
         LLAMA_TOOLCHEST_VERSION: "${LLAMA_TOOLCHEST_VERSION:-latest}"
         # Development: set by setup.sh --from-source in container mode. A
         # binary built from the local tree, which replaces the packaged one
@@ -13,6 +26,11 @@ services:
         # Development: install a locally built .deb/.rpm instead of the
         # released one. Empty for a normal build.
         INSTALL_PACKAGE: "${INSTALL_PACKAGE:-}"
+        # Which ROCm release to build against. setup.sh writes this to
+        # .env from the variant chosen at install time; the default here
+        # is what a bare `compose build` with no .env uses. Any tag from
+        # https://hub.docker.com/r/rocm/dev-ubuntu-24.04/tags works.
+        ROCM_BASE_IMAGE: "${ROCM_BASE_IMAGE:-docker.io/rocm/dev-ubuntu-24.04:10.0.0-full}"
     # Pin the built image name so it matches the Quadlet unit (generate_quadlet
     # in setup.sh). Without this, compose tags the build as
     # <project>_<service> (localhost/llama-toolchest_llama-toolchest) and the

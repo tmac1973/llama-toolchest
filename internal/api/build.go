@@ -197,9 +197,9 @@ func (s *Server) handleListBuilds(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		respondHTML(w)
-		w.Write([]byte(`<table role="grid"><thead><tr><th>Build</th><th>SHA</th><th>Status</th><th>Date</th><th></th></tr></thead><tbody>`))
+		w.Write([]byte(`<table role="grid"><thead><tr><th>Build</th><th>SHA</th><th>Status</th><th title="The GPU toolchain this build was compiled against. A llama-server built against one ROCm version does not run under another, so a build that does not match the running container needs rebuilding.">Built against</th><th>Date</th><th></th></tr></thead><tbody>`))
 		for _, b := range builds {
-			s.renderPartial(w, "build_card", b)
+			s.renderPartial(w, "build_card", s.buildRowFor(&b))
 		}
 		w.Write([]byte(`</tbody></table>`))
 		return
@@ -330,6 +330,136 @@ func (s *Server) resolveActiveBuild() *builder.BuildResult {
 	return s.resolveBuild(s.activeBuild())
 }
 
+// buildRow is a build plus what the Builds page needs to say about it. The
+// BuildResult is embedded so the template's existing field references keep
+// working unchanged.
+//
+// One text field and one title field cover all three states, so the template
+// carries no wording of its own and the table and the info modal cannot drift
+// apart.
+type buildRow struct {
+	*builder.BuildResult
+	// BuiltAgainstText is the stamp, or an em-dash when the build has none.
+	BuiltAgainstText string
+	// Mismatch is true only when both stamps are known, name the same
+	// backend, and differ.
+	Mismatch bool
+	// BuiltAgainstTitle explains the cell: why it is flagged, or why it is
+	// blank. Empty only when the build is stamped and matches.
+	BuiltAgainstTitle string
+}
+
+// notRecordedTitle is the tooltip for a build with no stamp. Worded as a
+// near-twin of the cmake-flags fallback further down this file ("cmake flags
+// not recorded — this build predates flag tracking") so the two read as one
+// convention. Used verbatim by both the table and the info modal.
+const notRecordedTitle = "Not recorded — this build predates build-environment tracking."
+
+// titleAttr renders a title attribute, or nothing when there is no title to
+// give. Kept here so the modal and the template agree on when a tooltip exists.
+func titleAttr(title string) string {
+	if title == "" {
+		return ""
+	}
+	return fmt.Sprintf(` title="%s" style="cursor:help;"`, html.EscapeString(title))
+}
+
+// buildRowFor decides what the page says about one build.
+//
+// The mismatch wording is deliberately "may fail to load" rather than "will
+// not run", and says "linked against the libraries" rather than naming ROCm as
+// the cause. Both were measured on this project's own two images.
+//
+// A build made under ROCm 10.0.0 loads and enumerates the GPU under ROCm 7.2.4
+// once the library path is available, because both ship the same hipBLAS
+// soname — so "will not run" would be false.
+//
+// And the failures that do occur are not always about ROCm. Going one way, the
+// ROCm 10 image bakes no usable ROCm path into libggml-hip.so, so nothing finds
+// hipBLAS. Going the other, a Fedora-built binary fails on Ubuntu with
+// "libcrypto.so.3: version OPENSSL_3.3.0 not found" — an OpenSSL symbol
+// version, nothing to do with ROCm at all. The stamp is a useful proxy for
+// "this was built somewhere else"; it is not a diagnosis.
+func (s *Server) buildRowFor(b *builder.BuildResult) buildRow {
+	row := buildRow{BuildResult: b, BuiltAgainstText: "—"}
+	if b == nil {
+		return row
+	}
+	current := s.currentBuildEnvFor(buildBackend(b))
+	switch {
+	case b.BuiltAgainst == "":
+		row.BuiltAgainstTitle = notRecordedTitle
+	case builder.StampMismatch(b.BuiltAgainst, current):
+		row.BuiltAgainstText = b.BuiltAgainst
+		row.Mismatch = true
+		row.BuiltAgainstTitle = fmt.Sprintf(
+			"Built against %s; this container runs %s. A build is linked against the libraries of the image it was made in, so it may fail to load here — rebuild it if the server does not start. Nothing has been deleted; it is still here if you switch back to %s.",
+			b.BuiltAgainst, current, b.BuiltAgainst)
+	default:
+		row.BuiltAgainstText = b.BuiltAgainst
+	}
+	return row
+}
+
+// serverBuildChoice is one entry in the Server page's build picker: a build,
+// whether it can run here, and whether the picker refuses it.
+type serverBuildChoice struct {
+	buildRow
+	// Disabled makes the option unselectable. Three deliberate exceptions,
+	// each of which would otherwise leave someone stuck:
+	//   - a build with no stamp is never disabled, because it cannot be judged;
+	//   - when every stamped build mismatches, none is disabled, since
+	//     refusing all of them would offer nothing that can be started;
+	//   - the build already selected is never disabled, because a disabled
+	//     selected <option> cannot be submitted and the form would silently
+	//     post a different value on the next change.
+	Disabled bool
+}
+
+// serverBuildChoices builds the Server page's picker. allMismatched is true
+// when nothing here could run: every successful build was built somewhere else,
+// so refusing them all would leave nothing to start.
+//
+// The test is "is there any candidate", not "does every stamped build
+// mismatch". An unstamped build is a candidate — it cannot be judged, so it
+// might well work — and while one exists there is somewhere to fall back to and
+// the mismatches can safely be refused.
+func (s *Server) serverBuildChoices(activeBuild string) (choices []serverBuildChoice, allMismatched bool) {
+	builds := s.builder.List()
+	successful, candidates := 0, 0
+	rows := make([]buildRow, 0, len(builds))
+	for i := range builds {
+		row := s.buildRowFor(&builds[i])
+		rows = append(rows, row)
+		if builds[i].Status == builder.BuildStatusSuccess {
+			successful++
+			if !row.Mismatch {
+				candidates++
+			}
+		}
+	}
+	allMismatched = successful > 0 && candidates == 0
+
+	choices = make([]serverBuildChoice, 0, len(rows))
+	for _, row := range rows {
+		c := serverBuildChoice{buildRow: row}
+		c.Disabled = row.Mismatch && !allMismatched && row.ID != activeBuild
+		choices = append(choices, c)
+	}
+	return choices, allMismatched
+}
+
+// currentBuildEnvFor reports the toolchain the running container has, through
+// an overridable field so tests can decide what "current" is. Without that seam
+// a render test would pass or fail according to whichever ROCm happens to be
+// installed on the machine running `go test`.
+func (s *Server) currentBuildEnvFor(backend string) string {
+	if s.currentBuildEnv != nil {
+		return s.currentBuildEnv(backend)
+	}
+	return builder.CurrentBuildEnv(backend)
+}
+
 // buildBackend returns a build's backend ("rocm", "cuda", ...), resolved
 // through its profile. It selects the llama.cpp device-name prefix
 // (ROCm0, CUDA0, ...) when the preset emits per-model device lists.
@@ -355,11 +485,37 @@ func (s *Server) activeBackend() string {
 // lock don't read it again unguarded.
 func (s *Server) resolveBuild(id string) *builder.BuildResult {
 	if id != "" {
+		// An explicit choice is honoured even when it cannot run here. The
+		// picker marks and refuses those, and an API caller that names one
+		// anyway has decided; the loader error is then the answer.
 		if b, ok := s.builder.Find(id); ok && b.Status == builder.BuildStatusSuccess {
 			return b
 		}
 	}
-	return s.builder.LatestSuccessfulBuild()
+
+	// No choice saved: the newest build that can actually run in this
+	// container image, rather than simply the newest.
+	//
+	// Without the filter, "Auto" picks a build compiled in the other image and
+	// the router fails to start, which is the most confusing possible default
+	// — the one option that looks safest silently choosing a broken build.
+	// Builds with no stamp are not skipped: they cannot be judged, so they
+	// stay candidates.
+	ranked := s.builder.SuccessfulBuildsRanked()
+	for i := range ranked {
+		if !builder.StampMismatch(ranked[i].BuiltAgainst, s.currentBuildEnvFor(buildBackend(&ranked[i]))) {
+			res := ranked[i]
+			return &res
+		}
+	}
+	// Every build was made somewhere else. Return the newest anyway: the
+	// alternative is refusing to start at all, and the same reasoning applies
+	// here as in the picker's last-resort case.
+	if len(ranked) > 0 {
+		res := ranked[0]
+		return &res
+	}
+	return nil
 }
 
 func (s *Server) handleBuildInfo(w http.ResponseWriter, r *http.Request) {
@@ -386,10 +542,19 @@ func (s *Server) handleBuildInfo(w http.ResponseWriter, r *http.Request) {
 	if found.Tag != "" {
 		fmt.Fprintf(w, `<dt><strong>Tag</strong></dt><dd>%s</dd>`, html.EscapeString(found.Tag))
 	}
+	row := s.buildRowFor(found)
+	mismatchMark := ""
+	if row.Mismatch {
+		mismatchMark = ` <span style="color:var(--pico-del-color);">&#9888;</span>`
+	}
 	fmt.Fprintf(w, `<dt><strong>Status</strong></dt><dd>%s</dd>
+		<dt><strong>Built against</strong></dt><dd%s>%s%s</dd>
 		<dt><strong>Started</strong></dt><dd>%s</dd>
 	</dl>`,
 		html.EscapeString(found.Status),
+		titleAttr(row.BuiltAgainstTitle),
+		html.EscapeString(row.BuiltAgainstText),
+		mismatchMark,
 		found.StartedAt.Format("2006-01-02 15:04:05"))
 
 	if len(found.CMakeFlags) == 0 {

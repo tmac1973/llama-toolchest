@@ -46,6 +46,18 @@ type BuildResult struct {
 	StartedAt  time.Time         `json:"started_at"`
 	FinishedAt time.Time         `json:"finished_at,omitempty"`
 	Error      string            `json:"error,omitempty"`
+	// BuiltAgainst is the GPU toolchain this build was compiled against,
+	// as "<backend> <version>" — e.g. "rocm 10.0.0", read from the ROCm
+	// release version file rather than from hipconfig, whose number is
+	// HIP's own and reads as 7.x even on ROCm 10 (see buildenv.go).
+	//
+	// A llama-server linked against one ROCm line does not run under
+	// another, and the build directory outlives the container image, so
+	// this is what lets the Builds page say which builds need rebuilding.
+	// Empty on builds from before the field existed, and on backends with
+	// no version to read; empty means unknown and is never reported as a
+	// mismatch.
+	BuiltAgainst string `json:"built_against,omitempty"`
 	// CommitCount is `git rev-list --count HEAD` of the built checkout.
 	// llama.cpp's bN nightly tags ARE the master commit count, so this
 	// number ranks builds of ANY ref — semver release tags (v0.x.y,
@@ -117,7 +129,15 @@ func (b *Builder) Find(id string) (*BuildResult, bool) {
 // upstream code: highest buildRank (upstream commit count) first, with
 // unrankable builds below ranked ones and ordered by newest StartedAt.
 // Returns nil if no successful build exists.
-func (b *Builder) LatestSuccessfulBuild() *BuildResult {
+// SuccessfulBuildsRanked returns every successful build, newest first on
+// llama.cpp's own version scale (see buildRank), falling back to build time for
+// refs that cannot be placed on it.
+//
+// Exposed as a list, not just its head, because the caller sometimes needs to
+// look past the newest one — the router skips builds that cannot run in the
+// current container image, and it needs the same ordering to do that rather
+// than a second copy of this ranking.
+func (b *Builder) SuccessfulBuildsRanked() []BuildResult {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -126,9 +146,6 @@ func (b *Builder) LatestSuccessfulBuild() *BuildResult {
 		if br.Status == BuildStatusSuccess {
 			ok = append(ok, br)
 		}
-	}
-	if len(ok) == 0 {
-		return nil
 	}
 	sort.SliceStable(ok, func(i, j int) bool {
 		ni, oki := buildRank(ok[i])
@@ -145,7 +162,15 @@ func (b *Builder) LatestSuccessfulBuild() *BuildResult {
 		}
 		return ok[i].StartedAt.After(ok[j].StartedAt)
 	})
-	res := ok[0]
+	return ok
+}
+
+func (b *Builder) LatestSuccessfulBuild() *BuildResult {
+	ranked := b.SuccessfulBuildsRanked()
+	if len(ranked) == 0 {
+		return nil
+	}
+	res := ranked[0]
 	return &res
 }
 
@@ -285,12 +310,13 @@ func (b *Builder) Build(ctx context.Context, profile string, gitRef string, tag 
 	}
 
 	result := &BuildResult{
-		Profile:    prof.Name,
-		GitRef:     gitRef,
-		Tag:        tag,
-		Status:     BuildStatusBuilding,
-		StartedAt:  time.Now(),
-		CMakeFlags: copyFlags(prof.CMakeFlags),
+		Profile:      prof.Name,
+		GitRef:       gitRef,
+		Tag:          tag,
+		Status:       BuildStatusBuilding,
+		StartedAt:    time.Now(),
+		CMakeFlags:   copyFlags(prof.CMakeFlags),
+		BuiltAgainst: BuildEnvStamp(prof.Backend),
 	}
 
 	logCh := make(chan string, 256)

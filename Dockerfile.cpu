@@ -4,6 +4,13 @@
 # package's hard deps (cmake, ninja-build, git, build-essential, pkg-config)
 # come along automatically — that's what llama.cpp builds need at runtime.
 #
+# To test the local working tree (what setup.sh --from-source does in
+# container mode): build the binary and pass it as LOCAL_BINARY. The released
+# package is still installed for its dependencies; only the program is yours.
+#   CGO_ENABLED=0 go build -o dist/llama-toolchest-local ./cmd/llama-toolchest
+#   docker build --build-arg LOCAL_BINARY=dist/llama-toolchest-local \
+#                -f Dockerfile.cpu .
+#
 # To install a locally-built snapshot package instead (dev iteration):
 #   make package-snapshot
 #   docker build --build-arg INSTALL_PACKAGE=dist/llama-toolchest_<ver>_linux_amd64.deb \
@@ -51,6 +58,24 @@ RUN --mount=type=bind,target=/build_context \
             "https://github.com/tmac1973/llama-toolchest/releases/download/v${VERSION}/llama-toolchest_${VERSION}_linux_${TARGETARCH}.deb"; \
         apt-get install -y --no-install-recommends /tmp/llama-toolchest.deb; \
         rm /tmp/llama-toolchest.deb; \
+    fi
+
+# Development override: replace the packaged binary with one built from the
+# local tree. setup.sh --from-source in container mode sets this; it is empty
+# for a normal build, and then this step does nothing.
+#
+# The package above is still installed in full, which is the point — it brings
+# the dependencies (cmake, ninja, git, the compiler) and the systemd units, so
+# only the program itself differs from a release. The binary is built
+# CGO_ENABLED=0 and the web templates and static files are compiled into it via
+# go:embed, so copying this one file replaces both the code and the UI.
+ARG LOCAL_BINARY=""
+RUN --mount=type=bind,target=/build_context \
+    set -e; \
+    if [ -n "${LOCAL_BINARY}" ]; then \
+        echo "Replacing packaged binary with local build: ${LOCAL_BINARY}"; \
+        install -m 0755 "/build_context/${LOCAL_BINARY}" /usr/bin/llama-toolchest; \
+        llama-toolchest --version; \
     fi
 
 RUN mkdir -p /data/config /data/builds /data/models /data/llama.cpp
