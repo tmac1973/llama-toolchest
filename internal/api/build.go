@@ -181,6 +181,14 @@ func (s *Server) handleListRefs(w http.ResponseWriter, r *http.Request) {
 		isRelease := func(ref string) bool { return strings.HasPrefix(ref, "v") }
 		writeGroup("Releases", isRelease)
 		writeGroup("Nightly builds", func(ref string) bool { return !isRelease(ref) })
+
+		// A refresh that fails with nothing cached leaves the picker
+		// holding only "latest", which reads as "upstream has no tags"
+		// rather than "the refresh didn't work". Say which it was; the
+		// option is disabled so it can never be submitted as a ref.
+		if err != nil && len(refs) == 0 {
+			fmt.Fprintf(w, `<option disabled>— %s —</option>`, html.EscapeString(err.Error()))
+		}
 		return
 	}
 

@@ -24,8 +24,24 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/broadcast"
 )
 
+// llamaCppRepo is the upstream clone source. A var, not a const, so
+// tests can point ensureRepo at a local fixture remote instead of the
+// network.
+var llamaCppRepo = "https://github.com/ggml-org/llama.cpp"
+
 const (
-	llamaCppRepo = "https://github.com/ggml-org/llama.cpp"
+	// refsFetchTimeout bounds the ref-refresh fetch so a slow or
+	// unreachable remote can't hang the UI request. It is generous
+	// because repoComplete guarantees the fetch it bounds is
+	// incremental — a user who hasn't built in months still has months
+	// of upstream commits to pull.
+	refsFetchTimeout = 2 * time.Minute
+
+	// tempPackMaxAge is how long an abandoned temp pack must sit
+	// untouched before pruneTempPacks will remove it — comfortably
+	// longer than any fetch we start, so a concurrent build's
+	// in-progress fetch is never robbed of the pack it is writing.
+	tempPackMaxAge = time.Hour
 
 	// Build statuses.
 	BuildStatusBuilding = "building"
@@ -709,15 +725,111 @@ func (b *Builder) finishBuild(result *BuildResult, status, errMsg string) {
 	b.saveBuilds()
 }
 
+// repoState classifies what sits at the llama.cpp clone path.
+//
+// A clone interrupted partway — by a server restart, a cancelled build,
+// or FetchRefs' own fetch timeout — leaves a .git directory with a
+// configured remote but no refs and no objects. Testing only for .git
+// mistakes that wreckage for a healthy clone, and the consequence is a
+// trap: every later `git fetch` into it is really a full download of
+// upstream's history, which takes far longer than any timeout we set,
+// gets killed, and leaves another abandoned temp pack behind. No fetch
+// ever completes, so the ref picker stays empty and builds have no tag
+// to check out.
+//
+// Resolving HEAD is what separates the two states: a finished clone
+// always has one, a half-finished clone never does. The separate
+// repoUnknown case exists because that test is only meaningful when git
+// itself answered — a missing or broken git must never be read as
+// "discard the directory".
+type repoState int
+
+const (
+	repoMissing    repoState = iota // nothing at the path yet
+	repoUsable                      // a finished clone; fetch into it
+	repoIncomplete                  // a clone that never finished; discard and re-clone
+	repoUnknown                     // can't tell, so leave it alone
+)
+
+func inspectRepo(srcDir string) repoState {
+	if _, err := os.Stat(filepath.Join(srcDir, ".git")); err != nil {
+		if _, err := os.Stat(srcDir); err != nil {
+			return repoMissing
+		}
+		// Something is there but it isn't a clone. It didn't come from
+		// us, so we don't get to delete it.
+		return repoUnknown
+	}
+	if exec.Command("git", "-C", srcDir, "rev-parse", "--verify", "HEAD").Run() == nil {
+		return repoUsable
+	}
+	// HEAD didn't resolve. Before concluding the clone is at fault,
+	// confirm git can read the repository at all; if this fails too the
+	// problem is git or the environment, not the clone.
+	if exec.Command("git", "-C", srcDir, "rev-parse", "--git-dir").Run() != nil {
+		return repoUnknown
+	}
+	return repoIncomplete
+}
+
+// pruneTempPacks removes abandoned tmp_pack_* files from srcDir's pack
+// directory. Git writes one per fetch and renames it into place on
+// success; a fetch we kill leaves it behind instead, and llama.cpp's
+// history is large enough that a handful of retries costs hundreds of
+// megabytes. Best-effort, and age-guarded so it only ever collects packs
+// no live fetch could still be writing.
+func pruneTempPacks(srcDir string) {
+	packDir := filepath.Join(srcDir, ".git", "objects", "pack")
+	entries, err := os.ReadDir(packDir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-tempPackMaxAge)
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), "tmp_pack_") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		path := filepath.Join(packDir, e.Name())
+		if err := os.Remove(path); err != nil {
+			slog.Warn("removing abandoned temp pack failed", "path", path, "error", err)
+			continue
+		}
+		slog.Info("removed abandoned temp pack", "path", path, "bytes", info.Size())
+	}
+}
+
 func (b *Builder) ensureRepo(ctx context.Context, srcDir string, logCh chan string) error {
-	if _, err := os.Stat(filepath.Join(srcDir, ".git")); err == nil {
+	switch inspectRepo(srcDir) {
+	case repoUsable:
 		slog.Info("fetching llama.cpp", "dir", srcDir)
 		sendLog(logCh, "==> Fetching latest from llama.cpp...")
+		pruneTempPacks(srcDir)
 		return b.runCmd(ctx, srcDir, logCh, "", nil, "git", "fetch", "--all", "--tags")
+
+	case repoIncomplete:
+		// The clone is a build cache we own outright, so a half-finished
+		// one has nothing worth salvaging: throw it away and start clean
+		// rather than fetching upstream's whole history into a repo with
+		// no objects.
+		slog.Warn("discarding incomplete llama.cpp clone", "dir", srcDir)
+		sendLog(logCh, "==> Found an incomplete clone; discarding it and starting over...")
+		if err := os.RemoveAll(srcDir); err != nil {
+			return fmt.Errorf("removing incomplete clone: %w", err)
+		}
+
+	case repoUnknown:
+		return fmt.Errorf("%s exists but is not a usable llama.cpp clone; move it aside and build again", srcDir)
 	}
 
 	slog.Info("cloning llama.cpp", "repo", llamaCppRepo, "dir", srcDir)
 	sendLog(logCh, "==> Cloning llama.cpp...")
+	if err := os.MkdirAll(filepath.Dir(srcDir), 0o755); err != nil {
+		return fmt.Errorf("creating clone parent: %w", err)
+	}
 	return b.runCmd(ctx, filepath.Dir(srcDir), logCh, "", nil, "git", "clone", llamaCppRepo, filepath.Base(srcDir))
 }
 
@@ -791,14 +903,21 @@ func (b *Builder) checkoutRef(ctx context.Context, srcDir string, ref string, lo
 // the user can pick from cached tags rather than seeing an error.
 func (b *Builder) FetchRefs() ([]string, error) {
 	srcDir := filepath.Join(b.dataDir, "llama.cpp")
-	if _, err := os.Stat(filepath.Join(srcDir, ".git")); err != nil {
+	if inspectRepo(srcDir) != repoUsable {
+		// Includes the half-finished-clone case. Repairing one means
+		// re-cloning, which belongs to a build with its own log stream
+		// and no request timeout over it, not to this handler.
 		return nil, fmt.Errorf("llama.cpp repo not cloned yet — run a build first")
 	}
+
+	// Sweep anything an earlier killed fetch left behind before starting
+	// one that may add to it.
+	pruneTempPacks(srcDir)
 
 	// Fetch from origin so newly-pushed upstream tags become visible to
 	// the subsequent `git tag` listing. Bounded timeout so a slow or
 	// unreachable remote doesn't hang the UI request.
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), refsFetchTimeout)
 	defer cancel()
 	if err := exec.CommandContext(ctx, "git", "-C", srcDir, "fetch", "--tags", "--prune", "origin").Run(); err != nil {
 		slog.Warn("git fetch failed; returning cached tags", "error", err)
