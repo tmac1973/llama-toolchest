@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.30.0](https://github.com/tmac1973/llama-toolchest/compare/v2.29.4...v2.30.0) (2026-09-22)
+
+
+### Features
+
+* offer an experimental ROCm 10 container alongside the stable one ([#188](https://github.com/tmac1973/llama-toolchest/issues/188)) ([c81497e](https://github.com/tmac1973/llama-toolchest/commit/c81497e923391efb093329a70171bc9a18da0027))
+
 ## [2.29.4](https://github.com/tmac1973/llama-toolchest/compare/v2.29.3...v2.29.4) (2026-09-20)
 
 
