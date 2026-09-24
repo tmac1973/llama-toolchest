@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.30.2](https://github.com/tmac1973/llama-toolchest/compare/v2.30.1...v2.30.2) (2026-09-24)
+
+
+### Bug Fixes
+
+* resolve the active build properly before autotune starts or resumes ([#192](https://github.com/tmac1973/llama-toolchest/issues/192)) ([9cb9ed5](https://github.com/tmac1973/llama-toolchest/commit/9cb9ed552f0208f5552702dc65621bb63aeffd11))
+
 ## [2.30.1](https://github.com/tmac1973/llama-toolchest/compare/v2.30.0...v2.30.1) (2026-09-22)
 
 
