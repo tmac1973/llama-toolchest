@@ -500,7 +500,7 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 	}
 	buildSnap := q.env.ResolveBuild(cell.BuildID)
 	if buildSnap.ID == "" {
-		return fmt.Errorf("build %s no longer exists", cell.BuildID)
+		return fmt.Errorf("build %s no longer exists — it may have been deleted or replaced since this job was created", cell.BuildID)
 	}
 
 	// A job measuring from a saved profile starts from that profile, not
@@ -631,7 +631,7 @@ func (q *JobQueue) runCapabilityCell(ctx context.Context, job *BenchmarkJob, cel
 	}
 	buildSnap := q.env.ResolveBuild(cell.BuildID)
 	if buildSnap.ID == "" {
-		return fmt.Errorf("build %s no longer exists", cell.BuildID)
+		return fmt.Errorf("build %s no longer exists — it may have been deleted or replaced since this job was created", cell.BuildID)
 	}
 
 	// The recorded config and the flags that ran share this one source:
