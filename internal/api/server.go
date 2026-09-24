@@ -266,7 +266,12 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 	s.tuneStore = autotune.NewStore(cfg.DataDir)
 	s.tuner = autotune.NewRunner(autotune.Deps{
 		Store: s.tuneStore, Runs: s.bench, Jobs: s.jobs, Registry: s.registry,
-		ActiveBuild: s.activeBuild,
+		ActiveBuild: func() string {
+			if b := s.resolveActiveBuild(); b != nil {
+				return b.ID
+			}
+			return ""
+		},
 		Hardware: func() (int, int) {
 			hw := s.hardware()
 			cards := 0

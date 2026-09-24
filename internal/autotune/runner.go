@@ -72,12 +72,17 @@ func (r *Runner) Start(modelID, profileName string, uc UseCase) (*Autotune, erro
 		return nil, fmt.Errorf("%w: %s", ErrBusy, reason)
 	}
 
+	buildID := r.deps.ActiveBuild()
+	if buildID == "" {
+		return nil, errors.New("no llama.cpp build is available — build llama.cpp first, then try again")
+	}
+
 	rec := &Autotune{
 		ID:          fmt.Sprintf("at-%d", time.Now().UnixMilli()),
 		ModelID:     modelID,
 		BaseProfile: profile.Name,
 		UseCase:     uc,
-		BuildID:     r.deps.ActiveBuild(),
+		BuildID:     buildID,
 		Status:      StatusPlanned,
 		CreatedAt:   time.Now().UTC(),
 	}
@@ -107,6 +112,16 @@ func (r *Runner) Resume(id string) (*Autotune, error) {
 	}
 	if reason := r.busyReason(); reason != "" {
 		return nil, fmt.Errorf("%w: %s", ErrBusy, reason)
+	}
+	// Re-resolve the build: the one from the original run may have been
+	// deleted or replaced since.
+	buildID := r.deps.ActiveBuild()
+	if buildID == "" {
+		return nil, errors.New("no llama.cpp build is available — build llama.cpp first, then try again")
+	}
+	if rec.BuildID != buildID {
+		slog.Info("autotune resume: build changed", "run", rec.ID, "old", rec.BuildID, "new", buildID)
+		rec.BuildID = buildID
 	}
 	rec.Error = ""
 	slog.Info("autotune resuming", "run", rec.ID, "from_status", rec.Status)
