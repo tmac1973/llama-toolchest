@@ -536,3 +536,133 @@ func TestRunnerCancelUnknown(t *testing.T) {
 		t.Error("cancelling a run that is not going was accepted")
 	}
 }
+
+// startingProfileCannotRun makes the fixture's machine one where the
+// starting profile itself fails — it sets no micro-batch, and the
+// llama.cpp default does not run there — while every setting autotune
+// tries with a micro-batch of its own works.
+func startingProfileCannotRun(f *tuneFixture) {
+	f.env.failWhen = func(cfg benchmark.ConfigSnapshot) bool { return cfg.UBatchSize == 0 }
+}
+
+// A starting profile that cannot run is not a reason to throw away what
+// was measured. The run this is from measured for two hours, found its
+// fastest settings, and saved nothing, because there was no number for
+// the starting profile to compare them with.
+func TestRunnerSavesTheWinnerWhenTheStartingProfileCannotRun(t *testing.T) {
+	f := newFixture(t, 1)
+	startingProfileCannotRun(f)
+
+	rec, err := f.runner.Start(tuneModelID, "Autoconfig", UseChat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec = f.waitForRun(t, rec.ID)
+	if rec.Status != StatusDone {
+		t.Fatalf("status = %s (%s)", rec.Status, rec.Error)
+	}
+
+	for _, g := range Goals {
+		out, ok := rec.Results[g]
+		if !ok {
+			t.Fatalf("no result for %s", g)
+		}
+		if !out.Saved || out.ProfileName == "" {
+			t.Errorf("%s: the measured winner was not saved (message: %q)", g, out.Message)
+			continue
+		}
+		if !strings.Contains(out.Message, "could not be measured, so there is no comparison") {
+			t.Errorf("%s: message %q does not say why there is no comparison", g, out.Message)
+		}
+		// No comparison may be claimed: no arrow, no percentage.
+		for _, claim := range []string{"→", "faster", "slower"} {
+			if strings.Contains(out.Message, claim) {
+				t.Errorf("%s: message %q claims a comparison that was never measured", g, out.Message)
+			}
+		}
+		p, err := f.reg.GetProfile(tuneModelID, out.ProfileName)
+		if err != nil {
+			t.Errorf("%s: profile %q was not written: %v", g, out.ProfileName, err)
+			continue
+		}
+		if p.Config.UBatchSize == 0 {
+			t.Errorf("%s: the saved profile has the setting that could not run", g)
+		}
+		for _, n := range p.Notes {
+			if strings.Contains(n.Reason, "→") || strings.Contains(n.Reason, "faster here") || strings.Contains(n.Reason, " 0.0 ") {
+				t.Errorf("%s: note %q claims a comparison that was never measured", g, n.Reason)
+			}
+		}
+	}
+
+	// The starting profile is still listed as something that could not
+	// be measured.
+	confirm, _ := rec.Stage(StageConfirm)
+	if len(confirm.Failed) == 0 {
+		t.Error("the starting profile's failure is not recorded on the confirming stage")
+	}
+}
+
+// A run an older version finished without saving anything keeps all its
+// measurements. Starting the new version turns them into profiles, with
+// nothing measured again.
+func TestSaveUnsavedWinnersFinishesAnOlderRun(t *testing.T) {
+	f := newFixture(t, 1)
+	startingProfileCannotRun(f)
+
+	rec, err := f.runner.Start(tuneModelID, "Autoconfig", UseChat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec = f.waitForRun(t, rec.ID)
+
+	// Put the record and the registry back to what the older version
+	// left: every goal unsaved with its message, and no profile written.
+	for g, out := range rec.Results {
+		// Two goals can share one profile, so the second delete finds it
+		// already gone; that error is expected.
+		_ = f.reg.DeleteProfile(tuneModelID, out.ProfileName)
+		out.Saved, out.ProfileName = false, ""
+		out.Message = `The "Autoconfig" profile could not be measured, so there is nothing to compare against.`
+		rec.Results[g] = out
+	}
+	if err := f.store.Save(rec); err != nil {
+		t.Fatal(err)
+	}
+	cellsBefore := len(f.runs.List())
+
+	if n := f.runner.SaveUnsavedWinners(); n != 1 {
+		t.Fatalf("concluded %d runs again, want 1", n)
+	}
+	after, _ := f.store.Get(rec.ID)
+	for _, g := range Goals {
+		out := after.Results[g]
+		if !out.Saved || out.ProfileName == "" {
+			t.Errorf("%s: still not saved (message: %q)", g, out.Message)
+			continue
+		}
+		if _, err := f.reg.GetProfile(tuneModelID, out.ProfileName); err != nil {
+			t.Errorf("%s: profile %q was not written: %v", g, out.ProfileName, err)
+		}
+	}
+	if got := len(f.runs.List()); got != cellsBefore {
+		t.Errorf("%d new measurements were taken; concluding again must measure nothing", got-cellsBefore)
+	}
+
+	// A second start has nothing left to do.
+	if n := f.runner.SaveUnsavedWinners(); n != 0 {
+		t.Errorf("concluded %d runs again on the second call, want 0", n)
+	}
+}
+
+// A run where the starting profile was measured and was already the
+// fastest saved nothing on purpose. That is not an unsaved winner.
+func TestSaveUnsavedWinnersLeavesADeliberateNoChangeAlone(t *testing.T) {
+	score := map[Goal]Score{GoalGeneration: {Value: 40}}
+	rec := &Autotune{Status: StatusDone, Results: map[Goal]Outcome{
+		GoalGeneration: {Goal: GoalGeneration, Winner: Candidate{Scores: score}, Baseline: Candidate{Scores: score}},
+	}}
+	if hasUnsavedWinner(rec) {
+		t.Error("a run whose starting profile was already the fastest was picked for saving")
+	}
+}

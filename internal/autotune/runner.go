@@ -551,20 +551,24 @@ func (r *Runner) conclude(rec *Autotune) {
 			continue
 		}
 		out := Outcome{Goal: g, Winner: winner, Baseline: baseline}
-		if _, measured := baseline.Scores[g]; !measured {
-			// Without the starting profile's own number there is nothing
-			// to compare against, and claiming either way would be made
-			// up.
-			out.Message = fmt.Sprintf("The %q profile could not be measured for %s, so there is nothing to compare against.",
-				rec.BaseProfile, GoalLabel(g))
-			rec.Results[g] = out
-			continue
+		if _, measured := baseline.Scores[g]; measured {
+			if winner.Key() == "" || !Beats(winner.Scores[g], baseline.Scores[g]) {
+				out.Message = fmt.Sprintf("Your %q profile is already the %s.", rec.BaseProfile, GoalLabel(g))
+				rec.Results[g] = out
+				continue
+			}
 		}
-		if winner.Key() == "" || !Beats(winner.Scores[g], baseline.Scores[g]) {
-			out.Message = fmt.Sprintf("Your %q profile is already the %s.", rec.BaseProfile, GoalLabel(g))
-			rec.Results[g] = out
-			continue
-		}
+		// A starting profile with no number of its own for this goal —
+		// it would not load, or its warm-up failed — does not stop the
+		// winner being saved. The winner was measured, and a profile that
+		// runs is worth more than one that does not. What is left out is
+		// the comparison: outcomeMessage states the winner's number and
+		// says there was nothing to set it against.
+		//
+		// Saving nothing here is what this replaced. A run on a machine
+		// where the starting profile could not warm up measured for two
+		// hours, found its fastest settings, and then reported only that
+		// there was nothing to compare against.
 		out.Saved = true
 		rec.Results[g] = out
 		winners[winner.Key()] = append(winners[winner.Key()], g)
@@ -582,7 +586,7 @@ func (r *Runner) conclude(rec *Autotune) {
 		for _, g := range goals {
 			out := rec.Results[g]
 			out.ProfileName = name
-			out.Message = outcomeMessage(g, winner, baseline, name)
+			out.Message = outcomeMessage(g, winner, baseline, name, rec.BaseProfile)
 			rec.Results[g] = out
 		}
 	}
@@ -590,6 +594,49 @@ func (r *Runner) conclude(rec *Autotune) {
 	rec.Status = StatusDone
 	r.save(rec)
 	slog.Info("autotune done", "run", rec.ID, "profiles", len(winners))
+}
+
+// SaveUnsavedWinners finishes runs that measured a winner and then saved
+// nothing because the starting profile had no measurement to compare it
+// with — what conclude did before it saved such a winner. The
+// measurements are all still in the record, so concluding again costs
+// nothing and turns them into the profiles the run was for.
+//
+// Only the latest run of each model is touched. Profiles are named after
+// the goal they won, so concluding an older run again would write over
+// what a newer one saved. Returns how many runs were concluded again.
+func (r *Runner) SaveUnsavedWinners() int {
+	n := 0
+	for _, rec := range r.deps.Store.List() {
+		if rec.Status != StatusDone || !hasUnsavedWinner(rec) {
+			continue
+		}
+		if latest, ok := r.deps.Store.LatestForModel(rec.ModelID); !ok || latest.ID != rec.ID {
+			continue
+		}
+		slog.Info("autotune: saving the settings a finished run measured but did not save", "run", rec.ID, "model", rec.ModelID)
+		r.conclude(rec)
+		n++
+	}
+	return n
+}
+
+// hasUnsavedWinner reports whether a finished run has a goal whose winner
+// was measured but not saved for want of a measurement of the starting
+// profile. A goal left unsaved because the starting profile was already
+// the fastest has that measurement, and is not one of these.
+func hasUnsavedWinner(rec *Autotune) bool {
+	for g, out := range rec.Results {
+		if out.Saved {
+			continue
+		}
+		_, won := out.Winner.Scores[g]
+		_, compared := out.Baseline.Scores[g]
+		if won && !compared {
+			return true
+		}
+	}
+	return false
 }
 
 // profileName names a profile after the goals it won, so one set of
@@ -612,9 +659,20 @@ func profileName(goals []Goal) string {
 	return fmt.Sprintf("%s – fastest %s", profileNamePrefix, joined)
 }
 
-// outcomeMessage is the one-line result the screens show.
-func outcomeMessage(g Goal, winner, baseline Candidate, profile string) string {
-	w, b := winner.Scores[g], baseline.Scores[g]
+// outcomeMessage is the one-line result the screens show. When the
+// starting profile has no measurement for the goal, it gives the winner's
+// own number and says why there is no comparison.
+func outcomeMessage(g Goal, winner, baseline Candidate, profile, baseProfile string) string {
+	w := winner.Scores[g]
+	b, compared := baseline.Scores[g]
+	if !compared {
+		measured := fmt.Sprintf("%.1f tokens per second", w.Value)
+		if g == GoalResponse {
+			measured = fmt.Sprintf("%.1f seconds", -w.Value)
+		}
+		return fmt.Sprintf("%s: %s. The %q profile could not be measured, so there is no comparison. Saved as %q.",
+			GoalLabel(g), measured, baseProfile, profile)
+	}
 	switch g {
 	case GoalResponse:
 		return fmt.Sprintf("%s: %.1f → %.1f seconds (%s). Saved as %q.",
@@ -670,16 +728,24 @@ func (r *Runner) saveProfile(rec *Autotune, name string, winner, baseline Candid
 		AutotuneID:          rec.ID,
 	}
 
-	notes := []models.ProfileNote{{
-		Origin: "autotune",
-		Reason: fmt.Sprintf("Measured against the %q profile on the %s workload: %s.",
-			rec.BaseProfile, UseCaseLabel(rec.UseCase), summaryLine(winner, baseline)),
-	}}
+	// With no measurement of the starting profile, neither note may say
+	// "faster": the settings are the fastest of those that ran, and that
+	// is all that was established.
+	compared := len(baseline.Scores) > 0
+	headline := fmt.Sprintf("Measured against the %q profile on the %s workload: %s.",
+		rec.BaseProfile, UseCaseLabel(rec.UseCase), summaryLine(winner, baseline))
+	fieldReason := "Measured as faster here: %s."
+	if !compared {
+		headline = fmt.Sprintf("Measured on the %s workload: %s. The %q profile could not be measured on this machine, so there is no comparison.",
+			UseCaseLabel(rec.UseCase), summaryLine(winner, baseline), rec.BaseProfile)
+		fieldReason = "The fastest of the settings that could be measured here: %s."
+	}
+	notes := []models.ProfileNote{{Origin: "autotune", Reason: headline}}
 	for _, field := range sortedKeys(winner.Values) {
 		notes = append(notes, models.ProfileNote{
 			Field:  field,
 			Origin: "autotune",
-			Reason: fmt.Sprintf("Measured as faster here: %s.", DescribeValue(field, winner.Values[field])),
+			Reason: fmt.Sprintf(fieldReason, DescribeValue(field, winner.Values[field])),
 		})
 	}
 
@@ -693,20 +759,31 @@ func (r *Runner) saveProfile(rec *Autotune, name string, winner, baseline Candid
 	return err
 }
 
-// summaryLine is the three measurements in one sentence.
+// summaryLine is the three measurements in one sentence: each as a change
+// from the starting profile, or on its own when the starting profile has
+// no measurement to change from.
 func summaryLine(winner, baseline Candidate) string {
 	var parts []string
 	if w, ok := winner.Scores[GoalGeneration]; ok {
-		parts = append(parts, fmt.Sprintf("generation %.1f → %.1f tokens per second",
-			baseline.Scores[GoalGeneration].Value, w.Value))
+		if b, ok := baseline.Scores[GoalGeneration]; ok {
+			parts = append(parts, fmt.Sprintf("generation %.1f → %.1f tokens per second", b.Value, w.Value))
+		} else {
+			parts = append(parts, fmt.Sprintf("generation %.1f tokens per second", w.Value))
+		}
 	}
 	if w, ok := winner.Scores[GoalPrompt]; ok {
-		parts = append(parts, fmt.Sprintf("prompt %.0f → %.0f tokens per second",
-			baseline.Scores[GoalPrompt].Value, w.Value))
+		if b, ok := baseline.Scores[GoalPrompt]; ok {
+			parts = append(parts, fmt.Sprintf("prompt %.0f → %.0f tokens per second", b.Value, w.Value))
+		} else {
+			parts = append(parts, fmt.Sprintf("prompt %.0f tokens per second", w.Value))
+		}
 	}
 	if w, ok := winner.Scores[GoalResponse]; ok {
-		parts = append(parts, fmt.Sprintf("a full answer %.1f → %.1f seconds",
-			-baseline.Scores[GoalResponse].Value, -w.Value))
+		if b, ok := baseline.Scores[GoalResponse]; ok {
+			parts = append(parts, fmt.Sprintf("a full answer %.1f → %.1f seconds", -b.Value, -w.Value))
+		} else {
+			parts = append(parts, fmt.Sprintf("a full answer in %.1f seconds", -w.Value))
+		}
 	}
 	return strings.Join(parts, ", ")
 }
