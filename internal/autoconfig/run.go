@@ -22,6 +22,10 @@ type Deps struct {
 	HelperContext int
 	// Progress receives a plain-language line as each step starts.
 	Progress func(string)
+	// Verify loads a proposal and sends it a request. Nil leaves the
+	// proposal unchecked: an estimate, as it was before there was a
+	// check.
+	Verify VerifyFunc
 }
 
 // Result is a proposed starting profile and everything the review screen
@@ -38,6 +42,8 @@ type Result struct {
 	// CardSources are the repositories whose model cards were read.
 	CardSources []string
 	Suggestions []DraftSuggestion
+	// Check is what the test load of the proposal found.
+	Check Verification
 }
 
 // Run proposes a starting profile for the model with registry ID id:
@@ -60,8 +66,19 @@ func Run(ctx context.Context, d Deps, id string, class models.ContextClass) (*Re
 	}
 	base := *cfgp
 
+	// A model with its own draft layers has them turned on below, and
+	// the draft context they need is memory like any other. The fit has
+	// to be planned with it, or it plans a context that only fits while
+	// drafting is off. The proposal itself starts from the user's own
+	// setting, so the notes below still describe what changed.
+	fitBase := base
+	if m.NextNLayers > 0 && fitBase.SpecType == "" {
+		fitBase.SpecType = "draft-mtp"
+	}
+
 	progress("Checking what fits on your GPU")
-	fit := models.PlanFit(m, base, d.Hardware, class)
+	fit := models.PlanFit(m, fitBase, d.Hardware, class)
+	fit.Config.SpecType = base.SpecType
 	res := &Result{ModelID: id, Class: class, Base: base, Proposed: fit.Config, Fit: fit}
 	notes := map[string][]models.ProfileNote{} // by field; "" for general notes
 	var order []string
@@ -151,14 +168,42 @@ func Run(ctx context.Context, d Deps, id string, class models.ContextClass) (*Re
 	}
 
 	models.NormalizeSpec(&res.Proposed)
-	if err := res.Proposed.ValidateBatchSizes(); err != nil {
-		return nil, fmt.Errorf("the proposed settings are not valid: %w", err)
+	if err := validateProposal(&res.Proposed); err != nil {
+		return nil, err
 	}
-	if err := res.Proposed.ValidateFlashAttention(); err != nil {
-		return nil, fmt.Errorf("the proposed settings are not valid: %w", err)
-	}
-	if err := res.Proposed.ValidateSpec(); err != nil {
-		return nil, fmt.Errorf("the proposed settings are not valid: %w", err)
+
+	// The proposal is complete; find out whether it runs. An estimate
+	// that says it does not fit is not loaded: the review already says
+	// so, and the load would only take minutes to agree.
+	if d.Verify != nil && fit.Fits {
+		cfg, changes, check := verifyProposal(ctx, d, m, res.Proposed, progress)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		res.Check = check
+		if check.Status == VerifyPassed && len(changes) > 0 {
+			if err := validateProposal(&cfg); err != nil {
+				return nil, err
+			}
+			res.Proposed = cfg
+			res.Fit.Config = cfg
+			res.Fit.EstimateGiB = models.VRAMEstimateForConfigOn(m, &cfg, models.DeviceCountForConfig(&cfg, len(d.Hardware.GPUs)))
+			for _, n := range changes {
+				// What the fit said about a size the test load then
+				// reduced is no longer true, and reads as a contradiction
+				// beside the note that replaces it.
+				if existing, have := notes[n.Field]; have && (n.Field == "context_size" || n.Field == "ubatch_size") {
+					kept := existing[:0]
+					for _, old := range existing {
+						if old.Origin != "hardware fit" {
+							kept = append(kept, old)
+						}
+					}
+					notes[n.Field] = kept
+				}
+				addNote(n)
+			}
+		}
 	}
 
 	if checked.WantDraft != "" && d.Hub != nil {
@@ -192,6 +237,20 @@ func Run(ctx context.Context, d Deps, id string, class models.ContextClass) (*Re
 		res.Notes = append(res.Notes, notes[f]...)
 	}
 	return res, nil
+}
+
+// validateProposal runs the checks a config save runs.
+func validateProposal(cfg *models.ModelConfig) error {
+	if err := cfg.ValidateBatchSizes(); err != nil {
+		return fmt.Errorf("the proposed settings are not valid: %w", err)
+	}
+	if err := cfg.ValidateFlashAttention(); err != nil {
+		return fmt.Errorf("the proposed settings are not valid: %w", err)
+	}
+	if err := cfg.ValidateSpec(); err != nil {
+		return fmt.Errorf("the proposed settings are not valid: %w", err)
+	}
+	return nil
 }
 
 // Profile builds the profile to save from a result.

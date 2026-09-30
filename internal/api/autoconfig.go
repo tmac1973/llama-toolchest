@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/tmac1973/llama-toolchest/internal/autoconfig"
+	"github.com/tmac1973/llama-toolchest/internal/benchmark"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
@@ -22,8 +24,18 @@ import (
 const autoconfigProfileName = "Autoconfig"
 
 // autoconfigTimeout bounds one run: loading the helper, reading the card
-// and answering. Generous, because a first load reads the model from disk.
-const autoconfigTimeout = 10 * time.Minute
+// and answering, then loading the proposal to check that it runs.
+// Generous, because a first load reads the model from disk, and a
+// proposal that does not fit is adjusted and loaded again, a few minutes
+// each time.
+const autoconfigTimeout = 30 * time.Minute
+
+// autoconfigCheckPreset is the benchmark preset a test load runs.
+const autoconfigCheckPreset = "autoconfig-check"
+
+// autoconfigCheckProfile names the settings a test load runs under, in
+// the benchmark job that records it. They are not a saved profile yet.
+const autoconfigCheckProfile = "Autoconfig (proposed)"
 
 // autoconfigState tracks the one autoconfigure run the server allows at a
 // time, and keeps its result until the user saves or discards it.
@@ -131,9 +143,9 @@ func (s *Server) handleAutoconfigDialog(w http.ResponseWriter, r *http.Request) 
 	} else if run, ok := s.autoconfigSnapshot(); ok && !run.done {
 		d.BusyReason = "Autoconfigure is already running for another model. Wait for it to finish."
 	}
-	if d.Helper != "" {
-		d.OtherLoaded = s.otherLoadedModels(helperRouter)
-	}
+	// Listed with or without a helper: the test load restarts the server
+	// either way.
+	d.OtherLoaded = s.otherLoadedModels(helperRouter)
 	respondHTML(w)
 	s.renderPartial(w, "autoconfig_dialog", d)
 }
@@ -182,6 +194,7 @@ func (s *Server) handleAutoconfigStart(w http.ResponseWriter, r *http.Request) {
 			run.progress = p
 			s.autoconf.mu.Unlock()
 		},
+		Verify: s.checkProposedConfig,
 	}
 	helper := s.helperModel()
 	if helper != nil {
@@ -212,6 +225,96 @@ func (s *Server) handleAutoconfigStart(w http.ResponseWriter, r *http.Request) {
 
 	snap, _ := s.autoconfigSnapshot()
 	s.renderAutoconfigStatus(w, id, snap)
+}
+
+// deviceInErrorRE finds the GPU a llama.cpp memory error names: "on
+// device 2" when a buffer could not be allocated, "current device: 2"
+// when a running graph could not.
+var deviceInErrorRE = regexp.MustCompile(`device:? (\d+)`)
+
+// checkProposedConfig loads cfg for the model and sends it one request,
+// to find out whether settings that fit on paper run on this machine.
+//
+// It runs as an ordinary one-cell benchmark job. That is what takes the
+// router over and hands it back, refuses to start while another job has
+// it, and records what llama-server said when the load fails — and it
+// leaves the test in the benchmark history, where a failed one can be
+// read afterwards.
+func (s *Server) checkProposedConfig(ctx context.Context, modelID string, cfg models.ModelConfig) (autoconfig.Check, error) {
+	if s.jobs == nil {
+		return autoconfig.Check{}, errors.New("benchmarks are not available on this server")
+	}
+	build := s.resolveActiveBuild()
+	if build == nil {
+		return autoconfig.Check{}, errors.New("no llama.cpp build is available to load the model with")
+	}
+	name := modelID
+	if m, err := s.registry.Get(modelID); err == nil {
+		name = m.PublicName()
+	}
+	job := benchmark.BenchmarkJob{
+		ID:          newJobID(),
+		Name:        "Autoconfigure: test load of the proposed settings — " + name,
+		Description: "Loads the settings Autoconfigure proposes and sends one request, to check that they run on this machine before they are saved.",
+		Kind:        benchmark.JobKindBatch,
+		Status:      benchmark.JobStatusPending,
+		CreatedAt:   time.Now(),
+		ModelIDs:    []string{modelID},
+		BuildIDs:    []string{build.ID},
+		Presets:     []string{autoconfigCheckPreset},
+		BaseProfile: &benchmark.BaseProfile{Name: autoconfigCheckProfile, Config: cfg},
+		Cells:       benchmark.ExpandCells([]string{modelID}, []string{build.ID}, []string{autoconfigCheckPreset}),
+	}
+	if err := s.jobs.Submit(job); err != nil {
+		if errors.Is(err, benchmark.ErrJobAlreadyRunning) {
+			return autoconfig.Check{}, errors.New("a benchmark started and is using the GPU")
+		}
+		return autoconfig.Check{}, err
+	}
+	done, err := s.jobs.Wait(ctx, job.ID)
+	if err != nil {
+		if ctx.Err() != nil {
+			// Out of time, or stopped: the job must not go on holding
+			// the router after the run that asked for it has gone.
+			_ = s.jobs.Cancel(job.ID)
+		}
+		return autoconfig.Check{}, err
+	}
+	return checkFromJob(done, s.bench.Get), nil
+}
+
+// checkFromJob reads a finished test-load job. getRun looks up the run
+// behind the cell, which carries what llama-server printed.
+func checkFromJob(job *benchmark.BenchmarkJob, getRun func(id string) (*benchmark.BenchmarkRun, error)) autoconfig.Check {
+	if job == nil || len(job.Cells) == 0 {
+		return autoconfig.Check{Device: -1, Reason: "the test load did not run"}
+	}
+	cell := job.Cells[0]
+	if cell.Status == benchmark.CellStatusCompleted {
+		return autoconfig.Check{OK: true, Device: -1}
+	}
+	chk := autoconfig.Check{Device: -1, Reason: cell.Error}
+	if chk.Reason == "" {
+		chk.Reason = "the test load ended with status " + cell.Status
+	}
+	// The cell's error quotes one line; the run keeps every error line,
+	// and the one naming the GPU is often not the one quoted.
+	lines := []string{cell.Error}
+	if cell.BenchmarkRunID != "" {
+		if run, err := getRun(cell.BenchmarkRunID); err == nil && run != nil {
+			lines = append(lines, run.FailureLog...)
+		}
+	}
+	chk.OutOfMemory = benchmark.OutOfMemory(lines)
+	if chk.OutOfMemory {
+		for _, l := range lines {
+			if m := deviceInErrorRE.FindStringSubmatch(l); m != nil {
+				chk.Device, _ = strconv.Atoi(m[1])
+				break
+			}
+		}
+	}
+	return chk
 }
 
 // hfSiteBase is the Hugging Face site model cards are read from.
@@ -340,6 +443,48 @@ type autoconfigReviewData struct {
 	General     []string
 	Suggestions []autoconfig.DraftSuggestion
 	Sources     []string
+	// Check is the outcome of the test load, in the words the review
+	// shows; CheckOK picks the style. Both empty when no check ran.
+	Check     string
+	CheckOK   bool
+	CheckHelp string
+}
+
+// autoconfigCheckHelp is the tooltip on the test-load line: what was
+// done, and how to read each outcome.
+const autoconfigCheckHelp = "Autoconfigure loads the proposed settings once and sends the model one request with a 2,048-token prompt. " +
+	"The memory estimate above is a calculation; this is the real thing. " +
+	"\"Checked\" means the model loaded and answered. " +
+	"If the first plan ran out of memory, Autoconfigure adjusted it and loaded it again, and each adjusted setting is marked \"test load\" in the Source column. " +
+	"The test is kept in the benchmark history, where a failed one shows what llama-server reported."
+
+// checkSummary says what the test load found, in one or two sentences.
+func checkSummary(c autoconfig.Verification) (text string, ok bool) {
+	switch c.Status {
+	case autoconfig.VerifyPassed:
+		if c.Adjusted == 0 {
+			return "Checked: these settings were loaded on this machine and answered a test request.", true
+		}
+		settings := "settings were"
+		if c.Adjusted == 1 {
+			settings = "setting was"
+		}
+		return fmt.Sprintf("Checked: the first plan ran out of GPU memory when it was loaded, so %d %s adjusted. The settings below were loaded on this machine and answered a test request.",
+			c.Adjusted, settings), true
+	case autoconfig.VerifyFailed:
+		return fmt.Sprintf("These settings did not run when they were loaded (%d test %s): %s. They are shown as estimated, and have not been made to work.",
+			c.Attempts, plural(c.Attempts, "load", "loads"), c.Reason), false
+	case autoconfig.VerifySkipped:
+		return "Not checked: " + c.Reason + ". These settings are an estimate and have not been loaded.", false
+	}
+	return "", false
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 func (s *Server) autoconfigReviewData(id, name string, run autoconfigRun) autoconfigReviewData {
@@ -351,6 +496,8 @@ func (s *Server) autoconfigReviewData(id, name string, run autoconfigRun) autoco
 	res := run.result
 	d.Fits, d.EstimateGiB, d.BudgetGiB, d.CPURAMGiB = res.Fit.Fits, res.Fit.EstimateGiB, res.Fit.BudgetGiB, res.Fit.CPURAMGiB
 	d.Suggestions, d.Sources = res.Suggestions, res.CardSources
+	d.Check, d.CheckOK = checkSummary(res.Check)
+	d.CheckHelp = autoconfigCheckHelp
 
 	why := map[string][]string{}
 	origin := map[string]string{}
@@ -439,7 +586,13 @@ var reviewFields = []reviewField{
 		return strconv.Itoa(c.GPULayers)
 	}},
 	{"cpu_moe", "CPU expert layers", func(c *models.ModelConfig) string { return showInt("none", c.CPUMoE) }},
-	{"gpu_assign", "GPU assignment", func(c *models.ModelConfig) string { return gpuAssignText(c.GPUAssign) }},
+	{"gpu_assign", "GPU assignment", func(c *models.ModelConfig) string {
+		if c.GPUAssign == "custom" && c.TensorSplit != "" {
+			// The split is the whole content of a custom assignment.
+			return "a custom split (" + c.TensorSplit + ")"
+		}
+		return gpuAssignText(c.GPUAssign)
+	}},
 	{"flash_attention", "Flash attention", func(c *models.ModelConfig) string {
 		if c.FlashAttention {
 			return "on"
