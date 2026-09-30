@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.30.3](https://github.com/tmac1973/llama-toolchest/compare/v2.30.2...v2.30.3) (2026-09-30)
+
+
+### Bug Fixes
+
+* record why a benchmark cell failed, and give up on a draft model that cannot load after it fails alone ([#194](https://github.com/tmac1973/llama-toolchest/issues/194)) ([cb0c4f4](https://github.com/tmac1973/llama-toolchest/commit/cb0c4f4adb9bf0443aa81dec1aab617f016faeda))
+* save what autotune measured when the starting profile itself cannot be measured ([#195](https://github.com/tmac1973/llama-toolchest/issues/195)) ([8c2e978](https://github.com/tmac1973/llama-toolchest/commit/8c2e9782620b917439b85ea8ce791c42b71d8dec))
+
 ## [2.30.2](https://github.com/tmac1973/llama-toolchest/compare/v2.30.1...v2.30.2) (2026-09-24)
 
 
