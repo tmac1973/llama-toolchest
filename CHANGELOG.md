@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.30.4](https://github.com/tmac1973/llama-toolchest/compare/v2.30.3...v2.30.4) (2026-09-30)
+
+
+### Bug Fixes
+
+* Autoconfigure loads the settings it proposes to check that they run, and adjusts them when they run out of memory ([#197](https://github.com/tmac1973/llama-toolchest/issues/197)) ([ac41017](https://github.com/tmac1973/llama-toolchest/commit/ac410179c3ec6021179280b19753cd865132576b))
+
 ## [2.30.3](https://github.com/tmac1973/llama-toolchest/compare/v2.30.2...v2.30.3) (2026-09-30)
 
 
