@@ -190,6 +190,11 @@ func (b *Builder) LatestSuccessfulBuild() *BuildResult {
 	return &res
 }
 
+// Rank places the build on llama.cpp's own version scale — the N of the
+// bN release tag it matches — and reports whether that is known. See
+// buildRank.
+func (r BuildResult) Rank() (int, bool) { return buildRank(r) }
+
 // buildRank places a build on llama.cpp's own version scale: the master
 // commit count. Recorded directly on newer builds; recovered from the
 // bN tag (whose N is that same count) on builds from before CommitCount

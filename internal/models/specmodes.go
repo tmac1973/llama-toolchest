@@ -163,7 +163,8 @@ func NormalizeSpec(c *ModelConfig) {
 // visible without reading the whole flag line, and so a launch failure
 // can be quoted straight off the form.
 func (c *ModelConfig) EffectiveSpecType() string {
-	for _, p := range specDecodingParams(c) {
+	// The spec-type value is spelled the same in every build.
+	for _, p := range specDecodingParams(c, Target{}) {
 		if p.Name == "spec-type" {
 			return p.Value
 		}

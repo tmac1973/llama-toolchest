@@ -802,6 +802,7 @@ func configDiff(base, merged models.ModelConfig) []string {
 	add("draft-max", base.DraftMax, merged.DraftMax)
 	add("draft-min", base.DraftMin, merged.DraftMin)
 	add("draft-p-min", base.DraftPMin, merged.DraftPMin)
+	add("cache-type-draft", base.DraftKVCacheQuant, merged.DraftKVCacheQuant)
 	add("spec-assist", base.SpecAssist, merged.SpecAssist)
 	add("ngram-mod-n-max", base.AssistNMax, merged.AssistNMax)
 	add("ngram-mod-n-min", base.AssistNMin, merged.AssistNMin)

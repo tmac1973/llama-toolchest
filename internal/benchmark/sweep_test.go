@@ -421,3 +421,55 @@ func TestSpecTypeSeparatorUnchanged(t *testing.T) {
 		t.Errorf("combined value does not parse: %v", err)
 	}
 }
+
+// draft_cache sets the cache type of the drafter's own context. llama.cpp
+// keeps it at full precision whatever the model's cache is, and a 4B
+// drafter at 262,144 tokens needed 8 GiB for it on the machine this is
+// from; at 8 bits it loaded.
+func TestSpecValueDraftCache(t *testing.T) {
+	const value = "draft:draft_cache=q8_0,draft_max=16,draft_model=org--small--Q4"
+	var o ConfigOverrides
+	if err := applySpecValue(&o, value); err != nil {
+		t.Fatal(err)
+	}
+	if o.DraftKVCacheQuant == nil || *o.DraftKVCacheQuant != "q8_0" {
+		t.Fatalf("DraftKVCacheQuant = %v, want q8_0", o.DraftKVCacheQuant)
+	}
+
+	// It reaches the config a winner is saved as, not only the cell.
+	cfg, err := ConfigForValues(models.ModelConfig{KVCacheQuant: "q8_0"}, map[string]string{"spec_type": value},
+		func(id string) (string, error) { return "/models/" + id + ".gguf", nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DraftKVCacheQuant != "q8_0" || cfg.DraftModelPath != "/models/org--small--Q4.gguf" {
+		t.Errorf("saved config: draft cache %q, draft file %q", cfg.DraftKVCacheQuant, cfg.DraftModelPath)
+	}
+
+	// f16 is llama.cpp's default, stored as nothing.
+	var full ConfigOverrides
+	if err := applySpecValue(&full, "draft:draft_cache=f16,draft_model=org--small--Q4"); err != nil {
+		t.Fatal(err)
+	}
+	if full.DraftKVCacheQuant == nil || *full.DraftKVCacheQuant != "" {
+		t.Errorf("f16 gave %v, want an explicit empty string", full.DraftKVCacheQuant)
+	}
+
+	// A value that does not mention it inherits the saved setting.
+	var inherit ConfigOverrides
+	if err := applySpecValue(&inherit, "draft-mtp:draft_max=6"); err != nil {
+		t.Fatal(err)
+	}
+	if inherit.DraftKVCacheQuant != nil {
+		t.Errorf("a value without draft_cache set it to %q", *inherit.DraftKVCacheQuant)
+	}
+
+	for _, bad := range []string{
+		"draft:draft_cache=q9_9,draft_model=org--small--Q4", // not a cache type
+		"ngram-mod:draft_cache=q8_0",                        // no drafter to have a cache
+	} {
+		if _, err := parseSpecValue(bad); err == nil {
+			t.Errorf("%q was accepted", bad)
+		}
+	}
+}

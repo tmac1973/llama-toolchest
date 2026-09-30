@@ -5,29 +5,57 @@ import (
 	"testing"
 )
 
-// The three UI modes must map onto llama.cpp's --tensor-read-lazy, with
-// auto emitting nothing so llama.cpp's own default applies.
-func TestPLEModeEmitsTensorReadLazy(t *testing.T) {
+// The three UI modes map onto llama.cpp's on-demand reading option, with
+// auto emitting nothing so llama.cpp's own default applies. The option is
+// spelled as the build spells it: --lazy-mode from b10700, before that
+// --tensor-read-lazy from b10653, and before that it does not exist. An
+// option a build does not know stops the router loading any model, so a
+// build without it gets nothing rather than a guess.
+func TestPLEModeEmitsTheBuildsLazyReadOption(t *testing.T) {
 	tests := []struct {
-		mode string
-		want string // "" means the key must be absent
+		name    string
+		version int
+		mode    string
+		want    string // "" means neither key may appear
 	}{
-		{"", ""},
-		{"on", "tensor-read-lazy = on"},
-		{"off", "tensor-read-lazy = off"},
-		{"nonsense", ""},
+		{"auto", 0, "", ""},
+		{"on, current llama.cpp", 11064, "on", "lazy-mode = on"},
+		{"off, current llama.cpp", 11064, "off", "lazy-mode = off"},
+		{"on, build of unknown version", 0, "on", "lazy-mode = on"},
+		{"on, first build with the new name", 10700, "on", "lazy-mode = on"},
+		{"on, build before the rename", 10699, "on", "tensor-read-lazy = on"},
+		{"on, first build with the option", 10653, "on", "tensor-read-lazy = on"},
+		{"on, build before the option existed", 10448, "on", ""},
+		{"nonsense", 11064, "nonsense", ""},
 	}
 	for _, tt := range tests {
-		t.Run("mode="+tt.mode, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			m := &Model{ID: "m", Filename: "m.gguf", FilePath: "/models/m.gguf"}
 			cfg := &ModelConfig{Enabled: true, PLEMode: tt.mode}
-			ini := GeneratePresetINI("/models", []*Model{m}, map[string]*ModelConfig{"m": cfg}, "rocm")
-			has := strings.Contains(ini, "tensor-read-lazy")
-			if tt.want == "" && has {
-				t.Errorf("mode %q emitted a tensor-read-lazy key; preset:\n%s", tt.mode, ini)
+			target := Target{Backend: "rocm", Version: tt.version}
+			ini := GeneratePresetINI("/models", []*Model{m}, map[string]*ModelConfig{"m": cfg}, target)
+			flags := cfg.EffectiveFlagsFor(false, target)
+			if tt.want == "" {
+				for _, key := range []string{"lazy-mode", "tensor-read-lazy"} {
+					if strings.Contains(ini, key) || strings.Contains(flags, key) {
+						t.Errorf("emitted %s; preset:\n%s\nflags: %s", key, ini, flags)
+					}
+				}
+				return
 			}
-			if tt.want != "" && !strings.Contains(ini, tt.want) {
-				t.Errorf("mode %q: want %q in preset:\n%s", tt.mode, tt.want, ini)
+			if !strings.Contains(ini, tt.want) {
+				t.Errorf("want %q in preset:\n%s", tt.want, ini)
+			}
+			flag := "--" + strings.Replace(tt.want, " = ", " ", 1)
+			if !strings.Contains(flags, flag) {
+				t.Errorf("want %q in flags: %s", flag, flags)
+			}
+			other := "tensor-read-lazy"
+			if strings.HasPrefix(tt.want, "tensor-read-lazy") {
+				other = "lazy-mode"
+			}
+			if strings.Contains(ini, other) {
+				t.Errorf("preset has both spellings:\n%s", ini)
 			}
 		})
 	}

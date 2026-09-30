@@ -101,7 +101,7 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 	report := backup.Apply(f, sel, s.restoreDeps())
 
 	if report.AppliedModelConfigs > 0 {
-		if _, err := s.registry.WritePresetINI(s.activeBackend()); err != nil {
+		if _, err := s.registry.WritePresetINI(s.activeTarget()); err != nil {
 			report.Warnings = append(report.Warnings, "failed to regenerate preset: "+err.Error())
 		}
 	}

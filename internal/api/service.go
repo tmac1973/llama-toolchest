@@ -471,7 +471,7 @@ func (s *Server) startRouterWith(opt routerOptions) error {
 	var presetPath string
 	var err error
 	if opt.overrides != nil {
-		presetPath, err = s.registry.WriteBenchPresetINI(opt.overrides, buildBackend(build))
+		presetPath, err = s.registry.WriteBenchPresetINI(opt.overrides, buildTarget(build))
 		if err != nil {
 			// Falling back to the saved preset would silently benchmark
 			// the wrong config — the exact failure this mechanism exists
@@ -479,7 +479,7 @@ func (s *Server) startRouterWith(opt routerOptions) error {
 			return fmt.Errorf("write benchmark preset: %w", err)
 		}
 	} else {
-		presetPath, err = s.registry.WritePresetINI(buildBackend(build))
+		presetPath, err = s.registry.WritePresetINI(buildTarget(build))
 		if err != nil {
 			slog.Warn("failed to write preset INI", "error", err)
 		}
@@ -576,7 +576,7 @@ func (s *Server) handleModelEnable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Regenerate preset so the router picks up the change
-	if _, err := s.registry.WritePresetINI(s.activeBackend()); err != nil {
+	if _, err := s.registry.WritePresetINI(s.activeTarget()); err != nil {
 		slog.Warn("failed to regenerate preset INI", "error", err)
 	}
 
@@ -836,7 +836,7 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 	data := modelConfigPanelData{
 		ModelID:             id,
 		Config:              cfg,
-		EffectiveFlags:      cfg.EffectiveFlagsFor(isEmbedding, s.activeBackend()),
+		EffectiveFlags:      cfg.EffectiveFlagsFor(isEmbedding, s.activeTarget()),
 		MaxContext:          maxContext,
 		HasMMProj:           cfg.MmprojPath != "" || detectedMMProj != "",
 		HasMTP:              cfg.MtpPath != "" || detectedMTP != "",
@@ -1117,7 +1117,7 @@ func (s *Server) markConfigPanelStale(w http.ResponseWriter, r *http.Request, id
 // reload, and tell the page the VRAM estimate changed.
 func (s *Server) afterConfigChange(w http.ResponseWriter, r *http.Request, id string, cfg *models.ModelConfig) {
 	// Regenerate preset INI so the router picks up changes on next load/reload
-	if _, err := s.registry.WritePresetINI(s.activeBackend()); err != nil {
+	if _, err := s.registry.WritePresetINI(s.activeTarget()); err != nil {
 		slog.Warn("failed to regenerate preset INI", "error", err)
 	}
 

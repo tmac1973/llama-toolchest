@@ -224,6 +224,17 @@ type specValue struct {
 // "draft+ngram-mod:draft_model=org--repo--file,draft_max=16".
 const SpecDraftModelKey = "draft_model"
 
+// SpecDraftCacheKey is the spec-value setting for the cache type of the
+// drafter's own context, e.g. "draft:draft_model=org--repo--file,
+// draft_cache=q8_0". llama.cpp keeps that cache at full precision unless
+// told otherwise, whatever the model's own cache is, and sizes it for the
+// model's whole context — 8 GiB for a 4B drafter at 262,144 tokens.
+const SpecDraftCacheKey = "draft_cache"
+
+// draftCacheTypes are the cache types a draft_cache value may name: the
+// same ones a model's own cache may use.
+var draftCacheTypes = map[string]bool{"f16": true, "q8_0": true, "q4_0": true}
+
 func parseSpecValue(raw string) (specValue, error) {
 	v := strings.TrimSpace(raw)
 	out := specValue{params: map[string]string{}}
@@ -276,6 +287,7 @@ func parseSpecValue(raw string) (specValue, error) {
 	// draft method, which is why it is not in the parameter tables.
 	if out.mode != "" {
 		allowedKeys[SpecDraftModelKey] = true
+		allowedKeys[SpecDraftCacheKey] = true
 	}
 	for _, pair := range strings.Split(rest, ",") {
 		pair = strings.TrimSpace(pair)
@@ -293,6 +305,10 @@ func parseSpecValue(raw string) (specValue, error) {
 		if k == SpecDraftModelKey {
 			if val == "" {
 				return out, errors.New("draft_model needs a model ID or a file path")
+			}
+		} else if k == SpecDraftCacheKey {
+			if !draftCacheTypes[val] {
+				return out, fmt.Errorf("draft_cache %q is not a cache type; use f16, q8_0 or q4_0", val)
 			}
 		} else if k == "draft_p_min" {
 			if _, err := strconv.ParseFloat(val, 64); err != nil {
@@ -327,6 +343,15 @@ func applySpecValue(o *ConfigOverrides, raw string) error {
 		// A registry ID or a path; runCell resolves it.
 		f := file
 		o.DraftModelPath = &f
+	}
+	if cache, ok := sv.params[SpecDraftCacheKey]; ok {
+		// f16 is llama.cpp's own default, written as nothing so the
+		// config does not pin it.
+		c := cache
+		if c == "f16" {
+			c = ""
+		}
+		o.DraftKVCacheQuant = &c
 	}
 	for k, val := range sv.params {
 		switch k {
@@ -977,9 +1002,10 @@ func MergeOverrides(base, derived *ConfigOverrides) *ConfigOverrides {
 // spec_type's encoded values rather than registry entries of their own.
 // Both slots are in here: applySpecValue writes spec_assist and the
 // assist parameters from the same encoded value it writes spec_type from,
-// so params own all of them.
+// so params own all of them. draft_kv_cache_quant is spec_type's
+// draft_cache.
 var specParamTags = map[string]bool{
-	"draft_max": true, "draft_min": true, "draft_p_min": true,
+	"draft_max": true, "draft_min": true, "draft_p_min": true, "draft_kv_cache_quant": true,
 	"spec_assist": true, "assist_n_max": true, "assist_n_min": true,
 	"assist_n_match": true, "assist_size_n": true, "assist_size_m": true,
 	"assist_min_hits": true,

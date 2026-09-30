@@ -276,7 +276,7 @@ func (s *Server) ensureHelperConfig(id string) (bool, error) {
 	if err := s.registry.SetConfig(id, &want); err != nil {
 		return false, err
 	}
-	if _, err := s.registry.WritePresetINI(s.activeBackend()); err != nil {
+	if _, err := s.registry.WritePresetINI(s.activeTarget()); err != nil {
 		slog.Warn("failed to regenerate preset INI", "error", err)
 	}
 	slog.Info("helper model set to its fixed settings", "model", id, "context", want.ContextSize)
@@ -401,7 +401,7 @@ func (s *Server) removeHelper() (name string, freedGiB float64, err error) {
 	if err := s.registry.Delete(m.ID); err != nil {
 		return "", 0, err
 	}
-	if _, err := s.registry.WritePresetINI(s.activeBackend()); err != nil {
+	if _, err := s.registry.WritePresetINI(s.activeTarget()); err != nil {
 		slog.Warn("failed to regenerate preset INI after removing the helper model", "error", err)
 	}
 	return name, freedGiB, nil

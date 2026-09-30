@@ -121,15 +121,15 @@ func TestApplyToRecordsBuiltInMTPOnlyForModels(t *testing.T) {
 
 func TestCPUMoEFlagEmission(t *testing.T) {
 	var b strings.Builder
-	writeConfigParams(&b, &ModelConfig{CPUMoE: 10, GPULayers: 999}, false, "")
+	writeConfigParams(&b, &ModelConfig{CPUMoE: 10, GPULayers: 999}, false, Target{})
 	if !strings.Contains(b.String(), "n-cpu-moe = 10\n") {
 		t.Errorf("preset INI lacks n-cpu-moe:\n%s", b.String())
 	}
-	if flags := (&ModelConfig{CPUMoE: 10}).EffectiveFlagsFor(false, ""); !strings.Contains(flags, "--n-cpu-moe 10") {
+	if flags := (&ModelConfig{CPUMoE: 10}).EffectiveFlagsFor(false, Target{}); !strings.Contains(flags, "--n-cpu-moe 10") {
 		t.Errorf("effective flags lack --n-cpu-moe: %s", flags)
 	}
 	b.Reset()
-	writeConfigParams(&b, &ModelConfig{GPULayers: 999}, false, "")
+	writeConfigParams(&b, &ModelConfig{GPULayers: 999}, false, Target{})
 	if strings.Contains(b.String(), "n-cpu-moe") {
 		t.Error("n-cpu-moe emitted for 0")
 	}

@@ -333,7 +333,7 @@ func TestSpecParamsReachLaunchFlags(t *testing.T) {
 		GPULayers: 999, ContextSize: 8192, Threads: 8,
 		SpecType: "draft-mtp", DraftMax: 6, DraftPMin: "0.75",
 	})
-	flags := on.EffectiveFlagsFor(false, "")
+	flags := on.EffectiveFlagsFor(false, models.Target{})
 	for _, want := range []string{"--spec-type draft-mtp", "--spec-draft-n-max 6", "--spec-draft-p-min 0.75"} {
 		if !strings.Contains(flags, want) {
 			t.Errorf("flags missing %q: %s", want, flags)
@@ -347,7 +347,7 @@ func TestSpecParamsReachLaunchFlags(t *testing.T) {
 		GPULayers: 999, ContextSize: 8192, Threads: 8,
 		// SpecType empty: the explicit off override.
 	})
-	if flags := off.EffectiveFlagsFor(false, ""); strings.Contains(flags, "--spec-type") {
+	if flags := off.EffectiveFlagsFor(false, models.Target{}); strings.Contains(flags, "--spec-type") {
 		t.Errorf("explicit off should emit no speculative flags: %s", flags)
 	}
 }

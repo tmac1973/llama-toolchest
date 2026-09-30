@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tmac1973/llama-toolchest/internal/builder"
+	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
 func (s *Server) handleListBackends(w http.ResponseWriter, r *http.Request) {
@@ -485,6 +486,26 @@ func buildBackend(b *builder.BuildResult) string {
 // with right now (saved selection, latest-successful fallback).
 func (s *Server) activeBackend() string {
 	return buildBackend(s.resolveActiveBuild())
+}
+
+// buildTarget describes a build for writing launch options: its backend,
+// and its llama.cpp version, which decides the spelling of options that
+// have been renamed or removed upstream. A build whose version cannot be
+// told is written for as current llama.cpp.
+func buildTarget(b *builder.BuildResult) models.Target {
+	t := models.Target{Backend: buildBackend(b)}
+	if b != nil {
+		if n, ok := b.Rank(); ok {
+			t.Version = n
+		}
+	}
+	return t
+}
+
+// activeTarget is buildTarget for the build the router would launch with
+// right now.
+func (s *Server) activeTarget() models.Target {
+	return buildTarget(s.resolveActiveBuild())
 }
 
 // resolveBuild returns the build to launch for an explicit id, falling

@@ -360,10 +360,11 @@ func (c *ModelConfig) SamplingOverrides() map[string]any {
 // EffectiveFlags returns the full set of llama-server flags (excluding
 // binary, model path, host, and port) that will be used at launch.
 // EffectiveFlagsFor returns the flags that will be used at launch, filtering
-// out chat-specific flags for embedding models. backend is the active
-// build's backend ("rocm", "cuda", ...), used to render GPU restrictions
-// as a --device list; "" falls back to the padded tensor-split.
-func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool, backend string) string {
+// out chat-specific flags for embedding models. t is the active build: its
+// backend ("rocm", "cuda", ...) renders GPU restrictions as a --device
+// list ("" falls back to the padded tensor-split), and its version picks
+// the spelling of options llama.cpp has renamed or removed.
+func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool, t Target) string {
 	var parts []string
 	parts = append(parts, "--n-gpu-layers", strconv.Itoa(c.GPULayers))
 	if isEmbedding {
@@ -385,7 +386,7 @@ func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool, backend string) string
 	if c.CPUMoE > 0 {
 		parts = append(parts, "--n-cpu-moe", strconv.Itoa(c.CPUMoE))
 	}
-	for _, p := range gpuPlacementParams(c, backend) {
+	for _, p := range gpuPlacementParams(c, t.Backend) {
 		parts = append(parts, "--"+p.Name, p.Value)
 	}
 	// Upstream auto-fit (common_fit_params) is not implemented for
@@ -410,14 +411,14 @@ func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool, backend string) string
 		if c.DirectIO {
 			parts = append(parts, "--direct-io")
 		}
-		if c.PLEMode == "on" || c.PLEMode == "off" {
-			parts = append(parts, "--tensor-read-lazy", c.PLEMode)
+		if name := t.lazyReadOption(); name != "" && (c.PLEMode == "on" || c.PLEMode == "off") {
+			parts = append(parts, "--"+name, c.PLEMode)
 		}
 		if c.MmprojPath != "" && !c.MmprojDisabled {
 			parts = append(parts, "--mmproj", c.MmprojPath)
 		}
 		// Speculative decoding (see specDecodingParams for the SpecType rules).
-		for _, p := range specDecodingParams(c) {
+		for _, p := range specDecodingParams(c, t) {
 			parts = append(parts, "--"+p.Name, p.Value)
 		}
 	}
@@ -429,7 +430,7 @@ func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool, backend string) string
 
 // EffectiveFlags returns the flags for a chat model (backward compat).
 func (c *ModelConfig) EffectiveFlags() string {
-	return c.EffectiveFlagsFor(false, "")
+	return c.EffectiveFlagsFor(false, Target{})
 }
 
 // RegistrySchemaVersion is the models.json layout this build writes.

@@ -17,8 +17,8 @@ type specParam struct {
 // shared by the "draft" and "draft-mtp" spec types. Without these, the
 // draft model inherits llama-server defaults — which on a large MoE main
 // model often means no GPU offload for the draft.
-func appendDraftResourceParams(params []specParam, c *ModelConfig) []specParam {
-	if c.DraftCtxSize > 0 {
+func appendDraftResourceParams(params []specParam, c *ModelConfig, t Target) []specParam {
+	if c.DraftCtxSize > 0 && t.draftContextOption() {
 		params = append(params, specParam{"ctx-size-draft", strconv.Itoa(c.DraftCtxSize)})
 	}
 	if c.DraftGPULayers > 0 {
@@ -66,7 +66,7 @@ func draftTypeName(mode string) string {
 
 // appendDraftParams appends the flags of the draft-method slot: the
 // drafter to load, its resource overrides, and its sampling knobs.
-func appendDraftParams(params []specParam, c *ModelConfig) []specParam {
+func appendDraftParams(params []specParam, c *ModelConfig, t Target) []specParam {
 	// Where the drafter comes from depends on the mode:
 	//   • Self-speculation MTP (Qwen3.5/3.6, DeepSeek-V3): the head is
 	//     baked into the main GGUF, so MtpPath is empty — no
@@ -85,7 +85,7 @@ func appendDraftParams(params []specParam, c *ModelConfig) []specParam {
 	}
 	if drafter != "" {
 		params = append(params, specParam{"model-draft", drafter})
-		params = appendDraftResourceParams(params, c)
+		params = appendDraftResourceParams(params, c, t)
 	}
 	return appendDraftSamplingParams(params, c)
 }
@@ -131,7 +131,7 @@ func appendAssistParams(params []specParam, c *ModelConfig) []specParam {
 // The list is written as one value rather than a repeated flag on
 // purpose: common/preset.cpp parses an INI section into a map, so a
 // second "spec-type =" line would silently replace the first.
-func specDecodingParams(c *ModelConfig) []specParam {
+func specDecodingParams(c *ModelConfig, t Target) []specParam {
 	// Copied, not mutated in place: this runs on the registry's own
 	// struct, and normalising a config that still holds the pre-split
 	// shape must not write back to it.
@@ -142,7 +142,7 @@ func specDecodingParams(c *ModelConfig) []specParam {
 	var params []specParam
 	if IsDraftMode(cfg.SpecType) {
 		modes = append(modes, draftTypeName(cfg.SpecType))
-		params = appendDraftParams(params, &cfg)
+		params = appendDraftParams(params, &cfg, t)
 	}
 	if IsAssistMode(cfg.SpecAssist) {
 		modes = append(modes, cfg.SpecAssist)
