@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.30.5](https://github.com/tmac1973/llama-toolchest/compare/v2.30.4...v2.30.5) (2026-09-30)
+
+
+### Bug Fixes
+
+* write only the llama-server options the running build accepts, replay the newest log lines, and let autotune measure a separate draft model ([#199](https://github.com/tmac1973/llama-toolchest/issues/199)) ([acd6d1d](https://github.com/tmac1973/llama-toolchest/commit/acd6d1dd582a9e3ecebdca07b91ab8448946dddf))
+
 ## [2.30.4](https://github.com/tmac1973/llama-toolchest/compare/v2.30.3...v2.30.4) (2026-09-30)
 
 
