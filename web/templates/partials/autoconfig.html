@@ -24,9 +24,10 @@
             <a href="/settings">Install a helper model in Settings.</a></p>
         {{else}}
         <p><small>Reads the documentation with the helper model {{.Helper}}. It is loaded for about a minute and unloaded afterwards. The server starts or restarts if that is needed to load it.</small></p>
-        {{if .OtherLoaded}}
-        <p><mark>&#9888; Loading the helper model may unload: {{range $i, $m := .OtherLoaded}}{{if $i}}, {{end}}{{$m}}{{end}}.</mark></p>
         {{end}}
+        <p><small title="The memory estimate compares what the model needs with the memory of all GPUs added together, and llama.cpp does not fill them evenly. Loading the settings is the only way to know they run. If they run out of memory, Autoconfigure adjusts them and loads them again, which takes a few more minutes." style="cursor:help;">Then loads the proposed settings once and sends a test request, to check that they run on this machine. This restarts the server, and takes from half a minute to a few minutes depending on the size of the model.</small></p>
+        {{if .OtherLoaded}}
+        <p><mark>&#9888; This will unload: {{range $i, $m := .OtherLoaded}}{{if $i}}, {{end}}{{$m}}{{end}}.</mark></p>
         {{end}}
         {{if .BusyReason}}<p><mark>&#9888; {{.BusyReason}}</mark></p>{{end}}
         <div role="group">
@@ -68,6 +69,11 @@
         Estimated <strong>{{printf "%.1f" .EstimateGiB}} GiB</strong> of {{printf "%.1f" .BudgetGiB}} GiB of GPU memory{{if gt .CPURAMGiB 0.05}}, and {{printf "%.1f" .CPURAMGiB}} GiB in system memory{{end}}.
     </p>
     {{if not .Fits}}<p role="alert"><mark>&#9888; This model does not fit on this machine even with the settings below. Choose a smaller quantization of it.</mark></p>{{end}}
+    {{if .Check}}
+    <p title="{{.CheckHelp}}" style="cursor:help;"{{if not .CheckOK}} role="alert"{{end}}>
+        {{if .CheckOK}}&#10003; {{.Check}}{{else}}<mark>&#9888; {{.Check}}</mark>{{end}}
+    </p>
+    {{end}}
 
     {{if .Changed}}
     <table class="autoconfig-review">
@@ -76,7 +82,7 @@
             <th title="What the model uses now.">Now</th>
             <th title="What Autoconfigure proposes.">Proposed</th>
             <th>Why</th>
-            <th title="Where the proposal comes from: the hardware fit (what fits on this machine), the model card, the publisher's sampling settings, or the model file itself.">Source</th>
+            <th title="Where the proposal comes from: the hardware fit (what fits on this machine), a test load (what ran when the settings were loaded), the model card, the publisher's sampling settings, or the model file itself.">Source</th>
         </tr></thead>
         <tbody>
         {{range .Changed}}

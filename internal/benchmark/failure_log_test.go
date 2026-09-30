@@ -175,3 +175,74 @@ func TestFailedRunRecordsWhatTheServerReported(t *testing.T) {
 		}
 	}
 }
+
+// What llama-server printed when a model loaded and then ran out of
+// memory on its first request, taken from the machine this is from. The
+// log held began in the middle of an earlier warm-up attempt, so the
+// router's "lost the connection" line from that attempt comes first.
+var crashLog = []string{
+	"0.41.120.004 E srv    operator(): http client error: Failed to read connection",
+	"0.41.120.010 I srv    operator(): instance name=big exited with status 1",
+	"0.44.300.000 I srv          load: spawning server instance with name=big on port 50915",
+	"[50915] 0.09.100.000 I slot launch_slot_: id  0 | task 0 | processing task",
+	"[50915] /data/llama.cpp/ggml/src/ggml-cuda/ggml-cuda.cu:106: CUDA error",
+	"[50915] 0.09.211.300 E CUDA error: out of memory",
+	"[50915] 0.09.211.301 E   current device: 2, in function ggml_cuda_graph_evaluate_and_capture at /data/llama.cpp/ggml/src/ggml-cuda/ggml-cuda.cu:4209",
+	"[50915] 0.09.211.302 E   cudaGraphLaunch(graph->instance, cuda_ctx->stream())",
+	"[50915] /data/builds/b10448-cuda-optimized/libggml-base.so.0(ggml_abort+0x15b)[0x7fd7ee536c6b]",
+	"[50915] /data/builds/b10448-cuda-optimized/libggml-cuda.so.0(_Z15ggml_cuda_errorPKcS0_S0_iS0_+0xb7)[0x7fd7e9a89927]",
+	"[50915] /lib/x86_64-linux-gnu/libc.so.6(+0x29d90)[0x7fd7ed229d90]",
+	"[50915] /data/builds/b10448-cuda-optimized/llama-server[0x55d0c1a2b3e5]",
+}
+
+// The error text quotes the line that says memory ran out, not whichever
+// error line happens to be first in the log.
+func TestFailureReasonPrefersTheOutOfMemoryLine(t *testing.T) {
+	lines := serverErrorLines(crashLog)
+	if got := failureReason(lines); got != "CUDA error: out of memory" {
+		t.Errorf("reason = %q, want the out-of-memory line", got)
+	}
+	err := withServerReason("warmup failed after retries: HTTP 500: proxy error: Failed to read connection", lines)
+	if !strings.HasSuffix(err, "llama-server reported: CUDA error: out of memory") {
+		t.Errorf("error = %q, want it to end with the out-of-memory line", err)
+	}
+	if !OutOfMemory(lines) {
+		t.Error("a log with an out-of-memory line was not recognised as one")
+	}
+}
+
+// With nothing about memory in the log, the first error line is quoted.
+func TestFailureReasonFallsBackToTheFirstLine(t *testing.T) {
+	lines := []string{"srv  load_model: failed to load model", "main: exiting due to model loading error"}
+	if got := failureReason(lines); got != lines[0] {
+		t.Errorf("reason = %q, want the first line", got)
+	}
+	if OutOfMemory(lines) {
+		t.Error("a log with no out-of-memory line was recognised as one")
+	}
+	if got := failureReason(nil); got != "" {
+		t.Errorf("reason for no lines = %q, want empty", got)
+	}
+}
+
+// Backtrace frames are most of what an aborting process prints. They
+// name no cause, and they would push the lines that do out of the dozen
+// that are kept.
+func TestServerErrorLinesLeavesOutBacktraceFrames(t *testing.T) {
+	lines := serverErrorLines(crashLog)
+	for _, l := range lines {
+		if strings.Contains(l, "[0x") {
+			t.Errorf("kept a backtrace frame: %q", l)
+		}
+	}
+	want := []string{
+		"srv    operator(): http client error: Failed to read connection",
+		"/data/llama.cpp/ggml/src/ggml-cuda/ggml-cuda.cu:106: CUDA error",
+		"CUDA error: out of memory",
+		"current device: 2, in function ggml_cuda_graph_evaluate_and_capture at /data/llama.cpp/ggml/src/ggml-cuda/ggml-cuda.cu:4209",
+		"cudaGraphLaunch(graph->instance, cuda_ctx->stream())",
+	}
+	if !reflect.DeepEqual(lines, want) {
+		t.Errorf("error lines =\n%s\nwant\n%s", strings.Join(lines, "\n"), strings.Join(want, "\n"))
+	}
+}

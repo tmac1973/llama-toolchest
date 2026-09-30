@@ -409,6 +409,14 @@ func Presets() []Preset {
 			PromptStyle: PromptStyleEcho,
 		},
 		{
+			Name:         "autoconfig-check",
+			Label:        "autoconfig-check — 1 rep, 2048-token prompt (~15s)",
+			Description:  "Autoconfigure's test load: one request with a prompt longer than llama.cpp's default prompt batch and 64 generated tokens. It answers one question, whether the proposed settings load and run on this machine, so it measures once and is hidden from the pickers.",
+			Source:       PresetSourceInternal,
+			PromptTokens: []int{2048}, GenTokens: 64, Repetitions: 1,
+			Hidden: true,
+		},
+		{
 			Name:         "autotune-chat",
 			Label:        "autotune-chat — 3 reps, 512 and 4096-token prompts (~1 min)",
 			Description:  "Autotune's general-chat workload: a short prompt for response time and a long one for prompt speed, with 256 generated tokens of new prose. Hidden from the pickers because it exists to be compared across autotune's own runs.",

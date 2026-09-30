@@ -67,7 +67,8 @@ func linesAfter(log []string, mark string) []string {
 // The first lines are the ones kept when there are more than fit. In a
 // failed load the first error is the cause — the allocation that did not
 // succeed — and the rest are each layer above it reporting that it could
-// not carry on.
+// not carry on. Backtrace frames are left out: they are most of what an
+// aborting process prints and none of the explanation.
 func serverErrorLines(log []string) []string {
 	var out []string
 	seen := map[string]bool{}
@@ -86,7 +87,7 @@ func serverErrorLines(log []string) []string {
 			}
 			text = raw
 		}
-		if text == "" || seen[text] {
+		if text == "" || seen[text] || stackFrameRE.MatchString(text) {
 			continue
 		}
 		seen[text] = true
@@ -96,6 +97,57 @@ func serverErrorLines(log []string) []string {
 		}
 	}
 	return out
+}
+
+// stackFrameRE matches one frame of the backtrace a process prints when
+// it aborts: a library, a symbol and an address. The frames say where the
+// code was, not what went wrong, and their addresses differ on every run.
+var stackFrameRE = regexp.MustCompile(`\(.*\+0x[0-9a-f]+\)\s*\[0x[0-9a-f]+\]|^\S+\s*\[0x[0-9a-f]+\]$`)
+
+// memoryWords mark a line that says memory ran out. When one is present
+// it is the cause, wherever it sits among the other error lines.
+var memoryWords = []string{"out of memory", "failed to allocate", "cudamalloc", "not enough memory", "insufficient memory"}
+
+// saysOutOfMemory reports whether a log line says memory ran out.
+func saysOutOfMemory(line string) bool {
+	lower := strings.ToLower(line)
+	for _, w := range memoryWords {
+		if strings.Contains(lower, w) {
+			return true
+		}
+	}
+	return false
+}
+
+// OutOfMemory reports whether the lines llama-server printed about a
+// failure say that memory ran out.
+func OutOfMemory(lines []string) bool {
+	for _, l := range lines {
+		if saysOutOfMemory(l) {
+			return true
+		}
+	}
+	return false
+}
+
+// failureReason picks the one line that best says why a run failed: a
+// line that says memory ran out when there is one, and otherwise the
+// first line.
+//
+// The first line alone is not reliable. The log is a fixed number of
+// recent lines, and a warm-up is retried, so what is held can begin in
+// the middle of an earlier attempt — with that attempt's last line, the
+// router reporting a lost connection, ahead of the next attempt's cause.
+func failureReason(lines []string) string {
+	for _, l := range lines {
+		if saysOutOfMemory(l) {
+			return l
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return lines[0]
 }
 
 func hasFailureWord(line string) bool {
@@ -108,13 +160,14 @@ func hasFailureWord(line string) bool {
 	return false
 }
 
-// withServerReason appends the first error line llama-server printed to
-// a run's own error text. With no lines the text is returned unchanged.
+// withServerReason appends the line that best explains the failure, of
+// those llama-server printed, to a run's own error text. With no lines
+// the text is returned unchanged.
 func withServerReason(headline string, lines []string) string {
 	if len(lines) == 0 {
 		return headline
 	}
-	reason := lines[0]
+	reason := failureReason(lines)
 	if len(reason) > maxFailureReasonLen {
 		reason = reason[:maxFailureReasonLen] + "…"
 	}
