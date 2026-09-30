@@ -391,3 +391,64 @@ func TestPlanSpecUsesAnInstalledHead(t *testing.T) {
 		t.Errorf("EAGLE3 used %q, want the head rather than the chat model", found)
 	}
 }
+
+// A drafter loaded from its own file is measured with the model's own
+// cache type when the profile stores its cache at 8 bits. At full
+// precision the drafter's cache, sized for the model's whole context,
+// did not fit on the machine this is from, so every such cell failed
+// instead of being measured.
+func TestPlanSpecMeasuresADraftModelWithTheModelsCacheType(t *testing.T) {
+	withDrafts := func(in PlanInput) PlanInput {
+		in.Model.NextNLayers = 1 // MTP too, to check it is left alone
+		in.DraftCandidates = func(mode string) []models.DraftCandidate {
+			if mode != "draft" {
+				return nil
+			}
+			return []models.DraftCandidate{{ID: "small-draft", SizeGB: 2.5}}
+		}
+		return in
+	}
+
+	quantized := withDrafts(baseInput())
+	quantized.Base.KVCacheQuant = "q8_0"
+	cells, _, _ := PlanStage(StageSpec, quantized)
+	var sawDraft bool
+	for v := range values(cells, "spec_type") {
+		hasCache := strings.Contains(v, "draft_cache=q8_0")
+		switch {
+		case strings.Contains(v, "draft_model=small-draft"):
+			sawDraft = true
+			if !hasCache {
+				t.Errorf("draft model measured with a full-precision cache: %q", v)
+			}
+		case hasCache:
+			t.Errorf("a value that loads no drafter file carries a draft cache: %q", v)
+		}
+	}
+	if !sawDraft {
+		t.Fatal("no cell measures the draft model")
+	}
+	if got := describeSpec("draft:draft_cache=q8_0,draft_max=16,draft_model=org--small-draft"); !strings.Contains(got, "q8_0 draft cache") {
+		t.Errorf("label %q does not mention the draft cache", got)
+	}
+
+	// A profile with a full-precision cache has room to spare; the
+	// drafter's is left at llama.cpp's default.
+	full := withDrafts(baseInput())
+	cells, _, _ = PlanStage(StageSpec, full)
+	for v := range values(cells, "spec_type") {
+		if strings.Contains(v, "draft_cache=") {
+			t.Errorf("draft cache set although the profile keeps its own cache at full precision: %q", v)
+		}
+	}
+
+	// A profile that chose a draft cache type keeps its choice.
+	chosen := withDrafts(baseInput())
+	chosen.Base.KVCacheQuant, chosen.Base.DraftKVCacheQuant = "q8_0", "q4_0"
+	cells, _, _ = PlanStage(StageSpec, chosen)
+	for v := range values(cells, "spec_type") {
+		if strings.Contains(v, "draft_cache=") {
+			t.Errorf("the profile's own draft cache setting was overridden: %q", v)
+		}
+	}
+}

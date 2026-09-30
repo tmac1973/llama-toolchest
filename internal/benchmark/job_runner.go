@@ -993,6 +993,9 @@ func ApplyOverrides(base ConfigSnapshot, overrides *ConfigOverrides) ConfigSnaps
 	if overrides.DraftModelPath != nil {
 		out.DraftModelPath = *overrides.DraftModelPath
 	}
+	if overrides.DraftKVCacheQuant != nil {
+		out.DraftKVCacheQuant = *overrides.DraftKVCacheQuant
+	}
 	if overrides.DraftMax != nil {
 		out.DraftMax = *overrides.DraftMax
 	}

@@ -257,12 +257,42 @@ func draftOptions(in PlanInput) ([]draftOption, []string) {
 			if i >= limit {
 				break
 			}
-			out = append(out, draftOption{mode, defaultParams(
-				map[string]string{benchmark.SpecDraftModelKey: c.ID},
-				models.SpecDraftParams(mode))})
+			params := map[string]string{benchmark.SpecDraftModelKey: c.ID}
+			if q := draftCacheFor(in.Base); q != "" {
+				params[benchmark.SpecDraftCacheKey] = q
+			}
+			out = append(out, draftOption{mode, defaultParams(params, models.SpecDraftParams(mode))})
 		}
 	}
 	return out, skipped
+}
+
+// draftCacheFor is the cache type a drafter loaded from its own file is
+// measured with: the model's own, when the profile makes that smaller
+// than full precision, and llama.cpp's default otherwise.
+//
+// llama.cpp gives the drafter's context the model's whole context size
+// and keeps its cache at full precision whatever the model's own cache
+// is. On the machine this is from, a 4B drafter for a 27B model at
+// 262,144 tokens needed 8 GiB for that cache alone and could not load;
+// at 8 bits, like the model's own, it loaded and could be measured.
+// A profile that stores its cache at 8 bits to fit has already accepted
+// that trade, and the measurement decides whether the drafter is worth
+// having. A profile that keeps its cache at full precision has room to,
+// so the drafter's is left alone.
+//
+// MTP drafting from the model's own layers is left alone either way: on
+// the same machine an 8-bit cache for its draft context cost about a
+// tenth of the generation speed.
+func draftCacheFor(base models.ModelConfig) string {
+	if base.DraftKVCacheQuant != "" {
+		return "" // the profile chose one; the cells inherit it
+	}
+	switch base.KVCacheQuant {
+	case "", "f16":
+		return ""
+	}
+	return base.KVCacheQuant
 }
 
 // headMarkers are the words a converted draft head carries in its name,

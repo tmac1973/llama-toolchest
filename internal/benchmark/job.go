@@ -116,16 +116,19 @@ type ConfigOverrides struct {
 	// before the cell runs and before the run records it, because only
 	// the runner can look a registry ID up.
 	DraftModelPath *string `json:"draft_model_path,omitempty"`
-	DraftMax       *int    `json:"draft_max,omitempty"`
-	DraftMin       *int    `json:"draft_min,omitempty"`
-	DraftPMin      *string `json:"draft_p_min,omitempty"`
-	SpecAssist     *string `json:"spec_assist,omitempty"`
-	AssistNMax     *int    `json:"assist_n_max,omitempty"`
-	AssistNMin     *int    `json:"assist_n_min,omitempty"`
-	AssistNMatch   *int    `json:"assist_n_match,omitempty"`
-	AssistSizeN    *int    `json:"assist_size_n,omitempty"`
-	AssistSizeM    *int    `json:"assist_size_m,omitempty"`
-	AssistMinHits  *int    `json:"assist_min_hits,omitempty"`
+	// DraftKVCacheQuant is the cache type of the drafter's context
+	// ("" = llama.cpp's full-precision default).
+	DraftKVCacheQuant *string `json:"draft_kv_cache_quant,omitempty"`
+	DraftMax          *int    `json:"draft_max,omitempty"`
+	DraftMin          *int    `json:"draft_min,omitempty"`
+	DraftPMin         *string `json:"draft_p_min,omitempty"`
+	SpecAssist        *string `json:"spec_assist,omitempty"`
+	AssistNMax        *int    `json:"assist_n_max,omitempty"`
+	AssistNMin        *int    `json:"assist_n_min,omitempty"`
+	AssistNMatch      *int    `json:"assist_n_match,omitempty"`
+	AssistSizeN       *int    `json:"assist_size_n,omitempty"`
+	AssistSizeM       *int    `json:"assist_size_m,omitempty"`
+	AssistMinHits     *int    `json:"assist_min_hits,omitempty"`
 	// Legacy speculative fields. Jobs stored before speculative decoding
 	// had two slots still carry these, so the merge keeps honouring them
 	// and models.NormalizeSpec moves them onto the assist slot.

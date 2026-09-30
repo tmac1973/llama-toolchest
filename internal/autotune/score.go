@@ -394,6 +394,8 @@ func describeSpec(value string) string {
 				v = v[i+1:]
 			}
 			extras = append(extras, "drafting with "+v)
+		case benchmark.SpecDraftCacheKey:
+			extras = append(extras, v+" draft cache")
 		case "assist_n_max":
 			extras = append(extras, "assist draft "+v)
 		case "assist_size_n":
