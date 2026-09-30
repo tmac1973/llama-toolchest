@@ -284,6 +284,10 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 		},
 		Busy: s.gpuBusyReason,
 	})
+	// A run finished by an older version may have measured its fastest
+	// settings and saved none of them. The measurements are still in its
+	// record, so they are turned into profiles here, once.
+	s.tuner.SaveUnsavedWinners()
 	s.router = s.buildRouter()
 
 	if cfg.AutoStart {
