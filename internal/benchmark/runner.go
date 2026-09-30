@@ -35,6 +35,12 @@ type RunConfig struct {
 	// A callback rather than a value because the load happens inside
 	// Run: the figure does not exist when the RunConfig is built.
 	Memory func(modelID string) (MemorySnapshot, bool)
+
+	// ServerLog returns the llama-server log lines still held, oldest
+	// first. Read when a run starts, to mark where its own output
+	// begins, and again if it fails, to record what the server said
+	// about it. Nil leaves a failed run with its own error only.
+	ServerLog func() []string
 }
 
 // SamplingParams are per-request generation settings. Unlike everything
@@ -94,6 +100,15 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 	run := cfg.Run
 	startTime := time.Now()
 
+	// Where this run's own server output begins: the last line printed
+	// before it started. Everything before it belongs to something else.
+	var logMark string
+	if cfg.ServerLog != nil {
+		if log := cfg.ServerLog(); len(log) > 0 {
+			logMark = log[len(log)-1]
+		}
+	}
+
 	defer func() {
 		run.DurationMs = time.Since(startTime).Milliseconds()
 		r.store.Save(run)
@@ -114,6 +129,19 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 		}
 	}
 
+	// fail ends the run with headline as its error, adding what
+	// llama-server printed about the failure. The router's own answer
+	// is one sentence with no cause in it, and the log that has the
+	// cause is emptied on the next restart.
+	fail := func(headline string) {
+		run.Status = StatusFailed
+		if cfg.ServerLog != nil {
+			run.FailureLog = serverErrorLines(linesAfter(cfg.ServerLog(), logMark))
+		}
+		run.Error = withServerReason(headline, run.FailureLog)
+		send("error", run.Error, 0)
+	}
+
 	// Step 0: Unload all models to ensure clean VRAM for benchmarking
 	send("loading", "Unloading all models for clean benchmark...", 3)
 	r.unloadAllModels(cfg.RouterURL)
@@ -121,9 +149,7 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 	// Step 1: Load the benchmark target model
 	send("loading", "Loading model into VRAM — this may take a minute for large models...", 5)
 	if err := r.ensureModelLoaded(ctx, cfg.RouterURL, cfg.RouterName); err != nil {
-		run.Status = StatusFailed
-		run.Error = fmt.Sprintf("failed to load model: %v", err)
-		send("error", run.Error, 0)
+		fail(fmt.Sprintf("failed to load model: %v", err))
 		return
 	}
 
@@ -146,9 +172,7 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 		}
 	}
 	if warmupErr != nil {
-		run.Status = StatusFailed
-		run.Error = fmt.Sprintf("warmup failed after retries: %v", warmupErr)
-		send("error", run.Error, 0)
+		fail(fmt.Sprintf("warmup failed after retries: %v", warmupErr))
 		return
 	}
 
@@ -256,9 +280,7 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 	}
 
 	if len(run.Results) == 0 && lastErr != nil {
-		run.Status = StatusFailed
-		run.Error = fmt.Sprintf("all tests failed: %v", lastErr)
-		send("error", run.Error, 0)
+		fail(fmt.Sprintf("all tests failed: %v", lastErr))
 		return
 	}
 

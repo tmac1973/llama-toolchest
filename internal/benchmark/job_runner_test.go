@@ -33,6 +33,7 @@ type fakeEnv struct {
 	clearedT      []time.Time
 	dirty         bool
 	memReport     *MemorySnapshot
+	serverLog     []string
 	buildSwitches []string
 	buildRestarts int
 
@@ -155,6 +156,13 @@ func (f *fakeEnv) ResolveBuild(id string) BuildSnapshot {
 	return BuildSnapshot{ID: id, Profile: "rocm", GitRef: "b1"}
 }
 func (f *fakeEnv) CurrentMetrics() monitor.Metrics { return monitor.Metrics{} }
+
+// RecentServerLog reports what serverLog holds.
+func (f *fakeEnv) RecentServerLog() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.serverLog...)
+}
 
 // MeasuredMemory reports what memReport holds, so a test can drive both
 // the "the load was measured" and "verbosity was too low" paths.

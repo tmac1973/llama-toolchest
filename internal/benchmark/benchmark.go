@@ -30,6 +30,11 @@ type BenchmarkRun struct {
 	CreatedAt time.Time `json:"created_at"`
 	Status    string    `json:"status"`
 	Error     string    `json:"error,omitempty"`
+	// FailureLog is the error lines llama-server printed while this run
+	// was failing, oldest first. The first is usually the cause and the
+	// rest what followed from it. Kept on the run because the log they
+	// came from is held in memory and emptied on every restart.
+	FailureLog []string `json:"failure_log,omitempty"`
 
 	// What was tested
 	ModelID   string  `json:"model_id"`

@@ -754,6 +754,10 @@ func (e *jobEnv) MeasuredMemory(modelID string) (benchmark.MemorySnapshot, bool)
 	return snap, true
 }
 
+// RecentServerLog is the router's combined log as the Server Logs panel
+// holds it: the router's own lines and those of every model instance.
+func (e *jobEnv) RecentServerLog() []string { return e.s.process.RecentLogs() }
+
 func (e *jobEnv) RouterURL() string {
 	return fmt.Sprintf("http://localhost:%d", e.s.cfg.LlamaPort)
 }
