@@ -136,7 +136,7 @@ func TestMarkRecommendedSkipsIGPU(t *testing.T) {
 func TestExplicitSetAssignEmitsDeviceList(t *testing.T) {
 	ts, sm, mg := ResolveGPUAssign("tensor:1,2", 3)
 	cfg := &ModelConfig{GPUAssign: "tensor:1,2", TensorSplit: ts, SplitMode: sm, MainGPU: mg}
-	flags := cfg.EffectiveFlagsFor(false, "rocm")
+	flags := cfg.EffectiveFlagsFor(false, Target{Backend: "rocm"})
 	if !strings.Contains(flags, "--device ROCm1,ROCm2") {
 		t.Errorf("expected a device list skipping the iGPU, got: %s", flags)
 	}

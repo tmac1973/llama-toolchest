@@ -134,3 +134,45 @@ func TestHistoryReturnsEverythingHeld(t *testing.T) {
 		t.Errorf("changing the returned slice changed the held history: %v", again)
 	}
 }
+
+// A new subscriber gets everything held, newest included, even when the
+// history is longer than the channel's usual capacity. It used to get the
+// oldest values and lose the newest: with 500 lines of router log held
+// and room for 256, the Server Logs panel opened on the first 256.
+func TestSubscribeReplaysTheNewestValues(t *testing.T) {
+	b := New[int](500, 256)
+	for i := 1; i <= 500; i++ {
+		b.Broadcast(i)
+	}
+	ch := b.Subscribe()
+	defer b.Unsubscribe(ch)
+
+	var got []int
+	for len(ch) > 0 {
+		got = append(got, <-ch)
+	}
+	if len(got) != 500 || got[0] != 1 || got[len(got)-1] != 500 {
+		t.Fatalf("replayed %d values from %v to %v, want all 500 from 1 to 500",
+			len(got), first(got), last(got))
+	}
+
+	// Live values still arrive after the replay, up to the usual capacity.
+	b.Broadcast(501)
+	if v := <-ch; v != 501 {
+		t.Errorf("live value = %d, want 501", v)
+	}
+}
+
+func first(xs []int) any {
+	if len(xs) == 0 {
+		return "nothing"
+	}
+	return xs[0]
+}
+
+func last(xs []int) any {
+	if len(xs) == 0 {
+		return "nothing"
+	}
+	return xs[len(xs)-1]
+}

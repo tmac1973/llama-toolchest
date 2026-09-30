@@ -7,7 +7,7 @@ import (
 
 func renderFA(cfg *ModelConfig) string {
 	m := &Model{ID: "m", Filename: "m.gguf", FilePath: "/models/m.gguf"}
-	return GeneratePresetINI("/models", []*Model{m}, map[string]*ModelConfig{"m": cfg}, "rocm")
+	return GeneratePresetINI("/models", []*Model{m}, map[string]*ModelConfig{"m": cfg}, Target{Backend: "rocm"})
 }
 
 // Writing nothing for "off" left llama.cpp on its own default, which is

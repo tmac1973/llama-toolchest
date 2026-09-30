@@ -17,7 +17,7 @@ func TestPresetEmitsDeviceListForTensorSubset(t *testing.T) {
 		"a": {Enabled: true, ContextSize: 8192, GPULayers: 999, Threads: 8,
 			GPUAssign: "tensor-2", TensorSplit: "1,1,0,0", SplitMode: "tensor"},
 	}
-	ini := GeneratePresetINI("/m", mods, cfgs, "rocm")
+	ini := GeneratePresetINI("/m", mods, cfgs, Target{Backend: "rocm"})
 
 	if !strings.Contains(ini, "device = ROCm0,ROCm1") {
 		t.Errorf("preset missing device list:\n%s", ini)
@@ -43,7 +43,7 @@ func TestPresetDeviceListDropsMainGPU(t *testing.T) {
 		"a": {Enabled: true, ContextSize: 8192, GPULayers: 999, Threads: 8,
 			GPUAssign: "2-3", TensorSplit: "0,0,1,1", SplitMode: "layer", MainGPU: 2},
 	}
-	ini := GeneratePresetINI("/m", mods, cfgs, "cuda")
+	ini := GeneratePresetINI("/m", mods, cfgs, Target{Backend: "cuda"})
 
 	if !strings.Contains(ini, "device = CUDA2,CUDA3") {
 		t.Errorf("preset missing device list:\n%s", ini)
@@ -64,7 +64,7 @@ func TestPresetCustomSplitStaysRaw(t *testing.T) {
 		"a": {Enabled: true, ContextSize: 8192, GPULayers: 999, Threads: 8,
 			GPUAssign: "custom", TensorSplit: "3,1,0,0"},
 	}
-	ini := GeneratePresetINI("/m", mods, cfgs, "rocm")
+	ini := GeneratePresetINI("/m", mods, cfgs, Target{Backend: "rocm"})
 
 	if strings.Contains(ini, "device =") {
 		t.Errorf("custom assignment must not emit a device list:\n%s", ini)
@@ -83,7 +83,7 @@ func TestPresetFallsBackToPaddedSplitWithoutBackend(t *testing.T) {
 		"a": {Enabled: true, ContextSize: 8192, GPULayers: 999, Threads: 8,
 			GPUAssign: "2-3", TensorSplit: "0,0,1,1", SplitMode: "layer", MainGPU: 2},
 	}
-	ini := GeneratePresetINI("/m", mods, cfgs, "")
+	ini := GeneratePresetINI("/m", mods, cfgs, Target{})
 
 	if strings.Contains(ini, "device =") {
 		t.Errorf("no backend, no device list:\n%s", ini)
@@ -102,7 +102,7 @@ func TestPresetFallsBackToPaddedSplitWithoutBackend(t *testing.T) {
 func TestFlagPreviewAgreesOnDeviceList(t *testing.T) {
 	cfg := &ModelConfig{Enabled: true, ContextSize: 8192, GPULayers: 999, Threads: 8,
 		GPUAssign: "tensor-2", TensorSplit: "1,1,0,0", SplitMode: "tensor"}
-	flags := cfg.EffectiveFlagsFor(false, "rocm")
+	flags := cfg.EffectiveFlagsFor(false, Target{Backend: "rocm"})
 
 	for _, want := range []string{"--device ROCm0,ROCm1", "--tensor-split 1,1", "--split-mode tensor", "--fit off"} {
 		if !strings.Contains(flags, want) {
@@ -168,7 +168,7 @@ func TestGPUPlacementFlagsDeviceList(t *testing.T) {
 	}
 	// Cross-check against the llama-server arg builder: every pair the
 	// wrapper emits must appear in EffectiveFlagsFor verbatim.
-	flags := cfg.EffectiveFlagsFor(false, "rocm")
+	flags := cfg.EffectiveFlagsFor(false, Target{Backend: "rocm"})
 	for i := 0; i+1 < len(got); i += 2 {
 		if !strings.Contains(flags, got[i]+" "+got[i+1]) {
 			t.Errorf("wrapper emits %q %q but EffectiveFlagsFor lacks it: %s", got[i], got[i+1], flags)

@@ -28,15 +28,18 @@ func New[T any](histSize, chanCap int) *Broadcaster[T] {
 
 // Subscribe registers a new subscriber channel, replaying retained history
 // into it first.
+//
+// The channel has room for the whole history on top of its usual
+// capacity. Sized to the usual capacity alone, the replay stopped when
+// the channel was full, so a subscriber got the oldest values held and
+// missed the newest — the Server Logs panel opened on lines from minutes
+// earlier and not on what had just happened.
 func (b *Broadcaster[T]) Subscribe() chan T {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	ch := make(chan T, b.chanCap)
+	ch := make(chan T, len(b.history)+b.chanCap)
 	for _, v := range b.history {
-		select {
-		case ch <- v:
-		default:
-		}
+		ch <- v // cannot block: the channel has room for all of it
 	}
 	b.subs[ch] = struct{}{}
 	return ch

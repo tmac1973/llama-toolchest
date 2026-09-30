@@ -106,7 +106,6 @@ func TestSpecDraftResourceFlags(t *testing.T) {
 		"--model-draft /models/qwen-0.5b.gguf",
 		"--spec-draft-n-max 16",
 		"--spec-draft-p-min 0.75",
-		"--ctx-size-draft 4096",
 		"--gpu-layers-draft 99",
 		"--device-draft CUDA1",
 		"--n-cpu-moe-draft 2",
@@ -116,6 +115,38 @@ func TestSpecDraftResourceFlags(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("Draft flags missing %q in: %s", want, got)
 		}
+	}
+}
+
+// llama.cpp removed --ctx-size-draft in b9109; a draft context has had
+// the model's own size since. The router refuses a preset with an option
+// it does not know, for every model in it, so the setting is written only
+// for a build known to be older.
+func TestDraftContextSizeOnlyForBuildsThatHaveIt(t *testing.T) {
+	cfg := &ModelConfig{Enabled: true, GPULayers: 99, ContextSize: 16384, Threads: 8,
+		SpecType: "draft", DraftModelPath: "/models/qwen-0.5b.gguf", DraftCtxSize: 4096}
+	m := &Model{ID: "m", Filename: "m.gguf", FilePath: "/models/m.gguf"}
+	for _, tt := range []struct {
+		name    string
+		version int
+		want    bool
+	}{
+		{"current llama.cpp", 11064, false},
+		{"unknown version", 0, false},
+		{"first build without it", 9109, false},
+		{"last build with it", 9108, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			target := Target{Version: tt.version}
+			flags := cfg.EffectiveFlagsFor(false, target)
+			ini := GeneratePresetINI("/models", []*Model{m}, map[string]*ModelConfig{"m": cfg}, target)
+			if got := strings.Contains(flags, "--ctx-size-draft 4096"); got != tt.want {
+				t.Errorf("--ctx-size-draft in flags = %v, want %v: %s", got, tt.want, flags)
+			}
+			if got := strings.Contains(ini, "ctx-size-draft = 4096"); got != tt.want {
+				t.Errorf("ctx-size-draft in preset = %v, want %v:\n%s", got, tt.want, ini)
+			}
+		})
 	}
 }
 
@@ -129,7 +160,7 @@ func TestSpecMTPPresetINI(t *testing.T) {
 		DraftMax:    6,
 	}
 	var b strings.Builder
-	writeConfigParams(&b, cfg, false, "")
+	writeConfigParams(&b, cfg, false, Target{})
 	out := b.String()
 	for _, want := range []string{"spec-type = draft-mtp", "spec-draft-n-max = 6"} {
 		if !strings.Contains(out, want) {
@@ -193,7 +224,7 @@ func TestSpecCombinedPresetINISingleSpecTypeLine(t *testing.T) {
 		AssistNMax:  64,
 	}
 	var b strings.Builder
-	writeConfigParams(&b, cfg, false, "")
+	writeConfigParams(&b, cfg, false, Target{})
 
 	var specLines []string
 	for _, line := range strings.Split(b.String(), "\n") {
