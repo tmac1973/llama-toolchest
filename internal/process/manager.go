@@ -326,6 +326,13 @@ func (m *Manager) Unsubscribe(ch chan string) {
 	m.logs.Unsubscribe(ch)
 }
 
+// RecentLogs returns the buffered log lines, oldest first. The buffer is
+// emptied every time the router starts, so after a restart it holds only
+// what the new process has printed.
+func (m *Manager) RecentLogs() []string {
+	return m.logs.History()
+}
+
 // ClearLogs discards the buffered log history so it won't be replayed to new subscribers.
 func (m *Manager) ClearLogs() {
 	m.logs.ClearHistory()

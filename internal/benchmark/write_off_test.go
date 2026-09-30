@@ -148,3 +148,82 @@ func TestJobSkipsRemainingCellsOfASettingThatKeepsFailing(t *testing.T) {
 		t.Errorf("job status = %s, want completed", done.Status)
 	}
 }
+
+// Two cells that fail for one reason can quote different lines from the
+// server log — the buffer that did not fit is a different size under a
+// different split mode. That difference must not make them look like
+// two unrelated failures.
+func TestWriteOffComparesErrorsWithoutTheQuotedServerLine(t *testing.T) {
+	w := newWriteOffTracker()
+	const head = "warmup failed after retries: HTTP 500: model failed to load"
+	cell := map[string]string{"ubatch_size": "1024"}
+	w.recordFailure(cell, withServerReason(head, []string{"allocating 5120.00 MiB on device 2: cudaMalloc failed: out of memory"}))
+	w.recordFailure(cell, withServerReason(head, []string{"allocating 3072.00 MiB on device 0: cudaMalloc failed: out of memory"}))
+
+	reason, skip := w.writeOff(cell, true)
+	if !skip {
+		t.Fatal("two failures with the same error and different quoted lines were treated as unrelated")
+	}
+	if !strings.Contains(reason, "out of memory") {
+		t.Errorf("reason = %q, want it to keep what the server reported", reason)
+	}
+}
+
+// Autotune measures a draft model alone and then paired with each n-gram
+// assist. Every pairing is a different swept value, so a draft model that
+// cannot load used to fail twice per pairing — twelve loads and timeouts
+// on the machine this is from — before each was abandoned in turn.
+func TestWriteOffAbandonsADraftFileAcrossItsPairings(t *testing.T) {
+	w := newWriteOffTracker()
+	const loadFailed = "warmup failed after retries: HTTP 500: model failed to load"
+	const file = "draft_model=org--small--Q4"
+
+	spec := func(v string) map[string]string {
+		return map[string]string{"spec_type": v, "ubatch_size": "256"}
+	}
+
+	// What works on this machine: no speculative decoding, an n-gram
+	// assist alone, and MTP from the model's own layers.
+	w.recordSuccess(spec("none"))
+	w.recordSuccess(spec("ngram-mod:assist_n_max=64"))
+	w.recordSuccess(spec("draft-mtp:draft_max=6"))
+
+	// The draft model alone, once per workload.
+	alone := spec("draft:draft_max=16," + file)
+	w.recordFailure(alone, loadFailed)
+	w.recordFailure(alone, loadFailed)
+
+	paired := spec("draft+ngram-mod:assist_n_max=64,draft_max=16," + file)
+	reason, skip := w.writeOff(paired, true)
+	if !skip {
+		t.Fatal("a pairing of a draft file that never loaded was measured again")
+	}
+	if !strings.Contains(reason, "org--small--Q4") || !strings.Contains(reason, loadFailed) {
+		t.Errorf("reason = %q, want it to name the draft file and the error", reason)
+	}
+
+	// Everything that does not load that file is unaffected.
+	for _, v := range []string{
+		"draft-mtp+ngram-mod:assist_n_max=64,draft_max=6",
+		"ngram-simple:assist_size_n=12",
+		"draft+ngram-mod:assist_n_max=64,draft_max=16,draft_model=org--other--Q4",
+	} {
+		if _, skip := w.writeOff(spec(v), true); skip {
+			t.Errorf("%q was written off alongside a draft file it does not load", v)
+		}
+	}
+}
+
+// A draft file that has loaded once is not the reason a later cell
+// failed, whatever it was paired with.
+func TestWriteOffKeepsADraftFileThatHasWorked(t *testing.T) {
+	w := newWriteOffTracker()
+	const file = "draft_model=org--small--Q4"
+	w.recordSuccess(map[string]string{"spec_type": "draft:draft_max=16," + file})
+
+	paired := map[string]string{"spec_type": "draft+ngram-mod:assist_n_max=64,draft_max=16," + file}
+	w.recordFailure(paired, "out of memory")
+	if _, skip := w.writeOff(map[string]string{"spec_type": "draft+ngram-cache:draft_max=16," + file}, true); skip {
+		t.Error("wrote off a draft file that had already been measured successfully")
+	}
+}

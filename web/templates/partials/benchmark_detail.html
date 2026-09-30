@@ -2,6 +2,13 @@
 <div style="padding: 0.5rem 0;">
     {{if eq .Status "failed"}}
     <p style="color:var(--pico-del-color);">Failed: {{.Error}}</p>
+    {{if .FailureLog}}
+    <details style="margin-bottom:0.5rem;">
+        <summary><small title="The error lines llama-server printed while this run was failing, in the order they appeared. The first line is usually the cause, for example a buffer that did not fit on a GPU. The lines after it are usually each later step reporting that it could not continue." style="cursor:help;">What llama-server reported ({{len .FailureLog}} {{if eq (len .FailureLog) 1}}line{{else}}lines{{end}})</small></summary>
+        <pre style="white-space:pre-wrap;font-size:0.8rem;margin:0.25rem 0 0;">{{range .FailureLog}}{{.}}
+{{end}}</pre>
+    </details>
+    {{end}}
     {{end}}
 
     <div class="grid" style="margin-bottom:0.5rem;">

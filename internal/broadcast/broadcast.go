@@ -79,6 +79,15 @@ func (b *Broadcaster[T]) Last() (T, bool) {
 	return b.history[len(b.history)-1], true
 }
 
+// History returns a copy of the retained values, oldest first. Unlike a
+// subscription it is not limited by the subscriber channel's capacity,
+// so it is the way to read everything that is still held.
+func (b *Broadcaster[T]) History() []T {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]T(nil), b.history...)
+}
+
 // ClearHistory discards retained history so it won't replay to new
 // subscribers. Existing subscribers are unaffected.
 func (b *Broadcaster[T]) ClearHistory() {

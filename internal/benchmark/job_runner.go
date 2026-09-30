@@ -152,6 +152,11 @@ type JobEnv interface {
 	// measured: the report appears only at log verbosity 4, and the
 	// model may have been loaded before the reader was watching.
 	MeasuredMemory(modelID string) (MemorySnapshot, bool)
+
+	// RecentServerLog returns the llama-server log lines still held,
+	// oldest first. A failed cell reads it to record what the server
+	// said about the failure.
+	RecentServerLog() []string
 }
 
 // ModelInfo bundles registry data for a single model so the JobRunner
@@ -588,6 +593,7 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 		Sampling:   samplingForCell(job.BaseProfile, cellOv),
 		Reasoning:  modelInfo.Reasoning,
 		Memory:     q.env.MeasuredMemory,
+		ServerLog:  q.env.RecentServerLog,
 	}, nil)
 
 	final, err := q.store.Get(run.ID)
@@ -1226,15 +1232,70 @@ func newWriteOffTracker() *writeOffTracker {
 	}
 }
 
-func writeOffKey(field, value string) string { return field + "=" + value }
+// writeOffSubject is one thing a cell's failure can be blamed on: a swept
+// value, or something several swept values share.
+type writeOffSubject struct {
+	key string
+	// label names it in the reason a skipped cell carries.
+	label string
+}
+
+// draftFileField is the key prefix for a draft file, kept apart from the
+// sweep fields so it can never collide with one.
+const draftFileField = "spec_type draft file"
+
+// writeOffSubjects lists what a cell's sweep values can be blamed for.
+// The draft file comes first, so that when it is at fault the reason
+// names the file rather than one long speculative-decoding value.
+//
+// Every swept value is a subject. A speculative-decoding value that loads
+// a draft file adds a second one: the method and the file, without the
+// n-gram assist or the settings that ride along. Autotune measures a
+// draft model on its own and then paired with each n-gram assist, and
+// each pairing is a different swept value — so a draft model that cannot
+// load used to fail twice per pairing before that pairing was abandoned,
+// a dozen loads and timeouts to learn what the first two had shown. With
+// the file as a subject of its own, the pairings are skipped as soon as
+// the file has failed twice and never worked.
+//
+// A method that loads no file (draft-mtp drafting from the model's own
+// layers) gets no extra subject: there is nothing shared to blame, and
+// its cells differ only in settings, which the swept value already covers.
+func writeOffSubjects(values map[string]string) []writeOffSubject {
+	var out []writeOffSubject
+	if raw, ok := values["spec_type"]; ok {
+		if sv, err := parseSpecValue(raw); err == nil && sv.mode != "" {
+			if file := sv.params[SpecDraftModelKey]; file != "" {
+				out = append(out, writeOffSubject{
+					key:   draftFileField + "=" + sv.mode + " " + file,
+					label: fmt.Sprintf("the %s file %s", sv.mode, file),
+				})
+			}
+		}
+	}
+	fields := make([]string, 0, len(values))
+	for field := range values {
+		fields = append(fields, field)
+	}
+	sort.Strings(fields)
+	for _, field := range fields {
+		out = append(out, writeOffSubject{
+			key:   field + "=" + values[field],
+			label: field + " = " + values[field],
+		})
+	}
+	return out
+}
 
 // recordFailure notes that every value this cell carried failed with err.
 // A value that fails with a different error each time is not written off:
-// the errors have to agree for the value itself to be the cause.
+// the errors have to agree for the value itself to be the cause. They are
+// compared without the line quoted from llama-server's log, which can
+// differ in detail between two cells that fail for one reason.
 func (w *writeOffTracker) recordFailure(values map[string]string, err string) {
-	for field, value := range values {
-		k := writeOffKey(field, value)
-		if prev, seen := w.reason[k]; seen && prev != err {
+	for _, subj := range writeOffSubjects(values) {
+		k := subj.key
+		if prev, seen := w.reason[k]; seen && failureHeadline(prev) != failureHeadline(err) {
 			// A second, different failure. Neither explains the value on
 			// its own, so start the count again rather than write it off
 			// on the strength of two unrelated problems.
@@ -1250,8 +1311,8 @@ func (w *writeOffTracker) recordFailure(values map[string]string, err string) {
 // recordSuccess clears every value the cell carried: a value that has
 // worked once is not the reason anything else failed.
 func (w *writeOffTracker) recordSuccess(values map[string]string) {
-	for field, value := range values {
-		w.succeeded[writeOffKey(field, value)] = true
+	for _, subj := range writeOffSubjects(values) {
+		w.succeeded[subj.key] = true
 	}
 }
 
@@ -1265,13 +1326,13 @@ func (w *writeOffTracker) writeOff(values map[string]string, anyCompleted bool) 
 	if !anyCompleted {
 		return "", false
 	}
-	for field, value := range values {
-		k := writeOffKey(field, value)
+	for _, subj := range writeOffSubjects(values) {
+		k := subj.key
 		if w.succeeded[k] || w.fails[k] < failuresBeforeWriteOff {
 			continue
 		}
-		return fmt.Sprintf("not measured: every setting measured with %s = %s failed the same way, "+
-			"so the rest were not tried. The error was: %s", field, value, w.reason[k]), true
+		return fmt.Sprintf("not measured: every setting measured with %s failed the same way, "+
+			"so the rest were not tried. The error was: %s", subj.label, w.reason[k]), true
 	}
 	return "", false
 }

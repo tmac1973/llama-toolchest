@@ -95,6 +95,7 @@ func (e *fakeEnv) RunEval(context.Context, evaluate.Spec) (evaluate.Result, erro
 func (e *fakeEnv) MeasuredMemory(string) (benchmark.MemorySnapshot, bool) {
 	return benchmark.MemorySnapshot{}, false
 }
+func (e *fakeEnv) RecentServerLog() []string { return nil }
 
 // speeds is the machine this fake models: a prompt batch of 1024 reads
 // prompts fastest, MTP writes faster than nothing, and an n-gram assist
