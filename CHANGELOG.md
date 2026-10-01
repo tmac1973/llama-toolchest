@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.31.1](https://github.com/tmac1973/llama-toolchest/compare/v2.31.0...v2.31.1) (2026-10-01)
+
+
+### Bug Fixes
+
+* Autotune and Autoconfigure reject settings that leave a GPU nearly full ([#205](https://github.com/tmac1973/llama-toolchest/issues/205)) ([48bde16](https://github.com/tmac1973/llama-toolchest/commit/48bde161d15d2982ae4afd32882625bda606391c))
+
 ## [2.31.0](https://github.com/tmac1973/llama-toolchest/compare/v2.30.5...v2.31.0) (2026-10-01)
 
 
