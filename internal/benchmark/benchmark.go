@@ -866,13 +866,50 @@ func (s *Store) SaveJob(job BenchmarkJob) {
 // them to the AdhocJobID. Deleting AdhocJobID itself is rejected — it's
 // the migration target and the home of the existing single-run path.
 func (s *Store) DeleteJob(id string, disposition DeleteDisposition) error {
-	if id == AdhocJobID {
-		return fmt.Errorf("cannot delete the synthetic %q job", AdhocJobID)
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writableLocked(); err != nil {
 		return err
+	}
+	if err := s.deleteJobLocked(id, disposition); err != nil {
+		return err
+	}
+	s.persist()
+	return nil
+}
+
+// DeleteJobs removes several jobs with one write of benchmarks.json,
+// rather than one write per job. It returns the IDs it deleted; an ID
+// that cannot be deleted (the Ad-Hoc job, or one that no longer exists)
+// is reported in skipped with the reason, and does not stop the rest.
+func (s *Store) DeleteJobs(ids []string, disposition DeleteDisposition) (deleted []string, skipped map[string]string, err error) {
+	if disposition != DeleteCascade && disposition != DeleteOrphan {
+		return nil, nil, fmt.Errorf("unknown disposition: %q (want %q or %q)", disposition, DeleteCascade, DeleteOrphan)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.writableLocked(); err != nil {
+		return nil, nil, err
+	}
+	skipped = map[string]string{}
+	for _, id := range ids {
+		if err := s.deleteJobLocked(id, disposition); err != nil {
+			skipped[id] = err.Error()
+			continue
+		}
+		deleted = append(deleted, id)
+	}
+	if len(deleted) > 0 {
+		s.persist()
+	}
+	return deleted, skipped, nil
+}
+
+// deleteJobLocked removes one job and handles its runs, without
+// writing the file. Callers hold s.mu and persist afterwards.
+func (s *Store) deleteJobLocked(id string, disposition DeleteDisposition) error {
+	if id == AdhocJobID {
+		return fmt.Errorf("cannot delete the synthetic %q job", AdhocJobID)
 	}
 	idx := -1
 	for i := range s.jobs {
@@ -906,7 +943,6 @@ func (s *Store) DeleteJob(id string, disposition DeleteDisposition) error {
 		return fmt.Errorf("unknown disposition: %q (want %q or %q)", disposition, DeleteCascade, DeleteOrphan)
 	}
 	s.jobs = append(s.jobs[:idx], s.jobs[idx+1:]...)
-	s.persist()
 	return nil
 }
 
@@ -1135,6 +1171,18 @@ func (s *Store) RunsForJob(jobID string) []BenchmarkRun {
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	return out
+}
+
+// RunCountsByJob returns how many runs each job holds, keyed by job ID,
+// in one pass rather than one RunsForJob copy per job.
+func (s *Store) RunCountsByJob() map[string]int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]int)
+	for _, r := range s.runs {
+		out[r.JobID]++
+	}
 	return out
 }
 

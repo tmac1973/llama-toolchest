@@ -2,9 +2,35 @@
 {{if not .}}
 <p>No benchmark jobs yet. Click <strong>+ New Batch Job</strong> to create one.</p>
 {{else}}
+<div class="job-bulk-bar">
+    <label title="Select every job that can be deleted. The Ad-Hoc Runs list and a running job cannot be deleted.">
+        <input type="checkbox" id="job-select-all" onchange="selectAllJobs(this.checked)"> Select all
+    </label>
+    <button type="button" class="outline secondary"
+            title="Select every job that has stopped: completed, failed or cancelled."
+            onclick="selectFinishedJobs()">Select finished</button>
+    <span id="job-bulk-count" class="job-progress">0 selected</span>
+    <span class="job-bulk-actions">
+        <button type="button" class="outline secondary job-bulk-btn" disabled
+                title="Delete the selected jobs and every benchmark run they hold."
+                onclick="deleteSelectedJobs('cascade')">Delete (with runs)</button>
+        <button type="button" class="outline secondary job-bulk-btn" disabled
+                title="Delete the selected jobs but keep their benchmark runs. The runs move to Ad-Hoc Runs."
+                onclick="deleteSelectedJobs('orphan')">Delete (keep runs)</button>
+    </span>
+</div>
 <div class="job-list">
 {{range $entry := .}}
 {{$j := $entry.Job}}
+<div class="job-item">
+{{if or (eq $j.ID "adhoc") (eq $j.Status "running")}}
+<span class="job-select-gap" title="{{if eq $j.ID "adhoc"}}Ad-Hoc Runs cannot be deleted. Delete its runs from the list inside it.{{else}}This job is running. Cancel it before deleting it.{{end}}"></span>
+{{else}}
+<input type="checkbox" class="job-select" value="{{$j.ID}}"
+       data-name="{{$j.Name}}" data-status="{{$j.Status}}" data-runs="{{$entry.Runs}}"
+       {{if $j.AutotuneID}}data-autotune="1"{{end}}
+       aria-label="Select job {{$j.Name}}" onchange="updateJobSelection()">
+{{end}}
 <details class="job-row" data-job-id="{{$j.ID}}"
          ontoggle="if(this.open && !this.dataset.loaded){this.dataset.loaded='1';htmx.trigger(this.querySelector('.job-detail-slot'),'showJobDetail');}">
     <summary>
@@ -35,6 +61,7 @@
         Loading…
     </div>
 </details>
+</div>
 {{end}}
 </div>
 {{end}}

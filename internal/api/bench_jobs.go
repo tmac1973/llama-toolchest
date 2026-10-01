@@ -34,6 +34,7 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 // HTMX so the matrix view doesn't render on every list refresh.
 func (s *Server) renderJobList(w http.ResponseWriter, jobs []benchmark.BenchmarkJob) {
 	enriched := make([]jobListEntry, 0, len(jobs))
+	runCounts := s.bench.RunCountsByJob()
 	for _, j := range jobs {
 		j := j
 		var done, failed, total int
@@ -52,6 +53,7 @@ func (s *Server) renderJobList(w http.ResponseWriter, jobs []benchmark.Benchmark
 			Failed:    failed,
 			Total:     total,
 			AdhocRuns: 0,
+			Runs:      runCounts[j.ID],
 		})
 	}
 	if len(enriched) > 0 {
@@ -88,6 +90,9 @@ type jobListEntry struct {
 	Failed    int
 	Total     int
 	AdhocRuns int
+	// Runs is how many stored runs belong to the job, for the bulk
+	// delete confirmation ("delete 5 jobs and their 38 runs").
+	Runs int
 }
 
 // klRepoGroup is one repo's models in the job form's KL reference
@@ -1017,6 +1022,89 @@ func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// jobBulkDeleteRequest is the JSON body POST /api/benchmark-jobs/delete
+// accepts. Runs is "cascade" (the default) or "orphan", as for a single
+// delete.
+type jobBulkDeleteRequest struct {
+	IDs  []string `json:"ids"`
+	Runs string   `json:"runs,omitempty"`
+}
+
+// jobBulkDeleteResponse lists what was deleted and, for each job that
+// was not, the reason.
+type jobBulkDeleteResponse struct {
+	Deleted []string          `json:"deleted"`
+	Skipped map[string]string `json:"skipped,omitempty"`
+}
+
+// handleBulkDeleteJobs removes several jobs in one request and one write
+// of benchmarks.json. Jobs that cannot be deleted are skipped, not
+// treated as an error, so one running job does not block clearing the
+// rest of the list:
+//   - the running job (the queue would keep driving it, as for a single
+//     delete);
+//   - a stage of an autotune run that is still going, which looks its
+//     stage jobs up as it moves on.
+func (s *Server) handleBulkDeleteJobs(w http.ResponseWriter, r *http.Request) {
+	var req jobBulkDeleteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(req.IDs) == 0 {
+		http.Error(w, "ids is required", http.StatusBadRequest)
+		return
+	}
+	disposition := benchmark.DeleteCascade
+	switch req.Runs {
+	case "", "cascade":
+	case "orphan":
+		disposition = benchmark.DeleteOrphan
+	default:
+		http.Error(w, "runs must be 'cascade' or 'orphan'", http.StatusBadRequest)
+		return
+	}
+
+	skipped := map[string]string{}
+	runningID := ""
+	if cur, running := s.jobs.Status(); running && cur != nil {
+		runningID = cur.ID
+	}
+	activeTune := ""
+	if s.tuneStore != nil {
+		if rec, ok := s.tuneStore.Active(); ok {
+			activeTune = rec.ID
+		}
+	}
+	var ids []string
+	for _, id := range req.IDs {
+		if id == runningID {
+			skipped[id] = "this job is running — cancel it before deleting"
+			continue
+		}
+		if activeTune != "" {
+			if job, err := s.bench.GetJob(id); err == nil && job.AutotuneID == activeTune {
+				skipped[id] = "this job is a stage of the autotune run that is going now"
+				continue
+			}
+		}
+		ids = append(ids, id)
+	}
+
+	deleted, notDeleted, err := s.bench.DeleteJobs(ids, disposition)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	for id, reason := range notDeleted {
+		skipped[id] = reason
+	}
+	if deleted == nil {
+		deleted = []string{}
+	}
+	respondJSON(w, jobBulkDeleteResponse{Deleted: deleted, Skipped: skipped})
 }
 
 // handleCancelJob signals the queue to cancel the running job.
