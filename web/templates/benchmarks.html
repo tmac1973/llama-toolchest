@@ -264,6 +264,35 @@ function filterBenchmarks(input, q) {
     });
 })();
 
+// --- Keep the job list current while the page is only being watched.
+//     Every few seconds, ask the server for the version of the job list
+//     (a summary of each job's status and counts) and reload the list
+//     when it differs from the one shown. Without this a job finishing,
+//     or one started by autotune or another tab, showed only after a
+//     manual refresh. The reload keeps open rows and the selection (see
+//     above). Nothing is asked while the tab is hidden.
+(function() {
+    var checking = false;
+    setInterval(function() {
+        if (document.hidden || checking) return;
+        var shown = document.getElementById('job-list-version');
+        if (!shown) return; // the list has not loaded yet
+        checking = true;
+        fetch('/api/benchmark-jobs/version', {cache: 'no-store'})
+            .then(function(r) { return r.ok ? r.text() : null; })
+            .then(function(v) {
+                if (v && v !== shown.getAttribute('data-version')) {
+                    // Marked now, so the next check does not ask for a
+                    // second reload while this one is on its way.
+                    shown.setAttribute('data-version', v);
+                    document.body.dispatchEvent(new CustomEvent('jobChanged'));
+                }
+            })
+            .catch(function() {})
+            .then(function() { checking = false; });
+    }, 3000);
+})();
+
 // --- About Benchmarks modal: lazy-loads its content on first open so
 //     the preset table + sample commands stay in sync with whatever the
 //     server is currently configured to do.

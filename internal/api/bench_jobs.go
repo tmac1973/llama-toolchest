@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"net/http"
 	"sort"
 	"strconv"
@@ -33,6 +34,37 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 // shows status + cell-progress; expanding fetches the detail partial via
 // HTMX so the matrix view doesn't render on every list refresh.
 func (s *Server) renderJobList(w http.ResponseWriter, jobs []benchmark.BenchmarkJob) {
+	entries := s.jobListEntries(jobs)
+	s.renderPartial(w, "job_list", struct {
+		Entries []jobListEntry
+		Version string
+	}{Entries: entries, Version: jobListVersion(entries)})
+}
+
+// handleJobListVersion returns the job list's version: a short summary
+// of what the list shows. The page compares it with the version of the
+// list it is showing, and reloads the list when they differ — that is
+// how a job finishing, or starting from somewhere else (autotune,
+// another tab), reaches a page that is only being watched.
+func (s *Server) handleJobListVersion(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	fmt.Fprint(w, jobListVersion(s.jobListEntries(s.bench.ListJobs())))
+}
+
+// jobListVersion summarises everything a collapsed job row shows that
+// can change on its own: which jobs exist, their status and their cell
+// and run counts.
+func jobListVersion(entries []jobListEntry) string {
+	h := fnv.New64a()
+	for _, e := range entries {
+		fmt.Fprintf(h, "%s|%s|%d|%d|%d|%d|%d\n", e.Job.ID, e.Job.Status, e.Done, e.Failed, e.Total, e.AdhocRuns, e.Runs)
+	}
+	return strconv.FormatUint(h.Sum64(), 36)
+}
+
+// jobListEntries adds to each job what its row shows.
+func (s *Server) jobListEntries(jobs []benchmark.BenchmarkJob) []jobListEntry {
 	enriched := make([]jobListEntry, 0, len(jobs))
 	runCounts := s.bench.RunCountsByJob()
 	for _, j := range jobs {
@@ -81,7 +113,7 @@ func (s *Server) renderJobList(w http.ResponseWriter, jobs []benchmark.Benchmark
 			}
 		}
 	}
-	s.renderPartial(w, "job_list", enriched)
+	return enriched
 }
 
 type jobListEntry struct {
