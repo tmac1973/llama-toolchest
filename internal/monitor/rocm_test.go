@@ -189,3 +189,39 @@ Agent 3
 		t.Errorf("parseROCmGPUArchs = %v; want %v", got, want)
 	}
 }
+
+// The values an R9700 reports at idle: pwm1 51 of 255, 1083 RPM.
+func TestReadFanHwmon(t *testing.T) {
+	write := func(dir string, files map[string]string) {
+		for name, v := range files {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(v+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	dir := t.TempDir()
+	write(dir, map[string]string{"pwm1": "51", "pwm1_max": "255", "fan1_input": "1083"})
+	if pct, rpm, ok := readFanHwmon(dir); !ok || pct != 20 || rpm != 1083 {
+		t.Errorf("got %d%% %d RPM ok=%v, want 20%% 1083 RPM", pct, rpm, ok)
+	}
+
+	// No pwm1_max: the scale is 0-255.
+	dir = t.TempDir()
+	write(dir, map[string]string{"pwm1": "255"})
+	if pct, rpm, ok := readFanHwmon(dir); !ok || pct != 100 || rpm != 0 {
+		t.Errorf("got %d%% %d RPM ok=%v, want 100%% and no RPM", pct, rpm, ok)
+	}
+
+	// Fans stopped while the card is cool: still a fan.
+	dir = t.TempDir()
+	write(dir, map[string]string{"pwm1": "0", "fan1_input": "0"})
+	if pct, rpm, ok := readFanHwmon(dir); !ok || pct != 0 || rpm != 0 {
+		t.Errorf("got %d%% %d RPM ok=%v, want a stopped fan", pct, rpm, ok)
+	}
+
+	// A card without a fan.
+	if _, _, ok := readFanHwmon(t.TempDir()); ok {
+		t.Error("a hwmon directory without fan files reported a fan")
+	}
+}

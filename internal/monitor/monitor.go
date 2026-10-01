@@ -17,13 +17,20 @@ type Metrics struct {
 type GPUInfo struct {
 	Index       int     `json:"index"`
 	Name        string  `json:"name"`
-	UtilPercent int     `json:"util_percent"`     // 0-100
+	UtilPercent int     `json:"util_percent"` // 0-100
 	VRAMUsedMB  int     `json:"vram_used_mb"`
 	VRAMTotalMB int     `json:"vram_total_mb"`
 	TempC       int     `json:"temp_c"`
 	PowerW      float64 `json:"power_w,omitempty"`
-	Arch        string  `json:"arch,omitempty"`    // gfx target (ROCm only)
-	IsIGPU      bool    `json:"is_igpu,omitempty"` // integrated GPU (APU)
+	// HasFan says the card reports a fan. FanPercent is its duty, 0-100,
+	// and FanRPM its speed, 0 when not reported (NVIDIA reports no RPM).
+	// Both are 0 on a card whose fans stop when it is cool; without
+	// HasFan that would look the same as a card with no fan.
+	HasFan     bool   `json:"has_fan,omitempty"`
+	FanPercent int    `json:"fan_percent,omitempty"`
+	FanRPM     int    `json:"fan_rpm,omitempty"`
+	Arch       string `json:"arch,omitempty"`    // gfx target (ROCm only)
+	IsIGPU     bool   `json:"is_igpu,omitempty"` // integrated GPU (APU)
 }
 
 // CPUInfo holds CPU usage metrics.

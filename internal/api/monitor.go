@@ -75,6 +75,20 @@ func monitorBarData(m monitor.Metrics) struct {
 		if gpu.PowerW > 0 {
 			details += fmt.Sprintf(" · %.0fW", gpu.PowerW)
 		}
+		// Each value is joined to its unit with a non-breaking space, so
+		// the narrow sidebar wraps the line between values, never inside
+		// one ("1603" on one line and "RPM" on the next).
+		switch {
+		case !gpu.HasFan:
+		case gpu.FanPercent == 0 && gpu.FanRPM == 0:
+			// Many cards stop their fans while they are cool.
+			details += " · Fan\u00a0stopped"
+		default:
+			details += fmt.Sprintf(" · Fan\u00a0%d%%", gpu.FanPercent)
+			if gpu.FanRPM > 0 {
+				details += fmt.Sprintf(" · %d\u00a0RPM", gpu.FanRPM)
+			}
+		}
 		gpus[i] = monitorBarGPU{
 			Index:       gpu.Index,
 			Name:        gpu.Name,
