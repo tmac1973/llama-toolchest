@@ -32,6 +32,10 @@ type fakeEnv struct {
 	// going when it does something has time to do it.
 	delay   time.Duration
 	cleared int
+	// tightWhen makes a setting leave the GPU nearly full: it loads and
+	// runs, but the monitor then reports less than benchmark.MinCardFreeMiB
+	// free on the card.
+	tightWhen func(benchmark.ConfigSnapshot) bool
 }
 
 func (e *fakeEnv) CheckBuildRunnable(context.Context, string) error { return nil }
@@ -68,10 +72,18 @@ func (e *fakeEnv) ClearEphemeralConfig(context.Context) error {
 func (e *fakeEnv) ResolveBuild(id string) benchmark.BuildSnapshot {
 	return benchmark.BuildSnapshot{ID: id, Profile: "rocm", GitRef: "b1"}
 }
-func (e *fakeEnv) CurrentMetrics() monitor.Metrics { return monitor.Metrics{} }
-func (e *fakeEnv) RouterURL() string               { return e.url }
-func (e *fakeEnv) HFToken() string                 { return "" }
-func (e *fakeEnv) HFCacheDir() string              { return "" }
+func (e *fakeEnv) CurrentMetrics() monitor.Metrics {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	used := 8000
+	if e.tightWhen != nil && e.tightWhen(e.current) {
+		used = 15900
+	}
+	return monitor.Metrics{GPU: []monitor.GPUInfo{{Index: 0, VRAMUsedMB: used, VRAMTotalMB: 16376}}}
+}
+func (e *fakeEnv) RouterURL() string  { return e.url }
+func (e *fakeEnv) HFToken() string    { return "" }
+func (e *fakeEnv) HFCacheDir() string { return "" }
 
 // Capability cells are never part of an autotune, so these are here only
 // to satisfy the interface.
@@ -368,6 +380,41 @@ func TestRunnerRecordsSettingsThatCannotRun(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("failed settings = %+v", batch.Failed)
+	}
+}
+
+// The fastest prompt batch on this fake machine leaves the GPU nearly
+// full. It runs every test, but normal use would run out of memory, so
+// it must not win, and the review says why.
+func TestRunnerRejectsSettingsThatLeaveAGPUNearlyFull(t *testing.T) {
+	f := newFixture(t, 1)
+	f.env.tightWhen = func(cfg benchmark.ConfigSnapshot) bool { return cfg.UBatchSize == 1024 }
+
+	rec, err := f.runner.Start(tuneModelID, "Autoconfig", UseCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec = f.waitForRun(t, rec.ID)
+	if rec.Status != StatusDone {
+		t.Fatalf("status = %s (%s)", rec.Status, rec.Error)
+	}
+	for g, o := range rec.Results {
+		if o.Winner.Config.UBatchSize == 1024 {
+			t.Errorf("%s winner = %+v, which leaves the GPU nearly full", g, o.Winner.Values)
+		}
+	}
+	batch, _ := rec.Stage(StageBatch)
+	found := false
+	for _, fc := range batch.Failed {
+		if strings.Contains(fc.Label, "1024") {
+			found = true
+			if !strings.Contains(fc.Error, "MiB free on GPU 0") {
+				t.Errorf("reason = %q, want it to say how much was left on which GPU", fc.Error)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("the setting that left the GPU nearly full is not listed; failed = %+v", batch.Failed)
 	}
 }
 

@@ -211,3 +211,32 @@ func TestCapabilityRowHasOneCellPerColumn(t *testing.T) {
 		t.Errorf("the capability row still spans columns\n%s", buf.String())
 	}
 }
+
+// The run detail names the fullest GPU, and marks one with too little
+// left for normal use.
+func TestRunDetailShowsTheLeastFreeCard(t *testing.T) {
+	r := measuredRun("r1")
+	r.Cards = []benchmark.CardMemory{
+		{Index: 0, UsedMiB: 15879, TotalMiB: 16376},
+		{Index: 1, UsedMiB: 14649, TotalMiB: 16376},
+	}
+	render := func(run benchmark.BenchmarkRun) string {
+		var buf bytes.Buffer
+		if err := benchTemplates(t).ExecuteTemplate(&buf, "benchmark_detail", &run); err != nil {
+			t.Fatalf("execute: %v", err)
+		}
+		return buf.String()
+	}
+	out := render(r)
+	if !strings.Contains(out, "Least free: GPU 0, 497 MiB of 16376 MiB") || !strings.Contains(out, "too little for normal use") {
+		t.Errorf("run detail does not flag GPU 0\n%s", out)
+	}
+	r.Cards[0].UsedMiB = 14000
+	if out := render(r); strings.Contains(out, "too little for normal use") {
+		t.Error("a card with room is flagged")
+	}
+	r.Cards = nil
+	if out := render(r); strings.Contains(out, "Least free") {
+		t.Error("a run without card readings shows a Least free line")
+	}
+}

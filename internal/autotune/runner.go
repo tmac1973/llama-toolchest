@@ -447,6 +447,15 @@ func (r *Runner) readStage(rec *Autotune, job *benchmark.BenchmarkJob) ([]Candid
 			}
 			continue
 		}
+		// Settings that pass the test runs with a card nearly full can
+		// still run out of memory in normal use, which stops the model.
+		// They are not a winner however fast they were.
+		if msg := run.MemoryShortfall(); msg != "" {
+			if _, have := failures[key]; !have {
+				failures[key] = msg
+			}
+			continue
+		}
 		runsByKey[key][run.Preset] = &run
 	}
 

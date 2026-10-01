@@ -14,6 +14,7 @@ import (
 
 	"github.com/tmac1973/llama-toolchest/internal/atomicfile"
 	"github.com/tmac1973/llama-toolchest/internal/evaluate"
+	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/monitor"
 )
 
@@ -121,11 +122,104 @@ type BenchmarkRun struct {
 	// before it existed.
 	StartingPoint string `json:"starting_point,omitempty"`
 
+	// Cards is the memory of each GPU the model was loaded on, read when
+	// the run finished and the model was still loaded. llama.cpp keeps
+	// the working memory it grew during the run, so this is close to the
+	// most the run used. Empty when the GPUs could not be read, and on
+	// runs recorded before it existed.
+	Cards []CardMemory `json:"cards,omitempty"`
+
 	// ConfigUnverified marks a run whose recorded Config may not reflect
 	// what llama-server actually ran. Set by the v2→v3 migration on runs
 	// from jobs that declared overrides back when overrides were never
 	// applied. Never set on runs produced after that fix.
 	ConfigUnverified bool `json:"config_unverified,omitempty"`
+}
+
+// CardMemory is one GPU's memory as the monitor read it.
+type CardMemory struct {
+	Index    int `json:"index"`
+	UsedMiB  int `json:"used_mib"`
+	TotalMiB int `json:"total_mib"`
+}
+
+// FreeMiB is what was left on the card.
+func (c CardMemory) FreeMiB() int { return c.TotalMiB - c.UsedMiB }
+
+// MinCardFreeMiB is how much memory settings must leave free on every GPU
+// they use. A test run uses less than normal use: real chats process a
+// prompt in parts, and llama.cpp asks for more working memory on the
+// first card as they do. Settings that passed every test run with about
+// 500 MiB left on one card crashed with out of memory on the first real
+// chat; with 1.3 GiB left they ran.
+const MinCardFreeMiB = 1024
+
+// TightestCard is the card with the least memory left, and false when
+// the run recorded no cards.
+func (r BenchmarkRun) TightestCard() (CardMemory, bool) {
+	if len(r.Cards) == 0 {
+		return CardMemory{}, false
+	}
+	low := r.Cards[0]
+	for _, c := range r.Cards[1:] {
+		if c.FreeMiB() < low.FreeMiB() {
+			low = c
+		}
+	}
+	return low, true
+}
+
+// LeastFreeCard is TightestCard for templates: nil when the run recorded
+// no cards.
+func (r BenchmarkRun) LeastFreeCard() *CardMemory {
+	if c, ok := r.TightestCard(); ok {
+		return &c
+	}
+	return nil
+}
+
+// TooFull reports whether the card has less than MinCardFreeMiB left.
+func (c CardMemory) TooFull() bool { return c.FreeMiB() < MinCardFreeMiB }
+
+// MemoryShortfall explains, in plain language, why the run's settings
+// leave too little memory free for normal use, or returns "" when they
+// leave enough (or the cards were not read).
+func (r BenchmarkRun) MemoryShortfall() string {
+	c, ok := r.TightestCard()
+	if !ok || c.FreeMiB() >= MinCardFreeMiB {
+		return ""
+	}
+	return fmt.Sprintf("it left only %d MiB free on GPU %d, and normal use needs at least %d MiB free on every GPU: real chats need more working memory than the test runs, so these settings can run out of memory and stop the model",
+		max(c.FreeMiB(), 0), c.Index, MinCardFreeMiB)
+}
+
+// CardsInUse reads the memory of the GPUs a config puts the model on. A
+// config that keeps every layer on the CPU uses none; an integrated GPU
+// shares system memory and is left out, as is a card the monitor could
+// not size.
+func CardsInUse(m monitor.Metrics, cfg ConfigSnapshot) []CardMemory {
+	if cfg.GPULayers == 0 {
+		return nil
+	}
+	var discrete []monitor.GPUInfo
+	for _, g := range m.GPU {
+		if !g.IsIGPU && g.VRAMTotalMB > 0 {
+			discrete = append(discrete, g)
+		}
+	}
+	mc := models.ModelConfig{GPUAssign: cfg.GPUAssign, TensorSplit: cfg.TensorSplit}
+	want := map[int]bool{}
+	for _, i := range models.DeviceIndicesForConfig(&mc, len(discrete)) {
+		want[i] = true
+	}
+	var out []CardMemory
+	for _, g := range discrete {
+		if len(want) > 0 && !want[g.Index] {
+			continue
+		}
+		out = append(out, CardMemory{Index: g.Index, UsedMiB: g.VRAMUsedMB, TotalMiB: g.VRAMTotalMB})
+	}
+	return out
 }
 
 // MemorySnapshot is one load's memory footprint, in GiB, as llama.cpp

@@ -14,11 +14,34 @@ func checkJob(status, errText, runID string) *benchmark.BenchmarkJob {
 	return &benchmark.BenchmarkJob{Cells: []benchmark.JobCell{{Status: status, Error: errText, BenchmarkRunID: runID}}}
 }
 
-// A completed test load is a pass, whatever else is on the record.
+// A completed test load is a pass when there is no record of the cards
+// running short.
 func TestCheckFromJobPasses(t *testing.T) {
 	chk := checkFromJob(checkJob(benchmark.CellStatusCompleted, "", "r1"), nil)
 	if !chk.OK {
 		t.Errorf("check = %+v, want OK", chk)
+	}
+}
+
+// A test load that answered but left a card nearly full is treated as
+// running out of memory on that card, so Autoconfigure adjusts it.
+func TestCheckFromJobFlagsACardLeftNearlyFull(t *testing.T) {
+	run := &benchmark.BenchmarkRun{Cards: []benchmark.CardMemory{
+		{Index: 0, UsedMiB: 15879, TotalMiB: 16376},
+		{Index: 1, UsedMiB: 14649, TotalMiB: 16376},
+	}}
+	get := func(string) (*benchmark.BenchmarkRun, error) { return run, nil }
+	chk := checkFromJob(checkJob(benchmark.CellStatusCompleted, "", "r1"), get)
+	if chk.OK || !chk.OutOfMemory || !chk.LowMemory || chk.Device != 0 {
+		t.Errorf("check = %+v, want low memory on GPU 0", chk)
+	}
+	if !strings.Contains(chk.Reason, "497 MiB free on GPU 0") {
+		t.Errorf("reason = %q, want it to say how much was left on which GPU", chk.Reason)
+	}
+
+	run.Cards[0].UsedMiB = 14000
+	if chk := checkFromJob(checkJob(benchmark.CellStatusCompleted, "", "r1"), get); !chk.OK {
+		t.Errorf("check = %+v, want OK with room on every card", chk)
 	}
 }
 

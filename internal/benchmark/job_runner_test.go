@@ -70,6 +70,9 @@ type fakeEnv struct {
 
 	// dataDir hosts the KL logits cache (EnsureKLBase) and dataset files.
 	dataDir string
+
+	// metrics is what the GPU monitor reports.
+	metrics monitor.Metrics
 }
 
 func (f *fakeEnv) CheckBuildRunnable(context.Context, string) error { return nil }
@@ -155,7 +158,7 @@ func (f *fakeEnv) ClearEphemeralConfig(ctx context.Context) error {
 func (f *fakeEnv) ResolveBuild(id string) BuildSnapshot {
 	return BuildSnapshot{ID: id, Profile: "rocm", GitRef: "b1"}
 }
-func (f *fakeEnv) CurrentMetrics() monitor.Metrics { return monitor.Metrics{} }
+func (f *fakeEnv) CurrentMetrics() monitor.Metrics { return f.metrics }
 
 // RecentServerLog reports what serverLog holds.
 func (f *fakeEnv) RecentServerLog() []string {

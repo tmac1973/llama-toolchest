@@ -56,6 +56,11 @@
                 Not measured — llama.cpp reports what it allocated only at Model loading detail 4, on the <a href="/settings">Settings</a> page.
                 {{end}}
             </small>
+            {{with .LeastFreeCard}}
+            <br><small title="The memory left on the fullest GPU the model was loaded on, read when the run finished. Normal use needs more working memory than a test run, so settings should leave at least {{minCardFreeMiB}} MiB free on every GPU. Less than that can run out of memory and stop the model." style="cursor:help;">
+                Least free: GPU {{.Index}}, {{.FreeMiB}} MiB of {{.TotalMiB}} MiB{{if .TooFull}} <mark>&#9888; too little for normal use</mark>{{end}}
+            </small>
+            {{end}}
         </div>
     </div>
 

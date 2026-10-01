@@ -614,6 +614,12 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 		}
 		return fmt.Errorf("run ended with status %s", final.Status)
 	}
+	// The model is still loaded: what is left on each card now is what
+	// these settings leave for normal use.
+	if cards := CardsInUse(q.env.CurrentMetrics(), final.Config); len(cards) > 0 {
+		final.Cards = cards
+		q.store.Save(*final)
+	}
 	return nil
 }
 

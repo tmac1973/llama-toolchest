@@ -38,6 +38,19 @@ type Check struct {
 	// Device is the GPU that ran out, as llama.cpp numbers them, or -1
 	// when the failure did not name one.
 	Device int
+	// LowMemory says the model loaded and answered, but left so little
+	// memory free on Device that normal use would run out. OutOfMemory
+	// is set with it, so it is adjusted the same way.
+	LowMemory bool
+}
+
+// problem says what went wrong with the memory, for the notes and the
+// progress line.
+func (c Check) problem() string {
+	if c.LowMemory {
+		return "left too little GPU memory free for normal use"
+	}
+	return "ran out of memory"
 }
 
 // VerifyFunc loads cfg for the model and sends it one request. An error
@@ -102,12 +115,13 @@ func verifyProposal(ctx context.Context, d Deps, m *models.Model, proposed model
 	var notes []models.ProfileNote
 	v := Verification{}
 	splitMoves := 0
+	var last Check
 
 	for v.Attempts < maxChecks {
 		if v.Attempts == 0 {
 			progress("Loading the proposed settings to check that they run")
 		} else {
-			progress(fmt.Sprintf("Those settings ran out of memory. Trying again with an adjustment (test load %d)", v.Attempts+1))
+			progress(fmt.Sprintf("Those settings %s. Trying again with an adjustment (test load %d)", last.problem(), v.Attempts+1))
 		}
 		chk, err := d.Verify(ctx, m.ID, cfg)
 		if err != nil {
@@ -115,6 +129,7 @@ func verifyProposal(ctx context.Context, d Deps, m *models.Model, proposed model
 			return proposed, nil, v
 		}
 		v.Attempts++
+		last = chk
 		if chk.OK {
 			v.Status, v.Adjusted = VerifyPassed, len(notes)
 			return cfg, notes, v
@@ -166,8 +181,8 @@ func stepDown(cfg models.ModelConfig, chk Check, numGPUs int, splitMoves *int) (
 			return next, models.ProfileNote{
 				Field:  "gpu_assign",
 				Origin: originTestLoad,
-				Reason: fmt.Sprintf("A test load ran out of memory on GPU %d while other GPUs had room. Fewer layers are placed on GPU %d (split %s) so that the model fits. This does not change the context size or the speed.",
-					device, device, next.TensorSplit),
+				Reason: fmt.Sprintf("A test load %s on GPU %d while other GPUs had room. Fewer layers are placed on GPU %d (split %s) so that the model fits. This does not change the context size or the speed.",
+					chk.problem(), device, device, next.TensorSplit),
 			}, true
 		}
 	}
@@ -180,8 +195,8 @@ func stepDown(cfg models.ModelConfig, chk Check, numGPUs int, splitMoves *int) (
 		return next, models.ProfileNote{
 			Field:  "ubatch_size",
 			Origin: originTestLoad,
-			Reason: fmt.Sprintf("A test load ran out of memory with a prompt batch of %d. A prompt batch of %d needs less working memory on each GPU. Autotune can measure whether a larger one fits and is faster.",
-				cfg.EffectiveUBatchSize(), checkedUBatch),
+			Reason: fmt.Sprintf("A test load %s with a prompt batch of %d. A prompt batch of %d needs less working memory on each GPU. Autotune can measure whether a larger one fits and is faster.",
+				chk.problem(), cfg.EffectiveUBatchSize(), checkedUBatch),
 		}, true
 	}
 	if half := cfg.ContextSize / 2; half >= minCheckedContext {
@@ -190,7 +205,7 @@ func stepDown(cfg models.ModelConfig, chk Check, numGPUs int, splitMoves *int) (
 		return next, models.ProfileNote{
 			Field:  "context_size",
 			Origin: originTestLoad,
-			Reason: fmt.Sprintf("A test load ran out of memory at a larger context; reduced to %s tokens, the largest that loaded and ran.", groupThousands(half)),
+			Reason: fmt.Sprintf("A test load %s at a larger context; reduced to %s tokens, the largest that loaded and ran.", chk.problem(), groupThousands(half)),
 		}, true
 	}
 	return cfg, models.ProfileNote{}, false
