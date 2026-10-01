@@ -18,6 +18,14 @@
 .job-progress     { font-size:0.8rem; color:var(--pico-muted-color); }
 .job-detail-slot  { padding:0.5rem 0 0; }
 .job-meta, .job-desc { font-size:0.75rem; }
+.job-bulk-bar { display:flex; flex-wrap:wrap; gap:0.6rem; align-items:center; margin-bottom:0.5rem; }
+.job-bulk-bar label { margin:0; font-size:0.85rem; }
+.job-bulk-bar button { margin:0; padding:0.2rem 0.6rem; font-size:0.8rem; width:auto; }
+.job-bulk-actions { display:flex; gap:0.5rem; margin-left:auto; }
+.job-item { display:flex; gap:0.5rem; align-items:flex-start; }
+.job-item > .job-row { flex:1; min-width:0; }
+.job-item > .job-select { margin-top:0.7rem; flex:none; }
+.job-select-gap { display:inline-block; width:1.25rem; flex:none; }
 </style>
 
 {{if .ReadOnlyReason}}
@@ -218,8 +226,11 @@ function filterBenchmarks(input, q) {
 //     only refreshes on jobChanged now — no auto-poll — so this only
 //     fires when the user does something explicit, but still important
 //     so e.g. deleting one job doesn't collapse all the others.
+//     The bulk-delete selection is kept the same way, so a refresh from
+//     another job action does not clear what the user has selected.
 (function() {
     var openSet = new Set();
+    var selectedSet = new Set();
     document.body.addEventListener('htmx:beforeSwap', function(e) {
         var t = e.detail && e.detail.target;
         if (t && t.id === 'job-list') {
@@ -227,11 +238,19 @@ function filterBenchmarks(input, q) {
             t.querySelectorAll('details.job-row[open]').forEach(function(d) {
                 openSet.add(d.dataset.jobId);
             });
+            selectedSet.clear();
+            t.querySelectorAll('.job-select:checked').forEach(function(c) {
+                selectedSet.add(c.value);
+            });
         }
     });
     document.body.addEventListener('htmx:afterSwap', function(e) {
         var t = e.detail && e.detail.target;
         if (t && t.id === 'job-list') {
+            t.querySelectorAll('.job-select').forEach(function(c) {
+                c.checked = selectedSet.has(c.value);
+            });
+            updateJobSelection();
             t.querySelectorAll('details.job-row').forEach(function(d) {
                 if (!openSet.has(d.dataset.jobId)) return;
                 d.open = true;
@@ -777,6 +796,77 @@ function deleteJob(id, disposition) {
         document.body.dispatchEvent(new CustomEvent('jobChanged'));
     });
 }
+// --- Bulk delete of jobs ---
+function jobSelectBoxes() {
+    return Array.from(document.querySelectorAll('#job-list .job-select'));
+}
+function updateJobSelection() {
+    var boxes = jobSelectBoxes();
+    var n = boxes.filter(function(c){ return c.checked; }).length;
+    var count = document.getElementById('job-bulk-count');
+    if (count) count.textContent = n + ' selected';
+    document.querySelectorAll('#job-list .job-bulk-btn').forEach(function(b){ b.disabled = n === 0; });
+    // Ad-Hoc Runs and a running job have no checkbox; with nothing else
+    // in the list there is nothing to select.
+    var bar = document.querySelector('#job-list .job-bulk-bar');
+    if (bar) bar.hidden = boxes.length === 0;
+    var all = document.getElementById('job-select-all');
+    if (all) {
+        all.checked = n > 0 && n === boxes.length;
+        all.indeterminate = n > 0 && n < boxes.length;
+    }
+}
+function selectAllJobs(on) {
+    jobSelectBoxes().forEach(function(c){ c.checked = on; });
+    updateJobSelection();
+}
+function selectFinishedJobs() {
+    var finished = {completed: true, failed: true, canceled: true};
+    jobSelectBoxes().forEach(function(c){ c.checked = !!finished[c.dataset.status]; });
+    updateJobSelection();
+}
+function deleteSelectedJobs(disposition) {
+    var picked = jobSelectBoxes().filter(function(c){ return c.checked; });
+    if (!picked.length) return;
+    var runs = 0, autotune = 0;
+    var names = picked.map(function(c){
+        runs += parseInt(c.dataset.runs, 10) || 0;
+        if (c.dataset.autotune) autotune++;
+        return '  ' + c.dataset.name;
+    });
+    var shown = names.slice(0, 15);
+    if (names.length > shown.length) shown.push('  … and ' + (names.length - shown.length) + ' more');
+    var jobs = picked.length + ' job' + (picked.length === 1 ? '' : 's');
+    var runText = runs + ' run' + (runs === 1 ? '' : 's');
+    var msg = disposition === 'cascade'
+        ? 'Delete ' + jobs + ' and their ' + runText + '?'
+        : 'Delete ' + jobs + '? Their ' + runText + ' will move to Ad-Hoc Runs.';
+    msg += '\n\n' + shown.join('\n');
+    if (autotune) {
+        msg += '\n\n' + autotune + ' of these ' + (autotune === 1 ? 'is a stage' : 'are stages') +
+            ' of an autotune run. If that autotune run is resumed later, it measures the deleted stages again.';
+    }
+    if (!confirm(msg)) return;
+    fetch('/api/benchmark-jobs/delete', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ids: picked.map(function(c){ return c.value; }), runs: disposition})
+    }).then(function(r){
+        if (!r.ok) { return r.text().then(function(t){ alert(t); }); }
+        return r.json().then(function(res){
+            var skipped = Object.keys(res.skipped || {});
+            if (skipped.length) {
+                var byID = {};
+                picked.forEach(function(c){ byID[c.value] = c.dataset.name; });
+                alert((res.deleted || []).length + ' deleted. These were not deleted:\n\n' +
+                    skipped.map(function(id){ return (byID[id] || id) + ': ' + res.skipped[id]; }).join('\n'));
+            }
+        });
+    }).then(function(){
+        document.body.dispatchEvent(new CustomEvent('jobChanged'));
+    });
+}
+
 // The job matrix and the ad-hoc run list are two separate selection
 // surfaces, each with its own checkboxes. Both need every action, or an
 // action reachable from one is invisible from the other — which is
