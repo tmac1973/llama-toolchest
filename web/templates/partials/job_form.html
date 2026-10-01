@@ -45,6 +45,11 @@
 .spec-params .spec-assist-select { margin: 0; width: 11rem; font-size: 0.85rem; padding: 0.1rem 0.4rem; height: auto; }
 .spec-params .spec-assist-params { margin-left: 1rem; border-left: 2px solid var(--pico-muted-border-color); padding-left: 0.5rem; }
 
+/* A model's starting points, indented under its checkbox. */
+.start-list { margin: -0.2rem 0 0.4rem 1.8rem; }
+.start-list label { display: block; margin: 0.1rem 0; font-size: 0.9rem; }
+#job-params-fields:disabled { opacity: 0.5; }
+
 </style>
 
 <form id="new-job-form" data-max-cells="{{.MaxCells}}" onsubmit="event.preventDefault();submitNewJob();">
@@ -59,11 +64,31 @@
 
     <fieldset>
         <legend>Models {{if not .Models}}<small style="color:var(--pico-del-color);">(no enabled models — enable at least one on the Models tab)</small>{{end}}</legend>
-        {{range .Models}}
+        {{range $m := .Models}}
         <label>
             <input type="checkbox" name="model" value="{{.ID}}" onchange="updateMatrixCount()">
             <span>{{.ModelID}} <small style="color:var(--pico-muted-color);">({{.Quant}}, {{printf "%.1f" (divGB .SizeBytes)}} GiB)</small></span>
         </label>
+        {{if .Profiles}}
+        <div class="start-list" data-model="{{.ID}}" hidden>
+            <label title="The settings this model loads today{{if .ActiveProfile}}. They came from the {{.ActiveProfile}} profile{{if .ActiveEdited}} and were changed after it was restored{{end}}{{end}}. Each checked item becomes its own set of cells.">
+                <input type="checkbox" name="start" value="" data-model="{{.ID}}"{{if and .ActiveProfile (not .ActiveEdited)}} data-same-as="{{.ActiveProfile}}"{{end}} checked
+                       onchange="updateMatrixCount()">
+                <span>Current settings{{if .ActiveProfile}} ({{.ActiveProfile}}{{if .ActiveEdited}}, edited{{end}}){{end}}
+                <span class="start-same-warn" hidden style="cursor:help;"
+                      title="The current settings are the same as the {{.ActiveProfile}} profile, which is also checked. The job would measure the same settings twice.">&#9888;</span></span>
+            </label>
+            {{range .Profiles}}
+            <label title="Saved profile, saved {{.SavedAt.Format "Jan 2 2006 15:04"}}{{if .BuildID}} on build {{.BuildID}}{{end}}. The job measures a copy of its settings taken when the job is saved.">
+                <input type="checkbox" name="start" value="{{.Name}}" data-model="{{$m.ID}}" data-build="{{.BuildID}}"
+                       onchange="updateMatrixCount()">
+                <span>{{.Name}} <small style="color:var(--pico-muted-color);">(saved {{.SavedAt.Format "Jan 2"}})</small>
+                <span class="start-build-warn" hidden style="cursor:help;"
+                      title="Saved on build {{.BuildID}}, which is not one of the checked builds. Speculative decoding methods and options depend on the build, so results on another build may differ.">&#9888;</span></span>
+            </label>
+            {{end}}
+        </div>
+        {{end}}
         {{end}}
     </fieldset>
 
@@ -103,8 +128,13 @@
         </label>
     </fieldset>
 
-    <details open>
+    <details open id="job-params">
         <summary>Parameters <small style="color:var(--pico-muted-color);">(pick one value to fix it, several to sweep)</small></summary>
+        <p id="job-params-off" hidden style="margin:0.25rem 0;font-size:0.9em;"
+           title="A saved profile is measured exactly as it was saved, so its results describe the profile itself. Uncheck every saved profile to set or sweep parameters again; the choices below are kept.">
+            Parameters are not available while comparing saved profiles. Each profile runs exactly as saved.
+        </p>
+        <fieldset id="job-params-fields" style="margin:0;padding:0;border:0;">
         <p style="margin:0.25rem 0 0.75rem;color:var(--pico-muted-color);font-size:0.85em;">
             Every parameter defaults to each model's own saved setting. Pick a
             single value to use it for the whole job; pick several and each
@@ -198,6 +228,7 @@
             {{end}}
         </div>
         {{end}}
+        </fieldset>
     </details>
 
     <p id="job-matrix-preview" style="margin:0.5rem 0;color:var(--pico-muted-color);">

@@ -477,6 +477,13 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 	preset := GetPreset(cell.Preset)
 	isCapability := preset.EffectiveSource() == PresetSourceCapability
 
+	// The saved profile this cell measures from, if any. A cell with one
+	// always applies its config, even with no overrides.
+	bp, err := job.cellProfile(*cell)
+	if err != nil {
+		return err
+	}
+
 	// The runnable check applies to every cell; starting the router is
 	// performance-only. The two used to share one build-change guard,
 	// split so a capability cell verifies the build but never calls
@@ -489,14 +496,14 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 		}
 	}
 	if !isCapability && cell.BuildID != *prevBuildID {
-		if err := q.env.EnsureBuildActive(ctx, cell.BuildID, cellOv != nil); err != nil {
+		if err := q.env.EnsureBuildActive(ctx, cell.BuildID, cellOv != nil || bp != nil); err != nil {
 			return fmt.Errorf("activate build %s: %w", cell.BuildID, err)
 		}
 		*prevBuildID = cell.BuildID
 	}
 
 	if isCapability {
-		return q.runCapabilityCell(ctx, job, cell, preset, cellOv)
+		return q.runCapabilityCell(ctx, job, cell, preset, cellOv, bp)
 	}
 
 	modelInfo, err := q.env.ResolveModel(cell.ModelID)
@@ -513,7 +520,7 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 	// since, and must not be what the numbers describe.
 	baseSnap := modelInfo.Config
 	var baseConfig *models.ModelConfig
-	if bp := job.BaseProfile; bp != nil {
+	if bp != nil {
 		baseSnap = SnapshotFromConfig(bp.Config, bp.Name, false)
 		cfgCopy := bp.Config
 		baseConfig = &cfgCopy
@@ -545,7 +552,7 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 	// A job measuring a profile applies it even when a cell overrides
 	// nothing: that cell is the baseline, and the baseline has to be the
 	// profile rather than whatever the live config happens to be.
-	if cellOv != nil || job.BaseProfile != nil {
+	if cellOv != nil || bp != nil {
 		want := appliedConfig{modelID: cell.ModelID, buildID: cell.BuildID, cfg: cfg}
 		if *lastApplied != want {
 			if err := q.env.ApplyEphemeralConfig(ctx, cell.ModelID, cfg, baseConfig); err != nil {
@@ -559,24 +566,25 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 	}
 
 	run := BenchmarkRun{
-		ID:           newRunID(cell.Attempt),
-		JobID:        job.ID,
-		CreatedAt:    time.Now(),
-		Status:       StatusRunning,
-		ModelID:      cell.ModelID,
-		ModelName:    modelInfo.DisplayName,
-		Quant:        modelInfo.Quant,
-		SizeGiB:      modelInfo.SizeGiB,
-		Config:       cfg,
-		BuildID:      buildSnap.ID,
-		BuildRef:     buildSnap.GitRef,
-		BuildProfile: buildSnap.Profile,
-		Build:        buildSnap,
-		GPUs:         GPUSnapshotsFromMetrics(q.env.CurrentMetrics()),
-		Preset:       preset.Name,
-		SweepValues:  cell.SweepValues,
-		PromptTokens: preset.PromptTokens,
-		GenTokens:    preset.GenTokens,
+		ID:            newRunID(cell.Attempt),
+		JobID:         job.ID,
+		CreatedAt:     time.Now(),
+		Status:        StatusRunning,
+		ModelID:       cell.ModelID,
+		ModelName:     modelInfo.DisplayName,
+		Quant:         modelInfo.Quant,
+		SizeGiB:       modelInfo.SizeGiB,
+		Config:        cfg,
+		BuildID:       buildSnap.ID,
+		BuildRef:      buildSnap.GitRef,
+		BuildProfile:  buildSnap.Profile,
+		Build:         buildSnap,
+		GPUs:          GPUSnapshotsFromMetrics(q.env.CurrentMetrics()),
+		Preset:        preset.Name,
+		SweepValues:   cell.SweepValues,
+		StartingPoint: startingPoint(bp),
+		PromptTokens:  preset.PromptTokens,
+		GenTokens:     preset.GenTokens,
 	}
 	q.store.Save(run)
 	cell.BenchmarkRunID = run.ID
@@ -590,7 +598,7 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 		HFRepoID:   modelInfo.HFRepoID,
 		HFToken:    q.env.HFToken(),
 		HFHome:     q.env.HFCacheDir(),
-		Sampling:   samplingForCell(job.BaseProfile, cellOv),
+		Sampling:   samplingForCell(bp, cellOv),
 		Reasoning:  modelInfo.Reasoning,
 		Memory:     q.env.MeasuredMemory,
 		ServerLog:  q.env.RecentServerLog,
@@ -630,7 +638,7 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 //
 // No exit may leave a stored StatusRunning run: the run list renders
 // those as live and retry would orphan them.
-func (q *JobQueue) runCapabilityCell(ctx context.Context, job *BenchmarkJob, cell *JobCell, preset Preset, cellOv *ConfigOverrides) error {
+func (q *JobQueue) runCapabilityCell(ctx context.Context, job *BenchmarkJob, cell *JobCell, preset Preset, cellOv *ConfigOverrides, bp *BaseProfile) error {
 	modelInfo, err := q.env.ResolveModel(cell.ModelID)
 	if err != nil {
 		return fmt.Errorf("resolve model %s: %w", cell.ModelID, err)
@@ -646,25 +654,33 @@ func (q *JobQueue) runCapabilityCell(ctx context.Context, job *BenchmarkJob, cel
 	// the config-fidelity criterion. EvalConfigSnapshot, not
 	// applyOverrides: an evaluation defaults to an f16 KV cache so its
 	// score is comparable, unless the job asked for a specific one.
-	cfg := markProfileEdited(EvalConfigSnapshot(modelInfo.Config, cellOv), modelInfo.Config)
+	//
+	// A cell measuring a saved profile evaluates the profile's settings,
+	// not the model's current ones, for the same reason as runCell.
+	baseSnap := modelInfo.Config
+	if bp != nil {
+		baseSnap = SnapshotFromConfig(bp.Config, bp.Name, false)
+	}
+	cfg := markProfileEdited(EvalConfigSnapshot(baseSnap, cellOv), baseSnap)
 
 	run := BenchmarkRun{
-		ID:           newRunID(cell.Attempt),
-		JobID:        job.ID,
-		CreatedAt:    time.Now(),
-		Status:       StatusRunning,
-		ModelID:      cell.ModelID,
-		ModelName:    modelInfo.DisplayName,
-		Quant:        modelInfo.Quant,
-		SizeGiB:      modelInfo.SizeGiB,
-		Config:       cfg,
-		BuildID:      buildSnap.ID,
-		BuildRef:     buildSnap.GitRef,
-		BuildProfile: buildSnap.Profile,
-		Build:        buildSnap,
-		GPUs:         GPUSnapshotsFromMetrics(q.env.CurrentMetrics()),
-		Preset:       preset.Name,
-		SweepValues:  cell.SweepValues,
+		ID:            newRunID(cell.Attempt),
+		JobID:         job.ID,
+		CreatedAt:     time.Now(),
+		Status:        StatusRunning,
+		ModelID:       cell.ModelID,
+		ModelName:     modelInfo.DisplayName,
+		Quant:         modelInfo.Quant,
+		SizeGiB:       modelInfo.SizeGiB,
+		Config:        cfg,
+		BuildID:       buildSnap.ID,
+		BuildRef:      buildSnap.GitRef,
+		BuildProfile:  buildSnap.Profile,
+		Build:         buildSnap,
+		GPUs:          GPUSnapshotsFromMetrics(q.env.CurrentMetrics()),
+		Preset:        preset.Name,
+		SweepValues:   cell.SweepValues,
+		StartingPoint: startingPoint(bp),
 	}
 	q.store.Save(run)
 	cell.BenchmarkRunID = run.ID
@@ -803,6 +819,15 @@ func (q *JobQueue) runCapabilityCell(ctx context.Context, job *BenchmarkJob, cel
 	run.ProgressDetail = ""
 	q.store.Save(run)
 	return nil
+}
+
+// startingPoint is the BenchmarkRun.StartingPoint of a cell measured
+// from bp (nil for the model's current settings).
+func startingPoint(bp *BaseProfile) string {
+	if bp != nil {
+		return StartingPointProfile
+	}
+	return StartingPointCurrent
 }
 
 // samplingForCell is the sampling a cell's requests carry: the job's
@@ -1081,60 +1106,84 @@ func ExpandCells(modelIDs, buildIDs, presets []string) []JobCell {
 // switch. Emitting them in two runs means a mixed job crosses that line
 // once per model instead of once per sweep combination.
 func ExpandCellsWithSweeps(modelIDs, buildIDs, presets []string, sweeps []SweepAxis) []JobCell {
+	return ExpandCellsWithStarts(modelIDs, nil, buildIDs, presets, sweeps)
+}
+
+// ExpandCellsWithStarts is ExpandCellsWithSweeps with each model measured
+// from one or more starting points: starts maps a model ID to profile
+// names, "" meaning the model's current settings. A model missing from
+// starts (or a nil map) has only its current settings.
+//
+// A model's performance cells are grouped by starting point, so the
+// router reloads once per profile on each build rather than once per
+// cell. Capability cells still come last in the (build, model) group.
+func ExpandCellsWithStarts(modelIDs []string, starts map[string][]string, buildIDs, presets []string, sweeps []SweepAxis) []JobCell {
 	combos := sweepCombinations(sweeps)
 	cells := make([]JobCell, 0, len(buildIDs)*len(modelIDs)*len(combos)*len(presets))
 	for _, b := range buildIDs {
 		for _, m := range modelIDs {
 			// One emitted eval config per capability preset for this
-			// (model, build): the first combo carrying a given
-			// eval-reaching configuration wins, later combos collapse
-			// onto it.
+			// (model, build, starting point): the first combo carrying a
+			// given eval-reaching configuration wins, later combos
+			// collapse onto it.
 			emitted := map[string]bool{}
 			var capabilityCells []JobCell
-			for _, combo := range combos {
-				for _, p := range presets {
-					cell := JobCell{
-						ModelID: m,
-						BuildID: b,
-						Preset:  p,
-						Status:  CellStatusPending,
-					}
-					if GetPreset(p).EffectiveSource() == PresetSourceCapability {
-						key := capabilityComboKey(p, combo)
-						if emitted[key] {
-							continue
+			for _, start := range StartsFor(starts, m) {
+				for _, combo := range combos {
+					for _, p := range presets {
+						cell := JobCell{
+							ModelID: m,
+							BuildID: b,
+							Preset:  p,
+							Profile: start,
+							Status:  CellStatusPending,
 						}
-						emitted[key] = true
-						// Record only the eval-reaching values: the
-						// cell ran at those and only those, and two
-						// cells that differ in the excluded axes would
-						// be byte-identical invocations.
-						for k, v := range combo {
-							if f, ok := LookupSweepField(k); ok && f.AffectsEval {
-								if cell.SweepValues == nil {
-									cell.SweepValues = map[string]string{}
+						if GetPreset(p).EffectiveSource() == PresetSourceCapability {
+							key := start + "\x00" + capabilityComboKey(p, combo)
+							if emitted[key] {
+								continue
+							}
+							emitted[key] = true
+							// Record only the eval-reaching values: the
+							// cell ran at those and only those, and two
+							// cells that differ in the excluded axes would
+							// be byte-identical invocations.
+							for k, v := range combo {
+								if f, ok := LookupSweepField(k); ok && f.AffectsEval {
+									if cell.SweepValues == nil {
+										cell.SweepValues = map[string]string{}
+									}
+									cell.SweepValues[k] = v
 								}
+							}
+							// Held back to the end of this (build, model) group
+							// so the router boundary is crossed once.
+							capabilityCells = append(capabilityCells, cell)
+							continue
+						} else if len(combo) > 0 {
+							// Copy: every cell owns its own map.
+							cell.SweepValues = make(map[string]string, len(combo))
+							for k, v := range combo {
 								cell.SweepValues[k] = v
 							}
 						}
-						// Held back to the end of this (build, model) group
-						// so the router boundary is crossed once.
-						capabilityCells = append(capabilityCells, cell)
-						continue
-					} else if len(combo) > 0 {
-						// Copy: every cell owns its own map.
-						cell.SweepValues = make(map[string]string, len(combo))
-						for k, v := range combo {
-							cell.SweepValues[k] = v
-						}
+						cells = append(cells, cell)
 					}
-					cells = append(cells, cell)
 				}
 			}
 			cells = append(cells, capabilityCells...)
 		}
 	}
 	return cells
+}
+
+// StartsFor returns the starting points a model is measured from: its
+// entry in starts, or only its current settings ("") when it has none.
+func StartsFor(starts map[string][]string, modelID string) []string {
+	if s := starts[modelID]; len(s) > 0 {
+		return s
+	}
+	return []string{""}
 }
 
 // capabilityComboKey renders a combo's eval-reaching point, namespaced by

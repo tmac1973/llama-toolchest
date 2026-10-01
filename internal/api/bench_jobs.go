@@ -97,6 +97,27 @@ type klRepoGroup struct {
 	Models []*models.Model
 }
 
+// jobFormModel is one model in the job form, with the starting points it
+// can be measured from.
+type jobFormModel struct {
+	*models.Model
+	// ActiveProfile names the profile the current settings came from,
+	// and ActiveEdited says whether they were changed since; both feed
+	// the "Current settings" label.
+	ActiveProfile string
+	ActiveEdited  bool
+	Profiles      []jobFormProfile
+}
+
+// jobFormProfile is one saved profile offered as a starting point.
+type jobFormProfile struct {
+	Name    string
+	SavedAt time.Time
+	// BuildID is the build it was saved on, for the warning shown when
+	// none of the checked builds is that build.
+	BuildID string
+}
+
 // buildOpt is one build in the job form's build list.
 type buildOpt struct {
 	ID, Profile, GitRef, Tag string
@@ -120,6 +141,91 @@ type jobCreateRequest struct {
 	// compare against; empty = automatic (the largest installed quant of
 	// each model's own HF repo). Posted by the job form's KL dropdown.
 	KLReference string `json:"kl_reference,omitempty"`
+	// Starts names, per model ID, the starting points to measure: ""
+	// for the model's current settings, or a saved profile's name. A
+	// model left out is measured from its current settings only.
+	Starts map[string][]string `json:"starts,omitempty"`
+}
+
+// errProfilesWithParams is the refusal for a job that chooses saved
+// profiles and also sets or sweeps parameters.
+var errProfilesWithParams = errors.New("comparing saved profiles runs each profile exactly as saved, so parameters cannot be set or swept in the same job — clear the parameters, or uncheck the profiles")
+
+// startCount is how many starting points the job measures, summed over
+// its models: the multiplier the model count used to be.
+func startCount(req jobCreateRequest) int {
+	n := 0
+	for _, id := range req.ModelIDs {
+		n += len(benchmark.StartsFor(req.Starts, id))
+	}
+	return n
+}
+
+// validateStarts checks the starting points without the registry: each
+// belongs to a chosen model, none is listed twice, and saved profiles
+// are not combined with parameters.
+func validateStarts(req jobCreateRequest) error {
+	chosen := make(map[string]bool, len(req.ModelIDs))
+	for _, id := range req.ModelIDs {
+		chosen[id] = true
+	}
+	anyProfile := false
+	for id, names := range req.Starts {
+		if !chosen[id] {
+			return fmt.Errorf("starting points are given for %s, which is not one of the job's models", id)
+		}
+		if len(names) == 0 {
+			return fmt.Errorf("%s has no starting point — choose its current settings or at least one saved profile", id)
+		}
+		seen := map[string]bool{}
+		for _, n := range names {
+			if seen[n] {
+				return fmt.Errorf("%s lists the starting point %q twice", id, n)
+			}
+			seen[n] = true
+			if n != "" {
+				anyProfile = true
+			}
+		}
+	}
+	if anyProfile && (!req.Overrides.IsEmpty() || len(req.Sweeps) > 0) {
+		return errProfilesWithParams
+	}
+	return nil
+}
+
+// copyJobProfiles takes a copy of every saved profile the starting
+// points name, and rewrites each name to the stored spelling so the
+// cells and the copies match. A profile that does not exist is refused
+// here, not when its cells are reached.
+func (s *Server) copyJobProfiles(req *jobCreateRequest) ([]benchmark.JobProfile, error) {
+	var out []benchmark.JobProfile
+	now := time.Now()
+	for _, id := range req.ModelIDs {
+		names := req.Starts[id]
+		for i, name := range names {
+			if name == "" {
+				continue
+			}
+			p, err := s.registry.GetProfile(id, name)
+			if err != nil {
+				if errors.Is(err, models.ErrProfileNotFound) {
+					return nil, fmt.Errorf("%s has no saved profile named %q — it may have been renamed or deleted", id, name)
+				}
+				return nil, err
+			}
+			names[i] = p.Name
+			out = append(out, benchmark.JobProfile{
+				ModelID:  id,
+				Name:     p.Name,
+				Config:   p.Config,
+				SavedAt:  p.SavedAt,
+				CopiedAt: now,
+				BuildID:  p.BuildID,
+			})
+		}
+	}
+	return out, nil
 }
 
 // resolveSweeps normalizes the accepted input shapes into overrides and
@@ -157,6 +263,9 @@ func validateJobRequest(req jobCreateRequest) error {
 	if err := benchmark.ValidateSweeps(req.Sweeps); err != nil {
 		return err
 	}
+	if err := validateStarts(req); err != nil {
+		return err
+	}
 	if err := benchmark.ValidateSamplingSupport(req.Presets, req.Overrides, req.Sweeps); err != nil {
 		return err
 	}
@@ -177,7 +286,7 @@ func validateJobRequest(req jobCreateRequest) error {
 			}
 			mult *= len(sw.Values)
 		}
-		cells += len(req.ModelIDs) * len(req.BuildIDs) * mult
+		cells += startCount(req) * len(req.BuildIDs) * mult
 	}
 	if cells > maxJobCells {
 		return fmt.Errorf("this matrix expands to %d cells, above the %d limit — narrow a sweep or split the job", cells, maxJobCells)
@@ -493,6 +602,11 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	profiles, err := s.copyJobProfiles(&req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	job := benchmark.BenchmarkJob{
 		ID:          newJobID(),
@@ -507,7 +621,9 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		Overrides:   req.Overrides,
 		Sweeps:      req.Sweeps,
 		KLReference: req.KLReference,
-		Cells:       benchmark.ExpandCellsWithSweeps(req.ModelIDs, req.BuildIDs, req.Presets, req.Sweeps),
+		Starts:      req.Starts,
+		Profiles:    profiles,
+		Cells:       benchmark.ExpandCellsWithStarts(req.ModelIDs, req.Starts, req.BuildIDs, req.Presets, req.Sweeps),
 	}
 
 	if err := s.jobs.Submit(job); err != nil {
@@ -558,6 +674,13 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	// A fresh copy of each profile: the cell identity compares it with
+	// the job's previous copy, so only a profile that changed runs again.
+	profiles, err := s.copyJobProfiles(&req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	updated, err := s.bench.UpdateJobDefinition(id, benchmark.JobDefinition{
 		Name:        req.Name,
@@ -568,6 +691,8 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 		Overrides:   req.Overrides,
 		Sweeps:      req.Sweeps,
 		KLReference: req.KLReference,
+		Starts:      req.Starts,
+		Profiles:    profiles,
 	})
 	if err != nil {
 		// "synthetic" is the adhoc-edit refusal; anything else means the
@@ -678,6 +803,10 @@ func (s *Server) renderJobDetail(w http.ResponseWriter, job *benchmark.Benchmark
 		ScoreWarn  string // why the score is not comparable; "" when it is
 		ErrorShort string
 		SkipShort  string
+		// ProfileLbl is the starting point the cell measures, and
+		// ProfileTip says when the job copied that profile.
+		ProfileLbl string
+		ProfileTip string
 	}
 	rows := make([]cellRow, 0, len(job.Cells))
 	var done, failed int
@@ -698,6 +827,7 @@ func (s *Server) renderJobDetail(w http.ResponseWriter, job *benchmark.Benchmark
 			failed++
 		}
 		row := cellRow{Idx: i, Cell: c, ModelName: shortenModelName(c.ModelID), BuildLbl: c.BuildID, TGTPS: "—", PPTPS: "—", Score: "—"}
+		row.ProfileLbl, row.ProfileTip = cellProfileLabel(job, c)
 		// Pull Quant from the registry first so pending cells (no run
 		// yet) still show it; the run's value wins once it exists.
 		if m, err := s.registry.Get(c.ModelID); err == nil {
@@ -756,7 +886,27 @@ func (s *Server) renderJobDetail(w http.ResponseWriter, job *benchmark.Benchmark
 		Total    int
 		HasEval  bool
 		HasSweep bool
-	}{Job: job, Rows: rows, Done: done, Failed: failed, Total: len(job.Cells), HasEval: hasEval, HasSweep: hasSweep})
+		// HasProfiles adds the Profile column: only a job comparing
+		// saved profiles has one worth showing.
+		HasProfiles bool
+	}{Job: job, Rows: rows, Done: done, Failed: failed, Total: len(job.Cells), HasEval: hasEval, HasSweep: hasSweep,
+		HasProfiles: len(job.Profiles) > 0})
+}
+
+// cellProfileLabel names the starting point a cell measures, for the
+// job detail's Profile column, with a tooltip saying when the job copied
+// the profile.
+func cellProfileLabel(job *benchmark.BenchmarkJob, c benchmark.JobCell) (label, tip string) {
+	if c.Profile == "" {
+		return "Current settings", "The settings the model loaded when this cell ran."
+	}
+	for _, p := range job.Profiles {
+		if p.ModelID == c.ModelID && p.Name == c.Profile {
+			return p.Name, fmt.Sprintf("A copy of the saved profile, taken %s. Changes made to the profile after that are not measured.",
+				p.CopiedAt.Format("Jan 2 2006 15:04"))
+		}
+	}
+	return c.Profile, ""
 }
 
 // handleJobForm renders the new-job modal contents (multi-select models,
@@ -799,8 +949,18 @@ func (s *Server) handleJobForm(w http.ResponseWriter, r *http.Request) {
 		klOptions = append(klOptions, *groups[repo])
 	}
 
+	formModels := make([]jobFormModel, 0, len(enabled))
+	for _, m := range enabled {
+		fm := jobFormModel{Model: m}
+		fm.ActiveProfile, fm.ActiveEdited = s.registry.ActiveProfileState(m.ID)
+		for _, p := range s.registry.Profiles(m.ID) {
+			fm.Profiles = append(fm.Profiles, jobFormProfile{Name: p.Name, SavedAt: p.SavedAt, BuildID: p.BuildID})
+		}
+		formModels = append(formModels, fm)
+	}
+
 	s.renderPartial(w, "job_form", struct {
-		Models      []*models.Model
+		Models      []jobFormModel
 		Builds      []buildOpt
 		Presets     []benchmark.Preset
 		GPUOptions  []models.GPUOption
@@ -809,7 +969,7 @@ func (s *Server) handleJobForm(w http.ResponseWriter, r *http.Request) {
 		Running     bool
 		KLReference []klRepoGroup
 	}{
-		Models:      enabled,
+		Models:      formModels,
 		Builds:      builds,
 		Presets:     benchmark.VisiblePresets(),
 		GPUOptions:  models.GPUAssignOptions(numGPUs, igpuFlags(gpuList)),

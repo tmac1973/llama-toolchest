@@ -15,7 +15,7 @@ import (
 // parse or execute error in the partial surfaces in tests instead of
 // turning every form open into a blank modal.
 type jobFormTestData struct {
-	Models      []*models.Model
+	Models      []jobFormModel
 	Builds      []buildOpt
 	Presets     []benchmark.Preset
 	GPUOptions  []models.GPUOption
@@ -44,7 +44,7 @@ func jobFormData(t *testing.T) jobFormTestData {
 	m4 := &models.Model{ID: "m4", ModelID: "u/M-GGUF", Quant: "Q4_K_XL", SizeBytes: 2 << 30}
 	m8 := &models.Model{ID: "m8", ModelID: "u/M-GGUF", Quant: "Q8_0", SizeBytes: 4 << 30}
 	return jobFormTestData{
-		Models:   []*models.Model{m4, m8},
+		Models:   []jobFormModel{{Model: m4}, {Model: m8}},
 		Builds:   []buildOpt{{ID: "b1", Profile: "rocm"}},
 		Presets:  benchmark.Presets(),
 		Params:   paramViews(0, nil),

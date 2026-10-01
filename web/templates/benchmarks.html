@@ -320,6 +320,7 @@ function prefillJobForm(job) {
     setChecked('model', job.model_ids);
     setChecked('build', job.build_ids);
     setChecked('preset', job.presets);
+    prefillStarts(form, job.starts || {});
     // The KL reference dropdown: restore a saved explicit reference, or
     // leave the "automatic" default.
     var klSel = form.elements.kl_reference;
@@ -393,6 +394,102 @@ function prefillJobForm(job) {
 }
 // Overrides with no matching form control, preserved across an edit.
 var unmappedOverrides = {};
+
+// ---- Starting points ----------------------------------------------------
+// A model with saved profiles lists them under its checkbox, next to
+// "Current settings". Each checked item becomes its own set of cells.
+
+// prefillStarts checks the starting points a saved job measures. A job
+// saved before profiles could be compared has none, which means current
+// settings only. A profile deleted since the job was saved is listed,
+// unchecked and disabled, so the edit shows what it will drop.
+function prefillStarts(form, starts) {
+    form.querySelectorAll('.start-list').forEach(function(list){
+        var model = list.getAttribute('data-model');
+        var want = starts[model] || [''];
+        var found = {};
+        list.querySelectorAll('input[name=start]').forEach(function(c){
+            c.checked = want.indexOf(c.value) !== -1;
+            found[c.value] = true;
+        });
+        want.forEach(function(name){
+            if (found[name]) return;
+            var label = document.createElement('label');
+            label.title = 'This profile no longer exists. Saving the job removes its cells; their results move to Ad-Hoc Runs.';
+            label.style.color = 'var(--pico-muted-color)';
+            var box = document.createElement('input');
+            box.type = 'checkbox';
+            box.disabled = true;
+            label.appendChild(box);
+            var text = document.createElement('span');
+            text.textContent = name + ' (deleted — will be removed on save)';
+            label.appendChild(text);
+            list.appendChild(label);
+        });
+    });
+}
+
+// checkedModelStarts maps each checked model that has a starting-point
+// list to the starting points checked in it. Models without saved
+// profiles are left out: they are measured from their current settings.
+function checkedModelStarts(form) {
+    var checked = {};
+    form.querySelectorAll('input[name=model]').forEach(function(m){
+        if (m.checked) checked[m.value] = true;
+    });
+    var out = {};
+    form.querySelectorAll('.start-list').forEach(function(list){
+        var model = list.getAttribute('data-model');
+        if (!checked[model]) return;
+        out[model] = Array.from(list.querySelectorAll('input[name=start]'))
+            .filter(function(c){ return c.checked; })
+            .map(function(c){ return c.value; });
+    });
+    return out;
+}
+
+// profilesChosen is true when any checked model has a saved profile
+// checked. Parameters are then off: each profile runs exactly as saved.
+function profilesChosen(form) {
+    var starts = checkedModelStarts(form);
+    return Object.keys(starts).some(function(m){
+        return starts[m].some(function(v){ return v !== ''; });
+    });
+}
+
+// updateStartLists shows each checked model's starting points, marks a
+// profile saved on a build that is not checked, marks current settings
+// that are the same as a checked profile, and turns the parameter section
+// off while saved profiles are being compared.
+function updateStartLists() {
+    var form = document.getElementById('new-job-form');
+    if (!form) return;
+    var builds = {}, models = {};
+    form.querySelectorAll('input[name=build]').forEach(function(c){ if (c.checked) builds[c.value] = true; });
+    form.querySelectorAll('input[name=model]').forEach(function(c){ if (c.checked) models[c.value] = true; });
+    form.querySelectorAll('.start-list').forEach(function(list){
+        list.hidden = !models[list.getAttribute('data-model')];
+        var checkedNames = {};
+        list.querySelectorAll('input[name=start]').forEach(function(c){
+            if (c.checked) checkedNames[c.value] = true;
+            var warn = c.parentElement.querySelector('.start-build-warn');
+            if (warn) {
+                var build = c.getAttribute('data-build');
+                warn.hidden = !(c.checked && build && Object.keys(builds).length && !builds[build]);
+            }
+        });
+        var current = Array.from(list.querySelectorAll('input[name=start]'))
+            .find(function(c){ return c.value === ''; });
+        var same = current && current.getAttribute('data-same-as');
+        var sameWarn = current && current.parentElement.querySelector('.start-same-warn');
+        if (sameWarn) sameWarn.hidden = !(current.checked && same && checkedNames[same]);
+    });
+    var locked = profilesChosen(form);
+    var fields = document.getElementById('job-params-fields');
+    if (fields) fields.disabled = locked;
+    var note = document.getElementById('job-params-off');
+    if (note) note.hidden = !locked;
+}
 function closeJobForm() {
     document.getElementById('job-form-modal').close();
 }
@@ -636,14 +733,30 @@ function fillUbatchLadder() {
 function updateMatrixCount() {
     var form = document.getElementById('new-job-form');
     if (!form) return;
-    var m = form.querySelectorAll('input[name=model]:checked').length;
+    updateStartLists();
+    var models = form.querySelectorAll('input[name=model]:checked').length;
+    // Each starting point multiplies its own model's cells, so the
+    // starting points take the place of the model count.
+    var starts = checkedModelStarts(form);
+    var m = models;
+    var emptyModel = false;
+    Object.keys(starts).forEach(function(id){
+        m += starts[id].length - 1;
+        if (!starts[id].length) emptyModel = true;
+    });
+    var locked = profilesChosen(form);
     var b = form.querySelectorAll('input[name=build]:checked').length;
     var presetChecks = form.querySelectorAll('input[name=preset]:checked');
     var p = presetChecks.length;
     var preview = document.getElementById('job-matrix-preview');
     var btn = document.getElementById('job-submit-btn');
-    if (!(m && b && p)) {
+    if (!(models && b && p)) {
         preview.textContent = 'Select models, builds, and presets to compute the matrix size.';
+        btn.disabled = true;
+        return;
+    }
+    if (emptyModel) {
+        preview.textContent = 'Check at least one starting point for each checked model: its current settings or a saved profile.';
         btn.disabled = true;
         return;
     }
@@ -657,6 +770,7 @@ function updateMatrixCount() {
     var reloadPoints = 1;
     var desc = '';
     paramRows(form).forEach(function(row){
+        if (locked) return;                       // parameters are off while comparing profiles
         var n = paramValues(row).length;
         if (n < 2) return;                        // one value fixes it, no extra cells
         sweeps.push({
@@ -680,7 +794,8 @@ function updateMatrixCount() {
         cells += m*b*mult;
     });
 
-    var text = m+' models × '+b+' builds × '+p+' presets'+desc+' = '+cells+' cells';
+    var who = m === models ? m+' models' : m+' starting points ('+models+' models)';
+    var text = who+' × '+b+' builds × '+p+' presets'+desc+' = '+cells+' cells';
     if (collapsed) {
         text += ' (capability presets collapsed to their eval-relevant parameters)';
     }
@@ -689,8 +804,14 @@ function updateMatrixCount() {
     // cell count. Matches the runner: one reload per distinct
     // (model, config), amortized across presets. Capability cells run
     // with the router stopped, so they never reload.
-    if (anyPerf && (sweeps.length || form.querySelector('.param-summary[data-active]'))) {
-        var reloads = m*b*reloadPoints;
+    if (anyPerf && (locked || sweeps.length || form.querySelector('.param-summary[data-active]'))) {
+        // A saved profile always loads its own settings; current settings
+        // load only when a parameter is set.
+        var profileStarts = 0;
+        Object.keys(starts).forEach(function(id){
+            profileStarts += starts[id].filter(function(v){ return v !== ''; }).length;
+        });
+        var reloads = locked ? profileStarts*b : m*b*reloadPoints;
         text += ' · ~'+reloads+' llama-server reload'+(reloads===1?'':'s');
     }
     preview.textContent = text;
@@ -730,6 +851,14 @@ function submitNewJob() {
         params: readParams(form),
         overrides: Object.keys(unmappedOverrides).length ? unmappedOverrides : null,
     };
+    // Saved profiles run exactly as saved, so the parameter choices are
+    // kept in the form but not sent.
+    var starts = checkedModelStarts(form);
+    if (Object.keys(starts).length) payload.starts = starts;
+    if (profilesChosen(form)) {
+        payload.params = {};
+        payload.overrides = null;
+    }
     var klSel = form.elements.kl_reference;
     if (klSel && klSel.value) payload.kl_reference = klSel.value;
     var isEdit = !!editingJobID;

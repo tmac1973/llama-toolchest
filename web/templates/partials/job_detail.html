@@ -20,6 +20,11 @@
     {{if $j.AutotuneID}}
     <small title="Autotune measures one stage per job, so its measurements are ordinary benchmark runs you can read here."><strong>Part of an Autotune run</strong> — {{$j.AutotuneStage}} stage. Its results are on the model's card, under Autotune.</small><br>
     {{end}}
+    {{if $j.Profiles}}
+    <small title="The job measures copies of these saved profiles, taken at the time shown. Changing or deleting a profile later does not change what the job measures. Editing the job takes a new copy of any profile that has changed."><strong>Compares saved profiles:</strong>
+        {{range $i, $p := $j.Profiles}}{{if $i}} · {{end}}{{$p.Name}} <span style="color:var(--pico-muted-color);">(copied {{$p.CopiedAt.Format "Jan 2 15:04"}})</span>{{end}}
+    </small><br>
+    {{end}}
     {{if $j.Overrides}}
     <small><strong>Overrides applied:</strong>
         {{with $j.Overrides}}
@@ -42,6 +47,7 @@
                 <th style="width:2rem;"><input type="checkbox" id="cell-check-all-{{$j.ID}}" hx-preserve="true" style="margin:0;"
                     onchange="this.closest('table').querySelectorAll('.cell-check').forEach(function(c){c.checked=this.checked}.bind(this));"></th>
                 <th>Model</th>
+                {{if .HasProfiles}}<th title="The starting point the cell measures: the model's current settings, or a copy of a saved profile.">Profile</th>{{end}}
                 <th>Quant</th>
                 <th>Build</th>
                 <th>Preset</th>
@@ -59,6 +65,7 @@
         <tr id="cell-row-{{$j.ID}}-{{.Idx}}">
             <td>{{if .Cell.BenchmarkRunID}}<input type="checkbox" id="cell-check-{{.Cell.BenchmarkRunID}}" hx-preserve="true" class="cell-check" value="{{.Cell.BenchmarkRunID}}" style="margin:0;">{{end}}</td>
             <td>{{.ModelName}}</td>
+            {{if $.HasProfiles}}<td{{if .ProfileTip}} title="{{.ProfileTip}}"{{end}}><small>{{.ProfileLbl}}</small></td>{{end}}
             <td>{{if .Quant}}<kbd>{{.Quant}}</kbd>{{else}}—{{end}}</td>
             <td><kbd>{{.BuildLbl}}</kbd></td>
             <td><small>{{.Cell.Preset}}</small></td>
@@ -84,7 +91,7 @@
           parent's 2s polling swaps. The id needs to be stable, which
           .Idx (the cell's position in the immutable Cells slice) gives us.
         */}}
-        <tr id="cell-detail-{{$j.ID}}-{{.Idx}}" hx-preserve="true"><td colspan="{{add 11 (tern $.HasEval 1 0)}}" class="bench-detail"></td></tr>
+        <tr id="cell-detail-{{$j.ID}}-{{.Idx}}" hx-preserve="true"><td colspan="{{add (add 11 (tern $.HasEval 1 0)) (tern $.HasProfiles 1 0)}}" class="bench-detail"></td></tr>
         {{end}}
         </tbody>
     </table>
