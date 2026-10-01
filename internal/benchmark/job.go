@@ -145,6 +145,12 @@ type BaseProfile struct {
 	Config models.ModelConfig `json:"config"`
 }
 
+// IsEmpty reports whether the overrides set nothing: nil, or every field
+// nil.
+func (o *ConfigOverrides) IsEmpty() bool {
+	return overrideKey(o) == ""
+}
+
 // ConfigOverrides applies on top of each model's saved ModelConfig for
 // every cell. Pointer fields so nil = "use the model's saved value".
 type ConfigOverrides struct {

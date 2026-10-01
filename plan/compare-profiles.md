@@ -167,8 +167,10 @@ profile changed resets only that profile's cells.
    listed as "Fast chat (deleted — will be removed on save)", unchecked and
    disabled.
 
-**Tests:** `params_test.js` cases for the cell count with starting points, and
-for the parameter section turning off and on.
+**Tests:** the existing `params_test.js` run extracts the new functions. Its
+DOM stub does not model the starting-point lists, so the form was checked in
+headless Chromium instead: list visibility, cell count, parameter lock,
+both warnings, the submitted `starts`, and restoring the choices on edit.
 
 ## Phase 4 — Results
 **Files:** `web/templates/partials/job_detail.html`, `internal/api/bench_jobs.go`
@@ -180,12 +182,14 @@ for the parameter section turning off and on.
    gives the time the copy was taken.
 2. Job header: for a profile job, one line listing the copied profiles and
    when each was copied, so it is clear the job measures the copies.
-3. CSV export: the existing `profile` column already comes from the run. Add
-   a `starting_point` column (`current` or `profile`). Without it, an
-   unedited live config and the same profile look the same.
-4. Compare view: check that the bar labels use the profile name when only the
-   profile differs. The dimension exists; add a test case for two profiles of
-   one model on one build.
+3. Runs record `StartingPoint` (`current` or `profile`), and the CSV export
+   gains a `starting_point` column. Without it, an unedited live config and
+   the same profile look the same. Recorded on the run rather than worked
+   out from the job's cells, so a retried cell's earlier runs keep it too.
+4. Compare view: the profile name now has the same label priority as the
+   model, so profiles that differ in many settings are still labelled by
+   name. A "starting point" dimension tells current settings apart from the
+   same profile's copy.
 5. Help page, "Jobs" section (`help.html:269`): a short paragraph on comparing
    profiles: what a starting point is, that parameters are off while profiles
    are chosen, and that the job measures a copy taken when it was created.

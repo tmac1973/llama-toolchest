@@ -163,3 +163,45 @@ func TestNoResultRunsAreCollected(t *testing.T) {
 		t.Errorf("BestGenRunID = %q, want a", c.BestGenRunID)
 	}
 }
+
+// Comparing saved profiles of one model: the profile name leads the
+// label, even when the profiles differ in more settings than a label
+// carries.
+func TestLabelsNameTheComparedProfiles(t *testing.T) {
+	mk := func(id, profile string, ctx, ub, threads int, fa bool) BenchmarkRun {
+		r := sweepRun(id, 50, nil)
+		r.StartingPoint = StartingPointProfile
+		r.Config = ConfigSnapshot{ProfileName: profile, ContextSize: ctx, UBatchSize: ub,
+			BatchSize: ub * 2, Threads: threads, FlashAttention: fa, GPULayers: 999}
+		return r
+	}
+	runs := []BenchmarkRun{
+		mk("a", "Fast chat", 8192, 512, 8, true),
+		mk("b", "Long context", 131072, 256, 6, false),
+	}
+	labels := BuildRunLabels(runs)
+	for _, r := range runs {
+		if !strings.HasPrefix(labels[r.ID].Short, r.Config.ProfileName) {
+			t.Errorf("label = %q, want it to start with the profile name %q", labels[r.ID].Short, r.Config.ProfileName)
+		}
+	}
+}
+
+// Current settings that are the same as a saved profile carry its name.
+// The label must still tell the two runs apart.
+func TestLabelsTellCurrentSettingsFromTheSameProfile(t *testing.T) {
+	cur := sweepRun("cur", 50, nil)
+	cur.StartingPoint = StartingPointCurrent
+	cur.Config = ConfigSnapshot{ProfileName: "Fast", UBatchSize: 512}
+	saved := cur
+	saved.ID = "saved"
+	saved.StartingPoint = StartingPointProfile
+
+	labels := BuildRunLabels([]BenchmarkRun{cur, saved})
+	if labels["cur"].Short == labels["saved"].Short {
+		t.Fatalf("both runs are labelled %q", labels["cur"].Short)
+	}
+	if !strings.Contains(labels["cur"].Short, "current settings") || !strings.Contains(labels["saved"].Short, "saved profile") {
+		t.Errorf("labels = %q / %q, want them to name the starting point", labels["cur"].Short, labels["saved"].Short)
+	}
+}

@@ -23,6 +23,12 @@ const (
 	StatusFailed    = "failed"
 )
 
+// Starting points a run's settings can come from (BenchmarkRun.StartingPoint).
+const (
+	StartingPointCurrent = "current"
+	StartingPointProfile = "profile"
+)
+
 // BenchmarkRun is one complete benchmark execution.
 type BenchmarkRun struct {
 	ID        string    `json:"id"`
@@ -106,6 +112,14 @@ type BenchmarkRun struct {
 	// self-describing when compared across jobs, or after a job is
 	// deleted and its runs are orphaned to Ad-Hoc.
 	SweepValues map[string]string `json:"sweep_values,omitempty"`
+
+	// StartingPoint says what the run's settings started from:
+	// StartingPointProfile for a copy of a saved profile taken by the
+	// job, StartingPointCurrent for the model's settings at the time.
+	// Config.ProfileName alone cannot tell these apart when the current
+	// settings came from that profile unchanged. Empty on runs recorded
+	// before it existed.
+	StartingPoint string `json:"starting_point,omitempty"`
 
 	// ConfigUnverified marks a run whose recorded Config may not reflect
 	// what llama-server actually ran. Set by the v2→v3 migration on runs
@@ -985,6 +999,30 @@ func identifyIn(c JobCell, o *ConfigOverrides) cellIdentity {
 	return id
 }
 
+// keepUnchangedCopies returns the new profile copies, except that a copy
+// whose settings match the job's previous copy keeps the previous one,
+// so the time it was copied still says when those settings were taken.
+func keepUnchangedCopies(prev, next []JobProfile) []JobProfile {
+	old := BenchmarkJob{Profiles: prev}
+	out := make([]JobProfile, len(next))
+	for i, p := range next {
+		out[i] = p
+		if o := old.findProfile(p.ModelID, p.Name); o != nil && profileConfigKey(o) == profileConfigKey(&p) {
+			out[i] = *o
+		}
+	}
+	return out
+}
+
+// profileConfigKey renders a profile copy's settings for comparison.
+func profileConfigKey(p *JobProfile) string {
+	b, err := json.Marshal(p.Config)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
 // identifyWithProfiles is identifyIn plus the settings of the job's copy
 // of the cell's profile.
 func identifyWithProfiles(c JobCell, o *ConfigOverrides, profiles []JobProfile) cellIdentity {
@@ -994,9 +1032,7 @@ func identifyWithProfiles(c JobCell, o *ConfigOverrides, profiles []JobProfile) 
 	}
 	job := BenchmarkJob{Profiles: profiles}
 	if p := job.findProfile(c.ModelID, c.Profile); p != nil {
-		if b, err := json.Marshal(p.Config); err == nil {
-			id.ProfileConfig = string(b)
-		}
+		id.ProfileConfig = profileConfigKey(p)
 	}
 	return id
 }
@@ -1076,7 +1112,7 @@ func (s *Store) UpdateJobDefinition(id string, def JobDefinition) (*BenchmarkJob
 	job.Sweeps = def.Sweeps
 	job.KLReference = klReference
 	job.Starts = def.Starts
-	job.Profiles = def.Profiles
+	job.Profiles = keepUnchangedCopies(job.Profiles, def.Profiles)
 	job.Cells = newCells
 	job.Status = JobStatusPending
 	job.StartedAt = time.Time{}

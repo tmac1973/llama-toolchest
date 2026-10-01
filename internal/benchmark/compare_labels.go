@@ -104,6 +104,17 @@ func comparisonDimensions(runs []BenchmarkRun) []runDimension {
 			}
 			return ProfileCellText(r.Config)
 		}},
+		// The current settings can be the same as a saved profile, and
+		// then carry its name; this is what tells the two runs apart.
+		{Name: "starting point", Value: func(r BenchmarkRun) string {
+			switch r.StartingPoint {
+			case StartingPointCurrent:
+				return "current settings"
+			case StartingPointProfile:
+				return "saved profile"
+			}
+			return ""
+		}},
 	}
 	for _, d := range cfg {
 		if swept[configFieldForDimension(d.Name)] {
@@ -223,7 +234,10 @@ func labelPriority(d runDimension) int {
 		return 0
 	}
 	switch d.Name {
-	case "model", "quant":
+	// A comparison of saved profiles exists to choose between them, so
+	// when the profile varies its name leads, before the settings that
+	// differ between the profiles.
+	case "model", "quant", "profile":
 		return 1
 	case "preset", "build":
 		return 2
@@ -313,7 +327,7 @@ func shortLabel(r BenchmarkRun, dims []runDimension) string {
 		// Identity dimensions read fine on their own; a bare "1024"
 		// does not, so everything else carries its name.
 		switch d.Name {
-		case "model", "quant", "build", "preset":
+		case "model", "quant", "build", "preset", "profile", "starting point":
 			parts = append(parts, v)
 		default:
 			parts = append(parts, d.Name+" "+v)

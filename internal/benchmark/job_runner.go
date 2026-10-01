@@ -566,24 +566,25 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 	}
 
 	run := BenchmarkRun{
-		ID:           newRunID(cell.Attempt),
-		JobID:        job.ID,
-		CreatedAt:    time.Now(),
-		Status:       StatusRunning,
-		ModelID:      cell.ModelID,
-		ModelName:    modelInfo.DisplayName,
-		Quant:        modelInfo.Quant,
-		SizeGiB:      modelInfo.SizeGiB,
-		Config:       cfg,
-		BuildID:      buildSnap.ID,
-		BuildRef:     buildSnap.GitRef,
-		BuildProfile: buildSnap.Profile,
-		Build:        buildSnap,
-		GPUs:         GPUSnapshotsFromMetrics(q.env.CurrentMetrics()),
-		Preset:       preset.Name,
-		SweepValues:  cell.SweepValues,
-		PromptTokens: preset.PromptTokens,
-		GenTokens:    preset.GenTokens,
+		ID:            newRunID(cell.Attempt),
+		JobID:         job.ID,
+		CreatedAt:     time.Now(),
+		Status:        StatusRunning,
+		ModelID:       cell.ModelID,
+		ModelName:     modelInfo.DisplayName,
+		Quant:         modelInfo.Quant,
+		SizeGiB:       modelInfo.SizeGiB,
+		Config:        cfg,
+		BuildID:       buildSnap.ID,
+		BuildRef:      buildSnap.GitRef,
+		BuildProfile:  buildSnap.Profile,
+		Build:         buildSnap,
+		GPUs:          GPUSnapshotsFromMetrics(q.env.CurrentMetrics()),
+		Preset:        preset.Name,
+		SweepValues:   cell.SweepValues,
+		StartingPoint: startingPoint(bp),
+		PromptTokens:  preset.PromptTokens,
+		GenTokens:     preset.GenTokens,
 	}
 	q.store.Save(run)
 	cell.BenchmarkRunID = run.ID
@@ -663,22 +664,23 @@ func (q *JobQueue) runCapabilityCell(ctx context.Context, job *BenchmarkJob, cel
 	cfg := markProfileEdited(EvalConfigSnapshot(baseSnap, cellOv), baseSnap)
 
 	run := BenchmarkRun{
-		ID:           newRunID(cell.Attempt),
-		JobID:        job.ID,
-		CreatedAt:    time.Now(),
-		Status:       StatusRunning,
-		ModelID:      cell.ModelID,
-		ModelName:    modelInfo.DisplayName,
-		Quant:        modelInfo.Quant,
-		SizeGiB:      modelInfo.SizeGiB,
-		Config:       cfg,
-		BuildID:      buildSnap.ID,
-		BuildRef:     buildSnap.GitRef,
-		BuildProfile: buildSnap.Profile,
-		Build:        buildSnap,
-		GPUs:         GPUSnapshotsFromMetrics(q.env.CurrentMetrics()),
-		Preset:       preset.Name,
-		SweepValues:  cell.SweepValues,
+		ID:            newRunID(cell.Attempt),
+		JobID:         job.ID,
+		CreatedAt:     time.Now(),
+		Status:        StatusRunning,
+		ModelID:       cell.ModelID,
+		ModelName:     modelInfo.DisplayName,
+		Quant:         modelInfo.Quant,
+		SizeGiB:       modelInfo.SizeGiB,
+		Config:        cfg,
+		BuildID:       buildSnap.ID,
+		BuildRef:      buildSnap.GitRef,
+		BuildProfile:  buildSnap.Profile,
+		Build:         buildSnap,
+		GPUs:          GPUSnapshotsFromMetrics(q.env.CurrentMetrics()),
+		Preset:        preset.Name,
+		SweepValues:   cell.SweepValues,
+		StartingPoint: startingPoint(bp),
 	}
 	q.store.Save(run)
 	cell.BenchmarkRunID = run.ID
@@ -817,6 +819,15 @@ func (q *JobQueue) runCapabilityCell(ctx context.Context, job *BenchmarkJob, cel
 	run.ProgressDetail = ""
 	q.store.Save(run)
 	return nil
+}
+
+// startingPoint is the BenchmarkRun.StartingPoint of a cell measured
+// from bp (nil for the model's current settings).
+func startingPoint(bp *BaseProfile) string {
+	if bp != nil {
+		return StartingPointProfile
+	}
+	return StartingPointCurrent
 }
 
 // samplingForCell is the sampling a cell's requests carry: the job's

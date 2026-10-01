@@ -181,6 +181,7 @@ func TestEditKeepsUnchangedProfileResults(t *testing.T) {
 	s.SaveJob(job)
 
 	changed := []JobProfile{profileCopy("m", "Fast", 1024), profileCopy("m", "Big", 4096)}
+	changed[0].CopiedAt = changed[0].CopiedAt.Add(time.Hour)
 	got, err := s.UpdateJobDefinition(job.ID, JobDefinition{
 		Name: "e", ModelIDs: job.ModelIDs, BuildIDs: job.BuildIDs, Presets: job.Presets,
 		Starts: starts, Profiles: changed,
@@ -202,5 +203,10 @@ func TestEditKeepsUnchangedProfileResults(t *testing.T) {
 	}
 	if len(got.Profiles) != 2 || got.Profiles[1].Config.UBatchSize != 4096 {
 		t.Errorf("job kept the old profile copies: %+v", got.Profiles)
+	}
+	// The unchanged profile keeps its first copy, so its copy time still
+	// says when those settings were taken.
+	if !got.Profiles[0].CopiedAt.Equal(profiles[0].CopiedAt) {
+		t.Errorf("unchanged profile copy time = %v, want the original %v", got.Profiles[0].CopiedAt, profiles[0].CopiedAt)
 	}
 }
