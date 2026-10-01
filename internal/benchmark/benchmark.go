@@ -641,8 +641,11 @@ const maxTimingSamples = 1000
 // renames size_gb → size_gib and vram_total_mb → vram_total_mib (the
 // values were always binary units — the old names were wrong); v5 adds
 // the config profile and GPU placement to the config snapshot (new
-// fields only, no migration).
-const schemaVersion = 5
+// fields only, no migration); v6 lets a job's cells measure copies of
+// saved profiles (new fields only — but a v5 build would ignore them and
+// measure the current settings under the profile's name, so it must open
+// a v6 file read-only).
+const schemaVersion = 6
 
 // benchmarkFile is the v2 envelope. v1 files are detected by an
 // unmarshal failure into this shape and a successful retry as []BenchmarkRun.
@@ -915,6 +918,10 @@ type JobDefinition struct {
 	Overrides   *ConfigOverrides
 	Sweeps      []SweepAxis
 	KLReference string
+	// Starts and Profiles are the job's starting points and its copies
+	// of the profiles they name (see BenchmarkJob).
+	Starts   map[string][]string
+	Profiles []JobProfile
 }
 
 // cellIdentity keys a cell for match-up across an edit. Sweep values are
@@ -925,6 +932,13 @@ type cellIdentity struct {
 	Model, Build, Preset string
 	Sweep                string
 	Overrides            string
+	// Profile is the saved profile the cell measures ("" = current
+	// settings), and ProfileConfig the settings of the job's copy of it.
+	// With the settings in the identity, an edit after the profile
+	// changed runs that profile's cells again, while the cells of an
+	// unchanged profile keep their results.
+	Profile       string
+	ProfileConfig string
 }
 
 // overrideKey renders a job's fixed overrides into the cell identity.
@@ -960,7 +974,7 @@ func identify(c JobCell) cellIdentity {
 	for _, n := range names {
 		fmt.Fprintf(&b, "%s=%s;", n, c.SweepValues[n])
 	}
-	return cellIdentity{Model: c.ModelID, Build: c.BuildID, Preset: c.Preset, Sweep: b.String()}
+	return cellIdentity{Model: c.ModelID, Build: c.BuildID, Preset: c.Preset, Sweep: b.String(), Profile: c.Profile}
 }
 
 // identifyIn keys a cell within a job, folding in that job's fixed
@@ -968,6 +982,22 @@ func identify(c JobCell) cellIdentity {
 func identifyIn(c JobCell, o *ConfigOverrides) cellIdentity {
 	id := identify(c)
 	id.Overrides = overrideKey(o)
+	return id
+}
+
+// identifyWithProfiles is identifyIn plus the settings of the job's copy
+// of the cell's profile.
+func identifyWithProfiles(c JobCell, o *ConfigOverrides, profiles []JobProfile) cellIdentity {
+	id := identifyIn(c, o)
+	if c.Profile == "" {
+		return id
+	}
+	job := BenchmarkJob{Profiles: profiles}
+	if p := job.findProfile(c.ModelID, c.Profile); p != nil {
+		if b, err := json.Marshal(p.Config); err == nil {
+			id.ProfileConfig = string(b)
+		}
+	}
 	return id
 }
 
@@ -999,13 +1029,13 @@ func (s *Store) UpdateJobDefinition(id string, def JobDefinition) (*BenchmarkJob
 
 	prev := make(map[cellIdentity]JobCell, len(job.Cells))
 	for _, c := range job.Cells {
-		prev[identifyIn(c, job.Overrides)] = c
+		prev[identifyWithProfiles(c, job.Overrides, job.Profiles)] = c
 	}
 
-	newCells := ExpandCellsWithSweeps(modelIDs, buildIDs, presets, def.Sweeps)
+	newCells := ExpandCellsWithStarts(modelIDs, def.Starts, buildIDs, presets, def.Sweeps)
 	keptRuns := make(map[string]bool)
 	for i := range newCells {
-		k := identifyIn(newCells[i], overrides)
+		k := identifyWithProfiles(newCells[i], overrides, def.Profiles)
 		if old, ok := prev[k]; ok && old.Status == CellStatusCompleted {
 			newCells[i] = old
 			if old.BenchmarkRunID != "" {
@@ -1045,6 +1075,8 @@ func (s *Store) UpdateJobDefinition(id string, def JobDefinition) (*BenchmarkJob
 	job.Overrides = overrides
 	job.Sweeps = def.Sweeps
 	job.KLReference = klReference
+	job.Starts = def.Starts
+	job.Profiles = def.Profiles
 	job.Cells = newCells
 	job.Status = JobStatusPending
 	job.StartedAt = time.Time{}

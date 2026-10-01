@@ -1,6 +1,7 @@
 package benchmark
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/models"
@@ -80,8 +81,59 @@ type BenchmarkJob struct {
 	// quant of each model's own HF repo). Ignored by non-KL cells.
 	KLReference string `json:"kl_reference,omitempty"`
 
+	// Starts names, per model ID, the starting points the job measures:
+	// "" for the model's current settings, or a saved profile's name.
+	// Nil (every job before profile comparison) means current settings
+	// only, for every model.
+	Starts map[string][]string `json:"starts,omitempty"`
+	// Profiles are copies of the saved profiles named in Starts, taken
+	// when the job was created or last edited. Cells measure these
+	// copies, so changing or deleting a profile later does not change
+	// what the job measures or what a retry runs.
+	Profiles []JobProfile `json:"profiles,omitempty"`
+
 	// Expanded matrix
 	Cells []JobCell `json:"cells,omitempty"`
+}
+
+// JobProfile is the copy of one saved profile that a job measures.
+type JobProfile struct {
+	ModelID string             `json:"model_id"`
+	Name    string             `json:"name"`
+	Config  models.ModelConfig `json:"config"`
+	// SavedAt is when the profile was saved, and CopiedAt when the job
+	// took this copy of it.
+	SavedAt  time.Time `json:"saved_at"`
+	CopiedAt time.Time `json:"copied_at"`
+	// BuildID is the build the profile was saved on, for the warning
+	// shown when the job runs it on another build.
+	BuildID string `json:"build_id,omitempty"`
+}
+
+// cellProfile is the saved profile a cell measures from: its own
+// profile's copy when it names one, otherwise the job-wide BaseProfile
+// (autotune and autoconfigure), otherwise nil for the model's current
+// settings. A cell naming a profile the job holds no copy of is an
+// error rather than a quiet fall back to the current settings, which
+// would record the current settings under the profile's name.
+func (j *BenchmarkJob) cellProfile(c JobCell) (*BaseProfile, error) {
+	if c.Profile == "" {
+		return j.BaseProfile, nil
+	}
+	if p := j.findProfile(c.ModelID, c.Profile); p != nil {
+		return &BaseProfile{Name: p.Name, Config: p.Config}, nil
+	}
+	return nil, fmt.Errorf("the job holds no copy of the %q profile for this model — edit the job and choose the profile again", c.Profile)
+}
+
+// findProfile returns the job's copy of a model's profile, or nil.
+func (j *BenchmarkJob) findProfile(modelID, name string) *JobProfile {
+	for i := range j.Profiles {
+		if j.Profiles[i].ModelID == modelID && j.Profiles[i].Name == name {
+			return &j.Profiles[i]
+		}
+	}
+	return nil
 }
 
 // BaseProfile is the saved profile a job measures from: the name, for
@@ -145,9 +197,12 @@ type ConfigOverrides struct {
 // owns at most one BenchmarkRun at a time; on retry the run ID is
 // rewritten to point at the latest attempt.
 type JobCell struct {
-	ModelID        string `json:"model_id"`
-	BuildID        string `json:"build_id"`
-	Preset         string `json:"preset"`
+	ModelID string `json:"model_id"`
+	BuildID string `json:"build_id"`
+	Preset  string `json:"preset"`
+	// Profile is the saved profile this cell measures, whose copy is in
+	// the job's Profiles. Empty means the model's current settings.
+	Profile        string `json:"profile,omitempty"`
 	Status         string `json:"status"` // pending|running|completed|failed|skipped
 	Attempt        int    `json:"attempt"`
 	BenchmarkRunID string `json:"benchmark_run_id,omitempty"`
