@@ -46,6 +46,11 @@ func TestCPUMoEFieldOnlyForMoEModels(t *testing.T) {
 			t.Errorf("MoE panel missing %q", want)
 		}
 	}
+	// One field only. The panel once rendered it twice; the server reads
+	// the first value, so a change made in the second box was lost.
+	if n := strings.Count(moe, `name="cpu_moe"`); n != 1 {
+		t.Errorf("MoE panel has %d CPU Expert Layers fields, want 1", n)
+	}
 }
 
 // A swept or overridden cpu_moe reaches the config the benchmark launches.

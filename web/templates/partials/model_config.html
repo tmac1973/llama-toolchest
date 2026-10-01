@@ -65,14 +65,6 @@
             <small>Effective: {{if gt .Config.CPUMoE 0}}<code>--n-cpu-moe {{.Config.CPUMoE}}</code>{{else}}not set (all experts on the GPU){{end}}</small>
         </label>
         {{end}}
-        {{if .HasExperts}}
-        <label title="Mixture-of-experts models only. Keeps the expert weights of this many layers in system memory instead of GPU memory. Use it when the model does not fit on the GPU: it is much faster than lowering GPU Layers, because each token only reads the few experts it uses. 0 keeps everything on the GPU. At most {{.NLayers}}.">
-            CPU Expert Layers
-            <input type="number" name="cpu_moe" value="{{if gt .Config.CPUMoE 0}}{{.Config.CPUMoE}}{{end}}"
-                   min="0" max="{{.NLayers}}" placeholder="0 = all on GPU">
-            <small>Effective: {{if gt .Config.CPUMoE 0}}<code>--n-cpu-moe {{.Config.CPUMoE}}</code>{{else}}not set (all experts on the GPU){{end}}</small>
-        </label>
-        {{end}}
         {{if not .IsEmbedding}}
         {{$cs := .Config.ContextSize}}
         {{$mc := .MaxContext}}

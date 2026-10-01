@@ -79,7 +79,12 @@ func gitFixture(t *testing.T) (dataDir, srcDir string) {
 	}
 	run := func(args ...string) {
 		cmd := exec.Command("git", append([]string{"-C", srcDir}, args...)...)
+		// The user's git config can ask for signed tags
+		// (tag.gpgsign), and a signed tag needs a message, so a plain
+		// "git tag" fails with "no tag message?". The test repository
+		// must not depend on the config of the machine it runs on.
 		cmd.Env = append(os.Environ(),
+			"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
 			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
 			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
 		if out, err := cmd.CombinedOutput(); err != nil {
