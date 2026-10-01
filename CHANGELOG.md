@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.31.0](https://github.com/tmac1973/llama-toolchest/compare/v2.30.5...v2.31.0) (2026-10-01)
+
+
+### Features
+
+* compare saved profiles in a batch job ([#203](https://github.com/tmac1973/llama-toolchest/issues/203)) ([bc21ca4](https://github.com/tmac1973/llama-toolchest/commit/bc21ca4acdad04a9ba24d5153092f20662e61cf3))
+* delete several benchmark jobs at once from the job list ([#202](https://github.com/tmac1973/llama-toolchest/issues/202)) ([5f84c35](https://github.com/tmac1973/llama-toolchest/commit/5f84c35c860eccead8cfb1bc3db377eba5419c90))
+
+
+### Bug Fixes
+
+* show the CPU Expert Layers field once, and let the builder tests run with signed tags ([#201](https://github.com/tmac1973/llama-toolchest/issues/201)) ([18c0f88](https://github.com/tmac1973/llama-toolchest/commit/18c0f882ff70e0ffcbc83c01ad063701ce9d6f9a))
+
 ## [2.30.5](https://github.com/tmac1973/llama-toolchest/compare/v2.30.4...v2.30.5) (2026-09-30)
 
 
