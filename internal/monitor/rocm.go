@@ -43,7 +43,7 @@ func (r *rocmBackend) collectROCmSMI() ([]GPUInfo, error) {
 	}
 	out, err := exec.Command(smi,
 		"--showbus", "--showuse", "--showmemuse", "--showtemp", "--showpower",
-		"--csv").Output()
+		"--showfan", "--csv").Output()
 	if err != nil {
 		return nil, fmt.Errorf("rocm-smi: %w", err)
 	}
@@ -116,11 +116,33 @@ func (r *rocmBackend) collectROCmSMI() ([]GPUInfo, error) {
 		if i, ok := colIdx["Average Graphics Package Power (W)"]; ok && i < len(fields) {
 			gpu.PowerW, _ = strconv.ParseFloat(strings.TrimSpace(fields[i]), 64)
 		}
+		// The fan columns' names vary across ROCm versions.
+		for _, col := range []string{"Fan speed (%)", "Fan Speed (%)"} {
+			if i, ok := colIdx[col]; ok && i < len(fields) {
+				if f, err := strconv.ParseFloat(strings.TrimSpace(fields[i]), 64); err == nil {
+					gpu.FanPercent, gpu.HasFan = int(f), true
+				}
+				break
+			}
+		}
+		for _, col := range []string{"Fan RPM", "Fan speed (RPM)"} {
+			if i, ok := colIdx[col]; ok && i < len(fields) {
+				if f, err := strconv.ParseFloat(strings.TrimSpace(fields[i]), 64); err == nil {
+					gpu.FanRPM, gpu.HasFan = int(f), true
+				}
+				break
+			}
+		}
 
 		// Get VRAM info from sysfs (more reliable than rocm-smi CSV).
 		// gpu.Index is a KFD position now, so it indexes dirs directly.
 		if gpu.Index >= 0 && gpu.Index < len(dirs) {
 			gpu.VRAMUsedMB, gpu.VRAMTotalMB = readVRAMFromDir(dirs[gpu.Index])
+			// rocm-smi leaves the fan columns out when the fans have
+			// stopped, so the card's own fan files fill in.
+			if !gpu.HasFan {
+				gpu.FanPercent, gpu.FanRPM, gpu.HasFan = readFanFromDir(dirs[gpu.Index])
+			}
 		}
 
 		// Get GPU name from sysfs
@@ -245,6 +267,8 @@ func (r *rocmBackend) collectSysfs() ([]GPUInfo, error) {
 			}
 		}
 
+		gpu.FanPercent, gpu.FanRPM, gpu.HasFan = readFanFromDir(deviceDir)
+
 		gpu.Name = readGPUNameSysfs(idx)
 		tagROCmGPU(&gpu)
 		gpus = append(gpus, gpu)
@@ -254,6 +278,46 @@ func (r *rocmBackend) collectSysfs() ([]GPUInfo, error) {
 		return nil, fmt.Errorf("no AMD GPUs found in sysfs")
 	}
 	return gpus, nil
+}
+
+// readFanFromDir reads the fan of the card at deviceDir from the first
+// of its hwmon directories that has one.
+func readFanFromDir(deviceDir string) (percent, rpm int, ok bool) {
+	hwmonDirs, _ := filepath.Glob(filepath.Join(deviceDir, "hwmon", "hwmon*"))
+	for _, hwmon := range hwmonDirs {
+		if percent, rpm, ok = readFanHwmon(hwmon); ok {
+			return percent, rpm, true
+		}
+	}
+	return 0, 0, false
+}
+
+// readFanHwmon reads a card's fan from its hwmon directory: the duty
+// from pwm1 (0 to pwm1_max, 255 when that file is missing) as a
+// percentage, and the speed in RPM from fan1_input. ok is false when the
+// directory has neither.
+func readFanHwmon(hwmon string) (percent, rpm int, ok bool) {
+	readInt := func(name string) (int, bool) {
+		data, err := os.ReadFile(filepath.Join(hwmon, name))
+		if err != nil {
+			return 0, false
+		}
+		v, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		return v, err == nil
+	}
+	if pwm, have := readInt("pwm1"); have {
+		max := 255
+		if m, have := readInt("pwm1_max"); have && m > 0 {
+			max = m
+		}
+		percent = (pwm*100 + max/2) / max
+		ok = true
+	}
+	if r, have := readInt("fan1_input"); have {
+		rpm = r
+		ok = true
+	}
+	return percent, rpm, ok
 }
 
 // kfdIndexByBDF maps each device's PCI bus address (lowercase, e.g.

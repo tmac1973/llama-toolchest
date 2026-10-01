@@ -25,7 +25,7 @@ func (n *nvidiaBacked) Name() string { return "nvidia" }
 func (n *nvidiaBacked) Collect() ([]GPUInfo, error) {
 	// Query all metrics in one call
 	out, err := exec.Command("nvidia-smi",
-		"--query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw",
+		"--query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,fan.speed",
 		"--format=csv,noheader,nounits").Output()
 	if err != nil {
 		return nil, fmt.Errorf("nvidia-smi: %w", err)
@@ -34,7 +34,7 @@ func (n *nvidiaBacked) Collect() ([]GPUInfo, error) {
 	var gpus []GPUInfo
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		fields := strings.Split(line, ", ")
-		if len(fields) < 6 {
+		if len(fields) < 7 {
 			continue
 		}
 
@@ -44,6 +44,14 @@ func (n *nvidiaBacked) Collect() ([]GPUInfo, error) {
 		vramTotal, _ := strconv.Atoi(strings.TrimSpace(fields[4]))
 		temp, _ := strconv.Atoi(strings.TrimSpace(fields[5]))
 		power, _ := strconv.ParseFloat(strings.TrimSpace(fields[6]), 64)
+		// fan.speed is a percentage, or "[N/A]" on a passively cooled
+		// card, which leaves it at 0. nvidia-smi reports no RPM.
+		fan, hasFan := 0, false
+		if len(fields) > 7 {
+			if v, err := strconv.Atoi(strings.TrimSpace(fields[7])); err == nil {
+				fan, hasFan = v, true
+			}
+		}
 
 		gpus = append(gpus, GPUInfo{
 			Index:       idx,
@@ -53,6 +61,8 @@ func (n *nvidiaBacked) Collect() ([]GPUInfo, error) {
 			VRAMTotalMB: vramTotal,
 			TempC:       temp,
 			PowerW:      power,
+			HasFan:      hasFan,
+			FanPercent:  fan,
 		})
 	}
 	return gpus, nil
