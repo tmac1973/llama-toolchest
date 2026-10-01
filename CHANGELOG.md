@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.32.0](https://github.com/tmac1973/llama-toolchest/compare/v2.31.1...v2.32.0) (2026-10-01)
+
+
+### Features
+
+* show GPU fan speed in the sidebar ([#207](https://github.com/tmac1973/llama-toolchest/issues/207)) ([62fd8bb](https://github.com/tmac1973/llama-toolchest/commit/62fd8bb8d030c80ed6582160db19d0b694f79a05))
+
 ## [2.31.1](https://github.com/tmac1973/llama-toolchest/compare/v2.31.0...v2.31.1) (2026-10-01)
 
 
