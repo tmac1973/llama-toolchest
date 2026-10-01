@@ -1,5 +1,8 @@
 {{define "job_list"}}
-{{if not .}}
+{{/* The version of what this list shows; the page checks it against the
+     server's and reloads the list when a job has changed. */}}
+<span id="job-list-version" data-version="{{.Version}}" hidden></span>
+{{if not .Entries}}
 <p>No benchmark jobs yet. Click <strong>+ New Batch Job</strong> to create one.</p>
 {{else}}
 <div class="job-bulk-bar">
@@ -20,7 +23,7 @@
     </span>
 </div>
 <div class="job-list">
-{{range $entry := .}}
+{{range $entry := .Entries}}
 {{$j := $entry.Job}}
 <div class="job-item">
 {{if or (eq $j.ID "adhoc") (eq $j.Status "running")}}

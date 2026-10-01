@@ -580,6 +580,7 @@ func (s *Server) buildRouter() chi.Router {
 			r.Get("/", s.handleListJobs)
 			r.Post("/", s.handleCreateJob)
 			r.Get("/form", s.handleJobForm)
+			r.Get("/version", s.handleJobListVersion)
 			r.Post("/delete", s.handleBulkDeleteJobs)
 			r.Get("/{id}", s.handleGetJob)
 			r.Put("/{id}", s.handleUpdateJob)
