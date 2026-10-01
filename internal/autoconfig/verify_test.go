@@ -111,6 +111,25 @@ func TestVerifyMovesLayersOffTheCardThatRanOut(t *testing.T) {
 	}
 }
 
+// A load that answered but left a card nearly full is adjusted like one
+// that ran out, and the note says what actually happened.
+func TestVerifyAdjustsALoadThatLeftACardNearlyFull(t *testing.T) {
+	v := &verifier{runs: func(cfg models.ModelConfig) Check {
+		if cfg.TensorSplit == "" {
+			return Check{OutOfMemory: true, LowMemory: true, Device: 0, Reason: "it left only 497 MiB free on GPU 0"}
+		}
+		return Check{OK: true}
+	}}
+	res := runWith(t, threeCards(), v)
+	if res.Check.Status != VerifyPassed || res.Check.Adjusted != 1 {
+		t.Fatalf("check = %+v, want passed after one adjustment", res.Check)
+	}
+	note := noteFor(res, "gpu_assign")
+	if !strings.Contains(note, "left too little GPU memory free") || strings.Contains(note, "ran out of memory") {
+		t.Errorf("note = %q, want it to say the load left too little memory free", note)
+	}
+}
+
 // When nothing fits, the steps are taken in order of what they cost:
 // layers moved (nothing), a smaller prompt batch (some speed), then the
 // context (what the model can hold). And the run ends, with the proposal

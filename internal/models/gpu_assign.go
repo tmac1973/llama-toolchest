@@ -421,6 +421,37 @@ func DeviceCountForConfig(cfg *ModelConfig, numGPUs int) int {
 	return max(1, numGPUs)
 }
 
+// DeviceIndicesForConfig returns the GPUs a config puts the model on, by
+// index, following the same rules as DeviceCountForConfig. It returns
+// nil when the config uses every GPU the host has (numGPUs of them).
+func DeviceIndicesForConfig(cfg *ModelConfig, numGPUs int) []int {
+	if cfg == nil {
+		return nil
+	}
+	if ts := strings.TrimSpace(cfg.TensorSplit); ts != "" {
+		var out []int
+		for i, part := range strings.Split(ts, ",") {
+			if v, err := strconv.ParseFloat(strings.TrimSpace(part), 64); err == nil && v > 0 {
+				out = append(out, i)
+			}
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	switch {
+	case strings.HasPrefix(cfg.GPUAssign, "tensor"):
+		if gpus, ok := tensorAssignGPUs(cfg.GPUAssign, max(1, numGPUs)); ok && len(gpus) > 0 && len(gpus) < numGPUs {
+			return gpus
+		}
+	case cfg.GPUAssign != "" && cfg.GPUAssign != "all" && cfg.GPUAssign != "custom":
+		if gpus := parseIntList(cfg.GPUAssign); len(gpus) > 0 {
+			return gpus
+		}
+	}
+	return nil
+}
+
 // AssignGPUsOutOfRange reports whether a GPU assignment references GPU
 // indices this machine doesn't have. Used by the backup restore engine
 // to detect configs imported from a box with more GPUs.

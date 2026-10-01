@@ -291,6 +291,17 @@ func checkFromJob(job *benchmark.BenchmarkJob, getRun func(id string) (*benchmar
 	}
 	cell := job.Cells[0]
 	if cell.Status == benchmark.CellStatusCompleted {
+		// Loaded and answered, but with a card nearly full: normal use
+		// would run out of memory on it, so it is treated like a load
+		// that did, and the settings are adjusted for that card.
+		if cell.BenchmarkRunID != "" && getRun != nil {
+			if run, err := getRun(cell.BenchmarkRunID); err == nil && run != nil {
+				if msg := run.MemoryShortfall(); msg != "" {
+					card, _ := run.TightestCard()
+					return autoconfig.Check{OutOfMemory: true, LowMemory: true, Device: card.Index, Reason: msg}
+				}
+			}
+		}
 		return autoconfig.Check{OK: true, Device: -1}
 	}
 	chk := autoconfig.Check{Device: -1, Reason: cell.Error}

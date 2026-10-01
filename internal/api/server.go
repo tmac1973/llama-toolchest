@@ -393,6 +393,9 @@ func (s *Server) templateFuncs() template.FuncMap {
 		"sweepChips": benchmark.SweepChips,
 		"memText":    memText,
 		"memDetail":  memDetail,
+		// minCardFreeMiB is the free memory every GPU must keep, for the
+		// tooltip that explains the run detail's "Least free" line.
+		"minCardFreeMiB": func() int { return benchmark.MinCardFreeMiB },
 		// evalScoreValue is the comparable magnitude behind evalScoreText,
 		// used only for sorting the compare view. Zero for performance
 		// runs — the score sort button is hidden in that case.
