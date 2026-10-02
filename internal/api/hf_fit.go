@@ -19,10 +19,18 @@ type fileFit struct {
 	Label string
 	// Detail is one line per context size, for the tooltip.
 	Detail string
-	// VRAMGiB is the estimate at fitVRAMContext (or the model's limit,
-	// when shorter) with every layer on the GPUs and a full-precision KV
-	// cache: one fixed setting, so files can be compared by it.
+	// VRAMGiB is the GPU memory of the plan at fitVRAMContext (or the
+	// model's limit, when shorter): the settings the Fit column describes,
+	// as Autoconfigure would set them. RAMGiB is what that plan keeps in
+	// system memory (expert weights, or layers on the CPU), and RAMKind
+	// says which. A file that does not fit at all shows the estimate with
+	// every layer on the GPU and RAMGiB 0, which says how far over it is.
+	//
+	// It used to be the every-layer-on-the-GPU figure for every file, which
+	// put 65.9 GiB beside "Experts in RAM" on a 48 GB machine.
 	VRAMGiB float64
+	RAMGiB  float64
+	RAMKind models.Placement
 }
 
 // fitVRAMContext is the context the VRAM column is estimated at.
@@ -83,7 +91,13 @@ func planFileFit(m *models.Model, hw models.Hardware) *fileFit {
 	trained := m.ContextLength
 	base := models.DefaultConfig()
 
+	vramCtx := fitVRAMContext
+	if trained > 0 && trained < vramCtx {
+		vramCtx = trained
+	}
+
 	var lines []string
+	var atVRAMCtx *models.FitResult
 	seen := map[int]bool{}
 	bestGPU, bestExperts, anyPartial := 0, 0, false
 	for _, class := range fitClasses {
@@ -97,6 +111,9 @@ func planFileFit(m *models.Model, hw models.Hardware) *fileFit {
 		seen[want] = true
 
 		r := models.PlanFit(m, base, hw, class)
+		if want == vramCtx {
+			atVRAMCtx = &r
+		}
 		c := r.Config
 		kind := r.Placement(m)
 		switch kind {
@@ -122,12 +139,19 @@ func planFileFit(m *models.Model, hw models.Hardware) *fileFit {
 		fit.Kind, fit.Label = models.PlacementNone, "Too large"
 	}
 
-	ctx := fitVRAMContext
-	if trained > 0 && trained < ctx {
-		ctx = trained
+	if atVRAMCtx == nil {
+		r := models.PlanFit(m, base, hw, models.ContextMedium)
+		atVRAMCtx = &r
+	}
+	if kind := atVRAMCtx.Placement(m); kind != models.PlacementNone {
+		fit.VRAMGiB = atVRAMCtx.EstimateGiB
+		if kind != models.PlacementGPU && atVRAMCtx.CPURAMGiB >= 0.05 {
+			fit.RAMGiB, fit.RAMKind = atVRAMCtx.CPURAMGiB, kind
+		}
+		return fit
 	}
 	cfg := base
-	cfg.ContextSize = ctx
+	cfg.ContextSize = vramCtx
 	fit.VRAMGiB = models.VRAMEstimateForConfigOn(m, &cfg, max(1, len(models.PlanCards(hw))))
 	return fit
 }

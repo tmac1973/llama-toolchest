@@ -122,3 +122,29 @@ func TestSizeOnlyLabelIgnoresTheIntegratedGPU(t *testing.T) {
 		t.Errorf("10 GiB = %q, want fits", got)
 	}
 }
+
+// The VRAM column shows the plan the Fit column describes. For a model
+// that keeps experts in system memory, that is what fits on the card, with
+// the system-memory part beside it, not the every-layer-on-the-GPU figure.
+func TestVRAMColumnFollowsThePlan(t *testing.T) {
+	moe := denseModel(18, 48)
+	moe.ExpertCount, moe.ExpertUsedCount, moe.ExpertLayers, moe.ExpertBytes = 128, 8, 48, 16<<30
+	hw := fitHardware(16)
+	fit := planFileFit(moe, hw)
+	budget, _ := models.FitBudgets(hw)
+	if fit.Kind != models.PlacementExperts || fit.VRAMGiB > budget || fit.RAMGiB <= 0 || fit.RAMKind != models.PlacementExperts {
+		t.Errorf("fit = %+v, budget %.1f GiB", fit, budget)
+	}
+
+	view := hfModelView{ID: "org/M-GGUF", Files: []hfFileView{{ModelFile: modelsource.File{Filename: "m.gguf", Size: 18 << 30}, Fit: fit}}}
+	out := renderFiles(t, "hf_file_estimates", view)
+	if !strings.Contains(out, "of experts in system memory") {
+		t.Errorf("no system-memory line:\n%s", out)
+	}
+
+	// Too large for anything: the every-layer figure, no system-memory line.
+	huge := planFileFit(denseModel(400, 120), hw)
+	if huge.RAMGiB != 0 || huge.VRAMGiB < 400 {
+		t.Errorf("too large: %+v", huge)
+	}
+}
