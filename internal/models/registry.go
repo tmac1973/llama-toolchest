@@ -1020,10 +1020,19 @@ func (r *Registry) OrphanParts() []OrphanPart {
 		dir := filepath.Dir(finalPath)
 		shards := findShards(dir, filepath.Base(finalPath))
 		firstName := filepath.Base(shards[0])
+		// The name to resume with is the file's path in the repository,
+		// subfolder included ("UD-Q4_K_XL/…-00001-of-00004.gguf"): it is
+		// what the download was started with, so the Downloads panel can
+		// match it to a download still running, and what the host serves
+		// it under. The bare file name matched neither.
+		resumeName := firstName
+		if sub := filepath.Dir(parts[1]); sub != "." {
+			resumeName = filepath.ToSlash(filepath.Join(sub, firstName))
+		}
 		key := dir + "::" + firstName
 		g := groups[key]
 		if g == nil {
-			g = &group{modelID: modelID, filename: firstName, set: shards}
+			g = &group{modelID: modelID, filename: resumeName, set: shards}
 			groups[key] = g
 		}
 		g.parts++

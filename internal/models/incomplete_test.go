@@ -117,3 +117,29 @@ func TestOrphanParts(t *testing.T) {
 		t.Errorf("IncompleteRegistered = %+v, want only org/repoE", inc)
 	}
 }
+
+// Repos that keep each quant in a subfolder (unsloth's large models): the
+// partial is named by its path in the repository. With the bare file name
+// the Downloads panel could not match it to the download still running,
+// and showed it a second time as an incomplete download to resume, whose
+// Resume would have asked the host for a file that is not there.
+func TestOrphanPartsInASubfolder(t *testing.T) {
+	dir := t.TempDir()
+	modelsDir := filepath.Join(dir, "models")
+	r := NewRegistry(dir, modelsDir)
+
+	q := filepath.Join(modelsDir, "unsloth--Big-GGUF", "UD-Q4_K_XL")
+	touch(t, filepath.Join(q, "Big-UD-Q4_K_XL-00001-of-00004.gguf"), 100)
+	touch(t, filepath.Join(q, "Big-UD-Q4_K_XL-00002-of-00004.gguf.part"), 40)
+
+	got := r.OrphanParts()
+	if len(got) != 1 {
+		t.Fatalf("OrphanParts = %+v", got)
+	}
+	if want := "UD-Q4_K_XL/Big-UD-Q4_K_XL-00001-of-00004.gguf"; got[0].Filename != want {
+		t.Errorf("Filename = %q, want %q", got[0].Filename, want)
+	}
+	if got[0].ModelID != "unsloth/Big-GGUF" || got[0].BytesOnDisk != 140 {
+		t.Errorf("orphan = %+v", got[0])
+	}
+}
