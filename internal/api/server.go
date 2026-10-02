@@ -31,6 +31,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/monitor"
 	"github.com/tmac1973/llama-toolchest/internal/presets"
 	"github.com/tmac1973/llama-toolchest/internal/process"
+	"github.com/tmac1973/llama-toolchest/internal/recommend"
 	"github.com/tmac1973/llama-toolchest/web"
 )
 
@@ -64,6 +65,24 @@ type Server struct {
 	// answer is good for the life of the process.
 	probeMu    sync.RWMutex
 	probeCache map[string]modelsource.ProbeResult
+
+	// metaCache holds the model descriptions read from remote GGUF
+	// headers, which the Download Models Fit column plans from. Nil in
+	// tests that do not set it, which then read every header afresh.
+	metaCache *modelsource.MetaCache
+
+	// recommend builds and keeps the "Find recommended models" list.
+	recommend *recommend.Engine
+	// pendingSeeds holds, by download ID, the context class a download
+	// started from a recommendation was suggested for, so the finished
+	// model can start with the planned settings. Downloads are not kept
+	// across a restart, and neither is this.
+	seedMu       sync.Mutex
+	pendingSeeds map[string]models.ContextClass
+
+	// testHardware replaces the system monitor's machine in hardware(),
+	// for tests that plan against a known one. Nil in production.
+	testHardware *models.Hardware
 
 	// detailCache holds a repository's file list for long enough to serve
 	// one page: the listing and the deferred request that fills in its
@@ -212,6 +231,7 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 		downloader:     huggingface.NewDownloader(cfg.DataDir, cfg.ModelsPath(), cfg.HFToken),
 		registry:       models.NewRegistry(cfg.DataDir, cfg.ModelsPath()),
 		presets:        presets.NewFetcher(filepath.Join(cfg.DataDir, "cache", "presets"), cfg.HFToken),
+		metaCache:      modelsource.NewMetaCache(filepath.Join(cfg.DataDir, "cache", "gguf-meta")),
 		process:        process.NewManager(),
 		monitor:        mon,
 		bench:          benchmark.NewStore(cfg.DataDir, builderResolver(bld)),
@@ -262,6 +282,10 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 		}
 	}
 	s.pages = s.parseTemplates()
+	// Builds made before the architecture list was recorded get it from
+	// the checkout's history; a git call per build, so off the startup path.
+	go bld.BackfillArchs()
+	s.recommend = s.newRecommendEngine(filepath.Join(cfg.DataDir, "cache", "recommend"))
 	s.llm = &llmcall.Client{Backend: &helperBackend{s: s}, HTTP: &http.Client{Timeout: 5 * time.Minute}}
 	s.tuneStore = autotune.NewStore(cfg.DataDir)
 	s.tuner = autotune.NewRunner(autotune.Deps{
@@ -459,11 +483,17 @@ func (s *Server) templateFuncs() template.FuncMap {
 			return (max - value) / max * 100
 		},
 		"vramFit": func(estimatedGB float64) string {
-			metrics := s.monitor.Current()
-			numGPUs := len(metrics.GPU)
+			// The same cards the fit planner uses: an integrated GPU is
+			// left out when a dedicated one exists. Counting it made a
+			// 16 GB card plus an iGPU read as "fits in 2 GPUs".
+			cards := models.PlanCards(s.hardware())
+			numGPUs := len(cards)
 			perGPU := 32.0 // fallback
 			if numGPUs > 0 {
-				perGPU = float64(metrics.GPU[0].VRAMTotalMB) / 1024.0
+				perGPU = float64(cards[0].VRAMTotalMiB) / 1024.0
+				for _, c := range cards[1:] {
+					perGPU = min(perGPU, float64(c.VRAMTotalMiB)/1024.0)
+				}
 			} else {
 				numGPUs = 1
 			}
@@ -646,6 +676,8 @@ func (s *Server) buildRouter() chi.Router {
 			r.Get("/search", s.handleHFSearch)
 			r.Get("/model", s.handleHFModel)
 			r.Get("/model/estimates", s.handleHFModelEstimates)
+			r.Get("/recommend", s.handleRecommend)
+			r.Post("/recommend/refresh", s.handleRecommendRefresh)
 			r.Post("/download", s.handleHFDownload)
 			r.Get("/downloads", s.handleHFActiveDownloads)
 			r.Get("/downloads-panel", s.handleDownloadsPanel)

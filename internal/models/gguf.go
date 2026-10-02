@@ -118,6 +118,19 @@ type GGUFMeta struct {
 	HasBlockTensors bool `json:"has_block_tensors,omitempty"`
 	HasTrunkBlock0  bool `json:"has_trunk_block0,omitempty"`
 
+	// LeadingDenseBlocks, ExpertFFLength and PLEInputDim are
+	// {arch}.leading_dense_block_count, {arch}.expert_feed_forward_length
+	// and {arch}.embedding_length_per_layer_input. They describe the shape
+	// of tensors the metadata-only parse never reaches, so DerivedFor can
+	// work out their sizes from the metadata instead.
+	LeadingDenseBlocks int `json:"leading_dense_blocks,omitempty"`
+	ExpertFFLength     int `json:"expert_ff_length,omitempty"`
+	PLEInputDim        int `json:"ple_input_dim,omitempty"`
+	// MetaOnly records that the parse stopped at the tokenizer (see
+	// ParseGGUFMetaOnly): the tensor-table sizes above are zero rather
+	// than measured, and the chat template was not read.
+	MetaOnly bool `json:"meta_only,omitempty"`
+
 	// BaseModelRepo is the upstream "org/repo" this quant derives from, per
 	// general.base_model.0.repo_url. Used to locate the base model's
 	// generation_config.json when the file has no embedded sampling keys.
@@ -244,7 +257,29 @@ func ParseGGUFMeta(path string) (*GGUFMeta, error) {
 // which uses it to answer "how much of this download never reaches VRAM"
 // before anyone commits to the download.
 func ParseGGUFMetaFrom(f io.ReadSeeker) (*GGUFMeta, error) {
+	return parseGGUFMeta(f, false)
+}
 
+// ParseGGUFMetaOnly reads the model description and stops at the
+// tokenizer, without reading the tokenizer itself or the tensor table
+// behind it. That is everything the VRAM estimate needs apart from a few
+// tensor sizes, which DerivedFor fills in.
+//
+// The point is cost over a ranged HTTP read. Every GGUF checked puts its
+// {arch}.* keys before tokenizer.*, within the first few kilobytes, while
+// the tokenizer runs to 3–16 MB — reading on to the tensor table would
+// cost that much for every file looked at. The format does not promise
+// this order, so the parse only stops early once the core model keys are
+// known, and never in a file that has shown a model key after a tokenizer
+// key; such a file is read on to the end of its metadata.
+//
+// The stop is at the token list: its header gives the vocabulary size
+// for free, and it is the first large value in the tokenizer.
+func ParseGGUFMetaOnly(f io.ReadSeeker) (*GGUFMeta, error) {
+	return parseGGUFMeta(f, true)
+}
+
+func parseGGUFMeta(f io.ReadSeeker, metaOnly bool) (*GGUFMeta, error) {
 	// Magic: "GGUF"
 	var magic [4]byte
 	if err := binary.Read(f, binary.LittleEndian, &magic); err != nil {
@@ -296,6 +331,12 @@ func ParseGGUFMetaFrom(f io.ReadSeeker) (*GGUFMeta, error) {
 		recurrentLayers  []bool // attention.recurrent_layers
 	)
 
+	// For the metadata-only stop: a model key seen after a tokenizer key
+	// means this writer does not group its keys, so no point in the file
+	// is known to come after every model key.
+	sawTokenizer, scattered := false, false
+
+keys:
 	for i := uint64(0); i < kvCount; i++ {
 		key, err := readGGUFString(f)
 		if err != nil {
@@ -306,6 +347,31 @@ func ParseGGUFMetaFrom(f io.ReadSeeker) (*GGUFMeta, error) {
 			break
 		}
 		arch := meta.Architecture
+
+		// Only string arrays cost anything to pass: a fixed-size array is
+		// skipped with a seek, which reads nothing (gemma-4 puts a small
+		// suppress_tokens list first).
+		if strings.HasPrefix(key, "tokenizer.") {
+			sawTokenizer = true
+		} else if sawTokenizer && arch != "" && strings.HasPrefix(key, arch+".") {
+			scattered = true
+		}
+		if metaOnly && valueType == ggufTypeArray && strings.HasPrefix(key, "tokenizer.") && !scattered &&
+			arch != "" && meta.NLayers > 0 && meta.NEmbd > 0 && meta.NHead > 0 && meta.ContextLength > 0 {
+			elemType, count, ok := readGGUFArrayHeader(f)
+			if !ok {
+				break keys
+			}
+			if key == "tokenizer.ggml.tokens" {
+				meta.VocabSize = int(count)
+				break keys
+			}
+			if elemType == ggufTypeString || elemType == ggufTypeArray {
+				break keys
+			}
+			skipGGUFArrayBody(f, elemType, count)
+			continue
+		}
 
 		// Detect built-in vision encoder from keys like "{arch}.vision.block_count"
 		if strings.Contains(key, ".vision.") {
@@ -422,6 +488,31 @@ func ParseGGUFMetaFrom(f io.ReadSeeker) (*GGUFMeta, error) {
 				continue
 			}
 
+		case arch != "" && key == arch+".vocab_size":
+			// Only some architectures carry it; the token list, when read,
+			// gives the same number and overrides it.
+			if v, ok := readGGUFScalarInt(f, valueType); ok {
+				if meta.VocabSize == 0 {
+					meta.VocabSize = v
+				}
+				continue
+			}
+		case arch != "" && key == arch+".leading_dense_block_count":
+			if v, ok := readGGUFScalarInt(f, valueType); ok {
+				meta.LeadingDenseBlocks = v
+				continue
+			}
+		case arch != "" && key == arch+".expert_feed_forward_length":
+			if v, ok := readGGUFScalarInt(f, valueType); ok {
+				meta.ExpertFFLength = v
+				continue
+			}
+		case arch != "" && key == arch+".embedding_length_per_layer_input":
+			if v, ok := readGGUFScalarInt(f, valueType); ok {
+				meta.PLEInputDim = v
+				continue
+			}
+
 		case arch != "" && key == arch+".context_length":
 			if v, ok := readGGUFScalarInt(f, valueType); ok {
 				meta.ContextLength = v
@@ -503,6 +594,11 @@ func ParseGGUFMetaFrom(f io.ReadSeeker) (*GGUFMeta, error) {
 
 	computeKVScaling(meta, headCountKV, kvHeadCounts, keyLen, valLen, keyLenSWA, valLenSWA, slidingWindow, swaPattern,
 		fullAttnInterval, recurrentLayers)
+
+	if metaOnly {
+		meta.MetaOnly = true
+		return meta, nil
+	}
 
 	// The KV loop consumed every key and either read or seek-skipped every
 	// value, so the reader is now sitting on the tensor-info block. A file

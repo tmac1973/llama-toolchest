@@ -113,6 +113,10 @@ type Model struct {
 	// fixed (see HelperConfig), it is not offered for chat or
 	// benchmarks, and the only thing to do with it is remove it.
 	HelperRole bool `json:"helper_role,omitempty"`
+	// Seeded is set when the config was filled in from a recommendation
+	// as the model finished downloading, and cleared by the first change
+	// anyone makes to it. Nil otherwise.
+	Seeded *SeedNote `json:"seeded,omitempty"`
 	// Mixture-of-experts layout, for --n-cpu-moe (see GGUFMeta). All zero
 	// on a dense model.
 	ExpertCount      int   `json:"expert_count,omitempty"`
@@ -510,18 +514,24 @@ func (r *Registry) Add(m *Model) error {
 	r.claimPendingLocked(m)
 	// Set default config
 	if _, exists := r.data.Configs[m.ID]; !exists {
-		r.data.Configs[m.ID] = &ModelConfig{
-			Enabled:        true,
-			GPULayers:      999,
-			TensorSplit:    "",
-			SplitMode:      "",
-			ContextSize:    8192,
-			Threads:        ThreadsFor(runtime.NumCPU()),
-			FlashAttention: true,
-			Jinja:          true,
-		}
+		cfg := DefaultConfig()
+		r.data.Configs[m.ID] = &cfg
 	}
 	return r.save()
+}
+
+// DefaultConfig is the config a newly registered model starts with. The
+// browse tab's fit plans start from it too, so a file is judged by the
+// settings it would actually get.
+func DefaultConfig() ModelConfig {
+	return ModelConfig{
+		Enabled:        true,
+		GPULayers:      999,
+		ContextSize:    8192,
+		Threads:        ThreadsFor(runtime.NumCPU()),
+		FlashAttention: true,
+		Jinja:          true,
+	}
 }
 
 // List returns all models, sorted alphabetically by ModelID.

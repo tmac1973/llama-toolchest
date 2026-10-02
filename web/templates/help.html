@@ -255,6 +255,22 @@
     <p>Search <strong>HuggingFace</strong> or <strong>ModelScope</strong> for GGUF repos, browse files, and download specific quants — pick the host with the radio buttons above the search box. Downloads resume on interruption. Large models are shown with their total size so you know what you're committing to. After a download completes, recommended sampling presets are fetched automatically in the background and appear in <em>Configure → Sampling</em>.</p>
     <p>ModelScope mirrors most of the popular GGUF repositories and can be the faster of the two depending on where you are. Gated models require a token for the host you are downloading from — set it under <a href="/settings">Settings</a>.</p>
 
+    <h3 id="recommended">Recommended models</h3>
+    <p><strong>Find recommended models</strong>, above the search box, lists GGUF models from HuggingFace that should run well on this machine, and suggests one file (a quant) of each. It looks at the most downloaded and trending models and at the newest uploads from well-known publishers, then checks about 40 of them in full: their files, and the description at the start of the largest file. Every figure comes from the same planner Autoconfigure uses.</p>
+    <ul>
+        <li><strong>Context size</strong> (8K, 32K, 128K, Model maximum) is how much text the model can keep in mind at once. For each model the list suggests the largest quant that runs at that size. More context needs more memory, so a longer context can mean a smaller quant or an 8-bit KV cache.</li>
+        <li><strong>Best quality</strong> puts larger models first, counting the quant: a much larger model at 4 bits usually beats a smaller one at 8 bits. Below about 4 bits per weight the loss starts to show, so those quants count for less. How widely a model is used counts a little too.</li>
+        <li><strong>Fastest</strong> puts first the models that read the least data for each word they write. Mixture-of-experts models read only the experts they use, so they are often fast for their size.</li>
+        <li><strong>Longest context</strong> puts first the models that can hold the most text on this machine. <strong>Newest</strong> puts first the models published most recently.</li>
+        <li><strong>Bits per weight</strong> is the file size divided by the number of weights. Around 4.5 or more keeps nearly all of a model's quality. Below 3 is never suggested.</li>
+        <li><strong>Experts in system memory</strong>: a mixture-of-experts model too large for the GPU can keep some of its expert weights in system memory. It runs, but more slowly. A dense model that would need layers on the CPU is not suggested at all.</li>
+        <li>Publishers that quantize the same model share one card. The card names one of them; the others are listed under <em>Details</em>.</li>
+        <li><strong>Could not be fully checked</strong> lists models that looked promising but whose files or description could not be read, or that this llama.cpp build cannot load.</li>
+        <li>Every figure is an estimate from the model's description, not a measurement. Real use can differ by a few percent.</li>
+        <li>The list is kept for six hours, or until the GPUs or the active build change. <em>Refresh</em> asks HuggingFace again.</li>
+    </ul>
+    <p>A model downloaded from a recommendation starts with the settings the card showed: the context size, KV cache type, GPU placement and experts in system memory. Its <em>Configure</em> panel says so until you change something. <a href="#profiles">Autoconfigure and Autotune</a> can refine them.</p>
+
     <h3>Vision models &amp; projector files</h3>
     <p>Some vision-capable LLMs come as two files: the main GGUF (text+vision weights) and a separate <strong>mmproj</strong> file (the vision projector — maps image embeddings into the model's text space). On HuggingFace these usually live in the same repo, with names like <code>mmproj-<em>model</em>.gguf</code>.</p>
     <ul>

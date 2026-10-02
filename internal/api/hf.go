@@ -35,6 +35,10 @@ type hfFileView struct {
 	// several seconds. Such a file renders a placeholder and is filled in
 	// when the answer arrives.
 	EstimatePending bool
+	// Fit is how the file would run on this machine, or nil when it could
+	// not be planned (no GPU reading, or no model description), in which
+	// case the table falls back to the size-only label.
+	Fit *fileFit
 }
 
 // hfModelView is the template payload for the HF file-list partial.
@@ -49,6 +53,15 @@ type hfModelView struct {
 	// cells. Absent when every file already has its answer, so a listing
 	// of small files or a repeat visit costs no second round trip.
 	AnyPending bool
+
+	// Set when the panel was opened from a recommendation: the file the
+	// card suggested, the context size it was suggested for (passed on to
+	// the download, so the model can start with the planned settings),
+	// and the other repos publishing the same model.
+	Suggest      string
+	SuggestLabel string
+	Ctx          string
+	Alts         []string
 }
 
 func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
@@ -103,15 +116,42 @@ func (s *Server) handleHFModel(w http.ResponseWriter, r *http.Request) {
 		FreeBytes:      s.downloader.FreeBytes(),
 		SafetyMargin:   huggingface.DiskSafetyMarginBytes,
 	}
+	if ctxName := r.URL.Query().Get("ctx"); recommendClasses[ctxName] != "" {
+		view.Ctx = ctxName
+		view.Suggest = r.URL.Query().Get("suggest")
+		view.SuggestLabel = "Suggested for " + contextLabel(ctxName)
+		if ctxName == "max" {
+			view.SuggestLabel = "Suggested for the model's maximum context"
+		}
+		for _, a := range strings.Split(r.URL.Query().Get("alts"), ",") {
+			if a = strings.TrimSpace(a); a != "" && a != detail.ID {
+				view.Alts = append(view.Alts, a)
+			}
+		}
+	}
 	// Apply only what is already known. Measuring the rest reads a slice
 	// of every shard's header over the network, and doing that here is
 	// what made the file list take seconds to appear: the listing was
 	// serialized behind every probe in it. Those files render a
 	// placeholder and are filled in by one deferred request.
 	pending := s.applyCachedProbes(source, detail)
+	// The fit plans need the repository's model description. A cached one
+	// is used at once; otherwise every model file waits for the same
+	// deferred request, which reads one header for all of them.
+	var meta *models.GGUFMeta
+	probeFile, hasModel := modelsource.MetaProbeFile(detail.Files)
+	if hasModel {
+		meta = s.repoMeta(r.Context(), source, detail.ID, probeFile, false)
+	}
+	fits := s.planFileFits(detail, meta)
+	metaPending := hasModel && meta == nil && len(s.hardware().GPUs) > 0
 
 	for _, f := range detail.Files {
-		fv := hfFileView{ModelFile: f, EstimatePending: pending[f.Filename]}
+		fv := hfFileView{
+			ModelFile:       f,
+			EstimatePending: pending[f.Filename] || (metaPending && !f.IsMMProj),
+			Fit:             fits[f.Filename],
+		}
 		view.AnyPending = view.AnyPending || fv.EstimatePending
 		if _, ok := s.registry.HasFile(detail.ID, f.Filename); ok {
 			fv.AlreadyDownloaded = true
@@ -139,6 +179,10 @@ func (s *Server) handleHFDownload(w http.ResponseWriter, r *http.Request) {
 		Filename string `json:"filename"`
 		Size     int64  `json:"size"`
 		Source   string `json:"source"`
+		// Set by a file panel opened from a recommendation: the context
+		// size the file was suggested for.
+		Ctx  string `json:"ctx"`
+		From string `json:"from"`
 	}
 
 	if r.Header.Get("Content-Type") == "application/json" {
@@ -152,6 +196,8 @@ func (s *Server) handleHFDownload(w http.ResponseWriter, r *http.Request) {
 		req.Filename = r.FormValue("filename")
 		req.Size, _ = strconv.ParseInt(r.FormValue("size"), 10, 64)
 		req.Source = r.FormValue("source")
+		req.Ctx = r.FormValue("ctx")
+		req.From = r.FormValue("from")
 	}
 	req.Source = s.requestSource(req.Source)
 
@@ -197,6 +243,9 @@ func (s *Server) handleHFDownload(w http.ResponseWriter, r *http.Request) {
 		}
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	if class, ok := recommendClasses[req.Ctx]; ok && req.From == "recommend" {
+		s.rememberSeed(downloadID, class)
 	}
 
 	if inline && isHTMX(r) {
@@ -485,6 +534,13 @@ func (s *Server) onDownloadComplete(source, downloadID, modelID, filename string
 	// which keeps it out of the chat, benchmark and /v1 lists.
 	s.claimDownloadedHelper(m)
 
+	// A model downloaded from a recommendation starts with the settings
+	// the card showed. Before the image reader and MTP association
+	// below, which add to the config without making it anyone's own.
+	if class, ok := s.takeSeed(downloadID); ok {
+		s.seedFromRecommendation(m.ID, class)
+	}
+
 	// Check if an mmproj file already exists in the same directory
 	if mmproj := models.FindMMProj(filePath); mmproj != "" {
 		if cfg, err := s.registry.GetConfig(m.ID); err == nil && cfg.MmprojPath == "" {
@@ -584,11 +640,29 @@ func (s *Server) handleHFModelEstimates(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+	// The two reads are independent: one finds the per-layer embedding
+	// table in large split files, the other the model description every
+	// file's plan needs.
+	var meta *models.GGUFMeta
+	metaDone := make(chan struct{})
+	// Chosen before the probe below starts writing to the file list.
+	probeFile, hasModel := modelsource.MetaProbeFile(detail.Files)
+	go func() {
+		defer close(metaDone)
+		if !hasModel {
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		defer cancel()
+		meta = s.repoMeta(ctx, source, detail.ID, probeFile, true)
+	}()
 	s.probeStreamedBytes(r.Context(), source, detail)
+	<-metaDone
+	fits := s.planFileFits(detail, meta)
 
 	view := hfModelView{ID: detail.ID, Source: source, Files: make([]hfFileView, 0, len(detail.Files))}
 	for _, f := range detail.Files {
-		view.Files = append(view.Files, hfFileView{ModelFile: f})
+		view.Files = append(view.Files, hfFileView{ModelFile: f, Fit: fits[f.Filename]})
 	}
 	respondHTML(w)
 	s.renderPartial(w, "hf_file_estimates", view)

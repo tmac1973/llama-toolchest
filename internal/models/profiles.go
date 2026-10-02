@@ -337,6 +337,7 @@ func (r *Registry) ApplyProfile(id, name string) error {
 	next.ActiveProfile = p.Name
 	NormalizeSpec(&next)
 	*cfg = next
+	m.Seeded = nil
 	return r.save()
 }
 

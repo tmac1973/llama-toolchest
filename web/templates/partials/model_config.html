@@ -44,6 +44,10 @@
       hx-on::response-error="var e=this.querySelector('.cfg-save-error'); if(e){e.textContent='Not saved: '+(event.detail.xhr.responseText.trim()||('server returned '+event.detail.xhr.status)); e.style.display='block';}"
       hx-on::send-error="var e=this.querySelector('.cfg-save-error'); if(e){e.textContent='Not saved: could not reach the server.'; e.style.display='block';}">
 
+    {{if .SeededText}}
+    <p style="margin:0 0 0.75rem;"><small><mark title="{{.SeededTip}}">{{.SeededText}}</mark></small></p>
+    {{end}}
+
 
     <label title="Friendly names for this model. Clients can use these instead of the full ID. Comma-separated, e.g. qwen3:latest, my-chat-model">
         Aliases

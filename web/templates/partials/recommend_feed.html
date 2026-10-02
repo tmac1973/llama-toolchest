@@ -1,0 +1,126 @@
+{{/* "Find recommended models" on the Download Models tab. The page loads
+     with the collapsed form; the button swaps in the feed, and Hide
+     swaps the collapsed form back. Every sentence comes from
+     recommend_view.go. */}}
+{{define "recommend_collapsed"}}
+<div class="rec-collapsed">
+    <button type="button" class="secondary"
+            hx-get="/api/hf/recommend?intent=quality&ctx=32k"
+            hx-target="#recommend-feed" hx-swap="innerHTML"
+            hx-on::before-request="this.setAttribute('aria-busy','true')"
+            hx-on::after-request="this.removeAttribute('aria-busy')"
+            title="Models from Hugging Face that should run on this machine, with the quant and context each would get. The first search can take up to a minute.">
+        Find recommended models
+    </button>
+</div>
+{{end}}
+
+{{define "recommend_feed"}}
+<article class="rec-feed">
+    <header class="rec-head">
+        <div>
+            <strong>Recommended for this machine</strong><br>
+            <small class="rec-muted" title="{{.ProfileTip}}">{{.Profile}}</small>
+            {{if .Age}}<small class="rec-muted"> · {{.Age}}</small>{{end}}
+        </div>
+        <div class="rec-actions">
+            <button type="button" class="outline secondary"
+                    hx-post="/api/hf/recommend/refresh?intent={{.Intent}}&ctx={{.Ctx}}"
+                    hx-target="#recommend-feed" hx-swap="innerHTML"
+                    hx-on::before-request="this.setAttribute('aria-busy','true')"
+                    hx-on::after-request="this.removeAttribute('aria-busy')"
+                    title="Ask Hugging Face again. The list is otherwise kept for six hours.">Refresh</button>
+            <button type="button" class="outline secondary"
+                    hx-get="/api/hf/recommend?collapsed=1"
+                    hx-target="#recommend-feed" hx-swap="innerHTML"
+                    title="Hide the recommendations. They are kept, so showing them again is quick.">Hide</button>
+        </div>
+    </header>
+
+    {{if .Unavailable}}
+    <p class="rec-note">No recommendations right now. {{.Unavailable}} Search below still works.</p>
+    {{else}}
+    <div class="rec-controls">
+        <div role="group" class="rec-buttons" aria-label="Context size">
+            {{range .Contexts}}
+            <button type="button" class="outline{{if not .Pressed}} secondary{{end}}" aria-pressed="{{.Pressed}}"
+                    hx-get="/api/hf/recommend?intent={{$.Intent}}&ctx={{.Value}}"
+                    hx-target="#recommend-feed" hx-swap="innerHTML"
+                    title="{{.Tip}}">{{.Label}}</button>
+            {{end}}
+        </div>
+        <div role="group" class="rec-buttons" aria-label="Order">
+            {{range .Intents}}
+            <button type="button" class="outline{{if not .Pressed}} secondary{{end}}" aria-pressed="{{.Pressed}}"
+                    hx-get="/api/hf/recommend?intent={{.Value}}&ctx={{$.Ctx}}"
+                    hx-target="#recommend-feed" hx-swap="innerHTML"
+                    title="{{.Tip}}">{{.Label}}</button>
+            {{end}}
+        </div>
+    </div>
+
+    {{if .Stale}}<p class="rec-note">{{.Stale}}</p>{{end}}
+    {{if .Empty}}<p class="rec-note">{{.Empty}}</p>{{end}}
+
+    <div class="rec-cards">
+        {{range .Cards}}{{template "recommend_card" .}}{{end}}
+    </div>
+    {{if .More}}
+    <details class="rec-more">
+        <summary>Show {{len .More}} more</summary>
+        <div class="rec-cards">
+            {{range .More}}{{template "recommend_card" .}}{{end}}
+        </div>
+    </details>
+    {{end}}
+    {{if .Hidden}}<p class="rec-muted"><small>{{.Hidden}}</small></p>{{end}}
+
+    {{if .Unverified}}
+    <details class="rec-more">
+        <summary title="Models that looked promising but could not be checked in full. They are left out of the list rather than guessed at.">{{len .Unverified}} could not be fully checked</summary>
+        <ul>
+            {{range .Unverified}}
+            <li><a href="https://huggingface.co/{{.Repo}}" target="_blank" rel="noopener">{{.Repo}}</a>{{if .Gated}} <mark title="You must accept the model's license on Hugging Face and set your token in Settings.">gated</mark>{{end}} — {{.Reason}}</li>
+            {{end}}
+        </ul>
+    </details>
+    {{end}}
+    {{end}}
+</article>
+{{end}}
+
+{{define "recommend_card"}}
+<div class="rec-card">
+    <div class="rec-card-main">
+        <div>
+            <a href="{{.NameURL}}" target="_blank" rel="noopener"><strong>{{.Name}}</strong> ↗</a>
+            <small class="rec-muted" title="The repository this file comes from. Others publishing the same model are listed under Details.">from {{.Publisher}}</small>
+            {{if .Gated}}<mark title="You must accept the model's license on Hugging Face and set your token in Settings.">gated</mark>{{end}}
+            {{if .Vision}}<mark title="{{.Vision}}">vision</mark>{{end}}
+        </div>
+        <div>
+            <kbd title="The suggested file's quantization: how the model's weights are stored.">{{.Quant}}</kbd>
+            <small>{{.Size}} ·
+                <span title="Average bits stored per weight. Around 4.5 or more keeps nearly all of the model's quality; below 4 the loss starts to show.">{{.BPW}}</span></small>
+        </div>
+        <div>
+            <small>
+                <span title="{{.PlacementTip}}"{{if .Slow}} class="rec-slow"{{end}}>{{.Placement}}</span> ·
+                <span title="How much text the model can keep in mind at once with this file.">{{.Context}}</span> ·
+                <span title="{{.KVTip}}">{{.KV}}</span> ·
+                <span title="{{.MemoryTip}}">{{.Memory}}</span>{{if .Fewest}} ·
+                <span title="The plan spreads the model over every GPU, as Autoconfigure does, but it would also fit on fewer: useful for running two models at once.">{{.Fewest}}</span>{{end}}
+            </small>
+        </div>
+        {{if .Next}}<div><small class="rec-muted" title="What the suggestion would be at the next larger context size.">{{.Next}}</small></div>{{end}}
+    </div>
+    <div>
+        <button type="button" class="outline"
+                hx-get="{{.DetailsURL}}"
+                hx-target="#rec-detail-{{.ID}}" hx-swap="innerHTML"
+                hx-on::before-request="let t=document.getElementById('rec-detail-{{.ID}}'); if(t.innerHTML.trim()){t.innerHTML=''; event.preventDefault();}"
+                title="Files, sizes, disk space and the download button.">Details</button>
+    </div>
+</div>
+<div id="rec-detail-{{.ID}}" class="rec-detail"></div>
+{{end}}

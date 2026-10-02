@@ -37,12 +37,21 @@ type File struct {
 	StreamedBytes int64 `json:"streamed_bytes,omitempty"`
 	StreamProbed  bool  `json:"stream_probed,omitempty"`
 	IsMMProj      bool  `json:"is_mmproj,omitempty"` // true for vision projector files
+	// OID identifies the file's content on the host (HuggingFace's LFS
+	// sha256; the first shard's for a split file). Empty when the host
+	// gives none. Used to key cached header reads.
+	OID string `json:"oid,omitempty"`
 }
 
 // Detail holds one repository's GGUF files.
 type Detail struct {
 	ID    string `json:"id"`
 	Files []File `json:"files"`
+	// ParamCount is the model's parameter count as the host reports it
+	// (HuggingFace's gguf.total), or 0 when it does not. It lets one
+	// header read describe every quant in the repository; see
+	// models.GGUFMeta.DerivedFor.
+	ParamCount int64 `json:"param_count,omitempty"`
 }
 
 // Source ids for the model repositories llama-toolchest can use. They are
