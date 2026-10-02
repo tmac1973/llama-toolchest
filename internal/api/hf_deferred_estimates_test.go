@@ -96,7 +96,7 @@ func TestFillTargetsOnlyTheEstimateCells(t *testing.T) {
 	if n := strings.Count(out, `hx-swap-oob="true"`); n != 2 {
 		t.Errorf("%d out-of-band swaps, want 2 (the VRAM cell and the fit cell)", n)
 	}
-	for _, want := range []string{"vram-", "fit-", "45.1 GiB", "held in system memory"} {
+	for _, want := range []string{"vram-", "fit-", "45.1 GiB", "GiB embedding table, read from disk"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("fill is missing %q; output=\n%s", want, out)
 		}
@@ -123,7 +123,7 @@ func TestFirstRenderAndFillAgree(t *testing.T) {
 	filled := renderFiles(t, "hf_file_estimates", hfModelView{
 		ID: "r", Files: []hfFileView{{ModelFile: f}},
 	})
-	for _, want := range []string{"45.1 GiB", "held in system memory"} {
+	for _, want := range []string{"45.1 GiB", "GiB embedding table, read from disk"} {
 		if !strings.Contains(settled, want) || !strings.Contains(filled, want) {
 			t.Errorf("%q appears in only one of the two renders", want)
 		}

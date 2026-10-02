@@ -41,6 +41,13 @@ type hfFileView struct {
 	Fit *fileFit
 }
 
+// EmbeddingTableStreamed reports whether llama.cpp reads the file's
+// per-layer embedding table from disk as needed (its default for tables
+// over models.PLEAutoMinBytes) rather than loading it into system memory.
+func (f hfFileView) EmbeddingTableStreamed() bool {
+	return f.StreamedBytes > models.PLEAutoMinBytes
+}
+
 // hfModelView is the template payload for the HF file-list partial.
 type hfModelView struct {
 	ID             string

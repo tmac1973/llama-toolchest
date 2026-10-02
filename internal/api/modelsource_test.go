@@ -228,7 +228,7 @@ func TestFileListShowsStreamedPortion(t *testing.T) {
 		t.Fatalf("execute: %v", err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, "held in system memory") {
+	if !strings.Contains(out, "GiB embedding table, read from disk") {
 		t.Errorf("off-card portion not surfaced; output=\n%s", out)
 	}
 	// The full download is still what lands on disk, so Size must not be
