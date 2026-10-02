@@ -505,7 +505,15 @@ func buildTarget(b *builder.BuildResult) models.Target {
 // activeTarget is buildTarget for the build the router would launch with
 // right now.
 func (s *Server) activeTarget() models.Target {
-	return buildTarget(s.resolveActiveBuild())
+	return s.targetFor(s.resolveActiveBuild())
+}
+
+// targetFor is buildTarget with this machine's GPUs, which the preset
+// needs to balance expert offload across cards.
+func (s *Server) targetFor(b *builder.BuildResult) models.Target {
+	t := buildTarget(b)
+	t.GPUMiB = models.GPUMiB(s.hardware())
+	return t
 }
 
 // resolveBuild returns the build to launch for an explicit id, falling
