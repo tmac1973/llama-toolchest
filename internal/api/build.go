@@ -648,3 +648,19 @@ func (s *Server) renderPartial(w http.ResponseWriter, name string, data any) {
 		slog.Error("renderPartial failed on all page templates", "name", name, "error", lastErr)
 	}
 }
+
+// supportedArchs is the set of model architectures the build the router
+// runs can load. known is false when that is not known (no build, or one
+// without a recorded list), and then nothing should be judged by it: a
+// missing list must never count against a model.
+func (s *Server) supportedArchs() (archs map[string]bool, known bool) {
+	b := s.resolveActiveBuild()
+	if b == nil || len(b.Archs) == 0 {
+		return nil, false
+	}
+	archs = make(map[string]bool, len(b.Archs))
+	for _, a := range b.Archs {
+		archs[a] = true
+	}
+	return archs, true
+}

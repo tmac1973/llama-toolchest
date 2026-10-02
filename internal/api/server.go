@@ -268,6 +268,9 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 		}
 	}
 	s.pages = s.parseTemplates()
+	// Builds made before the architecture list was recorded get it from
+	// the checkout's history; a git call per build, so off the startup path.
+	go bld.BackfillArchs()
 	s.llm = &llmcall.Client{Backend: &helperBackend{s: s}, HTTP: &http.Client{Timeout: 5 * time.Minute}}
 	s.tuneStore = autotune.NewStore(cfg.DataDir)
 	s.tuner = autotune.NewRunner(autotune.Deps{

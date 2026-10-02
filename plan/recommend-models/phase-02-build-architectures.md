@@ -71,3 +71,14 @@ HuggingFace has GGUF repos for programs other than llama.cpp. For example,
 
 ## Rollback
 Revert the commit. The new field is optional and older code ignores it.
+
+## As built
+
+- Today's upstream table has 154 entries; 152 names are kept once `clip`
+  and `(unknown)` are left out. The test data is a trimmed copy of
+  upstream's `src/llama-arch.cpp`.
+- `BackfillArchs` runs in a goroutine from `NewServer`, so the git calls
+  stay off the startup path. Each build costs one `git show`.
+- `Server.supportedArchs()` reads the build the router actually runs
+  (`resolveActiveBuild`), not only the saved choice, so "Auto" is handled
+  the same way.

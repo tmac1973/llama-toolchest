@@ -81,6 +81,11 @@ type BuildResult struct {
 	// scale as b-tags. Zero on builds from before the field existed;
 	// those fall back to parsing the b-number out of GitRef.
 	CommitCount int `json:"commit_count,omitempty"`
+	// Archs lists the model architectures (GGUF general.architecture
+	// names) this build's llama.cpp can load, read from its source. Empty
+	// when not known: a build from before the field existed whose commit
+	// is gone, or a source layout ParseArchNames does not recognize.
+	Archs []string `json:"archs,omitempty"`
 }
 
 const buildLogHistorySize = 2000
@@ -703,6 +708,7 @@ func (b *Builder) runBuild(ctx context.Context, prof BuildProfile, srcDir string
 	os.RemoveAll(buildDir)
 
 	result.BinaryPath = dstBin
+	result.Archs = archsFromCheckout(srcDir)
 	b.finishBuild(result, BuildStatusSuccess, "")
 	sendLog(fmt.Sprintf("==> Build complete: %s", dstBin))
 }
