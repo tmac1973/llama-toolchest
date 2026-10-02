@@ -35,6 +35,10 @@ type hfFileView struct {
 	// several seconds. Such a file renders a placeholder and is filled in
 	// when the answer arrives.
 	EstimatePending bool
+	// Fit is how the file would run on this machine, or nil when it could
+	// not be planned (no GPU reading, or no model description), in which
+	// case the table falls back to the size-only label.
+	Fit *fileFit
 }
 
 // hfModelView is the template payload for the HF file-list partial.
@@ -109,9 +113,23 @@ func (s *Server) handleHFModel(w http.ResponseWriter, r *http.Request) {
 	// serialized behind every probe in it. Those files render a
 	// placeholder and are filled in by one deferred request.
 	pending := s.applyCachedProbes(source, detail)
+	// The fit plans need the repository's model description. A cached one
+	// is used at once; otherwise every model file waits for the same
+	// deferred request, which reads one header for all of them.
+	var meta *models.GGUFMeta
+	probeFile, hasModel := metaProbeFile(detail.Files)
+	if hasModel {
+		meta = s.repoMeta(r.Context(), source, detail.ID, probeFile, false)
+	}
+	fits := s.planFileFits(detail, meta)
+	metaPending := hasModel && meta == nil && len(s.hardware().GPUs) > 0
 
 	for _, f := range detail.Files {
-		fv := hfFileView{ModelFile: f, EstimatePending: pending[f.Filename]}
+		fv := hfFileView{
+			ModelFile:       f,
+			EstimatePending: pending[f.Filename] || (metaPending && !f.IsMMProj),
+			Fit:             fits[f.Filename],
+		}
 		view.AnyPending = view.AnyPending || fv.EstimatePending
 		if _, ok := s.registry.HasFile(detail.ID, f.Filename); ok {
 			fv.AlreadyDownloaded = true
@@ -584,11 +602,29 @@ func (s *Server) handleHFModelEstimates(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+	// The two reads are independent: one finds the per-layer embedding
+	// table in large split files, the other the model description every
+	// file's plan needs.
+	var meta *models.GGUFMeta
+	metaDone := make(chan struct{})
+	// Chosen before the probe below starts writing to the file list.
+	probeFile, hasModel := metaProbeFile(detail.Files)
+	go func() {
+		defer close(metaDone)
+		if !hasModel {
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		defer cancel()
+		meta = s.repoMeta(ctx, source, detail.ID, probeFile, true)
+	}()
 	s.probeStreamedBytes(r.Context(), source, detail)
+	<-metaDone
+	fits := s.planFileFits(detail, meta)
 
 	view := hfModelView{ID: detail.ID, Source: source, Files: make([]hfFileView, 0, len(detail.Files))}
 	for _, f := range detail.Files {
-		view.Files = append(view.Files, hfFileView{ModelFile: f})
+		view.Files = append(view.Files, hfFileView{ModelFile: f, Fit: fits[f.Filename]})
 	}
 	respondHTML(w)
 	s.renderPartial(w, "hf_file_estimates", view)

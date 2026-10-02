@@ -10,7 +10,10 @@
 </p>
 <table role="grid">
     <thead>
-        <tr><th>File</th><th>Quant</th><th>Size</th><th>VRAM Est.</th><th>Fit</th><th></th></tr>
+        <tr><th>File</th><th>Quant</th><th>Size</th>
+            <th title="Estimated GPU memory with every layer on the GPU, at 32K context (or the model's limit, if shorter) and a full-precision KV cache. Includes the model, the KV cache and llama.cpp's working memory.">VRAM Est.</th>
+            <th title="How this file would run on this machine's GPUs: the longest context it can hold with every layer on the GPU. Hover a cell for each context size. Planned the same way Autoconfigure plans a downloaded model.">Fit</th>
+            <th></th></tr>
     </thead>
     <tbody>
         {{range $i, $f := .Files}}
@@ -20,7 +23,7 @@
             <td>{{printf "%.1f" (divGB $f.Size)}} GiB</td>
             <td><span id="vram-{{cssID $.ID}}-{{$i}}">
                 {{- if $f.EstimatePending -}}
-                    <small aria-busy="true" title="Reading this model's headers to find the part that never occupies VRAM.">Calculating…</small>
+                    <small aria-busy="true" title="Reading this model's description from the start of its file, to work out how much memory it needs.">Calculating…</small>
                 {{- else -}}
                     {{template "hf_vram_cell" $f}}
                 {{- end -}}
@@ -62,16 +65,26 @@
 {{/* One file's VRAM figure. Shared so the deferred fill and the first
      render cannot drift into showing different things. */}}
 {{define "hf_vram_cell"}}
-{{printf "%.1f" .VRAMEstGB}} GiB
+{{if .Fit}}{{printf "%.1f" .Fit.VRAMGiB}} GiB{{else}}{{printf "%.1f" .VRAMEstGB}} GiB{{end}}
 {{- if gt .StreamedBytes 0}}<br><small title="This architecture keeps its per-layer embedding table in system memory rather than on the graphics card, so that part does not count toward the VRAM estimate. It is still part of the download and still takes disk space.">+{{printf "%.1f" (divGB .StreamedBytes)}} GiB held in system memory</small>{{end}}
 {{end}}
 
 {{define "hf_fit_cell"}}
+{{- if .IsMMProj -}}
+<small title="The image reader for this model, not a model of its own. When it is turned on it needs about its own size in extra GPU memory.">—</small>
+{{- else if .Fit -}}
+{{- $tip := printf "%s\n\nEstimated from the model's description. Real use can differ by a few percent." .Fit.Detail -}}
+{{if eq .Fit.Kind "gpu"}}<ins title="{{$tip}}">{{.Fit.Label}}</ins>
+{{else if eq .Fit.Kind "experts"}}<mark title="Some expert layers are kept in system memory. It runs, but generation is slower.&#10;&#10;{{$tip}}">{{.Fit.Label}}</mark>
+{{else if eq .Fit.Kind "partial"}}<mark title="Only part of the model fits on the GPUs. The rest runs on the CPU, which is much slower.&#10;&#10;{{$tip}}">{{.Fit.Label}}</mark>
+{{else}}<del title="{{$tip}}">{{.Fit.Label}}</del>{{end}}
+{{- else -}}
 {{- $fit := vramFit .VRAMEstGB -}}
-{{if eq $fit "too_large"}}<del>Too Large</del>
-{{else if eq $fit "fits"}}<ins>Fits</ins>
+{{if eq $fit "too_large"}}<del title="Judged from the file size only: the model's description could not be read.">Too Large</del>
+{{else if eq $fit "fits"}}<ins title="Judged from the file size only: the model's description could not be read.">Fits</ins>
 {{else if eq $fit ""}}—
-{{else}}<mark>{{$fit}}</mark>{{end}}
+{{else}}<mark title="Judged from the file size only: the model's description could not be read.">{{$fit}}</mark>{{end}}
+{{- end}}
 {{end}}
 
 {{/* The deferred fill: only the two cells per file, swapped in place, so

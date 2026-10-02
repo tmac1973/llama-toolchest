@@ -122,7 +122,8 @@ selector added and cards that name a suggested quant.
 - The Details panel with `suggest` highlights one row, and passes `ctx` on
   to the download button.
 - Every metric on a card has a tooltip. A test walks the rendered card and
-  checks that each figure's element has a `data-tooltip`.
+  checks that each figure's element has a `title` (the project's tooltip
+  convention).
 
 ## Commit
 `feat: Find recommended models on the Download Models tab`

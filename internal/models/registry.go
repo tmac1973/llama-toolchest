@@ -510,18 +510,24 @@ func (r *Registry) Add(m *Model) error {
 	r.claimPendingLocked(m)
 	// Set default config
 	if _, exists := r.data.Configs[m.ID]; !exists {
-		r.data.Configs[m.ID] = &ModelConfig{
-			Enabled:        true,
-			GPULayers:      999,
-			TensorSplit:    "",
-			SplitMode:      "",
-			ContextSize:    8192,
-			Threads:        ThreadsFor(runtime.NumCPU()),
-			FlashAttention: true,
-			Jinja:          true,
-		}
+		cfg := DefaultConfig()
+		r.data.Configs[m.ID] = &cfg
 	}
 	return r.save()
+}
+
+// DefaultConfig is the config a newly registered model starts with. The
+// browse tab's fit plans start from it too, so a file is judged by the
+// settings it would actually get.
+func DefaultConfig() ModelConfig {
+	return ModelConfig{
+		Enabled:        true,
+		GPULayers:      999,
+		ContextSize:    8192,
+		Threads:        ThreadsFor(runtime.NumCPU()),
+		FlashAttention: true,
+		Jinja:          true,
+	}
 }
 
 // List returns all models, sorted alphabetically by ModelID.

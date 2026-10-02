@@ -173,3 +173,53 @@ This phase is useful by itself, and phase 03 builds directly on it.
 ## Rollback
 Revert the commit. The disk cache folder can be deleted; nothing else reads
 it until phase 03.
+
+## As built
+
+- **Where the read stops.** On all 19 local files checked and the 12 most
+  downloaded GGUF repos, every `{arch}.*` key comes before `tokenizer.*`,
+  and the tokenizer begins within the first 2.2 KB. The metadata section
+  itself ends at 3.5–15.8 MB.
+  - The parse stops at the token list (whose header gives the vocabulary
+    size) or at the first other tokenizer *string* array.
+  - It passes number arrays, such as gemma-4's `suppress_tokens`, which
+    comes first in its tokenizer. Skipping them is a seek, which reads
+    nothing.
+  - It stops only when `block_count`, `embedding_length`, `head_count` and
+    `context_length` are known, and never once a model key has appeared
+    after a tokenizer key.
+- **One popular repo scatters its keys**
+  (`HauhauCS/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP-GGUF`):
+  `block_count` comes after a 4.8 MB token list. The budget was raised from
+  the planned 4 MiB to 16 MiB, the same as `ProbePLE`. That file costs
+  14 MB in 12 requests, once, since the result is cached.
+- **Cost on the 12 most downloaded repos:** one 64 KiB range request
+  (two round trips, counting HuggingFace's redirect), 66 KB, 60–570 ms.
+  One repo needed 330 KB. Two repos are not llama.cpp models
+  (`locate-anything`, `audio.cpp`) and correctly yield no description.
+- **The probe reads the largest model file, not the smallest.** A header
+  costs the same whatever the file size, and the largest file is certainly
+  the main model. The smallest can be a draft model or an MTP head kept in
+  the same repo.
+- **Files the description cannot speak for:** a file whose bits per weight
+  against the repo's parameter count fall outside 1–34 keeps the old
+  size-only label.
+- **Derived against measured sizes** (`TestDeriveMatchesFullParse` on
+  compute2, 19 files):
+  - the estimate at 32K is within −0.3% to +2.3% for every file, and
+    within 1% for all but three;
+  - with half the expert layers in system memory it is within −2.0% to
+    −0.2%; the largest shortfall is 0.27 GiB (`persona_kappa_20b`);
+  - expert layer spans match on every MoE file (gpt-oss, Qwen3.6-35B-A3B,
+    gemma-4-26B-A4B).
+- **Parameter count:** HuggingFace's `/api/models/{id}` already returns
+  `gguf.total`, so the browse tab needed no extra request. ModelScope gives
+  none; its files are derived without it, which makes the estimate slightly
+  high.
+- **Image readers** (mmproj files) get a "—" with a tooltip, rather than a
+  plan or the size-only label.
+- **Found, not changed:** the existing estimator counts every Gemma 3 layer
+  as full attention, because Gemma 3 files do not carry
+  `sliding_window_pattern` (llama.cpp sets the pattern in code). Gemma 3
+  estimates are therefore high: about 12 GiB of KV cache at 32K for a 12B
+  model. Worth its own fix.

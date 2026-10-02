@@ -142,8 +142,10 @@ For each finalist group, with up to 8 running at once:
   - mmproj files: the group is marked "vision", and the smallest mmproj
     size is recorded;
   - MTP heads, which are ignored.
-- Read the metadata of the smallest main file with `ProbeMeta` (phase 01,
-  cached on disk).
+- Read the metadata of the largest main file with `ProbeMeta` (phase 01,
+  cached on disk). Use the same `metaProbeFile` as the browse tab: the
+  largest file is certainly the main model, and a header costs the same
+  whatever the file size.
 - Cache the file list at `<DataDir>/recommend/repos/<safe id>@<sha>.json`.
   The `sha` comes from the list query, so a new commit gives a new entry.
   Entries never expire. A warm build makes no tree or header requests.

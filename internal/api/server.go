@@ -65,6 +65,11 @@ type Server struct {
 	probeMu    sync.RWMutex
 	probeCache map[string]modelsource.ProbeResult
 
+	// metaCache holds the model descriptions read from remote GGUF
+	// headers, which the Download Models Fit column plans from. Nil in
+	// tests that do not set it, which then read every header afresh.
+	metaCache *modelsource.MetaCache
+
 	// detailCache holds a repository's file list for long enough to serve
 	// one page: the listing and the deferred request that fills in its
 	// VRAM figures both need it, and fetching twice per click would double
@@ -212,6 +217,7 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 		downloader:     huggingface.NewDownloader(cfg.DataDir, cfg.ModelsPath(), cfg.HFToken),
 		registry:       models.NewRegistry(cfg.DataDir, cfg.ModelsPath()),
 		presets:        presets.NewFetcher(filepath.Join(cfg.DataDir, "cache", "presets"), cfg.HFToken),
+		metaCache:      modelsource.NewMetaCache(filepath.Join(cfg.DataDir, "cache", "gguf-meta")),
 		process:        process.NewManager(),
 		monitor:        mon,
 		bench:          benchmark.NewStore(cfg.DataDir, builderResolver(bld)),

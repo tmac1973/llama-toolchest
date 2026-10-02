@@ -111,12 +111,15 @@ func (c *Client) GetModel(ctx context.Context, modelID string) (*ModelDetail, er
 		Siblings []struct {
 			Filename string `json:"rfilename"`
 		} `json:"siblings"`
+		GGUF struct {
+			Total int64 `json:"total"`
+		} `json:"gguf"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return nil, err
 	}
 
-	detail := &ModelDetail{ID: raw.ID}
+	detail := &ModelDetail{ID: raw.ID, ParamCount: raw.GGUF.Total}
 	for _, s := range raw.Siblings {
 		if !strings.HasSuffix(strings.ToLower(s.Filename), ".gguf") {
 			continue
@@ -158,20 +161,33 @@ func (c *Client) populateFileSizes(ctx context.Context, modelID string, detail *
 	var tree []struct {
 		Path string `json:"path"`
 		Size int64  `json:"size"`
+		OID  string `json:"oid"`
+		LFS  *struct {
+			OID string `json:"oid"`
+		} `json:"lfs"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&tree); err != nil {
 		return
 	}
 
-	sizeMap := map[string]int64{}
+	type entry struct {
+		size int64
+		oid  string
+	}
+	byPath := map[string]entry{}
 	for _, t := range tree {
-		sizeMap[t.Path] = t.Size
+		e := entry{size: t.Size, oid: t.OID}
+		if t.LFS != nil && t.LFS.OID != "" {
+			e.oid = t.LFS.OID
+		}
+		byPath[t.Path] = e
 	}
 
 	for i := range detail.Files {
-		if size, ok := sizeMap[detail.Files[i].Filename]; ok {
-			detail.Files[i].Size = size
-			detail.Files[i].VRAMEstGB = estimateVRAM(size)
+		if e, ok := byPath[detail.Files[i].Filename]; ok {
+			detail.Files[i].Size = e.size
+			detail.Files[i].OID = e.oid
+			detail.Files[i].VRAMEstGB = estimateVRAM(e.size)
 		}
 	}
 }

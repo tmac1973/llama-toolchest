@@ -64,6 +64,7 @@ func GroupShards(files []File) []File {
 			VRAMEstGB:  EstimateVRAM(totalSize),
 			Shards:     shardNames,
 			ShardSizes: shardSizes,
+			OID:        g.shards[0].OID,
 		})
 	}
 
