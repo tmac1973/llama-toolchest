@@ -66,12 +66,13 @@ func (s *Server) planFileFits(detail *modelsource.Detail, meta *models.GGUFMeta)
 	if len(hw.GPUs) == 0 {
 		return nil
 	}
+	params := modelsource.RepoParams(detail.Files, detail.ParamCount)
 	out := map[string]*fileFit{}
 	for _, f := range detail.Files {
-		if f.IsMMProj || f.Size <= 0 || !modelsource.PlausibleFile(f, detail.ParamCount) {
+		if f.IsMMProj || f.Size <= 0 || !modelsource.PlausibleFile(f, params) {
 			continue
 		}
-		out[f.Filename] = planFileFit(modelsource.PlanModel(meta, f, detail.ParamCount), hw)
+		out[f.Filename] = planFileFit(modelsource.PlanModel(meta, f, params), hw)
 	}
 	return out
 }

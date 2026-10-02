@@ -483,11 +483,17 @@ func (s *Server) templateFuncs() template.FuncMap {
 			return (max - value) / max * 100
 		},
 		"vramFit": func(estimatedGB float64) string {
-			metrics := s.monitor.Current()
-			numGPUs := len(metrics.GPU)
+			// The same cards the fit planner uses: an integrated GPU is
+			// left out when a dedicated one exists. Counting it made a
+			// 16 GB card plus an iGPU read as "fits in 2 GPUs".
+			cards := models.PlanCards(s.hardware())
+			numGPUs := len(cards)
 			perGPU := 32.0 // fallback
 			if numGPUs > 0 {
-				perGPU = float64(metrics.GPU[0].VRAMTotalMB) / 1024.0
+				perGPU = float64(cards[0].VRAMTotalMiB) / 1024.0
+				for _, c := range cards[1:] {
+					perGPU = min(perGPU, float64(c.VRAMTotalMiB)/1024.0)
+				}
 			} else {
 				numGPUs = 1
 			}

@@ -89,11 +89,8 @@ func (e *Engine) verify(ctx context.Context, hub Hub, g *Group, p Profile) verdi
 	// a plausible quant of a model that size, the count belongs to some
 	// other file, and the model's size is worked out from its largest
 	// file instead.
-	if g.Params <= 0 || !modelsource.PlausibleFile(probe, g.Params) {
-		g.Params = paramsFromFile(probe)
-		if g.Params <= 0 {
-			return verdict{unverified: reasonParams}
-		}
+	if g.Params = modelsource.RepoParams(files, g.Params); g.Params <= 0 {
+		return verdict{unverified: reasonParams}
 	}
 	if g.Params < minParams {
 		return verdict{dropped: true}

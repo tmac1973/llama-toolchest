@@ -104,3 +104,21 @@ func TestFitCellForAnImageReader(t *testing.T) {
 		t.Errorf("image reader cell: %s", out)
 	}
 }
+
+// The size-only label, used when a file cannot be planned, counts the
+// same cards the planner does. A 16 GB card with a 2 GB integrated GPU
+// read as room for "2 GPU".
+func TestSizeOnlyLabelIgnoresTheIntegratedGPU(t *testing.T) {
+	hw := models.Hardware{GPUs: []models.GPUSpec{
+		{Index: 0, Name: "RX 9070 XT", VRAMTotalMiB: 16 * 1024},
+		{Index: 1, Name: "iGPU", VRAMTotalMiB: 2 * 1024, IsIGPU: true},
+	}}
+	s := &Server{testHardware: &hw}
+	vramFit := s.templateFuncs()["vramFit"].(func(float64) string)
+	if got := vramFit(23.3); got != "too_large" {
+		t.Errorf("23.3 GiB on one 16 GB card = %q, want too_large", got)
+	}
+	if got := vramFit(10); got != "fits" {
+		t.Errorf("10 GiB = %q, want fits", got)
+	}
+}

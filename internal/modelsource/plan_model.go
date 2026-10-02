@@ -64,3 +64,45 @@ func PlanModel(meta *models.GGUFMeta, f File, params int64) *models.Model {
 	d.ApplyTo(m)
 	return m
 }
+
+// nominalBPW is the usual bits per weight of a quant, for working out a
+// model's parameter count from a file when the host's count is wrong.
+// Only quants common as a repo's largest file are listed.
+var nominalBPW = map[string]float64{
+	"F32": 32, "F16": 16, "BF16": 16,
+	"Q8_0": 8.5, "UD_Q8_K_XL": 8.5, "Q8_K_XL": 8.5,
+	"Q6_K": 6.56, "Q6_K_L": 6.56, "UD_Q6_K_XL": 6.56,
+	"Q5_K_M": 5.69, "Q5_K_S": 5.54, "Q4_K_M": 4.85,
+}
+
+// ParamsFromFile estimates a model's parameter count from one file and
+// its quant, or 0 when the quant's usual size is not known.
+func ParamsFromFile(f File) int64 {
+	bpw, ok := nominalBPW[f.Quant]
+	if !ok {
+		bpw, ok = nominalBPW[models.ParseQuant(f.Filename)]
+	}
+	if !ok || f.Size <= 0 {
+		return 0
+	}
+	return int64(float64(f.Size) * 8 / bpw)
+}
+
+// RepoParams is a repository's parameter count: the host's, when its
+// largest model file is a plausible quant of a model that size, and
+// otherwise one worked out from that file (0 when it cannot be).
+//
+// HuggingFace's count comes from its summary of one GGUF file of its
+// choosing, which is sometimes the image reader or a draft model: a
+// 35B repository reported as 0.45B parameters of architecture "clip".
+// Believed, it made every real file look implausible.
+func RepoParams(files []File, hostParams int64) int64 {
+	probe, ok := MetaProbeFile(files)
+	if !ok {
+		return hostParams
+	}
+	if hostParams > 0 && PlausibleFile(probe, hostParams) {
+		return hostParams
+	}
+	return ParamsFromFile(probe)
+}

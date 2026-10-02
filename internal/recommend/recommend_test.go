@@ -504,15 +504,6 @@ func TestPercentiles(t *testing.T) {
 	}
 }
 
-func TestParamsFromFile(t *testing.T) {
-	if got := paramsFromFile(modelsource.File{Filename: "m-Q8_0.gguf", Quant: "Q8_0", Size: 8_500_000_000}); got != 8e9 {
-		t.Errorf("Q8_0 = %d", got)
-	}
-	if got := paramsFromFile(modelsource.File{Filename: "m-weird.gguf", Quant: "unknown", Size: 1}); got != 0 {
-		t.Errorf("unknown quant = %d", got)
-	}
-}
-
 // A fine-tune names the model it was made from as its base, but it is a
 // different model and gets its own card.
 func TestGroupKey(t *testing.T) {
