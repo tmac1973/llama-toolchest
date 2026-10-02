@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.33.1](https://github.com/tmac1973/llama-toolchest/compare/v2.33.0...v2.33.1) (2026-10-02)
+
+
+### Bug Fixes
+
+* recommendations count embedding tables kept in system memory, and the VRAM column shows the plan ([#212](https://github.com/tmac1973/llama-toolchest/issues/212)) ([f332dc6](https://github.com/tmac1973/llama-toolchest/commit/f332dc64b1702471ef9d1dd4abd558352a2fb299))
+
 ## [2.33.0](https://github.com/tmac1973/llama-toolchest/compare/v2.32.0...v2.33.0) (2026-10-02)
 
 
