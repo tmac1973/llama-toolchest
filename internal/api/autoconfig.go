@@ -64,6 +64,9 @@ func (s *Server) autoconfigSnapshot() (autoconfigRun, bool) {
 
 // hardware describes this machine for the fit planner.
 func (s *Server) hardware() models.Hardware {
+	if s.testHardware != nil {
+		return *s.testHardware
+	}
 	m := s.monitor.Current()
 	hw := models.Hardware{LogicalCores: m.CPU.Cores, RAMTotalMiB: m.Memory.TotalMB}
 	for _, g := range m.GPU {

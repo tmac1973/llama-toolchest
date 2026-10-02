@@ -73,6 +73,16 @@ type Server struct {
 
 	// recommend builds and keeps the "Find recommended models" list.
 	recommend *recommend.Engine
+	// pendingSeeds holds, by download ID, the context class a download
+	// started from a recommendation was suggested for, so the finished
+	// model can start with the planned settings. Downloads are not kept
+	// across a restart, and neither is this.
+	seedMu       sync.Mutex
+	pendingSeeds map[string]models.ContextClass
+
+	// testHardware replaces the system monitor's machine in hardware(),
+	// for tests that plan against a known one. Nil in production.
+	testHardware *models.Hardware
 
 	// detailCache holds a repository's file list for long enough to serve
 	// one page: the listing and the deferred request that fills in its

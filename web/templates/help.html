@@ -269,6 +269,7 @@
         <li>Every figure is an estimate from the model's description, not a measurement. Real use can differ by a few percent.</li>
         <li>The list is kept for six hours, or until the GPUs or the active build change. <em>Refresh</em> asks HuggingFace again.</li>
     </ul>
+    <p>A model downloaded from a recommendation starts with the settings the card showed: the context size, KV cache type, GPU placement and experts in system memory. Its <em>Configure</em> panel says so until you change something. <a href="#profiles">Autoconfigure and Autotune</a> can refine them.</p>
 
     <h3>Vision models &amp; projector files</h3>
     <p>Some vision-capable LLMs come as two files: the main GGUF (text+vision weights) and a separate <strong>mmproj</strong> file (the vision projector — maps image embeddings into the model's text space). On HuggingFace these usually live in the same repo, with names like <code>mmproj-<em>model</em>.gguf</code>.</p>

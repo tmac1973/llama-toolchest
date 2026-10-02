@@ -712,6 +712,10 @@ type modelConfigPanelData struct {
 	// ReadOnlyReason is set when models.json cannot be saved; the panel
 	// says why before the user edits anything.
 	ReadOnlyReason string
+	// SeededText says the settings were filled in from a recommendation,
+	// until the first change; SeededTip gives the plan's reasons.
+	SeededText string
+	SeededTip  string
 
 	// Saved-profile bar (see models_profiles.go).
 	Profiles      []profileOption
@@ -862,6 +866,7 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 		ReadOnlyReason: s.registry.ReadOnlyReason(),
 	}
 	if model != nil {
+		data.SeededText, data.SeededTip = seededNote(model.Seeded)
 		data.HasExperts = model.ExpertCount > 0
 		data.NLayers = model.NLayers
 		if gib := models.VRAMBreakdownForConfigOn(model, cfg, models.DeviceCountForConfig(cfg, numGPUs)).CPURAM; gib >= 0.05 {
@@ -1072,6 +1077,11 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 	if err := s.registry.SetConfig(id, cfg); err != nil {
 		http.Error(w, err.Error(), registryErrorStatus(err, http.StatusInternalServerError))
 		return
+	}
+	// A change made here makes the config the user's own, whatever
+	// filled it in first.
+	if err := s.registry.ClearSeeded(id); err != nil {
+		slog.Warn("could not clear the recommendation mark", "model", id, "error", err)
 	}
 
 	s.afterConfigChange(w, r, id, cfg)

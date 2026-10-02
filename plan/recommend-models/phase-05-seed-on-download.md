@@ -107,3 +107,44 @@ the user where the settings came from. This matches vllm-toolchest's phase
 ## Rollback
 Revert the commit. Existing marks in `models.json` are ignored by older
 code. Configs already seeded stay as they are, as ordinary configs.
+
+## As built
+
+**Where the context is kept.** The download keeps its context class in a
+map on the server, keyed by download ID, not on the download record. The
+downloader is unchanged.
+
+**One registry call does the seeding.** `Registry.SeedConfig` writes the
+config and the mark under one lock, and only while the config is still
+`DefaultConfig()` with no active profile. A config claimed from a backup,
+saved as a profile or edited is left alone.
+
+**The mark is `Model.Seeded`** (`models.SeedNote`): the context asked for,
+the context given, and the plan's notes. Nothing else needed changing:
+older code ignores the field.
+
+**Clearing the mark:**
+- `ApplyProfile` clears it, which covers profile apply, Autoconfigure save
+  and Autotune apply.
+- The config form's PUT clears it.
+- A backup restore of a config clears it.
+- Turning a model on or off does not clear it, and neither does the
+  automatic image-reader or MTP association.
+
+**The note sits at the top of the config form,** so the autosave after the
+first change removes it. The plan's reasons for each setting are in its
+tooltip.
+
+**Live check (this machine).**
+- The feed suggested `unsloth/Qwen3.5-2B-GGUF` Q8_0 at 128K.
+- It was downloaded through the same POST the Download button sends.
+- The finished model got:
+  - 128K context and a full-precision KV cache, the same as the card;
+  - every layer on the GPU;
+  - GPU assignment `0`, with the integrated GPU left out;
+  - the note in its Configure panel.
+
+**Test side note.** `Registry.Get` returns the shared `*Model`, so the
+tests wait for the background preset fetch through
+`ListNeedingPresetFetch`, which reads under the lock. Reading the model
+directly races with that fetch.

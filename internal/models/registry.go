@@ -113,6 +113,10 @@ type Model struct {
 	// fixed (see HelperConfig), it is not offered for chat or
 	// benchmarks, and the only thing to do with it is remove it.
 	HelperRole bool `json:"helper_role,omitempty"`
+	// Seeded is set when the config was filled in from a recommendation
+	// as the model finished downloading, and cleared by the first change
+	// anyone makes to it. Nil otherwise.
+	Seeded *SeedNote `json:"seeded,omitempty"`
 	// Mixture-of-experts layout, for --n-cpu-moe (see GGUFMeta). All zero
 	// on a dense model.
 	ExpertCount      int   `json:"expert_count,omitempty"`

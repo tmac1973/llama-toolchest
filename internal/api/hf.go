@@ -179,6 +179,10 @@ func (s *Server) handleHFDownload(w http.ResponseWriter, r *http.Request) {
 		Filename string `json:"filename"`
 		Size     int64  `json:"size"`
 		Source   string `json:"source"`
+		// Set by a file panel opened from a recommendation: the context
+		// size the file was suggested for.
+		Ctx  string `json:"ctx"`
+		From string `json:"from"`
 	}
 
 	if r.Header.Get("Content-Type") == "application/json" {
@@ -192,6 +196,8 @@ func (s *Server) handleHFDownload(w http.ResponseWriter, r *http.Request) {
 		req.Filename = r.FormValue("filename")
 		req.Size, _ = strconv.ParseInt(r.FormValue("size"), 10, 64)
 		req.Source = r.FormValue("source")
+		req.Ctx = r.FormValue("ctx")
+		req.From = r.FormValue("from")
 	}
 	req.Source = s.requestSource(req.Source)
 
@@ -237,6 +243,9 @@ func (s *Server) handleHFDownload(w http.ResponseWriter, r *http.Request) {
 		}
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	if class, ok := recommendClasses[req.Ctx]; ok && req.From == "recommend" {
+		s.rememberSeed(downloadID, class)
 	}
 
 	if inline && isHTMX(r) {
@@ -524,6 +533,13 @@ func (s *Server) onDownloadComplete(source, downloadID, modelID, filename string
 	// A model downloaded for Autoconfigure's own use is marked as such,
 	// which keeps it out of the chat, benchmark and /v1 lists.
 	s.claimDownloadedHelper(m)
+
+	// A model downloaded from a recommendation starts with the settings
+	// the card showed. Before the image reader and MTP association
+	// below, which add to the config without making it anyone's own.
+	if class, ok := s.takeSeed(downloadID); ok {
+		s.seedFromRecommendation(m.ID, class)
+	}
 
 	// Check if an mmproj file already exists in the same directory
 	if mmproj := models.FindMMProj(filePath); mmproj != "" {

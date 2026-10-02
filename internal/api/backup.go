@@ -186,6 +186,9 @@ func (s *Server) restoreDeps() backup.Deps {
 			if err := s.registry.SetConfig(id, &cfg); err != nil {
 				return err
 			}
+			if err := s.registry.ClearSeeded(id); err != nil {
+				return err
+			}
 			s.markDirty(id)
 			return nil
 		},
