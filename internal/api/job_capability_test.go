@@ -625,3 +625,44 @@ func TestKLReferenceMustBeTheSameModel(t *testing.T) {
 		t.Errorf("an unknown-provenance reference should not be refused: %v", err)
 	}
 }
+
+// Capability evaluations run llama-perplexity directly, not through the
+// preset, so they need the same size-balanced split: with experts of the
+// first layers in system memory, llama.cpp's split by layer count put
+// 24.9 GiB on one 16 GiB card.
+func TestEvalFlagsBalanceExpertOffload(t *testing.T) {
+	reg := models.NewRegistry(t.TempDir(), "/models")
+	m := &models.Model{ID: "flash", ModelID: "unsloth/Qwen3.8-Flash-Next-GGUF", FilePath: "/models/flash.gguf",
+		SizeBytes: 111334654784, NLayers: 48, NEmbd: 2560, NHead: 24, NKVHead: 2,
+		ContextLength: 262144, KVFullPerTok: 12288, AttnLayers: 12, IndexerKeyLength: 128,
+		PLEBytes: 28800138240, TokenEmbdBytes: 675430400,
+		ExpertCount: 512, ExpertUsedCount: 10, ExpertBytes: 77017907200, ExpertLayers: 48}
+	if err := reg.Add(m); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.SetConfig("flash", &models.ModelConfig{Enabled: true, GPULayers: 999, Threads: 16,
+		GPUAssign: "all", SplitMode: "layer", CPUMoE: 32, ContextSize: 131072, KVCacheQuant: "q8_0", FlashAttention: true}); err != nil {
+		t.Fatal(err)
+	}
+	hw := models.Hardware{LogicalCores: 32, RAMTotalMiB: 64 * 1024}
+	for i := range 3 {
+		hw.GPUs = append(hw.GPUs, models.GPUSpec{Index: i, Name: "RTX A4000", VRAMTotalMiB: 16376})
+	}
+	s := &Server{registry: reg, cfg: &config.Config{DataDir: t.TempDir()}, monitor: monitor.New(time.Hour), testHardware: &hw}
+	s.builder = testBuilder(t)
+
+	flags, err := newJobEnv(s).EvalFlags("flash", benchmark.ConfigSnapshot{GPULayers: 999, CPUMoE: 32, KVCacheQuant: "q8_0"}, "b1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(flags, " ")
+	ts := ""
+	for i, f := range flags {
+		if f == "--tensor-split" && i+1 < len(flags) {
+			ts = flags[i+1]
+		}
+	}
+	if ts == "" || ts == "16,16,16" || !strings.Contains(joined, "--n-cpu-moe 32") {
+		t.Errorf("flags = %v, want a size-balanced --tensor-split", flags)
+	}
+}
