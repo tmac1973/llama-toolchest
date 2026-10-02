@@ -113,6 +113,7 @@ func PlanFit(m *Model, base ModelConfig, hw Hardware, class ContextClass) FitRes
 	}
 	budget, ramBudget := FitBudgets(hw)
 	nCards := max(1, len(PlanCards(hw)))
+	gpuMiB := GPUMiB(hw)
 
 	requested := ContextClassTokens[class]
 	trained := m.ContextLength
@@ -139,6 +140,16 @@ func PlanFit(m *Model, base ModelConfig, hw Hardware, class ContextClass) FitRes
 		}
 		if ramBudget > 0 && b.CPURAM > ramBudget {
 			return b, false
+		}
+		// With experts in system memory the layers differ in size, so
+		// the pooled total can fit while one card cannot. Each card is
+		// checked under the split the preset will write.
+		if loads, budgets, ok := PlanCardLoads(m, c, gpuMiB); ok {
+			for i := range loads {
+				if loads[i] > budgets[i] {
+					return b, false
+				}
+			}
 		}
 		return b, true
 	}
@@ -345,4 +356,14 @@ func FitBudgets(hw Hardware) (vramGiB, ramGiB float64) {
 		ramGiB = total - ramMarginGiB(total)
 	}
 	return vramGiB, ramGiB
+}
+
+// GPUMiB is each GPU's total memory, by position, as MoESplitConfig and
+// PlanCardLoads take it.
+func GPUMiB(hw Hardware) []int {
+	out := make([]int, len(hw.GPUs))
+	for i, g := range hw.GPUs {
+		out[i] = g.VRAMTotalMiB
+	}
+	return out
 }

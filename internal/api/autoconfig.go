@@ -67,6 +67,9 @@ func (s *Server) hardware() models.Hardware {
 	if s.testHardware != nil {
 		return *s.testHardware
 	}
+	if s.monitor == nil {
+		return models.Hardware{}
+	}
 	m := s.monitor.Current()
 	hw := models.Hardware{LogicalCores: m.CPU.Cores, RAMTotalMiB: m.Memory.TotalMB}
 	for _, g := range m.GPU {

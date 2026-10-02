@@ -19,6 +19,10 @@ type Target struct {
 	// unknown, and is written for as the newest llama.cpp, since a build
 	// made today is the likeliest one to be running.
 	Version int
+	// GPUMiB is each GPU's total memory, by index. It lets a config that
+	// keeps experts in system memory be given a split balanced by size
+	// (MoESplitConfig); without it llama.cpp's own split by count is used.
+	GPUMiB []int
 }
 
 // Where the options below changed upstream, as the first release tag

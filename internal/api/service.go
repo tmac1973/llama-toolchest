@@ -471,7 +471,7 @@ func (s *Server) startRouterWith(opt routerOptions) error {
 	var presetPath string
 	var err error
 	if opt.overrides != nil {
-		presetPath, err = s.registry.WriteBenchPresetINI(opt.overrides, buildTarget(build))
+		presetPath, err = s.registry.WriteBenchPresetINI(opt.overrides, s.targetFor(build))
 		if err != nil {
 			// Falling back to the saved preset would silently benchmark
 			// the wrong config — the exact failure this mechanism exists
@@ -479,7 +479,7 @@ func (s *Server) startRouterWith(opt routerOptions) error {
 			return fmt.Errorf("write benchmark preset: %w", err)
 		}
 	} else {
-		presetPath, err = s.registry.WritePresetINI(buildTarget(build))
+		presetPath, err = s.registry.WritePresetINI(s.targetFor(build))
 		if err != nil {
 			slog.Warn("failed to write preset INI", "error", err)
 		}
@@ -840,7 +840,7 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 	data := modelConfigPanelData{
 		ModelID:             id,
 		Config:              cfg,
-		EffectiveFlags:      cfg.EffectiveFlagsFor(isEmbedding, s.activeTarget()),
+		EffectiveFlags:      effectiveFlags(cfg, model, isEmbedding, s.activeTarget()),
 		MaxContext:          maxContext,
 		HasMMProj:           cfg.MmprojPath != "" || detectedMMProj != "",
 		HasMTP:              cfg.MtpPath != "" || detectedMTP != "",
@@ -1154,4 +1154,10 @@ func pleSizeLabel(m *models.Model) string {
 		return ""
 	}
 	return models.FormatVRAM(models.BytesToGiB(m.PLEBytes))
+}
+
+// effectiveFlags are the flags the preset gives the model, including a
+// split balanced by size when experts are kept in system memory.
+func effectiveFlags(cfg *models.ModelConfig, m *models.Model, isEmbedding bool, t models.Target) string {
+	return models.MoESplitConfig(cfg, m, t.GPUMiB).EffectiveFlagsFor(isEmbedding, t)
 }
