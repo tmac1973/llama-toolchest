@@ -297,3 +297,64 @@ A fake hub with a small sample market, as in vllm-toolchest's
 ## Rollback
 Revert the commit. The disk cache under `<DataDir>/recommend` can be
 deleted. Nothing outside the new endpoints reads the engine.
+
+## As built
+
+**Endpoints.** They live at `/api/hf/recommend` and
+`/api/hf/recommend/refresh`, next to the other HuggingFace endpoints.
+
+**HuggingFace's `gguf` summary describes one file the Hub chose.** Two of
+the most downloaded image-and-text repos showed it:
+- `cdiamond/Qwen3.8-27B…` reports architecture `clip` with 0.46B
+  parameters, which is its image reader.
+- `HauhauCS/…-MTP-GGUF` reports 1.86B, its draft head.
+
+So the summary is only a hint:
+- The architecture comes from the finalist's own header read.
+- The parameter count is checked against the largest file's bits per
+  weight. When the two cannot both be right, the count is worked out from
+  the largest file and its quant (`paramsFromFile`).
+- A `clip` summary skips the size filters until the header is read.
+
+**Filters added** after seeing the live pool:
+- embedding-only architectures (`modern-bert` and others from ggml-org's
+  feed are tagged as text models);
+- MTP-head architectures;
+- repo names containing `draft`, `eagle` or `dflash`. The plan's `-mtp`
+  was dropped: an `-MTP-` repo is usually a full model with built-in draft
+  layers.
+
+**First live build** (this machine: one 16 GB card plus an integrated GPU;
+then compute2: 3× A4000, 48 GB, 62 GB RAM):
+- 634 candidates, 40 finalists, 36–37 verified, 0 unverified, 3–4 dropped.
+- 3.3–3.9 s cold, 0.4 s with cached file lists and headers.
+
+**Changes made after the first lists:**
+- **3-bit quants filled Best quality.** 35B-A3B models at Q2_K_L/IQ3
+  (3.0–3.2 bits per weight) took the top four places on 16 GB.
+  - The quality factor below 4.2 bpw was lowered: 0.8 at 3.5–4.2 and 0.6
+    at 3.0–3.5 (planned: 0.85 and 0.75).
+  - The quant order for MoE models changed. After a ≥4.2 bpw quant on the
+    GPUs comes a Q4–Q5-class quant (4.2–6 bpw) with experts in system
+    memory, then a 3-bit quant on the GPUs. This answers the plan's open
+    question.
+- **Experts in system memory chose the largest quant (Q8).** That is the
+  most offload for the least gain, so the expert tiers stop at 6 bpw.
+- **Small models were given their BF16 file.** The GPU tier stops at
+  9 bpw, so Q8_0 wins. Full precision is a later tier, used only when a
+  repo has nothing smaller.
+- **Popularity had no part in quality,** so recent fine-tunes from trusted
+  publishers ranked level with well-known models. Quality is now
+  `0.65·pct(size) + 0.15·pct(downloads) + 0.10·headroom + 0.10·onGPU`.
+- **Fastest ignored how much was offloaded.** The plan's flat −0.40 for
+  experts in system memory is replaced by a read cost that weighs bytes
+  read from system memory 8× those read from the GPUs, plus −0.15 for the
+  rest.
+
+**Resulting top picks at 32K:**
+- 16 GB, Best quality: Ornith-1.5-35B-A3B and Qwen3.6-35B-A3B at Q5 with
+  experts in RAM, gemma-4-26B-A4B at IQ4_NL on the GPU, Qwen3.8-27B at
+  Q3_K_XL.
+- 16 GB, Fastest: small models and gemma-4-26B-A4B.
+- 48 GB, Best quality: Qwen3.8-Flash-Next 177B at IQ4_XS with experts in
+  RAM, then 35B-class models at Q8_0 on the GPUs.

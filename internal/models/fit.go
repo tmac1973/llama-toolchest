@@ -107,25 +107,12 @@ func PlanFit(m *Model, base ModelConfig, hw Hardware, class ContextClass) FitRes
 	// Placement: the same "all (discrete) GPUs" choice the config form
 	// offers by default, so an integrated GPU is left out when a real one
 	// exists.
-	var cards []GPUSpec
 	if opt := spanAllOption(hw.GPUs); opt != nil {
 		cfg.GPUAssign = opt.Value
 		cfg.TensorSplit, cfg.SplitMode, cfg.MainGPU = ResolveGPUAssign(opt.Value, len(hw.GPUs))
-		for _, i := range opt.GPUs {
-			cards = append(cards, hw.GPUs[i])
-		}
 	}
-	var budget float64
-	for _, g := range cards {
-		total := float64(g.VRAMTotalMiB) / 1024
-		budget += total - fitMarginGiB(total)
-	}
-	nCards := max(1, len(cards))
-	ramBudget := 0.0
-	if hw.RAMTotalMiB > 0 {
-		total := float64(hw.RAMTotalMiB) / 1024
-		ramBudget = total - ramMarginGiB(total)
-	}
+	budget, ramBudget := FitBudgets(hw)
+	nCards := max(1, len(PlanCards(hw)))
 
 	requested := ContextClassTokens[class]
 	trained := m.ContextLength
@@ -305,4 +292,57 @@ func groupDigits(n int) string {
 		s = s[:i] + "," + s[i:]
 	}
 	return s
+}
+
+// Placement is how a fit plan runs a model.
+type Placement string
+
+const (
+	PlacementGPU     Placement = "gpu"     // every layer on the GPUs
+	PlacementExperts Placement = "experts" // some MoE expert weights in system memory
+	PlacementPartial Placement = "partial" // a dense model with layers on the CPU
+	PlacementNone    Placement = "none"    // too large even with offloading
+)
+
+// Placement says how the plan runs m.
+func (r FitResult) Placement(m *Model) Placement {
+	c := r.Config
+	switch {
+	case !r.Fits:
+		return PlacementNone
+	case c.GPULayers > 0 && c.GPULayers < m.NLayers:
+		return PlacementPartial
+	case c.CPUMoE > 0:
+		return PlacementExperts
+	}
+	return PlacementGPU
+}
+
+// PlanCards returns the GPUs PlanFit spreads a model over: the dedicated
+// ones, or the integrated GPU when it is the only one.
+func PlanCards(hw Hardware) []GPUSpec {
+	opt := spanAllOption(hw.GPUs)
+	if opt == nil {
+		return nil
+	}
+	cards := make([]GPUSpec, 0, len(opt.GPUs))
+	for _, i := range opt.GPUs {
+		cards = append(cards, hw.GPUs[i])
+	}
+	return cards
+}
+
+// FitBudgets returns the GPU memory and system memory PlanFit allows a
+// model on this machine, after its safety margins. ramGiB is 0 when the
+// system memory is not known.
+func FitBudgets(hw Hardware) (vramGiB, ramGiB float64) {
+	for _, g := range PlanCards(hw) {
+		total := float64(g.VRAMTotalMiB) / 1024
+		vramGiB += total - fitMarginGiB(total)
+	}
+	if hw.RAMTotalMiB > 0 {
+		total := float64(hw.RAMTotalMiB) / 1024
+		ramGiB = total - ramMarginGiB(total)
+	}
+	return vramGiB, ramGiB
 }

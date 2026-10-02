@@ -31,6 +31,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/monitor"
 	"github.com/tmac1973/llama-toolchest/internal/presets"
 	"github.com/tmac1973/llama-toolchest/internal/process"
+	"github.com/tmac1973/llama-toolchest/internal/recommend"
 	"github.com/tmac1973/llama-toolchest/web"
 )
 
@@ -69,6 +70,9 @@ type Server struct {
 	// headers, which the Download Models Fit column plans from. Nil in
 	// tests that do not set it, which then read every header afresh.
 	metaCache *modelsource.MetaCache
+
+	// recommend builds and keeps the "Find recommended models" list.
+	recommend *recommend.Engine
 
 	// detailCache holds a repository's file list for long enough to serve
 	// one page: the listing and the deferred request that fills in its
@@ -271,6 +275,7 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 	// Builds made before the architecture list was recorded get it from
 	// the checkout's history; a git call per build, so off the startup path.
 	go bld.BackfillArchs()
+	s.recommend = s.newRecommendEngine(filepath.Join(cfg.DataDir, "cache", "recommend"))
 	s.llm = &llmcall.Client{Backend: &helperBackend{s: s}, HTTP: &http.Client{Timeout: 5 * time.Minute}}
 	s.tuneStore = autotune.NewStore(cfg.DataDir)
 	s.tuner = autotune.NewRunner(autotune.Deps{
@@ -655,6 +660,8 @@ func (s *Server) buildRouter() chi.Router {
 			r.Get("/search", s.handleHFSearch)
 			r.Get("/model", s.handleHFModel)
 			r.Get("/model/estimates", s.handleHFModelEstimates)
+			r.Get("/recommend", s.handleRecommend)
+			r.Post("/recommend/refresh", s.handleRecommendRefresh)
 			r.Post("/download", s.handleHFDownload)
 			r.Get("/downloads", s.handleHFActiveDownloads)
 			r.Get("/downloads-panel", s.handleDownloadsPanel)

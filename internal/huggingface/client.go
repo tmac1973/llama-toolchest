@@ -24,6 +24,9 @@ type Client struct {
 	// a listing is in flight on another goroutine.
 	mu    sync.RWMutex
 	token string
+
+	// apiBase replaces the HuggingFace API address, for tests.
+	apiBase string
 }
 
 // SetToken replaces the access token, so one saved in Settings applies to
@@ -145,20 +148,7 @@ func (c *Client) GetModel(ctx context.Context, modelID string) (*ModelDetail, er
 
 // populateFileSizes fetches file sizes from the HF tree API.
 func (c *Client) populateFileSizes(ctx context.Context, modelID string, detail *ModelDetail) {
-	u := fmt.Sprintf("%s/models/%s/tree/main?recursive=true", baseURL, modelID)
-	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
-	if err != nil {
-		return
-	}
-	c.setAuth(req)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return
-	}
-	defer resp.Body.Close()
-
-	var tree []struct {
+	type treeEntry struct {
 		Path string `json:"path"`
 		Size int64  `json:"size"`
 		OID  string `json:"oid"`
@@ -166,8 +156,29 @@ func (c *Client) populateFileSizes(ctx context.Context, modelID string, detail *
 			OID string `json:"oid"`
 		} `json:"lfs"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&tree); err != nil {
-		return
+	// The listing is paged past 1,000 entries, with the next page named in
+	// a Link header. Repositories that large are rare (the biggest checked
+	// held 395 files), but a missed page would leave sizes unknown.
+	var tree []treeEntry
+	next := fmt.Sprintf("%s/models/%s/tree/main?recursive=true", baseURL, modelID)
+	for page := 0; next != "" && page < 20; page++ {
+		req, err := http.NewRequestWithContext(ctx, "GET", next, nil)
+		if err != nil {
+			return
+		}
+		c.setAuth(req)
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return
+		}
+		var part []treeEntry
+		err = json.NewDecoder(resp.Body).Decode(&part)
+		resp.Body.Close()
+		if err != nil {
+			break
+		}
+		tree = append(tree, part...)
+		next = nextLink(resp.Header.Get("Link"))
 	}
 
 	type entry struct {
@@ -225,3 +236,19 @@ var (
 // ExpandShards returns all shard filenames for a split GGUF, or a
 // single-element slice for an unsplit one.
 func ExpandShards(filename string) []string { return modelsource.ExpandShards(filename) }
+
+// nextLink returns the rel="next" URL of an HTTP Link header, or "".
+func nextLink(h string) string {
+	for _, part := range strings.Split(h, ",") {
+		segs := strings.Split(part, ";")
+		if len(segs) < 2 {
+			continue
+		}
+		for _, p := range segs[1:] {
+			if strings.ReplaceAll(strings.TrimSpace(p), " ", "") == `rel="next"` {
+				return strings.Trim(strings.TrimSpace(segs[0]), "<>")
+			}
+		}
+	}
+	return ""
+}

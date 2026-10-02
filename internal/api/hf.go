@@ -117,7 +117,7 @@ func (s *Server) handleHFModel(w http.ResponseWriter, r *http.Request) {
 	// is used at once; otherwise every model file waits for the same
 	// deferred request, which reads one header for all of them.
 	var meta *models.GGUFMeta
-	probeFile, hasModel := metaProbeFile(detail.Files)
+	probeFile, hasModel := modelsource.MetaProbeFile(detail.Files)
 	if hasModel {
 		meta = s.repoMeta(r.Context(), source, detail.ID, probeFile, false)
 	}
@@ -608,7 +608,7 @@ func (s *Server) handleHFModelEstimates(w http.ResponseWriter, r *http.Request) 
 	var meta *models.GGUFMeta
 	metaDone := make(chan struct{})
 	// Chosen before the probe below starts writing to the file list.
-	probeFile, hasModel := metaProbeFile(detail.Files)
+	probeFile, hasModel := modelsource.MetaProbeFile(detail.Files)
 	go func() {
 		defer close(metaDone)
 		if !hasModel {

@@ -13,10 +13,8 @@ import (
 // would run on this machine, planned by the same models.PlanFit that
 // Autoconfigure uses, so the two never disagree.
 type fileFit struct {
-	// Kind is "gpu" (every layer on the GPUs), "experts" (some MoE expert
-	// weights in system memory), "partial" (a dense model with layers on
-	// the CPU) or "none" (too large even with offloading).
-	Kind string
+	// Kind is how the file runs at its best: see models.Placement.
+	Kind models.Placement
 	// Label is the cell text, e.g. "Up to 128K".
 	Label string
 	// Detail is one line per context size, for the tooltip.
@@ -32,25 +30,6 @@ const fitVRAMContext = 32768
 
 // fitClasses are the context sizes the Fit column plans, largest first.
 var fitClasses = []models.ContextClass{models.ContextMax, models.ContextLong, models.ContextMedium, models.ContextShort}
-
-// metaProbeFile picks the file whose header describes the repository: the
-// largest model file. Every quant carries the same description, and a
-// header read costs the same whatever the file's size, so the largest is
-// chosen because it is certainly the main model — a draft model or MTP
-// head kept in the same repository is always smaller.
-func metaProbeFile(files []modelsource.File) (modelsource.File, bool) {
-	var best modelsource.File
-	found := false
-	for _, f := range files {
-		if f.IsMMProj || f.Size <= 0 {
-			continue
-		}
-		if !found || f.Size > best.Size {
-			best, found = f, true
-		}
-	}
-	return best, found
-}
 
 // repoMeta returns the model description for a repository, read from f
 // (see metaProbeFile): from the cache or, when fetch is set, by reading
@@ -89,31 +68,12 @@ func (s *Server) planFileFits(detail *modelsource.Detail, meta *models.GGUFMeta)
 	}
 	out := map[string]*fileFit{}
 	for _, f := range detail.Files {
-		if f.IsMMProj || f.Size <= 0 || !sameModel(f, detail.ParamCount) {
+		if f.IsMMProj || f.Size <= 0 || !modelsource.PlausibleFile(f, detail.ParamCount) {
 			continue
 		}
-		d := meta.DerivedFor(f.Size, detail.ParamCount)
-		if f.StreamProbed {
-			d.PLEBytes = f.StreamedBytes // measured beats derived
-		}
-		m := &models.Model{SizeBytes: f.Size}
-		d.ApplyTo(m)
-		out[f.Filename] = planFileFit(m, hw)
+		out[f.Filename] = planFileFit(modelsource.PlanModel(meta, f, detail.ParamCount), hw)
 	}
 	return out
-}
-
-// sameModel reports whether a file plausibly holds the model the
-// repository's parameter count describes. A repository sometimes carries
-// a small draft model beside the main one; its bits per weight against
-// the main model's parameter count come out far below any real quant,
-// and the shared description would misdescribe it.
-func sameModel(f modelsource.File, params int64) bool {
-	if params <= 0 {
-		return true
-	}
-	bpw := float64(f.Size) * 8 / float64(params)
-	return bpw >= 1.0 && bpw <= 34
 }
 
 // planFileFit plans one file at every context class and sums the result
@@ -137,13 +97,13 @@ func planFileFit(m *models.Model, hw models.Hardware) *fileFit {
 
 		r := models.PlanFit(m, base, hw, class)
 		c := r.Config
-		kind := fitKind(m, r)
+		kind := r.Placement(m)
 		switch kind {
-		case "gpu":
+		case models.PlacementGPU:
 			bestGPU = max(bestGPU, c.ContextSize)
-		case "experts":
+		case models.PlacementExperts:
 			bestExperts = max(bestExperts, c.ContextSize)
-		case "partial":
+		case models.PlacementPartial:
 			anyPartial = true
 		}
 		lines = append(lines, tokensLabel(want)+": "+fitLine(m, r, kind, want))
@@ -152,13 +112,13 @@ func planFileFit(m *models.Model, hw models.Hardware) *fileFit {
 	fit := &fileFit{Detail: strings.Join(lines, "\n")}
 	switch {
 	case bestGPU > 0:
-		fit.Kind, fit.Label = "gpu", "Up to "+tokensLabel(bestGPU)
+		fit.Kind, fit.Label = models.PlacementGPU, "Up to "+tokensLabel(bestGPU)
 	case bestExperts > 0:
-		fit.Kind, fit.Label = "experts", "Experts in RAM · up to "+tokensLabel(bestExperts)
+		fit.Kind, fit.Label = models.PlacementExperts, "Experts in RAM · up to "+tokensLabel(bestExperts)
 	case anyPartial:
-		fit.Kind, fit.Label = "partial", "Partly on CPU"
+		fit.Kind, fit.Label = models.PlacementPartial, "Partly on CPU"
 	default:
-		fit.Kind, fit.Label = "none", "Too large"
+		fit.Kind, fit.Label = models.PlacementNone, "Too large"
 	}
 
 	ctx := fitVRAMContext
@@ -167,33 +127,20 @@ func planFileFit(m *models.Model, hw models.Hardware) *fileFit {
 	}
 	cfg := base
 	cfg.ContextSize = ctx
-	fit.VRAMGiB = models.VRAMEstimateForConfigOn(m, &cfg, discreteCards(hw))
+	fit.VRAMGiB = models.VRAMEstimateForConfigOn(m, &cfg, max(1, len(models.PlanCards(hw))))
 	return fit
 }
 
-func fitKind(m *models.Model, r models.FitResult) string {
-	c := r.Config
-	switch {
-	case !r.Fits:
-		return "none"
-	case c.GPULayers > 0 && c.GPULayers < m.NLayers:
-		return "partial"
-	case c.CPUMoE > 0:
-		return "experts"
-	}
-	return "gpu"
-}
-
 // fitLine describes one context class's plan in a few words.
-func fitLine(m *models.Model, r models.FitResult, kind string, want int) string {
+func fitLine(m *models.Model, r models.FitResult, kind models.Placement, want int) string {
 	c := r.Config
 	var parts []string
 	switch kind {
-	case "none":
+	case models.PlacementNone:
 		return "does not fit"
-	case "partial":
+	case models.PlacementPartial:
 		parts = append(parts, fmt.Sprintf("only %d of %d layers on the GPU", c.GPULayers, m.NLayers))
-	case "experts":
+	case models.PlacementExperts:
 		parts = append(parts, fmt.Sprintf("experts of %d layers in system memory", c.CPUMoE-m.ExpertLayerFirst))
 	default:
 		parts = append(parts, "all on the GPU")
@@ -219,16 +166,4 @@ func tokensLabel(n int) string {
 		return fmt.Sprintf("%dK", (n+512)/1024)
 	}
 	return fmt.Sprintf("%d", n)
-}
-
-// discreteCards is how many GPUs PlanFit spreads a model over: the
-// dedicated ones, or the integrated GPU when it is the only one.
-func discreteCards(hw models.Hardware) int {
-	n := 0
-	for _, g := range hw.GPUs {
-		if !g.IsIGPU {
-			n++
-		}
-	}
-	return max(1, n)
 }
