@@ -11,7 +11,7 @@
 <table role="grid">
     <thead>
         <tr><th>File</th><th>Quant</th><th>Size</th>
-            <th title="Estimated GPU memory with every layer on the GPU, at 32K context (or the model's limit, if shorter) and a full-precision KV cache. Includes the model, the KV cache and llama.cpp's working memory.">VRAM Est.</th>
+            <th title="Estimated GPU memory at 32K context (or the model's limit, if shorter), with the settings the Fit column describes: the ones Autoconfigure would choose. Includes the model, the KV cache and llama.cpp's working memory. What those settings keep in system memory is shown underneath. For a file that is too large, the figure is with every layer on the GPU.">VRAM Est.</th>
             <th title="How this file would run on this machine's GPUs: the longest context it can hold with every layer on the GPU. Hover a cell for each context size. Planned the same way Autoconfigure plans a downloaded model.">Fit</th>
             <th></th></tr>
     </thead>
@@ -70,7 +70,9 @@
 {{/* One file's VRAM figure. Shared so the deferred fill and the first
      render cannot drift into showing different things. */}}
 {{define "hf_vram_cell"}}
-{{if .Fit}}{{printf "%.1f" .Fit.VRAMGiB}} GiB{{else}}{{printf "%.1f" .VRAMEstGB}} GiB{{end}}
+{{if .Fit}}{{printf "%.1f" .Fit.VRAMGiB}} GiB
+{{- if gt .Fit.RAMGiB 0.0}}<br><small title="{{if eq .Fit.RAMKind "experts"}}Some of the model's expert weights are kept in system memory so the rest fits on the GPU. It runs, but generation is slower.{{else}}Only part of the model fits on the GPU; these layers run on the CPU, which is much slower.{{end}}">+{{printf "%.1f" .Fit.RAMGiB}} GiB {{if eq .Fit.RAMKind "experts"}}of experts{{else}}of layers{{end}} in system memory</small>{{end}}
+{{- else}}{{printf "%.1f" .VRAMEstGB}} GiB{{end}}
 {{- if gt .StreamedBytes 0}}<br><small title="This architecture keeps its per-layer embedding table in system memory rather than on the graphics card, so that part does not count toward the VRAM estimate. It is still part of the download and still takes disk space.">+{{printf "%.1f" (divGB .StreamedBytes)}} GiB held in system memory</small>{{end}}
 {{end}}
 

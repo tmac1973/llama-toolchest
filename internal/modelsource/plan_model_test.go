@@ -1,6 +1,10 @@
 package modelsource
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/tmac1973/llama-toolchest/internal/models"
+)
 
 func TestMetaProbeFileIsTheLargestModelFile(t *testing.T) {
 	files := []File{
@@ -65,5 +69,15 @@ func TestRepoParamsDistrustsAnImplausibleCount(t *testing.T) {
 	}
 	if got := RepoParams(files, 36_555_864_997); got != 36_555_864_997 {
 		t.Errorf("a plausible count was replaced: %d", got)
+	}
+}
+
+// A measured per-layer embedding table replaces the derived one: llama.cpp
+// keeps it in system memory, so it must not count as GPU memory.
+func TestPlanModelUsesTheMeasuredEmbeddingTable(t *testing.T) {
+	meta := &models.GGUFMeta{Architecture: "qwen4exp", NLayers: 48, NEmbd: 4096, NHead: 32, MetaOnly: true}
+	f := File{Filename: "m.gguf", Size: 80 << 30, StreamProbed: true, StreamedBytes: 26 << 30}
+	if m := PlanModel(meta, f, 170e9); m.PLEBytes != 26<<30 {
+		t.Errorf("PLEBytes = %d, want the measured 26 GiB", m.PLEBytes)
 	}
 }

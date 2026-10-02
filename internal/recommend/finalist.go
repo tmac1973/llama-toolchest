@@ -135,7 +135,9 @@ func (e *Engine) verify(ctx context.Context, hub Hub, g *Group, p Profile) verdi
 func (e *Engine) repoFiles(ctx context.Context, hub Hub, repo, sha string) ([]modelsource.File, error) {
 	path := ""
 	if e.Dir != "" && sha != "" {
-		path = filepath.Join(e.Dir, "repos", safeName(repo)+"@"+sha+".json")
+		// repos-v2: listings since the embedding-table probe was added.
+		// Older ones lack its result and would plan those models too large.
+		path = filepath.Join(e.Dir, "repos-v2", safeName(repo)+"@"+sha+".json")
 		if data, err := os.ReadFile(path); err == nil {
 			var files []modelsource.File
 			if json.Unmarshal(data, &files) == nil && len(files) > 0 {

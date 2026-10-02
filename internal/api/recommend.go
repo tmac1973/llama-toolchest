@@ -24,11 +24,18 @@ func (h recommendHub) ListGGUF(ctx context.Context, q huggingface.ListQuery) ([]
 	return h.client.ListGGUF(ctx, q)
 }
 
+// Files lists a repo's files with the same per-layer embedding probe the
+// file table runs. Some models keep tens of GiB in such a table, which
+// llama.cpp always holds in system memory; planned without it, a model
+// looks that much larger on the GPU. Qwen3.8-Flash-Next's 26.8 GiB table
+// was planned as GPU memory, and 46 layers of experts were moved to
+// system memory to make room for it.
 func (h recommendHub) Files(ctx context.Context, repo string) ([]modelsource.File, error) {
 	d, err := h.client.GetModel(ctx, repo)
 	if err != nil {
 		return nil, err
 	}
+	h.s.probeStreamedBytes(ctx, modelsource.SourceHuggingFace, d)
 	return d.Files, nil
 }
 
