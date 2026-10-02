@@ -131,3 +131,31 @@ selector added and cards that name a suggested quant.
 ## Rollback
 Revert the commit. The engine and its endpoints from phase 03 keep working
 as JSON.
+
+## As built
+
+- **Tooltips use `title`**, the project's convention, and the collapsed
+  section is a single button. Its explanation is in the button's tooltip
+  rather than a sentence under it.
+- **Refresh and Hide return HTML** rather than JSON plus a script that
+  re-clicks the pressed category, as in vllm-toolchest:
+  - Refresh posts the current category and context and gets the feed
+    back.
+  - Hide asks for `?collapsed=1` and gets the collapsed button back.
+  - The page needs no JavaScript beyond the htmx attributes.
+- **Units are GiB on the cards,** to match the file table's Size and VRAM
+  columns.
+- **Grouping by base model changed** (in `internal/recommend/group.go`).
+  - The first Details panel listed `HauhauCS/Gemma4-26B-A4B-QAT-Uncensored…`
+    and `FINAL-Bench/POCKET-26B-GGUF` as other publishers of
+    `google/gemma-4-26B-A4B-it`.
+  - Both are fine-tunes. They name Google's model as their base and are
+    even tagged `base_model:quantized:` from it, so neither field can be
+    trusted.
+  - A repo now joins a base model's card only when its name contains the
+    base model's name, letters and digits only:
+    `bartowski/google_gemma-4-26B-A4B-it-GGUF` joins; the fine-tunes get
+    their own cards.
+- **Checked with screenshots** of the real page (headless Chromium):
+  the collapsed state, the feed, and a Details panel opened from a card,
+  with the suggested row and "Also published by".

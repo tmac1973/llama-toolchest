@@ -17,8 +17,8 @@
     </thead>
     <tbody>
         {{range $i, $f := .Files}}
-        <tr>
-            <td><small>{{$f.Filename}}{{if $f.Shards}} ({{len $f.Shards}} parts){{end}}{{if $f.IsMMProj}} <mark style="padding:0 0.3rem;">vision</mark>{{end}}</small></td>
+        <tr{{if and $.Suggest (eq $f.Filename $.Suggest)}} class="rec-suggested"{{end}}>
+            <td><small>{{$f.Filename}}{{if $f.Shards}} ({{len $f.Shards}} parts){{end}}{{if $f.IsMMProj}} <mark style="padding:0 0.3rem;">vision</mark>{{end}}{{if and $.Suggest (eq $f.Filename $.Suggest)}} <mark style="padding:0 0.3rem;" title="The file the recommendation suggests for this machine at that context size.">{{$.SuggestLabel}}</mark>{{end}}</small></td>
             <td><kbd>{{$f.Quant}}</kbd></td>
             <td>{{printf "%.1f" (divGB $f.Size)}} GiB</td>
             <td><span id="vram-{{cssID $.ID}}-{{$i}}">
@@ -44,7 +44,7 @@
                 {{else}}
                     <button type="button"
                             hx-post="/api/hf/download"
-                            hx-vals='{"model_id":"{{$.ID}}","filename":"{{$f.Filename}}","size":"{{$f.Size}}","source":"{{$.Source}}"}'
+                            hx-vals='{"model_id":"{{$.ID}}","filename":"{{$f.Filename}}","size":"{{$f.Size}}","source":"{{$.Source}}"{{if $.Ctx}},"ctx":"{{$.Ctx}}","from":"recommend"{{end}}}'
                             hx-target="#dl-{{cssID $.ID}}-{{$i}}"
                             hx-swap="innerHTML">
                         Download
@@ -56,6 +56,11 @@
         {{end}}
     </tbody>
 </table>
+{{if .Alts}}
+<p style="font-size: 0.85rem;"><span title="Other repositories with GGUF files of the same model. Their files and sizes can differ.">Also published by:</span>
+    {{range $i, $a := .Alts}}{{if $i}} · {{end}}<a href="#" hx-get="/api/hf/model?id={{$a}}&source=hf" hx-target="closest .rec-detail" hx-swap="innerHTML">{{$a}}</a>{{end}}
+</p>
+{{end}}
 {{if .AnyPending}}
 <div hx-get="/api/hf/model/estimates?id={{.ID}}&source={{.Source}}"
      hx-trigger="load" hx-swap="none"></div>

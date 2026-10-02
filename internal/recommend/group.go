@@ -60,14 +60,26 @@ func (g *Group) Alts() []string {
 
 // groupKey is the base model a repo quantizes, in lower case: the first
 // cardData.base_model, or the repo's own name without a GGUF suffix.
+//
+// A repo joins its base model's card only when its name contains the base
+// model's name. Fine-tunes routinely name the model they were made from as
+// their base and tag themselves "quantized" from it, so neither field
+// tells a plain quant ("bartowski/google_gemma-4-26B-A4B-it-GGUF") from a
+// different model ("…/Gemma4-26B-A4B-Uncensored"); the name does.
 func groupKey(r huggingface.ListedModel) (key, base string) {
-	if len(r.CardData.BaseModel) > 0 && r.CardData.BaseModel[0] != "" {
-		base = r.CardData.BaseModel[0]
-		return strings.ToLower(base), base
-	}
 	name := r.ID
 	if i := strings.LastIndex(name, "/"); i >= 0 {
 		name = name[i+1:]
+	}
+	if len(r.CardData.BaseModel) > 0 && r.CardData.BaseModel[0] != "" {
+		b := r.CardData.BaseModel[0]
+		baseName := b
+		if i := strings.LastIndex(baseName, "/"); i >= 0 {
+			baseName = baseName[i+1:]
+		}
+		if nb := alnum(baseName); nb != "" && strings.Contains(alnum(name), nb) {
+			return strings.ToLower(b), b
+		}
 	}
 	for _, suffix := range []string{"-gguf", "_gguf", ".gguf"} {
 		if strings.HasSuffix(strings.ToLower(name), suffix) {
@@ -75,6 +87,20 @@ func groupKey(r huggingface.ListedModel) (key, base string) {
 		}
 	}
 	return strings.ToLower(name), ""
+}
+
+// alnum is s in lower case with everything but letters and digits removed,
+// so "gemma-4-26B-A4B-it" and "google_gemma-4-26b-a4b-it" compare.
+func alnum(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r + ('a' - 'A')
+		}
+		return -1
+	}, s)
 }
 
 // groupRepos gathers repos by base model and orders each group's repos:

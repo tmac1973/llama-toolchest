@@ -512,3 +512,23 @@ func TestParamsFromFile(t *testing.T) {
 		t.Errorf("unknown quant = %d", got)
 	}
 }
+
+// A fine-tune names the model it was made from as its base, but it is a
+// different model and gets its own card.
+func TestGroupKey(t *testing.T) {
+	for _, tt := range []struct{ id, base, want string }{
+		{"bartowski/google_gemma-4-26B-A4B-it-GGUF", "google/gemma-4-26B-A4B-it", "google/gemma-4-26b-a4b-it"},
+		{"unsloth/Qwen3.6-35B-A3B-MTP-GGUF", "Qwen/Qwen3.6-35B-A3B", "qwen/qwen3.6-35b-a3b"},
+		{"HauhauCS/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-MTP", "google/gemma-4-26B-A4B-it", "gemma4-26b-a4b-qat-uncensored-hauhaucs-balanced-mtp"},
+		{"FINAL-Bench/POCKET-26B-GGUF", "google/gemma-4-26B-A4B-it", "pocket-26b"},
+		{"someone/Plain-7B-GGUF", "", "plain-7b"},
+	} {
+		r := listed(tt.id, "llama", 8e9, 100)
+		if tt.base != "" {
+			base(tt.base)(&r)
+		}
+		if got, _ := groupKey(r); got != tt.want {
+			t.Errorf("groupKey(%s) = %q, want %q", tt.id, got, tt.want)
+		}
+	}
+}

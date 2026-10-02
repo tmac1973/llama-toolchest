@@ -53,6 +53,15 @@ type hfModelView struct {
 	// cells. Absent when every file already has its answer, so a listing
 	// of small files or a repeat visit costs no second round trip.
 	AnyPending bool
+
+	// Set when the panel was opened from a recommendation: the file the
+	// card suggested, the context size it was suggested for (passed on to
+	// the download, so the model can start with the planned settings),
+	// and the other repos publishing the same model.
+	Suggest      string
+	SuggestLabel string
+	Ctx          string
+	Alts         []string
 }
 
 func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
@@ -106,6 +115,19 @@ func (s *Server) handleHFModel(w http.ResponseWriter, r *http.Request) {
 		AvailableBytes: available,
 		FreeBytes:      s.downloader.FreeBytes(),
 		SafetyMargin:   huggingface.DiskSafetyMarginBytes,
+	}
+	if ctxName := r.URL.Query().Get("ctx"); recommendClasses[ctxName] != "" {
+		view.Ctx = ctxName
+		view.Suggest = r.URL.Query().Get("suggest")
+		view.SuggestLabel = "Suggested for " + contextLabel(ctxName)
+		if ctxName == "max" {
+			view.SuggestLabel = "Suggested for the model's maximum context"
+		}
+		for _, a := range strings.Split(r.URL.Query().Get("alts"), ",") {
+			if a = strings.TrimSpace(a); a != "" && a != detail.ID {
+				view.Alts = append(view.Alts, a)
+			}
+		}
 	}
 	// Apply only what is already known. Measuring the rest reads a slice
 	// of every shard's header over the network, and doing that here is

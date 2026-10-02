@@ -99,7 +99,7 @@ func TestFileListCarriesSourceIntoDownload(t *testing.T) {
 // of the setting.
 func TestBrowsePageRadioFollowsConfiguredDefault(t *testing.T) {
 	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/models_browse.html")
+		"templates/layout.html", "templates/models_browse.html", "templates/partials/recommend_feed.html")
 	if err != nil {
 		t.Fatalf("parse templates: %v", err)
 	}

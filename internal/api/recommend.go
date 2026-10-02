@@ -132,18 +132,32 @@ func (s *Server) recommendAnswer(pool *recommend.Pool, intent recommend.Intent, 
 }
 
 // handleRecommend serves the recommendations: GET
-// /api/recommend?intent=quality|fastest|context|newest&ctx=8k|32k|128k|max.
-// The first request builds the list; later ones read it. Always 200: a
-// failure is a sentence in the answer, so the page can show it.
+// /api/hf/recommend?intent=quality|fastest|context|newest&ctx=8k|32k|128k|max.
+// The first request builds the list; later ones read it. htmx requests
+// get the feed, others JSON. Always 200: a failure is a sentence in the
+// answer, so the page can show it. collapsed=1 returns the collapsed
+// form, for the feed's Hide button.
 func (s *Server) handleRecommend(w http.ResponseWriter, r *http.Request) {
-	intent, ctxName, class := recommendQuery(r)
-	pool := s.recommend.Get(r.Context(), s.recommendProfile(), false)
-	respondJSON(w, s.recommendAnswer(pool, intent, ctxName, class))
+	if r.URL.Query().Get("collapsed") == "1" {
+		respondHTML(w)
+		s.renderPartial(w, "recommend_collapsed", nil)
+		return
+	}
+	s.serveRecommend(w, r, false)
 }
 
 // handleRecommendRefresh rebuilds the list from HuggingFace.
 func (s *Server) handleRecommendRefresh(w http.ResponseWriter, r *http.Request) {
+	s.serveRecommend(w, r, true)
+}
+
+func (s *Server) serveRecommend(w http.ResponseWriter, r *http.Request, refresh bool) {
 	intent, ctxName, class := recommendQuery(r)
-	pool := s.recommend.Get(r.Context(), s.recommendProfile(), true)
+	pool := s.recommend.Get(r.Context(), s.recommendProfile(), refresh)
+	if isHTMX(r) {
+		respondHTML(w)
+		s.renderPartial(w, "recommend_feed", s.recommendFeed(pool, intent, ctxName, class, time.Now()))
+		return
+	}
 	respondJSON(w, s.recommendAnswer(pool, intent, ctxName, class))
 }

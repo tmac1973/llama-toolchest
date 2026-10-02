@@ -1,5 +1,27 @@
 {{define "content"}}
+<style>
+    #recommend-feed { margin-bottom: 1.25rem; }
+    .rec-feed { padding: 1rem; margin: 0; }
+    .rec-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; flex-wrap: wrap; padding: 0 0 0.75rem; margin-bottom: 0.75rem; }
+    .rec-actions { display: flex; gap: 0.4rem; }
+    .rec-actions button, .rec-buttons button { padding: 0.25rem 0.7rem; font-size: 0.85rem; width: auto; margin: 0; }
+    .rec-controls { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+    .rec-buttons { width: auto; margin: 0; }
+    .rec-muted { color: var(--pico-muted-color); }
+    .rec-note { color: var(--pico-muted-color); font-size: 0.9rem; }
+    .rec-card { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; padding: 0.6rem 0; border-top: 1px solid var(--pico-muted-border-color); }
+    .rec-card-main { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+    .rec-card mark { padding: 0 0.3rem; font-size: 0.8rem; }
+    .rec-card button { padding: 0.25rem 0.8rem; font-size: 0.85rem; margin: 0; }
+    .rec-slow { color: var(--pico-del-color, #c62828); }
+    .rec-more summary { font-size: 0.9rem; }
+    .rec-detail:empty { display: none; }
+    .rec-detail { padding-left: 0.75rem; border-left: 2px solid var(--pico-muted-border-color); }
+    tr.rec-suggested td { background: var(--pico-mark-background-color); }
+</style>
 <h1>Download Models</h1>
+
+<div id="recommend-feed">{{template "recommend_collapsed"}}</div>
 
 <form hx-get="/api/hf/search"
       hx-target="#hf-results"
