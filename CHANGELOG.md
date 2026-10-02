@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.33.0](https://github.com/tmac1973/llama-toolchest/compare/v2.32.0...v2.33.0) (2026-10-02)
+
+
+### Features
+
+* find recommended models on the Download Models tab ([#211](https://github.com/tmac1973/llama-toolchest/issues/211)) ([b240268](https://github.com/tmac1973/llama-toolchest/commit/b2402688d6762ac752eefc2548da54fd1e71ba03))
+
+
+### Bug Fixes
+
+* the benchmark job list updates when a job finishes ([#209](https://github.com/tmac1973/llama-toolchest/issues/209)) ([04f856a](https://github.com/tmac1973/llama-toolchest/commit/04f856a1406602ddfad6bf8419cb3f81be8a66c5))
+
 ## [2.32.0](https://github.com/tmac1973/llama-toolchest/compare/v2.31.1...v2.32.0) (2026-10-01)
 
 
