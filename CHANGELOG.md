@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.33.2](https://github.com/tmac1973/llama-toolchest/compare/v2.33.1...v2.33.2) (2026-10-02)
+
+
+### Bug Fixes
+
+* a running download in a quant subfolder is not also shown as incomplete ([#215](https://github.com/tmac1973/llama-toolchest/issues/215)) ([7653fe2](https://github.com/tmac1973/llama-toolchest/commit/7653fe2d13963cef53dc3333f41833fccc9f3555))
+* expert offload over several GPUs gets a split balanced by size ([#217](https://github.com/tmac1973/llama-toolchest/issues/217)) ([097f0cb](https://github.com/tmac1973/llama-toolchest/commit/097f0cb4706457a5f4cbcc11b9f296b3718e9146))
+* the file table says what the embedding-table figure is ([#214](https://github.com/tmac1973/llama-toolchest/issues/214)) ([ff14eda](https://github.com/tmac1973/llama-toolchest/commit/ff14eda4fa444b8c8f0498144a4c5b205d444091))
+
 ## [2.33.1](https://github.com/tmac1973/llama-toolchest/compare/v2.33.0...v2.33.1) (2026-10-02)
 
 
