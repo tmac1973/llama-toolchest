@@ -148,3 +148,24 @@ func TestVRAMColumnFollowsThePlan(t *testing.T) {
 		t.Errorf("too large: %+v", huge)
 	}
 }
+
+// The embedding-table line says what happens to the table: llama.cpp
+// reads a large one from disk as needed and loads a small one into system
+// memory. Beside "of experts in system memory" a bare "held in system
+// memory" read as a second, unexplained amount of RAM.
+func TestEmbeddingTableLine(t *testing.T) {
+	for _, tt := range []struct {
+		bytes        int64
+		want, unwant string
+	}{
+		{27 << 30, "27.0 GiB embedding table, read from disk", "table in system memory"},
+		{2 << 30, "2.0 GiB embedding table in system memory", "read from disk"},
+	} {
+		view := hfModelView{ID: "org/M-GGUF", Files: []hfFileView{{ModelFile: modelsource.File{
+			Filename: "m.gguf", Size: 60 << 30, StreamedBytes: tt.bytes, StreamProbed: true, VRAMEstGB: 30}}}}
+		out := renderFiles(t, "hf_file_estimates", view)
+		if !strings.Contains(out, tt.want) || strings.Contains(out, tt.unwant) {
+			t.Errorf("%d GiB table:\n%s", tt.bytes>>30, out)
+		}
+	}
+}

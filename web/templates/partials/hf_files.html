@@ -73,7 +73,7 @@
 {{if .Fit}}{{printf "%.1f" .Fit.VRAMGiB}} GiB
 {{- if gt .Fit.RAMGiB 0.0}}<br><small title="{{if eq .Fit.RAMKind "experts"}}Some of the model's expert weights are kept in system memory so the rest fits on the GPU. It runs, but generation is slower.{{else}}Only part of the model fits on the GPU; these layers run on the CPU, which is much slower.{{end}}">+{{printf "%.1f" .Fit.RAMGiB}} GiB {{if eq .Fit.RAMKind "experts"}}of experts{{else}}of layers{{end}} in system memory</small>{{end}}
 {{- else}}{{printf "%.1f" .VRAMEstGB}} GiB{{end}}
-{{- if gt .StreamedBytes 0}}<br><small title="This architecture keeps its per-layer embedding table in system memory rather than on the graphics card, so that part does not count toward the VRAM estimate. It is still part of the download and still takes disk space.">+{{printf "%.1f" (divGB .StreamedBytes)}} GiB held in system memory</small>{{end}}
+{{- if gt .StreamedBytes 0}}<br><small title="This model has a per-layer embedding table, which llama.cpp never puts on the GPU, so it does not count toward the VRAM estimate.{{if .EmbeddingTableStreamed}} A table this large is read from the model file as it is needed rather than loaded, so it does not need to fit in system memory either.{{else}} A table this small is loaded into system memory.{{end}} It is still part of the download and takes disk space.">+{{printf "%.1f" (divGB .StreamedBytes)}} GiB embedding table{{if .EmbeddingTableStreamed}}, read from disk{{else}} in system memory{{end}}</small>{{end}}
 {{end}}
 
 {{define "hf_fit_cell"}}
