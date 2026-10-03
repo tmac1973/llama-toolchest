@@ -284,14 +284,15 @@ func (s *Server) ensureHelperConfig(id string) (bool, error) {
 }
 
 // helperVRAMBudget is the GPU memory a helper model may use: the largest
-// dedicated GPU, less the same safety margin the fit planner leaves.
+// dedicated GPU, less what other programs hold on it, less the same
+// safety margin the fit planner leaves.
 func (s *Server) helperVRAMBudget() float64 {
 	best := 0.0
 	for _, g := range s.hardware().GPUs {
 		if g.IsIGPU {
 			continue
 		}
-		if gib := float64(g.VRAMTotalMiB) / 1024; gib > best {
+		if gib := float64(max(0, g.VRAMTotalMiB-g.OtherUsedMiB)) / 1024; gib > best {
 			best = gib
 		}
 	}

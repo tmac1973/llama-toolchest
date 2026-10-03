@@ -34,7 +34,10 @@ func (p Profile) Key() string {
 	h := sha256.New()
 	fmt.Fprintf(h, "%d|%d|", p.Hardware.LogicalCores, p.Hardware.RAMTotalMiB)
 	for _, g := range p.Hardware.GPUs {
-		fmt.Fprintf(h, "%s|%d|%v;", g.Name, g.VRAMTotalMiB, g.IsIGPU)
+		// Other programs' use in whole GiB: enough to rebuild when
+		// something large starts or stops, not on every few MiB a desktop
+		// moves.
+		fmt.Fprintf(h, "%s|%d|%v|%d;", g.Name, g.VRAMTotalMiB, g.IsIGPU, (g.OtherUsedMiB+512)/1024)
 	}
 	fmt.Fprintf(h, "|%s|%v|", p.BuildID, p.ArchsKnown)
 	archs := make([]string, 0, len(p.Archs))

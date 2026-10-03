@@ -80,6 +80,10 @@ type Server struct {
 	seedMu       sync.Mutex
 	pendingSeeds map[string]models.ContextClass
 
+	// otherVRAM is the GPU memory other programs hold, which plans leave
+	// alone (see other_vram.go).
+	otherVRAM otherVRAMState
+
 	// testHardware replaces the system monitor's machine in hardware(),
 	// for tests that plan against a known one. Nil in production.
 	testHardware *models.Hardware
@@ -242,6 +246,7 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 	// Subscribes to the router log for the life of the process. Started
 	// before anything can launch the router, so no load goes unwatched.
 	go s.watchRouterMemory()
+	go s.watchOtherVRAM()
 	s.env = newJobEnv(s)
 	s.jobs = benchmark.NewJobQueue(s.bench, s.env)
 	s.downloader.SetOnComplete(s.onDownloadComplete)
@@ -493,9 +498,11 @@ func (s *Server) templateFuncs() template.FuncMap {
 			numGPUs := len(cards)
 			perGPU := 32.0 // fallback
 			if numGPUs > 0 {
-				perGPU = float64(cards[0].VRAMTotalMiB) / 1024.0
+				// What each card leaves free of other programs' use.
+				avail := func(c models.GPUSpec) float64 { return float64(max(0, c.VRAMTotalMiB-c.OtherUsedMiB)) / 1024.0 }
+				perGPU = avail(cards[0])
 				for _, c := range cards[1:] {
-					perGPU = min(perGPU, float64(c.VRAMTotalMiB)/1024.0)
+					perGPU = min(perGPU, avail(c))
 				}
 			} else {
 				numGPUs = 1

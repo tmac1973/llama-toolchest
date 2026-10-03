@@ -39,6 +39,18 @@ type GPUSpec struct {
 	Name         string
 	VRAMTotalMiB int
 	IsIGPU       bool
+	// OtherUsedMiB is memory other programs hold on the card (a desktop,
+	// another server), which a plan has to leave to them.
+	OtherUsedMiB int
+}
+
+// cardBudgetGiB is what a plan may use of a card: what other programs
+// leave of it, less the safety margin. The same arithmetic as the
+// size-balanced split's per-card budgets (moeSplitInputs), which see the
+// card as GPUMiB gives it.
+func cardBudgetGiB(g GPUSpec) float64 {
+	avail := float64(max(0, g.VRAMTotalMiB-g.OtherUsedMiB)) / 1024
+	return max(0, avail-fitMarginGiB(avail))
 }
 
 // Hardware is the machine a config has to fit. The caller builds it from
@@ -282,6 +294,9 @@ func finishFit(m *Model, base, cfg ModelConfig, b VRAMBreakdown, budget float64,
 	if cfg.Threads != base.Threads {
 		note("threads", fmt.Sprintf("Part of the model runs on the CPU, so it uses %d threads: one per physical core.", cfg.Threads))
 	}
+	if other := otherUsedGiB(hw); other >= 0.5 {
+		note("", fmt.Sprintf("Other programs are using %.1f GiB of GPU memory right now (the desktop, another AI tool). These settings leave it to them. With that memory free, more context or fewer layers in system memory may fit.", other))
+	}
 	if !fits {
 		note("", "This model is too large for this machine even with the settings above. Choose a smaller quantization of it.")
 	}
@@ -348,8 +363,7 @@ func PlanCards(hw Hardware) []GPUSpec {
 // system memory is not known.
 func FitBudgets(hw Hardware) (vramGiB, ramGiB float64) {
 	for _, g := range PlanCards(hw) {
-		total := float64(g.VRAMTotalMiB) / 1024
-		vramGiB += total - fitMarginGiB(total)
+		vramGiB += cardBudgetGiB(g)
 	}
 	if hw.RAMTotalMiB > 0 {
 		total := float64(hw.RAMTotalMiB) / 1024
@@ -358,12 +372,22 @@ func FitBudgets(hw Hardware) (vramGiB, ramGiB float64) {
 	return vramGiB, ramGiB
 }
 
-// GPUMiB is each GPU's total memory, by position, as MoESplitConfig and
+// otherUsedGiB is what other programs hold on the cards a plan uses.
+func otherUsedGiB(hw Hardware) float64 {
+	var n int
+	for _, g := range PlanCards(hw) {
+		n += g.OtherUsedMiB
+	}
+	return float64(n) / 1024
+}
+
+// GPUMiB is each GPU's memory available to llama.cpp, by position — its
+// total less what other programs hold — as MoESplitConfig and
 // PlanCardLoads take it.
 func GPUMiB(hw Hardware) []int {
 	out := make([]int, len(hw.GPUs))
 	for i, g := range hw.GPUs {
-		out[i] = g.VRAMTotalMiB
+		out[i] = max(0, g.VRAMTotalMiB-g.OtherUsedMiB)
 	}
 	return out
 }
