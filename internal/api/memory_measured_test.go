@@ -236,11 +236,11 @@ func TestWatchRouterMemoryCollectsFromTheLiveLogStream(t *testing.T) {
 
 	s := memTestServer(t, "4")
 	s.process = process.NewManager()
-	t.Cleanup(func() {
-		if s.process.IsRunning() {
-			s.process.Stop()
-		}
-	})
+	// Stopped whatever state the manager reached. The fake never answers
+	// a health check, so the manager stays "starting" and IsRunning is
+	// false: guarding on it left one fake server running after every
+	// test run.
+	t.Cleanup(func() { s.process.Stop() })
 	go s.watchRouterMemory()
 
 	// A free port, so the manager's health poll knocks on a door nobody

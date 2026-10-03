@@ -456,11 +456,10 @@ func evalStopServer(t *testing.T) (*Server, *process.Manager) {
 	reg := models.NewRegistry(dataDir, "/models")
 	bld := testBuilder(t, testBuild("b1", binDir))
 	proc := process.NewManager()
-	t.Cleanup(func() {
-		if proc.IsRunning() {
-			proc.Stop()
-		}
-	})
+	// Unconditionally, as in TestWatchRouterMemoryCollectsFromTheLiveLogStream:
+	// a test that fails before the router reports running would otherwise
+	// leave the fake behind.
+	t.Cleanup(func() { proc.Stop() })
 	return &Server{cfg: cfg, registry: reg, builder: bld, process: proc}, proc
 }
 
