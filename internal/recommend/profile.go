@@ -3,7 +3,7 @@
 // "Find recommended models". Every fit figure comes from models.PlanFit,
 // the planner Autoconfigure uses, so the two never disagree.
 //
-// See plan/recommend-models for the design.
+// See plan/archive/recommend-models for the design.
 package recommend
 
 import (
