@@ -712,6 +712,9 @@ type modelConfigPanelData struct {
 	// ReadOnlyReason is set when models.json cannot be saved; the panel
 	// says why before the user edits anything.
 	ReadOnlyReason string
+	// NeedsRestart is set while a config change waits for the server to
+	// restart, the condition the card's restart icon shows.
+	NeedsRestart bool
 	// SeededText says the settings were filled in from a recommendation,
 	// until the first change; SeededTip gives the plan's reasons.
 	SeededText string
@@ -864,6 +867,7 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 		HasPLE:         model != nil && model.PLEBytes > 0,
 		PLESizeLabel:   pleSizeLabel(model),
 		ReadOnlyReason: s.registry.ReadOnlyReason(),
+		NeedsRestart:   s.isDirty(id) && s.process != nil && s.process.IsRunning(),
 	}
 	if model != nil {
 		data.SeededText, data.SeededTip = seededNote(model.Seeded)

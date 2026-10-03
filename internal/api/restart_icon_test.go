@@ -1,8 +1,11 @@
 package api
 
 import (
+	"bytes"
+	"html/template"
 	"net/http/httptest"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -76,5 +79,37 @@ func TestConfigChangeSignalsRestartNeeded(t *testing.T) {
 	trig := w.Header().Get("HX-Trigger")
 	if !s.isDirty(m.ID) || !strings.Contains(trig, `"restartNeeded":{"dom":"`+domID(m.ID)+`"}`) {
 		t.Errorf("dirty=%v, HX-Trigger=%s", s.isDirty(m.ID), trig)
+	}
+}
+
+// The Configure panel's "Restart required" shows only while a change
+// waits for a restart; it used to be there on every panel.
+func TestConfigPanelRestartLabel(t *testing.T) {
+	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
+		"templates/layout.html", "templates/partials/*.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &models.ModelConfig{GPULayers: 999, ContextSize: 8192}
+	render := func(pending bool) string {
+		var buf bytes.Buffer
+		data := modelConfigPanelData{ModelID: "test-id", Config: cfg, DraftModes: models.DraftModes(),
+			AssistModes: models.AssistModes(), NeedsRestart: pending}
+		if err := base.ExecuteTemplate(&buf, "model_config", data); err != nil {
+			t.Fatal(err)
+		}
+		return buf.String()
+	}
+	label := regexp.MustCompile(`id="mc-restart-test-id"[^>]*>([^<]*)</span>`)
+	for pending, want := range map[bool]string{false: "", true: "Restart required"} {
+		m := label.FindStringSubmatch(render(pending))
+		if m == nil || m[1] != want {
+			t.Errorf("pending=%v: label %q, want %q", pending, m, want)
+		}
+	}
+
+	page, _ := web.Templates.ReadFile("templates/models.html")
+	if !strings.Contains(string(page), `'mc-restart-' + detail.dom`) {
+		t.Error("the restartNeeded listener does not update the panel's label")
 	}
 }
