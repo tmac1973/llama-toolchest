@@ -80,6 +80,7 @@ func (s *Server) handleSaveFlagPreset(w http.ResponseWriter, r *http.Request) {
 		Profile:    profile,
 		Options:    options,
 		ExtraCMake: strings.TrimSpace(r.FormValue("extra_cmake")),
+		Version:    builder.FlagPresetVersion,
 	}
 	if err := s.builder.SaveFlagPreset(p); err != nil {
 		s.renderFlagPresetRow(w, profile, "", err.Error())
