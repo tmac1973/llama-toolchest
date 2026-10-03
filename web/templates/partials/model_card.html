@@ -23,7 +23,10 @@
                  model name. Here they flow with the text instead. */}}
             {{if .PendingEnable}}<span title="Restart server to make this model available" style="cursor: help; color: var(--pico-primary); margin-right: 0.2rem;">&#x21bb;</span>{{end}}
             {{if .PendingDisable}}<span title="Restart server to remove this model" style="cursor: help; color: var(--pico-del-color); margin-right: 0.2rem;">&#x2298;</span>{{end}}
-            {{if .NeedsReload}}<span title="Restart server to apply config changes" style="cursor: help; color: var(--pico-primary); margin-right: 0.2rem;">&#x21bb;</span>{{end}}
+            {{/* Always present, so a config change can show the icon in
+                 place (the restartNeeded event, models.html) without
+                 re-rendering the list. */}}
+            <span id="restart-{{cssID .Model.ID}}">{{if .NeedsReload}}{{template "restart_icon"}}{{end}}</span>
             {{.ModelID}}
             {{with sourceModelURL .Source .ModelID}}<a href="{{.}}" target="_blank" rel="noopener" title="Open model page" style="text-decoration:none;color:var(--pico-muted-color);font-size:0.85em;margin-left:0.15rem;">&#x2197;</a>{{end}}
             {{if .HasVision}} <mark style="padding:0 0.3rem;font-size:0.75rem;">vision</mark>{{end}}
@@ -142,3 +145,5 @@
     <div class="model-card-config" id="model-config-{{cssID .ID}}"></div>
 </article>
 {{end}}
+
+{{define "restart_icon"}}<span title="Restart server to apply config changes" style="cursor: help; color: var(--pico-primary); margin-right: 0.2rem;">&#x21bb;</span>{{end}}

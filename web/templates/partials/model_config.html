@@ -5,7 +5,12 @@
 <div class="model-config-panel" id="model-config-panel-{{cssID .ModelID}}">
     <div class="model-config-header">
         <span>Configure <span class="mc-owner">— {{.ModelID}}</span></span>
-        <span class="mc-restart">Restart required</span>
+        {{/* Shown only while a change waits for a restart, like the ↻ on
+             the model's card; the restartNeeded event (models.html) fills
+             it in after an edit, since autosave does not re-render the
+             header. */}}
+        <span class="mc-restart" id="mc-restart-{{cssID .ModelID}}"
+              title="Settings changed since this model was loaded. Restart the server to use them.">{{if .NeedsRestart}}Restart required{{end}}</span>
     </div>
 
     {{if .ReadOnlyReason}}

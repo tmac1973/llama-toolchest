@@ -712,6 +712,9 @@ type modelConfigPanelData struct {
 	// ReadOnlyReason is set when models.json cannot be saved; the panel
 	// says why before the user edits anything.
 	ReadOnlyReason string
+	// NeedsRestart is set while a config change waits for the server to
+	// restart, the condition the card's restart icon shows.
+	NeedsRestart bool
 	// SeededText says the settings were filled in from a recommendation,
 	// until the first change; SeededTip gives the plan's reasons.
 	SeededText string
@@ -864,6 +867,7 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 		HasPLE:         model != nil && model.PLEBytes > 0,
 		PLESizeLabel:   pleSizeLabel(model),
 		ReadOnlyReason: s.registry.ReadOnlyReason(),
+		NeedsRestart:   s.isDirty(id) && s.process != nil && s.process.IsRunning(),
 	}
 	if model != nil {
 		data.SeededText, data.SeededTip = seededNote(model.Seeded)
@@ -1135,6 +1139,14 @@ func (s *Server) afterConfigChange(w http.ResponseWriter, r *http.Request, id st
 	// Sampling params are injected at the proxy layer and don't need a reload.
 	if cfg.Enabled && s.process.IsRunning() {
 		s.markDirty(id)
+		// The model list is not re-rendered after a config change (that
+		// would close an open Configure panel), so its card is told to show
+		// the restart icon in place. Without this the icon appeared only
+		// after a page reload — after Autotune's "Use these settings" as
+		// much as after an edit in the form.
+		if isHTMX(r) {
+			addHXTrigger(w, "restartNeeded", map[string]string{"dom": domID(id)})
+		}
 	}
 
 	// Update VRAM estimate in model list
