@@ -498,3 +498,36 @@ an 8-bit KV cache, expert offload and MTP. They are in
 - **Flash-Next on compute2:** the plans keep 29 expert layers in RAM at
   128K (was 33) and 27 at 32K (was 29), and 256K now fits. All three were
   loaded on the hardware: the fullest card held 14.5 GiB of 16.
+
+## ROCm, one card (RX 9070 XT, 2026-10-03)
+
+18 loads on a single RX 9070 XT (16 GiB, the desktop on it) with build
+b10453-rocm. Seven models: Qwen3.5-4B and 9B (hybrid, the 9B with MTP),
+granite-4.2-8B, gemma-4-12B, gpt-oss-20b, and Qwen3.6-35B-A3B with experts
+in system memory. They are in `vram_corpus_test.go` (`rocmLocalCorpus`).
+
+- **One card behaves like CUDA's one card.** Graph scratch matched to
+  within noise; overhead was lower still, 0.21–0.37 GiB against the
+  0.85 per card fitted on the tensor-parallel R9700s. One-card loads now
+  have their own coefficients (`single`). The tensor-parallel fit is kept
+  for tensor splits (`tensor`) and the layer-split figure is unchanged.
+- **The costs found on CUDA appear here too:**
+  - an 8-bit cache's f16 scratch: +0.48 GiB on Qwen3.5-4B at 128K, 0.50
+    predicted;
+  - expert offload: +0.26 GiB;
+  - MTP's recurrent copies: ×6.85.
+  ROCm now carries those terms. MTP's draft scratch is smaller than on
+  CUDA (+0.15 to +0.31 GiB), so ROCm has its own figure. The
+  quantized-cache term is not added to tensor-parallel loads: the one such
+  point is inside the tensor fit already.
+- **Corpus:** 59 points across both backends, all estimated at or above
+  what they used, with a mean error of 0.70 GiB.
+
+**Seen, not fixed: the planner budgets from each card's total, not from
+what is free.**
+- Planned for this card, Qwen3.6-35B-A3B at 32K came out at 14.62 of a
+  14.65 GiB budget.
+- With the desktop holding 1.77 GiB, the load left 0.17 GiB free. It fitted
+  only because the estimate ran 0.6 GiB high.
+- On a card shared with a desktop or other programs, the budget should
+  start from free memory.

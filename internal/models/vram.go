@@ -191,11 +191,11 @@ func (c computeCoeffs) at(ub, ctx int) float64 {
 }
 
 type vramCoefficients struct {
-	// single is per device when the model is on one device or split
-	// tensor-parallel; layer is per device of a layer split, where
-	// llama.cpp runs the cards as a pipeline with several copies of the
-	// graph in flight.
-	single, layer computeCoeffs
+	// single is the graph scratch of a model on one device; tensor is per
+	// device of a tensor-parallel split, where the cards act as one; layer
+	// is per device of a layer split, where llama.cpp runs the cards as a
+	// pipeline with several copies of the graph in flight.
+	single, tensor, layer computeCoeffs
 	// indexerScratchCopies scales a sparse-attention model's ranking
 	// scratch (context x micro-batch, f32) on every device.
 	indexerScratchCopies float64
@@ -222,13 +222,18 @@ type vramCoefficients struct {
 	specCompute computeCoeffs
 }
 
-// rocmCoefficients come from one ROCm machine (4x Radeon AI PRO R9700,
-// tensor-parallel): eleven loads, four architectures. They are also the
-// set used when the backend is not known, being the more cautious one.
+// rocmCoefficients come from two ROCm machines: a 4x Radeon AI PRO R9700
+// box split tensor-parallel (eleven loads, four architectures), and one
+// RX 9070 XT (eighteen loads, seven models, 2026-10-03). They are also
+// the set used when the backend is not known, being the more cautious one.
 var rocmCoefficients = vramCoefficients{
-	// Linear in micro-batch, weakly in context: 0.2911 MiB per micro-batch
-	// token and 0.0009 MiB per context token.
-	single: computeCoeffs{perUB: 0.2911 / 1024, perCtx: 0.00090 / 1024},
+	// One card, the RX 9070 XT: the same as CUDA's to within noise — 0.10
+	// GiB at 8K and 0.19-0.25 at 128K with a 512 micro-batch, 0.38-0.51 at
+	// 32K with 2048.
+	single: computeCoeffs{base: 0.04, perUB: 1.9e-4, perUBCtx: 1.75e-9},
+	// Tensor-parallel, per card: linear in micro-batch, weakly in context,
+	// 0.2911 MiB per micro-batch token and 0.0009 MiB per context token.
+	tensor: computeCoeffs{perUB: 0.2911 / 1024, perCtx: 0.00090 / 1024},
 	// A layer split at 6.5 times that: the measured ratio of one pair (the
 	// same 27B split by layer over three NVIDIA cards against
 	// tensor-parallel over four AMD ones), kept although the backend
@@ -237,12 +242,23 @@ var rocmCoefficients = vramCoefficients{
 	layer: computeCoeffs{perUB: 6.5 * 0.2911 / 1024, perCtx: 6.5 * 0.00090 / 1024},
 	// About six tensors of context x micro-batch at once while ranking.
 	indexerScratchCopies: 5.69,
-	overheadFirst:        0.85,
-	overheadExtra:        0.85,
+	// 0.21-0.37 GiB on the RX 9070 XT alone; about 0.6 a card more across
+	// the R9700s, which the further cards' figure still covers.
+	overheadFirst: 0.40,
+	overheadExtra: 0.85,
 	// Flat with context: the 27B held 0.60 GiB from 8,192 to 262,144
 	// tokens. 1.75 GiB split by layer, hence the copies.
 	recurrentPerLayer:         0.0125,
 	recurrentLayerSplitCopies: 2.9,
+	// The costs found on CUDA, seen on the RX 9070 XT: an 8-bit cache
+	// added 0.48 GiB on Qwen3.5-4B at 128K (0.50 predicted), expert
+	// offload 0.26 GiB on the 35B-A3B, and MTP the recurrent state seven
+	// times over. MTP's draft scratch is smaller than CUDA's: +0.15 to
+	// +0.22 GiB at 32K and +0.31 at 128K.
+	recurrentPerDraftToken: true,
+	quantKVScratch:         true,
+	expertOffloadScratch:   true,
+	specCompute:            computeCoeffs{base: 0.30, perUBCtx: 3.0e-9},
 }
 
 // cudaCoefficients come from compute2 (3x RTX A4000, build v0.5.0-cuda):
@@ -255,6 +271,9 @@ var cudaCoefficients = vramCoefficients{
 	// 0.51 at 32K with 2048 — the context term grows with the
 	// micro-batch, so it is a product.
 	single: computeCoeffs{base: 0.03, perUB: 1.9e-4, perUBCtx: 1.75e-9},
+	// Not measured tensor-parallel on CUDA: the layer split's figure, the
+	// larger of the two kinds measured, stands in.
+	tensor: computeCoeffs{base: 0.10, perUB: 2.95e-4, perUBCtx: 7.95e-9},
 	// Split by layer, per card: 0.19 GiB at 8K to 0.66 at 128K with a 512
 	// micro-batch, 1.13 at 32K and 2.47 at 128K with 2048.
 	// The base covers granite-30B, whose cards held 0.37 GiB at 32K where
@@ -426,10 +445,16 @@ func vramBreakdownWith(co *vramCoefficients, m *Model, cfg *ModelConfig, cards i
 	// Graph scratch, per device.
 	layerSplit := isLayerSplit(cfg, cards)
 	perCard := co.single.at(ub, ctx)
-	if layerSplit {
+	switch {
+	case layerSplit:
 		perCard = co.layer.at(ub, ctx)
+	case cards >= 2:
+		perCard = co.tensor.at(ub, ctx)
 	}
-	if co.quantKVScratch && cfg.KVCacheQuant != "" && cfg.KVCacheQuant != "f16" && m.KVFullPerTok > 0 && m.AttnLayers > 0 {
+	// Not on a tensor-parallel split: the only such quantized-cache point
+	// (ROCm, Flash-Next) is inside the fit of the tensor coefficients.
+	tensorSplit := cards >= 2 && !layerSplit
+	if co.quantKVScratch && !tensorSplit && cfg.KVCacheQuant != "" && cfg.KVCacheQuant != "f16" && m.KVFullPerTok > 0 && m.AttnLayers > 0 {
 		perCard += float64(m.KVFullPerTok) / float64(m.AttnLayers) * float64(ctx) * 2 / (1024 * 1024 * 1024)
 	}
 	b.Compute = float64(cards) * perCard
