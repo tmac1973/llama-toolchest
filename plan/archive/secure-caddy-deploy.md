@@ -365,7 +365,7 @@ whether the install is plain (one unit) or secure (two units + network).
 - `docker-compose.secure.yml` — Caddy overlay.
 - `Caddyfile` — env-templated proxy + auth + TLS.
 - `docs/secure.md` — deploy guide.
-- `plan/secure-caddy-deploy.md` — this document.
+- `plan/archive/secure-caddy-deploy.md` — this document.
 
 **Edited**
 - `docker-compose.cuda.yml`, `docker-compose.rocm.yml`, `docker-compose.cpu.yml`

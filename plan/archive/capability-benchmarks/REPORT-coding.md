@@ -1,6 +1,6 @@
 # Coding report
 
-Unattended coding run for the capability-benchmarks plan (`plan/capability-benchmarks/`).
+Unattended coding run for the capability-benchmarks plan (`plan/archive/capability-benchmarks/`).
 All 25 steps across 4 phases were implemented, committed, and verified. Working tree is clean
 except the plan tracking files. Fresh verification at report time:
 `go build ./... && go vet ./internal/... && go test ./...` → all packages `ok` (test cache cleared first, full run ~11s).
@@ -69,4 +69,4 @@ Decisions made unattended (recorded in PROGRESS, worth a human skim — not bloc
 3. **Check the binary install path in the packaging/CI matrix**: Phase 01 adds the evaluation binary install (per the phase title); confirm it's covered by the release build scripts and Docker images (`Dockerfile.cpu/cuda/rocm`) — the commits show changes in `internal/builder` but packaging files were untouched.
 4. **Exercise the KL skip and disk-guard paths in the UI** (small free-space scenario, no-reference scenario) — these are test-covered but visually untested (muted SkipReason rendering, refusal message).
 5. **Decide on the dataset licenses' UI copy**: CC BY-SA 3.0 (wikitext-2), MIT (hellaswag), Apache-2.0 (winogrande) are now surfaced in the Evaluation Data card — legal/product sign-off if this ships.
-6. **Commit or discard the modified plan tracking files** (`plan/capability-benchmarks/TODO-coding.md`, `PROGRESS-coding.md` are the only working-tree changes).
+6. **Commit or discard the modified plan tracking files** (`plan/archive/capability-benchmarks/TODO-coding.md`, `PROGRESS-coding.md` are the only working-tree changes).

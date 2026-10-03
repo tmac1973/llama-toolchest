@@ -126,7 +126,7 @@ func writeJSONExport(w http.ResponseWriter, filename string, env ExportEnvelope)
 
 // writeCSVExport writes either per-cell rows (one per result) or per-cell
 // summary rows (one per run), with full job/build/preset/source context
-// per the column schema in plan/batch-benchmarks.md.
+// per the column schema in plan/archive/batch-benchmarks.md.
 func writeCSVExport(w http.ResponseWriter, filename string, runs []benchmark.BenchmarkRun, jobs jobLookup, scope string) error {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, filename))
