@@ -61,7 +61,8 @@ func gibBytes(f float64) int64 { return int64(f * gib) }
 
 // corpus is every measured load, on both backends.
 func corpus() []corpusPoint {
-	return append(rocmCorpus(), cudaCorpus()...)
+	out := append(rocmCorpus(), rocmLocalCorpus()...)
+	return append(out, cudaCorpus()...)
 }
 
 // rocmCorpus: one machine, 4x Radeon AI PRO R9700, tensor-parallel.
@@ -89,7 +90,9 @@ func rocmCorpus() []corpusPoint {
 		KVFullPerTok: 10 * 2 * 512, ContextLength: 262144,
 	}
 	// gemma-4-E4B: sliding-window attention, per-layer table, single card.
+	// Arch and OutputTied are what parser version 4 records for it.
 	gem := Model{
+		Arch: "gemma4", OutputTied: true,
 		SizeBytes: gibBytes(4.77), PLEBytes: gibBytes(1.80),
 		TokenEmbdBytes: gibBytes(0.664), NLayers: 42, AttnLayers: 42,
 		NEmbd: 2560, NKVHead: 2, KVFullPerTok: 14336, KVSWAPerTok: 35840,
@@ -127,6 +130,60 @@ func rocmCorpus() []corpusPoint {
 		{"27B ctx32k ub2048", q27, c(32768, 2048), 4, 34.82, q27terms(2.00, 2.40), "rocm"},
 		{"35B-A3B ctx32k ub512", q35, c(32768, 512), 4, 38.08, nil, "rocm"},
 		{"gemma-4-E4B ctx4k ub512", gem, c(4096, 512), 1, 3.42, nil, "rocm"},
+	}
+}
+
+// rocmLocalCorpus: a second ROCm machine, one RX 9070 XT (16 GiB) with the
+// desktop on it, build b10453-rocm, measured 2026-10-03 with the preset's
+// flags on that card alone (--device ROCm0). The desktop's own use was read
+// just before each load and subtracted.
+func rocmLocalCorpus() []corpusPoint {
+	models := map[string]Model{
+		"q4b":       {Arch: "qwen35", SizeBytes: 2740937888, PLEBytes: 0, TokenEmbdBytes: 521472000, OutputTied: true, NLayers: 32, AttnLayers: 8, NEmbd: 2560, NHead: 16, NKVHead: 4, KVFullPerTok: 16384, KVSWAPerTok: 0, SlidingWindow: 0, ContextLength: 262144, ExpertCount: 0, ExpertUsedCount: 0, ExpertBytes: 0, ExpertLayerFirst: 0, ExpertLayers: 0, NextNLayers: 0},
+		"q9q8":      {Arch: "qwen35", SizeBytes: 13245182304, PLEBytes: 0, TokenEmbdBytes: 2034237440, OutputTied: false, NLayers: 33, AttnLayers: 8, NEmbd: 4096, NHead: 16, NKVHead: 4, KVFullPerTok: 16384, KVSWAPerTok: 0, SlidingWindow: 0, ContextLength: 262144, ExpertCount: 0, ExpertUsedCount: 0, ExpertBytes: 0, ExpertLayerFirst: 0, ExpertLayers: 0, NextNLayers: 1},
+		"q9iq4":     {Arch: "qwen35", SizeBytes: 5644398944, PLEBytes: 0, TokenEmbdBytes: 572129280, OutputTied: false, NLayers: 33, AttnLayers: 8, NEmbd: 4096, NHead: 16, NKVHead: 4, KVFullPerTok: 16384, KVSWAPerTok: 0, SlidingWindow: 0, ContextLength: 262144, ExpertCount: 0, ExpertUsedCount: 0, ExpertBytes: 0, ExpertLayerFirst: 0, ExpertLayers: 0, NextNLayers: 1},
+		"granite8b": {Arch: "granite", SizeBytes: 9345613952, PLEBytes: 0, TokenEmbdBytes: 436731904, OutputTied: false, NLayers: 40, AttnLayers: 40, NEmbd: 4096, NHead: 32, NKVHead: 8, KVFullPerTok: 81920, KVSWAPerTok: 0, SlidingWindow: 0, ContextLength: 131072, ExpertCount: 0, ExpertUsedCount: 0, ExpertBytes: 0, ExpertLayerFirst: 0, ExpertLayers: 0, NextNLayers: 0},
+		"gptoss":    {Arch: "gpt-oss", SizeBytes: 12109567168, PLEBytes: 0, TokenEmbdBytes: 615329280, OutputTied: false, NLayers: 24, AttnLayers: 24, NEmbd: 2880, NHead: 64, NKVHead: 8, KVFullPerTok: 12288, KVSWAPerTok: 12288, SlidingWindow: 128, ContextLength: 131072, ExpertCount: 32, ExpertUsedCount: 4, ExpertBytes: 10178887680, ExpertLayerFirst: 0, ExpertLayers: 24, NextNLayers: 0},
+		"gem12":     {Arch: "gemma4", SizeBytes: 7366423360, PLEBytes: 0, TokenEmbdBytes: 692060160, OutputTied: true, NLayers: 48, AttnLayers: 48, NEmbd: 3840, NHead: 16, NKVHead: 8, KVFullPerTok: 8192, KVSWAPerTok: 163840, SlidingWindow: 1024, ContextLength: 262144, ExpertCount: 0, ExpertUsedCount: 0, ExpertBytes: 0, ExpertLayerFirst: 0, ExpertLayers: 0, NextNLayers: 0},
+		"q35a3":     {Arch: "qwen35moe", SizeBytes: 22663387424, PLEBytes: 0, TokenEmbdBytes: 540344320, OutputTied: false, NLayers: 41, AttnLayers: 10, NEmbd: 2048, NHead: 16, NKVHead: 2, KVFullPerTok: 10240, KVSWAPerTok: 0, SlidingWindow: 0, ContextLength: 262144, ExpertCount: 256, ExpertUsedCount: 8, ExpertBytes: 20055064576, ExpertLayerFirst: 0, ExpertLayers: 41, NextNLayers: 1},
+	}
+	return []corpusPoint{
+		{name: "rx9070 q4b ctx32k ub512", model: models["q4b"], cfg: ModelConfig{ContextSize: 32768, UBatchSize: 512, GPULayers: 999}, cards: 1, measured: 4.07,
+			reported: &reportedTerms{weights: 2.54, kv: 1.0, recurrent: 0.2, compute: 0.09}, backend: "rocm"},
+		{name: "rx9070 q4b ctx128k ub512", model: models["q4b"], cfg: ModelConfig{ContextSize: 131072, UBatchSize: 512, GPULayers: 999}, cards: 1, measured: 7.25,
+			reported: &reportedTerms{weights: 2.54, kv: 4.0, recurrent: 0.2, compute: 0.19}, backend: "rocm"},
+		{name: "rx9070 q4b ctx32k ub2048", model: models["q4b"], cfg: ModelConfig{ContextSize: 32768, UBatchSize: 2048, GPULayers: 999}, cards: 1, measured: 4.40,
+			reported: &reportedTerms{weights: 2.54, kv: 1.0, recurrent: 0.2, compute: 0.38}, backend: "rocm"},
+		{name: "rx9070 q4b ctx128k ub512 q8", model: models["q4b"], cfg: ModelConfig{ContextSize: 131072, UBatchSize: 512, GPULayers: 999, KVCacheQuant: "q8_0"}, cards: 1, measured: 5.79,
+			reported: &reportedTerms{weights: 2.54, kv: 2.12, recurrent: 0.2, compute: 0.67}, backend: "rocm"},
+		{name: "rx9070 granite8b ctx8k ub512", model: models["granite8b"], cfg: ModelConfig{ContextSize: 8192, UBatchSize: 512, GPULayers: 999}, cards: 1, measured: 9.92,
+			reported: &reportedTerms{weights: 8.29, kv: 1.25, recurrent: 0.0, compute: 0.1}, backend: "rocm"},
+		{name: "rx9070 granite8b ctx32k ub512", model: models["granite8b"], cfg: ModelConfig{ContextSize: 32768, UBatchSize: 512, GPULayers: 999}, cards: 1, measured: 13.72,
+			reported: &reportedTerms{weights: 8.29, kv: 5.0, recurrent: 0.0, compute: 0.13}, backend: "rocm"},
+		{name: "rx9070 granite8b ctx32k ub2048", model: models["granite8b"], cfg: ModelConfig{ContextSize: 32768, UBatchSize: 2048, GPULayers: 999}, cards: 1, measured: 14.10,
+			reported: &reportedTerms{weights: 8.29, kv: 5.0, recurrent: 0.0, compute: 0.51}, backend: "rocm"},
+		{name: "rx9070 gem12 ctx32k ub512", model: models["gem12"], cfg: ModelConfig{ContextSize: 32768, UBatchSize: 512, GPULayers: 999}, cards: 1, measured: 9.16,
+			reported: &reportedTerms{weights: 6.85, kv: 1.91, recurrent: 0.0, compute: 0.15}, backend: "rocm"},
+		{name: "rx9070 gem12 ctx128k ub512", model: models["gem12"], cfg: ModelConfig{ContextSize: 131072, UBatchSize: 512, GPULayers: 999}, cards: 1, measured: 10.87,
+			reported: &reportedTerms{weights: 6.85, kv: 3.41, recurrent: 0.0, compute: 0.25}, backend: "rocm"},
+		{name: "rx9070 gptoss ctx32k ub512", model: models["gptoss"], cfg: ModelConfig{ContextSize: 32768, UBatchSize: 512, GPULayers: 999}, cards: 1, measured: 11.81,
+			reported: &reportedTerms{weights: 10.69, kv: 0.77, recurrent: 0.0, compute: 0.12}, backend: "rocm"},
+		{name: "rx9070 gptoss ctx64k ub512 q8", model: models["gptoss"], cfg: ModelConfig{ContextSize: 65536, UBatchSize: 512, GPULayers: 999, KVCacheQuant: "q8_0"}, cards: 1, measured: 12.06,
+			reported: &reportedTerms{weights: 10.69, kv: 0.81, recurrent: 0.0, compute: 0.22}, backend: "rocm"},
+		{name: "rx9070 q9q8 ctx32k ub512", model: models["q9q8"], cfg: ModelConfig{ContextSize: 32768, UBatchSize: 512, GPULayers: 999}, cards: 1, measured: 11.74,
+			reported: &reportedTerms{weights: 10.19, kv: 1.0, recurrent: 0.2, compute: 0.12}, backend: "rocm"},
+		{name: "rx9070 q9iq4 ctx128k ub512", model: models["q9iq4"], cfg: ModelConfig{ContextSize: 131072, UBatchSize: 512, GPULayers: 999}, cards: 1, measured: 9.24,
+			reported: &reportedTerms{weights: 4.57, kv: 4.0, recurrent: 0.2, compute: 0.21}, backend: "rocm"},
+		{name: "rx9070 q9iq4 ctx32k ub512 mtp", model: models["q9iq4"], cfg: ModelConfig{ContextSize: 32768, UBatchSize: 512, GPULayers: 999, SpecType: "draft-mtp", DraftMax: 6}, cards: 1, measured: 7.77,
+			reported: &reportedTerms{weights: 4.71, kv: 1.12, recurrent: 1.37, compute: 0.34}, backend: "rocm"},
+		{name: "rx9070 q9iq4 ctx128k ub512 q8 mtp", model: models["q9iq4"], cfg: ModelConfig{ContextSize: 131072, UBatchSize: 512, GPULayers: 999, KVCacheQuant: "q8_0", SpecType: "draft-mtp", DraftMax: 6}, cards: 1, measured: 9.96,
+			reported: &reportedTerms{weights: 4.71, kv: 2.62, recurrent: 1.37, compute: 1.02}, backend: "rocm"},
+		{name: "rx9070 q35a3 ctx32k ub512 moe30", model: models["q35a3"], cfg: ModelConfig{ContextSize: 32768, UBatchSize: 512, GPULayers: 999, CPUMoE: 30}, cards: 1, measured: 8.01,
+			reported: &reportedTerms{weights: 6.51, kv: 0.62, recurrent: 0.25, compute: 0.39}, backend: "rocm"},
+		{name: "rx9070 q35a3 ctx32k ub512 moe30 mtp", model: models["q35a3"], cfg: ModelConfig{ContextSize: 32768, UBatchSize: 512, GPULayers: 999, CPUMoE: 30, SpecType: "draft-mtp", DraftMax: 6}, cards: 1, measured: 10.16,
+			reported: &reportedTerms{weights: 7.0, kv: 0.69, recurrent: 1.72, compute: 0.54}, backend: "rocm"},
+		{name: "rx9070 q35a3 ctx128k ub512 q8 moe32", model: models["q35a3"], cfg: ModelConfig{ContextSize: 131072, UBatchSize: 512, GPULayers: 999, KVCacheQuant: "q8_0", CPUMoE: 32}, cards: 1, measured: 8.02,
+			reported: &reportedTerms{weights: 5.6, kv: 1.33, recurrent: 0.25, compute: 0.57}, backend: "rocm"},
 	}
 }
 

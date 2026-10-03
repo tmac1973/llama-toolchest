@@ -14,7 +14,8 @@ func TestHelperConfig(t *testing.T) {
 	}{
 		{"roomy GPU", 20, HelperContextFull},
 		{"middling GPU", 5, HelperContextNormal},
-		{"small GPU", 4.2, HelperContextSmall},
+		// Between the estimates at 8K (3.6 GiB) and 16K (4.2 GiB).
+		{"small GPU", 3.9, HelperContextSmall},
 		{"unknown hardware", 0, HelperContextNormal},
 	}
 	for _, c := range cases {
