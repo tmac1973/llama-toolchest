@@ -206,6 +206,12 @@ type ModelConfig struct {
 	// on every model, "off" keeps the table resident. Only meaningful for
 	// models with Model.PLEBytes > 0; ignored otherwise.
 	PLEMode        string `json:"ple_mode,omitempty"`        // "", "on", "off"
+	// ReasoningPreserve controls --reasoning-preserve: whether the chat
+	// template keeps the model's reasoning from earlier turns in the
+	// conversation ("on") or only shows the final answers ("off"). ""
+	// leaves llama.cpp's default, which is on from b10763. Only some chat
+	// templates support it; for the others llama.cpp ignores it.
+	ReasoningPreserve string `json:"reasoning_preserve,omitempty"` // "", "on", "off"
 	MmprojPath     string `json:"mmproj_path,omitempty"`     // path to mmproj GGUF for vision models
 	MmprojDisabled bool   `json:"mmproj_disabled,omitempty"` // skip --mmproj at launch even when MmprojPath is set; preserves the path so it can be re-enabled without retyping
 	MtpPath        string `json:"mtp_path,omitempty"`        // path to a separate MTP drafter-head GGUF (gemma-4 style); loaded via --model-draft under spec_type=draft-mtp. Empty for self-speculation MTP (Qwen3.6/DeepSeek-V3) where the head is baked into the main GGUF.
@@ -421,6 +427,12 @@ func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool, t Target) string {
 		}
 		if name := t.lazyReadOption(); name != "" && (c.PLEMode == "on" || c.PLEMode == "off") {
 			parts = append(parts, "--"+name, c.PLEMode)
+		}
+		switch t.reasoningPreserveValue(c) {
+		case "true":
+			parts = append(parts, "--reasoning-preserve")
+		case "false":
+			parts = append(parts, "--no-reasoning-preserve")
 		}
 		if c.MmprojPath != "" && !c.MmprojDisabled {
 			parts = append(parts, "--mmproj", c.MmprojPath)

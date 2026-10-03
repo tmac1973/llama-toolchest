@@ -702,6 +702,13 @@ type modelConfigPanelData struct {
 	HasEmbeddedDefault  bool
 	HasPLE              bool
 	PLESizeLabel        string
+	// HasReasoning shows the reasoning history control (models with a
+	// reasoning mode). ReasoningPreserveDefault names what the active
+	// build does when it is left at default, and ReasoningPreserveNote
+	// says when the build is too old for the option.
+	HasReasoning             bool
+	ReasoningPreserveDefault string
+	ReasoningPreserveNote    string
 	// HasExperts shows the CPU Expert Layers field (mixture-of-experts
 	// models only); NLayers bounds it.
 	HasExperts bool
@@ -873,8 +880,19 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 		data.SeededText, data.SeededTip = seededNote(model.Seeded)
 		data.HasExperts = model.ExpertCount > 0
 		data.NLayers = model.NLayers
+		data.HasReasoning = model.EffectiveReasoning(cfg).Supported
 		if gib := models.VRAMBreakdownForConfigOn(model, cfg, models.DeviceCountForConfig(cfg, numGPUs)).CPURAM; gib >= 0.05 {
 			data.CPURAMLabel = fmt.Sprintf("About %.1f GiB of the model's weights stay in system memory with these settings.", gib)
+		}
+	}
+	if data.HasReasoning {
+		t := s.activeTarget()
+		data.ReasoningPreserveDefault = "drop"
+		if t.ReasoningPreservedByDefault() {
+			data.ReasoningPreserveDefault = "keep"
+		}
+		if !t.ReasoningPreserveOption() {
+			data.ReasoningPreserveNote = "The active llama.cpp build is older than b9837 and does not have this setting, so it is not used."
 		}
 	}
 	data.Profiles, data.ActiveProfile, data.ProfileEdited = s.profileBarData(id)
@@ -938,6 +956,12 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 			cfg.PLEMode = v
 		default:
 			cfg.PLEMode = ""
+		}
+		switch v := r.FormValue("reasoning_preserve"); v {
+		case "on", "off":
+			cfg.ReasoningPreserve = v
+		default:
+			cfg.ReasoningPreserve = ""
 		}
 		cfg.ExtraFlags = r.FormValue("extra_flags")
 

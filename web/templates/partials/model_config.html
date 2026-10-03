@@ -192,6 +192,19 @@
     </div>
     {{end}}
 
+    {{if .HasReasoning}}
+    <div class="grid">
+        <label title="Whether the model sees its own reasoning from earlier turns when it answers the next message. Keeping it helps long agent sessions (opencode, for example) stay consistent, but every earlier reasoning trace stays in the context, so a long session fills the context sooner. Dropping it keeps only the final answers from earlier turns. Only some chat templates support this; for the others llama.cpp ignores it.{{if .ReasoningPreserveNote}} {{.ReasoningPreserveNote}}{{end}}">
+            Reasoning in Conversation History
+            <select name="reasoning_preserve">
+                <option value="" {{if eq .Config.ReasoningPreserve ""}}selected{{end}}>Default (llama.cpp: {{.ReasoningPreserveDefault}})</option>
+                <option value="on" {{if eq .Config.ReasoningPreserve "on"}}selected{{end}}>Keep earlier reasoning</option>
+                <option value="off" {{if eq .Config.ReasoningPreserve "off"}}selected{{end}}>Drop earlier reasoning</option>
+            </select>
+        </label>
+    </div>
+    {{end}}
+
     <div class="grid">
         <label title="Quantize the KV cache to reduce VRAM usage. q8_0 saves ~50% KV memory with minimal quality loss. q4_0 saves ~75% but may affect output quality.">
             KV Cache Quantization
