@@ -47,6 +47,8 @@ func SnapshotFromConfig(cfg models.ModelConfig, profile string, edited bool) Con
 		SplitMode:         cfg.SplitMode,
 		MainGPU:           cfg.MainGPU,
 		Parallel:          cfg.Parallel,
+		SharedContext:     cfg.SharedContext,
+		ContextPerSlot:    cfg.ContextPerSlot,
 		CPUMoE:            cfg.CPUMoE,
 		DraftCtxSize:      cfg.DraftCtxSize,
 		DraftGPULayers:    cfg.DraftGPULayers,
@@ -125,6 +127,8 @@ func ApplySnapshotToConfig(base models.ModelConfig, snap ConfigSnapshot) models.
 		out.MainGPU = snap.MainGPU
 	}
 	out.Parallel = snap.Parallel
+	out.SharedContext = snap.SharedContext
+	out.ContextPerSlot = snap.ContextPerSlot
 	out.CPUMoE = snap.CPUMoE
 	out.MtpPath = snap.MtpPath
 	out.DraftCtxSize = snap.DraftCtxSize

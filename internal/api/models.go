@@ -279,25 +279,21 @@ func (s *Server) handleModelInfo(w http.ResponseWriter, r *http.Request) {
 		liveCtx := resolveCtx(live.ContextSize)
 		configuredCtx := resolveCtx(cfg.ContextSize)
 
-		// parallel >1 divides ctx_size across slots, so each request gets only
-		// liveCtx/parallel tokens of KV. 0 and 1 both mean "one slot"; normalize
-		// so context_per_request never divides by zero and clients compact on
-		// the right number. See the §"per-request context" note in the plan.
-		resolvePar := func(v int) int {
-			if v < 1 {
-				return 1
-			}
-			return v
-		}
-		liveParallel := resolvePar(live.Parallel)
-		configuredParallel := resolvePar(cfg.Parallel)
+		// How the context is divided between conversations served at once
+		// (see ModelConfig.ContextLayoutFor): context_per_request is the
+		// most one conversation can use, which clients compact on.
+		target := s.activeTarget()
+		liveLayout := live.ContextLayoutFor(m.ContextLength, target)
+		configuredLayout := cfg.ContextLayoutFor(m.ContextLength, target)
 
 		configMap := map[string]any{
 			"enabled":             live.Enabled,
 			"gpu_layers":          live.GPULayers,
 			"context_size":        liveCtx,
-			"parallel":            liveParallel,
-			"context_per_request": liveCtx / liveParallel,
+			"parallel":            liveLayout.Slots,
+			"context_shared":      liveLayout.Shared,
+			"context_pool":        liveLayout.Pool,
+			"context_per_request": liveLayout.PerConversation,
 			"threads":             live.Threads,
 			"flash_attention":     live.FlashAttention,
 		}
@@ -324,11 +320,17 @@ func (s *Server) handleModelInfo(w http.ResponseWriter, r *http.Request) {
 			if liveCtx != configuredCtx {
 				configMap["context_size_pending"] = configuredCtx
 			}
-			if liveParallel != configuredParallel {
-				configMap["parallel_pending"] = configuredParallel
-				configMap["context_per_request_pending"] = configuredCtx / configuredParallel
-			} else if liveCtx != configuredCtx {
-				configMap["context_per_request_pending"] = configuredCtx / liveParallel
+			if liveLayout.Slots != configuredLayout.Slots {
+				configMap["parallel_pending"] = configuredLayout.Slots
+			}
+			if liveLayout.Shared != configuredLayout.Shared {
+				configMap["context_shared_pending"] = configuredLayout.Shared
+			}
+			if liveLayout.Pool != configuredLayout.Pool {
+				configMap["context_pool_pending"] = configuredLayout.Pool
+			}
+			if liveLayout.PerConversation != configuredLayout.PerConversation {
+				configMap["context_per_request_pending"] = configuredLayout.PerConversation
 			}
 			if cfg.Threads != live.Threads {
 				configMap["threads_pending"] = cfg.Threads

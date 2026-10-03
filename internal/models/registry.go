@@ -181,7 +181,13 @@ type ModelConfig struct {
 	MainGPU     int    `json:"main_gpu,omitempty"`
 	GPUAssign   string `json:"gpu_assign,omitempty"` // "all", "0", "0-1", "custom", etc.
 	ContextSize int    `json:"context_size"`
-	Parallel    int    `json:"parallel,omitempty"` // n parallel sequence slots; 0/1 = no extra slots, >1 divides ctx_size across slots
+	Parallel    int    `json:"parallel,omitempty"` // conversations served at once; 0 = llama-server's default (4 sharing the context), see ContextLayoutFor
+	// SharedContext puts the Parallel slots (2 or more) in one context
+	// pool (--kv-unified) instead of giving each an equal share.
+	// ContextPerSlot (--kv-unified-per-slot) is then the most one
+	// conversation may use; 0 is no limit besides the pool.
+	SharedContext  bool `json:"shared_context,omitempty"`
+	ContextPerSlot int  `json:"context_per_slot,omitempty"`
 	// CPUMoE maps to --n-cpu-moe: the expert weights of the first N layers
 	// stay in system memory. The fastest way to run a mixture-of-experts
 	// model larger than VRAM, because only the few experts each token uses
@@ -395,8 +401,12 @@ func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool, t Target) string {
 	if c.UBatchSize > 0 {
 		parts = append(parts, "--ubatch-size", strconv.Itoa(c.UBatchSize))
 	}
-	if c.Parallel > 1 {
-		parts = append(parts, "--parallel", strconv.Itoa(c.Parallel))
+	for _, p := range sharedContextParams(c, t) {
+		if p.Value == "true" {
+			parts = append(parts, "--"+p.Name)
+		} else {
+			parts = append(parts, "--"+p.Name, p.Value)
+		}
 	}
 	if c.CPUMoE > 0 {
 		parts = append(parts, "--n-cpu-moe", strconv.Itoa(c.CPUMoE))

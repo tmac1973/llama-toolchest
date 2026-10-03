@@ -702,6 +702,11 @@ type modelConfigPanelData struct {
 	HasEmbeddedDefault  bool
 	HasPLE              bool
 	PLESizeLabel        string
+	// ContextLayoutText says how the context is divided between
+	// conversations; ContextLayoutWarning flags a setting that can fail
+	// or does nothing.
+	ContextLayoutText    string
+	ContextLayoutWarning string
 	// HasReasoning shows the reasoning history control (models with a
 	// reasoning mode). ReasoningPreserveDefault names what the active
 	// build does when it is left at default, and ReasoningPreserveNote
@@ -885,6 +890,9 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 			data.CPURAMLabel = fmt.Sprintf("About %.1f GiB of the model's weights stay in system memory with these settings.", gib)
 		}
 	}
+	if model != nil && !isEmbedding {
+		data.ContextLayoutText, data.ContextLayoutWarning = contextLayoutText(cfg, model.ContextLength, s.activeTarget())
+	}
 	if data.HasReasoning {
 		t := s.activeTarget()
 		data.ReasoningPreserveDefault = "drop"
@@ -941,6 +949,14 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		}
 		cfg.ContextSize, _ = strconv.Atoi(r.FormValue("context_size"))
 		cfg.Parallel, _ = strconv.Atoi(r.FormValue("parallel"))
+		// Sharing only applies from two conversations; below that the
+		// stored values would be left behind unseen.
+		cfg.SharedContext = cfg.Parallel > 1 && r.FormValue("shared_context") == "on"
+		cfg.ContextPerSlot = 0
+		if cfg.SharedContext {
+			cfg.ContextPerSlot, _ = strconv.Atoi(r.FormValue("context_per_slot"))
+			cfg.ContextPerSlot = max(0, cfg.ContextPerSlot)
+		}
 		cfg.BatchSize, _ = strconv.Atoi(r.FormValue("batch_size"))
 		cfg.UBatchSize, _ = strconv.Atoi(r.FormValue("ubatch_size"))
 		cfg.CPUMoE, _ = strconv.Atoi(r.FormValue("cpu_moe"))

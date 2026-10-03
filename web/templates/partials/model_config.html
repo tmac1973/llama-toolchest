@@ -214,12 +214,31 @@
                 <option value="q4_0" {{if eq .Config.KVCacheQuant "q4_0"}}selected{{end}}>q4_0</option>
             </select>
         </label>
-        <label title="Number of parallel request slots. Lets multiple chat completions run against this model concurrently. The configured Context Size is divided across slots — e.g. ctx_size=32768 with 4 slots gives each request 8K of context. Set to 1 to disable.">
-            Parallel Slots
+        <label title="How many conversations the model serves at the same time. Blank leaves llama.cpp's default: 4 conversations sharing the whole context, so one conversation can use all of it. 1 serves one conversation at a time, and other requests wait. From 2, each conversation gets an equal share of the Context Size (32,768 with 4 gives each 8,192), unless Shared Context is on.">
+            Parallel Conversations
             <input type="number" name="parallel" value="{{if gt .Config.Parallel 0}}{{.Config.Parallel}}{{end}}"
-                   min="1" max="32" placeholder="1 (serial)">
+                   min="1" max="32" placeholder="Auto (4, shared)">
         </label>
     </div>
+    {{if gt .Config.Parallel 1}}
+    <div class="grid">
+        <label title="Put all conversations in one pool the size of Context Size, instead of giving each an equal share. A long conversation can then use more than its share while the others are short. If several long conversations run at the same time and the pool fills, llama.cpp first clears waiting conversations, which then have to re-read their prompt, and if that is not enough a request fails with an error. Set a per-conversation limit to keep one conversation from taking the whole pool.">
+            Shared Context
+            <input type="checkbox" name="shared_context" role="switch"
+                   {{if .Config.SharedContext}}checked{{end}}>
+        </label>
+        {{if .Config.SharedContext}}
+        <label title="The most context one conversation can use from the shared pool, in tokens. Blank means no limit besides the pool. A limit times the number of conversations that is no larger than the pool can never run out; a larger total lets one conversation grow further, at the risk described under Shared Context.">
+            Max Context per Conversation
+            <input type="number" name="context_per_slot" value="{{if gt .Config.ContextPerSlot 0}}{{.Config.ContextPerSlot}}{{end}}"
+                   min="256" step="256" placeholder="Whole pool">
+        </label>
+        {{end}}
+    </div>
+    {{end}}
+    {{if .ContextLayoutText}}
+    <small style="display:block;margin-bottom:0.75rem;">{{.ContextLayoutText}}{{if .ContextLayoutWarning}} <span style="color:var(--pico-del-color)">{{.ContextLayoutWarning}}</span>{{end}}</small>
+    {{end}}
 
     <div class="grid">
         <label title="Physical compute batch (--ubatch-size). The main prompt-processing tuning knob: larger values generally raise prefill throughput at the cost of compute-buffer memory, but the optimum is machine- and model-specific. Must be <= Batch Size. Leave blank for llama.cpp's default of 512. Use a benchmark job sweep to find the best value rather than guessing.">

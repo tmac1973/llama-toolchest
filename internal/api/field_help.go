@@ -11,7 +11,7 @@ var fieldHelp = map[string]string{
 	"gpu_assign":       "Which GPUs the model is spread over.",
 	"flash_attention":  "A faster way to compute attention that also uses less memory. Recommended for most models.",
 	"ubatch_size":      "How many prompt tokens are processed at once. Larger values read long prompts faster but use more GPU memory. Autotune can measure the best values for this machine.",
-	"parallel":         "How many conversations the model serves at the same time. Each one gets an equal share of the context.",
+	"parallel":         "How many conversations the model serves at the same time. By default llama.cpp serves 4 that share the whole context; from 2, each one gets an equal share unless Shared Context is on.",
 	"threads":          "CPU threads used for the parts of the model that run on the CPU. One per physical core is usually best.",
 	"spec_type":        "Speculative decoding: a fast way to guess several tokens ahead and check them in one step. It speeds up generation and does not change the answers.",
 	"temperature":      "How random the answers are. Lower is more focused and repeatable; higher is more varied.",

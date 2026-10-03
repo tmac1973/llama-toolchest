@@ -52,6 +52,9 @@ const (
 	// versionReasoningPreservedByDefault is b10763 (#28174), from which
 	// llama.cpp keeps earlier reasoning when the option is not set.
 	versionReasoningPreservedByDefault = 10763
+	// versionContextPerSlot is b10662 (#24124), which added
+	// --kv-unified-per-slot.
+	versionContextPerSlot = 10662
 )
 
 // newest reports whether the target is to be written for as current
@@ -85,6 +88,13 @@ func (t Target) DirectIOFlags() []string {
 	}
 	return []string{"--" + p.Name, p.Value}
 }
+
+// contextPerSlotOption reports whether the build takes
+// --kv-unified-per-slot.
+func (t Target) contextPerSlotOption() bool { return t.newest(versionContextPerSlot) }
+
+// ContextPerSlotOption is contextPerSlotOption for the config form.
+func (t Target) ContextPerSlotOption() bool { return t.contextPerSlotOption() }
 
 // ReasoningPreserveOption reports whether the build takes
 // --reasoning-preserve. An older build gets nothing: an option it does

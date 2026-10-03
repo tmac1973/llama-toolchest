@@ -631,7 +631,12 @@ var reviewFields = []reviewField{
 	{"ubatch_size", "Batch / micro-batch", func(c *models.ModelConfig) string {
 		return showInt("default", c.BatchSize) + " / " + showInt("default", c.UBatchSize)
 	}},
-	{"parallel", "Parallel conversations", func(c *models.ModelConfig) string { return strconv.Itoa(max(1, c.Parallel)) }},
+	{"parallel", "Parallel conversations", func(c *models.ModelConfig) string {
+		if c.Parallel <= 0 {
+			return "auto (4, shared)"
+		}
+		return strconv.Itoa(c.Parallel)
+	}},
 	{"threads", "CPU threads", func(c *models.ModelConfig) string { return strconv.Itoa(c.Threads) }},
 	{"spec_type", "Speculative decoding", func(c *models.ModelConfig) string {
 		if c.SpecType == "" {
