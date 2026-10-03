@@ -392,7 +392,7 @@ func TestEvalFlagsCompleteAndValidated(t *testing.T) {
 		"--cache-type-k f16",
 		"--cache-type-v f16",
 		"--flash-attn off", // the cell's snapshot does not enable it
-		"--direct-io",
+		"--load-mode dio",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("flags missing %q: %v", want, flags)

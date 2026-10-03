@@ -77,6 +77,18 @@ func RuntimeEnvOptions() []RuntimeEnvOption {
 			Backends: []string{"cuda", "rocm"},
 		},
 		{
+			Name:  "GGML_CUDA_ALLREDUCE",
+			Label: "Tensor-parallel AllReduce path",
+			Help: "Which AllReduce split mode tensor uses to combine results across GPUs. Auto (unset) tries " +
+				"NCCL/RCCL first — present in CUDA builds by default and in ROCm builds with the RCCL toggle — then " +
+				"llama.cpp's internal AllReduce, which handles exactly two GPUs (ROCm builds have it from b10989), " +
+				"then the generic meta-backend butterfly. 'internal' skips NCCL/RCCL, which sidesteps an RCCL " +
+				"regression on a two-GPU split without rebuilding; 'none' forces the butterfly. " +
+				"Only matters for models split by tensor.",
+			Values:   []string{"", "nccl", "internal", "none"},
+			Backends: []string{"cuda", "rocm"},
+		},
+		{
 			Name:  "GGML_CUDA_ENABLE_UNIFIED_MEMORY",
 			Label: "Unified memory (VRAM overflow)",
 			Help: "Lets allocations spill into system RAM instead of failing when VRAM runs out. " +

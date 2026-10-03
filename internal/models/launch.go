@@ -32,6 +32,14 @@ const (
 	// removed --ctx-size-draft. A draft context has had the size of the
 	// model's own context since.
 	versionNoDraftContext = 9109
+	// versionLoadMode is b10105 (#20834), which added --load-mode and
+	// turned --direct-io, --mmap and --mlock into deprecated aliases of
+	// it.
+	versionLoadMode = 10105
+	// versionNoDirectIO is b10875 (#28334), which removed those aliases.
+	// From here --load-mode dio is the only way to ask for Direct I/O,
+	// and a preset with "direct-io" stops the router at startup.
+	versionNoDirectIO = 10875
 	// versionLazyRead is b10653 (#27794), which added
 	// --tensor-read-lazy for on-demand reading of per-layer embeddings.
 	versionLazyRead = 10653
@@ -49,6 +57,27 @@ func (t Target) newest(v int) bool { return t.Version == 0 || t.Version >= v }
 // taken to be current.
 func (t Target) draftContextOption() bool {
 	return t.Version > 0 && t.Version < versionNoDraftContext
+}
+
+// directIOParam returns the option, with its value, that loads the model
+// with Direct I/O: --load-mode dio from b10105, --direct-io before it.
+// Builds between b10105 and versionNoDirectIO accept both, so the new
+// spelling is written wherever it exists.
+func (t Target) directIOParam() specParam {
+	if t.newest(versionLoadMode) {
+		return specParam{"load-mode", "dio"}
+	}
+	return specParam{"direct-io", "true"}
+}
+
+// DirectIOFlags returns directIOParam as command-line flags, for the
+// tools that take flags rather than a preset (llama-perplexity).
+func (t Target) DirectIOFlags() []string {
+	p := t.directIOParam()
+	if p.Name == "direct-io" {
+		return []string{"--direct-io"}
+	}
+	return []string{"--" + p.Name, p.Value}
 }
 
 // lazyReadOption returns the name of the option that sets on-demand

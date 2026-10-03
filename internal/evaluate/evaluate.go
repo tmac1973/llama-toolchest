@@ -142,6 +142,11 @@ type SnapshotSubset struct {
 	FlashAttention bool
 	KVCacheQuant   string
 	DirectIO       bool
+	// DirectIOFlags is how the build spells Direct I/O loading
+	// (models.Target.DirectIOFlags): --load-mode dio on current
+	// llama.cpp, --direct-io on builds older than b10105. Empty means
+	// current llama.cpp. Used only when DirectIO is set.
+	DirectIOFlags []string
 	// CPUMoE is --n-cpu-moe: expert layers kept in system memory. Mapped
 	// for the same reason as GPULayers — it decides where the weights live,
 	// and a large mixture-of-experts model that only fits with it would
@@ -166,9 +171,10 @@ type SnapshotSubset struct {
 // --ubatch-size follow the ModelConfig convention (zero = don't emit,
 // the tool keeps its own defaults); --flash-attn is always emitted so
 // the evaluation pins the state explicitly instead of inheriting the
-// tool's "auto" default. --direct-io is accepted by the tool
-// (common/arg.cpp:2656; marked DEPRECATED there — warning only, still
-// valid); mapping it keeps the excluded list a complete statement.
+// tool's "auto" default. Direct I/O is written as the build spells it
+// (DirectIOFlags): llama.cpp removed --direct-io at b10875 (#28334) and
+// rejects it outright, leaving --load-mode dio; mapping it keeps the
+// excluded list a complete statement.
 //
 // Excluded by listing — every ConfigSnapshot field is either mapped or
 // named here:
@@ -218,7 +224,11 @@ func MapConfigFlags(snap SnapshotSubset) []string {
 		flags = append(flags, "--cache-type-k", snap.KVCacheQuant, "--cache-type-v", snap.KVCacheQuant)
 	}
 	if snap.DirectIO {
-		flags = append(flags, "--direct-io")
+		if len(snap.DirectIOFlags) > 0 {
+			flags = append(flags, snap.DirectIOFlags...)
+		} else {
+			flags = append(flags, "--load-mode", "dio")
+		}
 	}
 	if snap.CPUMoE > 0 {
 		flags = append(flags, "--n-cpu-moe", strconv.Itoa(snap.CPUMoE))

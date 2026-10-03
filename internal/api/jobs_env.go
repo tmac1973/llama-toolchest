@@ -497,6 +497,15 @@ func (e *jobEnv) buildBackend(buildID string) string {
 	return ""
 }
 
+// buildTarget is buildTarget for a build id; an unknown id is written
+// for as current llama.cpp.
+func (e *jobEnv) buildTarget(buildID string) models.Target {
+	if b, ok := e.s.builder.Find(buildID); ok {
+		return buildTarget(b)
+	}
+	return models.Target{}
+}
+
 // EvalFlags builds the complete llama-perplexity flag list for a cell.
 // It is the single place config becomes CLI flags: the same merge and
 // validation the performance path applies before restarting the router
@@ -533,6 +542,7 @@ func (e *jobEnv) EvalFlags(modelID string, snap benchmark.ConfigSnapshot, buildI
 		FlashAttention: merged.FlashAttention,
 		KVCacheQuant:   merged.KVCacheQuant,
 		DirectIO:       merged.DirectIO,
+		DirectIOFlags:  e.buildTarget(buildID).DirectIOFlags(),
 		CPUMoE:         merged.CPUMoE,
 		PlacementFlags: models.GPUPlacementFlags(placed, e.buildBackend(buildID)),
 	}

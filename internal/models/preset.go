@@ -163,8 +163,11 @@ func writeConfigParams(b *strings.Builder, cfg *ModelConfig, isEmbedding bool, t
 			b.WriteString(fmt.Sprintf("cache-type-k = %s\n", cfg.KVCacheQuant))
 			b.WriteString(fmt.Sprintf("cache-type-v = %s\n", cfg.KVCacheQuant))
 		}
+		// --direct-io was removed at b10875 (see directIOParam); the
+		// router refuses a preset that still carries it.
 		if cfg.DirectIO {
-			b.WriteString("direct-io = true\n")
+			p := t.directIOParam()
+			b.WriteString(fmt.Sprintf("%s = %s\n", p.Name, p.Value))
 		}
 		// --lazy-mode (--tensor-read-lazy before b10700) governs whether
 		// the per-layer / n-gram embedding table is streamed from the
