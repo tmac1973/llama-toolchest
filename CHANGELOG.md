@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.33.4](https://github.com/tmac1973/llama-toolchest/compare/v2.33.3...v2.33.4) (2026-10-03)
+
+
+### Bug Fixes
+
+* plans budget each GPU from what other programs leave free ([#226](https://github.com/tmac1973/llama-toolchest/issues/226)) ([151fee8](https://github.com/tmac1973/llama-toolchest/commit/151fee85d6bb5120b74bf6f19806f19adfe8080f))
+* restart indicators appear exactly when a config change needs them ([#227](https://github.com/tmac1973/llama-toolchest/issues/227)) ([77c73af](https://github.com/tmac1973/llama-toolchest/commit/77c73af318f9ec695c5b6186b97051c05ef3845e))
+* ROCm's VRAM estimate gets one-card coefficients and the newer terms ([#223](https://github.com/tmac1973/llama-toolchest/issues/223)) ([1d3ecd6](https://github.com/tmac1973/llama-toolchest/commit/1d3ecd6685f6ecef21713c6bc336ce260d9e359c))
+
 ## [2.33.3](https://github.com/tmac1973/llama-toolchest/compare/v2.33.2...v2.33.3) (2026-10-03)
 
 
