@@ -69,7 +69,7 @@ func ProfileOptions(profile string) []BuildOption {
 	faAllQuants := BuildOption{
 		Flag:        "GGML_CUDA_FA_ALL_QUANTS",
 		Label:       "FlashAttention for All KV Quants",
-		Description: "Compile FlashAttention kernels for every KV-cache quantization combination. Enable if you run a quantized KV cache (cache type other than f16) — without it those combinations fall back to slower generic kernels. Significantly longer build time.",
+		Description: "Compile FlashAttention kernels for every K/V cache type combination. Not needed for the KV cache quantizations the model config offers: q8_0 and q4_0 (with K and V the same type) are compiled by default. It matters only for other types or mixed K/V types set through Extra flags, which without it fall back to the f16 kernel with a warning. From b10876 upstream treats this as an alias for GGML_CUDA_FA_QUANTS=all; pass -DGGML_CUDA_FA_QUANTS=\"q8_0-q4_0;...\" in Extra CMake flags to compile a chosen few instead. Significantly longer build time.",
 		Default:     false,
 	}
 	forceMMQ := BuildOption{
@@ -110,7 +110,7 @@ func ProfileOptions(profile string) []BuildOption {
 			{
 				Flag:        "GGML_HIP_RCCL",
 				Label:       "RCCL Collectives (Tensor Parallelism)",
-				Description: "Build against RCCL, ROCm's collective communications library, for the AllReduce that fires every layer under tensor parallelism. Without it the build falls back to a slower generic path (the 'falling back to meta-backend butterfly' message in the logs). Only matters for split-mode tensor across 2+ GPUs; requires rccl-devel to build.",
+				Description: "Build against RCCL, ROCm's collective communications library, for the AllReduce that fires every layer under tensor parallelism. Without it, a split over exactly two GPUs uses llama.cpp's internal AllReduce (ROCm builds have it from b10989) and any other GPU count falls back to the slower generic path (the 'falling back to meta-backend butterfly' message in the logs). Only matters for split-mode tensor across 2+ GPUs; requires rccl-devel to build. The GGML_CUDA_ALLREDUCE variable under Settings picks the path at runtime.",
 				Default:     false,
 			},
 			{
