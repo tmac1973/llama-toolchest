@@ -211,6 +211,13 @@ type ModelConfig struct {
 	MtpPath        string `json:"mtp_path,omitempty"`        // path to a separate MTP drafter-head GGUF (gemma-4 style); loaded via --model-draft under spec_type=draft-mtp. Empty for self-speculation MTP (Qwen3.6/DeepSeek-V3) where the head is baked into the main GGUF.
 	MtpDisabled    bool   `json:"mtp_disabled,omitempty"`    // skip the separate --model-draft MTP head at launch even when MtpPath is set; preserves the path so it can be re-enabled
 
+	// ReasoningPreserve controls --reasoning-preserve: whether the chat
+	// template keeps the model's reasoning from earlier turns in the
+	// conversation ("on") or only shows the final answers ("off"). ""
+	// leaves llama.cpp's default, which is on from b10763. Only some chat
+	// templates support it; for the others llama.cpp ignores it.
+	ReasoningPreserve string `json:"reasoning_preserve,omitempty"` // "", "on", "off"
+
 	// Speculative decoding, draft-method slot. See specmodes.go for why
 	// there are two slots and specDecodingParams for what each emits.
 	SpecType       string `json:"spec_type,omitempty"`        // "", "draft", "draft-mtp", "draft-eagle3", "draft-dflash", "draft-dspark" — draft methods only; the draftless mode lives in SpecAssist
@@ -421,6 +428,12 @@ func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool, t Target) string {
 		}
 		if name := t.lazyReadOption(); name != "" && (c.PLEMode == "on" || c.PLEMode == "off") {
 			parts = append(parts, "--"+name, c.PLEMode)
+		}
+		switch t.reasoningPreserveValue(c) {
+		case "true":
+			parts = append(parts, "--reasoning-preserve")
+		case "false":
+			parts = append(parts, "--no-reasoning-preserve")
 		}
 		if c.MmprojPath != "" && !c.MmprojDisabled {
 			parts = append(parts, "--mmproj", c.MmprojPath)

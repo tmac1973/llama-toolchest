@@ -178,6 +178,11 @@ func writeConfigParams(b *strings.Builder, cfg *ModelConfig, isEmbedding bool, t
 		if name := t.lazyReadOption(); name != "" && (cfg.PLEMode == "on" || cfg.PLEMode == "off") {
 			b.WriteString(fmt.Sprintf("%s = %s\n", name, cfg.PLEMode))
 		}
+		// Empty leaves llama.cpp's default. "false" makes the router use
+		// --no-reasoning-preserve.
+		if v := t.reasoningPreserveValue(cfg); v != "" {
+			b.WriteString(fmt.Sprintf("reasoning-preserve = %s\n", v))
+		}
 		if cfg.MmprojPath != "" && !cfg.MmprojDisabled {
 			b.WriteString(fmt.Sprintf("mmproj = %s\n", cfg.MmprojPath))
 		}

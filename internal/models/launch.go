@@ -46,6 +46,12 @@ const (
 	// versionLazyMode is b10700 (#27969), which renamed
 	// --tensor-read-lazy to --lazy-mode and kept no alias.
 	versionLazyMode = 10700
+	// versionReasoningPreserve is b9837 (#25105), which added
+	// --reasoning-preserve / --no-reasoning-preserve.
+	versionReasoningPreserve = 9837
+	// versionReasoningPreservedByDefault is b10763 (#28174), from which
+	// llama.cpp keeps earlier reasoning when the option is not set.
+	versionReasoningPreservedByDefault = 10763
 )
 
 // newest reports whether the target is to be written for as current
@@ -78,6 +84,32 @@ func (t Target) DirectIOFlags() []string {
 		return []string{"--direct-io"}
 	}
 	return []string{"--" + p.Name, p.Value}
+}
+
+// ReasoningPreserveOption reports whether the build takes
+// --reasoning-preserve. An older build gets nothing: an option it does
+// not know stops the router.
+func (t Target) ReasoningPreserveOption() bool { return t.newest(versionReasoningPreserve) }
+
+// ReasoningPreservedByDefault reports whether the build keeps earlier
+// reasoning in the conversation when --reasoning-preserve is not set.
+func (t Target) ReasoningPreservedByDefault() bool {
+	return t.newest(versionReasoningPreservedByDefault)
+}
+
+// reasoningPreserveValue returns the value to write for the config's
+// ReasoningPreserve, or "" when nothing is written.
+func (t Target) reasoningPreserveValue(c *ModelConfig) string {
+	if !t.ReasoningPreserveOption() {
+		return ""
+	}
+	switch c.ReasoningPreserve {
+	case "on":
+		return "true"
+	case "off":
+		return "false"
+	}
+	return ""
 }
 
 // lazyReadOption returns the name of the option that sets on-demand
