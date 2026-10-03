@@ -14,12 +14,17 @@ type BuildProfile struct {
 
 // BuildOption describes a toggleable cmake flag for a profile.
 // Value is the cmake value set when the option is enabled; empty means "ON".
+// OffValue is the cmake value set when the option is disabled; empty
+// means the flag is left out, so cmake's own default applies. An option
+// that llama.cpp turns on by default needs OffValue, or turning it off
+// would change nothing.
 type BuildOption struct {
 	Flag        string `json:"flag"`
 	Label       string `json:"label"`
 	Description string `json:"description"`
 	Default     bool   `json:"default"`
 	Value       string `json:"value,omitempty"`
+	OffValue    string `json:"off_value,omitempty"`
 }
 
 // CMakeValue returns the value assigned to Flag when the option is enabled.
@@ -93,8 +98,11 @@ func ProfileOptions(profile string) []BuildOption {
 			{
 				Flag:        "GGML_CUDA_GRAPHS",
 				Label:       "CUDA Graphs",
-				Description: "Batch kernel launches into CUDA graphs, cutting per-token launch overhead during generation. Recent refs leave this off by default for llama.cpp; if it misbehaves at runtime, the GGML_CUDA_DISABLE_GRAPHS variable under Settings switches it off without rebuilding.",
-				Default:     false,
+				Description: "Batch kernel launches into CUDA graphs, cutting per-token launch overhead during generation. llama.cpp builds with this on by default, so leave it on unless you need it out of the build. To switch it off for a test without rebuilding, use the GGML_CUDA_DISABLE_GRAPHS variable under Settings.",
+				// llama.cpp's top-level CMakeLists turns GGML_CUDA_GRAPHS on
+				// when it is not set, so off must be written out.
+				Default:  true,
+				OffValue: "OFF",
 			},
 			{
 				Flag:        "GGML_CUDA_NO_PEER_COPY",
@@ -258,9 +266,9 @@ func DefaultProfiles() []BuildProfile {
 }
 
 // ApplyOptionOverrides folds a profile's build options into flags: each
-// option is enabled per its Default unless toggled in overrides, and
-// enabled options are set to their CMakeValue ("ON" unless the option
-// carries an explicit Value). Single source of truth shared by the
+// option is enabled per its Default unless toggled in overrides, enabled
+// options are set to their CMakeValue ("ON" unless the option carries an
+// explicit Value), and disabled options with an OffValue are set to it. Single source of truth shared by the
 // actual build (Builder.Build) and the flag preview (api effectiveCMakeFlags)
 // so the two can't diverge.
 func ApplyOptionOverrides(flags map[string]string, options []BuildOption, overrides map[string]bool) {
@@ -273,6 +281,8 @@ func ApplyOptionOverrides(flags map[string]string, options []BuildOption, overri
 		}
 		if enabled {
 			flags[opt.Flag] = opt.CMakeValue()
+		} else if opt.OffValue != "" {
+			flags[opt.Flag] = opt.OffValue
 		}
 	}
 }

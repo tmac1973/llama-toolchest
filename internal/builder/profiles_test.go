@@ -214,3 +214,37 @@ func TestSetEnvDefault(t *testing.T) {
 		t.Errorf("missing HIP_PATH default: %v", env)
 	}
 }
+
+// llama.cpp turns GGML_CUDA_GRAPHS on when it is not set, so the toggle
+// defaults to on and off has to be written out as OFF.
+func TestCUDAGraphsToggleWritesOff(t *testing.T) {
+	var graphs BuildOption
+	for _, o := range ProfileOptions("cuda") {
+		if o.Flag == "GGML_CUDA_GRAPHS" {
+			graphs = o
+		}
+	}
+	if !graphs.Default {
+		t.Error("CUDA Graphs should default to on, as llama.cpp builds it")
+	}
+	for _, tt := range []struct {
+		overrides map[string]bool
+		want      string
+	}{
+		{nil, "ON"},
+		{map[string]bool{"GGML_CUDA_GRAPHS": true}, "ON"},
+		{map[string]bool{"GGML_CUDA_GRAPHS": false}, "OFF"},
+	} {
+		flags := map[string]string{}
+		ApplyOptionOverrides(flags, ProfileOptions("cuda"), tt.overrides)
+		if got := flags["GGML_CUDA_GRAPHS"]; got != tt.want {
+			t.Errorf("overrides %v: GGML_CUDA_GRAPHS = %q, want %q", tt.overrides, got, tt.want)
+		}
+	}
+	// An option without an OffValue still writes nothing when off.
+	flags := map[string]string{}
+	ApplyOptionOverrides(flags, ProfileOptions("cuda"), map[string]bool{"GGML_CUDA_FORCE_MMQ": false})
+	if _, ok := flags["GGML_CUDA_FORCE_MMQ"]; ok {
+		t.Error("an off option without OffValue should be left out")
+	}
+}
