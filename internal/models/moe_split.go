@@ -175,8 +175,8 @@ func moeSplitInputs(m *Model, cfg *ModelConfig, gpuMiB []int, active []int) (lay
 	layers = layerGPUBytes(m, cfg, b)
 	perCard := (b.Compute + b.Overhead + b.IndexerScratch) / float64(len(active))
 	for i, g := range active {
-		total := float64(gpuMiB[g]) / 1024
-		budgets = append(budgets, total-fitMarginGiB(total))
+		avail := float64(gpuMiB[g]) / 1024 // already less other programs' use
+		budgets = append(budgets, avail-fitMarginGiB(avail))
 		f := perCard
 		if i == 0 {
 			// The first card also holds what is not per layer: draft

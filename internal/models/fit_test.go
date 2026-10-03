@@ -241,3 +241,46 @@ func TestLayerSplitCostsMoreGraphScratchThanTensorParallel(t *testing.T) {
 		t.Errorf("a single card was charged for a split: %.2f vs %.2f", a, b)
 	}
 }
+
+// Memory other programs hold comes off the card's budget, and the plan
+// says so: on a 16 GiB card with the desktop holding 1.8 GiB, a plan made
+// against the whole card left 0.17 GiB free.
+func TestPlanLeavesOtherProgramsTheirMemory(t *testing.T) {
+	m := &Model{SizeBytes: 5 << 30, NLayers: 36, AttnLayers: 36, NEmbd: 4096, NHead: 32, NKVHead: 8,
+		KVFullPerTok: 36 * 8 * 256, ContextLength: 131072}
+	card := func(other int) Hardware {
+		return Hardware{LogicalCores: 16, RAMTotalMiB: 64 * 1024,
+			GPUs: []GPUSpec{{Index: 0, Name: "GPU", VRAMTotalMiB: 16304, OtherUsedMiB: other}}}
+	}
+	empty, busy := card(0), card(6*1024)
+
+	vEmpty, _ := FitBudgets(empty)
+	vBusy, _ := FitBudgets(busy)
+	if d := vEmpty - vBusy; d < 5.5 || d > 6.5 {
+		t.Errorf("6 GiB held by others took %.2f GiB off the budget", d)
+	}
+
+	rEmpty := PlanFit(m, DefaultConfig(), empty, ContextLong)
+	rBusy := PlanFit(m, DefaultConfig(), busy, ContextLong)
+	if rBusy.EstimateGiB > rBusy.BudgetGiB || rBusy.Config.ContextSize >= rEmpty.Config.ContextSize ||
+		rBusy.Placement(m) != PlacementGPU {
+		t.Errorf("busy card: %d tokens, %.1f of %.1f GiB; empty card: %d tokens",
+			rBusy.Config.ContextSize, rBusy.EstimateGiB, rBusy.BudgetGiB, rEmpty.Config.ContextSize)
+	}
+	said := false
+	for _, n := range rBusy.Notes {
+		said = said || strings.Contains(n.Reason, "Other programs are using 6.0 GiB")
+	}
+	if !said {
+		t.Errorf("no note about other programs' memory: %+v", rBusy.Notes)
+	}
+	for _, n := range rEmpty.Notes {
+		if strings.Contains(n.Reason, "Other programs") {
+			t.Error("an empty card got the note")
+		}
+	}
+
+	if got := GPUMiB(busy); got[0] != 16304-6*1024 {
+		t.Errorf("GPUMiB = %v, want the card less what others hold", got)
+	}
+}

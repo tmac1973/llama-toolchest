@@ -235,12 +235,14 @@ func contextLabel(ctxName string) string {
 func profileLine(p recommend.Profile) (line, tip string) {
 	cards := models.PlanCards(p.Hardware)
 	var parts []string
+	other := 0.0
 	if len(cards) > 0 {
 		var vram float64
 		names := map[string]int{}
 		var order []string
 		for _, c := range cards {
 			vram += float64(c.VRAMTotalMiB) / 1024
+			other += float64(c.OtherUsedMiB) / 1024
 			if names[c.Name] == 0 {
 				order = append(order, c.Name)
 			}
@@ -255,6 +257,9 @@ func profileLine(p recommend.Profile) (line, tip string) {
 			}
 		}
 		parts = append(parts, strings.Join(gpus, " + "), fmt.Sprintf("%.0f GB VRAM", vram))
+		if other >= 0.5 {
+			parts = append(parts, fmt.Sprintf("%.1f GB in use by other programs", other))
+		}
 	}
 	if p.Hardware.RAMTotalMiB > 0 {
 		parts = append(parts, fmt.Sprintf("%.0f GB RAM", float64(p.Hardware.RAMTotalMiB)/1024))
@@ -263,6 +268,9 @@ func profileLine(p recommend.Profile) (line, tip string) {
 		parts = append(parts, "build "+p.BuildID)
 	}
 	tip = "What these recommendations were worked out for. If something looks wrong, check this first."
+	if other >= 0.5 {
+		tip += " GPU memory other programs are using (the desktop, another AI tool) is left to them, so a model that would fit on an empty card may be planned with less context or offered a smaller quant. The list is worked out again when that use changes by a gigabyte or more."
+	}
 	if !p.ArchsKnown {
 		tip += " The model types this llama.cpp build can load are not known, so models are not checked against it."
 	}

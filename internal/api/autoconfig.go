@@ -79,8 +79,13 @@ func (s *Server) hardware() models.Hardware {
 	}
 	m := s.monitor.Current()
 	hw := models.Hardware{LogicalCores: m.CPU.Cores, RAMTotalMiB: m.Memory.TotalMB}
-	for _, g := range m.GPU {
-		hw.GPUs = append(hw.GPUs, models.GPUSpec{Index: g.Index, Name: g.Name, VRAMTotalMiB: g.VRAMTotalMB, IsIGPU: g.IsIGPU})
+	other := s.otherVRAMMiB()
+	for i, g := range m.GPU {
+		spec := models.GPUSpec{Index: g.Index, Name: g.Name, VRAMTotalMiB: g.VRAMTotalMB, IsIGPU: g.IsIGPU}
+		if i < len(other) {
+			spec.OtherUsedMiB = other[i]
+		}
+		hw.GPUs = append(hw.GPUs, spec)
 	}
 	return hw
 }

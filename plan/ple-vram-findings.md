@@ -531,3 +531,22 @@ what is free.**
   only because the estimate ran 0.6 GiB high.
 - On a card shared with a desktop or other programs, the budget should
   start from free memory.
+
+## Planning from free memory (2026-10-03)
+
+Plans now budget each card from what other programs leave free, not from
+its total (`GPUSpec.OtherUsedMiB`; `internal/api/other_vram.go`). The
+system tools cannot attribute memory: rocm-smi lists nothing for a
+desktop's share, and nvidia-smi in a container reports host PIDs the
+container cannot see. So the app works it out on every monitor poll:
+- **Nothing of ours loaded:** everything in use is someone else's. This is
+  exact; a router with nothing loaded holds a few MiB.
+- **Models loaded:** use less what llama.cpp reported for them. It errs
+  high by llama.cpp's unreported context, the safe side.
+- **Otherwise:** the last idle reading. That covers no buffer report
+  (verbosity below 4), a load under way, a tensor-parallel aggregate, or a
+  benchmark running.
+
+**On the RX 9070 XT** the desktop's 1.8 GiB came off the budget: Qwen3.5-9B
+Q8 at 128K was planned against 13.0 GiB rather than 14.65 GiB, and the
+review says why.
