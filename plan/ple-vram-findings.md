@@ -449,3 +449,52 @@ usability cost; under-prediction tells someone a model fits when it does not.
 **Step 6 — only then touch the UI.** If H1 holds, the selector stops claiming a
 VRAM effect and the tooltip is rewritten around host memory and load behaviour,
 which is what the flag actually controls.
+
+## CUDA calibration (compute2, 2026-10-02)
+
+The coefficients above came from one ROCm machine. On compute2 (3× RTX
+A4000, 16 GiB, build v0.5.0-cuda) they over-estimated Qwen3.8-Flash-Next
+at 128K by 8 GiB (44.0 against 35.7), so the planner kept more experts in
+system memory than needed. 29 loads were measured: nine models (dense,
+hybrid, MoE, sliding window, sparse attention), on one card and split by
+layer over three, at 8K-128K, micro-batch 512 and 2048, with and without
+an 8-bit KV cache, expert offload and MTP. They are in
+`vram_corpus_test.go` (`cudaCorpus`). CUDA now has its own coefficients
+(`cudaCoefficients` in `vram.go`), chosen from the active build's backend.
+
+**What differs from ROCm**
+- **Overhead.** 0.51 GiB on one card, 0.55–0.59 GiB in all on three,
+  against ROCm's 0.85 per card.
+- **Graph scratch** grows with micro-batch × context, more steeply split by
+  layer. Per card at micro-batch 512: 0.19 GiB at 8K and 0.66 at 128K.
+- **No sparse-attention scratch to speak of.** Flash-Next's cards with
+  nothing else on them held 0.92 GiB at 128K, all compute included; ROCm
+  measured 24 GiB at 256K, micro-batch 1024.
+- **Recurrent state** is about 0.012 GiB per layer, with no layer-split
+  multiplier.
+
+**Costs not modelled before, seen on CUDA and added there**
+- **Expert offload:** one layer's experts on the first card, +1.5 GiB on
+  Flash-Next.
+- **An 8-bit KV cache:** one attention layer's K and V at f16, per card.
+- **MTP with a hybrid model:** the recurrent state is kept once per
+  drafted token as well (×7 at `--spec-draft-n-max 6`), and the draft
+  context adds 0.4–1.25 GiB of scratch.
+
+**Backend-independent corrections** (parser version 4)
+- **Tied output embeddings.** A model with tied embeddings (gemma) keeps a
+  copy of its embedding table on the GPU for the output layer. Gemma came
+  in 0.4–0.7 GiB under.
+- **The sliding-window cache** holds window × slots + micro-batch cells,
+  not the window: gemma-4-12B 1.91 GiB, predicted exactly.
+- **Built-in sliding-window layouts.** gpt-oss, gemma2, gemma3 and cohere2
+  set theirs in code (`builtinSWAPeriod`). gpt-oss's cache was estimated
+  at twice its size.
+- **The built-in MTP layer** is loaded only when MTP is on.
+
+**Result**
+- **Accuracy:** every one of the 41 points (both backends) is estimated at
+  or above what it used, with a mean error of 0.91 GiB.
+- **Flash-Next on compute2:** the plans keep 29 expert layers in RAM at
+  128K (was 33) and 27 at 32K (was 29), and 256K now fits. All three were
+  loaded on the hardware: the fullest card held 14.5 GiB of 16.

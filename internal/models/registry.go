@@ -113,6 +113,10 @@ type Model struct {
 	// fixed (see HelperConfig), it is not offered for chat or
 	// benchmarks, and the only thing to do with it is remove it.
 	HelperRole bool `json:"helper_role,omitempty"`
+	// OutputTied records a model with no output.weight, whose output layer
+	// reuses the input embedding. llama.cpp keeps a copy of that table on
+	// the GPU for it, so it counts as VRAM (see EmbeddingsTied).
+	OutputTied bool `json:"output_tied,omitempty"`
 	// Seeded is set when the config was filled in from a recommendation
 	// as the model finished downloading, and cleared by the first change
 	// anyone makes to it. Nil otherwise.
@@ -803,7 +807,10 @@ func (r *Registry) ListNeedingPresetFetch() []string {
 //	3 — built-in MTP layer count copied to the model record, and the
 //	    mixture-of-experts layout (expert counts, expert tensor bytes and
 //	    which layers carry them) added for --n-cpu-moe.
-const GGUFMetaVersion = 3
+//	4 — sliding-window layouts llama.cpp sets in code (gpt-oss, gemma2,
+//	    gemma3, cohere2) applied to the KV factors, and tied output
+//	    embeddings recorded (OutputTied).
+const GGUFMetaVersion = 4
 
 // BackfillGGUFMeta re-reads GGUF metadata for records written by an older
 // parser, in one pass at startup.

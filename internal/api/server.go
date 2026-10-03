@@ -285,6 +285,9 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 	// Builds made before the architecture list was recorded get it from
 	// the checkout's history; a git call per build, so off the startup path.
 	go bld.BackfillArchs()
+	// VRAM estimates made before any plan asks for the hardware (the
+	// model list, the GPU map) use the active build's backend too.
+	models.SetVRAMBackend(buildBackend(s.resolveActiveBuild()))
 	s.recommend = s.newRecommendEngine(filepath.Join(cfg.DataDir, "cache", "recommend"))
 	s.llm = &llmcall.Client{Backend: &helperBackend{s: s}, HTTP: &http.Client{Timeout: 5 * time.Minute}}
 	s.tuneStore = autotune.NewStore(cfg.DataDir)
