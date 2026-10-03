@@ -143,6 +143,7 @@ func PlanFit(m *Model, base ModelConfig, hw Hardware, class ContextClass) FitRes
 	cfg.FlashAttention = true
 	if cfg.Parallel > 1 {
 		cfg.Parallel = 0
+		cfg.SharedContext, cfg.ContextPerSlot = false, 0
 	}
 
 	fits := func(c *ModelConfig) (VRAMBreakdown, bool) {
@@ -289,7 +290,7 @@ func finishFit(m *Model, base, cfg ModelConfig, b VRAMBreakdown, budget float64,
 		note("ubatch_size", "Batch sizes are left at llama.cpp's defaults. Autotune can measure better values for this machine.")
 	}
 	if cfg.Parallel != base.Parallel {
-		note("parallel", "One conversation at a time, so that conversation gets the whole context.")
+		note("parallel", "llama.cpp's default: conversations share the whole context, so one conversation can use all of it.")
 	}
 	if cfg.Threads != base.Threads {
 		note("threads", fmt.Sprintf("Part of the model runs on the CPU, so it uses %d threads: one per physical core.", cfg.Threads))

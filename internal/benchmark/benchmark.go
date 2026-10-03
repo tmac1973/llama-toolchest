@@ -300,6 +300,10 @@ type ConfigSnapshot struct {
 	SplitMode string `json:"split_mode,omitempty"`
 	MainGPU   int    `json:"main_gpu,omitempty"`
 	Parallel  int    `json:"parallel,omitempty"`
+	// SharedContext and ContextPerSlot: whether the Parallel slots share
+	// one context pool, and the most one conversation may use of it.
+	SharedContext  bool `json:"shared_context,omitempty"`
+	ContextPerSlot int  `json:"context_per_slot,omitempty"`
 	// CPUMoE is --n-cpu-moe: expert layers kept in system memory.
 	CPUMoE int `json:"cpu_moe,omitempty"`
 

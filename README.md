@@ -368,8 +368,9 @@ old to report". `schema_version` is bumped only on breaking changes.
         // context — compact requests on context_per_request, never context_length
         "context_size": 32768,          // served runtime n_ctx (0 → trained max)
         "context_length": 131072,       // model's trained max (informational)
-        "parallel": 4,                  // slot count (1 = no extra slots)
-        "context_per_request": 8192,    // context_size / max(parallel, 1)
+        "parallel": 4,                  // conversations served at once
+        "context_shared": false,        // true: the conversations share one pool of context_size
+        "context_per_request": 8192,    // the most one conversation can use
 
         // modalities / tools
         "vision": false,
@@ -403,8 +404,22 @@ old to report". `schema_version` is bumped only on breaking changes.
 }
 ```
 
-The same `parallel` and `context_per_request` values are also added to the
-`config` map in `GET /api/models/{id}/info` (the detailed per-model view).
+`context_per_request` depends on how the model is set to serve conversations:
+
+| Parallel Conversations | `parallel` | `context_shared` | `context_per_request` |
+|---|---|---|---|
+| blank (llama.cpp's default) | 4 | true | `context_size` |
+| 1 | 1 | false | `context_size` |
+| N ≥ 2 | N | false | `context_size` ÷ N |
+| N ≥ 2, Shared Context on | N | true | the Max Context per Conversation, or `context_size` without one |
+
+With a shared pool, `context_per_request` is what one conversation may
+reach, not what is guaranteed: when several long conversations run at
+once the pool can fill first.
+
+The same `parallel`, `context_shared` and `context_per_request` values are
+also added to the `config` map in `GET /api/models/{id}/info` (the
+detailed per-model view), together with `context_pool`.
 
 ## License
 

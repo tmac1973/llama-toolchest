@@ -133,8 +133,8 @@ func writeConfigParams(b *strings.Builder, cfg *ModelConfig, isEmbedding bool, t
 	if cfg.Threads >= 0 {
 		b.WriteString(fmt.Sprintf("threads = %d\n", cfg.Threads))
 	}
-	if cfg.Parallel > 1 {
-		b.WriteString(fmt.Sprintf("parallel = %d\n", cfg.Parallel))
+	for _, p := range sharedContextParams(cfg, t) {
+		b.WriteString(fmt.Sprintf("%s = %s\n", p.Name, p.Value))
 	}
 	if cfg.CPUMoE > 0 {
 		b.WriteString(fmt.Sprintf("n-cpu-moe = %d\n", cfg.CPUMoE))

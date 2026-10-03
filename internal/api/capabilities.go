@@ -20,28 +20,25 @@ func (s *Server) buildCapabilities(m *models.Model, cfg *models.ModelConfig) map
 	// max — matching how /info reports context_size. This is the number a
 	// client must compact against, never the trained max (context_length).
 	servedCtx := m.ContextLength
-	parallel := 1
+	layout := models.ContextLayout{Slots: 1, Pool: servedCtx, PerConversation: servedCtx}
 	if cfg != nil {
 		live := cfg
 		if snap, ok := s.runningConfigFor(m.ID); ok && s.process.IsRunning() {
 			live = snap
 		}
-		if live.ContextSize > 0 {
-			servedCtx = live.ContextSize
-		}
-		if live.Parallel > 1 {
-			parallel = live.Parallel
-		}
+		layout = live.ContextLayoutFor(m.ContextLength, s.activeTarget())
+		servedCtx = layout.Pool
 	}
 
 	return map[string]any{
 		"schema_version": CapabilitiesSchemaVersion,
 
 		// context (see README §"served context vs. trained max")
-		"context_size":        servedCtx,       // SERVED n_ctx — compact on this
-		"context_length":      m.ContextLength, // trained max, informational
-		"parallel":            parallel,        // slot count; 1 = no extra slots
-		"context_per_request": servedCtx / parallel,
+		"context_size":        servedCtx,              // SERVED n_ctx, the whole pool
+		"context_length":      m.ContextLength,        // trained max, informational
+		"parallel":            layout.Slots,           // conversations served at once
+		"context_shared":      layout.Shared,          // slots draw from one pool of context_size
+		"context_per_request": layout.PerConversation, // the most one conversation can use
 
 		// modalities / tools
 		"vision":    m.HasVision(cfg),

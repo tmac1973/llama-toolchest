@@ -197,7 +197,8 @@ type SnapshotSubset struct {
 //     let a sweep silently rewrite the invocation being scored.
 //   - SplitMode, MainGPU: reach the command line through PlacementFlags,
 //     like GPUAssign.
-//   - Parallel: parallel slots are incompatible with single-stream
+//   - Parallel, SharedContext, ContextPerSlot: parallel slots and how
+//     they share the context are incompatible with single-stream
 //     deterministic scoring.
 //   - DraftCtxSize, DraftGPULayers, DraftKVCacheQuant: the draft model's
 //     resources; there is no drafter in an evaluation.

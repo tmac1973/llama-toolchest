@@ -10,7 +10,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/web"
 )
 
-func renderReasoningPreserve(t *testing.T, cfg *models.ModelConfig, data modelConfigPanelData) string {
+func renderModelConfigWith(t *testing.T, cfg *models.ModelConfig, data modelConfigPanelData) string {
 	t.Helper()
 	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
 		"templates/layout.html", "templates/partials/*.html")
@@ -32,10 +32,10 @@ func renderReasoningPreserve(t *testing.T, cfg *models.ModelConfig, data modelCo
 // choice comes back selected so saving the form does not reset it.
 func TestReasoningPreserveSelector(t *testing.T) {
 	cfg := &models.ModelConfig{Enabled: true, ReasoningPreserve: "off"}
-	if out := renderReasoningPreserve(t, cfg, modelConfigPanelData{}); strings.Contains(out, `name="reasoning_preserve"`) {
+	if out := renderModelConfigWith(t, cfg, modelConfigPanelData{}); strings.Contains(out, `name="reasoning_preserve"`) {
 		t.Error("selector rendered for a model without a reasoning mode")
 	}
-	out := renderReasoningPreserve(t, cfg, modelConfigPanelData{HasReasoning: true, ReasoningPreserveDefault: "keep"})
+	out := renderModelConfigWith(t, cfg, modelConfigPanelData{HasReasoning: true, ReasoningPreserveDefault: "keep"})
 	idx := strings.Index(out, `name="reasoning_preserve"`)
 	if idx < 0 {
 		t.Fatal("selector missing for a reasoning model")
