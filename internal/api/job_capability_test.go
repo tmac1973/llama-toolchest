@@ -430,7 +430,9 @@ func evalStopServer(t *testing.T) (*Server, *process.Manager) {
 	}
 	binDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(binDir, "llama-server"),
-		[]byte("#!/bin/sh\nwhile :; do sleep 1; done\n"), 0o755); err != nil {
+		// Exits with the test binary, as in
+		// TestWatchRouterMemoryCollectsFromTheLiveLogStream.
+		[]byte("#!/bin/sh\nwhile kill -0 $PPID 2>/dev/null; do sleep 1; done\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	health := 0
