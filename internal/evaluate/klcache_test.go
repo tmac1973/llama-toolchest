@@ -383,7 +383,7 @@ func TestKLFlagFingerprintDistinguishesNumerics(t *testing.T) {
 // file is tens of GiB — retuning them must not discard the cache.
 func TestKLFlagFingerprintIgnoresPerformanceFlags(t *testing.T) {
 	a := []string{"--n-gpu-layers", "999", "--threads", "8", "--flash-attn", "on", "--device", "ROCm0"}
-	b := []string{"--n-gpu-layers", "40", "--threads", "16", "--flash-attn", "on", "--direct-io"}
+	b := []string{"--n-gpu-layers", "40", "--threads", "16", "--flash-attn", "on", "--load-mode", "dio"}
 	if KLFlagFingerprint(a) != KLFlagFingerprint(b) {
 		t.Error("gpu layers / threads / placement changed the fingerprint; they select kernels, not arithmetic")
 	}

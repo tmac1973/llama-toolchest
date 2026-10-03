@@ -417,7 +417,7 @@ func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool, t Target) string {
 			parts = append(parts, "--cache-type-k", c.KVCacheQuant, "--cache-type-v", c.KVCacheQuant)
 		}
 		if c.DirectIO {
-			parts = append(parts, "--direct-io")
+			parts = append(parts, t.DirectIOFlags()...)
 		}
 		if name := t.lazyReadOption(); name != "" && (c.PLEMode == "on" || c.PLEMode == "off") {
 			parts = append(parts, "--"+name, c.PLEMode)

@@ -85,7 +85,7 @@ func (k KLBaseKey) fingerprintOrNone() string {
 // generation run produces, as opposed to how fast it produces them.
 // Only these enter the cache fingerprint.
 //
-// Deliberately excluded: --n-gpu-layers, --threads, --direct-io, and the
+// Deliberately excluded: --n-gpu-layers, --threads, --load-mode, and the
 // placement flags (--device / --tensor-split / --split-mode / --main-gpu).
 // They pick kernels and hardware, not arithmetic, and a base file is tens
 // of GiB for a large-vocabulary model — keying on them would throw the

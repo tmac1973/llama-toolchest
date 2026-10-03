@@ -52,7 +52,7 @@ func TestMapConfigFlagsFull(t *testing.T) {
 		"--flash-attn", "on",
 		"--cache-type-k", "q8_0",
 		"--cache-type-v", "q8_0",
-		"--direct-io",
+		"--load-mode", "dio",
 		"--device", "ROCm0,ROCm1",
 		"--tensor-split", "1,1",
 	}
@@ -119,7 +119,7 @@ func TestMapConfigFlagsZeroConventions(t *testing.T) {
 			t.Errorf("flags missing %q: %s", want, got)
 		}
 	}
-	for _, absent := range []string{"--batch-size", "--ubatch-size", "--cache-type-k", "--direct-io"} {
+	for _, absent := range []string{"--batch-size", "--ubatch-size", "--cache-type-k", "--direct-io", "--load-mode"} {
 		if strings.Contains(got, absent) {
 			t.Errorf("unset field %q should not be emitted: %s", absent, got)
 		}
@@ -383,5 +383,14 @@ func TestTailBufferKeepsLastLimitBytes(t *testing.T) {
 	n, err := newTailBuffer(4).Write([]byte(""))
 	if err != nil || n != 0 {
 		t.Errorf("empty write should report (0, nil), got (%d, %v)", n, err)
+	}
+}
+
+// A build older than b10105 has no --load-mode; the caller passes the
+// build's own spelling through DirectIOFlags.
+func TestMapConfigFlagsDirectIOUsesTheBuildsSpelling(t *testing.T) {
+	got := strings.Join(MapConfigFlags(SnapshotSubset{DirectIO: true, DirectIOFlags: []string{"--direct-io"}}), " ")
+	if !strings.Contains(got, "--direct-io") || strings.Contains(got, "--load-mode") {
+		t.Errorf("want the build's --direct-io only: %s", got)
 	}
 }
