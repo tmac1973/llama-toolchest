@@ -1135,6 +1135,14 @@ func (s *Server) afterConfigChange(w http.ResponseWriter, r *http.Request, id st
 	// Sampling params are injected at the proxy layer and don't need a reload.
 	if cfg.Enabled && s.process.IsRunning() {
 		s.markDirty(id)
+		// The model list is not re-rendered after a config change (that
+		// would close an open Configure panel), so its card is told to show
+		// the restart icon in place. Without this the icon appeared only
+		// after a page reload — after Autotune's "Use these settings" as
+		// much as after an edit in the form.
+		if isHTMX(r) {
+			addHXTrigger(w, "restartNeeded", map[string]string{"dom": domID(id)})
+		}
 	}
 
 	// Update VRAM estimate in model list

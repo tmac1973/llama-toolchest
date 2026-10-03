@@ -44,6 +44,7 @@
 <div id="helper-list" hx-get="/api/models/helpers" hx-trigger="load, modelsChanged from:body" hx-swap="innerHTML">
 </div>
 
+<template id="restart-icon-template">{{template "restart_icon"}}</template>
 <script>
 (function() {
     // --- VRAM estimate update from config save ---
@@ -53,6 +54,19 @@
             var cell = document.getElementById('vram-' + detail.id);
             if (cell) cell.textContent = detail.vram;
         }
+    });
+
+    // --- Restart icon after a config change ---
+    // The list is not re-rendered for a config change, which would close an
+    // open Configure panel, so the card's icon slot is filled in place. The
+    // icon is the card's own (kept in the hidden template below), so the
+    // two cannot differ.
+    document.body.addEventListener('restartNeeded', function(e) {
+        var detail = e.detail;
+        if (!detail || !detail.dom) return;
+        var slot = document.getElementById('restart-' + detail.dom);
+        var icon = document.getElementById('restart-icon-template');
+        if (slot && icon && !slot.innerHTML.trim()) slot.innerHTML = icon.innerHTML;
     });
 
     // --- Configure panel reload after Autoconfigure or Autotune saves ---
