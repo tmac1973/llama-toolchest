@@ -13,7 +13,7 @@ earn on recall (the report's 4×). No code is written in this phase.
 
 ## Files touched
 
-- `plan/speculative-multi-mode/results.md` — **new**. The numbers, the exact job
+- `plan/archive/speculative-multi-mode/results.md` — **new**. The numbers, the exact job
   configuration, and what they mean. This is the only file this phase writes.
 
 ## Steps

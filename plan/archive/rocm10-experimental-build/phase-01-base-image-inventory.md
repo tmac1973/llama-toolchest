@@ -17,7 +17,7 @@ plan folder; its output is a findings document the next phase reads.
 
 ## Files touched
 
-- `plan/rocm10-experimental-build/findings-base-image.md` — new; the inventory and
+- `plan/archive/rocm10-experimental-build/findings-base-image.md` — new; the inventory and
   the go/no-go conclusion.
 
 ## Steps

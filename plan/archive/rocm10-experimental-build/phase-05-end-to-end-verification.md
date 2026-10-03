@@ -18,7 +18,7 @@ Qwen3.5 GGUF models are already installed, which is enough to test a load.
 
 ## Files touched
 
-- `plan/rocm10-experimental-build/findings-verification.md` — new; the result of
+- `plan/archive/rocm10-experimental-build/findings-verification.md` — new; the result of
   each check below, pass or fail, with the output that shows it.
 
 ## Steps
