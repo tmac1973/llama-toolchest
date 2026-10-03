@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.34.0](https://github.com/tmac1973/llama-toolchest/compare/v2.33.4...v2.34.0) (2026-10-03)
+
+
+### Features
+
+* per-model setting for reasoning in conversation history ([#231](https://github.com/tmac1973/llama-toolchest/issues/231)) ([446c427](https://github.com/tmac1973/llama-toolchest/commit/446c4278b0f19f751bf695ecd0a96e74beb7b2d4))
+* shared context between parallel conversations ([#232](https://github.com/tmac1973/llama-toolchest/issues/232)) ([1ed03e5](https://github.com/tmac1973/llama-toolchest/commit/1ed03e5695e3142c999902cca309bfad8c84b15c))
+
+
+### Bug Fixes
+
+* Direct I/O uses --load-mode dio, which current llama.cpp requires ([#228](https://github.com/tmac1973/llama-toolchest/issues/228)) ([13a944d](https://github.com/tmac1973/llama-toolchest/commit/13a944de4beda5ccdf719ad747ac5e511f6d1769))
+* the CUDA Graphs toggle can turn graphs off ([#230](https://github.com/tmac1973/llama-toolchest/issues/230)) ([b9e5ab4](https://github.com/tmac1973/llama-toolchest/commit/b9e5ab42bc6e361e2107e2ca254ae48422cdbd25))
+
 ## [2.33.4](https://github.com/tmac1973/llama-toolchest/compare/v2.33.3...v2.33.4) (2026-10-03)
 
 
