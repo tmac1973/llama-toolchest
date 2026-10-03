@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.33.3](https://github.com/tmac1973/llama-toolchest/compare/v2.33.2...v2.33.3) (2026-10-03)
+
+
+### Bug Fixes
+
+* capability evaluations balance expert offload across GPUs too ([#218](https://github.com/tmac1973/llama-toolchest/issues/218)) ([34693ce](https://github.com/tmac1973/llama-toolchest/commit/34693ced3f935bac9879abeab1ffebfbbfba3225))
+* CUDA gets its own VRAM estimate coefficients, measured on compute2 ([#219](https://github.com/tmac1973/llama-toolchest/issues/219)) ([0c6ffd1](https://github.com/tmac1973/llama-toolchest/commit/0c6ffd1b03cdf2af1262fbb512c9f7ed9ecd57df))
+
 ## [2.33.2](https://github.com/tmac1973/llama-toolchest/compare/v2.33.1...v2.33.2) (2026-10-02)
 
 
