@@ -229,7 +229,9 @@ func TestWatchRouterMemoryCollectsFromTheLiveLogStream(t *testing.T) {
 	for _, line := range strings.Split(oneLoad, "\n") {
 		script += "echo '" + line + "'\n"
 	}
-	script += "while :; do sleep 1; done\n"
+	// Exits with the test binary: a run killed partway (a timeout, a
+	// closed output pipe) skips every cleanup, and a plain loop outlived it.
+	script += "while kill -0 $PPID 2>/dev/null; do sleep 1; done\n"
 	if err := os.WriteFile(binary, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
