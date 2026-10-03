@@ -64,6 +64,13 @@ func (s *Server) autoconfigSnapshot() (autoconfigRun, bool) {
 
 // hardware describes this machine for the fit planner.
 func (s *Server) hardware() models.Hardware {
+	// The estimate's coefficients follow the build that will run: CUDA
+	// and ROCm allocate differently enough to need their own. Read here
+	// because every plan starts by asking for the machine, so a change of
+	// active build is picked up by the next one.
+	if s.builder != nil {
+		models.SetVRAMBackend(buildBackend(s.resolveActiveBuild()))
+	}
 	if s.testHardware != nil {
 		return *s.testHardware
 	}

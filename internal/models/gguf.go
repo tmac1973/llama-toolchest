@@ -117,6 +117,11 @@ type GGUFMeta struct {
 	// NextN block, so it has blocks without having block 0. See IsMTPHead.
 	HasBlockTensors bool `json:"has_block_tensors,omitempty"`
 	HasTrunkBlock0  bool `json:"has_trunk_block0,omitempty"`
+	// HasOutputTensor records an output.weight in the tensor table. A
+	// model without one ties its output to the input embedding, and
+	// llama.cpp then keeps a copy of that table on the GPU for the output
+	// layer (see Model.OutputTied).
+	HasOutputTensor bool `json:"has_output_tensor,omitempty"`
 
 	// LeadingDenseBlocks, ExpertFFLength and PLEInputDim are
 	// {arch}.leading_dense_block_count, {arch}.expert_feed_forward_length
@@ -179,6 +184,9 @@ func (meta *GGUFMeta) ApplyTo(m *Model) {
 	m.ExpertBytes = meta.ExpertBytes
 	m.ExpertLayerFirst = meta.ExpertLayerFirst
 	m.ExpertLayers = meta.ExpertLayers
+	// Known from the tensor table only; a metadata-only read leaves it to
+	// the architecture (see Model.EmbeddingsTied).
+	m.OutputTied = !meta.MetaOnly && meta.TokenEmbdBytes > 0 && !meta.HasOutputTensor
 	if meta.BaseModelRepo != "" {
 		m.BaseModelRepo = meta.BaseModelRepo
 	}
@@ -241,6 +249,7 @@ func ParseGGUFMeta(path string) (*GGUFMeta, error) {
 		if meta.TokenEmbdBytes == 0 {
 			meta.TokenEmbdBytes = sh.TokenEmbdBytes
 		}
+		meta.HasOutputTensor = meta.HasOutputTensor || sh.HasOutput
 		// Expert tensors are spread over every shard, so they are summed
 		// across all of them, the first included.
 		meta.ExpertBytes += sh.ExpertBytes
@@ -608,6 +617,7 @@ keys:
 	scan := scanTensorBlock(f, tensorCount, alignment)
 	meta.PLEBytes, meta.TokenEmbdBytes = scan.PLEBytes, scan.TokenEmbdBytes
 	meta.HasBlockTensors, meta.HasTrunkBlock0 = scan.HasBlockTensors, scan.HasTrunkBlock0
+	meta.HasOutputTensor = scan.HasOutput
 	meta.ExpertBytes = scan.ExpertBytes
 	meta.ExpertLayerFirst, meta.ExpertLayers = scan.expertLayerSpan()
 
@@ -643,6 +653,16 @@ func isRecurrentLayer(il, fullAttnInterval int, recurrentLayers []bool) bool {
 	return false
 }
 
+// builtinSWAPeriod is llama.cpp's set_swa_pattern(n) for architectures
+// whose sliding-window layout is not in the file: layer il uses the window
+// when il % n < n-1.
+var builtinSWAPeriod = map[string]int{
+	"gpt-oss": 2,
+	"gemma2":  2,
+	"gemma3":  6,
+	"cohere2": 4,
+}
+
 // computeKVScaling reduces the raw per-layer attention parameters into the
 // compact KV-cache scaling factors stored on GGUFMeta. Falls back to uniform
 // full attention with head_dim = n_embd/n_head when the richer keys are absent,
@@ -673,6 +693,19 @@ func computeKVScaling(meta *GGUFMeta, headCountKV int, kvHeadCounts []int, keyLe
 	}
 	if kDim+vDim == 0 {
 		return // no head-dim info — leave KV factors zero, caller falls back
+	}
+
+	// Some architectures leave their sliding-window layout out of the file
+	// and llama.cpp sets it in code: one layer in n attends fully and the
+	// rest use the window. Without it every layer counted as full, which
+	// put gpt-oss-20b's cache at 6 GiB at 128K against 3 measured.
+	if len(swaPattern) == 0 && slidingWindow > 0 {
+		if n := builtinSWAPeriod[meta.Architecture]; n > 1 {
+			swaPattern = make([]bool, meta.NLayers)
+			for i := range swaPattern {
+				swaPattern[i] = i%n < n-1
+			}
+		}
 	}
 
 	// Default per-layer KV head count: explicit scalar, else full attention.
@@ -946,6 +979,10 @@ const pleTensorName = "per_layer_token_embd.weight"
 // quants measured keep it at Q8_0 inside a Q4 model.
 const tokenEmbdTensorName = "token_embd.weight"
 
+// outputTensorName is the output projection. A model without one reuses
+// the input embedding for it (tied embeddings).
+const outputTensorName = "output.weight"
+
 // blockTensorPrefix and trunkBlock0Prefix bound the per-layer tensors.
 // Every architecture names them blk.N.*, so seeing which N are present
 // says whether a file holds a whole model or only some of its layers —
@@ -964,6 +1001,7 @@ type tensorScan struct {
 	TokenEmbdBytes  int64
 	HasBlockTensors bool
 	HasTrunkBlock0  bool
+	HasOutput       bool // an output.weight tensor; see GGUFMeta.HasOutputTensor
 	// ExpertBytes sums the expert tensors; expertLayerSet holds the layer
 	// numbers they belong to.
 	ExpertBytes    int64
@@ -1066,6 +1104,9 @@ func scanTensorBlock(f io.ReadSeeker, tensorCount uint64, alignment int64) tenso
 		}
 		if name == tokenEmbdTensorName {
 			embOffset = int64(offset)
+		}
+		if name == outputTensorName {
+			scan.HasOutput = true
 		}
 		if m := expertTensorPattern.FindStringSubmatch(name); m != nil {
 			expertOffsets = append(expertOffsets, int64(offset))
@@ -1191,6 +1232,7 @@ func scanShardsForTensors(path string) (tensorScan, bool) {
 		if out.TokenEmbdBytes == 0 {
 			out.TokenEmbdBytes = meta.TokenEmbdBytes
 		}
+		out.HasOutput = out.HasOutput || meta.HasOutputTensor
 		out.ExpertBytes += meta.ExpertBytes
 		for l := meta.ExpertLayerFirst; l < meta.ExpertLayerFirst+meta.ExpertLayers; l++ {
 			if out.expertLayerSet == nil {

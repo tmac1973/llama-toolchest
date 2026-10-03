@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strings"
+	"sync/atomic"
 )
 
 const vramOverheadGB = 0.2 // fixed overhead for compute buffers, scratch space, etc.
@@ -47,12 +49,58 @@ func (m *Model) KVCacheGB(ctx int, kvCacheQuant string) float64 {
 	if ctx == 0 {
 		ctx = 2048
 	}
+	swa := ctx
+	if m.SlidingWindow > 0 && m.SlidingWindow < ctx {
+		swa = m.SlidingWindow
+	}
+	return m.kvCacheGiBFor(ctx, kvCacheQuant, swa)
+}
+
+// defaultServerSlots is llama-server's own --parallel when the config sets
+// none: four sequences sharing the cache.
+const defaultServerSlots = 4
+
+// swaCells is how many positions llama.cpp's sliding-window cache holds:
+// the window for every sequence, plus a micro-batch, padded to 256 — not
+// the window alone. gemma-4-12B at 32K held 1.91 GiB against 0.81
+// estimated from the window, and 1024 x 4 + 512 cells predicts it exactly.
+func swaCells(m *Model, cfg *ModelConfig, ctx, ub int) int {
+	if m.SlidingWindow <= 0 {
+		return ctx
+	}
+	seqs := cfg.Parallel
+	if seqs <= 0 {
+		seqs = defaultServerSlots
+	}
+	n := m.SlidingWindow*seqs + ub
+	n = (n + 255) / 256 * 256
+	if ctx > 0 && n > ctx {
+		n = ctx
+	}
+	return n
+}
+
+// EmbeddingsTied reports whether the model's output layer reuses its input
+// embedding: recorded from the tensor table where it was read, and assumed
+// for the gemma family otherwise, which ties throughout.
+func (m *Model) EmbeddingsTied() bool {
+	return m.OutputTied || strings.HasPrefix(m.Arch, "gemma")
+}
+
+// kvCacheGiBFor is the attention cache with swaTokens positions cached on
+// sliding-window layers.
+func (m *Model) kvCacheGiBFor(ctx int, kvCacheQuant string, swaTokens int) float64 {
+	if ctx == 0 {
+		ctx = m.ContextLength
+	}
+	if ctx == 0 {
+		ctx = 2048
+	}
 	bpe := kvBytesPerElem(kvCacheQuant)
 
 	if m.KVFullPerTok > 0 || m.KVSWAPerTok > 0 {
-		swaTokens := ctx
-		if m.SlidingWindow > 0 && m.SlidingWindow < ctx {
-			swaTokens = m.SlidingWindow
+		if swaTokens <= 0 || swaTokens > ctx {
+			swaTokens = ctx
 		}
 		// PerTok sums already include both K and V across their layers.
 		elems := float64(ctx)*float64(m.KVFullPerTok) + float64(swaTokens)*float64(m.KVSWAPerTok)
@@ -117,58 +165,150 @@ func VRAMEstimateForConfig(m *Model, cfg *ModelConfig) float64 {
 	return VRAMEstimateForConfigOn(m, cfg, DeviceCountForConfig(cfg, 0))
 }
 
-// Per-device coefficients, fitted to llama.cpp's own buffer report across
-// eleven measured loads: four architectures, one and four cards, 3.4 to 99
-// GiB of VRAM. See plan/ple-vram-findings.md for the corpus and the method,
-// and vram_corpus_test.go for the points themselves.
+// The estimate's coefficients: what a llama.cpp backend allocates beyond
+// the weights and caches, which the file cannot say. They are empirical,
+// fitted to llama.cpp's own buffer report and the card counters on
+// measured loads (vram_corpus_test.go holds the points; see
+// plan/ple-vram-findings.md for the method), and each set is held to the
+// same rule: on every point of its backend the estimate lands at or above
+// what the hardware used. Telling someone a model fits when it does not
+// is the failure worth avoiding.
 //
-// They are empirical, and honestly so: they come from one ROCm machine, and
-// a different backend may allocate differently. The guardrail that makes
-// that acceptable is the direction of error — every coefficient is set so
-// the estimate lands at or above measured on the whole corpus. Telling
-// someone a model fits when it does not is the failure worth avoiding.
-const (
-	// Graph scratch, per device. Linear in micro-batch, weakly in context.
-	computeMiBPerUBatchTok = 0.2911
-	computeMiBPerCtxTok    = 0.00090
-	// A sparse-attention model scores every cached position against every
-	// token of the micro-batch before it can take the top-k, and holds
-	// about six tensors of that shape at once. This is the term that makes
-	// such a model cost multiples of an ordinary one at the same context.
-	indexerScratchCopies = 5.69
-	// CUDA/HIP context and allocations llama.cpp does not itemise. Constant
-	// per device across the corpus.
-	vramPerDeviceOverheadGB = 0.85
-	// What a layer split costs in graph scratch over a tensor-parallel
-	// one, on top of the per-card figure above.
-	//
-	// Every point the coefficients were fitted on was split
-	// tensor-parallel, where the cards act as one device and share one
-	// set of buffers. A layer split gives each card its own, and
-	// llama.cpp then runs the layers as a pipeline, keeping several
-	// copies of the graph in flight so a card is not idle waiting for
-	// the one before it. Its default is four copies.
-	//
-	// Four does not cover what was measured: the same model at the same
-	// context and micro-batch took 4.99 GiB of graph scratch split by
-	// layer over three NVIDIA cards against 0.96 GiB tensor-parallel
-	// over four AMD ones. This is the measured ratio, and it stands on
-	// that single pair — the backend differs as well as the split, so
-	// part of it may not be the split at all. It is kept at the measured
-	// figure rather than the explainable four because the estimate
-	// decides whether a model is offered at a context it can load at,
-	// and promising a fit that fails is the error worth avoiding.
-	layerSplitComputeCopies = 6.5
-	// A hybrid model's linear-attention layers keep a state buffer
-	// instead of a KV cache. It does not grow with the context: the 27B
-	// held the same 0.60 GiB across a sweep from 8,192 to 262,144
-	// tokens, which is what makes a flat per-layer figure the right
-	// shape. Split by layer it measured 1.75 GiB for the same model,
-	// hence the second constant — one pair, like the compute factor
-	// above.
-	recurrentStateGiBPerLayer = 0.0125
-	recurrentLayerSplitCopies = 2.9
-)
+// The backends differ enough to need separate sets. On the same model,
+// context and micro-batch, ROCm's graph scratch and per-card overhead ran
+// several times CUDA's, and Qwen3.8-Flash-Next's sparse-attention scratch,
+// 24 GiB on ROCm, did not appear on CUDA at all.
+
+// computeCoeffs is graph scratch on one device, in GiB:
+// base + perUB·ubatch + perCtx·context + perUBCtx·ubatch·context.
+type computeCoeffs struct {
+	base, perUB, perCtx, perUBCtx float64
+}
+
+func (c computeCoeffs) at(ub, ctx int) float64 {
+	u, x := float64(ub), float64(ctx)
+	return c.base + c.perUB*u + c.perCtx*x + c.perUBCtx*u*x
+}
+
+type vramCoefficients struct {
+	// single is per device when the model is on one device or split
+	// tensor-parallel; layer is per device of a layer split, where
+	// llama.cpp runs the cards as a pipeline with several copies of the
+	// graph in flight.
+	single, layer computeCoeffs
+	// indexerScratchCopies scales a sparse-attention model's ranking
+	// scratch (context x micro-batch, f32) on every device.
+	indexerScratchCopies float64
+	// indexerCacheAtKType stores the sparse-attention key cache at the KV
+	// cache's K type rather than f32.
+	indexerCacheAtKType bool
+	// Overhead llama.cpp does not itemise: on the first device and on
+	// each further one.
+	overheadFirst, overheadExtra float64
+	// A hybrid model's linear-attention state, per recurrent layer, and
+	// how many copies a layer split keeps.
+	recurrentPerLayer, recurrentLayerSplitCopies float64
+	// recurrentPerDraftToken: with speculative decoding the state is kept
+	// once per drafted token as well, so a rejected draft can be undone.
+	recurrentPerDraftToken bool
+	// quantKVScratch: with a quantized KV cache, each device holds one
+	// attention layer's K and V converted to f16 at the full context.
+	quantKVScratch bool
+	// expertOffloadScratch: with experts in system memory, the first
+	// device holds one layer's experts while it works on them.
+	expertOffloadScratch bool
+	// specCompute is the draft context's graph scratch, on top of the
+	// model's own, when speculative decoding is on.
+	specCompute computeCoeffs
+}
+
+// rocmCoefficients come from one ROCm machine (4x Radeon AI PRO R9700,
+// tensor-parallel): eleven loads, four architectures. They are also the
+// set used when the backend is not known, being the more cautious one.
+var rocmCoefficients = vramCoefficients{
+	// Linear in micro-batch, weakly in context: 0.2911 MiB per micro-batch
+	// token and 0.0009 MiB per context token.
+	single: computeCoeffs{perUB: 0.2911 / 1024, perCtx: 0.00090 / 1024},
+	// A layer split at 6.5 times that: the measured ratio of one pair (the
+	// same 27B split by layer over three NVIDIA cards against
+	// tensor-parallel over four AMD ones), kept although the backend
+	// differed as well as the split, because promising a fit that fails is
+	// the error worth avoiding.
+	layer: computeCoeffs{perUB: 6.5 * 0.2911 / 1024, perCtx: 6.5 * 0.00090 / 1024},
+	// About six tensors of context x micro-batch at once while ranking.
+	indexerScratchCopies: 5.69,
+	overheadFirst:        0.85,
+	overheadExtra:        0.85,
+	// Flat with context: the 27B held 0.60 GiB from 8,192 to 262,144
+	// tokens. 1.75 GiB split by layer, hence the copies.
+	recurrentPerLayer:         0.0125,
+	recurrentLayerSplitCopies: 2.9,
+}
+
+// cudaCoefficients come from compute2 (3x RTX A4000, build v0.5.0-cuda):
+// 29 loads of nine models (dense, hybrid, mixture-of-experts, sliding
+// window, sparse attention), on one card and split by layer over three,
+// at 8K to 128K context and micro-batches of 512 and 2048, with and
+// without an 8-bit KV cache, experts in system memory and MTP.
+var cudaCoefficients = vramCoefficients{
+	// One card: 0.10 GiB at 8K and 0.21 at 128K with a 512 micro-batch,
+	// 0.51 at 32K with 2048 — the context term grows with the
+	// micro-batch, so it is a product.
+	single: computeCoeffs{base: 0.03, perUB: 1.9e-4, perUBCtx: 1.75e-9},
+	// Split by layer, per card: 0.19 GiB at 8K to 0.66 at 128K with a 512
+	// micro-batch, 1.13 at 32K and 2.47 at 128K with 2048.
+	// The base covers granite-30B, whose cards held 0.37 GiB at 32K where
+	// the 8B's held 0.25: wider feed-forward layers take more.
+	layer: computeCoeffs{base: 0.10, perUB: 2.95e-4, perUBCtx: 7.95e-9},
+	// Flash-Next's cards with no other scratch held 0.30 GiB at 32K and
+	// 0.92 at 128K, all of it accounted for by the terms above.
+	indexerScratchCopies: 0,
+	indexerCacheAtKType:  true,
+	// 0.50-0.51 GiB on one card; 0.55-0.59 in all on three.
+	overheadFirst: 0.53,
+	overheadExtra: 0.04,
+	// 0.0118 GiB per layer on the 27B, 0.008 on the 35B-A3B, the same on
+	// one card as split by layer; seven times that with MTP drafting six
+	// tokens.
+	recurrentPerLayer:         0.0125,
+	recurrentLayerSplitCopies: 1,
+	recurrentPerDraftToken:    true,
+	// +0.16 to +0.24 GiB per card at 128K with an 8-bit cache, about one
+	// attention layer's K and V at f16.
+	quantKVScratch: true,
+	// +1.5 GiB on Flash-Next's first card (one layer's experts are 1.49)
+	// and +0.47 on the 35B-A3B's (0.68).
+	expertOffloadScratch: true,
+	// MTP's draft context: +0.4 to +0.64 GiB at 32K, and +0.38 (27B) to
+	// +1.25 (35B-A3B) at 128K. With the recurrent copies below, every MTP
+	// point stays at least 0.8 GiB above what it used.
+	specCompute: computeCoeffs{base: 0.45, perUBCtx: 1.0e-8},
+}
+
+var activeVRAMBackend atomic.Value // string
+
+// SetVRAMBackend chooses the coefficients the estimate uses: the llama.cpp
+// backend of the build that will run ("cuda", "rocm", ...). Anything
+// without a fitted set of its own uses ROCm's, the more cautious.
+func SetVRAMBackend(backend string) {
+	activeVRAMBackend.Store(backend)
+}
+
+func coefficientsFor(backend string) *vramCoefficients {
+	if backend == "cuda" {
+		return &cudaCoefficients
+	}
+	return &rocmCoefficients
+}
+
+func activeCoefficients() *vramCoefficients {
+	b, _ := activeVRAMBackend.Load().(string)
+	return coefficientsFor(b)
+}
+
+// specDraftTokens is how many tokens a draft holds when the config does
+// not say: llama.cpp's default --spec-draft-n-max.
+const specDraftTokens = 16
 
 // VRAMBreakdown is the estimate term by term, in GiB. The terms are named
 // for what llama.cpp reports, so an estimate can be checked against a
@@ -230,6 +370,10 @@ func VRAMEstimateForConfigOn(m *Model, cfg *ModelConfig, cards int) float64 {
 // VRAMBreakdownForConfigOn is VRAMEstimateForConfigOn with its terms kept
 // apart. Same arithmetic; the split exists so each term can be measured.
 func VRAMBreakdownForConfigOn(m *Model, cfg *ModelConfig, cards int) VRAMBreakdown {
+	return vramBreakdownWith(activeCoefficients(), m, cfg, cards)
+}
+
+func vramBreakdownWith(co *vramCoefficients, m *Model, cfg *ModelConfig, cards int) VRAMBreakdown {
 	if cards < 1 {
 		cards = 1
 	}
@@ -244,9 +388,22 @@ func VRAMBreakdownForConfigOn(m *Model, cfg *ModelConfig, cards int) VRAMBreakdo
 	// device. Two tensors do that on every model measured: the per-layer
 	// embedding table where one exists, and the input embedding table,
 	// which is mapped even on models with no per-layer table at all.
-	resident := m.SizeBytes - m.PLEBytes - m.TokenEmbdBytes
+	//
+	// A model with tied embeddings is the exception for the second: its
+	// output layer reuses the input table, and llama.cpp keeps a copy of
+	// it on the GPU for that (gemma-4: 0.4-0.7 GiB more than estimated).
+	resident := m.SizeBytes - m.PLEBytes
+	if !m.EmbeddingsTied() {
+		resident -= m.TokenEmbdBytes
+	}
 	if resident < 0 {
 		resident = m.SizeBytes
+	}
+	// A built-in MTP layer is loaded only when MTP drafting is on; without
+	// it llama.cpp leaves that layer off the GPU (Qwen3.6-35B-A3B: 0.72
+	// GiB, one layer in 41).
+	if m.NextNLayers > 0 && m.NLayers > m.NextNLayers && cfg.SpecType != "draft-mtp" {
+		resident -= resident * int64(m.NextNLayers) / int64(m.NLayers)
 	}
 	onCPU := CPUWeightBytes(m, cfg)
 	if onCPU > resident {
@@ -255,7 +412,8 @@ func VRAMBreakdownForConfigOn(m *Model, cfg *ModelConfig, cards int) VRAMBreakdo
 	b.Weights = BytesToGiB(resident - onCPU)
 	b.CPURAM = BytesToGiB(onCPU)
 
-	b.KVCache = m.KVCacheGB(ctx, cfg.KVCacheQuant)
+	ub := cfg.EffectiveUBatchSize()
+	b.KVCache = m.kvCacheGiBFor(ctx, cfg.KVCacheQuant, swaCells(m, cfg, ctx, ub))
 	// llama.cpp keeps each layer's KV cache on the device that runs the
 	// layer, so layers left on the CPU take their share of it to system
 	// memory. Same "zero is not set" rule as the weights.
@@ -265,10 +423,22 @@ func VRAMBreakdownForConfigOn(m *Model, cfg *ModelConfig, cards int) VRAMBreakdo
 		b.KVCache = onGPU
 	}
 
-	// Graph scratch.
-	ub := cfg.EffectiveUBatchSize()
-	perCard := computeMiBPerUBatchTok*float64(ub) + computeMiBPerCtxTok*float64(ctx)
-	b.Compute = float64(cards) * perCard / 1024 * layerSplitComputeFactor(cfg, cards)
+	// Graph scratch, per device.
+	layerSplit := isLayerSplit(cfg, cards)
+	perCard := co.single.at(ub, ctx)
+	if layerSplit {
+		perCard = co.layer.at(ub, ctx)
+	}
+	if co.quantKVScratch && cfg.KVCacheQuant != "" && cfg.KVCacheQuant != "f16" && m.KVFullPerTok > 0 && m.AttnLayers > 0 {
+		perCard += float64(m.KVFullPerTok) / float64(m.AttnLayers) * float64(ctx) * 2 / (1024 * 1024 * 1024)
+	}
+	b.Compute = float64(cards) * perCard
+	if co.expertOffloadScratch && cfg.CPUMoE > 0 && m.ExpertLayers > 0 {
+		b.Compute += BytesToGiB(m.ExpertBytes / int64(m.ExpertLayers))
+	}
+	if IsDraftMode(cfg.SpecType) {
+		b.Compute += co.specCompute.at(ub, ctx)
+	}
 
 	// Sparse attention: a key cache of its own, plus scratch that scales
 	// with context times micro-batch on every device.
@@ -277,8 +447,12 @@ func VRAMBreakdownForConfigOn(m *Model, cfg *ModelConfig, cards int) VRAMBreakdo
 		if layers == 0 {
 			layers = m.NLayers
 		}
-		b.IndexerCache = float64(layers) * float64(ctx) * float64(m.IndexerKeyLength) * 4 / (1024 * 1024 * 1024)
-		b.IndexerScratch = float64(cards) * indexerScratchCopies * float64(ctx) * float64(ub) * 4 / (1024 * 1024 * 1024)
+		bpe := 4.0
+		if co.indexerCacheAtKType {
+			bpe = kvBytesPerElem(cfg.KVCacheQuant)
+		}
+		b.IndexerCache = float64(layers) * float64(ctx) * float64(m.IndexerKeyLength) * bpe / (1024 * 1024 * 1024)
+		b.IndexerScratch = float64(cards) * co.indexerScratchCopies * float64(ctx) * float64(ub) * 4 / (1024 * 1024 * 1024)
 	}
 
 	b.SpecKV = SpecKVCacheGB(m, cfg, ctx)
@@ -287,14 +461,21 @@ func VRAMBreakdownForConfigOn(m *Model, cfg *ModelConfig, cards int) VRAMBreakdo
 	// recurrent state buffer instead of a KV cache.
 	if m.AttnLayers > 0 && m.AttnLayers < m.NLayers {
 		recurrent := float64(m.NLayers - m.AttnLayers)
-		b.Recurrent = recurrent * recurrentStateGiBPerLayer
-		if layerSplitComputeFactor(cfg, cards) > 1 {
-			b.Recurrent *= recurrentLayerSplitCopies
+		b.Recurrent = recurrent * co.recurrentPerLayer
+		if layerSplit {
+			b.Recurrent *= co.recurrentLayerSplitCopies
+		}
+		if co.recurrentPerDraftToken && IsDraftMode(cfg.SpecType) {
+			n := cfg.DraftMax
+			if n <= 0 {
+				n = specDraftTokens
+			}
+			b.Recurrent *= float64(n + 1)
 		}
 	}
 
 	b.Aux = AuxFilesVRAMGB(cfg)
-	b.Overhead = float64(cards) * vramPerDeviceOverheadGB
+	b.Overhead = co.overheadFirst + float64(cards-1)*co.overheadExtra
 	return b
 }
 
@@ -351,17 +532,11 @@ func SpecKVCacheGB(m *Model, cfg *ModelConfig, ctx int) float64 {
 	return EstimateKVCacheGB(layers, m.NKVHead, m.NHead, m.NEmbd, ctx, "")
 }
 
-// layerSplitComputeFactor is how much the graph scratch is multiplied by
-// on this placement: one for a single card or a tensor-parallel split,
-// and layerSplitComputeCopies for a layer split over several cards.
-//
-// A split mode is only read when there is more than one card to split
-// over. An empty mode is llama.cpp's default, which is a layer split.
-func layerSplitComputeFactor(cfg *ModelConfig, cards int) float64 {
-	if cards < 2 || cfg.SplitMode == "tensor" {
-		return 1
-	}
-	return layerSplitComputeCopies
+// isLayerSplit reports whether a placement splits the model by layer:
+// more than one card, and not tensor-parallel. An empty mode is
+// llama.cpp's default, which is a layer split.
+func isLayerSplit(cfg *ModelConfig, cards int) bool {
+	return cards >= 2 && cfg.SplitMode != "tensor"
 }
 
 // CPUWeightBytes estimates the model weights a config keeps in system
