@@ -518,6 +518,13 @@ func (e *jobEnv) EvalFlags(modelID string, snap benchmark.ConfigSnapshot, buildI
 		// a -ub > -b sweep fails here, not with the loader's raw error.
 		return nil, fmt.Errorf("%s: %w", modelID, err)
 	}
+	// Expert offload over several GPUs gets the same size-balanced split
+	// the preset writes for the server (see models.MoESplitConfig);
+	// llama.cpp's own split by layer count can overfill one card.
+	placed := &merged
+	if m, err := e.s.registry.Get(modelID); err == nil {
+		placed = models.MoESplitConfig(&merged, m, models.GPUMiB(e.s.hardware()))
+	}
 	subset := evaluate.SnapshotSubset{
 		GPULayers:      merged.GPULayers,
 		Threads:        merged.Threads,
@@ -527,7 +534,7 @@ func (e *jobEnv) EvalFlags(modelID string, snap benchmark.ConfigSnapshot, buildI
 		KVCacheQuant:   merged.KVCacheQuant,
 		DirectIO:       merged.DirectIO,
 		CPUMoE:         merged.CPUMoE,
-		PlacementFlags: models.GPUPlacementFlags(&merged, e.buildBackend(buildID)),
+		PlacementFlags: models.GPUPlacementFlags(placed, e.buildBackend(buildID)),
 	}
 	return evaluate.MapConfigFlags(subset), nil
 }
