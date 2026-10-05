@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.34.5](https://github.com/tmac1973/llama-toolchest/compare/v2.34.4...v2.34.5) (2026-10-05)
+
+
+### Bug Fixes
+
+* code audit stage 2 — shared helpers and secret redaction ([#243](https://github.com/tmac1973/llama-toolchest/issues/243)) ([13fde56](https://github.com/tmac1973/llama-toolchest/commit/13fde56c524d5f946914d4af9506a700bc43b153))
+
 ## [2.34.4](https://github.com/tmac1973/llama-toolchest/compare/v2.34.3...v2.34.4) (2026-10-05)
 
 
