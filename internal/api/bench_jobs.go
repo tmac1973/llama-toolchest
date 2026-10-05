@@ -738,7 +738,7 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		http.Error(w, err.Error(), http.StatusNotFound)
+		http.Error(w, err.Error(), benchErrorStatus(err, http.StatusNotFound))
 		return
 	}
 
@@ -1050,7 +1050,7 @@ func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		http.Error(w, err.Error(), http.StatusNotFound)
+		http.Error(w, err.Error(), benchErrorStatus(err, http.StatusNotFound))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -1127,7 +1127,7 @@ func (s *Server) handleBulkDeleteJobs(w http.ResponseWriter, r *http.Request) {
 
 	deleted, notDeleted, err := s.bench.DeleteJobs(ids, disposition)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
+		http.Error(w, err.Error(), benchErrorStatus(err, http.StatusConflict))
 		return
 	}
 	for id, reason := range notDeleted {
