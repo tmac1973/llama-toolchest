@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/tmac1973/llama-toolchest/internal/routerclient"
 )
 
 // RunConfig holds everything needed to execute a benchmark.
@@ -144,7 +146,7 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 
 	// Step 0: Unload all models to ensure clean VRAM for benchmarking
 	send("loading", "Unloading all models for clean benchmark...", 3)
-	r.unloadAllModels(cfg.RouterURL)
+	r.unloadAllModels(ctx, cfg.RouterURL)
 
 	// Step 1: Load the benchmark target model
 	send("loading", "Loading model into VRAM — this may take a minute for large models...", 5)
@@ -295,52 +297,36 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 // response means the model is loaded and ready for inference.
 func (r *Runner) ensureModelLoaded(ctx context.Context, routerURL, modelName string) error {
 	slog.Info("benchmark: loading model", "name", modelName, "url", routerURL)
-	body, _ := json.Marshal(map[string]string{"model": modelName})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, routerURL+"/models/load", bytes.NewReader(body))
-	if err != nil {
+	// The load request can take minutes for large models — use a generous timeout
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	if err := routerclient.Load(ctx, routerURL, modelName); err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
-
-	// The load request can take minutes for large models — use a generous timeout
-	client := &http.Client{Timeout: 5 * time.Minute}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("load request failed: %w", err)
-	}
-	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
-
-	if resp.StatusCode == http.StatusOK {
-		slog.Info("benchmark: model loaded successfully", "name", modelName)
-		return nil
-	}
-	if resp.StatusCode == http.StatusBadRequest {
-		msg := strings.ToLower(string(respBody))
-		if strings.Contains(msg, "already loaded") || strings.Contains(msg, "already running") {
-			slog.Info("benchmark: model already loaded", "name", modelName)
-			return nil
-		}
-	}
-	return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
+	slog.Info("benchmark: model loaded", "name", modelName)
+	return nil
 }
 
 // unloadAllModels unloads every loaded model from the router and waits
 // until all are confirmed unloaded before returning.
-func (r *Runner) unloadAllModels(routerURL string) {
-	loaded := r.listLoadedModels(routerURL)
+func (r *Runner) unloadAllModels(ctx context.Context, routerURL string) {
+	loaded := listLoadedModels(ctx, routerURL)
 	if len(loaded) == 0 {
 		return
 	}
 
 	for _, name := range loaded {
-		r.unloadModel(routerURL, name)
+		if err := routerclient.Unload(ctx, routerURL, name); err != nil {
+			slog.Warn("benchmark: failed to unload model", "name", name, "error", err)
+			continue
+		}
+		slog.Info("benchmark: unload requested", "name", name)
 	}
 
 	// Wait for all models to be confirmed unloaded (up to 30s)
 	for i := 0; i < 15; i++ {
 		time.Sleep(2 * time.Second)
-		remaining := r.listLoadedModels(routerURL)
+		remaining := listLoadedModels(ctx, routerURL)
 		if len(remaining) == 0 {
 			slog.Info("benchmark: all models unloaded")
 			return
@@ -351,42 +337,19 @@ func (r *Runner) unloadAllModels(routerURL string) {
 }
 
 // listLoadedModels returns the IDs of models currently loaded in the router.
-func (r *Runner) listLoadedModels(routerURL string) []string {
-	resp, err := http.Get(routerURL + "/models")
+func listLoadedModels(ctx context.Context, routerURL string) []string {
+	list, err := routerclient.List(ctx, routerURL)
 	if err != nil {
+		slog.Warn("benchmark: could not list router models", "error", err)
 		return nil
 	}
-	defer resp.Body.Close()
-
-	var models []struct {
-		ID     string `json:"id"`
-		Status struct {
-			Value string `json:"value"`
-		} `json:"status"`
-	}
-	if json.NewDecoder(resp.Body).Decode(&models) != nil {
-		return nil
-	}
-
 	var loaded []string
-	for _, m := range models {
-		if m.Status.Value == "loaded" || m.Status.Value == "loading" {
+	for _, m := range list {
+		if m.IsLoaded() {
 			loaded = append(loaded, m.ID)
 		}
 	}
 	return loaded
-}
-
-// unloadModel tells the router to unload a single model.
-func (r *Runner) unloadModel(routerURL, modelName string) {
-	body, _ := json.Marshal(map[string]string{"model": modelName})
-	resp, err := http.Post(routerURL+"/models/unload", "application/json", bytes.NewReader(body))
-	if err != nil {
-		slog.Warn("benchmark: failed to unload model", "name", modelName, "error", err)
-		return
-	}
-	resp.Body.Close()
-	slog.Info("benchmark: unload requested", "name", modelName)
 }
 
 // BenchPromptText is the deterministic prose passage the internal API

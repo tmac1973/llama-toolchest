@@ -2,11 +2,8 @@ package process
 
 import (
 	"bufio"
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -18,17 +15,11 @@ import (
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/broadcast"
+	"github.com/tmac1973/llama-toolchest/internal/routerclient"
 )
 
 // ModelStatus represents the state of a model in the router.
-type ModelStatus struct {
-	ID      string   `json:"id"`
-	Model   string   `json:"model"`
-	Aliases []string `json:"aliases"`
-	Status  struct {
-		Value string `json:"value"` // "loaded", "loading", "unloaded"
-	} `json:"status"`
-}
+type ModelStatus = routerclient.ModelStatus
 
 // Process states.
 const (
@@ -241,78 +232,49 @@ func (m *Manager) IsRunning() bool {
 	return m.status.State == StateRunning
 }
 
-// LoadModel tells the router to load a model by name.
+// LoadModel tells the router to load a model by name. A model that is
+// already loaded counts as success.
 func (m *Manager) LoadModel(name string) error {
-	m.mu.Lock()
-	url := m.routerURL
-	m.mu.Unlock()
-
-	if url == "" {
-		return fmt.Errorf("router not running")
-	}
-
-	body, _ := json.Marshal(map[string]string{"model": name})
-	resp, err := http.Post(url+"/models/load", "application/json", bytes.NewReader(body))
+	url, err := m.routerBase()
 	if err != nil {
-		return fmt.Errorf("load model %q: %w", name, err)
+		return err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("load model %q: HTTP %d: %s", name, resp.StatusCode, string(respBody))
+	if err := routerclient.Load(context.Background(), url, name); err != nil {
+		return fmt.Errorf("load model %q: %w", name, err)
 	}
 	return nil
 }
 
 // UnloadModel tells the router to unload a model by name.
 func (m *Manager) UnloadModel(name string) error {
-	m.mu.Lock()
-	url := m.routerURL
-	m.mu.Unlock()
-
-	if url == "" {
-		return fmt.Errorf("router not running")
-	}
-
-	body, _ := json.Marshal(map[string]string{"model": name})
-	resp, err := http.Post(url+"/models/unload", "application/json", bytes.NewReader(body))
+	url, err := m.routerBase()
 	if err != nil {
-		return fmt.Errorf("unload model: %w", err)
+		return err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("unload model: HTTP %d: %s", resp.StatusCode, string(respBody))
+	if err := routerclient.Unload(context.Background(), url, name); err != nil {
+		return fmt.Errorf("unload model %q: %w", name, err)
 	}
 	return nil
 }
 
 // ListModels queries the router for all known models and their status.
 func (m *Manager) ListModels() ([]ModelStatus, error) {
-	m.mu.Lock()
-	url := m.routerURL
-	m.mu.Unlock()
-
-	if url == "" {
-		return nil, fmt.Errorf("router not running")
-	}
-
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(url + "/models")
+	url, err := m.routerBase()
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	return routerclient.List(context.Background(), url)
+}
 
-	var result struct {
-		Data []ModelStatus `json:"data"`
+// routerBase returns the running router's base URL.
+func (m *Manager) routerBase() (string, error) {
+	m.mu.Lock()
+	url := m.routerURL
+	m.mu.Unlock()
+	if url == "" {
+		return "", fmt.Errorf("router not running")
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
-	}
-	return result.Data, nil
+	return url, nil
 }
 
 // Subscribe returns a channel that receives log lines, starting with the
