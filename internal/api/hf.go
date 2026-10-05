@@ -733,7 +733,7 @@ func applyProbe(f *modelsource.File, res modelsource.ProbeResult) {
 	f.StreamProbed = true
 	f.StreamedBytes = res.StreamedBytes
 	if res.StreamedBytes > 0 && res.StreamedBytes < f.Size {
-		f.VRAMEstGB = modelsource.EstimateVRAM(f.Size - res.StreamedBytes)
+		f.VRAMEstGB = models.EstimateVRAM(f.Size - res.StreamedBytes)
 	}
 }
 

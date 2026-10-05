@@ -264,7 +264,7 @@ func (c *Client) GetModel(ctx context.Context, modelID string) (*modelsource.Det
 			Size:      f.Size,
 			Quant:     models.ParseQuant(rel),
 			IsMMProj:  models.IsMMProjFile(rel),
-			VRAMEstGB: modelsource.EstimateVRAM(f.Size),
+			VRAMEstGB: models.EstimateVRAM(f.Size),
 		})
 	}
 	detail.Files = modelsource.GroupShards(detail.Files)

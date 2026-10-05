@@ -230,7 +230,7 @@ func (c *Client) setAuth(req *http.Request) {
 // they live in modelsource and are forwarded here for existing callers.
 var (
 	groupShards  = modelsource.GroupShards
-	estimateVRAM = modelsource.EstimateVRAM
+	estimateVRAM = models.EstimateVRAM
 )
 
 // ExpandShards returns all shard filenames for a split GGUF, or a

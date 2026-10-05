@@ -8,12 +8,6 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
-// EstimateVRAM returns estimated VRAM in GB.
-// Uses file size * 1.1 as a rough estimate (overhead for KV cache and buffers).
-func EstimateVRAM(sizeBytes int64) float64 {
-	return float64(sizeBytes) * 1.1 / (1024 * 1024 * 1024)
-}
-
 // shardPattern matches split GGUF filenames like "model-00001-of-00005.gguf"
 var shardPattern = regexp.MustCompile(`^(.+)-(\d{5})-of-(\d{5})\.gguf$`)
 
@@ -61,7 +55,7 @@ func GroupShards(files []File) []File {
 			Filename:   g.shards[0].Filename,
 			Size:       totalSize,
 			Quant:      g.shards[0].Quant,
-			VRAMEstGB:  EstimateVRAM(totalSize),
+			VRAMEstGB:  models.EstimateVRAM(totalSize),
 			Shards:     shardNames,
 			ShardSizes: shardSizes,
 			OID:        g.shards[0].OID,

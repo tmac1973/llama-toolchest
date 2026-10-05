@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/tmac1973/llama-toolchest/internal/config"
+	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/modelscope"
 	"github.com/tmac1973/llama-toolchest/internal/modelsource"
 	"github.com/tmac1973/llama-toolchest/web"
@@ -217,7 +218,7 @@ func TestFileListShowsStreamedPortion(t *testing.T) {
 			ModelFile: modelsource.File{
 				Filename: "q.gguf", Size: 68 * gib, Quant: "UD_IQ1_S",
 				StreamedBytes: 27 * gib, StreamProbed: true,
-				VRAMEstGB: modelsource.EstimateVRAM(41 * gib),
+				VRAMEstGB: models.EstimateVRAM(41 * gib),
 			},
 			FitsOnDisk: true,
 		}},
@@ -236,7 +237,7 @@ func TestFileListShowsStreamedPortion(t *testing.T) {
 	if !strings.Contains(out, "68.0 GiB") {
 		t.Error("Size column should still show the whole download")
 	}
-	if !strings.Contains(out, "45.1 GiB") {
+	if !strings.Contains(out, "45.3 GiB") {
 		t.Errorf("VRAM estimate should cover only the resident part; output=\n%s", out)
 	}
 }
@@ -245,7 +246,7 @@ func TestFileListShowsStreamedPortion(t *testing.T) {
 // its edge cases decide whether a bad probe can make things worse.
 func TestApplyProbe(t *testing.T) {
 	const gib = int64(1) << 30
-	base := modelsource.File{Size: 68 * gib, VRAMEstGB: modelsource.EstimateVRAM(68 * gib)}
+	base := modelsource.File{Size: 68 * gib, VRAMEstGB: models.EstimateVRAM(68 * gib)}
 
 	// A probe that did not run leaves the estimate exactly as it was.
 	f := base
@@ -265,7 +266,7 @@ func TestApplyProbe(t *testing.T) {
 	// A real table is subtracted.
 	f = base
 	applyProbe(&f, modelsource.ProbeResult{Probed: true, StreamedBytes: 27 * gib})
-	if want := modelsource.EstimateVRAM(41 * gib); f.VRAMEstGB != want {
+	if want := models.EstimateVRAM(41 * gib); f.VRAMEstGB != want {
 		t.Errorf("VRAMEstGB = %.2f, want %.2f", f.VRAMEstGB, want)
 	}
 
