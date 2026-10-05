@@ -342,3 +342,18 @@ func TestUpdateSettingsJSONWithCharset(t *testing.T) {
 		t.Errorf("MSToken = %q, want ms_new from the JSON body", s.cfg.MSToken)
 	}
 }
+
+// The proxy endpoint shown after a save comes from the configured external
+// URL, so it is escaped like every other value put into HTML.
+func TestSettingsSaveEscapesTheProxyEndpoint(t *testing.T) {
+	s := newSettingsServer(t, &config.Config{ExternalURL: `http://x/<script>alert(1)</script>`})
+	req := httptest.NewRequest("PUT", "/api/settings", strings.NewReader(url.Values{"hf_token": {""}}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	rec := httptest.NewRecorder()
+	s.handleUpdateSettings(rec, req)
+
+	if strings.Contains(rec.Body.String(), "<script>") {
+		t.Errorf("external URL was not escaped:\n%s", rec.Body.String())
+	}
+}

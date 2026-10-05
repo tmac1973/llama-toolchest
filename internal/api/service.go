@@ -125,7 +125,7 @@ func (s *Server) handleServiceStatus(w http.ResponseWriter, r *http.Request) {
 		case process.StateStarting:
 			badge = `<mark>Starting...</mark>`
 		case process.StateFailed:
-			badge = fmt.Sprintf(`<del>Failed</del> <small style="color:var(--pico-del-color)">%s</small>`, status.Error)
+			badge = fmt.Sprintf(`<del>Failed</del> <small style="color:var(--pico-del-color)">%s</small>`, html.EscapeString(status.Error))
 		default:
 			badge = `Stopped`
 		}
