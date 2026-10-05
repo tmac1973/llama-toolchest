@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -750,7 +752,7 @@ func (r *Runner) saveProfile(rec *Autotune, name string, winner, baseline Candid
 		fieldReason = "The fastest of the settings that could be measured here: %s."
 	}
 	notes := []models.ProfileNote{{Origin: "autotune", Reason: headline}}
-	for _, field := range sortedKeys(winner.Values) {
+	for _, field := range slices.Sorted(maps.Keys(winner.Values)) {
 		notes = append(notes, models.ProfileNote{
 			Field:  field,
 			Origin: "autotune",
@@ -777,33 +779,24 @@ func summaryLine(winner, baseline Candidate) string {
 		if b, ok := baseline.Scores[GoalGeneration]; ok {
 			parts = append(parts, fmt.Sprintf("generation %.1f → %.1f tokens per second", b.Value, w.Value))
 		} else {
-			parts = append(parts, fmt.Sprintf("generation %.1f tokens per second", w.Value))
+			parts = append(parts, MeasurementPhrase(GoalGeneration, w))
 		}
 	}
 	if w, ok := winner.Scores[GoalPrompt]; ok {
 		if b, ok := baseline.Scores[GoalPrompt]; ok {
 			parts = append(parts, fmt.Sprintf("prompt %.0f → %.0f tokens per second", b.Value, w.Value))
 		} else {
-			parts = append(parts, fmt.Sprintf("prompt %.0f tokens per second", w.Value))
+			parts = append(parts, MeasurementPhrase(GoalPrompt, w))
 		}
 	}
 	if w, ok := winner.Scores[GoalResponse]; ok {
 		if b, ok := baseline.Scores[GoalResponse]; ok {
 			parts = append(parts, fmt.Sprintf("a full answer %.1f → %.1f seconds", -b.Value, -w.Value))
 		} else {
-			parts = append(parts, fmt.Sprintf("a full answer in %.1f seconds", -w.Value))
+			parts = append(parts, MeasurementPhrase(GoalResponse, w))
 		}
 	}
 	return strings.Join(parts, ", ")
-}
-
-func sortedKeys(m map[string]string) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 // resolveModelPath turns a draft model's registry ID into its file, for

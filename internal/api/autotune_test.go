@@ -341,3 +341,17 @@ func TestAutotuneRestoreWarnsAboutOtherBuild(t *testing.T) {
 		t.Errorf("no build warning:\n%s", out)
 	}
 }
+
+// The card's headline names its own goal, so "Also measured" lists only
+// the other two. It used to list all three, repeating the headline.
+func TestResultDetailLeavesOutTheCardsGoal(t *testing.T) {
+	out := autotune.Outcome{Goal: autotune.GoalGeneration, Winner: autotune.Candidate{
+		Scores: map[autotune.Goal]autotune.Score{
+			autotune.GoalGeneration: {Value: 61}, autotune.GoalPrompt: {Value: 1400},
+			autotune.GoalResponse: {Value: -5.5},
+		},
+	}}
+	if got, want := resultDetail(out), "prompt 1400 tokens per second, a full answer in 5.5 seconds"; got != want {
+		t.Errorf("resultDetail = %q, want %q", got, want)
+	}
+}

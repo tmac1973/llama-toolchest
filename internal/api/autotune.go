@@ -2,7 +2,9 @@ package api
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -425,7 +427,7 @@ func (s *Server) autotuneResultsData(id, name string, rec *autotune.Autotune, ba
 			// the sentence reads as a stutter.
 			res.Headline = strings.TrimPrefix(out.Message, autotune.GoalLabel(g)+": ")
 			res.Detail = resultDetail(out)
-			for _, field := range sortedFields(out.Winner.Values) {
+			for _, field := range slices.Sorted(maps.Keys(out.Winner.Values)) {
 				res.Settings = append(res.Settings, autotune.DescribeValue(field, out.Winner.Values[field]))
 			}
 		}
@@ -434,30 +436,14 @@ func (s *Server) autotuneResultsData(id, name string, rec *autotune.Autotune, ba
 	return d
 }
 
-// resultDetail is the two measurements the headline does not name.
+// resultDetail is the two measurements the headline does not name: the
+// headline already gives the card's own goal.
 func resultDetail(out autotune.Outcome) string {
 	var parts []string
-	if v, ok := out.Winner.Scores[autotune.GoalGeneration]; ok {
-		parts = append(parts, fmt.Sprintf("generation %.1f tokens per second", v.Value))
-	}
-	if v, ok := out.Winner.Scores[autotune.GoalPrompt]; ok {
-		parts = append(parts, fmt.Sprintf("prompt %.0f tokens per second", v.Value))
-	}
-	if v, ok := out.Winner.Scores[autotune.GoalResponse]; ok {
-		parts = append(parts, fmt.Sprintf("a full answer in %.1f seconds", -v.Value))
-	}
-	return strings.Join(parts, ", ")
-}
-
-func sortedFields(values map[string]string) []string {
-	out := make([]string, 0, len(values))
-	for k := range values {
-		out = append(out, k)
-	}
-	for i := 1; i < len(out); i++ {
-		for j := i; j > 0 && out[j] < out[j-1]; j-- {
-			out[j], out[j-1] = out[j-1], out[j]
+	for _, g := range autotune.Goals {
+		if v, ok := out.Winner.Scores[g]; ok && g != out.Goal {
+			parts = append(parts, autotune.MeasurementPhrase(g, v))
 		}
 	}
-	return out
+	return strings.Join(parts, ", ")
 }

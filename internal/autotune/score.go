@@ -55,6 +55,21 @@ func GoalLabel(g Goal) string {
 	return string(g)
 }
 
+// MeasurementPhrase is one goal's score in the words the screens use, such
+// as "prompt 1400 tokens per second". Response scores are stored negated
+// (higher is better for every goal), so the phrase flips the sign back.
+func MeasurementPhrase(g Goal, s Score) string {
+	switch g {
+	case GoalGeneration:
+		return fmt.Sprintf("generation %.1f tokens per second", s.Value)
+	case GoalPrompt:
+		return fmt.Sprintf("prompt %.0f tokens per second", s.Value)
+	case GoalResponse:
+		return fmt.Sprintf("a full answer in %.1f seconds", -s.Value)
+	}
+	return ""
+}
+
 // Shape is one preset a use case measures with, and how its numbers are
 // read: PromptTokens and OutputTokens are the request a response time is
 // computed for, and PPSizeTokens is the prompt length prompt speed is
