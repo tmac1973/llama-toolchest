@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"html"
 	"log/slog"
+	"maps"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
@@ -597,11 +599,7 @@ func (s *Server) handleBuildInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keys := make([]string, 0, len(found.CMakeFlags))
-	for k := range found.CMakeFlags {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := slices.Sorted(maps.Keys(found.CMakeFlags))
 
 	w.Write([]byte(`<h6 style="margin-top:1rem;">CMake flags</h6><pre style="font-size:0.8rem;white-space:pre-wrap;word-break:break-all;">`))
 	for i, k := range keys {

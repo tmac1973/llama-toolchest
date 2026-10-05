@@ -12,6 +12,7 @@ import (
 
 	"github.com/tmac1973/llama-toolchest/internal/benchmark"
 	"github.com/tmac1973/llama-toolchest/internal/evaluate"
+	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
 // ExportEnvelope is the on-disk JSON shape for both per-job and
@@ -64,15 +65,7 @@ func formatCMakeFlags(flags map[string]string) string {
 // Without it, a sweep's rows are identical apart from a throughput
 // number — the same reason cmake_flags had to be exported.
 func formatSweepValues(values map[string]string) string {
-	if len(values) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, len(values))
-	for k, v := range values {
-		parts = append(parts, fmt.Sprintf("%s=%s", k, v))
-	}
-	sort.Strings(parts)
-	return strings.Join(parts, " ")
+	return models.JoinSorted(values, " ")
 }
 
 // memoryExportFields renders a run's measured footprint as the six

@@ -7,11 +7,14 @@ package autotune
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/tmac1973/llama-toolchest/internal/benchmark"
+	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
 // UseCase is what the user says they use a model for. It decides the
@@ -239,22 +242,7 @@ type Candidate struct {
 // Key identifies a candidate by its values, so the same settings from two
 // stages are the same candidate.
 func (c Candidate) Key() string {
-	if len(c.Values) == 0 {
-		return ""
-	}
-	keys := make([]string, 0, len(c.Values))
-	for k := range c.Values {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	var b strings.Builder
-	for i, k := range keys {
-		if i > 0 {
-			b.WriteByte(' ')
-		}
-		fmt.Fprintf(&b, "%s=%s", k, c.Values[k])
-	}
-	return b.String()
+	return models.JoinSorted(c.Values, " ")
 }
 
 // Complexity counts how far a config is from the starting profile, so
@@ -334,13 +322,8 @@ func Describe(values map[string]string) string {
 	if len(values) == 0 {
 		return "Starting profile, unchanged"
 	}
-	keys := make([]string, 0, len(values))
-	for k := range values {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	parts := make([]string, 0, len(keys))
-	for _, k := range keys {
+	var parts []string
+	for _, k := range slices.Sorted(maps.Keys(values)) {
 		parts = append(parts, DescribeValue(k, values[k]))
 	}
 	return strings.Join(parts, ", ")

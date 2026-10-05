@@ -3,7 +3,9 @@ package benchmark
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -431,21 +433,16 @@ func EncodeSpecValue(mode, assist string, params map[string]string) string {
 		return "none"
 	}
 	out := strings.Join(names, "+")
-	keys := make([]string, 0, len(params))
+	set := make(map[string]string, len(params))
 	for k, v := range params {
 		if v != "" {
-			keys = append(keys, k)
+			set[k] = v
 		}
 	}
-	if len(keys) == 0 {
+	if len(set) == 0 {
 		return out
 	}
-	sort.Strings(keys)
-	pairs := make([]string, 0, len(keys))
-	for _, k := range keys {
-		pairs = append(pairs, k+"="+params[k])
-	}
-	return out + ":" + strings.Join(pairs, ",")
+	return out + ":" + models.JoinSorted(set, ",")
 }
 
 // canonicalSpecValue renders a spec value in its parsed, sorted form so
@@ -1104,12 +1101,7 @@ func SweepChips(values map[string]string) []string {
 	if len(values) == 0 {
 		return nil
 	}
-	keys := make([]string, 0, len(values))
-	for k := range values {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
+	keys := slices.Sorted(maps.Keys(values))
 	out := make([]string, 0, len(keys))
 	for _, k := range keys {
 		v := values[k]
