@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tmac1973/llama-toolchest/internal/atomicfile"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
@@ -223,11 +224,10 @@ func (f *Fetcher) CachedGet(ctx context.Context, url string, withAuth bool) ([]b
 	if err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(f.CacheDir, 0o755); err == nil {
-		tmp := path + ".tmp"
-		if os.WriteFile(tmp, body, 0o644) == nil {
-			os.Rename(tmp, path)
-		}
+	// A unique temp file per write, so two fetches of the same URL at once
+	// cannot rename a mix of both bodies into place. Caching is best effort.
+	if err := atomicfile.Write(path, body); err != nil {
+		slog.Debug("docs cache write failed", "path", path, "error", err)
 	}
 	return body, nil
 }
