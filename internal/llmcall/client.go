@@ -17,6 +17,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
 // Message is one chat message.
@@ -26,8 +28,8 @@ type Message struct {
 }
 
 // Thinking says how to turn a model's reasoning mode off, as detected from
-// its chat template (models.ReasoningCapability): Toggle is
-// "chat_template_kwargs", "reasoning_effort" or "none".
+// its chat template (models.ReasoningCapability): Toggle is one of the
+// models.ReasoningToggle* constants.
 type Thinking struct {
 	Toggle string
 	Kwarg  string
@@ -140,7 +142,7 @@ func (c *Client) complete(ctx context.Context, target Target, schemaName string,
 			},
 		},
 	}
-	thinkingOff(target.Thinking, payload)
+	models.ApplyThinkingOff(target.Thinking.Toggle, target.Thinking.Kwarg, payload)
 
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -184,16 +186,4 @@ func (c *Client) complete(ctx context.Context, target Target, schemaName string,
 		return "", fmt.Errorf("the helper model's answer was cut off at %d tokens", maxTokens)
 	}
 	return ch.Message.Content, nil
-}
-
-// thinkingOff adds whatever the model needs to skip its reasoning pass.
-func thinkingOff(t Thinking, payload map[string]any) {
-	switch t.Toggle {
-	case "chat_template_kwargs":
-		if t.Kwarg != "" {
-			payload["chat_template_kwargs"] = map[string]any{t.Kwarg: false}
-		}
-	case "reasoning_effort":
-		payload["reasoning_effort"] = "none"
-	}
 }

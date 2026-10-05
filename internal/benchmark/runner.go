@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/routerclient"
 )
 
@@ -539,11 +540,10 @@ def restock_from_plan(inventory, plan, reason="plan"):
 `
 
 // ReasoningControl describes how to turn a model's thinking mode off, in
-// whichever way that model exposes. Detected from the chat template and
-// carried through ModelInfo so this package needs no dependency on the
-// models package.
+// whichever way that model exposes. Detected from the chat template
+// (models.ReasoningCapability) and carried through ModelInfo.
 type ReasoningControl struct {
-	Toggle string // "chat_template_kwargs" | "reasoning_effort" | "none"
+	Toggle string // one of the models.ReasoningToggle* constants
 	Kwarg  string // kwarg key when Toggle is chat_template_kwargs
 }
 
@@ -556,16 +556,7 @@ type ReasoningControl struct {
 // echo preset that reads almost exactly like the analysis preset, because
 // that is what it is running.
 func (rc ReasoningControl) applyThinkingOff(payload map[string]any) {
-	switch rc.Toggle {
-	case "chat_template_kwargs":
-		if rc.Kwarg == "" {
-			return
-		}
-		payload["chat_template_kwargs"] = map[string]any{rc.Kwarg: false}
-	case "reasoning_effort":
-		payload["reasoning_effort"] = "none"
-	}
-	// "none", or a model with no reasoning mode: nothing to turn off.
+	models.ApplyThinkingOff(rc.Toggle, rc.Kwarg, payload)
 }
 
 // promptOptions bundle what the prompt and the request need beyond the
