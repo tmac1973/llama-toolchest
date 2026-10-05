@@ -82,4 +82,4 @@ scrape-sampling-presets:
 .PHONY: js-test
 js-test:
 	@command -v node >/dev/null || { echo "node is required for js-test"; exit 1; }
-	go test ./internal/api/ -run 'TestParameterControlsJS|TestVisualizeMetricFilterJS' -v
+	go test ./internal/api/ -run 'TestParameterControlsJS|TestVisualizeMetricFilterJS|TestModelsPageListenersJS|TestErrorNoticeJS' -v

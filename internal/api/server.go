@@ -1025,7 +1025,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			loadIcon := `<span class="action-icon-placeholder">&nbsp;</span>`
 			if state == "" {
 				loadIcon = fmt.Sprintf(`<button type="button" class="action-icon" title="Load into VRAM" `+
-					`hx-put="/api/models/%s/activate" hx-swap="none" `+
+					`hx-put="/api/models/%s/activate" hx-swap="none" data-error-label="Load failed" `+
 					`hx-on::after-request="htmx.trigger('#dashboard-cards', 'load')">%s</button>`,
 					html.EscapeString(m.ID), playSVG)
 			}

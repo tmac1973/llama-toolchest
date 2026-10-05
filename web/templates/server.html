@@ -129,13 +129,13 @@
                 <div id="server-action-error" class="server-action-error"></div>
                 <div role="group">
                     <button type="button"
-                            hx-post="/api/service/start"
+                            hx-post="/api/service/start" data-error-label="Start failed"
                             hx-swap="none"
                             hx-on::after-request="onServerAction(event)">
                         Start
                     </button>
                     <button type="button" class="secondary"
-                            hx-post="/api/service/stop"
+                            hx-post="/api/service/stop" data-error-label="Stop failed"
                             hx-swap="none"
                             hx-on::after-request="onServerAction(event)">
                         Stop
