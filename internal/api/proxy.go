@@ -136,6 +136,12 @@ func (s *Server) ensureModelLoadedForRequest(ctx context.Context, body []byte) e
 
 	routerName := s.registry.RouterName(regModel.ID)
 
+	// Checked first: a stopped router knows no models, and the "not in the
+	// router preset" error below would send the user looking in the wrong
+	// place.
+	if !s.process.IsRunning() {
+		return fmt.Errorf("the router is not running; start it on the Server page")
+	}
 	state, knownToRouter := s.lookupRouterState(routerName, regModel)
 	if state == "loaded" {
 		return nil
@@ -291,9 +297,10 @@ func (s *Server) injectSamplingDefaults(body []byte) []byte {
 		return body
 	}
 
-	// Look up config by model name (which is the registry ID / alias)
-	cfg, err := s.registry.GetConfig(req.Model)
-	if err != nil {
+	// Clients name a model by its registry ID, public name (what
+	// /v1/models lists) or an alias; all three find its config.
+	_, cfg := s.findModelByAny(req.Model)
+	if cfg == nil {
 		return body
 	}
 

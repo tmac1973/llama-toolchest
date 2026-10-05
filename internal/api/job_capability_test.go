@@ -425,16 +425,7 @@ func TestEvalFlagsCompleteAndValidated(t *testing.T) {
 // exercise.
 func evalStopServer(t *testing.T) (*Server, *process.Manager) {
 	t.Helper()
-	if _, err := exec.LookPath("sh"); err != nil {
-		t.Skipf("no sh available: %v", err)
-	}
-	binDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(binDir, "llama-server"),
-		// Exits with the test binary, as in
-		// TestWatchRouterMemoryCollectsFromTheLiveLogStream.
-		[]byte("#!/bin/sh\nwhile kill -0 $PPID 2>/dev/null; do sleep 1; done\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	binDir := fakeLlamaServerDir(t)
 	health := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/health" {
@@ -557,6 +548,24 @@ func TestClearEphemeralConfigEvalStopRestartsUserStopDoesNot(t *testing.T) {
 	if proc2.IsRunning() {
 		t.Error("a user-stopped router must stay stopped")
 	}
+}
+
+// fakeLlamaServerDir returns a directory holding a "llama-server" that
+// stays alive and ignores its arguments, so a real process.Manager can
+// start, stop and restart it. It skips the test when there is no sh.
+func fakeLlamaServerDir(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skipf("no sh available: %v", err)
+	}
+	binDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(binDir, "llama-server"),
+		// Exits with the test binary, as in
+		// TestWatchRouterMemoryCollectsFromTheLiveLogStream.
+		[]byte("#!/bin/sh\nwhile kill -0 $PPID 2>/dev/null; do sleep 1; done\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return binDir
 }
 
 // builderDataDirForTest returns the binary directory of the test build

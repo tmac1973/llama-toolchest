@@ -135,13 +135,32 @@ func FormatBenchyCommand(c BenchyConfig) string {
 	b.WriteString("uvx")
 	for _, a := range BuildBenchyArgs(c) {
 		b.WriteByte(' ')
-		if strings.ContainsAny(a, " \t\"'\\$") {
-			b.WriteString(strconv.Quote(a))
-		} else {
-			b.WriteString(a)
-		}
+		b.WriteString(shellQuote(a))
 	}
 	return b.String()
+}
+
+// shellQuote quotes a for a POSIX shell. Plain values (letters, digits and
+// -_./:=,+@%) are left bare so the command stays readable, as is a
+// {placeholder}. Anything else goes in single quotes, inside which the
+// shell expands nothing ($, backticks, ;, |, *, ~ and tabs all stay
+// literal). A single quote inside the value closes the quoting, adds an
+// escaped quote and reopens it. An empty value becomes a quoted empty
+// string, so it stays an argument rather than vanishing.
+func shellQuote(a string) string {
+	plain := a != ""
+	for _, r := range a {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' ||
+			strings.ContainsRune("-_./:=,+@%{}", r)) {
+			plain = false
+			break
+		}
+	}
+	// "{a,b}" is brace expansion in bash; a placeholder has no comma.
+	if plain && !(strings.ContainsRune(a, '{') && strings.ContainsRune(a, ',')) {
+		return a
+	}
+	return "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
 }
 
 // summarizeBenchy folds llama-benchy results into the BenchmarkSummary

@@ -40,10 +40,10 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [x] `safeRepoDir` and `safeName` are the same function in two packages, and both redo `huggingface.SafeModelID` inline — `internal/modelsource/meta_cache.go:51` (and `internal/recommend/finalist.go:160`)
 
 ### Testing
-- [ ] `proxy.go` has no tests: sampling-default injection, the SSE timing reader, model auto-load and wait — `internal/api/proxy.go:122`, `:229`, `:286`
-- [ ] The production `jobEnv` is never exercised (both suites use a fake): `ApplyEphemeralConfig`, `configDiff`, `ResolveBuild`, `restartRouter` — `internal/api/jobs_env.go:247`, `:733`, `:802`
-- [ ] The GGUF parser has no tests for malformed input (bad magic, oversized array length, truncated header) — `internal/models/gguf.go:233`, `:287`
-- [ ] Registry logic with no test: `ResolveID`, `FindOrphans`, shard detection, `FindMMProj`/`FindMTP`, `removeEmptyDirs` (deletes from disk) — `internal/models/registry.go:632`, `:688`, `:934`
+- [x] `proxy.go` has no tests: sampling-default injection, the SSE timing reader, model auto-load and wait — `internal/api/proxy.go:122`, `:229`, `:286`
+- [x] The production `jobEnv` is never exercised (both suites use a fake): `ApplyEphemeralConfig`, `configDiff`, `ResolveBuild`, `restartRouter` — `internal/api/jobs_env.go:247`, `:733`, `:802`
+- [x] The GGUF parser has no tests for malformed input (bad magic, oversized array length, truncated header) — `internal/models/gguf.go:233`, `:287`
+- [x] Registry logic with no test: `ResolveID`, `FindOrphans`, shard detection, `FindMMProj`/`FindMTP`, `removeEmptyDirs` (deletes from disk) — `internal/models/registry.go:632`, `:688`, `:934`
 
 ### Dependencies
 - [x] Three chi `RealIP` advisories (X-Forwarded-For IP spoofing; govulncheck: `RealIP` is not called) — `github.com/go-chi/chi/v5@v5.2.5 (v5.2.5 -> v5.3.2)`
@@ -78,10 +78,10 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [x] llama-benchy's full stderr is stored and shown as the run's failure text, unredacted (the process has `HF_TOKEN`) — `internal/benchmark/benchy.go:207-221`
 
 ### Testing
-- [ ] Parsers for external tool output (`nvidia-smi` CSV, `ParseROCmGPUAgents` directly) have no tests — `internal/monitor/nvidia.go:25`, `internal/builder/rocminfo.go:22`
-- [ ] The llama-benchy path has no tests (argument building, shell quoting, summary) — `internal/benchmark/benchy.go:97`, `:127`, `:145`
-- [ ] Builder core is untested: rebuild decision (`hashFlags`/`flagsEqual`), build ranking, compiler lookup, `DetectBackends` — `internal/builder/builder.go:303`, `:1196`
-- [ ] Handlers with real branching have no handler tests: HF search and download, restore, `/v1/models`, build trigger and delete, service actions, `StreamLines` — `internal/api/hf.go`, `internal/api/backup.go`, `internal/api/sse.go:53`
+- [x] Parsers for external tool output (`nvidia-smi` CSV, `ParseROCmGPUAgents` directly) have no tests — `internal/monitor/nvidia.go:25`, `internal/builder/rocminfo.go:22`
+- [x] The llama-benchy path has no tests (argument building, shell quoting, summary) — `internal/benchmark/benchy.go:97`, `:127`, `:145`
+- [x] Builder core is untested: rebuild decision (`hashFlags`/`flagsEqual`), build ranking, compiler lookup, `DetectBackends` — `internal/builder/builder.go:303`, `:1196` *(stage 4b: `hashFlags`, `flagsEqual`, ranking and `findNVCC` are tested. `findCUDAHostCompiler` only checks fixed `/usr/bin/g++-N` paths and `DetectBackends` runs the real tools, so neither can be tested without a production change.)*
+- [x] Handlers with real branching have no handler tests: HF search and download, restore, `/v1/models`, build trigger and delete, service actions, `StreamLines` — `internal/api/hf.go`, `internal/api/backup.go`, `internal/api/sse.go:53`
 - [ ] The installer libraries (`host.sh`, `migrate.sh`, `service.sh`) have no automated tests — `scripts/lib/*.sh`
 - [x] About 15 test `Server` constructors and 31 inline `&Server{}` literals — `internal/api/models_profiles_test.go:26`, `internal/api/ms_token_test.go:67`
 - [x] Template parsing for tests is copied 32 times across 18 files — `internal/api/ple_render_test.go:16`
