@@ -709,7 +709,7 @@ func (r *Runner) sendCompletionWithTimings(ctx context.Context, routerURL, model
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, routerclient.ErrorSnippet(body))
 	}
 
 	// Parse timings from response

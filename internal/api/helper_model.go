@@ -48,7 +48,7 @@ func (s *Server) adoptExistingHelper() {
 		return
 	}
 	if err := s.registry.SetHelperRole(m.ID, true); err != nil {
-		slog.Debug("adopt helper model", "model", m.ID, "error", err)
+		slog.Warn("could not mark the installed helper model", "model", m.ID, "error", err)
 		return
 	}
 	// Put it on the fixed settings straight away, so what is stored
