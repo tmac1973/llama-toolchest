@@ -372,7 +372,7 @@ keys:
 				break keys
 			}
 			if key == "tokenizer.ggml.tokens" {
-				meta.VocabSize = int(count)
+				meta.VocabSize = plausibleVocab(count)
 				break keys
 			}
 			if elemType == ggufTypeString || elemType == ggufTypeArray {
@@ -461,7 +461,7 @@ keys:
 		// potentially huge string contents.
 		case key == "tokenizer.ggml.tokens" && valueType == ggufTypeArray:
 			if elemType, count, ok := readGGUFArrayHeader(f); ok {
-				meta.VocabSize = int(count)
+				meta.VocabSize = plausibleVocab(count)
 				skipGGUFArrayBody(f, elemType, count)
 			}
 			continue
@@ -501,8 +501,8 @@ keys:
 			// Only some architectures carry it; the token list, when read,
 			// gives the same number and overrides it.
 			if v, ok := readGGUFScalarInt(f, valueType); ok {
-				if meta.VocabSize == 0 {
-					meta.VocabSize = v
+				if meta.VocabSize == 0 && v > 0 {
+					meta.VocabSize = plausibleVocab(uint64(v))
 				}
 				continue
 			}
@@ -902,6 +902,22 @@ func ggufFixedSize(t uint32) int64 {
 	default:
 		return 0
 	}
+}
+
+// maxVocabSize bounds a vocabulary size read from a file. Real
+// vocabularies are at most a few hundred thousand tokens; the count comes
+// straight from the file, and a damaged or hostile one could claim 2^40
+// (or, cast to int, a negative number). VocabSize feeds tensor-size and
+// KL-logits estimates, so an implausible count is treated as unknown.
+const maxVocabSize = 1 << 24
+
+// plausibleVocab returns count as a vocabulary size, or 0 (unknown) when
+// it is beyond maxVocabSize.
+func plausibleVocab(count uint64) int {
+	if count > maxVocabSize {
+		return 0
+	}
+	return int(count)
 }
 
 // readGGUFArrayHeader reads an array value's element type and element

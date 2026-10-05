@@ -338,3 +338,26 @@ func TestGGUFWrongTypeKeyIsSkipped(t *testing.T) {
 		t.Errorf("keys after the wrong-type key were lost: %+v", meta)
 	}
 }
+
+// The vocabulary size is the token list's length field, read straight
+// from the file. A damaged file claiming 2^40 tokens (or 2^63, which is
+// negative as an int) used to set VocabSize to that, and it feeds tensor
+// size and KL-logits estimates. An implausible count now reads as unknown.
+func TestGGUFImplausibleVocabIsUnknown(t *testing.T) {
+	for _, count := range []uint64{1 << 40, 1 << 63} {
+		g := new(rawGGUF).header(3, 0, 2).kvString("general.architecture", "llama")
+		g.str("tokenizer.ggml.tokens").u32(ggufTypeArray).u32(ggufTypeString).u64(count)
+		meta, _ := parseBounded(t, g.bytes())
+		if meta != nil && meta.VocabSize != 0 {
+			t.Errorf("token count %d: VocabSize = %d, want 0 (unknown)", count, meta.VocabSize)
+		}
+	}
+
+	g := new(rawGGUF).header(3, 0, 2).kvString("general.architecture", "llama")
+	g.str("tokenizer.ggml.tokens").u32(ggufTypeArray).u32(ggufTypeString).u64(2)
+	g.str("a").str("b")
+	meta, err := parseBounded(t, g.bytes())
+	if err != nil || meta.VocabSize != 2 {
+		t.Errorf("a real token list: VocabSize = %v (err %v), want 2", meta, err)
+	}
+}
