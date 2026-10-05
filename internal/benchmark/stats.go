@@ -215,11 +215,12 @@ type CommonColumn struct {
 // compareColumns are the details table's descriptive columns: name, and
 // the text the cell shows.
 //
-// The formatting is duplicated from the template on purpose, and it has
-// to stay in step — a shared value stated one way in the summary line
-// and another in the cell that the "show every column" control reveals
-// would read as two different facts. compare_columns_test.go pins each
-// one against the template's own fallbacks.
+// The template prints these cells through CompareCellText, so the summary
+// line above the table and the cell the "show every column" control
+// reveals are the same text by construction. Stating a shared value one
+// way in the summary and another in the cell would read as two different
+// facts. The quant, sweep and prompt-size cells add markup (a <kbd>, chips,
+// a tooltip) around the same values.
 //
 // The measured columns are deliberately absent: throughput, score and
 // VRAM are what the reader came for, and a comparison where two runs
@@ -262,6 +263,17 @@ func compareColumns() []struct {
 		{"profile", func(r BenchmarkRun) string { return ProfileCellText(r.Config) }},
 		{"build", func(r BenchmarkRun) string { return compareBuildCellText(r) }},
 	}
+}
+
+// CompareCellText is the text of the descriptive column name for run r,
+// as the comparison table prints it and the summary line states it.
+func CompareCellText(name string, r BenchmarkRun) string {
+	for _, c := range compareColumns() {
+		if c.Name == name {
+			return c.Value(r)
+		}
+	}
+	return ""
 }
 
 // ProfileCellText is how a run's saved profile reads in the comparison
@@ -309,22 +321,13 @@ func compareColumnVariance(runs []BenchmarkRun) (map[string]bool, []CommonColumn
 	return varies, common
 }
 
-// sweepCellText, batchCellText and compareBuildCellText mirror the three
-// cells whose text the template assembles rather than prints.
+// sweepCellText is the sweep cell's chips joined into one line, so a
+// sweep reads the same in the summary as in the cell.
 func sweepCellText(r BenchmarkRun) string {
 	if len(r.SweepValues) == 0 {
 		return "—"
 	}
-	keys := make([]string, 0, len(r.SweepValues))
-	for k := range r.SweepValues {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	parts := make([]string, 0, len(keys))
-	for _, k := range keys {
-		parts = append(parts, k+"="+r.SweepValues[k])
-	}
-	return strings.Join(parts, " ")
+	return strings.Join(SweepChips(r.SweepValues), " ")
 }
 
 func batchCellText(r BenchmarkRun) string {

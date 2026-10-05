@@ -278,17 +278,15 @@
                  the same comparison are not compared against each other. */}}
             <td>{{if evalHas $run.Eval}}{{evalScoreText $run.Eval}}{{else}}—{{end}}</td>
             {{end}}
-            <td class="{{constCol $.Varies "size"}}">{{printf "%.1f" $run.SizeGiB}} GiB</td>
+            <td class="{{constCol $.Varies "size"}}">{{compareCell "size" $run}}</td>
             <td title="{{memDetail $run.Memory}}" style="cursor:help;">{{memText $run.Memory}}</td>
-            <td class="{{constCol $.Varies "GPUs"}}">{{if $run.Config.GPUAssign}}{{$run.Config.GPUAssign}}{{else}}all{{end}}</td>
-            <td class="{{constCol $.Varies "context"}}">{{$run.Config.ContextSize}}</td>
-            <td class="{{constCol $.Varies "batch"}}">{{if or $run.Config.BatchSize $run.Config.UBatchSize}}{{if $run.Config.BatchSize}}{{$run.Config.BatchSize}}{{else}}—{{end}}/{{if $run.Config.UBatchSize}}{{$run.Config.UBatchSize}}{{else}}—{{end}}{{else}}—{{end}}</td>
-            <td class="{{constCol $.Varies "KV cache"}}">{{or $run.Config.KVCacheQuant "f16"}}</td>
-            <td class="{{constCol $.Varies "flash attention"}}">{{if $run.Config.FlashAttention}}yes{{else}}no{{end}}</td>
-            <td class="{{constCol $.Varies "profile"}}">{{profileCell $run.Config}}</td>
-            <td class="{{constCol $.Varies "build"}}" title="{{$b.Tag}}{{if $b.GitSHA}} · {{$b.GitSHA}}{{end}}">
-                {{if $b.Profile}}{{$b.Profile}}{{end}}{{if $b.GitRef}} · {{$b.GitRef}}{{end}}{{if and (not $b.Profile) (not $b.GitRef)}}—{{end}}
-            </td>
+            <td class="{{constCol $.Varies "GPUs"}}">{{compareCell "GPUs" $run}}</td>
+            <td class="{{constCol $.Varies "context"}}">{{compareCell "context" $run}}</td>
+            <td class="{{constCol $.Varies "batch"}}">{{compareCell "batch" $run}}</td>
+            <td class="{{constCol $.Varies "KV cache"}}">{{compareCell "KV cache" $run}}</td>
+            <td class="{{constCol $.Varies "flash attention"}}">{{compareCell "flash attention" $run}}</td>
+            <td class="{{constCol $.Varies "profile"}}">{{compareCell "profile" $run}}</td>
+            <td class="{{constCol $.Varies "build"}}" title="{{$b.Tag}}{{if $b.GitSHA}} · {{$b.GitSHA}}{{end}}">{{compareCell "build" $run}}</td>
             {{if $.HasLlamaBench}}<td>{{if $run.LlamaBench}}{{printf "%.1f" $run.LlamaBench.GenTokPerSec}}{{else}}—{{end}}</td>{{end}}
         </tr>
         {{end}}

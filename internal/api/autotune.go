@@ -2,7 +2,9 @@ package api
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -136,15 +138,9 @@ func (s *Server) autotuneEstimate(id, profileName string, uc autotune.UseCase) (
 	if err != nil {
 		return 0, 0, nil
 	}
-	hw := s.hardware()
-	cards := 0
-	for _, g := range hw.GPUs {
-		if !g.IsIGPU {
-			cards++
-		}
-	}
+	cards, cores := s.autotuneHardware()
 	in := autotune.PlanInput{
-		Model: m, Base: profile.Config, Cards: max(1, cards), Cores: hw.LogicalCores,
+		Model: m, Base: profile.Config, Cards: cards, Cores: cores,
 		DraftCandidates: func(mode string) []models.DraftCandidate {
 			return s.registry.FindDraftCandidates(id, mode)
 		},
@@ -153,6 +149,19 @@ func (s *Server) autotuneEstimate(id, profileName string, uc autotune.UseCase) (
 	cells, minutes = autotune.EstimateRun(in, uc, models.BytesToGiB(m.SizeBytes), 0)
 	_, _, skipped = autotune.PlanStage(autotune.StageSpec, in)
 	return cells, minutes, skipped
+}
+
+// autotuneHardware is the card count and CPU cores Autotune plans with:
+// discrete GPUs only, at least one. The dialog's estimate and the run use
+// the same numbers, so the estimate describes the run that starts.
+func (s *Server) autotuneHardware() (cards, cores int) {
+	hw := s.hardware()
+	for _, g := range hw.GPUs {
+		if !g.IsIGPU {
+			cards++
+		}
+	}
+	return max(1, cards), hw.LogicalCores
 }
 
 // handleAutotuneEstimate re-renders the dialog when the choices change,
@@ -425,7 +434,7 @@ func (s *Server) autotuneResultsData(id, name string, rec *autotune.Autotune, ba
 			// the sentence reads as a stutter.
 			res.Headline = strings.TrimPrefix(out.Message, autotune.GoalLabel(g)+": ")
 			res.Detail = resultDetail(out)
-			for _, field := range sortedFields(out.Winner.Values) {
+			for _, field := range slices.Sorted(maps.Keys(out.Winner.Values)) {
 				res.Settings = append(res.Settings, autotune.DescribeValue(field, out.Winner.Values[field]))
 			}
 		}
@@ -434,30 +443,14 @@ func (s *Server) autotuneResultsData(id, name string, rec *autotune.Autotune, ba
 	return d
 }
 
-// resultDetail is the two measurements the headline does not name.
+// resultDetail is the two measurements the headline does not name: the
+// headline already gives the card's own goal.
 func resultDetail(out autotune.Outcome) string {
 	var parts []string
-	if v, ok := out.Winner.Scores[autotune.GoalGeneration]; ok {
-		parts = append(parts, fmt.Sprintf("generation %.1f tokens per second", v.Value))
-	}
-	if v, ok := out.Winner.Scores[autotune.GoalPrompt]; ok {
-		parts = append(parts, fmt.Sprintf("prompt %.0f tokens per second", v.Value))
-	}
-	if v, ok := out.Winner.Scores[autotune.GoalResponse]; ok {
-		parts = append(parts, fmt.Sprintf("a full answer in %.1f seconds", -v.Value))
-	}
-	return strings.Join(parts, ", ")
-}
-
-func sortedFields(values map[string]string) []string {
-	out := make([]string, 0, len(values))
-	for k := range values {
-		out = append(out, k)
-	}
-	for i := 1; i < len(out); i++ {
-		for j := i; j > 0 && out[j] < out[j-1]; j-- {
-			out[j], out[j-1] = out[j-1], out[j]
+	for _, g := range autotune.Goals {
+		if v, ok := out.Winner.Scores[g]; ok && g != out.Goal {
+			parts = append(parts, autotune.MeasurementPhrase(g, v))
 		}
 	}
-	return out
+	return strings.Join(parts, ", ")
 }

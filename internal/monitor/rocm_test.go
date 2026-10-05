@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strconv"
 	"testing"
+
+	"github.com/tmac1973/llama-toolchest/internal/builder"
 )
 
 // TestParseROCmGPUNamesSkipsCPU guards issue #68: rocminfo lists the host CPU
@@ -42,10 +44,10 @@ Agent 2
     Pool 1
       Segment:               GLOBAL; FLAGS: COARSE GRAINED
 `
-	got := parseROCmGPUNames(out)
+	got := rocmGPUNames(builder.ParseROCmGPUAgents(out))
 	want := []string{"AMD Radeon RX 7900 XTX"}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("parseROCmGPUNames = %v; want %v", got, want)
+		t.Errorf("rocmGPUNames = %v; want %v", got, want)
 	}
 }
 
@@ -71,10 +73,10 @@ Agent 3
   Marketing Name:          AMD Radeon RX 7900 XTX
   Device Type:             GPU
 `
-	got := parseROCmGPUNames(out)
+	got := rocmGPUNames(builder.ParseROCmGPUAgents(out))
 	want := []string{"AMD Radeon RX 7900 XTX", "AMD Radeon RX 7900 XTX"}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("parseROCmGPUNames = %v; want %v", got, want)
+		t.Errorf("rocmGPUNames = %v; want %v", got, want)
 	}
 }
 
@@ -94,10 +96,10 @@ Agent 2
   Marketing Name:
   Device Type:             GPU
 `
-	got := parseROCmGPUNames(out)
+	got := rocmGPUNames(builder.ParseROCmGPUAgents(out))
 	want := []string{"gfx1151"}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("parseROCmGPUNames = %v; want %v", got, want)
+		t.Errorf("rocmGPUNames = %v; want %v", got, want)
 	}
 }
 
@@ -111,8 +113,8 @@ Agent 1
   Marketing Name:          Intel(R) Xeon(R) W-2225 CPU @ 4.10GHz
   Device Type:             CPU
 `
-	if got := parseROCmGPUNames(out); len(got) != 0 {
-		t.Errorf("parseROCmGPUNames = %v; want empty", got)
+	if got := rocmGPUNames(builder.ParseROCmGPUAgents(out)); len(got) != 0 {
+		t.Errorf("rocmGPUNames = %v; want empty", got)
 	}
 }
 
@@ -157,8 +159,8 @@ func TestKFDIndexByBDF(t *testing.T) {
 	}
 }
 
-// parseROCmGPUArchs must return the gfx target of each GPU agent, in
-// the same order as parseROCmGPUNames, skipping CPU agents — it feeds
+// rocmGPUArchs must return the gfx target of each GPU agent, in
+// the same order as rocmGPUNames, skipping CPU agents — it feeds
 // the iGPU tagging that drives the model-config guard rails.
 func TestParseROCmGPUArchs(t *testing.T) {
 	out := `*******
@@ -183,10 +185,10 @@ Agent 3
   Marketing Name:          AMD Ryzen 7 9800X3D 8-Core Processor
   Device Type:             GPU
 `
-	got := parseROCmGPUArchs(out)
+	got := rocmGPUArchs(builder.ParseROCmGPUAgents(out))
 	want := []string{"gfx1201", "gfx1036"}
 	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
-		t.Errorf("parseROCmGPUArchs = %v; want %v", got, want)
+		t.Errorf("rocmGPUArchs = %v; want %v", got, want)
 	}
 }
 

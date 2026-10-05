@@ -240,3 +240,19 @@ func TestRunDetailShowsTheLeastFreeCard(t *testing.T) {
 		t.Error("a run without card readings shows a Least free line")
 	}
 }
+
+// The build cell used to be assembled in the template and printed a run
+// with a git ref but no build profile as " · b10679", while the summary
+// line said "b10679". Both now come from CompareCellText.
+func TestCompareBuildCellWithoutProfile(t *testing.T) {
+	r := perfRun("r1")
+	r.Build = benchmark.BuildSnapshot{ID: "b1", GitRef: "b10679"}
+	data := benchmark.BuildComparison([]benchmark.BenchmarkRun{r})
+	var buf bytes.Buffer
+	if err := benchTemplates(t).ExecuteTemplate(&buf, "benchmark_compare", data); err != nil {
+		t.Fatal(err)
+	}
+	if out := buf.String(); strings.Contains(out, "· b10679") || !strings.Contains(out, ">b10679</td>") {
+		t.Errorf("build cell should read just the git ref:\n%s", out)
+	}
+}

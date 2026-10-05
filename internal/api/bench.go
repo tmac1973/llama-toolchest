@@ -331,12 +331,7 @@ func (s *Server) handleStartBenchmark(w http.ResponseWriter, r *http.Request) {
 		Cells:     benchmark.ExpandCells([]string{modelID}, []string{buildID}, []string{preset.Name}),
 	}
 
-	if err := s.jobs.Submit(job); err != nil {
-		if errors.Is(err, benchmark.ErrJobAlreadyRunning) {
-			http.Error(w, err.Error(), http.StatusConflict)
-			return
-		}
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !s.submitJob(w, job) {
 		return
 	}
 

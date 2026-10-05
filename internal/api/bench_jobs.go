@@ -611,35 +611,57 @@ func (s *Server) checkKLReferenceIsSameModel(modelID, refID string) error {
 	return nil
 }
 
+// decodeJobRequest reads a job definition from the request body and runs
+// every check a job must pass, for both create and edit, so the two can
+// never accept different jobs. It also takes a fresh copy of each profile
+// the job measures: on an edit the cell identity compares it with the
+// job's previous copy, so only a profile that changed runs again.
+func (s *Server) decodeJobRequest(r *http.Request) (jobCreateRequest, []benchmark.JobProfile, error) {
+	var req jobCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return req, nil, fmt.Errorf("invalid JSON: %w", err)
+	}
+	if err := resolveSweeps(&req); err != nil {
+		return req, nil, err
+	}
+	if err := validateJobRequest(req); err != nil {
+		return req, nil, err
+	}
+	if err := s.validateBatchMatrix(req.ModelIDs, req.Overrides, req.Sweeps); err != nil {
+		return req, nil, err
+	}
+	if err := s.validateGPUAssignment(req.Overrides, req.Sweeps); err != nil {
+		return req, nil, err
+	}
+	if err := s.validateKLJob(req); err != nil {
+		return req, nil, err
+	}
+	profiles, err := s.copyJobProfiles(&req)
+	if err != nil {
+		return req, nil, err
+	}
+	return req, profiles, nil
+}
+
+// submitJob queues a job and answers the error if it cannot: 409 when
+// another job is already running, 400 otherwise. It returns false when it
+// has written the error.
+func (s *Server) submitJob(w http.ResponseWriter, job benchmark.BenchmarkJob) bool {
+	if err := s.jobs.Submit(job); err != nil {
+		if errors.Is(err, benchmark.ErrJobAlreadyRunning) {
+			http.Error(w, err.Error(), http.StatusConflict)
+		} else {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		}
+		return false
+	}
+	return true
+}
+
 // handleCreateJob expands the matrix and submits the job to the queue.
 // Returns 409 when another job is already running.
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
-	var req jobCreateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-	if err := resolveSweeps(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if err := validateJobRequest(req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if err := s.validateBatchMatrix(req.ModelIDs, req.Overrides, req.Sweeps); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if err := s.validateGPUAssignment(req.Overrides, req.Sweeps); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if err := s.validateKLJob(req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	profiles, err := s.copyJobProfiles(&req)
+	req, profiles, err := s.decodeJobRequest(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -663,12 +685,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		Cells:       benchmark.ExpandCellsWithStarts(req.ModelIDs, req.Starts, req.BuildIDs, req.Presets, req.Sweeps),
 	}
 
-	if err := s.jobs.Submit(job); err != nil {
-		if errors.Is(err, benchmark.ErrJobAlreadyRunning) {
-			http.Error(w, err.Error(), http.StatusConflict)
-			return
-		}
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !s.submitJob(w, job) {
 		return
 	}
 
@@ -686,34 +703,7 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "the Ad-Hoc job cannot be edited", http.StatusBadRequest)
 		return
 	}
-	var req jobCreateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-	if err := resolveSweeps(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if err := validateJobRequest(req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if err := s.validateBatchMatrix(req.ModelIDs, req.Overrides, req.Sweeps); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if err := s.validateGPUAssignment(req.Overrides, req.Sweeps); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if err := s.validateKLJob(req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	// A fresh copy of each profile: the cell identity compares it with
-	// the job's previous copy, so only a profile that changed runs again.
-	profiles, err := s.copyJobProfiles(&req)
+	req, profiles, err := s.decodeJobRequest(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -742,12 +732,7 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.jobs.Submit(*updated); err != nil {
-		if errors.Is(err, benchmark.ErrJobAlreadyRunning) {
-			http.Error(w, err.Error(), http.StatusConflict)
-			return
-		}
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !s.submitJob(w, *updated) {
 		return
 	}
 
@@ -1017,6 +1002,18 @@ func (s *Server) handleJobForm(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// parseRunsDisposition reads the "runs" choice of a job delete: what
+// happens to the job's runs. Empty means cascade.
+func parseRunsDisposition(v string) (benchmark.DeleteDisposition, error) {
+	switch v {
+	case "", "cascade":
+		return benchmark.DeleteCascade, nil
+	case "orphan":
+		return benchmark.DeleteOrphan, nil
+	}
+	return "", errors.New("runs must be 'cascade' or 'orphan'")
+}
+
 // handleDeleteJob removes a job. The runs query param controls what
 // happens to its runs:
 //   - cascade (default): runs deleted with the job
@@ -1031,17 +1028,10 @@ func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "this job is running — cancel it before deleting", http.StatusConflict)
 		return
 	}
-	disposition := benchmark.DeleteCascade
-	if v := r.URL.Query().Get("runs"); v != "" {
-		switch v {
-		case "cascade":
-			disposition = benchmark.DeleteCascade
-		case "orphan":
-			disposition = benchmark.DeleteOrphan
-		default:
-			http.Error(w, "runs must be 'cascade' or 'orphan'", http.StatusBadRequest)
-			return
-		}
+	disposition, err := parseRunsDisposition(r.URL.Query().Get("runs"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 	if err := s.bench.DeleteJob(id, disposition); err != nil {
 		// Refusing to delete the synthetic adhoc job is a 400 (the
@@ -1089,13 +1079,9 @@ func (s *Server) handleBulkDeleteJobs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ids is required", http.StatusBadRequest)
 		return
 	}
-	disposition := benchmark.DeleteCascade
-	switch req.Runs {
-	case "", "cascade":
-	case "orphan":
-		disposition = benchmark.DeleteOrphan
-	default:
-		http.Error(w, "runs must be 'cascade' or 'orphan'", http.StatusBadRequest)
+	disposition, err := parseRunsDisposition(req.Runs)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 

@@ -170,3 +170,23 @@ func TestCSVExportCarriesProfile(t *testing.T) {
 		}
 	}
 }
+
+// Both scopes start with the same run columns, in the same order, from
+// one list. A column added there must reach both exports.
+func TestCSVScopesShareTheBaseColumns(t *testing.T) {
+	runs, jobs := twoBuildRuns()
+	cells := parseCSV(t, func(cw *csv.Writer) error { return writeCSVCells(cw, runs, jobs) })
+	summary := parseCSV(t, func(cw *csv.Writer) error { return writeCSVSummary(cw, runs, jobs) })
+	for name, rows := range map[string][][]string{"cells": cells, "summary": summary} {
+		for i, want := range exportBaseHeader {
+			if rows[0][i] != want {
+				t.Errorf("%s header column %d = %q, want %q", name, i, rows[0][i], want)
+			}
+		}
+		for i, row := range rows {
+			if len(row) != len(rows[0]) {
+				t.Errorf("%s row %d has %d fields, header has %d", name, i, len(row), len(rows[0]))
+			}
+		}
+	}
+}

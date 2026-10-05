@@ -459,7 +459,7 @@ func (s *Server) handleIncompleteDiscard(w http.ResponseWriter, r *http.Request)
 	modelDir := filepath.Join(root, safeName)
 
 	removed := 0
-	for _, fn := range huggingface.ExpandShards(filename) {
+	for _, fn := range models.ExpandShards(filename) {
 		final := filepath.Join(modelDir, fn)
 		// Containment guard: never touch anything outside the models dir.
 		if rel, err := filepath.Rel(root, final); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {

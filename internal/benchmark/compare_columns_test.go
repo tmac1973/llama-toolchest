@@ -156,3 +156,13 @@ func TestBlankColumnsAreHiddenWithoutBeingStated(t *testing.T) {
 		t.Error("quant should still be stated")
 	}
 }
+
+// A speculative-decoding sweep value splits into chips in the cell; the
+// summary states the same chips, joined.
+func TestSweepTextMatchesTheChips(t *testing.T) {
+	r := colRun("a")
+	r.SweepValues = map[string]string{"spec_type": "draft-mtp:draft_max=8,draft_min=2", "ubatch_size": "512"}
+	if got, want := CompareCellText("sweep", r), "spec_type=draft-mtp draft_max=8 draft_min=2 ubatch_size=512"; got != want {
+		t.Errorf("sweep text = %q, want %q", got, want)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -196,44 +197,53 @@ func evalCountOrFull(n int) string {
 	return strconv.Itoa(n)
 }
 
+// exportBaseHeader names the columns both CSV scopes start with: the
+// run's job, model, build and settings, then its eval scores and memory.
+// exportBaseFields fills them in the same order.
+var exportBaseHeader = slices.Concat([]string{
+	"job_id", "job_name", "run_id", "created_at",
+	"model_id", "model_name", "quant",
+	"build_id", "build_profile", "git_ref", "cmake_flags",
+	"preset", "sweep", "profile", "profile_edited", "starting_point",
+	"eval_mode", "eval_dataset", "eval_score", "eval_error",
+	"eval_tasks_chunks", "eval_kl_stats", "eval_reference",
+}, memoryExportHeader)
+
+// exportBaseFields is one run's values for exportBaseHeader.
+func exportBaseFields(run benchmark.BenchmarkRun, jobs jobLookup) []string {
+	jobName := ""
+	if j := jobs[run.JobID]; j != nil {
+		jobName = j.Name
+	}
+	build := run.EffectiveBuild()
+	fields := []string{
+		run.JobID, jobName, run.ID, run.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		run.ModelID, run.ModelName, run.Quant,
+		build.ID, build.Profile, build.GitRef, formatCMakeFlags(build.CMakeFlags),
+		run.Preset, formatSweepValues(run.SweepValues),
+		run.Config.ProfileName, profileEditedCSV(run.Config), run.StartingPoint,
+	}
+	fields = append(fields, evalExportFields(run.Eval)...)
+	return append(fields, memoryExportFields(run.Memory)...)
+}
+
 func writeCSVCells(cw *csv.Writer, runs []benchmark.BenchmarkRun, jobs jobLookup) error {
-	header := []string{
-		"job_id", "job_name", "run_id", "created_at",
-		"model_id", "model_name", "quant",
-		"build_id", "build_profile", "git_ref", "cmake_flags",
-		"preset", "sweep", "profile", "profile_edited", "starting_point",
-		"eval_mode", "eval_dataset", "eval_score", "eval_error",
-		"eval_tasks_chunks", "eval_kl_stats", "eval_reference",
-		"mem_gpu_gib", "mem_weights_gib", "mem_kv_gib",
-		"mem_compute_gib", "mem_host_gib", "mem_card_gib",
+	header := slices.Concat(exportBaseHeader, []string{
 		"source",
 		"prompt_tokens", "gen_tokens", "depth", "concurrency", "repetition",
 		"pp_throughput", "pp_throughput_std",
 		"tg_throughput", "tg_throughput_std",
 		"peak_throughput", "peak_throughput_std",
 		"ttft_ms", "ttfr_ms", "e2e_ttft_ms", "total_ms",
-	}
+	})
 	if err := cw.Write(header); err != nil {
 		return err
 	}
 
 	for _, run := range runs {
-		jobName := ""
-		if j := jobs[run.JobID]; j != nil {
-			jobName = j.Name
-		}
-		build := run.EffectiveBuild()
-		base := []string{
-			run.JobID, jobName, run.ID, run.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
-			run.ModelID, run.ModelName, run.Quant,
-			build.ID, build.Profile, build.GitRef, formatCMakeFlags(build.CMakeFlags),
-			run.Preset, formatSweepValues(run.SweepValues),
-			run.Config.ProfileName, profileEditedCSV(run.Config), run.StartingPoint,
-		}
-		base = append(base, evalExportFields(run.Eval)...)
-		// Memory is a property of the load, so it repeats on every row
-		// of a run — the same way build and preset do.
-		base = append(base, memoryExportFields(run.Memory)...)
+		// Build, preset and memory are properties of the run, so they
+		// repeat on every row of it.
+		base := exportBaseFields(run, jobs)
 
 		if len(run.Results) > 0 {
 			for _, r := range run.Results {
@@ -295,29 +305,16 @@ func profileEditedCSV(c benchmark.ConfigSnapshot) string {
 }
 
 func writeCSVSummary(cw *csv.Writer, runs []benchmark.BenchmarkRun, jobs jobLookup) error {
-	header := []string{
-		"job_id", "job_name", "run_id", "created_at",
-		"model_id", "model_name", "quant",
-		"build_id", "build_profile", "git_ref", "cmake_flags",
-		"preset", "sweep", "profile", "profile_edited", "starting_point",
-		"eval_mode", "eval_dataset", "eval_score", "eval_error",
-		"eval_tasks_chunks", "eval_kl_stats", "eval_reference",
-		"mem_gpu_gib", "mem_weights_gib", "mem_kv_gib",
-		"mem_compute_gib", "mem_host_gib", "mem_card_gib",
+	header := slices.Concat(exportBaseHeader, []string{
 		"source", "status",
 		"avg_pp_throughput", "avg_tg_throughput", "avg_ttft_ms",
 		"min_tg_throughput", "max_tg_throughput",
 		"result_count", "duration_ms",
-	}
+	})
 	if err := cw.Write(header); err != nil {
 		return err
 	}
 	for _, run := range runs {
-		jobName := ""
-		if j := jobs[run.JobID]; j != nil {
-			jobName = j.Name
-		}
-		build := run.EffectiveBuild()
 		source := "internal"
 		if len(run.LlamaBenchy) > 0 || run.BenchyCommand != "" {
 			source = "benchy"
@@ -333,16 +330,7 @@ func writeCSVSummary(cw *csv.Writer, runs []benchmark.BenchmarkRun, jobs jobLook
 			maxTG = ftoa(run.Summary.MaxGenTokPerSec)
 		}
 
-		row := []string{
-			run.JobID, jobName, run.ID, run.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
-			run.ModelID, run.ModelName, run.Quant,
-			build.ID, build.Profile, build.GitRef, formatCMakeFlags(build.CMakeFlags),
-			run.Preset, formatSweepValues(run.SweepValues),
-			run.Config.ProfileName, profileEditedCSV(run.Config), run.StartingPoint,
-		}
-		row = append(row, evalExportFields(run.Eval)...)
-		row = append(row, memoryExportFields(run.Memory)...)
-		row = append(row, source, run.Status,
+		row := append(exportBaseFields(run, jobs), source, run.Status,
 			avgPP, avgTG, avgTTFT,
 			minTG, maxTG,
 			itoa(count), strconv.FormatInt(run.DurationMs, 10),

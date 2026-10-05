@@ -253,10 +253,10 @@ func finishFit(m *Model, base, cfg ModelConfig, b VRAMBreakdown, budget float64,
 	if cfg.ContextSize != base.ContextSize {
 		if cfg.ContextSize < requested {
 			note("context_size", fmt.Sprintf("The requested %s tokens did not fit on this machine; reduced to %s tokens, the largest that fits.",
-				groupDigits(requested), groupDigits(cfg.ContextSize)))
+				GroupDigits(requested), GroupDigits(cfg.ContextSize)))
 		} else {
 			note("context_size", fmt.Sprintf("%s tokens, as requested. Longer conversations and documents need more context, and more GPU memory.",
-				groupDigits(cfg.ContextSize)))
+				GroupDigits(cfg.ContextSize)))
 		}
 	}
 	if cfg.KVCacheQuant != base.KVCacheQuant {
@@ -312,8 +312,9 @@ func finishFit(m *Model, base, cfg ModelConfig, b VRAMBreakdown, budget float64,
 	}
 }
 
-// groupDigits writes n with thousands separators: 131072 → "131,072".
-func groupDigits(n int) string {
+// GroupDigits writes n with thousands separators: 131072 → "131,072".
+// Used wherever a token count or context size is shown.
+func GroupDigits(n int) string {
 	s := fmt.Sprint(n)
 	for i := len(s) - 3; i > 0; i -= 3 {
 		s = s[:i] + "," + s[i:]

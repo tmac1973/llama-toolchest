@@ -171,8 +171,8 @@ func notesMention(r FitResult, field, text string) bool {
 
 func TestGroupDigits(t *testing.T) {
 	for in, want := range map[int]string{0: "0", 999: "999", 4096: "4,096", 131072: "131,072", 1048576: "1,048,576"} {
-		if got := groupDigits(in); got != want {
-			t.Errorf("groupDigits(%d) = %q, want %q", in, got, want)
+		if got := GroupDigits(in); got != want {
+			t.Errorf("GroupDigits(%d) = %q, want %q", in, got, want)
 		}
 	}
 }
