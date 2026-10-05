@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.34.4](https://github.com/tmac1973/llama-toolchest/compare/v2.34.3...v2.34.4) (2026-10-05)
+
+
+### Bug Fixes
+
+* a pinned LT_VERSION does not wait for release files ([#240](https://github.com/tmac1973/llama-toolchest/issues/240)) ([8c4491f](https://github.com/tmac1973/llama-toolchest/commit/8c4491f929d70dbded2ee3f265e7376332ae756f))
+* code audit stage 1 — security and correctness quick wins ([#242](https://github.com/tmac1973/llama-toolchest/issues/242)) ([12769af](https://github.com/tmac1973/llama-toolchest/commit/12769afeb10b1f9695a59a91084feaa7992ffdd8))
+
 ## [2.34.3](https://github.com/tmac1973/llama-toolchest/compare/v2.34.2...v2.34.3) (2026-10-05)
 
 
