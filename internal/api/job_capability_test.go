@@ -462,7 +462,9 @@ func evalStopServer(t *testing.T) (*Server, *process.Manager) {
 	// a test that fails before the router reports running would otherwise
 	// leave the fake behind.
 	t.Cleanup(func() { proc.Stop() })
-	return &Server{cfg: cfg, registry: reg, builder: bld, process: proc}, proc
+	s := newTestServer(t)
+	s.cfg, s.registry, s.builder, s.process = cfg, reg, bld, proc
+	return s, proc
 }
 
 // StopRouterForEval: stopping a RUNNING router records ownership; an

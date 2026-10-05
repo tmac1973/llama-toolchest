@@ -18,7 +18,6 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/benchmark"
 	"github.com/tmac1973/llama-toolchest/internal/config"
 	"github.com/tmac1973/llama-toolchest/internal/evaluate"
-	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
 // Phase 04 render + export tests: the conditional Score column in the
@@ -73,9 +72,7 @@ func perfRun(id string) benchmark.BenchmarkRun {
 // nothing.
 func benchListServer(t *testing.T) *Server {
 	t.Helper()
-	s := &Server{registry: models.NewRegistry(t.TempDir(), t.TempDir())}
-	s.pages = s.parseTemplates()
-	return s
+	return newTestServer(t)
 }
 
 // A list containing any run with Eval set gains the Score column; the

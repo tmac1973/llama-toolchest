@@ -11,7 +11,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tmac1973/llama-toolchest/internal/builder"
-	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
 // notRecorded is the exact sentence an unstamped build must carry, in both the
@@ -26,7 +25,8 @@ const notRecorded = "Not recorded — this build predates build-environment trac
 // ROCm happens to be installed on the machine running `go test`.
 func stampServer(t *testing.T, current string, builds []builder.BuildResult) *Server {
 	t.Helper()
-	dir := t.TempDir()
+	s := newTestServer(t)
+	dir := s.cfg.DataDir
 	if err := os.MkdirAll(filepath.Join(dir, "config"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -37,12 +37,8 @@ func stampServer(t *testing.T, current string, builds []builder.BuildResult) *Se
 	if err := os.WriteFile(filepath.Join(dir, "config", "builds.json"), data, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{
-		registry:        models.NewRegistry(t.TempDir(), t.TempDir()),
-		builder:         builder.NewBuilder(dir),
-		currentBuildEnv: func(string) string { return current },
-	}
-	s.pages = s.parseTemplates()
+	s.builder = builder.NewBuilder(dir) // reads the builds just written
+	s.currentBuildEnv = func(string) string { return current }
 	return s
 }
 

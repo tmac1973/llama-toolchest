@@ -8,15 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/tmac1973/llama-toolchest/internal/builder"
-	"github.com/tmac1973/llama-toolchest/internal/config"
 	"github.com/tmac1973/llama-toolchest/internal/models"
-	"github.com/tmac1973/llama-toolchest/internal/monitor"
-	"github.com/tmac1973/llama-toolchest/internal/process"
 )
 
 const profTestID = "org--r-GGUF--m-Q4_K_M"
@@ -25,20 +20,11 @@ const profTestID = "org--r-GGUF--m-Q4_K_M"
 // profile handlers use, with one installed model.
 func newProfileServer(t *testing.T, activeBuild string) *Server {
 	t.Helper()
-	dir := t.TempDir()
-	reg := models.NewRegistry(dir, filepath.Join(dir, "models"))
-	if err := reg.Add(&models.Model{ID: profTestID, ModelID: "org/r-GGUF", Filename: "m-Q4_K_M.gguf", Quant: "Q4_K_M"}); err != nil {
+	s := newTestServer(t)
+	s.cfg.ActiveBuild = activeBuild
+	if err := s.registry.Add(&models.Model{ID: profTestID, ModelID: "org/r-GGUF", Filename: "m-Q4_K_M.gguf", Quant: "Q4_K_M"}); err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{
-		cfg:         &config.Config{DataDir: dir, ActiveBuild: activeBuild},
-		registry:    reg,
-		builder:     builder.NewBuilder(dir),
-		monitor:     monitor.New(time.Hour),
-		process:     process.NewManager(),
-		dirtyModels: map[string]bool{},
-	}
-	s.pages = s.parseTemplates()
 	return s
 }
 

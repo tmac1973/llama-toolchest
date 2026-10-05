@@ -4,21 +4,14 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/tmac1973/llama-toolchest/internal/builder"
-	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
 // bannerServer is a Server with no builds and a fixed idea of the running
 // toolchain, which is the state a freshly installed container is in.
 func bannerServer(t *testing.T, current string) *Server {
 	t.Helper()
-	s := &Server{
-		registry:        models.NewRegistry(t.TempDir(), t.TempDir()),
-		builder:         builder.NewBuilder(t.TempDir()),
-		currentBuildEnv: func(string) string { return current },
-	}
-	s.pages = s.parseTemplates()
+	s := newTestServer(t)
+	s.currentBuildEnv = func(string) string { return current }
 	return s
 }
 

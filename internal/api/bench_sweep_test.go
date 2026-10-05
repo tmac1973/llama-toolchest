@@ -97,16 +97,18 @@ func TestFormatSweepValues(t *testing.T) {
 // model, so the saved-config half of the check is exercised.
 func batchMatrixServer(t *testing.T, saved models.ModelConfig) *Server {
 	t.Helper()
-	reg := models.NewRegistry(t.TempDir(), "/models")
+	s := newTestServer(t)
+	// A models directory of /models, so the model's FilePath is inside it.
+	s.registry = models.NewRegistry(t.TempDir(), "/models")
 	m := &models.Model{ID: "m", ModelID: "u/M", Quant: "Q8_0", FilePath: "/models/m.gguf"}
-	if err := reg.Add(m); err != nil {
+	if err := s.registry.Add(m); err != nil {
 		t.Fatalf("add: %v", err)
 	}
 	saved.Enabled = true
-	if err := reg.SetConfig("m", &saved); err != nil {
+	if err := s.registry.SetConfig("m", &saved); err != nil {
 		t.Fatalf("set config: %v", err)
 	}
-	return &Server{registry: reg}
+	return s
 }
 
 func intPtr(v int) *int { return &v }

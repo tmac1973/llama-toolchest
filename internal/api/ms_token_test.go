@@ -60,16 +60,15 @@ func renderSettings(t *testing.T, hasHF, hasMS bool) string {
 // credentials a save now pushes into.
 func newSettingsServer(t *testing.T, cfg *config.Config) *Server {
 	t.Helper()
-	dir := t.TempDir()
+	s := newTestServer(t)
+	dir := s.cfg.DataDir
 	cfg.DataDir = dir
-	s := &Server{
-		cfg:        cfg,
-		configPath: filepath.Join(dir, "llama-toolchest.yaml"),
-		hfClient:   huggingface.NewClient(cfg.HFToken),
-		msClient:   modelscope.NewClient(cfg.MSToken),
-		presets:    presets.NewFetcher(filepath.Join(dir, "cache"), cfg.HFToken),
-		downloader: huggingface.NewDownloader(dir, dir, cfg.HFToken),
-	}
+	s.cfg = cfg
+	s.configPath = filepath.Join(dir, "llama-toolchest.yaml")
+	s.hfClient = huggingface.NewClient(cfg.HFToken)
+	s.msClient = modelscope.NewClient(cfg.MSToken)
+	s.presets = presets.NewFetcher(filepath.Join(dir, "cache"), cfg.HFToken)
+	s.downloader = huggingface.NewDownloader(dir, dir, cfg.HFToken)
 	s.downloader.RegisterProvider(modelsource.SourceModelScope, huggingface.Provider{
 		URL:   s.msClient.DownloadURL,
 		Token: cfg.MSToken,
