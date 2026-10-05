@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.34.1](https://github.com/tmac1973/llama-toolchest/compare/v2.34.0...v2.34.1) (2026-10-05)
+
+
+### Bug Fixes
+
+* bugs found by the code duplication audit ([#234](https://github.com/tmac1973/llama-toolchest/issues/234)) ([d364549](https://github.com/tmac1973/llama-toolchest/commit/d36454979713c12f57372117df33829d836ecfdf))
+
 ## [2.34.0](https://github.com/tmac1973/llama-toolchest/compare/v2.33.4...v2.34.0) (2026-10-03)
 
 
