@@ -121,13 +121,18 @@ func (s *Server) handleApplyProfile(w http.ResponseWriter, r *http.Request) {
 		s.renderConfigPanel(w, id, panelBanner{"error", "Choose a saved profile to restore."})
 		return
 	}
+	s.renderConfigPanel(w, id, s.restoreProfile(w, r, id, p))
+}
+
+// restoreProfile puts p over the model's live config and returns the
+// banner to show. The Configure panel and the Autotune dialog both restore
+// through here, so the checks and the build warning cannot differ.
+func (s *Server) restoreProfile(w http.ResponseWriter, r *http.Request, id string, p models.ConfigProfile) panelBanner {
 	if err := models.ValidateProfileConfig(p.Config); err != nil {
-		s.renderConfigPanel(w, id, panelBanner{"error", fmt.Sprintf("Profile %q was not restored: %s", p.Name, err)})
-		return
+		return panelBanner{"error", fmt.Sprintf("Profile %q was not restored: %s", p.Name, err)}
 	}
 	if err := s.registry.ApplyProfile(id, p.Name); err != nil {
-		s.renderConfigPanel(w, id, panelBanner{"error", fmt.Sprintf("Profile %q was not restored: %s", p.Name, err)})
-		return
+		return panelBanner{"error", fmt.Sprintf("Profile %q was not restored: %s", p.Name, err)}
 	}
 	if cfg, err := s.registry.GetConfig(id); err == nil {
 		s.afterConfigChange(w, r, id, cfg)
@@ -135,12 +140,11 @@ func (s *Server) handleApplyProfile(w http.ResponseWriter, r *http.Request) {
 
 	msg := fmt.Sprintf("Restored profile %q. The new settings take effect the next time this model loads.", p.Name)
 	if active := s.activeBuild(); p.BuildID != "" && active != "" && p.BuildID != active {
-		s.renderConfigPanel(w, id, panelBanner{"warning", msg + fmt.Sprintf(
+		return panelBanner{"warning", msg + fmt.Sprintf(
 			" It was saved with build %s and the active build is %s; speculative decoding methods and extra flags may behave differently.",
-			p.BuildID, active)})
-		return
+			p.BuildID, active)}
 	}
-	s.renderConfigPanel(w, id, panelBanner{"ok", msg})
+	return panelBanner{"ok", msg}
 }
 
 // handleDeleteProfile deletes a profile (form: profile). The live config

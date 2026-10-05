@@ -261,20 +261,11 @@ func (s *Server) handleAutotuneRestore(w http.ResponseWriter, r *http.Request) {
 		s.renderAutotuneStatus(w, id, rec, &panelBanner{"error", "That profile is no longer saved."})
 		return
 	}
-	if err := models.ValidateProfileConfig(p.Config); err != nil {
-		s.renderAutotuneStatus(w, id, rec, &panelBanner{"error", fmt.Sprintf("Profile %q was not restored: %s", p.Name, err)})
-		return
+	banner := s.restoreProfile(w, r, id, p)
+	if banner.Kind != "error" {
+		s.markConfigPanelStale(w, r, id)
 	}
-	if err := s.registry.ApplyProfile(id, p.Name); err != nil {
-		s.renderAutotuneStatus(w, id, rec, &panelBanner{"error", fmt.Sprintf("Profile %q was not restored: %s", p.Name, err)})
-		return
-	}
-	if cfg, err := s.registry.GetConfig(id); err == nil {
-		s.afterConfigChange(w, r, id, cfg)
-	}
-	s.markConfigPanelStale(w, r, id)
-	s.renderAutotuneStatus(w, id, rec, &panelBanner{"ok",
-		fmt.Sprintf("Restored profile %q. It takes effect the next time this model loads.", p.Name)})
+	s.renderAutotuneStatus(w, id, rec, &banner)
 }
 
 // autotuneProgressData is what the autotune_progress partial renders.
