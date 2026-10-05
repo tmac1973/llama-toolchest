@@ -127,16 +127,23 @@ function expandAllBenchGroups(btn) {
     });
 }
 
-function compareSelectedRuns(btn) {
-    var root = benchContainer(btn);
-    if (!root) return;
-    var checks = root.querySelectorAll('.bench-check:checked');
-    if (checks.length < 2) { alert('Select at least 2 benchmarks to compare.'); return; }
-    var ids = Array.from(checks).map(function(c){return c.value;}).join(',');
+// checkedIDs returns the comma-joined values of the boxes matching
+// selector under root, or "" after telling the user when fewer than two
+// are checked. Runs and job cells are two selection surfaces with the
+// same actions, so both go through here.
+function checkedIDs(root, selector, noun, verb) {
+    if (!root) return '';
+    var checks = root.querySelectorAll(selector + ':checked');
+    if (checks.length < 2) { alert('Select at least 2 ' + noun + ' to ' + verb + '.'); return ''; }
+    return Array.from(checks).map(function(c){return c.value;}).join(',');
+}
+
+// showComparison loads the comparison table for ids below the lists.
+// htmx.ajax (not raw fetch + innerHTML) so the inline <script> in the
+// compare partial actually runs — innerHTML doesn't execute scripts.
+function showComparison(ids) {
     var view = document.getElementById('comparison-view');
-    // Use htmx.ajax (not raw fetch + innerHTML) so the inline <script> in
-    // the compare partial actually runs — innerHTML doesn't execute scripts.
-    htmx.ajax('GET', '/api/benchmarks/compare?ids='+ids, {target: view, swap: 'innerHTML'})
+    htmx.ajax('GET', '/api/benchmarks/compare?ids=' + encodeURIComponent(ids), {target: view, swap: 'innerHTML'})
         .then(function(){ view.scrollIntoView({behavior:'smooth'}); });
 }
 
@@ -145,13 +152,18 @@ function compareSelectedRuns(btn) {
 // together, so the pages people use all day never load it. It navigates
 // in the current tab: "Back to benchmarks" (or the browser back button)
 // returns here, rather than leaving a pile of chart tabs behind.
-function visualizeSelectedRuns(btn) {
-    var root = benchContainer(btn);
-    if (!root) return;
-    var checks = root.querySelectorAll('.bench-check:checked');
-    if (checks.length < 2) { alert('Select at least two benchmarks to visualize.'); return; }
-    var ids = Array.from(checks).map(function(c){return c.value;}).join(',');
+function openVisualization(ids) {
     window.location.href = '/benchmarks/visualize?ids=' + encodeURIComponent(ids);
+}
+
+function compareSelectedRuns(btn) {
+    var ids = checkedIDs(benchContainer(btn), '.bench-check', 'benchmarks', 'compare');
+    if (ids) showComparison(ids);
+}
+
+function visualizeSelectedRuns(btn) {
+    var ids = checkedIDs(benchContainer(btn), '.bench-check', 'benchmarks', 'visualize');
+    if (ids) openVisualization(ids);
 }
 
 function exportSelectedRuns(btn, format) {
@@ -171,10 +183,10 @@ function deleteSelectedRuns(btn) {
     if (checks.length === 0) { alert('Select benchmarks to delete.'); return; }
     if (!confirm('Delete '+checks.length+' benchmark(s)?')) return;
     var ids = Array.from(checks).map(function(c){return c.value;}).join(',');
-    fetch('/api/benchmarks/batch-delete?ids='+ids, {method:'DELETE',headers:{'HX-Request':'true'}})
+    apiCall('/api/benchmarks/batch-delete?ids='+encodeURIComponent(ids), {method:'DELETE',headers:{'HX-Request':'true'}}, 'Delete failed')
         .then(function(){
             document.body.dispatchEvent(new CustomEvent('jobChanged'));
-        });
+        }, function(){});
 }
 
 function filterBenchmarks(input, q) {
@@ -316,42 +328,32 @@ var editingJobID = '';
 function openJobForm() {
     unmappedOverrides = {};
     editingJobID = '';
-    document.getElementById('job-form-title').textContent = 'New Batch Job';
-    var modal = document.getElementById('job-form-modal');
-    var slot = document.getElementById('job-form-slot');
-    slot.innerHTML = 'Loading…';
-    fetch('/api/benchmark-jobs/form', {headers:{'HX-Request':'true'}})
-        .then(function(r){return r.text();})
-        .then(function(html){
-            slot.innerHTML = html;
-            htmx.process(slot);
-            updateMatrixCount();
-            updateKLReferenceRow();
-        });
-    modal.showModal();
+    loadJobForm('New Batch Job', null);
 }
 function openJobEditForm(id) {
     editingJobID = id;
-    document.getElementById('job-form-title').textContent = 'Edit Batch Job';
+    // The job JSON loads in parallel with the form, then pre-fills it.
+    var job = apiCall('/api/benchmark-jobs/'+encodeURIComponent(id), {headers:{'Accept':'application/json'}}, 'Could not load the job')
+        .then(function(r){ return r.json(); });
+    loadJobForm('Edit Batch Job', job);
+}
+// loadJobForm opens the job modal and loads the form into it, pre-filled
+// from job (a promise of the job's JSON) when editing.
+function loadJobForm(title, job) {
+    document.getElementById('job-form-title').textContent = title;
     var modal = document.getElementById('job-form-modal');
     var slot = document.getElementById('job-form-slot');
     slot.innerHTML = 'Loading…';
-    // Fetch the job JSON and the form HTML in parallel, then pre-fill.
-    Promise.all([
-        fetch('/api/benchmark-jobs/'+encodeURIComponent(id), {headers:{'Accept':'application/json'}}).then(function(r){
-            if (!r.ok) throw new Error('failed to load job: HTTP '+r.status);
-            return r.json();
-        }),
-        fetch('/api/benchmark-jobs/form', {headers:{'HX-Request':'true'}}).then(function(r){return r.text();}),
-    ]).then(function(arr) {
-        var job = arr[0], html = arr[1];
-        slot.innerHTML = html;
+    var form = apiCall('/api/benchmark-jobs/form', {headers:{'HX-Request':'true'}}, 'Could not load the job form')
+        .then(function(r){ return r.text(); });
+    Promise.all([job, form]).then(function(arr) {
+        slot.innerHTML = arr[1];
         htmx.process(slot);
-        prefillJobForm(job);
+        if (arr[0]) prefillJobForm(arr[0]);
         updateMatrixCount();
         updateKLReferenceRow();
     }).catch(function(e){
-        slot.textContent = e.message;
+        slot.textContent = 'The form could not be loaded: ' + e.message;
     });
     modal.showModal();
 }
@@ -934,25 +936,24 @@ document.body.addEventListener('jobChanged', function() {
 });
 
 // --- Job actions ---
+// The job actions go through apiCall, so a refusal (for example a job
+// that is already running) shows its reason instead of doing nothing.
+function jobAction(url, method, what) {
+    apiCall(url, {method: method}, what).then(function(){
+        document.body.dispatchEvent(new CustomEvent('jobChanged'));
+    }, function(){});
+}
 function cancelJob(id) {
     if (!confirm('Cancel job '+id+'?')) return;
-    fetch('/api/benchmark-jobs/'+id+'/cancel', {method:'POST'}).then(function(){
-        document.body.dispatchEvent(new CustomEvent('jobChanged'));
-    });
+    jobAction('/api/benchmark-jobs/'+encodeURIComponent(id)+'/cancel', 'POST', 'Cancel failed');
 }
 function retryFailed(id) {
-    fetch('/api/benchmark-jobs/'+id+'/retry-failed', {method:'POST'}).then(function(r){
-        if (!r.ok) { return r.text().then(function(t){alert(t);}); }
-        document.body.dispatchEvent(new CustomEvent('jobChanged'));
-    });
+    jobAction('/api/benchmark-jobs/'+encodeURIComponent(id)+'/retry-failed', 'POST', 'Retry failed');
 }
 function deleteJob(id, disposition) {
     var msg = disposition==='cascade' ? 'Delete job '+id+' AND its runs?' : 'Delete job '+id+' but keep runs (move to Ad-Hoc)?';
     if (!confirm(msg)) return;
-    fetch('/api/benchmark-jobs/'+id+'?runs='+disposition, {method:'DELETE'}).then(function(r){
-        if (!r.ok) { return r.text().then(function(t){alert(t);}); }
-        document.body.dispatchEvent(new CustomEvent('jobChanged'));
-    });
+    jobAction('/api/benchmark-jobs/'+encodeURIComponent(id)+'?runs='+disposition, 'DELETE', 'Delete failed');
 }
 // --- Bulk delete of jobs ---
 function jobSelectBoxes() {
@@ -1005,12 +1006,11 @@ function deleteSelectedJobs(disposition) {
             ' of an autotune run. If that autotune run is resumed later, it measures the deleted stages again.';
     }
     if (!confirm(msg)) return;
-    fetch('/api/benchmark-jobs/delete', {
+    apiCall('/api/benchmark-jobs/delete', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ids: picked.map(function(c){ return c.value; }), runs: disposition})
-    }).then(function(r){
-        if (!r.ok) { return r.text().then(function(t){ alert(t); }); }
+    }, 'Delete failed').then(function(r){
         return r.json().then(function(res){
             var skipped = Object.keys(res.skipped || {});
             if (skipped.length) {
@@ -1022,7 +1022,7 @@ function deleteSelectedJobs(disposition) {
         });
     }).then(function(){
         document.body.dispatchEvent(new CustomEvent('jobChanged'));
-    });
+    }, function(){});
 }
 
 // The job matrix and the ad-hoc run list are two separate selection
@@ -1030,19 +1030,13 @@ function deleteSelectedJobs(disposition) {
 // action reachable from one is invisible from the other — which is
 // where sweeps actually live, since a sweep is a job.
 function visualizeSelectedCells(btn) {
-    var checks = btn.closest('.job-detail').querySelectorAll('.cell-check:checked');
-    if (checks.length < 2) { alert('Select at least 2 cells to visualize.'); return; }
-    var ids = Array.from(checks).map(function(c){return c.value;}).join(',');
-    window.location.href = '/benchmarks/visualize?ids=' + encodeURIComponent(ids);
+    var ids = checkedIDs(btn.closest('.job-detail'), '.cell-check', 'cells', 'visualize');
+    if (ids) openVisualization(ids);
 }
 
 function compareSelectedCells(btn) {
-    var checks = btn.closest('.job-detail').querySelectorAll('.cell-check:checked');
-    if (checks.length < 2) { alert('Select at least 2 cells to compare.'); return; }
-    var ids = Array.from(checks).map(function(c){return c.value;}).join(',');
-    var view = document.getElementById('comparison-view');
-    htmx.ajax('GET', '/api/benchmarks/compare?ids='+ids, {target: view, swap: 'innerHTML'})
-        .then(function(){ view.scrollIntoView({behavior:'smooth'}); });
+    var ids = checkedIDs(btn.closest('.job-detail'), '.cell-check', 'cells', 'compare');
+    if (ids) showComparison(ids);
 }
 
 </script>
