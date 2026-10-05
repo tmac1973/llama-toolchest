@@ -308,20 +308,21 @@ func (s *Server) handleHFDownloadProgress(w http.ResponseWriter, r *http.Request
 		case status := <-ch:
 			data, _ := json.Marshal(status)
 			// Send HTML progress update
-			var html string
+			var fragment string
 			switch status.Status {
 			case "downloading":
-				html = downloadProgressHTML(status, "")
+				fragment = downloadProgressHTML(status, "")
 			case "complete":
-				html = `<p>Download complete!</p>`
+				fragment = `<p>Download complete!</p>`
 			case "failed":
-				html = fmt.Sprintf(`<p>Download failed: %s</p>`, status.Error)
+				// The error can quote a server response, so it is escaped.
+				fragment = fmt.Sprintf(`<p>Download failed: %s</p>`, html.EscapeString(status.Error))
 			case "cancelled":
-				html = `<p>Download paused — resume it from the Models page.</p>`
+				fragment = `<p>Download paused — resume it from the Models page.</p>`
 			default:
-				html = string(data)
+				fragment = string(data)
 			}
-			sse.SendEvent("progress", html)
+			sse.SendEvent("progress", fragment)
 			// Terminal states — stop streaming
 			if status.Status == "complete" || status.Status == "failed" || status.Status == "cancelled" {
 				return
