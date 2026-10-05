@@ -5,11 +5,11 @@ package models
 // didn't publish a value, so the UI can leave the corresponding input blank
 // (i.e. "use server default") rather than forcing a number.
 type SamplingPreset struct {
-	Name            string   `json:"name"`                       // stable id within a repo, e.g. "thinking"
-	Label           string   `json:"label"`                      // human-friendly display name
-	Description     string   `json:"description,omitempty"`      // short context line shown next to the dropdown
-	Source          string   `json:"source"`                     // "generation_config.json" or "readme"
-	SourceURL       string   `json:"source_url,omitempty"`       // link the user can open to verify
+	Name            string   `json:"name"`                  // stable id within a repo, e.g. "thinking"
+	Label           string   `json:"label"`                 // human-friendly display name
+	Description     string   `json:"description,omitempty"` // short context line shown next to the dropdown
+	Source          string   `json:"source"`                // "generation_config.json" or "readme"
+	SourceURL       string   `json:"source_url,omitempty"`  // link the user can open to verify
 	Temperature     *float64 `json:"temperature,omitempty"`
 	TopP            *float64 `json:"top_p,omitempty"`
 	TopK            *int     `json:"top_k,omitempty"`
