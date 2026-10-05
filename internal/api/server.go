@@ -359,6 +359,7 @@ func (s *Server) templateFuncs() template.FuncMap {
 		// profileCell renders a run's saved profile for the comparison
 		// table: the name, "(edited)" when what ran differed from it.
 		"profileCell": benchmark.ProfileCellText,
+		"compareCell": benchmark.CompareCellText,
 		// deref turns a pointer like *int / *bool / *string / *float64
 		// into its underlying value for templates. Non-pointers pass
 		// through; nil pointers return empty string.
