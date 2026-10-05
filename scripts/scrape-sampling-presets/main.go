@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"go/format"
 	"io"
 	"log"
 	"net/http"
@@ -44,10 +45,10 @@ const (
 )
 
 var (
-	flagAuthor = flag.String("author", "unsloth", "HuggingFace author to enumerate (comma-separated for multiple)")
-	flagLimit  = flag.Int("limit", listLimit, "max repos to enumerate per author")
-	flagOut    = flag.String("out", outputDef, "output Go file (relative to repo root)")
-	flagToken  = flag.String("token", os.Getenv("HF_TOKEN"), "HuggingFace token (optional, for higher rate limits)")
+	flagAuthor  = flag.String("author", "unsloth", "HuggingFace author to enumerate (comma-separated for multiple)")
+	flagLimit   = flag.Int("limit", listLimit, "max repos to enumerate per author")
+	flagOut     = flag.String("out", outputDef, "output Go file (relative to repo root)")
+	flagToken   = flag.String("token", os.Getenv("HF_TOKEN"), "HuggingFace token (optional, for higher rate limits)")
 	flagVerbose = flag.Bool("v", false, "verbose logging")
 )
 
@@ -210,10 +211,10 @@ func fetchGenConfig(client *http.Client, repo string) (genConfig, string, bool) 
 
 func genConfigToPreset(gc genConfig, baseRepo, url string) (preset, bool) {
 	p := preset{
-		Name:      "default",
-		Label:     "Upstream default",
-		Source:    "generation_config.json",
-		SourceURL: url,
+		Name:        "default",
+		Label:       "Upstream default",
+		Source:      "generation_config.json",
+		SourceURL:   url,
 		Description: fmt.Sprintf("From %s/generation_config.json", baseRepo),
 
 		Temperature:   gc.Temperature,
@@ -530,7 +531,13 @@ func writeOutput(path string, data map[string][]preset) error {
 	}
 
 	b.WriteString("}\n")
-	return os.WriteFile(path, []byte(b.String()), 0o644)
+	// gofmt the output, so the checked-in file passes gofmt -l and a
+	// refresh's diff shows only data changes.
+	src, err := format.Source([]byte(b.String()))
+	if err != nil {
+		return fmt.Errorf("formatting generated code: %w", err)
+	}
+	return os.WriteFile(path, src, 0o644)
 }
 
 func trimFloat(v float64) string {
