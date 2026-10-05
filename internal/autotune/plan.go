@@ -226,7 +226,11 @@ func draftOptions(in PlanInput) ([]draftOption, []string) {
 		skipped = append(skipped, "MTP: this model has no draft layers of its own and no MTP head is installed")
 	}
 
-	for _, mode := range []string{"draft", "draft-eagle3", "draft-dflash", "draft-dspark"} {
+	for _, m := range models.DraftModes() {
+		mode := m.Name
+		if !models.UsesDraftFile(mode) {
+			continue // MTP is planned above: its draft layers are in the main file
+		}
 		var cands []models.DraftCandidate
 		if in.DraftCandidates != nil {
 			cands = in.DraftCandidates(mode)
@@ -243,7 +247,7 @@ func draftOptions(in PlanInput) ([]draftOption, []string) {
 			cands = headsFor(mode, cands)
 		}
 		if len(cands) == 0 {
-			skipped = append(skipped, fmt.Sprintf("%s: no file for it is installed", draftName(mode)))
+			skipped = append(skipped, fmt.Sprintf("%s: no file for it is installed", models.SpecModeLabel(mode)))
 			continue
 		}
 		// The smallest candidates first: a drafter is worth having only
@@ -327,20 +331,6 @@ func headsFor(mode string, cands []models.DraftCandidate) []models.DraftCandidat
 		}
 	}
 	return out
-}
-
-func draftName(mode string) string {
-	switch mode {
-	case "draft":
-		return "Draft model"
-	case "draft-eagle3":
-		return "EAGLE3"
-	case "draft-dflash":
-		return "DFlash"
-	case "draft-dspark":
-		return "DSpark"
-	}
-	return mode
 }
 
 // defaultParams fills a spec value's settings with the recommended

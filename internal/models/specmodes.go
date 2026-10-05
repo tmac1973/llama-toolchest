@@ -89,6 +89,12 @@ func IsAssistMode(name string) bool { return specModeIn(assistModes, name) }
 // through --model-draft.
 func IsHeadBasedDraftMode(name string) bool { return headBasedDraftModes[name] }
 
+// UsesDraftFile reports whether the mode loads a separate file through
+// --model-draft: a smaller draft model ("draft") or a converted head.
+// MTP's draft layers live in the main GGUF, and the n-gram assists load
+// nothing.
+func UsesDraftFile(name string) bool { return name == "draft" || IsHeadBasedDraftMode(name) }
+
 // SpecModeLabel returns the display label for a mode, or the raw name for
 // one this build doesn't know — a config written by a newer build should
 // render as something rather than as an empty cell.

@@ -123,7 +123,7 @@ func TestPlanSpecStage(t *testing.T) {
 		t.Errorf("MTP was paired with %d assists, want %d", pairs, len(assists))
 	}
 	joined := strings.Join(skipped, " | ")
-	for _, want := range []string{"Draft model", "EAGLE3", "DFlash", "DSpark"} {
+	for _, want := range []string{"Draft Model", "EAGLE-3", "DFlash", "DSpark"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("skipped does not mention %s: %v", want, skipped)
 		}
@@ -357,7 +357,7 @@ func TestPlanSpecSkipsHeadMethodsWithoutAHead(t *testing.T) {
 		}
 	}
 	joined := strings.Join(skipped, " | ")
-	for _, name := range []string{"EAGLE3", "DFlash", "DSpark"} {
+	for _, name := range []string{"EAGLE-3", "DFlash", "DSpark"} {
 		if !strings.Contains(joined, name) {
 			t.Errorf("skipped does not mention %s: %v", name, skipped)
 		}

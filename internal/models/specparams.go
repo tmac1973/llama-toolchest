@@ -24,6 +24,13 @@ func SpecDraftParams(mode string) []SpecModeParam {
 	draftMin := func(d string) SpecModeParam { return SpecModeParam{"draft_min", "Draft tokens min", d} }
 	pMin := func(d string) SpecModeParam { return SpecModeParam{"draft_p_min", "Draft probability min", d} }
 
+	if IsHeadBasedDraftMode(mode) {
+		// Deliberately blank: llama.cpp's own defaults (n-max 3, n-min 0)
+		// apply, and there is no measured guidance for the heads to
+		// present as a recommendation. The benchmark sweep is where good
+		// values come from, not a guess in this table.
+		return []SpecModeParam{draftMax(""), draftMin(""), pMin("")}
+	}
 	switch mode {
 	case "draft":
 		return []SpecModeParam{draftMax("16"), draftMin("0"), pMin("0.75")}
@@ -32,12 +39,6 @@ func SpecDraftParams(mode string) []SpecModeParam {
 		// at llama.cpp's default — MTP heads have their own acceptance
 		// logic.
 		return []SpecModeParam{draftMax("6"), draftMin("0"), pMin("")}
-	case "draft-eagle3", "draft-dflash", "draft-dspark":
-		// Deliberately blank: llama.cpp's own defaults (n-max 3, n-min 0)
-		// apply, and there is no measured guidance for these three to
-		// present as a recommendation. The benchmark sweep is where good
-		// values come from, not a guess in this table.
-		return []SpecModeParam{draftMax(""), draftMin(""), pMin("")}
 	default:
 		return nil
 	}

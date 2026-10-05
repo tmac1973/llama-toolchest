@@ -351,6 +351,11 @@ func (s *Server) templateFuncs() template.FuncMap {
 		// table: the name, "(edited)" when what ran differed from it.
 		"profileCell": benchmark.ProfileCellText,
 		"compareCell": benchmark.CompareCellText,
+		// usesDraftFile and isHeadBasedDraftMode keep the model config
+		// panel's speculative-decoding sections on the same mode sets as
+		// the code that launches them.
+		"usesDraftFile":        models.UsesDraftFile,
+		"isHeadBasedDraftMode": models.IsHeadBasedDraftMode,
 		// deref turns a pointer like *int / *bool / *string / *float64
 		// into its underlying value for templates. Non-pointers pass
 		// through; nil pointers return empty string.
