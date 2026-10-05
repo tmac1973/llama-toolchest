@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.34.3](https://github.com/tmac1973/llama-toolchest/compare/v2.34.2...v2.34.3) (2026-10-05)
+
+
+### Bug Fixes
+
+* setup.sh waits for release packages; gofmt cleanup; file the audit ([#238](https://github.com/tmac1973/llama-toolchest/issues/238)) ([39a4b31](https://github.com/tmac1973/llama-toolchest/commit/39a4b31f39c2fbd9101e37ef05137ed1e7154cd9))
+
 ## [2.34.2](https://github.com/tmac1973/llama-toolchest/compare/v2.34.1...v2.34.2) (2026-10-05)
 
 
