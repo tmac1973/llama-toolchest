@@ -484,7 +484,7 @@ func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, model
 	// below and write only the tail into it — a corrupt model that looks
 	// complete. A Content-Range header means partial, whatever the status.
 	fileTotal := resp.ContentLength
-	if responseIsPartial(resp) {
+	if modelsource.ResponseIsPartial(resp) {
 		fileTotal += existingSize
 	} else {
 		existingSize = 0
@@ -560,11 +560,4 @@ func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, model
 	}
 
 	return downloaded, nil
-}
-
-// responseIsPartial reports whether a response to a ranged request
-// carries only part of the file. See the call site for why the status
-// code is not sufficient on its own.
-func responseIsPartial(resp *http.Response) bool {
-	return resp.StatusCode == http.StatusPartialContent || resp.Header.Get("Content-Range") != ""
 }

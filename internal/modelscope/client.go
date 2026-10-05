@@ -290,7 +290,7 @@ func (c *Client) GetModel(ctx context.Context, modelID string) (*modelsource.Det
 // Range and treats 200 as "the server ignored my Range and is sending
 // the whole file" will silently append a tail to a partial file and
 // produce a corrupt result — so a 200 carrying Content-Range must be
-// read as partial. See ResponseIsPartial.
+// read as partial. See modelsource.ResponseIsPartial.
 func (c *Client) DownloadURL(modelID, filename string) string {
 	owner, name, ok := splitID(modelID)
 	if !ok {
@@ -317,15 +317,6 @@ func splitID(modelID string) (owner, name string, ok bool) {
 		return "", "", false
 	}
 	return owner, name, true
-}
-
-// ResponseIsPartial reports whether a response to a ranged request
-// carries only part of the file. It exists because ModelScope answers
-// with 200 plus Content-Range rather than the 206 the RFC requires (see
-// DownloadURL), so a status check alone is not enough to tell a resumed
-// download from a restarted one.
-func ResponseIsPartial(resp *http.Response) bool {
-	return resp.StatusCode == http.StatusPartialContent || resp.Header.Get("Content-Range") != ""
 }
 
 func (c *Client) setAuth(req *http.Request) {
