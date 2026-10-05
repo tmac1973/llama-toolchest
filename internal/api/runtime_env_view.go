@@ -7,7 +7,9 @@ import (
 
 // envLine is one row of the effective-environment preview: the KEY=VALUE
 // pair as configured, and — when the service environment already defines
-// the same name — the inherited value that wins instead. Mirrors
+// the same name — that name, because the inherited value wins instead.
+// Only the name is shown: the inherited value can be a token set in the
+// container or systemd environment, and this page has no login. Mirrors
 // applyExtraEnv in internal/process/manager.go, which gives the
 // inherited environment precedence over UI-set values so a systemd
 // drop-in or container env stays authoritative.
@@ -27,8 +29,8 @@ func (s *Server) effectiveEnvLines() []envLine {
 		if i := strings.IndexByte(kv, '='); i > 0 {
 			name = kv[:i]
 		}
-		if inherited, ok := os.LookupEnv(name); ok {
-			line.Overridden = name + "=" + inherited
+		if _, ok := os.LookupEnv(name); ok {
+			line.Overridden = name
 		}
 		out = append(out, line)
 	}
