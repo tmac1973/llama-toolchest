@@ -328,3 +328,17 @@ func TestTokenSwapIsSafeUnderConcurrency(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// A JSON body sent with a charset suffix is still JSON. The handlers used
+// to match the content type exactly, read this as a form with no fields,
+// and change nothing.
+func TestUpdateSettingsJSONWithCharset(t *testing.T) {
+	s := newSettingsServer(t, &config.Config{MSToken: "ms_existing"})
+	req := httptest.NewRequest("PUT", "/api/settings", strings.NewReader(`{"ms_token":"ms_new"}`))
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	s.handleUpdateSettings(httptest.NewRecorder(), req)
+
+	if s.cfg.MSToken != "ms_new" {
+		t.Errorf("MSToken = %q, want ms_new from the JSON body", s.cfg.MSToken)
+	}
+}

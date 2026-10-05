@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -850,6 +851,10 @@ type storeReadOnlyError struct{ reason string }
 func (e storeReadOnlyError) Error() string        { return e.reason }
 func (e storeReadOnlyError) Is(target error) bool { return target == ErrStoreReadOnly }
 
+// ErrSaveFailed is matched by errors.Is when writing benchmarks.json
+// failed. The change it belonged to has been undone in memory.
+var ErrSaveFailed = errors.New("benchmark history could not be saved")
+
 // ReadOnlyReason returns why the store refuses to save, or "" when it is
 // writable.
 func (s *Store) ReadOnlyReason() string {
@@ -906,9 +911,9 @@ func (s *Store) Delete(id string) error {
 	}
 	for i := range s.runs {
 		if s.runs[i].ID == id {
+			prevJobs, prevRuns := s.snapshotLocked()
 			s.runs = append(s.runs[:i], s.runs[i+1:]...)
-			s.persist()
-			return nil
+			return s.commitLocked(prevJobs, prevRuns)
 		}
 	}
 	return fmt.Errorf("benchmark not found: %s", id)
@@ -969,11 +974,11 @@ func (s *Store) DeleteJob(id string, disposition DeleteDisposition) error {
 	if err := s.writableLocked(); err != nil {
 		return err
 	}
+	prevJobs, prevRuns := s.snapshotLocked()
 	if err := s.deleteJobLocked(id, disposition); err != nil {
 		return err
 	}
-	s.persist()
-	return nil
+	return s.commitLocked(prevJobs, prevRuns)
 }
 
 // DeleteJobs removes several jobs with one write of benchmarks.json,
@@ -989,6 +994,7 @@ func (s *Store) DeleteJobs(ids []string, disposition DeleteDisposition) (deleted
 	if err := s.writableLocked(); err != nil {
 		return nil, nil, err
 	}
+	prevJobs, prevRuns := s.snapshotLocked()
 	skipped = map[string]string{}
 	for _, id := range ids {
 		if err := s.deleteJobLocked(id, disposition); err != nil {
@@ -998,7 +1004,9 @@ func (s *Store) DeleteJobs(ids []string, disposition DeleteDisposition) (deleted
 		deleted = append(deleted, id)
 	}
 	if len(deleted) > 0 {
-		s.persist()
+		if err := s.commitLocked(prevJobs, prevRuns); err != nil {
+			return nil, nil, err
+		}
 	}
 	return deleted, skipped, nil
 }
@@ -1196,6 +1204,7 @@ func (s *Store) UpdateJobDefinition(id string, def JobDefinition) (*BenchmarkJob
 		return nil, fmt.Errorf("job not found: %s", id)
 	}
 	job := s.jobs[idx]
+	prevJobs, prevRuns := s.snapshotLocked()
 
 	prev := make(map[cellIdentity]JobCell, len(job.Cells))
 	for _, c := range job.Cells {
@@ -1253,7 +1262,9 @@ func (s *Store) UpdateJobDefinition(id string, def JobDefinition) (*BenchmarkJob
 	job.FinishedAt = time.Time{}
 	s.jobs[idx] = job
 
-	s.persist()
+	if err := s.commitLocked(prevJobs, prevRuns); err != nil {
+		return nil, err
+	}
 	out := job
 	return &out, nil
 }
@@ -1646,11 +1657,12 @@ func (s *Store) hasJobLocked(id string) bool {
 
 // persist writes benchmarks.json with write-then-rename, so a crash
 // mid-write leaves the previous file rather than a truncated one. Callers
-// hold s.mu.
-func (s *Store) persist() {
+// hold s.mu. Failures are logged here too, for the callers (the runner and
+// job queue saving results) that have nobody to report them to.
+func (s *Store) persist() error {
 	if s.readOnly != "" {
 		slog.Warn("benchmark history is read-only; not saving", "reason", s.readOnly)
-		return
+		return storeReadOnlyError{s.readOnly}
 	}
 	file := benchmarkFile{
 		Version: schemaVersion,
@@ -1660,9 +1672,28 @@ func (s *Store) persist() {
 	data, err := json.MarshalIndent(file, "", "  ")
 	if err != nil {
 		slog.Error("failed to marshal benchmarks", "error", err)
-		return
+		return fmt.Errorf("%w: saving benchmarks.json: %w", ErrSaveFailed, err)
 	}
 	if err := atomicfile.Write(s.benchmarkPath(), data); err != nil {
 		slog.Error("failed to write benchmarks", "error", err)
+		return fmt.Errorf("%w: saving benchmarks.json: %w", ErrSaveFailed, err)
 	}
+	return nil
+}
+
+// commitLocked persists a change and, if the write fails, puts back the
+// jobs and runs as they were before it, so what the UI shows matches what
+// is on disk. Callers hold s.mu and took prevJobs/prevRuns with
+// snapshotLocked before changing anything.
+func (s *Store) commitLocked(prevJobs []BenchmarkJob, prevRuns []BenchmarkRun) error {
+	if err := s.persist(); err != nil {
+		s.jobs, s.runs = prevJobs, prevRuns
+		return err
+	}
+	return nil
+}
+
+// snapshotLocked copies the job and run lists for commitLocked.
+func (s *Store) snapshotLocked() ([]BenchmarkJob, []BenchmarkRun) {
+	return slices.Clone(s.jobs), slices.Clone(s.runs)
 }

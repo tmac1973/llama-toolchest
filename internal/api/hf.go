@@ -192,9 +192,8 @@ func (s *Server) handleHFDownload(w http.ResponseWriter, r *http.Request) {
 		From string `json:"from"`
 	}
 
-	if r.Header.Get("Content-Type") == "application/json" {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+	if isJSONRequest(r) {
+		if !decodeJSONBody(w, r, &req) {
 			return
 		}
 	} else {
@@ -309,20 +308,21 @@ func (s *Server) handleHFDownloadProgress(w http.ResponseWriter, r *http.Request
 		case status := <-ch:
 			data, _ := json.Marshal(status)
 			// Send HTML progress update
-			var html string
+			var fragment string
 			switch status.Status {
 			case "downloading":
-				html = downloadProgressHTML(status, "")
+				fragment = downloadProgressHTML(status, "")
 			case "complete":
-				html = `<p>Download complete!</p>`
+				fragment = `<p>Download complete!</p>`
 			case "failed":
-				html = fmt.Sprintf(`<p>Download failed: %s</p>`, status.Error)
+				// The error can quote a server response, so it is escaped.
+				fragment = fmt.Sprintf(`<p>Download failed: %s</p>`, html.EscapeString(status.Error))
 			case "cancelled":
-				html = `<p>Download paused — resume it from the Models page.</p>`
+				fragment = `<p>Download paused — resume it from the Models page.</p>`
 			default:
-				html = string(data)
+				fragment = string(data)
 			}
-			sse.SendEvent("progress", html)
+			sse.SendEvent("progress", fragment)
 			// Terminal states — stop streaming
 			if status.Status == "complete" || status.Status == "failed" || status.Status == "cancelled" {
 				return
@@ -733,7 +733,7 @@ func applyProbe(f *modelsource.File, res modelsource.ProbeResult) {
 	f.StreamProbed = true
 	f.StreamedBytes = res.StreamedBytes
 	if res.StreamedBytes > 0 && res.StreamedBytes < f.Size {
-		f.VRAMEstGB = modelsource.EstimateVRAM(f.Size - res.StreamedBytes)
+		f.VRAMEstGB = models.EstimateVRAM(f.Size - res.StreamedBytes)
 	}
 }
 

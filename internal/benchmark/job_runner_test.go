@@ -380,7 +380,7 @@ func newFakeRouter(t *testing.T) *fakeRouter {
 	// No models loaded, so unloadAllModels returns without its 2s waits.
 	mux.HandleFunc("/models", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `[]`)
+		io.WriteString(w, `{"data":[],"object":"list"}`)
 	})
 	mux.HandleFunc("/models/load", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -590,7 +590,7 @@ func newSlowRouter(t *testing.T, release <-chan struct{}) *fakeRouter {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/models", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `[]`)
+		io.WriteString(w, `{"data":[],"object":"list"}`)
 	})
 	mux.HandleFunc("/models/load", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

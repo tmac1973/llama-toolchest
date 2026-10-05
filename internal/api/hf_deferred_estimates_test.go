@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/modelsource"
 	"github.com/tmac1973/llama-toolchest/web"
 )
@@ -88,7 +89,7 @@ func TestFillTargetsOnlyTheEstimateCells(t *testing.T) {
 		Files: []hfFileView{{ModelFile: modelsource.File{
 			Filename: "big.gguf", Size: 68 * gibT,
 			StreamedBytes: 27 * gibT, StreamProbed: true,
-			VRAMEstGB: modelsource.EstimateVRAM(41 * gibT),
+			VRAMEstGB: models.EstimateVRAM(41 * gibT),
 		}}},
 	}
 	out := renderFiles(t, "hf_file_estimates", view)
@@ -96,7 +97,7 @@ func TestFillTargetsOnlyTheEstimateCells(t *testing.T) {
 	if n := strings.Count(out, `hx-swap-oob="true"`); n != 2 {
 		t.Errorf("%d out-of-band swaps, want 2 (the VRAM cell and the fit cell)", n)
 	}
-	for _, want := range []string{"vram-", "fit-", "45.1 GiB", "GiB embedding table, read from disk"} {
+	for _, want := range []string{"vram-", "fit-", "45.3 GiB", "GiB embedding table, read from disk"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("fill is missing %q; output=\n%s", want, out)
 		}
@@ -115,7 +116,7 @@ func TestFirstRenderAndFillAgree(t *testing.T) {
 	f := modelsource.File{
 		Filename: "big.gguf", Size: 68 * gibT,
 		StreamedBytes: 27 * gibT, StreamProbed: true,
-		VRAMEstGB: modelsource.EstimateVRAM(41 * gibT),
+		VRAMEstGB: models.EstimateVRAM(41 * gibT),
 	}
 	settled := renderFiles(t, "hf_files", hfModelView{
 		ID: "r", Files: []hfFileView{{ModelFile: f, FitsOnDisk: true}}, AvailableBytes: 1 << 46,
@@ -123,7 +124,7 @@ func TestFirstRenderAndFillAgree(t *testing.T) {
 	filled := renderFiles(t, "hf_file_estimates", hfModelView{
 		ID: "r", Files: []hfFileView{{ModelFile: f}},
 	})
-	for _, want := range []string{"45.1 GiB", "GiB embedding table, read from disk"} {
+	for _, want := range []string{"45.3 GiB", "GiB embedding table, read from disk"} {
 		if !strings.Contains(settled, want) || !strings.Contains(filled, want) {
 			t.Errorf("%q appears in only one of the two renders", want)
 		}

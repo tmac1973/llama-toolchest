@@ -356,7 +356,7 @@ func (s *Server) handleStartBenchmark(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteBenchmark(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := s.bench.Delete(id); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		http.Error(w, err.Error(), benchErrorStatus(err, http.StatusNotFound))
 		return
 	}
 
@@ -376,11 +376,32 @@ func (s *Server) handleBatchDeleteBenchmarks(w http.ResponseWriter, r *http.Requ
 	}
 	for _, id := range strings.Split(idsParam, ",") {
 		id = strings.TrimSpace(id)
-		if id != "" {
-			s.bench.Delete(id)
+		if id == "" {
+			continue
+		}
+		// A run that is already gone is not a failure here; a refusal or
+		// a failed save is.
+		if err := s.bench.Delete(id); err != nil {
+			if status := benchErrorStatus(err, http.StatusOK); status != http.StatusOK {
+				http.Error(w, err.Error(), status)
+				return
+			}
 		}
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// benchErrorStatus maps a benchmark store error to an HTTP status: a
+// read-only store is a conflict, a failed save is a server error, and
+// anything else gets fallback.
+func benchErrorStatus(err error, fallback int) int {
+	switch {
+	case errors.Is(err, benchmark.ErrStoreReadOnly):
+		return http.StatusConflict
+	case errors.Is(err, benchmark.ErrSaveFailed):
+		return http.StatusInternalServerError
+	}
+	return fallback
 }
 
 // handleExportBenchmarks exports an arbitrary selection of runs in

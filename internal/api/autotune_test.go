@@ -320,3 +320,24 @@ func TestAutotuneDialogSendsYouToAutoconfigureFirst(t *testing.T) {
 		t.Errorf("the warning is still shown with an Autoconfigure profile:\n%s", out)
 	}
 }
+
+// Restoring from the Autotune results warns about a build change the same
+// way the Configure panel does; the two used to be separate copies and only
+// Configure warned.
+func TestAutotuneRestoreWarnsAboutOtherBuild(t *testing.T) {
+	s := newTuneServer(t)
+	s.cfg.ActiveBuild = "b2"
+	if _, err := s.registry.SaveProfileFrom(profTestID, "Autotune – fastest generation", models.ConfigProfile{
+		Config:  models.ModelConfig{Enabled: true, GPULayers: 999, ContextSize: 8192},
+		Source:  models.ProfileSourceAutotune,
+		BuildID: "b1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	out := s.doTune(t, "POST", "/api/models/"+profTestID+"/autotune/restore",
+		url.Values{"profile": {"Autotune – fastest generation"}})
+	if !strings.Contains(out, "saved with build b1 and the active build is b2") {
+		t.Errorf("no build warning:\n%s", out)
+	}
+}

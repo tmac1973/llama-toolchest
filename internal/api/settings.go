@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -65,7 +64,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	// the response can carry the variable warnings and refreshed preview.
 	envTouched := false
 
-	if r.Header.Get("Content-Type") == "application/json" {
+	if isJSONRequest(r) {
 		var update struct {
 			LlamaPort *int    `json:"llama_port,omitempty"`
 			APIKey    *string `json:"api_key,omitempty"`
@@ -74,8 +73,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 
 			DefaultModelSource *string `json:"default_model_source,omitempty"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if !decodeJSONBody(w, r, &update) {
 			return
 		}
 		if update.LlamaPort != nil {

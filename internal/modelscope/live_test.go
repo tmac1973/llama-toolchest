@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tmac1973/llama-toolchest/internal/modelsource"
 )
 
 // The endpoints this package uses are not a published contract — they are
@@ -80,7 +82,7 @@ func TestLiveGetModel(t *testing.T) {
 // download URL that does not honor ranges would break resume without
 // failing outright. This pins both halves of the real behavior: the range
 // is honored, and it comes back labelled 200 rather than 206 — the quirk
-// ResponseIsPartial exists for. If ModelScope ever starts returning a
+// modelsource.ResponseIsPartial exists for. If ModelScope ever starts returning a
 // conforming 206, the second assertion fails and this comment is what
 // explains that the change is welcome.
 func TestLiveDownloadURLHonorsRange(t *testing.T) {
@@ -118,7 +120,7 @@ func TestLiveDownloadURLHonorsRange(t *testing.T) {
 	if len(body) != 1024 {
 		t.Errorf("got %d bytes, want the 1024 requested — ranges are not being honored", len(body))
 	}
-	if !ResponseIsPartial(resp) {
+	if !modelsource.ResponseIsPartial(resp) {
 		t.Errorf("ResponseIsPartial said no: status=%d content-range=%q", resp.StatusCode, resp.Header.Get("Content-Range"))
 	}
 	if resp.StatusCode == http.StatusPartialContent {
