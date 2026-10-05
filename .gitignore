@@ -4,6 +4,14 @@ dist/
 /agent
 *.pid
 .env
+.env.*
+*.env
+# Keys and certificates (for example a hand-made TLS setup).
+*.pem
+*.key
+*.crt
+# A backup exported with secrets holds the tokens and the API key.
+llama-toolchest-backup-*.json
 # Rendered from Caddyfile.template by `setup.sh install --secure`; contains the
 # admin bcrypt hash, so it must never be committed. The template is tracked.
 /Caddyfile
@@ -12,6 +20,8 @@ dist/
 # lives at packaging/config/llama-toolchest.yaml.example.
 /config.yaml
 .claude/
+.vscode/
+.idea/
 debug_output.txt
 
 # Added by the autonomous coding run: regenerable, never commit.
