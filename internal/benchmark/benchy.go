@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // LlamaBenchyMetric is the upstream metric shape: mean, std, and the raw
@@ -183,6 +184,30 @@ func summarizeBenchy(results []LlamaBenchyResult) *BenchmarkSummary {
 	return s
 }
 
+// maxBenchyStderr is how much of llama-benchy's error output is kept in
+// a failed run's error, which is stored with the run and shown in the UI.
+const maxBenchyStderr = 4096
+
+// benchyStderr prepares llama-benchy's error output for a failed run's
+// error message. The process runs with HF_TOKEN and the API key, and a
+// debug or HTTP trace can print them, so known secrets are replaced with
+// HIDDEN. Only the end is kept: a Python failure prints its cause last.
+func benchyStderr(stderr string, secrets ...string) string {
+	for _, sec := range secrets {
+		if sec != "" && sec != "EMPTY" {
+			stderr = strings.ReplaceAll(stderr, sec, "HIDDEN")
+		}
+	}
+	if len(stderr) <= maxBenchyStderr {
+		return stderr
+	}
+	cut := len(stderr) - maxBenchyStderr
+	for cut < len(stderr) && !utf8.RuneStart(stderr[cut]) {
+		cut++
+	}
+	return fmt.Sprintf("(%d earlier bytes left out) …%s", cut, stderr[cut:])
+}
+
 // runLlamaBenchy executes uvx llama-benchy and returns the parsed report.
 // The command string we ran is returned alongside the results so callers
 // can store it on the BenchmarkRun for disclosure.
@@ -227,7 +252,8 @@ func runLlamaBenchy(ctx context.Context, c BenchyConfig) ([]LlamaBenchyResult, s
 
 	start := time.Now()
 	if err := cmd.Run(); err != nil {
-		return nil, cmdStr, fmt.Errorf("llama-benchy exited with %w\nstderr: %s", err, stderr.String())
+		return nil, cmdStr, fmt.Errorf("llama-benchy exited with %w\nstderr: %s", err,
+			benchyStderr(stderr.String(), c.HFToken, c.APIKey))
 	}
 	slog.Info("llama-benchy finished", "duration", time.Since(start))
 
