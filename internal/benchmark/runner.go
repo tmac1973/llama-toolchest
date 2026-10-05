@@ -292,18 +292,17 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 	send("done", "Benchmark complete", 100)
 }
 
-// ensureModelLoaded loads the model via the router and waits for it.
-// The router's /models/load blocks until the model is ready, so a successful
-// response means the model is loaded and ready for inference.
+// ensureModelLoaded asks the router to load the model. The router starts
+// the load and answers at once, so the model may still be loading when
+// this returns; the warmup step after it retries until the model answers.
 func (r *Runner) ensureModelLoaded(ctx context.Context, routerURL, modelName string) error {
 	slog.Info("benchmark: loading model", "name", modelName, "url", routerURL)
-	// The load request can take minutes for large models — use a generous timeout
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	if err := routerclient.Load(ctx, routerURL, modelName); err != nil {
 		return err
 	}
-	slog.Info("benchmark: model loaded", "name", modelName)
+	slog.Info("benchmark: model load started", "name", modelName)
 	return nil
 }
 

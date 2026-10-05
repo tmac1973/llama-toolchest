@@ -59,10 +59,10 @@ func List(ctx context.Context, baseURL string) ([]ModelStatus, error) {
 	return result.Data, nil
 }
 
-// Load asks the router to load a model. The router blocks until the model
-// is ready, which can take minutes, so the only time limit is ctx. A model
-// that is already loaded counts as success: the router answers that case
-// with HTTP 400 "model is already running".
+// Load asks the router to load a model. The router starts the load and
+// answers at once, so success means the load has begun, not that the model
+// is ready. A model that is already loaded or loading counts as success:
+// the router answers that case with HTTP 400 "model is already running".
 func Load(ctx context.Context, baseURL, name string) error {
 	status, body, err := post(ctx, baseURL+"/models/load", name)
 	if err != nil {
