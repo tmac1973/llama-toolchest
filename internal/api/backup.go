@@ -53,9 +53,7 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 			s.renderPartial(w, "restore_report", backup.Report{Error: msg})
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		fmt.Fprintf(w, `{"error": %q}`, msg)
+		respondJSONStatus(w, status, map[string]string{"error": msg})
 	}
 
 	// A restore mid-benchmark would change configs a running cell
