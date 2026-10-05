@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -360,15 +361,12 @@ func (s *Server) handleActivateModel(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to start router: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		// Wait for router to be ready (up to 10 seconds)
-		for i := 0; i < 20; i++ {
-			time.Sleep(500 * time.Millisecond)
-			if s.process.CheckHealth() {
-				break
-			}
-		}
-		if !s.process.IsRunning() {
-			http.Error(w, "Router failed to start", http.StatusInternalServerError)
+		// Same wait as a job's router restart (jobEnv.restartRouter).
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+		err := s.process.WaitRunning(ctx)
+		cancel()
+		if err != nil {
+			http.Error(w, "Router did not become ready: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 	}

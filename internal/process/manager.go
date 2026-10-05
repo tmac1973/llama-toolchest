@@ -232,6 +232,36 @@ func (m *Manager) IsRunning() bool {
 	return m.status.State == StateRunning
 }
 
+// WaitRunning blocks until the router has passed its first health check
+// (IsRunning turns true), the router stops or fails, or ctx ends. This is
+// the one meaning of "the router is up" that callers should wait on: a
+// passing /health ping alone can come before the state flips.
+func (m *Manager) WaitRunning(ctx context.Context) error {
+	for {
+		m.mu.Lock()
+		state, reason := m.status.State, m.status.Error
+		m.mu.Unlock()
+
+		switch state {
+		case StateRunning:
+			return nil
+		case StateStopped:
+			return fmt.Errorf("router stopped before it was ready")
+		case StateFailed:
+			if reason == "" {
+				reason = "unknown error"
+			}
+			return fmt.Errorf("router failed to start: %s", reason)
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+}
+
 // LoadModel tells the router to load a model by name. A model that is
 // already loaded counts as success.
 func (m *Manager) LoadModel(name string) error {

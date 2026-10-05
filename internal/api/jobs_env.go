@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -181,17 +182,18 @@ func (e *jobEnv) restartRouter(ctx context.Context, what string) error {
 	if err := e.s.startRouterWith(e.jobRouterOptions()); err != nil {
 		return fmt.Errorf("start router for %s: %w", what, err)
 	}
-	deadline := time.Now().Add(2 * time.Minute)
-	for time.Now().Before(deadline) {
+	waitCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	if err := e.s.process.WaitRunning(waitCtx); err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if e.s.process.IsRunning() {
-			return nil
+		if errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("timed out waiting for router after %s", what)
 		}
-		time.Sleep(500 * time.Millisecond)
+		return fmt.Errorf("router after %s: %w", what, err)
 	}
-	return fmt.Errorf("timed out waiting for router after %s", what)
+	return nil
 }
 
 // mergeBenchConfig builds the config one benchmark cell runs under:
