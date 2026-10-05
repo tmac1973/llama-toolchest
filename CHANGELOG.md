@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.34.8](https://github.com/tmac1973/llama-toolchest/compare/v2.34.7...v2.34.8) (2026-10-05)
+
+
+### Bug Fixes
+
+* /v1/models/{name} hides what the list hides; partial GGUF reads are retried ([#250](https://github.com/tmac1973/llama-toolchest/issues/250)) ([70b0217](https://github.com/tmac1973/llama-toolchest/commit/70b02176c2c786f425340acefab116b5f5ca050f))
+
 ## [2.34.7](https://github.com/tmac1973/llama-toolchest/compare/v2.34.6...v2.34.7) (2026-10-05)
 
 
