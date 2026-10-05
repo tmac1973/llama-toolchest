@@ -227,7 +227,7 @@ func (f *Fetcher) CachedGet(ctx context.Context, url string, withAuth bool) ([]b
 	// A unique temp file per write, so two fetches of the same URL at once
 	// cannot rename a mix of both bodies into place. Caching is best effort.
 	if err := atomicfile.Write(path, body); err != nil {
-		slog.Debug("docs cache write failed", "path", path, "error", err)
+		slog.Warn("docs cache write failed", "path", path, "error", err)
 	}
 	return body, nil
 }

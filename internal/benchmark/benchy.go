@@ -123,8 +123,13 @@ func BuildBenchyArgs(c BenchyConfig) []string {
 }
 
 // FormatBenchyCommand returns a shell-quoted, single-line representation
-// of the command for disclosure to the user.
+// of the command for disclosure to the user. It is logged and stored with
+// the run, so a real API key is masked; the "EMPTY" placeholder llama-benchy
+// needs when the router has no key is shown as is.
 func FormatBenchyCommand(c BenchyConfig) string {
+	if c.APIKey != "" && c.APIKey != "EMPTY" {
+		c.APIKey = "HIDDEN"
+	}
 	var b strings.Builder
 	b.WriteString("uvx")
 	for _, a := range BuildBenchyArgs(c) {

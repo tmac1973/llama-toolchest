@@ -342,3 +342,53 @@ func TestUpdateSettingsJSONWithCharset(t *testing.T) {
 		t.Errorf("MSToken = %q, want ms_new from the JSON body", s.cfg.MSToken)
 	}
 }
+
+// The proxy endpoint shown after a save comes from the configured external
+// URL, so it is escaped like every other value put into HTML.
+func TestSettingsSaveEscapesTheProxyEndpoint(t *testing.T) {
+	s := newSettingsServer(t, &config.Config{ExternalURL: `http://x/<script>alert(1)</script>`})
+	req := httptest.NewRequest("PUT", "/api/settings", strings.NewReader(url.Values{"hf_token": {""}}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	rec := httptest.NewRecorder()
+	s.handleUpdateSettings(rec, req)
+
+	if strings.Contains(rec.Body.String(), "<script>") {
+		t.Errorf("external URL was not escaped:\n%s", rec.Body.String())
+	}
+}
+
+// The config file holds the tokens and the API key, so only its owner may
+// read it.
+func TestSettingsFileIsOwnerOnly(t *testing.T) {
+	s := newSettingsServer(t, &config.Config{})
+	req := httptest.NewRequest("PUT", "/api/settings", strings.NewReader(url.Values{"hf_token": {"hf_new"}}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	s.handleUpdateSettings(httptest.NewRecorder(), req)
+
+	info, err := os.Stat(s.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("config file mode %o, want 600", perm)
+	}
+}
+
+// A failed save used to be ignored: the page said "Settings saved." and
+// the change was gone after a restart.
+func TestSettingsSaveFailureIsReported(t *testing.T) {
+	s := newSettingsServer(t, &config.Config{})
+	s.configPath = filepath.Join(s.configPath, "not-a-dir", "x.yaml") // parent is a file once written
+	os.WriteFile(filepath.Dir(filepath.Dir(s.configPath)), []byte("x"), 0o644)
+
+	req := httptest.NewRequest("PUT", "/api/settings", strings.NewReader(url.Values{"hf_token": {"hf_new"}}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	rec := httptest.NewRecorder()
+	s.handleUpdateSettings(rec, req)
+
+	if out := rec.Body.String(); !strings.Contains(out, "Settings not saved") || strings.Contains(out, "Settings saved.") {
+		t.Errorf("failure not reported:\n%s", out)
+	}
+}

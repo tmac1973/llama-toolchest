@@ -53,9 +53,7 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 			s.renderPartial(w, "restore_report", backup.Report{Error: msg})
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		fmt.Fprintf(w, `{"error": %q}`, msg)
+		respondJSONStatus(w, status, map[string]string{"error": msg})
 	}
 
 	// A restore mid-benchmark would change configs a running cell
@@ -151,7 +149,9 @@ func (s *Server) restoreDeps() backup.Deps {
 				changed = append(changed, "api_key")
 			}
 			if len(changed) > 0 {
-				s.saveConfigLocked()
+				if err := s.saveConfigLocked(); err != nil {
+					return nil, err
+				}
 			}
 			return changed, nil
 		},
@@ -169,8 +169,7 @@ func (s *Server) restoreDeps() backup.Deps {
 			defer s.cfgMu.Unlock()
 			s.cfg.RuntimeEnv = merged.Curated
 			s.cfg.RuntimeEnvExtra = merged.Extra
-			s.saveConfigLocked()
-			return nil
+			return s.saveConfigLocked()
 		},
 		SaveFlagPreset: s.builder.SaveFlagPreset,
 		InstalledModels: func(modelID, quant string) []string {

@@ -5,7 +5,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // The router wraps the list in {"data": [...]}, as server-models.cpp does.
@@ -57,5 +59,21 @@ func TestLoadAndUnloadReportOtherFailures(t *testing.T) {
 	}
 	if err := Unload(context.Background(), srv.URL, "m"); err == nil {
 		t.Fatal("Unload: got nil, want an error")
+	}
+}
+
+// Error messages are logged and shown in the UI, so a large error page is
+// cut, on a character boundary, with a note of how much was left out.
+func TestErrorSnippet(t *testing.T) {
+	if got := ErrorSnippet([]byte("short")); got != "short" {
+		t.Errorf("short body changed: %q", got)
+	}
+	long := []byte(strings.Repeat("a", maxErrorBody-1) + "é" + strings.Repeat("b", 100))
+	got := ErrorSnippet(long)
+	if !utf8.ValidString(got) {
+		t.Errorf("snippet split a character: %q", got[len(got)-30:])
+	}
+	if !strings.HasSuffix(got, "… (102 more bytes)") {
+		t.Errorf("snippet ends %q", got[len(got)-30:])
 	}
 }

@@ -19,8 +19,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
+
+	"github.com/tmac1973/llama-toolchest/internal/libpath"
 )
 
 // Mode names the capability evaluation to run. The string values double
@@ -383,8 +384,7 @@ func (t *tailBuffer) String() string {
 //
 // The binary's directory is prepended to LD_LIBRARY_PATH so co-located
 // libllama.so / libggml*.so resolve — the way the codebase already
-// launches build binaries (internal/api/jobs_env.go:72-87 and
-// process.Manager). Without it every eval fails to start.
+// launches build binaries (libpath.Prepend, as process.Manager does). Without it every eval fails to start.
 //
 // exec.CommandContext kills the process when ctx is cancelled; the
 // error is wrapped around ctx.Err() so callers can identify
@@ -393,20 +393,7 @@ func (t *tailBuffer) String() string {
 func runProcess(ctx context.Context, binary string, args []string) (string, error) {
 	cmd := exec.CommandContext(ctx, binary, args...)
 
-	binDir := filepath.Dir(binary)
-	env := os.Environ()
-	prepended := false
-	for i, kv := range env {
-		if strings.HasPrefix(kv, "LD_LIBRARY_PATH=") {
-			env[i] = "LD_LIBRARY_PATH=" + binDir + string(os.PathListSeparator) + kv[len("LD_LIBRARY_PATH="):]
-			prepended = true
-			break
-		}
-	}
-	if !prepended {
-		env = append(env, "LD_LIBRARY_PATH="+binDir)
-	}
-	cmd.Env = env
+	cmd.Env = libpath.Prepend(os.Environ(), filepath.Dir(binary))
 
 	combined := newTailBuffer(tailLimit)
 	cmd.Stdout = combined

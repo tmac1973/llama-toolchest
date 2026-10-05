@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/subtle"
 	"net/http"
 	"strings"
 )
@@ -16,20 +17,26 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 
 		auth := r.Header.Get("Authorization")
 		if !strings.HasPrefix(auth, "Bearer ") {
-			w.Header().Set("Content-Type", "application/json")
-			http.Error(w, `{"error":{"message":"missing API key","type":"auth_error"}}`,
-				http.StatusUnauthorized)
+			writeAuthError(w, "missing API key")
 			return
 		}
 
+		// Constant-time, so the response time says nothing about how much
+		// of a guessed key was right.
 		token := strings.TrimPrefix(auth, "Bearer ")
-		if token != s.cfg.APIKey {
-			w.Header().Set("Content-Type", "application/json")
-			http.Error(w, `{"error":{"message":"invalid API key","type":"auth_error"}}`,
-				http.StatusUnauthorized)
+		if subtle.ConstantTimeCompare([]byte(token), []byte(s.cfg.APIKey)) != 1 {
+			writeAuthError(w, "invalid API key")
 			return
 		}
 
 		next.ServeHTTP(w, r)
+	})
+}
+
+// writeAuthError answers 401 with an OpenAI-shaped error body, sent as
+// JSON so OpenAI clients can read the message.
+func writeAuthError(w http.ResponseWriter, message string) {
+	respondJSONStatus(w, http.StatusUnauthorized, map[string]any{
+		"error": map[string]any{"message": message, "type": "auth_error"},
 	})
 }

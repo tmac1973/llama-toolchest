@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // ModelStatus represents the state of a model in the router.
@@ -47,8 +48,8 @@ func List(ctx context.Context, baseURL string) ([]ModelStatus, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("list models: HTTP %d: %s", resp.StatusCode, string(body))
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody+1))
+		return nil, fmt.Errorf("list models: HTTP %d: %s", resp.StatusCode, ErrorSnippet(body))
 	}
 	var result struct {
 		Data []ModelStatus `json:"data"`
@@ -77,7 +78,7 @@ func Load(ctx context.Context, baseURL, name string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("HTTP %d: %s", status, body)
+	return fmt.Errorf("HTTP %d: %s", status, ErrorSnippet([]byte(body)))
 }
 
 // Unload asks the router to unload a model.
@@ -89,9 +90,27 @@ func Unload(ctx context.Context, baseURL, name string) error {
 		return err
 	}
 	if status != http.StatusOK {
-		return fmt.Errorf("HTTP %d: %s", status, body)
+		return fmt.Errorf("HTTP %d: %s", status, ErrorSnippet([]byte(body)))
 	}
 	return nil
+}
+
+// maxErrorBody is how much of a failed response's body goes into an error
+// message. Errors are logged and shown in the UI, and an upstream error
+// page can be large.
+const maxErrorBody = 2048
+
+// ErrorSnippet is body cut to maxErrorBody bytes for an error message,
+// on a character boundary, with a note of how much was left out.
+func ErrorSnippet(body []byte) string {
+	if len(body) <= maxErrorBody {
+		return string(body)
+	}
+	cut := maxErrorBody
+	for cut > 0 && !utf8.RuneStart(body[cut]) {
+		cut--
+	}
+	return fmt.Sprintf("%s… (%d more bytes)", body[:cut], len(body)-cut)
 }
 
 // post sends {"model": name} to url and returns the status and body.
@@ -107,6 +126,8 @@ func post(ctx context.Context, url, name string) (int, string, error) {
 		return 0, "", err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	// Load and unload answer with a short JSON object; the limit only
+	// matters for an unexpected error page.
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	return resp.StatusCode, string(body), nil
 }

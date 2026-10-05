@@ -9,12 +9,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/broadcast"
+	"github.com/tmac1973/llama-toolchest/internal/libpath"
 	"github.com/tmac1973/llama-toolchest/internal/routerclient"
 )
 
@@ -113,10 +113,8 @@ func (m *Manager) Start(cfg RouterConfig) error {
 	cmd := exec.CommandContext(ctx, cfg.BinaryPath, args...)
 
 	// Tell the child process where to find co-located shared libraries.
-	// The variable name differs per OS; on Windows we prepend to PATH instead
-	// of setting a separate var, since that's how Windows resolves DLLs.
 	binDir := filepath.Dir(cfg.BinaryPath)
-	cmd.Env = applyExtraEnv(pinCUDADeviceOrder(appendLibraryPath(os.Environ(), binDir)), cfg.ExtraEnv)
+	cmd.Env = applyExtraEnv(pinCUDADeviceOrder(libpath.Prepend(os.Environ(), binDir)), cfg.ExtraEnv)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -421,10 +419,6 @@ func (m *Manager) CheckHealth() bool {
 	return healthy
 }
 
-// appendLibraryPath returns env with the appropriate library-search variable
-// set so the child process can find shared libraries co-located with the
-// binary. On Linux this is LD_LIBRARY_PATH, on macOS DYLD_LIBRARY_PATH, on
-// Windows we prepend to PATH (since that's how the loader finds DLLs).
 // applyExtraEnv appends configured KEY=VALUE pairs, skipping any whose
 // key is already present in the inherited environment. Matching
 // pinCUDADeviceOrder's rule: a value the operator exported around the
@@ -448,8 +442,9 @@ func applyExtraEnv(env []string, extra []string) []string {
 		if existing[kv[:i]] {
 			// Inherited values win, but silently ignoring a setting the
 			// user made in Settings looks like the setting doesn't work.
+			// The value is not logged: it can be a token.
 			slog.Warn("runtime environment variable ignored: already set in the service environment",
-				"name", kv[:i], "configured", kv[i+1:])
+				"name", kv[:i])
 			continue
 		}
 		env = append(env, kv)
@@ -471,21 +466,4 @@ func pinCUDADeviceOrder(env []string) []string {
 		}
 	}
 	return append(env, "CUDA_DEVICE_ORDER=PCI_BUS_ID")
-}
-
-func appendLibraryPath(env []string, dir string) []string {
-	switch runtime.GOOS {
-	case "darwin":
-		return append(env, "DYLD_LIBRARY_PATH="+dir)
-	case "windows":
-		for i, e := range env {
-			if upper := strings.ToUpper(e); strings.HasPrefix(upper, "PATH=") {
-				env[i] = e[:5] + dir + string(os.PathListSeparator) + e[5:]
-				return env
-			}
-		}
-		return append(env, "PATH="+dir)
-	default:
-		return append(env, "LD_LIBRARY_PATH="+dir)
-	}
 }

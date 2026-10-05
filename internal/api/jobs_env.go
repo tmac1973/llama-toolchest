@@ -16,6 +16,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/benchmark"
 	"github.com/tmac1973/llama-toolchest/internal/builder"
 	"github.com/tmac1973/llama-toolchest/internal/evaluate"
+	"github.com/tmac1973/llama-toolchest/internal/libpath"
 	"github.com/tmac1973/llama-toolchest/internal/memreport"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/monitor"
@@ -78,24 +79,10 @@ func (e *jobEnv) CheckBuildRunnable(ctx context.Context, buildID string) error {
 		return fmt.Errorf("build %s not found", buildID)
 	}
 	cmd := exec.CommandContext(ctx, "ldd", binary)
-	// Mirror what process.Manager does at launch: prepend the binary's
-	// directory to LD_LIBRARY_PATH so co-located libs (libllama.so,
-	// libggml*.so, etc.) resolve. Without this every build false-flags
-	// as broken.
-	binDir := filepath.Dir(binary)
-	env := os.Environ()
-	prepended := false
-	for i, kv := range env {
-		if strings.HasPrefix(kv, "LD_LIBRARY_PATH=") {
-			env[i] = "LD_LIBRARY_PATH=" + binDir + string(os.PathListSeparator) + kv[len("LD_LIBRARY_PATH="):]
-			prepended = true
-			break
-		}
-	}
-	if !prepended {
-		env = append(env, "LD_LIBRARY_PATH="+binDir)
-	}
-	cmd.Env = env
+	// Same library path process.Manager launches with, so co-located libs
+	// (libllama.so, libggml*.so, etc.) resolve. Without this every build
+	// false-flags as broken.
+	cmd.Env = libpath.Prepend(os.Environ(), filepath.Dir(binary))
 	// ldd returns non-zero when there are unresolved libs but still
 	// prints them, so we deliberately ignore exit code and parse output.
 	out, _ := cmd.Output()

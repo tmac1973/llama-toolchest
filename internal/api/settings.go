@@ -2,6 +2,8 @@ package api
 
 import (
 	"fmt"
+	"html"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -9,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tmac1973/llama-toolchest/internal/atomicfile"
 	"github.com/tmac1973/llama-toolchest/internal/config"
 	"github.com/tmac1973/llama-toolchest/internal/modelsource"
 	"gopkg.in/yaml.v3"
@@ -167,7 +170,17 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Persist config
-	s.saveConfigLocked()
+	if err := s.saveConfigLocked(); err != nil {
+		slog.Error("settings not saved", "error", err)
+		if isHTMX(r) {
+			// 200, so htmx shows the message where "Settings saved." goes.
+			respondHTML(w)
+			fmt.Fprintf(w, `<p><mark>Settings not saved: %s</mark></p>`, html.EscapeString(err.Error()))
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	// A token saved here has to reach the live clients, or it would only
 	// take effect on the next restart while the page cheerfully reports
 	// it as set.
@@ -189,7 +202,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		proxyEndpoint := strings.TrimRight(s.cfg.ExternalURL, "/") + "/v1"
 		// Out-of-band swap to update the proxy endpoint display
-		fmt.Fprintf(w, `<p>Settings saved.</p><pre id="proxy-endpoint" hx-swap-oob="true">%s</pre>`, proxyEndpoint)
+		fmt.Fprintf(w, `<p>Settings saved.</p><pre id="proxy-endpoint" hx-swap-oob="true">%s</pre>`, html.EscapeString(proxyEndpoint))
 		return
 	}
 
@@ -229,7 +242,11 @@ func (s *Server) handleTestConnection(w http.ResponseWriter, r *http.Request) {
 }
 
 // saveConfigLocked persists cfg. Callers must hold cfgMu.
-func (s *Server) saveConfigLocked() {
+//
+// The file holds the HuggingFace and ModelScope tokens and the API key, so
+// it is written readable by its owner only, and replaced atomically so a
+// failed write leaves the previous file whole.
+func (s *Server) saveConfigLocked() error {
 	// Write back to the same path the config was loaded from, so the next
 	// startup actually sees what the user just changed. Old behavior wrote
 	// to <DataDir>/config/llama-toolchest.yaml unconditionally, which only
@@ -242,13 +259,14 @@ func (s *Server) saveConfigLocked() {
 		// (e.g. tests). Same shape as the legacy default.
 		configPath = filepath.Join(s.cfg.DataDir, "config", "llama-toolchest.yaml")
 	}
-	os.MkdirAll(filepath.Dir(configPath), 0o755)
-
 	data, err := yaml.Marshal(s.cfg)
 	if err != nil {
-		return
+		return fmt.Errorf("saving settings: %w", err)
 	}
-	os.WriteFile(configPath, data, 0o644)
+	if err := atomicfile.WriteMode(configPath, data, 0o600); err != nil {
+		return fmt.Errorf("saving settings to %s: %w", configPath, err)
+	}
+	return nil
 }
 
 // validateModelsDir checks that a user-supplied models directory path is
@@ -278,11 +296,4 @@ func validateModelsDir(path string) error {
 	}
 	dh.Close()
 	return nil
-}
-
-// saveConfig persists cfg, taking the config lock.
-func (s *Server) saveConfig() {
-	s.cfgMu.Lock()
-	defer s.cfgMu.Unlock()
-	s.saveConfigLocked()
 }
