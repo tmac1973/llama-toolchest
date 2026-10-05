@@ -111,8 +111,10 @@ func TestBuildBenchyArgs(t *testing.T) {
 }
 
 // The disclosed command is meant to be pasted into a shell. Plain values
-// are left bare so it stays readable; a value with a space or a quote is
-// quoted so it stays one argument.
+// are left bare so it stays readable; anything else is single-quoted so
+// the shell reads it as one literal argument. It used Go's strconv.Quote,
+// which is not shell quoting: an empty value vanished, and backticks, ;,
+// | and $ inside double quotes were still acted on by the shell.
 func TestFormatBenchyCommandQuoting(t *testing.T) {
 	base := BenchyConfig{BaseURL: "http://h/v1", APIKey: "EMPTY", SaveResultPath: "/tmp/r.json"}
 	cases := []struct {
@@ -122,10 +124,17 @@ func TestFormatBenchyCommandQuoting(t *testing.T) {
 	}{
 		{"plain value is bare", "qwen3-8b", "--model qwen3-8b "},
 		{"placeholder braces are bare", "{router-served-model-name}", "--model {router-served-model-name} "},
-		{"space", "my model", `--model "my model" `},
-		{"double quote", `say "hi"`, `--model "say \"hi\"" `},
-		{"single quote", "it's", `--model "it's" `},
-		{"backslash", `a\b`, `--model "a\\b" `},
+		{"brace expansion is quoted", "{a,b}", "--model '{a,b}' "},
+		{"space", "my model", "--model 'my model' "},
+		{"double quote", `say "hi"`, `--model 'say "hi"' `},
+		{"single quote", "it's", `--model 'it'\''s' `},
+		{"backslash", `a\b`, `--model 'a\b' `},
+		{"empty stays an argument", "", "--model '' "},
+		{"backtick", "a`id`", "--model 'a`id`' "},
+		{"semicolon", "a;b", "--model 'a;b' "},
+		{"dollar", "a$HOME", "--model 'a$HOME' "},
+		{"glob", "a*b", "--model 'a*b' "},
+		{"tab", "my\tmodel", "--model 'my\tmodel' "},
 	}
 	for _, c := range cases {
 		cfg := base
