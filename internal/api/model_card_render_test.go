@@ -2,12 +2,10 @@ package api
 
 import (
 	"bytes"
-	"html/template"
 	"strings"
 	"testing"
 
 	"github.com/tmac1973/llama-toolchest/internal/models"
-	"github.com/tmac1973/llama-toolchest/web"
 )
 
 // modelCardData is the handler's own view type, so the partial can be
@@ -16,11 +14,7 @@ type modelCardData = modelCardView
 
 func renderModelCardPartial(t *testing.T, data modelCardData) string {
 	t.Helper()
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
+	base := testTemplates(t)
 	var buf bytes.Buffer
 	if err := base.ExecuteTemplate(&buf, "model_card", data); err != nil {
 		t.Fatalf("execute: %v", err)

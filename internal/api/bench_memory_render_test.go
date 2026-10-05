@@ -7,16 +7,11 @@ import (
 	"testing"
 
 	"github.com/tmac1973/llama-toolchest/internal/benchmark"
-	"github.com/tmac1973/llama-toolchest/web"
 )
 
 func benchTemplates(t *testing.T) *template.Template {
 	t.Helper()
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
+	base := testTemplates(t)
 	return base
 }
 

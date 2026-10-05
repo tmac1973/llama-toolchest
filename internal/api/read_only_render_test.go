@@ -15,11 +15,7 @@ const testReadOnlyReason = "models.json was written by a newer version of llama-
 // The config panel says why nothing will save before the user edits
 // anything, and says nothing when the registry is writable.
 func TestModelConfigShowsReadOnlyReason(t *testing.T) {
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
+	base := testTemplates(t)
 	render := func(reason string) string {
 		cfg := &models.ModelConfig{Enabled: true, ContextSize: 8192}
 		data := modelConfigPanelData{
@@ -49,11 +45,7 @@ func TestModelConfigShowsReadOnlyReason(t *testing.T) {
 }
 
 func TestBenchmarksPageShowsReadOnlyReason(t *testing.T) {
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatalf("parse base: %v", err)
-	}
+	base := testTemplates(t)
 	page, err := template.Must(base.Clone()).ParseFS(web.Templates, "templates/benchmarks.html")
 	if err != nil {
 		t.Fatalf("parse benchmarks.html: %v", err)

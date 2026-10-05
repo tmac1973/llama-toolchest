@@ -2,7 +2,6 @@ package api
 
 import (
 	"bytes"
-	"html/template"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -10,17 +9,12 @@ import (
 
 	"github.com/tmac1973/llama-toolchest/internal/backup"
 	"github.com/tmac1973/llama-toolchest/internal/models"
-	"github.com/tmac1973/llama-toolchest/web"
 )
 
 // The restore report partial is the handler's only user-visible output;
 // a parse/execute error turns every restore into a blank box.
 func TestRestoreReportPartialRenders(t *testing.T) {
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
+	base := testTemplates(t)
 
 	rep := backup.Report{
 		Applied:             []string{"settings: models_max", "model config: org/a-GGUF Q4_K_M"},

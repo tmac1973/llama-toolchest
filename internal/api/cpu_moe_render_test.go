@@ -2,24 +2,18 @@ package api
 
 import (
 	"bytes"
-	"html/template"
 	"strings"
 	"testing"
 
 	"github.com/tmac1973/llama-toolchest/internal/benchmark"
 	"github.com/tmac1973/llama-toolchest/internal/models"
-	"github.com/tmac1973/llama-toolchest/web"
 )
 
 // The CPU Expert Layers field appears only for mixture-of-experts models,
 // with its effective flag, and the system-memory note only when something
 // is kept there.
 func TestCPUMoEFieldOnlyForMoEModels(t *testing.T) {
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
+	base := testTemplates(t)
 	render := func(data modelConfigPanelData) string {
 		data.ModelID = "m"
 		data.DraftModes, data.AssistModes = models.DraftModes(), models.AssistModes()

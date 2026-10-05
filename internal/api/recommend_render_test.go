@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"html/template"
 	"regexp"
 	"strings"
 	"testing"
@@ -14,16 +13,11 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/modelsource"
 	"github.com/tmac1973/llama-toolchest/internal/recommend"
-	"github.com/tmac1973/llama-toolchest/web"
 )
 
 func renderAny(t *testing.T, name string, data any) string {
 	t.Helper()
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
+	base := testTemplates(t)
 	var buf bytes.Buffer
 	if err := base.ExecuteTemplate(&buf, name, data); err != nil {
 		t.Fatalf("execute %s: %v", name, err)

@@ -2,21 +2,15 @@ package api
 
 import (
 	"bytes"
-	"html/template"
 	"strings"
 	"testing"
 
 	"github.com/tmac1973/llama-toolchest/internal/models"
-	"github.com/tmac1973/llama-toolchest/web"
 )
 
 func renderModelConfigWith(t *testing.T, cfg *models.ModelConfig, data modelConfigPanelData) string {
 	t.Helper()
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
+	base := testTemplates(t)
 	data.ModelID = "test-id"
 	data.Config = cfg
 	data.DraftModes = models.DraftModes()

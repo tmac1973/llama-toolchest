@@ -2,23 +2,17 @@ package api
 
 import (
 	"bytes"
-	"html/template"
 	"strings"
 	"testing"
 
 	"github.com/tmac1973/llama-toolchest/internal/config"
-	"github.com/tmac1973/llama-toolchest/web"
 )
 
 // The runtime_env_status partial and its effective_env helper are what
 // the save handler returns; a parse or execute error there turns every
 // env save into a blank status box.
 func TestRuntimeEnvStatusPartialRenders(t *testing.T) {
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
+	base := testTemplates(t)
 
 	data := struct {
 		Warnings  []string
@@ -53,11 +47,7 @@ func TestRuntimeEnvStatusPartialRenders(t *testing.T) {
 // An empty effective environment must render the explanatory placeholder,
 // not an empty box.
 func TestEffectiveEnvEmptyPlaceholder(t *testing.T) {
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
+	base := testTemplates(t)
 	var buf bytes.Buffer
 	if err := base.ExecuteTemplate(&buf, "effective_env", []envLine(nil)); err != nil {
 		t.Fatalf("execute: %v", err)

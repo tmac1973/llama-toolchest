@@ -3,7 +3,6 @@ package api
 import (
 	"bytes"
 	"context"
-	"html/template"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -18,7 +17,6 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/modelscope"
 	"github.com/tmac1973/llama-toolchest/internal/modelsource"
 	"github.com/tmac1973/llama-toolchest/internal/presets"
-	"github.com/tmac1973/llama-toolchest/web"
 )
 
 // renderSettings renders the settings page with the two token flags set
@@ -26,11 +24,7 @@ import (
 // shows up here as a template execution error.
 func renderSettings(t *testing.T, hasHF, hasMS bool) string {
 	t.Helper()
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/settings.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
+	base := testTemplates(t, "templates/layout.html", "templates/settings.html", "templates/partials/*.html")
 	data := struct {
 		pageData
 		ProxyEndpoint    string
@@ -174,11 +168,7 @@ func TestUpdateSettingsPersistsMSToken(t *testing.T) {
 }
 
 func TestSettingsPageDefaultSourceSelect(t *testing.T) {
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/settings.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
+	base := testTemplates(t, "templates/layout.html", "templates/settings.html", "templates/partials/*.html")
 	render := func(def string) string {
 		data := struct {
 			pageData

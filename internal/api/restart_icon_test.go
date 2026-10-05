@@ -2,7 +2,6 @@ package api
 
 import (
 	"bytes"
-	"html/template"
 	"net/http/httptest"
 	"path/filepath"
 	"regexp"
@@ -85,11 +84,7 @@ func TestConfigChangeSignalsRestartNeeded(t *testing.T) {
 // The Configure panel's "Restart required" shows only while a change
 // waits for a restart; it used to be there on every panel.
 func TestConfigPanelRestartLabel(t *testing.T) {
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatal(err)
-	}
+	base := testTemplates(t)
 	cfg := &models.ModelConfig{GPULayers: 999, ContextSize: 8192}
 	render := func(pending bool) string {
 		var buf bytes.Buffer
