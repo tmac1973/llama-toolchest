@@ -442,8 +442,9 @@ func applyExtraEnv(env []string, extra []string) []string {
 		if existing[kv[:i]] {
 			// Inherited values win, but silently ignoring a setting the
 			// user made in Settings looks like the setting doesn't work.
+			// The value is not logged: it can be a token.
 			slog.Warn("runtime environment variable ignored: already set in the service environment",
-				"name", kv[:i], "configured", kv[i+1:])
+				"name", kv[:i])
 			continue
 		}
 		env = append(env, kv)
