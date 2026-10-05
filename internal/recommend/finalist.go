@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"github.com/tmac1973/llama-toolchest/internal/atomicfile"
 	"github.com/tmac1973/llama-toolchest/internal/models"
@@ -137,7 +136,7 @@ func (e *Engine) repoFiles(ctx context.Context, hub Hub, repo, sha string) ([]mo
 	if e.Dir != "" && sha != "" {
 		// repos-v2: listings since the embedding-table probe was added.
 		// Older ones lack its result and would plan those models too large.
-		path = filepath.Join(e.Dir, "repos-v2", safeName(repo)+"@"+sha+".json")
+		path = filepath.Join(e.Dir, "repos-v2", modelsource.SafeRepoDir(repo)+"@"+sha+".json")
 		if data, err := os.ReadFile(path); err == nil {
 			var files []modelsource.File
 			if json.Unmarshal(data, &files) == nil && len(files) > 0 {
@@ -150,19 +149,9 @@ func (e *Engine) repoFiles(ctx context.Context, hub Hub, repo, sha string) ([]mo
 		return nil, err
 	}
 	if path != "" && len(files) > 0 {
-		if data, err := json.Marshal(files); err == nil && os.MkdirAll(filepath.Dir(path), 0o755) == nil {
-			_ = atomicfile.Write(path, data)
+		if data, err := json.Marshal(files); err == nil {
+			_ = atomicfile.Write(path, data) // creates the directory
 		}
 	}
 	return files, nil
-}
-
-func safeName(repo string) string {
-	return strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
-			return r
-		}
-		return '_'
-	}, strings.ReplaceAll(repo, "/", "--"))
 }
