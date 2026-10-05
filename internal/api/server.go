@@ -304,17 +304,8 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 			}
 			return ""
 		},
-		Hardware: func() (int, int) {
-			hw := s.hardware()
-			cards := 0
-			for _, g := range hw.GPUs {
-				if !g.IsIGPU {
-					cards++
-				}
-			}
-			return max(1, cards), hw.LogicalCores
-		},
-		Busy: s.gpuBusyReason,
+		Hardware: s.autotuneHardware,
+		Busy:     s.gpuBusyReason,
 	})
 	// A run finished by an older version may have measured its fastest
 	// settings and saved none of them. The measurements are still in its
@@ -355,7 +346,7 @@ func (s *Server) templateFuncs() template.FuncMap {
 		// attribute and a CSS selector (see domID in hf.go).
 		"cssID": domID,
 		// groupThousands writes a number with thousands separators.
-		"groupThousands": groupThousands,
+		"groupThousands": models.GroupDigits,
 		// profileCell renders a run's saved profile for the comparison
 		// table: the name, "(edited)" when what ran differed from it.
 		"profileCell": benchmark.ProfileCellText,

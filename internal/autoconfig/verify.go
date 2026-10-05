@@ -205,7 +205,7 @@ func stepDown(cfg models.ModelConfig, chk Check, numGPUs int, splitMoves *int) (
 		return next, models.ProfileNote{
 			Field:  "context_size",
 			Origin: originTestLoad,
-			Reason: fmt.Sprintf("A test load %s at a larger context; reduced to %s tokens, the largest that loaded and ran.", chk.problem(), groupThousands(half)),
+			Reason: fmt.Sprintf("A test load %s at a larger context; reduced to %s tokens, the largest that loaded and ran.", chk.problem(), models.GroupDigits(half)),
 		}, true
 	}
 	return cfg, models.ProfileNote{}, false
@@ -302,13 +302,4 @@ func splitShares(cfg models.ModelConfig, numGPUs int) []float64 {
 		}
 	}
 	return shares
-}
-
-// groupThousands writes n with thousands separators.
-func groupThousands(n int) string {
-	s := strconv.Itoa(n)
-	for i := len(s) - 3; i > 0; i -= 3 {
-		s = s[:i] + "," + s[i:]
-	}
-	return s
 }

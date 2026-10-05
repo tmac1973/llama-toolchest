@@ -12,7 +12,7 @@ import (
 // effect.
 func contextLayoutText(cfg *models.ModelConfig, trained int, t models.Target) (text, warning string) {
 	l := cfg.ContextLayoutFor(trained, t)
-	tok := groupThousands
+	tok := models.GroupDigits
 	switch {
 	case l.Pool <= 0:
 		return "", ""

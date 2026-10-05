@@ -127,7 +127,7 @@ type contextClassOption struct {
 func contextClassOptions(maxCtx int) []contextClassOption {
 	maxLabel := "Maximum — the largest this model supports that fits"
 	if maxCtx > 0 {
-		maxLabel = fmt.Sprintf("Maximum — up to %s tokens, as much as fits", groupThousands(maxCtx))
+		maxLabel = fmt.Sprintf("Maximum — up to %s tokens, as much as fits", models.GroupDigits(maxCtx))
 	}
 	return []contextClassOption{
 		{Value: "short", Label: "Short — about 8,000 tokens", Help: "A few pages of text. Uses the least memory, leaving the most for speed."},
@@ -590,7 +590,7 @@ func showInt(zero string, v int) string {
 	if v == 0 {
 		return zero
 	}
-	return groupThousands(v)
+	return models.GroupDigits(v)
 }
 
 func showFloat(p *float64) string {
@@ -676,15 +676,6 @@ func gpuAssignText(assign string) string {
 	default:
 		return "GPU " + assign
 	}
-}
-
-// groupThousands writes n with thousands separators.
-func groupThousands(n int) string {
-	s := strconv.Itoa(n)
-	for i := len(s) - 3; i > 0; i -= 3 {
-		s = s[:i] + "," + s[i:]
-	}
-	return s
 }
 
 // gpuBusyReason says in plain language what is using the GPU now, or "".

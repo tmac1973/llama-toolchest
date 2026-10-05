@@ -138,15 +138,9 @@ func (s *Server) autotuneEstimate(id, profileName string, uc autotune.UseCase) (
 	if err != nil {
 		return 0, 0, nil
 	}
-	hw := s.hardware()
-	cards := 0
-	for _, g := range hw.GPUs {
-		if !g.IsIGPU {
-			cards++
-		}
-	}
+	cards, cores := s.autotuneHardware()
 	in := autotune.PlanInput{
-		Model: m, Base: profile.Config, Cards: max(1, cards), Cores: hw.LogicalCores,
+		Model: m, Base: profile.Config, Cards: cards, Cores: cores,
 		DraftCandidates: func(mode string) []models.DraftCandidate {
 			return s.registry.FindDraftCandidates(id, mode)
 		},
@@ -155,6 +149,19 @@ func (s *Server) autotuneEstimate(id, profileName string, uc autotune.UseCase) (
 	cells, minutes = autotune.EstimateRun(in, uc, models.BytesToGiB(m.SizeBytes), 0)
 	_, _, skipped = autotune.PlanStage(autotune.StageSpec, in)
 	return cells, minutes, skipped
+}
+
+// autotuneHardware is the card count and CPU cores Autotune plans with:
+// discrete GPUs only, at least one. The dialog's estimate and the run use
+// the same numbers, so the estimate describes the run that starts.
+func (s *Server) autotuneHardware() (cards, cores int) {
+	hw := s.hardware()
+	for _, g := range hw.GPUs {
+		if !g.IsIGPU {
+			cards++
+		}
+	}
+	return max(1, cards), hw.LogicalCores
 }
 
 // handleAutotuneEstimate re-renders the dialog when the choices change,
