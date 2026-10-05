@@ -44,6 +44,7 @@
                 {{else}}
                     <button type="button"
                             hx-post="/api/hf/download"
+                            data-error-label="Download refused"
                             hx-vals='{"model_id":"{{$.ID}}","filename":"{{$f.Filename}}","size":"{{$f.Size}}","source":"{{$.Source}}"{{if $.Ctx}},"ctx":"{{$.Ctx}}","from":"recommend"{{end}}}'
                             hx-target="#dl-{{cssID $.ID}}-{{$i}}"
                             hx-swap="innerHTML">

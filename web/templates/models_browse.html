@@ -24,6 +24,7 @@
 <div id="recommend-feed">{{template "recommend_collapsed"}}</div>
 
 <form hx-get="/api/hf/search"
+      data-error-label="Search failed"
       hx-target="#hf-results"
       hx-swap="innerHTML"
       hx-indicator="#search-spinner">
