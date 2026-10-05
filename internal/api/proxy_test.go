@@ -76,6 +76,25 @@ func TestInjectSamplingDefaultsKeepsClientValues(t *testing.T) {
 	}
 }
 
+// Clients name a model by whatever /v1/models lists (the public name) or
+// by an alias, not only by the registry ID. The lookup used to accept only
+// the registry ID, so most clients never got the saved defaults from the
+// proxy (preset.ini still applied them on the router side).
+func TestInjectSamplingDefaultsFindsAnyName(t *testing.T) {
+	s := newTestServer(t)
+	addProxyModel(t, s, models.ModelConfig{Enabled: true, Temperature: ptr(0.7), Aliases: []string{"chat"}})
+
+	for _, name := range []string{proxyModelID, "org-Model.Q4_K_M", "chat"} {
+		var got map[string]any
+		if err := json.Unmarshal(s.injectSamplingDefaults([]byte(`{"model":"`+name+`"}`)), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got["temperature"] != 0.7 {
+			t.Errorf("model %q: temperature = %v, want the saved 0.7", name, got["temperature"])
+		}
+	}
+}
+
 // Bodies the function cannot act on go upstream byte for byte, so the
 // router produces its own error for a malformed request rather than one
 // this proxy invented.
@@ -425,4 +444,18 @@ func TestEnsureModelLoadedForRequest(t *testing.T) {
 			t.Fatalf("err = %v, want context.Canceled", err)
 		}
 	})
+}
+
+// A stopped router knows no models, so a chat request for an installed
+// model used to get "not in the router preset; restart the router", which
+// sends the user looking in the wrong place. It now says the router is
+// not running.
+func TestEnsureModelLoadedReportsAStoppedRouter(t *testing.T) {
+	s := newTestServer(t) // its process manager has never started a router
+	m := addProxyModel(t, s, models.ModelConfig{Enabled: true})
+
+	err := s.ensureModelLoadedForRequest(context.Background(), []byte(`{"model":"`+m.PublicName()+`"}`))
+	if err == nil || !strings.Contains(err.Error(), "router is not running") {
+		t.Fatalf("err = %v, want the router-not-running message", err)
+	}
 }
