@@ -452,38 +452,17 @@ func EncodeSpecValue(mode, assist string, params map[string]string) string {
 // dedup catches values that differ only in spacing or parameter order.
 // Unparseable values return trimmed raw; the parser rejects them later
 // with a real error message.
+//
+// The parser puts the draft method in mode and the n-gram assist in
+// assist whatever order they were written in, so "ngram-mod+draft-mtp" and
+// "draft-mtp+ngram-mod" dedup to one cell — the modes are a set, not an
+// order: common_speculative_init walks a fixed priority regardless.
 func canonicalSpecValue(raw string) string {
 	sv, err := parseSpecValue(raw)
 	if err != nil {
 		return strings.TrimSpace(raw)
 	}
-	if sv.mode == "" && sv.assist == "" {
-		return "none"
-	}
-	var names []string
-	if sv.mode != "" {
-		names = append(names, sv.mode)
-	}
-	if sv.assist != "" {
-		names = append(names, sv.assist)
-	}
-	// The draft method always sorts first, so "ngram-mod+draft-mtp" and
-	// "draft-mtp+ngram-mod" dedup to one cell — the modes are a set, not
-	// an order: common_speculative_init walks a fixed priority regardless.
-	out := strings.Join(names, "+")
-	if len(sv.params) == 0 {
-		return out
-	}
-	keys := make([]string, 0, len(sv.params))
-	for k := range sv.params {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	pairs := make([]string, len(keys))
-	for i, k := range keys {
-		pairs[i] = k + "=" + sv.params[k]
-	}
-	return out + ":" + strings.Join(pairs, ",")
+	return EncodeSpecValue(sv.mode, sv.assist, sv.params)
 }
 
 func floatField(name, label, help, example string, apply func(*ConfigOverrides, *float64)) SweepField {
