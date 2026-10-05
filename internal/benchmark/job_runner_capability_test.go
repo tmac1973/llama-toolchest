@@ -487,7 +487,19 @@ func TestCapabilityCancelRestoresRouter(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if env.dirty {
+	// The cleanup runs in a deferred call that can finish just after the
+	// job's status changes, so give it a moment, and read under the fake's
+	// lock (the race detector caught the unlocked read).
+	clean := false
+	for deadline = time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		env.mu.Lock()
+		clean = !env.dirty
+		env.mu.Unlock()
+		if clean {
+			break
+		}
+	}
+	if !clean {
 		t.Error("cleanup did not restore the router after a cancelled capability cell (dirty still set)")
 	}
 }
