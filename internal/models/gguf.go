@@ -1174,15 +1174,24 @@ func scanTensorBlock(f io.ReadSeeker, tensorCount uint64, alignment int64) tenso
 // publisher that splits with its tooling.
 var ggufShardPattern = regexp.MustCompile(`^(.+)-(\d{5})-of-(\d{5})\.gguf$`)
 
+// SplitShardName reads a split GGUF filename: the name before the shard
+// suffix and the shard count. ok is false for an unsplit file.
+func SplitShardName(filename string) (base string, total int, ok bool) {
+	m := ggufShardPattern.FindStringSubmatch(filename)
+	if m == nil {
+		return "", 0, false
+	}
+	total, _ = strconv.Atoi(m[3])
+	return m[1], total, true
+}
+
 // ExpandShards returns every shard filename of a split GGUF, or a
 // single-element slice for an unsplit one.
 func ExpandShards(filename string) []string {
-	m := ggufShardPattern.FindStringSubmatch(filename)
-	if m == nil {
+	base, total, ok := SplitShardName(filename)
+	if !ok {
 		return []string{filename}
 	}
-	base := m[1]
-	total, _ := strconv.Atoi(m[3])
 	shards := make([]string, total)
 	for i := range total {
 		shards[i] = fmt.Sprintf("%s-%05d-of-%05d.gguf", base, i+1, total)

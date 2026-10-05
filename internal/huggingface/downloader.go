@@ -14,6 +14,7 @@ import (
 
 	"github.com/tmac1973/llama-toolchest/internal/broadcast"
 
+	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/modelsource"
 )
 
@@ -340,7 +341,7 @@ func (d *Downloader) run(ctx context.Context, source, downloadID, modelID, filen
 	}
 
 	// Expand sharded files: "model-00001-of-00005.gguf" → all 5 parts
-	filenames := ExpandShards(filename)
+	filenames := models.ExpandShards(filename)
 
 	// Setup directory under the configured models dir (which may live
 	// outside dataDir if ModelsDir is set).

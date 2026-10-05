@@ -141,7 +141,7 @@ func (c *Client) GetModel(ctx context.Context, modelID string) (*ModelDetail, er
 	c.populateFileSizes(ctx, modelID, detail)
 
 	// Group split/sharded GGUF files into single entries
-	detail.Files = groupShards(detail.Files)
+	detail.Files = modelsource.GroupShards(detail.Files)
 
 	return detail, nil
 }
@@ -198,7 +198,7 @@ func (c *Client) populateFileSizes(ctx context.Context, modelID string, detail *
 		if e, ok := byPath[detail.Files[i].Filename]; ok {
 			detail.Files[i].Size = e.size
 			detail.Files[i].OID = e.oid
-			detail.Files[i].VRAMEstGB = estimateVRAM(e.size)
+			detail.Files[i].VRAMEstGB = models.EstimateVRAM(e.size)
 		}
 	}
 }
@@ -224,18 +224,6 @@ func (c *Client) setAuth(req *http.Request) {
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
 }
-
-// The GGUF file helpers below are not HuggingFace-specific — shard naming
-// and size arithmetic are properties of the files, not of the host — so
-// they live in modelsource and are forwarded here for existing callers.
-var (
-	groupShards  = modelsource.GroupShards
-	estimateVRAM = models.EstimateVRAM
-)
-
-// ExpandShards returns all shard filenames for a split GGUF, or a
-// single-element slice for an unsplit one.
-func ExpandShards(filename string) []string { return modelsource.ExpandShards(filename) }
 
 // nextLink returns the rel="next" URL of an HTTP Link header, or "".
 func nextLink(h string) string {
