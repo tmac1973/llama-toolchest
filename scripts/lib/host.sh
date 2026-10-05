@@ -1082,7 +1082,12 @@ host_install_from_package() {
     log "Installing version v$version (${arch}, .${ext})"
 
     local asset="llama-toolchest_${version}_linux_${arch}.${ext}"
-    host_wait_for_release_asset "$version" "$asset" || return 1
+    # Only a just-published latest release can be missing its files for a
+    # while. A pinned LT_VERSION is downloaded at once, so a wrong version
+    # fails straight away instead of after the 5-minute wait.
+    if [[ -z "${LT_VERSION:-}" ]]; then
+        host_wait_for_release_asset "$version" "$asset" || return 1
+    fi
     local pkg_url="${HOST_RELEASE_DOWNLOAD}/v${version}/${asset}"
     local sums_url="${HOST_RELEASE_DOWNLOAD}/v${version}/checksums.txt"
 
