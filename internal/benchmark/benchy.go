@@ -144,8 +144,9 @@ func FormatBenchyCommand(c BenchyConfig) string {
 // -_./:=,+@%) are left bare so the command stays readable, as is a
 // {placeholder}. Anything else goes in single quotes, inside which the
 // shell expands nothing ($, backticks, ;, |, *, ~ and tabs all stay
-// literal); a single quote itself is written as '\''. An empty value
-// becomes '', so it stays an argument rather than vanishing.
+// literal). A single quote inside the value closes the quoting, adds an
+// escaped quote and reopens it. An empty value becomes a quoted empty
+// string, so it stays an argument rather than vanishing.
 func shellQuote(a string) string {
 	plain := a != ""
 	for _, r := range a {
