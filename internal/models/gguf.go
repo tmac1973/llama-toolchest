@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -76,6 +77,11 @@ type GGUFMeta struct {
 	// models were scanned correctly can be told apart from one whose file
 	// genuinely has no table.
 	PLEChecked bool `json:"ple_checked,omitempty"`
+
+	// partial is set when the keys or tensors could not all be read: a
+	// damaged file, or one scanned while still being copied in. Backfill
+	// then keeps what was read but reads the file again at the next start.
+	partial bool
 	// TokenEmbdBytes is the on-disk size of token_embd.weight, which
 	// llama.cpp holds host-mapped rather than on a device. Measured from
 	// the tensor block for the same reason as PLEBytes: publishers quantize
@@ -345,8 +351,10 @@ func parseGGUFMeta(f io.ReadSeeker, metaOnly bool) (*GGUFMeta, error) {
 	// is known to come after every model key.
 	sawTokenizer, scattered := false, false
 
+	// i survives the loop: it reaches kvCount only when every key was read.
+	var i uint64
 keys:
-	for i := uint64(0); i < kvCount; i++ {
+	for i = 0; i < kvCount; i++ {
 		key, err := readGGUFString(f)
 		if err != nil {
 			break
@@ -601,6 +609,8 @@ keys:
 		skipGGUFValue(f, valueType)
 	}
 
+	keysComplete := i == kvCount
+
 	computeKVScaling(meta, headCountKV, kvHeadCounts, keyLen, valLen, keyLenSWA, valLenSWA, slidingWindow, swaPattern,
 		fullAttnInterval, recurrentLayers)
 
@@ -626,9 +636,18 @@ keys:
 	// Normalize the empty toggle to the explicit "none" so the API contract
 	// never emits a blank mechanism. Same for sampling: checked means the
 	// general.sampling.* keys were looked for, present or not.
-	meta.ReasoningChecked = true
-	meta.SamplingChecked = true
-	meta.PLEChecked = true
+	//
+	// A file whose keys or tensors could not all be read — damaged, or cut
+	// off because it was scanned while still being copied in — is not
+	// marked checked, so the next scan reads it again instead of keeping
+	// the partial result for good. Reading a header again is cheap.
+	if keysComplete && scan.complete {
+		meta.ReasoningChecked = true
+		meta.SamplingChecked = true
+		meta.PLEChecked = true
+	} else {
+		meta.partial = true
+	}
 	if meta.Reasoning.Toggle == "" {
 		meta.Reasoning.Toggle = ReasoningToggleNone
 	}
@@ -1022,6 +1041,11 @@ type tensorScan struct {
 	// numbers they belong to.
 	ExpertBytes    int64
 	expertLayerSet map[int]bool
+	// complete is false when the tensor table could not be read to its end
+	// or the file ends before the last tensor's data: a damaged file, or one
+	// still being copied in. The parse then leaves the checked flags unset,
+	// so a later scan reads the file again.
+	complete bool
 }
 
 // expertTensorPattern matches the MoE expert weights --n-cpu-moe moves:
@@ -1084,7 +1108,10 @@ func scanTensorBlock(f io.ReadSeeker, tensorCount uint64, alignment int64) tenso
 	// A malformed count would otherwise have us loop for a very long time
 	// on a file that isn't going to yield anything.
 	const maxTensors = 1 << 20
-	if tensorCount == 0 || tensorCount > maxTensors || alignment <= 0 {
+	if tensorCount == 0 {
+		return tensorScan{complete: true} // nothing to read (a split model's first shard)
+	}
+	if tensorCount > maxTensors || alignment <= 0 {
 		return tensorScan{}
 	}
 
@@ -1140,14 +1167,10 @@ func scanTensorBlock(f io.ReadSeeker, tensorCount uint64, alignment int64) tenso
 			}
 		}
 	}
-	// The block layout stands on its own: a file can carry layers while
-	// having neither of the two tensors measured below.
-	if pleOffset < 0 && embOffset < 0 && len(expertOffsets) == 0 {
-		return scan
-	}
-
 	// The data region starts after the tensor-info block, padded up to the
-	// alignment; every offset above is relative to that point.
+	// alignment; every offset above is relative to that point. The table
+	// is whole; the file is complete when it reaches past the last
+	// tensor's offset.
 	infoEnd, err := f.Seek(0, io.SeekCurrent)
 	if err != nil {
 		return scan
@@ -1155,6 +1178,13 @@ func scanTensorBlock(f io.ReadSeeker, tensorCount uint64, alignment int64) tenso
 	dataStart := ((infoEnd + alignment - 1) / alignment) * alignment
 	fileSize, err := f.Seek(0, io.SeekEnd)
 	if err != nil || fileSize <= dataStart {
+		return scan
+	}
+	scan.complete = fileSize-dataStart > slices.Max(offsets)
+
+	// The block layout stands on its own: a file can carry layers while
+	// having neither of the two tensors measured below.
+	if pleOffset < 0 && embOffset < 0 && len(expertOffsets) == 0 {
 		return scan
 	}
 

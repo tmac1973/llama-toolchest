@@ -42,17 +42,12 @@ func (s *Server) openAIModel(m *models.Model, cfg *models.ModelConfig) map[strin
 
 // handleV1Models returns an OpenAI-compatible model list with meta extensions.
 func (s *Server) handleV1Models(w http.ResponseWriter, r *http.Request) {
-	// Helper models are the app's own and are never advertised to
-	// clients.
-	all := s.registry.ListServing()
-
 	var data []map[string]any
-	for _, m := range all {
+	for _, m := range s.registry.List() {
 		cfg, _ := s.registry.GetConfig(m.ID)
-		if cfg != nil && !cfg.Enabled {
-			continue // only list enabled models
+		if advertisedToClients(m, cfg) {
+			data = append(data, s.openAIModel(m, cfg))
 		}
-		data = append(data, s.openAIModel(m, cfg))
 	}
 
 	respondJSON(w, map[string]any{
@@ -66,7 +61,7 @@ func (s *Server) handleV1Model(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "model")
 
 	m, cfg := s.findModelByAny(id)
-	if m == nil {
+	if m == nil || !advertisedToClients(m, cfg) {
 		respondJSONStatus(w, http.StatusNotFound, map[string]any{
 			"error": map[string]any{
 				"message": "model not found: " + id,
@@ -78,6 +73,14 @@ func (s *Server) handleV1Model(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, s.openAIModel(m, cfg))
+}
+
+// advertisedToClients reports whether the OpenAI-compatible API offers a
+// model: enabled, and not one of the app's own helper models. The list and
+// the single-model lookup both use it, so a client sees the same set of
+// models either way; a hidden model answers 404 like an unknown name.
+func advertisedToClients(m *models.Model, cfg *models.ModelConfig) bool {
+	return !m.HelperRole && (cfg == nil || cfg.Enabled)
 }
 
 // findModelByAny looks up a model by registry ID, public name, router name,

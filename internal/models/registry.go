@@ -869,8 +869,16 @@ func (r *Registry) BackfillGGUFMeta() {
 		}
 		before := m.KVFullPerTok
 		meta.ApplyTo(m)
-		m.GGUFMetaVersion = GGUFMetaVersion
 		changed = true
+		if meta.partial {
+			// Keep what was read, but leave the version as it is so the
+			// next start reads the file again: a copy still in progress
+			// finishes, and the full header and tensor table come through.
+			slog.Info("could not read the whole GGUF file; it will be read again on the next start",
+				"model", m.ID, "file", m.FilePath)
+		} else {
+			m.GGUFMetaVersion = GGUFMetaVersion
+		}
 
 		// A head registered by a parser that couldn't tell it from a model.
 		// Drop the record — ScanModels declines to create it now, and

@@ -102,6 +102,26 @@ func TestV1ModelFindsByAnyName(t *testing.T) {
 	}
 }
 
+// A disabled model and a helper model are not offered to clients, so the
+// single-model lookup answers 404 for them exactly as the list leaves them
+// out. It used to return them, so a client could see a model by name that
+// the list did not show.
+func TestV1ModelHidesWhatTheListHides(t *testing.T) {
+	s := newTestServer(t)
+	off := addV1Model(t, s, "off", "org/Off-GGUF", models.ModelConfig{Enabled: false})
+	helper := addV1Model(t, s, "helper", "org/Helper-GGUF", models.ModelConfig{Enabled: true})
+	if err := s.registry.SetHelperRole("helper", true); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range []string{"off", off.PublicName(), "helper", helper.PublicName()} {
+		rec := serve(s, httptest.NewRequest("GET", "/v1/models/"+name, nil))
+		if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), `"model_not_found"`) {
+			t.Errorf("%s: HTTP %d: %s, want the model_not_found 404", name, rec.Code, rec.Body)
+		}
+	}
+}
+
 // restoreRequest builds a multipart restore upload with the settings
 // section selected.
 func restoreRequest(t *testing.T, file string, htmx bool) *http.Request {
