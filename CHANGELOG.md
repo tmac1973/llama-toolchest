@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.34.7](https://github.com/tmac1973/llama-toolchest/compare/v2.34.6...v2.34.7) (2026-10-05)
+
+
+### Bug Fixes
+
+* code audit stage 4b — missing tests, and the bugs they found ([#248](https://github.com/tmac1973/llama-toolchest/issues/248)) ([9fe589e](https://github.com/tmac1973/llama-toolchest/commit/9fe589ed367029af63bf1134704c2d0dba235409))
+
 ## [2.34.6](https://github.com/tmac1973/llama-toolchest/compare/v2.34.5...v2.34.6) (2026-10-05)
 
 
