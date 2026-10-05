@@ -31,10 +31,10 @@ Each item has a checkbox; tick it in the PR that fixes it.
 
 ### Standards
 - [ ] htmx-driven handlers answer errors with a non-2xx `http.Error`, which htmx does not display, so the user sees nothing (HF search 502, download refused 507/400). Other handlers return a 200 banner, which is the stated contract — `internal/api/hf.go:84`, `internal/api/hf.go:239`, `internal/api/hf.go:250` (compare `internal/api/models_profiles.go:100`)
-- [ ] HTML built in Go puts the router failure text and the configured external URL into the page without escaping; neighbouring code escapes — `internal/api/service.go:127`, `internal/api/settings.go:192`
+- [x] HTML built in Go puts the router failure text and the configured external URL into the page without escaping; neighbouring code escapes — `internal/api/service.go:127`, `internal/api/settings.go:192`
 
 ### Duplication
-- [ ] The code that sets LD_LIBRARY_PATH for a build exists 3 times. The process manager's copy appends a second entry instead of prepending, so the router loses the container's LD_LIBRARY_PATH (confirmed on compute2) — `internal/process/manager.go:476` (and `internal/api/jobs_env.go:85`, `internal/evaluate/evaluate.go:396`)
+- [x] The code that sets LD_LIBRARY_PATH for a build exists 3 times. The process manager's copy appends a second entry instead of prepending, so the router loses the container's LD_LIBRARY_PATH (confirmed on compute2) — `internal/process/manager.go:476` (and `internal/api/jobs_env.go:85`, `internal/evaluate/evaluate.go:396`)
 - [ ] The "turn thinking off" logic exists twice with the same switch, both using literal strings instead of the `models.ReasoningToggle*` constants — `internal/benchmark/runner.go:545` (and `internal/llmcall/client.go:190`)
 - [ ] `canonicalSpecValue` reimplements `EncodeSpecValue` in the same file, keeping empty values the original drops — `internal/benchmark/sweep.go:455` (and `:422`)
 - [ ] `safeRepoDir` and `safeName` are the same function in two packages, and both redo `huggingface.SafeModelID` inline — `internal/modelsource/meta_cache.go:51` (and `internal/recommend/finalist.go:160`)
@@ -46,13 +46,13 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [ ] Registry logic with no test: `ResolveID`, `FindOrphans`, shard detection, `FindMMProj`/`FindMTP`, `removeEmptyDirs` (deletes from disk) — `internal/models/registry.go:632`, `:688`, `:934`
 
 ### Dependencies
-- [ ] Three chi `RealIP` advisories (X-Forwarded-For IP spoofing; govulncheck: `RealIP` is not called) — `github.com/go-chi/chi/v5@v5.2.5 (v5.2.5 -> v5.3.2)`
+- [x] Three chi `RealIP` advisories (X-Forwarded-For IP spoofing; govulncheck: `RealIP` is not called) — `github.com/go-chi/chi/v5@v5.2.5 (v5.2.5 -> v5.3.2)`
 
 ## Medium Priority
 
 ### Standards
-- [ ] The `/v1` 401 sets a JSON content type, then `http.Error` overwrites it with text/plain; the OpenAI-shaped error body is written by hand instead of with `writeProxyError` — `internal/api/middleware.go:19-29`
-- [ ] `handleRestore` builds JSON with `%q`, whose `\x..` escapes are not valid JSON, instead of `respondJSONStatus` — `internal/api/backup.go:56-58`
+- [x] The `/v1` 401 sets a JSON content type, then `http.Error` overwrites it with text/plain; the OpenAI-shaped error body is written by hand instead of with `writeProxyError` — `internal/api/middleware.go:19-29`
+- [x] `handleRestore` builds JSON with `%q`, whose `\x..` escapes are not valid JSON, instead of `respondJSONStatus` — `internal/api/backup.go:56-58`
 - [ ] No rule for when server HTML comes from templates and when it is built in Go — `internal/api/server.go:1066`, `internal/api/models.go:577`, `internal/api/build.go:208`
 - [ ] JS fetch calls handle failure differently: `cancelJob` and the batch delete ignore `r.ok`; job IDs are sometimes URL-encoded and sometimes not — `web/templates/benchmarks.html:174`, `:939`
 - [ ] `Registry.Get` and `GetConfig` return the live pointer from behind the lock; the benchmark and autotune stores return copies — `internal/models/registry.go:593`, `:704`
@@ -68,12 +68,12 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [ ] The installer decides user vs system scope in 3 places and has 2 `systemctl --user` wrappers — `scripts/lib/service.sh:30`, `scripts/lib/host.sh:32`, `setup.sh:1720`
 
 ### Logging
-- [ ] A runtime env var that gets ignored is logged with its value, so a token set there would be written to the log — `internal/process/manager.go:451`
-- [ ] The llama-benchy command line, which includes `--api-key`, is logged and stored ("EMPTY" today) — `internal/benchmark/benchy.go:103`, `:201`
+- [x] A runtime env var that gets ignored is logged with its value, so a token set there would be written to the log — `internal/process/manager.go:451`
+- [x] The llama-benchy command line, which includes `--api-key`, is logged and stored ("EMPTY" today) — `internal/benchmark/benchy.go:103`, `:201`
 
 ### Security
-- [ ] The config file holding tokens and the API key is written with mode 0644 — `internal/api/settings.go:245`
-- [ ] The config write ignores errors, so a failed token change is lost silently — `internal/api/settings.go:245-251`
+- [x] The config file holding tokens and the API key is written with mode 0644 — `internal/api/settings.go:245`
+- [x] The config write ignores errors, so a failed token change is lost silently — `internal/api/settings.go:245-251`
 - [ ] The settings page shows the inherited environment value of a configured runtime var (`Overridden: NAME=value`) — `internal/api/runtime_env_view.go:30`
 - [ ] llama-benchy's full stderr is stored and shown as the run's failure text, unredacted (the process has `HF_TOKEN`) — `internal/benchmark/benchy.go:207-221`
 
@@ -88,7 +88,7 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [ ] `fakeEnv` and `newFakeRouter` are duplicated between the benchmark and autotune tests — `internal/benchmark/job_runner_test.go:23`, `internal/autotune/runner_test.go:23`
 
 ### Dependencies
-- [ ] Release CI builds with Go 1.25, which no longer gets security fixes; Go 1.27 is current — `.github/workflows/release.yml:68`
+- [x] Release CI builds with Go 1.25, which no longer gets security fixes; Go 1.27 is current — `.github/workflows/release.yml:68`
 
 ## Low Priority
 
@@ -107,20 +107,20 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [ ] Small repeated helpers: `pluralS` and `plural`, `shortenModelName`, an 80-character truncation repeated twice that can split a UTF-8 character — `internal/api/bench_jobs.go:887-899`, `internal/api/autoconfig.go:512`
 
 ### Logging
-- [ ] Whole response bodies go into error messages (and from there into logs) with no size limit — `internal/benchmark/runner.go:712`, `internal/routerclient/routerclient.go:51`
-- [ ] A failed `SetHelperRole` save is logged at Debug — `internal/api/helper_model.go:51`
-- [ ] A failed cache write is logged at Debug — `internal/presets/fetcher.go:230`
+- [x] Whole response bodies go into error messages (and from there into logs) with no size limit — `internal/benchmark/runner.go:712`, `internal/routerclient/routerclient.go:51`
+- [x] A failed `SetHelperRole` save is logged at Debug — `internal/api/helper_model.go:51`
+- [x] A failed cache write is logged at Debug — `internal/presets/fetcher.go:230`
 - [ ] Requests refused because a job holds the router are logged at Info — `internal/api/service.go:172`
 - [ ] The agent CLI echoes tool output, which could include file secrets, to the terminal — `cmd/agent/main.go:310`
 
 ### Security
 - [ ] `/api`, including `backup?secrets=1` and `PUT /api/settings`, has no authentication (documented default; `--secure` covers it) — `internal/api/server.go:592`, `internal/api/backup.go:20`
 - [ ] Raw `:8080` bypasses `api_key` (documented in `docs/secure.md`; `--secure` closes it) — `internal/process/manager.go:90`
-- [ ] The API key is compared with `!=`, not in constant time — `internal/api/middleware.go:26`
+- [x] The API key is compared with `!=`, not in constant time — `internal/api/middleware.go:26`
 - [ ] The settings form cannot clear a secret; a blank field keeps the old value — `internal/api/settings.go:98`
 - [ ] Ad-hoc `os.Getenv` reads for keys in the agent CLI and the scraper; `-api-key` is visible in `ps` — `cmd/agent/main.go:200`, `scripts/scrape-sampling-presets/main.go:51`
 - [ ] Env overrides read without validation (`EXTERNAL_URL`, `ROCM_BASE_IMAGE`, `ROCM_PATH`) — `internal/config/config.go:96`, `internal/builder/detect.go:24`
-- [ ] `.gitignore` gaps: `.env.*`, `*.pem`/`*.key`, `llama-toolchest-backup-*.json`, IDE dirs — `.gitignore:1-17`
+- [x] `.gitignore` gaps: `.env.*`, `*.pem`/`*.key`, `llama-toolchest-backup-*.json`, IDE dirs — `.gitignore:1-17`
 - [ ] Local secret files (`config.yaml`, `.env`) are untracked and were never committed; keep them ignored — `config.yaml:6`
 
 ### Testing
@@ -129,9 +129,9 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [ ] A test that cannot fail at run time (interface check); tests that wait with sleeps of up to 30 s — `internal/modelsource/iface_test.go:14`, `internal/autotune/runner_test.go:244`
 
 ### Dependencies
-- [ ] Windows-only advisory, not called — `golang.org/x/sys@v0.41.0 (v0.41.0 -> v0.48.0)`
-- [ ] Direct dependency patch update — `github.com/shirou/gopsutil/v4@v4.26.3 (v4.26.3 -> v4.26.9)`
-- [ ] Indirect dependencies outdated — `purego@v0.10.0 (-> v0.11.1)`, `go-sysconf@v0.3.16 (-> v0.4.0)`, `numcpus@v0.11.0 (-> v0.12.0)`, `go-ole@v1.2.6 (-> v1.3.0)`
+- [x] Windows-only advisory, not called — `golang.org/x/sys@v0.41.0 (v0.41.0 -> v0.48.0)`
+- [x] Direct dependency patch update — `github.com/shirou/gopsutil/v4@v4.26.3 (v4.26.3 -> v4.26.9)`
+- [ ] Indirect dependencies outdated — `purego@v0.10.0 (-> v0.11.1)`, `go-sysconf@v0.3.16 (-> v0.4.0)`, `numcpus@v0.11.0 (-> v0.12.0)`, `go-ole@v1.2.6 (-> v1.3.0)` (all but go-ole updated in stage 1)
 - [ ] CUDA base image — `nvidia/cuda:12.8.1-devel-ubuntu24.04 (12.8 -> 13.x)`
 - [ ] CPU base image — `debian:bookworm-slim (bookworm -> trixie-slim)`
 - [ ] Vendored htmx — `web/static/htmx.min.js@2.0.4 (-> latest 2.0.x)`
