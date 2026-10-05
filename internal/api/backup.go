@@ -149,7 +149,9 @@ func (s *Server) restoreDeps() backup.Deps {
 				changed = append(changed, "api_key")
 			}
 			if len(changed) > 0 {
-				s.saveConfigLocked()
+				if err := s.saveConfigLocked(); err != nil {
+					return nil, err
+				}
 			}
 			return changed, nil
 		},
@@ -167,8 +169,7 @@ func (s *Server) restoreDeps() backup.Deps {
 			defer s.cfgMu.Unlock()
 			s.cfg.RuntimeEnv = merged.Curated
 			s.cfg.RuntimeEnvExtra = merged.Extra
-			s.saveConfigLocked()
-			return nil
+			return s.saveConfigLocked()
 		},
 		SaveFlagPreset: s.builder.SaveFlagPreset,
 		InstalledModels: func(modelID, quant string) []string {

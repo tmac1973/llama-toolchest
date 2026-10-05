@@ -12,6 +12,12 @@ import (
 // it over path. The directory is created if it does not exist, and the
 // file ends up with mode 0644.
 func Write(path string, data []byte) error {
+	return WriteMode(path, data, 0o644)
+}
+
+// WriteMode is Write with the file's mode given, for files that hold
+// secrets (0600).
+func WriteMode(path string, data []byte, perm os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -31,7 +37,7 @@ func Write(path string, data []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+	if err := os.Chmod(tmp.Name(), perm); err != nil {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)

@@ -328,7 +328,9 @@ func (s *Server) claimDownloadedHelper(m *models.Model) {
 	}
 	s.cfgMu.Lock()
 	s.cfg.PendingHelper = ""
-	s.saveConfigLocked()
+	if err := s.saveConfigLocked(); err != nil {
+		slog.Warn("could not save that the helper model download finished", "error", err)
+	}
 	s.cfgMu.Unlock()
 	if _, err := s.ensureHelperConfig(m.ID); err != nil {
 		slog.Warn("could not set the helper model's settings", "model", m.ID, "error", err)
@@ -442,7 +444,9 @@ func (s *Server) handleDownloadHelperModel(w http.ResponseWriter, r *http.Reques
 	}
 	s.cfgMu.Lock()
 	s.cfg.PendingHelper = defaultHelperRepo + "|" + f.Filename
-	s.saveConfigLocked()
+	if err := s.saveConfigLocked(); err != nil {
+		slog.Warn("could not save the pending helper model download", "error", err)
+	}
 	s.cfgMu.Unlock()
 	if _, err := s.downloader.Start(context.Background(), modelsource.SourceHuggingFace, defaultHelperRepo, f.Filename, f.Size); err != nil {
 		if errors.Is(err, context.Canceled) {
