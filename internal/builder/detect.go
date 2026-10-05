@@ -116,16 +116,11 @@ func detectROCm() Backend {
 		return b
 	}
 
-	// Parse GPU agent names from rocminfo output.
-	// Only match short gfx IDs (e.g. "gfx1100"), skip triple-format like "amdgcn-amd-amdhsa--gfx1100".
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "Name:") {
-			continue
-		}
-		name := strings.TrimSpace(strings.TrimPrefix(line, "Name:"))
-		if strings.HasPrefix(name, "gfx") && !strings.Contains(name, "-") {
-			b.GPUs = append(b.GPUs, name)
+	// The gfx targets of the GPU agents. Only short gfx IDs (e.g.
+	// "gfx1100") are build targets.
+	for _, a := range ParseROCmGPUAgents(string(out)) {
+		if strings.HasPrefix(a.Name, "gfx") && !strings.Contains(a.Name, "-") {
+			b.GPUs = append(b.GPUs, a.Name)
 		}
 	}
 

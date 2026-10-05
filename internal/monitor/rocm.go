@@ -359,94 +359,27 @@ func readGPUNameSysfs(gpuIdx int) string {
 	return fmt.Sprintf("AMD GPU %d", gpuIdx)
 }
 
-// parseROCmGPUNames extracts the marketing names of GPU agents from rocminfo
-// output, in agent order. rocminfo lists every HSA agent — including the host
-// CPU — under "Agent N" blocks, each carrying a "Device Type:" (CPU or GPU)
-// and a "Marketing Name:". Only GPU agents are returned.
-//
-// The previous approach blacklisted marketing names starting with "AMD Ryzen"
-// or "AMD EPYC" to skip the CPU agent. That let any other CPU leak through and
-// get labelled as GPU 0 — e.g. an Intel Xeon host showed up as "GPU 0 Intel(R)
-// Xeon(R) W-2225 CPU" (issue #68). Keying off "Device Type: GPU" is robust to
-// the CPU vendor.
-//
-// When a GPU agent reports no marketing name, its "Name:" (e.g. "gfx1100") is
-// used as a fallback so the entry is never blank.
-func parseROCmGPUNames(out string) []string {
-	type agent struct {
-		name      string
-		marketing string
-		isGPU     bool
-	}
-	var agents []agent
-	cur := -1
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		switch {
-		case strings.HasPrefix(line, "Agent "):
-			agents = append(agents, agent{})
-			cur = len(agents) - 1
-		case cur < 0:
-			// Header lines before the first agent block.
-			continue
-		case strings.HasPrefix(line, "Marketing Name:"):
-			agents[cur].marketing = strings.TrimSpace(strings.TrimPrefix(line, "Marketing Name:"))
-		case strings.HasPrefix(line, "Name:"):
-			// Record only the first "Name:" of a block (the agent name);
-			// later Name fields belong to nested pool/cache entries.
-			if agents[cur].name == "" {
-				agents[cur].name = strings.TrimSpace(strings.TrimPrefix(line, "Name:"))
-			}
-		case strings.HasPrefix(line, "Device Type:"):
-			if strings.Contains(line, "GPU") {
-				agents[cur].isGPU = true
-			}
-		}
-	}
-
-	var names []string
+// rocmGPUNames is the display name of each GPU agent: its marketing name,
+// or its gfx id when it reports none, so the entry is never blank.
+func rocmGPUNames(agents []builder.ROCmAgent) []string {
+	names := make([]string, 0, len(agents))
 	for _, a := range agents {
-		if !a.isGPU {
-			continue
-		}
-		if a.marketing != "" {
-			names = append(names, a.marketing)
+		if a.MarketingName != "" {
+			names = append(names, a.MarketingName)
 		} else {
-			names = append(names, a.name)
+			names = append(names, a.Name)
 		}
 	}
 	return names
 }
 
-// parseROCmGPUArchs extracts the gfx target of each GPU agent from
-// rocminfo output, in the same agent order as parseROCmGPUNames.
-func parseROCmGPUArchs(out string) []string {
-	var archs []string
-	cur, isGPU, arch := -1, false, ""
-	flush := func() {
-		if cur >= 0 && isGPU {
-			archs = append(archs, arch)
-		}
+// rocmGPUArchs is the gfx target of each GPU agent, in the same order as
+// rocmGPUNames.
+func rocmGPUArchs(agents []builder.ROCmAgent) []string {
+	archs := make([]string, 0, len(agents))
+	for _, a := range agents {
+		archs = append(archs, a.Name)
 	}
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		switch {
-		case strings.HasPrefix(line, "Agent "):
-			flush()
-			cur, isGPU, arch = cur+1, false, ""
-		case cur < 0:
-			continue
-		case strings.HasPrefix(line, "Name:"):
-			if arch == "" {
-				arch = strings.TrimSpace(strings.TrimPrefix(line, "Name:"))
-			}
-		case strings.HasPrefix(line, "Device Type:"):
-			if strings.Contains(line, "GPU") {
-				isGPU = true
-			}
-		}
-	}
-	flush()
 	return archs
 }
 
@@ -472,8 +405,9 @@ func rocmAgents() (names, archs []string) {
 		if err != nil {
 			return
 		}
-		rocmAgentNames = parseROCmGPUNames(string(out))
-		rocmAgentArchs = parseROCmGPUArchs(string(out))
+		agents := builder.ParseROCmGPUAgents(string(out))
+		rocmAgentNames = rocmGPUNames(agents)
+		rocmAgentArchs = rocmGPUArchs(agents)
 	})
 	return rocmAgentNames, rocmAgentArchs
 }
