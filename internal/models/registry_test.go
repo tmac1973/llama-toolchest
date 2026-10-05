@@ -250,11 +250,6 @@ func exists(path string) bool {
 // After a delete, removeEmptyDirs walks up from the model's folder and
 // removes each folder that is now empty, stopping at the first one that
 // still holds something. It must never remove a folder with files in it.
-//
-// The models folder here always holds another model. The function's
-// comment says it stops at the models folder, but it is not told where
-// that folder is, so an empty models folder is removed too (and so are
-// empty folders above it). That case is left out until it is fixed.
 func TestRemoveEmptyDirs(t *testing.T) {
 	root := t.TempDir()
 	models := filepath.Join(root, "models")
@@ -266,7 +261,7 @@ func TestRemoveEmptyDirs(t *testing.T) {
 	if err := os.MkdirAll(quant, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	removeEmptyDirs(quant)
+	removeEmptyDirs(quant, models)
 	if exists(quant) || exists(filepath.Join(models, "org--repo")) {
 		t.Error("empty folders were left behind")
 	}
@@ -278,7 +273,7 @@ func TestRemoveEmptyDirs(t *testing.T) {
 	// everything above it.
 	keep := filepath.Join(models, "org--keep", "Q8_0")
 	touch(t, filepath.Join(keep, "mmproj.gguf"), 1)
-	removeEmptyDirs(keep)
+	removeEmptyDirs(keep, models)
 	if !exists(filepath.Join(keep, "mmproj.gguf")) {
 		t.Error("a folder with a file in it was removed")
 	}
@@ -289,13 +284,43 @@ func TestRemoveEmptyDirs(t *testing.T) {
 	if err := os.MkdirAll(sibling, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	removeEmptyDirs(keep)
+	removeEmptyDirs(keep, models)
 	if !exists(sibling) {
 		t.Error("an empty sibling folder was removed")
 	}
 
 	// A folder that does not exist is not an error.
-	removeEmptyDirs(filepath.Join(models, "never-made"))
+	removeEmptyDirs(filepath.Join(models, "never-made"), models)
+}
+
+// Deleting the last model used to remove the models folder itself, and
+// any empty folders above it: removeEmptyDirs was never told where the
+// models folder is. It now stops below it, and leaves alone a folder that
+// is not inside it at all.
+func TestRemoveEmptyDirsStopsAtTheModelsFolder(t *testing.T) {
+	root := t.TempDir()
+	above := filepath.Join(root, "empty-parent")
+	models := filepath.Join(above, "models")
+	repo := filepath.Join(models, "org--repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	removeEmptyDirs(repo, models)
+	if exists(repo) {
+		t.Error("the empty repo folder was left behind")
+	}
+	if !exists(models) || !exists(above) {
+		t.Error("the models folder or a folder above it was removed")
+	}
+
+	outside := filepath.Join(root, "elsewhere", "org--x")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	removeEmptyDirs(outside, models)
+	if !exists(outside) {
+		t.Error("a folder outside the models folder was removed")
+	}
 }
 
 // Delete removes every part of a split model, any partial download of a
