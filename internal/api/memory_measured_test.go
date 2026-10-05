@@ -9,10 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tmac1973/llama-toolchest/internal/config"
 	"github.com/tmac1973/llama-toolchest/internal/memreport"
 	"github.com/tmac1973/llama-toolchest/internal/models"
-	"github.com/tmac1973/llama-toolchest/internal/monitor"
 	"github.com/tmac1973/llama-toolchest/internal/process"
 )
 
@@ -29,16 +27,13 @@ const oneLoad = `0.00.100.000 I srv          load: spawning server instance with
 
 func memTestServer(t *testing.T, verbosity string) *Server {
 	t.Helper()
-	env := map[string]string{}
+	s := newTestServer(t)
+	s.cfg.RuntimeEnv = map[string]string{}
 	if verbosity != "" {
-		env["LLAMA_ARG_LOG_VERBOSITY"] = verbosity
+		s.cfg.RuntimeEnv["LLAMA_ARG_LOG_VERBOSITY"] = verbosity
 	}
-	return &Server{
-		cfg:      &config.Config{RuntimeEnv: env},
-		registry: models.NewRegistry(t.TempDir(), t.TempDir()),
-		monitor:  monitor.New(time.Hour), // never polled: no GPUs
-		memory:   memreport.NewCollector(),
-	}
+	s.memory = memreport.NewCollector()
+	return s
 }
 
 func memTestModel() *models.Model {

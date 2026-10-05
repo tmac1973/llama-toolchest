@@ -83,9 +83,9 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [ ] Builder core is untested: rebuild decision (`hashFlags`/`flagsEqual`), build ranking, compiler lookup, `DetectBackends` — `internal/builder/builder.go:303`, `:1196`
 - [ ] Handlers with real branching have no handler tests: HF search and download, restore, `/v1/models`, build trigger and delete, service actions, `StreamLines` — `internal/api/hf.go`, `internal/api/backup.go`, `internal/api/sse.go:53`
 - [ ] The installer libraries (`host.sh`, `migrate.sh`, `service.sh`) have no automated tests — `scripts/lib/*.sh`
-- [ ] About 15 test `Server` constructors and 31 inline `&Server{}` literals — `internal/api/models_profiles_test.go:26`, `internal/api/ms_token_test.go:67`
-- [ ] Template parsing for tests is copied 32 times across 18 files — `internal/api/ple_render_test.go:16`
-- [ ] `fakeEnv` and `newFakeRouter` are duplicated between the benchmark and autotune tests — `internal/benchmark/job_runner_test.go:23`, `internal/autotune/runner_test.go:23`
+- [x] About 15 test `Server` constructors and 31 inline `&Server{}` literals — `internal/api/models_profiles_test.go:26`, `internal/api/ms_token_test.go:67`
+- [x] Template parsing for tests is copied 32 times across 18 files — `internal/api/ple_render_test.go:16`
+- [x] `fakeEnv` and `newFakeRouter` are duplicated between the benchmark and autotune tests — `internal/benchmark/job_runner_test.go:23`, `internal/autotune/runner_test.go:23` *(stage 4: checked and left as is. The two fakes model different things — the benchmark one records every call and runs the evaluation machinery, the autotune one models a machine whose speed depends on the settings — and their routers differ the same way. What they share is about eight one-line "not used" stubs, which would not justify a new exported test package.)*
 
 ### Dependencies
 - [x] Release CI builds with Go 1.25, which no longer gets security fixes; Go 1.27 is current — `.github/workflows/release.yml:68`
@@ -124,7 +124,7 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [ ] Local secret files (`config.yaml`, `.env`) are untracked and were never committed; keep them ignored — `config.yaml:6`
 
 ### Testing
-- [ ] The three JS-test wrappers repeat the same steps; pointer helpers are redefined per file — `internal/api/js_models_test.go:28`, `internal/api/capabilities_test.go:9`
+- [x] The three JS-test wrappers repeat the same steps; pointer helpers are redefined per file — `internal/api/js_models_test.go:28`, `internal/api/capabilities_test.go:9`
 - [ ] Fragile tests that check exact markup and formatted strings — `internal/api/restart_icon_test.go:37`, `internal/api/bench_eval_display_test.go:153`
 - [ ] A test that cannot fail at run time (interface check); tests that wait with sleeps of up to 30 s — `internal/modelsource/iface_test.go:14`, `internal/autotune/runner_test.go:244`
 

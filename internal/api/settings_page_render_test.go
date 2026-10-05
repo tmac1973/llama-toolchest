@@ -14,11 +14,7 @@ import (
 // api test constructs the real server, so without this a parse/execute
 // error in settings.html would only surface at runtime.
 func TestSettingsPageRendersEnvSection(t *testing.T) {
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatalf("parse base: %v", err)
-	}
+	base := testTemplates(t)
 	page, err := template.Must(base.Clone()).ParseFS(web.Templates, "templates/settings.html")
 	if err != nil {
 		t.Fatalf("parse settings.html: %v", err)

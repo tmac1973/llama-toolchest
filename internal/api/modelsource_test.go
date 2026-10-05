@@ -3,7 +3,6 @@ package api
 import (
 	"bytes"
 	"context"
-	"html/template"
 	"strings"
 	"testing"
 
@@ -11,7 +10,6 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/modelscope"
 	"github.com/tmac1973/llama-toolchest/internal/modelsource"
-	"github.com/tmac1973/llama-toolchest/web"
 )
 
 // An empty or unrecognized source must resolve to HuggingFace: every
@@ -35,11 +33,7 @@ func TestSourceClientDefaultsToHuggingFace(t *testing.T) {
 // from — sending someone to a HuggingFace URL for a ModelScope-only repo
 // is a 404 with no explanation.
 func TestSearchResultsLinkToTheirOwnSource(t *testing.T) {
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
+	base := testTemplates(t)
 	results := []modelsource.SearchResult{{ID: "unsloth/Qwen3-8B-GGUF", Downloads: 5, Likes: 1}}
 
 	for _, tc := range []struct{ source, wantHost, wantName string }{
@@ -72,11 +66,7 @@ func TestSearchResultsLinkToTheirOwnSource(t *testing.T) {
 // The download button posts the source back, so the bytes are fetched
 // from the host the user was actually browsing.
 func TestFileListCarriesSourceIntoDownload(t *testing.T) {
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
+	base := testTemplates(t)
 	view := hfModelView{
 		ID:     "unsloth/Qwen3-8B-GGUF",
 		Source: modelsource.SourceModelScope,
@@ -99,11 +89,7 @@ func TestFileListCarriesSourceIntoDownload(t *testing.T) {
 // initial position comes from the configured default — the whole point
 // of the setting.
 func TestBrowsePageRadioFollowsConfiguredDefault(t *testing.T) {
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/models_browse.html", "templates/partials/recommend_feed.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
+	base := testTemplates(t, "templates/layout.html", "templates/models_browse.html", "templates/partials/recommend_feed.html")
 	render := func(def string) string {
 		var buf bytes.Buffer
 		data := struct {
@@ -205,11 +191,7 @@ func TestDefaultModelSourceFallback(t *testing.T) {
 // streaming: the table is off the card whatever the streaming mode, which
 // is what measurement showed.
 func TestFileListShowsStreamedPortion(t *testing.T) {
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
+	base := testTemplates(t)
 	const gib = int64(1) << 30
 	view := hfModelView{
 		ID:     "unsloth/Qwen3.8-Flash-Next-GGUF",

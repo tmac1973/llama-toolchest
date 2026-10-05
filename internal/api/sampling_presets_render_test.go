@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/tmac1973/llama-toolchest/internal/models"
-	"github.com/tmac1973/llama-toolchest/web"
 )
 
 // testFuncMap is the REAL template function map from
@@ -33,11 +32,7 @@ var testFuncMap = func() template.FuncMap {
 // html/template attribute escaping such that the browser will decode it
 // back to valid JSON when read via dataset.presets.
 func TestSamplingPresetsPartialRenders(t *testing.T) {
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
+	base := testTemplates(t)
 
 	temp := 0.6
 	topP := 0.95
@@ -96,11 +91,7 @@ func TestSamplingPresetsPartialRenders(t *testing.T) {
 // TestSamplingPresetsPartialHidden ensures the picker is omitted when no
 // presets are available for the model.
 func TestSamplingPresetsPartialHidden(t *testing.T) {
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
+	base := testTemplates(t)
 
 	data := modelConfigPanelData{
 		ModelID: "test-id",

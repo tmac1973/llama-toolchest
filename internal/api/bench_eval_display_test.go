@@ -5,7 +5,6 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -19,8 +18,6 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/benchmark"
 	"github.com/tmac1973/llama-toolchest/internal/config"
 	"github.com/tmac1973/llama-toolchest/internal/evaluate"
-	"github.com/tmac1973/llama-toolchest/internal/models"
-	"github.com/tmac1973/llama-toolchest/web"
 )
 
 // Phase 04 render + export tests: the conditional Score column in the
@@ -75,9 +72,7 @@ func perfRun(id string) benchmark.BenchmarkRun {
 // nothing.
 func benchListServer(t *testing.T) *Server {
 	t.Helper()
-	s := &Server{registry: models.NewRegistry(t.TempDir(), t.TempDir())}
-	s.pages = s.parseTemplates()
-	return s
+	return newTestServer(t)
 }
 
 // A list containing any run with Eval set gains the Score column; the
@@ -235,11 +230,7 @@ func TestJobDetailRendersScoreAndSkipReason(t *testing.T) {
 // own metric (the mode is part of the row identity — no cross-metric
 // math), and a performance row shows an em-dash in the Score column.
 func TestCompareRendersPerModeScores(t *testing.T) {
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
+	base := testTemplates(t)
 	hs := benchmark.BenchmarkRun{
 		ID: "r-hs", JobID: "j", CreatedAt: time.Unix(0, 0).UTC(),
 		Status: benchmark.StatusCompleted, ModelID: "m4", ModelName: "M-4B",
@@ -304,11 +295,7 @@ func TestCompareRendersPerModeScores(t *testing.T) {
 // A comparison of performance-only runs renders no Score column and no
 // score sort button — unchanged from before capability presets.
 func TestComparePerformanceOnlyNoScoreColumn(t *testing.T) {
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
+	base := testTemplates(t)
 	data := benchmark.BuildComparison([]benchmark.BenchmarkRun{perfRun("r1"), perfRun("r2")})
 	if data.HasEval {
 		t.Fatal("a performance-only comparison must not be flagged HasEval")
@@ -330,11 +317,7 @@ func TestComparePerformanceOnlyNoScoreColumn(t *testing.T) {
 // raw precision the tool reported; performance runs are unchanged
 // (no block at all).
 func TestBenchmarkDetailRendersEvalBlock(t *testing.T) {
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
+	base := testTemplates(t)
 	// Pointer receivers (EffectiveBuild) require a *BenchmarkRun, the
 	// same shape the handler passes.
 	var buf bytes.Buffer
@@ -770,11 +753,7 @@ func TestEveryCapabilityModeHasGuidance(t *testing.T) {
 // score means, so the guidance and its authoritative link render there
 // with the number — not only in the help page.
 func TestBenchmarkDetailRendersScoreGuidance(t *testing.T) {
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
+	base := testTemplates(t)
 
 	var buf bytes.Buffer
 	evRun := evalRun("r1")
@@ -879,11 +858,7 @@ func TestSameTopTokenScaleHasNoGaps(t *testing.T) {
 // drew one bar but several rows holding different numbers, and nothing
 // lined up between the two halves of the view.
 func TestCompareTableIsOneRowPerRun(t *testing.T) {
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
+	base := testTemplates(t)
 
 	multi := perfRun("multi")
 	multi.Summary.AvgGenTokPerSec = 36
@@ -935,11 +910,7 @@ func TestCompareTableIsOneRowPerRun(t *testing.T) {
 // Bar labels must differ from one another, and the tooltip must carry
 // the settings the visible label leaves out.
 func TestCompareBarsAreDistinguishable(t *testing.T) {
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
+	base := testTemplates(t)
 
 	mk := func(id string, gen float64, ub string) benchmark.BenchmarkRun {
 		r := perfRun(id)

@@ -8,20 +8,13 @@ import (
 	"testing"
 
 	"github.com/tmac1973/llama-toolchest/internal/benchmark"
-	"github.com/tmac1973/llama-toolchest/internal/config"
-	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
 // vizServer builds a server whose store holds the given runs.
 func vizServer(t *testing.T, runs ...benchmark.BenchmarkRun) *Server {
 	t.Helper()
-	dir := t.TempDir()
-	s := &Server{
-		bench:    benchmark.NewStore(dir, nil),
-		registry: models.NewRegistry(t.TempDir(), t.TempDir()),
-		cfg:      &config.Config{DataDir: dir},
-	}
-	s.pages = s.parseTemplates()
+	s := newTestServer(t)
+	s.bench = benchmark.NewStore(s.cfg.DataDir, nil)
 	for _, r := range runs {
 		s.bench.Save(r)
 	}

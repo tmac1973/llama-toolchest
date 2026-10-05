@@ -2,8 +2,6 @@ package api
 
 import (
 	"os"
-	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -21,28 +19,6 @@ import (
 // Skipped when node isn't installed, so it never blocks a build; it
 // still runs locally and anywhere node is available.
 func TestParameterControlsJS(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node not installed; skipping parameter-control JS test")
-	}
-
-	src, err := os.ReadFile(filepath.Join("..", "..", "web", "templates", "benchmarks.html"))
-	if err != nil {
-		t.Fatalf("read template: %v", err)
-	}
-
-	// Pull the script block out of the template and neutralize Go
-	// template actions so node can parse it.
-	blocks := regexp.MustCompile(`(?s)<script>(.*?)</script>`).FindAllStringSubmatch(string(src), -1)
-	if len(blocks) == 0 {
-		t.Fatal("no <script> block found in benchmarks.html")
-	}
-	var js strings.Builder
-	for _, b := range blocks {
-		js.WriteString(regexp.MustCompile(`\{\{[^}]*\}\}`).ReplaceAllString(b[1], "0"))
-		js.WriteString("\n")
-	}
-
 	// Keep only the parameter-control functions; the rest reaches for
 	// HTMX, fetch and page globals this stub deliberately doesn't model.
 	wanted := []string{
@@ -52,31 +28,15 @@ func TestParameterControlsJS(t *testing.T) {
 		"updateSpecValue", "updateStartLists", "checkedModelStarts",
 		"profilesChosen", "prefillStarts",
 	}
-	extracted, missing := extractFunctions(js.String(), wanted)
+	extracted, missing := extractFunctions(templateScripts(t, "benchmarks.html"), wanted)
 	if len(missing) > 0 {
 		t.Fatalf("functions not found in benchmarks.html (renamed or removed?): %v", missing)
 	}
-
-	dir := t.TempDir()
-	for name, content := range map[string]string{
+	runNodeTest(t, map[string]string{
 		"params.js": extracted,
-		"dom.js":    mustRead(t, filepath.Join("..", "..", "web", "jstest", "dom.js")),
-		"run.js":    mustRead(t, filepath.Join("..", "..", "web", "jstest", "params_test.js")),
-	} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
-			t.Fatalf("write %s: %v", name, err)
-		}
-	}
-
-	cmd := exec.Command(node, filepath.Join(dir, "run.js"))
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("parameter-control JS failed:\n%s", out)
-	}
-	if !strings.Contains(string(out), "ALL PASS") {
-		t.Fatalf("unexpected JS test output:\n%s", out)
-	}
+		"dom.js":    jsTestFile(t, "dom.js"),
+		"run.js":    jsTestFile(t, "params_test.js"),
+	})
 }
 
 func mustRead(t *testing.T, path string) string {

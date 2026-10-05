@@ -2,12 +2,10 @@ package api
 
 import (
 	"bytes"
-	"html/template"
 	"strings"
 	"testing"
 
 	"github.com/tmac1973/llama-toolchest/internal/models"
-	"github.com/tmac1973/llama-toolchest/web"
 )
 
 // renderModelConfig renders the model_config partial with the PLE fields
@@ -15,11 +13,7 @@ import (
 // type the handler builds, so the two cannot drift apart.
 func renderModelConfig(t *testing.T, cfg *models.ModelConfig, hasPLE bool, sizeLabel string) string {
 	t.Helper()
-	base, err := template.New("").Funcs(testFuncMap).ParseFS(web.Templates,
-		"templates/layout.html", "templates/partials/*.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
+	base := testTemplates(t)
 	data := modelConfigPanelData{
 		ModelID:      "test-id",
 		Config:       cfg,
