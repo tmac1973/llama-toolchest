@@ -6,14 +6,11 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
-func ptrF(v float64) *float64 { return &v }
-func ptrI(v int) *int         { return &v }
-
 // TestBuildSamplingOverrideWins verifies that a per-model config override takes
 // precedence over the card recommendation, and that unset params fall through.
 func TestBuildSamplingOverrideWins(t *testing.T) {
 	m := &models.Model{ModelID: "does/not-exist-GGUF"} // no presets
-	cfg := &models.ModelConfig{Temperature: ptrF(0.42), TopK: ptrI(7)}
+	cfg := &models.ModelConfig{Temperature: ptr(0.42), TopK: ptr(7)}
 
 	s := buildSampling(m, cfg)
 	def := s["default"].(map[string]any)

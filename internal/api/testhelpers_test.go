@@ -49,3 +49,7 @@ func newTestServer(t *testing.T) *Server {
 	s.pages = s.parseTemplates()
 	return s
 }
+
+// ptr returns a pointer to v, for the optional (pointer) fields of
+// overrides and capabilities.
+func ptr[T any](v T) *T { return &v }

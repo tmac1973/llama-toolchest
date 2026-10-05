@@ -111,15 +111,13 @@ func batchMatrixServer(t *testing.T, saved models.ModelConfig) *Server {
 	return s
 }
 
-func intPtr(v int) *int { return &v }
-
 // A micro-batch above the batch size must be refused when the job is
 // defined. The apply-time check catches it too, but only after the sweep
 // has been running — potentially for an hour.
 func TestValidateBatchMatrixRejectsExplicitBadPair(t *testing.T) {
 	s := batchMatrixServer(t, models.ModelConfig{})
 	err := s.validateBatchMatrix([]string{"m"},
-		&benchmark.ConfigOverrides{BatchSize: intPtr(512), UBatchSize: intPtr(4096)}, nil)
+		&benchmark.ConfigOverrides{BatchSize: ptr(512), UBatchSize: ptr(4096)}, nil)
 	if err == nil {
 		t.Error("expected an explicitly bad batch pair to be rejected")
 	}
@@ -132,7 +130,7 @@ func TestValidateBatchMatrixRejectsExplicitBadPair(t *testing.T) {
 func TestValidateBatchMatrixAllowsPartiallyValidLadder(t *testing.T) {
 	s := batchMatrixServer(t, models.ModelConfig{})
 	err := s.validateBatchMatrix([]string{"m"},
-		&benchmark.ConfigOverrides{BatchSize: intPtr(2048)},
+		&benchmark.ConfigOverrides{BatchSize: ptr(2048)},
 		[]benchmark.SweepAxis{{Field: "ubatch_size", Values: []string{"512", "1024", "4096"}}})
 	if err != nil {
 		t.Errorf("a ladder with viable points should be accepted, got: %v", err)
@@ -156,7 +154,7 @@ func TestValidateBatchMatrixAllowsTwoAxisMatrix(t *testing.T) {
 func TestValidateBatchMatrixRejectsWhollyUnviable(t *testing.T) {
 	s := batchMatrixServer(t, models.ModelConfig{})
 	err := s.validateBatchMatrix([]string{"m"},
-		&benchmark.ConfigOverrides{BatchSize: intPtr(512)},
+		&benchmark.ConfigOverrides{BatchSize: ptr(512)},
 		[]benchmark.SweepAxis{{Field: "ubatch_size", Values: []string{"1024", "2048"}}})
 	if err == nil {
 		t.Error("every point exceeds the batch size; the job cannot produce a single result")
