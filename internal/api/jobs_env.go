@@ -476,12 +476,13 @@ func (e *jobEnv) ResolveKLReference(modelID, overrideID string) (benchmark.Model
 	return e.resolveKLReference(modelID, overrideID)
 }
 
-// buildBackend returns the build's backend profile (the first argument
-// to models.GPUPlacementFlags — it decides whether device names exist
-// and what they are called).
+// buildBackend returns the build's backend (the second argument to
+// models.GPUPlacementFlags — it decides whether device names exist and
+// what they are called), resolved through its profile the same way the
+// router's own launch does.
 func (e *jobEnv) buildBackend(buildID string) string {
 	if b, ok := e.s.builder.Find(buildID); ok {
-		return b.Profile
+		return buildBackend(b)
 	}
 	return ""
 }
