@@ -361,3 +361,80 @@ func TestGGUFImplausibleVocabIsUnknown(t *testing.T) {
 		t.Errorf("a real token list: VocabSize = %v (err %v), want 2", meta, err)
 	}
 }
+
+// tinyGGUF is a small well-formed model file: two tensors and their data.
+func tinyGGUF() []byte {
+	return new(rawGGUF).header(3, 2, 6).
+		kvString("general.architecture", "llama").
+		kvU32("llama.block_count", 2).
+		kvU32("llama.embedding_length", 64).
+		kvU32("llama.attention.head_count", 4).
+		kvU32("llama.attention.head_count_kv", 2).
+		kvU32("llama.context_length", 4096).
+		tensor("token_embd.weight", 0).
+		tensor("blk.0.attn_q.weight", 512).
+		data(1024).bytes()
+}
+
+// A file whose header or data stops short — damaged, or scanned while it
+// was still being copied into the models folder — is read as far as it
+// goes but is not marked checked, so it is read again later. A whole file
+// is marked checked.
+func TestGGUFPartialFileIsNotMarkedChecked(t *testing.T) {
+	whole := tinyGGUF()
+	cases := []struct {
+		name    string
+		data    []byte
+		partial bool
+	}{
+		{"whole file", whole, false},
+		{"data cut short", whole[:len(whole)-600], true},
+		{"tensor table cut short", whole[:len(whole)-1024-40], true},
+	}
+	for _, c := range cases {
+		meta, err := parseBounded(t, c.data)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if meta.partial != c.partial || meta.PLEChecked == c.partial {
+			t.Errorf("%s: partial = %v, PLEChecked = %v; want partial %v", c.name, meta.partial, meta.PLEChecked, c.partial)
+		}
+		if meta.Architecture != "llama" {
+			t.Errorf("%s: the keys read before the cut were lost", c.name)
+		}
+	}
+}
+
+// Backfill used to record the current parser version after any parse, so
+// a file read while still being copied in kept its partial metadata for
+// good. It now keeps what it read and tries again at the next start, and
+// records the version once the file is whole.
+func TestBackfillRereadsAPartialFile(t *testing.T) {
+	r, _, modelsDir := newTestRegistry(t)
+	path := filepath.Join(modelsDir, "org--m", "m.gguf")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	whole := tinyGGUF()
+	if err := os.WriteFile(path, whole[:len(whole)-600], 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Add(&Model{ID: "m", ModelID: "org/m", Filename: "m.gguf", FilePath: path}); err != nil {
+		t.Fatal(err)
+	}
+
+	r.BackfillGGUFMeta()
+	m, _ := r.Get("m")
+	if m.GGUFMetaVersion != 0 || m.Arch != "llama" {
+		t.Fatalf("after a partial read: version %d, arch %q; want version 0 and the keys kept", m.GGUFMetaVersion, m.Arch)
+	}
+
+	if err := os.WriteFile(path, whole, 0o644); err != nil { // the copy finishes
+		t.Fatal(err)
+	}
+	r.BackfillGGUFMeta()
+	m, _ = r.Get("m")
+	if m.GGUFMetaVersion != GGUFMetaVersion || !m.PLEChecked {
+		t.Errorf("after the file was whole: version %d, PLEChecked %v; want %d and true", m.GGUFMetaVersion, m.PLEChecked, GGUFMetaVersion)
+	}
+}
