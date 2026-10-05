@@ -30,7 +30,7 @@ Each item has a checkbox; tick it in the PR that fixes it.
 ## High Priority
 
 ### Standards
-- [ ] htmx-driven handlers answer errors with a non-2xx `http.Error`, which htmx does not display, so the user sees nothing (HF search 502, download refused 507/400). Other handlers return a 200 banner, which is the stated contract — `internal/api/hf.go:84`, `internal/api/hf.go:239`, `internal/api/hf.go:250` (compare `internal/api/models_profiles.go:100`)
+- [x] htmx-driven handlers answer errors with a non-2xx `http.Error`, which htmx does not display, so the user sees nothing (HF search 502, download refused 507/400). Other handlers return a 200 banner, which is the stated contract — `internal/api/hf.go:84`, `internal/api/hf.go:239`, `internal/api/hf.go:250` (compare `internal/api/models_profiles.go:100`)
 - [x] HTML built in Go puts the router failure text and the configured external URL into the page without escaping; neighbouring code escapes — `internal/api/service.go:127`, `internal/api/settings.go:192`
 
 ### Duplication
@@ -54,7 +54,7 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [x] The `/v1` 401 sets a JSON content type, then `http.Error` overwrites it with text/plain; the OpenAI-shaped error body is written by hand instead of with `writeProxyError` — `internal/api/middleware.go:19-29`
 - [x] `handleRestore` builds JSON with `%q`, whose `\x..` escapes are not valid JSON, instead of `respondJSONStatus` — `internal/api/backup.go:56-58`
 - [ ] No rule for when server HTML comes from templates and when it is built in Go — `internal/api/server.go:1066`, `internal/api/models.go:577`, `internal/api/build.go:208`
-- [ ] JS fetch calls handle failure differently: `cancelJob` and the batch delete ignore `r.ok`; job IDs are sometimes URL-encoded and sometimes not — `web/templates/benchmarks.html:174`, `:939`
+- [x] JS fetch calls handle failure differently: `cancelJob` and the batch delete ignore `r.ok`; job IDs are sometimes URL-encoded and sometimes not — `web/templates/benchmarks.html:174`, `:939`
 - [ ] `Registry.Get` and `GetConfig` return the live pointer from behind the lock; the benchmark and autotune stores return copies — `internal/models/registry.go:593`, `:704`
 
 ### Duplication
@@ -64,7 +64,7 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [x] "Sort the map keys, join `k=v`" is hand-written about 6 times — `internal/api/bench_export.go:66`, `internal/autotune/score.go:241`, `internal/builder/builder.go:1122`
 - [x] Removing the org prefix and "-GGUF" suffix from model names is done 4 ways with different suffix lists — `internal/models/gpu_assign.go:613`, `internal/models/registry.go:23`, `internal/recommend/group.go:71` *(stage 2: `ShortModelName` now reuses `OrgAndBase`. `OrgAndBase` is left as is because `PublicName`, the `/v1` model name, is built from it; the `recommend` grouping strips a broader set on purpose.)*
 - [ ] `handleSaveConfig` defines `atoiField`, then repeats its logic by hand for 5 draft fields — `internal/api/service.go:1063-1077`
-- [ ] The selection actions (compare and visualize) for runs and for job cells are duplicated — `web/templates/benchmarks.html:129` (and `:1032`)
+- [x] The selection actions (compare and visualize) for runs and for job cells are duplicated — `web/templates/benchmarks.html:129` (and `:1032`)
 - [ ] The installer decides user vs system scope in 3 places and has 2 `systemctl --user` wrappers — `scripts/lib/service.sh:30`, `scripts/lib/host.sh:32`, `setup.sh:1720`
 
 ### Logging
@@ -103,7 +103,7 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [ ] About 31 `fmt.Errorf` calls with no format verbs — `internal/api/sse.go:18`, `internal/builder/builder.go:312`
 
 ### Duplication
-- [ ] `openJobForm` and `openJobEditForm` repeat the same steps — `web/templates/benchmarks.html:314-357`
+- [x] `openJobForm` and `openJobEditForm` repeat the same steps — `web/templates/benchmarks.html:314-357`
 - [ ] Small repeated helpers: `pluralS` and `plural`, `shortenModelName`, an 80-character truncation repeated twice that can split a UTF-8 character — `internal/api/bench_jobs.go:887-899`, `internal/api/autoconfig.go:512`
 
 ### Logging
