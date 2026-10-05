@@ -1,8 +1,9 @@
 package monitor
 
 import (
-	"sync"
 	"time"
+
+	"github.com/tmac1973/llama-toolchest/internal/broadcast"
 )
 
 // Metrics holds a snapshot of system resource usage.
@@ -56,9 +57,9 @@ type Monitor struct {
 	gpu      GPUBackend
 	interval time.Duration
 
-	mu      sync.RWMutex
-	current Metrics
-	subs    map[chan Metrics]struct{}
+	// metrics holds the latest snapshot (history of one) and fans each new
+	// one out to subscribers without blocking the poller.
+	metrics *broadcast.Broadcaster[Metrics]
 
 	stop chan struct{}
 }
@@ -69,7 +70,7 @@ func New(interval time.Duration) *Monitor {
 	return &Monitor{
 		gpu:      detectGPUBackend(),
 		interval: interval,
-		subs:     make(map[chan Metrics]struct{}),
+		metrics:  broadcast.New[Metrics](1, 4),
 		stop:     make(chan struct{}),
 	}
 }
@@ -98,27 +99,23 @@ func (m *Monitor) Stop() {
 	close(m.stop)
 }
 
-// Current returns the latest metrics snapshot.
+// Current returns the latest metrics snapshot, or a zero one before the
+// first poll.
 func (m *Monitor) Current() Metrics {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.current
+	cur, _ := m.metrics.Last()
+	return cur
 }
 
-// Subscribe returns a channel that receives metrics updates.
+// Subscribe returns a channel that receives metrics updates, starting
+// with the latest snapshot so a new viewer does not wait for the next
+// poll.
 func (m *Monitor) Subscribe() chan Metrics {
-	ch := make(chan Metrics, 4)
-	m.mu.Lock()
-	m.subs[ch] = struct{}{}
-	m.mu.Unlock()
-	return ch
+	return m.metrics.Subscribe()
 }
 
 // Unsubscribe removes a subscription channel.
 func (m *Monitor) Unsubscribe(ch chan Metrics) {
-	m.mu.Lock()
-	delete(m.subs, ch)
-	m.mu.Unlock()
+	m.metrics.Unsubscribe(ch)
 }
 
 func (m *Monitor) collect() {
@@ -134,16 +131,8 @@ func (m *Monitor) collect() {
 		}
 	}
 
-	m.mu.Lock()
-	m.current = metrics
-	for ch := range m.subs {
-		select {
-		case ch <- metrics:
-		default:
-			// drop if subscriber is slow
-		}
-	}
-	m.mu.Unlock()
+	// A slow subscriber misses a snapshot rather than stalling the poller.
+	m.metrics.Broadcast(metrics)
 }
 
 func detectGPUBackend() GPUBackend {
