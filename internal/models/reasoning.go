@@ -18,6 +18,21 @@ const (
 	ReasoningToggleNone = "none"
 )
 
+// ApplyThinkingOff adds to a chat request payload whatever a model needs
+// to skip its reasoning pass, given how it exposes the switch (one of the
+// ReasoningToggle* constants, and the kwarg name for chat_template_kwargs).
+// A model with no switch (ReasoningToggleNone, or no kwarg) is left as is.
+func ApplyThinkingOff(toggle, kwarg string, payload map[string]any) {
+	switch toggle {
+	case ReasoningToggleChatTemplateKwargs:
+		if kwarg != "" {
+			payload["chat_template_kwargs"] = map[string]any{kwarg: false}
+		}
+	case ReasoningToggleReasoningEffort:
+		payload["reasoning_effort"] = "none"
+	}
+}
+
 // ReasoningCapability describes whether and how a model exposes a "thinking" /
 // reasoning mode. It's surfaced under capabilities.reasoning so a client can
 // decide whether to send a thinking toggle at all, and which mechanism to use,

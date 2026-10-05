@@ -45,10 +45,13 @@ func MetaKey(source, repo string, f File) string {
 		id = fmt.Sprintf("%s|%d", f.Filename, f.Size)
 	}
 	sum := sha256.Sum256([]byte(id))
-	return filepath.Join(NormalizeSource(source), safeRepoDir(repo), hex.EncodeToString(sum[:16])+".json")
+	return filepath.Join(NormalizeSource(source), SafeRepoDir(repo), hex.EncodeToString(sum[:16])+".json")
 }
 
-func safeRepoDir(repo string) string {
+// SafeRepoDir is a repository ID as a single directory name for an on-disk
+// cache: slashes become "--" (as in huggingface.SafeModelID) and anything
+// other than letters, digits, "-", "_" and "." becomes "_".
+func SafeRepoDir(repo string) string {
 	return strings.Map(func(r rune) rune {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':

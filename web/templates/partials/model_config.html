@@ -396,7 +396,7 @@
             </select>
         </label>
         {{end}}
-        {{if or (eq .Config.SpecType "draft-eagle3") (or (eq .Config.SpecType "draft-dflash") (eq .Config.SpecType "draft-dspark"))}}
+        {{if isHeadBasedDraftMode .Config.SpecType}}
         <label title="The converted head for this model. The list is not filtered by architecture or size, because a head is a trained extra layer rather than a smaller model of the same family.">
             Drafter Head
             <select name="draft_model_path">
@@ -442,7 +442,7 @@
         </label>
     </div>
     {{end}}
-    {{if or (eq .Config.SpecType "draft") (or (and (eq .Config.SpecType "draft-mtp") .HasMTP) (or (eq .Config.SpecType "draft-eagle3") (or (eq .Config.SpecType "draft-dflash") (eq .Config.SpecType "draft-dspark"))))}}
+    {{if or (usesDraftFile .Config.SpecType) (and (eq .Config.SpecType "draft-mtp") .HasMTP)}}
     <small><strong>Draft model resources</strong> — leave blank to inherit llama-server defaults. Set these when the draft model or head needs its own GPU offload, context, or cache type (e.g. <code>--device-draft CUDA0</code> on multi-GPU). They apply whenever a drafter is loaded through <code>--model-draft</code>, so not to self-speculation MTP, where the draft <em>is</em> the main model.</small>
     <div class="grid">
         <label title="Context size for the draft model. Only llama.cpp builds older than b9109 (May 2026) have this setting. Newer builds give the draft model the same context as the main model, and this value is not used with them.">

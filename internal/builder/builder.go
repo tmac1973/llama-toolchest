@@ -10,11 +10,13 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1120,13 +1122,8 @@ var validTagRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 // hashFlags returns a short stable hash of a cmake flag set, used to
 // disambiguate untagged builds whose flags differ from an existing one.
 func hashFlags(flags map[string]string) string {
-	keys := make([]string, 0, len(flags))
-	for k := range flags {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
 	h := sha256.New()
-	for _, k := range keys {
+	for _, k := range slices.Sorted(maps.Keys(flags)) {
 		h.Write([]byte(k))
 		h.Write([]byte{'='})
 		h.Write([]byte(flags[k]))

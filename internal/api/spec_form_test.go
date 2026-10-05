@@ -116,3 +116,18 @@ func TestConfigFormOffersHeadPickerForHeadModes(t *testing.T) {
 		}
 	}
 }
+
+// The draft-resources section belongs to every mode that loads a file
+// through --model-draft, and to no other. The template now asks
+// models.UsesDraftFile instead of listing the modes itself.
+func TestConfigFormDraftResourcesFollowTheMode(t *testing.T) {
+	for mode, want := range map[string]bool{
+		"draft": true, "draft-eagle3": true, "draft-dflash": true, "draft-dspark": true,
+		"": false, "draft-mtp": false, // MTP shows it only when the model has an MTP head
+	} {
+		out := renderModelConfig(t, &models.ModelConfig{SpecType: mode}, false, "")
+		if got := strings.Contains(out, "Draft model resources"); got != want {
+			t.Errorf("%q: draft resources shown = %v, want %v", mode, got, want)
+		}
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tmac1973/llama-toolchest/internal/config"
 	"github.com/tmac1973/llama-toolchest/web"
 )
 
@@ -26,7 +27,7 @@ func TestRuntimeEnvStatusPartialRenders(t *testing.T) {
 		Warnings: []string{"HSA_OVERRIDE_GFX_VERSION: harmful on supported GPUs"},
 		Effective: []envLine{
 			{Text: "GGML_CUDA_DISABLE_GRAPHS=1"},
-			{Text: "FOO=bar", Overridden: "FOO=baz"},
+			{Text: "FOO=bar", Overridden: "FOO"},
 		},
 	}
 
@@ -39,7 +40,7 @@ func TestRuntimeEnvStatusPartialRenders(t *testing.T) {
 		"Settings saved.",
 		"HSA_OVERRIDE_GFX_VERSION",
 		"GGML_CUDA_DISABLE_GRAPHS=1",
-		"FOO=baz", // the inherited value that wins is named
+		"service environment sets FOO,", // the inherited name is shown, not its value
 		`id="effective-env"`,
 		"hx-swap-oob",
 	} {
@@ -63,5 +64,21 @@ func TestEffectiveEnvEmptyPlaceholder(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "inherits the service environment unchanged") {
 		t.Errorf("empty preview should explain itself, got: %s", buf.String())
+	}
+}
+
+// The inherited value can be a token from the container or systemd
+// environment; the settings page shows only that the name is set.
+func TestEffectiveEnvHidesTheInheritedValue(t *testing.T) {
+	t.Setenv("LT_TEST_SECRET", "hf_inherited_secret")
+	s := &Server{cfg: &config.Config{RuntimeEnvExtra: "LT_TEST_SECRET=configured"}}
+	lines := s.effectiveEnvLines()
+	if len(lines) != 1 || lines[0].Overridden != "LT_TEST_SECRET" {
+		t.Fatalf("lines = %+v, want LT_TEST_SECRET marked as overridden", lines)
+	}
+	for _, l := range lines {
+		if strings.Contains(l.Text+l.Overridden, "hf_inherited_secret") {
+			t.Errorf("inherited value shown: %+v", l)
+		}
 	}
 }

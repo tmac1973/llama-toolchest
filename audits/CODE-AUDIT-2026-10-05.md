@@ -35,9 +35,9 @@ Each item has a checkbox; tick it in the PR that fixes it.
 
 ### Duplication
 - [x] The code that sets LD_LIBRARY_PATH for a build exists 3 times. The process manager's copy appends a second entry instead of prepending, so the router loses the container's LD_LIBRARY_PATH (confirmed on compute2) — `internal/process/manager.go:476` (and `internal/api/jobs_env.go:85`, `internal/evaluate/evaluate.go:396`)
-- [ ] The "turn thinking off" logic exists twice with the same switch, both using literal strings instead of the `models.ReasoningToggle*` constants — `internal/benchmark/runner.go:545` (and `internal/llmcall/client.go:190`)
-- [ ] `canonicalSpecValue` reimplements `EncodeSpecValue` in the same file, keeping empty values the original drops — `internal/benchmark/sweep.go:455` (and `:422`)
-- [ ] `safeRepoDir` and `safeName` are the same function in two packages, and both redo `huggingface.SafeModelID` inline — `internal/modelsource/meta_cache.go:51` (and `internal/recommend/finalist.go:160`)
+- [x] The "turn thinking off" logic exists twice with the same switch, both using literal strings instead of the `models.ReasoningToggle*` constants — `internal/benchmark/runner.go:545` (and `internal/llmcall/client.go:190`)
+- [x] `canonicalSpecValue` reimplements `EncodeSpecValue` in the same file, keeping empty values the original drops — `internal/benchmark/sweep.go:455` (and `:422`)
+- [x] `safeRepoDir` and `safeName` are the same function in two packages, and both redo `huggingface.SafeModelID` inline — `internal/modelsource/meta_cache.go:51` (and `internal/recommend/finalist.go:160`)
 
 ### Testing
 - [ ] `proxy.go` has no tests: sampling-default injection, the SSE timing reader, model auto-load and wait — `internal/api/proxy.go:122`, `:229`, `:286`
@@ -58,11 +58,11 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [ ] `Registry.Get` and `GetConfig` return the live pointer from behind the lock; the benchmark and autotune stores return copies — `internal/models/registry.go:593`, `:704`
 
 ### Duplication
-- [ ] The monitor writes its own subscriber fan-out instead of using `broadcast.Broadcaster` — `internal/monitor/monitor.go:55-145`
-- [ ] `jobEnv.buildBackend` skips the profile lookup `buildBackend` does (same answer today) — `internal/api/jobs_env.go:495` (and `internal/api/build.go:473`)
-- [ ] Spec-mode names and labels are hard-coded in autotune and the template instead of coming from `models` — `internal/autotune/score.go:426`, `internal/autotune/plan.go:229`, `web/templates/partials/model_config.html:399`
-- [ ] "Sort the map keys, join `k=v`" is hand-written about 6 times — `internal/api/bench_export.go:66`, `internal/autotune/score.go:241`, `internal/builder/builder.go:1122`
-- [ ] Removing the org prefix and "-GGUF" suffix from model names is done 4 ways with different suffix lists — `internal/models/gpu_assign.go:613`, `internal/models/registry.go:23`, `internal/recommend/group.go:71`
+- [x] The monitor writes its own subscriber fan-out instead of using `broadcast.Broadcaster` — `internal/monitor/monitor.go:55-145`
+- [x] `jobEnv.buildBackend` skips the profile lookup `buildBackend` does (same answer today) — `internal/api/jobs_env.go:495` (and `internal/api/build.go:473`)
+- [x] Spec-mode names and labels are hard-coded in autotune and the template instead of coming from `models` — `internal/autotune/score.go:426`, `internal/autotune/plan.go:229`, `web/templates/partials/model_config.html:399`
+- [x] "Sort the map keys, join `k=v`" is hand-written about 6 times — `internal/api/bench_export.go:66`, `internal/autotune/score.go:241`, `internal/builder/builder.go:1122`
+- [x] Removing the org prefix and "-GGUF" suffix from model names is done 4 ways with different suffix lists — `internal/models/gpu_assign.go:613`, `internal/models/registry.go:23`, `internal/recommend/group.go:71` *(stage 2: `ShortModelName` now reuses `OrgAndBase`. `OrgAndBase` is left as is because `PublicName`, the `/v1` model name, is built from it; the `recommend` grouping strips a broader set on purpose.)*
 - [ ] `handleSaveConfig` defines `atoiField`, then repeats its logic by hand for 5 draft fields — `internal/api/service.go:1063-1077`
 - [ ] The selection actions (compare and visualize) for runs and for job cells are duplicated — `web/templates/benchmarks.html:129` (and `:1032`)
 - [ ] The installer decides user vs system scope in 3 places and has 2 `systemctl --user` wrappers — `scripts/lib/service.sh:30`, `scripts/lib/host.sh:32`, `setup.sh:1720`
@@ -74,8 +74,8 @@ Each item has a checkbox; tick it in the PR that fixes it.
 ### Security
 - [x] The config file holding tokens and the API key is written with mode 0644 — `internal/api/settings.go:245`
 - [x] The config write ignores errors, so a failed token change is lost silently — `internal/api/settings.go:245-251`
-- [ ] The settings page shows the inherited environment value of a configured runtime var (`Overridden: NAME=value`) — `internal/api/runtime_env_view.go:30`
-- [ ] llama-benchy's full stderr is stored and shown as the run's failure text, unredacted (the process has `HF_TOKEN`) — `internal/benchmark/benchy.go:207-221`
+- [x] The settings page shows the inherited environment value of a configured runtime var (`Overridden: NAME=value`) — `internal/api/runtime_env_view.go:30`
+- [x] llama-benchy's full stderr is stored and shown as the run's failure text, unredacted (the process has `HF_TOKEN`) — `internal/benchmark/benchy.go:207-221`
 
 ### Testing
 - [ ] Parsers for external tool output (`nvidia-smi` CSV, `ParseROCmGPUAgents` directly) have no tests — `internal/monitor/nvidia.go:25`, `internal/builder/rocminfo.go:22`

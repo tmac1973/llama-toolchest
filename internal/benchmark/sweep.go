@@ -3,7 +3,9 @@ package benchmark
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -431,59 +433,33 @@ func EncodeSpecValue(mode, assist string, params map[string]string) string {
 		return "none"
 	}
 	out := strings.Join(names, "+")
-	keys := make([]string, 0, len(params))
+	set := make(map[string]string, len(params))
 	for k, v := range params {
 		if v != "" {
-			keys = append(keys, k)
+			set[k] = v
 		}
 	}
-	if len(keys) == 0 {
+	if len(set) == 0 {
 		return out
 	}
-	sort.Strings(keys)
-	pairs := make([]string, 0, len(keys))
-	for _, k := range keys {
-		pairs = append(pairs, k+"="+params[k])
-	}
-	return out + ":" + strings.Join(pairs, ",")
+	return out + ":" + models.JoinSorted(set, ",")
 }
 
 // canonicalSpecValue renders a spec value in its parsed, sorted form so
 // dedup catches values that differ only in spacing or parameter order.
 // Unparseable values return trimmed raw; the parser rejects them later
 // with a real error message.
+//
+// The parser puts the draft method in mode and the n-gram assist in
+// assist whatever order they were written in, so "ngram-mod+draft-mtp" and
+// "draft-mtp+ngram-mod" dedup to one cell — the modes are a set, not an
+// order: common_speculative_init walks a fixed priority regardless.
 func canonicalSpecValue(raw string) string {
 	sv, err := parseSpecValue(raw)
 	if err != nil {
 		return strings.TrimSpace(raw)
 	}
-	if sv.mode == "" && sv.assist == "" {
-		return "none"
-	}
-	var names []string
-	if sv.mode != "" {
-		names = append(names, sv.mode)
-	}
-	if sv.assist != "" {
-		names = append(names, sv.assist)
-	}
-	// The draft method always sorts first, so "ngram-mod+draft-mtp" and
-	// "draft-mtp+ngram-mod" dedup to one cell — the modes are a set, not
-	// an order: common_speculative_init walks a fixed priority regardless.
-	out := strings.Join(names, "+")
-	if len(sv.params) == 0 {
-		return out
-	}
-	keys := make([]string, 0, len(sv.params))
-	for k := range sv.params {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	pairs := make([]string, len(keys))
-	for i, k := range keys {
-		pairs[i] = k + "=" + sv.params[k]
-	}
-	return out + ":" + strings.Join(pairs, ",")
+	return EncodeSpecValue(sv.mode, sv.assist, sv.params)
 }
 
 func floatField(name, label, help, example string, apply func(*ConfigOverrides, *float64)) SweepField {
@@ -1125,12 +1101,7 @@ func SweepChips(values map[string]string) []string {
 	if len(values) == 0 {
 		return nil
 	}
-	keys := make([]string, 0, len(values))
-	for k := range values {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
+	keys := slices.Sorted(maps.Keys(values))
 	out := make([]string, 0, len(keys))
 	for _, k := range keys {
 		v := values[k]

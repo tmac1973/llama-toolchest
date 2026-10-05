@@ -609,16 +609,10 @@ func resolveModelGPUs(cfg *ModelConfig, numGPUs int) []int {
 }
 
 // ShortModelName extracts a short display name from a model ID like
-// "org/repo-GGUF": strips the org prefix and common GGUF suffixes.
+// "org/repo-GGUF": the base name OrgAndBase gives, without the org.
 func ShortModelName(modelID string) string {
-	// Strip org prefix
-	if idx := strings.LastIndex(modelID, "/"); idx >= 0 {
-		modelID = modelID[idx+1:]
-	}
-	// Strip common suffixes
-	modelID = strings.TrimSuffix(modelID, "-GGUF")
-	modelID = strings.TrimSuffix(modelID, "-gguf")
-	return modelID
+	_, base := (&Model{ModelID: modelID}).OrgAndBase()
+	return base
 }
 
 // GPUAssignLabel returns a short human-readable label for a GPU assignment.

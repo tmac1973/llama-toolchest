@@ -24,3 +24,18 @@ func TestFormatBenchyCommandMasksTheAPIKey(t *testing.T) {
 		t.Errorf("placeholder should be shown as is: %s", got)
 	}
 }
+
+// A failed run's error is stored and shown, so the tokens the process ran
+// with are hidden, and a long output keeps its end, where Python prints
+// the cause.
+func TestBenchyStderrHidesSecretsAndKeepsTheEnd(t *testing.T) {
+	out := benchyStderr("GET https://hf.co (Authorization: Bearer hf_secret) failed", "hf_secret", "EMPTY")
+	if strings.Contains(out, "hf_secret") || !strings.Contains(out, "Bearer HIDDEN") {
+		t.Errorf("token not hidden: %q", out)
+	}
+	long := strings.Repeat("noise\n", 2000) + "ZeroDivisionError: division by zero"
+	out = benchyStderr(long)
+	if len(out) > maxBenchyStderr+64 || !strings.HasSuffix(out, "ZeroDivisionError: division by zero") || !strings.HasPrefix(out, "(") {
+		t.Errorf("long output not cut to its end: %d bytes, starts %q", len(out), out[:40])
+	}
+}
