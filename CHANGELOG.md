@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.34.6](https://github.com/tmac1973/llama-toolchest/compare/v2.34.5...v2.34.6) (2026-10-05)
+
+
+### Bug Fixes
+
+* code audit stage 3 — failed actions show their reason ([#245](https://github.com/tmac1973/llama-toolchest/issues/245)) ([5a36968](https://github.com/tmac1973/llama-toolchest/commit/5a369680fc3e5c614bb0843a635e3a30df120b1d))
+
 ## [2.34.5](https://github.com/tmac1973/llama-toolchest/compare/v2.34.4...v2.34.5) (2026-10-05)
 
 
