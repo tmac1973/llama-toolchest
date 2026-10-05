@@ -1043,6 +1043,28 @@ host_latest_release_version() {
     echo "$json" | grep -m1 '"tag_name":' | sed 's/.*"v\?\([^"]*\)".*/\1/'
 }
 
+# Wait until a release's package file can be downloaded. A release is
+# published a little before its files finish uploading, so right after a
+# release the latest version can answer 404 for a minute or so. Checks
+# every 15 seconds for up to 5 minutes; returns 1 if the file never
+# appears. Usage: host_wait_for_release_asset VERSION ASSET_NAME
+host_wait_for_release_asset() {
+    local version="$1" asset="$2"
+    local url="${HOST_RELEASE_DOWNLOAD}/v${version}/${asset}"
+    local tries=20
+    while (( tries > 0 )); do
+        if curl -fsIL -o /dev/null "$url"; then
+            return 0
+        fi
+        (( tries-- ))
+        (( tries > 0 )) || break
+        log "Release v${version} is published but ${asset} is not uploaded yet; checking again in 15 seconds..."
+        sleep 15
+    done
+    err "${asset} is still missing from release v${version} after 5 minutes: ${url}"
+    return 1
+}
+
 # Install llama-toolchest from a published release. Default version is
 # whatever GitHub considers latest; can be overridden via the LT_VERSION
 # env var (useful for pinning a known-good release).
@@ -1060,6 +1082,7 @@ host_install_from_package() {
     log "Installing version v$version (${arch}, .${ext})"
 
     local asset="llama-toolchest_${version}_linux_${arch}.${ext}"
+    host_wait_for_release_asset "$version" "$asset" || return 1
     local pkg_url="${HOST_RELEASE_DOWNLOAD}/v${version}/${asset}"
     local sums_url="${HOST_RELEASE_DOWNLOAD}/v${version}/checksums.txt"
 

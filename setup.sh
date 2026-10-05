@@ -1664,9 +1664,12 @@ container_rebuild() {
 # Dockerfile resolves it at build time, but layer caching still
 # works — same arg → cache hit, different actual remote version → no
 # refresh).
+#
+# The new image is built before the running container is stopped, so a
+# failed build (for example a release whose files are not uploaded yet)
+# leaves the current version running instead of nothing.
 container_quick_rebuild() {
     migrate_legacy_volume
-    container_down
     write_env_file
 
     local latest=""
@@ -1676,10 +1679,19 @@ container_quick_rebuild() {
     if [[ -n "$latest" ]]; then
         log "Resolved latest release: v${latest}"
         export LLAMA_TOOLCHEST_VERSION="$latest"
+        # Dockerfile.rocm installs the .rpm; the others the .deb.
+        local ext="deb" arch
+        [[ "$(dockerfile)" == "Dockerfile.rocm" ]] && ext="rpm"
+        if arch="$(host_pkg_arch)"; then
+            host_wait_for_release_asset "$latest" "llama-toolchest_${latest}_linux_${arch}.${ext}" \
+                || { err "Not rebuilding; the running container was left as it is."; exit 1; }
+        fi
     else
         warn "Couldn't resolve latest release tag; falling back to 'latest' (build-time resolution)."
     fi
 
+    $(compose_cmd) build || { err "Build failed; the running container was left as it is."; exit 1; }
+    container_down
     $(compose_cmd) up -d --build
 }
 
