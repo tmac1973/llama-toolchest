@@ -192,9 +192,8 @@ func (s *Server) handleHFDownload(w http.ResponseWriter, r *http.Request) {
 		From string `json:"from"`
 	}
 
-	if r.Header.Get("Content-Type") == "application/json" {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+	if isJSONRequest(r) {
+		if !decodeJSONBody(w, r, &req) {
 			return
 		}
 	} else {

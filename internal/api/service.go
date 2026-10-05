@@ -921,9 +921,8 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if r.Header.Get("Content-Type") == "application/json" {
-		if err := json.NewDecoder(r.Body).Decode(cfg); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+	if isJSONRequest(r) {
+		if !decodeJSONBody(w, r, cfg) {
 			return
 		}
 	} else {

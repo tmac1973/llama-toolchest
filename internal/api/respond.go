@@ -10,6 +10,23 @@ func isHTMX(r *http.Request) bool {
 	return r.Header.Get("HX-Request") == "true"
 }
 
+// isJSONRequest reports whether the request body is JSON. Handlers that
+// accept both JSON and form posts branch on this; it allows a charset
+// suffix, so "application/json; charset=utf-8" is not read as a form.
+func isJSONRequest(r *http.Request) bool {
+	return isJSONContentType(r.Header.Get("Content-Type"))
+}
+
+// decodeJSONBody decodes the request body into v. On failure it answers
+// 400 and returns false, and the handler should return.
+func decodeJSONBody(w http.ResponseWriter, r *http.Request, v any) bool {
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return false
+	}
+	return true
+}
+
 // respondJSON writes v as JSON with the appropriate Content-Type header.
 func respondJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")

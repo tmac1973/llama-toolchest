@@ -3,7 +3,6 @@ package api
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"html"
 	"log/slog"
@@ -226,9 +225,8 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Support both JSON and form-encoded
-	if r.Header.Get("Content-Type") == "application/json" {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+	if isJSONRequest(r) {
+		if !decodeJSONBody(w, r, &req) {
 			return
 		}
 	} else {
@@ -242,7 +240,7 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 	// Collect option overrides and extra cmake flags from form
 	var optionOverrides map[string]bool
 	var extraCMake string
-	if r.Header.Get("Content-Type") != "application/json" {
+	if !isJSONRequest(r) {
 		options := builder.ProfileOptions(req.Profile)
 		optionOverrides = make(map[string]bool)
 		for _, opt := range options {
