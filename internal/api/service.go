@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"log/slog"
 	"net/http"
 	"sort"
@@ -118,21 +117,7 @@ func (s *Server) handleServiceStatus(w http.ResponseWriter, r *http.Request) {
 
 	if isHTMX(r) {
 		respondHTML(w)
-		var badge string
-		switch status.State {
-		case process.StateRunning:
-			badge = `<ins>Running</ins>`
-		case process.StateStarting:
-			badge = `<mark>Starting...</mark>`
-		case process.StateFailed:
-			badge = fmt.Sprintf(`<del>Failed</del> <small style="color:var(--pico-del-color)">%s</small>`, html.EscapeString(status.Error))
-		default:
-			badge = `Stopped`
-		}
-		if status.Uptime != "" {
-			badge += fmt.Sprintf(` <small>(%s)</small>`, status.Uptime)
-		}
-		fmt.Fprint(w, badge)
+		s.renderPartial(w, "service_badge", status)
 		return
 	}
 
@@ -314,19 +299,7 @@ func (s *Server) renderLoadedModelsHTML(w http.ResponseWriter) {
 		return
 	}
 
-	fmt.Fprint(w, `<div style="margin-top: 0.5rem;"><small><strong>Models:</strong></small>`)
-	for _, m := range routerModels {
-		name := html.EscapeString(m.ID)
-		switch m.Status.Value {
-		case "loaded":
-			fmt.Fprintf(w, `<br><small>&nbsp;&nbsp;● %s</small>`, name)
-		case "loading":
-			fmt.Fprintf(w, `<br><small>&nbsp;&nbsp;● %s <mark style="padding:0 0.2rem;">loading</mark></small>`, name)
-		default: // "unloaded" or empty
-			fmt.Fprintf(w, `<br><small>&nbsp;&nbsp;○ %s</small>`, name)
-		}
-	}
-	fmt.Fprint(w, `</div>`)
+	s.renderPartial(w, "loaded_models", routerModels)
 }
 
 func (s *Server) handleServiceLogTabs(w http.ResponseWriter, r *http.Request) {

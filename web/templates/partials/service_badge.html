@@ -1,0 +1,24 @@
+{{/* service_badge is the router's state as one short inline badge, polled
+     into the status line. Data: process.Status. It sits inside a line of
+     text, so the template trims its own whitespace. */}}
+{{define "service_badge" -}}
+{{if eq .State "running"}}<ins>Running</ins>
+{{- else if eq .State "starting"}}<mark>Starting...</mark>
+{{- else if eq .State "failed"}}<del>Failed</del> <small style="color:var(--pico-del-color)">{{.Error}}</small>
+{{- else}}Stopped
+{{- end}}
+{{- with .Uptime}} <small>({{.}})</small>{{end}}
+{{- end}}
+
+{{/* loaded_models lists the models the running router knows, with a
+     filled dot for a loaded one. Data: []process.ModelStatus, not empty. */}}
+{{define "loaded_models" -}}
+<div style="margin-top: 0.5rem;"><small><strong>Models:</strong></small>
+{{- range .}}
+    {{- if eq .Status.Value "loaded"}}<br><small>&nbsp;&nbsp;● {{.ID}}</small>
+    {{- else if eq .Status.Value "loading"}}<br><small>&nbsp;&nbsp;● {{.ID}} <mark style="padding:0 0.2rem;">loading</mark></small>
+    {{- else}}<br><small>&nbsp;&nbsp;○ {{.ID}}</small>
+    {{- end}}
+{{- end -}}
+</div>
+{{- end}}
