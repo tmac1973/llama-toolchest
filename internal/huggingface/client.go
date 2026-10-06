@@ -16,6 +16,11 @@ import (
 
 const baseURL = "https://huggingface.co/api"
 
+// Client must stay interchangeable with the other model sources: the API
+// layer picks one by source id without any handler, template or struct
+// knowing which it got.
+var _ modelsource.Client = (*Client)(nil)
+
 // Client is a HuggingFace API client.
 type Client struct {
 	httpClient *http.Client

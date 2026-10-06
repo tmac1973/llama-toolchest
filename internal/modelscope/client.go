@@ -45,6 +45,11 @@ const (
 	searchLimit = 50
 )
 
+// Client must stay interchangeable with the other model sources: the API
+// layer picks one by source id without any handler, template or struct
+// knowing which it got.
+var _ modelsource.Client = (*Client)(nil)
+
 // Client is a ModelScope API client. An empty token is fine: the public
 // repositories, which is all of them that matter here, need no auth.
 type Client struct {
