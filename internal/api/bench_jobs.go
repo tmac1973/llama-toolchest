@@ -885,12 +885,12 @@ func (s *Server) renderJobDetail(w http.ResponseWriter, job *benchmark.Benchmark
 			}
 		}
 		if c.Error != "" {
-			row.ErrorShort = truncateText(c.Error, 80)
+			row.ErrorShort = models.TruncateText(c.Error, 80)
 		}
 		if c.SkipReason != "" {
 			// Informational, not an error: the cell completed with a
 			// known answer (the KL reference model's own cell).
-			row.SkipShort = truncateText(c.SkipReason, 80)
+			row.SkipShort = models.TruncateText(c.SkipReason, 80)
 		}
 		rows = append(rows, row)
 	}

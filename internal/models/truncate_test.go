@@ -1,7 +1,10 @@
-package api
+package models
 
 import "testing"
 
+// Text cut for display (model card quotes, llama-server output, labels)
+// keeps whole characters: a byte slice could split a multi-byte one and
+// leave invalid UTF-8 on the page.
 func TestTruncateText(t *testing.T) {
 	cases := []struct {
 		in   string
@@ -15,8 +18,8 @@ func TestTruncateText(t *testing.T) {
 		{"éééé", 3, "ééé…"},
 	}
 	for _, c := range cases {
-		if got := truncateText(c.in, c.max); got != c.want {
-			t.Errorf("truncateText(%q, %d) = %q, want %q", c.in, c.max, got, c.want)
+		if got := TruncateText(c.in, c.max); got != c.want {
+			t.Errorf("TruncateText(%q, %d) = %q, want %q", c.in, c.max, got, c.want)
 		}
 	}
 }
