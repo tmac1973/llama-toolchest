@@ -131,11 +131,11 @@ Each item has a checkbox; tick it in the PR that fixes it.
 ### Dependencies
 - [x] Windows-only advisory, not called — `golang.org/x/sys@v0.41.0 (v0.41.0 -> v0.48.0)`
 - [x] Direct dependency patch update — `github.com/shirou/gopsutil/v4@v4.26.3 (v4.26.3 -> v4.26.9)`
-- [ ] Indirect dependencies outdated — `purego@v0.10.0 (-> v0.11.1)`, `go-sysconf@v0.3.16 (-> v0.4.0)`, `numcpus@v0.11.0 (-> v0.12.0)`, `go-ole@v1.2.6 (-> v1.3.0)` (all but go-ole updated in stage 1)
-- [ ] CUDA base image — `nvidia/cuda:12.8.1-devel-ubuntu24.04 (12.8 -> 13.x)`
-- [ ] CPU base image — `debian:bookworm-slim (bookworm -> trixie-slim)`
-- [ ] Vendored htmx — `web/static/htmx.min.js@2.0.4 (-> latest 2.0.x)`
-- [ ] Vendored Pico CSS — `web/static/pico.min.css@2.0.6 (-> 2.1.x)`
+- [x] Indirect dependencies outdated — `purego@v0.10.0 (-> v0.11.1)`, `go-sysconf@v0.3.16 (-> v0.4.0)`, `numcpus@v0.11.0 (-> v0.12.0)`, `go-ole@v1.2.6 (-> v1.3.0)` (updated in stage 1; go-ole in stage 5)
+- [x] CUDA base image — `nvidia/cuda:12.8.1-devel-ubuntu24.04 (12.8 -> 13.x)` *(stage 5: deliberately kept on 12.8. CUDA 13 needs NVIDIA driver 580 or newer and drops Pascal and Volta GPUs. compute2 runs Debian 13's packaged driver, 550.163, which runs the 12.8 image through CUDA 12.x minor-version compatibility but cannot run CUDA 13. Revisit when the distributions ship a 580+ driver.)*
+- [x] CPU base image — `debian:bookworm-slim (bookworm -> trixie-slim)`
+- [x] Vendored htmx — `web/static/htmx.min.js@2.0.4 (-> latest 2.0.x)`
+- [x] Vendored Pico CSS — `web/static/pico.min.css@2.0.6 (-> 2.1.x)`
 
 ---
 
