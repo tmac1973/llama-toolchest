@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.35.0](https://github.com/tmac1973/llama-toolchest/compare/v2.34.10...v2.35.0) (2026-10-06)
+
+
+### Features
+
+* restart the server from the Models tab ([#258](https://github.com/tmac1973/llama-toolchest/issues/258)) ([793e96a](https://github.com/tmac1973/llama-toolchest/commit/793e96a1efefeb3bd332e9ab8e332d61f9662fbf))
+
+
+### Bug Fixes
+
+* Configure form stopped saving when Top P came from the model file ([#257](https://github.com/tmac1973/llama-toolchest/issues/257)) ([19852ff](https://github.com/tmac1973/llama-toolchest/commit/19852ff34581afe87ba3af665e4bfdd8178be058))
+
 ## [2.34.10](https://github.com/tmac1973/llama-toolchest/compare/v2.34.9...v2.34.10) (2026-10-06)
 
 
