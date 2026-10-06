@@ -444,7 +444,7 @@ func (s *Server) validateBatchMatrix(modelIDs []string, overrides *benchmark.Con
 
 	if len(batches) > 0 && len(ubatches) > 0 {
 		if ok, total := viable(batches, ubatches); ok == 0 && total > 0 {
-			return fmt.Errorf("no batch / micro-batch combination in this job can run: every micro-batch value exceeds every batch value")
+			return errors.New("no batch / micro-batch combination in this job can run: every micro-batch value exceeds every batch value")
 		}
 	}
 
@@ -548,7 +548,7 @@ func (s *Server) validateKLJob(req jobCreateRequest) error {
 			return nil // at least one model's cells would run
 		}
 	}
-	return fmt.Errorf("every KL-divergence cell in this job would be the reference model's own cell — each selected model resolves to itself as its reference. Add a second quant of one of the repos, or pick a different KL reference model")
+	return errors.New("every KL-divergence cell in this job would be the reference model's own cell — each selected model resolves to itself as its reference. Add a second quant of one of the repos, or pick a different KL reference model")
 }
 
 // checkKLReferenceIsSameModel refuses a KL reference that is provably a

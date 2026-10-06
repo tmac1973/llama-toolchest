@@ -102,7 +102,7 @@ func (e *jobEnv) CheckBuildRunnable(ctx context.Context, buildID string) error {
 // waiting up to 2 minutes for /health to pass.
 func (e *jobEnv) EnsureBuildActive(ctx context.Context, buildID string, configFollows bool) error {
 	if buildID == "" {
-		return fmt.Errorf("empty build id")
+		return errors.New("empty build id")
 	}
 
 	// Find the build and verify it's a successful one we can run.
@@ -364,7 +364,7 @@ func (e *jobEnv) StopRouterForEval(ctx context.Context) error {
 		}
 	}
 	if e.s.process.IsRunning() {
-		return fmt.Errorf("router did not stop in time for the evaluation")
+		return errors.New("router did not stop in time for the evaluation")
 	}
 	slog.Info("router stopped for evaluation")
 	return nil

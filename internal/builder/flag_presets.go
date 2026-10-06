@@ -2,6 +2,7 @@ package builder
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -125,7 +126,7 @@ func (b *Builder) SaveFlagPreset(p FlagPreset) error {
 		return fmt.Errorf("invalid name %q: lowercase letters, digits, and hyphens", p.Name)
 	}
 	if p.Profile == "" {
-		return fmt.Errorf("a flag preset needs a profile")
+		return errors.New("a flag preset needs a profile")
 	}
 	migrateFlagPreset(&p)
 	b.fpMu.Lock()

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -707,7 +708,7 @@ func (r *Runner) sendCompletionWithTimings(ctx context.Context, routerURL, model
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
 	if result.Timings.PredictedN == 0 {
-		return nil, fmt.Errorf("no timings in response")
+		return nil, errors.New("no timings in response")
 	}
 
 	return &result.Timings, nil

@@ -461,7 +461,7 @@ func (s *Server) startRouterWith(opt routerOptions) error {
 	// to the successful build with the newest GitRef.
 	build := s.resolveBuild(buildID)
 	if build == nil || build.BinaryPath == "" {
-		return fmt.Errorf("no compiled build available — build llama.cpp first")
+		return errors.New("no compiled build available — build llama.cpp first")
 	}
 
 	// A benchmark start writes its substitute config to a separate preset

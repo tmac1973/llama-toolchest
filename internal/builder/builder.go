@@ -311,7 +311,7 @@ func (b *Builder) Build(ctx context.Context, profile string, gitRef string, tag 
 	}
 
 	if prof.Backend == "vulkan" && RunningInContainer() {
-		return nil, fmt.Errorf("vulkan builds are only supported in host mode, not inside containers")
+		return nil, errors.New("vulkan builds are only supported in host mode, not inside containers")
 	}
 
 	tag = strings.ToLower(strings.TrimSpace(tag))
@@ -920,7 +920,7 @@ func (b *Builder) FetchRefs() ([]string, error) {
 		// Includes the half-finished-clone case. Repairing one means
 		// re-cloning, which belongs to a build with its own log stream
 		// and no request timeout over it, not to this handler.
-		return nil, fmt.Errorf("llama.cpp repo not cloned yet — run a build first")
+		return nil, errors.New("llama.cpp repo not cloned yet — run a build first")
 	}
 
 	// Sweep anything an earlier killed fetch left behind before starting

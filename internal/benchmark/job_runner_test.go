@@ -3,6 +3,7 @@ package benchmark
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -201,7 +202,7 @@ func (f *fakeEnv) EvalBinary(string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.evalBinary == "" {
-		return "", fmt.Errorf("build b has no llama-perplexity binary — it predates the binary's installation; rebuild the build to install it")
+		return "", errors.New("build b has no llama-perplexity binary — it predates the binary's installation; rebuild the build to install it")
 	}
 	return f.evalBinary, nil
 }
@@ -281,7 +282,7 @@ func (f *fakeEnv) EvalFlags(modelID string, snap ConfigSnapshot, _ string) ([]st
 // generation.
 func (f *fakeEnv) EnsureKLBase(ctx context.Context, ref ModelInfo, underTest ConfigSnapshot, chunks int, _ string, progress func(string)) (string, error) {
 	if f.dataDir == "" {
-		return "", fmt.Errorf("fake env has no data dir")
+		return "", errors.New("fake env has no data dir")
 	}
 	// Record what the reference would actually be generated at, so a
 	// test can assert both sides of the comparison match.

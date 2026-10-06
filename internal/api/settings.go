@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"html"
 	"log/slog"
@@ -286,17 +287,17 @@ func validateModelsDir(path string) error {
 		return nil
 	}
 	if !filepath.IsAbs(path) {
-		return fmt.Errorf("must be an absolute path")
+		return errors.New("must be an absolute path")
 	}
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("path does not exist")
+			return errors.New("path does not exist")
 		}
 		return err
 	}
 	if !info.IsDir() {
-		return fmt.Errorf("not a directory")
+		return errors.New("not a directory")
 	}
 	// Check readability — opening the dir is a cheap proxy.
 	dh, err := os.Open(path)

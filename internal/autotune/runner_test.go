@@ -3,7 +3,7 @@ package autotune
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -56,7 +56,7 @@ func (e *fakeEnv) ApplyEphemeralConfig(_ context.Context, _ string, cfg benchmar
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.failWhen != nil && e.failWhen(cfg) {
-		return fmt.Errorf("this machine cannot run that setting")
+		return errors.New("this machine cannot run that setting")
 	}
 	e.current = cfg
 	return nil
@@ -88,21 +88,21 @@ func (e *fakeEnv) HFCacheDir() string { return "" }
 // Capability cells are never part of an autotune, so these are here only
 // to satisfy the interface.
 func (e *fakeEnv) StopRouterForEval(context.Context) error { return nil }
-func (e *fakeEnv) EvalBinary(string) (string, error)       { return "", fmt.Errorf("not used") }
+func (e *fakeEnv) EvalBinary(string) (string, error)       { return "", errors.New("not used") }
 func (e *fakeEnv) EnsureEvalData(context.Context, evaluate.Mode) (string, error) {
-	return "", fmt.Errorf("not used")
+	return "", errors.New("not used")
 }
 func (e *fakeEnv) ResolveKLReference(string, string) (benchmark.ModelInfo, error) {
-	return benchmark.ModelInfo{}, fmt.Errorf("not used")
+	return benchmark.ModelInfo{}, errors.New("not used")
 }
 func (e *fakeEnv) EvalFlags(string, benchmark.ConfigSnapshot, string) ([]string, error) {
-	return nil, fmt.Errorf("not used")
+	return nil, errors.New("not used")
 }
 func (e *fakeEnv) EnsureKLBase(context.Context, benchmark.ModelInfo, benchmark.ConfigSnapshot, int, string, func(string)) (string, error) {
-	return "", fmt.Errorf("not used")
+	return "", errors.New("not used")
 }
 func (e *fakeEnv) RunEval(context.Context, evaluate.Spec) (evaluate.Result, error) {
-	return evaluate.Result{}, fmt.Errorf("not used")
+	return evaluate.Result{}, errors.New("not used")
 }
 func (e *fakeEnv) MeasuredMemory(string) (benchmark.MemorySnapshot, bool) {
 	return benchmark.MemorySnapshot{}, false

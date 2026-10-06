@@ -319,7 +319,7 @@ func (c *ModelConfig) EffectiveUBatchSize() int {
 // clamped by llama.cpp at load time.
 func (c *ModelConfig) ValidateBatchSizes() error {
 	if c.BatchSize < 0 || c.UBatchSize < 0 {
-		return fmt.Errorf("batch sizes cannot be negative")
+		return errors.New("batch sizes cannot be negative")
 	}
 	b, ub := c.EffectiveBatchSize(), c.EffectiveUBatchSize()
 	if ub > b {
@@ -342,7 +342,7 @@ func (c *ModelConfig) ValidateBatchSizes() error {
 // saved and the model would load with flash attention on regardless.
 func (c *ModelConfig) ValidateFlashAttention() error {
 	if !c.FlashAttention && c.SplitMode == "tensor" {
-		return fmt.Errorf("flash attention cannot be turned off while the GPU assignment splits by tensor — llama.cpp refuses to load that combination; choose a layer split, or leave flash attention on")
+		return errors.New("flash attention cannot be turned off while the GPU assignment splits by tensor — llama.cpp refuses to load that combination; choose a layer split, or leave flash attention on")
 	}
 	// The second of llama.cpp's two requirements, and the one a user is
 	// more likely to meet by accident: a quantized cache is a common
