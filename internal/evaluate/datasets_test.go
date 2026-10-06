@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -184,7 +185,7 @@ func TestEnsureDatasetHashMismatch(t *testing.T) {
 
 	// Nothing left behind: no final file, no temp file.
 	entries, err := os.ReadDir(filepath.Join(root, "datasets"))
-	if err != nil && !os.IsNotExist(err) {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		t.Fatal(err)
 	}
 	for _, e := range entries {

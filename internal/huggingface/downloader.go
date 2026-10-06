@@ -164,7 +164,7 @@ func (d *Downloader) Start(ctx context.Context, source, modelID, filename string
 	if existing, exists := d.active[downloadID]; exists {
 		if s := existing.last(); s.Status == "downloading" {
 			d.mu.Unlock()
-			return downloadID, fmt.Errorf("download already in progress")
+			return downloadID, errors.New("download already in progress")
 		}
 		// Terminal entry still inside its 30s late-subscriber grace window —
 		// evict it so a paused/failed download can be resumed immediately.
@@ -474,7 +474,7 @@ func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, model
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
-		return 0, fmt.Errorf("HTTP %d", resp.StatusCode)
+		return 0, fmt.Errorf("download server returned HTTP %d", resp.StatusCode)
 	}
 
 	// Whether the body is the whole file or just the tail we asked for
@@ -547,7 +547,7 @@ func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, model
 			})
 		}
 
-		if readErr == io.EOF {
+		if errors.Is(readErr, io.EOF) {
 			break
 		}
 		if readErr != nil {

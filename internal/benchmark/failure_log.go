@@ -3,6 +3,8 @@ package benchmark
 import (
 	"regexp"
 	"strings"
+
+	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
 // Why a run failed, as llama-server said it.
@@ -168,9 +170,7 @@ func withServerReason(headline string, lines []string) string {
 		return headline
 	}
 	reason := failureReason(lines)
-	if len(reason) > maxFailureReasonLen {
-		reason = reason[:maxFailureReasonLen] + "…"
-	}
+	reason = models.TruncateText(reason, maxFailureReasonLen)
 	return headline + serverReasonSep + reason
 }
 

@@ -1,0 +1,16 @@
+{{/* The options of the Builds form's git ref picker. Data:
+     gitRefOptionsData (build.go). Tag names come from the upstream
+     remote; the template escapes them. */}}
+{{define "git_ref_options"}}
+<option value="latest">latest</option>
+{{- range .Groups}}
+<optgroup label="{{.Label}}">
+    {{- range .Refs}}
+    <option value="{{.Ref}}">{{.Ref}}{{if .HasAnchor}} (b{{.Anchor}}){{end}}</option>
+    {{- end}}
+</optgroup>
+{{- end}}
+{{- with .Error}}
+<option disabled>— {{.}} —</option>
+{{- end}}
+{{end}}

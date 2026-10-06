@@ -196,7 +196,7 @@
 // --- Copy the value from a button's data-copy to clipboard (flash a check) ---
 // Falls back to a hidden textarea + execCommand when the async clipboard API
 // is unavailable (non-secure contexts — HTTP on a LAN IP, etc).
-function copyFromButton(btn) {
+async function copyFromButton(btn) {
     var text = btn.dataset.copy || '';
     var flashCheck = function() {
         var originalIcon = btn.dataset.icon;
@@ -216,7 +216,12 @@ function copyFromButton(btn) {
         flashCheck();
     };
     if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(text).then(flashCheck).catch(fallback);
+        try {
+            await navigator.clipboard.writeText(text);
+            flashCheck();
+        } catch (e) {
+            fallback();
+        }
     } else {
         fallback();
     }

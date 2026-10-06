@@ -444,7 +444,7 @@ func (s *Server) validateBatchMatrix(modelIDs []string, overrides *benchmark.Con
 
 	if len(batches) > 0 && len(ubatches) > 0 {
 		if ok, total := viable(batches, ubatches); ok == 0 && total > 0 {
-			return fmt.Errorf("no batch / micro-batch combination in this job can run: every micro-batch value exceeds every batch value")
+			return errors.New("no batch / micro-batch combination in this job can run: every micro-batch value exceeds every batch value")
 		}
 	}
 
@@ -548,7 +548,7 @@ func (s *Server) validateKLJob(req jobCreateRequest) error {
 			return nil // at least one model's cells would run
 		}
 	}
-	return fmt.Errorf("every KL-divergence cell in this job would be the reference model's own cell — each selected model resolves to itself as its reference. Add a second quant of one of the repos, or pick a different KL reference model")
+	return errors.New("every KL-divergence cell in this job would be the reference model's own cell — each selected model resolves to itself as its reference. Add a second quant of one of the repos, or pick a different KL reference model")
 }
 
 // checkKLReferenceIsSameModel refuses a KL reference that is provably a
@@ -595,7 +595,7 @@ func (s *Server) checkKLReferenceIsSameModel(modelID, refID string) error {
 	refuse := func(because string) error {
 		return fmt.Errorf(
 			"%s cannot be the KL reference for %s — %s. KL divergence compares a model with a compressed copy of ITSELF; between two different models the result does not mean anything. Pick another quantization of %s, or leave the reference on automatic",
-			shortenModelName(ref.ModelID), shortenModelName(model.ModelID), because, shortenModelName(model.ModelID))
+			models.ShortModelName(ref.ModelID), models.ShortModelName(model.ModelID), because, models.ShortModelName(model.ModelID))
 	}
 
 	if model.BaseModelRepo != "" && ref.BaseModelRepo != "" && model.BaseModelRepo != ref.BaseModelRepo {
@@ -794,8 +794,8 @@ func (s *Server) renderAdhocDetail(w http.ResponseWriter) {
 		`<span id="job-status-%[1]s" hx-swap-oob="true" class="job-status status-%[2]s" title="status: %[2]s">%[2]s</span>`,
 		benchmark.AdhocJobID, status)
 	fmt.Fprintf(w,
-		`<span id="job-progress-%s" hx-swap-oob="true" class="job-progress">%d run%s</span>`,
-		benchmark.AdhocJobID, len(runs), pluralS(len(runs)))
+		`<span id="job-progress-%s" hx-swap-oob="true" class="job-progress">%d %s</span>`,
+		benchmark.AdhocJobID, len(runs), plural(len(runs), "run", "runs"))
 
 	if running {
 		fmt.Fprintf(w,
@@ -848,7 +848,7 @@ func (s *Server) renderJobDetail(w http.ResponseWriter, job *benchmark.Benchmark
 		case benchmark.CellStatusFailed:
 			failed++
 		}
-		row := cellRow{Idx: i, Cell: c, ModelName: shortenModelName(c.ModelID), BuildLbl: c.BuildID, TGTPS: "—", PPTPS: "—", Score: "—"}
+		row := cellRow{Idx: i, Cell: c, ModelName: models.ShortModelName(c.ModelID), BuildLbl: c.BuildID, TGTPS: "—", PPTPS: "—", Score: "—"}
 		row.ProfileLbl, row.ProfileTip = cellProfileLabel(job, c)
 		// Pull Quant from the registry first so pending cells (no run
 		// yet) still show it; the run's value wins once it exists.
@@ -885,18 +885,12 @@ func (s *Server) renderJobDetail(w http.ResponseWriter, job *benchmark.Benchmark
 			}
 		}
 		if c.Error != "" {
-			row.ErrorShort = c.Error
-			if len(row.ErrorShort) > 80 {
-				row.ErrorShort = row.ErrorShort[:80] + "…"
-			}
+			row.ErrorShort = models.TruncateText(c.Error, 80)
 		}
 		if c.SkipReason != "" {
 			// Informational, not an error: the cell completed with a
 			// known answer (the KL reference model's own cell).
-			row.SkipShort = c.SkipReason
-			if len(row.SkipShort) > 80 {
-				row.SkipShort = row.SkipShort[:80] + "…"
-			}
+			row.SkipShort = models.TruncateText(c.SkipReason, 80)
 		}
 		rows = append(rows, row)
 	}

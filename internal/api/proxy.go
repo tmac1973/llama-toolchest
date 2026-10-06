@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -140,7 +141,7 @@ func (s *Server) ensureModelLoadedForRequest(ctx context.Context, body []byte) e
 	// router preset" error below would send the user looking in the wrong
 	// place.
 	if !s.process.IsRunning() {
-		return fmt.Errorf("the router is not running; start it on the Server page")
+		return errors.New("the router is not running; start it on the Server page")
 	}
 	state, knownToRouter := s.lookupRouterState(routerName, regModel)
 	if state == "loaded" {

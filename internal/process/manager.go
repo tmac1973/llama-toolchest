@@ -3,6 +3,7 @@ package process
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -160,7 +161,7 @@ func (m *Manager) Stop() error {
 	m.mu.Lock()
 	if m.cmd == nil || m.cmd.Process == nil {
 		m.mu.Unlock()
-		return fmt.Errorf("router not running")
+		return errors.New("router not running")
 	}
 	cmd := m.cmd
 	cancel := m.cancel
@@ -199,7 +200,7 @@ func (m *Manager) Restart() error {
 	m.mu.Unlock()
 
 	if cfg == nil {
-		return fmt.Errorf("no config to restart with")
+		return errors.New("no config to restart with")
 	}
 	cfgCopy := *cfg
 
@@ -244,7 +245,7 @@ func (m *Manager) WaitRunning(ctx context.Context) error {
 		case StateRunning:
 			return nil
 		case StateStopped:
-			return fmt.Errorf("router stopped before it was ready")
+			return errors.New("router stopped before it was ready")
 		case StateFailed:
 			if reason == "" {
 				reason = "unknown error"
@@ -300,7 +301,7 @@ func (m *Manager) routerBase() (string, error) {
 	url := m.routerURL
 	m.mu.Unlock()
 	if url == "" {
-		return "", fmt.Errorf("router not running")
+		return "", errors.New("router not running")
 	}
 	return url, nil
 }

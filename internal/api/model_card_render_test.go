@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"html"
 	"strings"
 	"testing"
 
@@ -40,7 +41,7 @@ func TestModelCardIncomplete(t *testing.T) {
 	if !strings.Contains(out, `hx-post="/api/hf/download"`) {
 		t.Errorf("expected Resume to post to download endpoint; output=\n%s", out)
 	}
-	if !strings.Contains(out, `"filename":"model-00001-of-00003.gguf"`) {
+	if !strings.Contains(html.UnescapeString(out), `"filename":"model-00001-of-00003.gguf"`) {
 		t.Errorf("expected resume filename in hx-vals; output=\n%s", out)
 	}
 	if !strings.Contains(out, "disabled") {

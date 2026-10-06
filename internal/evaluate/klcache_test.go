@@ -1,6 +1,7 @@
 package evaluate
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -144,7 +145,7 @@ func TestKLBaseListHasDelete(t *testing.T) {
 	if err := DeleteKLBase(root, k1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(p1); !os.IsNotExist(err) {
+	if _, err := os.Stat(p1); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("k1 still present after delete")
 	}
 	if err := DeleteKLBase(root, k1); err != nil {
@@ -205,7 +206,7 @@ func TestCleanStalePartials(t *testing.T) {
 		KLBasePartialPath(root, k2),
 		filepath.Join(logits, "other.partial"),
 	} {
-		if _, err := os.Stat(p); !os.IsNotExist(err) {
+		if _, err := os.Stat(p); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("%s still present after CleanStalePartials", p)
 		}
 	}
@@ -426,7 +427,7 @@ func TestLegacyFilenameListsButNeverServes(t *testing.T) {
 	if err := DeleteKLBaseFile(root, legacy); err != nil {
 		t.Errorf("legacy entry cannot be deleted: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, legacy)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, legacy)); !errors.Is(err, os.ErrNotExist) {
 		t.Error("legacy entry still on disk after delete")
 	}
 }

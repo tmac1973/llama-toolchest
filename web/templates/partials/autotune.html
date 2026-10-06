@@ -156,7 +156,7 @@
         {{end}}
         <button type="button"
                 hx-post="/api/models/{{$.ModelID}}/autotune/restore"
-                hx-vals='{"profile": "{{.ProfileName}}"}'
+                hx-vals='{{hxVals "profile" .ProfileName}}'
                 hx-target="#autotune-{{cssID $.ModelID}}" hx-swap="innerHTML"
                 title="Puts these settings into use. They take effect the next time this model loads; the profile stays saved either way.">
             Use these settings

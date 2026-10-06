@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"log/slog"
 	"net/http"
 	"sort"
@@ -118,21 +117,7 @@ func (s *Server) handleServiceStatus(w http.ResponseWriter, r *http.Request) {
 
 	if isHTMX(r) {
 		respondHTML(w)
-		var badge string
-		switch status.State {
-		case process.StateRunning:
-			badge = `<ins>Running</ins>`
-		case process.StateStarting:
-			badge = `<mark>Starting...</mark>`
-		case process.StateFailed:
-			badge = fmt.Sprintf(`<del>Failed</del> <small style="color:var(--pico-del-color)">%s</small>`, html.EscapeString(status.Error))
-		default:
-			badge = `Stopped`
-		}
-		if status.Uptime != "" {
-			badge += fmt.Sprintf(` <small>(%s)</small>`, status.Uptime)
-		}
-		fmt.Fprint(w, badge)
+		s.renderPartial(w, "service_badge", status)
 		return
 	}
 
@@ -314,19 +299,7 @@ func (s *Server) renderLoadedModelsHTML(w http.ResponseWriter) {
 		return
 	}
 
-	fmt.Fprint(w, `<div style="margin-top: 0.5rem;"><small><strong>Models:</strong></small>`)
-	for _, m := range routerModels {
-		name := html.EscapeString(m.ID)
-		switch m.Status.Value {
-		case "loaded":
-			fmt.Fprintf(w, `<br><small>&nbsp;&nbsp;● %s</small>`, name)
-		case "loading":
-			fmt.Fprintf(w, `<br><small>&nbsp;&nbsp;● %s <mark style="padding:0 0.2rem;">loading</mark></small>`, name)
-		default: // "unloaded" or empty
-			fmt.Fprintf(w, `<br><small>&nbsp;&nbsp;○ %s</small>`, name)
-		}
-	}
-	fmt.Fprint(w, `</div>`)
+	s.renderPartial(w, "loaded_models", routerModels)
 }
 
 func (s *Server) handleServiceLogTabs(w http.ResponseWriter, r *http.Request) {
@@ -461,7 +434,7 @@ func (s *Server) startRouterWith(opt routerOptions) error {
 	// to the successful build with the newest GitRef.
 	build := s.resolveBuild(buildID)
 	if build == nil || build.BinaryPath == "" {
-		return fmt.Errorf("no compiled build available — build llama.cpp first")
+		return errors.New("no compiled build available — build llama.cpp first")
 	}
 
 	// A benchmark start writes its substitute config to a separate preset
@@ -1030,24 +1003,16 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		if r.Form.Has("draft_model_path") {
 			cfg.DraftModelPath = r.FormValue("draft_model_path")
 		}
-		if v, err := strconv.Atoi(r.FormValue("draft_max")); err == nil && v > 0 {
-			cfg.DraftMax = v
-		} else {
-			cfg.DraftMax = 0
-		}
-		if v, err := strconv.Atoi(r.FormValue("draft_min")); err == nil && v > 0 {
-			cfg.DraftMin = v
-		} else {
-			cfg.DraftMin = 0
-		}
-		cfg.DraftPMin = r.FormValue("draft_p_min")
-		cfg.SpecAssist = r.FormValue("spec_assist")
 		atoiField := func(name string) int {
 			if v, err := strconv.Atoi(r.FormValue(name)); err == nil && v > 0 {
 				return v
 			}
 			return 0
 		}
+		cfg.DraftMax = atoiField("draft_max")
+		cfg.DraftMin = atoiField("draft_min")
+		cfg.DraftPMin = r.FormValue("draft_p_min")
+		cfg.SpecAssist = r.FormValue("spec_assist")
 		cfg.AssistNMax = atoiField("assist_n_max")
 		cfg.AssistNMin = atoiField("assist_n_min")
 		cfg.AssistNMatch = atoiField("assist_n_match")
@@ -1060,22 +1025,10 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		cfg.NgramSizeM = 0
 
 		// Draft model resource overrides (spec_type=draft only).
-		if v, err := strconv.Atoi(r.FormValue("draft_ctx_size")); err == nil && v > 0 {
-			cfg.DraftCtxSize = v
-		} else {
-			cfg.DraftCtxSize = 0
-		}
-		if v, err := strconv.Atoi(r.FormValue("draft_gpu_layers")); err == nil && v > 0 {
-			cfg.DraftGPULayers = v
-		} else {
-			cfg.DraftGPULayers = 0
-		}
+		cfg.DraftCtxSize = atoiField("draft_ctx_size")
+		cfg.DraftGPULayers = atoiField("draft_gpu_layers")
 		cfg.DraftDevice = strings.TrimSpace(r.FormValue("draft_device"))
-		if v, err := strconv.Atoi(r.FormValue("draft_cpu_moe")); err == nil && v > 0 {
-			cfg.DraftCPUMoE = v
-		} else {
-			cfg.DraftCPUMoE = 0
-		}
+		cfg.DraftCPUMoE = atoiField("draft_cpu_moe")
 		cfg.DraftKVCacheQuant = r.FormValue("draft_kv_cache_quant")
 
 		// Populate recommended defaults only when the user actually switched

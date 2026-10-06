@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 )
@@ -15,7 +16,7 @@ type SSEWriter struct {
 func NewSSEWriter(w http.ResponseWriter) (*SSEWriter, error) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		return nil, fmt.Errorf("streaming not supported")
+		return nil, errors.New("streaming not supported")
 	}
 
 	w.Header().Set("Content-Type", "text/event-stream")

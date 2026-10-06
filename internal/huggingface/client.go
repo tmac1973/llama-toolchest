@@ -16,6 +16,11 @@ import (
 
 const baseURL = "https://huggingface.co/api"
 
+// Client must stay interchangeable with the other model sources: the API
+// layer picks one by source id without any handler, template or struct
+// knowing which it got.
+var _ modelsource.Client = (*Client)(nil)
+
 // Client is a HuggingFace API client.
 type Client struct {
 	httpClient *http.Client
@@ -79,7 +84,7 @@ func (c *Client) Search(ctx context.Context, query string) ([]ModelSearchResult,
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HF API returned %d", resp.StatusCode)
+		return nil, fmt.Errorf("Hugging Face API returned HTTP %d", resp.StatusCode)
 	}
 
 	var results []ModelSearchResult
@@ -106,7 +111,7 @@ func (c *Client) GetModel(ctx context.Context, modelID string) (*ModelDetail, er
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HF API returned %d", resp.StatusCode)
+		return nil, fmt.Errorf("Hugging Face API returned HTTP %d", resp.StatusCode)
 	}
 
 	var raw struct {

@@ -52,7 +52,7 @@
                 <button type="button" class="outline"
                         title="Resume the download — picks up from the files already on disk"
                         hx-post="/api/hf/download"
-                        hx-vals='{"model_id":"{{.ModelID}}","filename":"{{.ResumeFilename}}","size":"0"}'
+                        hx-vals='{{hxVals "model_id" .ModelID "filename" .ResumeFilename "size" "0"}}'
                         hx-target="#model-config-{{cssID .ID}}"
                         hx-swap="innerHTML">
                     Resume

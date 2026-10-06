@@ -3,6 +3,7 @@
 package monitor
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -39,7 +40,7 @@ func (r *rocmBackend) Collect() ([]GPUInfo, error) {
 func (r *rocmBackend) collectROCmSMI() ([]GPUInfo, error) {
 	smi := builder.FindROCmTool("rocm-smi")
 	if smi == "" {
-		return nil, fmt.Errorf("rocm-smi: not found")
+		return nil, errors.New("rocm-smi: not found")
 	}
 	out, err := exec.Command(smi,
 		"--showbus", "--showuse", "--showmemuse", "--showtemp", "--showpower",
@@ -50,7 +51,7 @@ func (r *rocmBackend) collectROCmSMI() ([]GPUInfo, error) {
 
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	if len(lines) < 2 {
-		return nil, fmt.Errorf("rocm-smi: unexpected output")
+		return nil, errors.New("rocm-smi: unexpected output")
 	}
 
 	// Parse CSV header to find column indices
@@ -72,7 +73,7 @@ func (r *rocmBackend) collectROCmSMI() ([]GPUInfo, error) {
 	// sysfs fallback (consistent by construction) takes over.
 	busCol, ok := colIdx["PCI Bus"]
 	if !ok {
-		return nil, fmt.Errorf("rocm-smi: no PCI Bus column")
+		return nil, errors.New("rocm-smi: no PCI Bus column")
 	}
 
 	// KFD-ordered device dirs: position N belongs to the GPU
@@ -90,7 +91,7 @@ func (r *rocmBackend) collectROCmSMI() ([]GPUInfo, error) {
 
 		gpu := GPUInfo{}
 		if busCol >= len(fields) {
-			return nil, fmt.Errorf("rocm-smi: row without PCI Bus field")
+			return nil, errors.New("rocm-smi: row without PCI Bus field")
 		}
 		bdf := strings.ToLower(strings.TrimSpace(fields[busCol]))
 		idx, ok := byBDF[bdf]
@@ -104,10 +105,6 @@ func (r *rocmBackend) collectROCmSMI() ([]GPUInfo, error) {
 		gpu.Index = idx
 		if i, ok := colIdx["GPU use (%)"]; ok && i < len(fields) {
 			gpu.UtilPercent, _ = strconv.Atoi(strings.TrimSpace(fields[i]))
-		}
-		if i, ok := colIdx["GPU memory use (%)"]; ok && i < len(fields) {
-			// rocm-smi reports percentage, we need to convert if we have total
-			_ = fields[i] // we'll get absolute values from sysfs if needed
 		}
 		if i, ok := colIdx["Temperature (Sensor edge) (C)"]; ok && i < len(fields) {
 			f, _ := strconv.ParseFloat(strings.TrimSpace(fields[i]), 64)
@@ -275,7 +272,7 @@ func (r *rocmBackend) collectSysfs() ([]GPUInfo, error) {
 	}
 
 	if len(gpus) == 0 {
-		return nil, fmt.Errorf("no AMD GPUs found in sysfs")
+		return nil, errors.New("no AMD GPUs found in sysfs")
 	}
 	return gpus, nil
 }

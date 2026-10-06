@@ -128,6 +128,10 @@ migrate_write_translated_config() {
             fi
             listen_addr=":${p:-3000}"
             data_dir="$(host_data_dir)"
+            # The container's models_dir is a path inside it (/data/models).
+            # On the host it is the folder that was bind-mounted there, if
+            # any; otherwise it is left out and the host default applies.
+            models_dir="${LLAMA_TOOLCHEST_MODELS_DIR:-}"
             ;;
         to-container)
             # Inside the container, listen_addr is always :3000. The
@@ -135,6 +139,14 @@ migrate_write_translated_config() {
             # mapped via compose.
             listen_addr=":3000"
             data_dir="/data"
+            # Inside the container the models folder is always /data/models.
+            # A custom host folder keeps working by being bind-mounted
+            # there: export it for write_env_file, as the port is below.
+            if [[ -n "$models_dir" ]]; then
+                LLAMA_TOOLCHEST_MODELS_DIR="$models_dir"
+                export LLAMA_TOOLCHEST_MODELS_DIR
+            fi
+            models_dir=""
             # Translate the host listen_addr to the .env port, so the
             # caller's compose run maps the right host port. Strip the
             # leading ':'.
@@ -199,7 +211,7 @@ migrate_translate_model_paths() {
                 then .draft_model_path = ($dst + (.draft_model_path | ltrimstr($src)))
                 else . end)
         ))
-    ' "$file" > "$tmp" && mv "$tmp" "$file" \
+    ' "$file" > "$tmp" 2>/dev/null && mv "$tmp" "$file" \
         || { rm -f "$tmp"; warn "jq translation failed; left $file unchanged"; return 1; }
     ok "Translated mmproj/draft paths: $src → $dst"
 }

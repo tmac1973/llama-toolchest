@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -174,7 +175,8 @@ Connection flags (pick one style):
 
 Request flags:
   -model MODEL      Model name to send in requests (optional)
-  -api-key KEY      API key for Authorization header (or set LLAMA_API_KEY)
+  -api-key KEY      API key for Authorization header. Prefer setting
+                    LLAMA_API_KEY: a flag value shows in ps and shell history
   -system PROMPT    Override the default system prompt
 
 Tool flags:
@@ -187,7 +189,7 @@ Examples:
   agent -host gpu-box -port 8080            # remote server, custom port
   agent -url https://my-server/v1/chat/completions  # full URL
   agent -model qwen3-32b -no-tools          # plain chat with specific model
-  agent -api-key sk-xxx -host api.example.com -port 443
+  LLAMA_API_KEY=sk-xxx agent -host api.example.com -port 443
 `)
 	os.Exit(0)
 }
@@ -446,7 +448,7 @@ func chat(url, model, apiKey string, messages []message, activeTools []tool) (st
 			}
 		}
 
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {

@@ -3,6 +3,7 @@ package huggingface
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -161,9 +162,9 @@ func (c *Client) getJSON(ctx context.Context, u string, v any) error {
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			if resp.StatusCode == http.StatusTooManyRequests {
-				return fmt.Errorf("Hugging Face is limiting requests from this address (HTTP 429); try again in a few minutes")
+				return errors.New("Hugging Face is limiting requests from this address (HTTP 429); try again in a few minutes")
 			}
-			return fmt.Errorf("HF API returned %d", resp.StatusCode)
+			return fmt.Errorf("Hugging Face API returned HTTP %d", resp.StatusCode)
 		}
 		return json.NewDecoder(resp.Body).Decode(v)
 	}

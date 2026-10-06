@@ -1,0 +1,34 @@
+{{/* The Builds form's option toggles, Extra CMake Flags and the
+     effective flag preview. It re-fetches itself whenever a toggle or
+     input changes. Data: buildOptionsData (build.go). */}}
+{{define "build_options"}}
+<div id="build-options"
+     hx-get="/api/builds/options"
+     hx-target="this"
+     hx-swap="outerHTML"
+     hx-trigger="change delay:300ms"
+     hx-include="#build-profile, #build-options input">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.25rem 1.5rem;margin-top:0.5rem;align-items:center;">
+        {{- range .Options}}
+        <label title="{{.Description}}" style="display:flex;align-items:center;gap:0.5rem;margin:0;white-space:nowrap;">
+            <input type="checkbox" name="opt_{{.Flag}}" role="switch"{{if .Checked}} checked{{end}} style="margin:0;">
+            {{.Label}}
+        </label>
+        {{- end}}
+    </div>
+    <label title="Additional cmake flags passed directly to the build. Use -DFLAG=VALUE format.">Extra CMake Flags
+        <input type="text" name="extra_cmake" value="{{.ExtraCMake}}" placeholder="-DFOO=BAR -DBAZ=ON">
+    </label>
+    {{- if .ShowEffective}}
+    <label title="The full set of cmake flags that will be passed to the build.">Effective CMake Flags
+        <input type="text" value="{{.EffectiveFlags}}" readonly style="opacity:0.7;cursor:default;font-size:0.85rem;">
+    </label>
+    {{- end}}
+</div>
+{{- with .PresetTag}}
+{{/* Fills the Build Tag with the applied preset's name, so the build is
+     labeled by the flag set that produced it. Must mirror the input's
+     markup in builds.html. */}}
+<input type="text" id="build-tag" name="tag" hx-swap-oob="outerHTML" value="{{.}}" placeholder="e.g. rocwmma" pattern="[a-z0-9][a-z0-9-]*" autocomplete="off">
+{{- end}}
+{{end}}

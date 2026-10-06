@@ -45,6 +45,11 @@ const (
 	searchLimit = 50
 )
 
+// Client must stay interchangeable with the other model sources: the API
+// layer picks one by source id without any handler, template or struct
+// knowing which it got.
+var _ modelsource.Client = (*Client)(nil)
+
 // Client is a ModelScope API client. An empty token is fine: the public
 // repositories, which is all of them that matter here, need no auth.
 type Client struct {
@@ -146,7 +151,7 @@ func (c *Client) Search(ctx context.Context, query string) ([]modelsource.Search
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("ModelScope API returned %d", resp.StatusCode)
+		return nil, fmt.Errorf("ModelScope API returned HTTP %d", resp.StatusCode)
 	}
 
 	var raw searchResponse
@@ -234,7 +239,7 @@ func (c *Client) GetModel(ctx context.Context, modelID string) (*modelsource.Det
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("ModelScope API returned %d", resp.StatusCode)
+		return nil, fmt.Errorf("ModelScope API returned HTTP %d", resp.StatusCode)
 	}
 
 	var raw filesResponse

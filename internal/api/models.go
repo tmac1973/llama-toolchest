@@ -1,8 +1,6 @@
 package api
 
 import (
-	"fmt"
-	"html"
 	"log/slog"
 	"net/http"
 	"sort"
@@ -567,41 +565,22 @@ func (s *Server) renderModelList(w http.ResponseWriter, r *http.Request, modelLi
 	w.Write([]byte(`</div>`))
 }
 
+// pendingCardData feeds the pending_card partial.
+type pendingCardData struct {
+	*models.PendingConfig
+	Ident  string // DOM id suffix for the card and its download slot
+	Search string // lower-cased text the list filter matches
+}
+
 // renderPendingCard renders a ghost card for a backup-imported config
 // whose model isn't installed yet: greyed, identity + imported date, a
 // Download button (inline response mode — the table-shaped progress
 // partial can't live in a card) and a Discard button whose 204 +
 // HX-Trigger response refreshes the whole listing.
 func (s *Server) renderPendingCard(w http.ResponseWriter, p *models.PendingConfig) {
-	ident := domID(p.ModelID + "-" + p.Quant)
-	fmt.Fprintf(w, `<article class="model-card" style="opacity:0.6;" id="pending-card-%s" data-search="%s">
-	<div class="model-card-row">
-		<div class="model-card-toggle" title="Not installed — this is a config imported from a backup, waiting for its model."><span>&#x23F3;</span></div>
-		<div class="model-card-name">%s
-			<small style="display:block;color:var(--pico-muted-color);">not installed &mdash; config waiting (imported %s)</small>
-			<span id="pending-dl-%s"></span>
-		</div>
-		<div>%s</div>
-		<div>&mdash;</div>
-		<div>&mdash;</div>
-		<div style="display:flex;gap:0.4rem;justify-content:flex-end;">
-			<button type="button" class="outline" style="padding:0.1rem 0.6rem;font-size:0.8em;margin:0;"
-			        title="Download %s from HuggingFace; the waiting config attaches automatically when it arrives."
-			        hx-post="/api/hf/download"
-			        hx-vals='{"model_id": %q, "filename": %q, "inline": "1"}'
-			        hx-target="#pending-dl-%s" hx-swap="innerHTML" hx-disabled-elt="this">Download</button>
-			<button type="button" class="outline secondary" style="padding:0.1rem 0.6rem;font-size:0.8em;margin:0;"
-			        title="Discard this waiting config."
-			        hx-post="/api/backup/pending/discard"
-			        hx-vals='{"model_id": %q, "quant": %q}'
-			        hx-swap="none">Discard</button>
-		</div>
-	</div>
-</article>`,
-		ident, html.EscapeString(strings.ToLower(p.ModelID+" "+p.Quant+" pending")),
-		html.EscapeString(p.ModelID), p.SavedAt.Format("2006-01-02"), ident,
-		html.EscapeString(p.Quant),
-		html.EscapeString(p.Filename),
-		p.ModelID, p.Filename, ident,
-		p.ModelID, p.Quant)
+	s.renderPartial(w, "pending_card", pendingCardData{
+		PendingConfig: p,
+		Ident:         domID(p.ModelID + "-" + p.Quant),
+		Search:        strings.ToLower(p.ModelID + " " + p.Quant + " pending"),
+	})
 }

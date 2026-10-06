@@ -204,9 +204,7 @@ func quoted(text, quote string) string {
 	if quote == "" {
 		return text
 	}
-	if len(quote) > 240 {
-		quote = quote[:240] + "…"
-	}
+	quote = models.TruncateText(quote, 240)
 	return fmt.Sprintf("%s The model card says: “%s”", text, quote)
 }
 

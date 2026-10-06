@@ -14,6 +14,7 @@ package evaluate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -283,7 +284,7 @@ func (s Spec) args() ([]string, error) {
 		}
 	case ModeKLDiv:
 		if s.KLBasePath == "" {
-			return nil, fmt.Errorf("kl-divergence evaluation needs KLBasePath (the reference logits file)")
+			return nil, errors.New("kl-divergence evaluation needs KLBasePath (the reference logits file)")
 		}
 		args = append(args, "--kl-divergence", "--kl-divergence-base", s.KLBasePath, "-f", s.DatasetPath)
 	default:
@@ -310,7 +311,7 @@ func (s Spec) klBaseArgs() ([]string, error) {
 		return nil, err
 	}
 	if s.KLBasePath == "" {
-		return nil, fmt.Errorf("KL base generation needs KLBasePath (the output logits file)")
+		return nil, errors.New("KL base generation needs KLBasePath (the output logits file)")
 	}
 	args = append(args, "--kl-divergence-base", s.KLBasePath, "-f", s.DatasetPath)
 	if s.Chunks > 0 {
@@ -324,13 +325,13 @@ func (s Spec) klBaseArgs() ([]string, error) {
 // fixed evaluation context.
 func (s Spec) baseArgs() ([]string, error) {
 	if s.Binary == "" {
-		return nil, fmt.Errorf("evaluation spec has no binary path")
+		return nil, errors.New("evaluation spec has no binary path")
 	}
 	if s.ModelPath == "" {
-		return nil, fmt.Errorf("evaluation spec has no model path")
+		return nil, errors.New("evaluation spec has no model path")
 	}
 	if s.DatasetPath == "" {
-		return nil, fmt.Errorf("evaluation spec has no dataset path")
+		return nil, errors.New("evaluation spec has no dataset path")
 	}
 	args := []string{"--model", s.ModelPath}
 	args = append(args, s.Flags...)

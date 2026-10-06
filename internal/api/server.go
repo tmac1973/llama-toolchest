@@ -2,7 +2,6 @@ package api
 
 import (
 	"fmt"
-	"html"
 	"html/template"
 	"io/fs"
 	"log/slog"
@@ -351,6 +350,7 @@ func (s *Server) templateFuncs() template.FuncMap {
 		// table: the name, "(edited)" when what ran differed from it.
 		"profileCell": benchmark.ProfileCellText,
 		"compareCell": benchmark.CompareCellText,
+		"hxVals":      hxVals,
 		// usesDraftFile and isHeadBasedDraftMode keep the model config
 		// panel's speculative-decoding sections on the same mode sets as
 		// the code that launches them.
@@ -359,7 +359,7 @@ func (s *Server) templateFuncs() template.FuncMap {
 		// deref turns a pointer like *int / *bool / *string / *float64
 		// into its underlying value for templates. Non-pointers pass
 		// through; nil pointers return empty string.
-		"deref": func(v interface{}) interface{} {
+		"deref": func(v any) any {
 			if v == nil {
 				return ""
 			}
@@ -378,7 +378,7 @@ func (s *Server) templateFuncs() template.FuncMap {
 			}
 			return s
 		},
-		"divf": func(a, b interface{}) float64 {
+		"divf": func(a, b any) float64 {
 			af, bf := toFloat64(a), toFloat64(b)
 			if bf == 0 {
 				return 0
@@ -944,35 +944,59 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "settings.html", data)
 }
 
+// dashboardCardsData feeds the dashboard_cards partial.
+type dashboardCardsData struct {
+	// Available is every chat model the running router serves; empty
+	// when the router is stopped or serves none.
+	Available  []availableModelRow
+	BuildCount int
+	ModelCount int
+	APIURL     string
+	ChatURL    string // empty when ExternalURL has no host
+}
+
+// availableModelRow is one line of the "Available Models" card.
+type availableModelRow struct {
+	ID         string
+	PublicName string
+	Tooltip    string
+	// State is "loaded", "loading" or "" (idle: offers the load button).
+	State string
+}
+
+// copyButtonData feeds the copy_button template: the button's tooltip
+// and the text it copies.
+type copyButtonData struct {
+	Title string
+	Copy  string
+}
+
+// CopyButton is the row's button that copies the model's public name.
+func (r availableModelRow) CopyButton() copyButtonData {
+	return copyButtonData{Title: "Copy model name", Copy: r.PublicName}
+}
+
+// APICopyButton is the button that copies the API endpoint URL.
+func (d dashboardCardsData) APICopyButton() copyButtonData {
+	return copyButtonData{Title: "Copy endpoint URL", Copy: d.APIURL}
+}
+
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	routerStatus := s.process.GetStatus()
 	builds := s.builder.List()
 	registeredModels := s.registry.List()
 
-	successBuilds := 0
+	data := dashboardCardsData{
+		ModelCount: len(registeredModels),
+		APIURL:     strings.TrimRight(s.cfg.ExternalURL, "/") + "/v1",
+	}
 	for _, b := range builds {
 		if b.Status == builder.BuildStatusSuccess {
-			successBuilds++
+			data.BuildCount++
 		}
 	}
-
-	apiURL := strings.TrimRight(s.cfg.ExternalURL, "/") + "/v1"
-	chatURL := ""
 	if u, err := url.Parse(s.cfg.ExternalURL); err == nil && u.Hostname() != "" {
-		chatURL = fmt.Sprintf("%s://%s:%d", u.Scheme, u.Hostname(), s.cfg.LlamaPort)
-	}
-
-	// Router state badge
-	var stateBadge string
-	switch routerStatus.State {
-	case process.StateRunning:
-		stateBadge = `<ins>Running</ins>`
-	case process.StateStarting:
-		stateBadge = `<mark>Starting</mark>`
-	case process.StateFailed:
-		stateBadge = `<del>Failed</del>`
-	default:
-		stateBadge = `Stopped`
+		data.ChatURL = fmt.Sprintf("%s://%s:%d", u.Scheme, u.Hostname(), s.cfg.LlamaPort)
 	}
 
 	// "Available Models" card: every chat model the running router actually
@@ -981,7 +1005,6 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	// router's startup preset), NOT the live cfg.Enabled toggle — so toggling a
 	// model on or off in the Models tab doesn't change this list until the
 	// router is restarted, matching what the server can genuinely serve.
-	availableHTML := "<p>None</p>"
 	if routerStatus.State == process.StateRunning {
 		// routerKnownStates maps every name the running router serves (i.e.
 		// is in its current preset) to its status. The router reads
@@ -991,8 +1014,6 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		// what the running server can actually serve.
 		routerStates := s.routerKnownStates()
 
-		var buf strings.Builder
-		shown := 0
 		for _, m := range registeredModels {
 			if m.IsEmbedding() {
 				continue
@@ -1010,32 +1031,6 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 				state = ""
 			}
 
-			tag := ""
-			switch state {
-			case "loaded":
-				tag = ` <mark style="padding:0 0.3rem;font-size:0.65rem;">loaded</mark>`
-			case "loading":
-				tag = ` <mark style="padding:0 0.3rem;font-size:0.65rem;">loading</mark>`
-			}
-
-			const playSVG = `<svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M4 3l9 5-9 5z"/></svg>`
-			const copySVG = `<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="5" y="5" width="8" height="9" rx="1"/><path d="M3 11V3.5A.5.5 0 0 1 3.5 3H10"/></svg>`
-			const checkSVG = `<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8l3 3 7-7"/></svg>`
-
-			loadIcon := `<span class="action-icon-placeholder">&nbsp;</span>`
-			if state == "" {
-				loadIcon = fmt.Sprintf(`<button type="button" class="action-icon" title="Load into VRAM" `+
-					`hx-put="/api/models/%s/activate" hx-swap="none" data-error-label="Load failed" `+
-					`hx-on::after-request="htmx.trigger('#dashboard-cards', 'load')">%s</button>`,
-					html.EscapeString(m.ID), playSVG)
-			}
-
-			pn := m.PublicName()
-			copyBtn := fmt.Sprintf(`<button type="button" class="action-icon" title="Copy model name" `+
-				`data-icon="%s" data-icon-check="%s" data-copy="%s" `+
-				`onclick="copyFromButton(this)">%s</button>`,
-				html.EscapeString(copySVG), html.EscapeString(checkSVG), html.EscapeString(pn), copySVG)
-
 			// What this model actually took the last time it loaded,
 			// against what it is estimated to take. Per model, because
 			// the answer depends on the configuration each one runs.
@@ -1043,57 +1038,17 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				cfg = nil
 			}
-			fmt.Fprintf(&buf, `<div class="available-model-row" title="%s">%s%s<code>%s</code>%s</div>`,
-				html.EscapeString(s.memoryTooltip(m, cfg, state)),
-				loadIcon, copyBtn, html.EscapeString(pn), tag)
-			shown++
+			data.Available = append(data.Available, availableModelRow{
+				ID:         m.ID,
+				PublicName: m.PublicName(),
+				Tooltip:    s.memoryTooltip(m, cfg, state),
+				State:      state,
+			})
 		}
-		if shown > 0 {
-			availableHTML = buf.String()
-		}
-	}
-
-	_ = stateBadge // server-status-badge has its own poll endpoint now
-
-	const copySVG = `<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="5" y="5" width="8" height="9" rx="1"/><path d="M3 11V3.5A.5.5 0 0 1 3.5 3H10"/></svg>`
-	const checkSVG = `<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8l3 3 7-7"/></svg>`
-	apiCopyBtn := fmt.Sprintf(`<button type="button" class="action-icon" title="Copy endpoint URL" `+
-		`data-icon="%s" data-icon-check="%s" data-copy="%s" `+
-		`onclick="copyFromButton(this)">%s</button>`,
-		html.EscapeString(copySVG), html.EscapeString(checkSVG), html.EscapeString(apiURL), copySVG)
-
-	chatLinkHTML := ""
-	if chatURL != "" {
-		chatLinkHTML = fmt.Sprintf(`<p><a href="%s" target="_blank">Open Chat UI →</a></p>`, chatURL)
 	}
 
 	respondHTML(w)
-	fmt.Fprintf(w, `<article>
-    <header>Available Models</header>
-    <div class="available-models-scroll">%s</div>
-</article>
-<article>
-    <header>Inventory</header>
-    <p><strong>%d</strong> builds · <strong>%d</strong> models</p>
-    <p><a href="/builds">Builds →</a> · <a href="/models">Models →</a></p>
-    <p><a href="/models/browse">Get New Models →</a></p>
-</article>
-<article>
-    <header>API Endpoint</header>
-    <div style="display:flex;align-items:center;gap:0.4rem;">
-        <pre style="user-select: all; cursor: pointer; margin:0; flex:1; overflow-x:auto;">%s</pre>
-        %s
-    </div>
-    %s
-    <p><a href="/settings">Settings →</a></p>
-</article>`,
-		availableHTML,
-		successBuilds,
-		len(registeredModels),
-		apiURL,
-		apiCopyBtn,
-		chatLinkHTML,
-	)
+	s.renderPartial(w, "dashboard_cards", data)
 }
 
 // render executes the "layout" template for the given page.

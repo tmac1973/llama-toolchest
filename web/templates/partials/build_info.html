@@ -1,0 +1,41 @@
+{{/* The body of the Builds page's Info dialog. Data: buildInfoData
+     (build.go). The Built against cell uses the same buildRow fields as
+     build_card, so the two cannot drift apart. */}}
+{{define "build_info"}}
+<dl style="margin:0;">
+    <dt><strong>ID</strong></dt><dd><kbd>{{.ID}}</kbd></dd>
+    <dt><strong>Profile</strong></dt><dd>{{.Profile}}</dd>
+    <dt><strong>Git ref</strong></dt><dd>{{.GitRef}} <small>(<code>{{.ShortSHA}}</code>)</small></dd>
+    {{- with .Tag}}
+    <dt><strong>Tag</strong></dt><dd>{{.}}</dd>
+    {{- end}}
+    <dt><strong>Status</strong></dt><dd>{{.Status}}</dd>
+    <dt><strong>Built against</strong></dt><dd{{with .BuiltAgainstTitle}} title="{{.}}" style="cursor:help;"{{end}}>{{.BuiltAgainstText}}{{if .Mismatch}} <span style="color:var(--pico-del-color);">&#9888;</span>{{end}}</dd>
+    <dt><strong>Started</strong></dt><dd>{{.StartedAt.Format "2006-01-02 15:04:05"}}</dd>
+</dl>
+{{- if .FlagsText}}
+<h6 style="margin-top:1rem;">CMake flags</h6><pre style="font-size:0.8rem;white-space:pre-wrap;word-break:break-all;">{{.FlagsText}}</pre>
+{{- else}}
+<p style="margin-top:1rem;"><em>cmake flags not recorded — this build predates flag tracking.</em></p>
+{{- end}}
+{{end}}
+
+{{/* build_duplicate asks whether to rebuild a build that already
+     exists, resubmitting the same request with force=1. Data:
+     buildDuplicateData (build.go). */}}
+{{define "build_duplicate"}}
+<article>
+    <p>Build <strong>{{.ID}}</strong> already exists. Rebuild it?</p>
+    <form hx-post="/api/builds" hx-target="#build-output" hx-swap="innerHTML">
+        <input type="hidden" name="profile" value="{{.Profile}}">
+        <input type="hidden" name="git_ref" value="{{.GitRef}}">
+        <input type="hidden" name="tag" value="{{.Tag}}">
+        <input type="hidden" name="force" value="1">
+        <div role="group">
+            <button type="submit">Rebuild</button>
+            <button type="button" class="secondary"
+                onclick="this.closest('article').remove()">Cancel</button>
+        </div>
+    </form>
+</article>
+{{end}}

@@ -18,7 +18,7 @@
                 {{else}}
                     <button type="button"
                             hx-post="/api/models/embedding-presets/download"
-                            hx-vals='{"repo":"{{.Repo}}","filename":"{{.Filename}}"}'
+                            hx-vals='{{hxVals "repo" .Repo "filename" .Filename}}'
                             hx-target="closest tr"
                             hx-swap="afterend"
                             style="margin:0;padding:0.2rem 0.6rem;font-size:0.8rem;">

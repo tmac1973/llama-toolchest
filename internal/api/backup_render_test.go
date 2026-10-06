@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"html"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -42,11 +43,11 @@ func TestRestoreReportPartialRenders(t *testing.T) {
 		"held as pending",      // pending annotation
 		"org/x-GGUF",           // missing identity
 		"/api/hf/download",     // per-row download wiring
-		`"inline": "1"`,        // inline response mode
+		`"inline":"1"`,         // inline response mode
 		"Download all missing", // bulk action (>1 missing)
 		"restore-dl-",          // per-row status container
 	} {
-		if !strings.Contains(out, want) {
+		if !strings.Contains(html.UnescapeString(out), want) {
 			t.Errorf("report partial missing %q", want)
 		}
 	}
@@ -64,7 +65,7 @@ func TestRestoreReportPartialRenders(t *testing.T) {
 // Ghost cards must render for pending configs — including with an empty
 // registry (fresh target server right after a restore).
 func TestPendingGhostCardRenders(t *testing.T) {
-	s := &Server{}
+	s := newTestServer(t)
 	rec := httptest.NewRecorder()
 	s.renderPendingCard(rec, &models.PendingConfig{
 		ModelID: "org/x-GGUF", Quant: "Q8_0", Filename: "x-Q8_0.gguf",
@@ -76,11 +77,11 @@ func TestPendingGhostCardRenders(t *testing.T) {
 		"config waiting",
 		"imported 2026-08-15",
 		"/api/hf/download",
-		`"inline": "1"`,
+		`"inline":"1"`,
 		"/api/backup/pending/discard",
 		"pending-dl-",
 	} {
-		if !strings.Contains(out, want) {
+		if !strings.Contains(html.UnescapeString(out), want) {
 			t.Errorf("ghost card missing %q:\n%s", want, out)
 		}
 	}

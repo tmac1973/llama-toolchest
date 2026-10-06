@@ -102,7 +102,7 @@ func (e *jobEnv) CheckBuildRunnable(ctx context.Context, buildID string) error {
 // waiting up to 2 minutes for /health to pass.
 func (e *jobEnv) EnsureBuildActive(ctx context.Context, buildID string, configFollows bool) error {
 	if buildID == "" {
-		return fmt.Errorf("empty build id")
+		return errors.New("empty build id")
 	}
 
 	// Find the build and verify it's a successful one we can run.
@@ -364,7 +364,7 @@ func (e *jobEnv) StopRouterForEval(ctx context.Context) error {
 		}
 	}
 	if e.s.process.IsRunning() {
-		return fmt.Errorf("router did not stop in time for the evaluation")
+		return errors.New("router did not stop in time for the evaluation")
 	}
 	slog.Info("router stopped for evaluation")
 	return nil
@@ -409,7 +409,7 @@ func (e *jobEnv) modelInfoBundle(m *models.Model) (benchmark.ModelInfo, error) {
 		SizeGiB:     models.BytesToGiB(m.SizeBytes),
 		SizeBytes:   m.SizeBytes,
 		FilePath:    m.FilePath,
-		DisplayName: shortenModelName(m.ModelID),
+		DisplayName: models.ShortModelName(m.ModelID),
 		RouterName:  e.s.registry.RouterName(m.ID),
 		Reasoning:   reasoningControl(m, cfg),
 		Config:      benchmark.SnapshotFromConfig(*cfg, profile, edited),
@@ -776,12 +776,6 @@ func (e *jobEnv) HFToken() string { return e.s.cfg.HFToken }
 // doesn't bloat the writable layer.
 func (e *jobEnv) HFCacheDir() string {
 	return filepath.Join(e.s.cfg.DataDir, "hf-cache")
-}
-
-// shortenModelName mirrors the trim done in handleStartBenchmark so cell
-// runs label the same way as the existing single-run path.
-func shortenModelName(modelID string) string {
-	return models.ShortModelName(modelID)
 }
 
 // configDiff reports which launch-relevant fields a benchmark override

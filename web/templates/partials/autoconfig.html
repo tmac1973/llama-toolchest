@@ -126,7 +126,7 @@
             <span id="ac-dl-{{cssID .Filename}}">
                 <button type="button" class="outline" style="width:auto;padding:0.1rem 0.5rem;"
                         hx-post="/api/hf/download"
-                        hx-vals='{"model_id":"{{.Repo}}","filename":"{{.Filename}}","size":"{{.SizeBytes}}","inline":"1"}'
+                        hx-vals='{{hxVals "model_id" .Repo "filename" .Filename "size" .SizeBytes "inline" "1"}}'
                         hx-target="#ac-dl-{{cssID .Filename}}" hx-swap="innerHTML">Download</button>
             </span>
         </li>

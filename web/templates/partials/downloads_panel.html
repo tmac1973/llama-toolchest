@@ -24,14 +24,14 @@
                         style="margin:0; padding:0.15rem 0.6rem; font-size:0.8rem;"
                         title="Continue this download from the bytes already on disk"
                         hx-post="/api/hf/download"
-                        hx-vals='{"model_id":"{{.ModelID}}","filename":"{{.Filename}}","size":"0"}'
+                        hx-vals='{{hxVals "model_id" .ModelID "filename" .Filename "size" "0"}}'
                         hx-swap="none"
                         hx-on::after-request="htmx.trigger(document.body,'dlPanelRefresh')">Resume</button>
                 <button type="button" class="outline secondary"
                         style="margin:0; padding:0.15rem 0.6rem; font-size:0.8rem;"
                         title="Delete the partial files from disk"
                         hx-delete="/api/hf/incomplete"
-                        hx-vals='{"model_id":"{{.ModelID}}","filename":"{{.Filename}}"}'
+                        hx-vals='{{hxVals "model_id" .ModelID "filename" .Filename}}'
                         hx-confirm="Delete the partial files for {{.ModelID}}? This cannot be undone."
                         hx-swap="none"
                         hx-on::after-request="htmx.trigger(document.body,'dlPanelRefresh')">Discard</button>

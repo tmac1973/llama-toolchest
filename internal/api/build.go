@@ -3,8 +3,8 @@ package api
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
-	"html"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -58,69 +58,53 @@ func (s *Server) handleProfileOptions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Wrap in a div that re-fetches itself on toggle/input changes
-		fmt.Fprintf(w, `<div id="build-options"
-			hx-get="/api/builds/options"
-			hx-target="this"
-			hx-swap="outerHTML"
-			hx-trigger="change delay:300ms"
-			hx-include="#build-profile, #build-options input">`)
-
-		w.Write([]byte(`<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.25rem 1.5rem;margin-top:0.5rem;align-items:center;">`))
+		data := buildOptionsData{ExtraCMake: extraCMake}
+		effectiveOverrides := make(map[string]bool, len(options))
 		for _, opt := range options {
-			checked := ""
+			on := opt.Default
 			if hasOverrides {
-				if overrides[opt.Flag] {
-					checked = "checked"
-				}
-			} else if opt.Default {
-				checked = "checked"
+				on = overrides[opt.Flag]
 			}
-			fmt.Fprintf(w, `<label title="%s" style="display:flex;align-items:center;gap:0.5rem;margin:0;white-space:nowrap;">
-				<input type="checkbox" name="opt_%s" role="switch" %s style="margin:0;">
-				%s
-			</label>`, html.EscapeString(opt.Description), opt.Flag, checked, html.EscapeString(opt.Label))
+			effectiveOverrides[opt.Flag] = on
+			data.Options = append(data.Options, buildOptionRow{BuildOption: opt, Checked: on})
 		}
-		w.Write([]byte(`</div>`))
-
-		// Extra cmake flags input
-		fmt.Fprintf(w, `<label title="Additional cmake flags passed directly to the build. Use -DFLAG=VALUE format.">Extra CMake Flags
-			<input type="text" name="extra_cmake" value="%s" placeholder="-DFOO=BAR -DBAZ=ON">
-		</label>`, html.EscapeString(extraCMake))
 
 		// Show effective cmake flags with current toggle states
-		prof, ok := builder.FindProfile(profile)
-		if ok {
-			effectiveOverrides := make(map[string]bool)
-			for _, opt := range options {
-				if hasOverrides {
-					effectiveOverrides[opt.Flag] = overrides[opt.Flag]
-				} else {
-					effectiveOverrides[opt.Flag] = opt.Default
-				}
-			}
+		if prof, ok := builder.FindProfile(profile); ok {
 			flags := effectiveCMakeFlags(prof, options, effectiveOverrides)
 			if extraCMake != "" {
 				flags += " " + extraCMake
 			}
-			fmt.Fprintf(w, `<label title="The full set of cmake flags that will be passed to the build.">Effective CMake Flags
-				<input type="text" value="%s" readonly style="opacity:0.7;cursor:default;font-size:0.85rem;">
-			</label>`, html.EscapeString(flags))
+			data.ShowEffective = true
+			data.EffectiveFlags = flags
 		}
-
-		w.Write([]byte(`</div>`))
-
 		if loadedPreset != nil {
-			// Fill the Build Tag with the preset name so the resulting
-			// build is labeled by the flag set that produced it. Must
-			// mirror the input's markup in builds.html.
-			fmt.Fprintf(w, `<input type="text" id="build-tag" name="tag" hx-swap-oob="outerHTML" value="%s" placeholder="e.g. rocwmma" pattern="[a-z0-9][a-z0-9-]*" autocomplete="off">`,
-				html.EscapeString(loadedPreset.Name))
+			data.PresetTag = loadedPreset.Name
 		}
+		s.renderPartial(w, "build_options", data)
 		return
 	}
 
 	respondJSON(w, options)
+}
+
+// buildOptionsData feeds the build_options partial.
+type buildOptionsData struct {
+	Options    []buildOptionRow
+	ExtraCMake string
+	// ShowEffective is false for an unknown profile, which has no flags
+	// to preview.
+	ShowEffective  bool
+	EffectiveFlags string
+	// PresetTag is the name of the saved flag set just applied, which
+	// fills the Build Tag; empty otherwise.
+	PresetTag string
+}
+
+// buildOptionRow is one toggle: the option and whether it is on.
+type buildOptionRow struct {
+	builder.BuildOption
+	Checked bool
 }
 
 func effectiveCMakeFlags(prof builder.BuildProfile, options []builder.BuildOption, overrides map[string]bool) string {
@@ -155,46 +139,66 @@ func (s *Server) handleListRefs(w http.ResponseWriter, r *http.Request) {
 
 	if isHTMX(r) {
 		respondHTML(w)
-		w.Write([]byte(`<option value="latest">latest</option>`))
-		// Two tag families since upstream added semver releases (Aug
-		// 2026): v* release tags and b* nightlies. Group them so the
-		// picker says which is which; "latest" still means the newest
-		// nightly. Tag names come from the upstream remote — escape them.
-		// Releases are labeled with the nightly they were cut from
-		// ("v0.2.0 (b10500)") so their position on the b-scale is
-		// readable without leaving the picker. Values stay bare tags.
-		anchors := s.builder.ReleaseAnchors()
-		writeGroup := func(label string, match func(string) bool) {
-			opts := ""
-			for _, ref := range refs {
-				if match(ref) {
-					e := html.EscapeString(ref)
-					text := e
-					if n, found := anchors[ref]; found {
-						text = fmt.Sprintf("%s (b%d)", e, n)
-					}
-					opts += `<option value="` + e + `">` + text + `</option>`
-				}
-			}
-			if opts != "" {
-				w.Write([]byte(`<optgroup label="` + label + `">` + opts + `</optgroup>`))
-			}
-		}
-		isRelease := func(ref string) bool { return strings.HasPrefix(ref, "v") }
-		writeGroup("Releases", isRelease)
-		writeGroup("Nightly builds", func(ref string) bool { return !isRelease(ref) })
-
-		// A refresh that fails with nothing cached leaves the picker
-		// holding only "latest", which reads as "upstream has no tags"
-		// rather than "the refresh didn't work". Say which it was; the
-		// option is disabled so it can never be submitted as a ref.
-		if err != nil && len(refs) == 0 {
-			fmt.Fprintf(w, `<option disabled>— %s —</option>`, html.EscapeString(err.Error()))
-		}
+		s.renderPartial(w, "git_ref_options", gitRefOptionsFor(refs, s.builder.ReleaseAnchors(), err))
 		return
 	}
 
 	respondJSON(w, refs)
+}
+
+// gitRefOptionsData feeds the git_ref_options partial.
+type gitRefOptionsData struct {
+	Groups []gitRefGroup // only groups with at least one tag
+	// Error is why a refresh failed when nothing was cached either.
+	Error string
+}
+
+type gitRefGroup struct {
+	Label string
+	Refs  []gitRefOption
+}
+
+// gitRefOption is one tag. A release carries the nightly it was cut
+// from (Anchor), when known.
+type gitRefOption struct {
+	Ref       string
+	Anchor    int
+	HasAnchor bool
+}
+
+// gitRefOptionsFor groups the upstream tags for the git ref picker. There
+// are two tag families since upstream added semver releases (Aug 2026):
+// v* release tags and b* nightlies. Grouping them lets the picker say
+// which is which; "latest" still means the newest nightly. Releases are
+// labeled with the nightly they were cut from ("v0.2.0 (b10500)") so
+// their position on the b-scale is readable without leaving the picker.
+// Values stay bare tags.
+func gitRefOptionsFor(refs []string, anchors map[string]int, err error) gitRefOptionsData {
+	var data gitRefOptionsData
+	isRelease := func(ref string) bool { return strings.HasPrefix(ref, "v") }
+	for _, g := range []struct {
+		label   string
+		release bool
+	}{{"Releases", true}, {"Nightly builds", false}} {
+		group := gitRefGroup{Label: g.label}
+		for _, ref := range refs {
+			if isRelease(ref) == g.release {
+				n, found := anchors[ref]
+				group.Refs = append(group.Refs, gitRefOption{Ref: ref, Anchor: n, HasAnchor: found})
+			}
+		}
+		if len(group.Refs) > 0 {
+			data.Groups = append(data.Groups, group)
+		}
+	}
+	// A refresh that fails with nothing cached leaves the picker holding
+	// only "latest", which reads as "upstream has no tags" rather than
+	// "the refresh didn't work". Say which it was; the template shows it
+	// as a disabled option so it can never be submitted as a ref.
+	if err != nil && len(refs) == 0 {
+		data.Error = err.Error()
+	}
+	return data
 }
 
 func (s *Server) handleListBuilds(w http.ResponseWriter, r *http.Request) {
@@ -206,16 +210,22 @@ func (s *Server) handleListBuilds(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte("<p>No builds yet.</p>"))
 			return
 		}
-		respondHTML(w)
-		w.Write([]byte(`<table role="grid"><thead><tr><th>Build</th><th>SHA</th><th>Status</th><th title="The GPU toolchain this build was compiled against. A llama-server built against one ROCm version does not run under another, so a build that does not match the running container needs rebuilding.">Built against</th><th>Date</th><th></th></tr></thead><tbody>`))
-		for _, b := range builds {
-			s.renderPartial(w, "build_card", s.buildRowFor(&b))
+		rows := make([]buildRow, len(builds))
+		for i := range builds {
+			rows[i] = s.buildRowFor(&builds[i])
 		}
-		w.Write([]byte(`</tbody></table>`))
+		respondHTML(w)
+		s.renderPartial(w, "build_table", rows)
 		return
 	}
 
 	respondJSON(w, builds)
+}
+
+// buildDuplicateData feeds the build_duplicate partial: the build that
+// already exists and the request to resubmit with force=1.
+type buildDuplicateData struct {
+	ID, Profile, GitRef, Tag string
 }
 
 func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
@@ -255,23 +265,13 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 	// Use background context — the build must outlive the HTTP request.
 	result, err := s.builder.Build(context.Background(), req.Profile, req.GitRef, req.Tag, req.Force, optionOverrides, extraCMake)
 	if err != nil {
-		if dup, ok := err.(*builder.DuplicateBuildError); ok {
+		var dup *builder.DuplicateBuildError
+		if errors.As(err, &dup) {
 			if isHTMX(r) {
 				respondHTML(w)
-				fmt.Fprintf(w, `<article>
-					<p>Build <strong>%s</strong> already exists. Rebuild it?</p>
-					<form hx-post="/api/builds" hx-target="#build-output" hx-swap="innerHTML">
-						<input type="hidden" name="profile" value="%s">
-						<input type="hidden" name="git_ref" value="%s">
-						<input type="hidden" name="tag" value="%s">
-						<input type="hidden" name="force" value="1">
-						<div role="group">
-							<button type="submit">Rebuild</button>
-							<button type="button" class="secondary"
-								onclick="this.closest('article').remove()">Cancel</button>
-						</div>
-					</form>
-				</article>`, html.EscapeString(dup.ID), html.EscapeString(req.Profile), html.EscapeString(req.GitRef), html.EscapeString(req.Tag))
+				s.renderPartial(w, "build_duplicate", buildDuplicateData{
+					ID: dup.ID, Profile: req.Profile, GitRef: req.GitRef, Tag: req.Tag,
+				})
 				return
 			}
 			http.Error(w, err.Error(), http.StatusConflict)
@@ -359,19 +359,10 @@ type buildRow struct {
 }
 
 // notRecordedTitle is the tooltip for a build with no stamp. Worded as a
-// near-twin of the cmake-flags fallback further down this file ("cmake flags
+// near-twin of the cmake-flags fallback in build_info.html ("cmake flags
 // not recorded — this build predates flag tracking") so the two read as one
 // convention. Used verbatim by both the table and the info modal.
 const notRecordedTitle = "Not recorded — this build predates build-environment tracking."
-
-// titleAttr renders a title attribute, or nothing when there is no title to
-// give. Kept here so the modal and the template agree on when a tooltip exists.
-func titleAttr(title string) string {
-	if title == "" {
-		return ""
-	}
-	return fmt.Sprintf(` title="%s" style="cursor:help;"`, html.EscapeString(title))
-}
 
 // buildRowFor decides what the page says about one build.
 //
@@ -555,6 +546,15 @@ func (s *Server) resolveBuild(id string) *builder.BuildResult {
 	return nil
 }
 
+// buildInfoData feeds the build_info partial.
+type buildInfoData struct {
+	buildRow
+	ShortSHA string
+	// FlagsText is the cmake flags one per line, sorted; empty for a
+	// build from before flags were recorded.
+	FlagsText string
+}
+
 func (s *Server) handleBuildInfo(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	found, ok := s.builder.Find(id)
@@ -568,47 +568,16 @@ func (s *Server) handleBuildInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var flags []string
+	for _, k := range slices.Sorted(maps.Keys(found.CMakeFlags)) {
+		flags = append(flags, "-D"+k+"="+found.CMakeFlags[k])
+	}
 	respondHTML(w)
-	fmt.Fprintf(w, `<dl style="margin:0;">
-		<dt><strong>ID</strong></dt><dd><kbd>%s</kbd></dd>
-		<dt><strong>Profile</strong></dt><dd>%s</dd>
-		<dt><strong>Git ref</strong></dt><dd>%s <small>(<code>%s</code>)</small></dd>`,
-		html.EscapeString(found.ID),
-		html.EscapeString(found.Profile),
-		html.EscapeString(found.GitRef), html.EscapeString(safeShortSHA(found.GitSHA)))
-	if found.Tag != "" {
-		fmt.Fprintf(w, `<dt><strong>Tag</strong></dt><dd>%s</dd>`, html.EscapeString(found.Tag))
-	}
-	row := s.buildRowFor(found)
-	mismatchMark := ""
-	if row.Mismatch {
-		mismatchMark = ` <span style="color:var(--pico-del-color);">&#9888;</span>`
-	}
-	fmt.Fprintf(w, `<dt><strong>Status</strong></dt><dd>%s</dd>
-		<dt><strong>Built against</strong></dt><dd%s>%s%s</dd>
-		<dt><strong>Started</strong></dt><dd>%s</dd>
-	</dl>`,
-		html.EscapeString(found.Status),
-		titleAttr(row.BuiltAgainstTitle),
-		html.EscapeString(row.BuiltAgainstText),
-		mismatchMark,
-		found.StartedAt.Format("2006-01-02 15:04:05"))
-
-	if len(found.CMakeFlags) == 0 {
-		w.Write([]byte(`<p style="margin-top:1rem;"><em>cmake flags not recorded — this build predates flag tracking.</em></p>`))
-		return
-	}
-
-	keys := slices.Sorted(maps.Keys(found.CMakeFlags))
-
-	w.Write([]byte(`<h6 style="margin-top:1rem;">CMake flags</h6><pre style="font-size:0.8rem;white-space:pre-wrap;word-break:break-all;">`))
-	for i, k := range keys {
-		if i > 0 {
-			w.Write([]byte(" \\\n  "))
-		}
-		fmt.Fprintf(w, "-D%s=%s", html.EscapeString(k), html.EscapeString(found.CMakeFlags[k]))
-	}
-	w.Write([]byte(`</pre>`))
+	s.renderPartial(w, "build_info", buildInfoData{
+		buildRow:  s.buildRowFor(found),
+		ShortSHA:  safeShortSHA(found.GitSHA),
+		FlagsText: strings.Join(flags, " \\\n  "),
+	})
 }
 
 func safeShortSHA(sha string) string {

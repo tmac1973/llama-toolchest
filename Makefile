@@ -83,3 +83,11 @@ scrape-sampling-presets:
 js-test:
 	@command -v node >/dev/null || { echo "node is required for js-test"; exit 1; }
 	go test ./internal/api/ -run 'TestParameterControlsJS|TestVisualizeMetricFilterJS|TestModelsPageListenersJS|TestErrorNoticeJS' -v
+
+# Plain-bash tests for the installer libraries in scripts/lib/ (scope and
+# path helpers, version and port parsing, package name choice, migration
+# config rewrite). System commands are replaced with shell functions, so
+# this changes nothing on the machine. Prints "ALL PASS" on success.
+.PHONY: installer-test
+installer-test:
+	bash scripts/test-lib.sh

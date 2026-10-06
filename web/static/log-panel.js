@@ -70,7 +70,7 @@ function copyToClipboard(text) {
     // Fallback: create a temporary textarea
     return new Promise((resolve, reject) => {
         try {
-            var ta = document.createElement('textarea');
+            const ta = document.createElement('textarea');
             ta.value = text;
             ta.style.position = 'fixed';
             ta.style.left = '-9999px';
