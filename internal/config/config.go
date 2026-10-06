@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -72,7 +73,7 @@ func Load(path string) (*Config, error) {
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if !os.IsNotExist(err) {
+		if !errors.Is(err, os.ErrNotExist) {
 			return nil, err
 		}
 		// no file → use defaults, fall through to validation
@@ -125,7 +126,7 @@ func salvageModelsDir(cfg *Config) {
 	reason := "does not exist"
 	if err == nil {
 		reason = "is not a directory"
-	} else if !os.IsNotExist(err) {
+	} else if !errors.Is(err, os.ErrNotExist) {
 		reason = fmt.Sprintf("stat failed: %v", err)
 	}
 	fallback := filepath.Join(cfg.DataDir, "models")

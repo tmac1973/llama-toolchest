@@ -2,6 +2,7 @@ package builder
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -320,7 +321,7 @@ func TestEnsureRepoReclonesOverHalfFinishedClone(t *testing.T) {
 	if got := inspectRepo(srcDir); got != repoUsable {
 		t.Errorf("ensureRepo left %v behind, want repoUsable", got)
 	}
-	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 		t.Error("leftovers from the incomplete clone survived the re-clone")
 	}
 	out, err := exec.Command("git", "-C", srcDir, "tag", "-l", "b2").Output()
@@ -355,7 +356,7 @@ func TestPruneTempPacks(t *testing.T) {
 
 	pruneTempPacks(srcDir)
 
-	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+	if _, err := os.Stat(stale); !errors.Is(err, os.ErrNotExist) {
 		t.Error("abandoned temp pack was not collected")
 	}
 	for _, keep := range []string{fresh, real} {

@@ -992,7 +992,7 @@ func (r *Registry) FindOrphans() []*Model {
 
 	var orphans []*Model
 	for _, m := range r.data.Models {
-		if _, err := os.Stat(m.FilePath); os.IsNotExist(err) {
+		if _, err := os.Stat(m.FilePath); errors.Is(err, os.ErrNotExist) {
 			orphans = append(orphans, m.clone())
 		}
 	}
@@ -1021,7 +1021,7 @@ func (r *Registry) IncompleteRegistered() []*Model {
 			continue // single-file model with its file present → complete
 		}
 		for _, shard := range shards {
-			if _, err := os.Stat(shard); os.IsNotExist(err) {
+			if _, err := os.Stat(shard); errors.Is(err, os.ErrNotExist) {
 				incomplete = append(incomplete, m.clone())
 				break
 			}

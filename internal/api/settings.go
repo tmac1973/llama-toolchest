@@ -291,7 +291,7 @@ func validateModelsDir(path string) error {
 	}
 	info, err := os.Stat(path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return errors.New("path does not exist")
 		}
 		return err

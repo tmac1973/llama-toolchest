@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -453,7 +454,7 @@ func TestEvalDataDeleteLogitsRemovesEntry(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete status = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
-	if _, err := os.Stat(filepath.Join(logitsDir, key.Filename())); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(logitsDir, key.Filename())); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("the logits file still exists after delete")
 	}
 	out := rec.Body.String()

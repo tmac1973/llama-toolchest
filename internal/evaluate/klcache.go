@@ -16,6 +16,7 @@ package evaluate
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -242,7 +243,7 @@ func HasKLBase(root string, key KLBaseKey) bool {
 // DeleteKLBase removes a base file under root. Deleting a missing entry is
 // not an error (the UI's delete button is idempotent).
 func DeleteKLBase(root string, key KLBaseKey) error {
-	if err := os.Remove(KLBasePath(root, key)); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(KLBasePath(root, key)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return nil
@@ -267,7 +268,7 @@ func DeleteKLBaseFile(root, name string) error {
 	if filepath.Dir(path) != filepath.Clean(dir) {
 		return fmt.Errorf("not a KL base filename: %q", name)
 	}
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return nil
@@ -284,7 +285,7 @@ func CleanStalePartials(root string) (int, error) {
 	dir := LogitsDir(root)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return 0, nil
 		}
 		return 0, err

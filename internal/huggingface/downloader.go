@@ -547,7 +547,7 @@ func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, model
 			})
 		}
 
-		if readErr == io.EOF {
+		if errors.Is(readErr, io.EOF) {
 			break
 		}
 		if readErr != nil {
