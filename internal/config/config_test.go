@@ -68,6 +68,18 @@ func TestEnvOverrides(t *testing.T) {
 	if cfg.LlamaPort != 8080 {
 		t.Errorf("non-numeric port should be ignored, got %d", cfg.LlamaPort)
 	}
+
+	// An external URL the links cannot be built from is ignored too.
+	for _, bad := range []string{"llm.example.com", "ftp://llm.example.com", "https://", "::not a url"} {
+		t.Setenv("LLAMA_TOOLCHEST_EXTERNAL_URL", bad)
+		cfg, err = Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.ExternalURL != "http://localhost:3000" {
+			t.Errorf("invalid external URL %q was used: %q", bad, cfg.ExternalURL)
+		}
+	}
 }
 
 // TestDefaultConfigPathPrefersExistingConfig verifies the first candidate that

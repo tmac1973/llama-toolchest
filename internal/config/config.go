@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -95,7 +96,14 @@ func Load(path string) (*Config, error) {
 // so they never clobber a YAML value.
 func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("LLAMA_TOOLCHEST_EXTERNAL_URL"); v != "" {
-		cfg.ExternalURL = v
+		// The chat and API links are built from it; a value that is not
+		// an http(s) URL with a host would render broken links, so it is
+		// ignored with a warning, like a non-numeric port below.
+		if u, err := url.Parse(v); err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" {
+			cfg.ExternalURL = v
+		} else {
+			slog.Warn("ignoring LLAMA_TOOLCHEST_EXTERNAL_URL: not an http(s) URL with a host", "value", v)
+		}
 	}
 	if v := os.Getenv("LLAMA_TOOLCHEST_LLAMA_PORT"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {

@@ -295,8 +295,10 @@ agent -model qwen3-32b                # target a specific model
 agent -system "You are..."            # set a system prompt
 agent -no-tools                       # plain chat (no filesystem tools)
 agent -work-dir /path/to/project      # working dir for tools
-agent -api-key sk-xxx                 # authenticate
+LLAMA_API_KEY=sk-xxx agent            # authenticate
 ```
+
+Pass the API key through `LLAMA_API_KEY` rather than `-api-key`: a value on the command line shows in the process list (`ps`) and your shell history.
 
 ### Test scripts
 
