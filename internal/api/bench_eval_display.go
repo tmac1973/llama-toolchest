@@ -194,13 +194,6 @@ func fmtDurationSince(d time.Duration) string {
 		return fmt.Sprintf("%d h ago", h)
 	default:
 		days := int(d.Hours() / 24)
-		return fmt.Sprintf("%d day%s ago", days, pluralS(days))
+		return fmt.Sprintf("%d %s ago", days, plural(days, "day", "days"))
 	}
-}
-
-func pluralS(n int) string {
-	if n == 1 {
-		return ""
-	}
-	return "s"
 }

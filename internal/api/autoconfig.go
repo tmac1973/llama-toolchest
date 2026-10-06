@@ -509,13 +509,6 @@ func checkSummary(c autoconfig.Verification) (text string, ok bool) {
 	return "", false
 }
 
-func plural(n int, one, many string) string {
-	if n == 1 {
-		return one
-	}
-	return many
-}
-
 func (s *Server) autoconfigReviewData(id, name string, run autoconfigRun) autoconfigReviewData {
 	d := autoconfigReviewData{ModelID: id, ModelName: name}
 	if run.err != nil {

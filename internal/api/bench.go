@@ -318,7 +318,7 @@ func (s *Server) handleStartBenchmark(w http.ResponseWriter, r *http.Request) {
 
 	preset := benchmark.GetPreset(presetName)
 
-	jobName := fmt.Sprintf("Quick: %s / %s", shortenModelName(model.ModelID), preset.Name)
+	jobName := fmt.Sprintf("Quick: %s / %s", models.ShortModelName(model.ModelID), preset.Name)
 	job := benchmark.BenchmarkJob{
 		ID:        newJobID(),
 		Name:      jobName,
