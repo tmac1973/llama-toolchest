@@ -1,0 +1,80 @@
+{{/* The grouped, searchable benchmarks table. Data: benchListData
+     (bench.go).
+
+     The script in benchmarks.html drives toggle, filter, compare,
+     visualize, export and delete from these classes and data-* attributes
+     (bench-runs-container, bench-group-header, bench-row-group,
+     bench-check, data-model, data-search, bench-detail): keep them as
+     they are. */}}
+{{define "benchmark_list"}}
+<div class="bench-runs-container">
+{{- if not .Groups}}
+    <p>No benchmarks yet. Run one above to get started.</p>
+{{- else}}
+    <div class="model-list-controls">
+        <input type="search" class="model-filter" placeholder="Filter by model, quant, build, preset…" oninput="filterBenchmarks(this, this.value)" autocomplete="off">
+        <button type="button" class="outline secondary" onclick="collapseAllBenchGroups(this)">Collapse All</button>
+        <button type="button" class="outline secondary" onclick="expandAllBenchGroups(this)">Expand All</button>
+        <button type="button" class="outline secondary" onclick="compareSelectedRuns(this)">Compare</button>
+        <button type="button" class="outline secondary" onclick="visualizeSelectedRuns(this)" title="Open charts of the selected runs in a new tab — scatter, heatmap and 3D views of a parameter sweep.">Visualize</button>
+        <button type="button" class="outline secondary" onclick="exportSelectedRuns(this, 'csv')">Export CSV</button>
+        <button type="button" class="outline secondary" onclick="exportSelectedRuns(this, 'json')">Export JSON</button>
+        <button type="button" class="outline secondary" onclick="deleteSelectedRuns(this)">Delete Selected</button>
+    </div>
+    <table role="grid">
+        <thead><tr>
+            <th style="width:2rem;"><input type="checkbox" style="margin:0;" title="Select all" onchange="document.querySelectorAll('.bench-check').forEach(function(c){c.checked=this.checked}.bind(this));"></th>
+            <th>Model</th>
+            <th>Quant</th>
+            <th title="Prompt Processing tokens/sec — higher is better.">PP t/s</th>
+            <th title="Token Generation tokens/sec — the speed you feel during chat.">TG t/s</th>
+            <th title="Time To First Token — lower is better.">TTFT</th>
+            {{- /* The Score column appears only when at least one run in
+                   the list is a capability run; a pure performance list
+                   has no Score header and no Score cells. */}}
+            {{- if .HasEval}}
+            <th title="Capability evaluation score — only capability runs (perplexity / KL-divergence / HellaSwag / Winogrande presets) produce one. PPL: perplexity on the wikitext-2 test set — lower is better; the error bar is the uncertainty. HellaSwag / Winogrande: percentage of tasks answered correctly, with the confidence interval and the task count in parentheses. KLD: deviation of this model's probabilities from the reference model's — 0 means identical, so lower is better. Performance runs show an em-dash here.">Score</th>
+            {{- end}}
+            <th>Build</th>
+            <th>Preset</th>
+            <th>Date</th>
+            <th></th>
+        </tr></thead>
+        {{- range $g := .Groups}}
+        <tbody class="bench-group-header collapsed" data-model="{{$g.Name}}"><tr onclick="toggleBenchGroup(this.parentElement)"><td colspan="{{$.Cols}}" class="org-cell"><span class="caret">▸</span> <strong>{{$g.Name}}</strong> <small>({{len $g.Runs}})</small></td></tr></tbody>
+        {{- range $g.Runs}}
+        <tbody class="bench-row-group" data-model="{{$g.Name}}" data-search="{{.Search}}" style="display:none;">
+            <tr>
+                <td><input type="checkbox" class="bench-check" value="{{.Run.ID}}" style="margin:0;"{{if eq .Run.Status "running"}} title="Running — select to delete anyway"{{end}}></td>
+                <td>{{.Run.ModelName}}
+                    {{- if .Run.LlamaBench}} <mark style="padding:0 0.3rem;font-size:0.75rem;">bench</mark>{{end}}
+                    {{- if .Run.LlamaBenchy}} <mark style="padding:0 0.3rem;font-size:0.75rem;background:var(--pico-primary-background);color:var(--pico-primary-inverse);">benchy</mark>{{end -}}
+                </td>
+                <td><kbd>{{.Run.Quant}}</kbd></td>
+                <td>{{with .PP}}{{.}}{{else}}—{{end}}</td>
+                <td>{{with .TG}}<strong>{{.}}</strong>{{else}}—{{end}}</td>
+                <td>{{with .TTFT}}{{.}}{{else}}—{{end}}</td>
+                {{- if $.HasEval}}
+                <td>{{if .Score}}{{.Score}}{{with .ScoreNote}} <span title="{{.}}" style="cursor:help;">&#9888;</span>{{end}}{{else}}—{{end}}</td>
+                {{- end}}
+                <td>
+                    {{- if .Run.BuildID}}<small><kbd>{{.Run.BuildID}}</kbd></small>
+                    {{- else if .Run.BuildRef}}<small>{{.Run.BuildRef}}</small>
+                    {{- else}}—{{end -}}
+                </td>
+                <td><small>{{.Run.Preset}}</small></td>
+                <td><small>{{.Run.CreatedAt.Format "Jan 2 15:04"}}</small></td>
+                <td>
+                    <span style="display:flex;gap:0.25rem;">
+                        <button type="button" class="outline secondary" style="padding:0.2rem 0.5rem;font-size:0.8rem;width:auto;" hx-get="/api/benchmarks/{{.Run.ID}}" hx-target="next .bench-detail" hx-swap="innerHTML" hx-on::before-request="var d=this.closest('tr').nextElementSibling.querySelector('td');if(d.innerHTML.trim()){d.innerHTML='';event.preventDefault();}">Detail</button>
+                    </span>
+                </td>
+            </tr>
+            <tr><td colspan="{{$.Cols}}" class="bench-detail"></td></tr>
+        </tbody>
+        {{- end}}
+        {{- end}}
+    </table>
+{{- end}}
+</div>
+{{end}}

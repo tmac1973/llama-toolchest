@@ -93,6 +93,31 @@ func filterRunsByJob(runs []benchmark.BenchmarkRun, jobID string) []benchmark.Be
 	return out
 }
 
+// benchListData feeds the benchmark_list partial.
+type benchListData struct {
+	Groups []benchListGroup
+	// HasEval adds the Score column: at least one run in the list is a
+	// capability run (run.Eval set).
+	HasEval bool
+	Cols    int // column count, for the colspan cells
+}
+
+// benchListGroup is one model's runs, collapsed by default.
+type benchListGroup struct {
+	Name string
+	Runs []benchListRow
+}
+
+// benchListRow is one run with its cell text worked out. An empty PP,
+// TG, TTFT or Score shows as an em-dash.
+type benchListRow struct {
+	Run          *benchmark.BenchmarkRun
+	Search       string
+	PP, TG, TTFT string
+	Score        string
+	ScoreNote    string // tooltip warning that the score is not comparable
+}
+
 // renderBenchmarkList emits the grouped, searchable benchmarks table.
 // Groups by ModelName; each group is collapsed by default. The wrapping
 // JS in benchmarks.html drives toggle/filter/compare/export/delete using
@@ -100,165 +125,57 @@ func filterRunsByJob(runs []benchmark.BenchmarkRun, jobID string) []benchmark.Be
 // scope so the same renderer can serve multiple list contexts (today
 // just the adhoc job's expanded view; tomorrow per-job filtered views).
 func (s *Server) renderBenchmarkList(w http.ResponseWriter, runs []benchmark.BenchmarkRun) {
-	w.Write([]byte(`<div class="bench-runs-container">`))
-	defer w.Write([]byte(`</div>`))
-
-	if len(runs) == 0 {
-		w.Write([]byte("<p>No benchmarks yet. Run one above to get started.</p>"))
-		return
+	data := benchListData{HasEval: hasEvalRuns(runs), Cols: 10}
+	if data.HasEval {
+		data.Cols++
 	}
 
-	type modelGroup struct {
-		name string
-		runs []benchmark.BenchmarkRun
-	}
-	idx := map[string]*modelGroup{}
-	var names []string
-	for _, r := range runs {
-		key := r.ModelName
+	idx := map[string]int{}
+	for i := range runs {
+		run := &runs[i]
+		key := run.ModelName
 		if key == "" {
 			key = "(unknown)"
 		}
 		g, ok := idx[key]
 		if !ok {
-			g = &modelGroup{name: key}
+			g = len(data.Groups)
 			idx[key] = g
-			names = append(names, key)
+			data.Groups = append(data.Groups, benchListGroup{Name: key})
 		}
-		g.runs = append(g.runs, r)
+		data.Groups[g].Runs = append(data.Groups[g].Runs, benchListRowFor(run, data.HasEval))
 	}
-	sort.Slice(names, func(i, j int) bool { return strings.ToLower(names[i]) < strings.ToLower(names[j]) })
+	sort.SliceStable(data.Groups, func(i, j int) bool {
+		return strings.ToLower(data.Groups[i].Name) < strings.ToLower(data.Groups[j].Name)
+	})
 
-	w.Write([]byte(`<div class="model-list-controls">
-		<input type="search" class="model-filter" placeholder="Filter by model, quant, build, preset…" oninput="filterBenchmarks(this, this.value)" autocomplete="off">
-		<button type="button" class="outline secondary" onclick="collapseAllBenchGroups(this)">Collapse All</button>
-		<button type="button" class="outline secondary" onclick="expandAllBenchGroups(this)">Expand All</button>
-		<button type="button" class="outline secondary" onclick="compareSelectedRuns(this)">Compare</button>
-		<button type="button" class="outline secondary" onclick="visualizeSelectedRuns(this)" title="Open charts of the selected runs in a new tab — scatter, heatmap and 3D views of a parameter sweep.">Visualize</button>
-		<button type="button" class="outline secondary" onclick="exportSelectedRuns(this, 'csv')">Export CSV</button>
-		<button type="button" class="outline secondary" onclick="exportSelectedRuns(this, 'json')">Export JSON</button>
-		<button type="button" class="outline secondary" onclick="deleteSelectedRuns(this)">Delete Selected</button>
-	</div>`))
+	s.renderPartial(w, "benchmark_list", data)
+}
 
-	// The Score column is conditional: it appears only when at least one
-	// run in the list is a capability run (run.Eval set). A pure
-	// performance list renders exactly as before.
-	hasEval := hasEvalRuns(runs)
-	scoreCol := 0
-	if hasEval {
-		scoreCol = 1
+// benchListRowFor works out one run's cells. A capability run shows its
+// score and no timings; the Score cell exists only when hasEval.
+func benchListRowFor(run *benchmark.BenchmarkRun, hasEval bool) benchListRow {
+	row := benchListRow{
+		Run:    run,
+		Search: strings.ToLower(strings.Join([]string{run.ModelName, run.Quant, run.BuildID, run.BuildRef, run.Preset}, " ")),
 	}
-	cols := 10 + scoreCol
-	scoreHeader := ""
-	if hasEval {
-		scoreHeader = `
-			<th title="Capability evaluation score — only capability runs (perplexity / KL-divergence / HellaSwag / Winogrande presets) produce one. PPL: perplexity on the wikitext-2 test set — lower is better; the error bar is the uncertainty. HellaSwag / Winogrande: percentage of tasks answered correctly, with the confidence interval and the task count in parentheses. KLD: deviation of this model's probabilities from the reference model's — 0 means identical, so lower is better. Performance runs show an em-dash here.">Score</th>`
+	if run.Summary != nil {
+		row.PP = fmt.Sprintf("%.0f", run.Summary.AvgPromptTokPerSec)
+		row.TG = fmt.Sprintf("%.1f", run.Summary.AvgGenTokPerSec)
+		row.TTFT = fmt.Sprintf("%.0f ms", run.Summary.AvgTTFTMs)
 	}
-
-	w.Write([]byte(`<table role="grid">
-		<thead><tr>
-			<th style="width:2rem;"><input type="checkbox" style="margin:0;" title="Select all" onchange="document.querySelectorAll('.bench-check').forEach(function(c){c.checked=this.checked}.bind(this));"></th>
-			<th>Model</th>
-			<th>Quant</th>
-			<th title="Prompt Processing tokens/sec — higher is better.">PP t/s</th>
-			<th title="Token Generation tokens/sec — the speed you feel during chat.">TG t/s</th>
-			<th title="Time To First Token — lower is better.">TTFT</th>` + scoreHeader + `
-			<th>Build</th>
-			<th>Preset</th>
-			<th>Date</th>
-			<th></th>
-		</tr></thead>`))
-
-	for _, name := range names {
-		g := idx[name]
-		fmt.Fprintf(w,
-			`<tbody class="bench-group-header collapsed" data-model="%s"><tr onclick="toggleBenchGroup(this.parentElement)"><td colspan="%d" class="org-cell"><span class="caret">▸</span> <strong>%s</strong> <small>(%d)</small></td></tr></tbody>`,
-			html.EscapeString(name), cols, html.EscapeString(name), len(g.runs))
-
-		for _, run := range g.runs {
-			search := strings.ToLower(strings.Join([]string{run.ModelName, run.Quant, run.BuildID, run.BuildRef, run.Preset}, " "))
-			pp, tg, ttft := "—", "—", "—"
-			if run.Summary != nil {
-				pp = fmt.Sprintf("%.0f", run.Summary.AvgPromptTokPerSec)
-				tg = fmt.Sprintf("<strong>%.1f</strong>", run.Summary.AvgGenTokPerSec)
-				ttft = fmt.Sprintf("%.0f ms", run.Summary.AvgTTFTMs)
-			}
-			benchTag := ""
-			if run.LlamaBench != nil {
-				benchTag = ` <mark style="padding:0 0.3rem;font-size:0.75rem;">bench</mark>`
-			}
-			if len(run.LlamaBenchy) > 0 {
-				benchTag += ` <mark style="padding:0 0.3rem;font-size:0.75rem;background:var(--pico-primary-background);color:var(--pico-primary-inverse);">benchy</mark>`
-			}
-			runningTitle := ""
-			if run.Status == "running" {
-				runningTitle = `title="Running — select to delete anyway"`
-			}
-			buildCell := "—"
-			if run.BuildID != "" {
-				buildCell = `<small><kbd>` + html.EscapeString(run.BuildID) + `</kbd></small>`
-			} else if run.BuildRef != "" {
-				buildCell = "<small>" + html.EscapeString(run.BuildRef) + "</small>"
-			}
-
-			// The Score CELL is as conditional as its header: emitting
-			// it unconditionally would put 11 cells under 10 headers in
-			// a performance-only list and shift every column after
-			// TTFT.
-			scoreCell := ""
-			if hasEval {
-				scoreCell = "<td>—</td>"
-				if run.Eval != nil {
-					text := evalScoreText(run.Eval)
-					if text == "" {
-						text = "score unavailable"
-					}
-					// The caveat travels with the number: a score
-					// measured through a compressed memory cache reads
-					// exactly like a comparable one otherwise.
-					if note := evalComparabilityNote(run.Config); note != "" {
-						text += ` <span title="` + html.EscapeString(note) + `" style="cursor:help;">&#9888;</span>`
-					}
-					scoreCell = "<td>" + text + "</td>"
-					pp, tg, ttft = "—", "—", "—"
-				}
-			}
-
-			fmt.Fprintf(w, `<tbody class="bench-row-group" data-model="%s" data-search="%s" style="display:none;">
-				<tr>
-					<td><input type="checkbox" class="bench-check" value="%s" style="margin:0;" %s></td>
-					<td>%s%s</td>
-					<td><kbd>%s</kbd></td>
-					<td>%s</td>
-					<td>%s</td>
-					<td>%s</td>
-					%s
-					<td>%s</td>
-					<td><small>%s</small></td>
-					<td><small>%s</small></td>
-					<td>
-						<span style="display:flex;gap:0.25rem;">
-							<button type="button" class="outline secondary" style="padding:0.2rem 0.5rem;font-size:0.8rem;width:auto;" hx-get="/api/benchmarks/%s" hx-target="next .bench-detail" hx-swap="innerHTML" hx-on::before-request="var d=this.closest('tr').nextElementSibling.querySelector('td');if(d.innerHTML.trim()){d.innerHTML='';event.preventDefault();}">Detail</button>
-						</span>
-					</td>
-				</tr>
-				<tr><td colspan="%d" class="bench-detail"></td></tr>
-			</tbody>`,
-				html.EscapeString(name), html.EscapeString(search),
-				html.EscapeString(run.ID), runningTitle,
-				html.EscapeString(run.ModelName), benchTag,
-				html.EscapeString(run.Quant),
-				pp, tg, ttft,
-				scoreCell,
-				buildCell,
-				html.EscapeString(run.Preset),
-				run.CreatedAt.Format("Jan 2 15:04"),
-				html.EscapeString(run.ID),
-				cols)
+	if hasEval && run.Eval != nil {
+		row.Score = evalScoreText(run.Eval)
+		if row.Score == "" {
+			row.Score = "score unavailable"
 		}
+		// The caveat travels with the number: a score measured through
+		// a compressed memory cache reads exactly like a comparable one
+		// otherwise.
+		row.ScoreNote = evalComparabilityNote(run.Config)
+		row.PP, row.TG, row.TTFT = "", "", ""
 	}
-
-	w.Write([]byte(`</table>`))
+	return row
 }
 
 // handleGetBenchmark returns a single benchmark run.
