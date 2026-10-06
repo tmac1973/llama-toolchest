@@ -98,15 +98,12 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		r.ParseForm()
-		if v := r.FormValue("api_key"); v != "" {
-			s.cfg.APIKey = v
-		}
-		if v := r.FormValue("hf_token"); v != "" {
-			s.cfg.HFToken = v
-		}
-		if v := r.FormValue("ms_token"); v != "" {
-			s.cfg.MSToken = v
-		}
+		// A blank secret field means "keep the saved value", so removing
+		// one takes the separate clear_* checkbox. A value typed in the
+		// field wins over the checkbox.
+		formSecret(r, "api_key", &s.cfg.APIKey)
+		formSecret(r, "hf_token", &s.cfg.HFToken)
+		formSecret(r, "ms_token", &s.cfg.MSToken)
 		// A select always posts a value, so presence of the field means
 		// the user chose; unlike the token fields there is no "left
 		// blank means leave alone" case.
@@ -239,6 +236,18 @@ func (s *Server) handleTestConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, result)
+}
+
+// formSecret applies a secret field from the settings form to dst: a
+// typed value replaces it, a blank field keeps it, and the clear_<name>
+// checkbox (with the field blank) removes it.
+func formSecret(r *http.Request, name string, dst *string) {
+	switch v := r.FormValue(name); {
+	case v != "":
+		*dst = v
+	case r.FormValue("clear_"+name) == "1":
+		*dst = ""
+	}
 }
 
 // saveConfigLocked persists cfg. Callers must hold cfgMu.

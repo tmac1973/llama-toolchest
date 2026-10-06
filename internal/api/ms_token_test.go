@@ -381,3 +381,29 @@ func TestSettingsSaveFailureIsReported(t *testing.T) {
 		t.Errorf("failure not reported:\n%s", out)
 	}
 }
+
+// A blank secret field keeps the saved value, so the form had no way to
+// remove a token or key. The clear_* checkbox removes it; a value typed in
+// the field still wins over the checkbox.
+func TestUpdateSettingsFormCanClearSecrets(t *testing.T) {
+	s := newSettingsServer(t, &config.Config{HFToken: "hf_old", MSToken: "ms_old", APIKey: "sk-old"})
+	form := url.Values{
+		"hf_token": {""}, "clear_hf_token": {"1"}, // removed
+		"ms_token": {""},                               // kept
+		"api_key":  {"sk-new"}, "clear_api_key": {"1"}, // typed value wins
+	}
+	req := httptest.NewRequest("PUT", "/api/settings", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	s.handleUpdateSettings(httptest.NewRecorder(), req)
+
+	if s.cfg.HFToken != "" || s.cfg.MSToken != "ms_old" || s.cfg.APIKey != "sk-new" {
+		t.Errorf("hf %q, ms %q, key %q; want hf removed, ms kept, key replaced", s.cfg.HFToken, s.cfg.MSToken, s.cfg.APIKey)
+	}
+}
+
+// The clear checkboxes are offered only for a secret that is saved.
+func TestSettingsPageOffersClearOnlyWhenSet(t *testing.T) {
+	if out := renderSettings(t, true, false); !strings.Contains(out, `name="clear_hf_token"`) || strings.Contains(out, `name="clear_ms_token"`) {
+		t.Errorf("HF token set, ModelScope not: clear boxes shown wrong")
+	}
+}
