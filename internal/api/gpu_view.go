@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/tmac1973/llama-toolchest/internal/models"
@@ -61,6 +62,8 @@ func migrateGPUAssign(cfg *models.ModelConfig, gpuOptions []models.GPUOption, nu
 		}
 	}
 
+	matchSplitMode(cfg, gpuOptions, numGPUs)
+
 	if cfg.GPUAssign == "all" {
 		for _, o := range gpuOptions {
 			// On an iGPU-free box the spanning option's value is still
@@ -70,6 +73,41 @@ func migrateGPUAssign(cfg *models.ModelConfig, gpuOptions []models.GPUOption, nu
 				cfg.TensorSplit, cfg.SplitMode, cfg.MainGPU = models.ResolveGPUAssign(o.Value, numGPUs)
 				break
 			}
+		}
+	}
+}
+
+// matchSplitMode picks the dropdown option that matches the stored split
+// mode. Autotune's split-mode sweep changes SplitMode alone, so a config
+// can say "tensor" while its GPUAssign is still "all", which means layer
+// split. The form sends only GPUAssign and the save derives the split
+// mode from it, so the first save from the form would silently switch
+// the model back to layer split (and to a different memory layout,
+// which can stop it loading). Selecting the option for the same GPUs
+// with the stored split mode keeps what Autotune chose.
+func matchSplitMode(cfg *models.ModelConfig, gpuOptions []models.GPUOption, numGPUs int) {
+	want := cfg.SplitMode
+	if want != "layer" && want != "tensor" {
+		return
+	}
+	if _, sm, _ := models.ResolveGPUAssign(cfg.GPUAssign, numGPUs); sm == "" || sm == want {
+		return
+	}
+	var cur *models.GPUOption
+	for i, o := range gpuOptions {
+		if o.Value == cfg.GPUAssign || (cfg.GPUAssign == "all" && o.IsSpanAll) {
+			cur = &gpuOptions[i]
+			break
+		}
+	}
+	if cur == nil {
+		return
+	}
+	for _, o := range gpuOptions {
+		if o.Value != "custom" && o.IsTensor == (want == "tensor") && slices.Equal(o.GPUs, cur.GPUs) {
+			cfg.GPUAssign = o.Value
+			cfg.TensorSplit, cfg.SplitMode, cfg.MainGPU = models.ResolveGPUAssign(o.Value, numGPUs)
+			return
 		}
 	}
 }

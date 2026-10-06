@@ -70,3 +70,32 @@ func TestMigrateGPUAssignLegacy(t *testing.T) {
 		t.Errorf("fresh config should stay unset (template defaults it), got %q", fresh.GPUAssign)
 	}
 }
+
+// Autotune's split-mode sweep stores SplitMode "tensor" and leaves
+// GPUAssign at "all". The dropdown must show the tensor option for the
+// same GPUs: the form sends only GPUAssign, and showing "All GPUs (layer
+// split)" made the next save switch the model back to layer split.
+func TestMigrateGPUAssignKeepsAutotuneSplitMode(t *testing.T) {
+	cases := []struct {
+		name       string
+		cfg        models.ModelConfig
+		numGPUs    int
+		igpu       []bool
+		wantAssign string
+		wantMode   string
+	}{
+		{"all GPUs, tensor", models.ModelConfig{GPUAssign: "all", SplitMode: "tensor"}, 3, nil, "tensor-3", "tensor"},
+		{"pair, tensor", models.ModelConfig{GPUAssign: "0-1", SplitMode: "tensor", TensorSplit: "1,1,0"}, 3, nil, "tensor-2", "tensor"},
+		{"tensor-3, layer", models.ModelConfig{GPUAssign: "tensor-3", SplitMode: "layer"}, 3, nil, "all", "layer"},
+		{"iGPU box, all, tensor", models.ModelConfig{GPUAssign: "all", SplitMode: "tensor"}, 3, []bool{false, true, false}, "tensor:0,2", "tensor"},
+		{"single GPU, tensor: no tensor option, left alone", models.ModelConfig{GPUAssign: "1", SplitMode: "tensor"}, 3, nil, "1", "tensor"},
+		{"already consistent", models.ModelConfig{GPUAssign: "all", SplitMode: "layer"}, 3, nil, "all", "layer"},
+	}
+	for _, c := range cases {
+		cfg := c.cfg
+		migrateGPUAssign(&cfg, models.GPUAssignOptions(c.numGPUs, c.igpu), c.numGPUs)
+		if cfg.GPUAssign != c.wantAssign || cfg.SplitMode != c.wantMode {
+			t.Errorf("%s: got %q/%q, want %q/%q", c.name, cfg.GPUAssign, cfg.SplitMode, c.wantAssign, c.wantMode)
+		}
+	}
+}
