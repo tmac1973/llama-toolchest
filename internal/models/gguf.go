@@ -844,7 +844,7 @@ func readGGUFScalarFloat(r io.Reader, valueType uint32) (float64, bool) {
 	case ggufTypeFloat32:
 		var v float32
 		if binary.Read(r, binary.LittleEndian, &v) == nil {
-			return float64(v), true
+			return Float32Decimal(float64(v)), true
 		}
 	case ggufTypeFloat64:
 		var v float64
@@ -857,6 +857,25 @@ func readGGUFScalarFloat(r io.Reader, valueType uint32) (float64, bool) {
 		}
 	}
 	return 0, false
+}
+
+// Float32Decimal returns the shortest decimal that reads back as the
+// same 32-bit float as v, so a float32 0.95 becomes 0.95 rather than
+// 0.949999988079071. GGUF files store sampling values as float32, and the
+// long form breaks the Configure form: the browser rejects 0.949999988079071
+// for a field that steps by 0.05, and a form with a rejected field is not
+// saved at all. A value that is not exactly a float32 (one a user typed)
+// is returned unchanged.
+func Float32Decimal(v float64) float64 {
+	f := float32(v)
+	if float64(f) != v {
+		return v
+	}
+	d, err := strconv.ParseFloat(strconv.FormatFloat(v, 'g', -1, 32), 64)
+	if err != nil {
+		return v
+	}
+	return d
 }
 
 // repoFromURL extracts "org/repo" from a huggingface.co URL, returning ""

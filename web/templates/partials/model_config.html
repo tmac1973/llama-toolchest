@@ -38,7 +38,10 @@
      unswapped, and htmx is silent about it — without the error handlers
      the form just looks frozen: nothing the user changes appears to do
      anything, including changes whose re-render would reveal new fields
-     (picking a speculative-decoding mode). Surface the response text. */}}
+     (picking a speculative-decoding mode). Surface the response text.
+     The browser can also stop a save before it is sent: htmx does not send
+     a form with a field outside its min, max or step, and says nothing.
+     validation:halted names the field instead. */}}
 <form id="model-config-form"
       hx-put="/api/models/{{.ModelID}}/config"
       hx-target="this"
@@ -48,7 +51,8 @@
       hx-on::before-request="window._cfgScrollY=window.scrollY; var e=this.querySelector('.cfg-save-error'); if(e){e.style.display='none';}"
       hx-on::after-settle="window.scrollTo({top:window._cfgScrollY,behavior:'instant'})"
       hx-on::response-error="var e=this.querySelector('.cfg-save-error'); if(e){e.textContent='Not saved: '+(event.detail.xhr.responseText.trim()||('server returned '+event.detail.xhr.status)); e.style.display='block';}"
-      hx-on::send-error="var e=this.querySelector('.cfg-save-error'); if(e){e.textContent='Not saved: could not reach the server.'; e.style.display='block';}">
+      hx-on::send-error="var e=this.querySelector('.cfg-save-error'); if(e){e.textContent='Not saved: could not reach the server.'; e.style.display='block';}"
+      hx-on::validation:halted="var e=this.querySelector('.cfg-save-error'); if(e){e.textContent='Not saved: '+event.detail.errors.map(function(x){var l=x.elt.closest('label'); var n=l&&l.firstChild?l.firstChild.textContent.trim():''; return (n||x.elt.name)+': '+x.message;}).join(' '); e.style.display='block';}">
 
     {{if .SeededText}}
     <p style="margin:0 0 0.75rem;"><small><mark title="{{.SeededTip}}">{{.SeededText}}</mark></small></p>

@@ -95,3 +95,47 @@ func TestLoadBackfillsStaleQuant(t *testing.T) {
 		}
 	}
 }
+
+// TestLoadShortensFloat32SamplingValues verifies that load() rewrites
+// sampling values stored in their long float32 form, in configs and in
+// profiles, and leaves a value a user typed alone. The long form
+// (top_p 0.949999988079071) fails the Configure form's step check, and the
+// browser then refuses to save any change on that form.
+func TestLoadShortensFloat32SamplingValues(t *testing.T) {
+	dir := t.TempDir()
+	cfgDir := filepath.Join(dir, "config")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const stored = `{
+  "models": {"a": {"id": "a", "filename": "a-Q8_0.gguf"}},
+  "configs": {"a": {"top_p": 0.949999988079071, "repeat_penalty": 1.0499999523162842, "temperature": 0.7, "min_p": 0.123456789}},
+  "config_profiles": [{"repo_id": "r", "filename": "a-Q8_0.gguf", "name": "p", "config": {"top_p": 0.949999988079071}}]
+}`
+	if err := os.WriteFile(filepath.Join(cfgDir, "models.json"), []byte(stored), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r := NewRegistry(dir, filepath.Join(dir, "models"))
+
+	cfg, err := r.GetConfig("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, got := range map[string]struct {
+		v    *float64
+		want float64
+	}{
+		"top_p":          {cfg.TopP, 0.95},
+		"repeat_penalty": {cfg.RepeatPenalty, 1.05},
+		"temperature":    {cfg.Temperature, 0.7},
+		"min_p":          {cfg.MinP, 0.123456789}, // not a float32: left alone
+	} {
+		if got.v == nil || *got.v != got.want {
+			t.Errorf("config %s = %v, want %v", name, got.v, got.want)
+		}
+	}
+	if p := r.data.Profiles[0].Config.TopP; p == nil || *p != 0.95 {
+		t.Errorf("profile top_p = %v, want 0.95", p)
+	}
+}

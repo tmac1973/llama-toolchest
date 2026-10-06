@@ -72,8 +72,10 @@ func TestParseGGUFSamplingKeys(t *testing.T) {
 	if meta.SamplingTemp == nil || *meta.SamplingTemp != 1.0 {
 		t.Errorf("SamplingTemp = %v, want 1.0", meta.SamplingTemp)
 	}
-	if meta.SamplingTopP == nil || *meta.SamplingTopP < 0.949 || *meta.SamplingTopP > 0.951 {
-		t.Errorf("SamplingTopP = %v, want ~0.95", meta.SamplingTopP)
+	// Exactly 0.95, not the float32's 0.949999988079071: the Configure
+	// form refuses to save that against its 0.05 step.
+	if meta.SamplingTopP == nil || *meta.SamplingTopP != 0.95 {
+		t.Errorf("SamplingTopP = %v, want 0.95", meta.SamplingTopP)
 	}
 	if meta.SamplingTopK == nil || *meta.SamplingTopK != 20 {
 		t.Errorf("SamplingTopK = %v, want 20", meta.SamplingTopK)
@@ -81,8 +83,8 @@ func TestParseGGUFSamplingKeys(t *testing.T) {
 	if meta.SamplingMinP == nil || *meta.SamplingMinP != 0.0 {
 		t.Errorf("SamplingMinP = %v, want 0.0 (zero is meaningful, not absent)", meta.SamplingMinP)
 	}
-	if meta.SamplingRepeatPenalty == nil || *meta.SamplingRepeatPenalty < 1.049 || *meta.SamplingRepeatPenalty > 1.051 {
-		t.Errorf("SamplingRepeatPenalty = %v, want ~1.05", meta.SamplingRepeatPenalty)
+	if meta.SamplingRepeatPenalty == nil || *meta.SamplingRepeatPenalty != 1.05 {
+		t.Errorf("SamplingRepeatPenalty = %v, want 1.05", meta.SamplingRepeatPenalty)
 	}
 
 	p := meta.EmbeddedSamplingPreset()

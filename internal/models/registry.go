@@ -1731,6 +1731,17 @@ func (r *Registry) load() {
 		r.data.Configs = make(map[string]*ModelConfig)
 	}
 
+	// Earlier builds stored sampling values read from GGUF files in their
+	// long float32 form (top_p 0.949999988079071), which the Configure
+	// form rejects and so never saves. Shorten them; the next save writes
+	// the short form back.
+	for _, c := range r.data.Configs {
+		c.tidySamplingFloats()
+	}
+	for i := range r.data.Profiles {
+		r.data.Profiles[i].Config.tidySamplingFloats()
+	}
+
 	// Re-derive Quant from the filename for every registered model. The field
 	// is persisted, but ScanModels skips already-known paths, so entries added
 	// before a ParseQuant improvement keep their stale value (e.g. MXFP4 frozen
@@ -1743,6 +1754,19 @@ func (r *Registry) load() {
 		}
 		if q := ParseQuant(m.Filename); q != m.Quant {
 			m.Quant = q
+		}
+	}
+}
+
+// tidySamplingFloats replaces each sampling value that is exactly a
+// float32 with its short decimal form (see Float32Decimal).
+func (c *ModelConfig) tidySamplingFloats() {
+	if c == nil {
+		return
+	}
+	for _, p := range []*float64{c.Temperature, c.TopP, c.MinP, c.PresencePenalty, c.RepeatPenalty} {
+		if p != nil {
+			*p = Float32Decimal(*p)
 		}
 	}
 }
