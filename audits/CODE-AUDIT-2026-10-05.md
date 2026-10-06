@@ -53,7 +53,7 @@ Each item has a checkbox; tick it in the PR that fixes it.
 ### Standards
 - [x] The `/v1` 401 sets a JSON content type, then `http.Error` overwrites it with text/plain; the OpenAI-shaped error body is written by hand instead of with `writeProxyError` — `internal/api/middleware.go:19-29`
 - [x] `handleRestore` builds JSON with `%q`, whose `\x..` escapes are not valid JSON, instead of `respondJSONStatus` — `internal/api/backup.go:56-58`
-- [ ] No rule for when server HTML comes from templates and when it is built in Go — `internal/api/server.go:1066`, `internal/api/models.go:577`, `internal/api/build.go:208`
+- [x] No rule for when server HTML comes from templates and when it is built in Go — `internal/api/server.go:1066`, `internal/api/models.go:577`, `internal/api/build.go:208` *(stage 6b: the larger Go-built fragments are partials now; the rule is written in `internal/api/respond.go`.)*
 - [x] JS fetch calls handle failure differently: `cancelJob` and the batch delete ignore `r.ok`; job IDs are sometimes URL-encoded and sometimes not — `web/templates/benchmarks.html:174`, `:939`
 - [x] `Registry.Get` and `GetConfig` return the live pointer from behind the lock; the benchmark and autotune stores return copies — `internal/models/registry.go:593`, `:704`
 
@@ -63,9 +63,9 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [x] Spec-mode names and labels are hard-coded in autotune and the template instead of coming from `models` — `internal/autotune/score.go:426`, `internal/autotune/plan.go:229`, `web/templates/partials/model_config.html:399`
 - [x] "Sort the map keys, join `k=v`" is hand-written about 6 times — `internal/api/bench_export.go:66`, `internal/autotune/score.go:241`, `internal/builder/builder.go:1122`
 - [x] Removing the org prefix and "-GGUF" suffix from model names is done 4 ways with different suffix lists — `internal/models/gpu_assign.go:613`, `internal/models/registry.go:23`, `internal/recommend/group.go:71` *(stage 2: `ShortModelName` now reuses `OrgAndBase`. `OrgAndBase` is left as is because `PublicName`, the `/v1` model name, is built from it; the `recommend` grouping strips a broader set on purpose.)*
-- [ ] `handleSaveConfig` defines `atoiField`, then repeats its logic by hand for 5 draft fields — `internal/api/service.go:1063-1077`
+- [x] `handleSaveConfig` defines `atoiField`, then repeats its logic by hand for 5 draft fields — `internal/api/service.go:1063-1077`
 - [x] The selection actions (compare and visualize) for runs and for job cells are duplicated — `web/templates/benchmarks.html:129` (and `:1032`)
-- [ ] The installer decides user vs system scope in 3 places and has 2 `systemctl --user` wrappers — `scripts/lib/service.sh:30`, `scripts/lib/host.sh:32`, `setup.sh:1720`
+- [x] The installer decides user vs system scope in 3 places and has 2 `systemctl --user` wrappers — `scripts/lib/service.sh:30`, `scripts/lib/host.sh:32`, `setup.sh:1720` *(stage 6b: one `service_scope` and one `service_systemctl`. `quadlet_dir` stays separate, since it is Podman's folder, and so do the rootless-Podman checks, which answer a different question.)*
 
 ### Logging
 - [x] A runtime env var that gets ignored is logged with its value, so a token set there would be written to the log — `internal/process/manager.go:451`
@@ -82,7 +82,7 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [x] The llama-benchy path has no tests (argument building, shell quoting, summary) — `internal/benchmark/benchy.go:97`, `:127`, `:145`
 - [x] Builder core is untested: rebuild decision (`hashFlags`/`flagsEqual`), build ranking, compiler lookup, `DetectBackends` — `internal/builder/builder.go:303`, `:1196` *(stage 4b: `hashFlags`, `flagsEqual`, ranking and `findNVCC` are tested. `findCUDAHostCompiler` only checks fixed `/usr/bin/g++-N` paths and `DetectBackends` runs the real tools, so neither can be tested without a production change.)*
 - [x] Handlers with real branching have no handler tests: HF search and download, restore, `/v1/models`, build trigger and delete, service actions, `StreamLines` — `internal/api/hf.go`, `internal/api/backup.go`, `internal/api/sse.go:53`
-- [ ] The installer libraries (`host.sh`, `migrate.sh`, `service.sh`) have no automated tests — `scripts/lib/*.sh`
+- [x] The installer libraries (`host.sh`, `migrate.sh`, `service.sh`) have no automated tests — `scripts/lib/*.sh` *(stage 6b: `scripts/test-lib.sh`, 100 checks, `make installer-test`. They found three installer bugs, all fixed.)*
 - [x] About 15 test `Server` constructors and 31 inline `&Server{}` literals — `internal/api/models_profiles_test.go:26`, `internal/api/ms_token_test.go:67`
 - [x] Template parsing for tests is copied 32 times across 18 files — `internal/api/ple_render_test.go:16`
 - [x] `fakeEnv` and `newFakeRouter` are duplicated between the benchmark and autotune tests — `internal/benchmark/job_runner_test.go:23`, `internal/autotune/runner_test.go:23` *(stage 4: checked and left as is. The two fakes model different things — the benchmark one records every call and runs the evaluation machinery, the autotune one models a machine whose speed depends on the settings — and their routers differ the same way. What they share is about eight one-line "not used" stubs, which would not justify a new exported test package.)*
@@ -93,40 +93,40 @@ Each item has a checkbox; tick it in the PR that fixes it.
 ## Low Priority
 
 ### Standards
-- [ ] An error is checked with a type assertion instead of `errors.As` — `internal/api/build.go:256`
-- [ ] Mixed `==` / `os.IsNotExist` / `errors.Is` error checks — `cmd/llama-toolchest/main.go:67`, `internal/config/config.go:75`
-- [ ] `_ = x` lines that keep dead values around — `internal/api/server.go:961-970`, `internal/benchmark/runner.go:244`, `internal/monitor/rocm.go:108`
-- [ ] Receiver names differ within the same type — `internal/models/gguf.go:224`, `internal/models/specparams.go:80`
-- [ ] Three `interface{}` uses remain; about 180 places use `any` — `internal/api/respond.go:51`, `internal/api/server.go:357`
-- [ ] Mixed JS async styles and `var`/`const` — `web/templates/server.html:219`, `web/static/log-panel.js:67`
-- [ ] HTTP-status error wording differs between clients; some error messages start with a capital — `internal/huggingface/client.go:82`, `internal/modelscope/client.go:149`
-- [ ] About 31 `fmt.Errorf` calls with no format verbs — `internal/api/sse.go:18`, `internal/builder/builder.go:312`
+- [x] An error is checked with a type assertion instead of `errors.As` — `internal/api/build.go:256`
+- [x] Mixed `==` / `os.IsNotExist` / `errors.Is` error checks — `cmd/llama-toolchest/main.go:67`, `internal/config/config.go:75`
+- [x] `_ = x` lines that keep dead values around — `internal/api/server.go:961-970`, `internal/benchmark/runner.go:244`, `internal/monitor/rocm.go:108`
+- [x] Receiver names differ within the same type — `internal/models/gguf.go:224`, `internal/models/specparams.go:80`
+- [x] Three `interface{}` uses remain; about 180 places use `any` — `internal/api/respond.go:51`, `internal/api/server.go:357`
+- [x] Mixed JS async styles and `var`/`const` — `web/templates/server.html:219`, `web/static/log-panel.js:67`
+- [x] HTTP-status error wording differs between clients; some error messages start with a capital — `internal/huggingface/client.go:82`, `internal/modelscope/client.go:149` *(stage 6b: the source clients agree. Router errors keep their "HTTP N: body" form, which stored run failures and failure grouping compare against.)*
+- [x] About 31 `fmt.Errorf` calls with no format verbs — `internal/api/sse.go:18`, `internal/builder/builder.go:312` *(stage 6b: 42, counting tests.)*
 
 ### Duplication
 - [x] `openJobForm` and `openJobEditForm` repeat the same steps — `web/templates/benchmarks.html:314-357`
-- [ ] Small repeated helpers: `pluralS` and `plural`, `shortenModelName`, an 80-character truncation repeated twice that can split a UTF-8 character — `internal/api/bench_jobs.go:887-899`, `internal/api/autoconfig.go:512`
+- [x] Small repeated helpers: `pluralS` and `plural`, `shortenModelName`, an 80-character truncation repeated twice that can split a UTF-8 character — `internal/api/bench_jobs.go:887-899`, `internal/api/autoconfig.go:512` *(stage 6b: one `plural`, `shortenModelName` inlined, and `models.TruncateText`, which keeps whole characters, used here and in the two other byte cuts found, Autoconfigure's card quote and the failed-run reason.)*
 
 ### Logging
 - [x] Whole response bodies go into error messages (and from there into logs) with no size limit — `internal/benchmark/runner.go:712`, `internal/routerclient/routerclient.go:51`
 - [x] A failed `SetHelperRole` save is logged at Debug — `internal/api/helper_model.go:51`
 - [x] A failed cache write is logged at Debug — `internal/presets/fetcher.go:230`
-- [ ] Requests refused because a job holds the router are logged at Info — `internal/api/service.go:172`
-- [ ] The agent CLI echoes tool output, which could include file secrets, to the terminal — `cmd/agent/main.go:310`
+- [x] Requests refused because a job holds the router are logged at Info — `internal/api/service.go:172` *(checked, left as is: the refusal now reaches the user through the error notice from stage 3, and a refused user action is an Info event, not a fault.)*
+- [x] The agent CLI echoes tool output, which could include file secrets, to the terminal — `cmd/agent/main.go:310` *(checked, left as is: an interactive CLI showing what its tools did, cut to 200 characters, is the point of the output.)*
 
 ### Security
-- [ ] `/api`, including `backup?secrets=1` and `PUT /api/settings`, has no authentication (documented default; `--secure` covers it) — `internal/api/server.go:592`, `internal/api/backup.go:20`
-- [ ] Raw `:8080` bypasses `api_key` (documented in `docs/secure.md`; `--secure` closes it) — `internal/process/manager.go:90`
+- [x] `/api`, including `backup?secrets=1` and `PUT /api/settings`, has no authentication (documented default; `--secure` covers it) — `internal/api/server.go:592`, `internal/api/backup.go:20` *(decided 2026-10-05, left as is: the documented default; `--secure` puts the UI and `/api` behind a login.)*
+- [x] Raw `:8080` bypasses `api_key` (documented in `docs/secure.md`; `--secure` closes it) — `internal/process/manager.go:90` *(decided 2026-10-05, left as is. Binding llama-server to localhost would break the published port and Caddy's chat port inside containers; passing the key to llama-server would mean sending it on every internal router call. Documented in `docs/secure.md`; `--secure` closes it.)*
 - [x] The API key is compared with `!=`, not in constant time — `internal/api/middleware.go:26`
 - [x] The settings form cannot clear a secret; a blank field keeps the old value — `internal/api/settings.go:98`
-- [ ] Ad-hoc `os.Getenv` reads for keys in the agent CLI and the scraper; `-api-key` is visible in `ps` — `cmd/agent/main.go:200`, `scripts/scrape-sampling-presets/main.go:51`
-- [ ] Env overrides read without validation (`EXTERNAL_URL`, `ROCM_BASE_IMAGE`, `ROCM_PATH`) — `internal/config/config.go:96`, `internal/builder/detect.go:24`
+- [x] Ad-hoc `os.Getenv` reads for keys in the agent CLI and the scraper; `-api-key` is visible in `ps` — `cmd/agent/main.go:200`, `scripts/scrape-sampling-presets/main.go:51` *(stage 6b: the README and the agent's help now show `LLAMA_API_KEY` instead of `-api-key`. Reading an environment variable directly is the normal pattern for a small CLI, which has no config layer.)*
+- [x] Env overrides read without validation (`EXTERNAL_URL`, `ROCM_BASE_IMAGE`, `ROCM_PATH`) — `internal/config/config.go:96`, `internal/builder/detect.go:24` *(stage 6b: `LLAMA_TOOLCHEST_EXTERNAL_URL` is checked to be an http(s) URL with a host, otherwise ignored with a warning. `ROCM_PATH` is the standard ROCm variable and `LLAMA_TOOLCHEST_ROCM_BASE_IMAGE` only names an image, so both are read where used.)*
 - [x] `.gitignore` gaps: `.env.*`, `*.pem`/`*.key`, `llama-toolchest-backup-*.json`, IDE dirs — `.gitignore:1-17`
-- [ ] Local secret files (`config.yaml`, `.env`) are untracked and were never committed; keep them ignored — `config.yaml:6`
+- [x] Local secret files (`config.yaml`, `.env`) are untracked and were never committed; keep them ignored — `config.yaml:6` *(nothing to do: they stay ignored, and were never committed.)*
 
 ### Testing
 - [x] The three JS-test wrappers repeat the same steps; pointer helpers are redefined per file — `internal/api/js_models_test.go:28`, `internal/api/capabilities_test.go:9`
-- [ ] Fragile tests that check exact markup and formatted strings — `internal/api/restart_icon_test.go:37`, `internal/api/bench_eval_display_test.go:153`
-- [ ] A test that cannot fail at run time (interface check); tests that wait with sleeps of up to 30 s — `internal/modelsource/iface_test.go:14`, `internal/autotune/runner_test.go:244`
+- [x] Fragile tests that check exact markup and formatted strings — `internal/api/restart_icon_test.go:37`, `internal/api/bench_eval_display_test.go:153` *(checked, left as is: these pin markup the page scripts depend on, such as listener names and a colspan matching the header width. A change there should fail a test.)*
+- [x] A test that cannot fail at run time (interface check); tests that wait with sleeps of up to 30 s — `internal/modelsource/iface_test.go:14`, `internal/autotune/runner_test.go:244` *(stage 6b: the interface check moved to compile-time `var _` lines. The "30 s" figures are deadlines on polling loops with short sleeps, not fixed waits.)*
 
 ### Dependencies
 - [x] Windows-only advisory, not called — `golang.org/x/sys@v0.41.0 (v0.41.0 -> v0.48.0)`
@@ -205,8 +205,8 @@ Done as one PR per stage, in the order under "Suggested Fix Order".
 6. **Larger refactors** (Complex 4–7), the installer cleanup (Medium 12) and cosmetic items (Quick Wins 13–16, Medium 17) last.
 
 ## Verification
-- [ ] `go build ./...` and `go vet ./...` report 0 errors; `gofmt -l .` is empty
-- [ ] `go test ./...` passes (including the node JS tests)
-- [ ] `govulncheck ./...` is clean
-- [ ] New tests cover proxy, jobEnv, GGUF malformed input, registry, the benchy and nvidia parsers
-- [ ] compute2: the router's `LD_LIBRARY_PATH` keeps `/usr/local/cuda/lib64`; an htmx error (for example a failed HF search) shows a message
+- [x] `go build ./...` and `go vet ./...` report 0 errors; `gofmt -l .` is empty
+- [x] `go test ./...` passes (including the node JS tests)
+- [x] `govulncheck ./...` is clean
+- [x] New tests cover proxy, jobEnv, GGUF malformed input, registry, the benchy and nvidia parsers
+- [x] compute2: the router's `LD_LIBRARY_PATH` keeps `/usr/local/cuda/lib64`; an htmx error (for example a failed HF search) shows a message *(`LD_LIBRARY_PATH` confirmed after stage 1. The error notice was checked server-side after stage 3; it was not checked in a browser from here.)*
