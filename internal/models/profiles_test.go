@@ -56,6 +56,9 @@ func TestProfileSaveListApplyDelete(t *testing.T) {
 	// Aliases and Enabled are the live model's, not the profile's.
 	cfg, _ := reg.GetConfig(id)
 	cfg.Aliases = []string{"mine"}
+	if err := reg.SetConfig(id, cfg); err != nil {
+		t.Fatal(err)
+	}
 	if err := reg.ApplyProfile(id, "long ctx"); err != nil {
 		t.Fatal(err)
 	}
@@ -115,10 +118,17 @@ func TestProfileDoesNotAliasLiveConfig(t *testing.T) {
 	cfg, _ := reg.GetConfig(id)
 	temp := 0.7
 	cfg.Temperature = &temp
+	if err := reg.SetConfig(id, cfg); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := reg.SaveProfile(id, "p", ProfileSourceUser, ""); err != nil {
 		t.Fatal(err)
 	}
-	*cfg.Temperature = 1.5
+	live, _ := reg.GetConfig(id)
+	*live.Temperature = 1.5
+	if err := reg.SetConfig(id, live); err != nil {
+		t.Fatal(err)
+	}
 	p, err := reg.GetProfile(id, "p")
 	if err != nil {
 		t.Fatal(err)

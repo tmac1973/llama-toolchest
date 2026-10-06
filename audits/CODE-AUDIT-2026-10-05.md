@@ -55,7 +55,7 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [x] `handleRestore` builds JSON with `%q`, whose `\x..` escapes are not valid JSON, instead of `respondJSONStatus` — `internal/api/backup.go:56-58`
 - [ ] No rule for when server HTML comes from templates and when it is built in Go — `internal/api/server.go:1066`, `internal/api/models.go:577`, `internal/api/build.go:208`
 - [x] JS fetch calls handle failure differently: `cancelJob` and the batch delete ignore `r.ok`; job IDs are sometimes URL-encoded and sometimes not — `web/templates/benchmarks.html:174`, `:939`
-- [ ] `Registry.Get` and `GetConfig` return the live pointer from behind the lock; the benchmark and autotune stores return copies — `internal/models/registry.go:593`, `:704`
+- [x] `Registry.Get` and `GetConfig` return the live pointer from behind the lock; the benchmark and autotune stores return copies — `internal/models/registry.go:593`, `:704`
 
 ### Duplication
 - [x] The monitor writes its own subscriber fan-out instead of using `broadcast.Broadcaster` — `internal/monitor/monitor.go:55-145`
@@ -117,7 +117,7 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [ ] `/api`, including `backup?secrets=1` and `PUT /api/settings`, has no authentication (documented default; `--secure` covers it) — `internal/api/server.go:592`, `internal/api/backup.go:20`
 - [ ] Raw `:8080` bypasses `api_key` (documented in `docs/secure.md`; `--secure` closes it) — `internal/process/manager.go:90`
 - [x] The API key is compared with `!=`, not in constant time — `internal/api/middleware.go:26`
-- [ ] The settings form cannot clear a secret; a blank field keeps the old value — `internal/api/settings.go:98`
+- [x] The settings form cannot clear a secret; a blank field keeps the old value — `internal/api/settings.go:98`
 - [ ] Ad-hoc `os.Getenv` reads for keys in the agent CLI and the scraper; `-api-key` is visible in `ps` — `cmd/agent/main.go:200`, `scripts/scrape-sampling-presets/main.go:51`
 - [ ] Env overrides read without validation (`EXTERNAL_URL`, `ROCM_BASE_IMAGE`, `ROCM_PATH`) — `internal/config/config.go:96`, `internal/builder/detect.go:24`
 - [x] `.gitignore` gaps: `.env.*`, `*.pem`/`*.key`, `llama-toolchest-backup-*.json`, IDE dirs — `.gitignore:1-17`

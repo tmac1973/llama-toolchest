@@ -407,3 +407,37 @@ func TestSetHelperRole(t *testing.T) {
 		t.Errorf("after unmarking: ListHelpers = %v", modelIDs(got))
 	}
 }
+
+// The getters return copies: changing a returned model or config, down to
+// a sampling value behind a pointer or an alias in a slice, does not touch
+// the registry until it is saved through a setter. A handler that wrote
+// into the shared record and then refused the change used to leave it
+// half-applied in memory, to be written out by the next save.
+func TestGettersReturnCopies(t *testing.T) {
+	r, _, _ := newTestRegistry(t)
+	temp := 0.7
+	if err := r.Add(&Model{ID: "m", ModelID: "org/m", Filename: "m.gguf"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.SetConfig("m", &ModelConfig{Enabled: true, ContextSize: 4096, Temperature: &temp, Aliases: []string{"a"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, _ := r.GetConfig("m")
+	cfg.ContextSize = 1
+	*cfg.Temperature = 9
+	cfg.Aliases[0] = "changed"
+	m, _ := r.Get("m")
+	m.Filename = "changed.gguf"
+	_, anyCfg := r.FindByAny("a")
+	anyCfg.Enabled = false
+	r.List()[0].Quant = "changed"
+
+	got, _ := r.GetConfig("m")
+	if got.ContextSize != 4096 || *got.Temperature != 0.7 || got.Aliases[0] != "a" || !got.Enabled {
+		t.Errorf("config changed through a returned copy: %+v (temp %v)", got, *got.Temperature)
+	}
+	if gm, _ := r.Get("m"); gm.Filename != "m.gguf" || gm.Quant != "" {
+		t.Errorf("model changed through a returned copy: %+v", gm)
+	}
+}

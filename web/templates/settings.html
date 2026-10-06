@@ -252,6 +252,12 @@
             <input type="password" name="api_key"
                    placeholder="{{if .HasAPIKey}}(key is set — leave blank to keep){{else}}No key set (proxy is open){{end}}">
         </label>
+        {{if .HasAPIKey}}
+        <label title="Removes the saved key when you press Save, so /v1 requests no longer need one. Leaving the field above blank keeps the key instead.">
+            <input type="checkbox" name="clear_api_key" value="1">
+            Remove the saved key
+        </label>
+        {{end}}
         <button type="submit">Save</button>
     </form>
     <div id="api-key-status"></div>
@@ -275,11 +281,23 @@
             <input type="password" name="hf_token"
                    placeholder="{{if .HasHFToken}}(token is set){{else}}hf_...{{end}}">
         </label>
+        {{if .HasHFToken}}
+        <label title="Removes the saved HuggingFace token when you press Save. Leaving the field above blank keeps the token instead.">
+            <input type="checkbox" name="clear_hf_token" value="1">
+            Remove the saved HuggingFace token
+        </label>
+        {{end}}
         <label>
             ModelScope Token
             <input type="password" name="ms_token"
                    placeholder="{{if .HasMSToken}}(token is set){{else}}ms_...{{end}}">
         </label>
+        {{if .HasMSToken}}
+        <label title="Removes the saved ModelScope token when you press Save. Leaving the field above blank keeps the token instead.">
+            <input type="checkbox" name="clear_ms_token" value="1">
+            Remove the saved ModelScope token
+        </label>
+        {{end}}
         <button type="submit">Save</button>
     </form>
     <div id="hf-token-status"></div>
