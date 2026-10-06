@@ -64,7 +64,7 @@ func TestRestoreReportPartialRenders(t *testing.T) {
 // Ghost cards must render for pending configs — including with an empty
 // registry (fresh target server right after a restore).
 func TestPendingGhostCardRenders(t *testing.T) {
-	s := &Server{}
+	s := newTestServer(t)
 	rec := httptest.NewRecorder()
 	s.renderPendingCard(rec, &models.PendingConfig{
 		ModelID: "org/x-GGUF", Quant: "Q8_0", Filename: "x-Q8_0.gguf",

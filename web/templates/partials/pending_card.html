@@ -1,0 +1,28 @@
+{{/* A ghost card for a backup-imported config whose model is not
+     installed yet. Data: pendingCardData (models.go). */}}
+{{define "pending_card"}}
+<article class="model-card" style="opacity:0.6;" id="pending-card-{{.Ident}}" data-search="{{.Search}}">
+	<div class="model-card-row">
+		<div class="model-card-toggle" title="Not installed — this is a config imported from a backup, waiting for its model."><span>&#x23F3;</span></div>
+		<div class="model-card-name">{{.ModelID}}
+			<small style="display:block;color:var(--pico-muted-color);">not installed &mdash; config waiting (imported {{.SavedAt.Format "2006-01-02"}})</small>
+			<span id="pending-dl-{{.Ident}}"></span>
+		</div>
+		<div>{{.Quant}}</div>
+		<div>&mdash;</div>
+		<div>&mdash;</div>
+		<div style="display:flex;gap:0.4rem;justify-content:flex-end;">
+			<button type="button" class="outline" style="padding:0.1rem 0.6rem;font-size:0.8em;margin:0;"
+			        title="Download {{.Filename}} from HuggingFace; the waiting config attaches automatically when it arrives."
+			        hx-post="/api/hf/download"
+			        hx-vals='{"model_id": "{{.ModelID}}", "filename": "{{.Filename}}", "inline": "1"}'
+			        hx-target="#pending-dl-{{.Ident}}" hx-swap="innerHTML" hx-disabled-elt="this">Download</button>
+			<button type="button" class="outline secondary" style="padding:0.1rem 0.6rem;font-size:0.8em;margin:0;"
+			        title="Discard this waiting config."
+			        hx-post="/api/backup/pending/discard"
+			        hx-vals='{"model_id": "{{.ModelID}}", "quant": "{{.Quant}}"}'
+			        hx-swap="none">Discard</button>
+		</div>
+	</div>
+</article>
+{{end}}
