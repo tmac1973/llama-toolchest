@@ -1584,7 +1584,7 @@ container_up() {
         # also pulls its deps, but starting explicitly keeps output clear.
         local svc
         while read -r svc; do
-            systemctl_cmd start "$svc"
+            service_systemctl start "$svc"
         done < <(quadlet_services)
     else
         $(compose_cmd) up -d
@@ -1597,7 +1597,7 @@ container_down() {
         # Stop in reverse order (Caddy first, then app).
         local svc
         while read -r svc; do
-            systemctl_cmd stop "$svc" 2>/dev/null || true
+            service_systemctl stop "$svc" 2>/dev/null || true
         done < <(quadlet_services | tac)
     else
         $(compose_cmd) down
@@ -1614,7 +1614,7 @@ stop_existing_containers() {
     if has_quadlet; then
         local svc
         while read -r svc; do
-            systemctl_cmd stop "$svc" 2>/dev/null || true
+            service_systemctl stop "$svc" 2>/dev/null || true
         done < <(quadlet_services | tac)
     fi
     local cname
@@ -1717,19 +1717,14 @@ readonly PODMAN_SERVICE_NAME="llama-toolchest"
 # registries configured (Docker ignores the docker.io/library/ prefix).
 readonly CADDY_IMAGE="docker.io/library/caddy:2"
 
+# Scope comes from service_scope (scripts/lib/service.sh), so the Quadlet
+# units and the host install always agree on user vs system. This stays a
+# separate function because the directory is Podman's, not systemd's.
 quadlet_dir() {
-    if [[ $EUID -eq 0 ]]; then
+    if [[ "$(service_scope)" == "system" ]]; then
         echo "$QUADLET_SYSTEM_DIR"
     else
         echo "$QUADLET_USER_DIR"
-    fi
-}
-
-systemctl_cmd() {
-    if [[ $EUID -eq 0 ]]; then
-        systemctl "$@"
-    else
-        systemctl --user "$@"
     fi
 }
 
@@ -1960,7 +1955,7 @@ autostart_enable() {
 
         log "Installing Quadlet units in ${qdir}..."
         quadlet_write_units "$qdir"
-        systemctl_cmd daemon-reload
+        service_systemctl daemon-reload
 
         # Enable lingering so user services run without an active login session
         local linger_status
@@ -2008,10 +2003,10 @@ autostart_disable() {
         # Stop services (Caddy first, then app), drop the unit files, reload.
         local svc
         while read -r svc; do
-            systemctl_cmd stop "$svc" 2>/dev/null || true
+            service_systemctl stop "$svc" 2>/dev/null || true
         done < <(quadlet_services | tac)
         quadlet_remove_unit_files "$qdir"
-        systemctl_cmd daemon-reload
+        service_systemctl daemon-reload
         ok "Auto-start disabled"
     fi
 }
@@ -2735,7 +2730,7 @@ main() {
             enable|disable|rebuild|quick)
                 err "'$command' is not supported in --host mode."
                 log "For host installs, manage autostart via systemd directly:"
-                if [[ "$(host_scope 2>/dev/null)" == "system" ]]; then
+                if [[ "$(service_scope)" == "system" ]]; then
                     echo "    sudo systemctl enable|disable llama-toolchest"
                 else
                     echo "    systemctl --user enable|disable llama-toolchest"

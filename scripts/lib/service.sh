@@ -10,8 +10,11 @@
 #     /etc/systemd/system/, controlled with plain `systemctl`
 #
 # Public functions:
-#   service_scope                 → echoes "user" or "system"
+#   service_scope                 → echoes "user" or "system"; the single
+#                                   place the installer decides scope
+#                                   (host paths, unit paths, Quadlet dir)
 #   service_unit_path             → echoes the destination unit-file path
+#   service_systemctl <args...>   → systemctl with --user added in user scope
 #   service_install <src>         → copy unit file from <src> to dest, daemon-reload
 #   service_uninstall             → stop, disable, remove unit file, daemon-reload
 #   service_enable                → enable + start
@@ -27,6 +30,8 @@
 
 readonly SERVICE_NAME="llama-toolchest.service"
 
+# Root means a system-wide install; anyone else gets a per-user install.
+# host.sh and setup.sh (Quadlet units) call this too, so all three agree.
 service_scope() {
     if [[ $EUID -eq 0 ]]; then
         echo "system"
@@ -44,8 +49,9 @@ service_unit_path() {
     fi
 }
 
-# Run systemctl with the right --user / --system flag.
-_systemctl() {
+# Run systemctl with the right --user / --system flag. setup.sh uses this
+# for the Podman Quadlet units as well.
+service_systemctl() {
     if [[ "$(service_scope)" == "user" ]]; then
         systemctl --user "$@"
     else
@@ -64,7 +70,7 @@ service_install() {
 
     mkdir -p "$(dirname "$dst")"
     cp "$src" "$dst"
-    _systemctl daemon-reload
+    service_systemctl daemon-reload
 
     # User services need lingering enabled to start on boot without the user
     # being logged in. Skip if already enabled.
@@ -79,41 +85,41 @@ service_install() {
 service_uninstall() {
     local dst; dst="$(service_unit_path)"
 
-    _systemctl stop "$SERVICE_NAME" 2>/dev/null || true
-    _systemctl disable "$SERVICE_NAME" 2>/dev/null || true
+    service_systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+    service_systemctl disable "$SERVICE_NAME" 2>/dev/null || true
 
     if [[ -f "$dst" ]]; then
         rm -f "$dst"
-        _systemctl daemon-reload
+        service_systemctl daemon-reload
     fi
 }
 
 service_enable() {
-    _systemctl enable --now "$SERVICE_NAME"
+    service_systemctl enable --now "$SERVICE_NAME"
 }
 
 service_disable() {
-    _systemctl disable --now "$SERVICE_NAME"
+    service_systemctl disable --now "$SERVICE_NAME"
 }
 
 service_restart() {
-    _systemctl restart "$SERVICE_NAME"
+    service_systemctl restart "$SERVICE_NAME"
 }
 
 # Plain start/stop — used by `setup.sh up`/`down` to toggle the running
 # state without touching whether the unit is enabled at boot.
 service_start() {
-    _systemctl start "$SERVICE_NAME"
+    service_systemctl start "$SERVICE_NAME"
 }
 
 service_stop() {
-    _systemctl stop "$SERVICE_NAME"
+    service_systemctl stop "$SERVICE_NAME"
 }
 
 service_status() {
-    _systemctl status "$SERVICE_NAME" --no-pager 2>&1 || true
+    service_systemctl status "$SERVICE_NAME" --no-pager 2>&1 || true
 }
 
 service_is_active() {
-    _systemctl is-active --quiet "$SERVICE_NAME"
+    service_systemctl is-active --quiet "$SERVICE_NAME"
 }
