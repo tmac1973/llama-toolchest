@@ -33,7 +33,7 @@
         <span id="restore-dl-{{cssID .ModelID}}-{{cssID .Quant}}"></span>
         <button type="button" class="outline" style="padding:0.1rem 0.6rem;font-size:0.8em;margin:0 0 0 0.5rem;"
                 hx-post="/api/hf/download"
-                hx-vals='{"model_id": "{{.ModelID}}", "filename": "{{.Filename}}", "inline": "1"}'
+                hx-vals='{{hxVals "model_id" .ModelID "filename" .Filename "inline" "1"}}'
                 hx-target="#restore-dl-{{cssID .ModelID}}-{{cssID .Quant}}"
                 hx-swap="innerHTML"
                 hx-disabled-elt="this">Download</button>

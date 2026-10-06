@@ -350,6 +350,7 @@ func (s *Server) templateFuncs() template.FuncMap {
 		// table: the name, "(edited)" when what ran differed from it.
 		"profileCell": benchmark.ProfileCellText,
 		"compareCell": benchmark.CompareCellText,
+		"hxVals":      hxVals,
 		// usesDraftFile and isHeadBasedDraftMode keep the model config
 		// panel's speculative-decoding sections on the same mode sets as
 		// the code that launches them.

@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 )
 
 // Where server-rendered HTML lives:
@@ -73,4 +75,30 @@ func toFloat64(v any) float64 {
 	default:
 		return 0
 	}
+}
+
+// hxVals builds the JSON for an hx-vals attribute from key/value pairs,
+// in the order given: hxVals "model_id" .ModelID "size" .Size. Values are
+// written as JSON strings (htmx posts them as form values). Building the
+// JSON by hand in a template broke on a value with a quote in it, such as
+// a profile the user named with one; here every value is JSON-encoded,
+// and html/template then escapes the result for the attribute.
+func hxVals(pairs ...any) (string, error) {
+	if len(pairs)%2 != 0 {
+		return "", fmt.Errorf("hxVals: odd number of arguments")
+	}
+	var b strings.Builder
+	b.WriteByte('{')
+	for i := 0; i < len(pairs); i += 2 {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		k, _ := json.Marshal(fmt.Sprint(pairs[i]))
+		v, _ := json.Marshal(fmt.Sprint(pairs[i+1]))
+		b.Write(k)
+		b.WriteByte(':')
+		b.Write(v)
+	}
+	b.WriteByte('}')
+	return b.String(), nil
 }

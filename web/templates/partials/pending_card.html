@@ -15,12 +15,12 @@
 			<button type="button" class="outline" style="padding:0.1rem 0.6rem;font-size:0.8em;margin:0;"
 			        title="Download {{.Filename}} from HuggingFace; the waiting config attaches automatically when it arrives."
 			        hx-post="/api/hf/download"
-			        hx-vals='{"model_id": "{{.ModelID}}", "filename": "{{.Filename}}", "inline": "1"}'
+			        hx-vals='{{hxVals "model_id" .ModelID "filename" .Filename "inline" "1"}}'
 			        hx-target="#pending-dl-{{.Ident}}" hx-swap="innerHTML" hx-disabled-elt="this">Download</button>
 			<button type="button" class="outline secondary" style="padding:0.1rem 0.6rem;font-size:0.8em;margin:0;"
 			        title="Discard this waiting config."
 			        hx-post="/api/backup/pending/discard"
-			        hx-vals='{"model_id": "{{.ModelID}}", "quant": "{{.Quant}}"}'
+			        hx-vals='{{hxVals "model_id" .ModelID "quant" .Quant}}'
 			        hx-swap="none">Discard</button>
 		</div>
 	</div>

@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"html"
 	"strings"
 	"testing"
 
@@ -80,7 +81,7 @@ func TestFileListCarriesSourceIntoDownload(t *testing.T) {
 	if err := base.ExecuteTemplate(&buf, "hf_files", view); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if !strings.Contains(buf.String(), `"source":"modelscope"`) {
+	if !strings.Contains(html.UnescapeString(buf.String()), `"source":"modelscope"`) {
 		t.Errorf("download button does not post the source; output=\n%s", buf.String())
 	}
 }
