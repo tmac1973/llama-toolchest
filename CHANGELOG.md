@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.34.9](https://github.com/tmac1973/llama-toolchest/compare/v2.34.8...v2.34.9) (2026-10-06)
+
+
+### Bug Fixes
+
+* **deps:** code audit stage 5 — htmx 2.0.11, Pico 2.1.1, Debian 13 CPU image ([#252](https://github.com/tmac1973/llama-toolchest/issues/252)) ([cac8c94](https://github.com/tmac1973/llama-toolchest/commit/cac8c940a76a8e878ce073caee9a6dbfbaa761ce))
+
 ## [2.34.8](https://github.com/tmac1973/llama-toolchest/compare/v2.34.7...v2.34.8) (2026-10-05)
 
 
