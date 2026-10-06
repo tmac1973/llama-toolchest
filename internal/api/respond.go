@@ -48,7 +48,7 @@ func respondHTML(w http.ResponseWriter) {
 }
 
 // toFloat64 converts int or float types to float64 for template math.
-func toFloat64(v interface{}) float64 {
+func toFloat64(v any) float64 {
 	switch n := v.(type) {
 	case float64:
 		return n

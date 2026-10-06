@@ -241,11 +241,7 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 		return
 	}
 
-	totalTests := 0
-	for _, pp := range cfg.Preset.PromptTokens {
-		_ = pp
-		totalTests += cfg.Preset.Repetitions
-	}
+	totalTests := len(cfg.Preset.PromptTokens) * cfg.Preset.Repetitions
 	completedTests := 0
 
 	var lastErr error

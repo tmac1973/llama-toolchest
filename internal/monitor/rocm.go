@@ -105,10 +105,6 @@ func (r *rocmBackend) collectROCmSMI() ([]GPUInfo, error) {
 		if i, ok := colIdx["GPU use (%)"]; ok && i < len(fields) {
 			gpu.UtilPercent, _ = strconv.Atoi(strings.TrimSpace(fields[i]))
 		}
-		if i, ok := colIdx["GPU memory use (%)"]; ok && i < len(fields) {
-			// rocm-smi reports percentage, we need to convert if we have total
-			_ = fields[i] // we'll get absolute values from sysfs if needed
-		}
 		if i, ok := colIdx["Temperature (Sensor edge) (C)"]; ok && i < len(fields) {
 			f, _ := strconv.ParseFloat(strings.TrimSpace(fields[i]), 64)
 			gpu.TempC = int(f)

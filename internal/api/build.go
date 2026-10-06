@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"html"
 	"log/slog"
@@ -255,7 +256,8 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 	// Use background context — the build must outlive the HTTP request.
 	result, err := s.builder.Build(context.Background(), req.Profile, req.GitRef, req.Tag, req.Force, optionOverrides, extraCMake)
 	if err != nil {
-		if dup, ok := err.(*builder.DuplicateBuildError); ok {
+		var dup *builder.DuplicateBuildError
+		if errors.As(err, &dup) {
 			if isHTMX(r) {
 				respondHTML(w)
 				fmt.Fprintf(w, `<article>
