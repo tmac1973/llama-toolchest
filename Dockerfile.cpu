@@ -1,4 +1,4 @@
-# Runtime image — CPU-only (Debian bookworm).
+# Runtime image — CPU-only (Debian 13, trixie).
 #
 # Default: install the released .deb from the GitHub releases page. The
 # package's hard deps (cmake, ninja-build, git, build-essential, pkg-config)
@@ -19,7 +19,7 @@
 # To pin a specific release version (avoid hitting the GH API at build time):
 #   docker build --build-arg LLAMA_TOOLCHEST_VERSION=1.0.0 -f Dockerfile.cpu .
 
-FROM docker.io/library/debian:bookworm-slim
+FROM docker.io/library/debian:trixie-slim
 
 ARG INSTALL_PACKAGE=""
 ARG LLAMA_TOOLCHEST_VERSION="latest"
