@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.34.10](https://github.com/tmac1973/llama-toolchest/compare/v2.34.9...v2.34.10) (2026-10-06)
+
+
+### Bug Fixes
+
+* code audit stage 6a — registry returns copies; Settings can remove a token ([#254](https://github.com/tmac1973/llama-toolchest/issues/254)) ([c852d6d](https://github.com/tmac1973/llama-toolchest/commit/c852d6d180609cd670746b1dbe2594681c0e4ef1))
+* code audit stage 6b — templates, installer tests, tidy-up, and the bugs they found ([#255](https://github.com/tmac1973/llama-toolchest/issues/255)) ([797f56d](https://github.com/tmac1973/llama-toolchest/commit/797f56d3736f5927e22b35b89cb81f042cc78370))
+
 ## [2.34.9](https://github.com/tmac1973/llama-toolchest/compare/v2.34.8...v2.34.9) (2026-10-06)
 
 
