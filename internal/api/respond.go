@@ -5,6 +5,16 @@ import (
 	"net/http"
 )
 
+// Where server-rendered HTML lives:
+//
+//   - A fragment with structure (several elements, a loop, a condition)
+//     goes in a partial under web/templates/partials and is written with
+//     s.renderPartial. html/template escapes every value there.
+//   - A one-line message or a single element may stay in Go, written with
+//     fmt.Fprintf, but every value in it must go through
+//     html.EscapeString (for example `<p>Settings saved.</p>` or
+//     `<small>%s</small>`).
+
 // isHTMX returns true if the request was made by htmx.
 func isHTMX(r *http.Request) bool {
 	return r.Header.Get("HX-Request") == "true"

@@ -1,0 +1,54 @@
+{{/* The dashboard's three cards, polled into #dashboard-cards on the
+     Server page. Data: dashboardCardsData (server.go).
+
+     Inside a model row the buttons and the name are inline, so any
+     whitespace between them shows as a gap: the {{- -}} trimming there is
+     deliberate. */}}
+{{define "dashboard_cards"}}
+<article>
+    <header>Available Models</header>
+    <div class="available-models-scroll">
+        {{- range .Available -}}
+        <div class="available-model-row" title="{{.Tooltip}}">
+            {{- if .State -}}
+            <span class="action-icon-placeholder">&nbsp;</span>
+            {{- else -}}
+            <button type="button" class="action-icon" title="Load into VRAM" hx-put="/api/models/{{.ID}}/activate" hx-swap="none" data-error-label="Load failed" hx-on::after-request="htmx.trigger('#dashboard-cards', 'load')">{{template "icon_play"}}</button>
+            {{- end -}}
+            {{template "copy_button" .CopyButton}}<code>{{.PublicName}}</code>
+            {{- if .State}} <mark style="padding:0 0.3rem;font-size:0.65rem;">{{.State}}</mark>{{end -}}
+        </div>
+        {{- else -}}
+        <p>None</p>
+        {{- end -}}
+    </div>
+</article>
+<article>
+    <header>Inventory</header>
+    <p><strong>{{.BuildCount}}</strong> builds · <strong>{{.ModelCount}}</strong> models</p>
+    <p><a href="/builds">Builds →</a> · <a href="/models">Models →</a></p>
+    <p><a href="/models/browse">Get New Models →</a></p>
+</article>
+<article>
+    <header>API Endpoint</header>
+    <div style="display:flex;align-items:center;gap:0.4rem;">
+        <pre style="user-select: all; cursor: pointer; margin:0; flex:1; overflow-x:auto;">{{.APIURL}}</pre>
+        {{template "copy_button" .APICopyButton}}
+    </div>
+    {{with .ChatURL}}<p><a href="{{.}}" target="_blank">Open Chat UI →</a></p>{{end}}
+    <p><a href="/settings">Settings →</a></p>
+</article>
+{{end}}
+
+{{/* copy_button copies .Copy to the clipboard and flashes a check mark
+     (copyFromButton in server.html). data-icon and data-icon-check hold
+     the two icons as escaped markup for the script to swap in: they must
+     match icon_copy and icon_check exactly, which
+     TestDashboardCopyButtonIcons checks. */}}
+{{define "copy_button" -}}
+<button type="button" class="action-icon" title="{{.Title}}" data-icon="&lt;svg viewBox=&#34;0 0 16 16&#34; width=&#34;12&#34; height=&#34;12&#34; fill=&#34;none&#34; stroke=&#34;currentColor&#34; stroke-width=&#34;1.5&#34; aria-hidden=&#34;true&#34;&gt;&lt;rect x=&#34;5&#34; y=&#34;5&#34; width=&#34;8&#34; height=&#34;9&#34; rx=&#34;1&#34;/&gt;&lt;path d=&#34;M3 11V3.5A.5.5 0 0 1 3.5 3H10&#34;/&gt;&lt;/svg&gt;" data-icon-check="&lt;svg viewBox=&#34;0 0 16 16&#34; width=&#34;12&#34; height=&#34;12&#34; fill=&#34;none&#34; stroke=&#34;currentColor&#34; stroke-width=&#34;2&#34; aria-hidden=&#34;true&#34;&gt;&lt;path d=&#34;M3 8l3 3 7-7&#34;/&gt;&lt;/svg&gt;" data-copy="{{.Copy}}" onclick="copyFromButton(this)">{{template "icon_copy"}}</button>
+{{- end}}
+
+{{define "icon_play"}}<svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M4 3l9 5-9 5z"/></svg>{{end}}
+{{define "icon_copy"}}<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="5" y="5" width="8" height="9" rx="1"/><path d="M3 11V3.5A.5.5 0 0 1 3.5 3H10"/></svg>{{end}}
+{{define "icon_check"}}<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8l3 3 7-7"/></svg>{{end}}
