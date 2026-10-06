@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -43,5 +44,34 @@ func TestBuildInfoFlagList(t *testing.T) {
 	out = info("b2")
 	if !strings.Contains(out, "cmake flags not recorded") || strings.Contains(out, "<pre") {
 		t.Errorf("a build without flags should say so:\n%s", out)
+	}
+}
+
+// The git ref picker puts v* release tags and b* nightlies in separate
+// groups, labels a release with the nightly it was cut from, and says
+// why a refresh failed when there is nothing cached to show instead.
+func TestGitRefOptions(t *testing.T) {
+	s := newTestServer(t)
+	render := func(refs []string, anchors map[string]int, err error) string {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		s.renderPartial(rec, "git_ref_options", gitRefOptionsFor(refs, anchors, err))
+		return strings.Join(strings.Fields(rec.Body.String()), " ")
+	}
+
+	out := render([]string{"v0.2.0", "b100"}, map[string]int{"v0.2.0": 10500}, nil)
+	want := `<option value="latest">latest</option>` +
+		` <optgroup label="Releases"> <option value="v0.2.0">v0.2.0 (b10500)</option> </optgroup>` +
+		` <optgroup label="Nightly builds"> <option value="b100">b100</option> </optgroup>`
+	if out != want {
+		t.Errorf("got\n%s\nwant\n%s", out, want)
+	}
+
+	out = render(nil, nil, errors.New("fetch <failed>"))
+	if !strings.Contains(out, `<option disabled>— fetch &lt;failed&gt; —</option>`) || strings.Contains(out, "optgroup") {
+		t.Errorf("failed refresh with nothing cached:\n%s", out)
+	}
+	if out := render([]string{"b1"}, nil, errors.New("x")); strings.Contains(out, "disabled") {
+		t.Errorf("a failed refresh with cached tags shows the cached tags only:\n%s", out)
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"html"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -140,46 +139,66 @@ func (s *Server) handleListRefs(w http.ResponseWriter, r *http.Request) {
 
 	if isHTMX(r) {
 		respondHTML(w)
-		w.Write([]byte(`<option value="latest">latest</option>`))
-		// Two tag families since upstream added semver releases (Aug
-		// 2026): v* release tags and b* nightlies. Group them so the
-		// picker says which is which; "latest" still means the newest
-		// nightly. Tag names come from the upstream remote — escape them.
-		// Releases are labeled with the nightly they were cut from
-		// ("v0.2.0 (b10500)") so their position on the b-scale is
-		// readable without leaving the picker. Values stay bare tags.
-		anchors := s.builder.ReleaseAnchors()
-		writeGroup := func(label string, match func(string) bool) {
-			opts := ""
-			for _, ref := range refs {
-				if match(ref) {
-					e := html.EscapeString(ref)
-					text := e
-					if n, found := anchors[ref]; found {
-						text = fmt.Sprintf("%s (b%d)", e, n)
-					}
-					opts += `<option value="` + e + `">` + text + `</option>`
-				}
-			}
-			if opts != "" {
-				w.Write([]byte(`<optgroup label="` + label + `">` + opts + `</optgroup>`))
-			}
-		}
-		isRelease := func(ref string) bool { return strings.HasPrefix(ref, "v") }
-		writeGroup("Releases", isRelease)
-		writeGroup("Nightly builds", func(ref string) bool { return !isRelease(ref) })
-
-		// A refresh that fails with nothing cached leaves the picker
-		// holding only "latest", which reads as "upstream has no tags"
-		// rather than "the refresh didn't work". Say which it was; the
-		// option is disabled so it can never be submitted as a ref.
-		if err != nil && len(refs) == 0 {
-			fmt.Fprintf(w, `<option disabled>— %s —</option>`, html.EscapeString(err.Error()))
-		}
+		s.renderPartial(w, "git_ref_options", gitRefOptionsFor(refs, s.builder.ReleaseAnchors(), err))
 		return
 	}
 
 	respondJSON(w, refs)
+}
+
+// gitRefOptionsData feeds the git_ref_options partial.
+type gitRefOptionsData struct {
+	Groups []gitRefGroup // only groups with at least one tag
+	// Error is why a refresh failed when nothing was cached either.
+	Error string
+}
+
+type gitRefGroup struct {
+	Label string
+	Refs  []gitRefOption
+}
+
+// gitRefOption is one tag. A release carries the nightly it was cut
+// from (Anchor), when known.
+type gitRefOption struct {
+	Ref       string
+	Anchor    int
+	HasAnchor bool
+}
+
+// gitRefOptionsFor groups the upstream tags for the git ref picker. There
+// are two tag families since upstream added semver releases (Aug 2026):
+// v* release tags and b* nightlies. Grouping them lets the picker say
+// which is which; "latest" still means the newest nightly. Releases are
+// labeled with the nightly they were cut from ("v0.2.0 (b10500)") so
+// their position on the b-scale is readable without leaving the picker.
+// Values stay bare tags.
+func gitRefOptionsFor(refs []string, anchors map[string]int, err error) gitRefOptionsData {
+	var data gitRefOptionsData
+	isRelease := func(ref string) bool { return strings.HasPrefix(ref, "v") }
+	for _, g := range []struct {
+		label   string
+		release bool
+	}{{"Releases", true}, {"Nightly builds", false}} {
+		group := gitRefGroup{Label: g.label}
+		for _, ref := range refs {
+			if isRelease(ref) == g.release {
+				n, found := anchors[ref]
+				group.Refs = append(group.Refs, gitRefOption{Ref: ref, Anchor: n, HasAnchor: found})
+			}
+		}
+		if len(group.Refs) > 0 {
+			data.Groups = append(data.Groups, group)
+		}
+	}
+	// A refresh that fails with nothing cached leaves the picker holding
+	// only "latest", which reads as "upstream has no tags" rather than
+	// "the refresh didn't work". Say which it was; the template shows it
+	// as a disabled option so it can never be submitted as a ref.
+	if err != nil && len(refs) == 0 {
+		data.Error = err.Error()
+	}
+	return data
 }
 
 func (s *Server) handleListBuilds(w http.ResponseWriter, r *http.Request) {
