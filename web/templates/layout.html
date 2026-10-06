@@ -485,6 +485,26 @@
         .model-card-name mark {
             font-size: 0.7rem;
         }
+        /* Restart shortcuts: buttons that look like the icon or label they
+           replace, without Pico's button padding and background. */
+        .restart-btn,
+        .model-config-header button.mc-restart {
+            all: unset;
+            cursor: pointer;
+        }
+        .restart-btn {
+            color: var(--pico-primary);
+            margin-right: 0.2rem;
+        }
+        .restart-btn.restart-btn-remove { color: var(--pico-del-color); }
+        .restart-btn:hover,
+        .model-config-header button.mc-restart:hover { text-decoration: underline; }
+        .restart-btn:focus-visible,
+        .model-config-header button.mc-restart:focus-visible {
+            outline: 2px solid var(--pico-primary-focus, var(--pico-primary));
+            outline-offset: 2px;
+        }
+        .model-config-header button.mc-restart[hidden] { display: none; }
         .model-card-quant,
         .model-card-vram,
         .model-card-size {
@@ -662,7 +682,8 @@
             color: var(--pico-h4-color);
         }
         .model-config-header .mc-owner { color: var(--pico-muted-color); font-weight: 400; }
-        .model-config-header .mc-restart {
+        .model-config-header .mc-restart,
+        .model-config-header button.mc-restart {
             font-size: 11px;
             font-weight: 500;
             color: var(--graphite-warn, var(--pico-primary));
