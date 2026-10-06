@@ -227,11 +227,11 @@ func (meta *GGUFMeta) EmbeddedSamplingPreset() *SamplingPreset {
 }
 
 // HeadDim returns the dimension per attention head.
-func (m *GGUFMeta) HeadDim() int {
-	if m.NHead == 0 {
+func (meta *GGUFMeta) HeadDim() int {
+	if meta.NHead == 0 {
 		return 0
 	}
-	return m.NEmbd / m.NHead
+	return meta.NEmbd / meta.NHead
 }
 
 // ParseGGUFMeta reads architecture metadata from a GGUF file.

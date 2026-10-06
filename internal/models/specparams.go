@@ -72,27 +72,27 @@ func SpecAssistParams(mode string) []SpecModeParam {
 // values for the selected draft mode. Call this only on a mode *change* —
 // calling it on every save would clobber user-tuned values within an
 // existing mode (the form parser already loaded them from the request
-// into cfg).
+// into the config).
 //
 // It touches only the draft slot, and ApplyAssistDefaults only the assist
 // slot: with two independent slots, one function resetting everything
 // would wipe a tuned draft depth the moment the user changed the n-gram
 // assist.
-func (cfg *ModelConfig) ApplyDraftDefaults() {
+func (c *ModelConfig) ApplyDraftDefaults() {
 	// Zero everything in the slot, then apply the mode's recommended
 	// defaults from the shared table — the same one the benchmark job
 	// form renders, so the two surfaces cannot disagree.
-	cfg.DraftMax = 0
-	cfg.DraftMin = 0
-	cfg.DraftPMin = ""
-	for _, p := range SpecDraftParams(cfg.SpecType) {
+	c.DraftMax = 0
+	c.DraftMin = 0
+	c.DraftPMin = ""
+	for _, p := range SpecDraftParams(c.SpecType) {
 		switch p.Key {
 		case "draft_max":
-			cfg.DraftMax, _ = strconv.Atoi(p.Default)
+			c.DraftMax, _ = strconv.Atoi(p.Default)
 		case "draft_min":
-			cfg.DraftMin, _ = strconv.Atoi(p.Default)
+			c.DraftMin, _ = strconv.Atoi(p.Default)
 		case "draft_p_min":
-			cfg.DraftPMin = p.Default
+			c.DraftPMin = p.Default
 		}
 	}
 }
@@ -100,27 +100,27 @@ func (cfg *ModelConfig) ApplyDraftDefaults() {
 // ApplyAssistDefaults resets the n-gram assist parameters to the
 // recommended values for the selected assist mode. Same rule as
 // ApplyDraftDefaults: only on a mode change.
-func (cfg *ModelConfig) ApplyAssistDefaults() {
-	cfg.AssistNMax = 0
-	cfg.AssistNMin = 0
-	cfg.AssistNMatch = 0
-	cfg.AssistSizeN = 0
-	cfg.AssistSizeM = 0
-	cfg.AssistMinHits = 0
-	for _, p := range SpecAssistParams(cfg.SpecAssist) {
+func (c *ModelConfig) ApplyAssistDefaults() {
+	c.AssistNMax = 0
+	c.AssistNMin = 0
+	c.AssistNMatch = 0
+	c.AssistSizeN = 0
+	c.AssistSizeM = 0
+	c.AssistMinHits = 0
+	for _, p := range SpecAssistParams(c.SpecAssist) {
 		switch p.Key {
 		case "assist_n_max":
-			cfg.AssistNMax, _ = strconv.Atoi(p.Default)
+			c.AssistNMax, _ = strconv.Atoi(p.Default)
 		case "assist_n_min":
-			cfg.AssistNMin, _ = strconv.Atoi(p.Default)
+			c.AssistNMin, _ = strconv.Atoi(p.Default)
 		case "assist_n_match":
-			cfg.AssistNMatch, _ = strconv.Atoi(p.Default)
+			c.AssistNMatch, _ = strconv.Atoi(p.Default)
 		case "assist_size_n":
-			cfg.AssistSizeN, _ = strconv.Atoi(p.Default)
+			c.AssistSizeN, _ = strconv.Atoi(p.Default)
 		case "assist_size_m":
-			cfg.AssistSizeM, _ = strconv.Atoi(p.Default)
+			c.AssistSizeM, _ = strconv.Atoi(p.Default)
 		case "assist_min_hits":
-			cfg.AssistMinHits, _ = strconv.Atoi(p.Default)
+			c.AssistMinHits, _ = strconv.Atoi(p.Default)
 		}
 	}
 }
