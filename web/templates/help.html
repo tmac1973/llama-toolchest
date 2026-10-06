@@ -171,6 +171,7 @@
         <dt>Collapse / Expand All</dt><dd>Toggle every org group at once. Per-base-model collapse state is preserved across org toggles.</dd>
         <dt>On switch</dt><dd>Enable/disable the model. Disabled models are not served; restart the server to fully remove from its registry.</dd>
         <dt>Configure</dt><dd>Expands an inline form to edit per-model flags (see below).</dd>
+        <dt>&#x21bb; and &#x2298; icons</dt><dd>The model has changes that need a server restart: changed settings, or a model switched on (&#x21bb;) or off (&#x2298;). Click an icon, or <strong>Restart required</strong> in an open Configure panel, to restart the server from here. A dialog asks first, because a restart stops any request that is running.</dd>
         <dt>Remove</dt><dd>Removes the model from the UI. Choose "Keep Files" to leave GGUFs on disk, or "Delete Files" to also remove them.</dd>
     </dl>
 
@@ -248,7 +249,7 @@
     <p>Free-form llama-server flags appended verbatim. Use for anything not exposed in the UI.</p>
 
     <div class="callout">
-        Most config changes require a <strong>server restart</strong> to take effect (the flags are baked into the preset file that llama-server reads at startup). Sampling params apply per-request with no restart.
+        Most config changes require a <strong>server restart</strong> to take effect (the flags are baked into the preset file that llama-server reads at startup). Click <strong>Restart required</strong> at the top of the panel, or Restart on the Server tab. Sampling params apply per-request with no restart.
     </div>
 
     <h2 id="search-hf">Download Models</h2>

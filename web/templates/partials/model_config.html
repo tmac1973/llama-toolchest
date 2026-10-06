@@ -9,8 +9,10 @@
              the model's card; the restartNeeded event (models.html) fills
              it in after an edit, since autosave does not re-render the
              header. */}}
-        <span class="mc-restart" id="mc-restart-{{cssID .ModelID}}"
-              title="Settings changed since this model was loaded. Restart the server to use them.">{{if .NeedsRestart}}Restart required{{end}}</span>
+        <button type="button" class="mc-restart" id="mc-restart-{{cssID .ModelID}}"
+                onclick="openRestartDialog()"
+                {{if not .NeedsRestart}}hidden{{end}}
+                title="Settings changed since this model was loaded. Click to restart the server and use them.">Restart required</button>
     </div>
 
     {{if .ReadOnlyReason}}

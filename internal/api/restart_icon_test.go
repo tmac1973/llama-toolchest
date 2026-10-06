@@ -21,13 +21,46 @@ func TestModelCardRestartSlot(t *testing.T) {
 	m := models.Model{ID: "org--r-GGUF--m-Q4_K_M", ModelID: "org/r-GGUF", Quant: "Q4_K_M"}
 	slot := `id="restart-` + domID(m.ID) + `"`
 
+	const icon = `onclick="openRestartDialog()"`
 	plain := renderModelCardPartial(t, modelCardData{Model: m})
-	if !strings.Contains(plain, slot) || strings.Contains(plain, "Restart server to apply config changes") {
+	if !strings.Contains(plain, slot) || strings.Contains(plain, icon) {
 		t.Errorf("without a pending change: slot present, no icon; got\n%s", plain)
 	}
 	pending := renderModelCardPartial(t, modelCardData{Model: m, NeedsReload: true})
-	if !strings.Contains(pending, slot) || !strings.Contains(pending, "Restart server to apply config changes") {
+	if !strings.Contains(pending, slot) || !strings.Contains(pending, icon) {
 		t.Errorf("with a pending change: slot and icon; got\n%s", pending)
+	}
+}
+
+// The enable and disable markers are restart shortcuts too.
+func TestModelCardPendingTogglesOpenRestartDialog(t *testing.T) {
+	m := models.Model{ID: "org--r-GGUF--m-Q4_K_M", ModelID: "org/r-GGUF", Quant: "Q4_K_M"}
+	for name, data := range map[string]modelCardData{
+		"enable":  {Model: m, PendingEnable: true},
+		"disable": {Model: m, PendingDisable: true},
+	} {
+		if out := renderModelCardPartial(t, data); !strings.Contains(out, `onclick="openRestartDialog()"`) {
+			t.Errorf("%s: marker does not open the restart dialog; got\n%s", name, out)
+		}
+	}
+}
+
+// Every shortcut goes through one confirm dialog, which warns that
+// running requests stop and restarts through the Server tab's endpoint.
+func TestModelsPageRestartDialog(t *testing.T) {
+	page, err := web.Templates.ReadFile("templates/models.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`<dialog id="restart-dialog"`,
+		`function openRestartDialog()`,
+		`Requests that are running now will stop and fail.`,
+		`fetch('/api/service/restart', { method: 'POST'`,
+	} {
+		if !strings.Contains(string(page), want) {
+			t.Errorf("models.html lacks %q", want)
+		}
 	}
 }
 
@@ -95,16 +128,24 @@ func TestConfigPanelRestartLabel(t *testing.T) {
 		}
 		return buf.String()
 	}
-	label := regexp.MustCompile(`id="mc-restart-test-id"[^>]*>([^<]*)</span>`)
-	for pending, want := range map[bool]string{false: "", true: "Restart required"} {
+	// The label is a button that opens the restart dialog, hidden until
+	// a change waits for a restart.
+	label := regexp.MustCompile(`<button[^>]*id="mc-restart-test-id"([^>]*)>Restart required</button>`)
+	for _, pending := range []bool{false, true} {
 		m := label.FindStringSubmatch(render(pending))
-		if m == nil || m[1] != want {
-			t.Errorf("pending=%v: label %q, want %q", pending, m, want)
+		if m == nil {
+			t.Fatalf("pending=%v: no restart button in the panel", pending)
+		}
+		if hidden := strings.Contains(m[1], "hidden"); hidden == pending {
+			t.Errorf("pending=%v: hidden=%v", pending, hidden)
+		}
+		if !strings.Contains(m[1], `onclick="openRestartDialog()"`) {
+			t.Errorf("pending=%v: button does not open the restart dialog", pending)
 		}
 	}
 
 	page, _ := web.Templates.ReadFile("templates/models.html")
-	if !strings.Contains(string(page), `'mc-restart-' + detail.dom`) {
-		t.Error("the restartNeeded listener does not update the panel's label")
+	if !strings.Contains(string(page), `'mc-restart-' + detail.dom`) || !strings.Contains(string(page), `label.hidden = false`) {
+		t.Error("the restartNeeded listener does not show the panel's label")
 	}
 }

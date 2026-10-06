@@ -45,6 +45,26 @@
 </div>
 
 <template id="restart-icon-template">{{template "restart_icon"}}</template>
+
+{{/* One confirm dialog for every restart shortcut on this page: the
+     icons on the cards and "Restart required" in a Configure panel. It
+     sends the same request as Restart on the Server tab. */}}
+<dialog id="restart-dialog" style="max-width: 460px;">
+    <article>
+        <header>Restart llama-server?</header>
+        <p>The server stops and starts again so that it uses your changed settings.</p>
+        <p><strong>Requests that are running now will stop and fail.</strong>
+           Clients get errors until the server is back, and each model loads
+           again on its next request, which can take a while for a large model.</p>
+        <p class="restart-dialog-error" role="alert" hidden style="color: var(--pico-del-color);"></p>
+        <footer>
+            <div role="group">
+                <button type="button" class="secondary" onclick="this.closest('dialog').close();">Cancel</button>
+                <button type="button" class="restart-dialog-confirm" onclick="confirmRestart(this)">Restart</button>
+            </div>
+        </footer>
+    </article>
+</dialog>
 <script>
 (function() {
     // --- VRAM estimate update from config save ---
@@ -69,7 +89,7 @@
         if (slot && icon && !slot.innerHTML.trim()) slot.innerHTML = icon.innerHTML;
         // And the open Configure panel's header, which autosave leaves as it was.
         var label = document.getElementById('mc-restart-' + detail.dom);
-        if (label) label.textContent = 'Restart required';
+        if (label) label.hidden = false;
     });
 
     // --- Configure panel reload after Autoconfigure or Autotune saves ---
@@ -88,6 +108,46 @@
                   { target: panel, swap: 'innerHTML' });
     });
 })();
+
+// --- Restart shortcut ---
+function openRestartDialog() {
+    var d = document.getElementById('restart-dialog');
+    if (!d) return;
+    var err = d.querySelector('.restart-dialog-error');
+    err.hidden = true;
+    err.textContent = '';
+    var btn = d.querySelector('.restart-dialog-confirm');
+    btn.disabled = false;
+    btn.removeAttribute('aria-busy');
+    d.showModal();
+}
+
+async function confirmRestart(btn) {
+    var d = btn.closest('dialog');
+    var err = d.querySelector('.restart-dialog-error');
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    err.hidden = true;
+    try {
+        // The same endpoint as the Server tab. It refuses (409) while a
+        // benchmark job is using the server; show why and keep the dialog open.
+        var resp = await fetch('/api/service/restart', { method: 'POST', headers: { 'HX-Request': 'true' } });
+        if (!resp.ok) {
+            err.textContent = 'Not restarted: ' + ((await resp.text()).trim() || ('server returned ' + resp.status));
+            err.hidden = false;
+            return;
+        }
+        d.close();
+        // Re-render the lists so the restart icons clear.
+        htmx.trigger(document.body, 'modelsChanged');
+    } catch (e) {
+        err.textContent = 'Not restarted: could not reach llama-toolchest.';
+        err.hidden = false;
+    } finally {
+        btn.disabled = false;
+        btn.removeAttribute('aria-busy');
+    }
+}
 
 // --- Model list: text filter ---
 function filterModels(q) {
