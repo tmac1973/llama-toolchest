@@ -1138,10 +1138,11 @@ host_effective_port() {
     local cfg_path; cfg_path="$(host_config_path)"
     if [[ -f "$cfg_path" ]]; then
         # listen_addr looks like ":3001" or "0.0.0.0:3001"; strip everything
-        # up to and including the last colon. Quotes optional in YAML.
+        # up to and including the last colon. Quotes (double or single)
+        # are optional in YAML.
         local addr port
         addr="$(grep -E '^[[:space:]]*listen_addr:' "$cfg_path" 2>/dev/null \
-            | head -1 | sed -E 's/^[[:space:]]*listen_addr:[[:space:]]*"?([^"#]+)"?.*/\1/' | tr -d ' ')" || true
+            | head -1 | sed -E "s/^[[:space:]]*listen_addr:[[:space:]]*[\"']?([^\"'#]+)[\"']?.*/\\1/" | tr -d ' ')" || true
         port="${addr##*:}"
         if [[ "$port" =~ ^[0-9]+$ ]]; then
             echo "$port"

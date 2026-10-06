@@ -343,6 +343,7 @@ listen_addr: "0.0.0.0:3003"|3003
   listen_addr:   "[::]:3004"  # comment|3004
 listen_addr: ""|3000
 listen_addr: "localhost"|3000
+listen_addr: ':3005'|3005
 EOF
     rm -f "$cfg"
 )
@@ -407,12 +408,15 @@ auto_start: false
 EOF
     LLAMA_TOOLCHEST_PORT=""
     LLAMA_TOOLCHEST_INFERENCE_PORT=8181
+    LLAMA_TOOLCHEST_MODELS_DIR=""
     migrate_write_translated_config "$src" "$dst" to-container
     check_eq "to-container sets LLAMA_TOOLCHEST_PORT from listen_addr" "3456" "$LLAMA_TOOLCHEST_PORT"
+    # A custom host models folder is bind-mounted at /data/models, so it
+    # goes to .env, not into the container config.
+    check_eq "to-container moves models_dir to the bind mount" "/srv/models" "$LLAMA_TOOLCHEST_MODELS_DIR"
     check_eq "to-container body" \
 'listen_addr: ":3000"
 data_dir: "/data"
-models_dir: "/srv/models"
 llama_port: 8181
 external_url: "https://ai.example.test"
 hf_token: "hf_abc"
@@ -435,7 +439,8 @@ auto_start: false' "$(sed '1,2d' "$dst")"
 JSON
     }
     unset LLAMA_TOOLCHEST_INFERENCE_PORT
-    printf 'listen_addr: ":3000"\ndata_dir: "/data"\n' > "$src"
+    LLAMA_TOOLCHEST_MODELS_DIR=""
+    printf 'listen_addr: ":3000"\ndata_dir: "/data"\nmodels_dir: "/data/models"\n' > "$src"
     migrate_write_translated_config "$src" "$dst" to-host
     check_eq "to-host body with defaults" \
 "listen_addr: \":3999\"
@@ -447,6 +452,13 @@ api_key: \"\"
 log_level: \"info\"
 models_max: 1
 auto_start: true" "$(sed '1,2d' "$dst")"
+
+    # The container's own /data/models path never reaches the host config;
+    # a bind-mounted host folder does.
+    LLAMA_TOOLCHEST_MODELS_DIR="/srv/models"
+    migrate_write_translated_config "$src" "$dst" to-host
+    check_eq "to-host takes models_dir from the bind mount" 'models_dir: "/srv/models"' "$(grep '^models_dir:' "$dst")"
+    LLAMA_TOOLCHEST_MODELS_DIR=""
 
     unset CONTAINER_CMD
     migrate_write_translated_config "$src" "$dst" to-host
