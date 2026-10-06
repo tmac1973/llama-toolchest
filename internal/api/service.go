@@ -1030,24 +1030,16 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		if r.Form.Has("draft_model_path") {
 			cfg.DraftModelPath = r.FormValue("draft_model_path")
 		}
-		if v, err := strconv.Atoi(r.FormValue("draft_max")); err == nil && v > 0 {
-			cfg.DraftMax = v
-		} else {
-			cfg.DraftMax = 0
-		}
-		if v, err := strconv.Atoi(r.FormValue("draft_min")); err == nil && v > 0 {
-			cfg.DraftMin = v
-		} else {
-			cfg.DraftMin = 0
-		}
-		cfg.DraftPMin = r.FormValue("draft_p_min")
-		cfg.SpecAssist = r.FormValue("spec_assist")
 		atoiField := func(name string) int {
 			if v, err := strconv.Atoi(r.FormValue(name)); err == nil && v > 0 {
 				return v
 			}
 			return 0
 		}
+		cfg.DraftMax = atoiField("draft_max")
+		cfg.DraftMin = atoiField("draft_min")
+		cfg.DraftPMin = r.FormValue("draft_p_min")
+		cfg.SpecAssist = r.FormValue("spec_assist")
 		cfg.AssistNMax = atoiField("assist_n_max")
 		cfg.AssistNMin = atoiField("assist_n_min")
 		cfg.AssistNMatch = atoiField("assist_n_match")
@@ -1060,22 +1052,10 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		cfg.NgramSizeM = 0
 
 		// Draft model resource overrides (spec_type=draft only).
-		if v, err := strconv.Atoi(r.FormValue("draft_ctx_size")); err == nil && v > 0 {
-			cfg.DraftCtxSize = v
-		} else {
-			cfg.DraftCtxSize = 0
-		}
-		if v, err := strconv.Atoi(r.FormValue("draft_gpu_layers")); err == nil && v > 0 {
-			cfg.DraftGPULayers = v
-		} else {
-			cfg.DraftGPULayers = 0
-		}
+		cfg.DraftCtxSize = atoiField("draft_ctx_size")
+		cfg.DraftGPULayers = atoiField("draft_gpu_layers")
 		cfg.DraftDevice = strings.TrimSpace(r.FormValue("draft_device"))
-		if v, err := strconv.Atoi(r.FormValue("draft_cpu_moe")); err == nil && v > 0 {
-			cfg.DraftCPUMoE = v
-		} else {
-			cfg.DraftCPUMoE = 0
-		}
+		cfg.DraftCPUMoE = atoiField("draft_cpu_moe")
 		cfg.DraftKVCacheQuant = r.FormValue("draft_kv_cache_quant")
 
 		// Populate recommended defaults only when the user actually switched
