@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -567,12 +568,55 @@ func (r *Registry) List() []*Model {
 	defer r.mu.RUnlock()
 	out := make([]*Model, 0, len(r.data.Models))
 	for _, m := range r.data.Models {
-		out = append(out, m)
+		out = append(out, m.clone())
 	}
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].ModelID < out[j].ModelID
 	})
 	return out
+}
+
+// clone returns a copy of m that shares no memory with the registry's
+// record, so a caller can change it freely; changes reach the registry
+// only through its setters. The getters all return clones: before, a
+// handler that wrote into a returned record changed the shared one under
+// the lock's nose, even when it then refused the change.
+func (m *Model) clone() *Model {
+	if m == nil {
+		return nil
+	}
+	c := *m
+	if m.Seeded != nil {
+		seeded := *m.Seeded
+		c.Seeded = &seeded
+	}
+	c.SamplingPresets = slices.Clone(m.SamplingPresets)
+	return &c
+}
+
+// clone returns a copy of c that shares no memory with the registry's
+// record; see Model.clone.
+func (c *ModelConfig) clone() *ModelConfig {
+	if c == nil {
+		return nil
+	}
+	out := *c
+	out.Aliases = slices.Clone(c.Aliases)
+	if c.ReasoningOverride != nil {
+		ro := *c.ReasoningOverride
+		out.ReasoningOverride = &ro
+	}
+	for _, p := range []**float64{&out.Temperature, &out.TopP, &out.MinP, &out.PresencePenalty, &out.RepeatPenalty} {
+		if *p != nil {
+			v := **p
+			*p = &v
+		}
+	}
+	if c.TopK != nil {
+		v := *c.TopK
+		out.TopK = &v
+	}
+	return &out
 }
 
 // HasFile reports whether the registry already contains a model matching the
@@ -583,7 +627,7 @@ func (r *Registry) HasFile(modelID, filename string) (*Model, bool) {
 	defer r.mu.RUnlock()
 	for _, m := range r.data.Models {
 		if m.ModelID == modelID && m.Filename == filename {
-			return m, true
+			return m.clone(), true
 		}
 	}
 	return nil, false
@@ -597,7 +641,7 @@ func (r *Registry) Get(id string) (*Model, error) {
 	if !ok {
 		return nil, fmt.Errorf("model not found: %s", id)
 	}
-	return m, nil
+	return m.clone(), nil
 }
 
 // FindByAny resolves any name a client might use — registry ID, OpenAI
@@ -609,16 +653,16 @@ func (r *Registry) FindByAny(name string) (*Model, *ModelConfig) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if m, ok := r.data.Models[name]; ok {
-		return m, r.data.Configs[m.ID]
+		return m.clone(), r.data.Configs[m.ID].clone()
 	}
 	for _, m := range r.data.Models {
 		if m.PublicName() == name {
-			return m, r.data.Configs[m.ID]
+			return m.clone(), r.data.Configs[m.ID].clone()
 		}
 		if cfg := r.data.Configs[m.ID]; cfg != nil {
 			for _, alias := range cfg.Aliases {
 				if alias == name {
-					return m, cfg
+					return m.clone(), cfg.clone()
 				}
 			}
 		}
@@ -711,7 +755,7 @@ func (r *Registry) GetConfig(id string) (*ModelConfig, error) {
 	if !ok {
 		return nil, fmt.Errorf("config not found: %s", id)
 	}
-	return cfg, nil
+	return cfg.clone(), nil
 }
 
 // SetConfig updates the launch config for a model.
@@ -949,7 +993,7 @@ func (r *Registry) FindOrphans() []*Model {
 	var orphans []*Model
 	for _, m := range r.data.Models {
 		if _, err := os.Stat(m.FilePath); os.IsNotExist(err) {
-			orphans = append(orphans, m)
+			orphans = append(orphans, m.clone())
 		}
 	}
 	return orphans
@@ -978,7 +1022,7 @@ func (r *Registry) IncompleteRegistered() []*Model {
 		}
 		for _, shard := range shards {
 			if _, err := os.Stat(shard); os.IsNotExist(err) {
-				incomplete = append(incomplete, m)
+				incomplete = append(incomplete, m.clone())
 				break
 			}
 		}

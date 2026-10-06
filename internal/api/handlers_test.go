@@ -359,3 +359,25 @@ func deref[T any](p *T) any {
 	}
 	return *p
 }
+
+// A config update the handler refuses must leave the saved config as it
+// was. The handler decodes the request into the config it fetched, and
+// that used to be the registry's own record, so a refused update was
+// already half-applied in memory, to be written out by the next save.
+func TestRefusedConfigUpdateChangesNothing(t *testing.T) {
+	s := newTestServer(t)
+	addV1Model(t, s, "m", "org/M-GGUF", models.ModelConfig{Enabled: true, ContextSize: 4096, BatchSize: 512, UBatchSize: 256})
+
+	// A micro-batch larger than the batch is refused by ValidateBatchSizes.
+	req := httptest.NewRequest("PUT", "/api/models/m/config",
+		strings.NewReader(`{"enabled":true,"context_size":8192,"batch_size":256,"ubatch_size":1024}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := serve(s, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("HTTP %d (%s), want 400 for ubatch larger than batch", rec.Code, rec.Body)
+	}
+	cfg, _ := s.registry.GetConfig("m")
+	if cfg.ContextSize != 4096 || cfg.BatchSize != 512 || cfg.UBatchSize != 256 {
+		t.Errorf("refused update changed the config: ctx %d batch %d ubatch %d", cfg.ContextSize, cfg.BatchSize, cfg.UBatchSize)
+	}
+}
