@@ -33,3 +33,23 @@
     </td>
 </tr>
 {{end}}
+
+{{/* build_table is the Builds page list: one build_card row per build.
+     Data: []buildRow. */}}
+{{define "build_table"}}
+<table role="grid">
+    <thead>
+        <tr>
+            <th>Build</th>
+            <th>SHA</th>
+            <th>Status</th>
+            <th title="The GPU toolchain this build was compiled against. A llama-server built against one ROCm version does not run under another, so a build that does not match the running container needs rebuilding.">Built against</th>
+            <th>Date</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {{- range .}}{{template "build_card" .}}{{end}}
+    </tbody>
+</table>
+{{end}}
