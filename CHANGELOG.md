@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.35.1](https://github.com/tmac1973/llama-toolchest/compare/v2.35.0...v2.35.1) (2026-10-06)
+
+
+### Bug Fixes
+
+* saving the Configure form switched Autotune's tensor split back to layer ([#260](https://github.com/tmac1973/llama-toolchest/issues/260)) ([78a2c29](https://github.com/tmac1973/llama-toolchest/commit/78a2c295f6cd13e9798a1f641988a1ffd4d5cb2f))
+
 ## [2.35.0](https://github.com/tmac1973/llama-toolchest/compare/v2.34.10...v2.35.0) (2026-10-06)
 
 
