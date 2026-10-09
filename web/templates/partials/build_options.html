@@ -7,7 +7,22 @@
      hx-target="this"
      hx-swap="outerHTML"
      hx-trigger="change delay:300ms"
-     hx-include="#build-profile, #build-options input">
+     hx-include="#build-profile, #build-options input, #build-options select">
+    {{- with .ROCmInstalls}}
+    {{/* Only with more than one ROCm install. The build uses the chosen
+         one's compiler, headers and libraries and nothing from the others;
+         the flags it adds show in the preview below. */}}
+    <label title="This machine has more than one ROCm. The build uses only the one chosen here.">ROCm Install
+        <select name="rocm_root">
+            {{- range .}}
+            <option value="{{.Root}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
+            {{- end}}
+        </select>
+    </label>
+    {{- end}}
+    {{- with .ROCmWarning}}
+    <p role="alert" style="color:var(--pico-del-color);font-size:0.85rem;margin-top:-0.5rem;">{{.}}</p>
+    {{- end}}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.25rem 1.5rem;margin-top:0.5rem;align-items:center;">
         {{- range .Options}}
         <label title="{{.Description}}" style="display:flex;align-items:center;gap:0.5rem;margin:0;white-space:nowrap;">

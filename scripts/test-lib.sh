@@ -82,6 +82,8 @@ source "${LIB_DIR}/migrate.sh"
 QUADLET_USER_DIR="${HOME}/.config/containers/systemd"
 QUADLET_SYSTEM_DIR="/etc/containers/systemd"
 eval "$(sed -n '/^quadlet_dir() {/,/^}/p' "${REPO_DIR}/setup.sh")"
+# gfx_target_from_kfd, likewise.
+eval "$(sed -n '/^gfx_target_from_kfd() {/,/^}/p' "${REPO_DIR}/setup.sh")"
 
 if [[ $EUID -eq 0 ]]; then
     MY_SCOPE="system"
@@ -499,6 +501,133 @@ EOF
     check_eq "invalid JSON left unchanged" "not json" "$(cat "$f")"
 )
 
+
+# ─── ROCm 10 (stable.repo.amd.com) ───────────────────────────────────────────
+
+# Which stable.repo.amd.com directory each distro maps to, from os-release.
+test_rocm10_repo_dist() (
+    HOST_FS_ROOT="${TMP_ROOT}/osr"
+    mkdir -p "${HOST_FS_ROOT}/etc"
+    osr() { printf '%s\n' "$@" > "${HOST_FS_ROOT}/etc/os-release"; }
+
+    osr 'ID=ubuntu' 'VERSION_ID="24.04"' 'UBUNTU_CODENAME=noble'
+    check_eq "rocm10 repo: Ubuntu 24.04" "ubuntu2404" "$(host_rocm10_repo_dist)"
+    osr 'ID=ubuntu' 'VERSION_ID="26.04"' 'UBUNTU_CODENAME=resolute'
+    check_eq "rocm10 repo: Ubuntu 26.04" "ubuntu2604" "$(host_rocm10_repo_dist)"
+    osr 'ID=linuxmint' 'ID_LIKE="ubuntu debian"' 'VERSION_ID="22"' 'UBUNTU_CODENAME=noble'
+    check_eq "rocm10 repo: Mint goes by its Ubuntu base" "ubuntu2404" "$(host_rocm10_repo_dist)"
+    osr 'ID=debian' 'VERSION_ID="13"'
+    check_eq "rocm10 repo: Debian 13" "debian13" "$(host_rocm10_repo_dist)"
+    osr 'ID=rocky' 'ID_LIKE="rhel centos fedora"' 'VERSION_ID="10.0"'
+    check_eq "rocm10 repo: Rocky 10" "rhel10" "$(host_rocm10_repo_dist)"
+    osr 'ID=fedora' 'VERSION_ID=44'
+    check_eq "rocm10 repo: Fedora 44 uses rhel10" "rhel10" "$(host_rocm10_repo_dist)"
+    osr 'ID=fedora' 'VERSION_ID=42'
+    check_false "rocm10 repo: none for untested Fedora 42" host_rocm10_repo_dist
+    osr 'ID=debian' 'VERSION_ID="11"'
+    check_false "rocm10 repo: none for Debian 11" host_rocm10_repo_dist
+)
+
+# Install-state checks against the layouts measured in distrobox
+# (plan/rocm-multi-install.md), built with relative links.
+test_rocm10_install_state() (
+    fake_install() {  # <dir> — the parts the checks look at
+        mkdir -p "$1/lib/cmake/hip-lang" "$1/lib/llvm/bin"
+        : > "$1/lib/cmake/hip-lang/hip-lang-config.cmake"
+    }
+
+    # Distro ROCm plus 10.1: /opt/rocm is a directory of links into core-10.1.
+    HOST_FS_ROOT="${TMP_ROOT}/state-distro"
+    fake_install "${HOST_FS_ROOT}/opt/rocm/core-10.1"
+    ln -s core-10.1 "${HOST_FS_ROOT}/opt/rocm/core-10"
+    ln -s core-10.1/lib "${HOST_FS_ROOT}/opt/rocm/lib"
+    check_true  "distro+10.1: 10.x installed" host_rocm10_installed
+    check_false "distro+10.1: no old AMD packages" host_rocm_old_amd_installed
+    check_eq    "distro+10.1: nothing taken over" "" "$(host_rocm_taken_over_links)"
+
+    # AMD 7.2.4 then 10.1, the user's machine: 10.1 nested inside 7.2.4,
+    # whose llvm and amdgcn links it took over.
+    HOST_FS_ROOT="${TMP_ROOT}/state-mixed"
+    fake_install "${HOST_FS_ROOT}/opt/rocm-7.2.4"
+    ln -s rocm-7.2.4 "${HOST_FS_ROOT}/opt/rocm"
+    fake_install "${HOST_FS_ROOT}/opt/rocm-7.2.4/core-10.1"
+    mkdir -p "${HOST_FS_ROOT}/opt/rocm-7.2.4/core-10.1/amdgcn"
+    ln -s core-10.1/lib/llvm "${HOST_FS_ROOT}/opt/rocm-7.2.4/llvm"
+    ln -s core-10.1/amdgcn "${HOST_FS_ROOT}/opt/rocm-7.2.4/amdgcn"
+    check_true "mixed: 10.x installed" host_rocm10_installed
+    check_true "mixed: old AMD packages installed" host_rocm_old_amd_installed
+    check_eq   "mixed: taken-over links reported" \
+        $'/opt/rocm-7.2.4/llvm\n/opt/rocm-7.2.4/amdgcn' "$(host_rocm_taken_over_links)"
+
+    # AMD 7.2.4 alone: its own llvm link points inside it.
+    HOST_FS_ROOT="${TMP_ROOT}/state-old"
+    fake_install "${HOST_FS_ROOT}/opt/rocm-7.2.4"
+    ln -s lib/llvm "${HOST_FS_ROOT}/opt/rocm-7.2.4/llvm"
+    check_false "old only: no 10.x" host_rocm10_installed
+    check_true  "old only: old AMD packages installed" host_rocm_old_amd_installed
+    check_eq    "old only: nothing taken over" "" "$(host_rocm_taken_over_links)"
+)
+
+# Installing 10.1 is refused beside AMD's old packages, before anything is
+# asked or touched.
+test_rocm10_refused_beside_old_amd() (
+    HOST_FS_ROOT="${TMP_ROOT}/refuse"
+    mkdir -p "${HOST_FS_ROOT}/opt/rocm-7.2.4/lib"
+    host_rocm10_installed() { return 1; }
+    prompt_confirm() { echo asked >> "${TMP_ROOT}/refuse.log"; return 0; }
+    run_sudo() { echo "$*" >> "${TMP_ROOT}/refuse.log"; }
+    check_false "10.1 install refused beside AMD 7.2.4" host_install_rocm10
+    check_false "nothing asked or run" test -s "${TMP_ROOT}/refuse.log"
+)
+
+# HOST_ROCM is validated, and with no choice possible it stays "distro" —
+# the behaviour from before ROCm 10 was an option.
+test_choose_rocm() (
+    HOST_ROCM=both; host_choose_rocm
+    check_eq "HOST_ROCM given: kept" "both" "$HOST_ROCM"
+    HOST_ROCM=""; INTERACTIVE=false; ASSUME_YES=false
+    host_rocm10_installed() { return 1; }
+    host_rocm10_repo_dist() { echo ubuntu2404; }
+    host_rocm10_supports_gpu() { return 0; }
+    host_choose_rocm
+    check_eq "non-interactive: distro" "distro" "$HOST_ROCM"
+    HOST_ROCM=""; INTERACTIVE=true
+    host_rocm10_repo_dist() { return 1; }
+    host_choose_rocm
+    check_eq "no 10.x for this distro: distro, unasked" "distro" "$HOST_ROCM"
+)
+
+# ROCm 10's alternatives links in /opt/rocm are not AMD's old line, so the
+# old repo is never offered beside them; AMD's old line still is.
+test_rocm10_not_old_line() (
+    host_rocm_apt_repo_configured() { return 1; }
+    HOST_FS_ROOT="${TMP_ROOT}/oldline-10"
+    mkdir -p "${HOST_FS_ROOT}/opt/rocm/core-10.1/lib"
+    ln -s core-10.1/lib "${HOST_FS_ROOT}/opt/rocm/lib"
+    check_false "10.x /opt/rocm is not the old AMD line" host_rocm_prefer_amd_packages
+
+    HOST_FS_ROOT="${TMP_ROOT}/oldline-7"
+    mkdir -p "${HOST_FS_ROOT}/opt/rocm-7.2.4/lib"
+    ln -s rocm-7.2.4 "${HOST_FS_ROOT}/opt/rocm"
+    check_true "AMD 7.2.4 is the old AMD line" host_rocm_prefer_amd_packages
+)
+
+# The gfx target from KFD topology, with no ROCm installed: the CPU node
+# (0) is skipped and the stepping is hex.
+test_gfx_target_from_kfd() (
+    local t="${TMP_ROOT}/kfd" v want
+    for v in 110000:gfx1100 90010:gfx90a 120001:gfx1201 90402:gfx942; do
+        want="${v##*:}"; v="${v%%:*}"
+        rm -rf "$t"; mkdir -p "$t/0" "$t/1"
+        echo "gfx_target_version 0" > "$t/0/properties"
+        printf 'cpu_cores_count 0\ngfx_target_version %s\n' "$v" > "$t/1/properties"
+        check_eq "gfx_target_from_kfd ${v}" "$want" "$(gfx_target_from_kfd "$t")"
+    done
+    rm -rf "$t"; mkdir -p "$t/0"
+    echo "gfx_target_version 0" > "$t/0/properties"
+    check_false "gfx_target_from_kfd with no GPU node" gfx_target_from_kfd "$t"
+)
+
 # ─── Run ─────────────────────────────────────────────────────────────────────
 
 test_scope_current_user
@@ -519,6 +648,12 @@ test_write_config
 test_write_unit_override
 test_migrate_config
 test_migrate_model_paths
+test_rocm10_repo_dist
+test_rocm10_install_state
+test_rocm10_refused_beside_old_amd
+test_choose_rocm
+test_rocm10_not_old_line
+test_gfx_target_from_kfd
 
 passes="$(grep -c '^PASS$' "$RESULTS")"
 fails="$(grep -c '^FAIL$' "$RESULTS")"

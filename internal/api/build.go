@@ -69,9 +69,28 @@ func (s *Server) handleProfileOptions(w http.ResponseWriter, r *http.Request) {
 			data.Options = append(data.Options, buildOptionRow{BuildOption: opt, Checked: on})
 		}
 
+		// The ROCm install picker, only when there is a choice to make.
+		var pin *builder.ROCmInstall
+		prof, profOK := builder.FindProfile(profile)
+		if profOK && prof.Backend == "rocm" {
+			if installs := s.rocmInstalls(); len(installs) > 1 {
+				chosen := installs[0]
+				if i, ok := builder.FindROCmInstall(installs, r.URL.Query().Get("rocm_root")); ok {
+					chosen = i
+				}
+				for _, i := range installs {
+					data.ROCmInstalls = append(data.ROCmInstalls, rocmInstallChoice{
+						Root: i.Root, Label: i.Label(), Selected: i.Root == chosen.Root,
+					})
+				}
+				data.ROCmWarning = chosen.Damaged
+				pin = &chosen
+			}
+		}
+
 		// Show effective cmake flags with current toggle states
-		if prof, ok := builder.FindProfile(profile); ok {
-			flags := effectiveCMakeFlags(prof, options, effectiveOverrides)
+		if profOK {
+			flags := effectiveCMakeFlags(prof, options, effectiveOverrides, pin)
 			if extraCMake != "" {
 				flags += " " + extraCMake
 			}
@@ -99,6 +118,18 @@ type buildOptionsData struct {
 	// PresetTag is the name of the saved flag set just applied, which
 	// fills the Build Tag; empty otherwise.
 	PresetTag string
+	// ROCmInstalls fills the ROCm install picker; empty, and the picker
+	// hidden, unless the profile is rocm and the machine has more than one.
+	ROCmInstalls []rocmInstallChoice
+	// ROCmWarning explains what is wrong with the chosen install, if
+	// anything (builder.ROCmInstall.Damaged).
+	ROCmWarning string
+}
+
+// rocmInstallChoice is one option in the ROCm install picker.
+type rocmInstallChoice struct {
+	Root, Label string
+	Selected    bool
 }
 
 // buildOptionRow is one toggle: the option and whether it is on.
@@ -107,12 +138,18 @@ type buildOptionRow struct {
 	Checked bool
 }
 
-func effectiveCMakeFlags(prof builder.BuildProfile, options []builder.BuildOption, overrides map[string]bool) string {
+// effectiveCMakeFlags previews the flags a build will get. pin is the ROCm
+// install it will be pinned to, nil when it will not be (one install, or not
+// rocm), and adds the flags the build adds for it.
+func effectiveCMakeFlags(prof builder.BuildProfile, options []builder.BuildOption, overrides map[string]bool, pin *builder.ROCmInstall) string {
 	flags := make(map[string]string)
 	for k, v := range prof.CMakeFlags {
 		flags[k] = v
 	}
 	builder.ApplyOptionOverrides(flags, options, overrides)
+	if pin != nil {
+		builder.PinROCmFlags(flags, *pin)
+	}
 	var parts []string
 	for k, v := range flags {
 		parts = append(parts, fmt.Sprintf("-D%s=%s", k, v))
@@ -234,6 +271,9 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 		GitRef  string `json:"git_ref"`
 		Tag     string `json:"tag"`
 		Force   bool   `json:"force"`
+		// ROCmRoot picks the ROCm install when the machine has several;
+		// empty for the newest.
+		ROCmRoot string `json:"rocm_root"`
 	}
 
 	// Support both JSON and form-encoded
@@ -247,6 +287,7 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 		req.GitRef = r.FormValue("git_ref")
 		req.Tag = r.FormValue("tag")
 		req.Force = r.FormValue("force") == "1"
+		req.ROCmRoot = r.FormValue("rocm_root")
 	}
 
 	// Collect option overrides and extra cmake flags from form
@@ -263,7 +304,7 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Use background context — the build must outlive the HTTP request.
-	result, err := s.builder.Build(context.Background(), req.Profile, req.GitRef, req.Tag, req.Force, optionOverrides, extraCMake)
+	result, err := s.builder.Build(context.Background(), req.Profile, req.GitRef, req.Tag, req.Force, optionOverrides, extraCMake, req.ROCmRoot)
 	if err != nil {
 		var dup *builder.DuplicateBuildError
 		if errors.As(err, &dup) {
@@ -386,9 +427,19 @@ func (s *Server) buildRowFor(b *builder.BuildResult) buildRow {
 		return row
 	}
 	current := s.currentBuildEnvFor(buildBackend(b))
+	gone, perInstall := builder.InstallGone(b.BuiltAgainst, s.rocmInstalls())
 	switch {
 	case b.BuiltAgainst == "":
 		row.BuiltAgainstTitle = notRecordedTitle
+	case perInstall && gone:
+		_, root, _ := builder.ROCmStampInstall(b.BuiltAgainst)
+		row.BuiltAgainstText = b.BuiltAgainst
+		row.Mismatch = true
+		row.BuiltAgainstTitle = fmt.Sprintf(
+			"Built against %s, and that ROCm install is no longer on this machine at that version. A build is linked against the libraries it was made with, so it may fail to load — rebuild it if the server does not start. Nothing has been deleted; it will work again if %s comes back.",
+			b.BuiltAgainst, root)
+	case perInstall:
+		row.BuiltAgainstText = b.BuiltAgainst
 	case builder.StampMismatch(b.BuiltAgainst, current):
 		row.BuiltAgainstText = b.BuiltAgainst
 		row.Mismatch = true
@@ -458,6 +509,15 @@ func (s *Server) currentBuildEnvFor(backend string) string {
 		return s.currentBuildEnv(backend)
 	}
 	return builder.CurrentBuildEnv(backend)
+}
+
+// rocmInstalls lists the ROCm installs here, through an overridable field for
+// the same reason as currentBuildEnvFor.
+func (s *Server) rocmInstalls() []builder.ROCmInstall {
+	if s.rocmInstallsFn != nil {
+		return s.rocmInstallsFn()
+	}
+	return builder.CachedROCmInstalls()
 }
 
 // buildBackend returns a build's backend ("rocm", "cuda", ...), resolved
@@ -531,7 +591,7 @@ func (s *Server) resolveBuild(id string) *builder.BuildResult {
 	// stay candidates.
 	ranked := s.builder.SuccessfulBuildsRanked()
 	for i := range ranked {
-		if !builder.StampMismatch(ranked[i].BuiltAgainst, s.currentBuildEnvFor(buildBackend(&ranked[i]))) {
+		if !s.buildRowFor(&ranked[i]).Mismatch {
 			res := ranked[i]
 			return &res
 		}
