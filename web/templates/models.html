@@ -86,7 +86,11 @@
         if (!detail || !detail.dom) return;
         var slot = document.getElementById('restart-' + detail.dom);
         var icon = document.getElementById('restart-icon-template');
-        if (slot && icon && !slot.innerHTML.trim()) slot.innerHTML = icon.innerHTML;
+        // One icon per card: a model waiting on a restart to be enabled
+        // already shows one, and the same restart applies the new settings.
+        if (slot && icon && !slot.parentElement.querySelector('.restart-btn')) {
+            slot.innerHTML = icon.innerHTML;
+        }
         // And the open Configure panel's header, which autosave leaves as it was.
         var label = document.getElementById('mc-restart-' + detail.dom);
         if (label) label.hidden = false;
