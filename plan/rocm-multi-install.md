@@ -107,9 +107,15 @@ install's own `.info/version` (old line) or `core-X.Y/.info/version` (new line).
 Keep the existing rule of never using `hipconfig --version`, which says 7.16 on 10.1.
 
 ### Builds page
-One install: no change. Two or more: a ROCm install picker on the build
+One install: no picker. Two or more: a ROCm install picker on the build
 form ("ROCm 10.1.0 — /opt/rocm/core-10.1", "ROCm 7.1 — distro (/usr)"),
 defaulting to the newest. The builder applies steps 1–6 to that one root.
+
+Pinned with two or more installs, and for a 10.x install even alone: its
+packages point /usr/bin/hipconfig at themselves, so the old hipconfig-based
+setup fails on any host-installed 10.x (Debian 13 and Rocky 10 with 10.1
+alone both failed in cmake before this). A lone distro or old-line install
+still builds the old way.
 
 ### Build record
 `built_against` grows the install root (`rocm 10.1.0 @ /opt/rocm/core-10.1`).
@@ -137,9 +143,26 @@ Offer: distro ROCm (7.x), AMD ROCm 10.1, or both.
   before offering it there.
 
 ## Test matrix
-Fresh distrobox per distro, gfx1100 (7900 XTX) passed through:
-Ubuntu 24.04, Ubuntu 26.04, Debian 13, Rocky Linux 10, Fedora 44.
-Each: setup.sh host mode → build against each install → load a model.
+Fresh distrobox per distro with its own home, gfx1100 (7900 XTX) passed
+through. setup.sh host mode run interactively, then the app from this branch
+built `latest` (b11537) against each install and served gemma-3-4b Q8_0.
+
+| Distro | setup.sh offered | Chosen | Builds (each loads only its own libraries) |
+|---|---|---|---|
+| Ubuntu 26.04 | distro 7.1 / 10.1 / both | both | 7.1 ✓, 10.1 ✓ |
+| Ubuntu 24.04 | distro 5.7 / 10.1 | 10.1 | (see the u2404 rows above) |
+| Ubuntu 24.04 + AMD 7.2.4 | distro / 10.1 (with note) | 10.1 → refused | 7.2.4 kept |
+| Debian 13 | distro 5.7 / 10.1 | 10.1 | 10.1 ✓ (failed before lone-10.x pinning) |
+| Rocky Linux 10 | distro / 10.1 | 10.1 | 10.1 ✓ (failed before lone-10.x pinning) |
+| Fedora 44 | distro 7.1 (10.1 via rhel10 added after) | distro, then 10.1 by hand | 7.1 ✓, 10.1 ✓ |
+
+The ROCm 10.1 container image (dev-ubuntu-24.04:10.1.0-full), run with this
+branch's binary and a scratch data dir: its lone 10.1 install is now pinned
+(it built before only because the image puts /opt/rocm/bin first on PATH);
+b11538 built, loaded only 10.1's libraries and served at 99 tok/s.
+
+Not ROCm, found on the way: the .rpm requires ninja-build, which Rocky/RHEL
+only carry in CRB, so a host install there fails at the package step.
 
 ## Unrelated, noticed while testing
 - `POST /api/builds` with an empty `git_ref` builds the fresh clone's `HEAD`
