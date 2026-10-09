@@ -45,15 +45,15 @@ HOST_SDK_BACKENDS=()    # backends to install host SDKs for (--cuda/--rocm/--vul
 MIGRATE_DIRECTION=""    # "to-host" or "to-container" when command=migrate
 
 # ── Experimental ROCm container variant ──
-# ROCm 10 is published ONLY as a container image: repo.radeon.com's el9, el10,
-# rhel9 and rhel10 paths all stop at 7.2.4, and so does the amdgpu-install path,
-# so Dockerfile.rocm cannot reach anything newer however long we wait. The 7.14.x
-# line is in the same position. The "next" variant builds on an AMD-published
-# ROCm image instead — see Dockerfile.rocm-next.
+# repo.radeon.com's el9, el10, rhel9 and rhel10 paths all stop at 7.2.4, and so
+# does the amdgpu-install path, so Dockerfile.rocm cannot reach anything newer.
+# The "next" variant builds on an AMD-published ROCm image instead — see
+# Dockerfile.rocm-next. (ROCm 10 is now also packaged, on stable.repo.amd.com;
+# host installs use that — see HOST_ROCM in scripts/lib/host.sh.)
 #
 # "" = undecided (the prompt will ask, and empty behaves as stable everywhere),
 # "stable" = Dockerfile.rocm, "next" = Dockerfile.rocm-next.
-# Container-only: there are no 10.x packages for a host install to use.
+# Container-only; host installs choose through HOST_ROCM instead.
 ROCM_VARIANT="${ROCM_VARIANT:-}"
 ROCM_BASE_IMAGE="${ROCM_BASE_IMAGE:-}"
 # Set BEFORE any default, so an inherited env var counts as explicit and
@@ -153,6 +153,20 @@ detect_host_gpu_gids() {
     fi
 }
 
+# Echo the gfx target of the first GPU node under a KFD topology directory
+# (see detect_amd_gfx_version), or return 1 when there is none.
+gfx_target_from_kfd() {
+    local props v
+    for props in "$1"/*/properties; do
+        [[ -r "$props" ]] || continue
+        v="$(awk '$1 == "gfx_target_version" { print $2 }' "$props" 2>/dev/null)"
+        [[ -n "$v" && "$v" != 0 ]] || continue
+        printf 'gfx%d%d%x\n' $((v / 10000)) $((v / 100 % 100)) $((v % 100))
+        return 0
+    done
+    return 1
+}
+
 # Detect the AMD GPU gfx target from sysfs and determine if
 # HSA_OVERRIDE_GFX_VERSION is needed for ROCm compatibility.
 detect_amd_gfx_version() {
@@ -163,16 +177,14 @@ detect_amd_gfx_version() {
         gfx_target="$(rocminfo 2>/dev/null | grep -oP 'gfx\d+' | head -1)" || true
     fi
 
-    # Fallback: read from sysfs ip_discovery or amdgpu firmware
-    if [[ -z "$gfx_target" && -d /sys/class/drm ]]; then
-        for card_dir in /sys/class/drm/card[0-9]*/device; do
-            if [[ -f "$card_dir/vendor" && "$(cat "$card_dir/vendor")" == "0x1002" ]]; then
-                # Try to read gfx target from pp_dpm_sclk or firmware info
-                local fw_ver
-                fw_ver="$(cat "$card_dir/gpu_id" 2>/dev/null)" || true
-                break
-            fi
-        done
+    # Fallback: the kernel's KFD topology, which needs no ROCm userspace —
+    # the usual state on a fresh host, where this decides which ROCm 10
+    # package to install. Each GPU node reports gfx_target_version as
+    # major*10000 + minor*100 + stepping, the stepping written in hex in the
+    # name: 110000 is gfx1100, 90010 gfx90a, 120001 gfx1201. CPU nodes
+    # report 0.
+    if [[ -z "$gfx_target" ]]; then
+        gfx_target="$(gfx_target_from_kfd /sys/class/kfd/kfd/topology/nodes)" || true
     fi
 
     [[ -z "$gfx_target" ]] && return
@@ -1259,8 +1271,8 @@ prompt_rocm_variant() {
     echo "  1) Stable        ROCm 7.2.4 on Fedora — the tested default${mark1}"
     echo "  2) Experimental  ROCm 10 on AMD's Ubuntu image${mark2}"
     echo ""
-    echo "     ROCm 10 is published only as a container image, so this is the only"
-    echo "     way to run it. It supports RDNA 1 and newer, and the CDNA cards."
+    echo "     ROCm 10 supports RDNA 1 and newer, and the CDNA cards. (A host install"
+    echo "     can use AMD's ROCm 10 packages instead: setup.sh install --host.)"
     echo "     Your kernel has to be new enough for your own card's driver, which"
     echo "     is checked below — the version differs by card, not by ROCm."
     echo "     Any llama.cpp builds you already have were compiled against the other"
@@ -2422,6 +2434,10 @@ Environment variables:
                                 so rebuild/up/down reuse it.
   ROCM_BASE_IMAGE=<tag|ref>     ROCm base image for the experimental variant,
                                 e.g. 10.1.0-full. Implies ROCM_VARIANT=next.
+  HOST_ROCM=distro|10|both      Which ROCm a host install sets up (AMD only):
+                                the distro's (default), AMD's ROCm 10.1, or
+                                both side by side. Asked interactively when
+                                ROCm 10.1 is available for this distro.
   RUNTIME=docker|podman         Override container runtime auto-detection
   INSTALL_MODE=host|container   Same as --host / --container
   ASSUME_YES=1                  Same as --yes

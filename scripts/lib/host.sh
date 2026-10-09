@@ -383,6 +383,7 @@ host_rocm_apt_repo_configured() {
 # anything else means the distro's own packaging.
 host_rocm_prefer_amd_packages() {
     host_rocm_apt_repo_configured && return 0
+    host_rocm_old_amd_installed && return 0
     # An /opt/rocm made of symlinks into /usr is Debian/Ubuntu's own
     # packaging, not AMD's: the distro registers /opt/rocm through
     # update-alternatives so software that hardcodes the path still
@@ -390,10 +391,16 @@ host_rocm_prefer_amd_packages() {
     # installed here" picks AMD's package names on a host whose repos
     # only carry the distro's — every name then fails to resolve and
     # apt-get aborts without installing anything (issue #142).
-    if [[ -d /opt/rocm ]]; then
+    if [[ -d "${HOST_FS_ROOT:-}/opt/rocm" ]]; then
         local libdir
-        libdir="$(readlink -f /opt/rocm/lib 2>/dev/null || true)"
+        libdir="$(readlink -f "${HOST_FS_ROOT:-}/opt/rocm/lib" 2>/dev/null || true)"
+        libdir="${libdir#"${HOST_FS_ROOT:-}"}"
         [[ "$libdir" == /usr/* ]] && return 1
+        # Likewise one made of ROCm 10's alternatives links into
+        # /opt/rocm/core-X.Y: that is AMD's new line, whose packages have
+        # different names, and treating it as the old line offers to add
+        # the old repo beside it — the combination that damages an install.
+        [[ "$libdir" == */core-[0-9]* ]] && return 1
         return 0
     fi
     return 1
@@ -460,6 +467,280 @@ host_install_amd_rocm_repo_debian() {
     run_sudo apt-get update -qq || return 1
     ok "AMD ROCm repository configured (${codename})"
     return 0
+}
+
+# ── ROCm 10 (AMD's stable.repo.amd.com packages) ──
+#
+# AMD's 10.x packages come from a different repository from the 7.x ones,
+# install each release into /opt/rocm/core-X.Y, and can sit beside the
+# distro's own ROCm in /usr. They cannot sit beside AMD's own 7.2.4-or-older
+# packages: with /opt/rocm a link to /opt/rocm-7.2.4, 10.x lands inside that
+# install and its update-alternatives take over 7.2.4's llvm and amdgcn links
+# (AMD's install guide says to remove those first). The builder copes with
+# either kind of host by building against one install at a time; setup's job
+# is to offer 10.x where it can be installed safely and refuse where it can't.
+# plan/rocm-multi-install.md has the layouts as measured.
+
+HOST_ROCM10_VERSION="10.1"
+HOST_ROCM10_REPO="https://stable.repo.amd.com/rocm/core/packages"
+HOST_ROCM10_KEY="https://stable.repo.amd.com/rocm/gpg/packages.gpg"
+# Prefix for the paths the ROCm 10 helpers below read, so scripts/test-lib.sh
+# can lay out fake installs. Empty on a real run.
+HOST_FS_ROOT="${HOST_FS_ROOT:-}"
+
+# Echo the stable.repo.amd.com directory for this distro (ubuntu2404,
+# debian13, rhel10, ...), or return 1 when AMD publishes none for it.
+# Derivatives (Mint, Pop) report their Ubuntu base through UBUNTU_CODENAME.
+host_rocm10_repo_dist() {
+    local osr="${HOST_FS_ROOT}/etc/os-release"
+    [[ -r "$osr" ]] || return 1
+    local id id_like ver codename major
+    id="$(. "$osr" && echo "${ID:-}")"
+    id_like="$(. "$osr" && echo "${ID_LIKE:-}")"
+    ver="$(. "$osr" && echo "${VERSION_ID:-}")"
+    codename="$(. "$osr" && echo "${UBUNTU_CODENAME:-}")"
+    case "$codename" in
+        jammy)    echo ubuntu2204; return 0 ;;
+        noble)    echo ubuntu2404; return 0 ;;
+        resolute) echo ubuntu2604; return 0 ;;
+    esac
+    major="${ver%%.*}"
+    case "$id" in
+        debian)
+            case "$major" in 12|13) echo "debian${major}"; return 0 ;; esac ;;
+        rhel|rocky|almalinux|centos|ol)
+            case "$major" in 8|9|10) echo "rhel${major}"; return 0 ;; esac ;;
+        sles|opensuse-leap)
+            case "$major" in 15|16) echo "sles${major}"; return 0 ;; esac ;;
+    esac
+    # A RHEL rebuild we don't know by name.
+    if [[ "$id_like" == *rhel* ]]; then
+        case "$major" in 8|9|10) echo "rhel${major}"; return 0 ;; esac
+    fi
+    return 1
+}
+
+# Whether this GPU has a ROCm 10 package (amdrocm-core-dev10.1-<gfx>). An
+# unknown GPU counts as yes; the install then fails visibly on the name.
+host_rocm10_supports_gpu() {
+    [[ -z "${AMD_GFX_TARGET:-}" ]] && return 0
+    [[ " ${ROCM10_GFX_TARGETS:-} " == *" ${AMD_GFX_TARGET} "* ]]
+}
+
+# Whether a ROCm 10.x SDK is installed: a /opt/rocm/core-X.Y, or one nested
+# in an old install, with its HIP CMake package.
+host_rocm10_installed() {
+    local d
+    for d in "$HOST_FS_ROOT"/opt/rocm/core-[0-9]* "$HOST_FS_ROOT"/opt/rocm-[0-9]*/core-[0-9]*; do
+        [[ -L "$d" ]] && continue
+        [[ -f "$d/lib/cmake/hip-lang/hip-lang-config.cmake" ]] && return 0
+    done
+    return 1
+}
+
+# Whether AMD's 7.2.4-or-older packages are installed: their per-release
+# /opt/rocm-X.Y.Z directories.
+host_rocm_old_amd_installed() {
+    local d
+    for d in "$HOST_FS_ROOT"/opt/rocm-[0-9]*; do
+        [[ -d "$d" && ! -L "$d" ]] && return 0
+    done
+    return 1
+}
+
+# Echo the old install links a 10.x install has taken over, one per line;
+# nothing when there are none. Mirrors damagedReason in
+# internal/builder/rocminstall.go.
+host_rocm_taken_over_links() {
+    local d name real
+    for d in "$HOST_FS_ROOT"/opt/rocm-[0-9]*; do
+        [[ -d "$d" && ! -L "$d" ]] || continue
+        d="$(readlink -f "$d")"
+        for name in llvm amdgcn; do
+            [[ -L "$d/$name" ]] || continue
+            real="$(readlink -f "$d/$name" 2>/dev/null)" || continue
+            if [[ "$real" != "$d/"* || "$real" == "$d/core-"* ]]; then
+                echo "${d#"$HOST_FS_ROOT"}/$name"
+            fi
+        done
+    done
+}
+
+# Say so when AMD's old packages and 10.x are both installed. Builds still
+# work (the Builds page builds against one install at a time), so this
+# warns rather than stops.
+host_warn_rocm_mixed_install() {
+    host_rocm_old_amd_installed && host_rocm10_installed || return 0
+    local taken
+    taken="$(host_rocm_taken_over_links | tr '\n' ' ')"
+    warn "AMD's ROCm 10 is installed alongside AMD's older ROCm packages."
+    log "AMD does not support this combination: ROCm 10 installed itself inside"
+    log "the older install${taken:+ and took over ${taken% }}."
+    log "llama.cpp builds still work — pick one install on the Builds page — but"
+    log "other software may pick up the wrong ROCm. To fix it, remove AMD's old"
+    log "ROCm packages, or use your distro's ROCm alongside ROCm 10 instead."
+}
+
+# Register stable.repo.amd.com for this distro. Returns 1 on failure.
+host_install_rocm10_repo() {
+    local dist="$1"
+    case "$DISTRO_FAMILY" in
+        debian)
+            if grep -rqs 'stable\.repo\.amd\.com/rocm' /etc/apt/sources.list.d/ 2>/dev/null; then
+                return 0
+            fi
+            run_sudo install -d -m 0755 /etc/apt/keyrings || return 1
+            curl -fsSL "$HOST_ROCM10_KEY" | gpg --dearmor \
+                | run_sudo tee /etc/apt/keyrings/amdrocm.gpg >/dev/null || return 1
+            run_sudo chmod 0644 /etc/apt/keyrings/amdrocm.gpg || return 1
+            printf '%s\n' \
+                "X-Repo-Id: amdrocm-stable" \
+                "Types: deb" \
+                "URIs: ${HOST_ROCM10_REPO}/${dist}/" \
+                "Suites: stable" \
+                "Components: main" \
+                "Architectures: amd64" \
+                "Signed-By: /etc/apt/keyrings/amdrocm.gpg" \
+                | run_sudo tee /etc/apt/sources.list.d/amdrocm-stable.sources >/dev/null || return 1
+            run_sudo apt-get update -qq || return 1
+            ;;
+        fedora)
+            if grep -rqs 'stable\.repo\.amd\.com/rocm' /etc/yum.repos.d/ 2>/dev/null; then
+                return 0
+            fi
+            printf '%s\n' \
+                "[amdrocm-stable]" \
+                "name=AMD ROCm (stable.repo.amd.com)" \
+                "baseurl=${HOST_ROCM10_REPO}/${dist}/x86_64" \
+                "enabled=1" \
+                "gpgcheck=1" \
+                "gpgkey=${HOST_ROCM10_KEY}" \
+                | run_sudo tee /etc/yum.repos.d/amdrocm-stable.repo >/dev/null || return 1
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+    ok "AMD ROCm ${HOST_ROCM10_VERSION} repository configured (${dist})"
+}
+
+# Install the ROCm 10 development packages for this GPU. Refuses on a host
+# with AMD's old packages, the one combination that damages an install.
+host_install_rocm10() {
+    if host_rocm10_installed; then
+        ok "ROCm ${HOST_ROCM10_VERSION} SDK already installed"
+        return 0
+    fi
+    if host_rocm_old_amd_installed; then
+        err "Not installing ROCm ${HOST_ROCM10_VERSION}: AMD's older ROCm packages are installed ($(ls -d /opt/rocm-[0-9]* 2>/dev/null | tr '\n' ' ' | sed 's/ $//'))."
+        log "Installed together, ROCm 10 installs itself inside the older release and"
+        log "takes over parts of it — AMD's install guide says to remove 7.2.4 or"
+        log "older first. Remove AMD's old ROCm packages, then re-run setup. Your"
+        log "distro's own ROCm, if it has one, can stay alongside ROCm 10."
+        return 1
+    fi
+    local dist
+    if ! dist="$(host_rocm10_repo_dist)"; then
+        warn "AMD publishes no ROCm ${HOST_ROCM10_VERSION} packages for ${DISTRO_NAME:-this distro}."
+        return 1
+    fi
+    # Debian-family packages say -dev, RPMs -devel.
+    local pkg
+    case "$DISTRO_FAMILY" in
+        debian) pkg="amdrocm-core-dev${HOST_ROCM10_VERSION}" ;;
+        fedora) pkg="amdrocm-core-devel${HOST_ROCM10_VERSION}" ;;
+        *) warn "ROCm ${HOST_ROCM10_VERSION} install is not implemented for '${DISTRO_FAMILY}'."; return 1 ;;
+    esac
+    [[ -n "${AMD_GFX_TARGET:-}" ]] && pkg="${pkg}-${AMD_GFX_TARGET}"
+
+    log "ROCm ${HOST_ROCM10_VERSION} comes from AMD's repository (stable.repo.amd.com, ${dist})."
+    log "It installs into /opt/rocm/core-${HOST_ROCM10_VERSION} and can sit beside your distro's ROCm."
+    if ! prompt_confirm "Add the repository and install ${pkg}?"; then
+        warn "Skipped ROCm ${HOST_ROCM10_VERSION}."
+        return 1
+    fi
+    host_install_rocm10_repo "$dist" || { err "Could not configure AMD's ROCm ${HOST_ROCM10_VERSION} repository."; return 1; }
+    case "$DISTRO_FAMILY" in
+        debian) run_sudo apt-get install -y "$pkg" || return 1 ;;
+        fedora) run_sudo dnf install -y "$pkg" || return 1 ;;
+    esac
+    if ! host_rocm10_installed; then
+        err "${pkg} installed, but no ROCm ${HOST_ROCM10_VERSION} SDK was found under /opt/rocm."
+        return 1
+    fi
+    ok "ROCm ${HOST_ROCM10_VERSION} SDK installed"
+}
+
+# Echo the major.minor of the ROCm the distro's own repositories offer
+# (installed or candidate), or return 1 when they offer none. Ubuntu 24.04
+# offers 5.7, which llama.cpp can't build against, so "both" is not worth
+# offering there.
+host_distro_rocm_version() {
+    local v=""
+    case "$DISTRO_FAMILY" in
+        debian)
+            local policy
+            policy="$(LC_ALL=C apt-cache policy libamdhip64-dev 2>/dev/null)" || true
+            v="$(sed -n 's/^[[:space:]]*Candidate:[[:space:]]*\([0-9]*\.[0-9]*\).*/\1/p' <<<"$policy" | head -1)"
+            ;;
+        fedora)
+            v="$(rpm -q --qf '%{VERSION}\n' rocm-hip-devel 2>/dev/null | grep -E '^[0-9]' | head -1)" || true
+            [[ -n "$v" ]] || v="$(dnf -q info --available rocm-hip-devel 2>/dev/null \
+                | sed -n 's/^Version[[:space:]]*:[[:space:]]*//p' | head -1)" || true
+            v="$(cut -d. -f1-2 <<<"$v")"
+            ;;
+    esac
+    [[ -n "$v" ]] || return 1
+    echo "$v"
+}
+
+# Which ROCm a host install sets up: HOST_ROCM is "distro" (the distro's or
+# whatever is already installed — the behaviour before ROCm 10 existed),
+# "10" or "both". Asked once, interactively, and only when 10.x can be
+# installed here; otherwise it stays "distro". Set HOST_ROCM in the
+# environment to choose without the prompt.
+host_choose_rocm() {
+    case "${HOST_ROCM:-}" in
+        distro|10|both) return 0 ;;
+        "") ;;
+        *) fatal "HOST_ROCM must be 'distro', '10' or 'both' (got '${HOST_ROCM}')" ;;
+    esac
+    HOST_ROCM="distro"
+    host_rocm10_installed && return 0
+    host_rocm10_repo_dist >/dev/null || return 0
+    host_rocm10_supports_gpu || return 0
+    [[ "$INTERACTIVE" == true && "$ASSUME_YES" != true ]] || return 0
+
+    # "Both" only when the distro's own ROCm is new enough to build with.
+    local distro_ver="" offer_both=false
+    if distro_ver="$(host_distro_rocm_version)" \
+        && host_version_ge "$distro_ver" "$HOST_ROCM_MIN_VERSION"; then
+        offer_both=true
+    fi
+
+    echo ""
+    echo -e "${BOLD}ROCm version${NC}"
+    echo ""
+    echo "  1) Distro        Your distro's ROCm${distro_ver:+ (${distro_ver})}, or the one already installed (default)"
+    echo "  2) ROCm ${HOST_ROCM10_VERSION}     AMD's ROCm ${HOST_ROCM10_VERSION} packages"
+    if [[ "$offer_both" == true ]]; then
+        echo "  3) Both          Your distro's ROCm ${distro_ver} and ROCm ${HOST_ROCM10_VERSION}, side by side"
+        echo ""
+        echo "     With both, the Builds page asks which one each llama.cpp build uses."
+    fi
+    if host_rocm_old_amd_installed; then
+        echo "     AMD's older ROCm packages are installed here; ROCm ${HOST_ROCM10_VERSION} can't be"
+        echo "     added until they are removed (choosing 2 or 3 explains how)."
+    fi
+    echo ""
+    local choice
+    read -rp "$(echo -e "  ${BOLD}Choose${NC} [1]: ")" choice
+    case "${choice:-1}" in
+        1) HOST_ROCM="distro" ;;
+        2) HOST_ROCM="10" ;;
+        3) if [[ "$offer_both" == true ]]; then HOST_ROCM="both"; else err "Invalid choice: $choice"; HOST_ROCM=""; host_choose_rocm; fi ;;
+        *) err "Invalid choice: $choice"; HOST_ROCM=""; host_choose_rocm ;;
+    esac
 }
 
 # Echo the apt candidate names for an optional component, in the order
@@ -559,7 +840,9 @@ host_missing_gpu_sdk_packages() {
             # ROCm gets installed from AMD's repo, from the distro, or
             # from source, and only the first of those matches the names
             # below. See host_rocm_sdk_usable.
-            if host_rocm_sdk_usable; then
+            # Skipped for "both", which wants the distro's packages
+            # whatever is installed — ROCm 10 alone also passes this check.
+            if [[ "${HOST_ROCM:-distro}" != "both" ]] && host_rocm_sdk_usable; then
                 echo ""
                 return 0
             fi
@@ -786,6 +1069,34 @@ host_version_ge() {
 # instructions and a continue/abort prompt.
 host_install_gpu_sdk() {
     local backend="$1"
+    if [[ "$backend" == "rocm" ]]; then
+        host_choose_rocm
+        if [[ "$HOST_ROCM" == "10" ]]; then
+            # ROCm 10 alone: the distro packages below are not wanted. Fall
+            # back to them only if ROCm 10 can't be installed, so the host
+            # still ends up able to build.
+            if host_install_rocm10; then
+                host_warn_rocm_mixed_install
+                return 0
+            fi
+            warn "Continuing with your distro's ROCm instead."
+            HOST_ROCM="distro"
+        fi
+    fi
+    host_install_gpu_sdk_packages "$backend" || return 1
+    if [[ "$backend" == "rocm" ]]; then
+        if [[ "$HOST_ROCM" == "both" ]]; then
+            host_install_rocm10 || warn "ROCm ${HOST_ROCM10_VERSION} was not installed; builds will use the distro's ROCm."
+        fi
+        host_warn_rocm_mixed_install
+    fi
+    return 0
+}
+
+# The distro-or-existing SDK install behind host_install_gpu_sdk: everything
+# it did before ROCm 10 was an option.
+host_install_gpu_sdk_packages() {
+    local backend="$1"
     local missing
     missing="$(host_missing_gpu_sdk_packages "$backend")"
 
@@ -825,7 +1136,11 @@ host_install_gpu_sdk() {
             # the answer. Recent Debian/Ubuntu do carry ROCm natively in
             # universe, but it trails AMD's releases — on new hardware the
             # distro version can be too old to build for the GPU.
-            if [[ "$backend" == "rocm" ]] && ! host_rocm_apt_repo_configured; then
+            # Never beside ROCm 10, installed or about to be: AMD's old
+            # repo and 10.x together is the combination that damages an
+            # install (see host_install_rocm10).
+            if [[ "$backend" == "rocm" ]] && ! host_rocm_apt_repo_configured \
+                && [[ "${HOST_ROCM:-distro}" == "distro" ]] && ! host_rocm10_installed; then
                 if host_install_amd_rocm_repo_debian; then
                     missing="$(host_missing_gpu_sdk_packages "$backend")"
                 fi
