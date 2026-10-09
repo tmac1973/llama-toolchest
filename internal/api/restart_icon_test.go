@@ -77,6 +77,19 @@ func TestModelsPageListensForRestartNeeded(t *testing.T) {
 	}
 }
 
+// A card already showing a restart marker (pending enable) gets no second
+// icon from a config change: the listener checks the whole name cell, not
+// just its own slot.
+func TestModelsPageRestartNeededSkipsCardWithMarker(t *testing.T) {
+	page, err := web.Templates.ReadFile("templates/models.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(page), `slot.parentElement.querySelector('.restart-btn')`) {
+		t.Error("the restartNeeded listener can add a second icon beside a pending-enable marker")
+	}
+}
+
 // A config change with the server running marks the model and tells the
 // page so — the path Autotune's "Use these settings" takes.
 func TestConfigChangeSignalsRestartNeeded(t *testing.T) {
