@@ -521,7 +521,9 @@ test_rocm10_repo_dist() (
     osr 'ID=rocky' 'ID_LIKE="rhel centos fedora"' 'VERSION_ID="10.0"'
     check_eq "rocm10 repo: Rocky 10" "rhel10" "$(host_rocm10_repo_dist)"
     osr 'ID=fedora' 'VERSION_ID=44'
-    check_false "rocm10 repo: none for Fedora" host_rocm10_repo_dist
+    check_eq "rocm10 repo: Fedora 44 uses rhel10" "rhel10" "$(host_rocm10_repo_dist)"
+    osr 'ID=fedora' 'VERSION_ID=42'
+    check_false "rocm10 repo: none for untested Fedora 42" host_rocm10_repo_dist
     osr 'ID=debian' 'VERSION_ID="11"'
     check_false "rocm10 repo: none for Debian 11" host_rocm10_repo_dist
 )

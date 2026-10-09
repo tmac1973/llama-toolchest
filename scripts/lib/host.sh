@@ -516,6 +516,11 @@ host_rocm10_repo_dist() {
             case "$major" in 8|9|10) echo "rhel${major}"; return 0 ;; esac ;;
         sles|opensuse-leap)
             case "$major" in 15|16) echo "sles${major}"; return 0 ;; esac ;;
+        fedora)
+            # AMD publishes nothing for Fedora, but its rhel10 packages
+            # resolve, build llama.cpp and run beside Fedora's own ROCm on
+            # Fedora 44 (tested 2026-10-09). Older Fedoras are untested.
+            [[ "$major" =~ ^[0-9]+$ ]] && (( major >= 44 )) && { echo rhel10; return 0; } ;;
     esac
     # A RHEL rebuild we don't know by name.
     if [[ "$id_like" == *rhel* ]]; then
