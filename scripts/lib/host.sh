@@ -1555,12 +1555,6 @@ host_rhel_crb_repo() {
     esac
 }
 
-# Succeeds when dnf can resolve the package from an enabled repo (or it's
-# already installed).
-host_dnf_pkg_available() {
-    [[ -n "$(dnf -q repoquery "$1" 2>/dev/null)" ]]
-}
-
 # The shell command that enables CRB repo id $1, for messages.
 host_rhel_crb_enable_cmd() {
     if [[ "$DISTRO_ID" == "rhel" ]]; then
