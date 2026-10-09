@@ -661,6 +661,153 @@ test_rocm10_refused_beside_old_amd() (
     check_false "nothing asked or run" test -s "${TMP_ROOT}/refuse.log"
 )
 
+# RHEL-family hosts: ROCm comes from EPEL (Fedora's names) or AMD's elN
+# repo (rocm-hip-runtime-devel), never the base repos. Each run of dnf
+# resolves only what the fake repos below carry: EPEL's set when "epel" is
+# on, AMD's once setup has written rocm.repo.
+test_rhel_rocm() (
+    HOST_FS_ROOT="${TMP_ROOT}/rhel"
+    mkdir -p "${HOST_FS_ROOT}/etc/yum.repos.d"
+    DISTRO_FAMILY=fedora DISTRO_NAME="Rocky Linux 10.2" FAKE_RHEL=10
+    INSTALLED="" EPEL=false
+    rpm() {
+        case "$1" in
+            -E) echo "$FAKE_RHEL" ;;
+            -q) [[ " $INSTALLED " == *" $2 "* ]] ;;
+            *)  return 1 ;;
+        esac
+    }
+    host_dnf_pkg_available() {
+        local avail=""
+        [[ "$EPEL" == true ]] && avail+=" rocm-hip-devel rocblas-devel hipblas-devel rocm-cmake"
+        host_rocm_dnf_repo_configured \
+            && avail+=" rocm-hip-runtime-devel rocblas-devel hipblas-devel rocm-cmake"
+        [[ "$avail " == *" $1 "* ]]
+    }
+    host_rocm_sdk_usable() { return 1; }
+    host_rocm_old_amd_installed() { return 1; }
+    host_rocm10_installed() { return 1; }
+    host_rocm_apt_repo_configured() { return 1; }
+    CALLS="${TMP_ROOT}/rhel-calls"
+    curl() { echo "curl $*" >> "$CALLS"; [[ "$FAKE_AMD_EL" == true ]]; }
+    prompt_confirm() { echo "asked: $*" >> "$CALLS"; [[ "$ANSWER" == yes ]]; }
+    run_sudo() {
+        if [[ "$1" == tee ]]; then cat > "${HOST_FS_ROOT}$2"; else "$@"; fi
+    }
+    sudo() { echo "sudo $*" >> "$CALLS"; }
+    host_verify_rocm_buildable() { :; }
+    host_offer_rocm_optional() { :; }
+    reset() {
+        rm -f "${HOST_FS_ROOT}"/etc/yum.repos.d/*; : > "$CALLS"
+        INSTALLED="" EPEL=false FAKE_AMD_EL=true ANSWER=yes HOST_ROCM=distro
+    }
+
+    check_eq "host_rhel_major rocky 10" "10" "$(host_rhel_major)"
+    FAKE_RHEL=%rhel
+    check_false "host_rhel_major on fedora (%rhel unexpanded)" host_rhel_major
+    FAKE_RHEL=10 DISTRO_FAMILY=debian
+    check_false "host_rhel_major off the fedora family" host_rhel_major
+    DISTRO_FAMILY=fedora
+
+    reset
+    echo "baseurl=https://repo.radeon.com/amdgpu/31.10/el/10.1/main/x86_64/" \
+        > "${HOST_FS_ROOT}/etc/yum.repos.d/amdgpu.repo"
+    check_false "AMD's amdgpu repo is not the ROCm repo" host_rocm_dnf_repo_configured
+    echo "baseurl=https://repo.radeon.com/rocm/el10/7.2.4/main" \
+        > "${HOST_FS_ROOT}/etc/yum.repos.d/rocm.repo"
+    check_true "AMD's ROCm dnf repo is detected" host_rocm_dnf_repo_configured
+    check_true "AMD's ROCm dnf repo means AMD's names" host_rocm_prefer_amd_packages
+
+    reset
+    INSTALLED="rocm-hip-runtime-devel"
+    check_eq "host_rpm_rocm_pkg says nothing when one is installed" \
+        "" "$(host_rpm_rocm_pkg rocm-hip-devel rocm-hip-runtime-devel)"
+    INSTALLED="" EPEL=true
+    check_eq "host_rpm_rocm_pkg picks the name dnf can resolve" \
+        "rocm-hip-devel" "$(host_rpm_rocm_pkg rocm-hip-runtime-devel rocm-hip-devel)"
+    EPEL=false
+    check_false "host_rpm_rocm_pkg with no resolvable name" \
+        host_rpm_rocm_pkg rocm-hip-devel rocm-hip-runtime-devel
+
+    # What's missing, per source.
+    reset
+    check_eq "rhel, no ROCm repo: Fedora's names, all unresolvable" \
+        "rocm-hip-devel rocblas-devel hipblas-devel rocm-cmake" \
+        "$(host_missing_gpu_sdk_packages rocm)"
+    check_eq "rhel, no ROCm repo: all reported unresolvable" \
+        "rocm-hip-devel rocblas-devel hipblas-devel rocm-cmake" "$(host_rocm_rhel_unresolvable)"
+    EPEL=true
+    check_eq "rhel with EPEL: nothing unresolvable" "" "$(host_rocm_rhel_unresolvable)"
+    EPEL=false
+    echo "baseurl=https://repo.radeon.com/rocm/el10/latest/main" \
+        > "${HOST_FS_ROOT}/etc/yum.repos.d/rocm.repo"
+    check_eq "rhel with AMD's repo: AMD's HIP runtime name" \
+        "rocm-hip-runtime-devel rocblas-devel hipblas-devel rocm-cmake" \
+        "$(host_missing_gpu_sdk_packages rocm)"
+    EPEL=true
+    check_eq "rhel with AMD's repo and EPEL: still AMD's name" \
+        "rocm-hip-runtime-devel rocblas-devel hipblas-devel rocm-cmake" \
+        "$(host_missing_gpu_sdk_packages rocm)"
+    INSTALLED="rocm-hip-runtime-devel rocblas-devel"
+    check_eq "rhel: installed components are not missing" \
+        "hipblas-devel rocm-cmake" "$(host_missing_gpu_sdk_packages rocm)"
+    reset; FAKE_RHEL=%rhel
+    check_eq "fedora keeps its own names, unresolved or not" \
+        "rocm-hip-devel rocblas-devel hipblas-devel rocm-cmake" \
+        "$(host_missing_gpu_sdk_packages rocm)"
+    FAKE_RHEL=10
+
+    # Adding AMD's repo.
+    reset
+    check_true "host_install_amd_rocm_repo_rhel adds the repo" host_install_amd_rocm_repo_rhel
+    check_eq "rocm.repo as AMD documents it" \
+        "[rocm]
+name=ROCm (repo.radeon.com, EL10)
+baseurl=https://repo.radeon.com/rocm/el10/latest/main
+enabled=1
+priority=50
+gpgcheck=1
+gpgkey=https://repo.radeon.com/rocm/rocm.gpg.key" \
+        "$(cat "${HOST_FS_ROOT}/etc/yum.repos.d/rocm.repo")"
+    check_true "probes AMD's EL10 repo before asking" \
+        grep -qx "curl -fsI https://repo.radeon.com/rocm/el10/latest/main/repodata/repomd.xml" "$CALLS"
+    : > "$CALLS"
+    check_true "host_install_amd_rocm_repo_rhel with the repo present" host_install_amd_rocm_repo_rhel
+    check_eq "nothing asked when the repo is present" "" "$(cat "$CALLS")"
+
+    reset; FAKE_AMD_EL=false
+    check_false "no AMD build for this EL: fails" host_install_amd_rocm_repo_rhel
+    check_false "no AMD build for this EL: nothing asked" grep -q "^asked" "$CALLS"
+    reset; ANSWER=no
+    check_false "declined: fails" host_install_amd_rocm_repo_rhel
+    check_false "declined: no repo written" test -e "${HOST_FS_ROOT}/etc/yum.repos.d/rocm.repo"
+
+    # The install step, as setup.sh install --host reaches it on Rocky 10.
+    reset
+    check_true "rhel install: accepts AMD's repo and installs" host_install_gpu_sdk_packages rocm
+    check_eq "rhel install: dnf gets AMD's names" \
+        "sudo dnf install -y rocm-hip-runtime-devel rocblas-devel hipblas-devel rocm-cmake" \
+        "$(grep '^sudo' "$CALLS")"
+
+    reset; ANSWER=no
+    check_false "rhel install: declined with nothing resolvable fails" \
+        eval "host_install_gpu_sdk_packages rocm >/dev/null"
+    check_false "rhel install: declined runs no doomed dnf" grep -q "^sudo" "$CALLS"
+
+    reset; EPEL=true
+    check_true "rhel install with EPEL" host_install_gpu_sdk_packages rocm
+    check_false "rhel install with EPEL: AMD's repo not offered" grep -q "^curl" "$CALLS"
+    check_eq "rhel install with EPEL: dnf gets Fedora's names" \
+        "sudo dnf install -y rocm-hip-devel rocblas-devel hipblas-devel rocm-cmake" \
+        "$(grep '^sudo' "$CALLS")"
+
+    # Beside ROCm 10, AMD's old line is never offered.
+    reset; HOST_ROCM=both
+    check_false "rhel install for both, nothing resolvable: fails" \
+        eval "host_install_gpu_sdk_packages rocm >/dev/null"
+    check_false "rhel install for both: AMD's old repo not offered" grep -q "^asked" "$CALLS"
+)
+
 # HOST_ROCM is validated, and with no choice possible it stays "distro" —
 # the behaviour from before ROCm 10 was an option.
 test_choose_rocm() (
@@ -733,6 +880,7 @@ test_migrate_model_paths
 test_rocm10_repo_dist
 test_rocm10_install_state
 test_rocm10_refused_beside_old_amd
+test_rhel_rocm
 test_choose_rocm
 test_rocm10_not_old_line
 test_gfx_target_from_kfd
