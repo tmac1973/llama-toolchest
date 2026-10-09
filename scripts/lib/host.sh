@@ -495,10 +495,14 @@ host_rocm10_repo_dist() {
     local osr="${HOST_FS_ROOT}/etc/os-release"
     [[ -r "$osr" ]] || return 1
     local id id_like ver codename major
-    id="$(. "$osr" && echo "${ID:-}")"
-    id_like="$(. "$osr" && echo "${ID_LIKE:-}")"
-    ver="$(. "$osr" && echo "${VERSION_ID:-}")"
-    codename="$(. "$osr" && echo "${UBUNTU_CODENAME:-}")"
+    # One read, in a subshell so os-release's variables don't leak into
+    # setup's. "|" rather than a tab: read would merge empty tab fields.
+    IFS='|' read -r id id_like ver codename < <(
+        # shellcheck source=/dev/null
+        . "$osr"
+        # shellcheck disable=SC2031  # set by the os-release just sourced
+        printf '%s|%s|%s|%s\n' "${ID:-}" "${ID_LIKE:-}" "${VERSION_ID:-}" "${UBUNTU_CODENAME:-}"
+    )
     case "$codename" in
         jammy)    echo ubuntu2204; return 0 ;;
         noble)    echo ubuntu2404; return 0 ;;
@@ -632,7 +636,8 @@ host_install_rocm10() {
         return 0
     fi
     if host_rocm_old_amd_installed; then
-        err "Not installing ROCm ${HOST_ROCM10_VERSION}: AMD's older ROCm packages are installed ($(ls -d /opt/rocm-[0-9]* 2>/dev/null | tr '\n' ' ' | sed 's/ $//'))."
+        local -a old=("$HOST_FS_ROOT"/opt/rocm-[0-9]*)
+        err "Not installing ROCm ${HOST_ROCM10_VERSION}: AMD's older ROCm packages are installed (${old[*]#"$HOST_FS_ROOT"})."
         log "Installed together, ROCm 10 installs itself inside the older release and"
         log "takes over parts of it — AMD's install guide says to remove 7.2.4 or"
         log "older first. Remove AMD's old ROCm packages, then re-run setup. Your"
