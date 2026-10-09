@@ -76,9 +76,9 @@ esac
 # no tag is given. Check https://hub.docker.com/r/rocm/dev-ubuntu-24.04/tags for
 # what exists.
 readonly ROCM_NEXT_IMAGE_REPO="docker.io/rocm/dev-ubuntu-24.04"
-readonly ROCM_NEXT_DEFAULT_TAG="10.0.0-full"
-# GPU targets ROCm 10.0.0 ships code for, read from the package list of
-# rocm/dev-ubuntu-24.04:10.0.0-full (amdrocm-core-sdk10.0-gfx*). RDNA 1 and
+readonly ROCM_NEXT_DEFAULT_TAG="10.1.0-full"
+# GPU targets ROCm 10.1.0 ships code for, read from the package list of
+# rocm/dev-ubuntu-24.04:10.1.0-full (amdrocm-core-sdk10.1-gfx*). RDNA 1 and
 # newer, plus the CDNA datacenter parts — ROCm 10 does NOT require RDNA 4.
 readonly ROCM10_GFX_TARGETS="gfx1010 gfx1011 gfx1012 gfx1030 gfx1031 gfx1032 gfx1033 gfx1034 gfx1035 gfx1036 gfx1100 gfx1101 gfx1102 gfx1103 gfx1150 gfx1151 gfx1152 gfx1153 gfx1200 gfx1201 gfx1250 gfx908 gfx90a gfx942 gfx950"
 
@@ -2335,7 +2335,7 @@ unlike --rocm above — ROCm 10 is published only as a container image):
                   newer and the CDNA cards; the host kernel your card needs
                   depends on the card, and setup.sh checks it.
   --rocm-image T  Same, with the base image pinned to tag T (for example
-                  10.0.0-full). A full image reference works too. See the
+                  10.1.0-full). A full image reference works too. See the
                   ROCm section of the README.
 
 If no backend flag and no GPU= env is set, setup.sh auto-detects the
@@ -2421,7 +2421,7 @@ Environment variables:
                                 AMD only). Same as --rocm-next; stored in .env
                                 so rebuild/up/down reuse it.
   ROCM_BASE_IMAGE=<tag|ref>     ROCm base image for the experimental variant,
-                                e.g. 10.0.0-full. Implies ROCM_VARIANT=next.
+                                e.g. 10.1.0-full. Implies ROCM_VARIANT=next.
   RUNTIME=docker|podman         Override container runtime auto-detection
   INSTALL_MODE=host|container   Same as --host / --container
   ASSUME_YES=1                  Same as --yes
@@ -2436,7 +2436,7 @@ Examples:
   ./setup.sh install                    # detect, install prereqs, build & run (asks mode)
   ./setup.sh install --host             # install latest released package on the host
   ./setup.sh install --rocm --vulkan    # host install, install both ROCm and Vulkan SDKs
-  ./setup.sh install --rocm-image 10.0.0-full  # container install on ROCm 10 (experimental)
+  ./setup.sh install --rocm-image 10.1.0-full  # container install on ROCm 10 (experimental)
   ./setup.sh install --vulkan           # host install, Vulkan SDK only (cross-vendor)
   ./setup.sh install --from-source      # host install, build from local source
   ./setup.sh install --container --from-source  # container running this working tree

@@ -30,7 +30,7 @@ services:
         # .env from the variant chosen at install time; the default here
         # is what a bare `compose build` with no .env uses. Any tag from
         # https://hub.docker.com/r/rocm/dev-ubuntu-24.04/tags works.
-        ROCM_BASE_IMAGE: "${ROCM_BASE_IMAGE:-docker.io/rocm/dev-ubuntu-24.04:10.0.0-full}"
+        ROCM_BASE_IMAGE: "${ROCM_BASE_IMAGE:-docker.io/rocm/dev-ubuntu-24.04:10.1.0-full}"
     # Pin the built image name so it matches the Quadlet unit (generate_quadlet
     # in setup.sh). Without this, compose tags the build as
     # <project>_<service> (localhost/llama-toolchest_llama-toolchest) and the
