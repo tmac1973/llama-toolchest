@@ -41,7 +41,7 @@
 #   docker build --build-arg ROCM_BASE_IMAGE=docker.io/rocm/dev-ubuntu-24.04:7.14.1-full \
 #                -f Dockerfile.rocm-next .
 
-ARG ROCM_BASE_IMAGE=docker.io/rocm/dev-ubuntu-24.04:10.0.0-full
+ARG ROCM_BASE_IMAGE=docker.io/rocm/dev-ubuntu-24.04:10.1.0-full
 FROM ${ROCM_BASE_IMAGE}
 
 # Re-declared after FROM: an ARG used by FROM is out of scope in the build

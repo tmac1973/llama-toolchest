@@ -193,21 +193,21 @@ Container installs offer two ROCm versions. An AMD install asks which, defaultin
 ```bash
 ./setup.sh install                              # asks; stable on a fresh machine
 ./setup.sh install --rocm-next                  # experimental, latest known release
-./setup.sh install --rocm-image 10.0.0-full     # experimental, pinned to a tag
+./setup.sh install --rocm-image 10.1.0-full     # experimental, pinned to a tag
 ```
 
 `ROCM_VARIANT=stable|next` and `ROCM_BASE_IMAGE=<tag>` are the environment equivalents. The choice is stored in `.env`, so `rebuild`, `up` and `down` keep it without re-passing anything, and `./setup.sh detect` prints which one is in use.
 
 | | Stable | Experimental |
 |---|---|---|
-| ROCm | 7.2.4 | 10.0.0 (any tag you name) |
+| ROCm | 7.2.4 | 10.1.0 (any tag you name) |
 | Base image | Fedora 43 + RPMs from `repo.radeon.com` | `rocm/dev-ubuntu-24.04` |
 | Image size | 14.1 GB | 21.1 GB |
 | Dockerfile | `Dockerfile.rocm` | `Dockerfile.rocm-next` |
 
 **Why the experimental one exists.** ROCm 10 is published *only* as a container image. `repo.radeon.com`'s `el9`, `el10`, `rhel9` and `rhel10` paths all stop at 7.2.4, as does the `amdgpu-install` route, so the Fedora image cannot reach anything newer however long you wait. The 7.14.x line is in the same position. Building on an AMD-published image is the only way to get a current ROCm.
 
-Any tag from [rocm/dev-ubuntu-24.04](https://hub.docker.com/r/rocm/dev-ubuntu-24.04/tags) works, and a full image reference is accepted too. `10.0.0-full` and `7.14.1-full` are both known to build here. The tag is checked before anything is downloaded, so a typo fails in about a second rather than part-way through a 20 GB pull.
+Any tag from [rocm/dev-ubuntu-24.04](https://hub.docker.com/r/rocm/dev-ubuntu-24.04/tags) works, and a full image reference is accepted too. `10.1.0-full` and `7.14.1-full` are both known to build here. The tag is checked before anything is downloaded, so a typo fails in about a second rather than part-way through a 20 GB pull.
 
 **What it requires.** ROCm 10 supports RDNA 1 and newer plus the CDNA cards — it does **not** need RDNA 4. The host kernel it needs depends on your card, not on ROCm, because the container carries no kernel components: RDNA 4 wants 6.12, RDNA 3 6.0, RDNA 2 5.9, RDNA 1 5.3. `setup.sh` checks your card against both lists and warns without blocking.
 
