@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.36.0](https://github.com/tmac1973/llama-toolchest/compare/v2.35.1...v2.36.0) (2026-10-09)
+
+
+### Features
+
+* download coding agent configs from the Server tab ([#270](https://github.com/tmac1973/llama-toolchest/issues/270)) ([1b66ae4](https://github.com/tmac1973/llama-toolchest/commit/1b66ae400d86fbd6ccbf5b0d5386660e9a40b787))
+* ROCm 10.1 on host installs, and builds on hosts with several ROCm installs ([#267](https://github.com/tmac1973/llama-toolchest/issues/267)) ([97871fe](https://github.com/tmac1973/llama-toolchest/commit/97871fe6604a59fa6d8bddfed59e54dab21dcb2b))
+
+
+### Bug Fixes
+
+* "latest" built an upstream backup tag instead of the newest nightly ([#266](https://github.com/tmac1973/llama-toolchest/issues/266)) ([ebdcb4a](https://github.com/tmac1973/llama-toolchest/commit/ebdcb4a8e7451dde94302eeca78559569296d8de))
+* Models and Server page UI glitches ([#264](https://github.com/tmac1973/llama-toolchest/issues/264)) ([4a6547a](https://github.com/tmac1973/llama-toolchest/commit/4a6547ac1c428ad559a6b9d9b18a5a1ed5df7316))
+* **setup:** offer AMD's ROCm repo on RHEL-family host installs ([#269](https://github.com/tmac1973/llama-toolchest/issues/269)) ([60b76ba](https://github.com/tmac1973/llama-toolchest/commit/60b76bab577cf204d0b092fa4c568419606c4512))
+* **setup:** offer to enable CRB for ninja-build on RHEL-family host installs ([#268](https://github.com/tmac1973/llama-toolchest/issues/268)) ([226dfe2](https://github.com/tmac1973/llama-toolchest/commit/226dfe2b583e75cbea99091a811c1e24398c4371))
+
+
+### Refactors
+
+* **setup:** drop the duplicate host_dnf_pkg_available ([#271](https://github.com/tmac1973/llama-toolchest/issues/271)) ([dadb7b2](https://github.com/tmac1973/llama-toolchest/commit/dadb7b2f9b50c5e7c3d039ffba8b32238e615e6b))
+
 ## [2.35.1](https://github.com/tmac1973/llama-toolchest/compare/v2.35.0...v2.35.1) (2026-10-06)
 
 
