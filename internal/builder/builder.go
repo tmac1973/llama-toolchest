@@ -302,8 +302,10 @@ func (e *DuplicateBuildError) Error() string {
 // the build ID so multiple builds of the same ref+profile can coexist.
 // optionOverrides allows toggling profile-specific cmake flags.
 // extraCMake allows passing additional raw cmake flags.
-func (b *Builder) Build(ctx context.Context, profile string, gitRef string, tag string, force bool, optionOverrides map[string]bool, extraCMake string) (*BuildResult, error) {
-	slog.Info("build requested", "profile", profile, "git_ref", gitRef, "tag", tag, "force", force)
+// rocmRoot picks the ROCm install a rocm build uses, by its Root, when the
+// machine has more than one; "" means the newest (see chooseROCm).
+func (b *Builder) Build(ctx context.Context, profile string, gitRef string, tag string, force bool, optionOverrides map[string]bool, extraCMake string, rocmRoot string) (*BuildResult, error) {
+	slog.Info("build requested", "profile", profile, "git_ref", gitRef, "tag", tag, "force", force, "rocm_root", rocmRoot)
 
 	prof, ok := FindProfile(profile)
 	if !ok {
@@ -337,6 +339,25 @@ func (b *Builder) Build(ctx context.Context, profile string, gitRef string, tag 
 		gitRef = "latest"
 	}
 
+	stamp := BuildEnvStamp(prof.Backend)
+	var pin *rocmPin
+	if prof.Backend == "rocm" {
+		inst, pinned, err := chooseROCm(DetectROCmInstalls(), rocmRoot)
+		if err != nil {
+			return nil, err
+		}
+		if inst != nil {
+			stamp = ROCmStamp(*inst)
+		}
+		if pinned {
+			compiler, ok := PinROCmFlags(prof.CMakeFlags, *inst)
+			if !ok {
+				return nil, fmt.Errorf("no HIP compiler found in %s", inst.Label())
+			}
+			pin = &rocmPin{install: *inst, compiler: compiler}
+		}
+	}
+
 	result := &BuildResult{
 		Profile:      prof.Name,
 		GitRef:       gitRef,
@@ -344,7 +365,7 @@ func (b *Builder) Build(ctx context.Context, profile string, gitRef string, tag 
 		Status:       BuildStatusBuilding,
 		StartedAt:    time.Now(),
 		CMakeFlags:   copyFlags(prof.CMakeFlags),
-		BuiltAgainst: BuildEnvStamp(prof.Backend),
+		BuiltAgainst: stamp,
 	}
 
 	logCh := make(chan string, 256)
@@ -428,7 +449,7 @@ drain:
 	slog.Info("build started", "id", result.ID, "git_ref", resolvedRef, "git_sha", sha)
 
 	// Run the actual build asynchronously
-	go b.runBuild(ctx, prof, srcDir, result, logCh)
+	go b.runBuild(ctx, prof, srcDir, result, logCh, pin)
 
 	return result, nil
 }
@@ -458,7 +479,7 @@ func (b *Builder) Delete(id string) error {
 	return nil
 }
 
-func (b *Builder) runBuild(ctx context.Context, prof BuildProfile, srcDir string, result *BuildResult, logCh chan string) {
+func (b *Builder) runBuild(ctx context.Context, prof BuildProfile, srcDir string, result *BuildResult, logCh chan string, pin *rocmPin) {
 	defer func() {
 		close(logCh)
 		// Close all subscriber channels for this build; history is kept so
@@ -519,7 +540,12 @@ func (b *Builder) runBuild(ctx context.Context, prof BuildProfile, srcDir string
 	// architecture: gfxNNNN". Point clang at the real root (mirroring
 	// the ENV block in Dockerfile.rocm); values already exported around
 	// the service win, matching applyExtraEnv's precedence rule.
-	if prof.Backend == "rocm" {
+	if pin != nil {
+		// More than one ROCm here: everything comes from the chosen install,
+		// and the cmake half of that is already in prof.CMakeFlags.
+		buildEnv = pinEnv(buildEnv, pin.install, pin.compiler)
+		sendLog(fmt.Sprintf("==> Building against %s, HIP compiler %s", pin.install.Label(), pin.compiler))
+	} else if prof.Backend == "rocm" {
 		if tool := FindROCmTool("hipconfig"); tool != "" {
 			binDir := filepath.Dir(tool)
 			buildEnv = prependPath(buildEnv, binDir)

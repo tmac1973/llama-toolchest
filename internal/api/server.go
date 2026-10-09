@@ -58,6 +58,10 @@ type Server struct {
 	// "current" is decided by the test rather than by whichever ROCm
 	// happens to be installed on the machine running it.
 	currentBuildEnv func(backend string) string
+	// rocmInstallsFn lists the ROCm installs a build can use. Nil in
+	// production (builder.CachedROCmInstalls); tests set it for the same
+	// reason as currentBuildEnv.
+	rocmInstallsFn func() []builder.ROCmInstall
 
 	// probeCache memoizes remote GGUF header probes, keyed by source,
 	// repo and file. A published file's layout does not change, so the
