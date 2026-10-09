@@ -120,7 +120,7 @@ If you'd rather skip `setup.sh` and install the released `.deb`/`.rpm` packages 
 
 † Vulkan is host-install only — see [GPU Backend Notes → Vulkan](#vulkan).
 
-‡ ROCm 10 is container mode only, because AMD publishes it only as a container image — see [GPU Backend Notes → ROCm](#rocm).
+‡ ROCm 10 is available in both modes: container installs build on AMD's ROCm 10 image, host installs use AMD's ROCm 10.1 packages — see [GPU Backend Notes → ROCm](#rocm).
 
 CUDA and ROCm provide native GPU compute for best performance; Vulkan is portable but typically slower than the vendor-specific backend on the same hardware.
 
@@ -205,7 +205,7 @@ Container installs offer two ROCm versions. An AMD install asks which, defaultin
 | Image size | 14.1 GB | 21.1 GB |
 | Dockerfile | `Dockerfile.rocm` | `Dockerfile.rocm-next` |
 
-**Why the experimental one exists.** ROCm 10 is published *only* as a container image. `repo.radeon.com`'s `el9`, `el10`, `rhel9` and `rhel10` paths all stop at 7.2.4, as does the `amdgpu-install` route, so the Fedora image cannot reach anything newer however long you wait. The 7.14.x line is in the same position. Building on an AMD-published image is the only way to get a current ROCm.
+**Why the experimental one exists.** `repo.radeon.com`'s `el9`, `el10`, `rhel9` and `rhel10` paths all stop at 7.2.4, as does the `amdgpu-install` route, so the Fedora image cannot reach anything newer. AMD now packages ROCm 10 in a separate repository (`stable.repo.amd.com`, used by [host installs](#rocm-on-a-host-install)); the container variant builds on AMD's own ROCm image instead, which also offers the 7.14.x line.
 
 Any tag from [rocm/dev-ubuntu-24.04](https://hub.docker.com/r/rocm/dev-ubuntu-24.04/tags) works, and a full image reference is accepted too. `10.1.0-full` and `7.14.1-full` are both known to build here. The tag is checked before anything is downloaded, so a typo fails in about a second rather than part-way through a 20 GB pull.
 
@@ -222,7 +222,31 @@ So: nothing measurable for ordinary generation, and about 25% for speculative de
 
 **Switching means rebuilding llama.cpp.** A build is linked against the libraries of the image it was made in, so a build from one ROCm version may fail to load under the other. Nothing is deleted: the Builds page marks builds that cannot run in the current image and explains why, the Server tab refuses to select them, and switching back makes them work again. This is the same rule as the one under [Switching modes](#switching-modes) above, for the same reason: a `llama-server` is built for the place it will run.
 
-`--rocm` host installs are unaffected and cannot use ROCm 10: `repo.radeon.com` has no 10.x packages for a host install to fetch.
+#### ROCm on a host install
+
+A host install on an AMD GPU asks which ROCm to set up, when AMD publishes ROCm 10.1 for your distro and GPU:
+
+```
+  1) Distro        Your distro's ROCm (7.1), or the one already installed (default)
+  2) ROCm 10.1     AMD's ROCm 10.1 packages
+  3) Both          Your distro's ROCm 7.1 and ROCm 10.1, side by side
+```
+
+`HOST_ROCM=distro|10|both` answers it for a scripted install. ROCm 10.1 comes from AMD's `stable.repo.amd.com`, installs into `/opt/rocm/core-10.1`, and only the package for your GPU is installed (`amdrocm-core-dev10.1-gfx1100`, say). It is offered on Ubuntu 22.04/24.04/26.04, Debian 12/13, RHEL-family 8–10 and Fedora 44+ (Fedora through AMD's RHEL 10 packages, which AMD does not publish for Fedora but which install and work there). **Both** is only offered when your distro's own ROCm is new enough to build llama.cpp with — Ubuntu 24.04 and Debian 13 ship 5.7, which isn't.
+
+What can sit side by side:
+
+| Combination | |
+|---|---|
+| Your distro's ROCm (in `/usr`) + ROCm 10.x | Supported. |
+| Several ROCm 10.x releases | Supported. |
+| AMD's own 7.2.4-or-older packages + ROCm 10.x | **Not supported by AMD.** ROCm 10 installs itself inside the older release and takes over parts of it. `setup.sh` refuses to add 10.1 here and explains how to fix it; a machine already in this state gets a warning. Builds still work (see below). |
+
+#### Several ROCm installs
+
+When a machine has more than one ROCm, the Builds page shows a **ROCm Install** picker on the build form, defaulting to the newest, and each build uses only the install it was given: its compiler, headers, libraries and CMake packages. The preview of effective CMake flags shows the extra flags this adds. Each build records which install it was built against (`rocm 10.1.0 @ /opt/rocm/core-10.1`), and the Builds page flags a build whose install has since been removed or upgraded. The same ref built against two installs gets two builds rather than a replace prompt.
+
+A ROCm 10.x install is always built against this way, even on its own: its packages point `/usr/bin/hipconfig` at themselves, which otherwise sends the build to the wrong place. A single distro or 7.x install builds as it always has.
 
 ### CUDA
 

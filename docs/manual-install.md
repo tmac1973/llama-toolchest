@@ -68,6 +68,11 @@ The package doesn't pull GPU SDKs — install them yourself for the backend you 
 - **ROCm** — `rocm-hip-devel` (Fedora) / `rocm-dev` (Debian/Ubuntu)
   - The minimal Debian/Ubuntu set, if `rocm-dev` pulls more than you want:
     `hipcc libamdhip64-dev librocblas-dev libhipblas-dev rocm-cmake`
+  - Or AMD's ROCm 10.1, from `stable.repo.amd.com` (see AMD's
+    [install guide](https://rocm.docs.amd.com/en/latest/install/rocm.html)):
+    `amdrocm-core-dev10.1-<gfx>` (Debian/Ubuntu) / `amdrocm-core-devel10.1-<gfx>`
+    (RHEL family), where `<gfx>` is your GPU's target, e.g. `gfx1100`. It can
+    sit beside your distro's ROCm but not beside AMD's 7.2.4-or-older packages.
   - `libamdhip64-dev` is the one to check first: it ships the
     `hip-lang-config.cmake` that `enable_language(HIP)` needs, and without it
     the build stops at "does not contain the HIP runtime CMake package" even
