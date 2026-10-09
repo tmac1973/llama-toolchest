@@ -1,0 +1,74 @@
+{{/* The Server tab's "Agent configs" dialog body: config files that point
+     coding agents at this server. Loaded fresh on every open, since what
+     the files list is what the server serves at that moment.
+     Data: agentConfigsData (agentconfigs.go). */}}
+{{define "agent_configs"}}
+<div id="agent-configs">
+    <p style="font-size:0.9rem;">
+        Config files that point a coding agent at the models this server is
+        serving now, with each model's context and capabilities filled in.
+        They're a snapshot: <strong>download again after changing which models
+        are served or their context size.</strong>
+    </p>
+    {{- if not .Models}}
+    <p role="alert">The server isn't serving any chat models. Start it on this tab, then open this again.</p>
+    {{- else}}
+    <label title="The address the agent will use to reach this server. Change it if the agent runs on another machine.">Server URL
+        <input type="url" name="base" value="{{.BaseURL}}"
+               hx-get="/api/agent-configs" hx-target="#agent-configs" hx-swap="outerHTML"
+               hx-trigger="change">
+    </label>
+    {{- if .LocalOnly}}
+    <p style="color:var(--pico-del-color);font-size:0.85rem;margin-top:-0.5rem;">
+        This address only works on this machine. If the agent runs elsewhere,
+        change it to one that machine can reach (and set the External URL on
+        the Settings page to make that the default).
+    </p>
+    {{- end}}
+    <p style="font-size:0.85rem;margin-bottom:0.25rem;">Models in the files ({{len .Models}}), the first is the default:</p>
+    <ul style="font-size:0.85rem;">
+        {{- range .Models}}
+        <li><code>{{.ID}}</code> — {{.Context}} context{{if .Tools}}, tools{{end}}{{if .Vision}}, images{{end}}{{if .Reasoning}}, reasoning{{end}}</li>
+        {{- end}}
+    </ul>
+    {{- if .APIKey}}
+    <p style="font-size:0.85rem;margin-bottom:0.25rem;">
+        This server requires an API key. The files read it from
+        <code>{{.KeyEnv}}</code>, so set that where the agent runs, to the key
+        you set on the Settings page:
+    </p>
+    <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:1rem;">
+        <pre style="font-size:0.8rem;margin:0;flex:1;overflow-x:auto;">{{.KeyExport}}</pre>
+        {{template "copy_button" .KeyExportCopy}}
+    </div>
+    {{- end}}
+
+    <p style="font-size:0.8rem;color:var(--pico-muted-color);">Commands below are for a Linux or macOS shell; on Windows, set the same variables in PowerShell (<code>$env:NAME = "value"</code>).</p>
+    {{- range .Agents}}
+    <details>
+        <summary><strong>{{.Name}}</strong> <small>— {{.FileName}}</small></summary>
+        <p style="margin-bottom:0.5rem;">
+            <a href="{{.DownloadURL}}" download="{{.FileName}}" role="button" class="outline" style="padding:0.25rem 0.75rem;font-size:0.85rem;">Download {{.FileName}}</a>
+            <a href="{{.Homepage}}" target="_blank" rel="noopener" style="font-size:0.85rem;margin-left:0.5rem;">{{.Name}} docs ↗</a>
+        </p>
+        <p style="font-size:0.85rem;margin-bottom:0.25rem;">Save it in:</p>
+        <table style="font-size:0.8rem;margin-bottom:0.5rem;">
+            {{- range .Steps}}
+            <tr><td>{{.OS}}</td><td><code>{{.Path}}</code></td></tr>
+            {{- end}}
+        </table>
+        {{- if .Activate}}
+        <p style="font-size:0.85rem;margin-bottom:0.25rem;">Then:</p>
+        <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.5rem;">
+            <pre style="font-size:0.8rem;margin:0;flex:1;overflow-x:auto;">{{.Activate}}</pre>
+            {{template "copy_button" .ActivateCopy}}
+        </div>
+        {{- end}}
+        {{- range .Notes}}
+        <p style="font-size:0.8rem;color:var(--pico-muted-color);margin-bottom:0.25rem;">{{.}}</p>
+        {{- end}}
+    </details>
+    {{- end}}
+    {{- end}}
+</div>
+{{end}}

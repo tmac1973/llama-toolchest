@@ -134,6 +134,9 @@
     <h3>Inventory &amp; API Endpoint cards</h3>
     <p>Build/model counts and the OpenAI-compatible base URL for your clients.</p>
 
+    <h3>Agent Configs</h3>
+    <p>The <em>Agent Configs</em> link in the API Endpoint card opens ready-made config files for the opencode, Kilo Code, pi, Goose and Crush coding agents. Each lists the models in the Available Models card — the loaded one first, as the default — with the context one conversation gets (so a context split across parallel slots shows each slot's share), a max output, and tool, image and reasoning support. The dialog says where each file goes on Linux, macOS and Windows and how the agent picks it up. Change the <em>Server URL</em> field if the agent runs on another machine. With an API key set, the files read it from <code>LLAMA_TOOLCHEST_API_KEY</code> rather than containing it. The files are a snapshot: download them again after changing which models are served or their context size.</p>
+
     <h3>Live Performance</h3>
     <p>Passive timing summary collected from every <code>/v1/chat/completions</code> request that flows through the proxy — no explicit benchmark needed. Shows rolling averages of generation and prompt-processing speed per model, so you can see real-world performance as you use the server. Both streaming and non-streaming requests are captured.</p>
 
