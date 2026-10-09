@@ -190,6 +190,13 @@ func TestChooseROCm(t *testing.T) {
 	if inst, pinned, _ := chooseROCm(two[1:], ""); inst == nil || inst.Root != "/usr" || pinned {
 		t.Errorf("one: %v %v", inst, pinned)
 	}
+	// Except a lone 10.x install, which the hipconfig-based setup gets wrong.
+	if inst, pinned, _ := chooseROCm(two[:1], ""); inst == nil || !pinned {
+		t.Errorf("one 10.x: %v %v", inst, pinned)
+	}
+	if _, pinned, _ := chooseROCm([]ROCmInstall{{Root: "/opt/rocm-7.2.4/core-10.1"}}, ""); !pinned {
+		t.Error("a 10.x install nested in an old one is not pinned")
+	}
 	if inst, pinned, _ := chooseROCm(two, ""); inst.Root != "/opt/rocm/core-10.1" || !pinned {
 		t.Errorf("two, default: %v %v", inst, pinned)
 	}
