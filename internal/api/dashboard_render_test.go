@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/tmac1973/llama-toolchest/web"
 )
 
 func renderDashboardCards(t *testing.T, data dashboardCardsData) string {
@@ -87,6 +89,24 @@ func TestDashboardCardsRows(t *testing.T) {
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+// The cards are re-rendered every few seconds; the Available Models list
+// keeps its scroll position across that instead of jumping to the top.
+func TestServerPageKeepsAvailableModelsScroll(t *testing.T) {
+	page, err := web.Templates.ReadFile("templates/server.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`addEventListener('htmx:beforeSwap'`,
+		`t.id !== 'dashboard-cards'`,
+		`list.scrollTop = availableModelsScroll`,
+	} {
+		if !strings.Contains(string(page), want) {
+			t.Errorf("server.html lacks %q", want)
 		}
 	}
 }

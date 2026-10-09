@@ -235,6 +235,23 @@ document.body.addEventListener('htmx:afterSwap', function(e) {
     }
 });
 
+// --- Keep the Available Models scroll position across polls ---
+// The dashboard cards are re-rendered every few seconds, which replaces the
+// scrolling list and would jump it back to the top while you scroll.
+var availableModelsScroll = 0;
+document.body.addEventListener('htmx:beforeSwap', function(e) {
+    var t = e.detail && e.detail.target;
+    if (!t || t.id !== 'dashboard-cards') return;
+    var list = t.querySelector('.available-models-scroll');
+    availableModelsScroll = list ? list.scrollTop : 0;
+});
+document.body.addEventListener('htmx:afterSwap', function(e) {
+    var t = e.detail && e.detail.target;
+    if (!t || t.id !== 'dashboard-cards') return;
+    var list = t.querySelector('.available-models-scroll');
+    if (list) list.scrollTop = availableModelsScroll;
+});
+
 // --- Server action button feedback ---
 function onServerAction(e) {
     var box = document.getElementById('server-action-error');
