@@ -104,6 +104,11 @@ func gitFixture(t *testing.T) (dataDir, srcDir string) {
 		}
 	}
 	run("tag", "v0.1.0", "b2")
+	// Tags that only look like the release families. Upstream pushes
+	// backup/... tags, which "b*" matches and version sorting ranks above
+	// every bN; "latest" built one. Neither may be listed or chosen.
+	run("tag", "backup/ui-shell-polish")
+	run("tag", "vulkan-fix", "b1")
 	return dataDir, srcDir
 }
 
