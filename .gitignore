@@ -19,7 +19,9 @@ llama-toolchest-backup-*.json
 # hf_token and api_key fields, so it must never be committed. The example
 # lives at packaging/config/llama-toolchest.yaml.example.
 /config.yaml
-.claude/
+.claude/*
+# Shared Claude Code config (attribution off); the rest of .claude/ stays local.
+!.claude/settings.json
 .vscode/
 .idea/
 debug_output.txt
