@@ -861,13 +861,12 @@ func (b *Builder) checkoutRef(ctx context.Context, srcDir string, ref string, lo
 	if ref == "latest" {
 		// --sort=-v:refname gives proper version ordering within a family.
 		ref = ""
-		for _, family := range []string{"b*", "v*"} {
-			out, err := exec.CommandContext(ctx, "git", "-C", srcDir, "tag", "--sort=-v:refname", "-l", family).Output()
+		for _, family := range []string{"b", "v"} {
+			tags, err := listTags(ctx, srcDir, family)
 			if err != nil {
 				return "", "", 0, fmt.Errorf("listing tags: %w%s", err, exitErrDetail(err))
 			}
-			tags := strings.Split(strings.TrimSpace(string(out)), "\n")
-			if len(tags) > 0 && tags[0] != "" {
+			if len(tags) > 0 {
 				ref = tags[0]
 				break
 			}
@@ -906,6 +905,36 @@ func (b *Builder) checkoutRef(ctx context.Context, srcDir string, ref string, lo
 	return ref, sha, count, nil
 }
 
+// releaseTagRE matches the tag families llama.cpp releases under: bN nightlies
+// and vX.Y.Z semver releases. A glob is not enough: upstream also pushes
+// backup/... tags, which "b*" matches and version sorting ranks first, so
+// "latest" built a backup snapshot instead of the newest nightly.
+var releaseTagRE = map[string]*regexp.Regexp{
+	"b": regexp.MustCompile(`^b[0-9]+$`),
+	"v": regexp.MustCompile(`^v[0-9]+(\.[0-9]+)*$`),
+}
+
+// listTags returns srcDir's release tags of one family ("b" or "v"), newest
+// first.
+func listTags(ctx context.Context, srcDir, family string) ([]string, error) {
+	out, err := exec.CommandContext(ctx, "git", "-C", srcDir, "tag", "--sort=-v:refname", "-l", family+"*").Output()
+	if err != nil {
+		return nil, err
+	}
+	return filterReleaseTags(family, strings.Split(string(out), "\n")), nil
+}
+
+// filterReleaseTags keeps the lines that are release tags of family, in order.
+func filterReleaseTags(family string, lines []string) []string {
+	var tags []string
+	for _, t := range lines {
+		if t = strings.TrimSpace(t); releaseTagRE[family].MatchString(t) {
+			tags = append(tags, t)
+		}
+	}
+	return tags
+}
+
 // FetchRefs pulls the latest tags from the llama.cpp remote and returns
 // the available tags: v* semver release tags first (few, stable), then
 // the b* nightly tags — each family newest-first. Results are cached;
@@ -941,18 +970,14 @@ func (b *Builder) FetchRefs() ([]string, error) {
 	// meaninglessly. Prefix keeps them distinguishable downstream.
 	var refs []string
 	var releases []string
-	for _, family := range []string{"v*", "b*"} {
-		out, err := exec.Command("git", "-C", srcDir, "tag", "--sort=-v:refname", "-l", family).Output()
+	for _, family := range []string{"v", "b"} {
+		tags, err := listTags(context.Background(), srcDir, family)
 		if err != nil {
 			return nil, fmt.Errorf("listing tags: %w", err)
 		}
-		for _, t := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-			if t = strings.TrimSpace(t); t != "" {
-				refs = append(refs, t)
-				if family == "v*" {
-					releases = append(releases, t)
-				}
-			}
+		refs = append(refs, tags...)
+		if family == "v" {
+			releases = append(releases, tags...)
 		}
 	}
 
