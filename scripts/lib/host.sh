@@ -383,6 +383,7 @@ host_rocm_apt_repo_configured() {
 # anything else means the distro's own packaging.
 host_rocm_prefer_amd_packages() {
     host_rocm_apt_repo_configured && return 0
+    host_rocm_dnf_repo_configured && return 0
     host_rocm_old_amd_installed && return 0
     # An /opt/rocm made of symlinks into /usr is Debian/Ubuntu's own
     # packaging, not AMD's: the distro registers /opt/rocm through
@@ -467,6 +468,130 @@ host_install_amd_rocm_repo_debian() {
     run_sudo apt-get update -qq || return 1
     ok "AMD ROCm repository configured (${codename})"
     return 0
+}
+
+# ── ROCm on RHEL-family distros ──
+#
+# RHEL, CentOS Stream, Rocky, Alma and Oracle share DISTRO_FAMILY=fedora
+# with Fedora, but their base repos carry no ROCm. Two sources do: EPEL,
+# which packages Fedora's ROCm under Fedora's names (rocm-hip-devel) into
+# /usr, and AMD's repo.radeon.com/rocm/elN, whose names differ for the HIP
+# runtime (rocm-hip-runtime-devel) and which installs under /opt/rocm.
+# Neither needs CRB for the packages a build uses (AMD's checked on Rocky
+# 9 and 10, EPEL's on Rocky 10, 2026-10-09).
+
+# Echo the RHEL major version (9, 10) on a RHEL-family distro. Returns 1 on
+# Fedora proper, where rpm leaves %rhel unexpanded, and off the fedora family.
+host_rhel_major() {
+    [[ "${DISTRO_FAMILY:-}" == "fedora" ]] || return 1
+    local major
+    major="$(rpm -E %rhel 2>/dev/null)"
+    [[ "$major" =~ ^[0-9]+$ ]] || return 1
+    echo "$major"
+}
+
+# Whether AMD's ROCm dnf repository is configured. Like the apt check,
+# matches the /rocm path: AMD's amdgpu (driver) repo alone doesn't count.
+host_rocm_dnf_repo_configured() {
+    grep -rqs 'repo\.radeon\.com/rocm' "${HOST_FS_ROOT:-}/etc/yum.repos.d/" 2>/dev/null
+}
+
+# Succeeds when dnf can resolve the package from an enabled repo (or it's
+# already installed).
+host_dnf_pkg_available() {
+    [[ -n "$(dnf -q repoquery "$1" 2>/dev/null)" ]]
+}
+
+# The rpm counterpart of host_apt_rocm_pkg: candidates are the names one
+# component goes by, preferred first. Echoes nothing (returns 0) when one is
+# installed, the first name dnf can resolve, or returns 1 when none resolve.
+host_rpm_rocm_pkg() {
+    local pkg
+    for pkg in "$@"; do
+        rpm -q "$pkg" >/dev/null 2>&1 && return 0
+    done
+    for pkg in "$@"; do
+        if host_dnf_pkg_available "$pkg"; then
+            echo "$pkg"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Register AMD's ROCm dnf repository for this RHEL major, as AMD documents
+# it: the "latest" channel, signed, at priority 50 so AMD's packages win
+# over EPEL's same-named ones (EPEL's rocblas-devel carries a higher
+# version number than AMD's for the same release, so without the priority
+# dnf would mix the two). Returns 1 when AMD publishes nothing for this
+# release, the user declines, or the write fails.
+host_install_amd_rocm_repo_rhel() {
+    host_rocm_dnf_repo_configured && return 0
+    local major
+    major="$(host_rhel_major)" || return 1
+
+    local rocm_url="https://repo.radeon.com/rocm/el${major}/latest/main"
+    if ! curl -fsI "${rocm_url}/repodata/repomd.xml" >/dev/null 2>&1; then
+        log "AMD publishes no ROCm build for EL${major}."
+        return 1
+    fi
+
+    log "ROCm is not in ${DISTRO_NAME:-this distro}'s base repositories."
+    log "AMD publishes it for EL${major} at repo.radeon.com (it installs under /opt/rocm)."
+    if ! prompt_confirm "Add AMD's ROCm repository now? (repo.radeon.com/rocm/el${major})"; then
+        warn "Skipped — continuing with the packages dnf already knows about."
+        return 1
+    fi
+
+    printf '%s\n' \
+        "[rocm]" \
+        "name=ROCm (repo.radeon.com, EL${major})" \
+        "baseurl=${rocm_url}" \
+        "enabled=1" \
+        "priority=50" \
+        "gpgcheck=1" \
+        "gpgkey=https://repo.radeon.com/rocm/rocm.gpg.key" \
+        | run_sudo tee /etc/yum.repos.d/rocm.repo >/dev/null || return 1
+    ok "AMD ROCm repository configured (EL${major})"
+    return 0
+}
+
+# The ROCm packages host_missing_gpu_sdk_packages wants that no enabled dnf
+# repo carries, space-separated.
+host_rocm_rhel_unresolvable() {
+    local pkg
+    local -a unknown=()
+    # shellcheck disable=SC2046  # a space-separated list
+    for pkg in $(host_missing_gpu_sdk_packages rocm); do
+        host_dnf_pkg_available "$pkg" || unknown+=("$pkg")
+    done
+    echo "${unknown[*]}"
+}
+
+# Before dnf is asked for ROCm on a RHEL-family distro: when the base repos
+# can't supply it, offer AMD's repo, and otherwise say where ROCm comes
+# from instead of letting dnf fail with "No match for argument". Returns 1
+# when packages stay unresolvable.
+host_install_rocm_rhel_prep() {
+    local unknown
+    unknown="$(host_rocm_rhel_unresolvable)"
+    [[ -n "$unknown" ]] || return 0
+    # Never beside ROCm 10, installed or about to be: AMD's old line and
+    # 10.x together is the combination that damages an install (see
+    # host_install_rocm10). EPEL's ROCm lives in /usr and is safe there.
+    if ! host_rocm_dnf_repo_configured && [[ "${HOST_ROCM:-distro}" == "distro" ]] \
+        && ! host_rocm10_installed && host_install_amd_rocm_repo_rhel; then
+        unknown="$(host_rocm_rhel_unresolvable)"
+        [[ -n "$unknown" ]] || return 0
+    fi
+    warn "No enabled dnf repo carries: ${unknown}"
+    log "${DISTRO_NAME:-This distro} ships no ROCm in its base repos. Either:"
+    log "  - add AMD's repository (installs under /opt/rocm):"
+    echo "    https://rocm.docs.amd.com/projects/install-on-linux/en/latest/install/install-methods/package-manager/package-manager-rhel.html"
+    log "  - or enable EPEL, which packages Fedora's ROCm (installs under /usr):"
+    echo "    https://docs.fedoraproject.org/en-US/epel/getting-started/"
+    log "then re-run setup.sh install --host."
+    return 1
 }
 
 # ── ROCm 10 (AMD's stable.repo.amd.com packages) ──
@@ -858,6 +983,25 @@ host_missing_gpu_sdk_packages() {
             fi
             case "$DISTRO_FAMILY" in
                 fedora)
+                    # RHEL-family: ROCm comes from EPEL (Fedora's names) or
+                    # AMD's repo (rocm-hip-runtime-devel for the HIP
+                    # runtime), so resolve per component like the debian
+                    # branch does, completing whichever install is here.
+                    if host_rhel_major >/dev/null; then
+                        local candidates pkg_choice
+                        local hip="rocm-hip-devel rocm-hip-runtime-devel"
+                        host_rocm_prefer_amd_packages && hip="rocm-hip-runtime-devel rocm-hip-devel"
+                        for candidates in "$hip" rocblas-devel hipblas-devel rocm-cmake; do
+                            # shellcheck disable=SC2086
+                            if pkg_choice="$(host_rpm_rocm_pkg $candidates)"; then
+                                [[ -n "$pkg_choice" ]] && need+=("$pkg_choice")
+                            else
+                                need+=("${candidates%% *}")
+                            fi
+                        done
+                        echo "${need[*]}"
+                        return 0
+                    fi
                     # Fedora's native ROCm packages. Versioned together by
                     # the distro, so dnf resolves a consistent set.
                     for pkg in rocm-hip-devel rocblas-devel hipblas-devel rocm-cmake; do
@@ -1131,6 +1275,10 @@ host_install_gpu_sdk_packages() {
             if [[ "$backend" == "cuda" ]] && [[ "$missing" == *cuda-toolkit* ]]; then
                 host_install_nvidia_cuda_repo_fedora || true
             fi
+            if [[ "$backend" == "rocm" ]] && host_rhel_major >/dev/null; then
+                host_install_rocm_rhel_prep || return 1
+                missing="$(host_missing_gpu_sdk_packages "$backend")"
+            fi
             log "Run: sudo dnf install $missing"
             if prompt_confirm "Install now?"; then
                 # shellcheck disable=SC2086
@@ -1254,7 +1402,9 @@ host_verify_rocm_buildable() {
     log "them the build fails at 'does not contain the HIP runtime CMake package'."
     case "$DISTRO_FAMILY" in
         debian) log "On Debian/Ubuntu they ship in: libamdhip64-dev librocblas-dev libhipblas-dev" ;;
-        fedora) log "On Fedora they ship in: rocm-hip-devel rocblas-devel hipblas-devel" ;;
+        fedora) log "On Fedora they ship in: rocm-hip-devel rocblas-devel hipblas-devel"
+                host_rhel_major >/dev/null \
+                    && log "(from AMD's EL repo, rocm-hip-runtime-devel in place of rocm-hip-devel)" ;;
     esac
     log "Searched: $(host_rocm_prefix_candidates | tr '\n' ' ')"
     return 0
