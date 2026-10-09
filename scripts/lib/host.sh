@@ -80,6 +80,7 @@ host_check_build_toolchain() {
         log "Install via your package manager:"
         echo "    Debian/Ubuntu:  sudo apt-get install golang cmake ninja-build git build-essential libssl-dev"
         echo "    Fedora:         sudo dnf install golang cmake ninja-build git gcc-c++ make openssl-devel"
+        echo "                    (RHEL/Rocky/Alma: enable the CRB repository first for ninja-build)"
         echo "    Arch:           sudo pacman -S go cmake ninja git base-devel openssl"
         return 1
     fi
@@ -1384,6 +1385,73 @@ host_wait_for_release_asset() {
     return 1
 }
 
+# Echo the CodeReady Builder repo id for a RHEL-family distro (RHEL, CentOS
+# Stream, Rocky, Alma, Oracle). On those, ninja-build (a hard dependency of
+# the .rpm) lives only in CRB, which is disabled out of the box; everything
+# else the .rpm needs is in BaseOS/AppStream. Returns 1 on Fedora proper and
+# on anything that isn't RHEL-family.
+host_rhel_crb_repo() {
+    local major
+    case "$DISTRO_ID" in
+        rhel|centos|rocky|alma|almalinux|ol) ;;
+        *) return 1 ;;
+    esac
+    major="$(rpm -E %rhel 2>/dev/null)"
+    [[ "$major" =~ ^[0-9]+$ ]] || return 1
+    case "$DISTRO_ID" in
+        rhel) echo "codeready-builder-for-rhel-${major}-$(uname -m)-rpms" ;;
+        ol)   echo "ol${major}_codeready_builder" ;;
+        *)    echo "crb" ;;
+    esac
+}
+
+# Succeeds when dnf can resolve the package from an enabled repo (or it's
+# already installed).
+host_dnf_pkg_available() {
+    [[ -n "$(dnf -q repoquery "$1" 2>/dev/null)" ]]
+}
+
+# The shell command that enables CRB repo id $1, for messages.
+host_rhel_crb_enable_cmd() {
+    if [[ "$DISTRO_ID" == "rhel" ]]; then
+        echo "sudo subscription-manager repos --enable $1"
+    else
+        echo "sudo dnf install -y dnf-plugins-core && sudo dnf config-manager --set-enabled $1"
+    fi
+}
+
+# On RHEL-family distros, make sure ninja-build is installable before dnf
+# is asked for the .rpm, offering to enable CRB when it isn't. Without this
+# the install dies with dnf's "nothing provides ninja-build". No-op (returns
+# 0) elsewhere. Returns 1 if ninja-build stays unresolvable.
+host_ensure_rhel_crb() {
+    local repo
+    repo="$(host_rhel_crb_repo)" || return 0
+    host_dnf_pkg_available ninja-build && return 0
+
+    warn "ninja-build is needed by llama-toolchest but is only in the CodeReady Builder repository ($repo), which is not enabled."
+    if ! prompt_confirm "Enable $repo now?"; then
+        err "Can't install the package without ninja-build. Enable the repository and re-run:"
+        echo "    $(host_rhel_crb_enable_cmd "$repo")"
+        return 1
+    fi
+
+    if [[ "$DISTRO_ID" == "rhel" ]]; then
+        run_sudo subscription-manager repos --enable "$repo" || return 1
+    else
+        if ! dnf config-manager --help >/dev/null 2>&1; then
+            run_sudo dnf install -y dnf-plugins-core || return 1
+        fi
+        run_sudo dnf config-manager --set-enabled "$repo" || return 1
+    fi
+
+    if ! host_dnf_pkg_available ninja-build; then
+        err "Enabled $repo, but dnf still can't find ninja-build."
+        return 1
+    fi
+    ok "Enabled $repo"
+}
+
 # Install llama-toolchest from a published release. Default version is
 # whatever GitHub considers latest; can be overridden via the LT_VERSION
 # env var (useful for pinning a known-good release).
@@ -1391,6 +1459,8 @@ host_install_from_package() {
     local arch ext
     arch="$(host_pkg_arch)" || { err "Unsupported architecture: $(uname -m)"; return 1; }
     ext="$(host_pkg_ext)"   || { err "Package install isn't supported on distro family '$DISTRO_FAMILY'. Use --from-source."; return 1; }
+    # Before the download, so a missing repo fails fast.
+    host_ensure_rhel_crb || return 1
 
     local version="${LT_VERSION:-}"
     if [[ -z "$version" ]]; then

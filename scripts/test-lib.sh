@@ -68,7 +68,7 @@ export HOME="${TMP_ROOT}/home"
 mkdir -p "$HOME"
 unset XDG_CONFIG_HOME XDG_DATA_HOME ROCM_PATH LLAMA_TOOLCHEST_PORT \
       LLAMA_TOOLCHEST_INFERENCE_PORT AMD_GFX_VERSION CONTAINER_CMD \
-      HOST_INSTALL_MODE DISTRO_FAMILY
+      HOST_INSTALL_MODE DISTRO_FAMILY DISTRO_ID
 
 # shellcheck source=scripts/lib/service.sh
 source "${LIB_DIR}/service.sh"
@@ -212,6 +212,87 @@ test_pkg_arch_ext() (
     DISTRO_FAMILY=debian; check_eq "host_pkg_ext debian" "deb" "$(host_pkg_ext)"
     DISTRO_FAMILY=arch;   check_false "host_pkg_ext arch" host_pkg_ext
     DISTRO_FAMILY="";     check_false "host_pkg_ext empty" host_pkg_ext
+)
+
+test_rhel_crb() (
+    rpm()   { [[ "$*" == "-E %rhel" ]] && echo "$FAKE_RHEL"; }
+    uname() { echo x86_64; }
+    FAKE_RHEL=10
+    DISTRO_ID=rocky;     check_eq "host_rhel_crb_repo rocky" "crb" "$(host_rhel_crb_repo)"
+    DISTRO_ID=almalinux; check_eq "host_rhel_crb_repo almalinux" "crb" "$(host_rhel_crb_repo)"
+    DISTRO_ID=centos;    check_eq "host_rhel_crb_repo centos" "crb" "$(host_rhel_crb_repo)"
+    DISTRO_ID=ol;        check_eq "host_rhel_crb_repo ol" "ol10_codeready_builder" "$(host_rhel_crb_repo)"
+    FAKE_RHEL=9 DISTRO_ID=rhel
+    check_eq "host_rhel_crb_repo rhel" \
+        "codeready-builder-for-rhel-9-x86_64-rpms" "$(host_rhel_crb_repo)"
+    # On Fedora, rpm leaves %rhel unexpanded.
+    FAKE_RHEL=%rhel
+    DISTRO_ID=fedora; check_false "host_rhel_crb_repo fedora" host_rhel_crb_repo
+    DISTRO_ID=ubuntu; check_false "host_rhel_crb_repo ubuntu" host_rhel_crb_repo
+    DISTRO_ID=rocky;  check_false "host_rhel_crb_repo with no %rhel" host_rhel_crb_repo
+
+    # dnf resolves ninja-build only once crb is enabled; every call is logged.
+    CALLS="${TMP_ROOT}/crb-calls"
+    # shellcheck disable=SC2032 # host.sh runs the real dnf under sudo
+    dnf() {
+        echo "dnf $*" >> "$CALLS"
+        case "$*" in
+            "-q repoquery ninja-build") [[ -f "${TMP_ROOT}/crb-on" ]] && echo "ninja-build-0:1.11.1-9.el10.x86_64" ;;
+            "config-manager --help")    [[ -f "${TMP_ROOT}/plugins" ]] ;;
+            "install -y dnf-plugins-core") touch "${TMP_ROOT}/plugins" ;;
+            "config-manager --set-enabled crb") touch "${TMP_ROOT}/crb-on" ;;
+            *) return 1 ;;
+        esac
+    }
+    run_sudo() { "$@"; }
+    subscription-manager() { echo "subscription-manager $*" >> "$CALLS"; touch "${TMP_ROOT}/crb-on"; }
+    reset() { rm -f "$CALLS" "${TMP_ROOT}/crb-on" "${TMP_ROOT}/plugins"; touch "$CALLS"; }
+
+    FAKE_RHEL=10 DISTRO_ID=rocky
+    prompt_confirm() { return 0; }
+
+    reset; touch "${TMP_ROOT}/crb-on"
+    check_true "host_ensure_rhel_crb with crb already enabled" host_ensure_rhel_crb
+    check_eq "host_ensure_rhel_crb changes nothing when ninja-build resolves" \
+        "dnf -q repoquery ninja-build" "$(cat "$CALLS")"
+
+    reset
+    check_true "host_ensure_rhel_crb enables crb" host_ensure_rhel_crb
+    check_eq "host_ensure_rhel_crb installs dnf-plugins-core, then enables crb" \
+        "dnf -q repoquery ninja-build
+dnf config-manager --help
+dnf install -y dnf-plugins-core
+dnf config-manager --set-enabled crb
+dnf -q repoquery ninja-build" "$(cat "$CALLS")"
+
+    reset; touch "${TMP_ROOT}/plugins"
+    host_ensure_rhel_crb
+    check_false "host_ensure_rhel_crb skips dnf-plugins-core when present" \
+        grep -q "dnf-plugins-core" "$CALLS"
+
+    reset
+    prompt_confirm() { return 1; }
+    check_false "host_ensure_rhel_crb fails when declined" eval "host_ensure_rhel_crb >/dev/null"
+    check_false "host_ensure_rhel_crb enables nothing when declined" \
+        grep -q "set-enabled" "$CALLS"
+    prompt_confirm() { return 0; }
+
+    reset
+    FAKE_RHEL=9 DISTRO_ID=rhel
+    check_true "host_ensure_rhel_crb on rhel" host_ensure_rhel_crb
+    check_true "host_ensure_rhel_crb on rhel uses subscription-manager" \
+        grep -qx "subscription-manager repos --enable codeready-builder-for-rhel-9-x86_64-rpms" "$CALLS"
+
+    # Enabling the repo doesn't help: report failure.
+    reset
+    FAKE_RHEL=10 DISTRO_ID=rocky
+    run_sudo() { [[ "$*" == *--set-enabled* ]] && return 0; "$@"; }
+    check_false "host_ensure_rhel_crb fails when ninja-build stays missing" host_ensure_rhel_crb
+
+    reset
+    FAKE_RHEL=%rhel DISTRO_ID=fedora
+    check_true "host_ensure_rhel_crb no-op on fedora" host_ensure_rhel_crb
+    check_eq "host_ensure_rhel_crb doesn't touch dnf on fedora" "" "$(cat "$CALLS")"
 )
 
 test_apt_helpers() (
@@ -637,6 +718,7 @@ test_installed_cuda_version
 test_gpu_compute_cap
 test_rocm_version
 test_pkg_arch_ext
+test_rhel_crb
 test_apt_helpers
 test_backend_applicable
 test_rocm_prefix_candidates
