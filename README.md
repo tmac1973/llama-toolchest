@@ -23,6 +23,7 @@ A web-based management interface for [llama.cpp](https://github.com/ggerganov/ll
 - **Measured memory** — What llama.cpp really allocated on the last load — weights, KV cache and working buffers, per GPU — read from its own buffer report and shown beside the estimate in the Available Models tooltip. Needs *Model loading detail* 4 in Settings.
 - **Benchmarks** — Batch jobs sweeping models × builds × presets × any model parameter, with results compared across runs and exported to CSV/JSON. Each cell also records the memory its load actually used, so a sweep shows what a setting costs in VRAM as well as what it buys in speed — as a column, a visualization metric, and export columns.
 - **OpenAI-compatible API** — Chat completions (streaming, tool calling, JSON schema), completions, embeddings, model listing. Optional Bearer auth.
+- **Coding agent configs** — Ready-made config files for opencode, Kilo Code, pi, Goose and Crush, listing the models the server is serving with each one's context and capabilities (Server tab → API Endpoint → *Agent Configs*). See [Coding agents](#coding-agents).
 - **Built-in chat UI** — llama.cpp's native chat interface with a model-selector dropdown.
 - **Agent CLI** — Lightweight terminal chat client (`cmd/agent`) with optional filesystem tool use.
 
@@ -356,6 +357,27 @@ curl http://localhost:3000/v1/chat/completions \
 ```
 
 When `api_key` is set, all `/v1/*` requests require `Authorization: Bearer <key>`. The management UI is unaffected.
+
+### Coding agents
+
+Terminal coding agents can use these models, but most only find a local server through a hand-edited config file that has to name every model, its context size and what it can do. **Server tab → API Endpoint → Agent Configs** generates those files from what the server is serving right now:
+
+| Agent | File | Where it goes | How it's picked up |
+|---|---|---|---|
+| [opencode](https://opencode.ai) | `llama-toolchest.opencode.json` | `~/.config/opencode/` | `export OPENCODE_CONFIG=…` layers it over your own config |
+| [Kilo Code](https://kilo.ai) | `kilo.json` | `~/.config/kilo/` | read on start (merge the `provider` block if you have a kilo.json) |
+| [pi](https://github.com/earendil-works/pi) | `models.json` | `~/.pi/agent/` | read on start (merge the provider if you have a models.json) |
+| [Goose](https://github.com/aaif-goose/goose) | `llama_toolchest.json` | `~/.config/goose/custom_providers/` | `goose session --provider llama_toolchest` |
+| [Crush](https://github.com/charmbracelet/crush) | `llama-toolchest.crushrc` | `~/.config/crush/` | one `source` line in your `crushrc` |
+
+Each file lists the models in the Available Models card, the loaded one first as the default, with:
+- the context **one conversation** gets (a 32K context split across 2 parallel slots is 16K per conversation, which is what an agent has to compact against);
+- a max output of a quarter of that, capped at 32K;
+- tool, image and reasoning support.
+
+The dialog shows the paths for Linux, macOS and Windows and the exact command for each agent. Its *Server URL* field sets the address the files use: change it if the agent runs on another machine. When an API key is set, the files read it from `LLAMA_TOOLCHEST_API_KEY` instead of containing it, so set that variable wherever the agent runs.
+
+A file is a snapshot: **download it again after changing which models are served or their context size.** Each agent was tested making tool calls against llama-server through these files, with and without an API key (opencode 1.18, Kilo Code 7.8, pi 1.1, Goose 1.54, Crush 0.98).
 
 ### Management API
 
