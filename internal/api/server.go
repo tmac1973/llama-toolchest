@@ -617,6 +617,8 @@ func (s *Server) buildRouter() chi.Router {
 		r.Post("/restore", s.handleRestore)
 		r.Post("/backup/pending/discard", s.handleDiscardPending)
 		r.Get("/gpu-map", s.handleGPUMap)
+		r.Get("/agent-configs", s.handleAgentConfigs)
+		r.Get("/agent-configs/{agent}", s.handleAgentConfigDownload)
 		r.Route("/benchmark-jobs", func(r chi.Router) {
 			r.Get("/", s.handleListJobs)
 			r.Post("/", s.handleCreateJob)
@@ -986,7 +988,6 @@ func (d dashboardCardsData) APICopyButton() copyButtonData {
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	routerStatus := s.process.GetStatus()
 	builds := s.builder.List()
 	registeredModels := s.registry.List()
 
@@ -1003,56 +1004,70 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		data.ChatURL = fmt.Sprintf("%s://%s:%d", u.Scheme, u.Hostname(), s.cfg.LlamaPort)
 	}
 
-	// "Available Models" card: every chat model the running router actually
-	// serves, by public name, with a load icon and a loaded/loading tag when
-	// resident. Membership is driven solely by router-known state (the running
-	// router's startup preset), NOT the live cfg.Enabled toggle — so toggling a
-	// model on or off in the Models tab doesn't change this list until the
-	// router is restarted, matching what the server can genuinely serve.
-	if routerStatus.State == process.StateRunning {
-		// routerKnownStates maps every name the running router serves (i.e.
-		// is in its current preset) to its status. The router reads
-		// preset.ini only at startup, so a model enabled in config but
-		// absent from the map isn't truly available yet — it needs a
-		// restart. Such models are excluded below so "Available" reflects
-		// what the running server can actually serve.
-		routerStates := s.routerKnownStates()
-
-		for _, m := range registeredModels {
-			if m.IsEmbedding() {
-				continue
-			}
-
-			routerName := s.registry.RouterName(m.ID)
-			state, known := routerStateFor(routerStates, routerName, m.ID, m.PublicName())
-			if !known {
-				// Enabled in config but not in the running router's preset:
-				// not available until the router is restarted. Don't list it.
-				continue
-			}
-			if state != "loaded" && state != "loading" {
-				// Idle states render no tag and offer the load button.
-				state = ""
-			}
-
-			// What this model actually took the last time it loaded,
-			// against what it is estimated to take. Per model, because
-			// the answer depends on the configuration each one runs.
-			cfg, err := s.registry.GetConfig(m.ID)
-			if err != nil {
-				cfg = nil
-			}
-			data.Available = append(data.Available, availableModelRow{
-				ID:         m.ID,
-				PublicName: m.PublicName(),
-				Tooltip:    s.memoryTooltip(m, cfg, state),
-				State:      state,
-			})
-		}
+	for _, sm := range s.servedChatModels() {
+		// What this model actually took the last time it loaded,
+		// against what it is estimated to take. Per model, because
+		// the answer depends on the configuration each one runs.
+		data.Available = append(data.Available, availableModelRow{
+			ID:         sm.Model.ID,
+			PublicName: sm.Model.PublicName(),
+			Tooltip:    s.memoryTooltip(sm.Model, sm.Config, sm.State),
+			State:      sm.State,
+		})
 	}
 
 	respondHTML(w)
 	s.renderPartial(w, "dashboard_cards", data)
+}
+
+// servedModel is a chat model the running router serves.
+type servedModel struct {
+	Model  *models.Model
+	Config *models.ModelConfig // nil when the model has none
+	// State is "loaded", "loading" or "" (idle).
+	State string
+}
+
+// servedChatModels lists every chat model the running router actually
+// serves, in registry order; nil when the router is stopped. It backs the
+// Server tab's "Available Models" card and the agent configs, so the two
+// always agree.
+//
+// Membership is driven solely by router-known state (the running router's
+// startup preset), NOT the live cfg.Enabled toggle — so toggling a model on
+// or off in the Models tab doesn't change this list until the router is
+// restarted, matching what the server can genuinely serve.
+func (s *Server) servedChatModels() []servedModel {
+	if s.process.GetStatus().State != process.StateRunning {
+		return nil
+	}
+	// routerKnownStates maps every name the running router serves (i.e. is
+	// in its current preset) to its status. The router reads preset.ini
+	// only at startup, so a model enabled in config but absent from the map
+	// isn't truly available yet — it needs a restart. Such models are
+	// excluded below so the list reflects what the running server can
+	// actually serve.
+	routerStates := s.routerKnownStates()
+	var out []servedModel
+	for _, m := range s.registry.List() {
+		if m.IsEmbedding() {
+			continue
+		}
+		routerName := s.registry.RouterName(m.ID)
+		state, known := routerStateFor(routerStates, routerName, m.ID, m.PublicName())
+		if !known {
+			continue
+		}
+		if state != "loaded" && state != "loading" {
+			state = ""
+		}
+		cfg, err := s.registry.GetConfig(m.ID)
+		if err != nil {
+			cfg = nil
+		}
+		out = append(out, servedModel{Model: m, Config: cfg, State: state})
+	}
+	return out
 }
 
 // render executes the "layout" template for the given page.
