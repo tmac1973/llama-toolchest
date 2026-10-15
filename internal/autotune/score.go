@@ -514,10 +514,7 @@ func describeSpec(value string) string {
 		case "draft_max":
 			extras = append(extras, v+" draft tokens")
 		case benchmark.SpecDraftModelKey:
-			if i := strings.LastIndexAny(v, "/-"); i >= 0 && i+1 < len(v) {
-				v = v[i+1:]
-			}
-			extras = append(extras, "drafting with "+v)
+			extras = append(extras, "drafting with "+draftFileName(v))
 		case benchmark.SpecDraftCacheKey:
 			extras = append(extras, v+" draft cache")
 		case "draft_sampling":
@@ -534,6 +531,19 @@ func describeSpec(value string) string {
 		out += ", " + strings.Join(extras, ", ")
 	}
 	return out
+}
+
+// draftFileName is the file a draft_model value names: a path, or a
+// registry ID ("org--repo--file"). Cutting at the last "-" turned
+// "…-DSpark-gguf--dspark-MiniCPM-V-4_7-35B-A3B-Q8_0" into just "Q8_0".
+func draftFileName(v string) string {
+	if i := strings.LastIndex(v, "/"); i >= 0 {
+		v = v[i+1:]
+	}
+	if i := strings.LastIndex(v, "--"); i >= 0 {
+		v = v[i+2:]
+	}
+	return v
 }
 
 func draftLabel(mode string) string {
