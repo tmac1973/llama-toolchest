@@ -33,6 +33,8 @@ func SnapshotFromConfig(cfg models.ModelConfig, profile string, edited bool) Con
 		DraftMax:          cfg.DraftMax,
 		DraftMin:          cfg.DraftMin,
 		DraftPMin:         cfg.DraftPMin,
+		DraftSampling:     cfg.DraftSampling,
+		DraftUBatchSize:   cfg.DraftUBatchSize,
 		SpecAssist:        cfg.SpecAssist,
 		AssistNMax:        cfg.AssistNMax,
 		AssistNMin:        cfg.AssistNMin,
@@ -102,6 +104,8 @@ func ApplySnapshotToConfig(base models.ModelConfig, snap ConfigSnapshot) models.
 	out.DraftMax = snap.DraftMax
 	out.DraftMin = snap.DraftMin
 	out.DraftPMin = snap.DraftPMin
+	out.DraftSampling = snap.DraftSampling
+	out.DraftUBatchSize = snap.DraftUBatchSize
 	out.SpecAssist = snap.SpecAssist
 	out.AssistNMax = snap.AssistNMax
 	out.AssistNMin = snap.AssistNMin

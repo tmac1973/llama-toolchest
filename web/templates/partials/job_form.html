@@ -184,9 +184,9 @@
                         {{range .Params}}
                         <label class="spec-param" title="Clear the field to use the model's saved value.">
                             <small>{{.Label}}</small>
-                            <input type="text" inputmode="decimal" class="spec-param-input"
+                            <input type="text" inputmode="{{if eq .Key "draft_sampling"}}text{{else}}decimal{{end}}" class="spec-param-input"
                                    data-key="{{.Key}}" value="{{.Default}}"
-                                   placeholder="model's saved value"
+                                   placeholder="{{if eq .Key "draft_sampling"}}greedy or probabilistic{{else}}model's saved value{{end}}"
                                    oninput="updateSpecValue(this)">
                         </label>
                         {{end}}

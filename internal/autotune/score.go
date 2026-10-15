@@ -520,6 +520,10 @@ func describeSpec(value string) string {
 			extras = append(extras, "drafting with "+v)
 		case benchmark.SpecDraftCacheKey:
 			extras = append(extras, v+" draft cache")
+		case "draft_sampling":
+			extras = append(extras, v+" drafting")
+		case benchmark.SpecDraftUBatchKey:
+			extras = append(extras, "draft micro-batch "+v)
 		case "assist_n_max":
 			extras = append(extras, "assist draft "+v)
 		case "assist_size_n":

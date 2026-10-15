@@ -181,6 +181,8 @@ type ConfigOverrides struct {
 	DraftMax          *int    `json:"draft_max,omitempty"`
 	DraftMin          *int    `json:"draft_min,omitempty"`
 	DraftPMin         *string `json:"draft_p_min,omitempty"`
+	DraftSampling     *string `json:"draft_sampling,omitempty"`
+	DraftUBatchSize   *int    `json:"draft_ubatch_size,omitempty"`
 	SpecAssist        *string `json:"spec_assist,omitempty"`
 	AssistNMax        *int    `json:"assist_n_max,omitempty"`
 	AssistNMin        *int    `json:"assist_n_min,omitempty"`

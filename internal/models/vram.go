@@ -466,7 +466,13 @@ func vramBreakdownWith(co *vramCoefficients, m *Model, cfg *ModelConfig, cards i
 		b.Compute += BytesToGiB(m.ExpertBytes / int64(m.ExpertLayers))
 	}
 	if IsDraftMode(cfg.SpecType) {
-		b.Compute += co.specCompute.at(ub, ctx)
+		// The drafter's context has a micro-batch of its own when one is
+		// set (--spec-draft-n-ubatch), and its compute buffer follows it.
+		dub := ub
+		if cfg.DraftUBatchSize > 0 {
+			dub = min(ub, cfg.DraftUBatchSize)
+		}
+		b.Compute += co.specCompute.at(dub, ctx)
 	}
 
 	// Sparse attention: a key cache of its own, plus scratch that scales

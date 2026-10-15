@@ -274,19 +274,23 @@ type ConfigSnapshot struct {
 	DraftModelPath string `json:"draft_model_path,omitempty"`
 	// MtpPath is the separate MTP head draft-mtp loads, when the model
 	// has one rather than its own layers.
-	MtpPath       string `json:"mtp_path,omitempty"`
-	DraftMax      int    `json:"draft_max,omitempty"`
-	DraftMin      int    `json:"draft_min,omitempty"`
-	DraftPMin     string `json:"draft_p_min,omitempty"`
-	SpecAssist    string `json:"spec_assist,omitempty"`
-	AssistNMax    int    `json:"assist_n_max,omitempty"`
-	AssistNMin    int    `json:"assist_n_min,omitempty"`
-	AssistNMatch  int    `json:"assist_n_match,omitempty"`
-	AssistSizeN   int    `json:"assist_size_n,omitempty"`
-	AssistSizeM   int    `json:"assist_size_m,omitempty"`
-	AssistMinHits int    `json:"assist_min_hits,omitempty"`
-	NgramSizeN    int    `json:"ngram_size_n,omitempty"` // legacy; migrated by models.NormalizeSpec
-	NgramSizeM    int    `json:"ngram_size_m,omitempty"` // legacy; migrated by models.NormalizeSpec
+	MtpPath   string `json:"mtp_path,omitempty"`
+	DraftMax  int    `json:"draft_max,omitempty"`
+	DraftMin  int    `json:"draft_min,omitempty"`
+	DraftPMin string `json:"draft_p_min,omitempty"`
+	// DraftSampling and DraftUBatchSize are --spec-draft-sampling and
+	// --spec-draft-n-ubatch.
+	DraftSampling   string `json:"draft_sampling,omitempty"`
+	DraftUBatchSize int    `json:"draft_ubatch_size,omitempty"`
+	SpecAssist      string `json:"spec_assist,omitempty"`
+	AssistNMax      int    `json:"assist_n_max,omitempty"`
+	AssistNMin      int    `json:"assist_n_min,omitempty"`
+	AssistNMatch    int    `json:"assist_n_match,omitempty"`
+	AssistSizeN     int    `json:"assist_size_n,omitempty"`
+	AssistSizeM     int    `json:"assist_size_m,omitempty"`
+	AssistMinHits   int    `json:"assist_min_hits,omitempty"`
+	NgramSizeN      int    `json:"ngram_size_n,omitempty"` // legacy; migrated by models.NormalizeSpec
+	NgramSizeM      int    `json:"ngram_size_m,omitempty"` // legacy; migrated by models.NormalizeSpec
 
 	// PLEMode and ExtraFlags reach llama-server through the preset INI
 	// (tensor-read-lazy, and the raw flag text appended verbatim). Both

@@ -271,6 +271,14 @@ func TestSpecValueRoundTripsBothSlots(t *testing.T) {
 			"draft", "ngram-simple",
 			map[string]string{"draft_p_min": "0.75", "assist_size_n": "12", "assist_min_hits": "1"},
 		},
+		{
+			"draft-mtp:draft_sampling=probabilistic,draft_ubatch=16",
+			"draft-mtp", "",
+			map[string]string{"draft_sampling": "probabilistic", "draft_ubatch": "16"},
+		},
+		// Every draft method has a draft context, so every one takes its
+		// micro-batch.
+		{"draft-dflash:draft_ubatch=8", "draft-dflash", "", map[string]string{"draft_ubatch": "8"}},
 		// ngram-cache takes no settings but is still a real mode.
 		{"draft-eagle3+ngram-cache", "draft-eagle3", "ngram-cache", map[string]string{}},
 	}
@@ -317,6 +325,11 @@ func TestParseSpecValueRejections(t *testing.T) {
 		{"ngram-mod:draft_p_min=0.5", "is not a setting"},
 		{"draft-mtp:draft_max=abc", "is not an integer"},
 		{"draft:draft_p_min=nope", "is not a number"},
+		{"draft:draft_sampling=random", "is not a sampling mode"},
+		// The heads draft a block at once; there is nothing to sample.
+		{"draft-dflash:draft_sampling=probabilistic", "is not a setting"},
+		{"ngram-mod:draft_ubatch=16", "is not a setting"},
+		{"draft-mtp:draft_ubatch=lots", "is not an integer"},
 		{"nonsense", "is not a speculative decoding mode"},
 		// "none" is a real llama.cpp value that poisons a list; it is only
 		// ever the standalone off entry, never a list member.
