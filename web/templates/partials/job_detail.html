@@ -44,7 +44,7 @@
     <table role="grid" class="job-cells{{if .HasSweep}} has-sweep{{end}}" style="font-size:0.85rem;margin-top:0.5rem;">
         <thead>
             <tr>
-                <th style="width:2rem;"><input type="checkbox" id="cell-check-all-{{$j.ID}}" hx-preserve="true" style="margin:0;"
+                <th style="width:2rem;"><input type="checkbox" id="cell-check-all-{{$j.ID}}" style="margin:0;"
                     onchange="this.closest('table').querySelectorAll('.cell-check').forEach(function(c){c.checked=this.checked}.bind(this));"></th>
                 <th>Model</th>
                 {{if .HasProfiles}}<th title="The starting point the cell measures: the model's current settings, or a copy of a saved profile.">Profile</th>{{end}}
@@ -63,7 +63,7 @@
         <tbody>
         {{range .Rows}}
         <tr id="cell-row-{{$j.ID}}-{{.Idx}}">
-            <td>{{if .Cell.BenchmarkRunID}}<input type="checkbox" id="cell-check-{{.Cell.BenchmarkRunID}}" hx-preserve="true" class="cell-check" value="{{.Cell.BenchmarkRunID}}" style="margin:0;">{{end}}</td>
+            <td>{{if .Cell.BenchmarkRunID}}<input type="checkbox" id="cell-check-{{.Cell.BenchmarkRunID}}" class="cell-check" value="{{.Cell.BenchmarkRunID}}" style="margin:0;">{{end}}</td>
             <td>{{.ModelName}}</td>
             {{if $.HasProfiles}}<td{{if .ProfileTip}} title="{{.ProfileTip}}"{{end}}><small>{{.ProfileLbl}}</small></td>{{end}}
             <td>{{if .Quant}}<kbd>{{.Quant}}</kbd>{{else}}—{{end}}</td>
@@ -87,11 +87,14 @@
             </td>
         </tr>
         {{/*
-          hx-preserve keeps the user's expanded inline detail across the
-          parent's 2s polling swaps. The id needs to be stable, which
-          .Idx (the cell's position in the immutable Cells slice) gives us.
+          The ticked boxes and any open inline detail are carried across
+          the parent's 2s polling swaps by benchmarks.html, by these ids.
+          The detail row's id needs to be stable, which .Idx (the cell's
+          position in the immutable Cells slice) gives us. Not
+          hx-preserve: htmx parks preserved elements below the page
+          during the swap, and the browser's scroll followed them there.
         */}}
-        <tr id="cell-detail-{{$j.ID}}-{{.Idx}}" hx-preserve="true"><td colspan="{{add (add 11 (tern $.HasEval 1 0)) (tern $.HasProfiles 1 0)}}" class="bench-detail"></td></tr>
+        <tr id="cell-detail-{{$j.ID}}-{{.Idx}}"><td colspan="{{add (add 11 (tern $.HasEval 1 0)) (tern $.HasProfiles 1 0)}}" class="bench-detail"></td></tr>
         {{end}}
         </tbody>
     </table>

@@ -276,6 +276,46 @@ function filterBenchmarks(input, q) {
     });
 })();
 
+// --- Keep what the user did in a running job's cells table across its
+//     2s refresh: the ticked boxes, and any open inline detail (moved
+//     across whole, so a chart or table inside it is not reloaded). The
+//     table is swapped like any other polled area. hx-preserve did this
+//     before, but htmx parks preserved elements below the page while it
+//     swaps, and the browser's scroll followed them: the page jumped to
+//     the bottom of the job, or flashed.
+(function() {
+    var kept = null;
+    document.body.addEventListener('htmx:beforeSwap', function(e) {
+        var t = e.detail && e.detail.target;
+        kept = null;
+        if (!t || !t.classList || !t.classList.contains('job-detail')) return;
+        kept = {target: t, checked: [], details: [], focus: null};
+        t.querySelectorAll('input[type=checkbox]:checked').forEach(function(c) {
+            if (c.id) kept.checked.push(c.id);
+        });
+        t.querySelectorAll('tr[id^="cell-detail-"]').forEach(function(row) {
+            var td = row.querySelector('.bench-detail');
+            if (td && td.innerHTML.trim()) kept.details.push(row);
+        });
+        var a = document.activeElement;
+        if (a && kept.details.some(function(row) { return row.contains(a); })) kept.focus = a;
+    });
+    document.body.addEventListener('htmx:afterSwap', function(e) {
+        if (!kept || !e.detail || e.detail.target !== kept.target) return;
+        var k = kept;
+        kept = null;
+        k.checked.forEach(function(id) {
+            var c = document.getElementById(id);
+            if (c) c.checked = true;
+        });
+        k.details.forEach(function(row) {
+            var fresh = document.getElementById(row.id);
+            if (fresh) fresh.replaceWith(row);
+        });
+        if (k.focus && k.focus.isConnected) k.focus.focus({preventScroll: true});
+    });
+})();
+
 // --- Keep the job list current while the page is only being watched.
 //     Every few seconds, ask the server for the version of the job list
 //     (a summary of each job's status and counts) and reload the list

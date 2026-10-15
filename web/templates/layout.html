@@ -757,31 +757,6 @@
         {{template "content" .}}
     </main>
 <script>
-// --- Keep the page still when a swap carries a focused hx-preserve element.
-//     In browsers with Element.moveBefore, htmx parks each hx-preserve
-//     element in a holder after <body> while it swaps, then moves it
-//     back. If the parked element (or something inside it) has focus,
-//     the browser scrolls down to it in the holder, and the page stays
-//     there once it is moved back. A ticked checkbox in a running
-//     benchmark job's cells table did this on every 2s refresh. The
-//     swap runs in one go, so putting the scroll back afterwards is
-//     never painted.
-(function() {
-    var keep = null;
-    document.body.addEventListener('htmx:beforeSwap', function() {
-        var a = document.activeElement;
-        keep = a && a.closest && a.closest('[hx-preserve], [data-hx-preserve]')
-            ? {x: window.scrollX, y: window.scrollY} : null;
-        // A swap that is called off never fires afterSwap; drop the
-        // position so a later swap does not jump back to it.
-        if (keep) setTimeout(function() { keep = null; });
-    });
-    document.body.addEventListener('htmx:afterSwap', function() {
-        if (!keep) return;
-        window.scrollTo({left: keep.x, top: keep.y, behavior: 'instant'});
-        keep = null;
-    });
-})();
 (function() {
     var saved = localStorage.getItem('llama-toolchest-theme');
     if (saved) setTheme(saved);
