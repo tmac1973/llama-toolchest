@@ -97,6 +97,31 @@ func TestValidateSpeculative(t *testing.T) {
 		t.Errorf("installed draft model not used: %+v", c.Proposals)
 	}
 
+	// A head-based method: the registry offers every installed model, and
+	// only a file named for the method is a head. An ordinary chat model
+	// was once proposed as a DSpark drafter, a different one each run.
+	in = baseInputs()
+	in.DraftCandidates = func(mode string) []models.DraftCandidate {
+		return []models.DraftCandidate{
+			{ID: "granite", Filename: "granite-4.2-3b-IQ4_NL.gguf", FilePath: "/models/granite.gguf", SizeGB: 2},
+			{ID: "thinkingcap", Filename: "ThinkingCap-Qwen3.6-27B-Q6_K_L.gguf", FilePath: "/models/tc.gguf", SizeGB: 22},
+		}
+	}
+	c = Validate(Advice{DraftMethod: sp("draft-dspark")}, in)
+	if _, ok := proposal(c, "draft_model_path"); ok || c.WantDraft != "draft-dspark" {
+		t.Errorf("a chat model was proposed as a DSpark head: %+v", c)
+	}
+	in.DraftCandidates = func(mode string) []models.DraftCandidate {
+		return []models.DraftCandidate{
+			{ID: "granite", Filename: "granite-4.2-3b-IQ4_NL.gguf", FilePath: "/models/granite.gguf", SizeGB: 2},
+			{ID: "head", Filename: "M-DSpark-Q8_0.gguf", FilePath: "/models/M-DSpark-Q8_0.gguf", SizeGB: 1},
+		}
+	}
+	c = Validate(Advice{DraftMethod: sp("draft-dspark")}, in)
+	if p, _ := proposal(c, "draft_model_path"); p.Value != "/models/M-DSpark-Q8_0.gguf" {
+		t.Errorf("installed DSpark head not used: %+v", c.Proposals)
+	}
+
 	// An n-gram assist is never set here, only mentioned.
 	c = Validate(Advice{AssistMode: sp("ngram-mod")}, baseInputs())
 	if _, ok := proposal(c, "spec_assist"); ok || !hasNote(c, "Autotune measures") {
