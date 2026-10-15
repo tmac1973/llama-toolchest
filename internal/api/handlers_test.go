@@ -269,6 +269,49 @@ func TestServiceStopAllowedWhileAJobHoldsTheRouter(t *testing.T) {
 	}
 }
 
+// Haruspex reads "engine" from the status response to tell this server
+// apart from vllm-toolchest, which serves the same API. It must be there
+// in every state, including while no model or router is running, next to
+// the existing fields.
+func TestServiceStatusReportsEngine(t *testing.T) {
+	s := newTestServer(t)
+	t.Cleanup(func() { s.process.Stop() })
+
+	check := func(wantState string) {
+		t.Helper()
+		rec := serve(s, httptest.NewRequest("GET", "/api/service/status", nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("HTTP %d: %s", rec.Code, rec.Body)
+		}
+		var out map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatalf("decode: %v\n%s", err, rec.Body)
+		}
+		if out["engine"] != "llama.cpp" {
+			t.Errorf("engine = %v, want llama.cpp (%s)", out["engine"], rec.Body)
+		}
+		if wantState != "" && out["state"] != wantState {
+			t.Errorf("state = %v, want %s (%s)", out["state"], wantState, rec.Body)
+		}
+		if _, ok := out["health_ok"]; !ok {
+			t.Errorf("health_ok missing; existing fields must stay top-level (%s)", rec.Body)
+		}
+	}
+
+	check(process.StateStopped)
+
+	if err := s.process.Start(process.RouterConfig{
+		BinaryPath: filepath.Join(fakeLlamaServerDir(t), "llama-server"),
+		Host:       "127.0.0.1", Port: 1, ModelsMax: 1,
+	}); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if st := s.process.GetStatus().State; st == process.StateStopped {
+		t.Fatalf("router still stopped after start; the running case would not be exercised")
+	}
+	check("") // starting or running; the state may move on between calls
+}
+
 // A log stream is an open request; when the browser closes the tab the
 // request context ends and the handler must return, or every closed tab
 // leaves a goroutine and a log subscriber behind.
