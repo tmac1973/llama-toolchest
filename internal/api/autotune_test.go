@@ -355,3 +355,20 @@ func TestResultDetailLeavesOutTheCardsGoal(t *testing.T) {
 		t.Errorf("resultDetail = %q, want %q", got, want)
 	}
 }
+
+// A mixed run's card says its number is an average of the workloads and
+// gives each one, so it can be matched to the benchmark of each.
+func TestAutotuneResultsShowTheWorkloads(t *testing.T) {
+	winner := autotune.Candidate{
+		Scores: map[autotune.Goal]autotune.Score{autotune.GoalGeneration: {Value: 131.7}},
+		Parts:  map[autotune.Goal][]autotune.Score{autotune.GoalGeneration: {{Value: 129.5}, {Value: 133.8}}},
+	}
+	rec := &autotune.Autotune{UseCase: autotune.UseMixed, Results: map[autotune.Goal]autotune.Outcome{
+		autotune.GoalGeneration: {Goal: autotune.GoalGeneration, Saved: true, Winner: winner,
+			Message: "fastest generation: 113.6 → 131.7 tokens per second (16% faster)."},
+	}}
+	d := (&Server{}).autotuneResultsData("m", "m", rec, nil)
+	if len(d.Results) != 1 || d.Results[0].Parts != "Average of two workloads: chat 129.5, coding 133.8 tokens per second" {
+		t.Errorf("results = %+v", d.Results)
+	}
+}

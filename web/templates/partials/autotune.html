@@ -150,7 +150,7 @@
     <article class="autotune-result">
         <header><strong>{{.Goal}}</strong></header>
         {{if .Saved}}
-        <p>{{.Headline}}<br><small title="The other two measurements of the same settings.">Also measured: {{.Detail}}.</small></p>
+        <p>{{.Headline}}{{if .Parts}}<br><small title="This kind of work is measured with more than one workload. The number above combines them; a benchmark of one workload on its own shows that workload's number.">{{.Parts}}.</small>{{end}}<br><small title="The other two measurements of the same settings{{if .Parts}}, combined over the workloads in the same way{{end}}.">Also measured: {{.Detail}}.</small></p>
         {{if .Settings}}
         <p><small>Settings: {{range $i, $s := .Settings}}{{if $i}}, {{end}}{{$s}}{{end}}.</small></p>
         {{end}}

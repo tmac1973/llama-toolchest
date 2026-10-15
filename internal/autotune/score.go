@@ -73,12 +73,63 @@ func MeasurementPhrase(g Goal, s Score) string {
 	return ""
 }
 
+// PartsPhrase says how a goal's score on a use case with several
+// workloads is made up, such as "Average of two workloads: chat 112.1 →
+// 129.5, coding 115.0 → 133.8 tokens per second". Without it a mixed
+// result reads as one measurement, and a single workload's benchmark
+// number looks like it disagrees. It gives the starting profile's numbers
+// when they were measured, and is "" when there is nothing to break down.
+func PartsPhrase(uc UseCase, g Goal, winner, baseline Candidate) string {
+	shapes := Workloads[uc]
+	parts := winner.Parts[g]
+	if len(shapes) < 2 || len(parts) != len(shapes) {
+		return ""
+	}
+	base := baseline.Parts[g]
+	if len(base) != len(shapes) {
+		base = nil
+	}
+	number := func(s Score) string {
+		switch g {
+		case GoalResponse:
+			return fmt.Sprintf("%.1f", -s.Value)
+		case GoalPrompt:
+			return fmt.Sprintf("%.0f", s.Value)
+		}
+		return fmt.Sprintf("%.1f", s.Value)
+	}
+	items := make([]string, 0, len(shapes))
+	for i, s := range shapes {
+		item := s.Label + " "
+		if base != nil {
+			item += number(base[i]) + " → "
+		}
+		items = append(items, item+number(parts[i]))
+	}
+	kind, unit := "Average", "tokens per second"
+	if g == GoalResponse {
+		kind, unit = "Total", "seconds"
+	}
+	return fmt.Sprintf("%s of %s workloads: %s %s", kind, countWord(len(shapes)), strings.Join(items, ", "), unit)
+}
+
+func countWord(n int) string {
+	if n >= 0 && n < len(countWords) {
+		return countWords[n]
+	}
+	return fmt.Sprint(n)
+}
+
+var countWords = []string{"zero", "one", "two", "three", "four"}
+
 // Shape is one preset a use case measures with, and how its numbers are
 // read: PromptTokens and OutputTokens are the request a response time is
 // computed for, and PPSizeTokens is the prompt length prompt speed is
 // read at (a longer one, where prompt speed is what the number is about).
+// Label names the workload on the screens when a use case has several.
 type Shape struct {
 	Preset       string
+	Label        string
 	PromptTokens int
 	OutputTokens int
 	PPSizeTokens int
@@ -86,13 +137,15 @@ type Shape struct {
 
 // Workloads maps a use case to the presets it measures with.
 var Workloads = map[UseCase][]Shape{
-	UseChat: {{Preset: "autotune-chat", PromptTokens: 512, OutputTokens: 256, PPSizeTokens: 4096}},
-	UseCode: {{Preset: "autotune-code", PromptTokens: 1536, OutputTokens: 512, PPSizeTokens: 1536}},
-	UseMixed: {
-		{Preset: "autotune-chat", PromptTokens: 512, OutputTokens: 256, PPSizeTokens: 4096},
-		{Preset: "autotune-code", PromptTokens: 1536, OutputTokens: 512, PPSizeTokens: 1536},
-	},
+	UseChat:  {chatShape},
+	UseCode:  {codeShape},
+	UseMixed: {chatShape, codeShape},
 }
+
+var (
+	chatShape = Shape{Preset: "autotune-chat", Label: "chat", PromptTokens: 512, OutputTokens: 256, PPSizeTokens: 4096}
+	codeShape = Shape{Preset: "autotune-code", Label: "coding", PromptTokens: 1536, OutputTokens: 512, PPSizeTokens: 1536}
+)
 
 // UseCaseLabel is the use case in the words the screens use.
 func UseCaseLabel(uc UseCase) string {
@@ -130,49 +183,15 @@ var ErrNoMeasurement = errors.New("no measurement")
 
 // ScoreRuns reads one goal out of a candidate's runs, keyed by preset.
 func ScoreRuns(uc UseCase, g Goal, runs map[string]*benchmark.BenchmarkRun) (Score, error) {
-	shapes := Workloads[uc]
-	if len(shapes) == 0 {
-		return Score{}, fmt.Errorf("unknown use case %q", uc)
+	parts, err := ScoreParts(uc, g, runs)
+	if err != nil {
+		return Score{}, err
 	}
-
 	var values, vars []float64
-	for _, s := range shapes {
-		run := runs[s.Preset]
-		if run == nil || run.Summary == nil {
-			return Score{}, fmt.Errorf("%w for preset %s", ErrNoMeasurement, s.Preset)
-		}
-		switch g {
-		case GoalGeneration:
-			row, ok := rowNearest(run, s.PromptTokens)
-			if !ok || row.TGMean <= 0 {
-				return Score{}, fmt.Errorf("%w: generation speed for preset %s", ErrNoMeasurement, s.Preset)
-			}
-			values = append(values, row.TGMean)
-			vars = append(vars, row.TGStd*row.TGStd)
-		case GoalPrompt:
-			row, ok := rowNearest(run, s.PPSizeTokens)
-			if !ok || row.PPMean <= 0 {
-				return Score{}, fmt.Errorf("%w: prompt speed for preset %s", ErrNoMeasurement, s.Preset)
-			}
-			values = append(values, row.PPMean)
-			vars = append(vars, row.PPStd*row.PPStd)
-		case GoalResponse:
-			row, ok := rowNearest(run, s.PromptTokens)
-			if !ok || row.PPMean <= 0 || row.TGMean <= 0 {
-				return Score{}, fmt.Errorf("%w: response time for preset %s", ErrNoMeasurement, s.Preset)
-			}
-			p, o := float64(s.PromptTokens), float64(s.OutputTokens)
-			values = append(values, -(p/row.PPMean + o/row.TGMean))
-			// The seconds depend on the speeds through 1/x, so the
-			// spread of each speed carries over divided by its square.
-			dp := p / (row.PPMean * row.PPMean) * row.PPStd
-			do := o / (row.TGMean * row.TGMean) * row.TGStd
-			vars = append(vars, dp*dp+do*do)
-		default:
-			return Score{}, fmt.Errorf("unknown goal %q", g)
-		}
+	for _, p := range parts {
+		values = append(values, p.Value)
+		vars = append(vars, p.Std*p.Std)
 	}
-
 	if g == GoalResponse {
 		// Total time over the shapes, not an average: a mixed workload is
 		// one of each.
@@ -181,6 +200,58 @@ func ScoreRuns(uc UseCase, g Goal, runs map[string]*benchmark.BenchmarkRun) (Sco
 	// A speed is averaged over the shapes, and its spread with it.
 	n := float64(len(values))
 	return Score{Value: sum(values) / n, Std: math.Sqrt(sum(vars)) / n}, nil
+}
+
+// ScoreParts reads one goal out of each of a use case's workloads, in
+// the order Workloads lists them. ScoreRuns combines them into the one
+// score a goal is decided by; the screens show them apart, so a mixed
+// result can be traced back to the workload that made it.
+func ScoreParts(uc UseCase, g Goal, runs map[string]*benchmark.BenchmarkRun) ([]Score, error) {
+	shapes := Workloads[uc]
+	if len(shapes) == 0 {
+		return nil, fmt.Errorf("unknown use case %q", uc)
+	}
+	out := make([]Score, 0, len(shapes))
+	for _, s := range shapes {
+		sc, err := scoreShape(s, g, runs[s.Preset])
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, sc)
+	}
+	return out, nil
+}
+
+func scoreShape(s Shape, g Goal, run *benchmark.BenchmarkRun) (Score, error) {
+	if run == nil || run.Summary == nil {
+		return Score{}, fmt.Errorf("%w for preset %s", ErrNoMeasurement, s.Preset)
+	}
+	switch g {
+	case GoalGeneration:
+		row, ok := rowNearest(run, s.PromptTokens)
+		if !ok || row.TGMean <= 0 {
+			return Score{}, fmt.Errorf("%w: generation speed for preset %s", ErrNoMeasurement, s.Preset)
+		}
+		return Score{Value: row.TGMean, Std: row.TGStd}, nil
+	case GoalPrompt:
+		row, ok := rowNearest(run, s.PPSizeTokens)
+		if !ok || row.PPMean <= 0 {
+			return Score{}, fmt.Errorf("%w: prompt speed for preset %s", ErrNoMeasurement, s.Preset)
+		}
+		return Score{Value: row.PPMean, Std: row.PPStd}, nil
+	case GoalResponse:
+		row, ok := rowNearest(run, s.PromptTokens)
+		if !ok || row.PPMean <= 0 || row.TGMean <= 0 {
+			return Score{}, fmt.Errorf("%w: response time for preset %s", ErrNoMeasurement, s.Preset)
+		}
+		p, o := float64(s.PromptTokens), float64(s.OutputTokens)
+		// The seconds depend on the speeds through 1/x, so the spread of
+		// each speed carries over divided by its square.
+		dp := p / (row.PPMean * row.PPMean) * row.PPStd
+		do := o / (row.TGMean * row.TGMean) * row.TGStd
+		return Score{Value: -(p/row.PPMean + o/row.TGMean), Std: math.Sqrt(dp*dp + do*do)}, nil
+	}
+	return Score{}, fmt.Errorf("unknown goal %q", g)
 }
 
 func sum(xs []float64) float64 {
@@ -194,6 +265,12 @@ func sum(xs []float64) float64 {
 // rowNearest returns the per-size summary row closest to size tokens. A
 // preset measures the sizes it was given, and llama.cpp reports what it
 // actually tokenized, so the row is never exactly the asked-for number.
+//
+// The row's speeds are the median of its repetitions, not the mean: one
+// repetition far from the others — a speculative decoding run that
+// happened to guess nearly every token, say — would otherwise carry the
+// whole result. The spread is still over every repetition, so a setting
+// whose speed jumps around has to clear that spread in the noise rule.
 func rowNearest(run *benchmark.BenchmarkRun, size int) (benchmark.SizeSummary, bool) {
 	rows := run.SizeRows()
 	best, found := benchmark.SizeSummary{}, false
@@ -205,7 +282,31 @@ func rowNearest(run *benchmark.BenchmarkRun, size int) (benchmark.SizeSummary, b
 			best, found = r, true
 		}
 	}
-	return best, found
+	if !found {
+		return best, false
+	}
+	var pp, tg []float64
+	for _, r := range run.Results {
+		if r.PromptTokens == best.PromptTokens {
+			pp = append(pp, r.PromptTokPerSec)
+			tg = append(tg, r.GenTokPerSec)
+		}
+	}
+	if len(tg) > 0 {
+		best.PPMean, best.TGMean = median(pp), median(tg)
+	}
+	return best, true
+}
+
+// median is the middle value, or the mean of the middle two.
+func median(xs []float64) float64 {
+	s := slices.Clone(xs)
+	slices.Sort(s)
+	n := len(s)
+	if n%2 == 1 {
+		return s[n/2]
+	}
+	return (s[n/2-1] + s[n/2]) / 2
 }
 
 func abs(n int) int {
@@ -237,6 +338,10 @@ type Candidate struct {
 	Scores map[Goal]Score
 	// Goals are the goals this candidate won, filled in by the runner.
 	Goals []Goal
+	// Parts is each goal's score per workload, in Workloads order, when
+	// the use case measures more than one — what Scores averages (speeds)
+	// or adds up (response time). Runs saved before it existed lack it.
+	Parts map[Goal][]Score `json:",omitempty"`
 }
 
 // Key identifies a candidate by its values, so the same settings from two
@@ -285,10 +390,16 @@ func Complexity(cfg, base benchmark.ConfigSnapshot) int {
 	return n
 }
 
-// Pick chooses the winner for a goal: the best measurement, unless a
-// plainer candidate is within the noise of it, in which case the plainer
-// one wins. ranked is every candidate that has a score for the goal,
-// fastest first, for choosing finalists.
+// Pick chooses the winner for a goal: among the candidates no other
+// candidate really beats (by the noise rule), the plainest one, and of
+// equally plain ones the one with the smallest spread. ranked is every
+// candidate that has a score for the goal, fastest first, for choosing
+// finalists.
+//
+// Every candidate is checked against every other, not only against the
+// fastest: a setting whose speed jumps around can measure fastest with a
+// spread so wide that a clearly slower setting falls inside it, and that
+// slower setting must not win just for being plainer.
 func Pick(cands []Candidate, g Goal, base benchmark.ConfigSnapshot) (winner Candidate, ranked []Candidate, ok bool) {
 	for _, c := range cands {
 		if _, has := c.Scores[g]; has {
@@ -302,18 +413,28 @@ func Pick(cands []Candidate, g Goal, base benchmark.ConfigSnapshot) (winner Cand
 		return ranked[i].Scores[g].Value > ranked[j].Scores[g].Value
 	})
 
-	best := ranked[0]
-	winner = best
-	winnerComplexity := Complexity(best.Config, base)
-	for _, c := range ranked[1:] {
-		if Beats(best.Scores[g], c.Scores[g]) {
-			continue // really slower
+	// The fastest is never beaten, so there is always a winner.
+	winnerComplexity := -1
+	for _, c := range ranked {
+		if beatenByAny(c, ranked, g) {
+			continue // really slower than something
 		}
-		if n := Complexity(c.Config, base); n < winnerComplexity {
+		n := Complexity(c.Config, base)
+		if winnerComplexity < 0 || n < winnerComplexity ||
+			(n == winnerComplexity && c.Scores[g].Std < winner.Scores[g].Std) {
 			winner, winnerComplexity = c, n
 		}
 	}
 	return winner, ranked, true
+}
+
+func beatenByAny(c Candidate, others []Candidate, g Goal) bool {
+	for _, o := range others {
+		if Beats(o.Scores[g], c.Scores[g]) {
+			return true
+		}
+	}
+	return false
 }
 
 // Describe turns a candidate's sweep values into plain language for the
