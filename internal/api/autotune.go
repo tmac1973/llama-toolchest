@@ -102,7 +102,7 @@ func (s *Server) renderAutotuneDialog(w http.ResponseWriter, id string, banner *
 	if d.NoProfiles {
 		d.BusyReason = ""
 	} else {
-		d.Cells, d.Minutes, d.Skipped = s.autotuneEstimate(id, selectedProfile(d.Profiles), autotune.UseMixed)
+		d.Cells, d.Minutes, d.Skipped = s.autotuneEstimate(id, selectedProfile(d.Profiles), autotune.UseMixed, autotune.DepthThorough)
 	}
 	if reason := s.gpuBusyReason(); reason != "" {
 		d.BusyReason = "The GPU is in use: " + reason + ". Start Autotune when it finishes."
@@ -129,7 +129,7 @@ func selectedProfile(opts []profileOption) string {
 
 // autotuneEstimate reports how much a run would measure, and what it
 // cannot measure on this machine.
-func (s *Server) autotuneEstimate(id, profileName string, uc autotune.UseCase) (cells, minutes int, skipped []string) {
+func (s *Server) autotuneEstimate(id, profileName string, uc autotune.UseCase, depth autotune.Depth) (cells, minutes int, skipped []string) {
 	m, err := s.registry.Get(id)
 	if err != nil {
 		return 0, 0, nil
@@ -146,6 +146,7 @@ func (s *Server) autotuneEstimate(id, profileName string, uc autotune.UseCase) (
 		},
 		Finalists:   map[string][]autotune.Candidate{},
 		MoECacheMiB: s.autotuneMoECache(m, profile.Config),
+		Quick:       depth == autotune.DepthQuick,
 	}
 	// How long a cell takes on this machine, from the runs it has done;
 	// the guess by size only when it has done none.
@@ -193,7 +194,7 @@ func (s *Server) handleAutotuneEstimate(w http.ResponseWriter, r *http.Request) 
 		uc = autotune.UseMixed
 	}
 	profile := r.FormValue("profile")
-	cells, minutes, _ := s.autotuneEstimate(id, profile, uc)
+	cells, minutes, _ := s.autotuneEstimate(id, profile, uc, autotune.Depth(r.FormValue("depth")))
 	respondHTML(w)
 	s.renderPartial(w, "autotune_estimate", struct {
 		Cells, Minutes int
@@ -221,7 +222,7 @@ func (s *Server) handleAutotuneStart(w http.ResponseWriter, r *http.Request) {
 	if _, ok := autotune.Workloads[uc]; !ok {
 		uc = autotune.UseMixed
 	}
-	rec, err := s.tuner.Start(id, r.FormValue("profile"), uc)
+	rec, err := s.tuner.Start(id, r.FormValue("profile"), uc, autotune.Depth(r.FormValue("depth")))
 	if err != nil {
 		// A refusal renders as a message: htmx does not swap a non-2xx
 		// response, and a button that appears to do nothing is worse.
@@ -350,6 +351,24 @@ func (s *Server) expertCacheStageShown(id string, rec *autotune.Autotune) bool {
 	return err == nil && p.Config.CPUMoE > 0
 }
 
+// placementStageShown is the same for the placement stage, which has
+// nothing to measure for a model on one GPU with nothing on the CPU.
+func (s *Server) placementStageShown(id string, rec *autotune.Autotune) bool {
+	if st, ok := rec.Stage(autotune.StagePlacement); ok {
+		return st.JobID != ""
+	}
+	if cards, _ := s.autotuneHardware(); cards > 1 {
+		return true
+	}
+	p, err := s.registry.GetProfile(id, rec.BaseProfile)
+	if err != nil {
+		return false
+	}
+	m, err := s.registry.Get(id)
+	partial := err == nil && m.NLayers > 0 && p.Config.GPULayers > 0 && p.Config.GPULayers < m.NLayers
+	return p.Config.CPUMoE > 0 || partial
+}
+
 func (s *Server) autotuneProgressData(id, name string, rec *autotune.Autotune, banner *panelBanner) autotuneProgressData {
 	d := autotuneProgressData{ModelID: id, ModelName: name, Run: rec, Banner: banner,
 		SkippedReason: rec.Skipped}
@@ -359,6 +378,12 @@ func (s *Server) autotuneProgressData(id, name string, rec *autotune.Autotune, b
 	for _, st := range autotune.StageOrder {
 		if st.Key == autotune.StageMoECache && !s.expertCacheStageShown(id, rec) {
 			continue
+		}
+		if st.Key == autotune.StagePlacement && !s.placementStageShown(id, rec) {
+			continue
+		}
+		if st.Key == autotune.StageSpecParams && rec.Depth == autotune.DepthQuick {
+			continue // a quick run keeps the recommended draft settings
 		}
 		step := autotuneStep{Title: st.Title, State: "waiting"}
 		if rec, ok := rec.Stage(st.Key); ok {
