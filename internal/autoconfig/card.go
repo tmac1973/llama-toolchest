@@ -37,7 +37,7 @@ var cardKeywords = []string{
 	"recommend", "sampling", "temperature", "top_p", "top-p", "top_k", "top-k", "min_p", "min-p",
 	"presence", "repetition", "repeat", "llama.cpp", "llama-server", "llama-cli", "gguf",
 	"context", "thinking", "reasoning", "speculative", "mtp", "multi-token", "draft", "eagle",
-	"dflash", "jinja", "chat template", "tool", "best practice", "usage", "quickstart",
+	"dflash", "dspark", "lilicorr", "jinja", "chat template", "tool", "best practice", "usage", "quickstart",
 }
 
 var (

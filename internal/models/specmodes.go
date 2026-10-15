@@ -48,7 +48,7 @@ var draftModes = []SpecMode{
 	{"draft", "Draft Model"},
 	{"draft-mtp", "MTP (self-speculation)"},
 	{"draft-eagle3", "EAGLE-3"},
-	{"draft-dflash", "DFlash"},
+	{"draft-dflash", "DFlash / LiliCorr"},
 	{"draft-dspark", "DSpark"},
 }
 
@@ -92,23 +92,38 @@ func IsAssistMode(name string) bool { return specModeIn(assistModes, name) }
 // through --model-draft.
 func IsHeadBasedDraftMode(name string) bool { return headBasedDraftModes[name] }
 
+// headModes maps the kind of head a file's metadata says it is (see
+// GGUFMeta.DraftHeadKind) onto the draft method that loads it. LiliCorr
+// has no method of its own: llama.cpp runs it as a DFlash variant,
+// recognised from the head's metadata, under --spec-type draft-dflash.
+var headModes = map[string]string{
+	"eagle3":   "draft-eagle3",
+	"dflash":   "draft-dflash",
+	"lilicorr": "draft-dflash",
+	"dspark":   "draft-dspark",
+}
+
+// DraftHeadMode returns the draft method that loads a head of the given
+// kind, or "" for a file that is not a head.
+func DraftHeadMode(kind string) string { return headModes[kind] }
+
 // headMarkers are the words a converted draft head carries in its name,
 // by method. Publishers name these files after the method that made
-// them ("…-EAGLE3-GGUF", "…-DFlash.gguf"), which is the only signal in
-// the file itself that says what it is: a head has no architecture of
-// its own to match against and no size rule separating it from a small
-// chat model.
+// them ("…-EAGLE3-GGUF", "…-DFlash.gguf"). They are the fallback for a
+// file whose metadata has not been read for its head kind.
 var headMarkers = map[string][]string{
 	"draft-eagle3": {"eagle3", "eagle-3", "eagle"},
-	"draft-dflash": {"dflash", "d-flash"},
+	"draft-dflash": {"dflash", "d-flash", "lilicorr", "lili-corr"},
 	"draft-dspark": {"dspark", "d-spark"},
 }
 
-// HeadsForMode keeps the candidates whose name says they are a head for
-// this method. Matching on the name is a weak test, but the alternative
-// is treating every installed model as a head for every method, which is
-// how an ordinary chat model came to be measured as an EAGLE3 head, and
-// proposed by Autoconfigure as a DSpark drafter.
+// HeadsForMode keeps the candidates that are a head for this method. A
+// file whose metadata names its kind is matched on that, which is what
+// llama.cpp itself goes by: a DSpark head is a DFlash file with a Markov
+// head, whatever it is called. Otherwise the name has to say so. Treating
+// every installed model as a head for every method is how an ordinary
+// chat model came to be measured as an EAGLE3 head, and proposed by
+// Autoconfigure as a DSpark drafter.
 func HeadsForMode(mode string, cands []DraftCandidate) []DraftCandidate {
 	markers := headMarkers[mode]
 	if len(markers) == 0 {
@@ -116,6 +131,12 @@ func HeadsForMode(mode string, cands []DraftCandidate) []DraftCandidate {
 	}
 	var out []DraftCandidate
 	for _, c := range cands {
+		if c.DraftHead != "" {
+			if headModes[c.DraftHead] == mode {
+				out = append(out, c)
+			}
+			continue
+		}
 		name := strings.ToLower(c.ID + " " + c.Filename)
 		for _, m := range markers {
 			if strings.Contains(name, m) {

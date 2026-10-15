@@ -103,6 +103,10 @@ type Model struct {
 	// carrying it are dropped on the next backfill; nothing should serve
 	// one or offer it as a draft candidate. See GGUFMeta.IsMTPHead.
 	MTPHead bool `json:"mtp_head,omitempty"`
+	// DraftHead is the kind of converted speculative-decoding head the file
+	// is, from its metadata: "eagle3", "dflash", "dspark" or "lilicorr";
+	// empty for anything else. See GGUFMeta.DraftHeadKind.
+	DraftHead string `json:"draft_head,omitempty"`
 	// NextNLayers is the number of built-in MTP draft layers: non-zero
 	// means the model can draft for itself (draft-mtp with no separate
 	// head). Zero on a standalone head, which carries the key but is not
@@ -880,7 +884,10 @@ func (r *Registry) ListNeedingPresetFetch() []string {
 //	4 — sliding-window layouts llama.cpp sets in code (gpt-oss, gemma2,
 //	    gemma3, cohere2) applied to the KV factors, and tied output
 //	    embeddings recorded (OutputTied).
-const GGUFMetaVersion = 4
+//	5 — the kind of converted draft head (EAGLE-3, DFlash, DSpark,
+//	    LiliCorr) recorded (DraftHead), so a head is matched to its method
+//	    by what it is rather than by its file name.
+const GGUFMetaVersion = 5
 
 // BackfillGGUFMeta re-reads GGUF metadata for records written by an older
 // parser, in one pass at startup.
@@ -1410,6 +1417,27 @@ func IsMTPHeadArch(arch string) bool {
 	return strings.Contains(strings.ToLower(arch), "assistant")
 }
 
+// DraftHeadKind says which kind of converted speculative-decoding head
+// the file is, the way llama.cpp decides it: an "eagle3" file is an
+// EAGLE-3 head; a "dflash" file is a DSpark head when it carries the
+// Markov head, a LiliCorr head when it carries the lilicorr.* keys, and
+// a plain DFlash head otherwise. Anything else is not a head.
+func (meta *GGUFMeta) DraftHeadKind() string {
+	switch meta.Architecture {
+	case "eagle3":
+		return "eagle3"
+	case "dflash":
+		switch {
+		case meta.HasMarkovHead:
+			return "dspark"
+		case meta.LiliCorr:
+			return "lilicorr"
+		}
+		return "dflash"
+	}
+	return ""
+}
+
 // IsMTPHead reports whether a GGUF is a standalone MTP / NextN drafter head
 // rather than a runnable model.
 //
@@ -1559,6 +1587,9 @@ type DraftCandidate struct {
 	FilePath string
 	SizeGB   float64
 	Arch     string
+	// DraftHead is Model.DraftHead: the kind of converted head, if the
+	// file is one.
+	DraftHead string
 }
 
 // FindDraftCandidates returns models that could serve as the drafter for
@@ -1615,12 +1646,19 @@ func (r *Registry) FindDraftCandidates(id, mode string) []DraftCandidate {
 		if m.MTPHead {
 			continue
 		}
+		// A converted head is no draft model: it carries no trunk of its
+		// own. Head-based modes keep it for the picker; HeadsForMode
+		// narrows the list to the right kind.
+		if !headBased && m.DraftHead != "" {
+			continue
+		}
 		candidates = append(candidates, DraftCandidate{
-			ID:       m.ID,
-			Filename: m.Filename,
-			FilePath: m.FilePath,
-			SizeGB:   BytesToGiB(m.SizeBytes),
-			Arch:     m.Arch,
+			ID:        m.ID,
+			Filename:  m.Filename,
+			FilePath:  m.FilePath,
+			SizeGB:    BytesToGiB(m.SizeBytes),
+			Arch:      m.Arch,
+			DraftHead: m.DraftHead,
 		})
 	}
 	return candidates

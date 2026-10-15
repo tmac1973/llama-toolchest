@@ -536,7 +536,7 @@ func draftLabel(mode string) string {
 	case "draft-eagle3":
 		return "an EAGLE3 head"
 	case "draft-dflash":
-		return "a DFlash head"
+		return "a DFlash or LiliCorr head"
 	case "draft-dspark":
 		return "a DSpark head"
 	}

@@ -119,7 +119,7 @@ const clipArch = "clip"
 // draftNames mark repos holding draft models for speculative decoding,
 // which are not models to chat with. "MTP" is not among them: an -MTP-
 // repo is usually a full model with its own built-in draft layers.
-var draftNames = []string{"draft", "eagle", "dflash"}
+var draftNames = []string{"draft", "eagle", "dflash", "dspark", "lilicorr"}
 
 // candidateVerdict sorts a listed repo.
 type candidateVerdict int
