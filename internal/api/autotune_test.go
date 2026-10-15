@@ -95,18 +95,22 @@ func TestAutotuneEstimateFollowsTheChoices(t *testing.T) {
 	if _, err := s.registry.SaveProfile(profTestID, autoconfigProfileName, models.ProfileSourceAutoconfig, "b1"); err != nil {
 		t.Fatal(err)
 	}
-	minutes := func(uc string) int {
+	minutesAt := func(uc, depth string) int {
 		out := s.doTune(t, "POST", "/api/models/"+profTestID+"/autotune/estimate",
-			url.Values{"profile": {autoconfigProfileName}, "use_case": {uc}})
+			url.Values{"profile": {autoconfigProfileName}, "use_case": {uc}, "depth": {depth}})
 		var n int
 		if _, err := fmtSscan(out, &n); err != nil {
 			t.Fatalf("no estimate in %q", out)
 		}
 		return n
 	}
+	minutes := func(uc string) int { return minutesAt(uc, "thorough") }
 	chat, mixed := minutes("chat"), minutes("mixed")
 	if chat <= 0 || mixed <= chat {
 		t.Errorf("chat = %d minutes, mixed = %d; mixed should take longer", chat, mixed)
+	}
+	if quick := minutesAt("mixed", "quick"); quick <= 0 || quick >= mixed {
+		t.Errorf("quick = %d minutes, thorough = %d; quick should take less", quick, mixed)
 	}
 }
 

@@ -33,14 +33,29 @@ type PlanInput struct {
 	// be used: no experts in system memory, no room, or a build without
 	// the option. The expert-cache stage measures sizes up to it.
 	MoECacheMiB int
+	// Quick is a run at DepthQuick.
+	Quick bool
+}
+
+// carry is how many finalists a stage of this run builds on.
+func (in PlanInput) carry() int {
+	if in.Quick {
+		return quickCarryLimit
+	}
+	return carryLimit
 }
 
 const (
 	// maxCells bounds a single stage, so a machine with many drafts or
 	// cores cannot turn one stage into an afternoon.
 	maxCells = 40
-	// carryLimit is how many finalists a stage builds on.
-	carryLimit = 3
+	// carryLimit is how many finalists a stage builds on; quickCarryLimit
+	// is the same for a quick run.
+	carryLimit      = 3
+	quickCarryLimit = 2
+	// placementCarry is how many batch finalists the placement stage
+	// measures on.
+	placementCarry = 2
 	// specParamsPerFinalist bounds the draft-settings stage.
 	specParamsPerFinalist = 12
 	// confirmCells is the size of the confirming stage: the finalists
@@ -59,6 +74,8 @@ func PlanStage(key string, in PlanInput) (cells []map[string]string, axes []benc
 	switch key {
 	case StageBatch:
 		cells = planBatch(in)
+	case StagePlacement:
+		cells = planPlacement(in)
 	case StageMoECache:
 		cells = planMoECache(in)
 	case StageSpec:
@@ -75,9 +92,11 @@ func PlanStage(key string, in PlanInput) (cells []map[string]string, axes []benc
 	return cells, axesFor(cells), skipped
 }
 
-// planBatch measures how the prompt is fed to the model: the batch sizes,
-// flash attention, and — only where they can matter — the split mode and
-// the thread count.
+// planBatch measures how the prompt is fed to the model: the batch sizes
+// and, where llama.cpp would load without it, flash attention off. Where
+// the model is placed — the split over several GPUs, the CPU threads — is
+// the next stage's, measured on this one's finalists: the two barely
+// interact, and crossing them multiplied a five-setting stage into thirty.
 func planBatch(in PlanInput) []map[string]string {
 	ctx := in.Base.ContextSize
 	if ctx == 0 && in.Model != nil {
@@ -85,6 +104,10 @@ func planBatch(in PlanInput) []map[string]string {
 	}
 	type batchPair struct{ batch, ubatch int }
 	pairs := []batchPair{{2048, 256}, {2048, 512}, {2048, 1024}, {2048, 2048}, {4096, 4096}}
+	if in.Quick {
+		// The middle of the range, where the winner almost always is.
+		pairs = []batchPair{{2048, 512}, {2048, 1024}, {2048, 2048}}
+	}
 
 	var base []map[string]string
 	for _, p := range pairs {
@@ -108,27 +131,63 @@ func planBatch(in PlanInput) []map[string]string {
 	// and fails to load — half the stage spent on cells that cannot run.
 	// The smallest prompt batch is the one with a chance of loading, and
 	// measuring it there answers the only question worth asking: is this
-	// machine faster without flash attention at all?
+	// machine faster without flash attention at all? A quick run does not
+	// ask: on the GPUs llama.cpp supports, the answer is nearly always no.
 	cells := crossBool(base, "flash_attention", []bool{true})
-	if allowsFlashOff(in.Base) && len(base) > 0 {
+	if !in.Quick && allowsFlashOff(in.Base) && len(base) > 0 {
 		cells = append(cells, withValue(base[0], "flash_attention", "false"))
-	}
-	if in.Cards > 1 {
-		cells = crossValues(cells, "split_mode", []string{"layer", "tensor"})
-		// llama.cpp refuses a tensor split without flash attention, so
-		// that pair would load nothing and only fill the "could not be
-		// measured" list. The cross above can produce it whatever the
-		// profile says, because both values are being varied.
-		cells = keep(cells, func(c map[string]string) bool {
-			return !(c["split_mode"] == "tensor" && c["flash_attention"] == "false")
-		})
-	}
-	if onCPU(in) && in.Cores >= 4 {
-		cells = crossValues(cells, "threads", threadOptions(in.Cores))
 	}
 	// The starting profile itself, first: every later stage compares
 	// against it.
 	return append([]map[string]string{{}}, cells...)
+}
+
+// planPlacement measures where the model runs, on the batch stage's
+// finalists: by layer or by tensor over several GPUs, and how many CPU
+// threads work on what runs on the CPU. Nothing here applies to a model
+// on one GPU with nothing on the CPU, and the stage is then skipped.
+func planPlacement(in PlanInput) []map[string]string {
+	splits := []string{""}
+	if in.Cards > 1 {
+		splits = []string{"layer", "tensor"}
+	}
+	threads := []string{""}
+	if onCPU(in) && in.Cores >= 4 {
+		threads = threadOptions(in.Cores)
+	}
+	if len(splits) == 1 && len(threads) == 1 {
+		return nil
+	}
+	// The two best batch settings, in either depth: placement refines the
+	// batch stage's result rather than reopening it, and every finalist
+	// carried costs a split-by-threads grid of its own.
+	carried := carryForward(in, StageBatch)
+	if len(carried) > placementCarry {
+		carried = carried[:placementCarry]
+	}
+	var cells []map[string]string
+	for _, carried := range carried {
+		// llama.cpp refuses a tensor split without flash attention, so
+		// that pair would load nothing and only fill the "could not be
+		// measured" list.
+		flashOff := carried["flash_attention"] == "false" || (carried["flash_attention"] == "" && !in.Base.FlashAttention)
+		for _, sp := range splits {
+			if sp == "tensor" && flashOff {
+				continue
+			}
+			for _, th := range threads {
+				c := copyValues(carried)
+				if sp != "" {
+					c["split_mode"] = sp
+				}
+				if th != "" {
+					c["threads"] = th
+				}
+				cells = append(cells, c)
+			}
+		}
+	}
+	return cells
 }
 
 // allowsFlashOff reports whether the profile would load at all with
@@ -174,12 +233,12 @@ func threadOptions(cores int) []string {
 // question is only whether the copying it does pays for itself on this
 // machine, and at which size.
 func planMoECache(in PlanInput) []map[string]string {
-	sizes := moeCacheSizes(in.MoECacheMiB)
+	sizes := moeCacheSizesFor(in)
 	if len(sizes) == 0 {
 		return nil
 	}
 	var cells []map[string]string
-	for _, carried := range carryForward(in, StageBatch) {
+	for _, carried := range carryForward(in, placementFinalists(in)) {
 		cells = append(cells, withValue(carried, "moe_cache_mib", "0"))
 		for _, s := range sizes {
 			cells = append(cells, withValue(carried, "moe_cache_mib", strconv.Itoa(s)))
@@ -203,15 +262,34 @@ func moeCacheSizes(room int) []int {
 	return out
 }
 
+// moeCacheSizesFor is the cache sizes this run measures: a quick run
+// leaves out the smallest.
+func moeCacheSizesFor(in PlanInput) []int {
+	sizes := moeCacheSizes(in.MoECacheMiB)
+	if in.Quick && len(sizes) > 2 {
+		sizes = sizes[len(sizes)-2:]
+	}
+	return sizes
+}
+
+// placementFinalists are the finalists the expert-cache stage builds on:
+// the placement stage's, or the batch stage's when placement had nothing
+// to measure or has not run — a run started before it existed.
+func placementFinalists(in PlanInput) string {
+	if len(in.Finalists[StagePlacement]) > 0 {
+		return StagePlacement
+	}
+	return StageBatch
+}
+
 // batchFinalists are the finalists of the stages that tune how the model
-// runs, before speculative decoding: the expert-cache stage's, which
-// build on the batch stage's, or the batch stage's own when the cache
-// stage has not run — a run started before it existed.
+// runs, before speculative decoding: the latest of batch, placement and
+// expert cache that has any.
 func batchFinalists(in PlanInput) string {
 	if len(in.Finalists[StageMoECache]) > 0 {
 		return StageMoECache
 	}
-	return StageBatch
+	return placementFinalists(in)
 }
 
 // planSpec measures speculative decoding: each draft method this machine
@@ -384,6 +462,9 @@ func defaultParams(into map[string]string, params []models.SpecModeParam) map[st
 // previous stage chose: how many tokens are drafted, and how far the
 // n-gram assist looks back.
 func planSpecParams(in PlanInput) []map[string]string {
+	if in.Quick {
+		return nil // a quick run keeps the recommended draft settings
+	}
 	var cells []map[string]string
 	for _, c := range carryForward(in, StageSpec) {
 		spec := c["spec_type"]
@@ -524,7 +605,7 @@ func splitSpec(value string) (mode, assist string, params map[string]string) {
 // starting profile.
 func planConfirm(in PlanInput) []map[string]string {
 	batch := topByResponse(in.Finalists[batchFinalists(in)], 2)
-	spec := distinct(append(append([]Candidate{}, in.Finalists[StageSpecParams]...), in.Finalists[StageSpec]...), carryLimit)
+	spec := distinct(append(append([]Candidate{}, in.Finalists[StageSpecParams]...), in.Finalists[StageSpec]...), in.carry())
 
 	cells := []map[string]string{{}} // the starting profile
 	for _, b := range batch {
@@ -590,7 +671,7 @@ func distinct(cands []Candidate, n int) []Candidate {
 // an earlier stage, or the starting profile alone before it has run.
 func carryForward(in PlanInput, stage string) []map[string]string {
 	var out []map[string]string
-	for _, c := range distinct(in.Finalists[stage], carryLimit) {
+	for _, c := range distinct(in.Finalists[stage], in.carry()) {
 		out = append(out, copyValues(c.Values))
 	}
 	if len(out) == 0 {
@@ -826,17 +907,22 @@ func EstimateRun(in PlanInput, uc UseCase, sizeGiB, secondsPerCell float64) (cel
 	if presets == 0 {
 		presets = 1
 	}
+	carry := in.carry()
 	batch, _, _ := PlanStage(StageBatch, in)
 	cells = len(batch)
-	if n := len(moeCacheSizes(in.MoECacheMiB)); n > 0 {
-		cells += (n + 1) * carryLimit
+
+	// The stages after the first build on the finalists of the one
+	// before, up to carry of them, so the estimate has to allow for that
+	// fan-out or it would promise less than the run does.
+	one := in
+	one.Finalists = map[string][]Candidate{StageBatch: {{Values: map[string]string{}}}}
+	cells += len(planPlacement(one)) * min(carry, placementCarry)
+	if n := len(moeCacheSizesFor(in)); n > 0 {
+		cells += (n + 1) * carry
 	}
 
-	// Both middle stages build on the finalists of the one before, up to
-	// carryLimit of them, so the estimate has to allow for that fan-out
-	// or it would promise less than the run does.
 	values := specValues(in)
-	spec := len(values) * carryLimit
+	spec := len(values) * carry
 	if spec > maxCells {
 		spec = maxCells
 	}
@@ -853,8 +939,8 @@ func EstimateRun(in PlanInput, uc UseCase, sizeGiB, secondsPerCell float64) (cel
 		probe.Finalists = map[string][]Candidate{StageSpec: {{Values: map[string]string{"spec_type": v}}}}
 		most = max(most, len(planSpecParams(probe)))
 	}
-	cells += min(most*carryLimit, maxCells)
-	cells += confirmCells
+	cells += min(most*carry, maxCells)
+	cells += min(confirmCells, 1+2*carry) // the profile, then two batch finalists by each speculative one
 
 	// One cell runs one preset, so a workload with two presets has twice
 	// the cells rather than cells that each take twice as long.

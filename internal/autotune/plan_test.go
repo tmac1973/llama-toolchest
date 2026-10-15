@@ -82,19 +82,83 @@ func TestPlanBatchKeepsFlashAttentionOnWhenItMust(t *testing.T) {
 	}
 }
 
-func TestPlanBatchAddsSplitModeAndThreadsWhenTheyMatter(t *testing.T) {
+// Placement is measured in a stage of its own, on the batch finalists,
+// and only where it can matter: the batch stage no longer multiplies its
+// batch sizes by every split mode and thread count.
+func TestPlacementStageMeasuresSplitAndThreadsWhenTheyMatter(t *testing.T) {
+	finalists := []Candidate{
+		{Values: map[string]string{"ubatch_size": "512"}},
+		{Values: map[string]string{"ubatch_size": "1024"}},
+	}
+
 	in := baseInput()
 	in.Cards = 2
-	cells, _, _ := PlanStage(StageBatch, in)
+	if batch, _, _ := PlanStage(StageBatch, in); len(values(batch, "split_mode")) > 1 || len(values(batch, "threads")) > 1 {
+		t.Errorf("the batch stage still varies placement: %v", batch)
+	}
+	in.Finalists[StageBatch] = finalists
+	cells, _, _ := PlanStage(StagePlacement, in)
 	if got := values(cells, "split_mode"); !got["layer"] || !got["tensor"] {
 		t.Errorf("two GPUs should measure both split modes: %v", got)
+	}
+	if got := values(cells, "ubatch_size"); !got["512"] || !got["1024"] {
+		t.Errorf("placement is not measured on the batch finalists: %v", got)
 	}
 
 	in = baseInput()
 	in.Base.CPUMoE = 12
-	cells, _, _ = PlanStage(StageBatch, in)
+	in.Finalists[StageBatch] = finalists
+	cells, _, _ = PlanStage(StagePlacement, in)
 	if got := values(cells, "threads"); len(got) < 3 {
 		t.Errorf("expert layers on the CPU should measure thread counts: %v", got)
+	}
+
+	// MiniCPM on compute2: three GPUs and experts on the CPU. Batch and
+	// placement were one stage of 31 settings; now 6 and then 2 x 6.
+	in.Cards = 3
+	batch, _, _ := PlanStage(StageBatch, baseInputWith(func(i *PlanInput) { i.Cards = 3; i.Base.CPUMoE = 4; i.Base.KVCacheQuant = "q8_0" }))
+	cells, _, _ = PlanStage(StagePlacement, in)
+	if len(batch) != 6 || len(cells) != 12 {
+		t.Errorf("batch %d and placement %d settings, want 6 and 12", len(batch), len(cells))
+	}
+
+	// One GPU and nothing on the CPU: nothing to place.
+	in = baseInput()
+	in.Finalists[StageBatch] = finalists
+	if cells, _, _ := PlanStage(StagePlacement, in); len(cells) != 0 {
+		t.Errorf("placement planned %d settings with nothing to place", len(cells))
+	}
+}
+
+func baseInputWith(f func(*PlanInput)) PlanInput {
+	in := baseInput()
+	f(&in)
+	return in
+}
+
+// A quick run measures less at every stage that has a choice.
+func TestQuickRunMeasuresLess(t *testing.T) {
+	thorough := baseInputWith(func(i *PlanInput) { i.Model.NextNLayers = 1; i.Cards = 3; i.Base.CPUMoE = 4; i.MoECacheMiB = 4096 })
+	quick := thorough
+	quick.Quick = true
+	quick.Finalists = map[string][]Candidate{}
+
+	tb, _, _ := PlanStage(StageBatch, thorough)
+	qb, _, _ := PlanStage(StageBatch, quick)
+	if len(qb) >= len(tb) || values(qb, "flash_attention")["false"] {
+		t.Errorf("quick batch stage = %d settings (flash off: %v), thorough %d", len(qb), values(qb, "flash_attention")["false"], len(tb))
+	}
+	quick.Finalists[StageSpec] = []Candidate{{Values: map[string]string{"spec_type": "draft-mtp:draft_max=6"}}}
+	if cells, _, _ := PlanStage(StageSpecParams, quick); len(cells) != 0 {
+		t.Errorf("a quick run fine-tuned the draft settings: %d settings", len(cells))
+	}
+	if got := len(moeCacheSizesFor(quick)); got != 2 {
+		t.Errorf("quick expert cache sizes = %d, want 2", got)
+	}
+	tc, _ := EstimateRun(thorough, UseMixed, 27, 30)
+	qc, _ := EstimateRun(quick, UseMixed, 27, 30)
+	if qc*10 > tc*6 {
+		t.Errorf("quick estimate %d settings against thorough %d: want well under two thirds", qc, tc)
 	}
 }
 
@@ -254,7 +318,7 @@ func TestBuildStageJob(t *testing.T) {
 	if len(job.Cells) != len(cells)*2 {
 		t.Errorf("cells = %d, want one per settings per preset (%d)", len(job.Cells), len(cells)*2)
 	}
-	if !strings.Contains(job.Name, "stage 1 of 5") || !strings.Contains(job.Name, "Qwen3.5-9B") {
+	if !strings.Contains(job.Name, "stage 1 of 6") || !strings.Contains(job.Name, "Qwen3.5-9B") {
 		t.Errorf("job name = %q", job.Name)
 	}
 	if len(job.Cells[0].SweepValues) != 0 {
@@ -314,6 +378,12 @@ func TestPlanBatchNeverPairsTensorSplitWithFlashAttentionOff(t *testing.T) {
 	in := baseInput()
 	in.Cards = 2
 	cells, _, _ := PlanStage(StageBatch, in)
+	in.Finalists[StageBatch] = []Candidate{
+		{Values: map[string]string{"ubatch_size": "256", "flash_attention": "false"}},
+		{Values: map[string]string{"ubatch_size": "512"}},
+	}
+	placed, _, _ := PlanStage(StagePlacement, in)
+	cells = append(cells, placed...)
 	for _, c := range cells {
 		if c["split_mode"] == "tensor" && c["flash_attention"] == "false" {
 			t.Fatalf("planned a combination llama.cpp refuses to load: %v", c)

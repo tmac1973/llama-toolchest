@@ -252,7 +252,7 @@ func (f *tuneFixture) waitForRun(t *testing.T, id string) *Autotune {
 func TestRunnerFindsTheFastestSettings(t *testing.T) {
 	f := newFixture(t, 1) // the model has its own MTP draft layers
 
-	rec, err := f.runner.Start(tuneModelID, "Autoconfig", UseCode)
+	rec, err := f.runner.Start(tuneModelID, "Autoconfig", UseCode, DepthThorough)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,7 +323,7 @@ func TestRunnerKeepsQuietWhenNothingIsFaster(t *testing.T) {
 	f := newFixture(t, 0) // no MTP: nothing to gain on this fake machine
 	f.env.saved.UBatchSize = 1024
 
-	rec, err := f.runner.Start(tuneModelID, "Autoconfig", UseChat)
+	rec, err := f.runner.Start(tuneModelID, "Autoconfig", UseChat, DepthThorough)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +357,7 @@ func TestRunnerRecordsSettingsThatCannotRun(t *testing.T) {
 	f := newFixture(t, 1)
 	f.env.failWhen = func(cfg benchmark.ConfigSnapshot) bool { return cfg.UBatchSize == 4096 }
 
-	rec, err := f.runner.Start(tuneModelID, "Autoconfig", UseChat)
+	rec, err := f.runner.Start(tuneModelID, "Autoconfig", UseChat, DepthThorough)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -390,7 +390,7 @@ func TestRunnerRejectsSettingsThatLeaveAGPUNearlyFull(t *testing.T) {
 	f := newFixture(t, 1)
 	f.env.tightWhen = func(cfg benchmark.ConfigSnapshot) bool { return cfg.UBatchSize == 1024 }
 
-	rec, err := f.runner.Start(tuneModelID, "Autoconfig", UseCode)
+	rec, err := f.runner.Start(tuneModelID, "Autoconfig", UseCode, DepthThorough)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -421,15 +421,15 @@ func TestRunnerRejectsSettingsThatLeaveAGPUNearlyFull(t *testing.T) {
 // Start refuses what it cannot measure.
 func TestRunnerStartRefusals(t *testing.T) {
 	f := newFixture(t, 1)
-	if _, err := f.runner.Start(tuneModelID, "No Such Profile", UseChat); err == nil {
+	if _, err := f.runner.Start(tuneModelID, "No Such Profile", UseChat, DepthThorough); err == nil {
 		t.Error("a missing profile was accepted")
 	}
-	if _, err := f.runner.Start(tuneModelID, "Autoconfig", "nonsense"); err == nil {
+	if _, err := f.runner.Start(tuneModelID, "Autoconfig", "nonsense", DepthThorough); err == nil {
 		t.Error("an unknown use case was accepted")
 	}
 	f2 := newFixture(t, 1)
 	f2.runner.deps.Busy = func() string { return "A benchmark is running." }
-	_, err := f2.runner.Start(tuneModelID, "Autoconfig", UseChat)
+	_, err := f2.runner.Start(tuneModelID, "Autoconfig", UseChat, DepthThorough)
 	if err == nil || !strings.Contains(err.Error(), "benchmark") {
 		t.Errorf("err = %v, want the busy reason", err)
 	}
@@ -439,7 +439,7 @@ func TestRunnerStartRefusals(t *testing.T) {
 // already finished.
 func TestRunnerResumesAfterARestart(t *testing.T) {
 	f := newFixture(t, 1)
-	rec, err := f.runner.Start(tuneModelID, "Autoconfig", UseChat)
+	rec, err := f.runner.Start(tuneModelID, "Autoconfig", UseChat, DepthThorough)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -536,7 +536,7 @@ func TestRunnerCancelKeepsFinishedStages(t *testing.T) {
 	f.env.mu.Lock()
 	f.env.delay = 5 * time.Millisecond
 	f.env.mu.Unlock()
-	rec, err := f.runner.Start(tuneModelID, "Autoconfig", UseChat)
+	rec, err := f.runner.Start(tuneModelID, "Autoconfig", UseChat, DepthThorough)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -601,7 +601,7 @@ func TestRunnerSavesTheWinnerWhenTheStartingProfileCannotRun(t *testing.T) {
 	f := newFixture(t, 1)
 	startingProfileCannotRun(f)
 
-	rec, err := f.runner.Start(tuneModelID, "Autoconfig", UseChat)
+	rec, err := f.runner.Start(tuneModelID, "Autoconfig", UseChat, DepthThorough)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -658,7 +658,7 @@ func TestSaveUnsavedWinnersFinishesAnOlderRun(t *testing.T) {
 	f := newFixture(t, 1)
 	startingProfileCannotRun(f)
 
-	rec, err := f.runner.Start(tuneModelID, "Autoconfig", UseChat)
+	rec, err := f.runner.Start(tuneModelID, "Autoconfig", UseChat, DepthThorough)
 	if err != nil {
 		t.Fatal(err)
 	}

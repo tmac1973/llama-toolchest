@@ -53,6 +53,21 @@
             </label>
             {{end}}
         </fieldset>
+        <fieldset>
+            <legend title="How much of the space Autotune measures. Thorough is what it has always done; Quick measures the settings that usually decide the result.">How thorough?</legend>
+            <label title="Every batch size, flash attention where it can be turned off, three finalists carried from stage to stage, and the draft settings fine-tuned.">
+                <input type="radio" name="depth" value="thorough" checked
+                       hx-post="/api/models/{{$.ModelID}}/autotune/estimate"
+                       hx-include="closest form" hx-target="#autotune-estimate-{{cssID $.ModelID}}" hx-swap="innerHTML">
+                Thorough
+            </label>
+            <label title="Three batch sizes instead of five, flash attention left on, two finalists carried instead of three, and the recommended draft settings kept rather than fine-tuned. About half the time, and it finds most of the gain.">
+                <input type="radio" name="depth" value="quick"
+                       hx-post="/api/models/{{$.ModelID}}/autotune/estimate"
+                       hx-include="closest form" hx-target="#autotune-estimate-{{cssID $.ModelID}}" hx-swap="innerHTML">
+                Quick
+            </label>
+        </fieldset>
 
         <p id="autotune-estimate-{{cssID .ModelID}}">{{template "autotune_estimate" .}}</p>
 

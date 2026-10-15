@@ -57,9 +57,12 @@ var ErrBusy = errors.New("busy")
 const profileNamePrefix = "Autotune"
 
 // Start plans a run and begins it in the background.
-func (r *Runner) Start(modelID, profileName string, uc UseCase) (*Autotune, error) {
+func (r *Runner) Start(modelID, profileName string, uc UseCase, depth Depth) (*Autotune, error) {
 	if _, ok := Workloads[uc]; !ok {
 		return nil, fmt.Errorf("unknown use case %q", uc)
+	}
+	if depth != DepthQuick {
+		depth = DepthThorough
 	}
 	m, err := r.deps.Registry.Get(modelID)
 	if err != nil {
@@ -88,6 +91,7 @@ func (r *Runner) Start(modelID, profileName string, uc UseCase) (*Autotune, erro
 		ModelID:     modelID,
 		BaseProfile: profile.Name,
 		UseCase:     uc,
+		Depth:       depth,
 		BuildID:     buildID,
 		Status:      StatusPlanned,
 		CreatedAt:   time.Now().UTC(),
@@ -96,7 +100,7 @@ func (r *Runner) Start(modelID, profileName string, uc UseCase) (*Autotune, erro
 		return nil, err
 	}
 	slog.Info("autotune starting", "run", rec.ID, "model", modelID, "profile", profile.Name,
-		"use_case", uc, "model_name", m.PublicName())
+		"use_case", uc, "depth", depth, "model_name", m.PublicName())
 	if err := r.begin(rec); err != nil {
 		return nil, err
 	}
@@ -415,6 +419,7 @@ func (r *Runner) planInput(rec *Autotune) (PlanInput, error) {
 			return r.deps.Registry.FindDraftCandidates(rec.ModelID, mode)
 		},
 		Finalists: map[string][]Candidate{},
+		Quick:     rec.Depth == DepthQuick,
 	}
 	if r.deps.MoECache != nil {
 		in.MoECacheMiB = r.deps.MoECache(m, profile.Config)

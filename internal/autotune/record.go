@@ -28,6 +28,7 @@ const (
 // Stage keys, in the order they run.
 const (
 	StageBatch      = "batch"
+	StagePlacement  = "placement"
 	StageMoECache   = "moe-cache"
 	StageSpec       = "spec"
 	StageSpecParams = "spec-params"
@@ -38,11 +39,26 @@ const (
 // shows.
 var StageOrder = []struct{ Key, Title string }{
 	{StageBatch, "Batch sizes and attention"},
+	{StagePlacement, "GPU split and CPU threads"},
 	{StageMoECache, "Expert cache"},
 	{StageSpec, "Speculative decoding"},
 	{StageSpecParams, "Fine-tuning the draft settings"},
 	{StageConfirm, "Confirming the finalists"},
 }
+
+// Depth is how much of the space a run measures.
+type Depth string
+
+const (
+	// DepthThorough measures everything that applies, and carries three
+	// finalists from stage to stage. The default.
+	DepthThorough Depth = "thorough"
+	// DepthQuick measures fewer batch sizes and expert cache sizes,
+	// leaves flash attention on, carries two finalists, and does not
+	// fine-tune the draft settings: about half the time, for most of the
+	// gain.
+	DepthQuick Depth = "quick"
+)
 
 // StageTitle is a stage's title, or the key when it is unknown.
 func StageTitle(key string) string {
@@ -64,8 +80,11 @@ type Autotune struct {
 	// change what the model answers, and autotune only changes speed.
 	BaseProfile string  `json:"base_profile"`
 	UseCase     UseCase `json:"use_case"`
-	BuildID     string  `json:"build_id,omitempty"`
-	Status      string  `json:"status"`
+	// Depth is how thorough the run is; empty, in records written before
+	// it existed, is DepthThorough.
+	Depth   Depth  `json:"depth,omitempty"`
+	BuildID string `json:"build_id,omitempty"`
+	Status  string `json:"status"`
 
 	Stages []StageRecord `json:"stages,omitempty"`
 	// Skipped lists what could not be measured and why, in plain
