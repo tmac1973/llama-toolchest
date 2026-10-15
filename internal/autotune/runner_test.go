@@ -714,3 +714,45 @@ func TestSaveUnsavedWinnersLeavesADeliberateNoChangeAlone(t *testing.T) {
 		t.Error("a run whose starting profile was already the fastest was picked for saving")
 	}
 }
+
+// A stage's job stopped from outside Autotune — from the Benchmarks page,
+// or by the server shutting down for an upgrade — leaves the run stopped
+// and resumable, not failed with "context canceled".
+func TestRunnerTreatsAJobCancelledElsewhereAsAStop(t *testing.T) {
+	f := newFixture(t, 1)
+	f.env.mu.Lock()
+	f.env.delay = 5 * time.Millisecond
+	f.env.mu.Unlock()
+	rec, err := f.runner.Start(tuneModelID, "Autoconfig", UseChat, DepthThorough)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var jobID string
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) && jobID == "" {
+		cur, _ := f.store.Get(rec.ID)
+		if st, ok := cur.Stage(StageBatch); ok {
+			jobID = st.JobID
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if jobID == "" {
+		t.Fatal("the first stage never started")
+	}
+	if err := f.runner.deps.Jobs.Cancel(jobID); err != nil {
+		t.Fatalf("cancelling the stage's job: %v", err)
+	}
+	f.env.mu.Lock()
+	f.env.delay = 0
+	f.env.mu.Unlock()
+	done := f.waitForRun(t, rec.ID)
+	if done.Status != StatusCancelled || done.Error != "" {
+		t.Fatalf("status = %s, error = %q; want a stop, resumable", done.Status, done.Error)
+	}
+	if _, err := f.runner.Resume(done.ID); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	if final := f.waitForRun(t, done.ID); final.Status != StatusDone {
+		t.Fatalf("resumed status = %s (%s)", final.Status, final.Error)
+	}
+}

@@ -238,7 +238,11 @@ func (r *Runner) run(ctx context.Context, rec *Autotune) {
 			continue
 		}
 		if err := r.runStage(ctx, rec, stage.Key); err != nil {
-			if ctx.Err() != nil {
+			// A stage's job can be stopped from outside Autotune too — from
+			// the Benchmarks page, or by the server shutting down for an
+			// upgrade. That is a stop, not a failure: what was measured is
+			// kept and the run can be continued, the same as Cancel here.
+			if ctx.Err() != nil || errors.Is(err, context.Canceled) {
 				rec.Status = StatusCancelled
 				slog.Info("autotune cancelled", "run", rec.ID, "stage", stage.Key)
 			} else {
