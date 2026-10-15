@@ -147,7 +147,16 @@ func (s *Server) autotuneEstimate(id, profileName string, uc autotune.UseCase) (
 		Finalists:   map[string][]autotune.Candidate{},
 		MoECacheMiB: s.autotuneMoECache(m, profile.Config),
 	}
-	cells, minutes = autotune.EstimateRun(in, uc, models.BytesToGiB(m.SizeBytes), 0)
+	// How long a cell takes on this machine, from the runs it has done;
+	// the guess by size only when it has done none.
+	size := models.BytesToGiB(m.SizeBytes)
+	perCell := autotune.CellSecondsFromHistory(s.tuneStore.List(), id, size, func(other string) float64 {
+		if om, err := s.registry.Get(other); err == nil {
+			return models.BytesToGiB(om.SizeBytes)
+		}
+		return 0
+	})
+	cells, minutes = autotune.EstimateRun(in, uc, size, perCell)
 	_, _, skipped = autotune.PlanStage(autotune.StageSpec, in)
 	return cells, minutes, skipped
 }

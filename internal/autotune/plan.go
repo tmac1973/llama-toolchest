@@ -219,7 +219,23 @@ func batchFinalists(in PlanInput) string {
 // the point — a draft method and an assist draft from different things,
 // and together they often beat either alone.
 func planSpec(in PlanInput) ([]map[string]string, []string) {
-	drafts, skipped := draftOptions(in)
+	_, skipped := draftOptions(in)
+	values := specValues(in)
+
+	var cells []map[string]string
+	for _, carried := range carryForward(in, batchFinalists(in)) {
+		for _, v := range values {
+			cells = append(cells, withValue(carried, "spec_type", v))
+		}
+	}
+	return cells, skipped
+}
+
+// specValues are the speculative decoding settings the speculative stage
+// measures on each finalist: none, each draft method, each assist, and
+// each pair of the two.
+func specValues(in PlanInput) []string {
+	drafts, _ := draftOptions(in)
 	assists := []string{}
 	for _, m := range models.AssistModes() {
 		assists = append(assists, m.Name)
@@ -244,14 +260,7 @@ func planSpec(in PlanInput) ([]map[string]string, []string) {
 			values = append(values, benchmark.EncodeSpecValue(d.mode, a, params))
 		}
 	}
-
-	var cells []map[string]string
-	for _, carried := range carryForward(in, batchFinalists(in)) {
-		for _, v := range values {
-			cells = append(cells, withValue(carried, "spec_type", v))
-		}
-	}
-	return cells, skipped
+	return values
 }
 
 // draftOption is one draft method this machine can run, with the settings
@@ -735,31 +744,71 @@ func BuildStageJob(rec *Autotune, stageKey string, in StageJobInput) benchmark.B
 	return job
 }
 
-// Estimating how long a stage takes. Both numbers are rough by nature —
-// a first load reads the model from disk, a second reads it from the page
-// cache — so they are deliberately on the slow side: a run that finishes
-// early is a better surprise than one that does not.
+// Estimating how long a cell takes when nothing has been measured on
+// this machine yet. A cell reloads the model and measures one preset; after
+// the first, the load reads the file from the page cache, not the disk.
+// On compute2 (3x RTX A4000) a 20 GiB mixture-of-experts model took 23
+// seconds a cell, 35 for the first. These give it 40: on the slow side,
+// for slower disks and dense models that generate more slowly, but not so
+// far that the number stops meaning anything — the old 4 s/GiB + 45 s said
+// 125 and a run quoted at six hours took half of one.
 const (
 	// loadSecondsPerGiB is the model load a cell pays when the router
 	// restarts for it.
-	loadSecondsPerGiB = 4.0
-	minLoadSeconds    = 20.0
+	loadSecondsPerGiB = 1.0
+	minLoadSeconds    = 5.0
 	// presetSeconds is one preset's measurements: a few repetitions at
 	// each prompt size.
-	presetSeconds = 45.0
+	presetSeconds = 20.0
 )
+
+// defaultCellSeconds is the time a cell is guessed to take for a model of
+// sizeGiB on a machine with no history.
+func defaultCellSeconds(sizeGiB float64) float64 {
+	return max(minLoadSeconds, sizeGiB*loadSecondsPerGiB) + presetSeconds
+}
+
+// CellSecondsFromHistory is the time a cell takes for modelID, from the
+// runs this machine has already done: the model's own most recent
+// measurement when there is one; otherwise the default for its size,
+// scaled by how far the default was off for the models measured here —
+// which carries this machine's disk and GPUs over to a model it has not
+// run. sizeOf gives a model's size in GiB, or 0 for one no longer
+// installed. 0 means nothing has been measured, and the default stands.
+func CellSecondsFromHistory(recs []*Autotune, modelID string, sizeGiB float64, sizeOf func(id string) float64) float64 {
+	var latest *Autotune
+	var ratios []float64
+	for _, r := range recs {
+		if r.SecondsPerCell <= 0 {
+			continue
+		}
+		if r.ModelID == modelID {
+			if latest == nil || r.CreatedAt.After(latest.CreatedAt) {
+				latest = r
+			}
+			continue
+		}
+		if size := sizeOf(r.ModelID); size > 0 {
+			ratios = append(ratios, r.SecondsPerCell/defaultCellSeconds(size))
+		}
+	}
+	if latest != nil {
+		return latest.SecondsPerCell
+	}
+	if len(ratios) == 0 {
+		return 0
+	}
+	sort.Float64s(ratios)
+	return ratios[len(ratios)/2] * defaultCellSeconds(sizeGiB)
+}
 
 // EstimateMinutes is how long a number of job cells takes for a model of
 // sizeGiB: each cell loads the model and measures one preset.
-// secondsPerCell, once a stage has measured one, replaces the estimate.
+// secondsPerCell, when one has been measured, replaces the guess.
 func EstimateMinutes(cells int, sizeGiB, secondsPerCell float64) int {
 	per := secondsPerCell
 	if per <= 0 {
-		load := sizeGiB * loadSecondsPerGiB
-		if load < minLoadSeconds {
-			load = minLoadSeconds
-		}
-		per = load + presetSeconds
+		per = defaultCellSeconds(sizeGiB)
 	}
 	minutes := int((float64(cells)*per)/60 + 0.5)
 	if minutes < 1 && cells > 0 {
@@ -786,19 +835,25 @@ func EstimateRun(in PlanInput, uc UseCase, sizeGiB, secondsPerCell float64) (cel
 	// Both middle stages build on the finalists of the one before, up to
 	// carryLimit of them, so the estimate has to allow for that fan-out
 	// or it would promise less than the run does.
-	drafts, _ := draftOptions(in)
-	assists := len(models.AssistModes())
-	spec := (1 + len(drafts) + assists + len(drafts)*assists) * carryLimit
+	values := specValues(in)
+	spec := len(values) * carryLimit
 	if spec > maxCells {
 		spec = maxCells
 	}
 	cells += spec
 
-	params := specParamsPerFinalist * carryLimit
-	if params > maxCells {
-		params = maxCells
+	// The draft-settings stage tunes each speculative finalist, and how
+	// many settings that is depends on the method — an assist alone has
+	// a handful, a draft method crossed with an assist up to the cap. The
+	// most any single option produces, for each finalist carried, is a
+	// bound that does not assume every finalist reaches the cap.
+	most := 0
+	for _, v := range values {
+		probe := in
+		probe.Finalists = map[string][]Candidate{StageSpec: {{Values: map[string]string{"spec_type": v}}}}
+		most = max(most, len(planSpecParams(probe)))
 	}
-	cells += params
+	cells += min(most*carryLimit, maxCells)
 	cells += confirmCells
 
 	// One cell runs one preset, so a workload with two presets has twice
