@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.39.1](https://github.com/tmac1973/llama-toolchest/compare/v2.39.0...v2.39.1) (2026-10-15)
+
+
+### Bug Fixes
+
+* **autoconfig:** turn off a draft file that cannot serve its draft method ([#286](https://github.com/tmac1973/llama-toolchest/issues/286)) ([3850018](https://github.com/tmac1973/llama-toolchest/commit/3850018a585f64fbc0e3418018fbe21ec919b000))
+
 ## [2.39.0](https://github.com/tmac1973/llama-toolchest/compare/v2.38.0...v2.39.0) (2026-10-15)
 
 
