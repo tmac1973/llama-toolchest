@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.42.0](https://github.com/tmac1973/llama-toolchest/compare/v2.41.1...v2.42.0) (2026-10-15)
+
+
+### Features
+
+* **autotune:** show what the profile measured when it is already the fastest ([#300](https://github.com/tmac1973/llama-toolchest/issues/300)) ([4ac952e](https://github.com/tmac1973/llama-toolchest/commit/4ac952e14ff0d5f1633eb69ad44842229cf46a1d))
+
 ## [2.41.1](https://github.com/tmac1973/llama-toolchest/compare/v2.41.0...v2.41.1) (2026-10-15)
 
 
