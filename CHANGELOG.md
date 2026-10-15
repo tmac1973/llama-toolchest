@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.38.0](https://github.com/tmac1973/llama-toolchest/compare/v2.37.1...v2.38.0) (2026-10-15)
+
+
+### Features
+
+* **moe:** add the MoE expert cache (--moe-cache-mib), with an Autotune stage to size it ([#280](https://github.com/tmac1973/llama-toolchest/issues/280)) ([3775ac9](https://github.com/tmac1973/llama-toolchest/commit/3775ac9a905aa7386c2abb269fc326a193aa92f9))
+* **spec:** add draft sampling (--spec-draft-sampling) and the draft micro-batch (--spec-draft-n-ubatch) ([#281](https://github.com/tmac1973/llama-toolchest/issues/281)) ([4ea849f](https://github.com/tmac1973/llama-toolchest/commit/4ea849fe80c61d3c3f44e501f42ffb1e09665e05))
+* **spec:** recognise LiliCorr draft heads, and match heads by their metadata ([#278](https://github.com/tmac1973/llama-toolchest/issues/278)) ([44049ca](https://github.com/tmac1973/llama-toolchest/commit/44049ca42359c8d336550630dc9093539e71c909))
+
+
+### Bug Fixes
+
+* **autoconfig:** only propose a draft head whose file is named for the method ([#276](https://github.com/tmac1973/llama-toolchest/issues/276)) ([8ee7c18](https://github.com/tmac1973/llama-toolchest/commit/8ee7c1872e898df909a8fc50fd83fb99cd43eaf6))
+* **memreport:** see the router's prefixed ready line, so a load's end is recorded ([#279](https://github.com/tmac1973/llama-toolchest/issues/279)) ([bd79527](https://github.com/tmac1973/llama-toolchest/commit/bd79527adc1cfb38e52b17155032d4e5dfb3a77c))
+
 ## [2.37.1](https://github.com/tmac1973/llama-toolchest/compare/v2.37.0...v2.37.1) (2026-10-15)
 
 
