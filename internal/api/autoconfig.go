@@ -79,6 +79,9 @@ func (s *Server) hardware() models.Hardware {
 	}
 	m := s.monitor.Current()
 	hw := models.Hardware{LogicalCores: m.CPU.Cores, RAMTotalMiB: m.Memory.TotalMB}
+	if s.builder != nil {
+		hw.Build = buildTarget(s.resolveActiveBuild())
+	}
 	other := s.otherVRAMMiB()
 	for i, g := range m.GPU {
 		spec := models.GPUSpec{Index: g.Index, Name: g.Name, VRAMTotalMiB: g.VRAMTotalMB, IsIGPU: g.IsIGPU}
@@ -608,6 +611,9 @@ var reviewFields = []reviewField{
 		return strconv.Itoa(c.GPULayers)
 	}},
 	{"cpu_moe", "CPU expert layers", func(c *models.ModelConfig) string { return showInt("none", c.CPUMoE) }},
+	{"draft_ubatch_size", "Draft micro-batch", func(c *models.ModelConfig) string {
+		return showInt("same as the model's", c.DraftUBatchSize)
+	}},
 	{"moe_cache_mib", "MoE cache", func(c *models.ModelConfig) string {
 		if c.MoECacheMiB <= 0 {
 			return "off"

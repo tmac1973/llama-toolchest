@@ -33,6 +33,7 @@ var plannedFields = map[string]string{
 	"ContextSize": "context_size", "KVCacheQuant": "kv_cache_quant", "CPUMoE": "cpu_moe",
 	"GPULayers": "gpu_layers", "GPUAssign": "gpu_assign", "FlashAttention": "flash_attention",
 	"UBatchSize": "ubatch_size", "Parallel": "parallel", "Threads": "threads",
+	"DraftUBatchSize": "draft_ubatch_size", "MoECacheMiB": "moe_cache_mib",
 }
 
 // assertOneNotePerChange checks that every setting the plan changed has
@@ -282,5 +283,57 @@ func TestPlanLeavesOtherProgramsTheirMemory(t *testing.T) {
 
 	if got := GPUMiB(busy); got[0] != 16304-6*1024 {
 		t.Errorf("GPUMiB = %v, want the card less what others hold", got)
+	}
+}
+
+// A drafter's micro-batch of its own is set only where it is what makes
+// a setting fit: never when the plan fits without it, never for a build
+// without the option, and on some machine it buys a longer context than
+// the plan could otherwise keep.
+func TestPlanFitGivesTheDrafterASmallMicroBatchOnlyWhenNeeded(t *testing.T) {
+	base := defaultBase()
+	base.SpecType = "draft-mtp"
+	old := Target{Version: versionDraftUBatch - 1}
+
+	helped := false
+	for mib := 8 * 1024; mib <= 24*1024; mib += 128 {
+		hw := oneGPU(mib)
+		r := PlanFit(dense8B, base, hw, ContextMax)
+		assertOneNotePerChange(t, base, r)
+
+		hwOld := hw
+		hwOld.Build = old
+		without := PlanFit(dense8B, base, hwOld, ContextMax)
+		if without.Config.DraftUBatchSize != 0 {
+			t.Fatalf("%d MiB: a build without --spec-draft-n-ubatch was planned with one", mib)
+		}
+		if r.Config.DraftUBatchSize == 0 {
+			if !reflect.DeepEqual(r.Config, without.Config) {
+				t.Errorf("%d MiB: the plans differ though neither uses a draft micro-batch", mib)
+			}
+			continue
+		}
+		if r.Config.DraftUBatchSize != planDraftUBatch {
+			t.Errorf("%d MiB: draft micro-batch %d, want %d", mib, r.Config.DraftUBatchSize, planDraftUBatch)
+		}
+		// It was needed: the same settings without it do not fit.
+		c := r.Config
+		c.DraftUBatchSize = 0
+		if b := VRAMBreakdownForConfigOn(dense8B, &c, 1); b.Total() <= r.BudgetGiB {
+			t.Errorf("%d MiB: a draft micro-batch was set where the plan fits without one", mib)
+		}
+		if r.Config.ContextSize > without.Config.ContextSize ||
+			(r.Config.KVCacheQuant == "" && without.Config.KVCacheQuant != "") {
+			helped = true
+		}
+	}
+	if !helped {
+		t.Error("no machine where the small draft micro-batch kept more context or a full-precision cache")
+	}
+
+	// No drafter, no draft micro-batch.
+	r := PlanFit(dense8B, defaultBase(), oneGPU(9*1024), ContextMax)
+	if r.Config.DraftUBatchSize != 0 {
+		t.Errorf("a plan without speculative decoding set a draft micro-batch of %d", r.Config.DraftUBatchSize)
 	}
 }

@@ -60,6 +60,9 @@ type Hardware struct {
 	GPUs         []GPUSpec
 	LogicalCores int
 	RAMTotalMiB  int // 0 = unknown, and the system-memory check is skipped
+	// Build is the llama.cpp build the plan is for. It decides which
+	// options a plan may use; the zero value is current llama.cpp.
+	Build Target
 }
 
 // FitResult is what PlanFit proposes.
@@ -144,6 +147,10 @@ func PlanFit(m *Model, base ModelConfig, hw Hardware, class ContextClass) FitRes
 	// The MoE cache spends whatever GPU memory is left over, which is
 	// exactly what the plan is deciding. Autotune measures it afterwards.
 	cfg.MoECacheMiB = 0
+	// The drafter's micro-batch is memory too: the plan sets one only
+	// where it is what makes a setting fit.
+	cfg.DraftUBatchSize = 0
+	smallDraftUBatch := IsDraftMode(cfg.SpecType) && hw.Build.DraftUBatchOption()
 	if cfg.Parallel > 1 {
 		cfg.Parallel = 0
 		cfg.SharedContext, cfg.ContextPerSlot = false, 0
@@ -159,6 +166,16 @@ func PlanFit(m *Model, base ModelConfig, hw Hardware, class ContextClass) FitRes
 		c := cfg
 		c.ContextSize, c.KVCacheQuant, c.GPULayers, c.CPUMoE = ctx, kv, gpuLayers, cpuMoE
 		b, ok := fits(&c)
+		last, lastB = c, b
+		if ok || !smallDraftUBatch {
+			return ok
+		}
+		// Before giving up anything the model itself uses — context, cache
+		// precision, layers on the GPU — try the drafter with a small
+		// micro-batch of its own. It drafts a few tokens a step, so only
+		// reading a prompt through it gets slower, and slightly.
+		c.DraftUBatchSize = planDraftUBatch
+		b, ok = fits(&c)
 		last, lastB = c, b
 		return ok
 	}
@@ -222,6 +239,13 @@ func spanAllOption(gpus []GPUSpec) *GPUOption {
 	}
 	return nil
 }
+
+// planDraftUBatch is the drafter micro-batch PlanFit sets when it needs
+// the memory. A drafter is fed the tokens it drafts, a handful per step,
+// but also every prompt, which it reads in chunks of this size: 128 keeps
+// a quarter of the default 512's compute buffer without making a long
+// prompt a thousand small steps.
+const planDraftUBatch = 128
 
 // fitsOn reports whether c fits the budgets PlanFit plans against.
 func fitsOn(m *Model, c *ModelConfig, nCards int, budget, ramBudget float64, gpuMiB []int) (VRAMBreakdown, bool) {
@@ -335,6 +359,13 @@ func finishFit(m *Model, base, cfg ModelConfig, b VRAMBreakdown, budget float64,
 			note("cpu_moe", fmt.Sprintf("Keeps the expert weights of the first %d layers in system memory so the model fits. Each token uses only a few experts, so this costs less speed than moving whole layers.", cfg.CPUMoE))
 		} else {
 			note("cpu_moe", "All expert weights fit on the GPU, so none are kept in system memory.")
+		}
+	}
+	if cfg.DraftUBatchSize != base.DraftUBatchSize {
+		if cfg.DraftUBatchSize > 0 {
+			note("draft_ubatch_size", fmt.Sprintf("Gives the speculative drafter a micro-batch of %d tokens of its own, instead of the model's, so these settings fit. The drafter only drafts a few tokens per step, so generation is as fast as before; reading a long prompt takes slightly longer.", cfg.DraftUBatchSize))
+		} else {
+			note("draft_ubatch_size", "The speculative drafter uses the model's micro-batch again: these settings fit without a smaller one.")
 		}
 	}
 	if cfg.MoECacheMiB != base.MoECacheMiB {
