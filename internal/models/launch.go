@@ -55,6 +55,11 @@ const (
 	// versionContextPerSlot is b10662 (#24124), which added
 	// --kv-unified-per-slot.
 	versionContextPerSlot = 10662
+	// versionMoECache is b11507 (#30112). --moe-cache-mib arrived at
+	// b11480 (#29887) caching on one GPU only; from b11507 it is split
+	// over the GPUs that hold the cached layers, which is what the memory
+	// estimate assumes, so it is written from there.
+	versionMoECache = 11507
 )
 
 // newest reports whether the target is to be written for as current
@@ -92,6 +97,12 @@ func (t Target) DirectIOFlags() []string {
 // contextPerSlotOption reports whether the build takes
 // --kv-unified-per-slot.
 func (t Target) contextPerSlotOption() bool { return t.newest(versionContextPerSlot) }
+
+// moeCacheOption reports whether the build takes --moe-cache-mib.
+func (t Target) moeCacheOption() bool { return t.newest(versionMoECache) }
+
+// MoECacheOption is moeCacheOption for the config form and Autotune.
+func (t Target) MoECacheOption() bool { return t.moeCacheOption() }
 
 // ContextPerSlotOption is contextPerSlotOption for the config form.
 func (t Target) ContextPerSlotOption() bool { return t.contextPerSlotOption() }

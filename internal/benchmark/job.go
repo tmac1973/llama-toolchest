@@ -160,6 +160,7 @@ type ConfigOverrides struct {
 	BatchSize      *int    `json:"batch_size,omitempty"`
 	UBatchSize     *int    `json:"ubatch_size,omitempty"`
 	CPUMoE         *int    `json:"cpu_moe,omitempty"`
+	MoECacheMiB    *int    `json:"moe_cache_mib,omitempty"`
 	SplitMode      *string `json:"split_mode,omitempty"`
 	FlashAttention *bool   `json:"flash_attention,omitempty"`
 	KVCacheQuant   *string `json:"kv_cache_quant,omitempty"`

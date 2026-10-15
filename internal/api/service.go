@@ -701,6 +701,9 @@ type modelConfigPanelData struct {
 	// models only); NLayers bounds it.
 	HasExperts bool
 	NLayers    int
+	// MoECacheNote says why the MoE cache setting is not used: a build
+	// too old for it. Empty when it is.
+	MoECacheNote string
 	// CPURAMLabel says how much of the weights stay in system memory with
 	// these settings, or is empty when everything is on the GPU.
 	CPURAMLabel string
@@ -876,6 +879,9 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 	if model != nil && !isEmbedding {
 		data.ContextLayoutText, data.ContextLayoutWarning = contextLayoutText(cfg, model.ContextLength, s.activeTarget())
 	}
+	if data.HasExperts && !s.activeTarget().MoECacheOption() {
+		data.MoECacheNote = "The active llama.cpp build is older than b11507 and does not have this setting, so it is not used."
+	}
 	if data.HasReasoning {
 		t := s.activeTarget()
 		data.ReasoningPreserveDefault = "drop"
@@ -942,6 +948,7 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		cfg.BatchSize, _ = strconv.Atoi(r.FormValue("batch_size"))
 		cfg.UBatchSize, _ = strconv.Atoi(r.FormValue("ubatch_size"))
 		cfg.CPUMoE, _ = strconv.Atoi(r.FormValue("cpu_moe"))
+		cfg.MoECacheMiB, _ = strconv.Atoi(r.FormValue("moe_cache_mib"))
 		cfg.Threads, _ = strconv.Atoi(r.FormValue("threads"))
 		cfg.FlashAttention = r.FormValue("flash_attention") == "on"
 		cfg.Jinja = r.FormValue("jinja") == "on"
@@ -1058,6 +1065,10 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 	// clamp or fail at model load, where the cause is far less obvious.
 	if cfg.CPUMoE < 0 {
 		http.Error(w, "CPU expert layers cannot be negative", http.StatusBadRequest)
+		return
+	}
+	if cfg.MoECacheMiB < 0 {
+		http.Error(w, "The MoE cache size cannot be negative", http.StatusBadRequest)
 		return
 	}
 	if m, err := s.registry.Get(id); err == nil && m.NLayers > 0 && cfg.CPUMoE > m.NLayers {

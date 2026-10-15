@@ -204,6 +204,8 @@ type SnapshotSubset struct {
 //     deterministic scoring.
 //   - DraftCtxSize, DraftGPULayers, DraftKVCacheQuant: the draft model's
 //     resources; there is no drafter in an evaluation.
+//   - MoECacheMiB: a GPU cache of experts already in system memory. It
+//     changes how fast they are read, never what is computed.
 //   - ProfileName, ProfileEdited: labels, not settings.
 //   - sampling, mmproj, context-shift (ModelConfig fields the snapshot
 //     never carries): irrelevant to or incompatible with single-stream

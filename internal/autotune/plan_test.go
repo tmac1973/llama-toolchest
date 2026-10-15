@@ -241,7 +241,7 @@ func TestBuildStageJob(t *testing.T) {
 	if len(job.Cells) != len(cells)*2 {
 		t.Errorf("cells = %d, want one per settings per preset (%d)", len(job.Cells), len(cells)*2)
 	}
-	if !strings.Contains(job.Name, "stage 1 of 4") || !strings.Contains(job.Name, "Qwen3.5-9B") {
+	if !strings.Contains(job.Name, "stage 1 of 5") || !strings.Contains(job.Name, "Qwen3.5-9B") {
 		t.Errorf("job name = %q", job.Name)
 	}
 	if len(job.Cells[0].SweepValues) != 0 {
@@ -449,6 +449,62 @@ func TestPlanSpecMeasuresADraftModelWithTheModelsCacheType(t *testing.T) {
 	for v := range values(cells, "spec_type") {
 		if strings.Contains(v, "draft_cache=") {
 			t.Errorf("the profile's own draft cache setting was overridden: %q", v)
+		}
+	}
+}
+
+// The expert-cache stage measures each batch finalist with the cache off
+// and at a quarter, a half and all of the room left, and the speculative
+// stage builds on its finalists.
+func TestPlanMoECacheStage(t *testing.T) {
+	in := baseInput()
+	if cells, _, _ := PlanStage(StageMoECache, in); len(cells) != 0 {
+		t.Errorf("no room for a cache: %v, want nothing to measure", cells)
+	}
+
+	in.MoECacheMiB = 4096
+	in.Finalists[StageBatch] = []Candidate{
+		{Values: map[string]string{"ubatch_size": "512"}},
+		{Values: map[string]string{"ubatch_size": "1024"}},
+	}
+	cells, _, _ := PlanStage(StageMoECache, in)
+	if len(cells) != 8 {
+		t.Fatalf("cells = %d, want 2 finalists x 4 sizes: %v", len(cells), cells)
+	}
+	if got := values(cells, "moe_cache_mib"); len(got) != 4 || !got["0"] || !got["1024"] || !got["2048"] || !got["4096"] {
+		t.Errorf("sizes = %v, want 0, 1024, 2048 and 4096", got)
+	}
+	if got := values(cells, "ubatch_size"); !got["512"] || !got["1024"] {
+		t.Errorf("the batch finalists are not carried: %v", got)
+	}
+
+	in.Finalists[StageMoECache] = []Candidate{{Values: map[string]string{"ubatch_size": "512", "moe_cache_mib": "2048"}}}
+	spec, _, _ := PlanStage(StageSpec, in)
+	if got := values(spec, "moe_cache_mib"); len(got) != 1 || !got["2048"] {
+		t.Errorf("speculative stage cache sizes = %v, want the cache stage's finalist", got)
+	}
+}
+
+func TestMoECacheSizes(t *testing.T) {
+	for _, tc := range []struct {
+		room int
+		want []int
+	}{
+		{0, nil},
+		{512, []int{256, 512}},
+		{768, []int{256, 768}},
+		{10000, []int{2304, 4864, 9984}},
+	} {
+		got := moeCacheSizes(tc.room)
+		if len(got) != len(tc.want) {
+			t.Errorf("moeCacheSizes(%d) = %v, want %v", tc.room, got, tc.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("moeCacheSizes(%d) = %v, want %v", tc.room, got, tc.want)
+				break
+			}
 		}
 	}
 }

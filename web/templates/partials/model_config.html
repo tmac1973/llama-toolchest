@@ -80,6 +80,12 @@
                    min="0" max="{{.NLayers}}" placeholder="0 = all on GPU">
             <small>Effective: {{if gt .Config.CPUMoE 0}}<code>--n-cpu-moe {{.Config.CPUMoE}}</code>{{else}}not set (all experts on the GPU){{end}}</small>
         </label>
+        <label title="Mixture-of-experts models with CPU expert layers only. Keeps the most recently used of those experts in a GPU cache of this many MiB, so a token whose experts are cached does not read them from system memory. Uses GPU memory left over after the model; Autotune measures which size helps. 0 turns it off.">
+            MoE Cache (MiB)
+            <input type="number" name="moe_cache_mib" value="{{if gt .Config.MoECacheMiB 0}}{{.Config.MoECacheMiB}}{{end}}"
+                   min="0" step="256" placeholder="0 = off">
+            <small>{{if .MoECacheNote}}{{.MoECacheNote}}{{else if and (gt .Config.MoECacheMiB 0) (gt .Config.CPUMoE 0)}}Effective: <code>--moe-cache-mib {{.Config.MoECacheMiB}}</code>{{else if gt .Config.MoECacheMiB 0}}Not used: no expert layers are kept in system memory.{{else}}not set (off){{end}}</small>
+        </label>
         {{end}}
         {{if not .IsEmbedding}}
         {{$cs := .Config.ContextSize}}

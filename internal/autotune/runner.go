@@ -28,6 +28,10 @@ type Deps struct {
 	// logical cores, which decide whether some settings are worth
 	// measuring at all.
 	Hardware func() (cards, cores int)
+	// MoECache is the largest MoE cache, in MiB, that fits beside a
+	// profile on this machine with the active build (PlanInput.MoECacheMiB);
+	// nil or 0 skips the expert-cache stage.
+	MoECache func(m *models.Model, base models.ModelConfig) int
 	// Busy returns a plain-language reason the GPU cannot be used now, or
 	// "" — a benchmark job, or an autoconfigure run.
 	Busy func() string
@@ -224,6 +228,11 @@ func (r *Runner) run(ctx context.Context, rec *Autotune) {
 		if st, ok := rec.Stage(stage.Key); ok && st.Status == StatusDone {
 			continue // already measured, on an earlier attempt
 		}
+		if laterStageDone(rec, stage.Key) {
+			// A stage added since the run started: what came after it
+			// was measured without it, and is kept as it is.
+			continue
+		}
 		if err := r.runStage(ctx, rec, stage.Key); err != nil {
 			if ctx.Err() != nil {
 				rec.Status = StatusCancelled
@@ -359,6 +368,22 @@ func cellKey(c benchmark.JobCell) string {
 	return c.ModelID + "\x00" + c.BuildID + "\x00" + c.Preset + "\x00" + Candidate{Values: c.SweepValues}.Key()
 }
 
+// laterStageDone reports whether a stage after key has already finished.
+func laterStageDone(rec *Autotune, key string) bool {
+	after := false
+	for _, s := range StageOrder {
+		if after {
+			if st, ok := rec.Stage(s.Key); ok && st.Status == StatusDone {
+				return true
+			}
+		}
+		if s.Key == key {
+			after = true
+		}
+	}
+	return false
+}
+
 func previousStage(key string) string {
 	prev := ""
 	for _, s := range StageOrder {
@@ -390,6 +415,9 @@ func (r *Runner) planInput(rec *Autotune) (PlanInput, error) {
 			return r.deps.Registry.FindDraftCandidates(rec.ModelID, mode)
 		},
 		Finalists: map[string][]Candidate{},
+	}
+	if r.deps.MoECache != nil {
+		in.MoECacheMiB = r.deps.MoECache(m, profile.Config)
 	}
 	for _, s := range rec.Stages {
 		in.Finalists[s.Key] = s.Finalists

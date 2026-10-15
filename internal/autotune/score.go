@@ -468,6 +468,11 @@ func DescribeValue(field, value string) string {
 		return value + " threads"
 	case "cpu_moe":
 		return value + " expert layers on the CPU"
+	case "moe_cache_mib":
+		if value == "0" {
+			return "no expert cache"
+		}
+		return value + " MiB expert cache"
 	case "spec_type":
 		return describeSpec(value)
 	}

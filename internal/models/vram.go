@@ -360,7 +360,11 @@ type VRAMBreakdown struct {
 	IndexerCache   float64
 	Compute        float64
 	IndexerScratch float64
-	Overhead       float64
+	// MoECache is the GPU cache of experts kept in system memory
+	// (--moe-cache-mib). llama.cpp reports it on a line of its own rather
+	// than as a buffer, so it is not part of Reported.
+	MoECache float64
+	Overhead float64
 
 	// CPURAM is not part of the GPU total: it is what the config keeps in
 	// system memory instead — the weights and KV cache of layers left off
@@ -371,12 +375,12 @@ type VRAMBreakdown struct {
 
 // Total is the figure the UI shows.
 func (b VRAMBreakdown) Total() float64 {
-	return b.Weights + b.Aux + b.KVCache + b.SpecKV + b.Recurrent + b.IndexerCache + b.Compute + b.IndexerScratch + b.Overhead
+	return b.Weights + b.Aux + b.KVCache + b.SpecKV + b.Recurrent + b.IndexerCache + b.Compute + b.IndexerScratch + b.MoECache + b.Overhead
 }
 
 // Reported is the part of the estimate llama.cpp itemises while loading,
 // which is what a measured buffer report can be compared against.
-func (b VRAMBreakdown) Reported() float64 { return b.Total() - b.Overhead }
+func (b VRAMBreakdown) Reported() float64 { return b.Total() - b.Overhead - b.MoECache }
 
 // VRAMEstimateForConfigOn estimates VRAM for a model spread over devices
 // cards. The count matters because graph scratch and driver overhead are
@@ -499,6 +503,7 @@ func vramBreakdownWith(co *vramCoefficients, m *Model, cfg *ModelConfig, cards i
 		}
 	}
 
+	b.MoECache = BytesToGiB(MoECacheBytes(m, cfg))
 	b.Aux = AuxFilesVRAMGB(cfg)
 	b.Overhead = co.overheadFirst + float64(cards-1)*co.overheadExtra
 	return b
@@ -575,19 +580,7 @@ func CPUWeightBytes(m *Model, cfg *ModelConfig) int64 {
 		return 0
 	}
 	var moved int64
-
-	// --n-cpu-moe N counts layers from 0, dense leading layers included,
-	// so only the part of that range that carries experts moves.
-	var expertMoved int64
-	if cfg.CPUMoE > 0 && m.ExpertBytes > 0 && m.ExpertLayers > 0 {
-		n := cfg.CPUMoE - m.ExpertLayerFirst
-		if n > m.ExpertLayers {
-			n = m.ExpertLayers
-		}
-		if n > 0 {
-			expertMoved = m.ExpertBytes / int64(m.ExpertLayers) * int64(n)
-		}
-	}
+	expertMoved := cpuExpertBytes(m, cfg)
 	moved += expertMoved
 
 	// gpu_layers counts from the top: llama.cpp offloads the last N
@@ -603,6 +596,36 @@ func CPUWeightBytes(m *Model, cfg *ModelConfig) int64 {
 		}
 	}
 	return moved
+}
+
+// cpuExpertLayers is how many layers --n-cpu-moe leaves with their
+// experts in system memory. It counts layers from 0, dense leading layers
+// included, so only the part of that range that carries experts counts.
+func cpuExpertLayers(m *Model, cfg *ModelConfig) int {
+	if cfg.CPUMoE <= 0 || m.ExpertBytes <= 0 || m.ExpertLayers <= 0 {
+		return 0
+	}
+	return max(0, min(cfg.CPUMoE-m.ExpertLayerFirst, m.ExpertLayers))
+}
+
+// cpuExpertBytes is the size of the expert weights --n-cpu-moe keeps in
+// system memory.
+func cpuExpertBytes(m *Model, cfg *ModelConfig) int64 {
+	n := cpuExpertLayers(m, cfg)
+	if n == 0 {
+		return 0
+	}
+	return m.ExpertBytes / int64(m.ExpertLayers) * int64(n)
+}
+
+// MoECacheBytes is the GPU memory the MoE cache takes: the size asked for,
+// but no more than the experts it caches, since llama.cpp stops adding
+// slots once every one of them has one.
+func MoECacheBytes(m *Model, cfg *ModelConfig) int64 {
+	if cfg.MoECacheMiB <= 0 {
+		return 0
+	}
+	return min(int64(cfg.MoECacheMiB)<<20, cpuExpertBytes(m, cfg))
 }
 
 // PLEAutoMinBytes mirrors auto_lazy_min_size in llama.cpp's model loader:

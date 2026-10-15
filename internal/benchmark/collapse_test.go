@@ -232,6 +232,8 @@ func TestSweepFieldAffectsEvalClassification(t *testing.T) {
 		// Both are load-time settings the evaluation never sees; see
 		// the excluded list on evaluate.MapConfigFlags.
 		"ple_mode": false, "extra_flags": false,
+		// Speed only: it caches experts, never changes what is computed.
+		"moe_cache_mib": false,
 	}
 	for name, want := range wantTrue {
 		if affects[name] != want {

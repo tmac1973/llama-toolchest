@@ -50,6 +50,7 @@ func SnapshotFromConfig(cfg models.ModelConfig, profile string, edited bool) Con
 		SharedContext:     cfg.SharedContext,
 		ContextPerSlot:    cfg.ContextPerSlot,
 		CPUMoE:            cfg.CPUMoE,
+		MoECacheMiB:       cfg.MoECacheMiB,
 		DraftCtxSize:      cfg.DraftCtxSize,
 		DraftGPULayers:    cfg.DraftGPULayers,
 		DraftKVCacheQuant: cfg.DraftKVCacheQuant,
@@ -92,6 +93,7 @@ func ApplySnapshotToConfig(base models.ModelConfig, snap ConfigSnapshot) models.
 	out.BatchSize = snap.BatchSize
 	out.UBatchSize = snap.UBatchSize
 	out.CPUMoE = snap.CPUMoE
+	out.MoECacheMiB = snap.MoECacheMiB
 	out.GPUAssign = snap.GPUAssign
 	out.TensorSplit = snap.TensorSplit
 	out.KVCacheQuant = snap.KVCacheQuant
@@ -130,6 +132,7 @@ func ApplySnapshotToConfig(base models.ModelConfig, snap ConfigSnapshot) models.
 	out.SharedContext = snap.SharedContext
 	out.ContextPerSlot = snap.ContextPerSlot
 	out.CPUMoE = snap.CPUMoE
+	out.MoECacheMiB = snap.MoECacheMiB
 	out.MtpPath = snap.MtpPath
 	out.DraftCtxSize = snap.DraftCtxSize
 	out.DraftGPULayers = snap.DraftGPULayers

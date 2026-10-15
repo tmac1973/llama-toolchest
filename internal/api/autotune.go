@@ -144,11 +144,21 @@ func (s *Server) autotuneEstimate(id, profileName string, uc autotune.UseCase) (
 		DraftCandidates: func(mode string) []models.DraftCandidate {
 			return s.registry.FindDraftCandidates(id, mode)
 		},
-		Finalists: map[string][]autotune.Candidate{},
+		Finalists:   map[string][]autotune.Candidate{},
+		MoECacheMiB: s.autotuneMoECache(m, profile.Config),
 	}
 	cells, minutes = autotune.EstimateRun(in, uc, models.BytesToGiB(m.SizeBytes), 0)
 	_, _, skipped = autotune.PlanStage(autotune.StageSpec, in)
 	return cells, minutes, skipped
+}
+
+// autotuneMoECache is the largest MoE cache that fits beside a profile
+// on this machine, or 0 when the active build has no such option.
+func (s *Server) autotuneMoECache(m *models.Model, base models.ModelConfig) int {
+	if !s.activeTarget().MoECacheOption() {
+		return 0
+	}
+	return models.MaxMoECacheMiB(m, base, s.hardware())
 }
 
 // autotuneHardware is the card count and CPU cores Autotune plans with:
@@ -320,6 +330,17 @@ func (s *Server) renderAutotuneStatus(w http.ResponseWriter, id string, rec *aut
 	s.renderPartial(w, "autotune_progress", s.autotuneProgressData(id, name, rec, banner))
 }
 
+// expertCacheStageShown reports whether the expert-cache stage belongs in
+// a run's progress list. Most models never have one to measure — no
+// experts in system memory — and a step that is always skipped is noise.
+func (s *Server) expertCacheStageShown(id string, rec *autotune.Autotune) bool {
+	if st, ok := rec.Stage(autotune.StageMoECache); ok {
+		return st.JobID != "" // measured, or being measured
+	}
+	p, err := s.registry.GetProfile(id, rec.BaseProfile)
+	return err == nil && p.Config.CPUMoE > 0
+}
+
 func (s *Server) autotuneProgressData(id, name string, rec *autotune.Autotune, banner *panelBanner) autotuneProgressData {
 	d := autotuneProgressData{ModelID: id, ModelName: name, Run: rec, Banner: banner,
 		SkippedReason: rec.Skipped}
@@ -327,6 +348,9 @@ func (s *Server) autotuneProgressData(id, name string, rec *autotune.Autotune, b
 	d.Resumable = rec.Status == autotune.StatusCancelled || rec.Status == autotune.StatusInterrupted
 
 	for _, st := range autotune.StageOrder {
+		if st.Key == autotune.StageMoECache && !s.expertCacheStageShown(id, rec) {
+			continue
+		}
 		step := autotuneStep{Title: st.Title, State: "waiting"}
 		if rec, ok := rec.Stage(st.Key); ok {
 			step.JobID = rec.JobID

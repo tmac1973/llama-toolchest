@@ -28,6 +28,7 @@ const (
 // Stage keys, in the order they run.
 const (
 	StageBatch      = "batch"
+	StageMoECache   = "moe-cache"
 	StageSpec       = "spec"
 	StageSpecParams = "spec-params"
 	StageConfirm    = "confirm"
@@ -37,6 +38,7 @@ const (
 // shows.
 var StageOrder = []struct{ Key, Title string }{
 	{StageBatch, "Batch sizes and attention"},
+	{StageMoECache, "Expert cache"},
 	{StageSpec, "Speculative decoding"},
 	{StageSpecParams, "Fine-tuning the draft settings"},
 	{StageConfirm, "Confirming the finalists"},

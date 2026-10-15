@@ -1000,6 +1000,9 @@ func ApplyOverrides(base ConfigSnapshot, overrides *ConfigOverrides) ConfigSnaps
 	if overrides.CPUMoE != nil {
 		out.CPUMoE = *overrides.CPUMoE
 	}
+	if overrides.MoECacheMiB != nil {
+		out.MoECacheMiB = *overrides.MoECacheMiB
+	}
 	if overrides.SplitMode != nil {
 		out.SplitMode = *overrides.SplitMode
 	}

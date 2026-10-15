@@ -8,6 +8,7 @@ var fieldHelp = map[string]string{
 	"kv_cache_quant":   "How the conversation memory (KV cache) is stored. f16 is full precision. q8_0 uses about half the memory with a very small effect on quality; q4_0 uses about a quarter and may affect quality.",
 	"gpu_layers":       "How many of the model's layers run on the GPU. All is fastest; layers left on the CPU are much slower.",
 	"cpu_moe":          "Mixture-of-experts models only: how many layers keep their expert weights in system memory instead of GPU memory. Lets a model larger than the GPU run, at some cost in speed.",
+	"moe_cache_mib":    "Mixture-of-experts models only: a GPU cache, in MiB, for the expert weights kept in system memory. The experts tokens use most often are then read from the GPU instead. Uses GPU memory left over after the model.",
 	"gpu_assign":       "Which GPUs the model is spread over.",
 	"flash_attention":  "A faster way to compute attention that also uses less memory. Recommended for most models.",
 	"ubatch_size":      "How many prompt tokens are processed at once. Larger values read long prompts faster but use more GPU memory. Autotune can measure the best values for this machine.",

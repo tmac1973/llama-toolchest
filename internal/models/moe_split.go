@@ -59,6 +59,13 @@ func layerGPUBytes(m *Model, cfg *ModelConfig, b VRAMBreakdown) []float64 {
 	base := float64(resident-experts) / float64(m.NLayers)
 	perExpertLayer := float64(experts) / float64(m.ExpertLayers)
 	perLayerState := (b.KVCache + b.Recurrent + b.IndexerCache) * (1 << 30) / float64(m.NLayers)
+	// llama.cpp gives the MoE cache to the cards that hold the layers
+	// whose experts it caches. Spreading it over those layers puts it on
+	// the same cards, roughly in the same proportion.
+	var perCachedLayer float64
+	if n := cpuExpertLayers(m, cfg); n > 0 {
+		perCachedLayer = b.MoECache * (1 << 30) / float64(n)
+	}
 
 	out := make([]float64, m.NLayers)
 	for il := range out {
@@ -66,6 +73,9 @@ func layerGPUBytes(m *Model, cfg *ModelConfig, b VRAMBreakdown) []float64 {
 		inSpan := il >= m.ExpertLayerFirst && il < m.ExpertLayerFirst+m.ExpertLayers
 		if inSpan && il >= cfg.CPUMoE {
 			out[il] += perExpertLayer
+		}
+		if inSpan && il < cfg.CPUMoE {
+			out[il] += perCachedLayer
 		}
 	}
 	return out

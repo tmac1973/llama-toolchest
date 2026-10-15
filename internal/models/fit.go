@@ -141,30 +141,16 @@ func PlanFit(m *Model, base ModelConfig, hw Hardware, class ContextClass) FitRes
 	// depend on what a previous hand edit left behind.
 	cfg.BatchSize, cfg.UBatchSize = 0, 0
 	cfg.FlashAttention = true
+	// The MoE cache spends whatever GPU memory is left over, which is
+	// exactly what the plan is deciding. Autotune measures it afterwards.
+	cfg.MoECacheMiB = 0
 	if cfg.Parallel > 1 {
 		cfg.Parallel = 0
 		cfg.SharedContext, cfg.ContextPerSlot = false, 0
 	}
 
 	fits := func(c *ModelConfig) (VRAMBreakdown, bool) {
-		b := VRAMBreakdownForConfigOn(m, c, nCards)
-		if budget <= 0 || b.Total() > budget {
-			return b, false
-		}
-		if ramBudget > 0 && b.CPURAM > ramBudget {
-			return b, false
-		}
-		// With experts in system memory the layers differ in size, so
-		// the pooled total can fit while one card cannot. Each card is
-		// checked under the split the preset will write.
-		if loads, budgets, ok := PlanCardLoads(m, c, gpuMiB); ok {
-			for i := range loads {
-				if loads[i] > budgets[i] {
-					return b, false
-				}
-			}
-		}
-		return b, true
+		return fitsOn(m, c, nCards, budget, ramBudget, gpuMiB)
 	}
 
 	var last ModelConfig
@@ -237,6 +223,84 @@ func spanAllOption(gpus []GPUSpec) *GPUOption {
 	return nil
 }
 
+// fitsOn reports whether c fits the budgets PlanFit plans against.
+func fitsOn(m *Model, c *ModelConfig, nCards int, budget, ramBudget float64, gpuMiB []int) (VRAMBreakdown, bool) {
+	b := VRAMBreakdownForConfigOn(m, c, nCards)
+	if budget <= 0 || b.Total() > budget {
+		return b, false
+	}
+	if ramBudget > 0 && b.CPURAM > ramBudget {
+		return b, false
+	}
+	// With experts in system memory the layers differ in size, so the
+	// pooled total can fit while one card cannot. Each card is checked
+	// under the split the preset will write.
+	if loads, budgets, ok := PlanCardLoads(m, c, gpuMiB); ok {
+		for i := range loads {
+			if loads[i] > budgets[i] {
+				return b, false
+			}
+		}
+	}
+	return b, true
+}
+
+// moeCacheStepMiB is the granularity MaxMoECacheMiB works in.
+const moeCacheStepMiB = 256
+
+// MaxMoECacheMiB is the largest MoE cache, in MiB, that fits beside cfg on
+// this machine by the same rules PlanFit plans with, or 0 when none does:
+// cfg keeps no experts in system memory, there is no room, or the room
+// left would not hold the experts of a single token, which llama.cpp
+// refuses to load. It is never more than the experts there are to cache.
+//
+// The budget is the whole machine's, as PlanFit's is; a profile placed
+// on fewer cards than that is not narrowed to them.
+func MaxMoECacheMiB(m *Model, cfg ModelConfig, hw Hardware) int {
+	experts := cpuExpertBytes(m, &cfg)
+	if experts == 0 {
+		return 0
+	}
+	budget, ramBudget := FitBudgets(hw)
+	nCards := max(1, len(PlanCards(hw)))
+	gpuMiB := GPUMiB(hw)
+	ok := func(steps int) bool {
+		c := cfg
+		c.MoECacheMiB = steps * moeCacheStepMiB
+		_, fits := fitsOn(m, &c, nCards, budget, ramBudget, gpuMiB)
+		return fits
+	}
+	hi := int((experts>>20)/moeCacheStepMiB) + 1 // enough to cache every expert
+	if !ok(0) {
+		return 0 // the profile itself does not fit by the estimate
+	}
+	lo := 0
+	for lo < hi { // largest steps in [0, hi] that fits
+		mid := (lo + hi + 1) / 2
+		if ok(mid) {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	mib := lo * moeCacheStepMiB
+	if int64(mib)<<20 < moeCacheMinBytes(m) {
+		return 0
+	}
+	return mib
+}
+
+// moeCacheMinBytes is about the smallest cache llama.cpp accepts: room
+// for the experts one token uses in a layer, with some to spare, since
+// below that it caches nothing and refuses to load.
+func moeCacheMinBytes(m *Model) int64 {
+	if m.ExpertLayers <= 0 || m.ExpertCount <= 0 {
+		return 0
+	}
+	perExpert := m.ExpertBytes / int64(m.ExpertLayers) / int64(m.ExpertCount)
+	return perExpert * int64(max(1, m.ExpertUsedCount)) * 4
+}
+
 // finishFit sets threads for CPU offload and writes one note per setting
 // the plan changed from base.
 func finishFit(m *Model, base, cfg ModelConfig, b VRAMBreakdown, budget float64, requested int, hw Hardware, fits bool) FitResult {
@@ -272,6 +336,9 @@ func finishFit(m *Model, base, cfg ModelConfig, b VRAMBreakdown, budget float64,
 		} else {
 			note("cpu_moe", "All expert weights fit on the GPU, so none are kept in system memory.")
 		}
+	}
+	if cfg.MoECacheMiB != base.MoECacheMiB {
+		note("moe_cache_mib", "The MoE cache is left off: it uses GPU memory the plan gives to the model first. Autotune measures whether a cache helps with the memory left over.")
 	}
 	if cfg.GPULayers != base.GPULayers {
 		if cfg.GPULayers > 0 && cfg.GPULayers < m.NLayers {
