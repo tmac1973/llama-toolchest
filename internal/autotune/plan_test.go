@@ -3,6 +3,7 @@ package autotune
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/benchmark"
 	"github.com/tmac1973/llama-toolchest/internal/models"
@@ -262,10 +263,15 @@ func TestBuildStageJob(t *testing.T) {
 }
 
 func TestEstimateMinutes(t *testing.T) {
-	// 24 job cells of a 5 GiB model: each loads it and measures one
-	// preset, so about 20 seconds of load plus 45 of measuring.
-	if got := EstimateMinutes(24, 5, 0); got < 20 || got > 35 {
-		t.Errorf("estimate = %d minutes, want roughly 26", got)
+	// 24 job cells of a 5 GiB model: each reloads it, mostly from the page
+	// cache, and measures one preset — about 5 seconds and 20.
+	if got := EstimateMinutes(24, 5, 0); got < 8 || got > 12 {
+		t.Errorf("estimate = %d minutes, want roughly 10", got)
+	}
+	// compute2's 20 GiB MoE took 23 seconds a cell; the guess stays on
+	// the slow side of that without being five times it.
+	if per := defaultCellSeconds(20); per < 25 || per > 60 {
+		t.Errorf("a 20 GiB model is guessed at %.0f s a cell, against 23 measured", per)
 	}
 	// A measured time per cell replaces the guess.
 	if got := EstimateMinutes(10, 5, 30); got != 5 {
@@ -525,4 +531,32 @@ func TestMoECacheSizes(t *testing.T) {
 func planStageCells(key string, in PlanInput) []map[string]string {
 	cells, _, _ := PlanStage(key, in)
 	return cells
+}
+
+// The time a cell takes comes from this machine's history when it has
+// one: the model's own latest measurement, or the default scaled by how
+// far it was off for the models that were measured.
+func TestCellSecondsFromHistory(t *testing.T) {
+	now := time.Now()
+	sizes := map[string]float64{"lfm": 20, "dolphin": 18}
+	sizeOf := func(id string) float64 { return sizes[id] }
+	recs := []*Autotune{
+		{ModelID: "lfm", SecondsPerCell: 24, CreatedAt: now.Add(-2 * time.Hour)},
+		{ModelID: "minicpm", SecondsPerCell: 30, CreatedAt: now.Add(-3 * time.Hour)},
+		{ModelID: "minicpm", SecondsPerCell: 33, CreatedAt: now.Add(-1 * time.Hour)},
+		{ModelID: "minicpm", CreatedAt: now},                   // cancelled before measuring
+		{ModelID: "gone", SecondsPerCell: 500, CreatedAt: now}, // no longer installed
+	}
+	if got := CellSecondsFromHistory(recs, "minicpm", 27, sizeOf); got != 33 {
+		t.Errorf("own history = %.1f s, want the latest measurement, 33", got)
+	}
+	// A model never run here: the default for its size, scaled by how
+	// far the default was off for LFM (24 measured against 40 guessed).
+	want := 24 / defaultCellSeconds(20) * defaultCellSeconds(27)
+	if got := CellSecondsFromHistory(recs, "new", 27, sizeOf); got < want-0.01 || got > want+0.01 {
+		t.Errorf("from other models = %.1f s, want %.1f", got, want)
+	}
+	if got := CellSecondsFromHistory(nil, "new", 27, sizeOf); got != 0 {
+		t.Errorf("no history = %.1f s, want 0 so the default stands", got)
+	}
 }
