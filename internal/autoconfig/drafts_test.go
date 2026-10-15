@@ -95,3 +95,52 @@ func TestDraftSuggestionFamilySearch(t *testing.T) {
 		t.Error("suggestions without a recommended draft method")
 	}
 }
+
+// A card that names its head without an owner ("we also release
+// MiniCPM-V-4.7-35B-A3B-DSpark") means the publisher's repository, and its
+// GGUF conversion is the one that can be downloaded.
+func TestDraftSuggestionCompletesAnOwnerlessHeadName(t *testing.T) {
+	m := &models.Model{ModelID: "quantizer/Model-35B-GGUF", BaseModelRepo: "pub/Model-35B"}
+	hub := fakeHub{repos: map[string][]modelsource.File{
+		"pub/Model-35B-DSpark":      {}, // the original weights: no GGUF
+		"pub/Model-35B-DSpark-gguf": {{Filename: "dspark-Model-Q4_K_M.gguf", Quant: "Q4_K_M"}, {Filename: "dspark-Model-F16.gguf", Quant: "F16"}},
+	}}
+	for _, named := range []string{"Model-35B-DSpark", "pub/Model-35B-DSpark"} {
+		got := FindDraftSuggestions(context.Background(), hub, m, Checked{WantDraft: "draft-dspark", DraftRepo: named}, nil)
+		if len(got) != 1 || got[0].Repo != "pub/Model-35B-DSpark-gguf" || got[0].Filename != "dspark-Model-F16.gguf" {
+			t.Errorf("named %q: suggestions = %+v, want the publisher's GGUF head at full precision over 4 bits", named, got)
+		}
+	}
+}
+
+// Without a name on the card, a head is found by searching for the
+// model's name and the method's. Only repositories named for both count,
+// and the publisher's own comes before anyone else's.
+func TestDraftSuggestionSearchesForAHeadByName(t *testing.T) {
+	m := &models.Model{ModelID: "quantizer/Model-35B-GGUF", BaseModelRepo: "pub/Model-35B"}
+	hub := fakeHub{
+		search: []modelsource.SearchResult{
+			{ID: "other/Other-9B-DSpark-GGUF"},    // another model's head
+			{ID: "someone/Model-35B-DFlash-GGUF"}, // this model, another method
+			{ID: "someone/Model-35B-DSpark-GGUF"}, // more downloads, not the publisher
+			{ID: "pub/Model-35B-DSpark-gguf"},
+		},
+		repos: map[string][]modelsource.File{
+			"other/Other-9B-DSpark-GGUF":    {{Filename: "o-Q8_0.gguf", Quant: "Q8_0"}},
+			"someone/Model-35B-DFlash-GGUF": {{Filename: "f-Q8_0.gguf", Quant: "Q8_0"}},
+			"someone/Model-35B-DSpark-GGUF": {{Filename: "s-Q8_0.gguf", Quant: "Q8_0"}},
+			"pub/Model-35B-DSpark-gguf":     {{Filename: "p-Q8_0.gguf", Quant: "Q8_0"}},
+		},
+	}
+	got := FindDraftSuggestions(context.Background(), hub, m, Checked{WantDraft: "draft-dspark"}, nil)
+	if len(got) != 1 || got[0].Repo != "pub/Model-35B-DSpark-gguf" || got[0].Mode != "draft-dspark" {
+		t.Errorf("suggestions = %+v, want the publisher's DSpark head", got)
+	}
+
+	// Without the publisher's, the next one named for this model and method.
+	delete(hub.repos, "pub/Model-35B-DSpark-gguf")
+	got = FindDraftSuggestions(context.Background(), hub, m, Checked{WantDraft: "draft-dspark"}, nil)
+	if len(got) != 1 || got[0].Repo != "someone/Model-35B-DSpark-GGUF" {
+		t.Errorf("suggestions = %+v, want the other DSpark head for this model", got)
+	}
+}
