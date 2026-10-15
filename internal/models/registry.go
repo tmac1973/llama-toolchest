@@ -199,6 +199,12 @@ type ModelConfig struct {
 	// are read from there. 0 keeps everything on the GPU. Meaningful only
 	// when Model.ExpertCount > 0.
 	CPUMoE int `json:"cpu_moe,omitempty"`
+	// MoECacheMiB maps to --moe-cache-mib: a GPU cache, in MiB, of the
+	// most recently used experts among those CPUMoE keeps in system
+	// memory, so a token whose experts are cached does not read them from
+	// there. Split over the GPUs that hold those layers. 0 is off, which is
+	// llama.cpp's default; it means nothing without CPUMoE.
+	MoECacheMiB int `json:"moe_cache_mib,omitempty"`
 	// BatchSize/UBatchSize map to --batch-size / --ubatch-size. Zero means
 	// "don't emit", leaving llama.cpp on its own defaults (2048 / 512), so
 	// existing models are unaffected. UBatchSize is the physical compute
@@ -415,6 +421,9 @@ func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool, t Target) string {
 	}
 	if c.CPUMoE > 0 {
 		parts = append(parts, "--n-cpu-moe", strconv.Itoa(c.CPUMoE))
+		if t.moeCacheOption() && c.MoECacheMiB > 0 {
+			parts = append(parts, "--moe-cache-mib", strconv.Itoa(c.MoECacheMiB))
+		}
 	}
 	for _, p := range gpuPlacementParams(c, t.Backend) {
 		parts = append(parts, "--"+p.Name, p.Value)

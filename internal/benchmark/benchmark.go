@@ -307,6 +307,8 @@ type ConfigSnapshot struct {
 	ContextPerSlot int  `json:"context_per_slot,omitempty"`
 	// CPUMoE is --n-cpu-moe: expert layers kept in system memory.
 	CPUMoE int `json:"cpu_moe,omitempty"`
+	// MoECacheMiB is --moe-cache-mib: the GPU cache for those experts.
+	MoECacheMiB int `json:"moe_cache_mib,omitempty"`
 
 	// Draft model resources, for the draft methods that load a second
 	// model.

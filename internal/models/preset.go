@@ -138,6 +138,11 @@ func writeConfigParams(b *strings.Builder, cfg *ModelConfig, isEmbedding bool, t
 	}
 	if cfg.CPUMoE > 0 {
 		b.WriteString(fmt.Sprintf("n-cpu-moe = %d\n", cfg.CPUMoE))
+		// The cache holds experts CPUMoE keeps in system memory; without
+		// any there it would only warn and do nothing.
+		if t.moeCacheOption() && cfg.MoECacheMiB > 0 {
+			b.WriteString(fmt.Sprintf("moe-cache-mib = %d\n", cfg.MoECacheMiB))
+		}
 	}
 	for _, p := range gpuPlacementParams(cfg, t.Backend) {
 		b.WriteString(fmt.Sprintf("%s = %s\n", p.Name, p.Value))

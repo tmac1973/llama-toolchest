@@ -608,6 +608,12 @@ var reviewFields = []reviewField{
 		return strconv.Itoa(c.GPULayers)
 	}},
 	{"cpu_moe", "CPU expert layers", func(c *models.ModelConfig) string { return showInt("none", c.CPUMoE) }},
+	{"moe_cache_mib", "MoE cache", func(c *models.ModelConfig) string {
+		if c.MoECacheMiB <= 0 {
+			return "off"
+		}
+		return strconv.Itoa(c.MoECacheMiB) + " MiB"
+	}},
 	{"gpu_assign", "GPU assignment", func(c *models.ModelConfig) string {
 		if c.GPUAssign == "custom" && c.TensorSplit != "" {
 			// The split is the whole content of a custom assignment.

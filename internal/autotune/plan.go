@@ -28,6 +28,11 @@ type PlanInput struct {
 	// Finalists are the candidates earlier stages carried forward, by
 	// stage key.
 	Finalists map[string][]Candidate
+	// MoECacheMiB is the largest MoE cache that fits beside the starting
+	// profile on this machine (models.MaxMoECacheMiB), or 0 when none can
+	// be used: no experts in system memory, no room, or a build without
+	// the option. The expert-cache stage measures sizes up to it.
+	MoECacheMiB int
 }
 
 const (
@@ -54,6 +59,8 @@ func PlanStage(key string, in PlanInput) (cells []map[string]string, axes []benc
 	switch key {
 	case StageBatch:
 		cells = planBatch(in)
+	case StageMoECache:
+		cells = planMoECache(in)
 	case StageSpec:
 		cells, skipped = planSpec(in)
 	case StageSpecParams:
@@ -160,6 +167,53 @@ func threadOptions(cores int) []string {
 	return out
 }
 
+// planMoECache measures the GPU cache for experts kept in system memory,
+// on each batch finalist: off, and a quarter, half and all of the room
+// left beside the profile. A larger cache misses less but takes memory
+// from nothing else here — the profile was planned without one — so the
+// question is only whether the copying it does pays for itself on this
+// machine, and at which size.
+func planMoECache(in PlanInput) []map[string]string {
+	sizes := moeCacheSizes(in.MoECacheMiB)
+	if len(sizes) == 0 {
+		return nil
+	}
+	var cells []map[string]string
+	for _, carried := range carryForward(in, StageBatch) {
+		cells = append(cells, withValue(carried, "moe_cache_mib", "0"))
+		for _, s := range sizes {
+			cells = append(cells, withValue(carried, "moe_cache_mib", strconv.Itoa(s)))
+		}
+	}
+	return cells
+}
+
+// moeCacheSizes is the cache sizes worth measuring when up to room MiB
+// fits (room): a quarter, a half and all of it, on 256 MiB steps, without
+// repeats.
+func moeCacheSizes(room int) []int {
+	var out []int
+	for _, frac := range []int{4, 2, 1} {
+		s := room / frac / 256 * 256
+		if s <= 0 || (len(out) > 0 && out[len(out)-1] == s) {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// batchFinalists are the finalists of the stages that tune how the model
+// runs, before speculative decoding: the expert-cache stage's, which
+// build on the batch stage's, or the batch stage's own when the cache
+// stage has not run — a run started before it existed.
+func batchFinalists(in PlanInput) string {
+	if len(in.Finalists[StageMoECache]) > 0 {
+		return StageMoECache
+	}
+	return StageBatch
+}
+
 // planSpec measures speculative decoding: each draft method this machine
 // can serve, each n-gram assist, and every pair of the two. The pairs are
 // the point — a draft method and an assist draft from different things,
@@ -192,7 +246,7 @@ func planSpec(in PlanInput) ([]map[string]string, []string) {
 	}
 
 	var cells []map[string]string
-	for _, carried := range carryForward(in, StageBatch) {
+	for _, carried := range carryForward(in, batchFinalists(in)) {
 		for _, v := range values {
 			cells = append(cells, withValue(carried, "spec_type", v))
 		}
@@ -443,7 +497,7 @@ func splitSpec(value string) (mode, assist string, params map[string]string) {
 // the best batch settings against the best speculative settings, plus the
 // starting profile.
 func planConfirm(in PlanInput) []map[string]string {
-	batch := topByResponse(in.Finalists[StageBatch], 2)
+	batch := topByResponse(in.Finalists[batchFinalists(in)], 2)
 	spec := distinct(append(append([]Candidate{}, in.Finalists[StageSpecParams]...), in.Finalists[StageSpec]...), carryLimit)
 
 	cells := []map[string]string{{}} // the starting profile
@@ -708,6 +762,9 @@ func EstimateRun(in PlanInput, uc UseCase, sizeGiB, secondsPerCell float64) (cel
 	}
 	batch, _, _ := PlanStage(StageBatch, in)
 	cells = len(batch)
+	if n := len(moeCacheSizes(in.MoECacheMiB)); n > 0 {
+		cells += (n + 1) * carryLimit
+	}
 
 	// Both middle stages build on the finalists of the one before, up to
 	// carryLimit of them, so the estimate has to allow for that fan-out

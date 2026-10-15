@@ -524,6 +524,8 @@ var sweepFields = map[string]SweepField{
 		func(o *ConfigOverrides, v *int) { o.BatchSize = v }),
 	"cpu_moe": intField("cpu_moe", "CPU expert layers (--n-cpu-moe)", "Mixture-of-experts models only: keeps the expert weights of this many layers in system memory. Lets a model larger than the GPU run; each step down moves less to the CPU and runs faster. 0 keeps everything on the GPU.", "0,8,16,32",
 		func(o *ConfigOverrides, v *int) { o.CPUMoE = v }),
+	"moe_cache_mib": intField("moe_cache_mib", "MoE cache (--moe-cache-mib)", "Mixture-of-experts models with CPU expert layers only: a GPU cache, in MiB, for the experts kept in system memory. Larger caches read fewer experts from system memory and use more GPU memory. 0 is off.", "0,2048,4096,8192",
+		func(o *ConfigOverrides, v *int) { o.MoECacheMiB = v }),
 	"threads": intField("threads", "Threads", "CPU threads. Matters mainly when layers run on CPU.", "4,8,16",
 		func(o *ConfigOverrides, v *int) { o.Threads = v }),
 	"split_mode": strField("split_mode", "Split Mode", "How a model spread over several GPUs is divided: by layer, or by tensor (which needs flash attention). Only meaningful with more than one GPU.", "layer,tensor",
@@ -808,6 +810,9 @@ func init() {
 	))
 	set("cpu_moe", true, choices(
 		"0", "0 (all on GPU)", "8", "8", "16", "16", "24", "24", "32", "32", "48", "48",
+	))
+	set("moe_cache_mib", true, choices(
+		"0", "0 (off)", "1024", "1 GiB", "2048", "2 GiB", "4096", "4 GiB", "8192", "8 GiB", "16384", "16 GiB",
 	))
 	set("threads", true, choices(
 		"4", "4", "8", "8", "16", "16", "32", "32",
