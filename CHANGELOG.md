@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.40.1](https://github.com/tmac1973/llama-toolchest/compare/v2.40.0...v2.40.1) (2026-10-15)
+
+
+### Bug Fixes
+
+* keep draft heads out of what is served, and reword the MTP note when the card's method wins ([#290](https://github.com/tmac1973/llama-toolchest/issues/290)) ([4608e85](https://github.com/tmac1973/llama-toolchest/commit/4608e85eb44e18e44b737b479650d76a24d97d45))
+
 ## [2.40.0](https://github.com/tmac1973/llama-toolchest/compare/v2.39.1...v2.40.0) (2026-10-15)
 
 
