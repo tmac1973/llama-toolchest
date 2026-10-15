@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.39.0](https://github.com/tmac1973/llama-toolchest/compare/v2.38.0...v2.39.0) (2026-10-15)
+
+
+### Features
+
+* **autoconfig:** give the drafter a small micro-batch when that is what makes a plan fit ([#282](https://github.com/tmac1973/llama-toolchest/issues/282)) ([c0ebf89](https://github.com/tmac1973/llama-toolchest/commit/c0ebf89e529e4bdc923f1ee262cae04ff7743e59))
+* **memreport:** read the MoE cache line into the memory report ([#285](https://github.com/tmac1973/llama-toolchest/issues/285)) ([67b980d](https://github.com/tmac1973/llama-toolchest/commit/67b980d49665f03cc9f65383de360a84c3ae0455))
+
+
+### Bug Fixes
+
+* **setup:** label port 3000 as the UI and API, and 8080 as llama.cpp's chat UI ([#284](https://github.com/tmac1973/llama-toolchest/issues/284)) ([33b85c8](https://github.com/tmac1973/llama-toolchest/commit/33b85c814e061b30053d079fce26f00599e672d8))
+
 ## [2.38.0](https://github.com/tmac1973/llama-toolchest/compare/v2.37.1...v2.38.0) (2026-10-15)
 
 
