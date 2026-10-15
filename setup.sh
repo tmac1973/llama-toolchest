@@ -18,8 +18,8 @@ AMD_GFX_TARGET=""       # detected gfx target, e.g. gfx1201 (empty = unknown)
 HOST_VIDEO_GID=""       # host video group GID
 HOST_RENDER_GID=""      # host render group GID
 
-LLAMA_TOOLCHEST_PORT="3000"            # host port for management UI
-LLAMA_TOOLCHEST_INFERENCE_PORT="8080"  # host port for inference API
+LLAMA_TOOLCHEST_PORT="3000"            # host port for the management UI and the OpenAI-compatible API (/v1)
+LLAMA_TOOLCHEST_INFERENCE_PORT="8080"  # host port for llama.cpp's router and its chat UI
 LLAMA_TOOLCHEST_MODELS_DIR=""          # host path for model storage (empty = use docker volume)
 
 CONTAINER_CMD=""        # docker or podman
@@ -816,15 +816,15 @@ prompt_ports() {
     echo -e "${BOLD}Port configuration${NC}"
     echo ""
     echo "  Current ports:"
-    echo "    Management UI:  ${LLAMA_TOOLCHEST_PORT}"
-    echo "    Inference API:  ${LLAMA_TOOLCHEST_INFERENCE_PORT}"
+    echo "    Management UI + API (/v1):  ${LLAMA_TOOLCHEST_PORT}"
+    echo "    llama.cpp chat UI:          ${LLAMA_TOOLCHEST_INFERENCE_PORT}"
     echo ""
 
     # Check if current ports are available. If a port is bound by an existing
     # llama-toolchest (or pre-rename llamactl) container, that container is
     # going to be stopped+removed during install, so it's not a real conflict.
     local ports_ok=true
-    for cfg in "UI:$LLAMA_TOOLCHEST_PORT" "Inference:$LLAMA_TOOLCHEST_INFERENCE_PORT"; do
+    for cfg in "UI and API:$LLAMA_TOOLCHEST_PORT" "llama.cpp chat UI:$LLAMA_TOOLCHEST_INFERENCE_PORT"; do
         local label="${cfg%%:*}"
         local p="${cfg##*:}"
         if is_port_available "$p"; then
@@ -851,7 +851,7 @@ prompt_ports() {
     echo ""
     local port
     while true; do
-        read -rp "$(echo -e "  ${BOLD}Management UI port${NC} [${LLAMA_TOOLCHEST_PORT}]: ")" port
+        read -rp "$(echo -e "  ${BOLD}Management UI + API port${NC} [${LLAMA_TOOLCHEST_PORT}]: ")" port
         port="${port:-$LLAMA_TOOLCHEST_PORT}"
         if [[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1 && port <= 65535 )); then
             LLAMA_TOOLCHEST_PORT="$port"
@@ -861,11 +861,11 @@ prompt_ports() {
     done
 
     while true; do
-        read -rp "$(echo -e "  ${BOLD}Inference API port${NC} [${LLAMA_TOOLCHEST_INFERENCE_PORT}]: ")" port
+        read -rp "$(echo -e "  ${BOLD}llama.cpp chat UI port${NC} [${LLAMA_TOOLCHEST_INFERENCE_PORT}]: ")" port
         port="${port:-$LLAMA_TOOLCHEST_INFERENCE_PORT}"
         if [[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1 && port <= 65535 )); then
             if [[ "$port" == "$LLAMA_TOOLCHEST_PORT" ]]; then
-                err "Cannot use the same port as management UI ($LLAMA_TOOLCHEST_PORT)"
+                err "Cannot use the same port as the management UI ($LLAMA_TOOLCHEST_PORT)"
                 continue
             fi
             LLAMA_TOOLCHEST_INFERENCE_PORT="$port"
@@ -2152,8 +2152,8 @@ print_summary() {
     else
         echo -e "  ${CYAN}Program${NC}       released package from GitHub"
     fi
-    echo -e "  ${CYAN}UI port${NC}       ${LLAMA_TOOLCHEST_PORT}"
-    echo -e "  ${CYAN}Inference port${NC} ${LLAMA_TOOLCHEST_INFERENCE_PORT}"
+    echo -e "  ${CYAN}UI + API port${NC} ${LLAMA_TOOLCHEST_PORT}"
+    echo -e "  ${CYAN}Chat UI port${NC}  ${LLAMA_TOOLCHEST_INFERENCE_PORT}"
     if [[ -n "$LLAMA_TOOLCHEST_MODELS_DIR" ]]; then
         echo -e "  ${CYAN}Models dir${NC}    ${LLAMA_TOOLCHEST_MODELS_DIR}"
     fi
@@ -2919,7 +2919,8 @@ main() {
         print_secure_disclaimer
     else
         echo "  Web UI:     http://localhost:${LLAMA_TOOLCHEST_PORT}"
-        echo "  Inference:  http://localhost:${LLAMA_TOOLCHEST_INFERENCE_PORT}"
+        echo "  API:        http://localhost:${LLAMA_TOOLCHEST_PORT}/v1  (OpenAI-compatible)"
+        echo "  Chat UI:    http://localhost:${LLAMA_TOOLCHEST_INFERENCE_PORT}  (llama.cpp)"
     fi
     echo "  Logs:       ./setup.sh logs"
     echo "  Stop:       ./setup.sh down"
