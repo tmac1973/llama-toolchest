@@ -108,7 +108,7 @@ Rules:
 - When the card does not state a value, answer null for it, and an empty string for its quote.
 - For every value you fill in, copy into the matching quote field the sentence from the card that states it.
 - Sampling values: when the card gives more than one set (for example one for thinking and one for non-thinking use), use the general or default set.
-- draft_method: "draft-mtp" when the card says the model has multi-token prediction (MTP) layers or an MTP head for speculative decoding; "draft" when it recommends a separate smaller draft model; "draft-eagle3", "draft-dflash" or "draft-dspark" when it names that kind of head; otherwise null.
+- draft_method: "draft-mtp" when the card says the model has multi-token prediction (MTP) layers or an MTP head for speculative decoding; "draft" when it recommends a separate smaller draft model; "draft-eagle3", "draft-dflash" or "draft-dspark" when it names that kind of head (a LiliCorr head is "draft-dflash"); otherwise null.
 - draft_repo: the Hugging Face repository (owner/name) the card names for that draft model or head, or null.
 - recommended_context: a context length the card recommends running with, in tokens, or null.
 - other_notes: at most five short sentences about anything else the card says about running this model with llama.cpp. Leave out instructions for other servers, such as vLLM, SGLang or TGI, and anything about training or fine-tuning. Leave it empty when there is nothing.`

@@ -128,6 +128,12 @@ type GGUFMeta struct {
 	// llama.cpp then keeps a copy of that table on the GPU for the output
 	// layer (see Model.OutputTied).
 	HasOutputTensor bool `json:"has_output_tensor,omitempty"`
+	// HasMarkovHead records the markov_w1.weight tensor, and LiliCorr the
+	// lilicorr.candidate_topk key. Both only mean something on a "dflash"
+	// file: they are how llama.cpp tells its three kinds of DFlash head
+	// apart (see DraftHeadKind).
+	HasMarkovHead bool `json:"has_markov_head,omitempty"`
+	LiliCorr      bool `json:"lilicorr,omitempty"`
 
 	// LeadingDenseBlocks, ExpertFFLength and PLEInputDim are
 	// {arch}.leading_dense_block_count, {arch}.expert_feed_forward_length
@@ -178,6 +184,7 @@ func (meta *GGUFMeta) ApplyTo(m *Model) {
 	m.IndexerKeyLength = meta.IndexerKeyLength
 	m.AttnLayers = meta.AttnLayers
 	m.MTPHead = meta.IsMTPHead()
+	m.DraftHead = meta.DraftHeadKind()
 	// Built-in MTP layers make the model its own drafter (draft-mtp with
 	// no separate head). A standalone head carries the same key but is not
 	// a model anyone runs, so it does not count.
@@ -411,6 +418,12 @@ keys:
 			}
 			continue
 
+		case key == "lilicorr.candidate_topk":
+			if v, ok := readGGUFScalarInt(f, valueType); ok {
+				meta.LiliCorr = v > 0
+				continue
+			}
+
 		case key == "general.base_model.0.repo_url" && valueType == ggufTypeString:
 			if v, err := readGGUFString(f); err == nil {
 				meta.BaseModelRepo = repoFromURL(v)
@@ -628,6 +641,7 @@ keys:
 	meta.PLEBytes, meta.TokenEmbdBytes = scan.PLEBytes, scan.TokenEmbdBytes
 	meta.HasBlockTensors, meta.HasTrunkBlock0 = scan.HasBlockTensors, scan.HasTrunkBlock0
 	meta.HasOutputTensor = scan.HasOutput
+	meta.HasMarkovHead = scan.HasMarkovHead
 	meta.ExpertBytes = scan.ExpertBytes
 	meta.ExpertLayerFirst, meta.ExpertLayers = scan.expertLayerSpan()
 
@@ -1037,6 +1051,10 @@ const tokenEmbdTensorName = "token_embd.weight"
 // the input embedding for it (tied embeddings).
 const outputTensorName = "output.weight"
 
+// markovHeadTensorName is the Markov head that makes a DFlash file a
+// DSpark head; llama.cpp checks for the same tensor.
+const markovHeadTensorName = "markov_w1.weight"
+
 // blockTensorPrefix and trunkBlock0Prefix bound the per-layer tensors.
 // Every architecture names them blk.N.*, so seeing which N are present
 // says whether a file holds a whole model or only some of its layers —
@@ -1056,6 +1074,7 @@ type tensorScan struct {
 	HasBlockTensors bool
 	HasTrunkBlock0  bool
 	HasOutput       bool // an output.weight tensor; see GGUFMeta.HasOutputTensor
+	HasMarkovHead   bool // a markov_w1.weight tensor; see GGUFMeta.HasMarkovHead
 	// ExpertBytes sums the expert tensors; expertLayerSet holds the layer
 	// numbers they belong to.
 	ExpertBytes    int64
@@ -1169,6 +1188,9 @@ func scanTensorBlock(f io.ReadSeeker, tensorCount uint64, alignment int64) tenso
 		}
 		if name == outputTensorName {
 			scan.HasOutput = true
+		}
+		if name == markovHeadTensorName {
+			scan.HasMarkovHead = true
 		}
 		if m := expertTensorPattern.FindStringSubmatch(name); m != nil {
 			expertOffsets = append(expertOffsets, int64(offset))
