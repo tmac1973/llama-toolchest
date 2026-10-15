@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.37.1](https://github.com/tmac1973/llama-toolchest/compare/v2.37.0...v2.37.1) (2026-10-15)
+
+
+### Bug Fixes
+
+* **autotune:** show per-workload speeds and stop one fast repeat deciding the winner ([#274](https://github.com/tmac1973/llama-toolchest/issues/274)) ([f689365](https://github.com/tmac1973/llama-toolchest/commit/f6893656bfe5831217c3dbadf59cbe1ff1b933a7))
+
 ## [2.37.0](https://github.com/tmac1973/llama-toolchest/compare/v2.36.0...v2.37.0) (2026-10-15)
 
 
