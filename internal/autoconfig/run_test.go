@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -330,5 +331,105 @@ func TestRunLeavesTheNgramAssistToAutotune(t *testing.T) {
 	}
 	if !strings.Contains(note, "alongside draft-mtp") {
 		t.Errorf("the note does not name running it alongside the draft method: %q", note)
+	}
+}
+
+// A draft file that cannot serve its method — an ordinary model set as a
+// DSpark head — is turned off before the plan, so its size does not
+// squeeze the model. A real head of that kind is kept.
+func TestRunTurnsOffADraftFileThatCannotServeItsMethod(t *testing.T) {
+	reg := runRegistry(t) // the test model has one MTP layer
+	// A real file, sparse, so the estimate counts its 22 GiB the way it
+	// counts any draft file that is there.
+	chatPath := filepath.Join(t.TempDir(), "ThinkingCap-27B-Q6_K_L.gguf")
+	if f, err := os.Create(chatPath); err != nil {
+		t.Fatal(err)
+	} else {
+		f.Truncate(22 << 30)
+		f.Close()
+	}
+	chat := &models.Model{ID: "chat", Filename: "ThinkingCap-27B-Q6_K_L.gguf", FilePath: chatPath,
+		Arch: "qwen35", NLayers: 64, SizeBytes: 22 << 30}
+	head := &models.Model{ID: "head", Filename: "Test-9B-DSpark.gguf", FilePath: "/models/head.gguf",
+		Arch: "dflash", DraftHead: "dspark", SizeBytes: 1 << 30}
+	for _, m := range []*models.Model{chat, head} {
+		if err := reg.Add(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	set := func(path string) {
+		cfg, _ := reg.GetConfig(runModelID)
+		c := *cfg
+		c.SpecType, c.DraftModelPath = "draft-dspark", path
+		if err := reg.SetConfig(runModelID, &c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	noted := func(res *Result) bool {
+		for _, n := range res.Notes {
+			if n.Field == "spec_type" && n.Origin == "draft file" && strings.Contains(n.Reason, "ThinkingCap-27B-Q6_K_L.gguf") {
+				return true
+			}
+		}
+		return false
+	}
+
+	clean, err := Run(context.Background(), Deps{Registry: reg, Hardware: gpu24()}, runModelID, models.ContextMax)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	set(chat.FilePath)
+	res, err := Run(context.Background(), Deps{Registry: reg, Hardware: gpu24()}, runModelID, models.ContextMax)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Proposed.SpecType != "draft-mtp" || res.Proposed.DraftModelPath != "" {
+		t.Errorf("proposal kept the chat model as a DSpark head: %q / %q", res.Proposed.SpecType, res.Proposed.DraftModelPath)
+	}
+	if !noted(res) {
+		t.Errorf("turning it off is not explained: %+v", res.Notes)
+	}
+	if res.Fit.Config.ContextSize != clean.Fit.Config.ContextSize || res.Fit.EstimateGiB != clean.Fit.EstimateGiB {
+		t.Errorf("context %d, estimate %.1f GiB, against %d and %.1f with no draft file: the unusable file still took memory from the plan",
+			res.Fit.Config.ContextSize, res.Fit.EstimateGiB, clean.Fit.Config.ContextSize, clean.Fit.EstimateGiB)
+	}
+
+	set(head.FilePath)
+	res, err = Run(context.Background(), Deps{Registry: reg, Hardware: gpu24()}, runModelID, models.ContextShort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Proposed.SpecType != "draft-dspark" || res.Proposed.DraftModelPath != head.FilePath || noted(res) {
+		t.Errorf("a real DSpark head was not kept: %q / %q", res.Proposed.SpecType, res.Proposed.DraftModelPath)
+	}
+}
+
+// The card's draft method is missing, but the model's own MTP layers draft
+// anyway: the note must not say speculative decoding is off.
+func TestRunDoesNotCallMTPOff(t *testing.T) {
+	const answer = `{"temperature": null, "top_p": null, "top_k": null, "min_p": null, "presence_penalty": null,
+		"repeat_penalty": null, "sampling_quote": "", "thinking": null, "thinking_quote": "",
+		"draft_method": "draft-dspark", "draft_repo": null, "assist_mode": null, "speculative_quote": "includes a DSpark draft model",
+		"recommended_context": null, "context_quote": "", "other_notes": []}`
+	res, err := Run(context.Background(), Deps{
+		Registry: runRegistry(t), Hardware: gpu24(), HFBase: "https://hf.test", Hub: fakeHub{},
+		Fetcher: &fakeFetcher{pages: map[string]string{
+			"https://hf.test/testorg/Test-9B-GGUF/raw/main/README.md": readTestdata(t, "unsloth_card.md"),
+		}},
+		LLM: helperServer(t, answer), HelperID: "helper",
+	}, runModelID, models.ContextMedium)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Proposed.SpecType != "draft-mtp" {
+		t.Fatalf("spec = %q, want MTP", res.Proposed.SpecType)
+	}
+	for _, n := range res.Notes {
+		if n.Field == "spec_type" && n.Origin == "model card" {
+			if strings.Contains(n.Reason, "stays off") || !strings.Contains(n.Reason, "stays on") {
+				t.Errorf("note = %q", n.Reason)
+			}
+		}
 	}
 }

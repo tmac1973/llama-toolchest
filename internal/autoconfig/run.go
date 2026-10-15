@@ -46,6 +46,40 @@ type Result struct {
 	Check Verification
 }
 
+// unusableDraftFile returns the file name of cfg's draft file when it is
+// an installed model that cannot serve cfg's draft method, or "" when the
+// file is fine or is not one the registry knows. For a head-based method
+// the file must be a head of that kind; for a draft model, the registry's
+// draft candidates for this model.
+//
+// A path the registry does not know is left alone: it may be a head
+// placed by hand, and nothing here can say it is wrong.
+func unusableDraftFile(reg *models.Registry, id string, cfg *models.ModelConfig) string {
+	if !models.UsesDraftFile(cfg.SpecType) || cfg.DraftModelPath == "" {
+		return ""
+	}
+	var file *models.Model
+	for _, x := range reg.List() {
+		if x.FilePath == cfg.DraftModelPath {
+			file = x
+			break
+		}
+	}
+	if file == nil {
+		return ""
+	}
+	cands := reg.FindDraftCandidates(id, cfg.SpecType)
+	if models.IsHeadBasedDraftMode(cfg.SpecType) {
+		cands = models.HeadsForMode(cfg.SpecType, cands)
+	}
+	for _, c := range cands {
+		if c.FilePath == cfg.DraftModelPath {
+			return ""
+		}
+	}
+	return file.Filename
+}
+
 // Run proposes a starting profile for the model with registry ID id:
 // the hardware fit first, then the model card's advice, then the
 // validation a config save runs. The helper model is optional: without
@@ -66,19 +100,29 @@ func Run(ctx context.Context, d Deps, id string, class models.ContextClass) (*Re
 	}
 	base := *cfgp
 
+	// A draft file that cannot serve its method is turned off before
+	// anything is planned: the estimate counts the file as GPU memory, so
+	// a 22 GiB chat model set as a DSpark head would otherwise shrink the
+	// plan to make room for a drafter that never loads.
+	start := base
+	badDraft := unusableDraftFile(d.Registry, id, &base)
+	if badDraft != "" {
+		start.SpecType, start.DraftModelPath = "", ""
+	}
+
 	// A model with its own draft layers has them turned on below, and
 	// the draft context they need is memory like any other. The fit has
 	// to be planned with it, or it plans a context that only fits while
 	// drafting is off. The proposal itself starts from the user's own
 	// setting, so the notes below still describe what changed.
-	fitBase := base
+	fitBase := start
 	if m.NextNLayers > 0 && fitBase.SpecType == "" {
 		fitBase.SpecType = "draft-mtp"
 	}
 
 	progress("Checking what fits on your GPU")
 	fit := models.PlanFit(m, fitBase, d.Hardware, class)
-	fit.Config.SpecType = base.SpecType
+	fit.Config.SpecType = start.SpecType
 	res := &Result{ModelID: id, Class: class, Base: base, Proposed: fit.Config, Fit: fit}
 	notes := map[string][]models.ProfileNote{} // by field; "" for general notes
 	var order []string
@@ -90,6 +134,11 @@ func Run(ctx context.Context, d Deps, id string, class models.ContextClass) (*Re
 	}
 	for _, n := range fit.Notes {
 		addNote(n)
+	}
+	if badDraft != "" {
+		addNote(models.ProfileNote{Field: "spec_type", Origin: "draft file", Reason: fmt.Sprintf(
+			"Your %s setting loads %s, which is not a %s drafter for this model, so llama.cpp cannot use it. It is turned off, and its file no longer counts against GPU memory.",
+			base.SpecType, badDraft, models.SpecModeLabel(base.SpecType))})
 	}
 
 	// A model with its own draft layers gets them turned on whatever the
@@ -223,6 +272,12 @@ func Run(ctx context.Context, d Deps, id string, class models.ContextClass) (*Re
 	// at a list of suggested downloads that may be empty.
 	if checked.WantDraft != "" {
 		tail := " No file for it was found to download, so speculative decoding stays off."
+		if res.Proposed.SpecType != "" {
+			// Something else drafts — the model's own MTP layers, or the
+			// user's own method — and saying "off" beside it contradicts
+			// the row.
+			tail = fmt.Sprintf(" No file for it was found to download, so it is not used; %s stays on.", models.SpecModeLabel(res.Proposed.SpecType))
+		}
 		if len(res.Suggestions) > 0 {
 			tail = " The suggested downloads below can provide it."
 		}
