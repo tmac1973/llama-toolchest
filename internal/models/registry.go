@@ -568,6 +568,8 @@ func (r *Registry) Add(m *Model) error {
 	// Set default config
 	if _, exists := r.data.Configs[m.ID]; !exists {
 		cfg := DefaultConfig()
+		// A head is not a model to serve; see IsDraftHead.
+		cfg.Enabled = !m.IsDraftHead()
 		r.data.Configs[m.ID] = &cfg
 	}
 	return r.save()
@@ -1328,6 +1330,14 @@ var embeddingPattern = regexp.MustCompile(`(?i)([-/]embed[-/]|[-/]embed$|nomic-e
 func IsEmbeddingModel(name string) bool {
 	return embeddingPattern.MatchString(name)
 }
+
+// IsDraftHead reports whether the file is a converted speculative-decoding
+// head (EAGLE-3, DFlash, DSpark, LiliCorr). A head drafts for another
+// model through --model-draft and cannot be loaded or chatted with on its
+// own, so it is never served: not written to the router's preset, not
+// listed to clients, not a benchmark target. It stays in the registry,
+// where the draft pickers find it.
+func (m *Model) IsDraftHead() bool { return m.DraftHead != "" }
 
 // IsEmbedding reports whether the model looks like an embedding model.
 // It checks both the HF repo ID and the registry ID because legacy records

@@ -40,8 +40,8 @@ func GeneratePresetINI(modelsDir string, models []*Model, configs map[string]*Mo
 	dirCounts := map[string]int{}
 	for _, m := range models {
 		cfg, ok := configs[m.ID]
-		if !ok || !cfg.Enabled {
-			continue
+		if !ok || !cfg.Enabled || m.IsDraftHead() {
+			continue // a head is loaded only as another model's drafter
 		}
 		if d := autoDiscoveryName(modelsDir, m.FilePath); d != "" {
 			dirCounts[d]++
@@ -50,8 +50,8 @@ func GeneratePresetINI(modelsDir string, models []*Model, configs map[string]*Mo
 
 	for _, m := range models {
 		cfg, ok := configs[m.ID]
-		if !ok || !cfg.Enabled {
-			continue
+		if !ok || !cfg.Enabled || m.IsDraftHead() {
+			continue // a head is loaded only as another model's drafter
 		}
 
 		sectionName := m.ID

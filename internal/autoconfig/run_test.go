@@ -433,3 +433,43 @@ func TestRunDoesNotCallMTPOff(t *testing.T) {
 		}
 	}
 }
+
+// The card's DSpark replaces the MTP turned on from the model file, and
+// the note about MTP says so rather than explaining a setting that is not
+// proposed.
+func TestRunRewordsTheMTPNoteWhenTheCardsMethodWins(t *testing.T) {
+	const answer = `{"temperature": null, "top_p": null, "top_k": null, "min_p": null, "presence_penalty": null,
+		"repeat_penalty": null, "sampling_quote": "", "thinking": null, "thinking_quote": "",
+		"draft_method": "draft-dspark", "draft_repo": null, "assist_mode": null, "speculative_quote": "a DSpark draft model",
+		"recommended_context": null, "context_quote": "", "other_notes": []}`
+	reg := runRegistry(t) // one MTP layer
+	if err := reg.Add(&models.Model{ID: "head", Filename: "dspark-Test-9B-Q8_0.gguf", FilePath: "/models/head.gguf",
+		Arch: "dflash", DraftHead: "dspark", SizeBytes: 400 << 20}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Run(context.Background(), Deps{
+		Registry: reg, Hardware: gpu24(), HFBase: "https://hf.test",
+		Fetcher: &fakeFetcher{pages: map[string]string{
+			"https://hf.test/testorg/Test-9B-GGUF/raw/main/README.md": readTestdata(t, "unsloth_card.md"),
+		}},
+		LLM: helperServer(t, answer), HelperID: "helper",
+	}, runModelID, models.ContextMedium)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Proposed.SpecType != "draft-dspark" || res.Proposed.DraftModelPath != "/models/head.gguf" {
+		t.Fatalf("proposal = %q / %q, want the installed DSpark head", res.Proposed.SpecType, res.Proposed.DraftModelPath)
+	}
+	found := false
+	for _, n := range res.Notes {
+		if n.Field == "spec_type" && n.Origin == "model file" {
+			found = true
+			if strings.Contains(n.Reason, "usually speed up generation") || !strings.Contains(n.Reason, "DSpark is proposed instead") {
+				t.Errorf("MTP note = %q", n.Reason)
+			}
+		}
+	}
+	if !found {
+		t.Error("nothing is said about the model's own MTP layers")
+	}
+}

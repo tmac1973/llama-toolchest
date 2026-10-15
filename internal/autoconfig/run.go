@@ -145,13 +145,15 @@ func Run(ctx context.Context, d Deps, id string, class models.ContextClass) (*Re
 	// card says: speculative decoding does not change the answers. When
 	// they are already on, say so rather than saying nothing — an unspoken
 	// setting reads as an overlooked one.
+	const mtpWhy = "This model includes its own draft layers (multi-token prediction, MTP), which usually speed up generation with no change to the answers."
+	mtpTurnedOn := false
 	if m.NextNLayers > 0 {
-		const mtpWhy = "This model includes its own draft layers (multi-token prediction, MTP), which usually speed up generation with no change to the answers."
 		switch res.Proposed.SpecType {
 		case "":
 			p := Proposal{Field: "spec_type", Value: "draft-mtp", Origin: "model file", Reason: mtpWhy}
 			ApplyProposal(&res.Proposed, p)
 			addNote(models.ProfileNote{Field: p.Field, Reason: p.Reason, Origin: p.Origin})
+			mtpTurnedOn = true
 		case "draft-mtp":
 			addNote(models.ProfileNote{Field: "spec_type", Origin: "model file",
 				Reason: "Already on and kept. " + mtpWhy})
@@ -202,6 +204,18 @@ func Run(ctx context.Context, d Deps, id string, class models.ContextClass) (*Re
 	}
 	for _, n := range checked.Notes {
 		addNote(n)
+	}
+	// MTP was turned on above, and the card's own method then replaced
+	// it. The note that said why MTP is on now describes a setting that
+	// is not proposed; say what it is instead.
+	if mtpTurnedOn && res.Proposed.SpecType != "draft-mtp" {
+		for i, n := range notes["spec_type"] {
+			if n.Origin == "model file" && n.Reason == mtpWhy {
+				notes["spec_type"][i].Reason = fmt.Sprintf(
+					"This model also has its own draft layers (multi-token prediction, MTP). The model card's %s is proposed instead; Autotune can compare the two.",
+					models.SpecModeLabel(res.Proposed.SpecType))
+			}
+		}
 	}
 	// The n-gram assist is measured, never assumed: it drafts from text
 	// already in the context, so it wins on answers that repeat the

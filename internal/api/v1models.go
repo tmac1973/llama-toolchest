@@ -76,11 +76,12 @@ func (s *Server) handleV1Model(w http.ResponseWriter, r *http.Request) {
 }
 
 // advertisedToClients reports whether the OpenAI-compatible API offers a
-// model: enabled, and not one of the app's own helper models. The list and
+// model: enabled, and neither one of the app's own helper models nor a
+// draft head, which only another model can load. The list and
 // the single-model lookup both use it, so a client sees the same set of
 // models either way; a hidden model answers 404 like an unknown name.
 func advertisedToClients(m *models.Model, cfg *models.ModelConfig) bool {
-	return !m.HelperRole && (cfg == nil || cfg.Enabled)
+	return !m.HelperRole && !m.IsDraftHead() && (cfg == nil || cfg.Enabled)
 }
 
 // findModelByAny looks up a model by registry ID, public name, router name,
