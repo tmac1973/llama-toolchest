@@ -112,6 +112,18 @@ func (s *Server) handlePS(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, map[string]any{"models": result})
 }
 
+// serviceEngine names the inference engine behind the management API.
+// vllm-toolchest serves the same API, so clients such as Haruspex read
+// this field to tell the two apart. Keep it a short lowercase constant.
+const serviceEngine = "llama.cpp"
+
+// serviceStatusResponse is the JSON body of GET /api/service/status: the
+// router status with the engine name added at the top level.
+type serviceStatusResponse struct {
+	process.Status
+	Engine string `json:"engine"`
+}
+
 func (s *Server) handleServiceStatus(w http.ResponseWriter, r *http.Request) {
 	status := s.process.GetStatus()
 
@@ -121,7 +133,7 @@ func (s *Server) handleServiceStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respondJSON(w, status)
+	respondJSON(w, serviceStatusResponse{Status: status, Engine: serviceEngine})
 }
 
 // routerBusyWithJob reports whether a benchmark job is currently running
