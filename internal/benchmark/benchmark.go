@@ -226,16 +226,17 @@ func CardsInUse(m monitor.Metrics, cfg ConfigSnapshot) []CardMemory {
 // MemorySnapshot is one load's memory footprint, in GiB, as llama.cpp
 // itemised it while allocating.
 //
-// The four GPU terms add up to GPUGiB: they are every kind llama.cpp
+// The GPU terms add up to GPUGiB: they are every kind llama.cpp
 // reports, and keeping them apart is what lets a sweep answer "what did
 // that setting cost, and to which part of the footprint".
 type MemorySnapshot struct {
 	GPUGiB       float64 `json:"gpu_gib"`
 	WeightsGiB   float64 `json:"weights_gib"`
-	KVGiB        float64 `json:"kv_gib"`      // attention cache and recurrent state
-	ComputeGiB   float64 `json:"compute_gib"` // compute and output buffers
-	HostGiB      float64 `json:"host_gib"`    // weights left mapped, pinned staging, spilled layers
-	CardDeltaGiB float64 `json:"card_gib"`    // what the GPU counters rose by, 0 when not captured
+	KVGiB        float64 `json:"kv_gib"`                  // attention cache and recurrent state
+	ComputeGiB   float64 `json:"compute_gib"`             // compute and output buffers
+	MoECacheGiB  float64 `json:"moe_cache_gib,omitempty"` // the MoE cache (--moe-cache-mib)
+	HostGiB      float64 `json:"host_gib"`                // weights left mapped, pinned staging, spilled layers
+	CardDeltaGiB float64 `json:"card_gib"`                // what the GPU counters rose by, 0 when not captured
 	Cards        int     `json:"cards"`
 
 	// Contended marks a load that overlapped another. Its own buffer

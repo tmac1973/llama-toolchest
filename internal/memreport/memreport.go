@@ -26,6 +26,7 @@ const (
 	KindRecurrent Kind = "recurrent" // recurrent/linear-attention state
 	KindCompute   Kind = "compute"   // scratch for the graph
 	KindOutput    Kind = "output"    // logits
+	KindMoECache  Kind = "moe-cache" // GPU cache of experts kept in system memory (--moe-cache-mib)
 )
 
 // Entry is one "<device> <kind> buffer size = N MiB" observation.
@@ -93,10 +94,31 @@ var lineRE = regexp.MustCompile(
 var recurrentRE = regexp.MustCompile(
 	`^(?:\[\s*(\d+)\] )?[\d.]+ [A-Z] (\w+):\s+(\S+)\s+RS\s+buffer size\s*=\s*([\d.]+)\s*MiB`)
 
+// moeCacheRE matches the line llama.cpp writes for each device's MoE
+// cache, which is not a buffer line:
+//
+//	0.14.275.900 I impl:      CUDA0 MoE cache size =  2048.00 MiB for 46000.00 MiB of host experts
+//
+// The function name is whatever the cache's constructor is called, so it
+// is matched as any word, as in lineRE.
+var moeCacheRE = regexp.MustCompile(
+	`^(?:\[\s*(\d+)\] )?[\d.]+ [A-Z] (\w+):\s+(\S+)\s+MoE cache size\s*=\s*([\d.]+)\s*MiB`)
+
 // ParseLine extracts one entry, reporting false for any line that is not
 // a buffer report — which is the overwhelming majority of the stream.
 func ParseLine(line string) (Entry, bool) {
 	line = strings.TrimPrefix(line, "data: ")
+	if strings.Contains(line, "MoE cache size") {
+		m := moeCacheRE.FindStringSubmatch(line)
+		if m == nil {
+			return Entry{}, false
+		}
+		mib, err := strconv.ParseFloat(m[4], 64)
+		if err != nil {
+			return Entry{}, false
+		}
+		return Entry{Instance: m[1], Category: m[2], Device: m[3], Kind: KindMoECache, MiB: mib}, true
+	}
 	if !strings.Contains(line, "buffer size") {
 		return Entry{}, false
 	}

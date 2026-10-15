@@ -48,7 +48,8 @@
                 {{printf "%.1f" .GPUGiB}} GiB on the GPUs —
                 {{printf "%.1f" .WeightsGiB}} weights,
                 {{printf "%.1f" .KVGiB}} KV cache,
-                {{printf "%.1f" .ComputeGiB}} working buffers
+                {{printf "%.1f" .ComputeGiB}} working buffers{{if gt .MoECacheGiB 0.0}},
+                {{printf "%.1f" .MoECacheGiB}} expert cache{{end}}
                 {{if ge .HostGiB 0.05}}<br>{{printf "%.1f" .HostGiB}} GiB in system memory{{end}}
                 {{if and (gt .CardDeltaGiB 0.0) (not .Contended)}}<br>Cards reported {{printf "%.1f" .CardDeltaGiB}} GiB, {{printf "%.1f" .Unreported}} above what llama.cpp itemises{{end}}
                 {{if .Contended}}<br>Another model was loading at the same time, so the card total could not be attributed{{end}}

@@ -48,12 +48,13 @@ type reportedTerms struct {
 	kv        float64
 	recurrent float64
 	compute   float64 // compute and output buffers
+	moeCache  float64 // the MoE cache (--moe-cache-mib)
 }
 
 // total is what llama.cpp accounts for. Always less than the card
 // counters: context and allocator overhead are not in the report.
 func (r reportedTerms) total() float64 {
-	return r.weights + r.kv + r.recurrent + r.compute
+	return r.weights + r.kv + r.recurrent + r.compute + r.moeCache
 }
 
 // Sizes are in GiB where written as floats and converted below.
