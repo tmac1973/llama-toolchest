@@ -470,6 +470,15 @@ func (r *Runner) readStage(rec *Autotune, job *benchmark.BenchmarkJob) ([]Candid
 			if s, err := ScoreRuns(rec.UseCase, g, runsByKey[key]); err == nil {
 				c.Scores[g] = s
 			}
+			if len(Workloads[rec.UseCase]) < 2 {
+				continue
+			}
+			if parts, err := ScoreParts(rec.UseCase, g, runsByKey[key]); err == nil {
+				if c.Parts == nil {
+					c.Parts = map[Goal][]Score{}
+				}
+				c.Parts[g] = parts
+			}
 		}
 		if len(c.Scores) == 0 {
 			// Nothing usable: a setting this machine cannot run is not a

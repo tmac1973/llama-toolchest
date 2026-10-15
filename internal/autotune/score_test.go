@@ -132,6 +132,24 @@ func TestPickKeepsTheSimplerSettingInsideTheNoise(t *testing.T) {
 	}
 }
 
+// A setting whose speed jumps around can measure fastest with a spread
+// wide enough to cover the starting profile. The starting profile must not
+// win for being plainest while a steady setting beats it clearly; among
+// equally plain settings the steadier one wins.
+func TestPickIgnoresANoisyFastest(t *testing.T) {
+	base := benchmark.ConfigSnapshot{}
+	assist := benchmark.ConfigSnapshot{SpecAssist: "ngram-simple"}
+	cands := []Candidate{
+		cand("baseline", base, nil, 113.7, 0.2),
+		cand("jumpy", assist, map[string]string{"spec_type": "ngram-simple:assist_size_n=24"}, 134.0, 21.2),
+		cand("steady", assist, map[string]string{"spec_type": "ngram-simple:assist_size_n=12"}, 131.4, 2.9),
+	}
+	winner, _, _ := Pick(cands, GoalGeneration, base)
+	if winner.Label != "steady" {
+		t.Errorf("winner = %q, want steady (it clearly beats the baseline, and is steadier than jumpy)", winner.Label)
+	}
+}
+
 func TestPickWithoutMeasurements(t *testing.T) {
 	if _, _, ok := Pick([]Candidate{{Label: "failed"}}, GoalGeneration, benchmark.ConfigSnapshot{}); ok {
 		t.Error("a candidate with no score for the goal was picked")
@@ -206,5 +224,82 @@ func TestCommonFailure(t *testing.T) {
 				t.Errorf("commonFailure = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// One repetition far from the others must not carry the result: the
+// speed is the median of the repetitions, and the spread still counts
+// every one of them. These are the coding numbers from a real run, where
+// an ngram assist made the first repetition twice as fast as the rest.
+func TestScoreRunsTakesTheMedianRepetition(t *testing.T) {
+	code := &benchmark.BenchmarkRun{Results: []benchmark.BenchmarkResult{
+		{PromptTokens: 1499, PromptTokPerSec: 5000, GenTokPerSec: 261.9},
+		{PromptTokens: 1499, PromptTokPerSec: 5100, GenTokPerSec: 133.8},
+		{PromptTokens: 1499, PromptTokPerSec: 4900, GenTokPerSec: 130.6},
+	}}
+	code.Summary = benchmark.ComputeSummary(code.Results)
+	runs := map[string]*benchmark.BenchmarkRun{"autotune-code": code}
+
+	gen, err := ScoreRuns(UseCode, GoalGeneration, runs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gen.Value != 133.8 {
+		t.Errorf("generation = %v, want the middle repetition's 133.8", gen.Value)
+	}
+	if gen.Std < 50 {
+		t.Errorf("generation spread = %v, want the spread of all three repetitions (about 60)", gen.Std)
+	}
+	prompt, _ := ScoreRuns(UseCode, GoalPrompt, runs)
+	if prompt.Value != 5000 {
+		t.Errorf("prompt = %v, want the middle repetition's 5000", prompt.Value)
+	}
+}
+
+func TestMedian(t *testing.T) {
+	for _, c := range []struct {
+		in   []float64
+		want float64
+	}{{[]float64{3, 1, 2}, 2}, {[]float64{4, 1, 3, 2}, 2.5}, {[]float64{7}, 7}} {
+		if got := median(c.in); got != c.want {
+			t.Errorf("median(%v) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
+// ScoreParts gives each workload's own number, which ScoreRuns combines.
+func TestScoreParts(t *testing.T) {
+	runs := map[string]*benchmark.BenchmarkRun{
+		"autotune-chat": run([4]float64{512, 1000, 40, 0}, [4]float64{4096, 1000, 35, 0}),
+		"autotune-code": run([4]float64{1536, 500, 20, 0}),
+	}
+	parts, err := ScoreParts(UseMixed, GoalGeneration, runs)
+	if err != nil || len(parts) != 2 || parts[0].Value != 40 || parts[1].Value != 20 {
+		t.Errorf("parts = %+v, %v; want chat 40 then coding 20", parts, err)
+	}
+}
+
+func TestPartsPhrase(t *testing.T) {
+	winner := Candidate{Parts: map[Goal][]Score{
+		GoalGeneration: {{Value: 129.5}, {Value: 133.8}},
+		GoalResponse:   {{Value: -2.4}, {Value: -3.0}},
+	}}
+	baseline := Candidate{Parts: map[Goal][]Score{GoalGeneration: {{Value: 112.1}, {Value: 115.0}}}}
+
+	got := PartsPhrase(UseMixed, GoalGeneration, winner, baseline)
+	if want := "Average of two workloads: chat 112.1 → 129.5, coding 115.0 → 133.8 tokens per second"; got != want {
+		t.Errorf("generation = %q\nwant         %q", got, want)
+	}
+	// No starting numbers: the winner's alone.
+	got = PartsPhrase(UseMixed, GoalResponse, winner, baseline)
+	if want := "Total of two workloads: chat 2.4, coding 3.0 seconds"; got != want {
+		t.Errorf("response = %q\nwant       %q", got, want)
+	}
+	// One workload, or a run saved before parts were kept: nothing to say.
+	if got := PartsPhrase(UseCode, GoalGeneration, winner, baseline); got != "" {
+		t.Errorf("single workload = %q, want empty", got)
+	}
+	if got := PartsPhrase(UseMixed, GoalPrompt, winner, baseline); got != "" {
+		t.Errorf("no parts = %q, want empty", got)
 	}
 }

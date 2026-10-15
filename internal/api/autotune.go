@@ -410,9 +410,12 @@ type autotuneResult struct {
 	Saved       bool
 	ProfileName string
 	Headline    string
-	Detail      string
-	Settings    []string
-	Message     string
+	// Parts breaks the headline down by workload on a use case that
+	// measures several; "" otherwise.
+	Parts    string
+	Detail   string
+	Settings []string
+	Message  string
 }
 
 func (s *Server) autotuneResultsData(id, name string, rec *autotune.Autotune, banner *panelBanner) autotuneResultsData {
@@ -433,6 +436,7 @@ func (s *Server) autotuneResultsData(id, name string, rec *autotune.Autotune, ba
 			// The card is headed with the goal already; repeating it in
 			// the sentence reads as a stutter.
 			res.Headline = strings.TrimPrefix(out.Message, autotune.GoalLabel(g)+": ")
+			res.Parts = autotune.PartsPhrase(rec.UseCase, g, out.Winner, out.Baseline)
 			res.Detail = resultDetail(out)
 			for _, field := range slices.Sorted(maps.Keys(out.Winner.Values)) {
 				res.Settings = append(res.Settings, autotune.DescribeValue(field, out.Winner.Values[field]))
