@@ -1,8 +1,10 @@
 package autoconfig
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -242,12 +244,16 @@ func Validate(adv Advice, in Inputs) Checked {
 		if adv.DraftRepo != nil {
 			repo = strings.TrimSpace(*adv.DraftRepo)
 		}
+		var cands []models.DraftCandidate
+		if mode != "draft-mtp" && in.DraftCandidates != nil {
+			cands = draftFiles(mode, in.DraftCandidates(mode))
+		}
 		switch {
 		case mode == "draft-mtp" && (m.NextNLayers > 0 || in.Base.MtpPath != ""):
 			out.Proposals = append(out.Proposals, Proposal{Field: "spec_type", Value: mode, Origin: "model card",
 				Reason: quoted("Speculative decoding with the model's multi-token prediction (MTP) layers. It speeds up generation and does not change the answers.", adv.SpeculativeQuote)})
-		case mode != "draft-mtp" && in.DraftCandidates != nil && len(in.DraftCandidates(mode)) > 0:
-			c := in.DraftCandidates(mode)[0]
+		case len(cands) > 0:
+			c := cands[0]
 			out.Proposals = append(out.Proposals,
 				Proposal{Field: "spec_type", Value: mode, Origin: "model card",
 					Reason: quoted("Speculative decoding with a draft model the model card recommends. It speeds up generation and does not change the answers.", adv.SpeculativeQuote)},
@@ -294,6 +300,25 @@ func Validate(adv Advice, in Inputs) Checked {
 		}
 	}
 	return out
+}
+
+// draftFiles narrows the registry's candidates to the files a draft
+// method can actually load, smallest first. For a head-based method the
+// registry lists every installed model, so the user can pick from the
+// config form; proposing the first of those meant proposing whichever
+// chat model the map happened to yield, a different one each run.
+func draftFiles(mode string, cands []models.DraftCandidate) []models.DraftCandidate {
+	if models.IsHeadBasedDraftMode(mode) {
+		cands = models.HeadsForMode(mode, cands)
+	}
+	cands = slices.Clone(cands)
+	slices.SortStableFunc(cands, func(a, b models.DraftCandidate) int {
+		if c := cmp.Compare(a.SizeGB, b.SizeGB); c != 0 {
+			return c
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	return cands
 }
 
 // samplingProposals turns a publisher preset into proposals.

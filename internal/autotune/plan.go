@@ -244,7 +244,7 @@ func draftOptions(in PlanInput) ([]draftOption, []string) {
 			// model is never a head — offering one only costs minutes and
 			// a "failed to load" per method. Keep the files that say
 			// which method they are for.
-			cands = headsFor(mode, cands)
+			cands = models.HeadsForMode(mode, cands)
 		}
 		if len(cands) == 0 {
 			skipped = append(skipped, fmt.Sprintf("%s: no file for it is installed", models.SpecModeLabel(mode)))
@@ -297,40 +297,6 @@ func draftCacheFor(base models.ModelConfig) string {
 		return ""
 	}
 	return base.KVCacheQuant
-}
-
-// headMarkers are the words a converted draft head carries in its name,
-// by method. Publishers name these files after the method that made
-// them ("…-EAGLE3-GGUF", "…-DFlash.gguf"), which is the only signal in
-// the file itself that says what it is: a head has no architecture of
-// its own to match against and no size rule separating it from a small
-// chat model.
-var headMarkers = map[string][]string{
-	"draft-eagle3": {"eagle3", "eagle-3", "eagle"},
-	"draft-dflash": {"dflash", "d-flash"},
-	"draft-dspark": {"dspark", "d-spark"},
-}
-
-// headsFor keeps the candidates whose name says they are a head for this
-// method. Matching on the name is a weak test, but the alternative is
-// treating every installed model as a head for every method, which is
-// how an ordinary chat model came to be measured as an EAGLE3 head.
-func headsFor(mode string, cands []models.DraftCandidate) []models.DraftCandidate {
-	markers := headMarkers[mode]
-	if len(markers) == 0 {
-		return nil
-	}
-	var out []models.DraftCandidate
-	for _, c := range cands {
-		name := strings.ToLower(c.ID + " " + c.Filename)
-		for _, m := range markers {
-			if strings.Contains(name, m) {
-				out = append(out, c)
-				break
-			}
-		}
-	}
-	return out
 }
 
 // defaultParams fills a spec value's settings with the recommended
