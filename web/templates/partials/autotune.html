@@ -177,7 +177,8 @@
             Use these settings
         </button>
         {{else}}
-        <p><small>{{.Message}}</small></p>
+        <p>{{.Message}}{{if .Detail}}<br><small title="What the starting profile measured{{if .Parts}}, combined over the workloads{{end}}.">Measured: {{.Detail}}.</small>{{end}}{{if .Parts}}<br><small>{{.Parts}}.</small>{{end}}</p>
+        {{if .Alternative}}<p><small title="The best of the other settings measured side by side with the profile in the confirming stage.">Closest alternative: {{.Alternative}}.</small></p>{{end}}
         {{end}}
     </article>
     {{end}}

@@ -314,3 +314,25 @@ func TestDraftFileNameInDescriptions(t *testing.T) {
 		}
 	}
 }
+
+// When the starting profile wins, the closest alternative says how near
+// it came — the right way round for a time, where lower is better.
+func TestClosestAlternative(t *testing.T) {
+	rec := &Autotune{}
+	rec.SetStage(StageRecord{Key: StageConfirm, Candidates: []Candidate{
+		{Values: map[string]string{}, Scores: map[Goal]Score{GoalGeneration: {Value: 90}, GoalResponse: {Value: -10}}},
+		{Values: map[string]string{"ubatch_size": "512"}, Scores: map[Goal]Score{GoalGeneration: {Value: 81}, GoalResponse: {Value: -11}}},
+		{Values: map[string]string{"ubatch_size": "1024"}, Scores: map[Goal]Score{GoalGeneration: {Value: 87.3}, GoalResponse: {Value: -12}}},
+	}})
+	alt, cmp, ok := ClosestAlternative(rec, GoalGeneration)
+	if !ok || alt.Values["ubatch_size"] != "1024" || cmp != "3% slower" {
+		t.Errorf("generation: %v %q %v, want ubatch 1024, 3%% slower", alt.Values, cmp, ok)
+	}
+	alt, cmp, ok = ClosestAlternative(rec, GoalResponse)
+	if !ok || alt.Values["ubatch_size"] != "512" || cmp != "10% slower" {
+		t.Errorf("response: %v %q %v, want ubatch 512, 10%% slower", alt.Values, cmp, ok)
+	}
+	if _, _, ok := ClosestAlternative(&Autotune{}, GoalGeneration); ok {
+		t.Error("an alternative without a confirming stage")
+	}
+}
