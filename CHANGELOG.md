@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.41.0](https://github.com/tmac1973/llama-toolchest/compare/v2.40.1...v2.41.0) (2026-10-15)
+
+
+### Features
+
+* **autotune:** measure placement in a stage of its own, and offer a quick run ([#294](https://github.com/tmac1973/llama-toolchest/issues/294)) ([7084f96](https://github.com/tmac1973/llama-toolchest/commit/7084f963086d6633d018779cef8c58e2d38e8c66))
+
+
+### Bug Fixes
+
+* **autotune:** estimate a run from this machine's measured cell times, and count the draft-settings stage ([#292](https://github.com/tmac1973/llama-toolchest/issues/292)) ([395ef04](https://github.com/tmac1973/llama-toolchest/commit/395ef04b52895bb9b05fc93ff4b331ca28948f6f))
+* **ui:** keep the page still when a polling swap moves a focused preserved element ([#295](https://github.com/tmac1973/llama-toolchest/issues/295)) ([2efd123](https://github.com/tmac1973/llama-toolchest/commit/2efd123c07ee992e768047a9ac2ccefae2b39b70))
+
 ## [2.40.1](https://github.com/tmac1973/llama-toolchest/compare/v2.40.0...v2.40.1) (2026-10-15)
 
 
