@@ -474,6 +474,9 @@ type autotuneResult struct {
 	Detail   string
 	Settings []string
 	Message  string
+	// Alternative is, when the starting profile won, the best other
+	// setting measured and how far behind it came; "" when there is none.
+	Alternative string
 }
 
 func (s *Server) autotuneResultsData(id, name string, rec *autotune.Autotune, banner *panelBanner) autotuneResultsData {
@@ -499,10 +502,43 @@ func (s *Server) autotuneResultsData(id, name string, rec *autotune.Autotune, ba
 			for _, field := range slices.Sorted(maps.Keys(out.Winner.Values)) {
 				res.Settings = append(res.Settings, autotune.DescribeValue(field, out.Winner.Values[field]))
 			}
+		} else {
+			// The profile won: nothing is saved, but what it measured, and
+			// how close the next best came, are still worth knowing.
+			// The profile's numbers are the baseline's: the winner can be
+			// another setting that did not beat it by more than the noise.
+			res.Parts = autotune.PartsPhrase(rec.UseCase, g, out.Baseline, autotune.Candidate{})
+			res.Detail = profileDetail(g, out.Baseline)
+			if alt, compared, ok := autotune.ClosestAlternative(rec, g); ok {
+				var settings []string
+				for _, field := range slices.Sorted(maps.Keys(alt.Values)) {
+					settings = append(settings, autotune.DescribeValue(field, alt.Values[field]))
+				}
+				res.Alternative = fmt.Sprintf("%s, %s (%s)",
+					autotune.MeasurementPhrase(g, alt.Scores[g]), compared, strings.Join(settings, ", "))
+				if strings.HasSuffix(compared, "faster") {
+					res.Alternative += " — within what the measurements can tell apart, so your profile was kept"
+				}
+			}
 		}
 		d.Results = append(d.Results, res)
 	}
 	return d
+}
+
+// profileDetail is every measurement of the starting profile, the goal's
+// own first: when the profile wins there is no headline that names it.
+func profileDetail(goal autotune.Goal, profile autotune.Candidate) string {
+	var parts []string
+	if v, ok := profile.Scores[goal]; ok {
+		parts = append(parts, autotune.MeasurementPhrase(goal, v))
+	}
+	for _, g := range autotune.Goals {
+		if v, ok := profile.Scores[g]; ok && g != goal {
+			parts = append(parts, autotune.MeasurementPhrase(g, v))
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 // resultDetail is the two measurements the headline does not name: the

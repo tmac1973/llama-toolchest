@@ -211,6 +211,14 @@ func TestAutotuneResultsScreen(t *testing.T) {
 			autotune.GoalResponse: {Value: -5.5},
 		},
 	}
+	// The starting profile, which won the prompt goal.
+	profile := autotune.Candidate{
+		Values: map[string]string{},
+		Scores: map[autotune.Goal]autotune.Score{
+			autotune.GoalGeneration: {Value: 38}, autotune.GoalPrompt: {Value: 1500},
+			autotune.GoalResponse: {Value: -6.0},
+		},
+	}
 	// The profile the results offer to restore.
 	if _, err := s.registry.SaveProfileFrom(profTestID, "Autotune – fastest generation", models.ConfigProfile{
 		Config: models.ModelConfig{Enabled: true, GPULayers: 999, ContextSize: 8192, UBatchSize: 1024},
@@ -224,17 +232,22 @@ func TestAutotuneResultsScreen(t *testing.T) {
 			autotune.GoalGeneration: {Goal: autotune.GoalGeneration, Saved: true,
 				ProfileName: "Autotune – fastest generation", Winner: winner,
 				Message: "fastest generation: 38.0 → 61.0 tokens per second (61% faster). Saved as \"Autotune – fastest generation\"."},
-			autotune.GoalPrompt: {Goal: autotune.GoalPrompt,
+			autotune.GoalPrompt: {Goal: autotune.GoalPrompt, Winner: profile, Baseline: profile,
 				Message: "Your \"Autoconfig\" profile is already the fastest prompt."},
 		},
 	}
 	rec.SetStage(autotune.StageRecord{Key: autotune.StageConfirm, Status: autotune.StatusDone, JobID: "job-confirm",
-		Failed: []autotune.FailedCell{{Label: "prompt batch 4096", Error: "out of memory"}}})
+		Candidates: []autotune.Candidate{profile, winner},
+		Failed:     []autotune.FailedCell{{Label: "prompt batch 4096", Error: "out of memory"}}})
 	s.tuneStore.Save(rec)
 
 	out := s.doTune(t, "GET", "/api/models/"+profTestID+"/autotune/status", nil)
 	for _, want := range []string{"61.0 tokens per second", "already the fastest prompt", "Use these settings",
-		"MTP draft layers with an ngram-mod assist", "prompt batch 1024", "out of memory", "Measured for Coding and editing work"} {
+		"MTP draft layers with an ngram-mod assist", "prompt batch 1024", "out of memory", "Measured for Coding and editing work",
+		// The profile that won the prompt goal still shows what it measured,
+		// and how close the next best came.
+		"Measured: prompt 1500 tokens per second, generation 38.0 tokens per second, a full answer in 6.0 seconds",
+		"Closest alternative: prompt 1400 tokens per second, 7% slower"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("results screen missing %q", want)
 		}

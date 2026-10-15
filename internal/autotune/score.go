@@ -113,6 +113,45 @@ func PartsPhrase(uc UseCase, g Goal, winner, baseline Candidate) string {
 	return fmt.Sprintf("%s of %s workloads: %s %s", kind, countWord(len(shapes)), strings.Join(items, ", "), unit)
 }
 
+// ClosestAlternative is the best setting other than the starting profile
+// that the confirming stage measured for a goal, and how it compares with
+// the profile: "3% slower". ok is false when there is none to compare —
+// the profile was the only candidate with a measurement for the goal.
+// When the starting profile wins, this is what tells the reader whether
+// it won by a little or a lot.
+func ClosestAlternative(rec *Autotune, g Goal) (alt Candidate, compared string, ok bool) {
+	st, found := rec.Stage(StageConfirm)
+	if !found {
+		return Candidate{}, "", false
+	}
+	var base *Candidate
+	for i, c := range st.Candidates {
+		if len(c.Values) == 0 {
+			base = &st.Candidates[i]
+			continue
+		}
+		s, has := c.Scores[g]
+		if !has {
+			continue
+		}
+		if !ok || s.Value > alt.Scores[g].Value {
+			alt, ok = c, true
+		}
+	}
+	if !ok || base == nil {
+		return Candidate{}, "", false
+	}
+	b, has := base.Scores[g]
+	if !has {
+		return Candidate{}, "", false
+	}
+	if g == GoalResponse {
+		// Stored as negative seconds so that higher is better everywhere.
+		return alt, percentFaster(-b.Value, -alt.Scores[g].Value, true), true
+	}
+	return alt, percentFaster(b.Value, alt.Scores[g].Value, false), true
+}
+
 func countWord(n int) string {
 	if n >= 0 && n < len(countWords) {
 		return countWords[n]
