@@ -95,6 +95,18 @@ func TestCollectorTracksLoadsInFlight(t *testing.T) {
 	}
 }
 
+// The router logs the ready message at debug level, under its own
+// timestamp and level prefix. Matching only the bare form meant the end
+// of a load was never seen on a real router.
+func TestCollectorSeesThePrefixedReady(t *testing.T) {
+	c := NewCollector()
+	c.Add("0.00.100.000 I srv          load: spawning server instance with name=modelA on port 46231")
+	ev := c.Add(`0.14.275.900 D [46231] cmd_child_to_router:state:{"state":"ready","payload":{"n_ctx":8192}}`)
+	if ev.Kind != EventReady || ev.Model != "modelA" {
+		t.Errorf("prefixed ready line = %+v; want a ready for modelA", ev)
+	}
+}
+
 // A ready for a port with no load — a leftover from a previous router
 // run, say — must not invent one.
 func TestCollectorIgnoresReadyForAnUnknownPort(t *testing.T) {

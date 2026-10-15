@@ -24,17 +24,19 @@ var spawnRE = regexp.MustCompile(`spawning server instance with name=(.+) on por
 // readyRE matches the line a child writes when it has finished loading
 // and is ready to serve:
 //
-//	[46231] cmd_child_to_router:state:{"state":"ready","payload":{...}}
+//	0.14.275.900 D [46231] cmd_child_to_router:state:{"state":"ready","payload":{...}}
 //
-// The router forwards every line a child prints before checking whether
-// it is one of these control messages, so it arrives in the log stream
-// like any other. It is the end of the load — and so the moment at which
-// the card counters are worth reading.
+// The router logs these control messages itself, at debug level, so the
+// line carries the router's own timestamp and level prefix — unlike the
+// child's ordinary output, which it forwards bare. The prefix is optional
+// here so a build that logs it without one still matches. It is the end
+// of the load — and so the moment at which the card counters are worth
+// reading.
 //
 // A model waking from sleep reports ready again without a spawn. That
 // leaves the first ready standing rather than replacing it, which is the
 // honest reading: the load being described is still the one measured.
-var readyRE = regexp.MustCompile(`^\[\s*(\d+)\] cmd_child_to_router:state:.*"state"\s*:\s*"ready"`)
+var readyRE = regexp.MustCompile(`^(?:[\d.]+ )?(?:[A-Z] )?\[\s*(\d+)\] cmd_child_to_router:state:.*"state"\s*:\s*"ready"`)
 
 // Measurement is what one model load allocated, as llama.cpp reported it
 // while loading.
