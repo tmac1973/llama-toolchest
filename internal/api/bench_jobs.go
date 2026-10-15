@@ -932,7 +932,7 @@ func (s *Server) handleJobForm(w http.ResponseWriter, r *http.Request) {
 	var enabled []*models.Model
 	// Helper models are not benchmark targets (see handleBenchmarkForm).
 	for _, m := range s.registry.ListServing() {
-		if cfg, err := s.registry.GetConfig(m.ID); err == nil && cfg.Enabled {
+		if cfg, err := s.registry.GetConfig(m.ID); err == nil && cfg.Enabled && !m.IsDraftHead() {
 			enabled = append(enabled, m)
 		}
 	}

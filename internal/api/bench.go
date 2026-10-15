@@ -443,7 +443,7 @@ func (s *Server) handleBenchmarkForm(w http.ResponseWriter, r *http.Request) {
 	allModels := s.registry.ListServing()
 	var enabledModels []*models.Model
 	for _, m := range allModels {
-		if cfg, err := s.registry.GetConfig(m.ID); err == nil && cfg.Enabled {
+		if cfg, err := s.registry.GetConfig(m.ID); err == nil && cfg.Enabled && !m.IsDraftHead() {
 			enabledModels = append(enabledModels, m)
 		}
 	}

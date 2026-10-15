@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -132,5 +133,37 @@ func TestFindDraftCandidatesSkipsHeadsForDraft(t *testing.T) {
 	}
 	if got := r.FindDraftCandidates("target", "draft-dflash"); len(got) != 2 {
 		t.Errorf("draft-dflash candidates = %+v, want both for the picker", got)
+	}
+}
+
+// A converted head is registered turned off and is never written to the
+// router's preset, even when a config has it on — a head loaded as a
+// model of its own fails, and the router would list it to every client.
+func TestDraftHeadsAreNotServed(t *testing.T) {
+	dir := t.TempDir()
+	r := NewRegistry(dir, filepath.Join(dir, "models"))
+	chat := &Model{ID: "chat", Filename: "chat.gguf", FilePath: "/models/chat.gguf", Arch: "qwen35", SizeBytes: 20 << 30}
+	head := &Model{ID: "head", Filename: "dspark-chat.gguf", FilePath: "/models/dspark-chat.gguf", Arch: "dflash", DraftHead: "dspark", SizeBytes: 1 << 30}
+	for _, m := range []*Model{chat, head} {
+		if err := r.Add(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if cfg, _ := r.GetConfig("head"); cfg.Enabled {
+		t.Error("a downloaded head was registered turned on")
+	}
+	if cfg, _ := r.GetConfig("chat"); !cfg.Enabled {
+		t.Error("a chat model was registered turned off")
+	}
+
+	on := map[string]*ModelConfig{"chat": {Enabled: true, GPULayers: 999}, "head": {Enabled: true, GPULayers: 999}}
+	ini := GeneratePresetINI("/models", []*Model{chat, head}, on, Target{})
+	if strings.Contains(ini, "[head]") || !strings.Contains(ini, "[chat]") {
+		t.Errorf("preset:\n%s\nwant the chat model and not the head", ini)
+	}
+	for _, a := range ComputeAllocations([]*Model{chat, head}, on, 1) {
+		if a.ModelID == "head" {
+			t.Error("a head was counted on the GPU map")
+		}
 	}
 }

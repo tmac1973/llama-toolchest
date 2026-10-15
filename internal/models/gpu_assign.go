@@ -554,7 +554,7 @@ func ComputeAllocations(modelList []*Model, configs map[string]*ModelConfig, num
 
 	for _, m := range modelList {
 		cfg, ok := configs[m.ID]
-		if !ok || !cfg.Enabled {
+		if !ok || !cfg.Enabled || m.IsDraftHead() {
 			continue
 		}
 
