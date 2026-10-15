@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.37.0](https://github.com/tmac1973/llama-toolchest/compare/v2.36.0...v2.37.0) (2026-10-15)
+
+
+### Features
+
+* **api:** report engine in service status ([#272](https://github.com/tmac1973/llama-toolchest/issues/272)) ([1e87905](https://github.com/tmac1973/llama-toolchest/commit/1e879053cefab8dfd6a75509c55ca8eb14ac93c0))
+
 ## [2.36.0](https://github.com/tmac1973/llama-toolchest/compare/v2.35.1...v2.36.0) (2026-10-09)
 
 
