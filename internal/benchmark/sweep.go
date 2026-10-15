@@ -233,6 +233,12 @@ const SpecDraftModelKey = "draft_model"
 // model's whole context — 8 GiB for a 4B drafter at 262,144 tokens.
 const SpecDraftCacheKey = "draft_cache"
 
+// SpecDraftUBatchKey is the spec-value setting for the micro-batch of the
+// drafter's own context (--spec-draft-n-ubatch), e.g.
+// "draft-mtp:draft_ubatch=16". Like draft_cache it belongs to every
+// draft method, so it is not in the parameter tables.
+const SpecDraftUBatchKey = "draft_ubatch"
+
 // draftCacheTypes are the cache types a draft_cache value may name: the
 // same ones a model's own cache may use.
 var draftCacheTypes = map[string]bool{"f16": true, "q8_0": true, "q4_0": true}
@@ -290,6 +296,7 @@ func parseSpecValue(raw string) (specValue, error) {
 	if out.mode != "" {
 		allowedKeys[SpecDraftModelKey] = true
 		allowedKeys[SpecDraftCacheKey] = true
+		allowedKeys[SpecDraftUBatchKey] = true
 	}
 	for _, pair := range strings.Split(rest, ",") {
 		pair = strings.TrimSpace(pair)
@@ -311,6 +318,10 @@ func parseSpecValue(raw string) (specValue, error) {
 		} else if k == SpecDraftCacheKey {
 			if !draftCacheTypes[val] {
 				return out, fmt.Errorf("draft_cache %q is not a cache type; use f16, q8_0 or q4_0", val)
+			}
+		} else if k == "draft_sampling" {
+			if !slices.Contains(models.DraftSamplingModes, val) {
+				return out, fmt.Errorf("draft_sampling %q is not a sampling mode; use %s", val, strings.Join(models.DraftSamplingModes, " or "))
 			}
 		} else if k == "draft_p_min" {
 			if _, err := strconv.ParseFloat(val, 64); err != nil {
@@ -366,6 +377,12 @@ func applySpecValue(o *ConfigOverrides, raw string) error {
 		case "draft_p_min":
 			v := val
 			o.DraftPMin = &v
+		case "draft_sampling":
+			v := val
+			o.DraftSampling = &v
+		case SpecDraftUBatchKey:
+			n, _ := strconv.Atoi(val)
+			o.DraftUBatchSize = &n
 		case "assist_n_max":
 			n, _ := strconv.Atoi(val)
 			o.AssistNMax = &n
@@ -987,6 +1004,7 @@ func MergeOverrides(base, derived *ConfigOverrides) *ConfigOverrides {
 // draft_cache.
 var specParamTags = map[string]bool{
 	"draft_max": true, "draft_min": true, "draft_p_min": true, "draft_kv_cache_quant": true,
+	"draft_sampling": true, "draft_ubatch_size": true,
 	"spec_assist": true, "assist_n_max": true, "assist_n_min": true,
 	"assist_n_match": true, "assist_size_n": true, "assist_size_m": true,
 	"assist_min_hits": true,

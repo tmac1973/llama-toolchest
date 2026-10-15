@@ -38,9 +38,16 @@ func appendDraftResourceParams(params []specParam, c *ModelConfig, t Target) []s
 	return params
 }
 
-// appendDraftSamplingParams appends the drafting sampling knobs shared by
-// the "draft" and "draft-mtp" spec types.
-func appendDraftSamplingParams(params []specParam, c *ModelConfig) []specParam {
+// appendDraftSamplingParams appends the knobs of the drafting itself,
+// which every draft method has, and --spec-draft-sampling, which only
+// "draft" and "draft-mtp" do (llama.cpp ignores it for the heads).
+func appendDraftSamplingParams(params []specParam, c *ModelConfig, t Target) []specParam {
+	if c.DraftUBatchSize > 0 && t.DraftUBatchOption() {
+		params = append(params, specParam{"spec-draft-n-ubatch", strconv.Itoa(c.DraftUBatchSize)})
+	}
+	if c.DraftSampling != "" && HasDraftSampling(c.SpecType) && t.DraftSamplingOption() {
+		params = append(params, specParam{"spec-draft-sampling", c.DraftSampling})
+	}
 	if c.DraftMax > 0 {
 		params = append(params, specParam{"spec-draft-n-max", strconv.Itoa(c.DraftMax)})
 	}
@@ -52,6 +59,14 @@ func appendDraftSamplingParams(params []specParam, c *ModelConfig) []specParam {
 	}
 	return params
 }
+
+// HasDraftSampling reports whether a draft method takes
+// --spec-draft-sampling: the drafters that sample a token at a time, a
+// draft model and MTP.
+func HasDraftSampling(mode string) bool { return mode == "draft" || mode == "draft-mtp" }
+
+// DraftSamplingModes are the values --spec-draft-sampling accepts.
+var DraftSamplingModes = []string{"greedy", "probabilistic"}
 
 // draftTypeName maps a config's draft mode onto llama.cpp's own
 // --spec-type value. Only "draft" differs: llama.cpp renamed that enum
@@ -87,7 +102,7 @@ func appendDraftParams(params []specParam, c *ModelConfig, t Target) []specParam
 		params = append(params, specParam{"model-draft", drafter})
 		params = appendDraftResourceParams(params, c, t)
 	}
-	return appendDraftSamplingParams(params, c)
+	return appendDraftSamplingParams(params, c, t)
 }
 
 // appendAssistParams appends the flags of the draftless n-gram slot.

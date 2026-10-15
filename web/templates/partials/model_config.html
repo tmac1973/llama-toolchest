@@ -454,6 +454,25 @@
                    placeholder="server default">
         </label>
     </div>
+    <div class="grid">
+        {{if or (eq .Config.SpecType "draft") (eq .Config.SpecType "draft-mtp")}}
+        <label title="How the drafter picks its tokens. Greedy takes its most likely token. Probabilistic samples the draft and has the model check it by rejection sampling, which accepts more of the draft when replies are sampled at a temperature above 0. Neither changes the answers. llama.cpp default: greedy.">
+            Draft sampling
+            <select name="draft_sampling">
+                <option value="" {{if eq .Config.DraftSampling ""}}selected{{end}}>Default (greedy)</option>
+                <option value="greedy" {{if eq .Config.DraftSampling "greedy"}}selected{{end}}>Greedy</option>
+                <option value="probabilistic" {{if eq .Config.DraftSampling "probabilistic"}}selected{{end}}>Probabilistic</option>
+            </select>
+            {{if .DraftSamplingNote}}<small>{{.DraftSamplingNote}}</small>{{end}}
+        </label>
+        {{end}}
+        <label title="Micro-batch of the drafter's own context. The drafter only ever processes the few tokens it drafts per step, so a small value (e.g. 16) shrinks its compute buffer and leaves more GPU memory for the model. Blank follows the model's micro-batch, as llama.cpp does by default.">
+            Draft micro-batch
+            <input type="number" name="draft_ubatch_size" value="{{if gt .Config.DraftUBatchSize 0}}{{.Config.DraftUBatchSize}}{{end}}"
+                   min="0" placeholder="same as micro-batch">
+            {{if .DraftUBatchNote}}<small>{{.DraftUBatchNote}}</small>{{end}}
+        </label>
+    </div>
     {{end}}
     {{if or (usesDraftFile .Config.SpecType) (and (eq .Config.SpecType "draft-mtp") .HasMTP)}}
     <small><strong>Draft model resources</strong> — leave blank to inherit llama-server defaults. Set these when the draft model or head needs its own GPU offload, context, or cache type (e.g. <code>--device-draft CUDA0</code> on multi-GPU). They apply whenever a drafter is loaded through <code>--model-draft</code>, so not to self-speculation MTP, where the draft <em>is</em> the main model.</small>

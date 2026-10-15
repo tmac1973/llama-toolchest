@@ -453,3 +453,58 @@ func TestEffectiveSpecType(t *testing.T) {
 		}
 	}
 }
+
+// --spec-draft-sampling and --spec-draft-n-ubatch are written only for
+// builds that have them, and the sampling mode only for the methods that
+// take it: a draft model and MTP.
+func TestDraftSamplingAndUBatchFlags(t *testing.T) {
+	m := &Model{ID: "m", Filename: "m.gguf", FilePath: "/models/m.gguf"}
+	cfg := &ModelConfig{Enabled: true, GPULayers: 99, ContextSize: 16384, Threads: 8,
+		SpecType: "draft-mtp", DraftSampling: "probabilistic", DraftUBatchSize: 16}
+	for _, tt := range []struct {
+		name               string
+		version            int
+		wantSample, wantUB bool
+	}{
+		{"current llama.cpp", 0, true, true},
+		{"between the two", versionDraftUBatch - 1, true, false},
+		{"before both", versionDraftSampling - 1, false, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			target := Target{Version: tt.version}
+			flags := cfg.EffectiveFlagsFor(false, target)
+			ini := GeneratePresetINI("/models", []*Model{m}, map[string]*ModelConfig{"m": cfg}, target)
+			if got := strings.Contains(flags, "--spec-draft-sampling probabilistic"); got != tt.wantSample {
+				t.Errorf("sampling in flags = %v, want %v: %s", got, tt.wantSample, flags)
+			}
+			if got := strings.Contains(ini, "spec-draft-sampling = probabilistic"); got != tt.wantSample {
+				t.Errorf("sampling in preset = %v, want %v:\n%s", got, tt.wantSample, ini)
+			}
+			if got := strings.Contains(flags, "--spec-draft-n-ubatch 16"); got != tt.wantUB {
+				t.Errorf("draft ubatch in flags = %v, want %v: %s", got, tt.wantUB, flags)
+			}
+		})
+	}
+
+	head := *cfg
+	head.SpecType, head.DraftModelPath = "draft-dflash", "/models/head.gguf"
+	flags := head.EffectiveFlagsFor(false, Target{})
+	if strings.Contains(flags, "--spec-draft-sampling") {
+		t.Errorf("a DFlash head was given a sampling mode llama.cpp ignores for it: %s", flags)
+	}
+	if !strings.Contains(flags, "--spec-draft-n-ubatch 16") {
+		t.Errorf("a DFlash head's draft context lost its micro-batch: %s", flags)
+	}
+}
+
+// A drafter with a smaller micro-batch of its own costs less compute
+// buffer.
+func TestDraftUBatchLowersTheEstimate(t *testing.T) {
+	m := &Model{SizeBytes: 20 << 30, NLayers: 40, NEmbd: 4096, NHead: 32, NKVHead: 8, ContextLength: 131072}
+	cfg := &ModelConfig{GPULayers: 999, ContextSize: 65536, UBatchSize: 2048, SpecType: "draft-mtp"}
+	before := VRAMBreakdownForConfigOn(m, cfg, 1).Compute
+	cfg.DraftUBatchSize = 16
+	if after := VRAMBreakdownForConfigOn(m, cfg, 1).Compute; after >= before {
+		t.Errorf("compute %.2f GiB with a 16-token draft micro-batch, %.2f without: want less", after, before)
+	}
+}

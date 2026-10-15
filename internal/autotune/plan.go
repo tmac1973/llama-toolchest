@@ -393,6 +393,17 @@ func planSpecParams(in PlanInput) []map[string]string {
 		assistValues := paramValues(params, assistKey, models.SpecAssistParams(assist), 0)
 
 		added := 0
+		// Probabilistic drafting, at the finalist's own settings: it
+		// samples the draft and verifies it by rejection, which accepts
+		// more of it when replies are sampled above temperature 0 — the
+		// benchmark sends the model's own temperature. At 0 the two
+		// modes draft the same tokens, so there is nothing to measure.
+		if models.HasDraftSampling(mode) && params["draft_sampling"] != "probabilistic" && samplesAboveZero(in.Base) {
+			next := copyValues(params)
+			next["draft_sampling"] = "probabilistic"
+			cells = append(cells, withValue(c, "spec_type", benchmark.EncodeSpecValue(mode, assist, next)))
+			added++
+		}
 		for _, d := range draftValues {
 			for _, a := range assistValues {
 				if added >= specParamsPerFinalist {
@@ -418,6 +429,12 @@ func planSpecParams(in PlanInput) []map[string]string {
 		}
 	}
 	return cells
+}
+
+// samplesAboveZero reports whether the profile samples at a temperature
+// above 0, or leaves it to llama.cpp, whose default is above 0.
+func samplesAboveZero(base models.ModelConfig) bool {
+	return base.Temperature == nil || *base.Temperature > 0
 }
 
 // assistParamKey is the setting worth tuning for an n-gram assist: how

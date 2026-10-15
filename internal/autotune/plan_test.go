@@ -187,6 +187,18 @@ func TestPlanSpecParamsStage(t *testing.T) {
 		t.Errorf("draft lengths measured: %v, want several", draftMax)
 	}
 
+	if !values(cells, "spec_type")["draft-mtp+ngram-mod:assist_n_max=64,draft_max=6,draft_sampling=probabilistic"] {
+		t.Errorf("probabilistic drafting not measured at the finalist's own settings: %v", values(cells, "spec_type"))
+	}
+	zero := 0.0
+	in.Base.Temperature = &zero
+	for v := range values(planStageCells(StageSpecParams, in), "spec_type") {
+		if strings.Contains(v, "probabilistic") {
+			t.Errorf("probabilistic drafting measured at temperature 0, where it drafts what greedy does: %s", v)
+		}
+	}
+	in.Base.Temperature = nil
+
 	in.Finalists = map[string][]Candidate{StageSpec: {{Values: map[string]string{"spec_type": "none"}}}}
 	if cells, _, _ := PlanStage(StageSpecParams, in); len(cells) != 0 {
 		t.Errorf("nothing to tune, but %d cells were planned", len(cells))
@@ -507,4 +519,10 @@ func TestMoECacheSizes(t *testing.T) {
 			}
 		}
 	}
+}
+
+// planStageCells is PlanStage's cells alone.
+func planStageCells(key string, in PlanInput) []map[string]string {
+	cells, _, _ := PlanStage(key, in)
+	return cells
 }

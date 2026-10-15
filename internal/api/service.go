@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -704,6 +705,10 @@ type modelConfigPanelData struct {
 	// MoECacheNote says why the MoE cache setting is not used: a build
 	// too old for it. Empty when it is.
 	MoECacheNote string
+	// DraftSamplingNote and DraftUBatchNote say why those draft settings
+	// are not used: a build too old for them. Empty when they are.
+	DraftSamplingNote string
+	DraftUBatchNote   string
 	// CPURAMLabel says how much of the weights stay in system memory with
 	// these settings, or is empty when everything is on the GPU.
 	CPURAMLabel string
@@ -879,6 +884,14 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 	if model != nil && !isEmbedding {
 		data.ContextLayoutText, data.ContextLayoutWarning = contextLayoutText(cfg, model.ContextLength, s.activeTarget())
 	}
+	if t := s.activeTarget(); models.IsDraftMode(cfg.SpecType) {
+		if !t.DraftSamplingOption() {
+			data.DraftSamplingNote = "The active llama.cpp build is older than b11368 and does not have this setting, so it is not used."
+		}
+		if !t.DraftUBatchOption() {
+			data.DraftUBatchNote = "The active llama.cpp build is older than b11630 and does not have this setting, so it is not used."
+		}
+	}
 	if data.HasExperts && !s.activeTarget().MoECacheOption() {
 		data.MoECacheNote = "The active llama.cpp build is older than b11507 and does not have this setting, so it is not used."
 	}
@@ -1031,6 +1044,11 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		cfg.DraftMax = atoiField("draft_max")
 		cfg.DraftMin = atoiField("draft_min")
 		cfg.DraftPMin = r.FormValue("draft_p_min")
+		cfg.DraftSampling = ""
+		if v := r.FormValue("draft_sampling"); slices.Contains(models.DraftSamplingModes, v) {
+			cfg.DraftSampling = v
+		}
+		cfg.DraftUBatchSize = atoiField("draft_ubatch_size")
 		cfg.SpecAssist = r.FormValue("spec_assist")
 		cfg.AssistNMax = atoiField("assist_n_max")
 		cfg.AssistNMin = atoiField("assist_n_min")

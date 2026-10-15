@@ -1039,6 +1039,12 @@ func ApplyOverrides(base ConfigSnapshot, overrides *ConfigOverrides) ConfigSnaps
 	if overrides.DraftPMin != nil {
 		out.DraftPMin = *overrides.DraftPMin
 	}
+	if overrides.DraftSampling != nil {
+		out.DraftSampling = *overrides.DraftSampling
+	}
+	if overrides.DraftUBatchSize != nil {
+		out.DraftUBatchSize = *overrides.DraftUBatchSize
+	}
 	if overrides.NgramSizeN != nil {
 		out.NgramSizeN = *overrides.NgramSizeN
 	}

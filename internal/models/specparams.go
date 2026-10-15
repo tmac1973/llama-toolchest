@@ -23,6 +23,11 @@ func SpecDraftParams(mode string) []SpecModeParam {
 	draftMax := func(d string) SpecModeParam { return SpecModeParam{"draft_max", "Draft tokens max", d} }
 	draftMin := func(d string) SpecModeParam { return SpecModeParam{"draft_min", "Draft tokens min", d} }
 	pMin := func(d string) SpecModeParam { return SpecModeParam{"draft_p_min", "Draft probability min", d} }
+	// Blank: llama.cpp's greedy default. Whether probabilistic drafting
+	// pays depends on the temperature the model is used at, which is the
+	// client's choice, so Autotune measures it rather than this table
+	// guessing.
+	sampling := func(d string) SpecModeParam { return SpecModeParam{"draft_sampling", "Draft sampling", d} }
 
 	if IsHeadBasedDraftMode(mode) {
 		// Deliberately blank: llama.cpp's own defaults (n-max 3, n-min 0)
@@ -33,12 +38,12 @@ func SpecDraftParams(mode string) []SpecModeParam {
 	}
 	switch mode {
 	case "draft":
-		return []SpecModeParam{draftMax("16"), draftMin("0"), pMin("0.75")}
+		return []SpecModeParam{draftMax("16"), draftMin("0"), pMin("0.75"), sampling("")}
 	case "draft-mtp":
 		// unsloth's MTP guidance uses --spec-draft-n-max 6; p-min is left
 		// at llama.cpp's default — MTP heads have their own acceptance
 		// logic.
-		return []SpecModeParam{draftMax("6"), draftMin("0"), pMin("")}
+		return []SpecModeParam{draftMax("6"), draftMin("0"), pMin(""), sampling("")}
 	default:
 		return nil
 	}
@@ -85,6 +90,7 @@ func (c *ModelConfig) ApplyDraftDefaults() {
 	c.DraftMax = 0
 	c.DraftMin = 0
 	c.DraftPMin = ""
+	c.DraftSampling = ""
 	for _, p := range SpecDraftParams(c.SpecType) {
 		switch p.Key {
 		case "draft_max":
@@ -93,6 +99,8 @@ func (c *ModelConfig) ApplyDraftDefaults() {
 			c.DraftMin, _ = strconv.Atoi(p.Default)
 		case "draft_p_min":
 			c.DraftPMin = p.Default
+		case "draft_sampling":
+			c.DraftSampling = p.Default
 		}
 	}
 }

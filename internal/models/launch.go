@@ -60,6 +60,12 @@ const (
 	// over the GPUs that hold the cached layers, which is what the memory
 	// estimate assumes, so it is written from there.
 	versionMoECache = 11507
+	// versionDraftSampling is b11368 (#27694), which added
+	// --spec-draft-sampling.
+	versionDraftSampling = 11368
+	// versionDraftUBatch is b11630 (#30459), which added
+	// --spec-draft-n-ubatch.
+	versionDraftUBatch = 11630
 )
 
 // newest reports whether the target is to be written for as current
@@ -100,6 +106,13 @@ func (t Target) contextPerSlotOption() bool { return t.newest(versionContextPerS
 
 // moeCacheOption reports whether the build takes --moe-cache-mib.
 func (t Target) moeCacheOption() bool { return t.newest(versionMoECache) }
+
+// DraftSamplingOption reports whether the build takes
+// --spec-draft-sampling.
+func (t Target) DraftSamplingOption() bool { return t.newest(versionDraftSampling) }
+
+// DraftUBatchOption reports whether the build takes --spec-draft-n-ubatch.
+func (t Target) DraftUBatchOption() bool { return t.newest(versionDraftUBatch) }
 
 // MoECacheOption is moeCacheOption for the config form and Autotune.
 func (t Target) MoECacheOption() bool { return t.moeCacheOption() }

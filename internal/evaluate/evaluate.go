@@ -187,6 +187,7 @@ type SnapshotSubset struct {
 //     SplitMode / MainGPU); they reach the command line only as the
 //     resolved PlacementFlags.
 //   - SpecType, DraftModelPath, DraftMax, DraftMin, DraftPMin,
+//     DraftSampling, DraftUBatchSize,
 //     SpecAssist, AssistNMax, AssistNMin, AssistNMatch, AssistSizeN,
 //     AssistSizeM, AssistMinHits, NgramSizeN, NgramSizeM: speculative
 //     decoding, in both the draft-method and n-gram assist slots —

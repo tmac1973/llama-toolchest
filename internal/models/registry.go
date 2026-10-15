@@ -242,6 +242,18 @@ type ModelConfig struct {
 	DraftMax       int    `json:"draft_max,omitempty"`        // max draft tokens per step
 	DraftMin       int    `json:"draft_min,omitempty"`        // min draft tokens per step
 	DraftPMin      string `json:"draft_p_min,omitempty"`      // min probability threshold (string to allow empty=default)
+	// DraftSampling is --spec-draft-sampling: "greedy" takes the drafter's
+	// top token, "probabilistic" samples the draft and has the model
+	// verify it by rejection sampling, which accepts more of it when the
+	// model samples at a temperature above 0. Empty leaves llama.cpp's
+	// default, greedy. Only "draft" and "draft-mtp" have it.
+	DraftSampling string `json:"draft_sampling,omitempty"`
+	// DraftUBatchSize is --spec-draft-n-ubatch: the micro-batch of the
+	// drafter's own context. The drafter never needs more than the tokens
+	// it drafts per step, so a small one shrinks its compute buffer and
+	// leaves more GPU memory for the model. 0 follows --ubatch-size, as
+	// llama.cpp does by default.
+	DraftUBatchSize int `json:"draft_ubatch_size,omitempty"`
 
 	// Speculative decoding, draftless n-gram assist slot. Runs alongside
 	// the draft method above: llama.cpp accepts a comma-separated
