@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.40.0](https://github.com/tmac1973/llama-toolchest/compare/v2.39.1...v2.40.0) (2026-10-15)
+
+
+### Features
+
+* **autoconfig:** find a converted draft head to download, by the card's name for it or by searching ([#288](https://github.com/tmac1973/llama-toolchest/issues/288)) ([54c2cc9](https://github.com/tmac1973/llama-toolchest/commit/54c2cc9b43b8d67afc7c3ec0a6364be541dedb06))
+
 ## [2.39.1](https://github.com/tmac1973/llama-toolchest/compare/v2.39.0...v2.39.1) (2026-10-15)
 
 
