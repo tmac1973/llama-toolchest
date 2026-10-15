@@ -133,7 +133,16 @@ type GGUFMeta struct {
 	// file: they are how llama.cpp tells its three kinds of DFlash head
 	// apart (see DraftHeadKind).
 	HasMarkovHead bool `json:"has_markov_head,omitempty"`
-	LiliCorr      bool `json:"lilicorr,omitempty"`
+	// HasNextNTensors records the MTP block's projection tensor
+	// (blk.N.nextn.eh_proj.weight) in the tensor table, and NextNChecked
+	// that the whole table — every shard of a split model — was read, so
+	// its absence means something. A quantizer can keep the
+	// nextn_predict_layers key and drop the tensors it describes, and
+	// llama.cpp then aborts loading the model with MTP on: "MTP block
+	// missing nextn.eh_proj".
+	HasNextNTensors bool `json:"has_nextn_tensors,omitempty"`
+	NextNChecked    bool `json:"nextn_checked,omitempty"`
+	LiliCorr        bool `json:"lilicorr,omitempty"`
 
 	// LeadingDenseBlocks, ExpertFFLength and PLEInputDim are
 	// {arch}.leading_dense_block_count, {arch}.expert_feed_forward_length
@@ -188,8 +197,9 @@ func (meta *GGUFMeta) ApplyTo(m *Model) {
 	// Built-in MTP layers make the model its own drafter (draft-mtp with
 	// no separate head). A standalone head carries the same key but is not
 	// a model anyone runs, so it does not count.
+	// So do layers the key describes but the file does not carry.
 	m.NextNLayers = 0
-	if !m.MTPHead {
+	if !m.MTPHead && (meta.HasNextNTensors || !meta.NextNChecked) {
 		m.NextNLayers = meta.NextNPredictLayers
 	}
 	m.ExpertCount = meta.ExpertCount
@@ -263,6 +273,8 @@ func ParseGGUFMeta(path string) (*GGUFMeta, error) {
 			meta.TokenEmbdBytes = sh.TokenEmbdBytes
 		}
 		meta.HasOutputTensor = meta.HasOutputTensor || sh.HasOutput
+		meta.HasNextNTensors = meta.HasNextNTensors || sh.HasNextN
+		meta.NextNChecked = meta.NextNChecked && sh.complete
 		// Expert tensors are spread over every shard, so they are summed
 		// across all of them, the first included.
 		meta.ExpertBytes += sh.ExpertBytes
@@ -642,6 +654,7 @@ keys:
 	meta.HasBlockTensors, meta.HasTrunkBlock0 = scan.HasBlockTensors, scan.HasTrunkBlock0
 	meta.HasOutputTensor = scan.HasOutput
 	meta.HasMarkovHead = scan.HasMarkovHead
+	meta.HasNextNTensors, meta.NextNChecked = scan.HasNextN, scan.complete
 	meta.ExpertBytes = scan.ExpertBytes
 	meta.ExpertLayerFirst, meta.ExpertLayers = scan.expertLayerSpan()
 
@@ -1055,6 +1068,11 @@ const outputTensorName = "output.weight"
 // DSpark head; llama.cpp checks for the same tensor.
 const markovHeadTensorName = "markov_w1.weight"
 
+// nextnTensorSuffix ends the MTP block's projection tensor,
+// blk.N.nextn.eh_proj.weight — the one llama.cpp looks for to decide a
+// file has MTP layers, and aborts without.
+const nextnTensorSuffix = ".nextn.eh_proj.weight"
+
 // blockTensorPrefix and trunkBlock0Prefix bound the per-layer tensors.
 // Every architecture names them blk.N.*, so seeing which N are present
 // says whether a file holds a whole model or only some of its layers —
@@ -1075,6 +1093,7 @@ type tensorScan struct {
 	HasTrunkBlock0  bool
 	HasOutput       bool // an output.weight tensor; see GGUFMeta.HasOutputTensor
 	HasMarkovHead   bool // a markov_w1.weight tensor; see GGUFMeta.HasMarkovHead
+	HasNextN        bool // an MTP projection tensor; see GGUFMeta.HasNextNTensors
 	// ExpertBytes sums the expert tensors; expertLayerSet holds the layer
 	// numbers they belong to.
 	ExpertBytes    int64
@@ -1192,6 +1211,9 @@ func scanTensorBlock(f io.ReadSeeker, tensorCount uint64, alignment int64) tenso
 		if name == markovHeadTensorName {
 			scan.HasMarkovHead = true
 		}
+		if strings.HasPrefix(name, blockTensorPrefix) && strings.HasSuffix(name, nextnTensorSuffix) {
+			scan.HasNextN = true
+		}
 		if m := expertTensorPattern.FindStringSubmatch(name); m != nil {
 			expertOffsets = append(expertOffsets, int64(offset))
 			if l, err := strconv.Atoi(m[1]); err == nil {
@@ -1308,20 +1330,24 @@ func scanShardsForTensors(path string) (tensorScan, bool) {
 	if len(shards) < 2 {
 		return tensorScan{}, false
 	}
-	var out tensorScan
+	out := tensorScan{complete: true}
 	for _, sh := range shards {
 		if sh == name {
 			continue // already parsed by the caller
 		}
 		f, err := os.Open(filepath.Join(dir, sh))
 		if err != nil {
+			out.complete = false // a shard not on disk yet
 			continue
 		}
 		meta, err := ParseGGUFMetaFrom(f)
 		f.Close()
 		if err != nil {
+			out.complete = false
 			continue
 		}
+		out.HasNextN = out.HasNextN || meta.HasNextNTensors
+		out.complete = out.complete && meta.NextNChecked
 		if out.PLEBytes == 0 {
 			out.PLEBytes = meta.PLEBytes
 		}

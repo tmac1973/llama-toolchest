@@ -910,7 +910,9 @@ func (r *Registry) ListNeedingPresetFetch() []string {
 //	5 — the kind of converted draft head (EAGLE-3, DFlash, DSpark,
 //	    LiliCorr) recorded (DraftHead), so a head is matched to its method
 //	    by what it is rather than by its file name.
-const GGUFMetaVersion = 5
+//	6 — built-in MTP layers counted only when the file carries their
+//	    tensors, not just the key that describes them.
+const GGUFMetaVersion = 6
 
 // BackfillGGUFMeta re-reads GGUF metadata for records written by an older
 // parser, in one pass at startup.

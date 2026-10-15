@@ -303,3 +303,14 @@ func TestPartsPhrase(t *testing.T) {
 		t.Errorf("no parts = %q, want empty", got)
 	}
 }
+
+func TestDraftFileNameInDescriptions(t *testing.T) {
+	for in, want := range map[string]string{
+		"openbmb--MiniCPM-V-4.7-35B-A3B-DSpark-gguf--dspark-MiniCPM-V-4_7-35B-A3B-Q8_0": "dspark-MiniCPM-V-4_7-35B-A3B-Q8_0",
+		"/data/models/x/Qwen3.5-0.8B-Q8_0.gguf":                                         "Qwen3.5-0.8B-Q8_0.gguf",
+	} {
+		if got := draftFileName(in); got != want {
+			t.Errorf("draftFileName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

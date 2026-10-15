@@ -221,3 +221,43 @@ func TestFindDraftCandidatesRelaxedForHeadBasedModes(t *testing.T) {
 		}
 	}
 }
+
+// A model's own MTP layers count only when the file carries them. The
+// MiniCPM-V-4.7-35B-A3B quant on compute2 kept nextn_predict_layers and
+// dropped the tensors, and every MTP setting Autotune tried aborted in
+// llama.cpp with "MTP block missing nextn.eh_proj".
+func TestBuiltInMTPNeedsItsTensors(t *testing.T) {
+	trunk := []string{"blk.0.attn_q.weight", "blk.0.ffn_up.weight", "blk.1.attn_q.weight", "output.weight"}
+	for _, tc := range []struct {
+		name    string
+		tensors []string
+		want    int
+	}{
+		{"key and tensors", append(append([]string{}, trunk...), "blk.1.nextn.eh_proj.weight", "blk.1.nextn.enorm.weight"), 1},
+		{"key without tensors", trunk, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			meta, err := ParseGGUFMeta(writeMTPGGUF(t, "qwen35moe", 1, tc.tensors))
+			if err != nil {
+				t.Fatal(err)
+			}
+			m := &Model{}
+			meta.ApplyTo(m)
+			if m.MTPHead {
+				t.Fatal("a full model was read as a standalone MTP head")
+			}
+			if m.NextNLayers != tc.want {
+				t.Errorf("NextNLayers = %d, want %d", m.NextNLayers, tc.want)
+			}
+		})
+	}
+
+	// A read that never reached the tensor table cannot tell, and keeps
+	// what the key says.
+	meta := &GGUFMeta{NextNPredictLayers: 1, MetaOnly: true}
+	m := &Model{}
+	meta.ApplyTo(m)
+	if m.NextNLayers != 1 {
+		t.Errorf("metadata-only read: NextNLayers = %d, want the key's 1", m.NextNLayers)
+	}
+}
