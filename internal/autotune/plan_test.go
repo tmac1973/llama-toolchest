@@ -544,7 +544,7 @@ func TestCellSecondsFromHistory(t *testing.T) {
 		{ModelID: "lfm", SecondsPerCell: 24, CreatedAt: now.Add(-2 * time.Hour)},
 		{ModelID: "minicpm", SecondsPerCell: 30, CreatedAt: now.Add(-3 * time.Hour)},
 		{ModelID: "minicpm", SecondsPerCell: 33, CreatedAt: now.Add(-1 * time.Hour)},
-		{ModelID: "minicpm", CreatedAt: now}, // cancelled before measuring
+		{ModelID: "minicpm", CreatedAt: now},                   // cancelled before measuring
 		{ModelID: "gone", SecondsPerCell: 500, CreatedAt: now}, // no longer installed
 	}
 	if got := CellSecondsFromHistory(recs, "minicpm", 27, sizeOf); got != 33 {
