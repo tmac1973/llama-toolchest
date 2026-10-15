@@ -363,3 +363,30 @@ func TestScalingByOneOrZeroIsIdentity(t *testing.T) {
 		}
 	}
 }
+
+// llama.cpp states each device's MoE cache on a line of its own, not a
+// buffer line. It is GPU memory like any other, so it counts toward the
+// total, and the line after it — the per-group slot count — does not.
+func TestMoECacheLine(t *testing.T) {
+	const log = `[46231] 0.14.275.753 I load_tensors:        CUDA0 model buffer size = 10240.00 MiB
+[46231] 0.15.000.100 I impl:      CUDA0 MoE cache size =  2048.00 MiB for 46000.00 MiB of host experts
+[46231] 0.15.000.101 I impl: 32 layers, q4_K:   512 slots (12.5%)
+0.15.000.102 I impl:      CUDA1 MoE cache size =   512.25 MiB for 8000.00 MiB of host experts`
+	r := parseAll(t, log)
+	if len(r.Entries) != 3 {
+		t.Fatalf("entries = %d, want the weights and two caches: %+v", len(r.Entries), r.Entries)
+	}
+	got := r.Entries[1]
+	if got.Kind != KindMoECache || got.Device != "CUDA0" || got.Instance != "46231" || !close(got.MiB, 2048) {
+		t.Errorf("cache line = %+v", got)
+	}
+	if e := r.Entries[2]; e.Kind != KindMoECache || e.Instance != "" || !close(e.MiB, 512.25) {
+		t.Errorf("unprefixed cache line = %+v", e)
+	}
+	if !close(r.GPUMiB(true), 10240+2048+512.25) {
+		t.Errorf("GPU total = %.2f, want the weights and both caches", r.GPUMiB(true))
+	}
+	if !close(r.ByKind()[KindMoECache], 2560.25) {
+		t.Errorf("cache total = %.2f", r.ByKind()[KindMoECache])
+	}
+}

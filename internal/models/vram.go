@@ -362,7 +362,7 @@ type VRAMBreakdown struct {
 	IndexerScratch float64
 	// MoECache is the GPU cache of experts kept in system memory
 	// (--moe-cache-mib). llama.cpp reports it on a line of its own rather
-	// than as a buffer, so it is not part of Reported.
+	// than as a buffer; the memory report reads that line too.
 	MoECache float64
 	Overhead float64
 
@@ -380,7 +380,7 @@ func (b VRAMBreakdown) Total() float64 {
 
 // Reported is the part of the estimate llama.cpp itemises while loading,
 // which is what a measured buffer report can be compared against.
-func (b VRAMBreakdown) Reported() float64 { return b.Total() - b.Overhead - b.MoECache }
+func (b VRAMBreakdown) Reported() float64 { return b.Total() - b.Overhead }
 
 // VRAMEstimateForConfigOn estimates VRAM for a model spread over devices
 // cards. The count matters because graph scratch and driver overhead are

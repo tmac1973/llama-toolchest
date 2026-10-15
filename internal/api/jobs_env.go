@@ -744,13 +744,14 @@ func (e *jobEnv) MeasuredMemory(modelID string) (benchmark.MemorySnapshot, bool)
 	report := meas.Report.ScaleAggregates(cards)
 
 	snap := benchmark.MemorySnapshot{
-		GPUGiB:     gib(report.GPUMiB(true)),
-		WeightsGiB: gib(gpuOf(report, memreport.KindModel)),
-		KVGiB:      gib(gpuOf(report, memreport.KindKV) + gpuOf(report, memreport.KindRecurrent)),
-		ComputeGiB: gib(gpuOf(report, memreport.KindCompute) + gpuOf(report, memreport.KindOutput)),
-		HostGiB:    gib(report.HostMiB(true)),
-		Cards:      cards,
-		Contended:  note.contended,
+		GPUGiB:      gib(report.GPUMiB(true)),
+		WeightsGiB:  gib(gpuOf(report, memreport.KindModel)),
+		KVGiB:       gib(gpuOf(report, memreport.KindKV) + gpuOf(report, memreport.KindRecurrent)),
+		ComputeGiB:  gib(gpuOf(report, memreport.KindCompute) + gpuOf(report, memreport.KindOutput)),
+		MoECacheGiB: gib(gpuOf(report, memreport.KindMoECache)),
+		HostGiB:     gib(report.HostMiB(true)),
+		Cards:       cards,
+		Contended:   note.contended,
 	}
 	// A card figure taken while a second model was loading describes
 	// both of them. Recording it would put a number in a results table

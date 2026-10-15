@@ -147,3 +147,28 @@ func TestGPUSampleGivesUpWhenTheMonitorIsQuiet(t *testing.T) {
 		t.Errorf("waited %v for a 50ms timeout", elapsed)
 	}
 }
+
+// A load with a MoE cache carries it as a term of its own; one without
+// reads exactly as rows always have (see the test above).
+func TestCorpusRowCarriesTheMoECache(t *testing.T) {
+	cfg := &models.ModelConfig{ContextSize: 8192, UBatchSize: 512}
+	c := memreport.NewCollector()
+	note := loadNote{modelID: "m1", cards: 1, cfg: cfg, baselineGiB: 1.5, loadedGiB: 28.0}
+	log := oneLoad + "\n[46231] 0.15.000.100 I impl:      ROCm0 MoE cache size =  2048.00 MiB for 46000.00 MiB of host experts"
+	for _, line := range strings.Split(log, "\n") {
+		if ev := c.Add(line); ev.Kind == memreport.EventSpawned {
+			c.Annotate(ev.Port, note)
+		}
+	}
+	meas, ok := c.Latest("m1")
+	if !ok {
+		t.Fatal("no measurement")
+	}
+	row := corpusRow(memTestModel(), meas, note, "b11658-rocm")
+	if !strings.Contains(row, "compute: 1.00, moeCache: 2.00}") {
+		t.Errorf("row lacks the cache term:\n%s", row)
+	}
+	if _, err := parser.ParseExpr("[]corpusPoint{\n" + row + "}"); err != nil {
+		t.Fatalf("exported row is not valid Go: %v\nrow:\n%s", err, row)
+	}
+}

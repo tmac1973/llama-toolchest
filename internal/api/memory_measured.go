@@ -300,11 +300,12 @@ func (s *Server) memoryTooltip(m *models.Model, cfg *models.ModelConfig, state s
 	// the total: recurrent state is part of what the model remembers, and
 	// the output buffer is part of what a graph needs to run.
 	lines := []string{
-		fmt.Sprintf("%s: %.1f GiB of GPU memory — %.1f weights, %.1f KV cache, %.1f working buffers.",
+		fmt.Sprintf("%s: %.1f GiB of GPU memory — %.1f weights, %.1f KV cache, %.1f working buffers%s.",
 			lead, gpu,
 			gib(gpuOf(report, memreport.KindModel)),
 			gib(gpuOf(report, memreport.KindKV)+gpuOf(report, memreport.KindRecurrent)),
-			gib(gpuOf(report, memreport.KindCompute)+gpuOf(report, memreport.KindOutput))),
+			gib(gpuOf(report, memreport.KindCompute)+gpuOf(report, memreport.KindOutput)),
+			moeCacheTerm(gib(gpuOf(report, memreport.KindMoECache)))),
 	}
 	if where := deviceSummary(report, note.cards); where != "" {
 		lines = append(lines, where)
@@ -315,6 +316,15 @@ func (s *Server) memoryTooltip(m *models.Model, cfg *models.ModelConfig, state s
 	lines = append(lines, estimate)
 	lines = append(lines, "The measured figure is llama.cpp's own accounting. A card's reported usage runs a few hundred MiB per GPU above it, for driver overhead llama.cpp does not count.")
 	return join(lines...)
+}
+
+// moeCacheTerm is the MoE cache as the last term of a breakdown, or
+// nothing for the loads that have none.
+func moeCacheTerm(gib float64) string {
+	if gib <= 0 {
+		return ""
+	}
+	return fmt.Sprintf(", %.1f expert cache", gib)
 }
 
 // gib converts a MiB figure to GiB.
@@ -392,8 +402,8 @@ func memDetail(m *benchmark.MemorySnapshot) string {
 		return "Not measured. llama.cpp reports what it allocated only when Model loading detail is set to 4 or higher, on the Settings page, and runs recorded before that was captured have nothing to show."
 	}
 	lines := []string{
-		fmt.Sprintf("%.1f GiB of GPU memory across %d card(s) — %.1f weights, %.1f KV cache, %.1f working buffers.",
-			m.GPUGiB, m.Cards, m.WeightsGiB, m.KVGiB, m.ComputeGiB),
+		fmt.Sprintf("%.1f GiB of GPU memory across %d card(s) — %.1f weights, %.1f KV cache, %.1f working buffers%s.",
+			m.GPUGiB, m.Cards, m.WeightsGiB, m.KVGiB, m.ComputeGiB, moeCacheTerm(m.MoECacheGiB)),
 	}
 	if m.HostGiB >= 0.05 {
 		lines = append(lines, fmt.Sprintf("Another %.1f GiB in system memory.", m.HostGiB))

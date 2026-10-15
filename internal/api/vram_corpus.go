@@ -98,7 +98,13 @@ func corpusRow(m *models.Model, meas memreport.Measurement, note loadNote, build
 		fmt.Fprintf(&b, "// A further %.2f GiB went to system memory, which no VRAM figure counts.\n", host)
 	}
 
-	fmt.Fprintf(&b, "{%q, %s,\n\t%s, %d, %.2f,\n\t&reportedTerms{weights: %.2f, kv: %.2f, recurrent: %.2f, compute: %.2f}},\n",
+	// The MoE cache term is written only when there is one, so rows from
+	// the many loads without it read as they always have.
+	moeCache := ""
+	if mc := gib(gpuOf(report, memreport.KindMoECache)); mc > 0 {
+		moeCache = fmt.Sprintf(", moeCache: %.2f", mc)
+	}
+	fmt.Fprintf(&b, "{%q, %s,\n\t%s, %d, %.2f,\n\t&reportedTerms{weights: %.2f, kv: %.2f, recurrent: %.2f, compute: %.2f%s}},\n",
 		fmt.Sprintf("%s ctx%s ub%d", m.PublicName(), ctxLabel(ctx), cfg.EffectiveUBatchSize()),
 		modelLiteral(m),
 		configLiteral(cfg),
@@ -107,7 +113,8 @@ func corpusRow(m *models.Model, meas memreport.Measurement, note loadNote, build
 		gib(gpuOf(report, memreport.KindModel)),
 		gib(gpuOf(report, memreport.KindKV)),
 		gib(gpuOf(report, memreport.KindRecurrent)),
-		gib(gpuOf(report, memreport.KindCompute)+gpuOf(report, memreport.KindOutput)))
+		gib(gpuOf(report, memreport.KindCompute)+gpuOf(report, memreport.KindOutput)),
+		moeCache)
 	return b.String()
 }
 

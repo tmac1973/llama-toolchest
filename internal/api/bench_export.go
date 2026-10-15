@@ -68,9 +68,9 @@ func formatSweepValues(values map[string]string) string {
 	return models.JoinSorted(values, " ")
 }
 
-// memoryExportFields renders a run's measured footprint as the six
-// memory columns, in header order. A run with nothing measured gets six
-// empty strings rather than zeros: llama.cpp reports its buffers only at
+// memoryExportFields renders a run's measured footprint as the memory
+// columns, in header order. A run with nothing measured gets empty
+// strings rather than zeros: llama.cpp reports its buffers only at
 // log verbosity 4, and a zero would read as "this model used no memory"
 // instead of "nobody looked".
 //
@@ -79,7 +79,7 @@ func formatSweepValues(values map[string]string) string {
 // still that model's own.
 func memoryExportFields(m *benchmark.MemorySnapshot) []string {
 	if m == nil {
-		return []string{"", "", "", "", "", ""}
+		return make([]string, len(memoryExportHeader))
 	}
 	card := ""
 	if m.CardDeltaGiB > 0 {
@@ -87,7 +87,7 @@ func memoryExportFields(m *benchmark.MemorySnapshot) []string {
 	}
 	return []string{
 		ftoa(m.GPUGiB), ftoa(m.WeightsGiB), ftoa(m.KVGiB),
-		ftoa(m.ComputeGiB), ftoa(m.HostGiB), card,
+		ftoa(m.ComputeGiB), ftoa(m.HostGiB), card, ftoa(m.MoECacheGiB),
 	}
 }
 
@@ -96,6 +96,8 @@ func memoryExportFields(m *benchmark.MemorySnapshot) []string {
 var memoryExportHeader = []string{
 	"mem_gpu_gib", "mem_weights_gib", "mem_kv_gib",
 	"mem_compute_gib", "mem_host_gib", "mem_card_gib",
+	// Last, so the columns before it keep their places in older sheets.
+	"mem_moe_cache_gib",
 }
 
 // jobByID looks up a job pointer in a slice without scanning twice.

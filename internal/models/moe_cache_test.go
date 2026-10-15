@@ -26,7 +26,7 @@ func TestPresetWritesTheMoECache(t *testing.T) {
 }
 
 // The cache is GPU memory up to the size asked for, never more than the
-// experts it caches, and not part of the buffers llama.cpp itemises.
+// experts it caches, and part of what llama.cpp itemises.
 func TestVRAMEstimateCountsTheMoECache(t *testing.T) {
 	m := flashNext()
 	cfg := &ModelConfig{GPUAssign: "all", GPULayers: 999, CPUMoE: 32, ContextSize: 32768, KVCacheQuant: "q8_0", FlashAttention: true}
@@ -41,8 +41,8 @@ func TestVRAMEstimateCountsTheMoECache(t *testing.T) {
 	if d := b.Total() - without.Total(); d < 3.99 || d > 4.01 {
 		t.Errorf("total grew by %.2f GiB, want 4", d)
 	}
-	if b.Reported() != without.Reported() {
-		t.Errorf("Reported changed (%.2f -> %.2f): llama.cpp does not report the cache as a buffer", without.Reported(), b.Reported())
+	if d := b.Reported() - without.Reported(); d < 3.99 || d > 4.01 {
+		t.Errorf("Reported grew by %.2f GiB, want 4: llama.cpp reports the cache's size", d)
 	}
 
 	withCache.MoECacheMiB = 1 << 20 // 1 TiB: far more than the experts
