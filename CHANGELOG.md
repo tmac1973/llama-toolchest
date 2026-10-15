@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.41.1](https://github.com/tmac1973/llama-toolchest/compare/v2.41.0...v2.41.1) (2026-10-15)
+
+
+### Bug Fixes
+
+* **autotune:** a stage job stopped from outside leaves the run stopped and resumable ([#296](https://github.com/tmac1973/llama-toolchest/issues/296)) ([000dcc6](https://github.com/tmac1973/llama-toolchest/commit/000dcc6e0ff51c5d8551058dc3b545d441e86d0f))
+* **models:** count built-in MTP layers only when the file carries their tensors ([#299](https://github.com/tmac1973/llama-toolchest/issues/299)) ([1f5e0f5](https://github.com/tmac1973/llama-toolchest/commit/1f5e0f595a26fd1d1b436c5a682f691a731822bb))
+* **ui:** carry a running job's selections across its refresh without hx-preserve ([#298](https://github.com/tmac1973/llama-toolchest/issues/298)) ([12e3b5a](https://github.com/tmac1973/llama-toolchest/commit/12e3b5a033b2438619e04fb0692af943e8b6701d))
+
 ## [2.41.0](https://github.com/tmac1973/llama-toolchest/compare/v2.40.1...v2.41.0) (2026-10-15)
 
 
