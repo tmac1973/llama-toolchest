@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.42.1](https://github.com/tmac1973/llama-toolchest/compare/v2.42.0...v2.42.1) (2026-10-16)
+
+
+### Bug Fixes
+
+* **autoconfig:** plan built-in MTP with its draft defaults ([#302](https://github.com/tmac1973/llama-toolchest/issues/302)) ([036b933](https://github.com/tmac1973/llama-toolchest/commit/036b93325763225d99750bd276217b0245fedf23))
+
 ## [2.42.0](https://github.com/tmac1973/llama-toolchest/compare/v2.41.1...v2.42.0) (2026-10-15)
 
 
