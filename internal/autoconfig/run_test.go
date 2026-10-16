@@ -473,3 +473,56 @@ func TestRunRewordsTheMTPNoteWhenTheCardsMethodWins(t *testing.T) {
 		t.Error("nothing is said about the model's own MTP layers")
 	}
 }
+
+// A hybrid model with built-in MTP is planned with the draft depth its
+// proposal gets. Planned with the depth unset, the estimate counted 16
+// drafted tokens of recurrent state instead of 6, and this model — the
+// shape of Qwen3.5-9B-MTP IQ4_NL, with its vision projector, on a 16 GB
+// card the desktop holds 3.1 GiB of — got 5 of its 33 layers on the GPU
+// at 262K where it fits whole at 64K.
+func TestRunPlansBuiltInMTPWithItsDraftDefaults(t *testing.T) {
+	dir := t.TempDir()
+	reg := models.NewRegistry(dir, filepath.Join(dir, "models"))
+	m := &models.Model{ID: runModelID, ModelID: "testorg/Test-9B-GGUF", Filename: "Qwen3.5-9B-IQ4_NL.gguf",
+		NLayers: 33, AttnLayers: 8, NextNLayers: 1, KVFullPerTok: 16384, NEmbd: 4096, NHead: 16, NKVHead: 4,
+		ContextLength: 262144, SizeBytes: 5644398944, TokenEmbdBytes: 572129280}
+	if err := reg.Add(m); err != nil {
+		t.Fatal(err)
+	}
+	mmproj := filepath.Join(dir, "mmproj-BF16.gguf")
+	f, err := os.Create(mmproj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(921704928); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	cfg, _ := reg.GetConfig(runModelID)
+	c := *cfg
+	c.MmprojPath = mmproj
+	if err := reg.SetConfig(runModelID, &c); err != nil {
+		t.Fatal(err)
+	}
+
+	hw := models.Hardware{GPUs: []models.GPUSpec{
+		{Index: 0, VRAMTotalMiB: 16304, OtherUsedMiB: 3174},
+		{Index: 1, VRAMTotalMiB: 2048, IsIGPU: true},
+	}, LogicalCores: 16, RAMTotalMiB: 61680}
+	res, err := Run(context.Background(), Deps{Registry: reg, Hardware: hw}, runModelID, models.ContextMax)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := res.Proposed
+	if p.SpecType != "draft-mtp" || p.DraftMax == 0 {
+		t.Fatalf("built-in MTP not turned on with its defaults: %q/%d", p.SpecType, p.DraftMax)
+	}
+	if p.GPULayers > 0 && p.GPULayers < m.NLayers {
+		t.Errorf("planned with %d of %d layers on the GPU at %d tokens; the whole model fits at a smaller context",
+			p.GPULayers, m.NLayers, p.ContextSize)
+	}
+	// The plan must hold for the draft depth that is saved.
+	if est := models.VRAMEstimateForConfigOn(m, &p, 1); est > res.Fit.BudgetGiB {
+		t.Errorf("proposal estimated at %.2f GiB, over the %.2f GiB budget", est, res.Fit.BudgetGiB)
+	}
+}
