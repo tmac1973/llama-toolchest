@@ -115,9 +115,17 @@ func Run(ctx context.Context, d Deps, id string, class models.ContextClass) (*Re
 	// to be planned with it, or it plans a context that only fits while
 	// drafting is off. The proposal itself starts from the user's own
 	// setting, so the notes below still describe what changed.
+	//
+	// It is planned with MTP's own defaults, which the proposal gets when
+	// MTP is turned on below. Without them the draft depth is unset, and
+	// the estimate counts llama.cpp's default of 16 drafted tokens: on a
+	// hybrid model that is the recurrent state 17 times over rather than
+	// 7, and a 9B model that fits whole at 64K was planned with 5 of its
+	// 33 layers on the GPU.
 	fitBase := start
 	if m.NextNLayers > 0 && fitBase.SpecType == "" {
 		fitBase.SpecType = "draft-mtp"
+		fitBase.ApplyDraftDefaults()
 	}
 
 	progress("Checking what fits on your GPU")
