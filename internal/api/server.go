@@ -785,13 +785,35 @@ func (s *Server) handleBuildsPage(w http.ResponseWriter, r *http.Request) {
 		// page can say a build is stale but not what it is stale against.
 		BuildEnv  string
 		BaseImage string
+		// Projects fills the project picker; empty, and the picker
+		// hidden, while generation backends are off.
+		Projects []projectChoice
 	}{
 		pageData:  pageData{Title: "Builds", Nav: "builds"},
 		Backends:  builder.DetectBackends(),
 		BuildEnv:  env,
 		BaseImage: base,
 	}
+	if s.cfg.GenerationEnabled {
+		for _, p := range builder.Projects() {
+			data.Projects = append(data.Projects, projectChoice{
+				ID:             p.ID,
+				Backends:       strings.Join(p.Backends, ","),
+				NotesURL:       p.ReleaseNotesURL,
+				LatestNotesURL: p.LatestNotesURL,
+			})
+		}
+	}
 	s.render(w, "builds.html", data)
+}
+
+// projectChoice is one option in the Builds page's project picker.
+type projectChoice struct {
+	ID string
+	// Backends is the comma-separated profile backends the project builds
+	// with; empty for all.
+	Backends                 string
+	NotesURL, LatestNotesURL string
 }
 
 // buildEnvBanner reports the toolchain this container runs and the container

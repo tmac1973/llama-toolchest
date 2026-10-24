@@ -24,7 +24,13 @@ func (s *Server) handleListBackends(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleProfileOptions(w http.ResponseWriter, r *http.Request) {
 	profile := r.URL.Query().Get("profile")
-	options := builder.ProfileOptions(profile)
+	project := r.URL.Query().Get("project")
+	proj, ok := builder.FindProject(project)
+	if !ok {
+		http.Error(w, "unknown project: "+project, http.StatusBadRequest)
+		return
+	}
+	options := builder.ProjectOptions(proj.ID, profile)
 
 	// Read current toggle states from query params (sent on re-fetch)
 	overrides := make(map[string]bool)
@@ -89,8 +95,10 @@ func (s *Server) handleProfileOptions(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Show effective cmake flags with current toggle states
-		if profOK {
-			flags := effectiveCMakeFlags(prof, options, effectiveOverrides, pin)
+		if profOK && !proj.SupportsBackend(prof.Backend) {
+			data.ProfileWarning = fmt.Sprintf("%s can only be built with the %s profiles.", proj.ID, strings.Join(proj.Backends, ", "))
+		} else if profOK {
+			flags := effectiveCMakeFlags(proj, prof, options, effectiveOverrides, pin)
 			if extraCMake != "" {
 				flags += " " + extraCMake
 			}
@@ -124,6 +132,9 @@ type buildOptionsData struct {
 	// ROCmWarning explains what is wrong with the chosen install, if
 	// anything (builder.ROCmInstall.Damaged).
 	ROCmWarning string
+	// ProfileWarning says the chosen project cannot be built with the
+	// chosen profile; the flag preview is left out then.
+	ProfileWarning string
 }
 
 // rocmInstallChoice is one option in the ROCm install picker.
@@ -141,12 +152,13 @@ type buildOptionRow struct {
 // effectiveCMakeFlags previews the flags a build will get. pin is the ROCm
 // install it will be pinned to, nil when it will not be (one install, or not
 // rocm), and adds the flags the build adds for it.
-func effectiveCMakeFlags(prof builder.BuildProfile, options []builder.BuildOption, overrides map[string]bool, pin *builder.ROCmInstall) string {
+func effectiveCMakeFlags(proj builder.Project, prof builder.BuildProfile, options []builder.BuildOption, overrides map[string]bool, pin *builder.ROCmInstall) string {
 	flags := make(map[string]string)
 	for k, v := range prof.CMakeFlags {
 		flags[k] = v
 	}
 	builder.ApplyOptionOverrides(flags, options, overrides)
+	proj.MapFlags(flags)
 	if pin != nil {
 		builder.PinROCmFlags(flags, *pin)
 	}
@@ -161,21 +173,30 @@ func effectiveCMakeFlags(prof builder.BuildProfile, options []builder.BuildOptio
 
 func (s *Server) handleListRefs(w http.ResponseWriter, r *http.Request) {
 	refresh := r.URL.Query().Get("refresh") == "1"
+	proj, ok := builder.FindProject(r.URL.Query().Get("project"))
+	if !ok {
+		http.Error(w, "unknown project", http.StatusBadRequest)
+		return
+	}
 
 	var refs []string
 	var err error
 	if refresh {
-		refs, err = s.builder.FetchRefs()
+		refs, err = s.builder.FetchRefsFor(proj.ID)
 		if err != nil {
 			// Return cached if fetch fails
-			refs = s.builder.CachedRefs()
+			refs = s.builder.CachedRefsFor(proj.ID)
 		}
 	} else {
-		refs = s.builder.CachedRefs()
+		refs = s.builder.CachedRefsFor(proj.ID)
 	}
 
 	if isHTMX(r) {
 		respondHTML(w)
+		if proj.ID != builder.ProjectLlamaCpp {
+			s.renderPartial(w, "git_ref_options", projectRefOptionsFor(refs, err))
+			return
+		}
 		s.renderPartial(w, "git_ref_options", gitRefOptionsFor(refs, s.builder.ReleaseAnchors(), err))
 		return
 	}
@@ -238,8 +259,25 @@ func gitRefOptionsFor(refs []string, anchors map[string]int, err error) gitRefOp
 	return data
 }
 
+// projectRefOptionsFor lists a generation backend's tags for the git ref
+// picker. They have one tag family and no release anchors.
+func projectRefOptionsFor(refs []string, err error) gitRefOptionsData {
+	var data gitRefOptionsData
+	if len(refs) > 0 {
+		group := gitRefGroup{Label: "Tags"}
+		for _, ref := range refs {
+			group.Refs = append(group.Refs, gitRefOption{Ref: ref})
+		}
+		data.Groups = append(data.Groups, group)
+	}
+	if err != nil && len(refs) == 0 {
+		data.Error = err.Error()
+	}
+	return data
+}
+
 func (s *Server) handleListBuilds(w http.ResponseWriter, r *http.Request) {
-	builds := s.builder.List()
+	builds := s.builder.ListAll()
 
 	// If request is from htmx, return HTML partial
 	if isHTMX(r) {
@@ -262,11 +300,12 @@ func (s *Server) handleListBuilds(w http.ResponseWriter, r *http.Request) {
 // buildDuplicateData feeds the build_duplicate partial: the build that
 // already exists and the request to resubmit with force=1.
 type buildDuplicateData struct {
-	ID, Profile, GitRef, Tag string
+	ID, Project, Profile, GitRef, Tag string
 }
 
 func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		Project string `json:"project"`
 		Profile string `json:"profile"`
 		GitRef  string `json:"git_ref"`
 		Tag     string `json:"tag"`
@@ -283,6 +322,7 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		r.ParseForm()
+		req.Project = r.FormValue("project")
 		req.Profile = r.FormValue("profile")
 		req.GitRef = r.FormValue("git_ref")
 		req.Tag = r.FormValue("tag")
@@ -294,7 +334,7 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 	var optionOverrides map[string]bool
 	var extraCMake string
 	if !isJSONRequest(r) {
-		options := builder.ProfileOptions(req.Profile)
+		options := builder.ProjectOptions(req.Project, req.Profile)
 		optionOverrides = make(map[string]bool)
 		for _, opt := range options {
 			// Checkboxes only send a value when checked
@@ -304,14 +344,17 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Use background context — the build must outlive the HTTP request.
-	result, err := s.builder.Build(context.Background(), req.Profile, req.GitRef, req.Tag, req.Force, optionOverrides, extraCMake, req.ROCmRoot)
+	if req.Project == "" {
+		req.Project = builder.ProjectLlamaCpp
+	}
+	result, err := s.builder.BuildProject(context.Background(), req.Project, req.Profile, req.GitRef, req.Tag, req.Force, optionOverrides, extraCMake, req.ROCmRoot)
 	if err != nil {
 		var dup *builder.DuplicateBuildError
 		if errors.As(err, &dup) {
 			if isHTMX(r) {
 				respondHTML(w)
 				s.renderPartial(w, "build_duplicate", buildDuplicateData{
-					ID: dup.ID, Profile: req.Profile, GitRef: req.GitRef, Tag: req.Tag,
+					ID: dup.ID, Project: req.Project, Profile: req.Profile, GitRef: req.GitRef, Tag: req.Tag,
 				})
 				return
 			}
@@ -585,7 +628,7 @@ func (s *Server) resolveBuild(id string) *builder.BuildResult {
 		// An explicit choice is honoured even when it cannot run here. The
 		// picker marks and refuses those, and an API caller that names one
 		// anyway has decided; the loader error is then the answer.
-		if b, ok := s.builder.Find(id); ok && b.Status == builder.BuildStatusSuccess {
+		if b, ok := s.builder.Find(id); ok && b.Status == builder.BuildStatusSuccess && b.ProjectID() == builder.ProjectLlamaCpp {
 			return b
 		}
 	}
@@ -611,6 +654,30 @@ func (s *Server) resolveBuild(id string) *builder.BuildResult {
 	if len(ranked) > 0 {
 		res := ranked[0]
 		return &res
+	}
+	return nil
+}
+
+// resolveBackendBuild returns the build a generation backend instance runs:
+// the named build when it is a successful build of the backend's project,
+// otherwise the newest successful one. Nil when there is none.
+func (s *Server) resolveBackendBuild(kind, id string) *builder.BuildResult {
+	var project string
+	for _, p := range builder.Projects() {
+		if p.Kind != "" && p.Kind == kind {
+			project = p.ID
+		}
+	}
+	if project == "" {
+		return nil
+	}
+	if id != "" {
+		if b, ok := s.builder.Find(id); ok && b.Status == builder.BuildStatusSuccess && b.ProjectID() == project {
+			return b
+		}
+	}
+	if ranked := s.builder.SuccessfulBuildsRankedFor(project); len(ranked) > 0 {
+		return &ranked[0]
 	}
 	return nil
 }

@@ -7,7 +7,7 @@
      hx-target="this"
      hx-swap="outerHTML"
      hx-trigger="change delay:300ms"
-     hx-include="#build-profile, #build-options input, #build-options select">
+     hx-include="#build-project, #build-profile, #build-options input, #build-options select">
     {{- with .ROCmInstalls}}
     {{/* Only with more than one ROCm install. The build uses the chosen
          one's compiler, headers and libraries and nothing from the others;
@@ -19,6 +19,9 @@
             {{- end}}
         </select>
     </label>
+    {{- end}}
+    {{- with .ProfileWarning}}
+    <p role="alert" style="color:var(--pico-del-color);font-size:0.85rem;">{{.}}</p>
     {{- end}}
     {{- with .ROCmWarning}}
     <p role="alert" style="color:var(--pico-del-color);font-size:0.85rem;margin-top:-0.5rem;">{{.}}</p>

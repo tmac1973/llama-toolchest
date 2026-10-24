@@ -88,6 +88,12 @@ type BuildResult struct {
 	// when not known: a build from before the field existed whose commit
 	// is gone, or a source layout ParseArchNames does not recognize.
 	Archs []string `json:"archs,omitempty"`
+	// Project is the source tree built (see Project); empty on builds
+	// from before projects existed, which were all llama.cpp.
+	Project string `json:"project,omitempty"`
+	// HasWebUI is true when the build's server program carries its own
+	// web page (sd-server built with its frontend, ace-server always).
+	HasWebUI bool `json:"has_web_ui,omitempty"`
 }
 
 const buildLogHistorySize = 2000
@@ -106,8 +112,8 @@ type Builder struct {
 	lastBuildID string                                    // most recent build ID
 
 	refsMu        sync.Mutex
-	cachedRefs    []string
-	cachedAnchors map[string]int // release tag → its nightly b-number
+	cachedRefs    map[string][]string // project ID → release tags
+	cachedAnchors map[string]int      // llama.cpp release tag → its nightly b-number
 
 	// Saved build-flag presets (see flag_presets.go), loaded lazily.
 	fpMu        sync.Mutex
@@ -126,8 +132,28 @@ func NewBuilder(dataDir string) *Builder {
 	return b
 }
 
-// List returns all builds.
+// List returns the llama.cpp builds: everything that runs the router,
+// benchmarks and evaluations. Builds of the generation backends are left
+// out so none of those can pick one up; see ListAll and ListProject.
 func (b *Builder) List() []BuildResult {
+	return b.ListProject(ProjectLlamaCpp)
+}
+
+// ListProject returns the builds of one project.
+func (b *Builder) ListProject(project string) []BuildResult {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var out []BuildResult
+	for _, br := range b.builds {
+		if br.ProjectID() == project {
+			out = append(out, br)
+		}
+	}
+	return out
+}
+
+// ListAll returns the builds of every project, for the Builds page.
+func (b *Builder) ListAll() []BuildResult {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	out := make([]BuildResult, len(b.builds))
@@ -161,12 +187,18 @@ func (b *Builder) Find(id string) (*BuildResult, bool) {
 // current container image, and it needs the same ordering to do that rather
 // than a second copy of this ranking.
 func (b *Builder) SuccessfulBuildsRanked() []BuildResult {
+	return b.SuccessfulBuildsRankedFor(ProjectLlamaCpp)
+}
+
+// SuccessfulBuildsRankedFor is SuccessfulBuildsRanked for any project.
+// Every project ranks by its own commit count.
+func (b *Builder) SuccessfulBuildsRankedFor(project string) []BuildResult {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	var ok []BuildResult
 	for _, br := range b.builds {
-		if br.Status == BuildStatusSuccess {
+		if br.Status == BuildStatusSuccess && br.ProjectID() == project {
 			ok = append(ok, br)
 		}
 	}
@@ -305,15 +337,30 @@ func (e *DuplicateBuildError) Error() string {
 // rocmRoot picks the ROCm install a rocm build uses, by its Root, when the
 // machine has more than one; "" means the newest (see chooseROCm).
 func (b *Builder) Build(ctx context.Context, profile string, gitRef string, tag string, force bool, optionOverrides map[string]bool, extraCMake string, rocmRoot string) (*BuildResult, error) {
-	slog.Info("build requested", "profile", profile, "git_ref", gitRef, "tag", tag, "force", force, "rocm_root", rocmRoot)
+	return b.BuildProject(ctx, ProjectLlamaCpp, profile, gitRef, tag, force, optionOverrides, extraCMake, rocmRoot)
+}
 
+// BuildProject is Build for any project (see Projects).
+func (b *Builder) BuildProject(ctx context.Context, project, profile string, gitRef string, tag string, force bool, optionOverrides map[string]bool, extraCMake string, rocmRoot string) (*BuildResult, error) {
+	slog.Info("build requested", "project", project, "profile", profile, "git_ref", gitRef, "tag", tag, "force", force, "rocm_root", rocmRoot)
+
+	proj, ok := FindProject(project)
+	if !ok {
+		return nil, fmt.Errorf("unknown project: %s", project)
+	}
 	prof, ok := FindProfile(profile)
 	if !ok {
 		return nil, fmt.Errorf("unknown profile: %s", profile)
 	}
+	if !proj.SupportsBackend(prof.Backend) {
+		return nil, fmt.Errorf("%s can only be built with the %s profiles", proj.ID, strings.Join(proj.Backends, ", "))
+	}
 
 	if prof.Backend == "vulkan" && RunningInContainer() {
-		return nil, errors.New("vulkan builds are only supported in host mode, not inside containers")
+		if proj.ID == ProjectLlamaCpp {
+			return nil, errors.New("vulkan builds are only supported in host mode, not inside containers")
+		}
+		return nil, fmt.Errorf("vulkan builds of %s are only supported in host mode, not inside containers", proj.ID)
 	}
 
 	tag = strings.ToLower(strings.TrimSpace(tag))
@@ -323,7 +370,8 @@ func (b *Builder) Build(ctx context.Context, profile string, gitRef string, tag 
 
 	// Apply option overrides (or defaults) to the profile's cmake flags,
 	// using the same resolution as the API's flag preview.
-	ApplyOptionOverrides(prof.CMakeFlags, ProfileOptions(profile), optionOverrides)
+	ApplyOptionOverrides(prof.CMakeFlags, ProjectOptions(proj.ID, profile), optionOverrides)
+	proj.MapFlags(prof.CMakeFlags)
 
 	// Parse extra cmake flags (e.g. "-DFOO=BAR -DBAZ=ON")
 	if extraCMake != "" {
@@ -359,6 +407,7 @@ func (b *Builder) Build(ctx context.Context, profile string, gitRef string, tag 
 	}
 
 	result := &BuildResult{
+		Project:      proj.ID,
 		Profile:      prof.Name,
 		GitRef:       gitRef,
 		Tag:          tag,
@@ -371,13 +420,13 @@ func (b *Builder) Build(ctx context.Context, profile string, gitRef string, tag 
 	logCh := make(chan string, 256)
 
 	// Clone/fetch and resolve ref synchronously to get the ID before returning
-	srcDir := filepath.Join(b.dataDir, "llama.cpp")
-	if err := b.ensureRepo(ctx, srcDir, logCh); err != nil {
+	srcDir := filepath.Join(b.dataDir, proj.CloneDir)
+	if err := b.ensureRepo(ctx, proj, srcDir, logCh); err != nil {
 		close(logCh)
 		return nil, fmt.Errorf("repo setup: %w", err)
 	}
 
-	resolvedRef, sha, commitCount, err := b.checkoutRef(ctx, srcDir, gitRef, logCh)
+	resolvedRef, sha, commitCount, err := b.checkoutRef(ctx, proj, srcDir, gitRef, logCh)
 	if err != nil {
 		close(logCh)
 		return nil, fmt.Errorf("checkout: %w", err)
@@ -391,7 +440,7 @@ func (b *Builder) Build(ctx context.Context, profile string, gitRef string, tag 
 	// by a build with different flags, auto-suffix a short hash of this
 	// build's flags so it can coexist. If flags are identical, fall through
 	// to DuplicateBuildError so the user sees the rebuild prompt.
-	baseID := fmt.Sprintf("%s-%s", resolvedRef, prof.Name)
+	baseID := proj.IDPrefix + fmt.Sprintf("%s-%s", buildIDRef(resolvedRef, sha), prof.Name)
 	if tag != "" {
 		result.ID = baseID + "-" + tag
 	} else {
@@ -449,7 +498,7 @@ drain:
 	slog.Info("build started", "id", result.ID, "git_ref", resolvedRef, "git_sha", sha)
 
 	// Run the actual build asynchronously
-	go b.runBuild(ctx, prof, srcDir, result, logCh, pin)
+	go b.runBuild(ctx, proj, prof, srcDir, result, logCh, pin)
 
 	return result, nil
 }
@@ -479,7 +528,7 @@ func (b *Builder) Delete(id string) error {
 	return nil
 }
 
-func (b *Builder) runBuild(ctx context.Context, prof BuildProfile, srcDir string, result *BuildResult, logCh chan string, pin *rocmPin) {
+func (b *Builder) runBuild(ctx context.Context, proj Project, prof BuildProfile, srcDir string, result *BuildResult, logCh chan string, pin *rocmPin) {
 	defer func() {
 		close(logCh)
 		// Close all subscriber channels for this build; history is kept so
@@ -501,14 +550,11 @@ func (b *Builder) runBuild(ctx context.Context, prof BuildProfile, srcDir string
 	os.RemoveAll(buildDir) // clean stale cmake state from previous builds
 	os.MkdirAll(buildDir, 0o755)
 
-	// cmake — only build server and required libs, skip tests and examples
+	// cmake — the project's base args (for llama.cpp: only the server and
+	// the libraries it needs, no tests or examples) plus the profile flags.
 	slog.Info("running cmake", "id", result.ID)
 	sendLog("==> Running cmake...")
-	cmakeArgs := []string{"..", "-G", "Ninja",
-		"-DLLAMA_BUILD_TESTS=OFF",
-		"-DLLAMA_BUILD_EXAMPLES=OFF",
-		"-DLLAMA_BUILD_SERVER=ON",
-	}
+	cmakeArgs := append([]string{"..", "-G", "Ninja"}, proj.BaseCMakeArgs...)
 	for k, v := range prof.CMakeFlags {
 		cmakeArgs = append(cmakeArgs, fmt.Sprintf("-D%s=%s", k, v))
 	}
@@ -643,26 +689,17 @@ func (b *Builder) runBuild(ctx context.Context, prof BuildProfile, srcDir string
 		return
 	}
 
-	// Install binary — check common locations across llama.cpp versions
+	// Install the project's programs and the shared libraries they need.
 	outDir := filepath.Join(b.dataDir, "builds", result.ID)
 	os.MkdirAll(outDir, 0o755)
 
-	srcBin := ""
-	for _, candidate := range []string{
-		filepath.Join(buildDir, "bin", "llama-server"),
-		filepath.Join(buildDir, "bin", "server"),
-	} {
-		if _, err := os.Stat(candidate); err == nil {
-			srcBin = candidate
-			break
-		}
-	}
+	srcBin := findBuilt(buildDir, proj.Required)
 	if srcBin == "" {
-		b.finishBuild(result, BuildStatusFailed, "llama-server binary not found in build output")
-		sendLog(fmt.Sprintf("==> Install FAILED: llama-server binary not found"))
+		b.finishBuild(result, BuildStatusFailed, proj.Required.Name+" binary not found in build output")
+		sendLog(fmt.Sprintf("==> Install FAILED: %s binary not found", proj.Required.Name))
 		return
 	}
-	dstBin := filepath.Join(outDir, "llama-server")
+	dstBin := filepath.Join(outDir, proj.Required.Name)
 
 	if err := copyFile(srcBin, dstBin); err != nil {
 		b.finishBuild(result, BuildStatusFailed, fmt.Sprintf("install failed: %v", err))
@@ -671,64 +708,40 @@ func (b *Builder) runBuild(ctx context.Context, prof BuildProfile, srcDir string
 	}
 	os.Chmod(dstBin, 0o755)
 
-	// Copy shared libraries the binary depends on
-	libDir := filepath.Join(buildDir, "lib")
-	if entries, err := os.ReadDir(libDir); err == nil {
-		for _, e := range entries {
-			name := e.Name()
-			if strings.HasSuffix(name, ".so") || strings.Contains(name, ".so.") {
-				src := filepath.Join(libDir, name)
-				dst := filepath.Join(outDir, name)
-				if err := copyFile(src, dst); err == nil {
-					sendLog(fmt.Sprintf("    Installed lib: %s", name))
-				}
-			}
-		}
+	// Copy shared libraries the binary depends on: from lib/, from the
+	// binary's own directory (some versions put them there) and, for
+	// projects that build into the top level, from the build dir itself.
+	libDirs := []string{filepath.Join(buildDir, "lib"), filepath.Dir(srcBin)}
+	if filepath.Dir(srcBin) != buildDir {
+		libDirs = append(libDirs, buildDir)
 	}
-	// Also check bin/ for .so files (some versions put them there)
-	binDir := filepath.Dir(srcBin)
-	if entries, err := os.ReadDir(binDir); err == nil {
+	for _, dir := range libDirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
 		for _, e := range entries {
 			name := e.Name()
 			if strings.HasSuffix(name, ".so") || strings.Contains(name, ".so.") {
-				src := filepath.Join(binDir, name)
-				dst := filepath.Join(outDir, name)
-				if err := copyFile(src, dst); err == nil {
+				if err := copyFile(filepath.Join(dir, name), filepath.Join(outDir, name)); err == nil {
 					sendLog(fmt.Sprintf("    Installed lib: %s", name))
 				}
 			}
 		}
 	}
 
-	// Copy llama-bench if it exists (used for benchmarking)
-	for _, benchCandidate := range []string{
-		filepath.Join(buildDir, "bin", "llama-bench"),
-		filepath.Join(buildDir, "bin", "bench"),
-	} {
-		if _, err := os.Stat(benchCandidate); err == nil {
-			dstBench := filepath.Join(outDir, "llama-bench")
-			if err := copyFile(benchCandidate, dstBench); err == nil {
-				os.Chmod(dstBench, 0o755)
-				sendLog("    Installed: llama-bench")
+	// Optional programs, e.g. llama-bench for benchmarks and
+	// llama-perplexity for capability evaluations, which run it directly
+	// without llama-server. A missing one is NOT a build failure: builds of
+	// older refs or other layouts simply lack it, and its users detect the
+	// absence at run time.
+	for _, spec := range proj.Optional {
+		if src := findBuilt(buildDir, spec); src != "" {
+			dst := filepath.Join(outDir, spec.Name)
+			if err := copyFile(src, dst); err == nil {
+				os.Chmod(dst, 0o755)
+				sendLog("    Installed: " + spec.Name)
 			}
-			break
-		}
-	}
-
-	// Copy llama-perplexity if it exists (used for capability
-	// evaluations, which run it directly without llama-server). A
-	// missing binary is NOT a build failure: builds made before this
-	// step existed (old refs, exotic layouts) simply lack it, and
-	// capability cells detect the absence at run time with a rebuild
-	// hint.
-	for _, perplexityCandidate := range llamaPerplexityCandidates(buildDir) {
-		if _, err := os.Stat(perplexityCandidate); err == nil {
-			dstPerplexity := filepath.Join(outDir, "llama-perplexity")
-			if err := copyFile(perplexityCandidate, dstPerplexity); err == nil {
-				os.Chmod(dstPerplexity, 0o755)
-				sendLog("    Installed: llama-perplexity")
-			}
-			break
 		}
 	}
 
@@ -736,7 +749,15 @@ func (b *Builder) runBuild(ctx context.Context, prof BuildProfile, srcDir string
 	os.RemoveAll(buildDir)
 
 	result.BinaryPath = dstBin
-	result.Archs = archsFromCheckout(srcDir)
+	switch proj.ID {
+	case ProjectLlamaCpp:
+		result.Archs = archsFromCheckout(srcDir)
+	case ProjectSDCpp:
+		result.HasWebUI = prof.CMakeFlags[sdFrontendFlag] == "ON"
+	case ProjectAceStep:
+		// Its web UI ships prebuilt in the source tree.
+		result.HasWebUI = true
+	}
 	b.finishBuild(result, BuildStatusSuccess, "")
 	sendLog(fmt.Sprintf("==> Build complete: %s", dstBin))
 }
@@ -841,11 +862,11 @@ func pruneTempPacks(srcDir string) {
 	}
 }
 
-func (b *Builder) ensureRepo(ctx context.Context, srcDir string, logCh chan string) error {
+func (b *Builder) ensureRepo(ctx context.Context, proj Project, srcDir string, logCh chan string) error {
 	switch inspectRepo(srcDir) {
 	case repoUsable:
-		slog.Info("fetching llama.cpp", "dir", srcDir)
-		sendLog(logCh, "==> Fetching latest from llama.cpp...")
+		slog.Info("fetching "+proj.ID, "dir", srcDir)
+		sendLog(logCh, "==> Fetching latest from "+proj.ID+"...")
 		pruneTempPacks(srcDir)
 		return b.runCmd(ctx, srcDir, logCh, "", nil, "git", "fetch", "--all", "--tags")
 
@@ -854,22 +875,23 @@ func (b *Builder) ensureRepo(ctx context.Context, srcDir string, logCh chan stri
 		// one has nothing worth salvaging: throw it away and start clean
 		// rather than fetching upstream's whole history into a repo with
 		// no objects.
-		slog.Warn("discarding incomplete llama.cpp clone", "dir", srcDir)
+		slog.Warn("discarding incomplete clone", "project", proj.ID, "dir", srcDir)
 		sendLog(logCh, "==> Found an incomplete clone; discarding it and starting over...")
 		if err := os.RemoveAll(srcDir); err != nil {
 			return fmt.Errorf("removing incomplete clone: %w", err)
 		}
 
 	case repoUnknown:
-		return fmt.Errorf("%s exists but is not a usable llama.cpp clone; move it aside and build again", srcDir)
+		return fmt.Errorf("%s exists but is not a usable %s clone; move it aside and build again", srcDir, proj.ID)
 	}
 
-	slog.Info("cloning llama.cpp", "repo", llamaCppRepo, "dir", srcDir)
-	sendLog(logCh, "==> Cloning llama.cpp...")
+	slog.Info("cloning "+proj.ID, "repo", proj.Repo, "dir", srcDir)
+	sendLog(logCh, "==> Cloning "+proj.ID+"...")
 	if err := os.MkdirAll(filepath.Dir(srcDir), 0o755); err != nil {
 		return fmt.Errorf("creating clone parent: %w", err)
 	}
-	return b.runCmd(ctx, filepath.Dir(srcDir), logCh, "", nil, "git", "clone", llamaCppRepo, filepath.Base(srcDir))
+	// Submodules are fetched at checkout, for the commit being built.
+	return b.runCmd(ctx, filepath.Dir(srcDir), logCh, "", nil, "git", "clone", proj.Repo, filepath.Base(srcDir))
 }
 
 // checkoutRef checks out the given ref and returns (resolvedRef, sha,
@@ -883,24 +905,14 @@ func (b *Builder) ensureRepo(ctx context.Context, srcDir string, logCh chan stri
 // tags (v0.x.y) in Aug 2026 alongside the nightlies; those are offered
 // in the ref picker but never chosen implicitly. Should upstream ever
 // stop cutting b-tags, the newest v-tag is the fallback, then HEAD.
-func (b *Builder) checkoutRef(ctx context.Context, srcDir string, ref string, logCh chan string) (string, string, int, error) {
+func (b *Builder) checkoutRef(ctx context.Context, proj Project, srcDir string, ref string, logCh chan string) (string, string, int, error) {
 	if ref == "latest" {
-		// --sort=-v:refname gives proper version ordering within a family.
-		ref = ""
-		for _, family := range []string{"b", "v"} {
-			tags, err := listTags(ctx, srcDir, family)
-			if err != nil {
-				return "", "", 0, fmt.Errorf("listing tags: %w%s", err, exitErrDetail(err))
-			}
-			if len(tags) > 0 {
-				ref = tags[0]
-				break
-			}
+		latest, err := proj.latestRef(ctx, srcDir)
+		if err != nil {
+			return "", "", 0, fmt.Errorf("listing tags: %w%s", err, exitErrDetail(err))
 		}
-		if ref == "" {
-			ref = "HEAD"
-		}
-		sendLog(logCh, fmt.Sprintf("==> Latest tag: %s", ref))
+		ref = latest
+		sendLog(logCh, fmt.Sprintf("==> Latest: %s", ref))
 	}
 
 	slog.Info("checking out ref", "ref", ref)
@@ -912,6 +924,12 @@ func (b *Builder) checkoutRef(ctx context.Context, srcDir string, ref string, lo
 	// changes or stash them".
 	if err := b.runCmd(ctx, srcDir, logCh, "", nil, "git", "checkout", "--force", ref); err != nil {
 		return "", "", 0, err
+	}
+	if proj.Submodules {
+		sendLog(logCh, "==> Updating submodules...")
+		if err := b.runCmd(ctx, srcDir, logCh, "", nil, "git", "submodule", "update", "--init", "--recursive", "--force"); err != nil {
+			return "", "", 0, err
+		}
 	}
 
 	out, err := exec.CommandContext(ctx, "git", "-C", srcDir, "rev-parse", "HEAD").Output()
@@ -970,12 +988,22 @@ func filterReleaseTags(family string, lines []string) []string {
 // timeout), we still return whatever tags are already in the local clone so
 // the user can pick from cached tags rather than seeing an error.
 func (b *Builder) FetchRefs() ([]string, error) {
-	srcDir := filepath.Join(b.dataDir, "llama.cpp")
+	return b.FetchRefsFor(ProjectLlamaCpp)
+}
+
+// FetchRefsFor is FetchRefs for any project. Release anchors are only
+// worked out for llama.cpp.
+func (b *Builder) FetchRefsFor(project string) ([]string, error) {
+	proj, ok := FindProject(project)
+	if !ok {
+		return nil, fmt.Errorf("unknown project: %s", project)
+	}
+	srcDir := filepath.Join(b.dataDir, proj.CloneDir)
 	if inspectRepo(srcDir) != repoUsable {
 		// Includes the half-finished-clone case. Repairing one means
 		// re-cloning, which belongs to a build with its own log stream
 		// and no request timeout over it, not to this handler.
-		return nil, errors.New("llama.cpp repo not cloned yet — run a build first")
+		return nil, fmt.Errorf("%s repo not cloned yet — run a build first", proj.ID)
 	}
 
 	// Sweep anything an earlier killed fetch left behind before starting
@@ -991,19 +1019,20 @@ func (b *Builder) FetchRefs() ([]string, error) {
 		slog.Warn("git fetch failed; returning cached tags", "error", err)
 	}
 
-	// The two families are listed separately: mixing them in one
-	// -v:refname sort would interleave v0.x.y between b-numbers
-	// meaninglessly. Prefix keeps them distinguishable downstream.
-	var refs []string
+	refs, err := proj.listRefs(context.Background(), srcDir)
+	if err != nil {
+		return nil, fmt.Errorf("listing tags: %w", err)
+	}
+	if proj.ID != ProjectLlamaCpp {
+		b.refsMu.Lock()
+		b.setCachedRefs(proj.ID, refs)
+		b.refsMu.Unlock()
+		return refs, nil
+	}
 	var releases []string
-	for _, family := range []string{"v", "b"} {
-		tags, err := listTags(context.Background(), srcDir, family)
-		if err != nil {
-			return nil, fmt.Errorf("listing tags: %w", err)
-		}
-		refs = append(refs, tags...)
-		if family == "v" {
-			releases = append(releases, tags...)
+	for _, ref := range refs {
+		if strings.HasPrefix(ref, "v") {
+			releases = append(releases, ref)
 		}
 	}
 
@@ -1023,20 +1052,31 @@ func (b *Builder) FetchRefs() ([]string, error) {
 	}
 
 	b.refsMu.Lock()
-	b.cachedRefs = refs
+	b.setCachedRefs(proj.ID, refs)
 	b.cachedAnchors = anchors
 	b.refsMu.Unlock()
 
 	return refs, nil
 }
 
-// CachedRefs returns the last fetched refs without hitting git.
+// setCachedRefs stores a project's refs. Callers must hold refsMu.
+func (b *Builder) setCachedRefs(project string, refs []string) {
+	if b.cachedRefs == nil {
+		b.cachedRefs = map[string][]string{}
+	}
+	b.cachedRefs[project] = refs
+}
+
+// CachedRefs returns the last fetched llama.cpp refs without hitting git.
 func (b *Builder) CachedRefs() []string {
+	return b.CachedRefsFor(ProjectLlamaCpp)
+}
+
+// CachedRefsFor returns a project's last fetched refs without hitting git.
+func (b *Builder) CachedRefsFor(project string) []string {
 	b.refsMu.Lock()
 	defer b.refsMu.Unlock()
-	out := make([]string, len(b.cachedRefs))
-	copy(out, b.cachedRefs)
-	return out
+	return slices.Clone(b.cachedRefs[project])
 }
 
 // ReleaseAnchors returns, for each release tag from the last FetchRefs,
@@ -1222,6 +1262,18 @@ func copyFile(src, dst string) error {
 
 	_, err = io.Copy(out, in)
 	return err
+}
+
+// findBuilt returns the first existing candidate path of spec under
+// buildDir, or "" when the build did not produce it.
+func findBuilt(buildDir string, spec BinarySpec) string {
+	for _, c := range spec.Candidates {
+		p := filepath.Join(buildDir, c)
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			return p
+		}
+	}
+	return ""
 }
 
 // llamaPerplexityCandidates returns the build-output locations the

@@ -18,11 +18,25 @@
     <form hx-post="/api/builds"
           hx-target="#build-output"
           hx-swap="innerHTML">
+        {{if .Projects}}
+        {{/* Only with generation backends on. Each option carries what the
+             page script needs: the profiles the project builds with and
+             its release-notes links. */}}
+        <label title="Which source to build: llama.cpp for language models, stable-diffusion.cpp for image generation (sd-server), or acestep.cpp for music generation (ace-server). They share the profiles, compiler setup and build list.">
+            Project
+            <select name="project" id="build-project" onchange="buildProjectChanged(this)">
+                {{range .Projects}}
+                <option value="{{.ID}}" data-backends="{{.Backends}}" data-notes="{{.NotesURL}}" data-latest="{{.LatestNotesURL}}">{{.ID}}</option>
+                {{end}}
+            </select>
+        </label>
+        {{end}}
         <div class="grid">
             <label>
                 Profile
                 <select name="profile" id="build-profile"
                         hx-get="/api/builds/options"
+                        hx-include="#build-project"
                         hx-target="#build-options"
                         hx-swap="outerHTML"
                         hx-trigger="change, load">
@@ -37,10 +51,10 @@
                 Git Ref
                 <div style="display:flex;gap:0.5rem;align-items:center;">
                     <select name="git_ref" id="git-ref-select" style="margin:0;"
-                            onchange="var a=document.getElementById('ref-link');var v=this.value;if(v==='latest'){a.href='https://github.com/ggerganov/llama.cpp/releases/latest';}else{a.href='https://github.com/ggerganov/llama.cpp/releases/tag/'+v;}">
+                            onchange="updateRefLink()">
                         <option value="latest" selected>latest</option>
                     </select>
-                    <a id="ref-link" href="https://github.com/ggerganov/llama.cpp/releases/latest"
+                    <a id="ref-link" href="https://github.com/ggml-org/llama.cpp/releases/latest"
                        target="_blank" rel="noopener"
                        style="margin:0;padding:0.25rem 0.75rem;font-size:0.85rem;white-space:nowrap;"
                        class="outline"
@@ -50,11 +64,12 @@
                     <button type="button" class="outline secondary"
                             style="margin:0;padding:0.25rem 0.75rem;font-size:0.85rem;white-space:nowrap;"
                             hx-get="/api/builds/refs?refresh=1"
+                            hx-include="#build-project"
                             hx-target="#git-ref-select"
                             hx-swap="innerHTML"
                             hx-disabled-elt="this"
                             hx-indicator="this"
-                            title="Pull latest tags from the llama.cpp remote">
+                            title="Pull the latest tags from the project's remote">
                         Refresh Tags
                     </button>
                 </div>
@@ -97,6 +112,40 @@
         Loading...
     </div>
 </article>
+
+<script>
+// The release-notes link follows the chosen ref and, with generation
+// backends on, the chosen project.
+function updateRefLink() {
+    var a = document.getElementById('ref-link');
+    var ref = document.getElementById('git-ref-select').value;
+    var p = document.getElementById('build-project');
+    var o = p ? p.options[p.selectedIndex] : null;
+    var latest = o ? o.getAttribute('data-latest') : 'https://github.com/ggml-org/llama.cpp/releases/latest';
+    var notes = o ? o.getAttribute('data-notes') : 'https://github.com/ggml-org/llama.cpp/releases/tag/{ref}';
+    a.href = ref === 'latest' ? latest : notes.replace('{ref}', encodeURIComponent(ref));
+}
+
+// A project change limits the profiles to the ones it builds with, then
+// reloads the options (through the profile's change trigger) and the refs.
+function buildProjectChanged(sel) {
+    var o = sel.options[sel.selectedIndex];
+    var allowed = o.getAttribute('data-backends');
+    allowed = allowed ? allowed.split(',') : null;
+    var prof = document.getElementById('build-profile');
+    var firstOK = null;
+    for (var i = 0; i < prof.options.length; i++) {
+        var ok = !allowed || allowed.indexOf(prof.options[i].value) >= 0;
+        prof.options[i].disabled = !ok;
+        if (ok && firstOK === null) firstOK = prof.options[i].value;
+    }
+    if (prof.options[prof.selectedIndex].disabled && firstOK !== null) prof.value = firstOK;
+    htmx.trigger(prof, 'change');
+    htmx.ajax('GET', '/api/builds/refs?project=' + encodeURIComponent(sel.value),
+        {target: '#git-ref-select', swap: 'innerHTML'}).then(updateRefLink);
+    updateRefLink();
+}
+</script>
 
 <dialog id="build-info-modal" style="max-width:640px;">
     <article>
