@@ -21,6 +21,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/builder"
 	"github.com/tmac1973/llama-toolchest/internal/config"
 	"github.com/tmac1973/llama-toolchest/internal/evaluate"
+	"github.com/tmac1973/llama-toolchest/internal/generation"
 	"github.com/tmac1973/llama-toolchest/internal/huggingface"
 	"github.com/tmac1973/llama-toolchest/internal/llmcall"
 	"github.com/tmac1973/llama-toolchest/internal/memreport"
@@ -62,6 +63,16 @@ type Server struct {
 	// production (builder.CachedROCmInstalls); tests set it for the same
 	// reason as currentBuildEnv.
 	rocmInstallsFn func() []builder.ROCmInstall
+	// inContainerFn reports whether toolchest runs inside a container.
+	// Nil in production (builder.RunningInContainer); tests set it so the
+	// result does not depend on where the tests run.
+	inContainerFn func() bool
+
+	// gen holds the generation backends' model sets and instances. It is
+	// nil when generation.json could not be read; genErr then says why,
+	// and the file is left alone rather than replaced by an empty store.
+	gen    *generation.Store
+	genErr error
 
 	// probeCache memoizes remote GGUF header probes, keyed by source,
 	// repo and file. A published file's layout does not change, so the
@@ -245,6 +256,9 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 		dirtyModels:    make(map[string]bool),
 		runningConfigs: make(map[string]*models.ModelConfig),
 		memory:         memreport.NewCollector(),
+	}
+	if s.gen, s.genErr = generation.Load(cfg.DataDir); s.genErr != nil {
+		slog.Error("generation backends store not loaded", "error", s.genErr)
 	}
 	// Subscribes to the router log for the life of the process. Started
 	// before anything can launch the router, so no load goes unwatched.
@@ -926,6 +940,12 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		ActiveBackend    string
 		EnvWarnings      []string
 		EffectiveEnv     []envLine
+
+		GenerationEnabled bool
+		GenPortStart      int
+		GenPortEnd        int
+		GenPortCount      int
+		InContainer       bool
 	}{
 		pageData:         pageData{Title: "Settings", Nav: "settings"},
 		ProxyEndpoint:    proxyEndpoint,
@@ -947,7 +967,12 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		ActiveBackend:    s.activeBackend(),
 		EnvWarnings:      s.cfg.EnvSet().Warnings(),
 		EffectiveEnv:     s.effectiveEnvLines(),
+
+		GenerationEnabled: s.cfg.GenerationEnabled,
+		InContainer:       s.inContainer(),
 	}
+	data.GenPortStart, data.GenPortCount = s.cfg.GenPorts(data.InContainer)
+	data.GenPortEnd = data.GenPortStart + data.GenPortCount - 1
 	s.render(w, "settings.html", data)
 }
 

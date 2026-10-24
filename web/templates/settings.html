@@ -209,6 +209,55 @@
 </article>
 
 <article>
+    <header>Generation backends</header>
+    <p>Lets llama-toolchest also run image generation
+       (stable-diffusion.cpp) and music generation (acestep.cpp) next to
+       llama-server. While this is off, nothing about them is shown or run.</p>
+    <form hx-put="/api/settings"
+          hx-target="#generation-status"
+          hx-swap="innerHTML"
+          hx-trigger="change">
+        <input type="hidden" name="generation_touched" value="1">
+        <label>
+            <input type="checkbox" role="switch" name="generation_enabled"
+                   {{if .GenerationEnabled}}checked{{end}}>
+            Enable image and music generation backends
+        </label>
+    </form>
+    <div id="generation-status"></div>
+    <details>
+        <summary>Backend ports ({{.GenPortStart}}–{{.GenPortEnd}})</summary>
+        <p>Each backend instance listens on its own port from this range, and
+           its built-in web UI is reached on that port.</p>
+        {{if .InContainer}}
+        <p><small>Inside a container the range is fixed at
+           {{.GenPortStart}}–{{.GenPortEnd}}, the ports the image publishes.
+           To use other ports on the host, change them with
+           <code>setup.sh</code>.</small></p>
+        {{end}}
+        <form hx-put="/api/settings"
+              hx-target="#gen-ports-status"
+              hx-swap="innerHTML"
+              data-error-label="Port range not saved">
+            <div class="grid">
+                <label title="The first port of the range. It must not overlap the llama-server port ({{.LlamaPort}}) or the port this page is served on.">
+                    First port
+                    <input type="number" name="gen_port_start" min="1024" max="65535"
+                           value="{{.GenPortStart}}" {{if .InContainer}}readonly{{end}}>
+                </label>
+                <label title="How many ports the range holds. Each running backend instance uses one, so this is also the most instances that can run at once.">
+                    Number of ports
+                    <input type="number" name="gen_port_count" min="1" max="32"
+                           value="{{.GenPortCount}}" {{if .InContainer}}readonly{{end}}>
+                </label>
+            </div>
+            {{if not .InContainer}}<button type="submit">Save</button>{{end}}
+        </form>
+        <div id="gen-ports-status"></div>
+    </details>
+</article>
+
+<article>
     <header>Server URL</header>
     <p>Base URL used for dashboard links (Chat UI, API endpoint). Defaults to
        <code>http://localhost:3000</code>. If you access this server from other
