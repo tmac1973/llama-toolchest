@@ -95,6 +95,12 @@ func (m *Manager) Status(id string) process.Status {
 	return process.Status{State: process.StateStopped}
 }
 
+// IsRunning reports whether the instance has passed its health check.
+func (m *Manager) IsRunning(id string) bool {
+	s := m.existing(id)
+	return s != nil && s.IsRunning()
+}
+
 // IsActive reports whether the instance is starting or running.
 func (m *Manager) IsActive(id string) bool {
 	s := m.existing(id)
