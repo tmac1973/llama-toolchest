@@ -39,7 +39,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	resp := settingsResponse{
 		ListenAddr:    s.cfg.ListenAddr,
 		LlamaPort:     s.cfg.LlamaPort,
-		ProxyEndpoint: fmt.Sprintf("http://localhost%s/v1", s.cfg.ListenAddr),
+		ProxyEndpoint: s.proxyEndpoint(),
 		HasAPIKey:     s.cfg.APIKey != "",
 		HasHFToken:    s.cfg.HFToken != "",
 		HasMSToken:    s.cfg.MSToken != "",
@@ -198,9 +198,8 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		proxyEndpoint := strings.TrimRight(s.cfg.ExternalURL, "/") + "/v1"
 		// Out-of-band swap to update the proxy endpoint display
-		fmt.Fprintf(w, `<p>Settings saved.</p><pre id="proxy-endpoint" hx-swap-oob="true">%s</pre>`, html.EscapeString(proxyEndpoint))
+		fmt.Fprintf(w, `<p>Settings saved.</p><pre id="proxy-endpoint" hx-swap-oob="true">%s</pre>`, html.EscapeString(s.proxyEndpoint()))
 		return
 	}
 
@@ -237,6 +236,14 @@ func (s *Server) handleTestConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, result)
+}
+
+// proxyEndpoint is the /v1 URL clients should use: the external URL that
+// all dashboard links are built from. It used to be built from the listen
+// address, which gave "http://localhost127.0.0.1:3000/v1" when that
+// address included a host.
+func (s *Server) proxyEndpoint() string {
+	return strings.TrimRight(s.cfg.ExternalURL, "/") + "/v1"
 }
 
 // formSecret applies a secret field from the settings form to dst: a

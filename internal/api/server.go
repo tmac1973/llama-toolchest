@@ -904,7 +904,7 @@ func (s *Server) handleHelpPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
-	proxyEndpoint := strings.TrimRight(s.cfg.ExternalURL, "/") + "/v1"
+	proxyEndpoint := s.proxyEndpoint()
 	data := struct {
 		pageData
 		ProxyEndpoint    string
@@ -994,7 +994,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 	data := dashboardCardsData{
 		ModelCount: len(registeredModels),
-		APIURL:     strings.TrimRight(s.cfg.ExternalURL, "/") + "/v1",
+		APIURL:     s.proxyEndpoint(),
 	}
 	for _, b := range builds {
 		if b.Status == builder.BuildStatusSuccess {
