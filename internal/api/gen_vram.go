@@ -1,12 +1,10 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -478,13 +476,13 @@ func (s *Server) runMeasureGeneration(ctx context.Context, inst generation.Insta
 	base := fmt.Sprintf("http://127.0.0.1:%d", inst.Port)
 	if set.Kind == generation.KindSD {
 		w, h := max(set.DefaultWidth, 64), max(set.DefaultHeight, 64)
-		_, err := postJSON(ctx, base+"/v1/images/generations", map[string]any{
+		_, _, err := postJSON(ctx, base+"/v1/images/generations", map[string]any{
 			"prompt": "a lighthouse on a rocky coast at sunset, photo", "size": fmt.Sprintf("%dx%d", w, h), "n": 1,
 			"response_format": "b64_json",
 		})
 		return err
 	}
-	lm, err := runAceJob(ctx, base, "/lm", measureSongRequest)
+	lm, _, err := runAceJob(ctx, base, "/lm", measureSongRequest, nil)
 	if err != nil {
 		return err
 	}
@@ -500,80 +498,8 @@ func (s *Server) runMeasureGeneration(ctx context.Context, inst generation.Insta
 		return errors.New("unexpected /lm result")
 	}
 	req["output_format"] = "mp3"
-	_, err = runAceJob(ctx, base, "/synth", req)
+	_, _, err = runAceJob(ctx, base, "/synth", req, nil)
 	return err
-}
-
-// runAceJob submits an ace-server job, waits for it, and returns its result.
-func runAceJob(ctx context.Context, base, path string, body any) ([]byte, error) {
-	out, err := postJSON(ctx, base+path, body)
-	if err != nil {
-		return nil, err
-	}
-	var job struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(out, &job); err != nil || job.ID == "" {
-		return nil, fmt.Errorf("%s returned no job ID", path)
-	}
-	for {
-		st, err := getBody(ctx, base+"/job?id="+job.ID)
-		if err != nil {
-			return nil, err
-		}
-		var status struct {
-			Status string `json:"status"`
-		}
-		json.Unmarshal(st, &status)
-		switch status.Status {
-		case "done":
-			return getBody(ctx, base+"/job?id="+job.ID+"&result=1")
-		case "failed", "cancelled", "error":
-			return nil, fmt.Errorf("%s job %s", path, status.Status)
-		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(500 * time.Millisecond):
-		}
-	}
-}
-
-func postJSON(ctx context.Context, url string, body any) ([]byte, error) {
-	raw, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(raw))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	return doBody(req)
-}
-
-func getBody(ctx context.Context, url string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	return doBody(req)
-}
-
-func doBody(req *http.Request) ([]byte, error) {
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	out, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("%s answered HTTP %d: %.200s", req.URL.Path, resp.StatusCode, out)
-	}
-	return out, nil
 }
 
 // handleGenSetReservation sets an instance's reservation by hand, in GiB.

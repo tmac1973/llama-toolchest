@@ -85,6 +85,8 @@ type Server struct {
 	genProcVRAM procVRAMCache
 	// genQueue lets one image or music job run per GPU at a time.
 	genQueue *generation.Queue
+	// genMusic holds this run's music jobs.
+	genMusic musicJobs
 
 	// probeCache memoizes remote GGUF header probes, keyed by source,
 	// repo and file. A published file's layout does not change, so the
@@ -279,6 +281,7 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 	// before anything can launch the router, so no load goes unwatched.
 	go s.watchRouterMemory()
 	go s.watchOtherVRAM()
+	go s.watchMusicJobs()
 	s.env = newJobEnv(s)
 	s.jobs = benchmark.NewJobQueue(s.bench, s.env)
 	s.downloader.SetOnComplete(s.onDownloadComplete)
@@ -779,6 +782,11 @@ func (s *Server) buildRouter() chi.Router {
 
 	// OpenAI-compatible endpoints: models are served directly,
 	// everything else is proxied to llama-server.
+	// The official ACE-Step 1.5 server's job routes, at the root as that
+	// server has them, so its clients can point here. API key as for /v1.
+	r.With(s.apiKeyAuth).Post("/release_task", s.handleReleaseTask)
+	r.With(s.apiKeyAuth).Post("/query_result", s.handleQueryResult)
+
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(s.apiKeyAuth)
 		r.Get("/models", s.handleV1Models)
@@ -787,6 +795,12 @@ func (s *Server) buildRouter() chi.Router {
 		// llama router.
 		r.Post("/images/generations", s.handleGenImages)
 		r.Post("/images/edits", s.handleGenImages)
+		r.Post("/music/jobs", s.handleMusicCreate)
+		r.Get("/music/jobs/{id}", s.handleMusicGet)
+		r.Get("/music/jobs/{id}/audio", s.handleMusicAudio)
+		r.Delete("/music/jobs/{id}", s.handleMusicDelete)
+		// The official ACE-Step server's audio download path.
+		r.Get("/audio", s.handleAceStepAudio)
 		r.Handle("/*", s.newProxyHandler())
 	})
 
