@@ -1,0 +1,11 @@
+{{/* The slowed-chat warning at the top of the Server page. Data:
+     []genBannerGPU (gen_vram.go); nothing renders when it is empty. */}}
+{{define "gen_banner"}}
+{{- range .}}
+<article style="padding:0.6rem 1rem;margin-bottom:0.75rem;border-left:4px solid var(--pico-del-color);"
+         title="Image and music jobs and LLM chat share the GPU's processing time when they run on the same card, so each runs slower while the other is busy. Jobs on different GPUs do not slow each other.">
+    Chat is slower while image or music generation runs on GPU {{.Index}}{{with .Name}} ({{.}}){{end}}.
+    <small>On a Radeon AI PRO R9700, chat dropped from about 45 to 11–20 tokens per second.</small>
+</article>
+{{- end}}
+{{end}}

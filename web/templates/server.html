@@ -77,6 +77,9 @@
 </style>
 
 <div class="server-page">
+    {{if .GenerationEnabled}}
+    <div id="gen-banner" hx-get="/api/gen/banner" hx-trigger="load, every 5s" hx-swap="innerHTML"></div>
+    {{end}}
     <div class="server-top">
         <div class="grid">
             <article class="server-card">

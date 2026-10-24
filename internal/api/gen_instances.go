@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -42,12 +43,33 @@ type genInstanceRow struct {
 	// SuggestedMiB is the reservation the last measurement suggests; 0
 	// before any measurement.
 	SuggestedMiB int `json:"suggested_mib,omitempty"`
+	// WebUIURL opens the backend's own web page; empty unless it is
+	// running and its build has one.
+	WebUIURL string `json:"web_ui_url,omitempty"`
+	// GPUJobsRunning and GPUJobsWaiting are the image and music jobs on
+	// the instance's GPU, whichever instance they are for.
+	GPUJobsRunning int `json:"gpu_jobs_running"`
+	GPUJobsWaiting int `json:"gpu_jobs_waiting"`
 }
 
 // ReservedGiB and the others render the VRAM figures for the table.
 func (r genInstanceRow) ReservedGiB() float64  { return float64(r.ReservedMiB) / 1024 }
 func (r genInstanceRow) PeakGiB() float64      { return float64(r.MeasuredPeakMiB) / 1024 }
 func (r genInstanceRow) SuggestedGiB() float64 { return float64(r.SuggestedMiB) / 1024 }
+
+// genWebUIURL is where a browser reaches the backend listening on port:
+// the external URL's host, as for the chat UI link, on the port as seen
+// from outside (a container may publish the range on other host ports).
+// Empty when the external URL has no host.
+func (s *Server) genWebUIURL(port int) string {
+	u, err := url.Parse(s.cfg.ExternalURL)
+	if err != nil || u.Hostname() == "" {
+		return ""
+	}
+	inC := s.inContainer()
+	start, _ := s.cfg.GenPorts(inC)
+	return fmt.Sprintf("%s://%s:%d", u.Scheme, u.Hostname(), port-start+s.cfg.GenPublicStart(inC))
+}
 
 // genFormData feeds the gen_instance_form partial: the choices a new
 // instance can be made from.
@@ -86,6 +108,14 @@ func (s *Server) genInstanceRows(store *generation.Store) []genInstanceRow {
 		}
 		if b := s.resolveBackendBuild(string(row.Kind), inst.BuildID); b != nil {
 			row.BuildLabel = b.ID
+			if b.HasWebUI && row.Status.State == process.StateRunning {
+				row.WebUIURL = s.genWebUIURL(inst.Port)
+			}
+		}
+		if snap := s.genQueue.Snapshot(inst.GPU); snap.Running != nil {
+			row.GPUJobsRunning, row.GPUJobsWaiting = 1, len(snap.Waiting)
+		} else {
+			row.GPUJobsWaiting = len(snap.Waiting)
 		}
 		rows = append(rows, row)
 	}

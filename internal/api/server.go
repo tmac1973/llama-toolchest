@@ -734,6 +734,7 @@ func (s *Server) buildRouter() chi.Router {
 			r.Get("/{id}/logs", s.handleGenInstanceLogs)
 		})
 		r.Get("/gen/queue/history", s.handleGenQueueHistory)
+		r.Get("/gen/banner", s.handleGenBanner)
 		r.Route("/gen/models", func(r chi.Router) {
 			r.Get("/", s.handleGenModels)
 			r.Post("/catalog/{id}/download", s.handleGenCatalogDownload)
