@@ -36,7 +36,7 @@ type genVRAM struct {
 // Empty while generation backends are off.
 func (s *Server) genVRAMByGPU(exclude string) map[int]*genVRAM {
 	out := map[int]*genVRAM{}
-	if !s.cfg.GenerationEnabled || s.gen == nil || s.genMgr == nil {
+	if s.cfg == nil || !s.cfg.GenerationEnabled || s.gen == nil || s.genMgr == nil {
 		return out
 	}
 	for _, inst := range s.gen.Instances() {
@@ -175,7 +175,7 @@ func (e *genLLMFitError) Error() string { return e.msg }
 // checkLLMFitsReservations refuses an on-demand LLM load that would not
 // fit next to the generation backends' reservations on a GPU it uses.
 func (s *Server) checkLLMFitsReservations(m *models.Model) error {
-	if !s.cfg.GenerationEnabled || s.gen == nil {
+	if s.cfg == nil || !s.cfg.GenerationEnabled || s.gen == nil {
 		return nil
 	}
 	byGPU := s.genVRAMByGPU("")
@@ -241,7 +241,7 @@ const genReservationColor = "#8e7cc3"
 // genReservationAllocations lists each enabled instance's reservation as
 // a GPU map entry on its GPU, so the map and its legend show them.
 func (s *Server) genReservationAllocations() []models.GPUAllocation {
-	if !s.cfg.GenerationEnabled || s.gen == nil {
+	if s.cfg == nil || !s.cfg.GenerationEnabled || s.gen == nil {
 		return nil
 	}
 	var out []models.GPUAllocation
