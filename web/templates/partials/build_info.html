@@ -4,6 +4,9 @@
 {{define "build_info"}}
 <dl style="margin:0;">
     <dt><strong>ID</strong></dt><dd><kbd>{{.ID}}</kbd></dd>
+    {{- if ne .ProjectID "llama.cpp"}}
+    <dt><strong>Project</strong></dt><dd>{{.ProjectID}}{{if .HasWebUI}} <small>(with its built-in web UI)</small>{{end}}</dd>
+    {{- end}}
     <dt><strong>Profile</strong></dt><dd>{{.Profile}}</dd>
     <dt><strong>Git ref</strong></dt><dd>{{.GitRef}} <small>(<code>{{.ShortSHA}}</code>)</small></dd>
     {{- with .Tag}}
@@ -27,6 +30,7 @@
 <article>
     <p>Build <strong>{{.ID}}</strong> already exists. Rebuild it?</p>
     <form hx-post="/api/builds" hx-target="#build-output" hx-swap="innerHTML">
+        <input type="hidden" name="project" value="{{.Project}}">
         <input type="hidden" name="profile" value="{{.Profile}}">
         <input type="hidden" name="git_ref" value="{{.GitRef}}">
         <input type="hidden" name="tag" value="{{.Tag}}">

@@ -152,7 +152,7 @@ func TestCheckoutRefLatestAndCount(t *testing.T) {
 	b := &Builder{}
 	logCh := make(chan string, 16)
 
-	ref, sha, count, err := b.checkoutRef(context.Background(), srcDir, "latest", logCh)
+	ref, sha, count, err := b.checkoutRef(context.Background(), llamaProject(), srcDir, "latest", logCh)
 	if err != nil {
 		t.Fatalf("checkoutRef: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestCheckoutRefLatestAndCount(t *testing.T) {
 			t.Fatalf("deleting %s: %v\n%s", tag, err, out)
 		}
 	}
-	ref, _, _, err = b.checkoutRef(context.Background(), srcDir, "latest", logCh)
+	ref, _, _, err = b.checkoutRef(context.Background(), llamaProject(), srcDir, "latest", logCh)
 	if err != nil {
 		t.Fatalf("checkoutRef after b-tag removal: %v", err)
 	}
@@ -248,7 +248,7 @@ func TestEnsureRepoLeavesUnknownDirectoriesAlone(t *testing.T) {
 	}
 
 	b := &Builder{}
-	err := b.ensureRepo(context.Background(), srcDir, make(chan string, 16))
+	err := b.ensureRepo(context.Background(), llamaProject(), srcDir, make(chan string, 16))
 	if err == nil {
 		t.Fatal("ensureRepo accepted a directory that is not a clone, want an error")
 	}
@@ -319,7 +319,7 @@ func TestEnsureRepoReclonesOverHalfFinishedClone(t *testing.T) {
 
 	b := &Builder{}
 	logCh := make(chan string, 64)
-	if err := b.ensureRepo(context.Background(), srcDir, logCh); err != nil {
+	if err := b.ensureRepo(context.Background(), llamaProject(), srcDir, logCh); err != nil {
 		t.Fatalf("ensureRepo: %v", err)
 	}
 
@@ -372,4 +372,11 @@ func TestPruneTempPacks(t *testing.T) {
 
 	// A repo with no pack directory at all must not panic.
 	pruneTempPacks(t.TempDir())
+}
+
+// llamaProject returns the llama.cpp project as it is right now, so a test
+// that pointed llamaCppRepo at a fixture gets that repo.
+func llamaProject() Project {
+	p, _ := FindProject(ProjectLlamaCpp)
+	return p
 }
