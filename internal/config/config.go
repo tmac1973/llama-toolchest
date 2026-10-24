@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -50,6 +51,92 @@ type Config struct {
 	// finishes even if the server restarted meanwhile. The helper model
 	// is not a user choice; see api/helper_model.go.
 	PendingHelper string `yaml:"pending_helper,omitempty"`
+
+	// GenerationEnabled turns on the image and music generation backends
+	// (stable-diffusion.cpp, acestep.cpp). Off by default; while off,
+	// nothing about them is shown or run.
+	GenerationEnabled bool `yaml:"generation_enabled,omitempty"`
+
+	// GenPortStart and GenPortCount set the port range the generation
+	// backends listen on, one port per backend instance. Zero means the
+	// default (8081, 8 ports); use GenPorts for the effective values.
+	GenPortStart int `yaml:"gen_port_start,omitempty"`
+	GenPortCount int `yaml:"gen_port_count,omitempty"`
+
+	// GenPublicPortStart is the first port of that range as seen from
+	// outside, for the backend web UI links. Zero means the same as the
+	// listening range; it differs when a container publishes the range on
+	// other host ports.
+	GenPublicPortStart int `yaml:"gen_public_port_start,omitempty"`
+}
+
+// Default generation backend port range. Container images always publish
+// this range, so inside a container it cannot be changed.
+const (
+	DefaultGenPortStart = 8081
+	DefaultGenPortCount = 8
+)
+
+// GenPorts returns the effective generation backend port range. In a
+// container the range is fixed at the defaults, because that is the range
+// the image publishes.
+func (c *Config) GenPorts(inContainer bool) (start, count int) {
+	start, count = c.GenPortStart, c.GenPortCount
+	if inContainer || start == 0 {
+		start = DefaultGenPortStart
+	}
+	if inContainer || count == 0 {
+		count = DefaultGenPortCount
+	}
+	return start, count
+}
+
+// GenPublicStart returns the first port of the generation range as seen
+// from outside: GenPublicPortStart when set, else the listening start.
+func (c *Config) GenPublicStart(inContainer bool) int {
+	if c.GenPublicPortStart != 0 {
+		return c.GenPublicPortStart
+	}
+	start, _ := c.GenPorts(inContainer)
+	return start
+}
+
+// ValidateGenPorts checks a generation port range against the ports
+// toolchest already uses: the start must be 1024–65535, the count 1–32,
+// the whole range must fit below 65536, and it must not include the
+// llama-server port or the web UI's listen port.
+func ValidateGenPorts(start, count, llamaPort int, listenAddr string) error {
+	if start < 1024 || start > 65535 {
+		return fmt.Errorf("port range start %d must be between 1024 and 65535", start)
+	}
+	if count < 1 || count > 32 {
+		return fmt.Errorf("port count %d must be between 1 and 32", count)
+	}
+	end := start + count - 1
+	if end > 65535 {
+		return fmt.Errorf("port range %d–%d goes past 65535", start, end)
+	}
+	if llamaPort >= start && llamaPort <= end {
+		return fmt.Errorf("port range %d–%d includes the llama-server port %d", start, end, llamaPort)
+	}
+	if p := listenPort(listenAddr); p >= start && p <= end {
+		return fmt.Errorf("port range %d–%d includes the web UI port %d", start, end, p)
+	}
+	return nil
+}
+
+// listenPort returns the port of a listen address like ":3000" or
+// "0.0.0.0:3000", or 0 when there is none.
+func listenPort(addr string) int {
+	i := strings.LastIndexByte(addr, ':')
+	if i < 0 {
+		return 0
+	}
+	n, err := strconv.Atoi(addr[i+1:])
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // ModelsPath returns the directory where GGUF models live. ModelsDir wins
@@ -110,6 +197,16 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.LlamaPort = n
 		} else {
 			slog.Warn("ignoring non-numeric LLAMA_TOOLCHEST_LLAMA_PORT", "value", v)
+		}
+	}
+	// Set by the container's compose file when the generation web UI
+	// ports are published on different host ports, so the dashboard links
+	// point at the host side.
+	if v := os.Getenv("LLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 && n <= 65535 {
+			cfg.GenPublicPortStart = n
+		} else {
+			slog.Warn("ignoring LLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START: not a port number", "value", v)
 		}
 	}
 }

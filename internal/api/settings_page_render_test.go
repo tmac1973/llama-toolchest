@@ -23,25 +23,30 @@ func TestSettingsPageRendersEnvSection(t *testing.T) {
 	// Mirrors the anonymous struct in handleSettingsPage.
 	data := struct {
 		pageData
-		ProxyEndpoint    string
-		LlamaPort        int
-		HasAPIKey        bool
-		HasHFToken       bool
-		HasMSToken       bool
-		DefaultSource    string
-		HasExtURL        bool
-		ExternalURL      string
-		DataDir          string
-		ModelsDir        string
-		DefaultModelsDir string
-		AutoStart        bool
-		RuntimeEnvOpts   []config.RuntimeEnvOption
-		RuntimeEnv       map[string]string
-		RuntimeEnvExtra  string
-		EnvBackends      []string
-		ActiveBackend    string
-		EnvWarnings      []string
-		EffectiveEnv     []envLine
+		ProxyEndpoint     string
+		LlamaPort         int
+		HasAPIKey         bool
+		HasHFToken        bool
+		HasMSToken        bool
+		DefaultSource     string
+		HasExtURL         bool
+		ExternalURL       string
+		DataDir           string
+		ModelsDir         string
+		DefaultModelsDir  string
+		AutoStart         bool
+		RuntimeEnvOpts    []config.RuntimeEnvOption
+		RuntimeEnv        map[string]string
+		RuntimeEnvExtra   string
+		EnvBackends       []string
+		ActiveBackend     string
+		EnvWarnings       []string
+		EffectiveEnv      []envLine
+		GenerationEnabled bool
+		GenPortStart      int
+		GenPortEnd        int
+		GenPortCount      int
+		InContainer       bool
 	}{
 		pageData:        pageData{Title: "Settings", Nav: "settings"},
 		RuntimeEnvOpts:  config.RuntimeEnvOptions(),

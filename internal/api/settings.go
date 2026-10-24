@@ -27,6 +27,10 @@ type settingsResponse struct {
 	HasMSToken    bool   `json:"has_ms_token"`
 	DefaultSource string `json:"default_model_source"`
 	DataDir       string `json:"data_dir"`
+
+	GenerationEnabled bool `json:"generation_enabled"`
+	GenPortStart      int  `json:"gen_port_start"`
+	GenPortCount      int  `json:"gen_port_count"`
 }
 
 type connectionTestResult struct {
@@ -45,7 +49,10 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		HasMSToken:    s.cfg.MSToken != "",
 		DefaultSource: s.defaultModelSource(),
 		DataDir:       s.cfg.DataDir,
+
+		GenerationEnabled: s.cfg.GenerationEnabled,
 	}
+	resp.GenPortStart, resp.GenPortCount = s.cfg.GenPorts(s.inContainer())
 
 	if isHTMX(r) {
 		respondHTML(w)
@@ -76,9 +83,24 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			MSToken   *string `json:"ms_token,omitempty"`
 
 			DefaultModelSource *string `json:"default_model_source,omitempty"`
+
+			GenerationEnabled *bool `json:"generation_enabled,omitempty"`
+			GenPortStart      *int  `json:"gen_port_start,omitempty"`
+			GenPortCount      *int  `json:"gen_port_count,omitempty"`
 		}
 		if !decodeJSONBody(w, r, &update) {
 			return
+		}
+		// Checked before anything is changed, so a rejected range leaves
+		// the other fields in this request unsaved too.
+		if update.GenPortStart != nil || update.GenPortCount != nil {
+			if err := s.applyGenPorts(update.GenPortStart, update.GenPortCount); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+		if update.GenerationEnabled != nil {
+			s.cfg.GenerationEnabled = *update.GenerationEnabled
 		}
 		if update.LlamaPort != nil {
 			s.cfg.LlamaPort = *update.LlamaPort
@@ -99,6 +121,16 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		r.ParseForm()
+		if r.Form.Has("gen_port_start") || r.Form.Has("gen_port_count") {
+			start, count, err := formGenPorts(r)
+			if err == nil {
+				err = s.applyGenPorts(start, count)
+			}
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
 		// A blank secret field means "keep the saved value", so removing
 		// one takes the separate clear_* checkbox. A value typed in the
 		// field wins over the checkbox.
@@ -154,6 +186,9 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if r.Form.Has("auto_start_touched") {
 			s.cfg.AutoStart = r.FormValue("auto_start") == "on"
+		}
+		if r.Form.Has("generation_touched") {
+			s.cfg.GenerationEnabled = r.FormValue("generation_enabled") == "on"
 		}
 		if r.Form.Has("models_dir") {
 			newDir := strings.TrimSpace(r.FormValue("models_dir"))
@@ -236,6 +271,46 @@ func (s *Server) handleTestConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, result)
+}
+
+// applyGenPorts validates and stores a new generation port range. A nil
+// value keeps the current one. Inside a container the range is fixed by
+// the published ports, so any change is refused. Callers must hold cfgMu.
+func (s *Server) applyGenPorts(start, count *int) error {
+	if s.inContainer() {
+		return errors.New("the generation port range is fixed at 8081–8088 inside a container; change the host side with setup.sh instead")
+	}
+	newStart, newCount := s.cfg.GenPorts(false)
+	if start != nil {
+		newStart = *start
+	}
+	if count != nil {
+		newCount = *count
+	}
+	if err := config.ValidateGenPorts(newStart, newCount, s.cfg.LlamaPort, s.cfg.ListenAddr); err != nil {
+		return err
+	}
+	s.cfg.GenPortStart, s.cfg.GenPortCount = newStart, newCount
+	return nil
+}
+
+// formGenPorts reads the generation port fields from the settings form.
+// A field that is absent keeps its current value.
+func formGenPorts(r *http.Request) (start, count *int, err error) {
+	for _, f := range []struct {
+		name string
+		dst  **int
+	}{{"gen_port_start", &start}, {"gen_port_count", &count}} {
+		if !r.Form.Has(f.name) {
+			continue
+		}
+		v, err := strconv.Atoi(strings.TrimSpace(r.FormValue(f.name)))
+		if err != nil {
+			return nil, nil, fmt.Errorf("%s: not a number", f.name)
+		}
+		*f.dst = &v
+	}
+	return start, count, nil
 }
 
 // formSecret applies a secret field from the settings form to dst: a

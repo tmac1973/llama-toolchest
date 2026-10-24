@@ -52,6 +52,7 @@ func newTestServer(t *testing.T) *Server {
 		// No ROCm installs unless a test says otherwise, so results do not
 		// depend on what the machine running the tests has.
 		rocmInstallsFn: func() []builder.ROCmInstall { return nil },
+		inContainerFn:  func() bool { return false },
 	}
 	s.pages = s.parseTemplates()
 	return s

@@ -37,3 +37,14 @@ models_max: 1
 # If true, start the llama-server router on app startup. Otherwise the user
 # starts it from the UI.
 auto_start: false
+
+# Image and music generation backends (stable-diffusion.cpp, acestep.cpp),
+# run next to llama-server. Off by default.
+# generation_enabled: false
+
+# Port range the generation backends listen on, one port per backend
+# instance; each backend's built-in web UI is reached on its port. Must not
+# overlap llama_port or the web UI port. Model files for these backends are
+# kept in a gen-models directory next to the LLM models directory.
+# gen_port_start: 8081
+# gen_port_count: 8

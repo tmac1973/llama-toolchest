@@ -520,6 +520,15 @@ func (s *Server) rocmInstalls() []builder.ROCmInstall {
 	return builder.CachedROCmInstalls()
 }
 
+// inContainer reports whether toolchest runs inside a container, through
+// an overridable field for the same reason as currentBuildEnvFor.
+func (s *Server) inContainer() bool {
+	if s.inContainerFn != nil {
+		return s.inContainerFn()
+	}
+	return builder.RunningInContainer()
+}
+
 // buildBackend returns a build's backend ("rocm", "cuda", ...), resolved
 // through its profile. It selects the llama.cpp device-name prefix
 // (ROCm0, CUDA0, ...) when the preset emits per-model device lists.
