@@ -190,7 +190,54 @@
             <pre id="service-logs"></pre>
         </article>
     </div>
+
+    {{if .GenerationEnabled}}
+    <article>
+        <header title="Image (stable-diffusion.cpp) and music (acestep.cpp) servers that run next to llama-server. Each instance runs one model set, on one GPU and one port.">Generation backends</header>
+        <div id="gen-instances" hx-get="/api/gen/instances"
+             hx-trigger="load, every 5s, genInstancesChanged from:body" hx-swap="innerHTML">Loading…</div>
+        <details>
+            <summary>New instance</summary>
+            <div id="gen-instance-form" hx-get="/api/gen/instances/form"
+                 hx-trigger="toggle from:closest details once" hx-swap="innerHTML">Loading…</div>
+        </details>
+    </article>
+    {{end}}
 </div>
+
+{{if .GenerationEnabled}}
+<dialog id="gen-log-dialog" style="max-width:960px;width:95vw;">
+    <article>
+        <header>
+            <button type="button" aria-label="Close" rel="prev" onclick="this.closest('dialog').close();"></button>
+            <span id="gen-log-title">Instance log</span>
+        </header>
+        <pre id="gen-log" style="max-height:60vh;overflow:auto;font-size:0.8rem;"></pre>
+    </article>
+</dialog>
+<script>
+// Streams one instance's log into the dialog while it is open.
+var genLogSSE = null;
+function openGenLog(id, name) {
+    var dlg = document.getElementById('gen-log-dialog');
+    var pre = document.getElementById('gen-log');
+    document.getElementById('gen-log-title').textContent = name + ' log';
+    pre.textContent = '';
+    if (genLogSSE) genLogSSE.close();
+    genLogSSE = new EventSource('/api/gen/instances/' + encodeURIComponent(id) + '/logs');
+    genLogSSE.onmessage = function(e) {
+        pre.textContent += e.data;
+        pre.scrollTop = pre.scrollHeight;
+    };
+    genLogSSE.addEventListener('done', function() { genLogSSE.close(); });
+    genLogSSE.onerror = function() { genLogSSE.close(); };
+    dlg.showModal();
+}
+document.getElementById('gen-log-dialog').addEventListener('close', function() {
+    if (genLogSSE) { genLogSSE.close(); genLogSSE = null; }
+});
+</script>
+{{end}}
 
 <dialog id="agent-configs-dialog" style="max-width:720px;">
     <article>

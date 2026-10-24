@@ -74,6 +74,8 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	// Set when this request changed the runtime environment section, so
 	// the response can carry the variable warnings and refreshed preview.
 	envTouched := false
+	// Switching generation backends off stops every running instance.
+	wasGenerationEnabled := s.cfg.GenerationEnabled
 
 	if isJSONRequest(r) {
 		var update struct {
@@ -218,6 +220,10 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	// take effect on the next restart while the page cheerfully reports
 	// it as set.
 	s.applySourceCredentialsLocked()
+	// In the background: each stop can wait for a backend to exit.
+	if wasGenerationEnabled && !s.cfg.GenerationEnabled && s.genMgr != nil {
+		go s.genMgr.StopAll()
+	}
 
 	if isHTMX(r) {
 		respondHTML(w)
