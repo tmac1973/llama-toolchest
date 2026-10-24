@@ -74,6 +74,34 @@ func TestV1ModelsListsEnabledServingModels(t *testing.T) {
 	}
 }
 
+// /v1/models reports how the context is divided, not only the whole
+// pool: with four conversations that each get an equal share, a client
+// must compact against the share. It used to report only the pool.
+func TestV1ModelReportsContextPerConversation(t *testing.T) {
+	s := newTestServer(t)
+	addV1Model(t, s, "split", "org/Split-GGUF", models.ModelConfig{Enabled: true, ContextSize: 262144, Parallel: 4})
+
+	rec := serve(s, httptest.NewRequest("GET", "/v1/models/split", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("HTTP %d: %s", rec.Code, rec.Body)
+	}
+	var got struct {
+		Meta struct {
+			ContextSize       int  `json:"context_size"`
+			Parallel          int  `json:"parallel"`
+			ContextShared     bool `json:"context_shared"`
+			ContextPerRequest int  `json:"context_per_request"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v\n%s", err, rec.Body)
+	}
+	m := got.Meta
+	if m.ContextSize != 262144 || m.Parallel != 4 || m.ContextShared || m.ContextPerRequest != 65536 {
+		t.Errorf("meta = %+v, want a 262144 pool split four ways into 65536", m)
+	}
+}
+
 // A client may name a model by registry ID, public name or alias; all
 // three must find the same model, and an unknown name gets an
 // OpenAI-shaped 404 so client libraries show a useful message.

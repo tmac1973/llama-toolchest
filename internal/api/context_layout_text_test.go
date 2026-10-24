@@ -1,6 +1,7 @@
 package api
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -44,23 +45,31 @@ func TestContextLayoutText(t *testing.T) {
 	}
 }
 
-// The sharing controls appear only from two conversations, and the
-// limit only with sharing on, so no hidden value is left behind.
+// The sharing controls are always shown, but enabled only from two
+// conversations, and the limit only with sharing on. A disabled input is
+// not submitted, so no value is saved that does not apply.
 func TestSharedContextControlsRender(t *testing.T) {
-	has := func(cfg *models.ModelConfig, name string) bool {
+	disabled := func(cfg *models.ModelConfig, name string) bool {
 		out := renderModelConfigWith(t, cfg, modelConfigPanelData{})
-		return strings.Contains(out, `name="`+name+`"`)
+		tag := regexp.MustCompile(`<input[^>]*name="` + name + `"[^>]*>`).FindString(out)
+		if tag == "" {
+			t.Fatalf("%s not rendered for %+v", name, cfg)
+		}
+		return regexp.MustCompile(`\sdisabled[\s>]`).MatchString(tag)
 	}
-	if has(&models.ModelConfig{Parallel: 1}, "shared_context") {
-		t.Error("Shared Context shown for one conversation")
+	if !disabled(&models.ModelConfig{}, "shared_context") {
+		t.Error("Shared Context enabled with Auto conversations")
 	}
-	if !has(&models.ModelConfig{Parallel: 4}, "shared_context") {
-		t.Error("Shared Context missing for four conversations")
+	if !disabled(&models.ModelConfig{Parallel: 1}, "shared_context") {
+		t.Error("Shared Context enabled for one conversation")
 	}
-	if has(&models.ModelConfig{Parallel: 4}, "context_per_slot") {
-		t.Error("limit shown with sharing off")
+	if disabled(&models.ModelConfig{Parallel: 4}, "shared_context") {
+		t.Error("Shared Context disabled for four conversations")
 	}
-	if !has(&models.ModelConfig{Parallel: 4, SharedContext: true}, "context_per_slot") {
-		t.Error("limit missing with sharing on")
+	if !disabled(&models.ModelConfig{Parallel: 4}, "context_per_slot") {
+		t.Error("limit enabled with sharing off")
+	}
+	if disabled(&models.ModelConfig{Parallel: 4, SharedContext: true}, "context_per_slot") {
+		t.Error("limit disabled with sharing on")
 	}
 }

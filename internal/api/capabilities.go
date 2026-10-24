@@ -15,20 +15,8 @@ const CapabilitiesSchemaVersion = 1
 // omitted, so a client can tell "known to be absent" from "server too old to
 // report" (the opposite of Go's omitempty default).
 func (s *Server) buildCapabilities(m *models.Model, cfg *models.ModelConfig) map[string]any {
-	// Served context: prefer the live snapshot (what the router is actually
-	// running) over the configured value, and resolve 0 → the model's trained
-	// max — matching how /info reports context_size. This is the number a
-	// client must compact against, never the trained max (context_length).
-	servedCtx := m.ContextLength
-	layout := models.ContextLayout{Slots: 1, Pool: servedCtx, PerConversation: servedCtx}
-	if cfg != nil {
-		live := cfg
-		if snap, ok := s.runningConfigFor(m.ID); ok && s.process.IsRunning() {
-			live = snap
-		}
-		layout = live.ContextLayoutFor(m.ContextLength, s.activeTarget())
-		servedCtx = layout.Pool
-	}
+	layout := s.servedContextLayout(m, cfg)
+	servedCtx := layout.Pool
 
 	return map[string]any{
 		"schema_version": CapabilitiesSchemaVersion,
@@ -54,6 +42,22 @@ func (s *Server) buildCapabilities(m *models.Model, cfg *models.ModelConfig) map
 		// generation limits — no server-imposed cap today
 		"max_output_tokens": nil,
 	}
+}
+
+// servedContextLayout says how the model's context is divided between
+// conversations. It prefers the live snapshot (what the router is actually
+// running) over the configured value, and resolves 0 → the model's trained
+// max — matching how /info reports context_size. PerConversation is the
+// number a client must compact against, never the trained max.
+func (s *Server) servedContextLayout(m *models.Model, cfg *models.ModelConfig) models.ContextLayout {
+	if cfg == nil {
+		return models.ContextLayout{Slots: 1, Pool: m.ContextLength, PerConversation: m.ContextLength}
+	}
+	live := cfg
+	if snap, ok := s.runningConfigFor(m.ID); ok && s.process.IsRunning() {
+		live = snap
+	}
+	return live.ContextLayoutFor(m.ContextLength, s.activeTarget())
 }
 
 // buildSampling resolves the recommended sampling block. `default` is the
