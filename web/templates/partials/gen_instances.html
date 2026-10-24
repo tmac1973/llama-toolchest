@@ -1,0 +1,94 @@
+{{/* The Server page's generation backend instances. Data:
+     genInstancesData and genFormData (gen_instances.go). */}}
+{{define "gen_instances_table"}}
+{{- if not .Rows}}
+<p><small>No instances yet. Open "New instance" below to run a downloaded model set.</small></p>
+{{- else}}
+<table role="grid">
+    <thead>
+        <tr>
+            <th>Instance</th>
+            <th title="The model set the instance runs.">Model set</th>
+            <th title="The build the instance runs: the one chosen for it, or the newest successful build of its backend.">Build</th>
+            <th>GPU</th>
+            <th title="The port its API and built-in web UI listen on.">Port</th>
+            <th>State</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+    {{- range .Rows}}
+        <tr>
+            <td>{{.Name}}{{if not .Enabled}} <small title="A disabled instance cannot run.">(disabled)</small>{{end}}{{if .AutoStart}} <small title="Starts when llama-toolchest starts.">auto-start</small>{{end}}</td>
+            <td>{{.SetName}} <small>({{if eq .Kind "sd"}}image{{else}}music{{end}})</small></td>
+            <td>{{with .BuildLabel}}<kbd>{{.}}</kbd>{{else}}<small title="Build one on the Builds page.">no build</small>{{end}}</td>
+            <td>{{.GPU}}{{with .GPUName}} <small>{{.}}</small>{{end}}</td>
+            <td>{{.Port}}</td>
+            <td{{with .Status.Error}} title="{{.}}" style="cursor:help;"{{end}}>{{.Status.State}}{{if eq .Status.State "running"}} <small>{{.Status.Uptime}}</small>{{end}}</td>
+            <td>
+                <span style="display:flex;gap:0.4rem;flex-wrap:wrap;">
+                {{- $id := .ID}}
+                {{- if or (eq .Status.State "running") (eq .Status.State "starting")}}
+                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/stop" hx-target="#gen-instances" data-error-label="Not stopped">Stop</button>
+                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/restart" hx-target="#gen-instances" data-error-label="Not restarted">Restart</button>
+                {{- else if .Enabled}}
+                    <button type="button" class="outline" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/start" hx-target="#gen-instances" data-error-label="Not started">Start</button>
+                {{- end}}
+                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" onclick="openGenLog('{{$id}}', '{{.Name}}')">Logs</button>
+                {{- if .Enabled}}
+                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/disable" hx-target="#gen-instances" title="Stops the instance and keeps it from running until enabled again." data-error-label="Not disabled">Disable</button>
+                {{- else}}
+                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/enable" hx-target="#gen-instances" data-error-label="Not enabled">Enable</button>
+                {{- end}}
+                {{- if not (or (eq .Status.State "running") (eq .Status.State "starting"))}}
+                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-delete="/api/gen/instances/{{$id}}" hx-confirm="Delete instance {{.Name}}? Its model set stays." hx-target="#gen-instances" data-error-label="Not deleted">Delete</button>
+                {{- end}}
+                </span>
+            </td>
+        </tr>
+    {{- end}}
+    </tbody>
+</table>
+{{- end}}
+{{end}}
+
+{{define "gen_instance_form"}}
+{{- if .Missing}}
+<p><small>Before an instance can be made, this machine needs:
+{{- range .Missing}} {{.}}.{{end}}</small></p>
+{{- else}}
+<form hx-post="/api/gen/instances" hx-target="#gen-instances" hx-swap="innerHTML" data-error-label="Instance not created">
+    <div class="grid">
+        <label title="Shown in the UI; API clients use its ID (made from the name) as the model name. Left blank, the model set's ID is used.">Name
+            <input type="text" name="name" placeholder="defaults to the model set">
+        </label>
+        <label>Model set
+            <select name="model_set" required>
+                {{- range .Sets}}<option value="{{.ID}}">{{.Name}} ({{if eq .Kind "sd"}}image{{else}}music{{end}})</option>{{end}}
+            </select>
+        </label>
+    </div>
+    <div class="grid">
+        <label title="Which build runs it. Automatic uses the newest successful build of the set's backend.">Build
+            <select name="build">
+                <option value="">Automatic (newest)</option>
+                {{- range $kind, $builds := .Builds}}{{range $builds}}<option value="{{.ID}}">{{.ID}}</option>{{end}}{{end}}
+            </select>
+        </label>
+        <label title="The GPU this instance runs on. It only sees this GPU.">GPU
+            <select name="gpu">
+                {{- range .GPUs}}<option value="{{.Index}}">{{.Index}}: {{.Name}}</option>{{else}}<option value="0">0</option>{{end}}
+            </select>
+        </label>
+    </div>
+    <label title="Extra backend flags for this instance, added after the model set's own. The listen address, port, VRAM limit and model directory are set by llama-toolchest.">Extra launch arguments
+        <input type="text" name="extra_args" placeholder="e.g. --offload-to-cpu">
+    </label>
+    <label>
+        <input type="checkbox" role="switch" name="auto_start">
+        Start this instance when llama-toolchest starts
+    </label>
+    <button type="submit">Create instance</button>
+</form>
+{{- end}}
+{{end}}

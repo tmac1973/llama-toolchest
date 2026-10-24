@@ -99,6 +99,16 @@ func (m *Monitor) Stop() {
 	close(m.stop)
 }
 
+// GPUVendor names the GPU tools the monitor reads: "nvidia", "rocm", or ""
+// when it found neither. The monitor uses one of them per machine, so every
+// GPU it lists is from that vendor.
+func (m *Monitor) GPUVendor() string {
+	if m.gpu == nil {
+		return ""
+	}
+	return m.gpu.Name()
+}
+
 // Current returns the latest metrics snapshot, or a zero one before the
 // first poll.
 func (m *Monitor) Current() Metrics {

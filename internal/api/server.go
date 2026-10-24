@@ -77,6 +77,8 @@ type Server struct {
 	// download completions make from their own goroutines.
 	genSetMu     sync.Mutex
 	genDownloads genDownloads
+	// genMgr runs the generation backend instances.
+	genMgr *generation.Manager
 
 	// probeCache memoizes remote GGUF header probes, keyed by source,
 	// repo and file. A published file's layout does not change, so the
@@ -233,6 +235,7 @@ func (s *Server) SetVersion(v string) { s.version = v }
 // Today that's the child llama-server router: without this, the cgroup keeps
 // it alive until systemd's TimeoutStopSec fires SIGKILL.
 func (s *Server) Shutdown() {
+	s.genMgr.StopAll()
 	if err := s.process.Stop(); err != nil {
 		// "router not running" is the expected case when nothing was started.
 		slog.Debug("router stop during shutdown", "error", err)
@@ -261,6 +264,7 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 		runningConfigs: make(map[string]*models.ModelConfig),
 		memory:         memreport.NewCollector(),
 	}
+	s.genMgr = generation.NewManager()
 	if s.gen, s.genErr = generation.Load(cfg.DataDir); s.genErr != nil {
 		slog.Error("generation backends store not loaded", "error", s.genErr)
 	}
@@ -345,7 +349,10 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 			} else {
 				slog.Info("auto-started inference server")
 			}
+			s.autoStartGenInstances(true)
 		}()
+	} else {
+		go s.autoStartGenInstances(false)
 	}
 
 	return s
@@ -704,6 +711,15 @@ func (s *Server) buildRouter() chi.Router {
 			r.Get("/{id}/vram-estimate", s.handleModelVRAMEstimate)
 			r.Get("/{id}/vram-corpus", s.handleVRAMCorpus)
 		})
+		r.Route("/gen/instances", func(r chi.Router) {
+			r.Get("/", s.handleGenInstances)
+			r.Get("/form", s.handleGenInstanceForm)
+			r.Post("/", s.handleGenCreateInstance)
+			r.Put("/{id}", s.handleGenEditInstance)
+			r.Delete("/{id}", s.handleGenDeleteInstance)
+			r.Post("/{id}/{action}", s.handleGenInstanceAction)
+			r.Get("/{id}/logs", s.handleGenInstanceLogs)
+		})
 		r.Route("/gen/models", func(r chi.Router) {
 			r.Get("/", s.handleGenModels)
 			r.Post("/catalog/{id}/download", s.handleGenCatalogDownload)
@@ -917,12 +933,15 @@ func (s *Server) handleServerPage(w http.ResponseWriter, r *http.Request) {
 		BuildChoices []serverBuildChoice
 		AutoMismatch bool
 		PickerHint   string
+		// GenerationEnabled shows the Generation backends section.
+		GenerationEnabled bool
 	}{
-		pageData:     pageData{Title: "Server", Nav: "server"},
-		ActiveBuild:  s.cfg.ActiveBuild,
-		ModelsMax:    s.cfg.ModelsMax,
-		BuildChoices: choices,
-		AutoMismatch: autoMismatch,
+		GenerationEnabled: s.cfg.GenerationEnabled,
+		pageData:          pageData{Title: "Server", Nav: "server"},
+		ActiveBuild:       s.cfg.ActiveBuild,
+		ModelsMax:         s.cfg.ModelsMax,
+		BuildChoices:      choices,
+		AutoMismatch:      autoMismatch,
 	}
 	data.PickerHint = s.buildPickerHint(choices, allMismatched)
 	s.render(w, "server.html", data)

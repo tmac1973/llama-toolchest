@@ -12,6 +12,7 @@ import (
 
 	"github.com/tmac1973/llama-toolchest/internal/builder"
 	"github.com/tmac1973/llama-toolchest/internal/config"
+	"github.com/tmac1973/llama-toolchest/internal/generation"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/monitor"
 	"github.com/tmac1973/llama-toolchest/internal/process"
@@ -53,6 +54,7 @@ func newTestServer(t *testing.T) *Server {
 		// depend on what the machine running the tests has.
 		rocmInstallsFn: func() []builder.ROCmInstall { return nil },
 		inContainerFn:  func() bool { return false },
+		genMgr:         generation.NewManager(),
 	}
 	s.pages = s.parseTemplates()
 	return s

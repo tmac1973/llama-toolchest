@@ -258,9 +258,20 @@ func DeviceList(backend string, gpus []int) string {
 	}
 	names := make([]string, len(gpus))
 	for i, g := range gpus {
-		names[i] = fmt.Sprintf("%s%d", prefix, g)
+		names[i] = fmt.Sprintf("%s%d", prefix, BackendDeviceIndex(backend, g))
 	}
 	return strings.Join(names, ",")
+}
+
+// BackendDeviceIndex maps a monitor GPU index to the device index a build
+// backend uses for the same card. They are the same number: the monitor
+// lists GPUs in the order nvidia-smi or rocm-smi reports them, CUDA runs
+// with CUDA_DEVICE_ORDER=PCI_BUS_ID to match nvidia-smi, and ROCm
+// enumerates in rocm-smi's order. Kept as one function so the router's
+// device lists and the generation backends' device variables cannot
+// drift apart.
+func BackendDeviceIndex(backend string, gpu int) int {
+	return gpu
 }
 
 // gpuPlacementParams returns the flags that place a model onto its GPUs,
