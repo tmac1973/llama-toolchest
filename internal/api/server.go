@@ -83,6 +83,8 @@ type Server struct {
 	genMeasure genMeasureState
 	// genProcVRAM caches per-process VRAM readings briefly.
 	genProcVRAM procVRAMCache
+	// genQueue lets one image or music job run per GPU at a time.
+	genQueue *generation.Queue
 
 	// probeCache memoizes remote GGUF header probes, keyed by source,
 	// repo and file. A published file's layout does not change, so the
@@ -269,6 +271,7 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 		memory:         memreport.NewCollector(),
 	}
 	s.genMgr = generation.NewManager()
+	s.genQueue = generation.NewQueue()
 	if s.gen, s.genErr = generation.Load(cfg.DataDir); s.genErr != nil {
 		slog.Error("generation backends store not loaded", "error", s.genErr)
 	}
@@ -727,6 +730,7 @@ func (s *Server) buildRouter() chi.Router {
 			r.Post("/{id}/{action}", s.handleGenInstanceAction)
 			r.Get("/{id}/logs", s.handleGenInstanceLogs)
 		})
+		r.Get("/gen/queue/history", s.handleGenQueueHistory)
 		r.Route("/gen/models", func(r chi.Router) {
 			r.Get("/", s.handleGenModels)
 			r.Post("/catalog/{id}/download", s.handleGenCatalogDownload)
@@ -779,6 +783,10 @@ func (s *Server) buildRouter() chi.Router {
 		r.Use(s.apiKeyAuth)
 		r.Get("/models", s.handleV1Models)
 		r.Get("/models/{model}", s.handleV1Model)
+		// Before the catch-all, so every other path still goes to the
+		// llama router.
+		r.Post("/images/generations", s.handleGenImages)
+		r.Post("/images/edits", s.handleGenImages)
 		r.Handle("/*", s.newProxyHandler())
 	})
 

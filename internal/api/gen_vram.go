@@ -342,6 +342,9 @@ func (s *Server) canMeasure(inst generation.Instance) error {
 	if reason := s.gpuBusyReason(); reason != "" {
 		return fmt.Errorf("cannot measure while %s", reason)
 	}
+	if s.genQueue != nil && s.genQueue.Snapshot(inst.GPU).Busy() {
+		return fmt.Errorf("measuring needs GPU %d to itself; wait for its image and music jobs to finish", inst.GPU)
+	}
 	var busy []string
 	for _, other := range s.gen.Instances() {
 		if other.ID != inst.ID && other.GPU == inst.GPU && s.genMgr.IsActive(other.ID) {

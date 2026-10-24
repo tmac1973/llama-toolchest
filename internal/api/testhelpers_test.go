@@ -55,6 +55,7 @@ func newTestServer(t *testing.T) *Server {
 		rocmInstallsFn: func() []builder.ROCmInstall { return nil },
 		inContainerFn:  func() bool { return false },
 		genMgr:         generation.NewManager(),
+		genQueue:       generation.NewQueue(),
 	}
 	s.pages = s.parseTemplates()
 	return s

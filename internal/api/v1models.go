@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/tmac1973/llama-toolchest/internal/generation"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
@@ -29,6 +30,12 @@ func (s *Server) openAIModel(m *models.Model, cfg *models.ModelConfig) map[strin
 		meta["context_per_request"] = layout.PerConversation
 	}
 
+	// Only while generation backends are on, so the list is unchanged for
+	// everyone else.
+	if s.cfg != nil && s.cfg.GenerationEnabled {
+		meta["kind"] = "text"
+	}
+
 	obj := map[string]any{
 		"id":       m.PublicName(),
 		"object":   "model",
@@ -52,10 +59,61 @@ func (s *Server) handleV1Models(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	data = append(data, s.genV1Models()...)
+
 	respondJSON(w, map[string]any{
 		"object": "list",
 		"data":   data,
 	})
+}
+
+// genV1Models lists the enabled generation instances as models, with
+// meta.kind "image" or "music". Clients that only chat should skip kinds
+// other than "text". Empty while generation backends are off.
+func (s *Server) genV1Models() []map[string]any {
+	if s.cfg == nil || !s.cfg.GenerationEnabled || s.gen == nil {
+		return nil
+	}
+	var out []map[string]any
+	for _, inst := range s.gen.Instances() {
+		if !inst.Enabled {
+			continue
+		}
+		if obj := s.genV1Model(inst); obj != nil {
+			out = append(out, obj)
+		}
+	}
+	return out
+}
+
+func (s *Server) genV1Model(inst generation.Instance) map[string]any {
+	set, err := s.gen.ModelSet(inst.ModelSetID)
+	if err != nil {
+		return nil
+	}
+	kind := "image"
+	if set.Kind == generation.KindAce {
+		kind = "music"
+	}
+	caps := set.Capabilities
+	if caps == nil {
+		caps = []string{}
+	}
+	return map[string]any{
+		"id":       inst.ID,
+		"object":   "model",
+		"created":  set.Created.Unix(),
+		"owned_by": "llama-toolchest",
+		"meta": map[string]any{
+			"kind":         kind,
+			"model_set":    set.ID,
+			"recipe":       set.Recipe,
+			"capabilities": caps,
+			"gpu":          inst.GPU,
+			"reserved_mib": inst.ReservedMiB,
+			"state":        s.genMgr.Status(inst.ID).State,
+		},
+	}
 }
 
 // handleV1Model returns a single OpenAI-compatible model object with meta extensions.
@@ -63,6 +121,14 @@ func (s *Server) handleV1Model(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "model")
 
 	m, cfg := s.findModelByAny(id)
+	if m == nil && s.cfg != nil && s.cfg.GenerationEnabled && s.gen != nil {
+		if inst, err := s.gen.Instance(id); err == nil && inst.Enabled {
+			if obj := s.genV1Model(inst); obj != nil {
+				respondJSON(w, obj)
+				return
+			}
+		}
+	}
 	if m == nil || !advertisedToClients(m, cfg) {
 		respondJSONStatus(w, http.StatusNotFound, map[string]any{
 			"error": map[string]any{
