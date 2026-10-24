@@ -256,6 +256,42 @@ func (s *Server) genReservationAllocations() []models.GPUAllocation {
 	return out
 }
 
+// genBannerGPU is a GPU where generation and loaded LLMs share the card.
+type genBannerGPU struct {
+	Index int
+	Name  string
+}
+
+// genBannerGPUs lists the GPUs where an image or music job is running
+// while the router has an LLM loaded there, so chat on them is slowed.
+func (s *Server) genBannerGPUs() []genBannerGPU {
+	if s.cfg == nil || !s.cfg.GenerationEnabled || s.gen == nil || s.genQueue == nil {
+		return nil
+	}
+	hw := s.hardware()
+	return bannerGPUs(hw.GPUs, func(gpu int) bool { return s.genQueue.Snapshot(gpu).Running != nil },
+		s.loadedLLMMiB(len(hw.GPUs), "", false))
+}
+
+// bannerGPUs picks the GPUs with a generation job running and LLM memory
+// loaded.
+func bannerGPUs(gpus []models.GPUSpec, jobRunning func(int) bool, llmMiB map[int]int) []genBannerGPU {
+	var out []genBannerGPU
+	for _, g := range gpus {
+		if jobRunning(g.Index) && llmMiB[g.Index] > 0 {
+			out = append(out, genBannerGPU{Index: g.Index, Name: g.Name})
+		}
+	}
+	return out
+}
+
+func (s *Server) handleGenBanner(w http.ResponseWriter, r *http.Request) {
+	respondHTML(w)
+	if gpus := s.genBannerGPUs(); len(gpus) > 0 {
+		s.renderPartial(w, "gen_banner", gpus)
+	}
+}
+
 func mibText(mib int) string {
 	return fmt.Sprintf("%.1f GiB", float64(mib)/1024)
 }

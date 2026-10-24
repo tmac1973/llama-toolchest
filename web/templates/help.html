@@ -75,6 +75,7 @@
         <a href="#model-config">Model config</a>
         <a href="#search-hf">Download Models</a>
         <a href="#benchmarks">Benchmarks</a>
+        <a href="#generation">Image and music</a>
         <a href="#settings">Settings</a>
         <a href="#api">Using the API</a>
         <a href="#troubleshooting">Troubleshooting</a>
@@ -422,6 +423,37 @@
         <strong>Runs marked &#9888; unverified:</strong> these predate the fix that made job parameter overrides take effect. Their throughput numbers are real, but the config recorded against them may not be what actually ran. Re-run them if the configuration matters to your comparison.
     </div>
     <p>A failed benchmark still appears in the list and can be deleted like any other.</p>
+
+    <h2 id="generation">Image and music generation</h2>
+    <p>llama-toolchest can also run image generation (stable-diffusion.cpp's <code>sd-server</code>) and music generation (acestep.cpp's <code>ace-server</code>) next to llama-server, on the same GPU or another one. This is off until you turn it on.</p>
+    <ol>
+        <li><strong>Turn it on.</strong> In <a href="/settings">Settings</a>, switch on <em>Generation backends</em>.</li>
+        <li><strong>Build the backends.</strong> On <a href="/builds">Builds</a>, choose the project (stable-diffusion.cpp or acestep.cpp) and a ROCm, CUDA or Vulkan profile. Vulkan builds work only in host installs, not in containers. stable-diffusion.cpp builds its own web page only when <code>pnpm</code> is installed.</li>
+        <li><strong>Get a model set.</strong> On <a href="/models">Models</a>, <em>Generation models</em> lists a catalog of known-good sets (for example Ming-Image, which makes images with transparent backgrounds, and ACE-Step for songs) that download in one click. A set is the group of files a backend loads together. You can also add a custom set from files you already have.</li>
+        <li><strong>Create an instance.</strong> On the <a href="/server">Server</a> page, <em>Generation backends</em> → <em>New instance</em>: a model set, a build and a GPU. The instance sees only that GPU.</li>
+        <li><strong>Measure it.</strong> Press <em>Measure</em>. llama-toolchest runs one test generation with nothing else on the GPU and records the most GPU memory the instance used. It reserves that amount plus 10% (rounded up to 0.5 GiB). An instance cannot start until it has a reservation.</li>
+        <li><strong>Start it,</strong> or turn on auto-start to start it with llama-toolchest.</li>
+    </ol>
+
+    <h3 id="generation-vram">GPU memory: reservations</h3>
+    <p>An enabled instance keeps its reservation even while it is stopped, so starting it later can never fail for lack of memory. The LLM fit planner leaves reservations free, after its usual safety margin (1 GiB or 8% of the card, whichever is larger). Enabling an instance, changing a reservation and starting an instance are refused when the memory is not there, and the message lists what is using the card. Loading an LLM on request that would crowd out a reservation is refused with HTTP 507.</p>
+    <p>sd-server is held to its reservation. ace-server cannot be, so its reservation is a planning figure based on the measured peak.</p>
+    <p><strong>Why a combination that ran once can be refused.</strong> On a 32 GB Radeon AI PRO R9700, Qwen-Image, ACE-Step and Gemma 4 12B Q6 ran together with only 1.8 GB to spare. Reservations add 10% to each measured peak and the planner keeps its safety margin, so that combination is refused: what is left for LLMs next to those two backends is about 8.6 GiB. A 4B model such as Qwen3-4B Q8_0 fits. Ming-Image's files alone are 17.3 GB, so it needs most of a 32 GB card; measure it to see what is left beside it.</p>
+
+    <h3 id="generation-sharing">Sharing a GPU</h3>
+    <p>Image jobs, music jobs and chat on the same GPU share its processing time and slow each other down. Measured on one R9700: images ran 2.3 times slower, songs 2.8 times, and chat dropped from about 45 to 11–20 tokens per second. So image and music jobs take turns: one runs per GPU at a time, and up to 16 wait (more get HTTP 429). Chat never waits. The Server page shows a warning while a job runs on a GPU that also has an LLM loaded. Jobs on different GPUs run side by side. Jobs started from a backend's own web page skip this queue.</p>
+
+    <h3 id="generation-api">Using the image and music API</h3>
+    <p>Generation instances appear in <code>/v1/models</code> with <code>meta.kind</code> set to <code>image</code> or <code>music</code> (LLMs are <code>text</code>). Use the instance's ID, or its model set's ID, as <code>model</code>.</p>
+    <pre>curl $BASE/v1/images/generations \
+  -H "Content-Type: application/json" \
+  -d '{"model": "ming-image", "prompt": "a red fox sticker", "size": "1024x1024", "response_format": "b64_json"}'</pre>
+    <p>Images use the standard OpenAI routes <code>/v1/images/generations</code> and <code>/v1/images/edits</code> (edits only on sets that can edit). Music has no standard API, so there are two:</p>
+    <dl>
+        <dt>llama-toolchest's music jobs</dt><dd><code>POST /v1/music/jobs</code> with a <code>caption</code> (and optionally <code>lyrics</code>, <code>duration</code>, <code>seed</code> and more) returns a job ID. Check it with <code>GET /v1/music/jobs/{id}</code>, download the song from <code>/v1/music/jobs/{id}/audio</code>, and cancel it with <code>DELETE</code>. The caption is used as written unless you set <code>rewrite_caption</code>. Songs are kept for 24 hours.</dd>
+        <dt>ACE-Step compatible routes</dt><dd><code>/release_task</code>, <code>/query_result</code> and <code>/v1/audio</code> follow the official ACE-Step 1.5 server's API, so tools written for that server can point here. Their model names fall back to your only music instance.</dd>
+    </dl>
+    <p>Each backend's own web page opens from its <em>Open web UI →</em> link on the Server page, on its own port (8081 and up by default). In a container, those ports are published only if you said yes to them in <code>setup.sh</code>.</p>
 
     <h2 id="settings">Settings</h2>
     <dl>

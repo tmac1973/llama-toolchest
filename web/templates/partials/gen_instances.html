@@ -14,6 +14,7 @@
             <th title="The port its API and built-in web UI listen on.">Port</th>
             <th title="GPU memory held for the instance on its GPU, whether it is running or not, so starting it can never fail for lack of memory. The LLM fit planner leaves it free. Press Measure to work it out from a test generation.">VRAM reserved</th>
             <th>State</th>
+            <th title="Image and music jobs on this instance's GPU, for any instance: running now, and waiting their turn. Only one runs per GPU at a time, because jobs sharing a GPU slow each other down.">GPU jobs</th>
             <th></th>
         </tr>
     </thead>
@@ -40,7 +41,12 @@
             </td>
             <td{{with .Status.Error}} title="{{.}}" style="cursor:help;"{{end}}>{{if .Measuring}}<span aria-busy="true">measuring…</span>{{else}}{{.Status.State}}{{if eq .Status.State "running"}} <small>{{.Status.Uptime}}</small>{{end}}{{end}}
                 {{- with .MeasureError}}<br><small style="color:var(--pico-del-color);" title="{{.}}">measurement failed</small>{{end}}</td>
+            <td>{{if or .GPUJobsRunning .GPUJobsWaiting}}{{.GPUJobsRunning}} running{{if .GPUJobsWaiting}}, {{.GPUJobsWaiting}} waiting{{end}}{{else}}<small>idle</small>{{end}}</td>
             <td>
+                {{- with .WebUIURL}}
+                <a href="{{.}}" target="_blank" rel="noopener" style="font-size:0.85rem;" title="The backend's own web page, on its own port. Jobs started from the web UI skip the llama-toolchest queue, so they can run at the same time as API jobs on the same GPU.">Open web UI →</a>
+                <small style="display:block;color:var(--pico-muted-color);">Jobs started from the web UI skip the llama-toolchest queue.</small>
+                {{- end}}
                 <span style="display:flex;gap:0.4rem;flex-wrap:wrap;">
                 {{- $id := .ID}}
                 {{- if or (eq .Status.State "running") (eq .Status.State "starting")}}
