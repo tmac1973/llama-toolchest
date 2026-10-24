@@ -18,6 +18,30 @@ const instanceLogHistory = 500
 type Manager struct {
 	mu   sync.Mutex
 	sups map[string]*process.Supervisor
+	// measuring holds the instances in a measured test run: the API sends
+	// them no requests, and nothing else may start on their GPU.
+	measuring map[string]bool
+}
+
+// SetMeasuring marks an instance as in, or out of, a measured test run.
+func (m *Manager) SetMeasuring(id string, on bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.measuring == nil {
+		m.measuring = map[string]bool{}
+	}
+	if on {
+		m.measuring[id] = true
+	} else {
+		delete(m.measuring, id)
+	}
+}
+
+// IsMeasuring reports whether an instance is in a measured test run.
+func (m *Manager) IsMeasuring(id string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.measuring[id]
 }
 
 // NewManager returns a manager with nothing running.

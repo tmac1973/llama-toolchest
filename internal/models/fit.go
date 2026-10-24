@@ -42,15 +42,31 @@ type GPUSpec struct {
 	// OtherUsedMiB is memory other programs hold on the card (a desktop,
 	// another server), which a plan has to leave to them.
 	OtherUsedMiB int
+	// ReservedMiB is memory reserved on the card for generation backend
+	// instances (image and music servers), whether they are running or
+	// not. A plan leaves it to them, as it does other programs' memory.
+	ReservedMiB int
+}
+
+// UsableMiB is what the card leaves for llama.cpp before the safety
+// margin: its total less other programs' use and generation reservations.
+func (g GPUSpec) UsableMiB() int {
+	return max(0, g.VRAMTotalMiB-g.OtherUsedMiB-g.ReservedMiB)
 }
 
 // cardBudgetGiB is what a plan may use of a card: what other programs
-// leave of it, less the safety margin. The same arithmetic as the
-// size-balanced split's per-card budgets (moeSplitInputs), which see the
-// card as GPUMiB gives it.
+// leave of it, less the safety margin, less generation reservations. The
+// margin is worked out before the reservations, so reserving memory for a
+// backend never shrinks the room left for the driver and the desktop.
 func cardBudgetGiB(g GPUSpec) float64 {
 	avail := float64(max(0, g.VRAMTotalMiB-g.OtherUsedMiB)) / 1024
-	return max(0, avail-fitMarginGiB(avail))
+	return max(0, avail-fitMarginGiB(avail)-float64(g.ReservedMiB)/1024)
+}
+
+// CardBudgetMiB is what the planner lets models use of a card, in MiB:
+// cardBudgetGiB in the units the generation backend checks work in.
+func CardBudgetMiB(g GPUSpec) int {
+	return int(cardBudgetGiB(g) * 1024)
 }
 
 // Hardware is the machine a config has to fit. The caller builds it from
@@ -396,6 +412,9 @@ func finishFit(m *Model, base, cfg ModelConfig, b VRAMBreakdown, budget float64,
 	if other := otherUsedGiB(hw); other >= 0.5 {
 		note("", fmt.Sprintf("Other programs are using %.1f GiB of GPU memory right now (the desktop, another AI tool). These settings leave it to them. With that memory free, more context or fewer layers in system memory may fit.", other))
 	}
+	if reserved := reservedGiB(hw); reserved > 0 {
+		note("", fmt.Sprintf("%.1f GiB of GPU memory is reserved for image and music backends. These settings leave it to them.", reserved))
+	}
 	if !fits {
 		note("", "This model is too large for this machine even with the settings above. Choose a smaller quantization of it.")
 	}
@@ -481,13 +500,23 @@ func otherUsedGiB(hw Hardware) float64 {
 	return float64(n) / 1024
 }
 
+// reservedGiB is what generation backends reserve on the cards a plan
+// uses.
+func reservedGiB(hw Hardware) float64 {
+	var n int
+	for _, g := range PlanCards(hw) {
+		n += g.ReservedMiB
+	}
+	return float64(n) / 1024
+}
+
 // GPUMiB is each GPU's memory available to llama.cpp, by position — its
-// total less what other programs hold — as MoESplitConfig and
-// PlanCardLoads take it.
+// total less what other programs hold and generation backends reserve —
+// as MoESplitConfig and PlanCardLoads take it.
 func GPUMiB(hw Hardware) []int {
 	out := make([]int, len(hw.GPUs))
 	for i, g := range hw.GPUs {
-		out[i] = max(0, g.VRAMTotalMiB-g.OtherUsedMiB)
+		out[i] = g.UsableMiB()
 	}
 	return out
 }

@@ -242,7 +242,7 @@ func profileLine(p recommend.Profile) (line, tip string) {
 		var order []string
 		for _, c := range cards {
 			vram += float64(c.VRAMTotalMiB) / 1024
-			other += float64(c.OtherUsedMiB) / 1024
+			other += float64(c.OtherUsedMiB+c.ReservedMiB) / 1024
 			if names[c.Name] == 0 {
 				order = append(order, c.Name)
 			}
@@ -258,7 +258,7 @@ func profileLine(p recommend.Profile) (line, tip string) {
 		}
 		parts = append(parts, strings.Join(gpus, " + "), fmt.Sprintf("%.0f GB VRAM", vram))
 		if other >= 0.5 {
-			parts = append(parts, fmt.Sprintf("%.1f GB in use by other programs", other))
+			parts = append(parts, fmt.Sprintf("%.1f GB in use by other programs or reserved for image and music backends", other))
 		}
 	}
 	if p.Hardware.RAMTotalMiB > 0 {

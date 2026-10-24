@@ -72,7 +72,10 @@ func (s *Server) hardware() models.Hardware {
 		models.SetVRAMBackend(buildBackend(s.resolveActiveBuild()))
 	}
 	if s.testHardware != nil {
-		return *s.testHardware
+		hw := *s.testHardware
+		hw.GPUs = append([]models.GPUSpec(nil), hw.GPUs...)
+		s.applyGenVRAM(&hw)
+		return hw
 	}
 	if s.monitor == nil {
 		return models.Hardware{}
@@ -90,6 +93,7 @@ func (s *Server) hardware() models.Hardware {
 		}
 		hw.GPUs = append(hw.GPUs, spec)
 	}
+	s.applyGenVRAM(&hw)
 	return hw
 }
 

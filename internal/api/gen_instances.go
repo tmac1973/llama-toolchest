@@ -35,7 +35,19 @@ type genInstanceRow struct {
 	BuildLabel string         `json:"build"`
 	GPUName    string         `json:"gpu_name"`
 	Status     process.Status `json:"status"`
+	// Measuring is true during a measured test run; MeasureError is how
+	// the last one failed, if it did.
+	Measuring    bool   `json:"measuring"`
+	MeasureError string `json:"measure_error,omitempty"`
+	// SuggestedMiB is the reservation the last measurement suggests; 0
+	// before any measurement.
+	SuggestedMiB int `json:"suggested_mib,omitempty"`
 }
+
+// ReservedGiB and the others render the VRAM figures for the table.
+func (r genInstanceRow) ReservedGiB() float64  { return float64(r.ReservedMiB) / 1024 }
+func (r genInstanceRow) PeakGiB() float64      { return float64(r.MeasuredPeakMiB) / 1024 }
+func (r genInstanceRow) SuggestedGiB() float64 { return float64(r.SuggestedMiB) / 1024 }
 
 // genFormData feeds the gen_instance_form partial: the choices a new
 // instance can be made from.
@@ -67,6 +79,10 @@ func (s *Server) genInstanceRows(store *generation.Store) []genInstanceRow {
 		row := genInstanceRow{
 			Instance: inst, SetName: sets[inst.ModelSetID].Name, Kind: sets[inst.ModelSetID].Kind,
 			GPUName: gpuNames[inst.GPU], Status: s.genMgr.Status(inst.ID),
+			Measuring: s.genMgr.IsMeasuring(inst.ID), MeasureError: s.genMeasure.get(inst.ID),
+		}
+		if inst.MeasuredPeakMiB > 0 {
+			row.SuggestedMiB = suggestReservation(inst.MeasuredPeakMiB)
 		}
 		if b := s.resolveBackendBuild(string(row.Kind), inst.BuildID); b != nil {
 			row.BuildLabel = b.ID
@@ -245,7 +261,7 @@ func (s *Server) handleGenEditInstance(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if s.genMgr.IsActive(inst.ID) {
+	if s.genMgr.IsActive(inst.ID) || s.genMgr.IsMeasuring(inst.ID) {
 		http.Error(w, "stop the instance before editing it", http.StatusConflict)
 		return
 	}
@@ -270,7 +286,10 @@ func (s *Server) genInstance(w http.ResponseWriter, r *http.Request, store *gene
 	return inst, true
 }
 
-// startGenInstance launches an enabled instance.
+// startGenInstance starts an enabled instance that has a VRAM
+// reservation, after checking the reservation still fits. Every start
+// goes through here (the button, auto-start, the restart after a
+// measurement), which is what keeps an enabled instance startable.
 func (s *Server) startGenInstance(id string) error {
 	store := s.gen
 	inst, err := store.Instance(id)
@@ -280,15 +299,29 @@ func (s *Server) startGenInstance(id string) error {
 	if !inst.Enabled {
 		return fmt.Errorf("instance %s is disabled; enable it first", inst.Name)
 	}
+	if s.genMgr.IsMeasuring(id) {
+		return fmt.Errorf("instance %s is being measured", inst.Name)
+	}
+	if inst.ReservedMiB == 0 {
+		return fmt.Errorf("instance %s has no VRAM reservation yet; press Measure to work one out", inst.Name)
+	}
+	if err := s.genFitCheck(inst, inst.ReservedMiB); err != nil {
+		return err
+	}
 	set, err := store.ModelSet(inst.ModelSetID)
 	if err != nil {
 		return err
 	}
+	return s.launchGenInstance(inst, set, generation.LaunchOptions{})
+}
+
+// launchGenInstance runs an instance with no checks of its own.
+func (s *Server) launchGenInstance(inst generation.Instance, set generation.ModelSet, opts generation.LaunchOptions) error {
 	build := s.resolveBackendBuild(string(set.Kind), inst.BuildID)
 	if build == nil {
 		return fmt.Errorf("there is no successful %s build to run %s", kindProject(set.Kind), inst.Name)
 	}
-	cfg, err := generation.LaunchSpec(inst, set, *build, genListenHost, s.cfg.DataDir, generation.LaunchOptions{})
+	cfg, err := generation.LaunchSpec(inst, set, *build, genListenHost, s.cfg.DataDir, opts)
 	if err != nil {
 		return err
 	}
@@ -315,8 +348,11 @@ func (s *Server) handleGenInstanceAction(w http.ResponseWriter, r *http.Request)
 			err = s.startGenInstance(inst.ID)
 		}
 	case "enable":
-		inst.Enabled = true
-		err = store.UpdateInstance(inst)
+		// Its reservation starts to count now, so it has to fit.
+		if err = s.genFitCheck(inst, inst.ReservedMiB); err == nil {
+			inst.Enabled = true
+			err = store.UpdateInstance(inst)
+		}
 	case "disable":
 		if err = s.genMgr.Stop(inst.ID); err == nil {
 			inst.Enabled = false
