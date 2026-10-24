@@ -1,0 +1,13 @@
+# Optional override for secure installs: Caddy publishes the generation
+# backend web UI ports, each behind the admin login. Stack it after
+# docker-compose.secure.yml and docker-compose.gen-ports.yml. setup.sh adds it
+# when both secure mode and LLAMA_TOOLCHEST_GEN_PORTS=1 are set.
+#
+# Caddy listens on the same port numbers it publishes (one site per port in
+# ./Caddyfile) and forwards each to the backend's port 8081-8088 inside the
+# app container. The app's own copy of the range is published on loopback
+# only (127.0.0.1:18081-18088) for debugging on the host.
+services:
+  caddy:
+    ports:
+      - "${CADDY_GEN_PORT_START:-8081}-${CADDY_GEN_PORT_END:-8088}:${CADDY_GEN_PORT_START:-8081}-${CADDY_GEN_PORT_END:-8088}"

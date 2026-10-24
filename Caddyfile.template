@@ -23,6 +23,8 @@
 #    CHAT_ADDRESS  e.g. ":8080" or "llm.example.com:8080"
 #    AUTH_USER     admin username
 #    AUTH_HASH     bcrypt hash from: caddy hash-password
+#    GEN_SITES     one site per generation backend web UI port, or nothing
+#                  (with its line) when those ports are not published
 #  To deploy by hand, copy this file to ./Caddyfile and substitute those tokens.
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -35,7 +37,9 @@
 	# Auth: programmatic clients authenticate with the app's own Bearer
 	# api_key (set under Settings). A Basic-Auth challenge here would collide
 	# with the "Authorization: Bearer …" header those clients send.
-	@v1 path /v1 /v1/*
+	# /release_task and /query_result are the ACE-Step music API, which
+	# ACE-Step clients call at the server root; they use the same Bearer key.
+	@v1 path /v1 /v1/* /release_task /query_result
 	handle @v1 {
 		reverse_proxy llama-toolchest:3000
 	}
@@ -60,3 +64,5 @@
 	}
 	reverse_proxy llama-toolchest:8080
 }
+
+@@GEN_SITES@@

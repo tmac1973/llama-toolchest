@@ -22,6 +22,22 @@ LLAMA_TOOLCHEST_PORT="3000"            # host port for the management UI and the
 LLAMA_TOOLCHEST_INFERENCE_PORT="8080"  # host port for llama.cpp's router and its chat UI
 LLAMA_TOOLCHEST_MODELS_DIR=""          # host path for model storage (empty = use docker volume)
 
+# Generation backend web UI ports (opt-in). Inside the container the image and
+# music backends always listen on 8081-8088, one port per instance; these
+# settings only choose whether, and on which host ports, that range is
+# published. Stored in .env as LLAMA_TOOLCHEST_GEN_PORTS=1 and
+# LLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START.
+readonly GEN_PORT_COUNT=8
+case "${GEN_PORTS:-}" in 1|true|yes) GEN_PORTS=true; GEN_PORTS_EXPLICIT=true ;; *) GEN_PORTS=false; GEN_PORTS_EXPLICIT=false ;; esac
+GEN_PUBLIC_PORT_START="${GEN_PORT_START:-8081}"  # first port as a browser reaches it (Caddy's in secure mode)
+GEN_PORT_START_EXPLICIT="${GEN_PORT_START:+true}"
+GEN_PORT_START_EXPLICIT="${GEN_PORT_START_EXPLICIT:-false}"
+# Secure mode: Caddy publishes the public range, and the app's own copy of it
+# goes on loopback here instead. The app's loopback chat UI port moves to
+# 18080 when it would clash with either range.
+readonly SECURE_GEN_APP_PORT_START=18081
+readonly SECURE_GEN_DEBUG_INF_PORT=18080
+
 CONTAINER_CMD=""        # docker or podman
 COMPOSE_CMD=""          # "docker compose" or "podman-compose" or "podman compose"
 CONTAINER_VERSION=""
@@ -725,6 +741,139 @@ describe_port_holder() {
     printf '%s (pid %s)' "$pname" "${info##*pid=}"
 }
 
+# gen_app_port_start prints the first host port the app container publishes
+# the generation range on: the public start, or loopback-only 18081 in secure
+# mode, where Caddy publishes the public range.
+gen_app_port_start() {
+    if [[ "$SECURE" == true ]]; then
+        echo "$SECURE_GEN_APP_PORT_START"
+    else
+        echo "$GEN_PUBLIC_PORT_START"
+    fi
+}
+
+# gen_port_end <start> prints the last port of the range that begins at start.
+gen_port_end() {
+    echo $(( $1 + GEN_PORT_COUNT - 1 ))
+}
+
+# gen_range_has <start> <port> succeeds when port is inside the range that
+# begins at start.
+gen_range_has() {
+    (( $2 >= $1 && $2 <= $1 + GEN_PORT_COUNT - 1 ))
+}
+
+# gen_host_ports prints every host port the published generation range needs,
+# one per line: the app's range, plus Caddy's public range in secure mode.
+gen_host_ports() {
+    [[ "$GEN_PORTS" == true ]] || return 0
+    local start p
+    start="$(gen_app_port_start)"
+    for (( p = start; p < start + GEN_PORT_COUNT; p++ )); do echo "$p"; done
+    if [[ "$SECURE" == true ]]; then
+        for (( p = GEN_PUBLIC_PORT_START; p < GEN_PUBLIC_PORT_START + GEN_PORT_COUNT; p++ )); do echo "$p"; done
+    fi
+}
+
+# gen_port_start_problem <start> prints why the public generation range can't
+# start there, or nothing when it can: it must fit in 1024-65535 and not
+# overlap a port the rest of the install publishes.
+gen_port_start_problem() {
+    local start="$1" used entry p
+    if ! [[ "$start" =~ ^[0-9]+$ ]] || (( start < 1024 || start + GEN_PORT_COUNT - 1 > 65535 )); then
+        echo "the first port must be a number from 1024 to $(( 65536 - GEN_PORT_COUNT ))"
+        return
+    fi
+    if [[ "$SECURE" == true ]]; then
+        used=("${LLAMA_TOOLCHEST_PORT}:the management UI" "${CADDY_HTTP_PORT:-80}:Caddy's HTTP port"
+              "${CADDY_HTTPS_PORT:-443}:Caddy's HTTPS port" "${CADDY_CHAT_PORT:-8080}:the chat UI")
+        # The app's loopback ports, 18080-18088.
+        for (( p = SECURE_GEN_DEBUG_INF_PORT; p < SECURE_GEN_APP_PORT_START + GEN_PORT_COUNT; p++ )); do
+            used+=("${p}:the app's loopback ports (${SECURE_GEN_DEBUG_INF_PORT}-$(gen_port_end "$SECURE_GEN_APP_PORT_START"))")
+        done
+    else
+        used=("${LLAMA_TOOLCHEST_PORT}:the management UI" "${LLAMA_TOOLCHEST_INFERENCE_PORT}:the chat UI")
+    fi
+    for entry in "${used[@]}"; do
+        p="${entry%%:*}"
+        if gen_range_has "$start" "$p"; then
+            echo "${start}-$(gen_port_end "$start") overlaps port ${p}, used by ${entry#*:}"
+            return
+        fi
+    done
+}
+
+# settle_gen_ports moves the app's loopback chat UI port in secure mode when
+# it falls inside a published generation range. Existing secure installs have
+# it at 8081, the first port of the default range.
+settle_gen_ports() {
+    [[ "$GEN_PORTS" == true && "$SECURE" == true ]] || return 0
+    local p="${SECURE_APP_DEBUG_INF_PORT:-8081}"
+    if gen_range_has "$GEN_PUBLIC_PORT_START" "$p" || gen_range_has "$SECURE_GEN_APP_PORT_START" "$p"; then
+        log "Moving the app's loopback chat UI port from ${p} to ${SECURE_GEN_DEBUG_INF_PORT}, so it does not clash with the generation web UI ports."
+        SECURE_APP_DEBUG_INF_PORT="$SECURE_GEN_DEBUG_INF_PORT"
+    fi
+}
+
+# prompt_gen_ports asks whether to publish the generation backend web UI
+# ports, and from which port. Defaults to no on a new install; on a re-run the
+# current setting is the default. Install only: in secure mode the Caddyfile
+# (rendered at install) has to match.
+prompt_gen_ports() {
+    # The generation backends need a GPU build profile; the CPU image has none.
+    if [[ "$GPU_VENDOR" == "cpu" ]]; then
+        [[ "$GEN_PORTS" == true ]] && warn "Generation backends need a GPU, so their web UI ports are not published on a CPU install."
+        GEN_PORTS=false
+        return 0
+    fi
+    if [[ "$GEN_PORTS_EXPLICIT" != true && "$INTERACTIVE" == true && "$ASSUME_YES" != true ]]; then
+        echo ""
+        echo -e "${BOLD}Generation backend web UIs${NC}"
+        echo ""
+        echo "  The image and music generation backends (Settings → Generation"
+        echo "  backends) each have their own web page. Opening those needs ${GEN_PORT_COUNT} more"
+        echo "  ports. The image and music APIs work without them."
+        echo ""
+        local def=no
+        [[ "$GEN_PORTS" == true ]] && def=yes
+        if prompt_confirm "Publish ports for generation backend web UIs?" "$def"; then
+            GEN_PORTS=true
+        else
+            GEN_PORTS=false
+        fi
+    fi
+    [[ "$GEN_PORTS" == true ]] || return 0
+
+    local problem start p busy
+    if [[ "$GEN_PORT_START_EXPLICIT" != true && "$INTERACTIVE" == true && "$ASSUME_YES" != true ]]; then
+        while true; do
+            read -rp "$(echo -e "  ${BOLD}Generation web UI ports (${GEN_PORT_COUNT} ports), first port${NC} [${GEN_PUBLIC_PORT_START}]: ")" start
+            start="${start:-$GEN_PUBLIC_PORT_START}"
+            problem="$(gen_port_start_problem "$start")"
+            if [[ -n "$problem" ]]; then
+                err "Can't use that range: ${problem}"
+                continue
+            fi
+            busy=""
+            for (( p = start; p < start + GEN_PORT_COUNT; p++ )); do
+                if ! is_port_available "$p" && ! is_port_held_by_our_container "$p"; then
+                    busy+="${busy:+, }${p}"
+                fi
+            done
+            if [[ -n "$busy" ]]; then
+                err "Already in use by another process: ${busy}. Pick another range."
+                continue
+            fi
+            GEN_PUBLIC_PORT_START="$start"
+            break
+        done
+    else
+        problem="$(gen_port_start_problem "$GEN_PUBLIC_PORT_START")"
+        [[ -z "$problem" ]] || fatal "Generation web UI ports: ${problem}. Set another first port with --gen-port-start."
+    fi
+    settle_gen_ports
+}
+
 # preflight_port_check aborts BEFORE the (slow) image build if any host port the
 # new stack needs is occupied by something we don't manage — e.g. a host-mode
 # llama-toolchest running directly on the machine. Our own containers are
@@ -738,6 +887,10 @@ preflight_port_check() {
     else
         ports=("$LLAMA_TOOLCHEST_PORT" "$LLAMA_TOOLCHEST_INFERENCE_PORT")
     fi
+    local gp
+    while read -r gp; do
+        [[ -n "$gp" ]] && ports+=("$gp")
+    done < <(gen_host_ports)
 
     local p holder conflict=false saw_host=false
     for p in "${ports[@]}"; do
@@ -986,6 +1139,17 @@ load_env_ports() {
         val="$(grep '^CADDY_CHAT_PORT=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
         [[ -n "$val" ]] && CADDY_CHAT_PORT="$val" || true
     fi
+
+    # Whether the generation web UI ports are published, and from which port.
+    # An explicit flag or env var this run wins.
+    if [[ "$GEN_PORTS_EXPLICIT" != true ]]; then
+        val="$(grep '^LLAMA_TOOLCHEST_GEN_PORTS=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
+        [[ "$val" == "1" ]] && GEN_PORTS=true || true
+    fi
+    if [[ "$GEN_PORT_START_EXPLICIT" != true ]]; then
+        val="$(grep '^LLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
+        [[ -n "$val" ]] && GEN_PUBLIC_PORT_START="$val" || true
+    fi
 }
 
 # Legacy rename: copy contents of pre-rebrand 'llamactl-data' Docker volume
@@ -1112,6 +1276,11 @@ compose_cmd() {
     if [[ "$SECURE" == true ]]; then
         cmd+=" -f docker-compose.secure.yml"
     fi
+    # Publish the generation backend web UI ports (opt-in).
+    if [[ "$GEN_PORTS" == true ]]; then
+        cmd+=" -f docker-compose.gen-ports.yml"
+        [[ "$SECURE" == true ]] && cmd+=" -f docker-compose.secure-gen-ports.yml"
+    fi
     echo "$cmd"
 }
 
@@ -1152,6 +1321,23 @@ write_env_file() {
         # Port configuration
         echo "LLAMA_TOOLCHEST_PORT=${LLAMA_TOOLCHEST_PORT}" >> "$env_file"
         echo "LLAMA_TOOLCHEST_INFERENCE_PORT=${LLAMA_TOOLCHEST_INFERENCE_PORT}" >> "$env_file"
+    fi
+
+    # Generation backend web UI ports, read by docker-compose.gen-ports.yml.
+    # The HOST_PORT names are only the host side of the mapping: inside the
+    # container the backends always listen on 8081-8088.
+    if [[ "$GEN_PORTS" == true ]]; then
+        local gen_start; gen_start="$(gen_app_port_start)"
+        {
+            echo "LLAMA_TOOLCHEST_GEN_PORTS=1"
+            echo "LLAMA_TOOLCHEST_GEN_HOST_PORT_START=${gen_start}"
+            echo "LLAMA_TOOLCHEST_GEN_HOST_PORT_END=$(gen_port_end "$gen_start")"
+            echo "LLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START=${GEN_PUBLIC_PORT_START}"
+            if [[ "$SECURE" == true ]]; then
+                echo "CADDY_GEN_PORT_START=${GEN_PUBLIC_PORT_START}"
+                echo "CADDY_GEN_PORT_END=$(gen_port_end "$GEN_PUBLIC_PORT_START")"
+            fi
+        } >> "$env_file"
     fi
 
     # Model storage — bind-mount a host directory so models survive volume removal
@@ -1472,6 +1658,25 @@ caddy_hash_password() {
     printf '%s' "$hash"
 }
 
+# caddy_gen_sites prints one Caddy site per generation backend web UI port,
+# behind the same admin login as the chat UI, or nothing when the ports are
+# not published. Caddy listens on the public port and forwards to the
+# backend's port inside the app container (8081 + n). The placeholder tokens
+# in it are filled by render_caddyfile.
+caddy_gen_sites() {
+    [[ "$GEN_PORTS" == true ]] || return 0
+    # The chat address is ":8080" (self-signed) or "llm.example.com:8080"
+    # (Let's Encrypt); the gen sites use the same host part.
+    local host="${CADDY_CHAT_ADDRESS%:*}" n port
+    for (( n = 0; n < GEN_PORT_COUNT; n++ )); do
+        (( n > 0 )) && echo ""
+        port=$(( GEN_PUBLIC_PORT_START + n ))
+        printf '# Generation backend web UI, port %d (backend port %d in the app container).\n' "$port" $(( 8081 + n ))
+        printf '%s:%d {\n\t@@TLS@@\n\tbasic_auth {\n\t\t@@AUTH_USER@@ @@AUTH_HASH@@\n\t}\n' "$host" "$port"
+        printf '\treverse_proxy llama-toolchest:%d\n}\n' $(( 8081 + n ))
+    done
+}
+
 # render_caddyfile fills Caddyfile.template into ./Caddyfile. Values are
 # substituted with bash parameter expansion (not sed) so the bcrypt hash's
 # special chars ($ / .) are handled literally.
@@ -1479,6 +1684,14 @@ render_caddyfile() {
     local tpl="${SCRIPT_DIR}/Caddyfile.template" out="${SCRIPT_DIR}/Caddyfile"
     [[ -f "$tpl" ]] || fatal "Missing $tpl"
     local content; content="$(<"$tpl")"
+    # The gen sites go in first, so their own placeholders are filled below.
+    # Without them the token's line goes too, leaving the file as it was.
+    local gen_sites; gen_sites="$(caddy_gen_sites)"
+    if [[ -n "$gen_sites" ]]; then
+        content="${content//@@GEN_SITES@@/$gen_sites}"
+    else
+        content="${content//$'\n\n'@@GEN_SITES@@/}"
+    fi
     content="${content//@@GLOBAL@@/$CADDY_GLOBAL}"
     content="${content//@@TLS@@/$CADDY_TLS}"
     content="${content//@@SITE_ADDRESS@@/$CADDY_SITE_ADDRESS}"
@@ -1562,6 +1775,9 @@ configure_secure() {
         AUTH_HASH="$(caddy_hash_password "$pw")" || fatal "Failed to hash password (is the caddy:2 image pullable?). Alternatively pass --auth-hash."
         unset pw
     fi
+
+    # ── Generation web UI ports (the Caddyfile gets one site per port) ──
+    prompt_gen_ports
 
     # ── Derive Caddy site addresses + the external URL for the app's links ──
     local ext_host
@@ -1839,6 +2055,16 @@ $(if [[ "$SECURE" == true ]]; then
 else
     echo "PublishPort=${LLAMA_TOOLCHEST_PORT}:3000"
     echo "PublishPort=${LLAMA_TOOLCHEST_INFERENCE_PORT}:8080"
+fi
+if [[ "$GEN_PORTS" == true ]]; then
+    gen_start="$(gen_app_port_start)"
+    if [[ "$SECURE" == true ]]; then
+        echo "PublishPort=127.0.0.1:${gen_start}-$(gen_port_end "$gen_start"):8081-8088"
+    else
+        echo "PublishPort=${gen_start}-$(gen_port_end "$gen_start"):8081-8088"
+    fi
+    echo "Environment=LLAMA_TOOLCHEST_GEN_PORTS=1"
+    echo "Environment=LLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START=${GEN_PUBLIC_PORT_START}"
 fi)
 ${net_args}
 ${ext_url_arg}
@@ -1870,6 +2096,13 @@ EOF
 # generate_quadlet_caddy emits the Caddy .container unit (secure mode only).
 # Ordered after the app so the upstream is up first.
 generate_quadlet_caddy() {
+    # The generation web UI range, appended to the last PublishPort line so
+    # the unit is unchanged when the ports are not published.
+    local gen_publish=""
+    if [[ "$GEN_PORTS" == true ]]; then
+        local gen_range="${GEN_PUBLIC_PORT_START}-$(gen_port_end "$GEN_PUBLIC_PORT_START")"
+        gen_publish=$'\n'"PublishPort=${gen_range}:${gen_range}"
+    fi
     cat <<EOF
 # Auto-generated by llama-toolchest setup.sh
 [Unit]
@@ -1883,7 +2116,7 @@ ContainerName=${PODMAN_SERVICE_NAME}-caddy
 Network=${PODMAN_SERVICE_NAME}.network
 PublishPort=${CADDY_HTTP_PORT:-80}:80
 PublishPort=${CADDY_HTTPS_PORT:-443}:443
-PublishPort=${CADDY_CHAT_PORT:-8080}:8080
+PublishPort=${CADDY_CHAT_PORT:-8080}:8080${gen_publish}
 Volume=${SCRIPT_DIR}/Caddyfile:/etc/caddy/Caddyfile:ro,z
 Volume=${PODMAN_SERVICE_NAME}-caddy-data:/data:z
 Volume=${PODMAN_SERVICE_NAME}-caddy-config:/config:z
@@ -2154,6 +2387,9 @@ print_summary() {
     fi
     echo -e "  ${CYAN}UI + API port${NC} ${LLAMA_TOOLCHEST_PORT}"
     echo -e "  ${CYAN}Chat UI port${NC}  ${LLAMA_TOOLCHEST_INFERENCE_PORT}"
+    if [[ "$GEN_PORTS" == true ]]; then
+        echo -e "  ${CYAN}Gen web UIs${NC}   ${GEN_PUBLIC_PORT_START}-$(gen_port_end "$GEN_PUBLIC_PORT_START")"
+    fi
     if [[ -n "$LLAMA_TOOLCHEST_MODELS_DIR" ]]; then
         echo -e "  ${CYAN}Models dir${NC}    ${LLAMA_TOOLCHEST_MODELS_DIR}"
     fi
@@ -2375,6 +2611,15 @@ admin login in front of the UI/API):
      point, AS-IS and not hardened for any specific threat model. You are
      responsible for auditing it before relying on it. See docs/secure.md.
 
+Generation backend web UIs (container install):
+  --gen-ports / --no-gen-ports   Publish (or not) the ports of the image and
+                           music generation backends' own web pages. Without
+                           either flag, `install` asks; the default is no. The
+                           image and music APIs work either way.
+  --gen-port-start <port>  First of the 8 ports (default 8081). Implies
+                           --gen-ports. In secure mode these are Caddy's
+                           ports, each behind the admin login.
+
 Non-interactive:
   -y, --yes                Skip confirmation prompts; required when stdin is
                            not a TTY. Combine with the flags above (and
@@ -2442,6 +2687,8 @@ Environment variables:
   INSTALL_MODE=host|container   Same as --host / --container
   ASSUME_YES=1                  Same as --yes
   SECURE=1                      Same as --secure
+  GEN_PORTS=1                   Same as --gen-ports
+  GEN_PORT_START=<port>         Same as --gen-port-start
   AUTH_PASS=…                   Admin password for a scripted secure install
                                 (hashed during install; keeps it off argv)
 
@@ -2538,6 +2785,11 @@ main() {
             --auth-hash=*)  AUTH_HASH="${1#*=}" ;;
             --auth-pass-file)   AUTH_PASS_FILE="$(require_value "$1" "${2:-}")"; shift ;;
             --auth-pass-file=*) AUTH_PASS_FILE="${1#*=}" ;;
+            # ── Generation backend web UI ports (container install) ──
+            --gen-ports)    GEN_PORTS=true;  GEN_PORTS_EXPLICIT=true ;;
+            --no-gen-ports) GEN_PORTS=false; GEN_PORTS_EXPLICIT=true ;;
+            --gen-port-start)   GEN_PUBLIC_PORT_START="$(require_value "$1" "${2:-}")"; GEN_PORT_START_EXPLICIT=true; GEN_PORTS=true; GEN_PORTS_EXPLICIT=true; shift ;;
+            --gen-port-start=*) GEN_PUBLIC_PORT_START="${1#*=}"; GEN_PORT_START_EXPLICIT=true; GEN_PORTS=true; GEN_PORTS_EXPLICIT=true ;;
             -h|--help)      usage; exit 0 ;;
             *)
                 err "Unknown flag: $1"
@@ -2564,6 +2816,12 @@ main() {
     # ── Validate flag/command combinations ──
     if [[ -n "$MIGRATE_DIRECTION" && "$command" != "migrate" ]]; then
         err "--to-host / --to-container are only valid with the 'migrate' command"
+        exit 1
+    fi
+    # Only install writes the Caddyfile, which has to match the published
+    # ports, so the generation port choice can only change there.
+    if [[ "$GEN_PORTS_EXPLICIT" == true && "$command" != "install" ]]; then
+        err "--gen-ports / --no-gen-ports / --gen-port-start are only valid with the 'install' command"
         exit 1
     fi
 
@@ -2877,8 +3135,12 @@ main() {
     prompt_models_dir
 
     # ── Secure (Caddy reverse proxy) — install only; rebuild reuses .env ──
+    # The generation web UI ports are asked here too. In secure mode
+    # configure_secure asks, before it renders the Caddyfile that has to
+    # match.
     if [[ "$command" == "install" ]]; then
         configure_secure
+        [[ "$SECURE" == true ]] || prompt_gen_ports
     fi
 
     # ── Install prerequisites if needed ──
@@ -2911,6 +3173,9 @@ main() {
         echo "  Web UI:     ${SECURE_EXTERNAL_URL:-https://<host>}      (login required)"
         echo "  Chat UI:    ${SECURE_EXTERNAL_URL:-https://<host>}:${CADDY_CHAT_PORT:-8080}"
         echo "  API:        ${SECURE_EXTERNAL_URL:-https://<host>}/v1   (Bearer api_key)"
+        if [[ "$GEN_PORTS" == true ]]; then
+            echo "  Gen web UIs: ports ${GEN_PUBLIC_PORT_START}-$(gen_port_end "$GEN_PUBLIC_PORT_START")  (login required; one per backend instance)"
+        fi
         if [[ "${TLS_MODE:-}" == "self-signed" ]]; then
             echo ""
             echo "  Note: self-signed TLS — your browser will warn until you trust"
@@ -2921,6 +3186,9 @@ main() {
         echo "  Web UI:     http://localhost:${LLAMA_TOOLCHEST_PORT}"
         echo "  API:        http://localhost:${LLAMA_TOOLCHEST_PORT}/v1  (OpenAI-compatible)"
         echo "  Chat UI:    http://localhost:${LLAMA_TOOLCHEST_INFERENCE_PORT}  (llama.cpp)"
+        if [[ "$GEN_PORTS" == true ]]; then
+            echo "  Gen web UIs: ports ${GEN_PUBLIC_PORT_START}-$(gen_port_end "$GEN_PUBLIC_PORT_START")  (one per backend instance)"
+        fi
     fi
     echo "  Logs:       ./setup.sh logs"
     echo "  Stop:       ./setup.sh down"

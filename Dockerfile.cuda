@@ -55,6 +55,23 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 RUN curl -LsSf https://astral.sh/uv/install.sh \
     | env UV_INSTALL_DIR=/usr/local/bin INSTALLER_NO_MODIFY_PATH=1 sh
 
+# Node.js and pnpm build the built-in web UI of stable-diffusion.cpp's
+# sd-server (a build option on the Builds page). The web UI needs Node 20 or
+# newer, and Ubuntu 24.04 only has 18, so Node comes from nodejs.org, checked
+# against the release's published SHA-256 list. Both versions are pinned so
+# every image builds the web UI the same way.
+ARG NODE_VERSION=22.23.3
+RUN set -eux; \
+    case "${TARGETARCH}" in amd64) node_arch=x64 ;; arm64) node_arch=arm64 ;; *) echo "no Node.js build for ${TARGETARCH}"; exit 1 ;; esac; \
+    tarball="node-v${NODE_VERSION}-linux-${node_arch}.tar.gz"; \
+    cd /tmp; \
+    curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/${tarball}"; \
+    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt" | grep " ${tarball}\$" | sha256sum -c -; \
+    tar -xzf "${tarball}" -C /usr/local --strip-components=1 --no-same-owner; \
+    rm -f "${tarball}"; \
+    npm install -g pnpm@9.15.4; \
+    node --version; pnpm --version
+
 RUN --mount=type=bind,target=/build_context \
     --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
@@ -101,6 +118,8 @@ listen_addr: ":3000"
 data_dir: "/data"
 llama_port: 8080
 log_level: "info"
+gen_port_start: 8081
+gen_port_count: 8
 EOF
 
 VOLUME ["/data"]
@@ -109,5 +128,7 @@ VOLUME ["/data"]
 EXPOSE 3000
 # llama-server instances (chat UI + inference)
 EXPOSE 8080
+# image and music generation backends, one port each (their own web UIs)
+EXPOSE 8081-8088
 
 ENTRYPOINT ["llama-toolchest", "--config", "/data/config/llama-toolchest.yaml"]

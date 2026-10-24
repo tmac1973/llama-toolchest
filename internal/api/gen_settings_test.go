@@ -89,6 +89,7 @@ func TestUnrelatedSaveAddsNoGenerationKeys(t *testing.T) {
 
 func TestSettingsPageGenerationSection(t *testing.T) {
 	base := testTemplates(t, "templates/layout.html", "templates/settings.html", "templates/partials/*.html")
+	published := false
 	render := func(enabled, inContainer bool) string {
 		data := struct {
 			pageData
@@ -116,7 +117,9 @@ func TestSettingsPageGenerationSection(t *testing.T) {
 			GenPortEnd        int
 			GenPortCount      int
 			InContainer       bool
-		}{GenerationEnabled: enabled, GenPortStart: 8081, GenPortEnd: 8088, GenPortCount: 8, InContainer: inContainer}
+			GenPortsPublished bool
+		}{GenerationEnabled: enabled, GenPortStart: 8081, GenPortEnd: 8088, GenPortCount: 8, InContainer: inContainer,
+			GenPortsPublished: !inContainer || published}
 		var buf bytes.Buffer
 		if err := base.ExecuteTemplate(&buf, "content", data); err != nil {
 			t.Fatalf("execute settings page: %v", err)
@@ -148,5 +151,22 @@ func TestSettingsPageGenerationSection(t *testing.T) {
 	}
 	if c := render(false, true); !strings.Contains(c, "readonly") || !strings.Contains(c, "setup.sh") {
 		t.Error("container view should make the ports read-only and point at setup.sh")
+	}
+
+	// The note about unpublished web UI ports shows only for a turned-on
+	// feature in a container that does not publish them.
+	const notPublished = "Web UI ports are not published"
+	if strings.Contains(render(true, false), notPublished) {
+		t.Error("host install told its ports are not published")
+	}
+	if strings.Contains(render(false, true), notPublished) {
+		t.Error("ports note shown while the feature is off")
+	}
+	if !strings.Contains(render(true, true), notPublished) {
+		t.Error("container without published ports not told")
+	}
+	published = true
+	if strings.Contains(render(true, true), notPublished) {
+		t.Error("ports note shown although setup.sh published them")
 	}
 }

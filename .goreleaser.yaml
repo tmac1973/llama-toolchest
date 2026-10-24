@@ -93,6 +93,13 @@ nfpms:
           - pkg-config
           # See openssl-devel above.
           - libssl-dev
+    # Node.js builds the built-in web UI of stable-diffusion.cpp's
+    # sd-server, an optional build on the Builds page. Recommended rather
+    # than required: nothing else needs it, and the web UI also needs pnpm,
+    # which no distro packages (npm install -g pnpm). The web UI needs
+    # Node 20 or newer.
+    recommends:
+      - nodejs
     # No BLAS recommend: the CPU build profile doesn't pass -DGGML_BLAS=ON
     # and GPU builds (cuda/rocm/vulkan/metal) don't use BLAS at all, so
     # pulling in openblas-devel/libopenblas-dev would just waste ~270 MiB

@@ -63,6 +63,16 @@ ENV ROCM_PATH=/opt/rocm \
 RUN curl -LsSf https://astral.sh/uv/install.sh \
     | env UV_INSTALL_DIR=/usr/local/bin INSTALLER_NO_MODIFY_PATH=1 sh
 
+# Node.js and pnpm build the built-in web UI of stable-diffusion.cpp's
+# sd-server (a build option on the Builds page). The web UI needs Node 20 or
+# newer; Fedora 43's nodejs is 22. pnpm is pinned so every image builds the
+# web UI with the same version.
+RUN --mount=type=cache,target=/var/cache/dnf \
+    dnf -y --nodocs --setopt=install_weak_deps=False --setopt=keepcache=True \
+      install nodejs npm && \
+    npm install -g pnpm@9.15.4 && \
+    node --version && pnpm --version
+
 RUN --mount=type=bind,target=/build_context \
     --mount=type=cache,target=/var/cache/dnf \
     set -e; \
@@ -108,6 +118,8 @@ listen_addr: ":3000"
 data_dir: "/data"
 llama_port: 8080
 log_level: "info"
+gen_port_start: 8081
+gen_port_count: 8
 EOF
 
 VOLUME ["/data"]
@@ -116,5 +128,7 @@ VOLUME ["/data"]
 EXPOSE 3000
 # llama-server instances (chat UI + inference)
 EXPOSE 8080
+# image and music generation backends, one port each (their own web UIs)
+EXPOSE 8081-8088
 
 ENTRYPOINT ["llama-toolchest", "--config", "/data/config/llama-toolchest.yaml"]

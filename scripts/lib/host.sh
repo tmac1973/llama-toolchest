@@ -1691,6 +1691,23 @@ host_effective_port() {
     echo "${LLAMA_TOOLCHEST_PORT:-3000}"
 }
 
+# host_gen_port_start prints the first port of the generation backend range
+# for a host install: 8081, moved up past the UI or llama-server port when
+# either falls inside the 8 ports.
+host_gen_port_start() {
+    local start=8081 p moved=true
+    while [[ "$moved" == true ]]; do
+        moved=false
+        for p in "${LLAMA_TOOLCHEST_PORT:-3000}" "${LLAMA_TOOLCHEST_INFERENCE_PORT:-8080}"; do
+            if (( p >= start && p <= start + 7 )); then
+                start=$(( p + 1 ))
+                moved=true
+            fi
+        done
+    done
+    echo "$start"
+}
+
 # Write the example config to the user's config dir if it doesn't exist.
 # Existing configs are left alone — we don't overwrite the user's settings.
 host_write_config() {
@@ -1717,6 +1734,8 @@ external_url: "http://localhost:${LLAMA_TOOLCHEST_PORT:-3000}"
 log_level: "info"
 models_max: 1
 auto_start: false
+gen_port_start: $(host_gen_port_start)
+gen_port_count: 8
 EOF
 }
 

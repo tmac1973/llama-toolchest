@@ -105,6 +105,7 @@ migrate_write_translated_config() {
     }
 
     local models_dir external_url hf_token api_key log_level models_max auto_start
+    local generation_enabled gen_port_start gen_port_count
     models_dir=$(_migrate_get models_dir)
     external_url=$(_migrate_get external_url)
     hf_token=$(_migrate_get hf_token)
@@ -112,6 +113,9 @@ migrate_write_translated_config() {
     log_level=$(_migrate_get log_level)
     models_max=$(_migrate_get models_max)
     auto_start=$(_migrate_get auto_start)
+    generation_enabled=$(_migrate_get generation_enabled)
+    gen_port_start=$(_migrate_get gen_port_start)
+    gen_port_count=$(_migrate_get gen_port_count)
 
     local listen_addr data_dir
     case "$direction" in
@@ -132,6 +136,10 @@ migrate_write_translated_config() {
             # On the host it is the folder that was bind-mounted there, if
             # any; otherwise it is left out and the host default applies.
             models_dir="${LLAMA_TOOLCHEST_MODELS_DIR:-}"
+            # Inside a container the range is always 8081-8088. On the host
+            # it must stay clear of the UI and llama-server ports.
+            gen_port_start="$(LLAMA_TOOLCHEST_PORT="${p:-3000}" host_gen_port_start)"
+            gen_port_count=8
             ;;
         to-container)
             # Inside the container, listen_addr is always :3000. The
@@ -147,6 +155,10 @@ migrate_write_translated_config() {
                 export LLAMA_TOOLCHEST_MODELS_DIR
             fi
             models_dir=""
+            # Inside the container the range is fixed at 8081-8088; the
+            # host side is chosen by setup.sh (.env).
+            gen_port_start=8081
+            gen_port_count=8
             # Translate the host listen_addr to the .env port, so the
             # caller's compose run maps the right host port. Strip the
             # leading ':'.
@@ -173,6 +185,9 @@ migrate_write_translated_config() {
         echo "log_level: \"${log_level:-info}\""
         echo "models_max: ${models_max:-1}"
         echo "auto_start: ${auto_start:-true}"
+        [[ "$generation_enabled" == "true" ]] && echo "generation_enabled: true"
+        echo "gen_port_start: ${gen_port_start:-8081}"
+        echo "gen_port_count: ${gen_port_count:-8}"
     } > "$dst"
 
     unset -f _migrate_get
