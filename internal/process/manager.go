@@ -1,21 +1,14 @@
 package process
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/tmac1973/llama-toolchest/internal/broadcast"
-	"github.com/tmac1973/llama-toolchest/internal/libpath"
 	"github.com/tmac1973/llama-toolchest/internal/routerclient"
 )
 
@@ -55,39 +48,23 @@ type RouterConfig struct {
 
 const logHistorySize = 500
 
-// Manager manages a single llama-server router process.
+// Manager manages a single llama-server router process. The process
+// lifecycle (start, stop, health, logs) comes from the embedded
+// Supervisor; Manager adds the router's arguments and model control.
 type Manager struct {
-	mu        sync.Mutex
-	cmd       *exec.Cmd
-	cancel    context.CancelFunc
-	status    Status
-	config    *RouterConfig
-	routerURL string
-	done      chan struct{}
+	*Supervisor
 
-	// Log broadcasting
-	logs *broadcast.Broadcaster[string]
+	// routerURL is guarded by Supervisor.mu. It is kept after the router
+	// stops, so model calls fail at the HTTP level rather than here.
+	routerURL string
 }
 
 func NewManager() *Manager {
-	return &Manager{
-		status: Status{State: StateStopped},
-		logs:   broadcast.New[string](logHistorySize, 256),
-	}
+	return &Manager{Supervisor: NewSupervisor("Router", logHistorySize)}
 }
 
 // Start launches the llama-server in router mode.
 func (m *Manager) Start(cfg RouterConfig) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.status.State == StateRunning || m.status.State == StateStarting {
-		return fmt.Errorf("router already %s", m.status.State)
-	}
-
-	// Clear log history
-	m.logs.ClearHistory()
-
 	if cfg.Host == "" {
 		cfg.Host = "0.0.0.0"
 	}
@@ -110,155 +87,23 @@ func (m *Manager) Start(cfg RouterConfig) error {
 		args = append(args, "--models-max", fmt.Sprintf("%d", cfg.ModelsMax))
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, cfg.BinaryPath, args...)
-
-	// Tell the child process where to find co-located shared libraries.
-	binDir := filepath.Dir(cfg.BinaryPath)
-	cmd.Env = applyExtraEnv(pinCUDADeviceOrder(libpath.Prepend(os.Environ(), binDir)), cfg.ExtraEnv)
-
-	stdout, err := cmd.StdoutPipe()
+	url := fmt.Sprintf("http://localhost:%d", cfg.Port)
+	err := m.Supervisor.Start(SupervisorConfig{
+		Name:       "llama-server router",
+		BinaryPath: cfg.BinaryPath,
+		Args:       args,
+		// Tell the child process where to find co-located shared libraries.
+		Env:       BuildEnv(filepath.Dir(cfg.BinaryPath), cfg.ExtraEnv),
+		HealthURL: url + "/health",
+	})
 	if err != nil {
-		cancel()
-		return fmt.Errorf("stdout pipe: %w", err)
-	}
-	cmd.Stderr = cmd.Stdout
-
-	if err := cmd.Start(); err != nil {
-		cancel()
-		return fmt.Errorf("start: %w", err)
+		return err
 	}
 
-	done := make(chan struct{})
-	m.cmd = cmd
-	m.cancel = cancel
-	m.config = &cfg
-	m.done = done
-	m.routerURL = fmt.Sprintf("http://localhost:%d", cfg.Port)
-	m.status = Status{
-		State:     StateStarting,
-		PID:       cmd.Process.Pid,
-		StartedAt: time.Now(),
-	}
-
-	go func() {
-		scanner := bufio.NewScanner(stdout)
-		scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
-		for scanner.Scan() {
-			m.broadcast(scanner.Text())
-		}
-	}()
-
-	go m.monitorProcess(cmd, done)
-	go m.pollHealth()
-
-	slog.Info("llama-server router started", "pid", cmd.Process.Pid, "port", cfg.Port)
+	m.mu.Lock()
+	m.routerURL = url
+	m.mu.Unlock()
 	return nil
-}
-
-// Stop sends SIGTERM to the router, waits up to 30s, then SIGKILL.
-func (m *Manager) Stop() error {
-	m.mu.Lock()
-	if m.cmd == nil || m.cmd.Process == nil {
-		m.mu.Unlock()
-		return errors.New("router not running")
-	}
-	cmd := m.cmd
-	cancel := m.cancel
-	done := m.done
-	m.mu.Unlock()
-
-	if err := terminate(cmd.Process); err != nil {
-		slog.Debug("terminate failed", "error", err)
-	}
-
-	select {
-	case <-done:
-	case <-time.After(30 * time.Second):
-		cmd.Process.Kill()
-		<-done
-	}
-
-	cancel()
-
-	m.mu.Lock()
-	m.status = Status{State: StateStopped}
-	m.cmd = nil
-	m.cancel = nil
-	m.config = nil
-	m.mu.Unlock()
-
-	m.broadcast("==> Router stopped")
-	slog.Info("llama-server router stopped")
-	return nil
-}
-
-// Restart stops then starts with the current config.
-func (m *Manager) Restart() error {
-	m.mu.Lock()
-	cfg := m.config
-	m.mu.Unlock()
-
-	if cfg == nil {
-		return errors.New("no config to restart with")
-	}
-	cfgCopy := *cfg
-
-	if err := m.Stop(); err != nil {
-		slog.Debug("stop during restart", "error", err)
-	}
-
-	time.Sleep(500 * time.Millisecond)
-	return m.Start(cfgCopy)
-}
-
-// GetStatus returns the router process status.
-func (m *Manager) GetStatus() Status {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	s := m.status
-	if s.State == StateRunning && !s.StartedAt.IsZero() {
-		s.Uptime = time.Since(s.StartedAt).Truncate(time.Second).String()
-	}
-	return s
-}
-
-// IsRunning returns true if the router is running.
-func (m *Manager) IsRunning() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.status.State == StateRunning
-}
-
-// WaitRunning blocks until the router has passed its first health check
-// (IsRunning turns true), the router stops or fails, or ctx ends. This is
-// the one meaning of "the router is up" that callers should wait on: a
-// passing /health ping alone can come before the state flips.
-func (m *Manager) WaitRunning(ctx context.Context) error {
-	for {
-		m.mu.Lock()
-		state, reason := m.status.State, m.status.Error
-		m.mu.Unlock()
-
-		switch state {
-		case StateRunning:
-			return nil
-		case StateStopped:
-			return errors.New("router stopped before it was ready")
-		case StateFailed:
-			if reason == "" {
-				reason = "unknown error"
-			}
-			return fmt.Errorf("router failed to start: %s", reason)
-		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(500 * time.Millisecond):
-		}
-	}
 }
 
 // LoadModel tells the router to load a model by name. A model that is
@@ -304,120 +149,6 @@ func (m *Manager) routerBase() (string, error) {
 		return "", errors.New("router not running")
 	}
 	return url, nil
-}
-
-// Subscribe returns a channel that receives log lines, starting with the
-// buffered history.
-func (m *Manager) Subscribe() chan string {
-	return m.logs.Subscribe()
-}
-
-// Unsubscribe removes a log subscriber.
-func (m *Manager) Unsubscribe(ch chan string) {
-	m.logs.Unsubscribe(ch)
-}
-
-// RecentLogs returns the buffered log lines, oldest first. The buffer is
-// emptied every time the router starts, so after a restart it holds only
-// what the new process has printed.
-func (m *Manager) RecentLogs() []string {
-	return m.logs.History()
-}
-
-// ClearLogs discards the buffered log history so it won't be replayed to new subscribers.
-func (m *Manager) ClearLogs() {
-	m.logs.ClearHistory()
-}
-
-func (m *Manager) broadcast(line string) {
-	m.logs.Broadcast(line)
-}
-
-func (m *Manager) monitorProcess(cmd *exec.Cmd, done chan struct{}) {
-	err := cmd.Wait()
-	close(done)
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.cmd != cmd {
-		return
-	}
-
-	if err != nil {
-		m.status.State = StateFailed
-		m.status.Error = err.Error()
-		m.broadcast(fmt.Sprintf("==> Router exited with error: %v", err))
-	} else {
-		m.status.State = StateStopped
-		m.broadcast("==> Router exited normally")
-	}
-	m.status.HealthOK = false
-}
-
-func (m *Manager) pollHealth() {
-	client := &http.Client{Timeout: 2 * time.Second}
-	deadline := time.Now().Add(5 * time.Minute)
-
-	for time.Now().Before(deadline) {
-		time.Sleep(2 * time.Second)
-
-		m.mu.Lock()
-		if m.status.State != StateStarting && m.status.State != StateRunning {
-			m.mu.Unlock()
-			return
-		}
-		url := m.routerURL
-		m.mu.Unlock()
-
-		resp, err := client.Get(url + "/health")
-		if err != nil {
-			continue
-		}
-		resp.Body.Close()
-
-		if resp.StatusCode == http.StatusOK {
-			m.mu.Lock()
-			m.status.State = StateRunning
-			m.status.HealthOK = true
-			m.mu.Unlock()
-			m.broadcast("==> Router health check passed — ready")
-			return
-		}
-	}
-
-	m.mu.Lock()
-	if m.status.State == StateStarting {
-		m.status.State = StateFailed
-		m.status.Error = "health check timeout"
-	}
-	m.mu.Unlock()
-}
-
-// CheckHealth pings the router's health endpoint.
-func (m *Manager) CheckHealth() bool {
-	m.mu.Lock()
-	url := m.routerURL
-	m.mu.Unlock()
-
-	if url == "" {
-		return false
-	}
-
-	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get(url + "/health")
-	if err != nil {
-		return false
-	}
-	resp.Body.Close()
-
-	healthy := resp.StatusCode == http.StatusOK
-
-	m.mu.Lock()
-	m.status.HealthOK = healthy
-	m.mu.Unlock()
-
-	return healthy
 }
 
 // applyExtraEnv appends configured KEY=VALUE pairs, skipping any whose
