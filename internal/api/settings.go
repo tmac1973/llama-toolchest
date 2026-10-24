@@ -238,14 +238,6 @@ func (s *Server) handleTestConnection(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, result)
 }
 
-// proxyEndpoint is the /v1 URL clients should use: the external URL that
-// all dashboard links are built from. It used to be built from the listen
-// address, which gave "http://localhost127.0.0.1:3000/v1" when that
-// address included a host.
-func (s *Server) proxyEndpoint() string {
-	return strings.TrimRight(s.cfg.ExternalURL, "/") + "/v1"
-}
-
 // formSecret applies a secret field from the settings form to dst: a
 // typed value replaces it, a blank field keeps it, and the clear_<name>
 // checkbox (with the field blank) removes it.
@@ -313,4 +305,12 @@ func validateModelsDir(path string) error {
 	}
 	dh.Close()
 	return nil
+}
+
+// proxyEndpoint is the /v1 URL clients should use: the external URL that
+// all dashboard links are built from. It used to be built from the listen
+// address, which gave "http://localhost127.0.0.1:3000/v1" when that
+// address included a host.
+func (s *Server) proxyEndpoint() string {
+	return strings.TrimRight(s.cfg.ExternalURL, "/") + "/v1"
 }
