@@ -44,6 +44,14 @@
 <div id="helper-list" hx-get="/api/models/helpers" hx-trigger="load, modelsChanged from:body" hx-swap="innerHTML">
 </div>
 
+{{if .GenerationEnabled}}
+<hr>
+<h4 title="Model sets for the image (stable-diffusion.cpp) and music (acestep.cpp) backends. A set is the group of files a backend loads together.">Generation models</h4>
+<div id="gen-model-sets" hx-get="/api/gen/models" hx-trigger="load" hx-swap="innerHTML">
+    Loading...
+</div>
+{{end}}
+
 <template id="restart-icon-template">{{template "restart_icon"}}</template>
 
 {{/* One confirm dialog for every restart shortcut on this page: the

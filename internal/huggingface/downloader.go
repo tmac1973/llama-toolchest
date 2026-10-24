@@ -44,6 +44,12 @@ type download struct {
 	// state is retained: replayed to new subscribers (so they see where we
 	// are immediately) and queryable via last() for ListActive/PendingBytes.
 	bc *broadcast.Broadcaster[DownloadStatus]
+
+	// destRoot replaces the downloader's models dir for this download,
+	// and onDone replaces its completion callback (see StartTo). Both are
+	// unset for ordinary LLM downloads.
+	destRoot string
+	onDone   FileDoneFunc
 }
 
 func (dl *download) broadcast(status DownloadStatus) {
@@ -63,6 +69,10 @@ func (dl *download) last() DownloadStatus {
 	s, _ := dl.bc.Last()
 	return s
 }
+
+// FileDoneFunc is called when a StartTo download finishes successfully,
+// with the downloaded file's path and size.
+type FileDoneFunc func(path string, sizeBytes int64)
 
 // CompletionFunc is called when a download finishes successfully.
 type CompletionFunc func(source, downloadID, modelID, filename string, sizeBytes int64)
@@ -155,10 +165,40 @@ func (d *Downloader) SetOnComplete(fn CompletionFunc) {
 // Start returns, before the download goroutine has done its own HEAD. Pass 0
 // when the size is unknown.
 func (d *Downloader) Start(ctx context.Context, source, modelID, filename string, expectedBytes int64) (string, error) {
+	return d.start(source, modelID, filename, expectedBytes, "", "", nil)
+}
+
+// StartTo downloads one file into <destRoot>/<SafeModelID(modelID)>/<filename>
+// instead of the models dir, and calls onDone instead of the downloader's
+// completion callback, so the file is never registered as a language
+// model. Used for the generation backends' model files. The download ID
+// starts with "gen--" so it never collides with an LLM download.
+func (d *Downloader) StartTo(source, modelID, filename, destRoot string, expectedBytes int64, onDone FileDoneFunc) (string, error) {
+	return d.start(source, modelID, filename, expectedBytes, "gen--", destRoot, onDone)
+}
+
+// FilePath is where StartTo puts a file.
+func FilePath(destRoot, modelID, filename string) string {
+	return filepath.Join(destRoot, SafeModelID(modelID), filename)
+}
+
+// Status returns the latest status of a download still held by the
+// downloader (in progress, or finished within the last 30 seconds).
+func (d *Downloader) Status(downloadID string) (DownloadStatus, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	dl, ok := d.active[downloadID]
+	if !ok {
+		return DownloadStatus{}, false
+	}
+	return dl.last(), true
+}
+
+func (d *Downloader) start(source, modelID, filename string, expectedBytes int64, idPrefix, destRoot string, onDone FileDoneFunc) (string, error) {
 	// Create a stable download ID — replace all slashes to keep it URL-safe
 	safeName := SafeModelID(modelID)
 	safeFilename := SafeFileID(filename)
-	downloadID := fmt.Sprintf("%s--%s", safeName, safeFilename)
+	downloadID := fmt.Sprintf("%s%s--%s", idPrefix, safeName, safeFilename)
 
 	d.mu.Lock()
 	if existing, exists := d.active[downloadID]; exists {
@@ -186,9 +226,11 @@ func (d *Downloader) Start(ctx context.Context, source, modelID, filename string
 
 	dlCtx, cancel := context.WithCancel(context.Background())
 	dl := &download{
-		cancel: cancel,
-		done:   make(chan struct{}),
-		bc:     broadcast.New[DownloadStatus](1, 16),
+		cancel:   cancel,
+		done:     make(chan struct{}),
+		bc:       broadcast.New[DownloadStatus](1, 16),
+		destRoot: destRoot,
+		onDone:   onDone,
 	}
 	// Seed the status so PendingBytes counts this download immediately,
 	// before run() reports its first progress tick.
@@ -344,9 +386,13 @@ func (d *Downloader) run(ctx context.Context, source, downloadID, modelID, filen
 	filenames := models.ExpandShards(filename)
 
 	// Setup directory under the configured models dir (which may live
-	// outside dataDir if ModelsDir is set).
+	// outside dataDir if ModelsDir is set), or the download's own root.
 	safeName := SafeModelID(modelID)
-	modelDir := filepath.Join(d.modelsDir, safeName)
+	root := d.modelsDir
+	if dl.destRoot != "" {
+		root = dl.destRoot
+	}
+	modelDir := filepath.Join(root, safeName)
 	os.MkdirAll(modelDir, 0o755)
 
 	// Get combined total size via HEAD requests for accurate progress
@@ -396,7 +442,9 @@ func (d *Downloader) run(ctx context.Context, source, downloadID, modelID, filen
 
 	slog.Info("download complete", "model", modelID, "file", filename, "shards", len(filenames), "size", totalDownloaded)
 
-	if d.onComplete != nil {
+	if dl.onDone != nil {
+		dl.onDone(filepath.Join(modelDir, filenames[0]), totalDownloaded)
+	} else if d.onComplete != nil {
 		d.onComplete(source, downloadID, modelID, filenames[0], totalDownloaded)
 	}
 }
