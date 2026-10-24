@@ -37,7 +37,7 @@ func (p Profile) Key() string {
 		// Other programs' use in whole GiB: enough to rebuild when
 		// something large starts or stops, not on every few MiB a desktop
 		// moves.
-		fmt.Fprintf(h, "%s|%d|%v|%d;", g.Name, g.VRAMTotalMiB, g.IsIGPU, (g.OtherUsedMiB+512)/1024)
+		fmt.Fprintf(h, "%s|%d|%v|%d;", g.Name, g.VRAMTotalMiB, g.IsIGPU, (g.OtherUsedMiB+g.ReservedMiB+512)/1024)
 	}
 	fmt.Fprintf(h, "|%s|%v|", p.BuildID, p.ArchsKnown)
 	archs := make([]string, 0, len(p.Archs))

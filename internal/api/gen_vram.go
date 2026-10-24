@@ -1,0 +1,607 @@
+package api
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/tmac1973/llama-toolchest/internal/generation"
+	"github.com/tmac1973/llama-toolchest/internal/models"
+	"github.com/tmac1973/llama-toolchest/internal/monitor"
+)
+
+// genVRAM is what generation backends hold and reserve on one GPU.
+type genVRAM struct {
+	// Reserved is what the enabled instances reserve: each one's
+	// reservation, or what it actually uses when that is more.
+	Reserved int
+	// Using is what the running instances actually hold, which the
+	// monitor counts as other programs' memory until it is taken out.
+	Using int
+	// Names lists each reserving instance and its share, for messages.
+	Names []string
+}
+
+// genVRAMByGPU sums the generation backends' memory per GPU index,
+// leaving out exclude (an instance being checked against the others).
+// Empty while generation backends are off.
+func (s *Server) genVRAMByGPU(exclude string) map[int]*genVRAM {
+	out := map[int]*genVRAM{}
+	if s.cfg == nil || !s.cfg.GenerationEnabled || s.gen == nil || s.genMgr == nil {
+		return out
+	}
+	for _, inst := range s.gen.Instances() {
+		if inst.ID == exclude {
+			continue
+		}
+		using := 0
+		if pid := s.genMgr.PID(inst.ID); pid > 0 {
+			if mib, ok := s.genProcVRAM.read(pid); ok {
+				using = mib
+			} else {
+				using = inst.ReservedMiB
+			}
+		}
+		if !inst.Enabled && using == 0 {
+			continue
+		}
+		v := out[inst.GPU]
+		if v == nil {
+			v = &genVRAM{}
+			out[inst.GPU] = v
+		}
+		v.Using += using
+		share := max(inst.ReservedMiB, using)
+		if inst.Enabled || using > 0 {
+			v.Reserved += share
+			v.Names = append(v.Names, fmt.Sprintf("%s %s", inst.Name, mibText(share)))
+		}
+	}
+	return out
+}
+
+// applyGenVRAM folds the generation backends into the planner's view of
+// the GPUs: what they use leaves "other programs", and what they reserve
+// is set apart. With generation backends off this changes nothing.
+func (s *Server) applyGenVRAM(hw *models.Hardware) {
+	byGPU := s.genVRAMByGPU("")
+	for i := range hw.GPUs {
+		if v := byGPU[hw.GPUs[i].Index]; v != nil {
+			hw.GPUs[i].OtherUsedMiB = max(0, hw.GPUs[i].OtherUsedMiB-v.Using)
+			hw.GPUs[i].ReservedMiB = v.Reserved
+		}
+	}
+}
+
+// loadedLLMMiB is the planned GPU memory of the LLMs the router has
+// loaded, per GPU index, plus extraID (a model about to load) when set.
+// skipLoaded leaves the loaded ones out: with --models-max 1 the loaded
+// model is replaced by the new one.
+func (s *Server) loadedLLMMiB(numGPUs int, extraID string, skipLoaded bool) map[int]int {
+	out := map[int]int{}
+	if numGPUs == 0 {
+		return out
+	}
+	add := func(id string) {
+		m, err := s.registry.Get(id)
+		if err != nil || m == nil {
+			return
+		}
+		cfg, err := s.registry.GetConfig(m.ID)
+		if err != nil {
+			return
+		}
+		total := models.VRAMEstimateForConfig(m, cfg)
+		gpus := models.AssignedModelGPUs(cfg, numGPUs)
+		for _, g := range gpus {
+			out[g] += int(total / float64(len(gpus)) * 1024)
+		}
+	}
+	if !skipLoaded && s.process.IsRunning() {
+		if list, err := s.process.ListModels(); err == nil {
+			for _, rm := range list {
+				if rm.Status.Value != "loaded" && rm.Status.Value != "loading" {
+					continue
+				}
+				if reg, _ := s.resolveRouterModel(rm); reg != nil && reg.ID != extraID {
+					add(reg.ID)
+				}
+			}
+		}
+	}
+	if extraID != "" {
+		add(extraID)
+	}
+	return out
+}
+
+// genFitCheck checks that an instance reserving reserveMiB on its GPU fits
+// next to the loaded LLMs and the other instances' reservations, within
+// the planner's budget for the card. The error names what uses the card.
+func (s *Server) genFitCheck(inst generation.Instance, reserveMiB int) error {
+	if reserveMiB <= 0 {
+		return nil
+	}
+	hw := s.hardware()
+	var card *models.GPUSpec
+	for i := range hw.GPUs {
+		if hw.GPUs[i].Index == inst.GPU {
+			card = &hw.GPUs[i]
+		}
+	}
+	if card == nil {
+		// No GPU telemetry; nothing to check against.
+		return nil
+	}
+	// hardware() counts this instance among the reservations; check it
+	// against the others only.
+	others := s.genVRAMByGPU(inst.ID)[inst.GPU]
+	spec := *card
+	spec.ReservedMiB = 0
+	var otherNames []string
+	if others != nil {
+		spec.ReservedMiB = others.Reserved
+		otherNames = others.Names
+	}
+	budget := models.CardBudgetMiB(spec)
+	llm := s.loadedLLMMiB(len(hw.GPUs), "", false)[inst.GPU]
+	if llm+reserveMiB <= budget {
+		return nil
+	}
+	parts := []string{fmt.Sprintf("other programs %s", mibText(spec.OtherUsedMiB))}
+	if llm > 0 {
+		parts = append(parts, "loaded LLMs "+mibText(llm))
+	}
+	parts = append(parts, otherNames...)
+	return fmt.Errorf("not enough VRAM on GPU %d (%s): %s needs %s, but only %s is left after %s and the safety margin",
+		inst.GPU, mibText(spec.VRAMTotalMiB), inst.Name, mibText(reserveMiB), mibText(max(0, budget-llm)), strings.Join(parts, ", "))
+}
+
+// genLLMFitError is returned when loading an LLM on demand would crowd out
+// the generation backends' reservations.
+type genLLMFitError struct{ msg string }
+
+func (e *genLLMFitError) Error() string { return e.msg }
+
+// checkLLMFitsReservations refuses an on-demand LLM load that would not
+// fit next to the generation backends' reservations on a GPU it uses.
+func (s *Server) checkLLMFitsReservations(m *models.Model) error {
+	if s.cfg == nil || !s.cfg.GenerationEnabled || s.gen == nil {
+		return nil
+	}
+	byGPU := s.genVRAMByGPU("")
+	if len(byGPU) == 0 {
+		return nil
+	}
+	hw := s.hardware()
+	need := s.loadedLLMMiB(len(hw.GPUs), m.ID, s.cfg.ModelsMax == 1)
+	for _, g := range hw.GPUs {
+		v := byGPU[g.Index]
+		if v == nil || v.Reserved == 0 {
+			continue
+		}
+		if n, ok := need[g.Index]; ok && n > models.CardBudgetMiB(g) {
+			msg := fmt.Sprintf("Not enough VRAM: %.1f GiB reserved for generation backends on GPU %d (%s)",
+				float64(v.Reserved)/1024, g.Index, strings.Join(v.Names, ", "))
+			if s.cfg.ModelsMax != 1 {
+				msg += "; unload a model first"
+			}
+			return &genLLMFitError{msg: msg}
+		}
+	}
+	return nil
+}
+
+// procVRAMCache keeps per-process VRAM readings for a moment: hardware()
+// runs for every model row of some pages, and on NVIDIA each reading
+// starts nvidia-smi.
+type procVRAMCache struct {
+	mu    sync.Mutex
+	byPID map[int]procVRAMReading
+}
+
+type procVRAMReading struct {
+	at  time.Time
+	mib int
+	ok  bool
+}
+
+const procVRAMCacheFor = 2 * time.Second
+
+func (c *procVRAMCache) read(pid int) (int, bool) {
+	c.mu.Lock()
+	if r, ok := c.byPID[pid]; ok && time.Since(r.at) < procVRAMCacheFor {
+		c.mu.Unlock()
+		return r.mib, r.ok
+	}
+	c.mu.Unlock()
+	mib, ok := monitor.ProcessVRAMMiB(pid)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.byPID == nil || len(c.byPID) > 64 {
+		c.byPID = map[int]procVRAMReading{}
+	}
+	c.byPID[pid] = procVRAMReading{at: time.Now(), mib: mib, ok: ok}
+	return mib, ok
+}
+
+// genReservationColor marks generation reservations on the GPU map, apart
+// from the LLM palette.
+const genReservationColor = "#8e7cc3"
+
+// genReservationAllocations lists each enabled instance's reservation as
+// a GPU map entry on its GPU, so the map and its legend show them.
+func (s *Server) genReservationAllocations() []models.GPUAllocation {
+	if s.cfg == nil || !s.cfg.GenerationEnabled || s.gen == nil {
+		return nil
+	}
+	var out []models.GPUAllocation
+	for _, inst := range s.gen.Instances() {
+		if !inst.Enabled || inst.ReservedMiB == 0 {
+			continue
+		}
+		gb := float64(inst.ReservedMiB) / 1024
+		out = append(out, models.GPUAllocation{
+			ModelID: "gen:" + inst.ID, ModelName: inst.Name + " (reserved)",
+			GPUs: []int{inst.GPU}, PerGPUGB: gb, TotalGB: gb, Color: genReservationColor,
+		})
+	}
+	return out
+}
+
+func mibText(mib int) string {
+	return fmt.Sprintf("%.1f GiB", float64(mib)/1024)
+}
+
+// suggestReservation is the reservation a measured peak suggests: 10%
+// more, rounded up to the next 512 MiB.
+func suggestReservation(peakMiB int) int {
+	n := peakMiB * 11 / 10
+	return (n + 511) / 512 * 512
+}
+
+// genMeasureState remembers each instance's last measured test run
+// outcome for the UI: running, or the error it ended with.
+type genMeasureState struct {
+	mu   sync.Mutex
+	msgs map[string]string
+}
+
+func (g *genMeasureState) set(id, msg string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.msgs == nil {
+		g.msgs = map[string]string{}
+	}
+	if msg == "" {
+		delete(g.msgs, id)
+	} else {
+		g.msgs[id] = msg
+	}
+}
+
+func (g *genMeasureState) get(id string) string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.msgs[id]
+}
+
+// measureSongRequest is the fixed request a music instance is measured
+// with: the one measured on asmodean on 2026-10-24 (a 60-second song).
+var measureSongRequest = map[string]any{
+	"caption":         "Upbeat indie folk song with acoustic guitar, warm male vocals, hand claps and a catchy chorus",
+	"lyrics":          "[Verse]\nMorning light across the kitchen floor\nCoffee steaming like it did before\n[Chorus]\nWe keep on singing, singing through the day\nLittle songs to chase the clouds away\n[Verse]\nOld guitar is leaning by the door\nEvery string remembers something more\n[Chorus]\nWe keep on singing, singing through the day\nLittle songs to chase the clouds away",
+	"duration":        60,
+	"vocal_language":  "en",
+	"use_cot_caption": false,
+	"seed":            42,
+}
+
+// handleGenMeasure starts a measured test run in the background; the
+// instance table shows its progress and outcome.
+func (s *Server) handleGenMeasure(w http.ResponseWriter, r *http.Request) {
+	store := s.genStore(w)
+	if store == nil {
+		return
+	}
+	inst, ok := s.genInstance(w, r, store)
+	if !ok {
+		return
+	}
+	if err := s.canMeasure(inst); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	s.genMgr.SetMeasuring(inst.ID, true)
+	s.genMeasure.set(inst.ID, "")
+	go func() {
+		defer s.genMgr.SetMeasuring(inst.ID, false)
+		if err := s.measureInstance(inst.ID); err != nil {
+			slog.Warn("generation instance measurement failed", "instance", inst.ID, "error", err)
+			s.genMeasure.set(inst.ID, err.Error())
+		}
+	}()
+	s.genInstancesChanged(w, r)
+}
+
+// canMeasure refuses a measured test run while anything else uses the
+// instance's GPU: the peak must be this instance's alone.
+func (s *Server) canMeasure(inst generation.Instance) error {
+	if s.genMgr.IsMeasuring(inst.ID) {
+		return errors.New("this instance is already being measured")
+	}
+	if reason := s.gpuBusyReason(); reason != "" {
+		return fmt.Errorf("cannot measure while %s", reason)
+	}
+	var busy []string
+	for _, other := range s.gen.Instances() {
+		if other.ID != inst.ID && other.GPU == inst.GPU && s.genMgr.IsActive(other.ID) {
+			busy = append(busy, other.Name)
+		}
+	}
+	if len(busy) > 0 {
+		return fmt.Errorf("measuring needs GPU %d to itself; stop %s first", inst.GPU, strings.Join(busy, ", "))
+	}
+	return nil
+}
+
+// measureInstance runs the measured test run: start the instance without
+// its VRAM limit, run one fixed generation, record the peak, and set or
+// suggest a reservation. The instance is left as it was found: running
+// again (with its limit) if it was running, stopped otherwise.
+func (s *Server) measureInstance(id string) error {
+	inst, err := s.gen.Instance(id)
+	if err != nil {
+		return err
+	}
+	set, err := s.gen.ModelSet(inst.ModelSetID)
+	if err != nil {
+		return err
+	}
+	wasRunning := s.genMgr.IsActive(id)
+	if wasRunning {
+		if err := s.genMgr.Stop(id); err != nil {
+			return err
+		}
+	}
+	time.Sleep(2 * time.Second)
+	baseline := s.gpuUsedMiB(inst.GPU)
+
+	// The first start has no reservation to check yet; it needs at least
+	// 1 GiB of the card's budget free.
+	if err := s.genFitCheck(inst, 1024); err != nil {
+		return err
+	}
+	if err := s.launchGenInstance(inst, set, generation.LaunchOptions{OmitMaxVRAM: true}); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	if err := s.genMgr.WaitRunning(ctx, id); err != nil {
+		return fmt.Errorf("the instance did not start: %w", err)
+	}
+
+	// Per-process readings win whenever any sample had one: a backend
+	// such as ace-server only opens the GPU on its first request, so the
+	// samples before that have no per-process entry yet. The whole-GPU
+	// figure is used only when no sample had one (Vulkan, or PIDs hidden
+	// in a container).
+	var procPeak, gpuPeak int
+	var procOK bool
+	stop := make(chan struct{})
+	sampled := make(chan struct{})
+	go func() {
+		defer close(sampled)
+		tick := time.NewTicker(300 * time.Millisecond)
+		defer tick.Stop()
+		for {
+			if mib, ok := monitor.ProcessVRAMMiB(s.genMgr.PID(id)); ok {
+				procPeak, procOK = max(procPeak, mib), true
+			}
+			gpuPeak = max(gpuPeak, s.gpuUsedMiB(inst.GPU)-baseline)
+			select {
+			case <-stop:
+				return
+			case <-tick.C:
+			}
+		}
+	}()
+	runErr := s.runMeasureGeneration(ctx, inst, set)
+	close(stop)
+	<-sampled
+	peak, perProcess := gpuPeak, procOK
+	if procOK {
+		peak = procPeak
+	}
+	s.genMgr.Stop(id)
+	if runErr != nil {
+		return fmt.Errorf("the test generation failed: %w", runErr)
+	}
+	if peak <= 0 {
+		return errors.New("no GPU memory use was seen during the test generation")
+	}
+
+	inst, err = s.gen.Instance(id)
+	if err != nil {
+		return err
+	}
+	inst.MeasuredPeakMiB, inst.MeasuredAt, inst.MeasureEstimated = peak, time.Now(), !perProcess
+	suggest := suggestReservation(peak)
+	var fitErr error
+	if inst.ReservedMiB == 0 {
+		if fitErr = s.genFitCheck(inst, suggest); fitErr == nil {
+			inst.ReservedMiB = suggest
+		} else {
+			inst.Enabled = false
+		}
+	}
+	if err := s.gen.UpdateInstance(inst); err != nil {
+		return err
+	}
+	slog.Info("generation instance measured", "instance", id, "peak_mib", peak, "estimated", !perProcess, "reserved_mib", inst.ReservedMiB)
+	if fitErr != nil {
+		return fmt.Errorf("measured %s at peak, but the suggested reservation does not fit, so the instance was disabled: %w", mibText(peak), fitErr)
+	}
+	if wasRunning {
+		if err := s.startGenInstance(id); err != nil {
+			return fmt.Errorf("measured; restarting failed: %w", err)
+		}
+	}
+	return nil
+}
+
+// gpuUsedMiB is the monitor's current used-VRAM reading for a GPU.
+func (s *Server) gpuUsedMiB(gpu int) int {
+	for _, g := range s.monitor.Current().GPU {
+		if g.Index == gpu {
+			return g.VRAMUsedMB
+		}
+	}
+	return 0
+}
+
+// runMeasureGeneration sends the instance one fixed generation directly:
+// an image at the set's test size, or a 60-second song.
+func (s *Server) runMeasureGeneration(ctx context.Context, inst generation.Instance, set generation.ModelSet) error {
+	base := fmt.Sprintf("http://127.0.0.1:%d", inst.Port)
+	if set.Kind == generation.KindSD {
+		w, h := max(set.DefaultWidth, 64), max(set.DefaultHeight, 64)
+		_, err := postJSON(ctx, base+"/v1/images/generations", map[string]any{
+			"prompt": "a lighthouse on a rocky coast at sunset, photo", "size": fmt.Sprintf("%dx%d", w, h), "n": 1,
+			"response_format": "b64_json",
+		})
+		return err
+	}
+	lm, err := runAceJob(ctx, base, "/lm", measureSongRequest)
+	if err != nil {
+		return err
+	}
+	var enriched any
+	if err := json.Unmarshal(lm, &enriched); err != nil {
+		return fmt.Errorf("reading the /lm result: %w", err)
+	}
+	if list, ok := enriched.([]any); ok && len(list) > 0 {
+		enriched = list[0]
+	}
+	req, ok := enriched.(map[string]any)
+	if !ok {
+		return errors.New("unexpected /lm result")
+	}
+	req["output_format"] = "mp3"
+	_, err = runAceJob(ctx, base, "/synth", req)
+	return err
+}
+
+// runAceJob submits an ace-server job, waits for it, and returns its result.
+func runAceJob(ctx context.Context, base, path string, body any) ([]byte, error) {
+	out, err := postJSON(ctx, base+path, body)
+	if err != nil {
+		return nil, err
+	}
+	var job struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(out, &job); err != nil || job.ID == "" {
+		return nil, fmt.Errorf("%s returned no job ID", path)
+	}
+	for {
+		st, err := getBody(ctx, base+"/job?id="+job.ID)
+		if err != nil {
+			return nil, err
+		}
+		var status struct {
+			Status string `json:"status"`
+		}
+		json.Unmarshal(st, &status)
+		switch status.Status {
+		case "done":
+			return getBody(ctx, base+"/job?id="+job.ID+"&result=1")
+		case "failed", "cancelled", "error":
+			return nil, fmt.Errorf("%s job %s", path, status.Status)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+}
+
+func postJSON(ctx context.Context, url string, body any) ([]byte, error) {
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(raw))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return doBody(req)
+}
+
+func getBody(ctx context.Context, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	return doBody(req)
+}
+
+func doBody(req *http.Request) ([]byte, error) {
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	out, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("%s answered HTTP %d: %.200s", req.URL.Path, resp.StatusCode, out)
+	}
+	return out, nil
+}
+
+// handleGenSetReservation sets an instance's reservation by hand, in GiB.
+// It must fit, unless the instance is disabled (its reservation counts
+// only once it is enabled, when the fit is checked again).
+func (s *Server) handleGenSetReservation(w http.ResponseWriter, r *http.Request) {
+	store := s.genStore(w)
+	if store == nil {
+		return
+	}
+	inst, ok := s.genInstance(w, r, store)
+	if !ok {
+		return
+	}
+	r.ParseForm()
+	gib, err := strconv.ParseFloat(strings.TrimSpace(r.FormValue("reserved_gib")), 64)
+	if err != nil || gib < 0 || gib > 1024 {
+		http.Error(w, "the reservation must be a number of GiB", http.StatusBadRequest)
+		return
+	}
+	mib := int(gib*1024 + 0.5)
+	if inst.Enabled {
+		if err := s.genFitCheck(inst, mib); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+	}
+	inst.ReservedMiB = mib
+	if err := store.UpdateInstance(inst); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.genInstancesChanged(w, r)
+}

@@ -337,3 +337,27 @@ func TestPlanFitGivesTheDrafterASmallMicroBatchOnlyWhenNeeded(t *testing.T) {
 		t.Errorf("a plan without speculative decoding set a draft micro-batch of %d", r.Config.DraftUBatchSize)
 	}
 }
+
+// A generation reservation is taken off after the safety margin, so it
+// never shrinks the room left for the driver and the desktop. The R9700
+// case from the plan: 32,624 MiB card, 1,300 MiB desktop, Qwen-Image and
+// ACE-Step reserving 11,776 + 8,192 MiB.
+func TestCardBudgetWithReservations(t *testing.T) {
+	card := GPUSpec{VRAMTotalMiB: 32624, OtherUsedMiB: 1300}
+	plain := CardBudgetMiB(card)
+	card.ReservedMiB = 11776 + 8192
+	got := CardBudgetMiB(card)
+	if plain-got < 19960 || plain-got > 19970 {
+		t.Errorf("reservations took %d MiB off the budget, want 19968", plain-got)
+	}
+	// Margin is 8% of (32,624 − 1,300) = 2,506 MiB; what is left for LLMs:
+	if got < 8800 || got > 8900 {
+		t.Errorf("budget with reservations = %d MiB, want about 8,850", got)
+	}
+	if card.UsableMiB() != 32624-1300-19968 {
+		t.Errorf("UsableMiB = %d", card.UsableMiB())
+	}
+	if g := GPUMiB(Hardware{GPUs: []GPUSpec{card}}); g[0] != card.UsableMiB() {
+		t.Errorf("GPUMiB = %v, want the reservations taken off", g)
+	}
+}

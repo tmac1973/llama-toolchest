@@ -79,6 +79,10 @@ type Server struct {
 	genDownloads genDownloads
 	// genMgr runs the generation backend instances.
 	genMgr *generation.Manager
+	// genMeasure holds each instance's last measured-test-run error.
+	genMeasure genMeasureState
+	// genProcVRAM caches per-process VRAM readings briefly.
+	genProcVRAM procVRAMCache
 
 	// probeCache memoizes remote GGUF header probes, keyed by source,
 	// repo and file. A published file's layout does not change, so the
@@ -525,8 +529,9 @@ func (s *Server) templateFuncs() template.FuncMap {
 			numGPUs := len(cards)
 			perGPU := 32.0 // fallback
 			if numGPUs > 0 {
-				// What each card leaves free of other programs' use.
-				avail := func(c models.GPUSpec) float64 { return float64(max(0, c.VRAMTotalMiB-c.OtherUsedMiB)) / 1024.0 }
+				// What each card leaves free of other programs' use and
+				// generation reservations.
+				avail := func(c models.GPUSpec) float64 { return float64(c.UsableMiB()) / 1024.0 }
 				perGPU = avail(cards[0])
 				for _, c := range cards[1:] {
 					perGPU = min(perGPU, avail(c))
@@ -717,6 +722,8 @@ func (s *Server) buildRouter() chi.Router {
 			r.Post("/", s.handleGenCreateInstance)
 			r.Put("/{id}", s.handleGenEditInstance)
 			r.Delete("/{id}", s.handleGenDeleteInstance)
+			r.Post("/{id}/measure", s.handleGenMeasure)
+			r.Put("/{id}/reservation", s.handleGenSetReservation)
 			r.Post("/{id}/{action}", s.handleGenInstanceAction)
 			r.Get("/{id}/logs", s.handleGenInstanceLogs)
 		})

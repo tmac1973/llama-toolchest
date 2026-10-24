@@ -12,6 +12,7 @@
             <th title="The build the instance runs: the one chosen for it, or the newest successful build of its backend.">Build</th>
             <th>GPU</th>
             <th title="The port its API and built-in web UI listen on.">Port</th>
+            <th title="GPU memory held for the instance on its GPU, whether it is running or not, so starting it can never fail for lack of memory. The LLM fit planner leaves it free. Press Measure to work it out from a test generation.">VRAM reserved</th>
             <th>State</th>
             <th></th>
         </tr>
@@ -24,7 +25,21 @@
             <td>{{with .BuildLabel}}<kbd>{{.}}</kbd>{{else}}<small title="Build one on the Builds page.">no build</small>{{end}}</td>
             <td>{{.GPU}}{{with .GPUName}} <small>{{.}}</small>{{end}}</td>
             <td>{{.Port}}</td>
-            <td{{with .Status.Error}} title="{{.}}" style="cursor:help;"{{end}}>{{.Status.State}}{{if eq .Status.State "running"}} <small>{{.Status.Uptime}}</small>{{end}}</td>
+            <td>
+                {{- if .ReservedMiB}}<span title="{{if .MeasuredPeakMiB}}Measured peak {{printf "%.1f" .PeakGiB}} GiB on {{.MeasuredAt.Format "2006-01-02 15:04"}}{{if .MeasureEstimated}}, estimated from the whole GPU's use because the GPU tools gave no figure for this process{{end}}. {{end}}{{if eq .Kind "sd"}}sd-server is held to this amount.{{else}}ace-server cannot be held to an amount; this is the measured peak plus a margin, for planning.{{end}}" style="cursor:help;">{{printf "%.1f" .ReservedGiB}} GiB</span>
+                {{- else}}<small title="Not measured yet. The instance cannot start until it has a reservation.">none</small>{{end}}
+                {{- if and .SuggestedMiB (ne .SuggestedMiB .ReservedMiB)}} <small title="What the last measurement suggests: its peak plus 10%, rounded up to 0.5 GiB.">(suggested {{printf "%.1f" .SuggestedGiB}})</small>{{end}}
+                {{- if .MeasureEstimated}} <small>estimated (whole-GPU)</small>{{end}}
+                <details style="margin:0;">
+                    <summary style="font-size:0.75rem;">Change</summary>
+                    <form hx-put="/api/gen/instances/{{.ID}}/reservation" hx-target="#gen-instances" style="display:flex;gap:0.3rem;margin:0.2rem 0 0;" data-error-label="Reservation not set">
+                        <input type="number" name="reserved_gib" step="0.5" min="0" value="{{printf "%.1f" .ReservedGiB}}" style="margin:0;padding:0.1rem 0.3rem;width:5rem;font-size:0.8rem;">
+                        <button type="submit" class="outline" style="margin:0;padding:0.1rem 0.5rem;font-size:0.75rem;">Set</button>
+                    </form>
+                </details>
+            </td>
+            <td{{with .Status.Error}} title="{{.}}" style="cursor:help;"{{end}}>{{if .Measuring}}<span aria-busy="true">measuring…</span>{{else}}{{.Status.State}}{{if eq .Status.State "running"}} <small>{{.Status.Uptime}}</small>{{end}}{{end}}
+                {{- with .MeasureError}}<br><small style="color:var(--pico-del-color);" title="{{.}}">measurement failed</small>{{end}}</td>
             <td>
                 <span style="display:flex;gap:0.4rem;flex-wrap:wrap;">
                 {{- $id := .ID}}
@@ -35,6 +50,9 @@
                     <button type="button" class="outline" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/start" hx-target="#gen-instances" data-error-label="Not started">Start</button>
                 {{- end}}
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" onclick="openGenLog('{{$id}}', '{{.Name}}')">Logs</button>
+                {{- if not .Measuring}}
+                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/measure" hx-target="#gen-instances" title="Run one test generation with nothing else on this GPU and record the peak GPU memory use. Takes from under a minute to several minutes." data-error-label="Not measured">Measure</button>
+                {{- end}}
                 {{- if .Enabled}}
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/disable" hx-target="#gen-instances" title="Stops the instance and keeps it from running until enabled again." data-error-label="Not disabled">Disable</button>
                 {{- else}}

@@ -27,6 +27,7 @@ func (s *Server) handleGPUMap(w http.ResponseWriter, r *http.Request) {
 	}
 
 	allocations := models.ComputeAllocations(allModels, allConfigs, numGPUs)
+	allocations = append(allocations, s.genReservationAllocations()...)
 
 	// Build per-GPU data for the template
 	type GPUSegment struct {

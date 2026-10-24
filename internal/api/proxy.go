@@ -88,6 +88,11 @@ func (s *Server) newProxyHandler() http.Handler {
 			r.Body.Close()
 			if err == nil {
 				if loadErr := s.ensureModelLoadedForRequest(r.Context(), body); loadErr != nil {
+					var fitErr *genLLMFitError
+					if errors.As(loadErr, &fitErr) {
+						writeProxyError(w, http.StatusInsufficientStorage, "insufficient_vram", loadErr.Error())
+						return
+					}
 					writeProxyError(w, http.StatusServiceUnavailable, "auto_load_failed", loadErr.Error())
 					return
 				}
@@ -155,6 +160,9 @@ func (s *Server) ensureModelLoadedForRequest(ctx context.Context, body []byte) e
 		return fmt.Errorf("model %q is not in the router preset; restart the router to pick it up", regModel.PublicName())
 	}
 	if state != "loading" {
+		if err := s.checkLLMFitsReservations(regModel); err != nil {
+			return err
+		}
 		if err := s.process.LoadModel(routerName); err != nil {
 			return fmt.Errorf("auto-load %s: %w", regModel.PublicName(), err)
 		}

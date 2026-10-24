@@ -292,7 +292,7 @@ func (s *Server) helperVRAMBudget() float64 {
 		if g.IsIGPU {
 			continue
 		}
-		if gib := float64(max(0, g.VRAMTotalMiB-g.OtherUsedMiB)) / 1024; gib > best {
+		if gib := float64(g.UsableMiB()) / 1024; gib > best {
 			best = gib
 		}
 	}
