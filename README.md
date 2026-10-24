@@ -468,6 +468,8 @@ once the pool can fill first.
 The same `parallel`, `context_shared` and `context_per_request` values are
 also added to the `config` map in `GET /api/models/{id}/info` (the
 detailed per-model view), together with `context_pool`.
+`GET /v1/models` and `GET /v1/models/{model}` report them too, in each
+model's `meta` next to `context_size`.
 
 ## License
 

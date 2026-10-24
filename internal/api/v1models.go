@@ -19,12 +19,14 @@ func (s *Server) openAIModel(m *models.Model, cfg *models.ModelConfig) map[strin
 		"capabilities": m.Capabilities(cfg),
 	}
 	if cfg != nil {
-		// 0 means "use model default" (n_ctx_train)
-		if cfg.ContextSize > 0 {
-			meta["context_size"] = cfg.ContextSize
-		} else {
-			meta["context_size"] = m.ContextLength
-		}
+		// The same context fields as the capabilities object, so a client
+		// that reads only /v1/models compacts against what one
+		// conversation can use, not the whole pool.
+		layout := s.servedContextLayout(m, cfg)
+		meta["context_size"] = layout.Pool
+		meta["parallel"] = layout.Slots
+		meta["context_shared"] = layout.Shared
+		meta["context_per_request"] = layout.PerConversation
 	}
 
 	obj := map[string]any{
