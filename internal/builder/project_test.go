@@ -178,3 +178,26 @@ func TestBuildIDRef(t *testing.T) {
 		}
 	}
 }
+
+// acestep.cpp's own CUDA list includes sm_121a, which CUDA 12.8 rejects;
+// toolchest picks the architectures instead.
+func TestAceMapFlags(t *testing.T) {
+	ace, _ := FindProject(ProjectAceStep)
+	for _, tc := range []struct {
+		in   map[string]string
+		want string
+	}{
+		{map[string]string{"GGML_CUDA": "ON", "GGML_NATIVE": "ON"}, "native"},
+		{map[string]string{"GGML_CUDA": "ON"}, aceSafeCUDAArchs},
+		{map[string]string{"GGML_CUDA": "ON", "CMAKE_CUDA_ARCHITECTURES": "86"}, "86"},
+		{map[string]string{"GGML_HIP": "ON", "GGML_NATIVE": "ON"}, ""},
+	} {
+		ace.MapFlags(tc.in)
+		if got := tc.in["CMAKE_CUDA_ARCHITECTURES"]; got != tc.want {
+			t.Errorf("CMAKE_CUDA_ARCHITECTURES = %q, want %q", got, tc.want)
+		}
+	}
+	if strings.Contains(aceSafeCUDAArchs, "121") {
+		t.Error("the fallback list still has sm_121a")
+	}
+}

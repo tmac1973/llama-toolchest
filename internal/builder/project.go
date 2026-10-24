@@ -109,6 +109,7 @@ func projects() []Project {
 		Submodules: true,
 		IDPrefix:   "ace-",
 		Backends:   gpuOnly,
+		mapFlags:   aceMapFlags,
 		Required:   BinarySpec{"ace-server", []string{"ace-server", filepath.Join("bin", "ace-server")}},
 		Optional: []BinarySpec{
 			{"ace-lm", []string{"ace-lm", filepath.Join("bin", "ace-lm")}},
@@ -192,6 +193,31 @@ func sdMapFlags(flags map[string]string) {
 	}
 	// llama.cpp's own option; sd.cpp has no such switch.
 	delete(flags, "LLAMA_OPENSSL")
+}
+
+// aceSafeCUDAArchs is acestep.cpp's own CUDA architecture list without
+// sm_121a. Upstream picks sm_121a whenever CUDA is 12.8 or newer, but
+// nvcc only accepts it from CUDA 12.9, so the CUDA 12.8 container image
+// failed at cmake with "Unsupported gpu architecture 'compute_121a'".
+const aceSafeCUDAArchs = "75-virtual;80-virtual;86-real;89-real;120a-real"
+
+// aceMapFlags chooses the CUDA architectures for acestep.cpp, which does
+// not follow GGML_NATIVE for them: the GPUs present when native CPU
+// optimizations are on, as llama.cpp and sd.cpp do, otherwise
+// aceSafeCUDAArchs. A value from the build's extra cmake flags is applied
+// afterwards and wins.
+func aceMapFlags(flags map[string]string) {
+	if flags["GGML_CUDA"] != "ON" {
+		return
+	}
+	if _, set := flags["CMAKE_CUDA_ARCHITECTURES"]; set {
+		return
+	}
+	if flags["GGML_NATIVE"] == "ON" {
+		flags["CMAKE_CUDA_ARCHITECTURES"] = "native"
+	} else {
+		flags["CMAKE_CUDA_ARCHITECTURES"] = aceSafeCUDAArchs
+	}
 }
 
 // llamaLatestRef is the newest bN nightly tag, the meaning "latest" has
