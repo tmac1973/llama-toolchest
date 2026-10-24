@@ -1,0 +1,123 @@
+{{/* The Models page's Generation models section: the catalog, the sets
+     on this machine, and the custom set form. Data: genModelsData
+     (gen_models.go). While any set is downloading, the hidden poller
+     re-fetches the section every 3 seconds. */}}
+{{define "gen_model_sets"}}
+{{- $downloading := false}}
+{{- range .Sets}}{{if .Downloading}}{{$downloading = true}}{{end}}{{end}}
+{{- if $downloading}}
+<div hidden hx-get="/api/gen/models" hx-trigger="every 3s" hx-target="#gen-model-sets" hx-swap="innerHTML"></div>
+{{- end}}
+
+<article>
+    <header>Catalog</header>
+    <p style="font-size:0.9rem;">Known-good sets that download in one click.
+    {{- if ge .FreeGB 0.0}} <span title="Free disk space a new download may use, after the safety margin and the downloads already running.">{{printf "%.0f" .FreeGB}} GB free.</span>{{end}}</p>
+    <table role="grid">
+        <thead>
+            <tr><th>Set</th><th>Backend</th><th title="Total download size of every file in the set.">Size</th><th>Licence</th><th></th></tr>
+        </thead>
+        <tbody>
+        {{- range .Catalog}}
+            <tr>
+                <td title="{{.Notes}}" style="cursor:help;">{{.Name}}{{range .Capabilities}} <kbd title="{{if eq . "alpha"}}Outputs an alpha channel (transparent backgrounds).{{else if eq . "edit"}}Can edit an image you send.{{end}}">{{.}}</kbd>{{end}}</td>
+                <td>{{if eq .Kind "sd"}}Image{{else}}Music{{end}}</td>
+                <td>{{printf "%.1f" .SizeGB}} GB</td>
+                <td><small>{{.License}}</small></td>
+                <td>
+                    {{- if .Installed}}<small>On this machine</small>
+                    {{- else}}
+                    <button type="button" class="outline" style="margin:0;padding:0.2rem 0.6rem;font-size:0.8rem;"
+                            hx-post="/api/gen/models/catalog/{{.ID}}/download"
+                            hx-target="#gen-model-sets" hx-swap="innerHTML"
+                            data-error-label="Download not started">Download</button>
+                    {{- end}}
+                </td>
+            </tr>
+        {{- end}}
+        </tbody>
+    </table>
+</article>
+
+<article>
+    <header>On this machine</header>
+    {{- if not .Sets}}
+    <p><small>No generation model sets yet. Download one from the catalog, or add one from files you already have.</small></p>
+    {{- else}}
+    <table role="grid">
+        <thead>
+            <tr><th>Set</th><th>Backend</th><th title="sd-server recipe the set follows; music sets have none.">Recipe</th><th>Status</th><th></th></tr>
+        </thead>
+        <tbody>
+        {{- range .Sets}}
+            <tr>
+                <td><span title="{{range .Components}}{{.Slot}}: {{if .Path}}{{.Path}}{{else}}{{.Repo}}/{{.File}} (not downloaded){{end}}&#10;{{end}}" style="cursor:help;">{{.Name}}</span>{{if not .CatalogID}} <small>(custom)</small>{{end}}</td>
+                <td>{{if eq .Kind "sd"}}Image{{else}}Music{{end}}</td>
+                <td>{{with .Recipe}}<code>{{.}}</code>{{else}}—{{end}}</td>
+                <td>
+                    {{- if .Complete}}Ready
+                    {{- else if .Downloading}}
+                    <progress value="{{.Percent}}" max="100" style="margin:0;" title="{{printf "%.1f" .DoneGB}} of {{printf "%.1f" .TotalGB}} GB downloaded"></progress>
+                    <small>{{.Percent}}%</small>
+                    {{- else}}
+                    <span title="{{with .FailedError}}The download failed: {{.}}{{else}}Some files are missing, for example because llama-toolchest restarted during the download.{{end}}" style="cursor:help;">Incomplete{{if .FailedError}} (failed){{end}}</span>
+                    {{- if .CatalogID}}
+                    <button type="button" class="outline" style="margin:0 0 0 0.5rem;padding:0.1rem 0.5rem;font-size:0.8rem;"
+                            hx-post="/api/gen/models/catalog/{{.CatalogID}}/download"
+                            hx-target="#gen-model-sets" hx-swap="innerHTML"
+                            data-error-label="Download not resumed">Resume</button>
+                    {{- end}}
+                    {{- end}}
+                </td>
+                <td>
+                    <button type="button" class="outline secondary" style="margin:0;padding:0.1rem 0.5rem;font-size:0.8rem;"
+                            hx-delete="/api/gen/models/sets/{{.ID}}"
+                            hx-confirm="{{if .CatalogID}}Delete {{.Name}} and its downloaded files? Files another set also uses are kept.{{else}}Remove {{.Name}} from the list? Your files are not deleted.{{end}}"
+                            hx-target="#gen-model-sets" hx-swap="innerHTML"
+                            data-error-label="Not deleted">Delete</button>
+                </td>
+            </tr>
+        {{- end}}
+        </tbody>
+    </table>
+    {{- end}}
+</article>
+
+<details>
+    <summary>Add a custom set from files on disk</summary>
+    <form hx-post="/api/gen/models/sets" hx-target="#gen-model-sets" hx-swap="innerHTML"
+          data-error-label="Set not added">
+        <div class="grid">
+            <label title="Shown in the UI. The set's ID, which API clients use, is made from it.">Name
+                <input type="text" name="name" required placeholder="e.g. qwen-turbo-local">
+            </label>
+            <label>Backend
+                <select name="kind">
+                    <option value="sd">Image (stable-diffusion.cpp)</option>
+                    <option value="ace">Music (acestep.cpp)</option>
+                </select>
+            </label>
+            <label title="The sd-server recipe the files follow; it decides which files are needed. Ignored for music sets.">Recipe
+                <select name="recipe">
+                    {{- range .Recipes}}<option value="{{.}}">{{.}}</option>{{end}}
+                </select>
+            </label>
+        </div>
+        <label title="One file per line, as slot = /absolute/path. Image slots: diffusion_model, model, llm, llm_vision, tokenizer, vae, tae, clip_l, t5xxl (which ones a recipe needs depends on the recipe). Music slots: lm, dit, embedding, vae (all four are needed).">Files
+            <textarea name="files" rows="4" placeholder="diffusion_model = /models/qwen-image-2.1-turbo-Q4_K_M.gguf&#10;llm = /models/Qwen3VL-8B-Instruct-Q4_K_M.gguf&#10;vae = /models/qwen_image_2.1_vae_bf16.safetensors"></textarea>
+        </label>
+        <div class="grid">
+            <label title="Image size the measured test run uses. Ignored for music sets.">Test width
+                <input type="number" name="width" value="1024" min="64" step="16">
+            </label>
+            <label title="Image size the measured test run uses. Ignored for music sets.">Test height
+                <input type="number" name="height" value="1024" min="64" step="16">
+            </label>
+        </div>
+        <label title="Extra backend flags, for example --sigmas qwen-image-2.1-turbo --cfg-scale 1. The listen address, port, VRAM limit and model directory are set by llama-toolchest and cannot be given here.">Extra launch arguments
+            <input type="text" name="launch_args" placeholder="--steps 8 --cfg-scale 1">
+        </label>
+        <button type="submit">Add set</button>
+    </form>
+</details>
+{{end}}

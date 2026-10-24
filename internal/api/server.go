@@ -73,6 +73,10 @@ type Server struct {
 	// and the file is left alone rather than replaced by an empty store.
 	gen    *generation.Store
 	genErr error
+	// genSetMu serializes read-modify-write updates of model sets, which
+	// download completions make from their own goroutines.
+	genSetMu     sync.Mutex
+	genDownloads genDownloads
 
 	// probeCache memoizes remote GGUF header probes, keyed by source,
 	// repo and file. A published file's layout does not change, so the
@@ -700,6 +704,12 @@ func (s *Server) buildRouter() chi.Router {
 			r.Get("/{id}/vram-estimate", s.handleModelVRAMEstimate)
 			r.Get("/{id}/vram-corpus", s.handleVRAMCorpus)
 		})
+		r.Route("/gen/models", func(r chi.Router) {
+			r.Get("/", s.handleGenModels)
+			r.Post("/catalog/{id}/download", s.handleGenCatalogDownload)
+			r.Post("/sets", s.handleGenCreateSet)
+			r.Delete("/sets/{id}", s.handleGenDeleteSet)
+		})
 		r.Route("/hf", func(r chi.Router) {
 			r.Get("/search", s.handleHFSearch)
 			r.Get("/model", s.handleHFModel)
@@ -844,7 +854,17 @@ func (s *Server) buildEnvBanner() (env, baseImage string) {
 }
 
 func (s *Server) handleModelsPage(w http.ResponseWriter, r *http.Request) {
-	s.render(w, "models.html", pageData{Title: "Models", Nav: "models"})
+	s.render(w, "models.html", modelsPageData{
+		pageData:          pageData{Title: "Models", Nav: "models"},
+		GenerationEnabled: s.cfg.GenerationEnabled,
+	})
+}
+
+// modelsPageData is what models.html renders.
+type modelsPageData struct {
+	pageData
+	// GenerationEnabled shows the Generation models section.
+	GenerationEnabled bool
 }
 
 // benchmarksPageData is what benchmarks.html renders.
