@@ -235,20 +235,31 @@ function filterBenchmarks(input, q) {
 }
 
 // --- Preserve job-row expansion state across list refreshes (the list
-//     only refreshes on jobChanged now — no auto-poll — so this only
-//     fires when the user does something explicit, but still important
-//     so e.g. deleting one job doesn't collapse all the others.
+//     refreshes on jobChanged: a job action, or the version check below
+//     when a job's status or counts change, such as a cell finishing), so
+//     e.g. deleting one job doesn't collapse all the others.
 //     The bulk-delete selection is kept the same way, so a refresh from
 //     another job action does not clear what the user has selected.
+//
+//     The refresh must also leave the page where it was. htmx puts the
+//     new list in before it removes the old one, and when an element in
+//     the old list has focus (the summary of the row the user opened),
+//     Chrome's scroll anchoring follows it down by the height of the new
+//     list: the page jumped to the bottom each time a cell finished. So
+//     focus is removed first. And an open row comes back empty until its
+//     detail loads again, which made the page shorter for a moment; each
+//     reopened slot keeps its old height until then.
 (function() {
-    var openSet = new Set();
+    var openHeights = new Map();
     var selectedSet = new Set();
     document.body.addEventListener('htmx:beforeSwap', function(e) {
         var t = e.detail && e.detail.target;
         if (t && t.id === 'job-list') {
-            openSet.clear();
+            if (t.contains(document.activeElement)) document.activeElement.blur();
+            openHeights.clear();
             t.querySelectorAll('details.job-row[open]').forEach(function(d) {
-                openSet.add(d.dataset.jobId);
+                var slot = d.querySelector('.job-detail-slot');
+                openHeights.set(d.dataset.jobId, slot ? slot.offsetHeight : 0);
             });
             selectedSet.clear();
             t.querySelectorAll('.job-select:checked').forEach(function(c) {
@@ -264,13 +275,16 @@ function filterBenchmarks(input, q) {
             });
             updateJobSelection();
             t.querySelectorAll('details.job-row').forEach(function(d) {
-                if (!openSet.has(d.dataset.jobId)) return;
+                if (!openHeights.has(d.dataset.jobId)) return;
                 d.open = true;
                 d.dataset.loaded = '1';
                 var slot = d.querySelector('.job-detail-slot');
                 if (!slot) return;
                 var url = slot.getAttribute('hx-get');
-                if (url) htmx.ajax('GET', url, {target: slot, swap: 'innerHTML'});
+                if (!url) return;
+                slot.style.minHeight = openHeights.get(d.dataset.jobId) + 'px';
+                var release = function() { slot.style.minHeight = ''; };
+                htmx.ajax('GET', url, {target: slot, swap: 'innerHTML'}).then(release, release);
             });
         }
     });
