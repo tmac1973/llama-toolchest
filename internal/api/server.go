@@ -86,7 +86,9 @@ type Server struct {
 	// genQueue lets one image or music job run per GPU at a time.
 	genQueue *generation.Queue
 	// genMusic holds this run's music jobs.
-	genMusic musicJobs
+	genMusic jobStore[musicJob]
+	// genImageJobs holds this run's image jobs.
+	genImageJobs jobStore[imageJob]
 
 	// probeCache memoizes remote GGUF header probes, keyed by source,
 	// repo and file. A published file's layout does not change, so the
@@ -281,7 +283,7 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 	// before anything can launch the router, so no load goes unwatched.
 	go s.watchRouterMemory()
 	go s.watchOtherVRAM()
-	go s.watchMusicJobs()
+	go s.watchGenJobs()
 	s.env = newJobEnv(s)
 	s.jobs = benchmark.NewJobQueue(s.bench, s.env)
 	s.downloader.SetOnComplete(s.onDownloadComplete)
@@ -798,6 +800,10 @@ func (s *Server) buildRouter() chi.Router {
 		// llama router.
 		r.Post("/images/generations", s.handleGenImages)
 		r.Post("/images/edits", s.handleGenImages)
+		r.Post("/images/jobs", s.handleImageJobCreate)
+		r.Get("/images/jobs/{id}", s.handleImageJobGet)
+		r.Get("/images/jobs/{id}/image/{n}", s.handleImageJobImage)
+		r.Delete("/images/jobs/{id}", s.handleImageJobDelete)
 		r.Post("/music/jobs", s.handleMusicCreate)
 		r.Get("/music/jobs/{id}", s.handleMusicGet)
 		r.Get("/music/jobs/{id}/audio", s.handleMusicAudio)

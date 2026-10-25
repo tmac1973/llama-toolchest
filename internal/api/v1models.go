@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"slices"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tmac1973/llama-toolchest/internal/generation"
@@ -91,13 +92,18 @@ func (s *Server) genV1Model(inst generation.Instance) map[string]any {
 	if err != nil {
 		return nil
 	}
-	kind := "image"
-	if set.Kind == generation.KindAce {
-		kind = "music"
-	}
 	caps := set.Capabilities
 	if caps == nil {
 		caps = []string{}
+	}
+	// api lists the route groups that serve this model, so a client can
+	// tell what this build supports without trying each route.
+	kind, api := "image", []string{"images.sync", "images.jobs"}
+	if slices.Contains(caps, "edit") {
+		api = append(api, "images.edits")
+	}
+	if set.Kind == generation.KindAce {
+		kind, api = "music", []string{"music.jobs", "music.ace_step"}
 	}
 	return map[string]any{
 		"id":       inst.ID,
@@ -112,6 +118,7 @@ func (s *Server) genV1Model(inst generation.Instance) map[string]any {
 			"gpu":          inst.GPU,
 			"reserved_mib": inst.ReservedMiB,
 			"state":        s.genMgr.Status(inst.ID).State,
+			"api":          api,
 		},
 	}
 }

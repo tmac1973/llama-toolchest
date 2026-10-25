@@ -463,6 +463,7 @@
 
     <h3 id="generation-api">Using the image and music API</h3>
     <p>Generation instances appear in <code>/v1/models</code> with <code>meta.kind</code> set to <code>image</code> or <code>music</code> (LLMs are <code>text</code>). Use the instance's ID, or its model set's ID, as <code>model</code>.</p>
+    <p>Their <code>meta.api</code> lists the routes that serve them, so a client can tell what this version of llama-toolchest supports without trying each route. Image instances have <code>images.sync</code> (<code>/v1/images/generations</code>) and <code>images.jobs</code> (<code>/v1/images/jobs</code>), plus <code>images.edits</code> when the set can edit. Music instances have <code>music.jobs</code> (<code>/v1/music/jobs</code>) and <code>music.ace_step</code> (the ACE-Step compatible routes). LLMs have no <code>meta.api</code>. Older versions have no <code>meta.api</code> on any entry; there, only the synchronous image routes and music jobs exist.</p>
     <pre>curl $BASE/v1/images/generations \
   -H "Content-Type: application/json" \
   -d '{"model": "ming-image", "prompt": "a red fox sticker", "size": "1024x1024", "response_format": "b64_json"}'</pre>
@@ -470,7 +471,20 @@
     <pre>{"model": "ming-image", "size": "1024x1024", "response_format": "b64_json",
  "prompt": "&lt;sd_cpp_extra_args&gt;{\"init_image\": \"iVBORw0KGgo…\", \"strength\": 0.9}&lt;/sd_cpp_extra_args&gt;RGBA, 4-channel, transparent background. a red fox sticker"}</pre>
     <p>Measured: 84–89% of the pixels came back clear around a cleanly cut-out subject, on ROCm, Vulkan and CUDA.</p>
-    <p>Images use the standard OpenAI routes <code>/v1/images/generations</code> and <code>/v1/images/edits</code> (edits only on sets that can edit). Music has no standard API, so there are two:</p>
+    <p>Images use the standard OpenAI routes <code>/v1/images/generations</code> and <code>/v1/images/edits</code> (edits only on sets that can edit). These wait until the image is done, which can take minutes while other jobs run first, and say nothing until then.</p>
+    <h4 id="generation-image-jobs">Image jobs</h4>
+    <p><code>POST /v1/images/jobs</code> takes the same JSON as <code>/v1/images/generations</code> (not a multipart form) and answers at once with HTTP 202 and a job ID. Check the job until its <code>status</code> is <code>succeeded</code>, <code>failed</code> or <code>cancelled</code>, then download each image as a PNG:</p>
+    <pre>curl $BASE/v1/images/jobs -H "Content-Type: application/json" \
+  -d '{"model": "ming-image", "prompt": "a red fox", "size": "1024x1024"}'
+# {"id": "3f9c…", "status": "queued", "phase": "queued", "queue_position": 2}
+
+curl $BASE/v1/images/jobs/3f9c…
+# {"id": "3f9c…", "status": "succeeded", "images": [{"url": "/v1/images/jobs/3f9c…/image/0"}], …}
+
+curl -o fox.png $BASE/v1/images/jobs/3f9c…/image/0</pre>
+    <p>The job's <code>request</code> shows only <code>model</code>, <code>prompt</code>, <code>size</code> and <code>n</code>; an <code>init_image</code> and the <code>&lt;sd_cpp_extra_args&gt;</code> block are left out. Downloading an image before the job succeeds gives HTTP 409. When the GPU's queue is full, creating a job gives HTTP 429 with <code>Retry-After: 30</code>. <code>DELETE /v1/images/jobs/{id}</code> cancels a job. A waiting job leaves the queue at once. <strong>A running job cannot be interrupted:</strong> sd-server finishes the image, which is then thrown away, and the GPU's next job starts only after that. Images are kept for 24 hours.</p>
+    <p><strong>Phases.</strong> Image and music jobs have a <code>phase</code> that says what a job is doing while it waits or runs. Image jobs: <code>queued</code>, <code>generating</code>, <code>saving</code>. Music jobs: <code>queued</code>, <code>composing</code> (lyrics and arrangement), <code>synthesizing</code> (the audio), <code>saving</code>. A finished job has no <code>phase</code>. While a job is <code>queued</code>, <code>queue_position</code> says how many jobs are ahead of it; a job waiting for a benchmark or Autotune measurement to give the GPU back stays <code>queued</code> too.</p>
+    <p>Music has no standard API, so there are two:</p>
     <dl>
         <dt>llama-toolchest's music jobs</dt><dd><code>POST /v1/music/jobs</code> with a <code>caption</code> (and optionally <code>lyrics</code>, <code>duration</code>, <code>seed</code> and more) returns a job ID. Check it with <code>GET /v1/music/jobs/{id}</code>, download the song from <code>/v1/music/jobs/{id}/audio</code>, and cancel it with <code>DELETE</code>. The caption is used as written unless you set <code>rewrite_caption</code>. Songs are kept for 24 hours.</dd>
         <dt>ACE-Step compatible routes</dt><dd><code>/release_task</code>, <code>/query_result</code> and <code>/v1/audio</code> follow the official ACE-Step 1.5 server's API, so tools written for that server can point here. Their model names fall back to your only music instance.</dd>

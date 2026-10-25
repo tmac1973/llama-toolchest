@@ -11,6 +11,7 @@ import (
 	"net/textproto"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -193,6 +194,42 @@ func TestMusicJobSucceeds(t *testing.T) {
 	if h := s.genQueue.History(0); len(h) != 1 || h[0].Kind != generation.KindAce {
 		t.Errorf("queue history %+v", h)
 	}
+}
+
+// A job's phase follows its steps and is empty once it ends.
+func TestMusicJobPhases(t *testing.T) {
+	s, _ := musicServer(t)
+	phases := recordPhases(&s.genMusic, func(j musicJob) string { return j.Phase })
+	busy, _ := s.genQueue.Submit(0, "other", generation.KindSD)
+	rec := postMusic(s, `{"caption":"x"}`)
+	if !strings.Contains(rec.Body.String(), `"phase":"queued"`) {
+		t.Errorf("create: %s", rec.Body.String())
+	}
+	id := createdID(t, rec)
+	busy.Done()
+	j := waitMusic(t, s, id, musicSucceeded)
+	if want := []string{"composing", "synthesizing", "saving", ""}; !slices.Equal(phases(), want) {
+		t.Errorf("phases = %v, want %v", phases(), want)
+	}
+	rec = httptest.NewRecorder()
+	s.handleMusicGet(rec, withID(httptest.NewRequest("GET", "/", nil), id))
+	if j.Phase != "" || strings.Contains(rec.Body.String(), `"phase"`) {
+		t.Errorf("a finished job shows a phase: %s", rec.Body.String())
+	}
+}
+
+// On a free GPU the job starts at once, and the first answer says so.
+func TestMusicJobStartsAtOnceOnAFreeGPU(t *testing.T) {
+	s, f := musicServer(t)
+	f.mu.Lock()
+	f.hold = make(chan struct{})
+	f.mu.Unlock()
+	defer close(f.hold)
+	rec := postMusic(s, `{"caption":"x"}`)
+	if !strings.Contains(rec.Body.String(), `"status":"running"`) || !strings.Contains(rec.Body.String(), `"phase":"composing"`) {
+		t.Errorf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	s.cancelMusic(createdID(t, rec))
 }
 
 func TestMusicCancelQueuedAndRunning(t *testing.T) {

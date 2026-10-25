@@ -231,6 +231,58 @@ Found but not fixed here, because they are older than this feature:
   are fixed separately, in #318. The asmodean checks here ran before it was
   merged, with a one-line SELinux relabel added to the test copy only.
 
+## Haruspex client (2026-10-24)
+
+Haruspex is adding toolchest as an image and music backend (tracking issue
+tmac1973/haruspex#630). Its plan needs three things from toolchest, added
+here:
+
+- async image jobs at `/v1/images/jobs`, which mirror `/v1/music/jobs`:
+  create (202), get, download each image as a PNG, and cancel. A running
+  image job cannot be interrupted: sd-server finishes it, the result is
+  thrown away, and the GPU's slot is released then;
+- a `phase` on image jobs (`queued`, `generating`, `saving`) and music jobs
+  (`queued`, `composing`, `synthesizing`, `saving`), empty once a job ends;
+- `meta.api` on generation entries in `/v1/models`: `images.sync`,
+  `images.jobs` and, for sets that can edit, `images.edits`; or `music.jobs`
+  and `music.ace_step`.
+
+Haruspex uses image jobs when `meta.api` includes `images.jobs` and falls
+back to `/v1/images/generations` otherwise, so the synchronous route and
+the music API keep their shapes. Covered by the Go tests against the fake
+sd-server and ace-server, and checked on asmodean (R9700, ROCm, Qwen-Image
+2.1 Turbo, build `fa72b26`):
+
+- `/v1/models` shows `meta.api` on the image and music entries and none on
+  the LLM;
+- a 512×512 job went `queued` → `running/generating` → `succeeded` in 9 s,
+  and `/image/0` returned a 512×512 PNG; `/image/1` gave 404;
+- with one job running, a second one was `queued` at position 1, and its
+  `/image/0` gave 409. `DELETE` emptied the queue's waiting list;
+- `DELETE` on the running job set `cancelled` at once. sd-server kept the
+  GPU until it finished, 5 s later. No image was saved, and the slot was then
+  free;
+- a multipart body gave 400, an unknown ID 404, and
+  `/v1/images/generations` still answered as before.
+
+After a fix, the 202 reply says `running` with the first phase when the GPU
+is free, instead of `queued` at position 0. Checked with build `dbe7396` on
+asmodean, and on compute2 (3× RTX A4000, CUDA; FLUX.2 klein on GPU 1,
+ACE-Step turbo on GPU 2):
+
+- `/v1/models` gives FLUX.2 klein, which can edit,
+  `["images.sync","images.jobs","images.edits"]` and ACE-Step
+  `["music.jobs","music.ace_step"]`;
+- three 1024×1024 jobs sent together got `running/generating`, then
+  `queued` at positions 1 and 2. The third one was cancelled and left the
+  queue. The first two succeeded in turn, in 9.5 s and 5 s, and their
+  images downloaded as 1024×1024 PNGs;
+- a running job cancelled after 1 s kept GPU 1 until FLUX finished, 5 s
+  later, and saved no image;
+- a 10 s music job went `running/composing` → `running/synthesizing` →
+  `succeeded` in 6 s, and its audio downloaded as an MP3. `saving` was too
+  short to catch by polling.
+
 ## Not run
 
 - **Mixed-vendor server (step 4):** the RTX 3090 is not installed in asmodean

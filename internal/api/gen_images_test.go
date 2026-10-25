@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tmac1973/llama-toolchest/internal/generation"
+	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/process"
 )
 
@@ -291,6 +293,48 @@ func TestV1ModelsListsInstances(t *testing.T) {
 	s.cfg.GenerationEnabled = false
 	if off := list(); strings.Contains(off, "kind") || strings.Contains(off, "ming") {
 		t.Errorf("list with generation off changed: %s", off)
+	}
+}
+
+// meta.api lists the route groups for each generation entry; text
+// entries have none.
+func TestV1ModelsMetaAPI(t *testing.T) {
+	s, _ := musicServer(t)
+	addInstance(t, s, generation.Instance{ID: "ming", Port: 8081, Enabled: true, ReservedMiB: 4096})
+	if err := s.gen.AddModelSet(generation.ModelSet{ID: "klein", Name: "klein", Kind: generation.KindSD, Capabilities: []string{"edit"}}); err != nil {
+		t.Fatal(err)
+	}
+	addInstance(t, s, generation.Instance{ID: "klein", ModelSetID: "klein", Port: 8082, Enabled: true, ReservedMiB: 4096})
+	if err := s.registry.Add(&models.Model{ID: "chat", ModelID: "org/chat", Filename: "chat.gguf"}); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	s.handleV1Models(rec, httptest.NewRequest("GET", "/v1/models", nil))
+	var out struct {
+		Data []struct {
+			ID   string
+			Meta map[string]any
+		}
+	}
+	json.Unmarshal(rec.Body.Bytes(), &out)
+	want := map[string]string{
+		"ming":  "[images.sync images.jobs]",
+		"klein": "[images.sync images.jobs images.edits]",
+		"music": "[music.jobs music.ace_step]",
+	}
+	for _, m := range out.Data {
+		api, has := m.Meta["api"]
+		if w, ok := want[m.ID]; ok {
+			if fmt.Sprint(api) != w {
+				t.Errorf("%s: meta.api = %v, want %s", m.ID, api, w)
+			}
+			delete(want, m.ID)
+		} else if has {
+			t.Errorf("text entry %s has meta.api %v", m.ID, api)
+		}
+	}
+	if len(want) != 0 || len(out.Data) != 4 {
+		t.Errorf("missing entries: %v (list %s)", want, rec.Body.String())
 	}
 }
 
