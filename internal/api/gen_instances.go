@@ -530,7 +530,12 @@ func (s *Server) genInstancesChanged(w http.ResponseWriter, r *http.Request) {
 // not depend on the router's own auto-start setting; when the router is
 // auto-starting too, it waits until the router is running or has failed.
 func (s *Server) autoStartGenInstances(afterRouter bool) {
-	if !s.cfg.GenerationEnabled || s.gen == nil {
+	// Under cfgMu: this runs in the background, also right after Settings
+	// switched generation on, while a further save can change it.
+	s.cfgMu.Lock()
+	on := s.cfg.GenerationEnabled
+	s.cfgMu.Unlock()
+	if !on || s.gen == nil {
 		return
 	}
 	if afterRouter {

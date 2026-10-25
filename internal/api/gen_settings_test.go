@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/config"
 )
@@ -40,6 +41,39 @@ func TestGenerationSwitchSavesAndReloads(t *testing.T) {
 	if s.cfg.GenerationEnabled {
 		t.Error("GenerationEnabled still on after turning the switch off")
 	}
+}
+
+// Switching generation on in Settings starts the auto-start instances,
+// as starting llama-toolchest does. It used to start nothing, so they
+// stayed stopped until the next restart. Only the switch from off to on
+// starts them: a save while it is already on, or turning it off, does not.
+func TestGenerationSwitchOnStartsAutoStartInstances(t *testing.T) {
+	s := newSettingsServer(t, &config.Config{LlamaPort: 8080, ListenAddr: ":3000"})
+	started := make(chan struct{}, 4)
+	s.genAutoStartFn = func() { started <- struct{}{} }
+	expect := func(what string, want bool) {
+		t.Helper()
+		select {
+		case <-started:
+			if !want {
+				t.Errorf("%s: auto-start ran", what)
+			}
+		case <-time.After(200 * time.Millisecond):
+			if want {
+				t.Errorf("%s: auto-start did not run", what)
+			}
+		}
+	}
+
+	on := url.Values{"generation_touched": {"1"}, "generation_enabled": {"on"}}
+	putSettingsForm(s, on)
+	expect("switched on", true)
+	putSettingsForm(s, on)
+	expect("saved while on", false)
+	putSettingsForm(s, url.Values{"generation_touched": {"1"}})
+	expect("switched off", false)
+	putSettingsForm(s, on)
+	expect("switched on again", true)
 }
 
 func TestGenPortRangeValidated(t *testing.T) {
