@@ -80,7 +80,7 @@ func ProfileOptions(profile string) []BuildOption {
 	forceMMQ := BuildOption{
 		Flag:        "GGML_CUDA_FORCE_MMQ",
 		Label:       "Force Custom Matrix Multiply (MMQ)",
-		Description: "Always use llama.cpp's custom quantized matmul kernels instead of the BLAS library. Lower VRAM use; often faster on consumer GPUs, can be slower at large batch sizes on datacenter cards. Mutually exclusive with Force cuBLAS.",
+		Description: "Always use ggml's own matrix-multiply kernels (MMQ) for quantized weights instead of the BLAS library. Lower VRAM use; often faster on consumer GPUs, can be slower at large batch sizes on datacenter cards. Mutually exclusive with Force cuBLAS.",
 		Default:     false,
 	}
 
@@ -91,14 +91,14 @@ func ProfileOptions(profile string) []BuildOption {
 			{
 				Flag:        "GGML_CUDA_FORCE_CUBLAS",
 				Label:       "Force cuBLAS",
-				Description: "Always use cuBLAS instead of the custom MMQ kernels. Can help prompt processing on datacenter GPUs with strong tensor cores. Mutually exclusive with Force MMQ.",
+				Description: "Always use cuBLAS instead of ggml's MMQ kernels. Can help large batches (for an LLM, prompt processing) on datacenter GPUs with strong tensor cores. Mutually exclusive with Force MMQ.",
 				Default:     false,
 			},
 			faAllQuants,
 			{
 				Flag:        "GGML_CUDA_GRAPHS",
 				Label:       "CUDA Graphs",
-				Description: "Batch kernel launches into CUDA graphs, cutting per-token launch overhead during generation. llama.cpp builds with this on by default, so leave it on unless you need it out of the build. To switch it off for a test without rebuilding, use the GGML_CUDA_DISABLE_GRAPHS variable under Settings.",
+				Description: "Batch kernel launches into CUDA graphs, cutting launch overhead. llama.cpp and acestep.cpp build with this on by default, stable-diffusion.cpp with it off, and this switch starts the same way for each. To switch it off for llama-server without rebuilding, set GGML_CUDA_DISABLE_GRAPHS under Settings, Runtime environment.",
 				// llama.cpp's top-level CMakeLists turns GGML_CUDA_GRAPHS on
 				// when it is not set, so off must be written out.
 				Default:  true,
