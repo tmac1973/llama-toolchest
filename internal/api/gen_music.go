@@ -48,7 +48,10 @@ const (
 // Music job phases: what a job is doing while it is queued or running.
 // A finished job has none.
 const (
-	musicPhaseQueued       = "queued"
+	musicPhaseQueued = "queued"
+	// musicPhaseStarting: with eviction on, the job's backend was stopped
+	// and is being started, after making room for it (gen_evict.go).
+	musicPhaseStarting     = "starting"
 	musicPhaseComposing    = "composing"
 	musicPhaseSynthesizing = "synthesizing"
 	musicPhaseSaving       = "saving"
@@ -314,6 +317,9 @@ func (s *Server) submitMusic(inst generation.Instance, req musicRequest) (*music
 	// A free GPU starts the job at once; say so in the first answer.
 	if started := ticket.Info().Started; !started.IsZero() {
 		job.Status, job.Phase, job.Started = musicRunning, req.firstPhase(), &started
+		if !s.genMgr.IsRunning(inst.ID) {
+			job.Phase = musicPhaseStarting
+		}
 	}
 	if set, err := s.gen.ModelSet(inst.ModelSetID); err == nil {
 		for _, c := range set.Components {
@@ -370,6 +376,18 @@ func (s *Server) runMusicJob(ctx context.Context, id string, inst generation.Ins
 		return
 	}
 	defer ticket.Done()
+	if !s.genMgr.IsRunning(inst.ID) {
+		now := time.Now()
+		s.genMusic.update(id, func(j *musicJob) {
+			if j.Status == musicCancelled {
+				return
+			}
+			if j.Started == nil {
+				j.Started = &now
+			}
+			j.Status, j.Phase = musicRunning, musicPhaseStarting
+		})
+	}
 	if err := s.genReady(ctx, inst); err != nil {
 		finish(musicFailed, "starting the backend: "+err.Error())
 		return
