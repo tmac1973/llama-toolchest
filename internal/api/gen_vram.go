@@ -98,11 +98,7 @@ func (s *Server) loadedLLMMiB(numGPUs int, extraID string, skipLoaded bool) map[
 		if err != nil {
 			return
 		}
-		total := models.VRAMEstimateForConfig(m, cfg)
-		gpus := models.AssignedModelGPUs(cfg, numGPUs)
-		for _, g := range gpus {
-			out[g] += int(total / float64(len(gpus)) * 1024)
-		}
+		addLLMMiB(out, m, cfg, numGPUs)
 	}
 	if !skipLoaded && s.process.IsRunning() {
 		if list, err := s.process.ListModels(); err == nil {
@@ -120,6 +116,16 @@ func (s *Server) loadedLLMMiB(numGPUs int, extraID string, skipLoaded bool) map[
 		add(extraID)
 	}
 	return out
+}
+
+// addLLMMiB adds a model's planned GPU memory under cfg to out, spread
+// evenly over the GPUs cfg assigns it.
+func addLLMMiB(out map[int]int, m *models.Model, cfg *models.ModelConfig, numGPUs int) {
+	total := models.VRAMEstimateForConfig(m, cfg)
+	gpus := models.AssignedModelGPUs(cfg, numGPUs)
+	for _, g := range gpus {
+		out[g] += int(total / float64(len(gpus)) * 1024)
+	}
 }
 
 // genFitCheck checks that an instance reserving reserveMiB on its GPU fits
@@ -170,27 +176,52 @@ type genLLMFitError struct{ msg string }
 
 func (e *genLLMFitError) Error() string { return e.msg }
 
-// checkLLMFitsReservations refuses an on-demand LLM load that would not
+// checkLLMFitsReservations refuses loading an LLM, with its saved config,
+// into the router beside what it already has loaded when that would not
 // fit next to the generation backends' reservations on a GPU it uses.
+// Used for loads on request and the Models page's Load button.
 func (s *Server) checkLLMFitsReservations(m *models.Model) error {
-	if s.cfg == nil || !s.cfg.GenerationEnabled || s.gen == nil {
-		return nil
-	}
-	byGPU := s.genVRAMByGPU("")
-	if len(byGPU) == 0 {
+	if !s.genReservationsApply() {
 		return nil
 	}
 	hw := s.hardware()
-	need := s.loadedLLMMiB(len(hw.GPUs), m.ID, s.cfg.ModelsMax == 1)
+	return s.reservationFitError(hw, s.loadedLLMMiB(len(hw.GPUs), m.ID, s.cfg.ModelsMax == 1), s.cfg.ModelsMax != 1)
+}
+
+// checkConfigFitsReservations is checkLLMFitsReservations for a benchmark
+// cell: m under cfg, alone, because a job restarts the router with only
+// the model it measures.
+func (s *Server) checkConfigFitsReservations(m *models.Model, cfg *models.ModelConfig) error {
+	if !s.genReservationsApply() {
+		return nil
+	}
+	hw := s.hardware()
+	need := map[int]int{}
+	addLLMMiB(need, m, cfg, len(hw.GPUs))
+	return s.reservationFitError(hw, need, false)
+}
+
+// genReservationsApply reports whether any generation reservation can
+// limit LLM loads.
+func (s *Server) genReservationsApply() bool {
+	return s.cfg != nil && s.cfg.GenerationEnabled && s.gen != nil && len(s.genVRAMByGPU("")) > 0
+}
+
+// reservationFitError is a *genLLMFitError for the first GPU where need
+// (planned LLM memory per GPU) is more than the card leaves beside its
+// generation reservations, or nil when it fits everywhere.
+func (s *Server) reservationFitError(hw models.Hardware, need map[int]int, suggestUnload bool) error {
+	byGPU := s.genVRAMByGPU("")
 	for _, g := range hw.GPUs {
 		v := byGPU[g.Index]
 		if v == nil || v.Reserved == 0 {
 			continue
 		}
-		if n, ok := need[g.Index]; ok && n > models.CardBudgetMiB(g) {
-			msg := fmt.Sprintf("Not enough VRAM: %.1f GiB reserved for generation backends on GPU %d (%s)",
-				float64(v.Reserved)/1024, g.Index, strings.Join(v.Names, ", "))
-			if s.cfg.ModelsMax != 1 {
+		budget := models.CardBudgetMiB(g)
+		if n, ok := need[g.Index]; ok && n > budget {
+			msg := fmt.Sprintf("Not enough VRAM: %.1f GiB reserved for generation backends on GPU %d (%s); the LLM needs about %s there and %s is left",
+				float64(v.Reserved)/1024, g.Index, strings.Join(v.Names, ", "), mibText(n), mibText(max(0, budget)))
+			if suggestUnload {
 				msg += "; unload a model first"
 			}
 			return &genLLMFitError{msg: msg}

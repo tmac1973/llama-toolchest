@@ -62,6 +62,10 @@ func (e *fakeEnv) ApplyEphemeralConfig(_ context.Context, _ string, cfg benchmar
 	return nil
 }
 
+func (e *fakeEnv) ClaimGPUs(context.Context, string, benchmark.ConfigSnapshot, *models.ModelConfig, string) (func(), error) {
+	return func() {}, nil
+}
+
 func (e *fakeEnv) ClearEphemeralConfig(context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/tmac1973/llama-toolchest/internal/generation"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 )
@@ -159,6 +161,31 @@ func TestLLMLoadRespectsReservations(t *testing.T) {
 	if !errors.As(err, &fitErr) || !strings.Contains(err.Error(), "19.5 GiB reserved for generation backends on GPU 0") {
 		t.Errorf("big model: %v", err)
 	}
+	if !strings.Contains(err.Error(), "the LLM needs about 11.") {
+		t.Errorf("big model message does not say what it needs: %v", err)
+	}
+
+	// A benchmark cell is checked with its own settings, alone.
+	cfg, _ := s.registry.GetConfig("big")
+	if err := s.checkConfigFitsReservations(big, cfg); !errors.As(err, &fitErr) {
+		t.Errorf("benchmark cell of the big model: %v, want refused", err)
+	}
+	cfg, _ = s.registry.GetConfig("small")
+	if err := s.checkConfigFitsReservations(small, cfg); err != nil {
+		t.Errorf("benchmark cell of the small model: %v", err)
+	}
+
+	// The Models page's Load button is refused the same way, with 507,
+	// before the router is started.
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("PUT", "/api/models/big/activate", nil)
+	rc := chi.NewRouteContext()
+	rc.URLParams.Add("id", "big")
+	s.handleActivateModel(rec, req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rc)))
+	if rec.Code != http.StatusInsufficientStorage || !strings.Contains(rec.Body.String(), "reserved for generation backends") {
+		t.Errorf("Load button for the big model: %d %q, want 507 naming the reservations", rec.Code, rec.Body.String())
+	}
+
 	s.cfg.GenerationEnabled = false
 	if err := s.checkLLMFitsReservations(big); err != nil {
 		t.Errorf("with generation off: %v", err)

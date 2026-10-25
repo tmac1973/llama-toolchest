@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -74,6 +75,25 @@ type fakeEnv struct {
 
 	// metrics is what the GPU monitor reports.
 	metrics monitor.Metrics
+
+	// claims counts ClaimGPUs calls and released their release calls;
+	// claimErr refuses every claim.
+	claims, released int
+	claimErr         error
+}
+
+func (f *fakeEnv) ClaimGPUs(context.Context, string, ConfigSnapshot, *models.ModelConfig, string) (func(), error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.claimErr != nil {
+		return nil, f.claimErr
+	}
+	f.claims++
+	return func() {
+		f.mu.Lock()
+		f.released++
+		f.mu.Unlock()
+	}, nil
 }
 
 func (f *fakeEnv) CheckBuildRunnable(context.Context, string) error { return nil }
@@ -531,6 +551,42 @@ func TestJobFailsCellWhenConfigCannotBeApplied(t *testing.T) {
 	}
 	if _, cleared := env.snapshotCalls(); cleared != 1 {
 		t.Errorf("ClearEphemeralConfig called %d times, want 1 even on failure", cleared)
+	}
+}
+
+// Each measured cell claims its GPUs before the router is restarted with
+// its settings, and gives them back when it ends.
+func TestJobCellClaimsGPUs(t *testing.T) {
+	router := newFakeRouter(t)
+	ngl := 50
+	env := &fakeEnv{routerURL: router.URL, saved: ConfigSnapshot{GPULayers: 999}}
+	job, _ := runJob(t, oneCellJob(&ConfigOverrides{GPULayers: &ngl}), env)
+	if job.Cells[0].Status != CellStatusCompleted {
+		t.Fatalf("cell status = %s (%s), want completed", job.Cells[0].Status, job.Cells[0].Error)
+	}
+	env.mu.Lock()
+	defer env.mu.Unlock()
+	if env.claims != 1 || env.released != 1 {
+		t.Errorf("claims %d, released %d; want one of each", env.claims, env.released)
+	}
+}
+
+// A cell whose settings do not fit beside reserved GPU memory fails with
+// the reason, before the router is restarted with them.
+func TestJobCellFailsWhenGPUsCannotBeClaimed(t *testing.T) {
+	router := newFakeRouter(t)
+	ngl := 50
+	env := &fakeEnv{
+		routerURL: router.URL,
+		saved:     ConfigSnapshot{GPULayers: 999},
+		claimErr:  errors.New("Not enough VRAM: 19.0 GiB reserved for generation backends on GPU 0"),
+	}
+	job, _ := runJob(t, oneCellJob(&ConfigOverrides{GPULayers: &ngl}), env)
+	if job.Cells[0].Status != CellStatusFailed || !strings.Contains(job.Cells[0].Error, "reserved for generation backends") {
+		t.Errorf("cell = %s %q, want failed with the reservation message", job.Cells[0].Status, job.Cells[0].Error)
+	}
+	if applied, _ := env.snapshotCalls(); len(applied) != 0 {
+		t.Errorf("settings applied %d times after the claim was refused, want none", len(applied))
 	}
 }
 

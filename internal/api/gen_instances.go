@@ -54,6 +54,9 @@ type genInstanceRow struct {
 	// the instance's GPU, whichever instance they are for.
 	GPUJobsRunning int `json:"gpu_jobs_running"`
 	GPUJobsWaiting int `json:"gpu_jobs_waiting"`
+	// GPUHeldBy names the LLM measurement (a benchmark, Autotune or
+	// Autoconfigure's test load) that has the GPU while its jobs wait.
+	GPUHeldBy string `json:"gpu_held_by,omitempty"`
 }
 
 // ReservedGiB and the others render the VRAM figures for the table.
@@ -141,11 +144,11 @@ func (s *Server) genInstanceRows(store *generation.Store) []genInstanceRow {
 				row.WebUIURL = s.genWebUIURL(inst.Port)
 			}
 		}
-		if snap := s.genQueue.Snapshot(inst.GPU); snap.Running != nil {
-			row.GPUJobsRunning, row.GPUJobsWaiting = 1, len(snap.Waiting)
-		} else {
-			row.GPUJobsWaiting = len(snap.Waiting)
+		snap := s.genQueue.Snapshot(inst.GPU)
+		if snap.Running != nil {
+			row.GPUJobsRunning = 1
 		}
+		row.GPUJobsWaiting, row.GPUHeldBy = len(snap.Waiting), snap.HeldBy
 		rows = append(rows, row)
 	}
 	return rows
