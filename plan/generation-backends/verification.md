@@ -250,7 +250,22 @@ here:
 Haruspex uses image jobs when `meta.api` includes `images.jobs` and falls
 back to `/v1/images/generations` otherwise, so the synchronous route and
 the music API keep their shapes. Covered by the Go tests against the fake
-sd-server and ace-server; not yet checked on compute2 or asmodean.
+sd-server and ace-server, and checked on asmodean (R9700, ROCm, Qwen-Image
+2.1 Turbo, build `fa72b26`):
+
+- `/v1/models` shows `meta.api` on the image and music entries and none on
+  the LLM;
+- a 512×512 job went `queued` → `running/generating` → `succeeded` in 9 s,
+  and `/image/0` returned a 512×512 PNG; `/image/1` gave 404;
+- with one job running, a second one was `queued` at position 1, and its
+  `/image/0` gave 409. `DELETE` emptied the queue's waiting list;
+- `DELETE` on the running job set `cancelled` at once. sd-server kept the
+  GPU until it finished, 5 s later. No image was saved, and the slot was then
+  free;
+- a multipart body gave 400, an unknown ID 404, and
+  `/v1/images/generations` still answered as before.
+
+Not checked on compute2.
 
 ## Not run
 
