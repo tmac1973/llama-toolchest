@@ -50,19 +50,24 @@ func TestCatalogMingImageFirst(t *testing.T) {
 	t.Fatal("no image sets in the catalog")
 }
 
-// The two ACE-Step sets differ only in their DiT, so a second download
-// fetches one file.
+// The ACE-Step sets differ only in their DiT, so a second download fetches
+// one file.
 func TestCatalogAceSetsShareFiles(t *testing.T) {
 	turbo, _ := LookupCatalog("ace-step-turbo")
-	xl, _ := LookupCatalog("ace-step-xl-sft")
-	differ := 0
-	for i := range turbo.Components {
-		if turbo.Components[i].File != xl.Components[i].File {
-			differ++
+	for _, id := range []string{"ace-step-xl-sft", "ace-step-xl-base"} {
+		other, ok := LookupCatalog(id)
+		if !ok {
+			t.Fatalf("no %s in the catalog", id)
 		}
-	}
-	if differ != 1 {
-		t.Errorf("ACE-Step sets differ in %d files, want 1 (the DiT)", differ)
+		differ := 0
+		for i := range turbo.Components {
+			if turbo.Components[i].File != other.Components[i].File {
+				differ++
+			}
+		}
+		if differ != 1 {
+			t.Errorf("%s differs from turbo in %d files, want 1 (the DiT)", id, differ)
+		}
 	}
 }
 
