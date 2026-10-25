@@ -200,7 +200,9 @@
         }
         /* Cards a touch rounder than controls, per the Graphite spec. */
         [data-custom-theme="graphite"] article { border-radius: 12px; }
-        [data-custom-theme="graphite"] input,
+        /* Not radio buttons: rounding them by 8px turns their circles
+           into squares that look like checkboxes. */
+        [data-custom-theme="graphite"] input:not([type="radio"]),
         [data-custom-theme="graphite"] select,
         [data-custom-theme="graphite"] textarea { border-radius: 8px; }
 
