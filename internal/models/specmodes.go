@@ -148,6 +148,72 @@ func HeadsForMode(mode string, cands []DraftCandidate) []DraftCandidate {
 	return out
 }
 
+// HeadsMadeFor keeps the heads whose name carries the name of m, the
+// model they would draft for. A converted head is trained on one model's
+// hidden states, and publishers name it after that model ("MiniCPM-V-4.7-
+// 35B-A3B-DSpark-gguf"). Its shape does not tell the models apart: the
+// MiniCPM-V-4.7-35B-A3B head has the same size and layers as Qwen3.6-35B-
+// A3B, which that model is built on, and Autotune measured it as a
+// drafter for Qwen3.6, where it failed to load.
+func HeadsMadeFor(m *Model, heads []DraftCandidate) []DraftCandidate {
+	names := modelNames(m)
+	var out []DraftCandidate
+	for _, c := range heads {
+		name := nameKey(c.ID + " " + c.Filename)
+		for _, n := range names {
+			if strings.Contains(name, n) {
+				out = append(out, c)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// modelNames are the names a head made for m may carry, as nameKey
+// writes them: the upstream model's repository name, the GGUF
+// repository's name without its "-GGUF", and the weights file's name
+// without its quant ("Qwen3.6-35B-A3B" from "Qwen3.6-35B-A3B-UD-IQ4_NL
+// .gguf", where the repository is "Qwen3.6-35B-A3B-MTP-GGUF").
+func modelNames(m *Model) []string {
+	if m == nil {
+		return nil
+	}
+	repoBase := func(repo string) string {
+		if i := strings.LastIndexByte(repo, '/'); i >= 0 {
+			repo = repo[i+1:]
+		}
+		return repo
+	}
+	file := nameKey(strings.TrimSuffix(strings.TrimSuffix(m.Filename, ".gguf"), ".GGUF"))
+	file = strings.TrimSuffix(file, nameKey(ParseQuant(m.Filename)))
+	var out []string
+	for _, n := range []string{
+		nameKey(repoBase(m.BaseModelRepo)),
+		strings.TrimSuffix(nameKey(repoBase(m.ModelID)), "gguf"),
+		file,
+	} {
+		// A name this short would match the heads of unrelated models.
+		if len(n) >= 6 {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// nameKey lowercases s and keeps only its letters and digits, so names
+// written with different separators compare equal ("MiniCPM-V-4.7" and
+// "MiniCPM-V-4_7").
+func nameKey(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // UsesDraftFile reports whether the mode loads a separate file through
 // --model-draft: a smaller draft model ("draft") or a converted head.
 // MTP's draft layers live in the main GGUF, and the n-gram assists load

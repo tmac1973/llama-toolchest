@@ -246,7 +246,7 @@ func Validate(adv Advice, in Inputs) Checked {
 		}
 		var cands []models.DraftCandidate
 		if mode != "draft-mtp" && in.DraftCandidates != nil {
-			cands = draftFiles(mode, in.DraftCandidates(mode))
+			cands = draftFiles(mode, m, in.DraftCandidates(mode))
 		}
 		switch {
 		case mode == "draft-mtp" && (m.NextNLayers > 0 || in.Base.MtpPath != ""):
@@ -306,10 +306,13 @@ func Validate(adv Advice, in Inputs) Checked {
 // method can actually load, smallest first. For a head-based method the
 // registry lists every installed model, so the user can pick from the
 // config form; proposing the first of those meant proposing whichever
-// chat model the map happened to yield, a different one each run.
-func draftFiles(mode string, cands []models.DraftCandidate) []models.DraftCandidate {
+// chat model the map happened to yield, a different one each run. A head
+// must also be made for m: one made for another model is no drafter for
+// this one, and with none installed the proposal suggests downloading
+// the right one instead.
+func draftFiles(mode string, m *models.Model, cands []models.DraftCandidate) []models.DraftCandidate {
 	if models.IsHeadBasedDraftMode(mode) {
-		cands = models.HeadsForMode(mode, cands)
+		cands = models.HeadsMadeFor(m, models.HeadsForMode(mode, cands))
 	}
 	cands = slices.Clone(cands)
 	slices.SortStableFunc(cands, func(a, b models.DraftCandidate) int {
