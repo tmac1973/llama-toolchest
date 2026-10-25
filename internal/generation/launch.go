@@ -104,7 +104,7 @@ func LaunchSpec(inst Instance, set ModelSet, build builder.BuildResult, host, da
 			}
 			args = append(args, flag, c.Path)
 		}
-		args = append(args, set.LaunchArgs...)
+		args = append(args, set.RunArgs()...)
 		args = append(args, inst.ExtraArgs...)
 		if inst.ReservedMiB > 0 && !opts.OmitMaxVRAM {
 			args = append(args, "--max-vram", maxVRAMGiB(inst.ReservedMiB))

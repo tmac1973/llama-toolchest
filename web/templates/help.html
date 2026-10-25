@@ -431,8 +431,9 @@
         <li><strong>Build the backends.</strong> On <a href="/builds">Builds</a>, choose the project (stable-diffusion.cpp or acestep.cpp) and a ROCm, CUDA or Vulkan profile. Vulkan builds work only in host installs, not in containers. stable-diffusion.cpp builds its own web page only when <code>pnpm</code> is installed.</li>
         <li><strong>Get a model set.</strong> On <a href="/models">Models</a>, <em>Generation models</em> lists a catalog of known-good sets (for example Ming-Image, which can make images with transparent backgrounds, and ACE-Step for songs) that download in one click. A set is the group of files a backend loads together. You can also add a custom set from files you already have.</li>
         <li><strong>Create an instance.</strong> On the <a href="/server">Server</a> page, <em>Generation backends</em> → <em>New instance</em>: a model set, a build and a GPU. The instance sees only that GPU.</li>
-        <li><strong>Measure it.</strong> Press <em>Measure</em>. llama-toolchest runs one test generation with nothing else on the GPU and records the most GPU memory the instance used. It reserves that amount plus 10% (rounded up to 0.5 GiB). An instance cannot start until it has a reservation.</li>
+        <li><strong>Measure it.</strong> Press <em>Measure</em>. llama-toolchest runs one test generation with nothing else on the GPU and records the most GPU memory the instance used. It reserves that amount plus 10% (rounded up to 0.5 GiB). An instance cannot start until it has a reservation. When the measurement ends, the instance's row says what it found and what happened to the reservation, or why it failed. Measuring again keeps an existing reservation; if the new measurement suggests a different one, <em>Use suggested</em> sets it.</li>
         <li><strong>Start it,</strong> or turn on auto-start to start it with llama-toolchest.</li>
+        <li><strong>Change it</strong> with <em>Edit</em> while it is stopped: its model set, build, GPU, extra launch arguments and auto-start. Changing anything but auto-start clears the reservation, so measure it again.</li>
     </ol>
 
     <h3 id="generation-vram">GPU memory: reservations</h3>
@@ -442,15 +443,15 @@
     <table>
         <thead><tr><th>Model set</th><th>32 GB Radeon AI PRO R9700 (ROCm)</th><th>16 GB RTX A4000 (CUDA)</th></tr></thead>
         <tbody>
-            <tr><td>Ming-Image 0.1 Design</td><td>20.5 GiB</td><td>10.5 GiB</td></tr>
+            <tr><td>Ming-Image 0.1 Design</td><td>10.5 GiB</td><td>10.5 GiB</td></tr>
             <tr><td>Qwen-Image 2.1 Turbo</td><td>11.0 GiB</td><td>–</td></tr>
             <tr><td>FLUX.2 klein 4B</td><td>–</td><td>9.5 GiB</td></tr>
             <tr><td>ACE-Step 1.5 XL SFT</td><td>8.0 GiB</td><td>–</td></tr>
             <tr><td>ACE-Step 1.5 turbo</td><td>–</td><td>7.5 GiB</td></tr>
         </tbody>
     </table>
-    <p>sd-server decides by itself how much of a model set goes on the card. With room to spare it puts everything there; on a 16 GB card it keeps Ming-Image's 10 GB text model in system RAM, which is why the same set reserves less there. Measure on the card you will use.</p>
-    <p><strong>What fits together on one 32 GB R9700.</strong> Next to Ming-Image (20.5 GiB) a 4B LLM such as Qwen3-4B Q8_0 fits, but ACE-Step XL and Gemma 4 12B Q6 do not. Next to Qwen-Image Turbo and ACE-Step XL together, about 8.6 GiB is left for LLMs: Qwen3-4B Q8_0 fits, Gemma 4 12B Q6 is refused. That trio once ran with only 1.8 GB to spare; reservations add 10% to each measured peak and the planner keeps its safety margin, so it is refused on purpose.</p>
+    <p>sd-server decides by itself how much of a model set goes on the card. With room to spare it puts everything there; on a smaller card it keeps part of it in system RAM. Ming-Image's catalog set runs its 10 GB text model on the CPU instead (<code>--backend te=cpu</code>, as Haruspex does): on the R9700 that halved its peak, from 18.6 to 9.4 GiB, at the same speed. Measure on the card you will use.</p>
+    <p><strong>What fits together on one 32 GB R9700.</strong> Ming-Image (10.5 GiB) fits next to Qwen-Image Turbo or ACE-Step XL, but not next to both. Next to Qwen-Image Turbo and ACE-Step XL together, about 8.6 GiB is left for LLMs: Qwen3-4B Q8_0 fits, Gemma 4 12B Q6 is refused. That trio once ran with only 1.8 GB to spare; reservations add 10% to each measured peak and the planner keeps its safety margin, so it is refused on purpose.</p>
 
     <h3 id="generation-sharing">Sharing a GPU</h3>
     <p>Image jobs, music jobs and chat on the same GPU share its processing time and slow each other down. Measured on one R9700: images ran 2.3 times slower, songs 2.8 times, and chat dropped from about 45 to 11–20 tokens per second. So image and music jobs take turns: one runs per GPU at a time, and up to 16 wait (more get HTTP 429). Chat never waits. The Server page shows a warning while a job runs on a GPU that also has an LLM loaded. Jobs on different GPUs run side by side. Jobs started from a backend's own web page skip this queue.</p>

@@ -58,13 +58,17 @@ func Catalog() []CatalogEntry {
 				{Slot: "vae", Repo: "Comfy-Org/Ming-Image", File: "vae/ming_image_vae_bf16.safetensors", Bytes: 253816696},
 				{Slot: "tokenizer", Repo: "inclusionAI/Ming-Image-0.1-Design", File: "mllm/tokenizer.json", Bytes: 12210709},
 			},
-			LaunchArgs:   []string{"--steps", "12", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling"},
+			// --backend te=cpu runs the 10 GB text model on the CPU, as
+			// Haruspex does. Measured on a Radeon AI PRO R9700 on
+			// 2026-10-25: peak 9.4 GiB instead of 18.6 GiB, and the same
+			// 20.7 s per transparent 1024x1024 image.
+			LaunchArgs:   []string{"--steps", "12", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling", "--backend", "te=cpu"},
 			Capabilities: []string{"alpha"},
 			License:      "MIT",
 			Notes: "Used by Haruspex. Can make PNG images with transparent backgrounds: the prompt must start with " +
 				"\"RGBA, 4-channel, transparent background.\" and the image must start from a fully transparent canvas at strength 0.9 " +
 				"(sd-server's <sd_cpp_extra_args> block, with init_image and strength). Without both, images come back opaque. " +
-				"Runs on a 16 GB card: sd-server keeps the 10 GB text model in system RAM by itself.",
+				"Its 10 GB text model runs on the CPU, so it needs about 10.5 GiB of GPU memory and fits on a 16 GB card.",
 			DefaultWidth:  2048,
 			DefaultHeight: 2048,
 		},
@@ -145,4 +149,18 @@ func LookupCatalog(id string) (CatalogEntry, bool) {
 		}
 	}
 	return CatalogEntry{}, false
+}
+
+// RunArgs returns the backend flags a set runs with. A catalog set takes
+// its catalog entry's current flags, so a change to the catalog also
+// reaches sets downloaded before it; a custom set keeps its own.
+func (m ModelSet) RunArgs() []string {
+	if m.CatalogID != "" {
+		for _, e := range Catalog() {
+			if e.ID == m.CatalogID {
+				return e.LaunchArgs
+			}
+		}
+	}
+	return m.LaunchArgs
 }

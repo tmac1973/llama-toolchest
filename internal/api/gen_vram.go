@@ -303,30 +303,66 @@ func suggestReservation(peakMiB int) int {
 	return (n + 511) / 512 * 512
 }
 
-// genMeasureState remembers each instance's last measured test run
-// outcome for the UI: running, or the error it ended with.
+// genMeasureState remembers how each instance's last measured test run
+// ended, so the instance table can say so: what was measured and what
+// happened to the reservation, or why it failed. It lasts until the next
+// measurement or a restart of llama-toolchest.
 type genMeasureState struct {
-	mu   sync.Mutex
-	msgs map[string]string
+	mu       sync.Mutex
+	outcomes map[string]measureOutcome
 }
 
-func (g *genMeasureState) set(id, msg string) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.msgs == nil {
-		g.msgs = map[string]string{}
-	}
-	if msg == "" {
-		delete(g.msgs, id)
-	} else {
-		g.msgs[id] = msg
-	}
+// measureOutcome is one finished measurement: Note on success, Err on
+// failure.
+type measureOutcome struct {
+	Note string
+	Err  string
+	At   time.Time
 }
 
-func (g *genMeasureState) get(id string) string {
+func (g *genMeasureState) set(id string, o measureOutcome) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return g.msgs[id]
+	if g.outcomes == nil {
+		g.outcomes = map[string]measureOutcome{}
+	}
+	g.outcomes[id] = o
+}
+
+func (g *genMeasureState) clear(id string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	delete(g.outcomes, id)
+}
+
+func (g *genMeasureState) get(id string) measureOutcome {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.outcomes[id]
+}
+
+// measureNote says what a successful measurement found and what it did to
+// the reservation. before is the reservation before the run; inst is the
+// instance as saved after it.
+func measureNote(before int, inst generation.Instance, restarted bool) string {
+	note := "Peak " + mibText(inst.MeasuredPeakMiB)
+	if inst.MeasureEstimated {
+		note += " (estimated from the whole GPU's use)"
+	}
+	note += ". "
+	suggest := suggestReservation(inst.MeasuredPeakMiB)
+	switch {
+	case before == 0:
+		note += "Reservation set to " + mibText(inst.ReservedMiB) + "."
+	case before == suggest:
+		note += "Reservation stays at " + mibText(before) + ", as suggested."
+	default:
+		note += "Reservation stays at " + mibText(before) + "; this measurement suggests " + mibText(suggest) + "."
+	}
+	if restarted {
+		note += " Restarted."
+	}
+	return note
 }
 
 // measureSongRequest is the fixed request a music instance is measured
@@ -356,13 +392,20 @@ func (s *Server) handleGenMeasure(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.genMgr.SetMeasuring(inst.ID, true)
-	s.genMeasure.set(inst.ID, "")
+	s.genMeasure.clear(inst.ID)
+	before, wasRunning := inst.ReservedMiB, s.genMgr.IsActive(inst.ID)
 	go func() {
 		defer s.genMgr.SetMeasuring(inst.ID, false)
 		if err := s.measureInstance(inst.ID); err != nil {
 			slog.Warn("generation instance measurement failed", "instance", inst.ID, "error", err)
-			s.genMeasure.set(inst.ID, err.Error())
+			s.genMeasure.set(inst.ID, measureOutcome{Err: err.Error(), At: time.Now()})
+			return
 		}
+		after, err := s.gen.Instance(inst.ID)
+		if err != nil {
+			return
+		}
+		s.genMeasure.set(inst.ID, measureOutcome{Note: measureNote(before, after, wasRunning), At: time.Now()})
 	}()
 	s.genInstancesChanged(w, r)
 }

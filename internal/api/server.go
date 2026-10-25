@@ -728,6 +728,7 @@ func (s *Server) buildRouter() chi.Router {
 			r.Get("/form", s.handleGenInstanceForm)
 			r.Post("/", s.handleGenCreateInstance)
 			r.Put("/{id}", s.handleGenEditInstance)
+			r.Get("/{id}/form", s.handleGenInstanceEditForm)
 			r.Delete("/{id}", s.handleGenDeleteInstance)
 			r.Post("/{id}/measure", s.handleGenMeasure)
 			r.Put("/{id}/reservation", s.handleGenSetReservation)

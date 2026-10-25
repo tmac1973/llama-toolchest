@@ -155,3 +155,21 @@ func TestRecipesOrder(t *testing.T) {
 		t.Errorf("Recipes = %v, want every recipe, ming-image first", got)
 	}
 }
+
+// A catalog set runs with the catalog's current flags, so sets downloaded
+// before a catalog change get it too; a custom set keeps its own.
+func TestRunArgs(t *testing.T) {
+	old := ModelSet{ID: "ming-image", CatalogID: "ming-image", LaunchArgs: []string{"--steps", "12"}}
+	got := strings.Join(old.RunArgs(), " ")
+	if !strings.Contains(got, "--backend te=cpu") {
+		t.Errorf("catalog set runs with %q, want the catalog's flags with --backend te=cpu", got)
+	}
+	custom := ModelSet{ID: "mine", LaunchArgs: []string{"--steps", "8"}}
+	if got := strings.Join(custom.RunArgs(), " "); got != "--steps 8" {
+		t.Errorf("custom set runs with %q, want its own flags", got)
+	}
+	gone := ModelSet{ID: "x", CatalogID: "no-longer-in-catalog", LaunchArgs: []string{"--steps", "4"}}
+	if got := strings.Join(gone.RunArgs(), " "); got != "--steps 4" {
+		t.Errorf("set from a removed catalog entry runs with %q, want its own flags", got)
+	}
+}
