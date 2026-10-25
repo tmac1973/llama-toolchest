@@ -517,7 +517,7 @@ func (s *Server) autotuneResultsData(id, name string, rec *autotune.Autotune, ba
 				res.Alternative = fmt.Sprintf("%s, %s (%s)",
 					autotune.MeasurementPhrase(g, alt.Scores[g]), compared, strings.Join(settings, ", "))
 				if strings.HasSuffix(compared, "faster") {
-					res.Alternative += " — within what the measurements can tell apart, so your profile was kept"
+					res.Alternative += ". " + autotune.MarginPhrase(g, out.Baseline, alt)
 				}
 			}
 		}

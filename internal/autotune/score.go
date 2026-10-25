@@ -152,6 +152,39 @@ func ClosestAlternative(rec *Autotune, g Goal) (alt Candidate, compared string, 
 	return alt, percentFaster(b.Value, alt.Scores[g].Value, false), true
 }
 
+// MarginPhrase explains why a faster alternative did not replace the
+// starting profile: the gap between them is inside the margin of error
+// the noise rule uses (the two measurements' spreads combined). Without
+// it, "9% faster, but kept the profile" reads as a mistake. When either
+// setting uses speculative decoding it also says why generation speed
+// moves so much between runs.
+func MarginPhrase(g Goal, base, alt Candidate) string {
+	b, a := base.Scores[g], alt.Scores[g]
+	gap := math.Abs(a.Value - b.Value)
+	margin := math.Sqrt(a.Std*a.Std + b.Std*b.Std)
+	format, unit, what := "%.1f", "tokens per second", "speed"
+	switch g {
+	case GoalPrompt:
+		format = "%.0f"
+	case GoalResponse:
+		unit, what = "seconds", "time"
+	}
+	out := fmt.Sprintf("Your profile was kept because this is within the margin of error: "+
+		"the gap is "+format+" %s, but the margin of error is ±"+format+" %s, "+
+		"based on how much each setting's %s changed between repeated runs. "+
+		"A gap this small may be chance, not a real gain",
+		gap, unit, margin, unit, what)
+	if g != GoalPrompt && (usesSpeculation(base.Config) || usesSpeculation(alt.Config)) {
+		out += ". Speculative decoding makes generation speed change a lot between runs, " +
+			"because how many of the guessed tokens are accepted depends on the text"
+	}
+	return out
+}
+
+func usesSpeculation(cfg benchmark.ConfigSnapshot) bool {
+	return cfg.SpecType != "" || cfg.SpecAssist != ""
+}
+
 func countWord(n int) string {
 	if n >= 0 && n < len(countWords) {
 		return countWords[n]
