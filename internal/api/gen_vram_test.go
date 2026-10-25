@@ -182,9 +182,15 @@ func TestMeasureRefusals(t *testing.T) {
 func TestGPUMapShowsReservations(t *testing.T) {
 	s := vramServer(t)
 	addInstance(t, s, generation.Instance{ID: "qwen", Name: "qwen", Port: 8081, Enabled: true, ReservedMiB: 11776})
-	allocs := s.genReservationAllocations()
-	if len(allocs) != 1 || allocs[0].ModelName != "qwen (reserved)" || allocs[0].PerGPUGB != 11.5 {
-		t.Errorf("allocations = %+v", allocs)
+	addInstance(t, s, generation.Instance{ID: "ace", Name: "ace", Port: 8082, Enabled: true, ReservedMiB: 8192})
+	// One LLM is already on the map, so the reservations take the
+	// palette's second and third colors.
+	allocs := s.genReservationAllocations(1)
+	if len(allocs) != 2 || allocs[0].ModelName != "qwen (reserved)" || allocs[0].PerGPUGB != 11.5 || !allocs[0].Reserved {
+		t.Fatalf("allocations = %+v", allocs)
+	}
+	if allocs[0].Color != models.AllocationColor(1) || allocs[1].Color != models.AllocationColor(2) {
+		t.Errorf("colors = %s, %s; want the palette's 2nd and 3rd, each its own", allocs[0].Color, allocs[1].Color)
 	}
 }
 

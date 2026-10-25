@@ -27,13 +27,14 @@ func (s *Server) handleGPUMap(w http.ResponseWriter, r *http.Request) {
 	}
 
 	allocations := models.ComputeAllocations(allModels, allConfigs, numGPUs)
-	allocations = append(allocations, s.genReservationAllocations()...)
+	allocations = append(allocations, s.genReservationAllocations(len(allocations))...)
 
 	// Build per-GPU data for the template
 	type GPUSegment struct {
 		ModelName string
 		Color     string
 		WidthPct  float64
+		Reserved  bool
 	}
 	type GPUBar struct {
 		Index      int
@@ -67,6 +68,7 @@ func (s *Server) handleGPUMap(w http.ResponseWriter, r *http.Request) {
 						ModelName: a.ModelName,
 						Color:     a.Color,
 						WidthPct:  pct,
+						Reserved:  a.Reserved,
 					})
 					usedGB += a.PerGPUGB
 					break

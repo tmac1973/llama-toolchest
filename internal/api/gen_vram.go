@@ -232,13 +232,12 @@ func (c *procVRAMCache) read(pid int) (int, bool) {
 	return mib, ok
 }
 
-// genReservationColor marks generation reservations on the GPU map, apart
-// from the LLM palette.
-const genReservationColor = "#8e7cc3"
-
 // genReservationAllocations lists each enabled instance's reservation as
-// a GPU map entry on its GPU, so the map and its legend show them.
-func (s *Server) genReservationAllocations() []models.GPUAllocation {
+// a GPU map entry on its GPU, so the map and its legend show them. Their
+// colors continue the map's palette from firstColor, the number of
+// entries already on the map, so every entry has a color of its own; the
+// map draws them striped to set them apart from LLMs.
+func (s *Server) genReservationAllocations(firstColor int) []models.GPUAllocation {
 	if s.cfg == nil || !s.cfg.GenerationEnabled || s.gen == nil {
 		return nil
 	}
@@ -250,7 +249,8 @@ func (s *Server) genReservationAllocations() []models.GPUAllocation {
 		gb := float64(inst.ReservedMiB) / 1024
 		out = append(out, models.GPUAllocation{
 			ModelID: "gen:" + inst.ID, ModelName: inst.Name + " (reserved)",
-			GPUs: []int{inst.GPU}, PerGPUGB: gb, TotalGB: gb, Color: genReservationColor,
+			GPUs: []int{inst.GPU}, PerGPUGB: gb, TotalGB: gb,
+			Color: models.AllocationColor(firstColor + len(out)), Reserved: true,
 		})
 	}
 	return out

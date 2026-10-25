@@ -543,6 +543,9 @@ type GPUAllocation struct {
 	PerGPUGB  float64
 	TotalGB   float64
 	Color     string
+	// Reserved marks memory held for a generation backend rather than an
+	// LLM; the map draws it striped.
+	Reserved bool
 }
 
 // allocationColors are the colors assigned to models in the GPU map.
@@ -550,6 +553,13 @@ var allocationColors = []string{
 	"#4e79a7", "#f28e2b", "#e15759", "#76b7b2",
 	"#59a14f", "#edc948", "#b07aa1", "#ff9da7",
 	"#9c755f", "#bab0ac",
+}
+
+// AllocationColor is the GPU map's i-th color, repeating after the last.
+// Entries numbered on from the LLMs' (len of ComputeAllocations' result)
+// get colors of their own.
+func AllocationColor(i int) string {
+	return allocationColors[i%len(allocationColors)]
 }
 
 // ComputeAllocations builds the GPU allocation list from enabled models.

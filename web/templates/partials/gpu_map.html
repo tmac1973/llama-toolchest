@@ -1,5 +1,12 @@
 {{define "gpu_map"}}
 {{if .Bars}}
+<style>
+    /* Memory reserved for a generation backend: striped, so it reads apart
+       from the LLMs' plain segments even where the colors are close. */
+    .gpu-reserved {
+        background-image: repeating-linear-gradient(135deg, rgba(0, 0, 0, 0.35) 0 3px, transparent 3px 7px);
+    }
+</style>
 <details open style="margin-bottom: 1rem;">
     <summary><strong>GPU Allocation Map</strong></summary>
     <div style="padding: 0.5rem 0;">
@@ -14,7 +21,7 @@
             </div>
             <div style="background: var(--pico-muted-border-color); border-radius: 4px; height: 1.2rem; display: flex; overflow: hidden;">
                 {{range .Segments}}
-                <div style="width: {{printf "%.1f" .WidthPct}}%; background: {{.Color}}; min-width: 2px;"
+                <div{{if .Reserved}} class="gpu-reserved"{{end}} style="width: {{printf "%.1f" .WidthPct}}%; background-color: {{.Color}}; min-width: 2px;"
                      title="{{.ModelName}}: {{printf "%.1f" .WidthPct}}%"></div>
                 {{end}}
             </div>
@@ -25,7 +32,7 @@
         <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; font-size: 0.75rem; margin-top: 0.25rem;">
             {{range .Allocations}}
             <span style="display: inline-flex; align-items: center; gap: 0.25rem;">
-                <span style="display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 2px; background: {{.Color}};"></span>
+                <span{{if .Reserved}} class="gpu-reserved"{{end}} style="display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 2px; background-color: {{.Color}};"{{if .Reserved}} title="Striped: memory reserved for an image or music backend."{{end}}></span>
                 {{.ModelName}} <small>({{printf "%.1f" .TotalGB}} GiB)</small>
             </span>
             {{end}}
