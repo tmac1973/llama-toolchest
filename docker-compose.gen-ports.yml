@@ -1,0 +1,22 @@
+# Optional override: publish the generation backend port range, so the
+# built-in web UIs of sd-server and ace-server can be opened in a browser.
+# Used automatically by setup.sh when LLAMA_TOOLCHEST_GEN_PORTS=1 is in .env
+# (the "Publish ports for generation backend web UIs?" question).
+#
+# Manual usage:
+#   docker compose -f docker-compose.rocm.yml -f docker-compose.gen-ports.yml up -d
+#
+# Inside the container the backends always listen on 8081-8088, one port per
+# instance. Only the host side of the mapping can change. The image and music
+# APIs (/v1/images/*, /v1/music/*, /release_task, /query_result) go through
+# the management port and work without this file.
+services:
+  llama-toolchest:
+    ports:
+      - "${LLAMA_TOOLCHEST_BIND:-}${LLAMA_TOOLCHEST_GEN_HOST_PORT_START:-8081}-${LLAMA_TOOLCHEST_GEN_HOST_PORT_END:-8088}:8081-8088"
+    environment:
+      # Tells the app the range is published (Settings warns when it is not).
+      LLAMA_TOOLCHEST_GEN_PORTS: "1"
+      # The first port as a browser reaches it, for the dashboard's web UI
+      # links: the host port, or Caddy's port in secure mode.
+      LLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START: "${LLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START:-8081}"

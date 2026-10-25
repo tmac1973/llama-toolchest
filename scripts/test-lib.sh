@@ -443,6 +443,18 @@ test_write_config() (
     host_write_config
     check_eq "host_write_config leaves an existing file alone" "# edited" "$(cat "$cfg")"
     rm -f "$cfg"
+    LLAMA_TOOLCHEST_PORT=3000 LLAMA_TOOLCHEST_INFERENCE_PORT=8080
+    host_write_config
+    check_eq "host_write_config gen ports" $'gen_port_start: 8081\ngen_port_count: 8' "$(grep '^gen_port' "$cfg")"
+    rm -f "$cfg"
+)
+
+# The host generation range starts at 8081 and moves past the UI or
+# llama-server port when either is inside it.
+test_host_gen_port_start() (
+    check_eq "gen start default" "8081" "$(LLAMA_TOOLCHEST_PORT=3000 LLAMA_TOOLCHEST_INFERENCE_PORT=8080 host_gen_port_start)"
+    check_eq "gen start past llama port" "8082" "$(LLAMA_TOOLCHEST_PORT=3000 LLAMA_TOOLCHEST_INFERENCE_PORT=8081 host_gen_port_start)"
+    check_eq "gen start past both" "8091" "$(LLAMA_TOOLCHEST_PORT=8085 LLAMA_TOOLCHEST_INFERENCE_PORT=8090 host_gen_port_start)"
 )
 
 test_write_unit_override() (
@@ -506,7 +518,9 @@ hf_token: "hf_abc"
 api_key: "sk-123"
 log_level: "debug"
 models_max: 3
-auto_start: false' "$(sed '1,2d' "$dst")"
+auto_start: false
+gen_port_start: 8081
+gen_port_count: 8' "$(sed '1,2d' "$dst")"
     check_false "_migrate_get is removed afterwards" declare -F _migrate_get
 
     # Container to host: the host port comes from the container's mapping.
@@ -534,7 +548,19 @@ hf_token: \"\"
 api_key: \"\"
 log_level: \"info\"
 models_max: 1
-auto_start: true" "$(sed '1,2d' "$dst")"
+auto_start: true
+gen_port_start: 8081
+gen_port_count: 8" "$(sed '1,2d' "$dst")"
+
+    # Turned-on generation backends stay on, and the host range moves off a
+    # llama-server port that falls inside it.
+    printf 'listen_addr: ":3000"\ndata_dir: "/data"\ngeneration_enabled: true\ngen_port_start: 8081\n' > "$src"
+    LLAMA_TOOLCHEST_INFERENCE_PORT=8084
+    migrate_write_translated_config "$src" "$dst" to-host
+    check_eq "to-host keeps generation_enabled" "generation_enabled: true" "$(grep '^generation_enabled:' "$dst")"
+    check_eq "to-host gen range clears the llama-server port" "gen_port_start: 8085" "$(grep '^gen_port_start:' "$dst")"
+    unset LLAMA_TOOLCHEST_INFERENCE_PORT
+    printf 'listen_addr: ":3000"\ndata_dir: "/data"\nmodels_dir: "/data/models"\n' > "$src"
 
     # The container's own /data/models path never reaches the host config;
     # a bind-mounted host folder does.
@@ -856,6 +882,178 @@ test_gfx_target_from_kfd() (
     check_false "gfx_target_from_kfd with no GPU node" gfx_target_from_kfd "$t"
 )
 
+# ─── Generation web UI ports (setup.sh) ──────────────────────────────────────
+
+# load_setup_fns <name>... loads functions from setup.sh without running it.
+load_setup_fns() {
+    local fn
+    for fn in "$@"; do
+        eval "$(sed -n "/^${fn}() {/,/^}/p" "${REPO_DIR}/setup.sh")"
+    done
+}
+
+# gen_setup_env sets the setup.sh globals the port functions read, for a
+# plain (not secure) ROCm install with the default ports.
+gen_setup_env() {
+    SCRIPT_DIR="${TMP_ROOT}/setup"
+    rm -rf "$SCRIPT_DIR"; mkdir -p "$SCRIPT_DIR"
+    cp "${REPO_DIR}/Caddyfile.template" "$SCRIPT_DIR/"
+    GEN_PORT_COUNT=8 SECURE_GEN_APP_PORT_START=18081 SECURE_GEN_DEBUG_INF_PORT=18080
+    GEN_PORTS=false GEN_PORTS_EXPLICIT=false GEN_PUBLIC_PORT_START=8081 GEN_PORT_START_EXPLICIT=false
+    SECURE=false SECURE_EXPLICIT=false INTERACTIVE=false ASSUME_YES=true ROCM_VARIANT_EXPLICIT=true
+    LLAMA_TOOLCHEST_PORT=3000 LLAMA_TOOLCHEST_INFERENCE_PORT=8080 LLAMA_TOOLCHEST_MODELS_DIR=""
+    GPU_VENDOR=rocm ROCM_VARIANT=stable AMD_GFX_VERSION="" HOST_VIDEO_GID=39 HOST_RENDER_GID=105
+    COMPOSE_CMD="docker compose" CONTAINER_CMD=docker PODMAN_SERVICE_NAME=llama-toolchest
+    CADDY_IMAGE=docker.io/library/caddy:2 SECURE_EXTERNAL_URL=https://box:443
+    unset SECURE_APP_DEBUG_INF_PORT CADDY_HTTP_PORT CADDY_HTTPS_PORT CADDY_CHAT_PORT
+    get_volume_name() { echo llama-toolchest-data; }
+    fatal() { exit 1; }
+}
+
+# gen_secure_caddy sets the Caddy values configure_secure would derive for a
+# self-signed install.
+gen_secure_caddy() {
+    SECURE=true
+    CADDY_GLOBAL="# self-signed / internal CA — no ACME"
+    CADDY_TLS=$'tls internal {\n\t\ton_demand\n\t}'
+    CADDY_SITE_ADDRESS=":443" CADDY_CHAT_ADDRESS=":8080"
+    AUTH_USER=admin AUTH_HASH='$2a$14$abc/def.ghi'
+}
+
+GEN_SETUP_FNS=(gen_app_port_start gen_port_end gen_range_has gen_host_ports
+    gen_port_start_problem settle_gen_ports prompt_gen_ports load_env_ports
+    write_env_file compose_file compose_cmd generate_quadlet_app
+    generate_quadlet_caddy caddy_gen_sites render_caddyfile)
+
+# Answering no (the default) leaves .env, the compose files, the Quadlet
+# units and the Caddyfile without any generation port.
+test_gen_ports_off() (
+    load_setup_fns "${GEN_SETUP_FNS[@]}"
+    gen_setup_env
+    prompt_gen_ports
+    check_eq "gen off: stays off with --yes" "false" "$GEN_PORTS"
+    write_env_file
+    check_eq "gen off: .env" "LLAMA_TOOLCHEST_PORT=3000
+LLAMA_TOOLCHEST_INFERENCE_PORT=8080
+HOST_VIDEO_GID=39
+HOST_RENDER_GID=105
+ROCM_VARIANT=stable" "$(cat "$SCRIPT_DIR/.env")"
+    check_eq "gen off: compose files" "docker compose -f docker-compose.rocm.yml" "$(compose_cmd)"
+    check_false "gen off: no Quadlet range" grep -q '808[1-8]' <(generate_quadlet_app)
+    check_eq "gen off: host ports" "" "$(gen_host_ports)"
+    GPU_VENDOR=cpu GEN_PORTS=true GEN_PORTS_EXPLICIT=true
+    prompt_gen_ports
+    check_eq "gen off: never on a CPU install" "false" "$GEN_PORTS"
+    GPU_VENDOR=rocm GEN_PORTS=false GEN_PORTS_EXPLICIT=false
+
+    gen_secure_caddy
+    SECURE_APP_DEBUG_INF_PORT=8081
+    settle_gen_ports
+    check_eq "gen off: secure debug port stays" "8081" "$SECURE_APP_DEBUG_INF_PORT"
+    render_caddyfile
+    check_false "gen off: no Caddy gen sites" grep -q 'llama-toolchest:808[1-8]' "$SCRIPT_DIR/Caddyfile"
+    check_eq "gen off: Caddyfile ends with the chat site" "}" "$(tail -n 1 "$SCRIPT_DIR/Caddyfile")"
+    check_false "gen off: no leftover token" grep -q '@@' "$SCRIPT_DIR/Caddyfile"
+    check_eq "gen off: Caddy unit unchanged" "PublishPort=8080:8080" "$(generate_quadlet_caddy | grep '^PublishPort' | tail -n 1)"
+    check_eq "gen off: secure compose files" \
+        "docker compose -f docker-compose.rocm.yml -f docker-compose.secure.yml" "$(compose_cmd)"
+)
+
+# Answering yes publishes 8081-8088 (or the chosen start) everywhere.
+test_gen_ports_on() (
+    load_setup_fns "${GEN_SETUP_FNS[@]}"
+    gen_setup_env
+    GEN_PORTS=true GEN_PORTS_EXPLICIT=true
+    prompt_gen_ports
+    check_eq "gen on: default start" "8081" "$GEN_PUBLIC_PORT_START"
+    write_env_file
+    check_eq "gen on: .env keys" "LLAMA_TOOLCHEST_GEN_PORTS=1
+LLAMA_TOOLCHEST_GEN_HOST_PORT_START=8081
+LLAMA_TOOLCHEST_GEN_HOST_PORT_END=8088
+LLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START=8081" "$(grep GEN_ "$SCRIPT_DIR/.env")"
+    check_eq "gen on: compose files" \
+        "docker compose -f docker-compose.rocm.yml -f docker-compose.gen-ports.yml" "$(compose_cmd)"
+    check_eq "gen on: Quadlet lines" "PublishPort=8081-8088:8081-8088
+Environment=LLAMA_TOOLCHEST_GEN_PORTS=1
+Environment=LLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START=8081" \
+        "$(generate_quadlet_app | grep -E '8081-8088|GEN_')"
+    check_eq "gen on: host ports" "8081 8088" "$(gen_host_ports | sed -n '1p;$p' | paste -sd' ')"
+
+    # A range that would hold the chat UI port is refused.
+    check_eq "gen on: 8080 in the range" \
+        "8075-8082 overlaps port 8080, used by the chat UI" "$(gen_port_start_problem 8075)"
+    check_eq "gen on: range past 65535" \
+        "the first port must be a number from 1024 to 65528" "$(gen_port_start_problem 65530)"
+    check_eq "gen on: 9000 is fine" "" "$(gen_port_start_problem 9000)"
+    GEN_PUBLIC_PORT_START=8075 GEN_PORT_START_EXPLICIT=true
+    check_false "gen on: clashing --gen-port-start fails" eval '(prompt_gen_ports) 2>/dev/null'
+
+    # The choice survives a rebuild through .env.
+    GEN_PORTS=false GEN_PORTS_EXPLICIT=false GEN_PUBLIC_PORT_START=8081 GEN_PORT_START_EXPLICIT=false
+    printf 'LLAMA_TOOLCHEST_GEN_PORTS=1\nLLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START=9001\n' > "$SCRIPT_DIR/.env"
+    load_env_ports
+    check_eq "gen on: reloaded from .env" "true 9001" "$GEN_PORTS $GEN_PUBLIC_PORT_START"
+
+    # Switching a plain install to --secure must not take its public chat
+    # port (8080) as the loopback debug port; a secure .env's value is kept.
+    SECURE=true SECURE_EXPLICIT=true
+    unset SECURE_APP_DEBUG_INF_PORT
+    printf 'LLAMA_TOOLCHEST_PORT=3000\nLLAMA_TOOLCHEST_INFERENCE_PORT=8080\n' > "$SCRIPT_DIR/.env"
+    load_env_ports
+    check_eq "plain .env to secure: debug port not reloaded" "unset" "${SECURE_APP_DEBUG_INF_PORT:-unset}"
+    printf 'LLAMA_TOOLCHEST_SECURE=1\nLLAMA_TOOLCHEST_INFERENCE_PORT=18080\n' > "$SCRIPT_DIR/.env"
+    load_env_ports
+    check_eq "secure .env: debug port reloaded" "18080" "${SECURE_APP_DEBUG_INF_PORT:-unset}"
+)
+
+# Secure mode: Caddy publishes the public range behind the login, the app's
+# copy goes to loopback 18081-18088, and its debug port leaves 8081.
+test_gen_ports_secure() (
+    load_setup_fns "${GEN_SETUP_FNS[@]}"
+    gen_setup_env
+    gen_secure_caddy
+    SECURE_APP_DEBUG_INF_PORT=8081
+    GEN_PORTS=true GEN_PORTS_EXPLICIT=true
+    prompt_gen_ports
+    check_eq "secure gen: debug port moves to 18080" "18080" "$SECURE_APP_DEBUG_INF_PORT"
+    write_env_file
+    check_eq "secure gen: .env" "LLAMA_TOOLCHEST_INFERENCE_PORT=18080
+LLAMA_TOOLCHEST_GEN_PORTS=1
+LLAMA_TOOLCHEST_GEN_HOST_PORT_START=18081
+LLAMA_TOOLCHEST_GEN_HOST_PORT_END=18088
+LLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START=8081
+CADDY_GEN_PORT_START=8081
+CADDY_GEN_PORT_END=8088" "$(grep -E 'INFERENCE_PORT|GEN_' "$SCRIPT_DIR/.env")"
+    check_eq "secure gen: compose files" \
+        "docker compose -f docker-compose.rocm.yml -f docker-compose.secure.yml -f docker-compose.gen-ports.yml -f docker-compose.secure-gen-ports.yml" \
+        "$(compose_cmd)"
+    check_eq "secure gen: app Quadlet publishes on loopback" \
+        "PublishPort=127.0.0.1:18080:8080
+PublishPort=127.0.0.1:18081-18088:8081-8088" "$(generate_quadlet_app | grep -E '^PublishPort=127.0.0.1:180')"
+    check_eq "secure gen: Caddy Quadlet publishes the public range" \
+        "PublishPort=8081-8088:8081-8088" "$(generate_quadlet_caddy | grep '^PublishPort' | tail -n 1)"
+    check_eq "secure gen: preflight ports" "16" "$(gen_host_ports | wc -l | tr -d ' ')"
+
+    render_caddyfile
+    local cf="$SCRIPT_DIR/Caddyfile"
+    check_eq "secure gen: 8 Caddy sites" "8" "$(grep -c '^:808[1-8] {' "$cf")"
+    check_eq "secure gen: last site forwards to 8088" \
+        $':8088 {\n\ttls internal {\n\t\ton_demand\n\t}\n\tbasic_auth {\n\t\tadmin $2a$14$abc/def.ghi\n\t}\n\treverse_proxy llama-toolchest:8088\n}' \
+        "$(sed -n '/^:8088 {/,/^}/p' "$cf")"
+    check_true "secure gen: ACE-Step routes use the Bearer key" \
+        grep -q '@v1 path /v1 /v1/\* /release_task /query_result' "$cf"
+    check_false "secure gen: no leftover token" grep -q '@@' "$cf"
+
+    # The public range may not reach into the app's loopback ports.
+    check_eq "secure gen: 18075 refused" \
+        "18075-18082 overlaps port 18080, used by the app's loopback ports (18080-18088)" "$(gen_port_start_problem 18075)"
+    # Let's Encrypt sites carry the domain.
+    CADDY_CHAT_ADDRESS="llm.example.test:8080" GEN_PUBLIC_PORT_START=9001
+    check_eq "secure gen: domain sites" "llm.example.test:9001 {" "$(caddy_gen_sites | grep -m1 ' {$')"
+    check_true "secure gen: moved range still forwards to 8081" \
+        grep -q 'reverse_proxy llama-toolchest:8081' <(caddy_gen_sites)
+)
+
 # ─── Run ─────────────────────────────────────────────────────────────────────
 
 test_scope_current_user
@@ -874,6 +1072,7 @@ test_rocm_cmake_pkgs
 test_rocm_optional_absent
 test_effective_port
 test_write_config
+test_host_gen_port_start
 test_write_unit_override
 test_migrate_config
 test_migrate_model_paths
@@ -884,6 +1083,9 @@ test_rhel_rocm
 test_choose_rocm
 test_rocm10_not_old_line
 test_gfx_target_from_kfd
+test_gen_ports_off
+test_gen_ports_on
+test_gen_ports_secure
 
 passes="$(grep -c '^PASS$' "$RESULTS")"
 fails="$(grep -c '^FAIL$' "$RESULTS")"

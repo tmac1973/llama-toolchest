@@ -34,6 +34,8 @@ nothing but Caddy faces the network.
 | Management API (`/api/*`) | open, HTTP | HTTPS + admin login |
 | OpenAI API (`/v1/*`) | optional Bearer key, HTTP | HTTPS; Bearer `api_key` (no Basic Auth, so clients work) |
 | Router chat UI / raw inference (`:8080`) | open, HTTP, bypasses the key | HTTPS + admin login via Caddy; raw port no longer LAN-exposed |
+| ACE-Step music API (`/release_task`, `/query_result`) | optional Bearer key, HTTP | HTTPS; Bearer `api_key`, like `/v1/*` |
+| Generation backend web UIs (`:8081`–`:8088`, opt-in) | open, HTTP | HTTPS + admin login via Caddy, one site per port |
 
 **Not** addressed (your responsibility): OS/container hardening, firewalling,
 keeping images patched, rate limiting, DDoS, securing the host itself, and
@@ -172,14 +174,26 @@ the browser chat UI — not for programmatic clients.
   is not reachable from the network; Caddy publishes `80` (HTTP→HTTPS redirect +
   ACME), `443` (UI/API/`/v1`), and `8080` (chat UI). The app's raw router is
   reachable only from the host itself, on a loopback debug port.
+- **Generation web UI ports (opt-in).** If you answer yes to "Publish ports for
+  generation backend web UIs?" (or pass `--gen-ports`), Caddy also publishes 8
+  ports, `8081`–`8088` by default (`--gen-port-start` moves them). Each port is
+  its own Caddy site with the admin login, forwarding to the backend's port
+  inside the app container. The app's own copy of the range is on loopback
+  only, at `127.0.0.1:18081`–`18088`, and its loopback debug port moves from
+  `8081` to `18080` so it doesn't clash. The installer prints that move. With
+  no (the default) none of this is added. The image and music APIs work
+  either way, because they go through `443`.
 - **`ExternalURL`.** The installer sets `LLAMA_TOOLCHEST_EXTERNAL_URL=https://…`
   so the UI's chat/API links render with the externally reachable URL. If you
   change domains, update it (Settings → External URL, or the env in `.env`).
 - **TLS termination.** Browser ↔ Caddy is encrypted; Caddy ↔ app is plain HTTP
   over the private container network and never leaves the host.
-- **Auth split.** Everything except `/v1/*` requires Basic Auth. `/v1/*` is left
-  to the app's Bearer `api_key` so OpenAI clients (which send
-  `Authorization: Bearer …`) aren't broken by a Basic-Auth challenge.
+- **Auth split.** Everything except `/v1/*`, `/release_task` and
+  `/query_result` requires Basic Auth. Those are left to the app's Bearer
+  `api_key` so OpenAI and ACE-Step clients (which send
+  `Authorization: Bearer …`) aren't broken by a Basic-Auth challenge. The
+  ACE-Step routes are at the server root because that is where ACE-Step
+  clients call them.
 
 Read [`Caddyfile.template`](../Caddyfile.template) and your rendered
 `./Caddyfile` to confirm all of the above matches your expectations before
@@ -199,6 +213,9 @@ exposing the server.
   above) or switch to Let's Encrypt.
 - **Let's Encrypt fails to issue:** confirm the domain resolves to this host and
   ports 80/443 are reachable from the internet; check `./setup.sh logs`.
+- **Generation web UI port already in use:** the installer checks all 8 ports
+  and asks for another first port. In a scripted install, pass
+  `--gen-port-start <port>`.
 - **Port already in use:** something else holds 80/443/8080. Stop it, or adjust
   `CADDY_HTTP_PORT` / `CADDY_HTTPS_PORT` / `CADDY_CHAT_PORT` in `.env` (note the
   chat link expects `8080`). A common case is a **host-mode** llama-toolchest on

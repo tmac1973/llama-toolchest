@@ -1037,6 +1037,7 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		GenPortEnd        int
 		GenPortCount      int
 		InContainer       bool
+		GenPortsPublished bool
 	}{
 		pageData:         pageData{Title: "Settings", Nav: "settings"},
 		ProxyEndpoint:    proxyEndpoint,
@@ -1061,6 +1062,7 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 
 		GenerationEnabled: s.cfg.GenerationEnabled,
 		InContainer:       s.inContainer(),
+		GenPortsPublished: s.genPortsPublished(),
 	}
 	data.GenPortStart, data.GenPortCount = s.cfg.GenPorts(data.InContainer)
 	data.GenPortEnd = data.GenPortStart + data.GenPortCount - 1

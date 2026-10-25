@@ -51,6 +51,7 @@ func renderSettings(t *testing.T, hasHF, hasMS bool) string {
 		GenPortEnd        int
 		GenPortCount      int
 		InContainer       bool
+		GenPortsPublished bool
 	}{HasHFToken: hasHF, HasMSToken: hasMS}
 
 	var buf bytes.Buffer

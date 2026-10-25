@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -57,11 +58,22 @@ func (r genInstanceRow) ReservedGiB() float64  { return float64(r.ReservedMiB) /
 func (r genInstanceRow) PeakGiB() float64      { return float64(r.MeasuredPeakMiB) / 1024 }
 func (r genInstanceRow) SuggestedGiB() float64 { return float64(r.SuggestedMiB) / 1024 }
 
+// genPortsPublished reports whether a browser can reach the generation
+// backend ports. On the host it always can. A container publishes them
+// only when setup.sh was told to, and docker-compose.gen-ports.yml (or the
+// Quadlet unit) then sets LLAMA_TOOLCHEST_GEN_PORTS=1.
+func (s *Server) genPortsPublished() bool {
+	return !s.inContainer() || os.Getenv("LLAMA_TOOLCHEST_GEN_PORTS") == "1"
+}
+
 // genWebUIURL is where a browser reaches the backend listening on port:
 // the external URL's host, as for the chat UI link, on the port as seen
 // from outside (a container may publish the range on other host ports).
-// Empty when the external URL has no host.
+// Empty when the external URL has no host, or the ports are not published.
 func (s *Server) genWebUIURL(port int) string {
+	if !s.genPortsPublished() {
+		return ""
+	}
 	u, err := url.Parse(s.cfg.ExternalURL)
 	if err != nil || u.Hostname() == "" {
 		return ""

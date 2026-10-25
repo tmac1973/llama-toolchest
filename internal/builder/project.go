@@ -89,8 +89,12 @@ func projects() []Project {
 		CloneDir:   "stable-diffusion.cpp",
 		Submodules: true,
 		IDPrefix:   "sd-",
-		// The flags that built sd-server on gfx1201 on 2026-10-24.
-		BaseCMakeArgs: []string{"-DSD_BUILD_EXAMPLES=ON", "-DCMAKE_POSITION_INDEPENDENT_CODE=ON", "-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON"},
+		// The flags that built sd-server on gfx1201 on 2026-10-24, minus
+		// CMAKE_BUILD_WITH_INSTALL_RPATH: it left the binary without the
+		// path to the GPU runtime (/opt/rocm-7.2.4/lib), which the Fedora
+		// ROCm image does not give the system loader, so sd-server could not
+		// start in a container. llama.cpp builds keep that path the same way.
+		BaseCMakeArgs: []string{"-DSD_BUILD_EXAMPLES=ON", "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"},
 		Backends:      gpuOnly,
 		Required:      BinarySpec{"sd-server", []string{filepath.Join("bin", "sd-server")}},
 		Optional:      []BinarySpec{{"sd-cli", []string{filepath.Join("bin", "sd-cli")}}},

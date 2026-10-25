@@ -80,6 +80,22 @@ The package doesn't pull GPU SDKs — install them yourself for the backend you 
 - **CUDA** — `cuda-toolkit` (Fedora/Debian via NVIDIA's repo)
 - **Vulkan** — see [Vulkan section in README](../README.md#vulkan)
 
+## Image and music generation backends
+
+These are optional (Settings → Generation backends). Two things matter for a
+host install:
+
+- **Ports.** Each backend instance listens on its own port, from a range that
+  starts at 8081 and holds 8 ports by default (`gen_port_start` and
+  `gen_port_count` in the config, or Settings). The range must not include
+  the UI port or `llama_port`. Open the range in your firewall if you want
+  to reach the backends' own web pages from other machines; the image and
+  music APIs go through the UI port and don't need it.
+- **The sd-server web UI.** Building stable-diffusion.cpp with its built-in
+  web UI needs Node.js 20 or newer and `pnpm` on `PATH`. The package only
+  recommends `nodejs`; install pnpm with `npm install -g pnpm`. Without pnpm
+  the Builds page leaves the web UI option off, and the API still works.
+
 ## Switching to script-managed install later
 
 You can rerun `./setup.sh install --host` later if you'd rather have the script manage the config and service for you — it's safe to run on top of a manual install.

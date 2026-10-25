@@ -225,6 +225,12 @@
         </label>
     </form>
     <div id="generation-status"></div>
+    {{if and .GenerationEnabled (not .GenPortsPublished)}}
+    <p><small>Web UI ports are not published, so the backends' own web pages
+       cannot be opened. The image and music APIs still work. To open the
+       web pages, run <code>setup.sh install</code> again and answer yes to
+       "Publish ports for generation backend web UIs?".</small></p>
+    {{end}}
     <details>
         <summary>Backend ports ({{.GenPortStart}}–{{.GenPortEnd}})</summary>
         <p>Each backend instance listens on its own port from this range, and
