@@ -1259,6 +1259,39 @@ migrate_legacy_volume() {
     echo ""
 }
 
+# Legacy rename, part two: the 'llama-toolchest-data' volume can still hold
+# the pre-rebrand config/llamactl.yaml and no config/llama-toolchest.yaml,
+# for example when it was renamed by hand or the image was rebuilt partway
+# through the rename. The image's ENTRYPOINT reads only the new name; without
+# it the app runs on defaults with its data outside the volume, so builds and
+# models are lost when the container is recreated. Rename the file, as
+# migrate_legacy_volume does after its copy. Called from install/rebuild/quick
+# before the new container is started.
+migrate_legacy_config_name() {
+    local vol="llama-toolchest-data" result
+
+    [[ -z "$CONTAINER_CMD" ]] && return 0
+    $CONTAINER_CMD volume inspect "$vol" >/dev/null 2>&1 || return 0
+
+    # Prints "renamed", "both" or nothing.
+    if ! result="$($CONTAINER_CMD run --rm -v "${vol}:/data" docker.io/library/alpine:3 \
+        sh -c "set -e; cd /data/config 2>/dev/null || exit 0; \
+               [ -f llamactl.yaml ] || exit 0; \
+               if [ -f llama-toolchest.yaml ]; then echo both; exit 0; fi; \
+               mv llamactl.yaml llama-toolchest.yaml; echo renamed")"; then
+        warn "Could not check the '$vol' volume for the old config name (config/llamactl.yaml)."
+        return 0
+    fi
+    case "$result" in
+        renamed)
+            ok "Renamed config/llamactl.yaml to config/llama-toolchest.yaml in the '$vol' volume, so the app reads its settings again."
+            ;;
+        both)
+            warn "The '$vol' volume has both config/llamactl.yaml (old name) and config/llama-toolchest.yaml. Using config/llama-toolchest.yaml. If your settings are in the old file, replace the new one with it."
+            ;;
+    esac
+}
+
 # ─── Container operations ────────────────────────────────────────────────────
 
 compose_file() {
@@ -1897,6 +1930,7 @@ stop_existing_containers() {
 
 container_install() {
     migrate_legacy_volume
+    migrate_legacy_config_name
     stop_existing_containers
     preflight_port_check
     ensure_unprivileged_ports
@@ -1909,6 +1943,7 @@ container_rebuild() {
     has_quadlet && quadlet_active=true
 
     migrate_legacy_volume
+    migrate_legacy_config_name
     container_down
     stop_existing_containers
     preflight_port_check
@@ -1938,6 +1973,7 @@ container_rebuild() {
 # leaves the current version running instead of nothing.
 container_quick_rebuild() {
     migrate_legacy_volume
+    migrate_legacy_config_name
     write_env_file
 
     local latest=""

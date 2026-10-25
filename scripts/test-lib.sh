@@ -1130,6 +1130,59 @@ llm.example.test:8080 {" "$(grep -E '^[^#[:space:]].* \{$' "$cf" | grep -v '^{$'
     check_eq "chat URL: IPv6 host without a port" "https://[fd00::1]:8080" "$(secure_chat_url)"
 )
 
+# An old-named config in the current volume is renamed to the name the
+# image's ENTRYPOINT reads. The fake runtime runs the script on a folder
+# standing in for the volume (fake_vol: the function has its own vol).
+test_migrate_legacy_config_name() (
+    load_setup_fns migrate_legacy_config_name
+    local fake_vol="${TMP_ROOT}/vol" calls="${TMP_ROOT}/runtime.log"
+    local msgs="${TMP_ROOT}/config-name.log"
+    ok()   { echo "ok: $*" >> "$msgs"; }
+    warn() { echo "warn: $*" >> "$msgs"; }
+    HAVE_VOLUME=true
+    fake_runtime() {
+        echo "$*" >> "$calls"
+        case "$1 $2" in
+            "volume inspect") [[ "$HAVE_VOLUME" == true ]] ;;
+            "run --rm") local script="${!#}"; sh -c "${script//\/data/$fake_vol}" ;;
+            *) return 1 ;;
+        esac
+    }
+    CONTAINER_CMD=fake_runtime
+    reset() { rm -rf "$fake_vol" "$calls" "$msgs"; mkdir -p "$fake_vol/config"; : > "$calls"; : > "$msgs"; }
+
+    reset
+    echo 'data_dir: "/data"' > "$fake_vol/config/llamactl.yaml"
+    migrate_legacy_config_name
+    check_eq "config name: renamed" 'data_dir: "/data"' "$(cat "$fake_vol/config/llama-toolchest.yaml" 2>/dev/null)"
+    check_false "config name: old name gone" test -e "$fake_vol/config/llamactl.yaml"
+    check_true "config name: says so" grep -q '^ok: Renamed config/llamactl.yaml' "$msgs"
+    check_true "config name: mounts the current volume" grep -q -- '-v llama-toolchest-data:/data' "$calls"
+
+    # Run again: nothing left to do.
+    : > "$msgs"
+    migrate_legacy_config_name
+    check_eq "config name: second run is quiet" "" "$(cat "$msgs")"
+
+    reset
+    echo old > "$fake_vol/config/llamactl.yaml"
+    echo new > "$fake_vol/config/llama-toolchest.yaml"
+    migrate_legacy_config_name
+    check_eq "config name: both kept" "old new" \
+        "$(cat "$fake_vol/config/llamactl.yaml") $(cat "$fake_vol/config/llama-toolchest.yaml")"
+    check_true "config name: both warns" grep -q '^warn: .*has both' "$msgs"
+
+    reset
+    rm -rf "$fake_vol/config"
+    migrate_legacy_config_name
+    check_eq "config name: no config folder" "" "$(cat "$msgs")"
+
+    reset
+    HAVE_VOLUME=false
+    migrate_legacy_config_name
+    check_eq "config name: no volume, no container run" "volume inspect llama-toolchest-data" "$(cat "$calls")"
+)
+
 # ─── Run ─────────────────────────────────────────────────────────────────────
 
 test_scope_current_user
@@ -1164,6 +1217,7 @@ test_gen_ports_on
 test_gen_ports_secure
 test_label_for_build_mount
 test_secure_custom_ports
+test_migrate_legacy_config_name
 
 passes="$(grep -c '^PASS$' "$RESULTS")"
 fails="$(grep -c '^FAIL$' "$RESULTS")"
