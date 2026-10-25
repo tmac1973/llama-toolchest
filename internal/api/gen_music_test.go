@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -32,6 +33,10 @@ type fakeAce struct {
 	kind    map[string]string
 	lmReqs  []map[string]any
 	cancels []string
+	// synthReqs and synthFiles are each /synth request and its file parts
+	// (field: content).
+	synthReqs  []map[string]any
+	synthFiles []map[string]string
 	// hold keeps /lm jobs running until released; failLM fails them.
 	hold   chan struct{}
 	failLM bool
@@ -56,6 +61,9 @@ func (f *fakeAce) serve(w http.ResponseWriter, r *http.Request) {
 		id := fmt.Sprint(f.nextID)
 		f.kind[id] = r.URL.Path
 		f.status[id] = "done"
+		if r.URL.Path == "/synth" {
+			f.recordSynth(r)
+		}
 		if r.URL.Path == "/lm" {
 			var req map[string]any
 			json.NewDecoder(r.Body).Decode(&req)
@@ -102,6 +110,23 @@ func (f *fakeAce) serve(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func (f *fakeAce) recordSynth(r *http.Request) {
+	var req map[string]any
+	files := map[string]string{}
+	if r.ParseMultipartForm(1<<20) == nil {
+		json.Unmarshal([]byte(r.FormValue("request")), &req)
+		for field, fhs := range r.MultipartForm.File {
+			rd, _ := fhs[0].Open()
+			b, _ := io.ReadAll(rd)
+			files[field] = string(b)
+		}
+	} else {
+		json.NewDecoder(r.Body).Decode(&req)
+	}
+	f.synthReqs = append(f.synthReqs, req)
+	f.synthFiles = append(f.synthFiles, files)
 }
 
 // musicServer is vramServer with a complete ace set and a running ace
@@ -413,6 +438,187 @@ func TestMusicJobsPrune(t *testing.T) {
 	for _, id := range []string{"0000000000000001", "0000000000000002"} {
 		if _, ok := s.genMusic.view(id); !ok {
 			t.Errorf("job %s was pruned", id)
+		}
+	}
+}
+
+// postMusicMultipart posts a multipart music job: the JSON in a "request"
+// part and each file in a part of its own.
+func postMusicMultipart(s *Server, request string, files map[string]string) *httptest.ResponseRecorder {
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	mw.WriteField("request", request)
+	for field, content := range files {
+		part, _ := mw.CreateFormFile(field, field+".mp3")
+		part.Write([]byte(content))
+	}
+	mw.Close()
+	r := httptest.NewRequest("POST", "/v1/music/jobs", &buf)
+	r.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	s.handleMusicCreate(rec, r)
+	return rec
+}
+
+// A cover skips /lm and sends ace-server the task, its settings and both
+// songs; the job keeps no copy of them once it is done.
+func TestMusicCoverFromUpload(t *testing.T) {
+	s, f := musicServer(t)
+	phases := recordPhases(&s.genMusic, func(j musicJob) string { return j.Phase })
+	rec := postMusicMultipart(s, `{"model":"music","caption":"smoky jazz","lyrics":"new words","task_type":"cover","audio_cover_strength":0.3}`,
+		map[string]string{"audio": "SRC", "ref_audio": "REF"})
+	j := waitMusic(t, s, createdID(t, rec), musicSucceeded)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.lmReqs) != 0 {
+		t.Errorf("a cover ran /lm: %v", f.lmReqs)
+	}
+	if len(f.synthReqs) != 1 {
+		t.Fatalf("/synth requests = %d", len(f.synthReqs))
+	}
+	req, files := f.synthReqs[0], f.synthFiles[0]
+	if req["task_type"] != "cover" || req["audio_cover_strength"] != 0.3 || req["caption"] != "smoky jazz" || req["lyrics"] != "new words" {
+		t.Errorf("/synth request = %v", req)
+	}
+	if files["audio"] != "SRC" || files["ref_audio"] != "REF" {
+		t.Errorf("/synth files = %v", files)
+	}
+	if !j.Request.SourceAudio || !j.Request.ReferenceAudio || j.Request.source != nil || j.Request.ref != nil {
+		t.Errorf("finished job's request = %+v", j.Request)
+	}
+	if j.Result["caption"] != "smoky jazz" {
+		t.Errorf("result = %v", j.Result)
+	}
+	if want := []string{"synthesizing", "saving", ""}; !slices.Equal(phases(), want) {
+		t.Errorf("phases = %v, want %v", phases(), want)
+	}
+}
+
+// Text to music with a timbre reference composes first, then hands the
+// reference to /synth.
+func TestMusicText2MusicWithReference(t *testing.T) {
+	s, f := musicServer(t)
+	rec := postMusicMultipart(s, `{"caption":"bright folk"}`, map[string]string{"ref_audio": "REF"})
+	waitMusic(t, s, createdID(t, rec), musicSucceeded)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.lmReqs) != 1 || f.synthFiles[0]["ref_audio"] != "REF" || f.synthFiles[0]["audio"] != "" {
+		t.Errorf("lm %d, synth files %v", len(f.lmReqs), f.synthFiles)
+	}
+	if _, ok := f.synthReqs[0]["task_type"]; ok {
+		t.Errorf("text2music sent a task_type: %v", f.synthReqs[0])
+	}
+}
+
+func TestMusicTaskRefusals(t *testing.T) {
+	s, _ := musicServer(t)
+	turbo := generation.ModelSet{ID: "ace-turbo", Kind: generation.KindAce,
+		Components: []generation.Component{{Slot: "dit", Path: "/m/acestep-v15-turbo-Q8_0.gguf"}}}
+	src := &aceFile{field: "audio", data: []byte("SRC")}
+	if code, msg := checkMusicRequest(turbo, musicRequest{Caption: "x", TaskType: "lego", Track: "drums", source: src}, "caption"); code != "task_not_supported" {
+		t.Errorf("lego on turbo: %s %s", code, msg)
+	}
+
+	audio := map[string]string{"audio": "SRC"}
+	for _, c := range []struct {
+		request string
+		files   map[string]string
+		want    string
+	}{
+		{`{"model":"music","caption":"x","task_type":"remix"}`, audio, "task_type must be one of"},
+		{`{"model":"music","caption":"x","task_type":"cover"}`, nil, "cover needs source audio"},
+		{`{"model":"music","caption":"x"}`, audio, "only used by the other tasks"},
+		{`{"model":"music","caption":"","task_type":"cover"}`, audio, "caption is required"},
+		{`{"model":"music","task_type":"lego","track":"kazoo","caption":"x"}`, audio, "unknown track"},
+		{`{"model":"music","task_type":"cover","track":"drums","caption":"x"}`, audio, "track is only used"},
+		{`{"model":"music","task_type":"cover","audio_cover_strength":1.5,"caption":"x"}`, audio, "between 0 and 1"},
+		{`{"model":"music","task_type":"repaint","audio_cover_strength":0.5,"caption":"x"}`, audio, "only used by cover"},
+		{`{"model":"music","task_type":"repaint","repainting_start":20,"repainting_end":10,"caption":"x"}`, audio, "must be after"},
+		{`{"model":"music","task_type":"cover","repainting_start":5,"caption":"x"}`, audio, "only used by repaint and lego"},
+		{`{"model":"music","caption":"x"`, audio, "not valid JSON"},
+	} {
+		rec := postMusicMultipart(s, c.request, c.files)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), c.want) {
+			t.Errorf("%s: %d %s, want %q", c.request, rec.Code, rec.Body.String(), c.want)
+		}
+	}
+	// Extract needs no caption; a complete takes several tracks; repaint
+	// to the end of the source is -1.
+	for _, request := range []string{
+		`{"model":"music","task_type":"extract","track":"vocals"}`,
+		`{"model":"music","task_type":"complete","track":"drums | bass","caption":"x"}`,
+		`{"model":"music","task_type":"repaint","repainting_start":-10,"repainting_end":-1,"caption":"x"}`,
+	} {
+		if rec := postMusicMultipart(s, request, audio); rec.Code != http.StatusAccepted {
+			t.Errorf("%s: %d %s", request, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestAceTasks(t *testing.T) {
+	set := func(dit string) generation.ModelSet {
+		return generation.ModelSet{Kind: generation.KindAce, Components: []generation.Component{{Slot: "dit", File: dit}}}
+	}
+	if got := aceTasks(set("acestep-v15-turbo-Q8_0.gguf")); slices.Contains(got, taskLego) || !slices.Contains(got, taskRepaint) {
+		t.Errorf("turbo tasks = %v", got)
+	}
+	if got := aceTasks(set("acestep-v15-xl-sft-Q8_0.gguf")); !slices.Equal(got, musicTasks) {
+		t.Errorf("sft tasks = %v", got)
+	}
+	if !slices.Contains(musicTasks, taskLego) {
+		t.Error("aceTasks changed musicTasks")
+	}
+}
+
+// The official server's multipart form: each field in a part of its own and
+// the song in src_audio.
+func TestAceStepReleaseTaskMultipart(t *testing.T) {
+	s, f := musicServer(t)
+	post := func(fields map[string]string, files map[string]string) *httptest.ResponseRecorder {
+		var buf bytes.Buffer
+		mw := multipart.NewWriter(&buf)
+		for k, v := range fields {
+			mw.WriteField(k, v)
+		}
+		for k, v := range files {
+			part, _ := mw.CreateFormFile(k, k+".wav")
+			part.Write([]byte(v))
+		}
+		mw.Close()
+		r := httptest.NewRequest("POST", "/release_task", &buf)
+		r.Header.Set("Content-Type", mw.FormDataContentType())
+		rec := httptest.NewRecorder()
+		s.handleReleaseTask(rec, r)
+		return rec
+	}
+	rec := post(map[string]string{"prompt": "x", "task_type": "repaint", "repainting_start": "10", "repainting_end": "20", "thinking": "true"},
+		map[string]string{"src_audio": "SRC"})
+	var out struct {
+		Data struct {
+			TaskID string `json:"task_id"`
+		}
+	}
+	json.Unmarshal(rec.Body.Bytes(), &out)
+	if out.Data.TaskID == "" {
+		t.Fatalf("release_task: %d %s", rec.Code, rec.Body.String())
+	}
+	waitMusic(t, s, out.Data.TaskID, musicSucceeded)
+	f.mu.Lock()
+	req, files := f.synthReqs[0], f.synthFiles[0]
+	f.mu.Unlock()
+	if req["task_type"] != "repaint" || req["repainting_start"] != float64(10) || req["repainting_end"] != float64(20) || files["audio"] != "SRC" {
+		t.Errorf("/synth got %v %v", req, files)
+	}
+
+	for _, c := range []struct {
+		fields map[string]string
+		want   string
+	}{
+		{map[string]string{"prompt": "x", "src_audio_path": "/srv/song.mp3", "task_type": "cover"}, "upload the files"},
+		{map[string]string{"prompt": "x", "repainting_start": "soon"}, "not a valid value"},
+	} {
+		if rec := post(c.fields, nil); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), c.want) {
+			t.Errorf("%v: %d %s, want %q", c.fields, rec.Code, rec.Body.String(), c.want)
 		}
 	}
 }

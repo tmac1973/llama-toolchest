@@ -21,9 +21,17 @@ const aceJobPoll = 250 * time.Millisecond
 // its result body and Content-Type. onJobID, when set, is told the backend's
 // job ID as soon as it is known, so the job can be cancelled. When ctx ends
 // first, the backend job is cancelled with ace-server's
-// POST /job?id=N&cancel=1 and ctx's error is returned.
-func runAceJob(ctx context.Context, base, path string, body any, onJobID func(string)) ([]byte, string, error) {
-	out, _, err := postJSON(ctx, base+path, body)
+// POST /job?id=N&cancel=1 and ctx's error is returned. With files, the
+// request is multipart: body in a "request" part and each file in a part of
+// its own, as ace-server's /synth takes source and reference audio.
+func runAceJob(ctx context.Context, base, path string, body any, onJobID func(string), files ...aceFile) ([]byte, string, error) {
+	var out []byte
+	var err error
+	if len(files) > 0 {
+		out, _, err = postAceMultipart(ctx, base+path, body, files)
+	} else {
+		out, _, err = postJSON(ctx, base+path, body)
+	}
 	if err != nil {
 		return nil, "", err
 	}
@@ -103,6 +111,40 @@ func postJSON(ctx context.Context, url string, body any) ([]byte, string, error)
 		return nil, "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	return doBody(req)
+}
+
+// aceFile is one file part of a multipart ace-server request.
+type aceFile struct {
+	field, name string
+	data        []byte
+}
+
+func postAceMultipart(ctx context.Context, url string, body any, files []aceFile) ([]byte, string, error) {
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return nil, "", err
+	}
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	if err := mw.WriteField("request", string(raw)); err != nil {
+		return nil, "", err
+	}
+	for _, f := range files {
+		part, err := mw.CreateFormFile(f.field, f.name)
+		if err != nil {
+			return nil, "", err
+		}
+		part.Write(f.data)
+	}
+	if err := mw.Close(); err != nil {
+		return nil, "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", url, &buf)
+	if err != nil {
+		return nil, "", err
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
 	return doBody(req)
 }
 
