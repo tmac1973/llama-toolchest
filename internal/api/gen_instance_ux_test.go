@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tmac1973/llama-toolchest/internal/builder"
 	"github.com/tmac1973/llama-toolchest/internal/generation"
 )
 
@@ -129,5 +130,37 @@ func TestInstanceTableShowsGPUHold(t *testing.T) {
 	s.handleGenInstances(rec, instanceReq("GET", "/", "", "", nil))
 	if strings.Contains(rec.Body.String(), "GPU in use by") {
 		t.Error("hold still shown after release")
+	}
+}
+
+// A row with no web UI link says why, and how to get one.
+func TestGenWebUILinkReasons(t *testing.T) {
+	s := instanceServer(t)
+	s.cfg.ExternalURL = "http://compute2:3000"
+	inst := generation.Instance{ID: "m", Port: 8083}
+	withUI := &builder.BuildResult{ID: "sd-1", Project: builder.ProjectSDCpp, HasWebUI: true}
+	noUI := &builder.BuildResult{ID: "sd-0", Project: builder.ProjectSDCpp}
+
+	if link, note := s.genWebUILink(withUI, inst, true); link != "http://compute2:8083" || note != "" {
+		t.Errorf("running, with web UI: %q %q", link, note)
+	}
+	if link, note := s.genWebUILink(withUI, inst, false); link != "" || note != "" {
+		t.Errorf("stopped: %q %q, want neither", link, note)
+	}
+	for _, running := range []bool{true, false} {
+		if link, note := s.genWebUILink(noUI, inst, running); link != "" || !strings.Contains(note, "Built-in web UI") || !strings.Contains(note, "stable-diffusion.cpp") {
+			t.Errorf("build without web UI (running %v): %q %q", running, link, note)
+		}
+	}
+
+	s.inContainerFn = func() bool { return true }
+	t.Setenv("LLAMA_TOOLCHEST_GEN_PORTS", "")
+	if _, note := s.genWebUILink(withUI, inst, true); !strings.Contains(note, "setup.sh install") {
+		t.Errorf("ports not published: %q", note)
+	}
+	s.inContainerFn = func() bool { return false }
+	s.cfg.ExternalURL = ""
+	if _, note := s.genWebUILink(withUI, inst, true); !strings.Contains(note, "Server URL") {
+		t.Errorf("no server URL: %q", note)
 	}
 }

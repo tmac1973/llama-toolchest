@@ -56,6 +56,9 @@
                 <a href="{{.}}" target="_blank" rel="noopener" style="font-size:0.85rem;" title="The backend's own web page, on its own port. Jobs started from the web UI skip the llama-toolchest queue, so they can run at the same time as API jobs on the same GPU.">Open web UI →</a>
                 <small style="display:block;color:var(--pico-muted-color);">Jobs started from the web UI skip the llama-toolchest queue.</small>
                 {{- end}}
+                {{- with .WebUINote}}
+                <small style="display:block;color:var(--pico-muted-color);max-width:22rem;">{{.}}</small>
+                {{- end}}
                 <span style="display:flex;gap:0.4rem;flex-wrap:wrap;">
                 {{- $id := .ID}}
                 {{- if or (eq .Status.State "running") (eq .Status.State "starting")}}
