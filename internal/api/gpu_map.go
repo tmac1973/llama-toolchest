@@ -26,7 +26,13 @@ func (s *Server) handleGPUMap(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	allocations := models.ComputeAllocations(allModels, allConfigs, numGPUs)
+	// Each model as its launch splits it: by the cards' room, beside the
+	// generation reservations.
+	gpuMiB := models.GPUMiB(s.hardware())
+	if len(gpuMiB) != numGPUs {
+		gpuMiB = make([]int, numGPUs)
+	}
+	allocations := models.ComputeAllocationsOn(allModels, allConfigs, gpuMiB)
 	allocations = append(allocations, s.genReservationAllocations(len(allocations))...)
 
 	// Build per-GPU data for the template
@@ -62,7 +68,7 @@ func (s *Server) handleGPUMap(w http.ResponseWriter, r *http.Request) {
 				if g == i {
 					pct := 0.0
 					if totalGB > 0 {
-						pct = (a.PerGPUGB / totalGB) * 100
+						pct = (a.LoadOn(i) / totalGB) * 100
 					}
 					bars[i].Segments = append(bars[i].Segments, GPUSegment{
 						ModelName: a.ModelName,
@@ -70,7 +76,7 @@ func (s *Server) handleGPUMap(w http.ResponseWriter, r *http.Request) {
 						WidthPct:  pct,
 						Reserved:  a.Reserved,
 					})
-					usedGB += a.PerGPUGB
+					usedGB += a.LoadOn(i)
 					break
 				}
 			}

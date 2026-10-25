@@ -83,10 +83,11 @@ func (s *Server) applyGenVRAM(hw *models.Hardware) {
 // loadedLLMMiB is the planned GPU memory of the LLMs the router has
 // loaded, per GPU index, plus extraID (a model about to load) when set.
 // skipLoaded leaves the loaded ones out: with --models-max 1 the loaded
-// model is replaced by the new one.
-func (s *Server) loadedLLMMiB(numGPUs int, extraID string, skipLoaded bool) map[int]int {
+// model is replaced by the new one. gpuMiB is each GPU's room
+// (models.GPUMiB), which decides how a model is split over the cards.
+func (s *Server) loadedLLMMiB(gpuMiB []int, extraID string, skipLoaded bool) map[int]int {
 	out := map[int]int{}
-	if numGPUs == 0 {
+	if len(gpuMiB) == 0 {
 		return out
 	}
 	add := func(id string) {
@@ -98,7 +99,7 @@ func (s *Server) loadedLLMMiB(numGPUs int, extraID string, skipLoaded bool) map[
 		if err != nil {
 			return
 		}
-		addLLMMiB(out, m, cfg, numGPUs)
+		addLLMMiB(out, m, cfg, gpuMiB)
 	}
 	if !skipLoaded && s.process.IsRunning() {
 		if list, err := s.process.ListModels(); err == nil {
@@ -118,13 +119,13 @@ func (s *Server) loadedLLMMiB(numGPUs int, extraID string, skipLoaded bool) map[
 	return out
 }
 
-// addLLMMiB adds a model's planned GPU memory under cfg to out, spread
-// evenly over the GPUs cfg assigns it.
-func addLLMMiB(out map[int]int, m *models.Model, cfg *models.ModelConfig, numGPUs int) {
-	total := models.VRAMEstimateForConfig(m, cfg)
-	gpus := models.AssignedModelGPUs(cfg, numGPUs)
-	for _, g := range gpus {
-		out[g] += int(total / float64(len(gpus)) * 1024)
+// addLLMMiB adds a model's planned GPU memory under cfg to out, per GPU,
+// split over the cards the way its launch will split it (see
+// models.CardLoadsMiB): by each card's room where that differs, so a card
+// with a generation reservation is given less.
+func addLLMMiB(out map[int]int, m *models.Model, cfg *models.ModelConfig, gpuMiB []int) {
+	for g, mib := range models.CardLoadsMiB(m, cfg, gpuMiB) {
+		out[g] += mib
 	}
 }
 
@@ -157,7 +158,7 @@ func (s *Server) genFitCheck(inst generation.Instance, reserveMiB int) error {
 		otherNames = others.Names
 	}
 	budget := models.CardBudgetMiB(spec)
-	llm := s.loadedLLMMiB(len(hw.GPUs), "", false)[inst.GPU]
+	llm := s.loadedLLMMiB(models.GPUMiB(hw), "", false)[inst.GPU]
 	if llm+reserveMiB <= budget {
 		return nil
 	}
@@ -185,7 +186,7 @@ func (s *Server) checkLLMFitsReservations(m *models.Model) error {
 		return nil
 	}
 	hw := s.hardware()
-	return s.reservationFitError(hw, s.loadedLLMMiB(len(hw.GPUs), m.ID, s.cfg.ModelsMax == 1), s.cfg.ModelsMax != 1)
+	return s.reservationFitError(hw, s.loadedLLMMiB(models.GPUMiB(hw), m.ID, s.cfg.ModelsMax == 1), s.cfg.ModelsMax != 1)
 }
 
 // checkConfigFitsReservations is checkLLMFitsReservations for a benchmark
@@ -197,7 +198,7 @@ func (s *Server) checkConfigFitsReservations(m *models.Model, cfg *models.ModelC
 	}
 	hw := s.hardware()
 	need := map[int]int{}
-	addLLMMiB(need, m, cfg, len(hw.GPUs))
+	addLLMMiB(need, m, cfg, models.GPUMiB(hw))
 	return s.reservationFitError(hw, need, false)
 }
 
@@ -301,7 +302,7 @@ func (s *Server) genBannerGPUs() []genBannerGPU {
 	}
 	hw := s.hardware()
 	return bannerGPUs(hw.GPUs, func(gpu int) bool { return s.genQueue.Snapshot(gpu).Running != nil },
-		s.loadedLLMMiB(len(hw.GPUs), "", false))
+		s.loadedLLMMiB(models.GPUMiB(hw), "", false))
 }
 
 // bannerGPUs picks the GPUs with a generation job running and LLM memory

@@ -328,3 +328,37 @@ func TestFitIsPlannedWithTheDraftContext(t *testing.T) {
 		t.Errorf("estimate with draft layers = %.2f GiB, without = %.2f GiB; the draft context was not counted", with, without)
 	}
 }
+
+func refusedForReservationsOn(device int) Check {
+	return Check{OutOfMemory: true, Reserved: true, Device: device,
+		Reason: "Not enough VRAM: 9.5 GiB reserved for generation backends on GPU 1 (flux-gpu1 9.5 GiB); the LLM needs about 7.2 GiB there and 5.2 GiB is left"}
+}
+
+// A test load refused because it did not fit beside a generation
+// reservation is adjusted like one that ran out of memory on that GPU,
+// and the note says what happened.
+func TestVerifyMovesLayersOffACardWithAReservation(t *testing.T) {
+	v := &verifier{runs: func(cfg models.ModelConfig) Check {
+		if cfg.TensorSplit == "" {
+			return refusedForReservationsOn(1)
+		}
+		return Check{OK: true}
+	}}
+	res := runWith(t, threeCards(), v)
+	if res.Check.Status != VerifyPassed || res.Check.Attempts != 2 || res.Check.Reserved {
+		t.Fatalf("check = %+v, want passed on the second load", res.Check)
+	}
+	if note := noteFor(res, "gpu_assign"); !strings.Contains(note, "reserved for image and music backends") || !strings.Contains(note, "GPU 1") {
+		t.Errorf("gpu_assign note %q does not say the reservation on GPU 1 was the problem", note)
+	}
+}
+
+// When no adjustment fits beside the reservations, the review is told the
+// settings cannot be loaded, so it does not offer them for saving.
+func TestVerifyReportsSettingsThatNeverFitBesideReservations(t *testing.T) {
+	v := &verifier{runs: func(models.ModelConfig) Check { return refusedForReservationsOn(1) }}
+	res := runWith(t, threeCards(), v)
+	if res.Check.Status != VerifyFailed || !res.Check.Reserved {
+		t.Errorf("check = %+v, want failed and marked as not fitting beside reservations", res.Check)
+	}
+}

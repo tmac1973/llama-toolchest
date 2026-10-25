@@ -546,6 +546,17 @@ type GPUAllocation struct {
 	// Reserved marks memory held for a generation backend rather than an
 	// LLM; the map draws it striped.
 	Reserved bool
+	// GPULoadGB is what each GPU holds, by index, when the model is split
+	// unevenly (see CardLoadsMiB); nil means PerGPUGB on each of GPUs.
+	GPULoadGB map[int]float64
+}
+
+// LoadOn is what the allocation puts on GPU g, in GiB.
+func (a GPUAllocation) LoadOn(g int) float64 {
+	if a.GPULoadGB != nil {
+		return a.GPULoadGB[g]
+	}
+	return a.PerGPUGB
 }
 
 // allocationColors are the colors assigned to models in the GPU map.
@@ -565,7 +576,17 @@ func AllocationColor(i int) string {
 // ComputeAllocations builds the GPU allocation list from enabled models.
 // Uses peak VRAM (weights + KV cache at the configured context size and KV
 // quantization) so the map reflects actual fit when a model is loaded.
+// Each model is spread evenly over its GPUs; ComputeAllocationsOn follows
+// the split a launch writes.
 func ComputeAllocations(modelList []*Model, configs map[string]*ModelConfig, numGPUs int) []GPUAllocation {
+	return ComputeAllocationsOn(modelList, configs, make([]int, max(numGPUs, 0)))
+}
+
+// ComputeAllocationsOn is ComputeAllocations on cards with gpuMiB budgets
+// (GPUMiB): a model the launch splits by the cards' room (CardLoadsMiB) is
+// shown with each card's own share.
+func ComputeAllocationsOn(modelList []*Model, configs map[string]*ModelConfig, gpuMiB []int) []GPUAllocation {
+	numGPUs := len(gpuMiB)
 	if numGPUs <= 0 {
 		return nil
 	}
@@ -586,14 +607,25 @@ func ComputeAllocations(modelList []*Model, configs map[string]*ModelConfig, num
 			perGPU = totalGB / float64(len(gpus))
 		}
 
-		allocs = append(allocs, GPUAllocation{
+		a := GPUAllocation{
 			ModelID:   m.ID,
 			ModelName: ShortModelName(m.ModelID),
 			GPUs:      gpus,
 			PerGPUGB:  perGPU,
 			TotalGB:   totalGB,
 			Color:     allocationColors[colorIdx%len(allocationColors)],
-		})
+		}
+		if MoESplitConfig(cfg, m, gpuMiB) != cfg || splitWeights(cfg.TensorSplit, numGPUs) != nil {
+			// The shares count a compute buffer and overhead on every card
+			// the model spans, so they add up to more than the one-card
+			// estimate; the total shown is what the cards hold.
+			a.GPULoadGB, a.TotalGB = map[int]float64{}, 0
+			for g, mib := range CardLoadsMiB(m, cfg, gpuMiB) {
+				a.GPULoadGB[g] = float64(mib) / 1024
+				a.TotalGB += float64(mib) / 1024
+			}
+		}
+		allocs = append(allocs, a)
 		colorIdx++
 	}
 

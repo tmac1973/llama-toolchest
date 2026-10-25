@@ -17,20 +17,50 @@ import (
 // the last card was asked for 24.9 GiB of weights while the other two
 // held 1.5 GiB each, and the load failed.
 //
+// The cards can also differ in what they have room for, with the layers
+// all the same size: memory reserved for image and music backends on some
+// of them, other programs' memory, or cards of different sizes. llama.cpp
+// splits by the memory free when it loads, which does not see a
+// reservation an idle backend is not using; on three 16 GiB cards with 9.5
+// and 7.5 GiB reserved on two of them, an even split asked those two for
+// more than they had left.
+//
 // MoESplitConfig gives such a config a --tensor-split that balances the
-// cards by size, and PlanCardLoads is what the fit planner checks each
-// card against.
+// cards by size and room, and PlanCardLoads is what the fit planner, and
+// the reservation check on loads, check each card against.
 
-// moeSplitApplies reports whether cfg runs m with expert offload over a
-// layer split, where the layers differ in size.
-func moeSplitApplies(cfg *ModelConfig, m *Model) bool {
-	if m == nil || cfg == nil || cfg.CPUMoE <= 0 || m.ExpertLayers <= 0 || m.ExpertBytes <= 0 || m.NLayers <= 0 {
+// unequalRoomMiB is how much the cards' room must differ before the split
+// is balanced by it when the layers are all the same size. Below it,
+// llama.cpp's own split is left alone.
+const unequalRoomMiB = 1024
+
+// moeSplitApplies reports whether cfg runs m over a layer split that
+// needs balancing on cards with gpuMiB room: with expert offload, where
+// the layers differ in size, or with cards whose room differs.
+func moeSplitApplies(cfg *ModelConfig, m *Model, gpuMiB []int) bool {
+	if m == nil || cfg == nil || m.NLayers <= 0 {
 		return false
 	}
 	if cfg.GPUAssign == "custom" || cfg.SplitMode == "tensor" || cfg.SplitMode == "row" {
 		return false // the user's own split, or not a layer split
 	}
-	return cfg.GPULayers <= 0 || cfg.GPULayers >= m.NLayers
+	if cfg.GPULayers > 0 && cfg.GPULayers < m.NLayers {
+		return false
+	}
+	if cfg.CPUMoE > 0 && m.ExpertLayers > 0 && m.ExpertBytes > 0 {
+		return true
+	}
+	lo, hi := -1, 0
+	for _, g := range activeGPUs(cfg, len(gpuMiB)) {
+		if g >= len(gpuMiB) {
+			continue
+		}
+		if lo < 0 || gpuMiB[g] < lo {
+			lo = gpuMiB[g]
+		}
+		hi = max(hi, gpuMiB[g])
+	}
+	return lo >= 0 && hi-lo >= unequalRoomMiB
 }
 
 // activeGPUs are the GPU indices a config spreads layers over: the
@@ -185,8 +215,8 @@ func moeSplitInputs(m *Model, cfg *ModelConfig, gpuMiB []int, active []int) (lay
 	layers = layerGPUBytes(m, cfg, b)
 	perCard := (b.Compute + b.Overhead + b.IndexerScratch) / float64(len(active))
 	for i, g := range active {
-		avail := float64(gpuMiB[g]) / 1024 // already less other programs' use
-		budgets = append(budgets, avail-fitMarginGiB(avail))
+		// gpuMiB is already each card's budget, after the safety margin.
+		budgets = append(budgets, float64(gpuMiB[g])/1024)
 		f := perCard
 		if i == 0 {
 			// The first card also holds what is not per layer: draft
@@ -199,13 +229,15 @@ func moeSplitInputs(m *Model, cfg *ModelConfig, gpuMiB []int, active []int) (lay
 }
 
 // MoESplitConfig returns cfg with a --tensor-split that balances the
-// cards by size, when cfg keeps experts in system memory over a layer
-// split of two or more GPUs; otherwise cfg itself. gpuMiB is each GPU's
-// total memory by index; without it nothing changes. The returned config
+// cards by size and room, when cfg spreads layers over two or more GPUs
+// and either keeps experts in system memory or the cards' room differs;
+// otherwise cfg itself. gpuMiB is each GPU's room by index (GPUMiB: its
+// memory less other programs' and generation reservations); without it
+// nothing changes. The returned config
 // keeps cfg's GPU assignment, so the saved config, and the form, are
 // untouched: the split is worked out each time the flags are written.
 func MoESplitConfig(cfg *ModelConfig, m *Model, gpuMiB []int) *ModelConfig {
-	if !moeSplitApplies(cfg, m) || len(gpuMiB) < 2 {
+	if len(gpuMiB) < 2 || !moeSplitApplies(cfg, m, gpuMiB) {
 		return cfg
 	}
 	active := activeGPUs(cfg, len(gpuMiB))
@@ -253,4 +285,67 @@ func PlanCardLoads(m *Model, cfg *ModelConfig, gpuMiB []int) (loads, budgets []f
 		counts[i], _ = strconv.Atoi(parts[g])
 	}
 	return cardLoads(layers, counts, fixed), budgets, true
+}
+
+// CardLoadsMiB is the GPU memory, in MiB, each GPU would hold with m
+// loaded under cfg on cards with gpuMiB room, by GPU index: under the
+// balanced split MoESplitConfig writes where it applies, and otherwise the
+// estimate spread evenly over the GPUs cfg uses.
+func CardLoadsMiB(m *Model, cfg *ModelConfig, gpuMiB []int) map[int]int {
+	out := map[int]int{}
+	if loads, _, ok := PlanCardLoads(m, cfg, gpuMiB); ok {
+		for i, g := range activeGPUs(MoESplitConfig(cfg, m, gpuMiB), len(gpuMiB)) {
+			out[g] += int(loads[i] * 1024)
+		}
+		return out
+	}
+	total := VRAMEstimateForConfig(m, cfg) * 1024
+	// A layer split with weights of its own (a hand-written one, or the
+	// one Autoconfigure writes when it moves layers off a card) is split
+	// in that proportion.
+	if cfg.SplitMode != "tensor" && cfg.SplitMode != "row" {
+		if w := splitWeights(cfg.TensorSplit, len(gpuMiB)); w != nil {
+			var sum float64
+			for _, x := range w {
+				sum += x
+			}
+			for g, x := range w {
+				if x > 0 {
+					out[g] += int(total * x / sum)
+				}
+			}
+			return out
+		}
+	}
+	gpus := AssignedModelGPUs(cfg, len(gpuMiB))
+	for _, g := range gpus {
+		out[g] += int(total / float64(len(gpus)))
+	}
+	return out
+}
+
+// splitWeights reads a --tensor-split ("3,1,0") as one weight per GPU, or
+// nil when it is empty, unreadable, all zero or names more GPUs than
+// there are.
+func splitWeights(tensorSplit string, numGPUs int) []float64 {
+	if strings.TrimSpace(tensorSplit) == "" {
+		return nil
+	}
+	parts := strings.Split(tensorSplit, ",")
+	if len(parts) > numGPUs {
+		return nil
+	}
+	w := make([]float64, len(parts))
+	var sum float64
+	for i, p := range parts {
+		x, err := strconv.ParseFloat(strings.TrimSpace(p), 64)
+		if err != nil || x < 0 {
+			return nil
+		}
+		w[i], sum = x, sum+x
+	}
+	if sum == 0 {
+		return nil
+	}
+	return w
 }

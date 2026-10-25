@@ -281,8 +281,8 @@ func TestPlanLeavesOtherProgramsTheirMemory(t *testing.T) {
 		}
 	}
 
-	if got := GPUMiB(busy); got[0] != 16304-6*1024 {
-		t.Errorf("GPUMiB = %v, want the card less what others hold", got)
+	if got := GPUMiB(busy); got[0] != CardBudgetMiB(busy.GPUs[0]) || got[0] >= 16304-6*1024 {
+		t.Errorf("GPUMiB = %v, want the card's budget: less what others hold and the margin", got)
 	}
 }
 
@@ -357,7 +357,7 @@ func TestCardBudgetWithReservations(t *testing.T) {
 	if card.UsableMiB() != 32624-1300-19968 {
 		t.Errorf("UsableMiB = %d", card.UsableMiB())
 	}
-	if g := GPUMiB(Hardware{GPUs: []GPUSpec{card}}); g[0] != card.UsableMiB() {
-		t.Errorf("GPUMiB = %v, want the reservations taken off", g)
+	if g := GPUMiB(Hardware{GPUs: []GPUSpec{card}}); g[0] != got {
+		t.Errorf("GPUMiB = %v, want the card's budget with the reservations taken off (%d)", g, got)
 	}
 }

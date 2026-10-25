@@ -42,11 +42,18 @@ type Check struct {
 	// memory free on Device that normal use would run out. OutOfMemory
 	// is set with it, so it is adjusted the same way.
 	LowMemory bool
+	// Reserved says the load was refused before it started: on Device the
+	// settings did not fit beside GPU memory reserved for image and music
+	// backends. OutOfMemory is set with it, so less is placed on Device.
+	Reserved bool
 }
 
 // problem says what went wrong with the memory, for the notes and the
 // progress line.
 func (c Check) problem() string {
+	if c.Reserved {
+		return "did not fit beside the GPU memory reserved for image and music backends"
+	}
 	if c.LowMemory {
 		return "left too little GPU memory free for normal use"
 	}
@@ -76,6 +83,11 @@ type Verification struct {
 	Adjusted int
 	// Reason is why the check failed or could not be run.
 	Reason string
+	// Reserved says the last test load was refused because the settings
+	// did not fit beside GPU memory reserved for image and music
+	// backends, and no adjustment made them fit. Such settings cannot be
+	// loaded, so they are not offered for saving.
+	Reserved bool
 }
 
 const (
@@ -148,7 +160,7 @@ func verifyProposal(ctx context.Context, d Deps, m *models.Model, proposed model
 		cfg = next
 		notes = replaceNote(notes, note)
 	}
-	v.Status = VerifyFailed
+	v.Status, v.Reserved = VerifyFailed, last.Reserved
 	return proposed, nil, v
 }
 

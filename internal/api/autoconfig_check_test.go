@@ -167,3 +167,19 @@ func TestReviewShowsTheTestLoad(t *testing.T) {
 		t.Error("the review claims a check when none ran")
 	}
 }
+
+// A test load refused by the reservation check is read as running out of
+// memory on the GPU it names, so Autoconfigure places less there; when
+// that never fits, the review says the settings cannot be loaded.
+func TestCheckFromJobReadsAReservationRefusal(t *testing.T) {
+	msg := "Not enough VRAM: 9.5 GiB reserved for generation backends on GPU 1 (flux-gpu1 9.5 GiB); the LLM needs about 7.2 GiB there and 5.2 GiB is left"
+	chk := checkFromJob(checkJob(benchmark.CellStatusFailed, msg, ""), nil)
+	if !chk.OutOfMemory || !chk.Reserved || chk.Device != 1 || chk.Reason != msg {
+		t.Errorf("check = %+v, want out of memory and reserved on GPU 1", chk)
+	}
+
+	text, ok := checkSummary(autoconfig.Verification{Status: autoconfig.VerifyFailed, Attempts: 4, Reason: msg, Reserved: true})
+	if ok || !strings.Contains(text, "cannot be loaded here") || !strings.Contains(text, "disable a generation instance") {
+		t.Errorf("summary = %q", text)
+	}
+}

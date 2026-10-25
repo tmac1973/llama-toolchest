@@ -137,6 +137,7 @@
     {{if .Sources}}<p><small>Read the model cards of: {{range $i, $s := .Sources}}{{if $i}}, {{end}}{{$s}}{{end}}.</small></p>{{end}}
 
     <div role="group">
+        {{- if not .CannotLoad}}
         <button type="button"
                 hx-post="/api/models/{{.ModelID}}/autoconfig/save" hx-vals='{"apply":"0"}'
                 hx-target="#autoconfig-{{cssID .ModelID}}" hx-swap="innerHTML"
@@ -145,6 +146,7 @@
                 hx-post="/api/models/{{.ModelID}}/autoconfig/save" hx-vals='{"apply":"1"}'
                 hx-target="#autoconfig-{{cssID .ModelID}}" hx-swap="innerHTML"
                 title="Save these settings as the profile &quot;Autoconfig&quot; and use them now. They take effect the next time this model loads.">Save and apply</button>
+        {{- end}}
         <button type="button" class="outline secondary"
                 hx-post="/api/models/{{.ModelID}}/autoconfig/discard"
                 hx-target="#autoconfig-{{cssID .ModelID}}" hx-swap="innerHTML"

@@ -257,6 +257,11 @@ func (s *Server) handleAutoconfigStart(w http.ResponseWriter, r *http.Request) {
 // when a running graph could not.
 var deviceInErrorRE = regexp.MustCompile(`device:? (\d+)`)
 
+// reservedOnGPURE finds the GPU named by the reservation check that
+// refuses a load (reservationFitError): "reserved for generation backends
+// on GPU 1".
+var reservedOnGPURE = regexp.MustCompile(`reserved for generation backends on GPU (\d+)`)
+
 // checkProposedConfig loads cfg for the model and sends it one request,
 // to find out whether settings that fit on paper run on this machine.
 //
@@ -333,6 +338,14 @@ func checkFromJob(job *benchmark.BenchmarkJob, getRun func(id string) (*benchmar
 	if chk.Reason == "" {
 		chk.Reason = "the test load ended with status " + cell.Status
 	}
+	// Refused before loading: the settings did not fit beside the memory
+	// reserved for image and music backends on one GPU. Autoconfigure
+	// treats it like running out of memory there, and places less on it.
+	if m := reservedOnGPURE.FindStringSubmatch(cell.Error); m != nil {
+		chk.OutOfMemory, chk.Reserved = true, true
+		chk.Device, _ = strconv.Atoi(m[1])
+		return chk
+	}
 	// The cell's error quotes one line; the run keeps every error line,
 	// and the one naming the GPU is often not the one quoted.
 	lines := []string{cell.Error}
@@ -398,6 +411,10 @@ func (s *Server) handleAutoconfigSave(w http.ResponseWriter, r *http.Request) {
 	run, ok := s.autoconfigSnapshot()
 	if !ok || run.modelID != id || !run.done || run.result == nil {
 		s.renderAutoconfigMessage(w, id, panelBanner{"error", "There is no finished Autoconfigure result to save. Run it again."})
+		return
+	}
+	if run.result.Check.Reserved {
+		s.renderAutoconfigMessage(w, id, panelBanner{"error", "Not saved: these settings do not fit beside the GPU memory reserved for image and music backends, so they cannot be loaded. Make room on that GPU and run Autoconfigure again."})
 		return
 	}
 	replaced, err := s.registry.SaveProfileFrom(id, autoconfigProfileName, run.result.Profile(s.activeBuild()))
@@ -484,6 +501,10 @@ type autoconfigReviewData struct {
 	Check     string
 	CheckOK   bool
 	CheckHelp string
+	// CannotLoad is true when the settings were refused for not fitting
+	// beside generation reservations and no adjustment fixed it: they are
+	// not offered for saving.
+	CannotLoad bool
 }
 
 // autoconfigCheckHelp is the tooltip on the test-load line: what was
@@ -508,6 +529,11 @@ func checkSummary(c autoconfig.Verification) (text string, ok bool) {
 		return fmt.Sprintf("Checked: the first plan ran out of GPU memory when it was loaded, so %d %s adjusted. The settings below were loaded on this machine and answered a test request.",
 			c.Adjusted, settings), true
 	case autoconfig.VerifyFailed:
+		if c.Reserved {
+			return fmt.Sprintf("These settings cannot be loaded here: %s. Autoconfigure placed less on that GPU and tried again (%d test %s), but found no split that fits. "+
+				"To make room, disable a generation instance on that GPU (Server page) or lower its reservation, or choose a smaller quantization, then run Autoconfigure again.",
+				c.Reason, c.Attempts, plural(c.Attempts, "load", "loads")), false
+		}
 		return fmt.Sprintf("These settings did not run when they were loaded (%d test %s): %s. They are shown as estimated, and have not been made to work.",
 			c.Attempts, plural(c.Attempts, "load", "loads"), c.Reason), false
 	case autoconfig.VerifySkipped:
@@ -526,6 +552,7 @@ func (s *Server) autoconfigReviewData(id, name string, run autoconfigRun) autoco
 	d.Fits, d.EstimateGiB, d.BudgetGiB, d.CPURAMGiB = res.Fit.Fits, res.Fit.EstimateGiB, res.Fit.BudgetGiB, res.Fit.CPURAMGiB
 	d.Suggestions, d.Sources = res.Suggestions, res.CardSources
 	d.Check, d.CheckOK = checkSummary(res.Check)
+	d.CannotLoad = res.Check.Reserved
 	d.CheckHelp = autoconfigCheckHelp
 
 	why := map[string][]string{}
