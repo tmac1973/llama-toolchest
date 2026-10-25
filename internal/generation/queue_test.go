@@ -117,3 +117,87 @@ func TestQueueCancelWaiting(t *testing.T) {
 		t.Error("queue not empty")
 	}
 }
+
+// An LLM measurement's hold waits for the running image job, keeps new
+// jobs waiting while it has the GPU, and lets them run when released.
+func TestQueueHold(t *testing.T) {
+	q := NewQueue()
+	img, _ := q.Submit(0, "img", KindSD)
+	if err := img.Wait(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	held := make(chan func())
+	go func() {
+		release, err := q.Hold(context.Background(), []int{0}, "a benchmark")
+		if err != nil {
+			t.Error(err)
+		}
+		held <- release
+	}()
+	select {
+	case <-held:
+		t.Fatal("hold taken while an image job runs")
+	case <-time.After(30 * time.Millisecond):
+	}
+
+	// A job arriving while the hold waits queues behind it, not ahead.
+	song, _ := q.Submit(0, "ace", KindAce)
+	img.Done()
+	var release func()
+	select {
+	case release = <-held:
+	case <-time.After(time.Second):
+		t.Fatal("hold not taken after the image job finished")
+	}
+	if snap := q.Snapshot(0); snap.HeldBy != "a benchmark" || snap.Running != nil || len(snap.Waiting) != 1 {
+		t.Errorf("while held: %+v, want held by the benchmark with the song waiting", snap)
+	}
+	if q.Load(0) != 2 {
+		t.Errorf("load while held = %d, want 2 (the hold and the waiting song)", q.Load(0))
+	}
+
+	release()
+	release() // a second call does nothing
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := song.Wait(ctx); err != nil {
+		t.Fatalf("song did not start after the hold ended: %v", err)
+	}
+	song.Done()
+
+	h := q.History(0)
+	if len(h) != 3 || h[1].Kind != KindLLM || h[1].InstanceID != "a benchmark" {
+		t.Fatalf("history = %+v, want image, hold, song", h)
+	}
+	for i := 1; i < len(h); i++ {
+		if h[i].Started.Before(h[i-1].Finished) {
+			t.Errorf("%s started before %s finished", h[i].InstanceID, h[i-1].InstanceID)
+		}
+	}
+}
+
+// A hold that gives up waiting leaves the GPU to the jobs queued behind it.
+func TestQueueHoldCancelled(t *testing.T) {
+	q := NewQueue()
+	img, _ := q.Submit(0, "img", KindSD)
+	img.Wait(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error)
+	go func() {
+		_, err := q.Hold(ctx, []int{0}, "a benchmark")
+		done <- err
+	}()
+	time.Sleep(20 * time.Millisecond)
+	waiting, _ := q.Submit(0, "img", KindSD)
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled hold returned %v", err)
+	}
+	img.Done()
+	wctx, wcancel := context.WithTimeout(context.Background(), time.Second)
+	defer wcancel()
+	if err := waiting.Wait(wctx); err != nil {
+		t.Errorf("job behind a cancelled hold did not start: %v", err)
+	}
+}

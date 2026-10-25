@@ -341,6 +341,16 @@ func (s *Server) handleActivateModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The same check as a load on request, before anything starts: the
+	// model must fit beside the GPU memory reserved for image and music
+	// backends.
+	if m, err := s.registry.Get(id); err == nil && m != nil {
+		if err := s.checkLLMFitsReservations(m); err != nil {
+			http.Error(w, err.Error(), http.StatusInsufficientStorage)
+			return
+		}
+	}
+
 	// Ensure router is running
 	if !s.process.IsRunning() {
 		if err := s.startRouter(); err != nil {

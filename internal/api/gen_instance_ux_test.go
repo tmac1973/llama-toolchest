@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -105,5 +106,28 @@ func TestGenInstanceEditForm(t *testing.T) {
 	s.handleGenInstanceEditForm(rec, instanceReq("GET", "/", "m", "", nil))
 	if rec.Code != http.StatusConflict {
 		t.Errorf("edit form while measuring: %d, want 409", rec.Code)
+	}
+}
+
+// While an LLM measurement holds an instance's GPU, its row says so.
+func TestInstanceTableShowsGPUHold(t *testing.T) {
+	s := instanceServer(t)
+	if err := s.gen.AddInstance(generation.Instance{ID: "m", Name: "m", ModelSetID: "ming-image", GPU: 0, Port: 8081, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	release, err := s.genQueue.Hold(context.Background(), []int{0}, "Autotune: Qwen3-4B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	s.handleGenInstances(rec, instanceReq("GET", "/", "", "", nil))
+	if !strings.Contains(rec.Body.String(), "GPU in use by: Autotune: Qwen3-4B") {
+		t.Errorf("table does not show the hold:\n%s", rec.Body.String())
+	}
+	release()
+	rec = httptest.NewRecorder()
+	s.handleGenInstances(rec, instanceReq("GET", "/", "", "", nil))
+	if strings.Contains(rec.Body.String(), "GPU in use by") {
+		t.Error("hold still shown after release")
 	}
 }

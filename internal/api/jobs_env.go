@@ -262,6 +262,45 @@ func (e *jobEnv) ApplyEphemeralConfig(ctx context.Context, modelID string, cfg b
 	return e.restartRouter(ctx, "benchmark config override")
 }
 
+// ClaimGPUs checks a cell's settings against the GPU memory reserved for
+// image and music backends, then holds the GPUs it will use in their job
+// queue for the length of the cell: a running image or music job finishes
+// first, and new ones wait until release. Both only apply while
+// generation backends are on.
+func (e *jobEnv) ClaimGPUs(ctx context.Context, modelID string, cfg benchmark.ConfigSnapshot, base *models.ModelConfig, who string) (func(), error) {
+	s := e.s
+	if s.cfg == nil || !s.cfg.GenerationEnabled || s.gen == nil || s.genQueue == nil {
+		return func() {}, nil
+	}
+	m, err := s.registry.Get(modelID)
+	if err != nil || m == nil {
+		return nil, fmt.Errorf("resolve model %s: %v", modelID, err)
+	}
+	saved, err := s.registry.GetConfig(modelID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve config for %s: %w", modelID, err)
+	}
+	if base == nil {
+		base = saved
+	}
+	numGPUs := len(s.monitor.Current().GPU)
+	merged, err := mergeBenchConfig(modelID, *saved, *base, cfg, numGPUs)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.checkConfigFitsReservations(m, &merged); err != nil {
+		return nil, err
+	}
+	gpus := models.AssignedModelGPUs(&merged, numGPUs)
+	if len(gpus) == 0 {
+		return func() {}, nil
+	}
+	if who == "" {
+		who = "a benchmark"
+	}
+	return s.genQueue.Hold(ctx, gpus, who)
+}
+
 // ClearEphemeralConfig hands the router back to the user's saved build
 // and config. A no-op when no job took it over.
 //

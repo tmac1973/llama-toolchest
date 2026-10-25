@@ -60,6 +60,15 @@ type JobEnv interface {
 	// settings whole. Nil keeps the model's saved config.
 	ApplyEphemeralConfig(ctx context.Context, modelID string, cfg ConfigSnapshot, base *models.ModelConfig) error
 
+	// ClaimGPUs prepares the GPUs for one cell measuring modelID under cfg
+	// (layered on base, as for ApplyEphemeralConfig). It returns an error
+	// when the cell's settings would not fit beside GPU memory set aside
+	// for other programs on those GPUs (image and music backends), and
+	// otherwise takes the GPUs from anything else that must not run beside
+	// a measurement, waiting for it to finish. Who names the job for
+	// anyone waiting. release gives the GPUs back.
+	ClaimGPUs(ctx context.Context, modelID string, cfg ConfigSnapshot, base *models.ModelConfig, who string) (release func(), err error)
+
 	// ClearEphemeralConfig drops any active override and restarts the
 	// router onto saved config. Must be a no-op when nothing is active.
 	//
@@ -537,6 +546,15 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 		}
 	}
 
+	// Before the router restarts with these settings: they must fit beside
+	// the memory reserved on their GPUs, and nothing else may run on those
+	// GPUs while they are measured.
+	release, err := q.env.ClaimGPUs(ctx, cell.ModelID, cfg, baseConfig, job.Name)
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	// Make the merged config real before measuring anything. Without
 	// this the cell benchmarks the model's saved config and then records
 	// cfg, which is how overrides silently produced mislabeled results.
@@ -664,10 +682,18 @@ func (q *JobQueue) runCapabilityCell(ctx context.Context, job *BenchmarkJob, cel
 	// A cell measuring a saved profile evaluates the profile's settings,
 	// not the model's current ones, for the same reason as runCell.
 	baseSnap := modelInfo.Config
+	var baseConfig *models.ModelConfig
 	if bp != nil {
 		baseSnap = SnapshotFromConfig(bp.Config, bp.Name, false)
+		cfgCopy := bp.Config
+		baseConfig = &cfgCopy
 	}
 	cfg := markProfileEdited(EvalConfigSnapshot(baseSnap, cellOv), baseSnap)
+	release, err := q.env.ClaimGPUs(ctx, cell.ModelID, cfg, baseConfig, job.Name)
+	if err != nil {
+		return err
+	}
+	defer release()
 
 	run := BenchmarkRun{
 		ID:            newRunID(cell.Attempt),
