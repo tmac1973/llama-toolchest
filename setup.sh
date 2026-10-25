@@ -1991,6 +1991,100 @@ container_rebuild() {
 # The new image is built before the running container is stopped, so a
 # failed build (for example a release whose files are not uploaded yet)
 # leaves the current version running instead of nothing.
+readonly IMAGE_REVISION_LABEL="io.github.tmac1973.llama-toolchest.image-revision"
+
+# image_revision_from_dockerfile reads the image revision number from
+# Dockerfile text on stdin. Echoes nothing when there is no revision label
+# (Dockerfiles from releases made before the label existed).
+image_revision_from_dockerfile() {
+    sed -n "s/^LABEL ${IMAGE_REVISION_LABEL//./\\.}=\"\([0-9]*\)\".*/\1/p" | head -n1
+}
+
+# release_image_revision echoes the image revision in release $1's Dockerfile
+# for this install's variant, fetched from GitHub. Returns 1 when it cannot be
+# fetched or the release has no revision label.
+release_image_revision() {
+    local version="$1" text rev
+    text="$(curl -fsSL "https://raw.githubusercontent.com/${HOST_RELEASE_REPO}/v${version}/$(dockerfile)" 2>/dev/null)" || return 1
+    rev="$(image_revision_from_dockerfile <<<"$text")"
+    [[ -n "$rev" ]] || return 1
+    echo "$rev"
+}
+
+# running_image_revision echoes the image revision of the image the
+# llama-toolchest container was made from. Echoes nothing when the image has no
+# revision label (built before the label existed). Returns 1 when there is no
+# container to look at.
+running_image_revision() {
+    container_exists llama-toolchest || return 1
+    local image rev
+    image="$($CONTAINER_CMD container inspect -f '{{.Image}}' llama-toolchest 2>/dev/null)" || return 1
+    rev="$($CONTAINER_CMD image inspect -f "{{ index .Config.Labels \"${IMAGE_REVISION_LABEL}\" }}" "$image" 2>/dev/null)" || return 1
+    [[ "$rev" =~ ^[0-9]+$ ]] || rev=""
+    echo "$rev"
+}
+
+# check_quick_needs_rebuild decides whether release $1 can be installed with a
+# quick upgrade. Some releases change the image itself (a new system package, a
+# new base image, a new port), and installing the new package into the old image
+# would leave those changes out. Such a release raises the image revision in its
+# Dockerfile; when the running image's revision is lower, this explains why and
+# offers a full rebuild.
+#
+# Returns 0 to go on with the quick upgrade. Runs the full rebuild itself and
+# exits when the user accepts it; exits without changing anything when they
+# decline or when this copy of the setup files is too old to build the new image.
+check_quick_needs_rebuild() {
+    local version="$1" required running local_rev
+    if ! required="$(release_image_revision "$version")"; then
+        warn "Couldn't read the image revision of release v${version}; can't tell whether it needs a full rebuild."
+        return 0
+    fi
+    # No container yet: the build below makes a new image anyway.
+    running="$(running_image_revision)" || return 0
+    if [[ -n "$running" ]] && (( running >= required )); then
+        return 0
+    fi
+
+    echo ""
+    if [[ -z "$running" ]]; then
+        warn "The running image was built before setup.sh tracked image revisions, so"
+        warn "it may be missing parts that release v${version} needs (image revision ${required})."
+    else
+        warn "Release v${version} changes the container image itself (image revision"
+        warn "${running} → ${required}). A quick upgrade only replaces the llama-toolchest package,"
+        warn "so the image must be rebuilt from scratch to pick up the other changes."
+    fi
+
+    # The rebuild uses the Dockerfile in this folder, so it must be at least as
+    # new as the release's.
+    local_rev="$(image_revision_from_dockerfile <"${SCRIPT_DIR}/$(dockerfile)")"
+    if [[ -z "$local_rev" ]] || (( local_rev < required )); then
+        err "These setup files are older than release v${version}, so a rebuild from them"
+        err "would still make the old image. Update them first, then rebuild:"
+        echo "      git -C \"${SCRIPT_DIR}\" pull"
+        echo "      ./setup.sh rebuild"
+        err "Nothing was changed; the running container was left as it is."
+        exit 1
+    fi
+
+    echo "  A full rebuild downloads and installs everything again, which takes longer."
+    echo "  Your models, builds and settings are kept."
+    echo ""
+    if prompt_confirm "Run a full rebuild now?" yes; then
+        log "Full rebuild (no cache)..."
+        container_rebuild
+        ok "llama-toolchest is running"
+        echo ""
+        echo "  Web UI:     http://localhost:${LLAMA_TOOLCHEST_PORT}"
+        echo ""
+        exit 0
+    fi
+    err "Not upgrading; the running container was left as it is."
+    echo "  Run ./setup.sh rebuild when you are ready."
+    exit 1
+}
+
 container_quick_rebuild() {
     migrate_legacy_volume
     migrate_legacy_config_name
@@ -2010,6 +2104,7 @@ container_quick_rebuild() {
             host_wait_for_release_asset "$latest" "llama-toolchest_${latest}_linux_${arch}.${ext}" \
                 || { err "Not rebuilding; the running container was left as it is."; exit 1; }
         fi
+        check_quick_needs_rebuild "$latest"
     else
         warn "Couldn't resolve latest release tag; falling back to 'latest' (build-time resolution)."
     fi
@@ -2736,6 +2831,9 @@ Lifecycle:
               reinstall it inside the existing image. Reuses the GPU
               SDK / base-OS layers — only the package-install layer
               re-runs. Use this for routine upgrades to a new release.
+              When the release changes the image itself (a higher image
+              revision in its Dockerfile), it says so and offers a full
+              rebuild instead.
   rebuild     Container only: full rebuild with no cache, then start.
               Use this when you've changed the Dockerfile or want to
               refresh the GPU SDK layers as well.

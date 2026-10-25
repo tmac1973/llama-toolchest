@@ -21,6 +21,15 @@
 
 FROM registry.fedoraproject.org/fedora:43
 
+# Image revision. Raise this number in a release whose image must be rebuilt
+# from scratch: a new system package, a new base image, a new exposed port —
+# anything that installing the new release package alone does not bring.
+# `./setup.sh quick` compares the number in the latest release's Dockerfile with
+# the one on the running image, and offers a full rebuild when the image is
+# older. It sits right after FROM so that raising it also makes every later
+# step build again, even from cache.
+LABEL io.github.tmac1973.llama-toolchest.image-revision="1"
+
 ARG INSTALL_PACKAGE=""
 ARG LLAMA_TOOLCHEST_VERSION="latest"
 ARG TARGETARCH=amd64
