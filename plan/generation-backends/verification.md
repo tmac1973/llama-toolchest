@@ -265,7 +265,23 @@ sd-server and ace-server, and checked on asmodean (R9700, ROCm, Qwen-Image
 - a multipart body gave 400, an unknown ID 404, and
   `/v1/images/generations` still answered as before.
 
-Not checked on compute2.
+After a fix, the 202 reply says `running` with the first phase when the GPU
+is free, instead of `queued` at position 0. Checked with build `dbe7396` on
+asmodean, and on compute2 (3× RTX A4000, CUDA; FLUX.2 klein on GPU 1,
+ACE-Step turbo on GPU 2):
+
+- `/v1/models` gives FLUX.2 klein, which can edit,
+  `["images.sync","images.jobs","images.edits"]` and ACE-Step
+  `["music.jobs","music.ace_step"]`;
+- three 1024×1024 jobs sent together got `running/generating`, then
+  `queued` at positions 1 and 2. The third one was cancelled and left the
+  queue. The first two succeeded in turn, in 9.5 s and 5 s, and their
+  images downloaded as 1024×1024 PNGs;
+- a running job cancelled after 1 s kept GPU 1 until FLUX finished, 5 s
+  later, and saved no image;
+- a 10 s music job went `running/composing` → `running/synthesizing` →
+  `succeeded` in 6 s, and its audio downloaded as an MP3. `saving` was too
+  short to catch by polling.
 
 ## Not run
 
