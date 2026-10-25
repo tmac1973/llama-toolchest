@@ -1,6 +1,7 @@
 package models
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -192,6 +193,37 @@ func TestPlanFitSplitsByRoomBesideReservations(t *testing.T) {
 	}
 	if out := MoESplitConfig(&r.Config, m, gpuMiB); out == &r.Config || out.TensorSplit == "" {
 		t.Error("the launch flags would not carry the balanced split")
+	}
+}
+
+// BalancedSplit lists the split the launch flags carry, card by card, so
+// the Configure panel can show it; nil when the flags carry none.
+func TestBalancedSplitMatchesTheFlags(t *testing.T) {
+	m, hw := dense20(), compute2Reserved()
+	r := PlanFit(m, DefaultConfig(), hw, ContextMedium)
+	gpuMiB := GPUMiB(hw)
+	cards := BalancedSplit(m, &r.Config, gpuMiB)
+	if len(cards) != 3 {
+		t.Fatalf("cards = %+v, want all three", cards)
+	}
+	parts := strings.Split(MoESplitConfig(&r.Config, m, gpuMiB).TensorSplit, ",")
+	layers := 0
+	for i, c := range cards {
+		if c.GPU != i || parts[i] != strconv.Itoa(c.Layers) {
+			t.Errorf("card %+v does not match the flags' split %v", c, parts)
+		}
+		if c.LoadGiB <= 0 || c.LoadGiB > c.BudgetGiB {
+			t.Errorf("card %+v: load should be above zero and within the budget", c)
+		}
+		layers += c.Layers
+	}
+	if layers != m.NLayers {
+		t.Errorf("layers add up to %d, want %d", layers, m.NLayers)
+	}
+
+	cfg := &ModelConfig{GPUAssign: "all", SplitMode: "layer", GPULayers: 999, ContextSize: 32768}
+	if cards := BalancedSplit(dense20(), cfg, a4000s(3)); cards != nil {
+		t.Errorf("equal cards: got %+v, want nil", cards)
 	}
 }
 

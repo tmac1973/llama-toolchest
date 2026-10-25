@@ -167,6 +167,16 @@
                    min="1" placeholder="8">
         </label>
     </div>
+    {{/* The launch flags carry a split balanced by each card's room
+         (models.BalancedSplit) that the saved GPU assignment does not
+         show, so it is listed here. */}}
+    {{if .EffectiveSplit}}
+    <small class="effective-split" title="How the layers are divided between the GPUs when the model loads. The cards do not have the same room (memory reserved for generation backends, memory other programs use, or cards of different sizes), or some expert layers stay in system memory, so the layers are not split evenly. Each GPU shows the layers it gets, then the estimated GPU memory the model uses on it, of the memory it can use there. The split is worked out again each time llama-server starts, so it changes when the reservations change. It is the --tensor-split in Effective Flags."
+           style="display:block;margin-bottom:0.75rem;cursor:help;">
+        Effective split:
+        {{range $i, $c := .EffectiveSplit}}{{if $i}} · {{end}}GPU {{$c.GPU}}: {{$c.Layers}} layers, {{printf "%.1f" $c.LoadGiB}} of {{printf "%.1f" $c.BudgetGiB}} GiB{{end}}
+    </small>
+    {{end}}
     {{if .CPURAMLabel}}
     <small title="The part of the model's weights these settings keep in system memory rather than GPU memory: layers left off the GPU by GPU Layers, and expert layers kept on the CPU by CPU Expert Layers. The GPU memory estimate on the model card already leaves this out."
            style="display:block;margin-bottom:0.75rem;cursor:help;">{{.CPURAMLabel}}</small>

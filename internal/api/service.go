@@ -674,23 +674,27 @@ func registryErrorStatus(err error, fallback int) int {
 // modelConfigPanelData is what the model_config partial renders. It is a
 // named type so the render tests build the same shape the handler does.
 type modelConfigPanelData struct {
-	ModelID             string
-	Config              *models.ModelConfig
-	EffectiveFlags      string
-	MaxContext          int
-	HasMMProj           bool
-	HasMTP              bool
-	HasBuiltinVision    bool
-	IsEmbedding         bool
-	DraftCandidates     []models.DraftCandidate
-	DraftModes          []models.SpecMode
-	AssistModes         []models.SpecMode
-	DraftParams         []models.SpecModeParam
-	AssistParams        []models.SpecModeParam
-	EffectiveSpecType   string
-	GPUOptions          []models.GPUOption
-	GPUAssignWarning    string
-	NumGPUs             int
+	ModelID           string
+	Config            *models.ModelConfig
+	EffectiveFlags    string
+	MaxContext        int
+	HasMMProj         bool
+	HasMTP            bool
+	HasBuiltinVision  bool
+	IsEmbedding       bool
+	DraftCandidates   []models.DraftCandidate
+	DraftModes        []models.SpecMode
+	AssistModes       []models.SpecMode
+	DraftParams       []models.SpecModeParam
+	AssistParams      []models.SpecModeParam
+	EffectiveSpecType string
+	GPUOptions        []models.GPUOption
+	GPUAssignWarning  string
+	NumGPUs           int
+	// EffectiveSplit is the split balanced by each card's room that the
+	// launch flags carry (models.BalancedSplit). The saved GPU assignment
+	// does not show it, so the panel lists it under the picker.
+	EffectiveSplit      []models.CardSplit
 	SamplingPresets     []models.SamplingPreset
 	SamplingPresetsJSON string
 	HasEmbeddedDefault  bool
@@ -887,6 +891,7 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 		data.HasExperts = model.ExpertCount > 0
 		data.NLayers = model.NLayers
 		data.HasReasoning = model.EffectiveReasoning(cfg).Supported
+		data.EffectiveSplit = models.BalancedSplit(model, cfg, s.activeTarget().GPUMiB)
 		if gib := models.VRAMBreakdownForConfigOn(model, cfg, models.DeviceCountForConfig(cfg, numGPUs)).CPURAM; gib >= 0.05 {
 			data.CPURAMLabel = fmt.Sprintf("About %.1f GiB of the model's weights stay in system memory with these settings.", gib)
 		}
