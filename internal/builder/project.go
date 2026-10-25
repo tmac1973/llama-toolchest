@@ -316,15 +316,34 @@ func defaultBranchRef(ctx context.Context, srcDir string) (string, error) {
 	return "origin/master", nil
 }
 
+// llamaOnlyOptions are profile options that do nothing for
+// stable-diffusion.cpp and acestep.cpp, although their bundled ggml may
+// define them. Checked against sd.cpp master-1006 and acestep.cpp de858d8
+// on 2026-10-25:
+//   - GGML_CUDA_FA_ALL_QUANTS: kernels for quantized LLM KV caches, which
+//     neither backend has.
+//   - GGML_HIP_RCCL, GGML_CUDA_NO_PEER_COPY: for one model split across
+//     several GPUs; a generation instance runs on one GPU.
+//   - GGML_HIP_ROCWMMA_FATTN: not defined by either project's ggml.
+var llamaOnlyOptions = []string{
+	"GGML_CUDA_FA_ALL_QUANTS",
+	"GGML_HIP_RCCL",
+	"GGML_CUDA_NO_PEER_COPY",
+	"GGML_HIP_ROCWMMA_FATTN",
+}
+
 // ProjectOptions returns the toggleable build options for a project and
-// profile: the profile's options without llama.cpp's own (LLAMA_*) for the
-// other projects, plus each project's extras.
+// profile: for llama.cpp the profile's options; for the other projects the
+// ones their bundled ggml uses (no LLAMA_* options and none of
+// llamaOnlyOptions), plus each project's extras.
 func ProjectOptions(project, profile string) []BuildOption {
 	opts := ProfileOptions(profile)
 	if project == "" || project == ProjectLlamaCpp {
 		return opts
 	}
-	opts = slices.DeleteFunc(opts, func(o BuildOption) bool { return strings.HasPrefix(o.Flag, "LLAMA_") })
+	opts = slices.DeleteFunc(opts, func(o BuildOption) bool {
+		return strings.HasPrefix(o.Flag, "LLAMA_") || slices.Contains(llamaOnlyOptions, o.Flag)
+	})
 	if project == ProjectSDCpp {
 		_, err := exec.LookPath("pnpm")
 		opts = append(opts, BuildOption{
