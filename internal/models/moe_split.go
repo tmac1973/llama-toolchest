@@ -287,6 +287,34 @@ func PlanCardLoads(m *Model, cfg *ModelConfig, gpuMiB []int) (loads, budgets []f
 	return cardLoads(layers, counts, fixed), budgets, true
 }
 
+// CardSplit is one card's part of the balanced split MoESplitConfig
+// writes: the layers it gets, the GPU memory it would hold in GiB, and
+// its budget after the planner's safety margin.
+type CardSplit struct {
+	GPU       int
+	Layers    int
+	LoadGiB   float64
+	BudgetGiB float64
+}
+
+// BalancedSplit is the split MoESplitConfig writes for cfg, card by card,
+// or nil when it leaves cfg alone. The saved config does not hold this
+// split, so the Configure panel shows it from here.
+func BalancedSplit(m *Model, cfg *ModelConfig, gpuMiB []int) []CardSplit {
+	loads, budgets, ok := PlanCardLoads(m, cfg, gpuMiB)
+	if !ok {
+		return nil
+	}
+	split := MoESplitConfig(cfg, m, gpuMiB)
+	parts := strings.Split(split.TensorSplit, ",")
+	var out []CardSplit
+	for i, g := range activeGPUs(split, len(gpuMiB)) {
+		n, _ := strconv.Atoi(parts[g])
+		out = append(out, CardSplit{GPU: g, Layers: n, LoadGiB: loads[i], BudgetGiB: budgets[i]})
+	}
+	return out
+}
+
 // CardLoadsMiB is the GPU memory, in MiB, each GPU would hold with m
 // loaded under cfg on cards with gpuMiB room, by GPU index: under the
 // balanced split MoESplitConfig writes where it applies, and otherwise the
