@@ -169,3 +169,25 @@ func TestMakeRoomForGenStopsOtherBackends(t *testing.T) {
 		t.Error("the other backend is still running")
 	}
 }
+
+// The wait for freed memory ends at the target, or once the reading
+// stops falling (an idle backend held less than its reservation), and
+// gives up when no reading comes.
+func TestGPUFreed(t *testing.T) {
+	feed := func(vals ...int) <-chan int {
+		ch := make(chan int, len(vals))
+		for _, v := range vals {
+			ch <- v
+		}
+		return ch
+	}
+	if !gpuFreed(feed(20000, 9000), 9000, time.Second) {
+		t.Error("reaching the target did not end the wait")
+	}
+	if !gpuFreed(feed(20000, 18000, 17900), 9000, time.Second) {
+		t.Error("a reading that stopped falling did not end the wait")
+	}
+	if gpuFreed(feed(20000, 15000), 9000, 30*time.Millisecond) {
+		t.Error("a reading still falling ended the wait")
+	}
+}

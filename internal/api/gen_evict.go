@@ -198,7 +198,7 @@ func (s *Server) stopGenOn(gpu int, except, reason string) int {
 			continue
 		}
 		slog.Info("stopped generation backend to make room", "instance", inst.ID, "gpu", gpu, "for", reason)
-		waitGPUReleased(func() int { return s.gpuUsedMiB(gpu) }, max(0, before-share), 20*time.Second, 500*time.Millisecond)
+		s.waitGPUFreed(gpu, max(0, before-share))
 		stopped++
 	}
 	return stopped
@@ -338,6 +338,67 @@ func (s *Server) unloadForGen(ctx context.Context, id string, inst generation.In
 		}
 	}
 	after := s.loadedLLMMiB(models.GPUMiB(s.idleHardware()), "", false)[inst.GPU]
-	waitGPUReleased(func() int { return s.gpuUsedMiB(inst.GPU) }, max(0, before-(planned-after)), 20*time.Second, 500*time.Millisecond)
+	s.waitGPUFreed(inst.GPU, max(0, before-(planned-after)))
 	return nil
+}
+
+// gpuFreedTimeout caps the wait for the card to show memory free after a
+// stop or an unload.
+const gpuFreedTimeout = 20 * time.Second
+
+// waitGPUFreed waits for the card to show what a stopped backend or an
+// unloaded LLM held as free, reading the monitor's fresh samples (see
+// gpuFreed). Without GPU readings there is nothing to wait for.
+func (s *Server) waitGPUFreed(gpu, target int) {
+	if len(s.monitor.Current().GPU) == 0 {
+		return
+	}
+	ch := s.monitor.Subscribe()
+	defer s.monitor.Unsubscribe(ch)
+	readings := make(chan int)
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		for {
+			select {
+			case m := <-ch:
+				for _, g := range m.GPU {
+					if g.Index == gpu {
+						select {
+						case readings <- g.VRAMUsedMB:
+						case <-stop:
+							return
+						}
+					}
+				}
+			case <-stop:
+				return
+			}
+		}
+	}()
+	if !gpuFreed(readings, target, gpuFreedTimeout) {
+		slog.Warn("the card did not show the memory free in time", "gpu", gpu, "used_mib", s.gpuUsedMiB(gpu), "expected_mib", target)
+	}
+}
+
+// gpuFreed takes the card's used memory from readings, each sampled
+// after the process exited or the model was unloaded, and reports true
+// once a reading is within gpuReleasedSlackMiB of target, or once two
+// readings in a row show it no longer falling: the process held less
+// than planned (an idle backend holds far less than its reservation,
+// which is its peak). False when timeout passes first.
+func gpuFreed(readings <-chan int, target int, timeout time.Duration) bool {
+	deadline := time.After(timeout)
+	prev := -1
+	for {
+		select {
+		case used := <-readings:
+			if used <= target+gpuReleasedSlackMiB || (prev >= 0 && used >= prev-gpuReleasedSlackMiB) {
+				return true
+			}
+			prev = used
+		case <-deadline:
+			return false
+		}
+	}
 }
