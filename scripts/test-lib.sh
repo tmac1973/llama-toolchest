@@ -1087,6 +1087,49 @@ test_label_for_build_mount() (
     check_true "label: chcon failure is not fatal" label_for_build_mount dist/llama-toolchest-local
 )
 
+# Host ports other than 443/8080 for Caddy only change what is published:
+# Caddy keeps listening on 443 and 8080 inside its container, and the
+# external URL carries the host port.
+test_secure_custom_ports() (
+    load_setup_fns "${GEN_SETUP_FNS[@]}" configure_secure secure_chat_url
+    gen_setup_env
+    print_secure_disclaimer() { :; }
+    SECURE=true SECURE_EXPLICIT=true TLS_MODE=self-signed DOMAIN=box ACME_EMAIL=""
+    AUTH_USER=admin AUTH_HASH='$2a$14$abc/def.ghi' AUTH_PASS="" AUTH_PASS_FILE=""
+    CADDY_HTTP_PORT=8000 CADDY_HTTPS_PORT=8443 CADDY_CHAT_PORT=9443
+    configure_secure
+    local cf="$SCRIPT_DIR/Caddyfile"
+    check_eq "custom ports: Caddy sites" ":443 {
+:8080 {" "$(grep -E '^[^#[:space:]].* \{$' "$cf")"
+    check_eq "custom ports: external URL" "https://box:8443" "$SECURE_EXTERNAL_URL"
+    check_eq "custom ports: chat URL" "https://box:9443" "$(secure_chat_url)"
+    check_eq "custom ports: Caddy Quadlet" "PublishPort=8000:80
+PublishPort=8443:443
+PublishPort=9443:8080" "$(generate_quadlet_caddy | grep '^PublishPort')"
+    check_true "custom ports: compose maps the HTTPS port to 443" \
+        grep -qF '"${CADDY_HTTPS_PORT:-443}:443"' "${REPO_DIR}/docker-compose.secure.yml"
+    check_true "custom ports: compose maps the chat port to 8080" \
+        grep -qF '"${CADDY_CHAT_PORT:-8080}:8080"' "${REPO_DIR}/docker-compose.secure.yml"
+    # Caddy's chat site holds 8080 in its container even with the host
+    # chat port moved, so a generation range there is refused.
+    check_eq "custom ports: gen range over Caddy's 8080" \
+        "8075-8082 overlaps port 8080, used by the chat UI inside the Caddy container" \
+        "$(gen_port_start_problem 8075)"
+
+    TLS_MODE=letsencrypt DOMAIN=llm.example.test ACME_EMAIL=admin@example.test
+    configure_secure
+    check_eq "custom ports: Let's Encrypt sites" "llm.example.test {
+llm.example.test:8080 {" "$(grep -E '^[^#[:space:]].* \{$' "$cf" | grep -v '^{$')"
+    check_eq "custom ports: Let's Encrypt URL" "https://llm.example.test:8443" "$SECURE_EXTERNAL_URL"
+
+    CADDY_HTTPS_PORT=443 CADDY_CHAT_PORT=8080
+    configure_secure
+    check_eq "default ports: URL has no port" "https://llm.example.test" "$SECURE_EXTERNAL_URL"
+    check_eq "default ports: chat URL" "https://llm.example.test:8080" "$(secure_chat_url)"
+    SECURE_EXTERNAL_URL='https://[fd00::1]'
+    check_eq "chat URL: IPv6 host without a port" "https://[fd00::1]:8080" "$(secure_chat_url)"
+)
+
 # ─── Run ─────────────────────────────────────────────────────────────────────
 
 test_scope_current_user
@@ -1120,6 +1163,7 @@ test_gen_ports_off
 test_gen_ports_on
 test_gen_ports_secure
 test_label_for_build_mount
+test_secure_custom_ports
 
 passes="$(grep -c '^PASS$' "$RESULTS")"
 fails="$(grep -c '^FAIL$' "$RESULTS")"

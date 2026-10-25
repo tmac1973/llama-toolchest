@@ -786,7 +786,8 @@ gen_port_start_problem() {
     fi
     if [[ "$SECURE" == true ]]; then
         used=("${LLAMA_TOOLCHEST_PORT}:the management UI" "${CADDY_HTTP_PORT:-80}:Caddy's HTTP port"
-              "${CADDY_HTTPS_PORT:-443}:Caddy's HTTPS port" "${CADDY_CHAT_PORT:-8080}:the chat UI")
+              "${CADDY_HTTPS_PORT:-443}:Caddy's HTTPS port" "${CADDY_CHAT_PORT:-8080}:the chat UI"
+              "8080:the chat UI inside the Caddy container")
         # The app's loopback ports, 18080-18088.
         for (( p = SECURE_GEN_DEBUG_INF_PORT; p < SECURE_GEN_APP_PORT_START + GEN_PORT_COUNT; p++ )); do
             used+=("${p}:the app's loopback ports (${SECURE_GEN_DEBUG_INF_PORT}-$(gen_port_end "$SECURE_GEN_APP_PORT_START"))")
@@ -1807,10 +1808,14 @@ configure_secure() {
     prompt_gen_ports
 
     # ── Derive Caddy site addresses + the external URL for the app's links ──
+    # Caddy listens on 443 and 8080 inside its container whatever the host
+    # ports are: docker-compose.secure.yml and the Quadlet unit publish
+    # CADDY_HTTPS_PORT and CADDY_CHAT_PORT to those two. Only the external
+    # URL carries the host port.
     local ext_host
     if [[ "$TLS_MODE" == letsencrypt ]]; then
         CADDY_SITE_ADDRESS="$DOMAIN"
-        CADDY_CHAT_ADDRESS="${DOMAIN}:${CADDY_CHAT_PORT:-8080}"
+        CADDY_CHAT_ADDRESS="${DOMAIN}:8080"
         CADDY_GLOBAL=$'{\n\temail '"${ACME_EMAIL}"$'\n}'
         CADDY_TLS="# Let's Encrypt cert is provisioned automatically for the domain"
         ext_host="$DOMAIN"
@@ -1819,8 +1824,8 @@ configure_secure() {
         # whatever hostname/IP the client uses (localhost, LAN IP, hostname),
         # so a bare :443 site still presents a certificate instead of failing
         # the TLS handshake.
-        CADDY_SITE_ADDRESS=":${CADDY_HTTPS_PORT:-443}"
-        CADDY_CHAT_ADDRESS=":${CADDY_CHAT_PORT:-8080}"
+        CADDY_SITE_ADDRESS=":443"
+        CADDY_CHAT_ADDRESS=":8080"
         CADDY_GLOBAL="# self-signed / internal CA — no ACME"
         CADDY_TLS=$'tls internal {\n\t\ton_demand\n\t}'
         ext_host="${DOMAIN:-$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo localhost)}"
@@ -1830,6 +1835,14 @@ configure_secure() {
     SECURE_EXTERNAL_URL="https://${ext_host}${scheme_port}"
 
     render_caddyfile
+}
+
+# secure_chat_url prints the chat UI's address as a browser reaches it: the
+# external URL with the chat port in place of the HTTPS port it may carry.
+secure_chat_url() {
+    local base="${SECURE_EXTERNAL_URL:-https://<host>}"
+    [[ "$base" =~ ^(.*):[0-9]+$ ]] && base="${BASH_REMATCH[1]}"
+    echo "${base}:${CADDY_CHAT_PORT:-8080}"
 }
 
 container_up() {
@@ -3203,7 +3216,7 @@ main() {
     echo ""
     if [[ "$SECURE" == true ]]; then
         echo "  Web UI:     ${SECURE_EXTERNAL_URL:-https://<host>}      (login required)"
-        echo "  Chat UI:    ${SECURE_EXTERNAL_URL:-https://<host>}:${CADDY_CHAT_PORT:-8080}"
+        echo "  Chat UI:    $(secure_chat_url)"
         echo "  API:        ${SECURE_EXTERNAL_URL:-https://<host>}/v1   (Bearer api_key)"
         if [[ "$GEN_PORTS" == true ]]; then
             echo "  Gen web UIs: ports ${GEN_PUBLIC_PORT_START}-$(gen_port_end "$GEN_PUBLIC_PORT_START")  (login required; one per backend instance)"
