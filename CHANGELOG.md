@@ -1,5 +1,54 @@
 # Changelog
 
+## [2.43.0](https://github.com/tmac1973/llama-toolchest/compare/v2.42.1...v2.43.0) (2026-10-25)
+
+
+### Features
+
+* **api:** add music job API with ACE-Step compatible routes ([#315](https://github.com/tmac1973/llama-toolchest/issues/315)) ([1a5b7b1](https://github.com/tmac1973/llama-toolchest/commit/1a5b7b138723a42de71fd4e79fc3bc3bb3c0c9ee))
+* **api:** add per-GPU generation queue and OpenAI image routes ([#314](https://github.com/tmac1973/llama-toolchest/issues/314)) ([2acf759](https://github.com/tmac1973/llama-toolchest/commit/2acf759f5a31b8d33e420db971d97d15064cac0c))
+* **autotune:** let a faster setting within the margin of error be used anyway ([#321](https://github.com/tmac1973/llama-toolchest/issues/321)) ([5424783](https://github.com/tmac1973/llama-toolchest/commit/5424783c6a453499069333f5084af3f62f49dc4e))
+* **builder:** build stable-diffusion.cpp and acestep.cpp alongside llama.cpp ([#310](https://github.com/tmac1973/llama-toolchest/issues/310)) ([d6dbbad](https://github.com/tmac1973/llama-toolchest/commit/d6dbbad90ad273b0148215c1de39b1db0719903d))
+* **config:** add generation backend switch, port range and store ([#309](https://github.com/tmac1973/llama-toolchest/issues/309)) ([4f3c3fb](https://github.com/tmac1973/llama-toolchest/commit/4f3c3fb88f72b7276589f7faa1300c4a392cd8e2))
+* **config:** always show shared context fields and report per-conversation context on /v1/models ([#304](https://github.com/tmac1973/llama-toolchest/issues/304)) ([691c941](https://github.com/tmac1973/llama-toolchest/commit/691c941e28b7bc7aafa53fe09ec80671691c839f))
+* **deploy:** publish generation web UI ports and add pnpm to images ([#317](https://github.com/tmac1973/llama-toolchest/issues/317)) ([c7a0948](https://github.com/tmac1973/llama-toolchest/commit/c7a0948801f4ab11d9de65b2a5725284c4d7c760))
+* **download:** say in the Fit and VRAM Est. tooltips what is reserved for generation backends ([#337](https://github.com/tmac1973/llama-toolchest/issues/337)) ([a3c0d58](https://github.com/tmac1973/llama-toolchest/commit/a3c0d5885680cb3f376a739cf89a5d10fe1fae10))
+* **generation:** add model set catalog, downloads and custom sets ([#311](https://github.com/tmac1973/llama-toolchest/issues/311)) ([d3ed9e6](https://github.com/tmac1973/llama-toolchest/commit/d3ed9e6fd4c2812a7fa99d4505fe07c18d32778f))
+* **generation:** async image jobs, job phases and meta.api for clients ([#332](https://github.com/tmac1973/llama-toolchest/issues/332)) ([4e8b20a](https://github.com/tmac1973/llama-toolchest/commit/4e8b20af9f3a8f792a3744e31c0ebfaa108f689c))
+* **generation:** launch and supervise sd-server and ace-server instances ([#312](https://github.com/tmac1973/llama-toolchest/issues/312)) ([2ff9346](https://github.com/tmac1973/llama-toolchest/commit/2ff9346fb9ae60b1c8189ca343707b828caae63c))
+* **generation:** reserve VRAM per backend instance and plan LLM fit around it ([#313](https://github.com/tmac1973/llama-toolchest/issues/313)) ([bb1c1a5](https://github.com/tmac1973/llama-toolchest/commit/bb1c1a5f5970ced576d1cfd37f93d83876f416ce))
+* **generation:** say why an instance has no web UI link ([#328](https://github.com/tmac1973/llama-toolchest/issues/328)) ([f7f74b5](https://github.com/tmac1973/llama-toolchest/commit/f7f74b5d38ed49dda4acca896a7d914b4f894411))
+* **models:** show the balanced GPU split in the Configure panel ([#340](https://github.com/tmac1973/llama-toolchest/issues/340)) ([4ba5495](https://github.com/tmac1973/llama-toolchest/commit/4ba54950aae216c3abbcd95ceb7c3e09c319bb3e))
+* **setup:** offer a full rebuild when quick finds the release changes the image ([#331](https://github.com/tmac1973/llama-toolchest/issues/331)) ([b42067d](https://github.com/tmac1973/llama-toolchest/commit/b42067d7feab9753d2a879df00eb2e26d988f48d))
+* **ui:** show generation queue, web UI links and help ([#316](https://github.com/tmac1973/llama-toolchest/issues/316)) ([76abf5f](https://github.com/tmac1973/llama-toolchest/commit/76abf5f5c04388883fa158eecc36250abfedcfc1))
+
+
+### Bug Fixes
+
+* **api:** report the external URL as the settings proxy endpoint ([#308](https://github.com/tmac1973/llama-toolchest/issues/308)) ([e11daa3](https://github.com/tmac1973/llama-toolchest/commit/e11daa3f685f13770b35e8602f3c51e8fe6ca779))
+* **autotune:** explain the margin of error when a faster setting is not used ([#320](https://github.com/tmac1973/llama-toolchest/issues/320)) ([3ee263d](https://github.com/tmac1973/llama-toolchest/commit/3ee263dd447402b623fbc93f0395cf7af1277ffa))
+* **autotune:** only use a draft head made for the model being tuned ([#342](https://github.com/tmac1973/llama-toolchest/issues/342)) ([bfacadd](https://github.com/tmac1973/llama-toolchest/commit/bfacaddfdb73f2e606d7744d4fca657e3f0e7e73))
+* **benchmarks:** keep the scroll position when a finished cell re-renders the job list ([#341](https://github.com/tmac1973/llama-toolchest/issues/341)) ([dc64373](https://github.com/tmac1973/llama-toolchest/commit/dc643730bf5625dbf8048978d3e7702e3dc5bb95))
+* **builds:** offer sd.cpp and acestep.cpp only the build options they use ([#325](https://github.com/tmac1973/llama-toolchest/issues/325)) ([9b162bb](https://github.com/tmac1973/llama-toolchest/commit/9b162bb1cf039eb7a379dffbab6b2f9d0ebfaf6c))
+* **builds:** word the shared GPU options for every project ([#329](https://github.com/tmac1973/llama-toolchest/issues/329)) ([ea775e8](https://github.com/tmac1973/llama-toolchest/commit/ea775e8f6a4ebcb8bb4d402d5a196578d47e914d))
+* **config:** keep environment overrides out of the saved config file ([#322](https://github.com/tmac1973/llama-toolchest/issues/322)) ([92351e4](https://github.com/tmac1973/llama-toolchest/commit/92351e478fa229bcb0151c1031b6ceab6ef83863))
+* container install fixes for SELinux, custom Caddy ports, old config name and the chat link port ([#318](https://github.com/tmac1973/llama-toolchest/issues/318)) ([c38e6d5](https://github.com/tmac1973/llama-toolchest/commit/c38e6d5379c13548c4175eca34145096ec27084b))
+* **docker:** refresh package lists before installing the release package ([#335](https://github.com/tmac1973/llama-toolchest/issues/335)) ([a5c2e0d](https://github.com/tmac1973/llama-toolchest/commit/a5c2e0dc4238223dfd8779f85596f00f7829a735))
+* **generation:** check reservations on every LLM load and let LLM measurements take turns with generation jobs ([#327](https://github.com/tmac1973/llama-toolchest/issues/327)) ([30c381f](https://github.com/tmac1973/llama-toolchest/commit/30c381f5e8b38c9ea6be20d27b882e2573a257ba))
+* **generation:** show measurement results, edit instances, run Ming-Image's text model on the CPU ([#324](https://github.com/tmac1973/llama-toolchest/issues/324)) ([6f9ae1e](https://github.com/tmac1973/llama-toolchest/commit/6f9ae1e5c290d8e4329cfabfd0b9c13680819b1d))
+* **generation:** start auto-start instances when generation is switched on ([#338](https://github.com/tmac1973/llama-toolchest/issues/338)) ([7154fab](https://github.com/tmac1973/llama-toolchest/commit/7154fab467971ccfa5caa310d4e68f7dad7d80c4))
+* **models:** keep the scroll position when a restart re-renders the model lists ([#339](https://github.com/tmac1973/llama-toolchest/issues/339)) ([1ef5d24](https://github.com/tmac1973/llama-toolchest/commit/1ef5d24dd712a8850a35992f8d34447637366a60))
+* **planner:** plan replacing loads on the cards as they were with nothing loaded ([#333](https://github.com/tmac1973/llama-toolchest/issues/333)) ([967983c](https://github.com/tmac1973/llama-toolchest/commit/967983c195618fc448cdea7d8898539a9cae200c))
+* **planner:** split models by each card's room beside generation reservations ([#330](https://github.com/tmac1973/llama-toolchest/issues/330)) ([89359ae](https://github.com/tmac1973/llama-toolchest/commit/89359ae87e75a0dd6cfd865ff24d39e78d031771))
+* **ui:** give each GPU map reservation its own color ([#326](https://github.com/tmac1973/llama-toolchest/issues/326)) ([b9750c7](https://github.com/tmac1973/llama-toolchest/commit/b9750c74be3e4d52e0dadc8f5a9836cdbb362368))
+* **ui:** use the full page width and show the build project as radio buttons ([#323](https://github.com/tmac1973/llama-toolchest/issues/323)) ([0f5f673](https://github.com/tmac1973/llama-toolchest/commit/0f5f6730c8f1d1635ca754bc2eb79b9f4107f3c4))
+* **vram:** count a hybrid model's recurrent state once per conversation ([#336](https://github.com/tmac1973/llama-toolchest/issues/336)) ([52ac667](https://github.com/tmac1973/llama-toolchest/commit/52ac667817b52abd8b5e63e23f214845c82eefba))
+
+
+### Refactors
+
+* **process:** extract a generic supervisor from the router manager ([#307](https://github.com/tmac1973/llama-toolchest/issues/307)) ([d2472b9](https://github.com/tmac1973/llama-toolchest/commit/d2472b920f175330f68e0dcac61cf5cedcec26f1))
+
 ## [2.42.1](https://github.com/tmac1973/llama-toolchest/compare/v2.42.0...v2.42.1) (2026-10-16)
 
 
