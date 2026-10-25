@@ -11,8 +11,8 @@
 <table role="grid">
     <thead>
         <tr><th>File</th><th>Quant</th><th>Size</th>
-            <th title="Estimated GPU memory at 32K context (or the model's limit, if shorter), with the settings the Fit column describes: the ones Autoconfigure would choose. Includes the model, the KV cache and llama.cpp's working memory. What those settings keep in system memory is shown underneath. For a file that is too large, the figure is with every layer on the GPU.">VRAM Est.</th>
-            <th title="How this file would run on this machine's GPUs: the longest context it can hold with every layer on the GPU. Hover a cell for each context size. Planned the same way Autoconfigure plans a downloaded model.">Fit</th>
+            <th title="Estimated GPU memory at 32K context (or the model's limit, if shorter), with the settings the Fit column describes: the ones Autoconfigure would choose. Includes the model, the KV cache and llama.cpp's working memory. What those settings keep in system memory is shown underneath. For a file that is too large, the figure is with every layer on the GPU.{{with $.ReservationNote}} {{.}}{{end}}">VRAM Est.</th>
+            <th title="How this file would run on this machine's GPUs: the longest context it can hold with every layer on the GPU. Hover a cell for each context size. Planned the same way Autoconfigure plans a downloaded model.{{with $.ReservationNote}} {{.}}{{end}}">Fit</th>
             <th></th></tr>
     </thead>
     <tbody>
