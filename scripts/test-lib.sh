@@ -1101,6 +1101,68 @@ test_label_for_build_mount() (
     check_true "label: chcon failure is not fatal" label_for_build_mount dist/llama-toolchest-local
 )
 
+# setup.sh quick offers a full rebuild when the latest release raises the
+# image revision above the running image's, and stops when the local
+# Dockerfile is too old to build the new image.
+test_quick_needs_rebuild() (
+    load_setup_fns image_revision_from_dockerfile release_image_revision \
+        running_image_revision check_quick_needs_rebuild
+    IMAGE_REVISION_LABEL="io.github.tmac1973.llama-toolchest.image-revision"
+    SCRIPT_DIR="${TMP_ROOT}/quick"
+    rm -rf "$SCRIPT_DIR"; mkdir -p "$SCRIPT_DIR"
+    LLAMA_TOOLCHEST_PORT=3000 ASSUME_YES=false INTERACTIVE=true
+    dockerfile() { echo Dockerfile.rocm; }
+    container_exists() { [[ "$HAVE_CONTAINER" == true ]]; }
+    CONTAINER_CMD=fake_podman
+    fake_podman() {
+        case "$1 $2" in
+            "container inspect") echo sha256:abc ;;
+            "image inspect") echo "$IMAGE_REV" ;;
+        esac
+    }
+    curl() { [[ -n "$RELEASE_REV" ]] || return 22; dockerfile_text "$RELEASE_REV"; }
+    dockerfile_text() {
+        printf 'FROM fedora:43\n\nLABEL %s="%s"\nARG X=1\n' "$IMAGE_REVISION_LABEL" "$1"
+    }
+    local_rev() { dockerfile_text "$1" > "$SCRIPT_DIR/Dockerfile.rocm"; }
+    container_rebuild() { echo rebuilt; }
+    prompt_confirm() { [[ "$ANSWER" == yes ]]; }
+
+    # outcome: "go" when quick continues, else the exit status plus any
+    # rebuild marker.
+    outcome() {
+        local out rc
+        out="$(check_quick_needs_rebuild 2.0.0 2>/dev/null; echo "go")"; rc=$?
+        out="$(grep -E '^(go|rebuilt)$' <<<"$out" | tr '\n' ' ')"
+        out="${out% }"; echo "${out:+$out }rc=$rc"
+    }
+
+    check_eq "revision: parsed from Dockerfile" "7" "$(dockerfile_text 7 | image_revision_from_dockerfile)"
+    check_eq "revision: none in old Dockerfile" "" "$(printf 'FROM x\nLABEL other="3"\n' | image_revision_from_dockerfile)"
+    for f in "${REPO_DIR}"/Dockerfile.*; do
+        check_true "revision: $(basename "$f") has a revision" \
+            test -n "$(image_revision_from_dockerfile < "$f")"
+    done
+
+    HAVE_CONTAINER=true RELEASE_REV=2 IMAGE_REV=2 ANSWER=yes; local_rev 2
+    check_eq "quick: image current" "go rc=0" "$(outcome)"
+    IMAGE_REV=3
+    check_eq "quick: image newer than release" "go rc=0" "$(outcome)"
+    RELEASE_REV=""
+    check_eq "quick: release revision unreadable" "go rc=0" "$(outcome)"
+    RELEASE_REV=3 HAVE_CONTAINER=false
+    check_eq "quick: no container yet" "go rc=0" "$(outcome)"
+
+    HAVE_CONTAINER=true IMAGE_REV=2 RELEASE_REV=3; local_rev 3
+    check_eq "quick: older image, rebuild accepted" "rebuilt rc=0" "$(outcome)"
+    ANSWER=no
+    check_eq "quick: older image, rebuild declined" "rc=1" "$(outcome)"
+    IMAGE_REV="<no value>" ANSWER=yes
+    check_eq "quick: unlabelled image offers rebuild" "rebuilt rc=0" "$(outcome)"
+    IMAGE_REV=2; local_rev 2
+    check_eq "quick: local Dockerfile too old" "rc=1" "$(outcome)"
+)
+
 # Host ports other than 443/8080 for Caddy only change what is published:
 # Caddy keeps listening on 443 and 8080 inside its container, and the
 # external URL carries the host port.
@@ -1242,6 +1304,7 @@ test_gen_ports_off
 test_gen_ports_on
 test_gen_ports_secure
 test_label_for_build_mount
+test_quick_needs_rebuild
 test_secure_custom_ports
 test_migrate_legacy_config_name
 

@@ -89,7 +89,8 @@ Lifecycle:
   migrate     Move state between container and host installs
               (--to-host or --to-container required)
   quick       Container only: pull the latest released package and reinstall
-              it inside the existing image (reuses cached GPU SDK / base layers)
+              it inside the existing image (reuses cached GPU SDK / base layers).
+              If the release changes the image itself, offers a full rebuild
   rebuild     Container only: full rebuild with no cache, then start
 
 Runtime (container only):

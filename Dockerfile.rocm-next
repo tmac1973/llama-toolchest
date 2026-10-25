@@ -44,6 +44,15 @@
 ARG ROCM_BASE_IMAGE=docker.io/rocm/dev-ubuntu-24.04:10.1.0-full
 FROM ${ROCM_BASE_IMAGE}
 
+# Image revision. Raise this number in a release whose image must be rebuilt
+# from scratch: a new system package, a new base image, a new exposed port —
+# anything that installing the new release package alone does not bring.
+# `./setup.sh quick` compares the number in the latest release's Dockerfile with
+# the one on the running image, and offers a full rebuild when the image is
+# older. It sits right after FROM so that raising it also makes every later
+# step build again, even from cache.
+LABEL io.github.tmac1973.llama-toolchest.image-revision="1"
+
 # Re-declared after FROM: an ARG used by FROM is out of scope in the build
 # stage, and the LABEL below reads it.
 ARG ROCM_BASE_IMAGE
