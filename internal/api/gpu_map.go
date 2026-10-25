@@ -15,25 +15,7 @@ func (s *Server) handleGPUMap(w http.ResponseWriter, r *http.Request) {
 	if numGPUs == 0 {
 		return // render nothing when no GPUs detected
 	}
-
-	// Helper models are loaded only for a moment during Autoconfigure, so
-	// they are not part of what is planned onto the GPUs.
-	allModels := s.registry.ListServing()
-	allConfigs := make(map[string]*models.ModelConfig)
-	for _, m := range allModels {
-		if c, err := s.registry.GetConfig(m.ID); err == nil {
-			allConfigs[m.ID] = c
-		}
-	}
-
-	// Each model as its launch splits it: by the cards' room, beside the
-	// generation reservations, as the preset was written (targetFor).
-	gpuMiB := models.GPUMiB(s.idleHardware())
-	if len(gpuMiB) != numGPUs {
-		gpuMiB = make([]int, numGPUs)
-	}
-	allocations := models.ComputeAllocationsOn(allModels, allConfigs, gpuMiB)
-	allocations = append(allocations, s.genReservationAllocations(len(allocations))...)
+	allocations := s.gpuMapAllocations(numGPUs)
 
 	// Build per-GPU data for the template
 	type GPUSegment struct {
@@ -94,4 +76,29 @@ func (s *Server) handleGPUMap(w http.ResponseWriter, r *http.Request) {
 		Allocations: allocations,
 	}
 	s.renderPartial(w, "gpu_map", data)
+}
+
+// gpuMapAllocations is every enabled LLM as its launch splits it, then
+// each enabled generation instance's reservation, in the map's colors.
+// The sidebar's map picks the ones loaded now from the same list, so a
+// model has the same color in both.
+func (s *Server) gpuMapAllocations(numGPUs int) []models.GPUAllocation {
+	// Helper models are loaded only for a moment during Autoconfigure, so
+	// they are not part of what is planned onto the GPUs.
+	allModels := s.registry.ListServing()
+	allConfigs := make(map[string]*models.ModelConfig)
+	for _, m := range allModels {
+		if c, err := s.registry.GetConfig(m.ID); err == nil {
+			allConfigs[m.ID] = c
+		}
+	}
+
+	// Each model as its launch splits it: by the cards' room, beside the
+	// generation reservations, as the preset was written (targetFor).
+	gpuMiB := models.GPUMiB(s.idleHardware())
+	if len(gpuMiB) != numGPUs {
+		gpuMiB = make([]int, numGPUs)
+	}
+	allocations := models.ComputeAllocationsOn(allModels, allConfigs, gpuMiB)
+	return append(allocations, s.genReservationAllocations(len(allocations))...)
 }
