@@ -923,7 +923,7 @@ gen_secure_caddy() {
 GEN_SETUP_FNS=(gen_app_port_start gen_port_end gen_range_has gen_host_ports
     gen_port_start_problem settle_gen_ports prompt_gen_ports load_env_ports
     write_env_file compose_file compose_cmd generate_quadlet_app
-    generate_quadlet_caddy caddy_gen_sites render_caddyfile)
+    generate_quadlet_caddy caddy_gen_sites render_caddyfile chat_public_port)
 
 # Answering no (the default) leaves .env, the compose files, the Quadlet
 # units and the Caddyfile without any generation port.
@@ -935,6 +935,7 @@ test_gen_ports_off() (
     write_env_file
     check_eq "gen off: .env" "LLAMA_TOOLCHEST_PORT=3000
 LLAMA_TOOLCHEST_INFERENCE_PORT=8080
+LLAMA_TOOLCHEST_CHAT_PUBLIC_PORT=8080
 HOST_VIDEO_GID=39
 HOST_RENDER_GID=105
 ROCM_VARIANT=stable" "$(cat "$SCRIPT_DIR/.env")"
@@ -1103,6 +1104,18 @@ test_secure_custom_ports() (
 :8080 {" "$(grep -E '^[^#[:space:]].* \{$' "$cf")"
     check_eq "custom ports: external URL" "https://box:8443" "$SECURE_EXTERNAL_URL"
     check_eq "custom ports: chat URL" "https://box:9443" "$(secure_chat_url)"
+    # The app's own chat link gets Caddy's chat port, not the app's 8080
+    # or its loopback debug port.
+    SECURE_APP_DEBUG_INF_PORT=18080
+    write_env_file
+    check_eq "custom ports: chat link port in .env" "LLAMA_TOOLCHEST_CHAT_PUBLIC_PORT=9443" \
+        "$(grep CHAT_PUBLIC "$SCRIPT_DIR/.env")"
+    check_eq "custom ports: chat link port in Quadlet" "Environment=LLAMA_TOOLCHEST_CHAT_PUBLIC_PORT=9443" \
+        "$(generate_quadlet_app | grep CHAT_PUBLIC)"
+    SECURE=false LLAMA_TOOLCHEST_INFERENCE_PORT=9080
+    check_eq "plain: chat link port is the published port" "Environment=LLAMA_TOOLCHEST_CHAT_PUBLIC_PORT=9080" \
+        "$(generate_quadlet_app | grep CHAT_PUBLIC)"
+    SECURE=true
     check_eq "custom ports: Caddy Quadlet" "PublishPort=8000:80
 PublishPort=8443:443
 PublishPort=9443:8080" "$(generate_quadlet_caddy | grep '^PublishPort')"

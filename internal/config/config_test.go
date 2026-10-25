@@ -153,3 +153,33 @@ models_dir: "`+custom+`"
 		t.Fatalf("ModelsDir clobbered: got %q, want %q", cfg.ModelsDir, custom)
 	}
 }
+
+func TestChatPublicPort(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cfg.yaml")
+	if err := os.WriteFile(path, []byte("llama_port: 8080\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.ChatPort(); got != 8080 {
+		t.Errorf("ChatPort() = %d without the env var, want llama_port 8080", got)
+	}
+
+	t.Setenv("LLAMA_TOOLCHEST_CHAT_PUBLIC_PORT", "9443")
+	if cfg, err = Load(path); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.ChatPort(); got != 9443 {
+		t.Errorf("ChatPort() = %d, want 9443 from the environment", got)
+	}
+	if cfg.LlamaPort != 8080 {
+		t.Errorf("LlamaPort = %d, want 8080: the public port must not move llama-server", cfg.LlamaPort)
+	}
+
+	t.Setenv("LLAMA_TOOLCHEST_CHAT_PUBLIC_PORT", "70000")
+	if cfg, _ = Load(path); cfg.ChatPublicPort != 0 {
+		t.Errorf("invalid value was used: %d", cfg.ChatPublicPort)
+	}
+}

@@ -1335,6 +1335,17 @@ has_quadlet() {
 }
 
 # Write .env file for docker-compose variable substitution
+# chat_public_port prints the port a browser opens the chat UI on: Caddy's
+# chat port in secure mode, else the host port llama-server's 8080 is
+# published on.
+chat_public_port() {
+    if [[ "$SECURE" == true ]]; then
+        echo "${CADDY_CHAT_PORT:-8080}"
+    else
+        echo "${LLAMA_TOOLCHEST_INFERENCE_PORT}"
+    fi
+}
+
 write_env_file() {
     local env_file="${SCRIPT_DIR}/.env"
     : > "$env_file"
@@ -1359,6 +1370,10 @@ write_env_file() {
         echo "LLAMA_TOOLCHEST_PORT=${LLAMA_TOOLCHEST_PORT}" >> "$env_file"
         echo "LLAMA_TOOLCHEST_INFERENCE_PORT=${LLAMA_TOOLCHEST_INFERENCE_PORT}" >> "$env_file"
     fi
+
+    # The chat UI port as a browser reaches it, for the app's "Open Chat UI"
+    # link. The compose files pass all of .env into the container.
+    echo "LLAMA_TOOLCHEST_CHAT_PUBLIC_PORT=$(chat_public_port)" >> "$env_file"
 
     # Generation backend web UI ports, read by docker-compose.gen-ports.yml.
     # The HOST_PORT names are only the host side of the mapping: inside the
@@ -2132,6 +2147,7 @@ else
     echo "PublishPort=${LLAMA_TOOLCHEST_PORT}:3000"
     echo "PublishPort=${LLAMA_TOOLCHEST_INFERENCE_PORT}:8080"
 fi
+echo "Environment=LLAMA_TOOLCHEST_CHAT_PUBLIC_PORT=$(chat_public_port)"
 if [[ "$GEN_PORTS" == true ]]; then
     gen_start="$(gen_app_port_start)"
     if [[ "$SECURE" == true ]]; then
