@@ -114,7 +114,18 @@
             color: var(--pico-primary-hover);
         }
         #monitor-bar { flex-shrink: 0; }
-        main { flex: 1; padding: 22px 26px; max-width: 1200px; overflow-y: auto; max-height: 100vh; }
+        /* main is also Pico's .container, whose rules would cap its width
+           (1200–1450px, centred, leaving wide empty bands beside the page
+           on large screens) and remove its side padding (so content ran
+           under main's own scrollbar). main.container outranks both. */
+        main.container {
+            flex: 1; min-width: 0; max-width: none; margin: 0;
+            padding: 22px 26px; overflow-y: auto; max-height: 100vh;
+        }
+        /* The Builds page's project choice: radio buttons on one line. */
+        fieldset.project-choice { display: flex; flex-wrap: wrap; gap: 0.25rem 1.5rem; align-items: center; }
+        fieldset.project-choice legend { width: 100%; }
+        fieldset.project-choice label { margin: 0; }
 
         /* ── Graphite theme (opt-in via Settings; stock Dark is the default) ── */
         [data-custom-theme="graphite"] {
@@ -189,7 +200,9 @@
         }
         /* Cards a touch rounder than controls, per the Graphite spec. */
         [data-custom-theme="graphite"] article { border-radius: 12px; }
-        [data-custom-theme="graphite"] input,
+        /* Not radio buttons: rounding them by 8px turns their circles
+           into squares that look like checkboxes. */
+        [data-custom-theme="graphite"] input:not([type="radio"]),
         [data-custom-theme="graphite"] select,
         [data-custom-theme="graphite"] textarea { border-radius: 8px; }
 

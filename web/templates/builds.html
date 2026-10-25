@@ -19,17 +19,24 @@
           hx-target="#build-output"
           hx-swap="innerHTML">
         {{if .Projects}}
-        {{/* Only with generation backends on. Each option carries what the
+        {{/* Only with generation backends on. Each choice carries what the
              page script needs: the profiles the project builds with and
-             its release-notes links. */}}
-        <label title="Which source to build: llama.cpp for language models, stable-diffusion.cpp for image generation (sd-server), or acestep.cpp for music generation (ace-server). They share the profiles, compiler setup and build list.">
-            Project
-            <select name="project" id="build-project" onchange="buildProjectChanged(this)">
-                {{range .Projects}}
-                <option value="{{.ID}}" data-backends="{{.Backends}}" data-notes="{{.NotesURL}}" data-latest="{{.LatestNotesURL}}">{{.ID}}</option>
-                {{end}}
-            </select>
-        </label>
+             its release-notes links. Radio buttons rather than a drop-down:
+             there are only three, and some browsers drew the drop-down's
+             list partly off the page. hx-include="#build-project" sends
+             the checked one. */}}
+        <fieldset id="build-project" class="project-choice"
+                  title="Which source to build: llama.cpp for language models, stable-diffusion.cpp for image generation (sd-server), or acestep.cpp for music generation (ace-server). They share the profiles, compiler setup and build list.">
+            <legend>Project</legend>
+            {{range $i, $p := .Projects}}
+            <label>
+                <input type="radio" name="project" value="{{$p.ID}}" {{if eq $i 0}}checked{{end}}
+                       data-backends="{{$p.Backends}}" data-notes="{{$p.NotesURL}}" data-latest="{{$p.LatestNotesURL}}"
+                       onchange="buildProjectChanged(this)">
+                {{$p.ID}}
+            </label>
+            {{end}}
+        </fieldset>
         {{end}}
         <div class="grid">
             <label>
@@ -119,8 +126,7 @@
 function updateRefLink() {
     var a = document.getElementById('ref-link');
     var ref = document.getElementById('git-ref-select').value;
-    var p = document.getElementById('build-project');
-    var o = p ? p.options[p.selectedIndex] : null;
+    var o = document.querySelector('#build-project input[name="project"]:checked');
     var latest = o ? o.getAttribute('data-latest') : 'https://github.com/ggml-org/llama.cpp/releases/latest';
     var notes = o ? o.getAttribute('data-notes') : 'https://github.com/ggml-org/llama.cpp/releases/tag/{ref}';
     a.href = ref === 'latest' ? latest : notes.replace('{ref}', encodeURIComponent(ref));
@@ -128,8 +134,7 @@ function updateRefLink() {
 
 // A project change limits the profiles to the ones it builds with, then
 // reloads the options (through the profile's change trigger) and the refs.
-function buildProjectChanged(sel) {
-    var o = sel.options[sel.selectedIndex];
+function buildProjectChanged(o) {
     var allowed = o.getAttribute('data-backends');
     allowed = allowed ? allowed.split(',') : null;
     var prof = document.getElementById('build-profile');
@@ -141,7 +146,7 @@ function buildProjectChanged(sel) {
     }
     if (prof.options[prof.selectedIndex].disabled && firstOK !== null) prof.value = firstOK;
     htmx.trigger(prof, 'change');
-    htmx.ajax('GET', '/api/builds/refs?project=' + encodeURIComponent(sel.value),
+    htmx.ajax('GET', '/api/builds/refs?project=' + encodeURIComponent(o.value),
         {target: '#git-ref-select', swap: 'innerHTML'}).then(updateRefLink);
     updateRefLink();
 }
