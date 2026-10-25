@@ -510,13 +510,15 @@ func reservedGiB(hw Hardware) float64 {
 	return float64(n) / 1024
 }
 
-// GPUMiB is each GPU's memory available to llama.cpp, by position — its
-// total less what other programs hold and generation backends reserve —
-// as MoESplitConfig and PlanCardLoads take it.
+// GPUMiB is what each GPU lets a model use, by position: CardBudgetMiB,
+// its total less what other programs hold, the safety margin and
+// generation reservations. MoESplitConfig, PlanCardLoads and CardLoadsMiB
+// take it, so the split a launch writes, the planner's check of each card
+// and the reservation check on loads all work from the same figure.
 func GPUMiB(hw Hardware) []int {
 	out := make([]int, len(hw.GPUs))
 	for i, g := range hw.GPUs {
-		out[i] = g.UsableMiB()
+		out[i] = CardBudgetMiB(g)
 	}
 	return out
 }

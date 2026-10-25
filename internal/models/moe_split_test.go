@@ -149,3 +149,103 @@ func TestPresetWritesTheBalancedSplit(t *testing.T) {
 		t.Errorf("a split was written without the GPU sizes:\n%s", ini)
 	}
 }
+
+// dense20 is a dense 20 GiB model: every layer the same size.
+func dense20() *Model {
+	return &Model{SizeBytes: 20 << 30, NLayers: 48, NEmbd: 5120, NHead: 40, NKVHead: 8,
+		ContextLength: 131072, KVFullPerTok: 8192}
+}
+
+// compute2Reserved is compute2 on 2026-10-25: three 16 GiB A4000s with
+// FLUX.2 klein reserving 9.5 GiB on GPU 1 and ACE-Step 7.5 GiB on GPU 2.
+func compute2Reserved() Hardware {
+	hw := Hardware{LogicalCores: 32, RAMTotalMiB: 64 * 1024}
+	for i, res := range []int{0, 9728, 7680} {
+		hw.GPUs = append(hw.GPUs, GPUSpec{Index: i, Name: "RTX A4000", VRAMTotalMiB: 16376, ReservedMiB: res})
+	}
+	return hw
+}
+
+// On cards with different room, a plan is split by room, so it fits each
+// card: the even split it used to get asked the reserved cards for more
+// than they had left.
+func TestPlanFitSplitsByRoomBesideReservations(t *testing.T) {
+	m, hw := dense20(), compute2Reserved()
+	r := PlanFit(m, DefaultConfig(), hw, ContextMedium)
+	if !r.Fits {
+		t.Fatalf("plan does not fit: %+v", r.Config)
+	}
+	gpuMiB := GPUMiB(hw)
+	loads := CardLoadsMiB(m, &r.Config, gpuMiB)
+	for _, g := range hw.GPUs {
+		if loads[g.Index] > CardBudgetMiB(g) {
+			t.Errorf("GPU %d holds %d MiB of %d MiB", g.Index, loads[g.Index], CardBudgetMiB(g))
+		}
+	}
+	if loads[0] <= loads[1] || loads[0] <= loads[2] {
+		t.Errorf("loads %v: the card without a reservation should take the most", loads)
+	}
+	// What an even split would have asked of GPU 1.
+	even := int(VRAMEstimateForConfig(m, &r.Config) * 1024 / 3)
+	if even <= CardBudgetMiB(hw.GPUs[1]) {
+		t.Errorf("test does not cover the bug: an even split (%d MiB) fits GPU 1 (%d MiB)", even, CardBudgetMiB(hw.GPUs[1]))
+	}
+	if out := MoESplitConfig(&r.Config, m, gpuMiB); out == &r.Config || out.TensorSplit == "" {
+		t.Error("the launch flags would not carry the balanced split")
+	}
+}
+
+// Cards with the same room keep llama.cpp's own split for a dense model.
+func TestSplitLeftAloneOnEqualCards(t *testing.T) {
+	cfg := &ModelConfig{GPUAssign: "all", SplitMode: "layer", GPULayers: 999, ContextSize: 32768}
+	if out := MoESplitConfig(cfg, dense20(), a4000s(3)); out != cfg {
+		t.Errorf("split changed to %q on equal cards", out.TensorSplit)
+	}
+	// Less than unequalRoomMiB apart counts as equal.
+	if out := MoESplitConfig(cfg, dense20(), []int{16376, 16376 - 512, 16376}); out != cfg {
+		t.Errorf("split changed to %q for a 512 MiB difference", out.TensorSplit)
+	}
+}
+
+// A split with weights of its own is followed when working out each
+// card's load.
+func TestCardLoadsFollowExplicitSplit(t *testing.T) {
+	m := dense20()
+	cfg := &ModelConfig{GPUAssign: "custom", TensorSplit: "2,1,1", SplitMode: "layer", GPULayers: 999, ContextSize: 32768}
+	loads := CardLoadsMiB(m, cfg, a4000s(3))
+	if loads[0] < loads[1]*19/10 || loads[1] != loads[2] {
+		t.Errorf("loads %v, want GPU 0 twice GPUs 1 and 2", loads)
+	}
+}
+
+// The GPU map shows each card's own share where the launch splits by
+// room, and the shares add up to the whole model.
+func TestAllocationsFollowTheSplit(t *testing.T) {
+	m := dense20()
+	m.ID, m.ModelID = "dense", "org/dense"
+	hw := compute2Reserved()
+	cfg := PlanFit(m, DefaultConfig(), hw, ContextMedium).Config
+	cfg.Enabled = true
+	allocs := ComputeAllocationsOn([]*Model{m}, map[string]*ModelConfig{m.ID: &cfg}, GPUMiB(hw))
+	if len(allocs) != 1 || allocs[0].GPULoadGB == nil {
+		t.Fatalf("allocations = %+v, want per-card shares", allocs)
+	}
+	a := allocs[0]
+	if a.LoadOn(0) <= a.LoadOn(1) {
+		t.Errorf("GPU 0 shows %.1f GiB, GPU 1 %.1f GiB; the card without a reservation should hold more", a.LoadOn(0), a.LoadOn(1))
+	}
+	sum := a.LoadOn(0) + a.LoadOn(1) + a.LoadOn(2)
+	if sum < a.TotalGB-0.01 || sum > a.TotalGB+0.01 {
+		t.Errorf("shares add up to %.1f GiB, but the total shown is %.1f", sum, a.TotalGB)
+	}
+	// Every card the model spans gets a compute buffer of its own, so
+	// the shares are more than the one-card estimate.
+	if a.TotalGB <= VRAMEstimateForConfig(m, &cfg) {
+		t.Errorf("total %.1f GiB is not more than the one-card estimate %.1f", a.TotalGB, VRAMEstimateForConfig(m, &cfg))
+	}
+	// Equal cards: an even spread, as before.
+	even := ComputeAllocations([]*Model{m}, map[string]*ModelConfig{m.ID: &cfg}, 3)
+	if even[0].GPULoadGB != nil {
+		t.Error("an allocation without card budgets got per-card shares")
+	}
+}
