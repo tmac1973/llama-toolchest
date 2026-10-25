@@ -452,9 +452,50 @@ func TestPlanSpecSkipsHeadMethodsWithoutAHead(t *testing.T) {
 	}
 }
 
+// A head made for another model is not measured: the MiniCPM-V-4.7 DSpark
+// head has the shape of Qwen3.6-35B-A3B, which MiniCPM-V is built on, and
+// every cell that drafted Qwen3.6 with it failed to load. One the profile
+// already uses is measured all the same.
+func TestPlanSpecSkipsAnotherModelsHead(t *testing.T) {
+	in := baseInput()
+	in.Model.ModelID = "unsloth/Qwen3.6-35B-A3B-MTP-GGUF"
+	in.Model.Filename = "Qwen3.6-35B-A3B-UD-IQ4_NL.gguf"
+	other := models.DraftCandidate{
+		ID:       "openbmb--MiniCPM-V-4.7-35B-A3B-DSpark-gguf--dspark-MiniCPM-V-4_7-35B-A3B-Q8_0",
+		Filename: "dspark-MiniCPM-V-4_7-35B-A3B-Q8_0.gguf", FilePath: "/data/models/dspark.gguf", SizeGB: 0.4,
+	}
+	in.DraftCandidates = func(mode string) []models.DraftCandidate {
+		if mode == "draft-dspark" {
+			return []models.DraftCandidate{other}
+		}
+		return nil
+	}
+	cells, _, skipped := PlanStage(StageSpec, in)
+	for v := range values(cells, "spec_type") {
+		if strings.Contains(v, "draft-dspark") {
+			t.Errorf("another model's head was measured: %q", v)
+		}
+	}
+	if !strings.Contains(strings.Join(skipped, " | "), "made for other models") {
+		t.Errorf("skipped does not say why DSpark was left out: %v", skipped)
+	}
+
+	in.Base.DraftModelPath = other.FilePath
+	cells, _, _ = PlanStage(StageSpec, in)
+	found := false
+	for v := range values(cells, "spec_type") {
+		found = found || strings.Contains(v, "draft-dspark")
+	}
+	if !found {
+		t.Error("the head the profile uses was not measured")
+	}
+}
+
 // A file whose name says which method it belongs to is measured.
 func TestPlanSpecUsesAnInstalledHead(t *testing.T) {
 	in := baseInput()
+	in.Model.ModelID = "Qwen/Qwen3.5-9B-GGUF"
+	in.Model.Filename = "Qwen3.5-9B-Q4_K_M.gguf"
 	in.DraftCandidates = func(mode string) []models.DraftCandidate {
 		if mode == "draft" {
 			return nil

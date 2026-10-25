@@ -101,6 +101,8 @@ func TestValidateSpeculative(t *testing.T) {
 	// only a file named for the method is a head. An ordinary chat model
 	// was once proposed as a DSpark drafter, a different one each run.
 	in = baseInputs()
+	in.Model.ModelID = "o/Model-9B-GGUF"
+	in.Model.Filename = "Model-9B-Q4_K_M.gguf"
 	in.DraftCandidates = func(mode string) []models.DraftCandidate {
 		return []models.DraftCandidate{
 			{ID: "granite", Filename: "granite-4.2-3b-IQ4_NL.gguf", FilePath: "/models/granite.gguf", SizeGB: 2},
@@ -114,12 +116,24 @@ func TestValidateSpeculative(t *testing.T) {
 	in.DraftCandidates = func(mode string) []models.DraftCandidate {
 		return []models.DraftCandidate{
 			{ID: "granite", Filename: "granite-4.2-3b-IQ4_NL.gguf", FilePath: "/models/granite.gguf", SizeGB: 2},
-			{ID: "head", Filename: "M-DSpark-Q8_0.gguf", FilePath: "/models/M-DSpark-Q8_0.gguf", SizeGB: 1},
+			{ID: "head", Filename: "Model-9B-DSpark-Q8_0.gguf", FilePath: "/models/Model-9B-DSpark-Q8_0.gguf", SizeGB: 1},
 		}
 	}
 	c = Validate(Advice{DraftMethod: sp("draft-dspark")}, in)
-	if p, _ := proposal(c, "draft_model_path"); p.Value != "/models/M-DSpark-Q8_0.gguf" {
+	if p, _ := proposal(c, "draft_model_path"); p.Value != "/models/Model-9B-DSpark-Q8_0.gguf" {
 		t.Errorf("installed DSpark head not used: %+v", c.Proposals)
+	}
+
+	// A DSpark head made for another model is no drafter for this one: the
+	// proposal asks for the right head instead of setting the wrong one.
+	in.DraftCandidates = func(mode string) []models.DraftCandidate {
+		return []models.DraftCandidate{
+			{ID: "other", Filename: "Other-9B-DSpark-Q8_0.gguf", FilePath: "/models/Other-9B-DSpark-Q8_0.gguf", SizeGB: 1},
+		}
+	}
+	c = Validate(Advice{DraftMethod: sp("draft-dspark")}, in)
+	if _, ok := proposal(c, "draft_model_path"); ok || c.WantDraft != "draft-dspark" {
+		t.Errorf("another model's DSpark head was proposed: %+v", c)
 	}
 
 	// An n-gram assist is never set here, only mentioned.

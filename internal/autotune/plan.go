@@ -341,6 +341,25 @@ func specValues(in PlanInput) []string {
 	return values
 }
 
+// headsForModel keeps the heads made for m (models.HeadsMadeFor), and
+// the one at chosen, the profile's draft file, which the user picked.
+func headsForModel(m *models.Model, chosen string, heads []models.DraftCandidate) []models.DraftCandidate {
+	out := models.HeadsMadeFor(m, heads)
+	for _, c := range heads {
+		if chosen == "" || c.FilePath != chosen {
+			continue
+		}
+		have := false
+		for _, o := range out {
+			have = have || o.ID == c.ID
+		}
+		if !have {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // draftOption is one draft method this machine can run, with the settings
 // that name its file.
 type draftOption struct {
@@ -386,6 +405,14 @@ func draftOptions(in PlanInput) ([]draftOption, []string) {
 			// a "failed to load" per method. Keep the files that say
 			// which method they are for.
 			cands = models.HeadsForMode(mode, cands)
+			// And of those, the ones made for this model: a head drafts
+			// only for the model it was trained on.
+			forMethod := len(cands)
+			cands = headsForModel(in.Model, in.Base.DraftModelPath, cands)
+			if len(cands) == 0 && forMethod > 0 {
+				skipped = append(skipped, fmt.Sprintf("%s: the installed heads are made for other models", models.SpecModeLabel(mode)))
+				continue
+			}
 		}
 		if len(cands) == 0 {
 			skipped = append(skipped, fmt.Sprintf("%s: no file for it is installed", models.SpecModeLabel(mode)))
