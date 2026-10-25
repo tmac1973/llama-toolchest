@@ -88,7 +88,8 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	// Set when this request changed the runtime environment section, so
 	// the response can carry the variable warnings and refreshed preview.
 	envTouched := false
-	// Switching generation backends off stops every running instance.
+	// Switching generation backends off stops every running instance;
+	// switching them on starts the auto-start ones, as a start does.
 	wasGenerationEnabled := s.cfg.GenerationEnabled
 
 	if isJSONRequest(r) {
@@ -234,9 +235,25 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	// take effect on the next restart while the page cheerfully reports
 	// it as set.
 	s.applySourceCredentialsLocked()
-	// In the background: each stop can wait for a backend to exit.
-	if wasGenerationEnabled && !s.cfg.GenerationEnabled && s.genMgr != nil {
-		go s.genMgr.StopAll()
+	// In the background: each stop can wait for a backend to exit, and
+	// each start for a health check.
+	switch {
+	case wasGenerationEnabled && !s.cfg.GenerationEnabled && s.genMgr != nil:
+		go func() {
+			s.genSwitchMu.Lock()
+			defer s.genSwitchMu.Unlock()
+			s.genMgr.StopAll()
+		}()
+	case !wasGenerationEnabled && s.cfg.GenerationEnabled:
+		go func() {
+			s.genSwitchMu.Lock()
+			defer s.genSwitchMu.Unlock()
+			if s.genAutoStartFn != nil {
+				s.genAutoStartFn()
+				return
+			}
+			s.autoStartGenInstances(false)
+		}()
 	}
 
 	if isHTMX(r) {

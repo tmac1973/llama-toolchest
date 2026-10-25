@@ -67,6 +67,14 @@ type Server struct {
 	// Nil in production (builder.RunningInContainer); tests set it so the
 	// result does not depend on where the tests run.
 	inContainerFn func() bool
+	// genAutoStartFn replaces autoStartGenInstances when generation is
+	// switched on in Settings. Nil in production; tests set it to see the
+	// start without launching a backend.
+	genAutoStartFn func()
+	// genSwitchMu runs the stop after generation is switched off and the
+	// start after it is switched on one at a time, so switching it off
+	// and on again quickly cannot stop an instance the second one started.
+	genSwitchMu sync.Mutex
 
 	// gen holds the generation backends' model sets and instances. It is
 	// nil when generation.json could not be read; genErr then says why,
