@@ -15,8 +15,6 @@ package api
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,27 +26,28 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tmac1973/llama-toolchest/internal/generation"
 )
 
-// Music job limits.
-const (
-	musicJobKeep      = 24 * time.Hour
-	musicJobMax       = 200
-	musicCleanupEvery = 10 * time.Minute
-)
-
 // Music job statuses.
 const (
-	musicQueued    = "queued"
-	musicRunning   = "running"
-	musicSucceeded = "succeeded"
-	musicFailed    = "failed"
-	musicCancelled = "cancelled"
+	musicQueued    = jobQueued
+	musicRunning   = jobRunning
+	musicSucceeded = jobSucceeded
+	musicFailed    = jobFailed
+	musicCancelled = jobCancelled
+)
+
+// Music job phases: what a job is doing while it is queued or running.
+// A finished job has none.
+const (
+	musicPhaseQueued       = "queued"
+	musicPhaseComposing    = "composing"
+	musicPhaseSynthesizing = "synthesizing"
+	musicPhaseSaving       = "saving"
 )
 
 // musicRequest is a music job's request, whichever route it came from.
@@ -107,6 +106,7 @@ type musicJob struct {
 	ID         string         `json:"id"`
 	InstanceID string         `json:"model"`
 	Status     string         `json:"status"`
+	Phase      string         `json:"phase,omitempty"`
 	Position   int            `json:"queue_position"`
 	Request    musicRequest   `json:"request"`
 	Result     map[string]any `json:"result,omitempty"`
@@ -125,84 +125,13 @@ type musicJob struct {
 	ditModel     string
 }
 
-// musicJobs holds the music jobs of this run, in memory.
-type musicJobs struct {
-	mu    sync.Mutex
-	jobs  map[string]*musicJob
-	order []string // oldest first
+func (j musicJob) state() jobState {
+	return jobState{id: j.ID, status: j.Status, ticket: j.ticket, finished: j.Finished, files: []string{j.audioPath}}
 }
 
-func (m *musicJobs) add(j *musicJob) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.jobs == nil {
-		m.jobs = map[string]*musicJob{}
-	}
-	m.jobs[j.ID] = j
-	m.order = append(m.order, j.ID)
-}
-
-// view returns a copy of a job for responses, with its queue position.
-func (m *musicJobs) view(id string) (musicJob, bool) {
-	m.mu.Lock()
-	j, ok := m.jobs[id]
-	if !ok {
-		m.mu.Unlock()
-		return musicJob{}, false
-	}
-	out := *j
-	ticket := j.ticket
-	m.mu.Unlock()
-	if out.Status == musicQueued && ticket != nil {
-		out.Position = ticket.Position()
-	} else {
-		out.Position = 0
-	}
-	return out, true
-}
-
-func (m *musicJobs) update(id string, fn func(*musicJob)) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if j, ok := m.jobs[id]; ok {
-		fn(j)
-	}
-}
-
-// prune drops finished jobs (and their audio) older than musicJobKeep, and
-// the oldest finished ones beyond musicJobMax.
-func (m *musicJobs) prune(now time.Time) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	finished := func(j *musicJob) bool { return j.Finished != nil }
-	keep := m.order[:0:0]
-	excess := len(m.order) - musicJobMax
-	for _, id := range m.order {
-		j := m.jobs[id]
-		if finished(j) && (now.Sub(*j.Finished) > musicJobKeep || excess > 0) {
-			if j.audioPath != "" {
-				os.Remove(j.audioPath)
-			}
-			delete(m.jobs, id)
-			excess--
-			continue
-		}
-		keep = append(keep, id)
-	}
-	m.order = keep
-}
-
-// watchMusicJobs prunes old music jobs for the life of the server.
-func (s *Server) watchMusicJobs() {
-	for range time.Tick(musicCleanupEvery) {
-		s.genMusic.prune(time.Now())
-	}
-}
-
-func newMusicJobID() string {
-	var b [8]byte
-	rand.Read(b[:])
-	return hex.EncodeToString(b[:])
+func (j musicJob) withPosition(n int) musicJob {
+	j.Position = n
+	return j
 }
 
 func (s *Server) musicDir() string {
@@ -221,7 +150,7 @@ func (s *Server) submitMusic(inst generation.Instance, req musicRequest) (*music
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	job := &musicJob{
-		ID: newMusicJobID(), InstanceID: inst.ID, Status: musicQueued, Request: req,
+		ID: newGenJobID(), InstanceID: inst.ID, Status: musicQueued, Phase: musicPhaseQueued, Request: req,
 		Submitted: time.Now(), cancel: cancel, ticket: ticket,
 	}
 	if set, err := s.gen.ModelSet(inst.ModelSetID); err == nil {
@@ -256,7 +185,7 @@ func (s *Server) runMusicJob(ctx context.Context, id string, inst generation.Ins
 			if j.Status == musicCancelled {
 				return
 			}
-			j.Status, j.Error, j.Finished = status, errMsg, &now
+			j.Status, j.Phase, j.Error, j.Finished = status, "", errMsg, &now
 		})
 		if status == musicFailed {
 			slog.Warn("music job failed", "job", id, "instance", inst.ID, "error", errMsg)
@@ -270,7 +199,14 @@ func (s *Server) runMusicJob(ctx context.Context, id string, inst generation.Ins
 
 	view, _ := s.genMusic.view(id)
 	now := time.Now()
-	s.genMusic.update(id, func(j *musicJob) { j.Status, j.Started = musicRunning, &now })
+	s.genMusic.update(id, func(j *musicJob) { j.Status, j.Phase, j.Started = musicRunning, musicPhaseComposing, &now })
+	setPhase := func(phase string) {
+		s.genMusic.update(id, func(j *musicJob) {
+			if j.Finished == nil {
+				j.Phase = phase
+			}
+		})
+	}
 	setBackendJob := func(bid string) { s.genMusic.update(id, func(j *musicJob) { j.backendJobID = bid }) }
 	base := fmt.Sprintf("http://127.0.0.1:%d", inst.Port)
 
@@ -310,6 +246,7 @@ func (s *Server) runMusicJob(ctx context.Context, id string, inst generation.Ins
 		}
 	}
 	s.genMusic.update(id, func(j *musicJob) { j.Result = result })
+	setPhase(musicPhaseSynthesizing)
 
 	synthReq["output_format"] = map[string]string{"mp3": "mp3", "wav": "wav16"}[view.Request.ext()]
 	out, ctype, err := runAceJob(ctx, base, "/synth", synthReq, setBackendJob)
@@ -322,6 +259,7 @@ func (s *Server) runMusicJob(ctx context.Context, id string, inst generation.Ins
 		fail("synthesizing", err)
 		return
 	}
+	setPhase(musicPhaseSaving)
 	if err := os.MkdirAll(s.musicDir(), 0o755); err != nil {
 		fail("saving", err)
 		return
@@ -346,7 +284,7 @@ func (s *Server) cancelMusic(id string) bool {
 			return
 		}
 		now := time.Now()
-		cancel, j.Status, j.Finished = j.cancel, musicCancelled, &now
+		cancel, j.Status, j.Phase, j.Finished = j.cancel, musicCancelled, "", &now
 	})
 	if cancel != nil {
 		cancel()
@@ -407,7 +345,7 @@ func (s *Server) handleMusicCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	view, _ := s.genMusic.view(job.ID)
-	respondJSONStatus(w, http.StatusAccepted, map[string]any{"id": view.ID, "status": view.Status, "queue_position": view.Position})
+	respondJSONStatus(w, http.StatusAccepted, map[string]any{"id": view.ID, "status": view.Status, "phase": view.Phase, "queue_position": view.Position})
 }
 
 func (s *Server) musicJobOr404(w http.ResponseWriter, id string) (musicJob, bool) {

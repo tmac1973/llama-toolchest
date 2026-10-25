@@ -231,6 +231,27 @@ Found but not fixed here, because they are older than this feature:
   are fixed separately, in #318. The asmodean checks here ran before it was
   merged, with a one-line SELinux relabel added to the test copy only.
 
+## Haruspex client (2026-10-24)
+
+Haruspex is adding toolchest as an image and music backend (tracking issue
+tmac1973/haruspex#630). Its plan needs three things from toolchest, added
+here:
+
+- async image jobs at `/v1/images/jobs`, which mirror `/v1/music/jobs`:
+  create (202), get, download each image as a PNG, and cancel. A running
+  image job cannot be interrupted: sd-server finishes it, the result is
+  thrown away, and the GPU's slot is released then;
+- a `phase` on image jobs (`queued`, `generating`, `saving`) and music jobs
+  (`queued`, `composing`, `synthesizing`, `saving`), empty once a job ends;
+- `meta.api` on generation entries in `/v1/models`: `images.sync`,
+  `images.jobs` and, for sets that can edit, `images.edits`; or `music.jobs`
+  and `music.ace_step`.
+
+Haruspex uses image jobs when `meta.api` includes `images.jobs` and falls
+back to `/v1/images/generations` otherwise, so the synchronous route and
+the music API keep their shapes. Covered by the Go tests against the fake
+sd-server and ace-server; not yet checked on compute2 or asmodean.
+
 ## Not run
 
 - **Mixed-vendor server (step 4):** the RTX 3090 is not installed in asmodean

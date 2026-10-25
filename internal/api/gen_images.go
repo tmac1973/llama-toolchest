@@ -199,17 +199,9 @@ func (s *Server) handleGenImages(w http.ResponseWriter, r *http.Request) {
 // cancelled on its OpenAI route), so the GPU's queue slot is held until
 // the GPU is really free.
 func (s *Server) forwardToInstance(w http.ResponseWriter, r *http.Request, inst generation.Instance, body []byte) {
-	url := fmt.Sprintf("http://127.0.0.1:%d%s", inst.Port, r.URL.Path)
-	req, err := http.NewRequestWithContext(context.WithoutCancel(r.Context()), r.Method, url, bytes.NewReader(body))
+	resp, err := forwardImage(context.WithoutCancel(r.Context()), inst, r.URL.Path, r.Header.Get("Content-Type"), r.Header.Get("Accept"), body)
 	if err != nil {
-		openAIError(w, http.StatusInternalServerError, "server_error", "forward_failed", err.Error())
-		return
-	}
-	req.Header.Set("Content-Type", r.Header.Get("Content-Type"))
-	req.Header.Set("Accept", r.Header.Get("Accept"))
-	resp, err := genHTTPClient.Do(req)
-	if err != nil {
-		openAIError(w, http.StatusBadGateway, "server_error", "backend_error", fmt.Sprintf("backend %s: %v", inst.ID, err))
+		openAIError(w, http.StatusBadGateway, "server_error", "backend_error", err.Error())
 		return
 	}
 	defer resp.Body.Close()
@@ -225,6 +217,24 @@ func (s *Server) forwardToInstance(w http.ResponseWriter, r *http.Request, inst 
 	if _, err := io.Copy(w, resp.Body); err != nil {
 		io.Copy(io.Discard, resp.Body)
 	}
+}
+
+// forwardImage sends an image request to an sd-server instance, at the
+// same path it came in on. The synchronous routes and image jobs share
+// it; the caller closes the response body.
+func forwardImage(ctx context.Context, inst generation.Instance, path, contentType, accept string, body []byte) (*http.Response, error) {
+	url := fmt.Sprintf("http://127.0.0.1:%d%s", inst.Port, path)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Accept", accept)
+	resp, err := genHTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("backend %s: %w", inst.ID, err)
+	}
+	return resp, nil
 }
 
 // genHTTPClient has no overall timeout: a generation takes as long as it
