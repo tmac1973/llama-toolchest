@@ -87,6 +87,15 @@ func (s *Server) newProxyHandler() http.Handler {
 			body, err := io.ReadAll(r.Body)
 			r.Body.Close()
 			if err == nil {
+				// Counted from before the load to the end of the reply, so
+				// an unload for a generation backend waits for it.
+				if id := s.requestModelID(body); id != "" {
+					end, useErr := s.llmUse.begin(r.Context(), id)
+					if useErr != nil {
+						return // the client went away while the model was unloaded
+					}
+					defer end()
+				}
 				if loadErr := s.ensureModelLoadedForRequest(r.Context(), body); loadErr != nil {
 					var fitErr *genLLMFitError
 					if errors.As(loadErr, &fitErr) {
@@ -160,9 +169,13 @@ func (s *Server) ensureModelLoadedForRequest(ctx context.Context, body []byte) e
 		return fmt.Errorf("model %q is not in the router preset; restart the router to pick it up", regModel.PublicName())
 	}
 	if state != "loading" {
-		if err := s.checkLLMFitsReservations(regModel); err != nil {
+		// With eviction on this stops the generation backends in the way,
+		// and keeps their GPUs until the load is done.
+		release, err := s.makeRoomForLLM(ctx, regModel)
+		if err != nil {
 			return err
 		}
+		defer release()
 		if err := s.process.LoadModel(routerName); err != nil {
 			return fmt.Errorf("auto-load %s: %w", regModel.PublicName(), err)
 		}

@@ -225,6 +225,26 @@
         </label>
     </form>
     <div id="generation-status"></div>
+    {{if .GenerationEnabled}}
+    <form hx-put="/api/settings"
+          hx-target="#gen-evict-status"
+          hx-swap="innerHTML"
+          hx-trigger="change">
+        <input type="hidden" name="gen_evict_touched" value="1">
+        <label title="Off: each backend keeps its VRAM reservation, running or not, and an LLM load that does not fit beside the reservations is refused. On: a reservation counts only while its backend runs. A chat request for an LLM that does not fit stops the idle backends in its way, and an image or music job for a stopped backend unloads idle LLMs and starts it. Running jobs and chat replies always finish first.">
+            <input type="checkbox" role="switch" name="gen_evict"
+                   {{if .GenEvict}}checked{{end}}>
+            Let LLMs and backends take a GPU from each other
+        </label>
+    </form>
+    <p><small>When an LLM and a backend do not both fit on a GPU, the newest
+       request gets it: idle backends are stopped for a chat request, and
+       idle LLMs are unloaded for an image or music job. A stopped backend
+       starts again by itself when its next job arrives. Running jobs and
+       chat replies always finish first. Each switch reloads a model, so
+       expect a wait of seconds to a minute.</small></p>
+    <div id="gen-evict-status"></div>
+    {{end}}
     {{if and .GenerationEnabled (not .GenPortsPublished)}}
     <p><small>Web UI ports are not published, so the backends' own web pages
        cannot be opened. The image and music APIs still work. To open the

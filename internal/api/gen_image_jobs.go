@@ -139,6 +139,10 @@ func (s *Server) runImageJob(ctx context.Context, id string, inst generation.Ins
 		return
 	}
 	defer ticket.Done()
+	if err := s.genReady(ctx, inst); err != nil {
+		finish(jobFailed, "starting the backend: "+err.Error(), nil, nil)
+		return
+	}
 
 	var body []byte
 	cancelled := false

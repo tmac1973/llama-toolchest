@@ -343,12 +343,22 @@ func (s *Server) handleActivateModel(w http.ResponseWriter, r *http.Request) {
 
 	// The same check as a load on request, before anything starts: the
 	// model must fit beside the GPU memory reserved for image and music
-	// backends.
+	// backends. With eviction on, the backends in the way are stopped, and
+	// their GPUs kept until the load is done.
+	release := func() {}
 	if m, err := s.registry.Get(id); err == nil && m != nil {
-		if err := s.checkLLMFitsReservations(m); err != nil {
+		if release, err = s.makeRoomForLLM(r.Context(), m); err != nil {
 			http.Error(w, err.Error(), http.StatusInsufficientStorage)
 			return
 		}
+		defer func() {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), autoLoadTimeout)
+				defer cancel()
+				s.waitForModelLoaded(ctx, s.registry.RouterName(id), m)
+				release()
+			}()
+		}()
 	}
 
 	// Ensure router is running

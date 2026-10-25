@@ -1,0 +1,343 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"sync"
+	"time"
+
+	"github.com/tmac1973/llama-toolchest/internal/generation"
+	"github.com/tmac1973/llama-toolchest/internal/models"
+)
+
+// Eviction (Settings → Generation backends, config.GenEvict): when an LLM
+// and a generation backend do not both fit on a GPU, the newest request
+// gets the card. A chat request for an LLM that is not loaded stops the
+// backends in its way (makeRoomForLLM), and a job for a stopped backend
+// unloads LLMs and starts it (genReady). Neither side cuts work short:
+// the LLM side holds the GPU's job queue, which waits for the running
+// job, and the backend side waits for the LLM's requests in progress
+// (llmUse). A reservation counts only while its backend runs
+// (genFitVRAMByGPU), so a stopped backend is not in the way.
+
+// genStartTimeout caps how long a job waits for its backend to start.
+// Loading an image model set from disk can take a minute or two.
+const genStartTimeout = 5 * time.Minute
+
+// llmUnloadTimeout caps how long an unload may take before the router
+// still reports the model as loaded.
+const llmUnloadTimeout = time.Minute
+
+// genEvictOn reports whether LLMs and backends may take a GPU from each
+// other.
+func (s *Server) genEvictOn() bool {
+	return s.cfg != nil && s.cfg.GenerationEnabled && s.cfg.GenEvict && s.gen != nil && s.genMgr != nil
+}
+
+// genFitVRAMByGPU is genVRAMByGPU as the fit checks count it: with
+// eviction on, only the backends that are running, since a stopped one
+// gives its memory up.
+func (s *Server) genFitVRAMByGPU(exclude string) map[int]*genVRAM {
+	return s.genVRAM(exclude, s.genEvictOn())
+}
+
+// llmUse counts the requests in progress for each LLM (by registry ID),
+// so an unload for a backend waits for them, and holds new ones back
+// while the model is being unloaded.
+type llmUse struct {
+	mu       sync.Mutex
+	n        map[string]int
+	evicting map[string]bool
+	// changed is closed and replaced whenever a count or an eviction
+	// ends, waking the waiters.
+	changed chan struct{}
+}
+
+func (u *llmUse) initLocked() {
+	if u.n == nil {
+		u.n, u.evicting, u.changed = map[string]int{}, map[string]bool{}, make(chan struct{})
+	}
+}
+
+func (u *llmUse) notifyLocked() {
+	close(u.changed)
+	u.changed = make(chan struct{})
+}
+
+// waitLocked waits, with u.mu held, until ready() or ctx ends.
+func (u *llmUse) waitLocked(ctx context.Context, ready func() bool) error {
+	for !ready() {
+		ch := u.changed
+		u.mu.Unlock()
+		select {
+		case <-ch:
+			u.mu.Lock()
+		case <-ctx.Done():
+			u.mu.Lock()
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+
+// begin counts a request for model id, after any unload of it under way
+// has finished. end must be called when the request is done.
+func (u *llmUse) begin(ctx context.Context, id string) (end func(), err error) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.initLocked()
+	if err := u.waitLocked(ctx, func() bool { return !u.evicting[id] }); err != nil {
+		return nil, err
+	}
+	u.n[id]++
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			u.mu.Lock()
+			defer u.mu.Unlock()
+			if u.n[id]--; u.n[id] <= 0 {
+				delete(u.n, id)
+			}
+			u.notifyLocked()
+		})
+	}, nil
+}
+
+// evict waits until model id has no requests in progress, then holds new
+// ones back until done is called.
+func (u *llmUse) evict(ctx context.Context, id string) (done func(), err error) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.initLocked()
+	if err := u.waitLocked(ctx, func() bool { return u.n[id] == 0 && !u.evicting[id] }); err != nil {
+		return nil, err
+	}
+	u.evicting[id] = true
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			u.mu.Lock()
+			defer u.mu.Unlock()
+			delete(u.evicting, id)
+			u.notifyLocked()
+		})
+	}, nil
+}
+
+// requestModelID is the registry ID of the model a proxied request body
+// names, or "" when it names none we know.
+func (s *Server) requestModelID(body []byte) string {
+	var req struct {
+		Model string `json:"model"`
+	}
+	if json.Unmarshal(body, &req) != nil || req.Model == "" {
+		return ""
+	}
+	if m, _ := s.findModelByAny(req.Model); m != nil {
+		return m.ID
+	}
+	return ""
+}
+
+// makeRoomForLLM checks that m fits beside the generation reservations,
+// as checkLLMFitsReservations does. With eviction on, when it does not,
+// it holds the job queues of the GPUs that are short, so their running
+// jobs finish and no new one starts, and stops the backends on them.
+// release ends the hold; call it once the load has finished, so a job
+// waiting for those GPUs cannot take them back before the model is in.
+func (s *Server) makeRoomForLLM(ctx context.Context, m *models.Model) (release func(), err error) {
+	noop := func() {}
+	hw, need, replacing := s.llmReservationNeed(m)
+	short := s.reservationShortGPUs(hw, need)
+	if len(short) == 0 {
+		return noop, nil
+	}
+	err = s.reservationFitError(hw, need, !replacing)
+	if !s.genEvictOn() || s.genQueue == nil {
+		return noop, err
+	}
+	release, herr := s.genQueue.Hold(ctx, short, "loading "+m.PublicName())
+	if herr != nil {
+		return noop, herr
+	}
+	stopped := 0
+	for _, gpu := range short {
+		stopped += s.stopGenOn(gpu, "", "loading "+m.PublicName())
+	}
+	if stopped == 0 {
+		release()
+		return noop, err
+	}
+	if err := s.checkLLMFitsReservations(m); err != nil {
+		release()
+		return noop, err
+	}
+	return release, nil
+}
+
+// stopGenOn stops the running backends on gpu other than except, waits
+// for the card to show their memory free, and returns how many it
+// stopped. Its callers hold the GPU's job queue, so none is mid-job.
+func (s *Server) stopGenOn(gpu int, except, reason string) int {
+	stopped := 0
+	for _, inst := range s.gen.Instances() {
+		if inst.GPU != gpu || inst.ID == except || !s.genMgr.IsActive(inst.ID) {
+			continue
+		}
+		share := inst.ReservedMiB
+		if pid := s.genMgr.PID(inst.ID); pid > 0 {
+			if mib, ok := s.genProcVRAM.read(pid); ok {
+				share = max(share, mib)
+			}
+		}
+		before := s.gpuUsedMiB(gpu)
+		if err := s.genMgr.Stop(inst.ID); err != nil {
+			slog.Warn("could not stop generation backend to make room", "instance", inst.ID, "error", err)
+			continue
+		}
+		slog.Info("stopped generation backend to make room", "instance", inst.ID, "gpu", gpu, "for", reason)
+		waitGPUReleased(func() int { return s.gpuUsedMiB(gpu) }, max(0, before-share), 20*time.Second, 500*time.Millisecond)
+		stopped++
+	}
+	return stopped
+}
+
+// genReady makes sure inst is running before its job is sent; the job
+// holds inst's GPU turn. With eviction on, a stopped instance is started,
+// after making room: first by stopping the GPU's other backends, then by
+// unloading LLMs from the GPU, one at a time until it fits.
+func (s *Server) genReady(ctx context.Context, inst generation.Instance) error {
+	if s.genMgr.IsRunning(inst.ID) {
+		return nil
+	}
+	if !s.genEvictOn() {
+		return fmt.Errorf("backend %s is not running", inst.ID)
+	}
+	if !s.genMgr.IsActive(inst.ID) {
+		if err := s.makeRoomForGen(ctx, inst); err != nil {
+			return err
+		}
+		slog.Info("starting generation backend for a job", "instance", inst.ID)
+		if err := s.startGenInstance(inst.ID); err != nil {
+			return err
+		}
+	}
+	wctx, cancel := context.WithTimeout(ctx, genStartTimeout)
+	defer cancel()
+	if err := s.genMgr.WaitRunning(wctx, inst.ID); err != nil {
+		return fmt.Errorf("backend %s did not start: %w", inst.ID, err)
+	}
+	if !s.genMgr.IsRunning(inst.ID) {
+		return fmt.Errorf("backend %s stopped while starting; see its log on the Server page", inst.ID)
+	}
+	return nil
+}
+
+// makeRoomForGen frees inst's GPU until inst's reservation fits.
+func (s *Server) makeRoomForGen(ctx context.Context, inst generation.Instance) error {
+	err := s.genFitCheck(inst, inst.ReservedMiB)
+	if err == nil {
+		return nil
+	}
+	if s.stopGenOn(inst.GPU, inst.ID, "starting "+inst.Name) > 0 {
+		if err = s.genFitCheck(inst, inst.ReservedMiB); err == nil {
+			return nil
+		}
+	}
+	for _, id := range s.loadedLLMsOn(inst.GPU) {
+		if uerr := s.unloadForGen(ctx, id, inst); uerr != nil {
+			return uerr
+		}
+		if err = s.genFitCheck(inst, inst.ReservedMiB); err == nil {
+			return nil
+		}
+	}
+	return err
+}
+
+// loadedLLMsOn lists the registry IDs of the LLMs the router has loaded
+// (or is loading) with planned memory on gpu, largest share first.
+func (s *Server) loadedLLMsOn(gpu int) []string {
+	if !s.process.IsRunning() {
+		return nil
+	}
+	list, err := s.process.ListModels()
+	if err != nil {
+		return nil
+	}
+	gpuMiB := models.GPUMiB(s.idleHardware())
+	type entry struct {
+		id  string
+		mib int
+	}
+	var out []entry
+	for _, rm := range list {
+		if rm.Status.Value != "loaded" && rm.Status.Value != "loading" {
+			continue
+		}
+		reg, cfg := s.resolveRouterModel(rm)
+		if reg == nil || cfg == nil {
+			continue
+		}
+		on := map[int]int{}
+		addLLMMiB(on, reg, cfg, gpuMiB)
+		if on[gpu] > 0 {
+			out = append(out, entry{reg.ID, on[gpu]})
+		}
+	}
+	ids := make([]string, 0, len(out))
+	for len(out) > 0 {
+		best := 0
+		for i := range out {
+			if out[i].mib > out[best].mib {
+				best = i
+			}
+		}
+		ids = append(ids, out[best].id)
+		out = append(out[:best], out[best+1:]...)
+	}
+	return ids
+}
+
+// unloadForGen unloads model id for inst once its requests in progress
+// have finished, and waits for the router and then the card to show it
+// gone. New requests for the model wait until it is gone, then load it
+// again, taking their turn on the GPU after inst's job.
+func (s *Server) unloadForGen(ctx context.Context, id string, inst generation.Instance) error {
+	m, err := s.registry.Get(id)
+	if err != nil || m == nil {
+		return fmt.Errorf("model %s: %w", id, err)
+	}
+	done, err := s.llmUse.evict(ctx, id)
+	if err != nil {
+		return err
+	}
+	defer done()
+	routerName := s.registry.RouterName(id)
+	before := s.gpuUsedMiB(inst.GPU)
+	planned := s.loadedLLMMiB(models.GPUMiB(s.idleHardware()), "", false)[inst.GPU]
+	if err := s.process.UnloadModel(routerName); err != nil {
+		return err
+	}
+	slog.Info("unloaded LLM to make room for a generation backend", "model", m.PublicName(), "instance", inst.ID)
+	deadline := time.Now().Add(llmUnloadTimeout)
+	for {
+		state, _ := s.lookupRouterState(routerName, m)
+		if state != "loaded" && state != "loading" && state != "unloading" {
+			break
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("model %s was still loaded %s after the unload", m.PublicName(), llmUnloadTimeout)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(autoLoadPollInterval):
+		}
+	}
+	after := s.loadedLLMMiB(models.GPUMiB(s.idleHardware()), "", false)[inst.GPU]
+	waitGPUReleased(func() int { return s.gpuUsedMiB(inst.GPU) }, max(0, before-(planned-after)), 20*time.Second, 500*time.Millisecond)
+	return nil
+}

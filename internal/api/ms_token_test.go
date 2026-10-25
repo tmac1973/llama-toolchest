@@ -49,6 +49,7 @@ func renderSettings(t *testing.T, hasHF, hasMS bool) string {
 		EnvWarnings       []string
 		EffectiveEnv      []envLine
 		GenerationEnabled bool
+		GenEvict          bool
 		GenPortStart      int
 		GenPortEnd        int
 		GenPortCount      int
@@ -201,6 +202,7 @@ func TestSettingsPageDefaultSourceSelect(t *testing.T) {
 			EnvWarnings       []string
 			EffectiveEnv      []envLine
 			GenerationEnabled bool
+			GenEvict          bool
 			GenPortStart      int
 			GenPortEnd        int
 			GenPortCount      int

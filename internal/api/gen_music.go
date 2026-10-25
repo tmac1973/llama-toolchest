@@ -200,6 +200,10 @@ func (s *Server) runMusicJob(ctx context.Context, id string, inst generation.Ins
 		return
 	}
 	defer ticket.Done()
+	if err := s.genReady(ctx, inst); err != nil {
+		finish(musicFailed, "starting the backend: "+err.Error())
+		return
+	}
 
 	view, _ := s.genMusic.view(id)
 	now := time.Now()

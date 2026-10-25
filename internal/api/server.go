@@ -75,6 +75,9 @@ type Server struct {
 	// start after it is switched on one at a time, so switching it off
 	// and on again quickly cannot stop an instance the second one started.
 	genSwitchMu sync.Mutex
+	// llmUse counts each LLM's requests in progress, so an unload for a
+	// generation backend waits for them (see gen_evict.go).
+	llmUse llmUse
 
 	// gen holds the generation backends' model sets and instances. It is
 	// nil when generation.json could not be read; genErr then says why,
@@ -1051,6 +1054,7 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		EffectiveEnv     []envLine
 
 		GenerationEnabled bool
+		GenEvict          bool
 		GenPortStart      int
 		GenPortEnd        int
 		GenPortCount      int
@@ -1081,6 +1085,7 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		EffectiveEnv:     s.effectiveEnvLines(),
 
 		GenerationEnabled: s.cfg.GenerationEnabled,
+		GenEvict:          s.cfg.GenEvict,
 		InContainer:       s.inContainer(),
 		GenPortsPublished: s.genPortsPublished(),
 	}
