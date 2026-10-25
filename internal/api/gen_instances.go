@@ -48,8 +48,10 @@ type genInstanceRow struct {
 	// before any measurement.
 	SuggestedMiB int `json:"suggested_mib,omitempty"`
 	// WebUIURL opens the backend's own web page; empty unless it is
-	// running and its build has one.
-	WebUIURL string `json:"web_ui_url,omitempty"`
+	// running and its build has one. WebUINote says why there is no link
+	// and how to get one, when that is not simply that it is stopped.
+	WebUIURL  string `json:"web_ui_url,omitempty"`
+	WebUINote string `json:"web_ui_note,omitempty"`
 	// GPUJobsRunning and GPUJobsWaiting are the image and music jobs on
 	// the instance's GPU, whichever instance they are for.
 	GPUJobsRunning int `json:"gpu_jobs_running"`
@@ -87,6 +89,27 @@ func (s *Server) genWebUIURL(port int) string {
 	inC := s.inContainer()
 	start, _ := s.cfg.GenPorts(inC)
 	return fmt.Sprintf("%s://%s:%d", u.Scheme, u.Hostname(), port-start+s.cfg.GenPublicStart(inC))
+}
+
+// genWebUILink is the link to an instance's own web page, or why there is
+// none and what to do about it. A stopped instance has neither: the link
+// appears once it runs. A build without the web page is reported either
+// way, since starting the instance would not help.
+func (s *Server) genWebUILink(b *builder.BuildResult, inst generation.Instance, running bool) (link, note string) {
+	if !b.HasWebUI {
+		return "", "No web UI: this build was made without the \"Built-in web UI\" option, which needs pnpm on the machine that builds. " +
+			"To get one, build " + b.ProjectID() + " again on the Builds page with that option on, then use Edit to switch this instance to the new build."
+	}
+	if !running {
+		return "", ""
+	}
+	if link := s.genWebUIURL(inst.Port); link != "" {
+		return link, ""
+	}
+	if !s.genPortsPublished() {
+		return "", "No web UI link: this container does not publish the web UI ports. Run setup.sh install again and answer yes to publishing them."
+	}
+	return "", "No web UI link: set the Server URL in Settings, which gives the host name the link uses."
 }
 
 // genFormData feeds the gen_instance_form partial: the choices a new
@@ -140,9 +163,7 @@ func (s *Server) genInstanceRows(store *generation.Store) []genInstanceRow {
 		}
 		if b := s.resolveBackendBuild(string(row.Kind), inst.BuildID); b != nil {
 			row.BuildLabel = b.ID
-			if b.HasWebUI && row.Status.State == process.StateRunning {
-				row.WebUIURL = s.genWebUIURL(inst.Port)
-			}
+			row.WebUIURL, row.WebUINote = s.genWebUILink(b, inst, row.Status.State == process.StateRunning)
 		}
 		snap := s.genQueue.Snapshot(inst.GPU)
 		if snap.Running != nil {
