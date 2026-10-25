@@ -41,7 +41,9 @@ func (s *Server) handleMonitorStatus(w http.ResponseWriter, r *http.Request) {
 
 	if isHTMX(r) {
 		respondHTML(w)
-		s.renderPartial(w, "monitor_bar", monitorBarData(m))
+		data := monitorBarData(m)
+		data.Map = s.sidebarMapData(m)
+		s.renderPartial(w, "monitor_bar", data)
 		return
 	}
 
@@ -58,13 +60,18 @@ type monitorBarGPU struct {
 	Details     string
 }
 
-// monitorBarData prepares monitor metrics for the monitor_bar template.
-func monitorBarData(m monitor.Metrics) struct {
+// monitorBar is the monitor_bar template's data.
+type monitorBar struct {
+	// Map is what is on the GPUs now, drawn above the meters.
+	Map        sidebarMap
 	GPUs       []monitorBarGPU
 	CPUPercent float64
 	RAMPercent int
 	RAMGB      string
-} {
+}
+
+// monitorBarData prepares monitor metrics for the monitor_bar template.
+func monitorBarData(m monitor.Metrics) monitorBar {
 	gpus := make([]monitorBarGPU, len(m.GPU))
 	for i, gpu := range m.GPU {
 		vramPct := 0
@@ -102,12 +109,7 @@ func monitorBarData(m monitor.Metrics) struct {
 	if m.Memory.TotalMB > 0 {
 		ramPct = m.Memory.UsedMB * 100 / m.Memory.TotalMB
 	}
-	return struct {
-		GPUs       []monitorBarGPU
-		CPUPercent float64
-		RAMPercent int
-		RAMGB      string
-	}{
+	return monitorBar{
 		GPUs:       gpus,
 		CPUPercent: m.CPU.UsagePercent,
 		RAMPercent: ramPct,

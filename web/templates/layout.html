@@ -114,6 +114,32 @@
             color: var(--pico-primary-hover);
         }
         #monitor-bar { flex-shrink: 0; }
+        /* The sidebar's map of what is on each GPU now: LLMs solid, running
+           generation backends striped (as on the Server page's map), and a
+           stopped backend's reservation as a faint outline. */
+        .side-map-bar {
+            display: flex; height: 8px; overflow: hidden; border-radius: 3px;
+            background: var(--pico-muted-border-color);
+        }
+        .side-map-bar > span, .side-map-key { min-width: 2px; }
+        .side-map-gen {
+            background-image: repeating-linear-gradient(135deg, rgba(0, 0, 0, 0.35) 0 3px, transparent 3px 7px);
+        }
+        .side-map-stopped {
+            background-color: transparent !important;
+            box-shadow: inset 0 0 0 1px var(--side-map-color);
+            opacity: 0.6;
+        }
+        .side-map-legend {
+            display: flex; flex-direction: column; gap: 0.1rem; margin-top: 0.15rem;
+        }
+        .side-map-legend > span {
+            display: flex; align-items: center; gap: 0.3rem;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .side-map-key {
+            display: inline-block; flex-shrink: 0; width: 0.6rem; height: 0.6rem; border-radius: 2px;
+        }
         /* main is also Pico's .container, whose rules would cap its width
            (1200–1450px, centred, leaving wide empty bands beside the page
            on large screens) and remove its side padding (so content ran
