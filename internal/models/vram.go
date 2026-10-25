@@ -60,6 +60,14 @@ func (m *Model) KVCacheGB(ctx int, kvCacheQuant string) float64 {
 // none: four sequences sharing the cache.
 const defaultServerSlots = 4
 
+// serverSlots is how many conversations llama-server serves for cfg.
+func serverSlots(cfg *ModelConfig) int {
+	if cfg.Parallel <= 0 {
+		return defaultServerSlots
+	}
+	return cfg.Parallel
+}
+
 // swaCells is how many positions llama.cpp's sliding-window cache holds:
 // the window for every sequence, plus a micro-batch, padded to 256 — not
 // the window alone. gemma-4-12B at 32K held 1.91 GiB against 0.81
@@ -68,11 +76,7 @@ func swaCells(m *Model, cfg *ModelConfig, ctx, ub int) int {
 	if m.SlidingWindow <= 0 {
 		return ctx
 	}
-	seqs := cfg.Parallel
-	if seqs <= 0 {
-		seqs = defaultServerSlots
-	}
-	n := m.SlidingWindow*seqs + ub
+	n := m.SlidingWindow*serverSlots(cfg) + ub
 	n = (n + 255) / 256 * 256
 	if ctx > 0 && n > ctx {
 		n = ctx
@@ -205,9 +209,10 @@ type vramCoefficients struct {
 	// Overhead llama.cpp does not itemise: on the first device and on
 	// each further one.
 	overheadFirst, overheadExtra float64
-	// A hybrid model's linear-attention state, per recurrent layer, and
-	// how many copies a layer split keeps.
-	recurrentPerLayer, recurrentLayerSplitCopies float64
+	// A hybrid model's linear-attention state, per recurrent layer and
+	// conversation, for a record without the state size from its file;
+	// and how many copies a layer split keeps.
+	recurrentPerLayerSeq, recurrentLayerSplitCopies float64
 	// recurrentPerDraftToken: with speculative decoding the state is kept
 	// once per drafted token as well, so a rejected draft can be undone.
 	recurrentPerDraftToken bool
@@ -247,8 +252,9 @@ var rocmCoefficients = vramCoefficients{
 	overheadFirst: 0.40,
 	overheadExtra: 0.85,
 	// Flat with context: the 27B held 0.60 GiB from 8,192 to 262,144
-	// tokens. 1.75 GiB split by layer, hence the copies.
-	recurrentPerLayer:         0.0125,
+	// tokens, at llama.cpp's four conversations (0.0125 a layer, shared by
+	// four). 1.75 GiB split by layer, hence the copies.
+	recurrentPerLayerSeq:      0.0125 / defaultServerSlots,
 	recurrentLayerSplitCopies: 2.9,
 	// The costs found on CUDA, seen on the RX 9070 XT: an 8-bit cache
 	// added 0.48 GiB on Qwen3.5-4B at 128K (0.50 predicted), expert
@@ -289,7 +295,7 @@ var cudaCoefficients = vramCoefficients{
 	// 0.0118 GiB per layer on the 27B, 0.008 on the 35B-A3B, the same on
 	// one card as split by layer; seven times that with MTP drafting six
 	// tokens.
-	recurrentPerLayer:         0.0125,
+	recurrentPerLayerSeq:      0.0125 / defaultServerSlots,
 	recurrentLayerSplitCopies: 1,
 	recurrentPerDraftToken:    true,
 	// +0.16 to +0.24 GiB per card at 128K with an 8-bit cache, about one
@@ -493,10 +499,15 @@ func vramBreakdownWith(co *vramCoefficients, m *Model, cfg *ModelConfig, cards i
 	b.SpecKV = SpecKVCacheGB(m, cfg, ctx)
 
 	// Hybrid models: the layers that are not attention layers keep a
-	// recurrent state buffer instead of a KV cache.
-	if m.AttnLayers > 0 && m.AttnLayers < m.NLayers {
-		recurrent := float64(m.NLayers - m.AttnLayers)
-		b.Recurrent = recurrent * co.recurrentPerLayer
+	// recurrent state buffer instead of a KV cache, one for every
+	// conversation. Unlike the KV cache it is not shared: a shared context
+	// pools only the attention layers.
+	perSeq := BytesToGiB(m.RecurrentStateBytes)
+	if perSeq == 0 && m.AttnLayers > 0 && m.AttnLayers < m.NLayers {
+		perSeq = float64(m.NLayers-m.AttnLayers) * co.recurrentPerLayerSeq
+	}
+	if perSeq > 0 {
+		b.Recurrent = perSeq * float64(serverSlots(cfg))
 		if layerSplit {
 			b.Recurrent *= co.recurrentLayerSplitCopies
 		}

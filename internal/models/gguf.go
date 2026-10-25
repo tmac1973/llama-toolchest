@@ -96,6 +96,10 @@ type GGUFMeta struct {
 	// NLayers on a plain model; smaller on a hybrid, where the rest carry
 	// recurrent state.
 	AttnLayers int `json:"attn_layers,omitempty"`
+	// RecurrentStateBytes is the recurrent state one conversation needs on
+	// a hybrid model; llama.cpp keeps one for every conversation it serves.
+	// See recurrentStateBytes.
+	RecurrentStateBytes int64 `json:"recurrent_state_bytes,omitempty"`
 
 	// NextNPredictLayers is {arch}.nextn_predict_layers: how many MTP /
 	// NextN draft layers the file describes. Non-zero on both flavors of
@@ -192,6 +196,7 @@ func (meta *GGUFMeta) ApplyTo(m *Model) {
 	m.TokenEmbdBytes = meta.TokenEmbdBytes
 	m.IndexerKeyLength = meta.IndexerKeyLength
 	m.AttnLayers = meta.AttnLayers
+	m.RecurrentStateBytes = meta.RecurrentStateBytes
 	m.MTPHead = meta.IsMTPHead()
 	m.DraftHead = meta.DraftHeadKind()
 	// Built-in MTP layers make the model its own drafter (draft-mtp with
@@ -363,6 +368,9 @@ func parseGGUFMeta(f io.ReadSeeker, metaOnly bool) (*GGUFMeta, error) {
 		// explicit array wins when both are present, matching llama.cpp.
 		fullAttnInterval int    // full_attention_interval
 		recurrentLayers  []bool // attention.recurrent_layers
+		// The size of a recurrent layer's state: ssm.conv_kernel,
+		// ssm.state_size, ssm.group_count and ssm.inner_size.
+		ssmConv, ssmState, ssmGroups, ssmInner int
 	)
 
 	// For the metadata-only stop: a model key seen after a tokenizer key
@@ -611,6 +619,26 @@ keys:
 				fullAttnInterval = v
 				continue
 			}
+		case arch != "" && key == arch+".ssm.conv_kernel":
+			if v, ok := readGGUFScalarInt(f, valueType); ok {
+				ssmConv = v
+				continue
+			}
+		case arch != "" && key == arch+".ssm.state_size":
+			if v, ok := readGGUFScalarInt(f, valueType); ok {
+				ssmState = v
+				continue
+			}
+		case arch != "" && key == arch+".ssm.group_count":
+			if v, ok := readGGUFScalarInt(f, valueType); ok {
+				ssmGroups = v
+				continue
+			}
+		case arch != "" && key == arch+".ssm.inner_size":
+			if v, ok := readGGUFScalarInt(f, valueType); ok {
+				ssmInner = v
+				continue
+			}
 		case arch != "" && key == arch+".attention.recurrent_layers":
 			if valueType == ggufTypeArray {
 				for _, x := range readGGUFArrayInts(f) {
@@ -638,6 +666,8 @@ keys:
 
 	computeKVScaling(meta, headCountKV, kvHeadCounts, keyLen, valLen, keyLenSWA, valLenSWA, slidingWindow, swaPattern,
 		fullAttnInterval, recurrentLayers)
+	meta.RecurrentStateBytes = recurrentStateBytes(meta.NLayers-meta.NextNPredictLayers, fullAttnInterval, recurrentLayers,
+		ssmConv, ssmState, ssmGroups, ssmInner)
 
 	if metaOnly {
 		meta.MetaOnly = true
@@ -697,6 +727,29 @@ func isRecurrentLayer(il, fullAttnInterval int, recurrentLayers []bool) bool {
 		return (il+1)%fullAttnInterval != 0
 	}
 	return false
+}
+
+// recurrentStateBytes is the state llama.cpp keeps for one conversation
+// on a hybrid model's recurrent layers: per layer, an f32 convolution
+// state of (conv-1) x (inner + 2 x groups x state) and an f32 recurrent
+// state of state x inner. The MTP layers are left out, as llama.cpp does.
+// Zero when the file has no ssm.* keys or no recurrent layers.
+//
+// Measured on compute2 with llama.cpp's own buffer report: 50.25 MiB a
+// conversation on Qwen3.8-9B and 149.62 MiB on Qwen3.8-27B, both exact,
+// and four and eight conversations held four and eight times as much.
+func recurrentStateBytes(layers, fullAttnInterval int, recurrentLayers []bool, conv, state, groups, inner int) int64 {
+	if state <= 0 || inner <= 0 {
+		return 0
+	}
+	n := 0
+	for il := 0; il < layers; il++ {
+		if isRecurrentLayer(il, fullAttnInterval, recurrentLayers) {
+			n++
+		}
+	}
+	perLayer := int64(state)*int64(inner) + int64(max(conv-1, 0))*int64(inner+2*groups*state)
+	return int64(n) * perLayer * 4
 }
 
 // builtinSWAPeriod is llama.cpp's set_swa_pattern(n) for architectures
