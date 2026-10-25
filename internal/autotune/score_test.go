@@ -336,3 +336,37 @@ func TestClosestAlternative(t *testing.T) {
 		t.Error("an alternative without a confirming stage")
 	}
 }
+
+// A faster alternative inside the noise says why it was not used, in
+// numbers, and names speculative decoding only where it applies.
+func TestMarginPhrase(t *testing.T) {
+	base := Candidate{Scores: map[Goal]Score{
+		GoalGeneration: {Value: 92.7, Std: 6}, GoalPrompt: {Value: 892, Std: 10}, GoalResponse: {Value: -7.2, Std: 0.3}}}
+	alt := Candidate{Values: map[string]string{"ubatch_size": "1024"}, Scores: map[Goal]Score{
+		GoalGeneration: {Value: 100.8, Std: 7}, GoalPrompt: {Value: 900, Std: 10}, GoalResponse: {Value: -6.8, Std: 0.4}}}
+
+	got := MarginPhrase(GoalGeneration, base, alt)
+	for _, want := range []string{"the gap is 8.1 tokens per second", "margin of error is ±9.2 tokens per second", "speed changed"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generation: %q lacks %q", got, want)
+		}
+	}
+	if strings.Contains(got, "Speculative") {
+		t.Errorf("generation without speculation: %q", got)
+	}
+
+	got = MarginPhrase(GoalResponse, base, alt)
+	for _, want := range []string{"the gap is 0.4 seconds", "±0.5 seconds", "time changed"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("response: %q lacks %q", got, want)
+		}
+	}
+
+	base.Config = benchmark.ConfigSnapshot{SpecType: "draft-mtp"}
+	if got := MarginPhrase(GoalGeneration, base, alt); !strings.Contains(got, "Speculative decoding") {
+		t.Errorf("generation with speculation: %q", got)
+	}
+	if got := MarginPhrase(GoalPrompt, base, alt); strings.Contains(got, "Speculative") {
+		t.Errorf("prompt speed is not affected by speculation: %q", got)
+	}
+}
