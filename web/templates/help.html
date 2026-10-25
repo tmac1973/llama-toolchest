@@ -429,7 +429,7 @@
     <ol>
         <li><strong>Turn it on.</strong> In <a href="/settings">Settings</a>, switch on <em>Generation backends</em>.</li>
         <li><strong>Build the backends.</strong> On <a href="/builds">Builds</a>, choose the project (stable-diffusion.cpp or acestep.cpp) and a ROCm, CUDA or Vulkan profile. Vulkan builds work only in host installs, not in containers. stable-diffusion.cpp builds its own web page only when <code>pnpm</code> is installed.</li>
-        <li><strong>Get a model set.</strong> On <a href="/models">Models</a>, <em>Generation models</em> lists a catalog of known-good sets (for example Ming-Image, which makes images with transparent backgrounds, and ACE-Step for songs) that download in one click. A set is the group of files a backend loads together. You can also add a custom set from files you already have.</li>
+        <li><strong>Get a model set.</strong> On <a href="/models">Models</a>, <em>Generation models</em> lists a catalog of known-good sets (for example Ming-Image, which can make images with transparent backgrounds, and ACE-Step for songs) that download in one click. A set is the group of files a backend loads together. You can also add a custom set from files you already have.</li>
         <li><strong>Create an instance.</strong> On the <a href="/server">Server</a> page, <em>Generation backends</em> → <em>New instance</em>: a model set, a build and a GPU. The instance sees only that GPU.</li>
         <li><strong>Measure it.</strong> Press <em>Measure</em>. llama-toolchest runs one test generation with nothing else on the GPU and records the most GPU memory the instance used. It reserves that amount plus 10% (rounded up to 0.5 GiB). An instance cannot start until it has a reservation.</li>
         <li><strong>Start it,</strong> or turn on auto-start to start it with llama-toolchest.</li>
@@ -438,16 +438,33 @@
     <h3 id="generation-vram">GPU memory: reservations</h3>
     <p>An enabled instance keeps its reservation even while it is stopped, so starting it later can never fail for lack of memory. The LLM fit planner leaves reservations free, after its usual safety margin (1 GiB or 8% of the card, whichever is larger). Enabling an instance, changing a reservation and starting an instance are refused when the memory is not there, and the message lists what is using the card. Loading an LLM on request that would crowd out a reservation is refused with HTTP 507.</p>
     <p>sd-server is held to its reservation. ace-server cannot be, so its reservation is a planning figure based on the measured peak.</p>
-    <p><strong>Why a combination that ran once can be refused.</strong> On a 32 GB Radeon AI PRO R9700, Qwen-Image, ACE-Step and Gemma 4 12B Q6 ran together with only 1.8 GB to spare. Reservations add 10% to each measured peak and the planner keeps its safety margin, so that combination is refused: what is left for LLMs next to those two backends is about 8.6 GiB. A 4B model such as Qwen3-4B Q8_0 fits. Ming-Image's files alone are 17.3 GB, so it needs most of a 32 GB card; measure it to see what is left beside it.</p>
+    <p><strong>Measured reservations</strong> (October 2026, sd.cpp <code>master-1006</code>, acestep.cpp <code>de858d8</code>):</p>
+    <table>
+        <thead><tr><th>Model set</th><th>32 GB Radeon AI PRO R9700 (ROCm)</th><th>16 GB RTX A4000 (CUDA)</th></tr></thead>
+        <tbody>
+            <tr><td>Ming-Image 0.1 Design</td><td>20.5 GiB</td><td>10.5 GiB</td></tr>
+            <tr><td>Qwen-Image 2.1 Turbo</td><td>11.0 GiB</td><td>–</td></tr>
+            <tr><td>FLUX.2 klein 4B</td><td>–</td><td>9.5 GiB</td></tr>
+            <tr><td>ACE-Step 1.5 XL SFT</td><td>8.0 GiB</td><td>–</td></tr>
+            <tr><td>ACE-Step 1.5 turbo</td><td>–</td><td>7.5 GiB</td></tr>
+        </tbody>
+    </table>
+    <p>sd-server decides by itself how much of a model set goes on the card. With room to spare it puts everything there; on a 16 GB card it keeps Ming-Image's 10 GB text model in system RAM, which is why the same set reserves less there. Measure on the card you will use.</p>
+    <p><strong>What fits together on one 32 GB R9700.</strong> Next to Ming-Image (20.5 GiB) a 4B LLM such as Qwen3-4B Q8_0 fits, but ACE-Step XL and Gemma 4 12B Q6 do not. Next to Qwen-Image Turbo and ACE-Step XL together, about 8.6 GiB is left for LLMs: Qwen3-4B Q8_0 fits, Gemma 4 12B Q6 is refused. That trio once ran with only 1.8 GB to spare; reservations add 10% to each measured peak and the planner keeps its safety margin, so it is refused on purpose.</p>
 
     <h3 id="generation-sharing">Sharing a GPU</h3>
     <p>Image jobs, music jobs and chat on the same GPU share its processing time and slow each other down. Measured on one R9700: images ran 2.3 times slower, songs 2.8 times, and chat dropped from about 45 to 11–20 tokens per second. So image and music jobs take turns: one runs per GPU at a time, and up to 16 wait (more get HTTP 429). Chat never waits. The Server page shows a warning while a job runs on a GPU that also has an LLM loaded. Jobs on different GPUs run side by side. Jobs started from a backend's own web page skip this queue.</p>
+    <p><strong>Separate GPUs run at full speed,</strong> as long as the LLM stays off the backends' cards. Measured on three RTX A4000s, with chat on GPU 0, FLUX.2 klein on GPU 1 and ACE-Step turbo on GPU 2: images (5.1 s at 1024×1024), songs (about 13 s for 60 s) and chat (77 tokens per second) ran at the same speed alone and together. When the LLM was split across all three cards instead, images took 24% longer and chat dropped to 43–58 tokens per second. To keep an LLM on its own card, set its GPU assignment (tensor split) on the Models page.</p>
 
     <h3 id="generation-api">Using the image and music API</h3>
     <p>Generation instances appear in <code>/v1/models</code> with <code>meta.kind</code> set to <code>image</code> or <code>music</code> (LLMs are <code>text</code>). Use the instance's ID, or its model set's ID, as <code>model</code>.</p>
     <pre>curl $BASE/v1/images/generations \
   -H "Content-Type: application/json" \
   -d '{"model": "ming-image", "prompt": "a red fox sticker", "size": "1024x1024", "response_format": "b64_json"}'</pre>
+    <p><strong>Transparent backgrounds with Ming-Image.</strong> A plain request returns a PNG with an alpha channel, but every pixel is opaque. Ming-Image only draws on a transparent background when both of these are true: the prompt starts with <code>RGBA, 4-channel, transparent background.</code>, and sampling starts from a fully transparent image at strength 0.9. Pass the start image to sd-server in a <code>&lt;sd_cpp_extra_args&gt;</code> block at the start of the prompt; llama-toolchest passes the prompt through unchanged. <code>init_image</code> is a base64 PNG of the output size, every pixel transparent:</p>
+    <pre>{"model": "ming-image", "size": "1024x1024", "response_format": "b64_json",
+ "prompt": "&lt;sd_cpp_extra_args&gt;{\"init_image\": \"iVBORw0KGgo…\", \"strength\": 0.9}&lt;/sd_cpp_extra_args&gt;RGBA, 4-channel, transparent background. a red fox sticker"}</pre>
+    <p>Measured: 84–89% of the pixels came back clear around a cleanly cut-out subject, on ROCm, Vulkan and CUDA.</p>
     <p>Images use the standard OpenAI routes <code>/v1/images/generations</code> and <code>/v1/images/edits</code> (edits only on sets that can edit). Music has no standard API, so there are two:</p>
     <dl>
         <dt>llama-toolchest's music jobs</dt><dd><code>POST /v1/music/jobs</code> with a <code>caption</code> (and optionally <code>lyrics</code>, <code>duration</code>, <code>seed</code> and more) returns a job ID. Check it with <code>GET /v1/music/jobs/{id}</code>, download the song from <code>/v1/music/jobs/{id}/audio</code>, and cancel it with <code>DELETE</code>. The caption is used as written unless you set <code>rewrite_caption</code>. Songs are kept for 24 hours.</dd>

@@ -58,10 +58,13 @@ func Catalog() []CatalogEntry {
 				{Slot: "vae", Repo: "Comfy-Org/Ming-Image", File: "vae/ming_image_vae_bf16.safetensors", Bytes: 253816696},
 				{Slot: "tokenizer", Repo: "inclusionAI/Ming-Image-0.1-Design", File: "mllm/tokenizer.json", Bytes: 12210709},
 			},
-			LaunchArgs:    []string{"--steps", "12", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling"},
-			Capabilities:  []string{"alpha"},
-			License:       "MIT",
-			Notes:         "Used by Haruspex. Outputs PNG images with an alpha channel (transparent backgrounds). Needs more than 17 GB of VRAM.",
+			LaunchArgs:   []string{"--steps", "12", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling"},
+			Capabilities: []string{"alpha"},
+			License:      "MIT",
+			Notes: "Used by Haruspex. Can make PNG images with transparent backgrounds: the prompt must start with " +
+				"\"RGBA, 4-channel, transparent background.\" and the image must start from a fully transparent canvas at strength 0.9 " +
+				"(sd-server's <sd_cpp_extra_args> block, with init_image and strength). Without both, images come back opaque. " +
+				"Runs on a 16 GB card: sd-server keeps the 10 GB text model in system RAM by itself.",
 			DefaultWidth:  2048,
 			DefaultHeight: 2048,
 		},

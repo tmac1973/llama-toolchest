@@ -460,6 +460,11 @@ func (s *Server) measureInstance(id string) error {
 		peak = procPeak
 	}
 	s.genMgr.Stop(id)
+	// The fit check below reads the card's used VRAM. Until the monitor's
+	// next reading after the backend has exited, that still includes the
+	// backend itself, which then counts as another program and makes its
+	// own reservation not fit.
+	waitGPUReleased(func() int { return s.gpuUsedMiB(inst.GPU) }, baseline, 20*time.Second, 500*time.Millisecond)
 	if runErr != nil {
 		return fmt.Errorf("the test generation failed: %w", runErr)
 	}
@@ -494,6 +499,25 @@ func (s *Server) measureInstance(id string) error {
 		}
 	}
 	return nil
+}
+
+// gpuReleasedSlackMiB is how far above the reading from before a test run
+// the card may stay and still count as released: other programs on the
+// card can grow a little in the meantime.
+const gpuReleasedSlackMiB = 512
+
+// waitGPUReleased waits, for at most limit, until used() falls back to
+// within gpuReleasedSlackMiB of baseline, checking every step. It reports
+// whether it did.
+func waitGPUReleased(used func() int, baseline int, limit, step time.Duration) bool {
+	deadline := time.Now().Add(limit)
+	for used() > baseline+gpuReleasedSlackMiB {
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		time.Sleep(step)
+	}
+	return true
 }
 
 // gpuUsedMiB is the monitor's current used-VRAM reading for a GPU.

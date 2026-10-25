@@ -1097,11 +1097,17 @@ load_env_ports() {
             "$env_file"
     fi
 
-    local val
+    # In a .env written in secure mode, LLAMA_TOOLCHEST_INFERENCE_PORT is the
+    # app's loopback debug port (8081 or 18080), not the public chat port, so
+    # it is read back only into the secure-mode setting below.
+    local val env_secure=false
+    grep -qE '^LLAMA_TOOLCHEST_SECURE=(1|true)$' "$env_file" 2>/dev/null && env_secure=true
     val="$(grep '^LLAMA_TOOLCHEST_PORT=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
     [[ -n "$val" ]] && LLAMA_TOOLCHEST_PORT="$val" || true
-    val="$(grep '^LLAMA_TOOLCHEST_INFERENCE_PORT=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
-    [[ -n "$val" ]] && LLAMA_TOOLCHEST_INFERENCE_PORT="$val" || true
+    if [[ "$env_secure" != true ]]; then
+        val="$(grep '^LLAMA_TOOLCHEST_INFERENCE_PORT=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
+        [[ -n "$val" ]] && LLAMA_TOOLCHEST_INFERENCE_PORT="$val" || true
+    fi
     val="$(grep '^LLAMA_TOOLCHEST_MODELS_DIR=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
     [[ -n "$val" ]] && LLAMA_TOOLCHEST_MODELS_DIR="$val" || true
 
@@ -1121,8 +1127,7 @@ load_env_ports() {
     # overlay without needing --secure again. An explicit --secure/--no-secure
     # on this run always wins.
     if [[ "$SECURE_EXPLICIT" != true ]]; then
-        val="$(grep '^LLAMA_TOOLCHEST_SECURE=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
-        [[ "$val" == "1" || "$val" == "true" ]] && SECURE=true || true
+        [[ "$env_secure" == true ]] && SECURE=true || true
     fi
 
     # Reload the secure-mode values so a rebuild/quick (which re-runs
@@ -1131,7 +1136,7 @@ load_env_ports() {
     # in secure mode: in a plain one LLAMA_TOOLCHEST_INFERENCE_PORT is the
     # public chat port (8080), which as the loopback debug port would clash
     # with Caddy's chat port when a plain install is switched to --secure.
-    if [[ "$SECURE" == true ]] && grep -qE '^LLAMA_TOOLCHEST_SECURE=(1|true)$' "$env_file" 2>/dev/null; then
+    if [[ "$SECURE" == true && "$env_secure" == true ]]; then
         val="$(grep '^LLAMA_TOOLCHEST_EXTERNAL_URL=' "$env_file" 2>/dev/null | cut -d= -f2-)" || true
         [[ -n "$val" ]] && SECURE_EXTERNAL_URL="$val" || true
         val="$(grep '^LLAMA_TOOLCHEST_INFERENCE_PORT=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
