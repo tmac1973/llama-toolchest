@@ -1005,6 +1005,19 @@ Environment=LLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START=8081" \
     printf 'LLAMA_TOOLCHEST_SECURE=1\nLLAMA_TOOLCHEST_INFERENCE_PORT=18080\n' > "$SCRIPT_DIR/.env"
     load_env_ports
     check_eq "secure .env: debug port reloaded" "18080" "${SECURE_APP_DEBUG_INF_PORT:-unset}"
+
+    # Switching a secure install back to plain keeps the default chat port:
+    # the secure .env's LLAMA_TOOLCHEST_INFERENCE_PORT is the debug port.
+    SECURE=false SECURE_EXPLICIT=true LLAMA_TOOLCHEST_INFERENCE_PORT=8080
+    load_env_ports
+    check_eq "secure .env to plain: chat port stays 8080" "8080" "$LLAMA_TOOLCHEST_INFERENCE_PORT"
+    printf 'LLAMA_TOOLCHEST_INFERENCE_PORT=8181\n' > "$SCRIPT_DIR/.env"
+    load_env_ports
+    check_eq "plain .env: chat port reloaded" "8181" "$LLAMA_TOOLCHEST_INFERENCE_PORT"
+    SECURE_EXPLICIT=false
+    printf 'LLAMA_TOOLCHEST_SECURE=true\n' > "$SCRIPT_DIR/.env"
+    load_env_ports
+    check_eq "secure .env remembered" "true" "$SECURE"
 )
 
 # Secure mode: Caddy publishes the public range behind the login, the app's
