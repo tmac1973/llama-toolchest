@@ -97,6 +97,26 @@ func (s *Server) hardware() models.Hardware {
 	return hw
 }
 
+// idleHardware is hardware with other programs' memory as it was when
+// nothing of ours was loaded (see other_vram.go), for plans of a launch
+// that starts that way: a router start, a benchmark cell, a load that
+// replaces the loaded model. Without such a reading yet it is hardware.
+//
+// A program started since that reading is not counted; the launch then
+// finds less room than planned, as it would had the program started
+// just after the plan.
+func (s *Server) idleHardware() models.Hardware {
+	hw := s.hardware()
+	idle := s.idleOtherVRAMMiB()
+	if len(idle) != len(hw.GPUs) {
+		return hw
+	}
+	for i := range hw.GPUs {
+		hw.GPUs[i].OtherUsedMiB = idle[i]
+	}
+	return hw
+}
+
 // otherLoadedModels lists models the router has loaded, other than skip,
 // which loading the helper may unload.
 func (s *Server) otherLoadedModels(skipRouterName string) []string {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/tmac1973/llama-toolchest/internal/generation"
 	"github.com/tmac1973/llama-toolchest/internal/models"
+	"github.com/tmac1973/llama-toolchest/internal/monitor"
 )
 
 // vramServer is instanceServer on a 32,624 MiB card with 1,300 MiB used by
@@ -189,6 +191,56 @@ func TestLLMLoadRespectsReservations(t *testing.T) {
 	s.cfg.GenerationEnabled = false
 	if err := s.checkLLMFitsReservations(big); err != nil {
 		t.Errorf("with generation off: %v", err)
+	}
+}
+
+// A load that replaces the loaded model, and a benchmark cell, are
+// planned on the cards as they were with nothing of ours loaded: what the
+// loaded model holds beyond its buffer report reads as other programs'
+// memory until it is unloaded. A load beside it is planned on the cards
+// as they are.
+func TestReplacingLoadsUseIdleRoom(t *testing.T) {
+	s := vramServer(t)
+	// 2 GiB of the loaded model's memory counted as other programs'.
+	s.testHardware.GPUs[0].OtherUsedMiB = 1300 + 2048
+	addInstance(t, s, generation.Instance{ID: "qwen", Port: 8081, Enabled: true, ReservedMiB: 11776})
+	addInstance(t, s, generation.Instance{ID: "ace", Port: 8082, Enabled: true, ReservedMiB: 8192})
+	m := &models.Model{ID: "mid", ModelID: "org/mid", Filename: "mid.gguf", SizeBytes: 7 << 30}
+	if err := s.registry.Add(m); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := s.registry.GetConfig("mid")
+	var fitErr *genLLMFitError
+
+	// No reading with nothing loaded yet: the cards as they are.
+	if err := s.checkConfigFitsReservations(m, cfg); !errors.As(err, &fitErr) {
+		t.Errorf("benchmark cell without an idle reading: %v, want refused", err)
+	}
+
+	s.otherVRAM.idleOther = []int{1300}
+	if err := s.checkConfigFitsReservations(m, cfg); err != nil {
+		t.Errorf("benchmark cell: %v", err)
+	}
+	s.cfg.ModelsMax = 1
+	if err := s.checkLLMFitsReservations(m); err != nil {
+		t.Errorf("load replacing the loaded model: %v", err)
+	}
+	s.cfg.ModelsMax = 2
+	if err := s.checkLLMFitsReservations(m); !errors.As(err, &fitErr) {
+		t.Errorf("load beside the loaded model: %v, want refused", err)
+	}
+
+	if got := s.idleHardware().GPUs[0]; got.OtherUsedMiB != 1300 || got.ReservedMiB != 11776+8192 {
+		t.Errorf("idleHardware GPU 0 = other %d, reserved %d; want 1300 and both reservations", got.OtherUsedMiB, got.ReservedMiB)
+	}
+}
+
+func TestWithoutGenUse(t *testing.T) {
+	gpus := []monitor.GPUInfo{{Index: 0}, {Index: 1}, {Index: 2}}
+	gen := map[int]*genVRAM{1: {Using: 158}, 2: {Using: 9000}}
+	got := withoutGenUse([]int{1300, 500, 4000}, gpus, gen)
+	if want := []int{1300, 342, 0}; !slices.Equal(got, want) {
+		t.Errorf("withoutGenUse = %v, want %v", got, want)
 	}
 }
 

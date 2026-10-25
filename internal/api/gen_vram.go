@@ -84,7 +84,8 @@ func (s *Server) applyGenVRAM(hw *models.Hardware) {
 // loaded, per GPU index, plus extraID (a model about to load) when set.
 // skipLoaded leaves the loaded ones out: with --models-max 1 the loaded
 // model is replaced by the new one. gpuMiB is each GPU's room
-// (models.GPUMiB), which decides how a model is split over the cards.
+// (models.GPUMiB), which decides how a model is split over the cards:
+// from idleHardware, the room the preset was balanced for.
 func (s *Server) loadedLLMMiB(gpuMiB []int, extraID string, skipLoaded bool) map[int]int {
 	out := map[int]int{}
 	if len(gpuMiB) == 0 {
@@ -158,7 +159,7 @@ func (s *Server) genFitCheck(inst generation.Instance, reserveMiB int) error {
 		otherNames = others.Names
 	}
 	budget := models.CardBudgetMiB(spec)
-	llm := s.loadedLLMMiB(models.GPUMiB(hw), "", false)[inst.GPU]
+	llm := s.loadedLLMMiB(models.GPUMiB(s.idleHardware()), "", false)[inst.GPU]
 	if llm+reserveMiB <= budget {
 		return nil
 	}
@@ -181,22 +182,32 @@ func (e *genLLMFitError) Error() string { return e.msg }
 // into the router beside what it already has loaded when that would not
 // fit next to the generation backends' reservations on a GPU it uses.
 // Used for loads on request and the Models page's Load button.
+//
+// With --models-max 1 the load replaces the loaded model, so the cards
+// are taken as they were with nothing of ours loaded: the loaded model's
+// own unreported memory is freed with it.
 func (s *Server) checkLLMFitsReservations(m *models.Model) error {
 	if !s.genReservationsApply() {
 		return nil
 	}
-	hw := s.hardware()
-	return s.reservationFitError(hw, s.loadedLLMMiB(models.GPUMiB(hw), m.ID, s.cfg.ModelsMax == 1), s.cfg.ModelsMax != 1)
+	replacing := s.cfg.ModelsMax == 1
+	idle := s.idleHardware()
+	hw := idle
+	if !replacing {
+		hw = s.hardware()
+	}
+	return s.reservationFitError(hw, s.loadedLLMMiB(models.GPUMiB(idle), m.ID, replacing), !replacing)
 }
 
 // checkConfigFitsReservations is checkLLMFitsReservations for a benchmark
 // cell: m under cfg, alone, because a job restarts the router with only
-// the model it measures.
+// the model it measures, on cards as they were with nothing of ours
+// loaded.
 func (s *Server) checkConfigFitsReservations(m *models.Model, cfg *models.ModelConfig) error {
 	if !s.genReservationsApply() {
 		return nil
 	}
-	hw := s.hardware()
+	hw := s.idleHardware()
 	need := map[int]int{}
 	addLLMMiB(need, m, cfg, models.GPUMiB(hw))
 	return s.reservationFitError(hw, need, false)
@@ -300,7 +311,7 @@ func (s *Server) genBannerGPUs() []genBannerGPU {
 	if s.cfg == nil || !s.cfg.GenerationEnabled || s.gen == nil || s.genQueue == nil {
 		return nil
 	}
-	hw := s.hardware()
+	hw := s.idleHardware()
 	return bannerGPUs(hw.GPUs, func(gpu int) bool { return s.genQueue.Snapshot(gpu).Running != nil },
 		s.loadedLLMMiB(models.GPUMiB(hw), "", false))
 }

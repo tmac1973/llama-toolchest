@@ -561,7 +561,7 @@ func (e *jobEnv) EvalFlags(modelID string, snap benchmark.ConfigSnapshot, buildI
 	// llama.cpp's own split by layer count can overfill one card.
 	placed := &merged
 	if m, err := e.s.registry.Get(modelID); err == nil {
-		placed = models.MoESplitConfig(&merged, m, models.GPUMiB(e.s.hardware()))
+		placed = models.MoESplitConfig(&merged, m, models.GPUMiB(e.s.idleHardware()))
 	}
 	subset := evaluate.SnapshotSubset{
 		GPULayers:      merged.GPULayers,
