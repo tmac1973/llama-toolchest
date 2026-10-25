@@ -786,7 +786,8 @@ gen_port_start_problem() {
     fi
     if [[ "$SECURE" == true ]]; then
         used=("${LLAMA_TOOLCHEST_PORT}:the management UI" "${CADDY_HTTP_PORT:-80}:Caddy's HTTP port"
-              "${CADDY_HTTPS_PORT:-443}:Caddy's HTTPS port" "${CADDY_CHAT_PORT:-8080}:the chat UI")
+              "${CADDY_HTTPS_PORT:-443}:Caddy's HTTPS port" "${CADDY_CHAT_PORT:-8080}:the chat UI"
+              "8080:the chat UI inside the Caddy container")
         # The app's loopback ports, 18080-18088.
         for (( p = SECURE_GEN_DEBUG_INF_PORT; p < SECURE_GEN_APP_PORT_START + GEN_PORT_COUNT; p++ )); do
             used+=("${p}:the app's loopback ports (${SECURE_GEN_DEBUG_INF_PORT}-$(gen_port_end "$SECURE_GEN_APP_PORT_START"))")
@@ -1258,6 +1259,39 @@ migrate_legacy_volume() {
     echo ""
 }
 
+# Legacy rename, part two: the 'llama-toolchest-data' volume can still hold
+# the pre-rebrand config/llamactl.yaml and no config/llama-toolchest.yaml,
+# for example when it was renamed by hand or the image was rebuilt partway
+# through the rename. The image's ENTRYPOINT reads only the new name; without
+# it the app runs on defaults with its data outside the volume, so builds and
+# models are lost when the container is recreated. Rename the file, as
+# migrate_legacy_volume does after its copy. Called from install/rebuild/quick
+# before the new container is started.
+migrate_legacy_config_name() {
+    local vol="llama-toolchest-data" result
+
+    [[ -z "$CONTAINER_CMD" ]] && return 0
+    $CONTAINER_CMD volume inspect "$vol" >/dev/null 2>&1 || return 0
+
+    # Prints "renamed", "both" or nothing.
+    if ! result="$($CONTAINER_CMD run --rm -v "${vol}:/data" docker.io/library/alpine:3 \
+        sh -c "set -e; cd /data/config 2>/dev/null || exit 0; \
+               [ -f llamactl.yaml ] || exit 0; \
+               if [ -f llama-toolchest.yaml ]; then echo both; exit 0; fi; \
+               mv llamactl.yaml llama-toolchest.yaml; echo renamed")"; then
+        warn "Could not check the '$vol' volume for the old config name (config/llamactl.yaml)."
+        return 0
+    fi
+    case "$result" in
+        renamed)
+            ok "Renamed config/llamactl.yaml to config/llama-toolchest.yaml in the '$vol' volume, so the app reads its settings again."
+            ;;
+        both)
+            warn "The '$vol' volume has both config/llamactl.yaml (old name) and config/llama-toolchest.yaml. Using config/llama-toolchest.yaml. If your settings are in the old file, replace the new one with it."
+            ;;
+    esac
+}
+
 # ─── Container operations ────────────────────────────────────────────────────
 
 compose_file() {
@@ -1301,6 +1335,17 @@ has_quadlet() {
 }
 
 # Write .env file for docker-compose variable substitution
+# chat_public_port prints the port a browser opens the chat UI on: Caddy's
+# chat port in secure mode, else the host port llama-server's 8080 is
+# published on.
+chat_public_port() {
+    if [[ "$SECURE" == true ]]; then
+        echo "${CADDY_CHAT_PORT:-8080}"
+    else
+        echo "${LLAMA_TOOLCHEST_INFERENCE_PORT}"
+    fi
+}
+
 write_env_file() {
     local env_file="${SCRIPT_DIR}/.env"
     : > "$env_file"
@@ -1325,6 +1370,10 @@ write_env_file() {
         echo "LLAMA_TOOLCHEST_PORT=${LLAMA_TOOLCHEST_PORT}" >> "$env_file"
         echo "LLAMA_TOOLCHEST_INFERENCE_PORT=${LLAMA_TOOLCHEST_INFERENCE_PORT}" >> "$env_file"
     fi
+
+    # The chat UI port as a browser reaches it, for the app's "Open Chat UI"
+    # link. The compose files pass all of .env into the container.
+    echo "LLAMA_TOOLCHEST_CHAT_PUBLIC_PORT=$(chat_public_port)" >> "$env_file"
 
     # Generation backend web UI ports, read by docker-compose.gen-ports.yml.
     # The HOST_PORT names are only the host side of the mapping: inside the
@@ -1646,7 +1695,31 @@ build_local_binary() {
 
     LOCAL_BINARY="$out"
     export LOCAL_BINARY
+    label_for_build_mount "$LOCAL_BINARY"
     ok "Built ${out} (${version})."
+}
+
+# label_for_build_mount <path> lets the image build read a file of this tree
+# that a Dockerfile takes from its RUN --mount=type=bind,target=/build_context
+# step (LOCAL_BINARY, INSTALL_PACKAGE). The path is relative to the build
+# context (the repository root).
+#
+# With SELinux on, a file under the home directory has the user_home_t label,
+# which processes in a container may not read: rootless Podman fails with
+# "cannot stat '/build_context/...': Permission denied". Podman relabels COPY
+# sources itself but not a RUN bind mount, and the mount option that would
+# (z) is unknown to Docker BuildKit, so the Dockerfiles can't ask for it. The
+# container_file_t label is readable by containers under Docker and Podman,
+# and only this one file is changed. Without SELinux this does nothing.
+label_for_build_mount() {
+    local rel="$1" path
+    [[ -n "$rel" ]] || return 0
+    path="${SCRIPT_DIR}/${rel}"
+    [[ -f "$path" ]] || return 0
+    command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled || return 0
+    if ! chcon -t container_file_t "$path" 2>/dev/null; then
+        warn "Could not relabel ${rel} for SELinux (chcon -t container_file_t). If the image build can't read it, run that command yourself."
+    fi
 }
 
 # caddy_hash_password hashes plaintext via the caddy image, feeding the secret
@@ -1783,10 +1856,14 @@ configure_secure() {
     prompt_gen_ports
 
     # ── Derive Caddy site addresses + the external URL for the app's links ──
+    # Caddy listens on 443 and 8080 inside its container whatever the host
+    # ports are: docker-compose.secure.yml and the Quadlet unit publish
+    # CADDY_HTTPS_PORT and CADDY_CHAT_PORT to those two. Only the external
+    # URL carries the host port.
     local ext_host
     if [[ "$TLS_MODE" == letsencrypt ]]; then
         CADDY_SITE_ADDRESS="$DOMAIN"
-        CADDY_CHAT_ADDRESS="${DOMAIN}:${CADDY_CHAT_PORT:-8080}"
+        CADDY_CHAT_ADDRESS="${DOMAIN}:8080"
         CADDY_GLOBAL=$'{\n\temail '"${ACME_EMAIL}"$'\n}'
         CADDY_TLS="# Let's Encrypt cert is provisioned automatically for the domain"
         ext_host="$DOMAIN"
@@ -1795,8 +1872,8 @@ configure_secure() {
         # whatever hostname/IP the client uses (localhost, LAN IP, hostname),
         # so a bare :443 site still presents a certificate instead of failing
         # the TLS handshake.
-        CADDY_SITE_ADDRESS=":${CADDY_HTTPS_PORT:-443}"
-        CADDY_CHAT_ADDRESS=":${CADDY_CHAT_PORT:-8080}"
+        CADDY_SITE_ADDRESS=":443"
+        CADDY_CHAT_ADDRESS=":8080"
         CADDY_GLOBAL="# self-signed / internal CA — no ACME"
         CADDY_TLS=$'tls internal {\n\t\ton_demand\n\t}'
         ext_host="${DOMAIN:-$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo localhost)}"
@@ -1806,6 +1883,14 @@ configure_secure() {
     SECURE_EXTERNAL_URL="https://${ext_host}${scheme_port}"
 
     render_caddyfile
+}
+
+# secure_chat_url prints the chat UI's address as a browser reaches it: the
+# external URL with the chat port in place of the HTTPS port it may carry.
+secure_chat_url() {
+    local base="${SECURE_EXTERNAL_URL:-https://<host>}"
+    [[ "$base" =~ ^(.*):[0-9]+$ ]] && base="${BASH_REMATCH[1]}"
+    echo "${base}:${CADDY_CHAT_PORT:-8080}"
 }
 
 container_up() {
@@ -1860,6 +1945,7 @@ stop_existing_containers() {
 
 container_install() {
     migrate_legacy_volume
+    migrate_legacy_config_name
     stop_existing_containers
     preflight_port_check
     ensure_unprivileged_ports
@@ -1872,6 +1958,7 @@ container_rebuild() {
     has_quadlet && quadlet_active=true
 
     migrate_legacy_volume
+    migrate_legacy_config_name
     container_down
     stop_existing_containers
     preflight_port_check
@@ -1901,6 +1988,7 @@ container_rebuild() {
 # leaves the current version running instead of nothing.
 container_quick_rebuild() {
     migrate_legacy_volume
+    migrate_legacy_config_name
     write_env_file
 
     local latest=""
@@ -2059,6 +2147,7 @@ else
     echo "PublishPort=${LLAMA_TOOLCHEST_PORT}:3000"
     echo "PublishPort=${LLAMA_TOOLCHEST_INFERENCE_PORT}:8080"
 fi
+echo "Environment=LLAMA_TOOLCHEST_CHAT_PUBLIC_PORT=$(chat_public_port)"
 if [[ "$GEN_PORTS" == true ]]; then
     gen_start="$(gen_app_port_start)"
     if [[ "$SECURE" == true ]]; then
@@ -3077,6 +3166,7 @@ main() {
             ;;
         quick)
             log "Quick rebuild (cached)..."
+            label_for_build_mount "${INSTALL_PACKAGE:-}"
             container_quick_rebuild
             ok "llama-toolchest is running"
             echo ""
@@ -3119,6 +3209,10 @@ main() {
     # rather than surfacing after the image layers are done.
     if [[ "$FROM_SOURCE" == true && "$command" != "status" ]]; then
         build_local_binary
+    fi
+    # A package given with INSTALL_PACKAGE= is read the same way as the binary.
+    if [[ "$command" != "status" ]]; then
+        label_for_build_mount "${INSTALL_PACKAGE:-}"
     fi
 
     # ── Check prerequisites and show summary (install, rebuild, status) ──
@@ -3174,7 +3268,7 @@ main() {
     echo ""
     if [[ "$SECURE" == true ]]; then
         echo "  Web UI:     ${SECURE_EXTERNAL_URL:-https://<host>}      (login required)"
-        echo "  Chat UI:    ${SECURE_EXTERNAL_URL:-https://<host>}:${CADDY_CHAT_PORT:-8080}"
+        echo "  Chat UI:    $(secure_chat_url)"
         echo "  API:        ${SECURE_EXTERNAL_URL:-https://<host>}/v1   (Bearer api_key)"
         if [[ "$GEN_PORTS" == true ]]; then
             echo "  Gen web UIs: ports ${GEN_PUBLIC_PORT_START}-$(gen_port_end "$GEN_PUBLIC_PORT_START")  (login required; one per backend instance)"

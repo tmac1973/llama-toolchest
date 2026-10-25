@@ -1120,7 +1120,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if u, err := url.Parse(s.cfg.ExternalURL); err == nil && u.Hostname() != "" {
-		data.ChatURL = fmt.Sprintf("%s://%s:%d", u.Scheme, u.Hostname(), s.cfg.LlamaPort)
+		data.ChatURL = fmt.Sprintf("%s://%s:%d", u.Scheme, u.Hostname(), s.cfg.ChatPort())
 	}
 
 	for _, sm := range s.servedChatModels() {

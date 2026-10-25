@@ -923,7 +923,7 @@ gen_secure_caddy() {
 GEN_SETUP_FNS=(gen_app_port_start gen_port_end gen_range_has gen_host_ports
     gen_port_start_problem settle_gen_ports prompt_gen_ports load_env_ports
     write_env_file compose_file compose_cmd generate_quadlet_app
-    generate_quadlet_caddy caddy_gen_sites render_caddyfile)
+    generate_quadlet_caddy caddy_gen_sites render_caddyfile chat_public_port)
 
 # Answering no (the default) leaves .env, the compose files, the Quadlet
 # units and the Caddyfile without any generation port.
@@ -935,6 +935,7 @@ test_gen_ports_off() (
     write_env_file
     check_eq "gen off: .env" "LLAMA_TOOLCHEST_PORT=3000
 LLAMA_TOOLCHEST_INFERENCE_PORT=8080
+LLAMA_TOOLCHEST_CHAT_PUBLIC_PORT=8080
 HOST_VIDEO_GID=39
 HOST_RENDER_GID=105
 ROCM_VARIANT=stable" "$(cat "$SCRIPT_DIR/.env")"
@@ -1054,6 +1055,147 @@ PublishPort=127.0.0.1:18081-18088:8081-8088" "$(generate_quadlet_app | grep -E '
         grep -q 'reverse_proxy llama-toolchest:8081' <(caddy_gen_sites)
 )
 
+# ─── Container install (setup.sh) ────────────────────────────────────────────
+
+# A file the image build reads through a RUN bind mount is relabelled
+# container_file_t when SELinux is on, and left alone otherwise.
+test_label_for_build_mount() (
+    load_setup_fns label_for_build_mount
+    SCRIPT_DIR="${TMP_ROOT}/label"
+    rm -rf "$SCRIPT_DIR"; mkdir -p "$SCRIPT_DIR/dist"
+    touch "$SCRIPT_DIR/dist/llama-toolchest-local"
+    local calls="${TMP_ROOT}/chcon.log"
+    chcon() { echo "chcon $*" >> "$calls"; }
+
+    : > "$calls"
+    selinuxenabled() { return 0; }
+    label_for_build_mount dist/llama-toolchest-local
+    check_eq "label: relabelled with SELinux on" \
+        "chcon -t container_file_t ${SCRIPT_DIR}/dist/llama-toolchest-local" "$(cat "$calls")"
+
+    : > "$calls"
+    label_for_build_mount ""
+    label_for_build_mount dist/missing.rpm
+    check_eq "label: nothing to relabel" "" "$(cat "$calls")"
+
+    selinuxenabled() { return 1; }
+    label_for_build_mount dist/llama-toolchest-local
+    check_eq "label: SELinux off" "" "$(cat "$calls")"
+
+    # A failed chcon only warns: the build may still work.
+    selinuxenabled() { return 0; }
+    chcon() { return 1; }
+    check_true "label: chcon failure is not fatal" label_for_build_mount dist/llama-toolchest-local
+)
+
+# Host ports other than 443/8080 for Caddy only change what is published:
+# Caddy keeps listening on 443 and 8080 inside its container, and the
+# external URL carries the host port.
+test_secure_custom_ports() (
+    load_setup_fns "${GEN_SETUP_FNS[@]}" configure_secure secure_chat_url
+    gen_setup_env
+    print_secure_disclaimer() { :; }
+    SECURE=true SECURE_EXPLICIT=true TLS_MODE=self-signed DOMAIN=box ACME_EMAIL=""
+    AUTH_USER=admin AUTH_HASH='$2a$14$abc/def.ghi' AUTH_PASS="" AUTH_PASS_FILE=""
+    CADDY_HTTP_PORT=8000 CADDY_HTTPS_PORT=8443 CADDY_CHAT_PORT=9443
+    configure_secure
+    local cf="$SCRIPT_DIR/Caddyfile"
+    check_eq "custom ports: Caddy sites" ":443 {
+:8080 {" "$(grep -E '^[^#[:space:]].* \{$' "$cf")"
+    check_eq "custom ports: external URL" "https://box:8443" "$SECURE_EXTERNAL_URL"
+    check_eq "custom ports: chat URL" "https://box:9443" "$(secure_chat_url)"
+    # The app's own chat link gets Caddy's chat port, not the app's 8080
+    # or its loopback debug port.
+    SECURE_APP_DEBUG_INF_PORT=18080
+    write_env_file
+    check_eq "custom ports: chat link port in .env" "LLAMA_TOOLCHEST_CHAT_PUBLIC_PORT=9443" \
+        "$(grep CHAT_PUBLIC "$SCRIPT_DIR/.env")"
+    check_eq "custom ports: chat link port in Quadlet" "Environment=LLAMA_TOOLCHEST_CHAT_PUBLIC_PORT=9443" \
+        "$(generate_quadlet_app | grep CHAT_PUBLIC)"
+    SECURE=false LLAMA_TOOLCHEST_INFERENCE_PORT=9080
+    check_eq "plain: chat link port is the published port" "Environment=LLAMA_TOOLCHEST_CHAT_PUBLIC_PORT=9080" \
+        "$(generate_quadlet_app | grep CHAT_PUBLIC)"
+    SECURE=true
+    check_eq "custom ports: Caddy Quadlet" "PublishPort=8000:80
+PublishPort=8443:443
+PublishPort=9443:8080" "$(generate_quadlet_caddy | grep '^PublishPort')"
+    check_true "custom ports: compose maps the HTTPS port to 443" \
+        grep -qF '"${CADDY_HTTPS_PORT:-443}:443"' "${REPO_DIR}/docker-compose.secure.yml"
+    check_true "custom ports: compose maps the chat port to 8080" \
+        grep -qF '"${CADDY_CHAT_PORT:-8080}:8080"' "${REPO_DIR}/docker-compose.secure.yml"
+    # Caddy's chat site holds 8080 in its container even with the host
+    # chat port moved, so a generation range there is refused.
+    check_eq "custom ports: gen range over Caddy's 8080" \
+        "8075-8082 overlaps port 8080, used by the chat UI inside the Caddy container" \
+        "$(gen_port_start_problem 8075)"
+
+    TLS_MODE=letsencrypt DOMAIN=llm.example.test ACME_EMAIL=admin@example.test
+    configure_secure
+    check_eq "custom ports: Let's Encrypt sites" "llm.example.test {
+llm.example.test:8080 {" "$(grep -E '^[^#[:space:]].* \{$' "$cf" | grep -v '^{$')"
+    check_eq "custom ports: Let's Encrypt URL" "https://llm.example.test:8443" "$SECURE_EXTERNAL_URL"
+
+    CADDY_HTTPS_PORT=443 CADDY_CHAT_PORT=8080
+    configure_secure
+    check_eq "default ports: URL has no port" "https://llm.example.test" "$SECURE_EXTERNAL_URL"
+    check_eq "default ports: chat URL" "https://llm.example.test:8080" "$(secure_chat_url)"
+    SECURE_EXTERNAL_URL='https://[fd00::1]'
+    check_eq "chat URL: IPv6 host without a port" "https://[fd00::1]:8080" "$(secure_chat_url)"
+)
+
+# An old-named config in the current volume is renamed to the name the
+# image's ENTRYPOINT reads. The fake runtime runs the script on a folder
+# standing in for the volume (fake_vol: the function has its own vol).
+test_migrate_legacy_config_name() (
+    load_setup_fns migrate_legacy_config_name
+    local fake_vol="${TMP_ROOT}/vol" calls="${TMP_ROOT}/runtime.log"
+    local msgs="${TMP_ROOT}/config-name.log"
+    ok()   { echo "ok: $*" >> "$msgs"; }
+    warn() { echo "warn: $*" >> "$msgs"; }
+    HAVE_VOLUME=true
+    fake_runtime() {
+        echo "$*" >> "$calls"
+        case "$1 $2" in
+            "volume inspect") [[ "$HAVE_VOLUME" == true ]] ;;
+            "run --rm") local script="${!#}"; sh -c "${script//\/data/$fake_vol}" ;;
+            *) return 1 ;;
+        esac
+    }
+    CONTAINER_CMD=fake_runtime
+    reset() { rm -rf "$fake_vol" "$calls" "$msgs"; mkdir -p "$fake_vol/config"; : > "$calls"; : > "$msgs"; }
+
+    reset
+    echo 'data_dir: "/data"' > "$fake_vol/config/llamactl.yaml"
+    migrate_legacy_config_name
+    check_eq "config name: renamed" 'data_dir: "/data"' "$(cat "$fake_vol/config/llama-toolchest.yaml" 2>/dev/null)"
+    check_false "config name: old name gone" test -e "$fake_vol/config/llamactl.yaml"
+    check_true "config name: says so" grep -q '^ok: Renamed config/llamactl.yaml' "$msgs"
+    check_true "config name: mounts the current volume" grep -q -- '-v llama-toolchest-data:/data' "$calls"
+
+    # Run again: nothing left to do.
+    : > "$msgs"
+    migrate_legacy_config_name
+    check_eq "config name: second run is quiet" "" "$(cat "$msgs")"
+
+    reset
+    echo old > "$fake_vol/config/llamactl.yaml"
+    echo new > "$fake_vol/config/llama-toolchest.yaml"
+    migrate_legacy_config_name
+    check_eq "config name: both kept" "old new" \
+        "$(cat "$fake_vol/config/llamactl.yaml") $(cat "$fake_vol/config/llama-toolchest.yaml")"
+    check_true "config name: both warns" grep -q '^warn: .*has both' "$msgs"
+
+    reset
+    rm -rf "$fake_vol/config"
+    migrate_legacy_config_name
+    check_eq "config name: no config folder" "" "$(cat "$msgs")"
+
+    reset
+    HAVE_VOLUME=false
+    migrate_legacy_config_name
+    check_eq "config name: no volume, no container run" "volume inspect llama-toolchest-data" "$(cat "$calls")"
+)
+
 # ─── Run ─────────────────────────────────────────────────────────────────────
 
 test_scope_current_user
@@ -1086,6 +1228,9 @@ test_gfx_target_from_kfd
 test_gen_ports_off
 test_gen_ports_on
 test_gen_ports_secure
+test_label_for_build_mount
+test_secure_custom_ports
+test_migrate_legacy_config_name
 
 passes="$(grep -c '^PASS$' "$RESULTS")"
 fails="$(grep -c '^FAIL$' "$RESULTS")"

@@ -217,8 +217,10 @@ exposing the server.
   and asks for another first port. In a scripted install, pass
   `--gen-port-start <port>`.
 - **Port already in use:** something else holds 80/443/8080. Stop it, or adjust
-  `CADDY_HTTP_PORT` / `CADDY_HTTPS_PORT` / `CADDY_CHAT_PORT` in `.env` (note the
-  chat link expects `8080`). A common case is a **host-mode** llama-toolchest on
+  `CADDY_HTTP_PORT` / `CADDY_HTTPS_PORT` / `CADDY_CHAT_PORT` in `.env`. These
+  change only the host ports: Caddy still listens on 80, 443 and 8080 inside
+  its container. Re-run `./setup.sh install` afterwards, so the external URL
+  and the in-app chat link (`LLAMA_TOOLCHEST_CHAT_PUBLIC_PORT`) use the new ports. A common case is a **host-mode** llama-toolchest on
   port 3000 — the installer detects it and offers to stop the host service.
 - **`rootlessport cannot expose privileged port 80` (rootless Podman):** the
   kernel won't let an unprivileged user bind ports < 1024. Accept the

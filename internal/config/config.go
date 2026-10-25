@@ -68,6 +68,23 @@ type Config struct {
 	// listening range; it differs when a container publishes the range on
 	// other host ports.
 	GenPublicPortStart int `yaml:"gen_public_port_start,omitempty"`
+
+	// ChatPublicPort is the llama-server chat UI port as seen from
+	// outside, for the "Open Chat UI" link. Zero means LlamaPort. A
+	// container sets it from the environment, because the port it
+	// publishes (or Caddy's chat port in secure mode) can differ from the
+	// port llama-server listens on inside. Never written to the YAML: it
+	// describes the deploy, not a setting.
+	ChatPublicPort int `yaml:"-"`
+}
+
+// ChatPort returns the chat UI port as seen from outside: ChatPublicPort
+// when set, else LlamaPort.
+func (c *Config) ChatPort() int {
+	if c.ChatPublicPort != 0 {
+		return c.ChatPublicPort
+	}
+	return c.LlamaPort
 }
 
 // Default generation backend port range. Container images always publish
@@ -207,6 +224,15 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.GenPublicPortStart = n
 		} else {
 			slog.Warn("ignoring LLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START: not a port number", "value", v)
+		}
+	}
+	// Set by setup.sh for a container: the host port llama-server's 8080
+	// is published on, or Caddy's chat port in secure mode.
+	if v := os.Getenv("LLAMA_TOOLCHEST_CHAT_PUBLIC_PORT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 && n <= 65535 {
+			cfg.ChatPublicPort = n
+		} else {
+			slog.Warn("ignoring LLAMA_TOOLCHEST_CHAT_PUBLIC_PORT: not a port number", "value", v)
 		}
 	}
 }
