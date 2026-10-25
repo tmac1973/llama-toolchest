@@ -201,3 +201,17 @@ func TestAceMapFlags(t *testing.T) {
 		t.Error("the fallback list still has sm_121a")
 	}
 }
+
+// sd-server has to keep the path to the GPU runtime that the build links
+// against; the Fedora ROCm image has no loader entry for it.
+func TestSDKeepsRuntimeLibraryPath(t *testing.T) {
+	p, ok := FindProject(ProjectSDCpp)
+	if !ok {
+		t.Fatal("sd.cpp project missing")
+	}
+	for _, a := range p.BaseCMakeArgs {
+		if strings.HasPrefix(a, "-DCMAKE_BUILD_WITH_INSTALL_RPATH") {
+			t.Errorf("sd.cpp builds with %s, which drops the GPU runtime path", a)
+		}
+	}
+}
