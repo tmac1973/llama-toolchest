@@ -169,3 +169,37 @@ func TestEmbeddingTableLine(t *testing.T) {
 		}
 	}
 }
+
+// The VRAM Est. and Fit tooltips say the plans leave the generation
+// reservation free, with the amount on each GPU a model would use.
+func TestReservationNote(t *testing.T) {
+	s := newTestServer(t)
+	hw := models.Hardware{GPUs: []models.GPUSpec{
+		{Index: 0, VRAMTotalMiB: 16376, ReservedMiB: 6144},
+		{Index: 1, VRAMTotalMiB: 16376},
+		{Index: 2, VRAMTotalMiB: 16376, ReservedMiB: 2048},
+	}}
+
+	s.cfg.GenerationEnabled = false
+	if got := s.reservationNote(hw); got != "" {
+		t.Errorf("generation off: %q, want no note", got)
+	}
+
+	s.cfg.GenerationEnabled = true
+	want := "Leaves the memory reserved for image and music backends free: 6.0 GiB on GPU 0, 2.0 GiB on GPU 2."
+	if got := s.reservationNote(hw); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	hw.GPUs[0].ReservedMiB, hw.GPUs[2].ReservedMiB = 0, 0
+	if got := s.reservationNote(hw); !strings.Contains(got, "none is reserved now") {
+		t.Errorf("nothing reserved: %q", got)
+	}
+}
+
+func TestFitHeadersCarryReservationNote(t *testing.T) {
+	note := "Leaves the memory reserved for image and music backends free: 6.0 GiB on GPU 0."
+	out := renderFiles(t, "hf_files", hfModelView{ID: "org/M-GGUF", ReservationNote: note})
+	if n := strings.Count(out, note+`">`); n != 2 {
+		t.Errorf("note ends %d header tooltips, want 2 (VRAM Est. and Fit); output=\n%s", n, out)
+	}
+}

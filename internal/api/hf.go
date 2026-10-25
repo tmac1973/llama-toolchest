@@ -60,6 +60,9 @@ type hfModelView struct {
 	// cells. Absent when every file already has its answer, so a listing
 	// of small files or a repeat visit costs no second round trip.
 	AnyPending bool
+	// ReservationNote ends the VRAM Est. and Fit tooltips: what the plans
+	// leave free for generation backends. See reservationNote.
+	ReservationNote string
 
 	// Set when the panel was opened from a recommendation: the file the
 	// card suggested, the context size it was suggested for (passed on to
@@ -123,6 +126,7 @@ func (s *Server) handleHFModel(w http.ResponseWriter, r *http.Request) {
 		FreeBytes:      s.downloader.FreeBytes(),
 		SafetyMargin:   huggingface.DiskSafetyMarginBytes,
 	}
+	view.ReservationNote = s.reservationNote(s.hardware())
 	if ctxName := r.URL.Query().Get("ctx"); recommendClasses[ctxName] != "" {
 		view.Ctx = ctxName
 		view.Suggest = r.URL.Query().Get("suggest")

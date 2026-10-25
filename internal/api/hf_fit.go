@@ -63,6 +63,26 @@ func (s *Server) repoMeta(ctx context.Context, source, repo string, f modelsourc
 	return meta
 }
 
+// reservationNote says, for the VRAM Est. and Fit tooltips, that the
+// plans leave the memory reserved for generation backends free, and how
+// much that is on each GPU a model would use. Empty when generation is
+// off, where there is nothing to reserve.
+func (s *Server) reservationNote(hw models.Hardware) string {
+	if s.cfg == nil || !s.cfg.GenerationEnabled {
+		return ""
+	}
+	var parts []string
+	for _, g := range models.PlanCards(hw) {
+		if g.ReservedMiB > 0 {
+			parts = append(parts, fmt.Sprintf("%s on GPU %d", mibText(g.ReservedMiB), g.Index))
+		}
+	}
+	if len(parts) == 0 {
+		return "Memory reserved for image and music backends is left free; none is reserved now."
+	}
+	return "Leaves the memory reserved for image and music backends free: " + strings.Join(parts, ", ") + "."
+}
+
 // planFileFits plans every model file in a repository from its shared
 // description. Files the description cannot speak for are left out, and
 // keep the size-only label.
