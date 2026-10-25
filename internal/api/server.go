@@ -710,6 +710,7 @@ func (s *Server) buildRouter() chi.Router {
 			r.Post("/{id}/autotune/cancel", s.handleAutotuneCancel)
 			r.Post("/{id}/autotune/resume", s.handleAutotuneResume)
 			r.Post("/{id}/autotune/restore", s.handleAutotuneRestore)
+			r.Post("/{id}/autotune/use-alternative", s.handleAutotuneUseAlternative)
 			r.Get("/{id}/autoconfig", s.handleAutoconfigDialog)
 			r.Post("/{id}/autoconfig", s.handleAutoconfigStart)
 			r.Get("/{id}/autoconfig/status", s.handleAutoconfigStatus)

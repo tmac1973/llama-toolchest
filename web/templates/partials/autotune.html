@@ -179,6 +179,24 @@
         {{else}}
         <p>{{.Message}}{{if .Detail}}<br><small title="What the starting profile measured{{if .Parts}}, combined over the workloads{{end}}.">Measured: {{.Detail}}.</small>{{end}}{{if .Parts}}<br><small>{{.Parts}}.</small>{{end}}</p>
         {{if .Alternative}}<p><small title="The best of the other settings measured side by side with the profile in the confirming stage.">Closest alternative: {{.Alternative}}.</small></p>{{end}}
+        {{if .OfferAlternative}}
+        <button type="button" class="outline"
+                hx-post="/api/models/{{$.ModelID}}/autotune/use-alternative"
+                hx-vals='{{hxVals "goal" .GoalKey}}'
+                hx-target="#autotune-{{cssID $.ModelID}}" hx-swap="innerHTML"
+                title="Saves the closest alternative as a profile and puts it into use, although its gain is within the margin of error. It takes effect the next time this model loads.">
+            Use it anyway
+        </button>
+        {{else if .ProfileName}}
+        <p><small>You chose to use the closest alternative anyway. It is saved as "{{.ProfileName}}".</small></p>
+        <button type="button"
+                hx-post="/api/models/{{$.ModelID}}/autotune/restore"
+                hx-vals='{{hxVals "profile" .ProfileName}}'
+                hx-target="#autotune-{{cssID $.ModelID}}" hx-swap="innerHTML"
+                title="Puts these settings into use. They take effect the next time this model loads; the profile stays saved either way.">
+            Use these settings
+        </button>
+        {{end}}
         {{end}}
     </article>
     {{end}}

@@ -389,3 +389,65 @@ func TestAutotuneResultsShowTheWorkloads(t *testing.T) {
 		t.Errorf("results = %+v", d.Results)
 	}
 }
+
+// A faster setting inside the margin of error can be used anyway: it is
+// saved as the goal's profile, put into use, and offered again after.
+func TestAutotuneUseAlternativeAnyway(t *testing.T) {
+	s := newTuneServer(t)
+	if _, err := s.registry.SaveProfile(profTestID, "Autoconfig", models.ProfileSourceAutoconfig, "b1"); err != nil {
+		t.Fatal(err)
+	}
+	profile := autotune.Candidate{Values: map[string]string{},
+		Scores: map[autotune.Goal]autotune.Score{
+			autotune.GoalGeneration: {Value: 92.7, Std: 6}, autotune.GoalPrompt: {Value: 1500, Std: 5}}}
+	alt := autotune.Candidate{Values: map[string]string{"ubatch_size": "1024"},
+		Scores: map[autotune.Goal]autotune.Score{
+			autotune.GoalGeneration: {Value: 100.8, Std: 7}, autotune.GoalPrompt: {Value: 1400, Std: 5}}}
+	rec := &autotune.Autotune{ID: "at-4", ModelID: profTestID, BaseProfile: "Autoconfig",
+		UseCase: autotune.UseCode, BuildID: "b1", Status: autotune.StatusDone, CreatedAt: time.Now(),
+		Results: map[autotune.Goal]autotune.Outcome{
+			autotune.GoalGeneration: {Goal: autotune.GoalGeneration, Winner: profile, Baseline: profile,
+				Message: "Your \"Autoconfig\" profile is already the fastest generation."},
+			autotune.GoalPrompt: {Goal: autotune.GoalPrompt, Winner: profile, Baseline: profile,
+				Message: "Your \"Autoconfig\" profile is already the fastest prompt."},
+		},
+	}
+	rec.SetStage(autotune.StageRecord{Key: autotune.StageConfirm, Status: autotune.StatusDone,
+		Candidates: []autotune.Candidate{profile, alt}})
+	s.tuneStore.Save(rec)
+
+	// Offered for generation, where the alternative measured faster; not
+	// for prompt, where it measured slower.
+	out := s.doTune(t, "GET", "/api/models/"+profTestID+"/autotune/status", nil)
+	if n := strings.Count(out, "Use it anyway"); n != 1 {
+		t.Errorf("Use it anyway offered %d times, want once:\n%s", n, out)
+	}
+	out = s.doTune(t, "POST", "/api/models/"+profTestID+"/autotune/use-alternative",
+		url.Values{"goal": {"prompt"}})
+	if !strings.Contains(out, "no faster setting") {
+		t.Errorf("a slower alternative was used:\n%s", out)
+	}
+
+	out = s.doTune(t, "POST", "/api/models/"+profTestID+"/autotune/use-alternative",
+		url.Values{"goal": {"generation"}})
+	if !strings.Contains(out, "Saved the alternative as") || !strings.Contains(out, "Restored profile") {
+		t.Errorf("use anyway failed:\n%s", out)
+	}
+	cfg, _ := s.registry.GetConfig(profTestID)
+	if cfg.UBatchSize != 1024 || cfg.ActiveProfile != "Autotune – fastest generation" {
+		t.Errorf("live config after use anyway = ubatch %d, profile %q", cfg.UBatchSize, cfg.ActiveProfile)
+	}
+	p, err := s.registry.GetProfile(profTestID, "Autotune – fastest generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Notes) == 0 || !strings.Contains(p.Notes[0].Reason, "within the margin of error") {
+		t.Errorf("profile notes do not say the gain is within the margin of error: %+v", p.Notes)
+	}
+
+	// Afterwards the card names the saved profile instead of offering again.
+	out = s.doTune(t, "GET", "/api/models/"+profTestID+"/autotune/status", nil)
+	if strings.Contains(out, "Use it anyway") || !strings.Contains(out, "You chose to use the closest alternative anyway") {
+		t.Errorf("results after use anyway:\n%s", out)
+	}
+}
