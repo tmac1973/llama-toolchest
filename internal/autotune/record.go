@@ -128,7 +128,10 @@ type Outcome struct {
 	Goal Goal `json:"goal"`
 	// Saved is false when the starting profile was already the fastest,
 	// in which case no profile is written.
-	Saved       bool      `json:"saved"`
+	Saved bool `json:"saved"`
+	// ProfileName is the profile the goal saved. With Saved false it is
+	// the closest alternative, saved later because the person chose to
+	// use it anyway (Runner.UseAlternative).
 	ProfileName string    `json:"profile_name,omitempty"`
 	Winner      Candidate `json:"winner"`
 	Baseline    Candidate `json:"baseline"`

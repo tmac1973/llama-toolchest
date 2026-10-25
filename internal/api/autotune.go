@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
@@ -297,6 +298,42 @@ func (s *Server) handleAutotuneRestore(w http.ResponseWriter, r *http.Request) {
 	s.renderAutotuneStatus(w, id, rec, &banner)
 }
 
+// handleAutotuneUseAlternative saves a goal's closest alternative — a
+// setting that measured faster than the starting profile, but within the
+// margin of error — and puts it into use, because the person asked to.
+func (s *Server) handleAutotuneUseAlternative(w http.ResponseWriter, r *http.Request) {
+	id := s.registry.ResolveID(chi.URLParam(r, "id"))
+	r.ParseForm()
+	goal := autotune.Goal(r.FormValue("goal"))
+
+	rec, ok := s.tuneStore.LatestForModel(id)
+	if !ok {
+		s.renderAutotuneStatus(w, id, nil, &panelBanner{"error", "There is no autotune run for this model."})
+		return
+	}
+	name, err := s.tuner.UseAlternative(rec.ID, goal)
+	if err != nil {
+		msg := "The settings were not saved: " + err.Error()
+		if errors.Is(err, autotune.ErrNoAlternative) {
+			msg = "There is no faster setting to use for this goal."
+		}
+		s.renderAutotuneStatus(w, id, rec, &panelBanner{"error", msg})
+		return
+	}
+	rec, _ = s.tuneStore.LatestForModel(id)
+	p, err := s.registry.GetProfile(id, name)
+	if err != nil {
+		s.renderAutotuneStatus(w, id, rec, &panelBanner{"error", "The settings were saved, but the profile could not be read back: " + err.Error()})
+		return
+	}
+	banner := s.restoreProfile(w, r, id, p)
+	if banner.Kind != "error" {
+		s.markConfigPanelStale(w, r, id)
+		banner.Text = fmt.Sprintf("Saved the alternative as %q. ", name) + banner.Text
+	}
+	s.renderAutotuneStatus(w, id, rec, &banner)
+}
+
 // autotuneProgressData is what the autotune_progress partial renders.
 type autotuneProgressData struct {
 	ModelID   string
@@ -477,6 +514,11 @@ type autotuneResult struct {
 	// Alternative is, when the starting profile won, the best other
 	// setting measured and how far behind it came; "" when there is none.
 	Alternative string
+	// GoalKey is the goal as the use-anyway form sends it.
+	GoalKey string
+	// OfferAlternative is true when the alternative measured faster, by
+	// less than the margin of error, and can still be used anyway.
+	OfferAlternative bool
 }
 
 func (s *Server) autotuneResultsData(id, name string, rec *autotune.Autotune, banner *panelBanner) autotuneResultsData {
@@ -491,7 +533,7 @@ func (s *Server) autotuneResultsData(id, name string, rec *autotune.Autotune, ba
 		if !ok {
 			continue
 		}
-		res := autotuneResult{Goal: autotune.GoalLabel(g), Saved: out.Saved,
+		res := autotuneResult{Goal: autotune.GoalLabel(g), GoalKey: string(g), Saved: out.Saved,
 			ProfileName: out.ProfileName, Message: out.Message}
 		if out.Saved {
 			// The card is headed with the goal already; repeating it in
@@ -518,6 +560,7 @@ func (s *Server) autotuneResultsData(id, name string, rec *autotune.Autotune, ba
 					autotune.MeasurementPhrase(g, alt.Scores[g]), compared, strings.Join(settings, ", "))
 				if strings.HasSuffix(compared, "faster") {
 					res.Alternative += ". " + autotune.MarginPhrase(g, out.Baseline, alt)
+					res.OfferAlternative = out.ProfileName == ""
 				}
 			}
 		}

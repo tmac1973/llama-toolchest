@@ -635,7 +635,7 @@ func (r *Runner) conclude(rec *Autotune) {
 	for key, goals := range winners {
 		winner := byKey[key]
 		name := profileName(goals)
-		if err := r.saveProfile(rec, name, winner, baseline, goals); err != nil {
+		if err := r.saveProfile(rec, name, winner, baseline, goals, false); err != nil {
 			slog.Warn("could not save an autotune profile", "run", rec.ID, "profile", name, "error", err)
 			rec.Error = "the results were measured, but a profile could not be saved: " + err.Error()
 			continue
@@ -651,6 +651,42 @@ func (r *Runner) conclude(rec *Autotune) {
 	rec.Status = StatusDone
 	r.save(rec)
 	slog.Info("autotune done", "run", rec.ID, "profiles", len(winners))
+}
+
+// ErrNoAlternative means a goal has no faster setting to use anyway: the
+// run is not finished, the goal saved a profile already, or every other
+// setting measured slower than the starting profile.
+var ErrNoAlternative = errors.New("no faster setting to use for this goal")
+
+// UseAlternative saves the closest alternative of a goal the starting
+// profile kept — a setting that measured faster, but by less than the
+// margin of error — as that goal's profile, because the person asked for
+// it. The record remembers the profile so the results screen can offer
+// it again. Returns the profile's name.
+func (r *Runner) UseAlternative(id string, g Goal) (string, error) {
+	rec, ok := r.deps.Store.Get(id)
+	if !ok {
+		return "", fmt.Errorf("autotune run %s not found", id)
+	}
+	out, ok := rec.Results[g]
+	if rec.Status != StatusDone || !ok || out.Saved {
+		return "", ErrNoAlternative
+	}
+	alt, _, ok := ClosestAlternative(rec, g)
+	base, measured := out.Baseline.Scores[g]
+	if !ok || !measured || alt.Scores[g].Value <= base.Value {
+		return "", ErrNoAlternative
+	}
+	name := profileName([]Goal{g})
+	if err := r.saveProfile(rec, name, alt, out.Baseline, []Goal{g}, true); err != nil {
+		return "", err
+	}
+	out.ProfileName = name
+	rec.Results[g] = out
+	if err := r.save(rec); err != nil {
+		return "", err
+	}
+	return name, nil
 }
 
 // SaveUnsavedWinners finishes runs that measured a winner and then saved
@@ -757,8 +793,10 @@ func percentFaster(from, to float64, lowerIsBetter bool) string {
 }
 
 // saveProfile writes the winning settings as a profile of the model,
-// with what was measured and why each setting is there.
-func (r *Runner) saveProfile(rec *Autotune, name string, winner, baseline Candidate, goals []Goal) error {
+// with what was measured and why each setting is there. withinNoise marks
+// settings the person chose although their gain was inside the margin of
+// error, so the notes do not claim more than was measured.
+func (r *Runner) saveProfile(rec *Autotune, name string, winner, baseline Candidate, goals []Goal, withinNoise bool) error {
 	profile, err := r.deps.Registry.GetProfile(rec.ModelID, rec.BaseProfile)
 	if err != nil {
 		return err
@@ -796,6 +834,10 @@ func (r *Runner) saveProfile(rec *Autotune, name string, winner, baseline Candid
 		headline = fmt.Sprintf("Measured on the %s workload: %s. The %q profile could not be measured on this machine, so there is no comparison.",
 			UseCaseLabel(rec.UseCase), summaryLine(winner, baseline), rec.BaseProfile)
 		fieldReason = "The fastest of the settings that could be measured here: %s."
+	}
+	if withinNoise {
+		headline += " The gain was within the margin of error, so it may not be real; these settings were saved because you chose to use them anyway."
+		fieldReason = "Measured as faster here, within the margin of error: %s."
 	}
 	notes := []models.ProfileNote{{Origin: "autotune", Reason: headline}}
 	for _, field := range slices.Sorted(maps.Keys(winner.Values)) {
