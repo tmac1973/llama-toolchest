@@ -136,7 +136,15 @@ func Catalog() []CatalogEntry {
 			Kind:       KindAce,
 			Components: aceComponents("acestep-v15-xl-sft-Q8_0.gguf", 5305828704),
 			License:    "MIT",
-			Notes:      "Higher quality, 50 steps; a 60-second song in about 17–19 s on a Radeon AI PRO R9700, peaking at about 7 GB of VRAM. Shares three files with ACE-Step 1.5 turbo.",
+			Notes:      "Higher quality, 50 steps; a 60-second song in about 17–19 s on a Radeon AI PRO R9700, peaking at about 7 GB of VRAM. Can't add, pull out or complete instruments (use XL base). Shares three files with ACE-Step 1.5 turbo.",
+		},
+		{
+			ID:         "ace-step-xl-base",
+			Name:       "ACE-Step 1.5 XL base",
+			Kind:       KindAce,
+			Components: aceComponents("acestep-v15-xl-base-Q8_0.gguf", 5305828704),
+			License:    "MIT",
+			Notes:      "The one that can add, pull out or complete instruments in a song; 50 steps. Shares three files with the other ACE-Step sets.",
 		},
 	}
 }

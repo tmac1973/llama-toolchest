@@ -125,16 +125,16 @@ var musicTracks = []string{"vocals", "backing_vocals", "drums", "bass", "guitar"
 // frames).
 const musicUploadLimit = 128 << 20
 
-// aceTasks returns the tasks a music set can run. A turbo DiT, which
-// acestep.cpp tells apart by its metadata, is named so in every ACE-Step
-// GGUF we know of.
+// aceTasks returns the tasks a music set can run: every one on a base DiT,
+// all but stemTasks on turbo or SFT. Every ACE-Step base GGUF we know of
+// says "base" in its name; acestep.cpp itself can't tell SFT from base.
 func aceTasks(set generation.ModelSet) []string {
 	for _, c := range set.Components {
-		if c.Slot == "dit" && strings.Contains(strings.ToLower(filepath.Base(firstNonEmpty(c.Path, c.File))), "turbo") {
-			return slices.DeleteFunc(slices.Clone(musicTasks), func(t string) bool { return slices.Contains(stemTasks, t) })
+		if c.Slot == "dit" && strings.Contains(strings.ToLower(filepath.Base(firstNonEmpty(c.Path, c.File))), "base") {
+			return musicTasks
 		}
 	}
-	return musicTasks
+	return slices.DeleteFunc(slices.Clone(musicTasks), func(t string) bool { return slices.Contains(stemTasks, t) })
 }
 
 func (q musicRequest) task() string {
@@ -150,7 +150,7 @@ func checkMusicRequest(set generation.ModelSet, q musicRequest, captionField str
 		return bad("task_type must be one of " + strings.Join(musicTasks, ", "))
 	}
 	if !slices.Contains(aceTasks(set), task) {
-		return "task_not_supported", task + " needs a base or SFT model; " + set.ID + " is turbo"
+		return "task_not_supported", task + " needs a base model, such as ace-step-xl-base; " + set.ID + " is not one"
 	}
 	if task != taskExtract && strings.TrimSpace(q.Caption) == "" {
 		return bad(captionField + " is required: a short description of the music")

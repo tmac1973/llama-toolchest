@@ -135,7 +135,7 @@ func musicServer(t *testing.T) (*Server, *fakeAce) {
 	t.Helper()
 	s := vramServer(t)
 	if err := s.gen.AddModelSet(generation.ModelSet{ID: "ace-xl", Name: "ACE XL", Kind: generation.KindAce, Complete: true,
-		Components: []generation.Component{{Slot: "lm", Path: "/m/acestep-5Hz-lm-4B-Q8_0.gguf"}, {Slot: "dit", Path: "/m/acestep-v15-xl-sft-Q8_0.gguf"}}}); err != nil {
+		Components: []generation.Component{{Slot: "lm", Path: "/m/acestep-5Hz-lm-4B-Q8_0.gguf"}, {Slot: "dit", Path: "/m/acestep-v15-xl-base-Q8_0.gguf"}}}); err != nil {
 		t.Fatal(err)
 	}
 	f := newFakeAce(t)
@@ -371,7 +371,7 @@ func TestAceStepCompatibleFlow(t *testing.T) {
 	var items []map[string]any
 	json.Unmarshal([]byte(entry["result"].(string)), &items)
 	file := items[0]["file"].(string)
-	if !strings.HasPrefix(file, "/v1/audio?path="+task+".mp3") || items[0]["dit_model"] != "acestep-v15-xl-sft-Q8_0" ||
+	if !strings.HasPrefix(file, "/v1/audio?path="+task+".mp3") || items[0]["dit_model"] != "acestep-v15-xl-base-Q8_0" ||
 		items[0]["metas"].(map[string]any)["keyscale"] != "G major" {
 		t.Errorf("result item = %v", items[0])
 	}
@@ -562,8 +562,11 @@ func TestAceTasks(t *testing.T) {
 	if got := aceTasks(set("acestep-v15-turbo-Q8_0.gguf")); slices.Contains(got, taskLego) || !slices.Contains(got, taskRepaint) {
 		t.Errorf("turbo tasks = %v", got)
 	}
-	if got := aceTasks(set("acestep-v15-xl-sft-Q8_0.gguf")); !slices.Equal(got, musicTasks) {
+	if got := aceTasks(set("acestep-v15-xl-sft-Q8_0.gguf")); slices.Contains(got, taskExtract) || !slices.Contains(got, taskCover) {
 		t.Errorf("sft tasks = %v", got)
+	}
+	if got := aceTasks(set("acestep-v15-xl-base-Q8_0.gguf")); !slices.Equal(got, musicTasks) {
+		t.Errorf("base tasks = %v", got)
 	}
 	if !slices.Contains(musicTasks, taskLego) {
 		t.Error("aceTasks changed musicTasks")
