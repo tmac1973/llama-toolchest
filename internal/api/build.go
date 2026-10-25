@@ -612,10 +612,12 @@ func (s *Server) activeTarget() models.Target {
 }
 
 // targetFor is buildTarget with this machine's GPUs, which the preset
-// needs to balance expert offload across cards.
+// needs to balance expert offload across cards. The preset is read when
+// the router starts, with nothing of ours loaded, so it is balanced for
+// the room the cards have then.
 func (s *Server) targetFor(b *builder.BuildResult) models.Target {
 	t := buildTarget(b)
-	t.GPUMiB = models.GPUMiB(s.hardware())
+	t.GPUMiB = models.GPUMiB(s.idleHardware())
 	return t
 }
 

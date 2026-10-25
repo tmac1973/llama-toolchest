@@ -27,8 +27,8 @@ func (s *Server) handleGPUMap(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Each model as its launch splits it: by the cards' room, beside the
-	// generation reservations.
-	gpuMiB := models.GPUMiB(s.hardware())
+	// generation reservations, as the preset was written (targetFor).
+	gpuMiB := models.GPUMiB(s.idleHardware())
 	if len(gpuMiB) != numGPUs {
 		gpuMiB = make([]int, numGPUs)
 	}
