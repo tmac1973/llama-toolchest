@@ -105,21 +105,26 @@ func (s *Server) genV1Model(inst generation.Instance) map[string]any {
 	if set.Kind == generation.KindAce {
 		kind, api = "music", []string{"music.jobs", "music.ace_step"}
 	}
+	meta := map[string]any{
+		"kind":         kind,
+		"model_set":    set.ID,
+		"recipe":       set.Recipe,
+		"capabilities": caps,
+		"gpu":          inst.GPU,
+		"reserved_mib": inst.ReservedMiB,
+		"state":        s.genMgr.Status(inst.ID).State,
+		"api":          api,
+	}
+	if set.Kind == generation.KindAce {
+		// tasks lists the music task_type values this model runs.
+		meta["tasks"] = aceTasks(set)
+	}
 	return map[string]any{
 		"id":       inst.ID,
 		"object":   "model",
 		"created":  set.Created.Unix(),
 		"owned_by": "llama-toolchest",
-		"meta": map[string]any{
-			"kind":         kind,
-			"model_set":    set.ID,
-			"recipe":       set.Recipe,
-			"capabilities": caps,
-			"gpu":          inst.GPU,
-			"reserved_mib": inst.ReservedMiB,
-			"state":        s.genMgr.Status(inst.ID).State,
-			"api":          api,
-		},
+		"meta":     meta,
 	}
 }
 

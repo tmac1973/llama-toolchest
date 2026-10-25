@@ -297,7 +297,7 @@ func TestV1ModelsListsInstances(t *testing.T) {
 }
 
 // meta.api lists the route groups for each generation entry; text
-// entries have none.
+// entries have none. Music entries list their tasks too.
 func TestV1ModelsMetaAPI(t *testing.T) {
 	s, _ := musicServer(t)
 	addInstance(t, s, generation.Instance{ID: "ming", Port: 8081, Enabled: true, ReservedMiB: 4096})
@@ -324,6 +324,9 @@ func TestV1ModelsMetaAPI(t *testing.T) {
 	}
 	for _, m := range out.Data {
 		api, has := m.Meta["api"]
+		if tasks, ok := m.Meta["tasks"]; (m.ID == "music") != ok || ok && fmt.Sprint(tasks) != fmt.Sprint(musicTasks) {
+			t.Errorf("%s: meta.tasks = %v", m.ID, tasks)
+		}
 		if w, ok := want[m.ID]; ok {
 			if fmt.Sprint(api) != w {
 				t.Errorf("%s: meta.api = %v, want %s", m.ID, api, w)
