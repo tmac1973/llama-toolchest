@@ -1126,8 +1126,11 @@ load_env_ports() {
 
     # Reload the secure-mode values so a rebuild/quick (which re-runs
     # write_env_file but NOT configure_secure) reproduces the same .env instead
-    # of resetting the external URL/ports to defaults.
-    if [[ "$SECURE" == true ]]; then
+    # of resetting the external URL/ports to defaults. Only from a .env written
+    # in secure mode: in a plain one LLAMA_TOOLCHEST_INFERENCE_PORT is the
+    # public chat port (8080), which as the loopback debug port would clash
+    # with Caddy's chat port when a plain install is switched to --secure.
+    if [[ "$SECURE" == true ]] && grep -qE '^LLAMA_TOOLCHEST_SECURE=(1|true)$' "$env_file" 2>/dev/null; then
         val="$(grep '^LLAMA_TOOLCHEST_EXTERNAL_URL=' "$env_file" 2>/dev/null | cut -d= -f2-)" || true
         [[ -n "$val" ]] && SECURE_EXTERNAL_URL="$val" || true
         val="$(grep '^LLAMA_TOOLCHEST_INFERENCE_PORT=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
