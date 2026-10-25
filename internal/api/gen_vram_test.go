@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/generation"
 	"github.com/tmac1973/llama-toolchest/internal/models"
@@ -184,5 +185,27 @@ func TestGPUMapShowsReservations(t *testing.T) {
 	allocs := s.genReservationAllocations()
 	if len(allocs) != 1 || allocs[0].ModelName != "qwen (reserved)" || allocs[0].PerGPUGB != 11.5 {
 		t.Errorf("allocations = %+v", allocs)
+	}
+}
+
+// After a test run the card's reading lags behind the backend's exit; the
+// wait returns once it is back near the reading from before the run, and
+// gives up after its limit.
+func TestWaitGPUReleased(t *testing.T) {
+	readings := []int{11300, 11300, 1400, 1300}
+	i := 0
+	used := func() int {
+		v := readings[min(i, len(readings)-1)]
+		i++
+		return v
+	}
+	if !waitGPUReleased(used, 1200, time.Second, time.Millisecond) {
+		t.Error("reading came back within the slack, but the wait gave up")
+	}
+	if i != 3 {
+		t.Errorf("read %d times, want 3 (stop at the first released reading)", i)
+	}
+	if waitGPUReleased(func() int { return 9000 }, 1200, 20*time.Millisecond, time.Millisecond) {
+		t.Error("reading never came back, but the wait reported success")
 	}
 }
