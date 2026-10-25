@@ -48,10 +48,15 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 RUN curl -LsSf https://astral.sh/uv/install.sh \
     | env UV_INSTALL_DIR=/usr/local/bin INSTALLER_NO_MODIFY_PATH=1 sh
 
+# apt-get update runs again here, not only in the earlier step: this step mounts
+# the whole build context, so it runs again after any change to the checkout,
+# while the earlier one usually stays cached. Its package lists can then be weeks
+# old, and apt asks for package versions Ubuntu has since removed (a 404).
 RUN --mount=type=bind,target=/build_context \
     --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     set -e; \
+    apt-get update; \
     if [ -n "${INSTALL_PACKAGE}" ]; then \
         echo "Installing local snapshot: /build_context/${INSTALL_PACKAGE}"; \
         apt-get install -y --no-install-recommends "/build_context/${INSTALL_PACKAGE}"; \
