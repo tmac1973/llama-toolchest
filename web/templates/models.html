@@ -119,6 +119,21 @@
         htmx.ajax('GET', '/api/models/' + detail.id + '/config',
                   { target: panel, swap: 'innerHTML' });
     });
+
+    // --- Keep the scroll position when a model list is re-rendered ---
+    // htmx puts the new list in before it removes the old one. If an
+    // element in the old list has focus (a restart icon, or "Restart
+    // required" in a Configure panel, gets it back when the restart dialog
+    // closes), Chrome's scroll anchoring follows that
+    // element down by the height of the whole new list, and the page ends
+    // up near the bottom. Remove focus first, so nothing is followed. Only
+    // these lists: a Configure panel save must keep focus in its field.
+    var reRenderedLists = ['model-list', 'embedding-list', 'helper-list'];
+    document.body.addEventListener('htmx:beforeSwap', function(e) {
+        var target = e.detail.target;
+        if (!target || reRenderedLists.indexOf(target.id) < 0) return;
+        if (target.contains(document.activeElement)) document.activeElement.blur();
+    });
 })();
 
 // --- Restart shortcut ---
