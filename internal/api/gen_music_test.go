@@ -218,6 +218,20 @@ func TestMusicJobPhases(t *testing.T) {
 	}
 }
 
+// On a free GPU the job starts at once, and the first answer says so.
+func TestMusicJobStartsAtOnceOnAFreeGPU(t *testing.T) {
+	s, f := musicServer(t)
+	f.mu.Lock()
+	f.hold = make(chan struct{})
+	f.mu.Unlock()
+	defer close(f.hold)
+	rec := postMusic(s, `{"caption":"x"}`)
+	if !strings.Contains(rec.Body.String(), `"status":"running"`) || !strings.Contains(rec.Body.String(), `"phase":"composing"`) {
+		t.Errorf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	s.cancelMusic(createdID(t, rec))
+}
+
 func TestMusicCancelQueuedAndRunning(t *testing.T) {
 	s, f := musicServer(t)
 

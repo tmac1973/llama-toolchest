@@ -97,7 +97,11 @@ func (s *Server) submitImageJob(inst generation.Instance, req imageJobRequest, b
 	ctx, cancel := context.WithCancel(context.Background())
 	job := &imageJob{
 		ID: newGenJobID(), InstanceID: inst.ID, Status: jobQueued, Phase: imagePhaseQueued, Request: req,
-		Submitted: time.Now(), body: body, cancel: cancel, ticket: ticket,
+		Submitted: ticket.Info().Submitted, body: body, cancel: cancel, ticket: ticket,
+	}
+	// A free GPU starts the job at once; say so in the first answer.
+	if started := ticket.Info().Started; !started.IsZero() {
+		job.Status, job.Phase, job.Started = jobRunning, imagePhaseGenerating, &started
 	}
 	s.genImageJobs.add(job)
 	go s.runImageJob(ctx, job.ID, inst, ticket)
@@ -145,7 +149,10 @@ func (s *Server) runImageJob(ctx context.Context, id string, inst generation.Ins
 			return
 		}
 		body = j.body
-		j.Status, j.Phase, j.Started = jobRunning, imagePhaseGenerating, &now
+		if j.Started == nil {
+			j.Started = &now
+		}
+		j.Status, j.Phase = jobRunning, imagePhaseGenerating
 	})
 	if cancelled {
 		finish(jobCancelled, "", nil, nil)

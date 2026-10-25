@@ -119,6 +119,22 @@ func TestImageJobSucceeds(t *testing.T) {
 	}
 }
 
+// On a free GPU the job starts at once, and the first answer says so.
+func TestImageJobStartsAtOnceOnAFreeGPU(t *testing.T) {
+	s := vramServer(t)
+	fb := newFakeBackend(t, 200*time.Millisecond)
+	runFakeInstance(t, s, "ming", "ming-image", 0, fb)
+	rec := postImageJob(s, `{"model":"ming","prompt":"x"}`)
+	var created map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &created)
+	if rec.Code != http.StatusAccepted || created["status"] != "running" || created["phase"] != "generating" || created["queue_position"] != float64(0) {
+		t.Errorf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	if j := waitImageJob(t, s, created["id"].(string), jobSucceeded); j.Started == nil || j.Started.Before(j.Submitted) {
+		t.Errorf("started = %v, submitted = %v", j.Started, j.Submitted)
+	}
+}
+
 // The job shows back only model, prompt, size and n; the backend still
 // gets the whole request.
 func TestImageJobEchoLeavesOutLargeFields(t *testing.T) {

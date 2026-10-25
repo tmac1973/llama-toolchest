@@ -151,7 +151,11 @@ func (s *Server) submitMusic(inst generation.Instance, req musicRequest) (*music
 	ctx, cancel := context.WithCancel(context.Background())
 	job := &musicJob{
 		ID: newGenJobID(), InstanceID: inst.ID, Status: musicQueued, Phase: musicPhaseQueued, Request: req,
-		Submitted: time.Now(), cancel: cancel, ticket: ticket,
+		Submitted: ticket.Info().Submitted, cancel: cancel, ticket: ticket,
+	}
+	// A free GPU starts the job at once; say so in the first answer.
+	if started := ticket.Info().Started; !started.IsZero() {
+		job.Status, job.Phase, job.Started = musicRunning, musicPhaseComposing, &started
 	}
 	if set, err := s.gen.ModelSet(inst.ModelSetID); err == nil {
 		for _, c := range set.Components {
@@ -199,7 +203,20 @@ func (s *Server) runMusicJob(ctx context.Context, id string, inst generation.Ins
 
 	view, _ := s.genMusic.view(id)
 	now := time.Now()
-	s.genMusic.update(id, func(j *musicJob) { j.Status, j.Phase, j.Started = musicRunning, musicPhaseComposing, &now })
+	cancelled := false
+	s.genMusic.update(id, func(j *musicJob) {
+		if j.Status == musicCancelled {
+			cancelled = true
+			return
+		}
+		if j.Started == nil {
+			j.Started = &now
+		}
+		j.Status, j.Phase = musicRunning, musicPhaseComposing
+	})
+	if cancelled {
+		return
+	}
 	setPhase := func(phase string) {
 		s.genMusic.update(id, func(j *musicJob) {
 			if j.Finished == nil {
