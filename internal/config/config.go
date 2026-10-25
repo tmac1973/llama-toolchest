@@ -76,6 +76,79 @@ type Config struct {
 	// port llama-server listens on inside. Never written to the YAML: it
 	// describes the deploy, not a setting.
 	ChatPublicPort int `yaml:"-"`
+
+	// envVars maps the YAML name of each field applyEnvOverrides set to
+	// the environment variable that set it, and file holds the values
+	// those fields had before the override. Saving writes file's values
+	// for those fields (see FileValues), so a value that only came from
+	// the environment never ends up in the YAML and outlives it.
+	envVars map[string]string
+	file    *Config
+}
+
+// YAML names of the fields an environment variable can override.
+const (
+	FieldExternalURL        = "external_url"
+	FieldLlamaPort          = "llama_port"
+	FieldGenPublicPortStart = "gen_public_port_start"
+)
+
+// envFieldCopy copies one overridable field from src to dst, keyed by
+// the field's YAML name.
+var envFieldCopy = map[string]func(dst, src *Config){
+	FieldExternalURL:        func(dst, src *Config) { dst.ExternalURL = src.ExternalURL },
+	FieldLlamaPort:          func(dst, src *Config) { dst.LlamaPort = src.LlamaPort },
+	FieldGenPublicPortStart: func(dst, src *Config) { dst.GenPublicPortStart = src.GenPublicPortStart },
+}
+
+// EnvVar returns the environment variable that overrides the field with
+// this YAML name, or "" when the field's value came from the file.
+func (c *Config) EnvVar(field string) string {
+	return c.envVars[field]
+}
+
+// FileValues returns a copy of the config to write to the YAML file:
+// every field an environment variable overrides has the file's own value
+// (or the value saved through SetSaved since), not the overridden one.
+func (c *Config) FileValues() *Config {
+	out := *c
+	for field := range c.envVars {
+		envFieldCopy[field](&out, c.file)
+	}
+	out.envVars, out.file = nil, nil
+	return &out
+}
+
+// SavedExternalURL returns the external URL the config file holds, which
+// differs from ExternalURL while LLAMA_TOOLCHEST_EXTERNAL_URL overrides it.
+func (c *Config) SavedExternalURL() string {
+	if c.envVars[FieldExternalURL] != "" {
+		return c.file.ExternalURL
+	}
+	return c.ExternalURL
+}
+
+// SetExternalURL changes the external URL. While an environment variable
+// overrides it, the variable keeps winning: only the value saved to the
+// file changes, and it takes effect once the variable is removed.
+func (c *Config) SetExternalURL(v string) {
+	c.setSaved(FieldExternalURL, func(cfg *Config) { cfg.ExternalURL = v })
+}
+
+// SetLlamaPort changes the llama-server port, with the same rule as
+// SetExternalURL while LLAMA_TOOLCHEST_LLAMA_PORT overrides it.
+func (c *Config) SetLlamaPort(n int) {
+	c.setSaved(FieldLlamaPort, func(cfg *Config) { cfg.LlamaPort = n })
+}
+
+// setSaved applies set to the file's values when an environment variable
+// overrides field, and to the config in use otherwise.
+func (c *Config) setSaved(field string, set func(*Config)) {
+	if c.envVars[field] != "" {
+		set(c.file)
+		return
+	}
+	set(c)
 }
 
 // ChatPort returns the chat UI port as seen from outside: ChatPublicPort
@@ -198,13 +271,25 @@ func Load(path string) (*Config, error) {
 // proxy (see docs/secure.md) must set so the UI's chat/API links render with
 // the externally reachable scheme and host. Empty/unset env vars are ignored,
 // so they never clobber a YAML value.
+//
+// Each field set here is recorded with the value the file had, so saving
+// the config writes that value back instead of the overridden one.
 func applyEnvOverrides(cfg *Config) {
+	file := *cfg
+	set := func(field, envVar string) {
+		if cfg.envVars == nil {
+			cfg.envVars = map[string]string{}
+			cfg.file = &file
+		}
+		cfg.envVars[field] = envVar
+	}
 	if v := os.Getenv("LLAMA_TOOLCHEST_EXTERNAL_URL"); v != "" {
 		// The chat and API links are built from it; a value that is not
 		// an http(s) URL with a host would render broken links, so it is
 		// ignored with a warning, like a non-numeric port below.
 		if u, err := url.Parse(v); err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" {
 			cfg.ExternalURL = v
+			set(FieldExternalURL, "LLAMA_TOOLCHEST_EXTERNAL_URL")
 		} else {
 			slog.Warn("ignoring LLAMA_TOOLCHEST_EXTERNAL_URL: not an http(s) URL with a host", "value", v)
 		}
@@ -212,6 +297,7 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("LLAMA_TOOLCHEST_LLAMA_PORT"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.LlamaPort = n
+			set(FieldLlamaPort, "LLAMA_TOOLCHEST_LLAMA_PORT")
 		} else {
 			slog.Warn("ignoring non-numeric LLAMA_TOOLCHEST_LLAMA_PORT", "value", v)
 		}
@@ -222,6 +308,7 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("LLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 1 && n <= 65535 {
 			cfg.GenPublicPortStart = n
+			set(FieldGenPublicPortStart, "LLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START")
 		} else {
 			slog.Warn("ignoring LLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START: not a port number", "value", v)
 		}

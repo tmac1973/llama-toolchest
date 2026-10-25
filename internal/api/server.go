@@ -1020,6 +1020,8 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		DefaultSource    string
 		HasExtURL        bool
 		ExternalURL      string
+		ExternalURLEnv   string
+		ExternalURLInUse string
 		DataDir          string
 		ModelsDir        string
 		DefaultModelsDir string
@@ -1047,7 +1049,9 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		HasMSToken:       s.cfg.MSToken != "",
 		DefaultSource:    s.defaultModelSource(),
 		HasExtURL:        s.cfg.ExternalURL != "",
-		ExternalURL:      s.cfg.ExternalURL,
+		ExternalURL:      s.cfg.SavedExternalURL(),
+		ExternalURLEnv:   s.cfg.EnvVar(config.FieldExternalURL),
+		ExternalURLInUse: s.cfg.ExternalURL,
 		DataDir:          s.cfg.DataDir,
 		ModelsDir:        s.cfg.ModelsDir,
 		DefaultModelsDir: filepath.Join(s.cfg.DataDir, "models"),

@@ -164,7 +164,7 @@ auto_start: false           # Start the inference router on container startup
 
 To persist models on the host filesystem (so they survive `docker volume rm`), set `LLAMA_TOOLCHEST_MODELS_DIR=/path/to/models` in `.env` before running `setup.sh`. Existing models in the volume won't be visible after switching — move them first.
 
-`external_url` and `llama_port` can also be set from the environment (`LLAMA_TOOLCHEST_EXTERNAL_URL`, `LLAMA_TOOLCHEST_LLAMA_PORT`), which overrides the YAML — handy for container deploys that inject values via compose. `LLAMA_TOOLCHEST_CHAT_PUBLIC_PORT` sets the port the dashboard's "Open Chat UI" link uses, when the chat UI is reached on another port than `llama_port`; `setup.sh` sets it for container installs.
+`external_url` and `llama_port` can also be set from the environment (`LLAMA_TOOLCHEST_EXTERNAL_URL`, `LLAMA_TOOLCHEST_LLAMA_PORT`), which overrides the YAML — handy for container deploys that inject values via compose. A value set from the environment is used while the variable is set but never written to the YAML: saving Settings keeps the file's own value, and changing that setting on the Settings page saves the new value to the file, where it applies once the variable is removed. `LLAMA_TOOLCHEST_CHAT_PUBLIC_PORT` sets the port the dashboard's "Open Chat UI" link uses, when the chat UI is reached on another port than `llama_port`; `setup.sh` sets it for container installs.
 
 ### Securing with HTTPS + a login
 

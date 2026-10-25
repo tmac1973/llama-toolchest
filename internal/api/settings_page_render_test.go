@@ -31,6 +31,8 @@ func TestSettingsPageRendersEnvSection(t *testing.T) {
 		DefaultSource     string
 		HasExtURL         bool
 		ExternalURL       string
+		ExternalURLEnv    string
+		ExternalURLInUse  string
 		DataDir           string
 		ModelsDir         string
 		DefaultModelsDir  string

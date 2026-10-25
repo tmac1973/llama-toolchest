@@ -269,6 +269,12 @@
        <code>http://localhost:3000</code>. If you access this server from other
        machines, change this to an externally resolvable IP or hostname
        (e.g. <code>http://192.168.1.50:3000</code>).</p>
+    {{if .ExternalURLEnv}}
+    <p><mark>In use: <code>{{.ExternalURLInUse}}</code>, set by the
+       <code>{{.ExternalURLEnv}}</code> environment variable.</mark>
+       The variable wins over this setting. A URL saved here is kept in the
+       config file and is used once the variable is removed.</p>
+    {{end}}
     <form hx-put="/api/settings"
           hx-target="#ext-url-status"
           hx-swap="innerHTML">
