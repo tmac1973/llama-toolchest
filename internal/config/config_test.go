@@ -183,3 +183,38 @@ func TestChatPublicPort(t *testing.T) {
 		t.Errorf("invalid value was used: %d", cfg.ChatPublicPort)
 	}
 }
+
+// FileValues gives back the file's own value for each overridden field,
+// so saving the config does not write values that only came from the
+// environment.
+func TestFileValuesUndoEnvOverrides(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cfg.yaml")
+	if err := os.WriteFile(path, []byte("external_url: http://myhost:3000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LLAMA_TOOLCHEST_EXTERNAL_URL", "https://localhost:8443")
+	t.Setenv("LLAMA_TOOLCHEST_LLAMA_PORT", "")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.EnvVar(FieldExternalURL); got != "LLAMA_TOOLCHEST_EXTERNAL_URL" {
+		t.Errorf("EnvVar(external_url) = %q", got)
+	}
+	if got := cfg.EnvVar(FieldLlamaPort); got != "" {
+		t.Errorf("EnvVar(llama_port) = %q, want none: the variable is empty", got)
+	}
+
+	cfg.APIKey = "unrelated"
+	cfg.LlamaPort = 8181
+	file := cfg.FileValues()
+	if file.ExternalURL != "http://myhost:3000" {
+		t.Errorf("file ExternalURL = %q, want the file's value", file.ExternalURL)
+	}
+	if file.APIKey != "unrelated" || file.LlamaPort != 8181 {
+		t.Errorf("file = %q, %d; want fields without an override as they are now", file.APIKey, file.LlamaPort)
+	}
+	if cfg.ExternalURL != "https://localhost:8443" {
+		t.Errorf("FileValues changed the config in use: %q", cfg.ExternalURL)
+	}
+}

@@ -185,7 +185,9 @@ the browser chat UI — not for programmatic clients.
   either way, because they go through `443`.
 - **`ExternalURL`.** The installer sets `LLAMA_TOOLCHEST_EXTERNAL_URL=https://…`
   so the UI's chat/API links render with the externally reachable URL. If you
-  change domains, update it (Settings → External URL, or the env in `.env`).
+  change domains, update the variable in `.env`: while it is set it wins over
+  Settings → Server URL, and it is never written to the config file, so
+  switching back to plain mode returns to the URL saved in Settings.
 - **TLS termination.** Browser ↔ Caddy is encrypted; Caddy ↔ app is plain HTTP
   over the private container network and never leaves the host.
 - **Auth split.** Everything except `/v1/*`, `/release_task` and

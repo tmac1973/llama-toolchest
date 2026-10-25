@@ -31,6 +31,12 @@ type settingsResponse struct {
 	GenerationEnabled bool `json:"generation_enabled"`
 	GenPortStart      int  `json:"gen_port_start"`
 	GenPortCount      int  `json:"gen_port_count"`
+
+	// EnvOverrides maps each setting an environment variable overrides
+	// (by its YAML name) to that variable. The values above are the ones
+	// in use; a change saved through PUT goes to the config file and
+	// applies once the variable is removed.
+	EnvOverrides map[string]string `json:"env_overrides,omitempty"`
 }
 
 type connectionTestResult struct {
@@ -53,6 +59,14 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		GenerationEnabled: s.cfg.GenerationEnabled,
 	}
 	resp.GenPortStart, resp.GenPortCount = s.cfg.GenPorts(s.inContainer())
+	for _, f := range []string{config.FieldExternalURL, config.FieldLlamaPort, config.FieldGenPublicPortStart} {
+		if v := s.cfg.EnvVar(f); v != "" {
+			if resp.EnvOverrides == nil {
+				resp.EnvOverrides = map[string]string{}
+			}
+			resp.EnvOverrides[f] = v
+		}
+	}
 
 	if isHTMX(r) {
 		respondHTML(w)
@@ -105,7 +119,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			s.cfg.GenerationEnabled = *update.GenerationEnabled
 		}
 		if update.LlamaPort != nil {
-			s.cfg.LlamaPort = *update.LlamaPort
+			s.cfg.SetLlamaPort(*update.LlamaPort)
 		}
 		if update.APIKey != nil {
 			s.cfg.APIKey = *update.APIKey
@@ -146,7 +160,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			s.cfg.DefaultModelSource = modelsource.NormalizeSource(r.FormValue("default_model_source"))
 		}
 		if r.Form.Has("external_url") {
-			s.cfg.ExternalURL = r.FormValue("external_url")
+			s.cfg.SetExternalURL(r.FormValue("external_url"))
 		}
 		if r.Form.Has("active_build") {
 			s.cfg.ActiveBuild = r.FormValue("active_build")
@@ -239,8 +253,12 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		msg := "Settings saved."
+		if v := s.cfg.EnvVar(config.FieldExternalURL); v != "" && r.Form.Has("external_url") {
+			msg = "Saved to the config file. " + v + " still sets the URL in use; the saved value applies once that variable is removed."
+		}
 		// Out-of-band swap to update the proxy endpoint display
-		fmt.Fprintf(w, `<p>Settings saved.</p><pre id="proxy-endpoint" hx-swap-oob="true">%s</pre>`, html.EscapeString(s.proxyEndpoint()))
+		fmt.Fprintf(w, `<p>%s</p><pre id="proxy-endpoint" hx-swap-oob="true">%s</pre>`, html.EscapeString(msg), html.EscapeString(s.proxyEndpoint()))
 		return
 	}
 
@@ -349,7 +367,9 @@ func (s *Server) saveConfigLocked() error {
 		// (e.g. tests). Same shape as the legacy default.
 		configPath = filepath.Join(s.cfg.DataDir, "config", "llama-toolchest.yaml")
 	}
-	data, err := yaml.Marshal(s.cfg)
+	// Fields an environment variable overrides are written with the
+	// file's own value, so the override does not outlive the variable.
+	data, err := yaml.Marshal(s.cfg.FileValues())
 	if err != nil {
 		return fmt.Errorf("saving settings: %w", err)
 	}
