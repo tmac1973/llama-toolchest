@@ -98,6 +98,9 @@ type Model struct {
 	TokenEmbdBytes   int64 `json:"token_embd_bytes,omitempty"`
 	IndexerKeyLength int   `json:"indexer_key_length,omitempty"`
 	AttnLayers       int   `json:"attn_layers,omitempty"`
+	// RecurrentStateBytes is a hybrid model's recurrent state for one
+	// conversation; see GGUFMeta.RecurrentStateBytes.
+	RecurrentStateBytes int64 `json:"recurrent_state_bytes,omitempty"`
 	// MTPHead marks a standalone MTP drafter head that was registered as
 	// an ordinary model by a parser that couldn't recognize it. Records
 	// carrying it are dropped on the next backfill; nothing should serve
@@ -912,7 +915,9 @@ func (r *Registry) ListNeedingPresetFetch() []string {
 //	    by what it is rather than by its file name.
 //	6 — built-in MTP layers counted only when the file carries their
 //	    tensors, not just the key that describes them.
-const GGUFMetaVersion = 6
+//	7 — a hybrid model's recurrent state size for one conversation
+//	    (RecurrentStateBytes), read from the ssm.* keys.
+const GGUFMetaVersion = 7
 
 // BackfillGGUFMeta re-reads GGUF metadata for records written by an older
 // parser, in one pass at startup.

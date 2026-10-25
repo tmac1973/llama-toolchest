@@ -11,8 +11,8 @@ import (
 )
 
 // writeHybridGGUF builds a minimal GGUF carrying the hparams the KV
-// scaling needs plus full_attention_interval, so the backfill has a real
-// file to re-parse.
+// scaling needs plus full_attention_interval and a small recurrent state
+// (ssm.*), so the backfill has a real file to re-parse.
 func writeHybridGGUF(t *testing.T, dir, name string, layers, interval, kvHeads, headDim int) string {
 	t.Helper()
 	var b bytes.Buffer
@@ -28,7 +28,7 @@ func writeHybridGGUF(t *testing.T, dir, name string, layers, interval, kvHeads, 
 	b.WriteString("GGUF")
 	binary.Write(&b, binary.LittleEndian, uint32(3))
 	binary.Write(&b, binary.LittleEndian, uint64(0)) // no tensors
-	binary.Write(&b, binary.LittleEndian, uint64(8))
+	binary.Write(&b, binary.LittleEndian, uint64(12))
 	wstr("general.architecture")
 	binary.Write(&b, binary.LittleEndian, ggufTypeString)
 	wstr("hyb")
@@ -39,6 +39,10 @@ func writeHybridGGUF(t *testing.T, dir, name string, layers, interval, kvHeads, 
 	kv("hyb.attention.key_length", uint32(headDim))
 	kv("hyb.attention.value_length", uint32(headDim))
 	kv("hyb.full_attention_interval", uint32(interval))
+	kv("hyb.ssm.conv_kernel", 4)
+	kv("hyb.ssm.state_size", 16)
+	kv("hyb.ssm.group_count", 2)
+	kv("hyb.ssm.inner_size", 64)
 	p := filepath.Join(dir, name)
 	if err := os.WriteFile(p, b.Bytes(), 0o644); err != nil {
 		t.Fatal(err)
@@ -162,5 +166,68 @@ func TestBackfillCorrectsStaleHybridKV(t *testing.T) {
 	// Interval 4 over 8 layers leaves 2 attending.
 	if want := 2 * 2 * (256 + 256); m.KVFullPerTok != want {
 		t.Errorf("KVFullPerTok = %d, want %d (stale value was %d)", m.KVFullPerTok, want, stale)
+	}
+}
+
+// The recurrent state for one conversation, against llama.cpp's own
+// buffer report on compute2 (llama_memory_recurrent: size = ..., at
+// -lv 4, one conversation). Both files carry one MTP layer, which
+// llama.cpp leaves out of the state.
+func TestRecurrentStateBytesMatchesLlamaCpp(t *testing.T) {
+	tests := []struct {
+		name          string
+		layers, inner int
+		measuredMiB   float64
+	}{
+		{"Qwen3.8-9B", 33 - 1, 4096, 50.25},
+		{"Qwen3.8-27B", 65 - 1, 6144, 149.62},
+	}
+	for _, tt := range tests {
+		got := float64(recurrentStateBytes(tt.layers, 4, nil, 4, 128, 16, tt.inner)) / (1 << 20)
+		if math.Abs(got-tt.measuredMiB) > 0.01 {
+			t.Errorf("%s: %.2f MiB, llama.cpp allocated %.2f", tt.name, got, tt.measuredMiB)
+		}
+	}
+	if got := recurrentStateBytes(32, 0, nil, 4, 128, 16, 4096); got != 0 {
+		t.Errorf("no recurrent layers: %d bytes, want 0", got)
+	}
+	if got := recurrentStateBytes(32, 4, nil, 0, 0, 0, 0); got != 0 {
+		t.Errorf("no ssm keys: %d bytes, want 0", got)
+	}
+}
+
+// The parser reads the ssm.* keys into the per-conversation state size.
+func TestParseReadsRecurrentState(t *testing.T) {
+	path := writeHybridGGUF(t, t.TempDir(), "h.gguf", 8, 4, 2, 256)
+	meta, err := ParseGGUFMeta(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Six recurrent layers of 16x64 + 3x(64 + 2x2x16) f32 values.
+	if want := int64(6 * (16*64 + 3*(64+2*2*16)) * 4); meta.RecurrentStateBytes != want {
+		t.Errorf("RecurrentStateBytes = %d, want %d", meta.RecurrentStateBytes, want)
+	}
+}
+
+// llama.cpp keeps a recurrent state for every conversation, so the
+// estimate grows with Parallel. It used to be one fixed figure, right only
+// at llama.cpp's default of four.
+func TestRecurrentEstimateScalesWithConversations(t *testing.T) {
+	m := &Model{NLayers: 65, AttnLayers: 16, RecurrentStateBytes: 156893184} // Qwen3.8-27B
+	at := func(parallel int) float64 {
+		return vramBreakdownWith(&cudaCoefficients, m, &ModelConfig{ContextSize: 8192, Parallel: parallel}, 1).Recurrent
+	}
+	perSeq := BytesToGiB(m.RecurrentStateBytes)
+	for _, tt := range []struct{ parallel, seqs int }{{0, 4}, {1, 1}, {4, 4}, {8, 8}} {
+		if got, want := at(tt.parallel), perSeq*float64(tt.seqs); math.Abs(got-want) > 1e-9 {
+			t.Errorf("Parallel %d: %.3f GiB, want %.3f", tt.parallel, got, want)
+		}
+	}
+	// A record without the state size falls back to the per-layer figure,
+	// which was measured at four conversations and so is unchanged there.
+	old := &Model{NLayers: 65, AttnLayers: 17}
+	got := vramBreakdownWith(&cudaCoefficients, old, &ModelConfig{ContextSize: 8192}, 1).Recurrent
+	if want := 48 * 0.0125; math.Abs(got-want) > 1e-9 {
+		t.Errorf("fallback at four conversations: %.3f GiB, want %.3f", got, want)
 	}
 }
