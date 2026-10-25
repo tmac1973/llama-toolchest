@@ -81,6 +81,29 @@ func TestProjectOptions(t *testing.T) {
 	if has(ProjectOptions(ProjectAceStep, "cuda"), sdFrontendFlag) {
 		t.Error("acestep.cpp got sd.cpp's web UI switch")
 	}
+
+	// Options that only matter for LLMs are left out for the generation
+	// projects; the ones their ggml uses stay.
+	for _, project := range []string{ProjectSDCpp, ProjectAceStep} {
+		for _, profile := range []string{"rocm", "cuda"} {
+			opts := ProjectOptions(project, profile)
+			for _, flag := range llamaOnlyOptions {
+				if has(opts, flag) {
+					t.Errorf("%s %s offers %s, which does nothing for it", project, profile, flag)
+				}
+			}
+			for _, flag := range []string{"GGML_NATIVE", "GGML_LTO", "GGML_CUDA_FORCE_MMQ"} {
+				if !has(opts, flag) {
+					t.Errorf("%s %s lost %s, which its ggml uses", project, profile, flag)
+				}
+			}
+		}
+	}
+	for _, flag := range []string{"GGML_HIP_RCCL", "GGML_HIP_ROCWMMA_FATTN", "GGML_CUDA_FA_ALL_QUANTS"} {
+		if !has(ProjectOptions(ProjectLlamaCpp, "rocm"), flag) {
+			t.Errorf("llama.cpp lost %s", flag)
+		}
+	}
 }
 
 func TestNotesURL(t *testing.T) {
