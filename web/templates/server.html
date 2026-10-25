@@ -198,7 +198,7 @@
     <article>
         <header title="Image (stable-diffusion.cpp) and music (acestep.cpp) servers that run next to llama-server. Each instance runs one model set, on one GPU and one port.">Generation backends</header>
         <div id="gen-instances" hx-get="/api/gen/instances"
-             hx-trigger="load, every 5s, genInstancesChanged from:body" hx-swap="innerHTML">Loading…</div>
+             hx-trigger="load, every 5s [!genInstancesBusy()], genInstancesChanged from:body" hx-swap="innerHTML">Loading…</div>
         <details>
             <summary>New instance</summary>
             <div id="gen-instance-form" hx-get="/api/gen/instances/form"
@@ -209,6 +209,15 @@
 </div>
 
 {{if .GenerationEnabled}}
+<dialog id="gen-edit-dialog" style="max-width:760px;width:95vw;">
+    <article>
+        <header>
+            <button type="button" aria-label="Close" rel="prev" onclick="this.closest('dialog').close();"></button>
+            Edit instance
+        </header>
+        <div id="gen-edit-form"></div>
+    </article>
+</dialog>
 <dialog id="gen-log-dialog" style="max-width:960px;width:95vw;">
     <article>
         <header>
@@ -219,6 +228,13 @@
     </article>
 </dialog>
 <script>
+// The instance table refreshes every 5 seconds. That would close an open
+// "Change" box or clear a half-typed value, so it waits while the user is
+// working in the table.
+function genInstancesBusy() {
+    var t = document.getElementById('gen-instances');
+    return !!(t && (t.querySelector('details[open]') || t.contains(document.activeElement) && document.activeElement.matches('input, select, textarea')));
+}
 // Streams one instance's log into the dialog while it is open.
 var genLogSSE = null;
 function openGenLog(id, name) {

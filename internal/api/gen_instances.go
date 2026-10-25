@@ -37,10 +37,13 @@ type genInstanceRow struct {
 	BuildLabel string         `json:"build"`
 	GPUName    string         `json:"gpu_name"`
 	Status     process.Status `json:"status"`
-	// Measuring is true during a measured test run; MeasureError is how
-	// the last one failed, if it did.
-	Measuring    bool   `json:"measuring"`
-	MeasureError string `json:"measure_error,omitempty"`
+	// Measuring is true during a measured test run. MeasureNote is what
+	// the last one found, MeasureError how it failed, and MeasureAt when it
+	// ended; all empty before the first one since llama-toolchest started.
+	Measuring    bool      `json:"measuring"`
+	MeasureNote  string    `json:"measure_note,omitempty"`
+	MeasureError string    `json:"measure_error,omitempty"`
+	MeasureAt    time.Time `json:"measure_at,omitzero"`
 	// SuggestedMiB is the reservation the last measurement suggests; 0
 	// before any measurement.
 	SuggestedMiB int `json:"suggested_mib,omitempty"`
@@ -84,7 +87,8 @@ func (s *Server) genWebUIURL(port int) string {
 }
 
 // genFormData feeds the gen_instance_form partial: the choices a new
-// instance can be made from.
+// instance can be made from, and when editing, the instance's current
+// values to fill the form with.
 type genFormData struct {
 	Sets   []generation.ModelSet
 	Builds map[generation.BackendKind][]builder.BuildResult
@@ -92,6 +96,16 @@ type genFormData struct {
 	// Missing explains why an instance cannot be made yet, e.g. no
 	// downloaded set or no build.
 	Missing []string
+	// Editing is true for the edit form; the Edit fields hold the
+	// instance's current values.
+	Editing       bool
+	EditID        string
+	EditName      string
+	EditSet       string
+	EditBuild     string
+	EditGPU       int
+	EditArgs      string
+	EditAutoStart bool
 }
 
 type genGPUChoice struct {
@@ -113,7 +127,10 @@ func (s *Server) genInstanceRows(store *generation.Store) []genInstanceRow {
 		row := genInstanceRow{
 			Instance: inst, SetName: sets[inst.ModelSetID].Name, Kind: sets[inst.ModelSetID].Kind,
 			GPUName: gpuNames[inst.GPU], Status: s.genMgr.Status(inst.ID),
-			Measuring: s.genMgr.IsMeasuring(inst.ID), MeasureError: s.genMeasure.get(inst.ID),
+			Measuring: s.genMgr.IsMeasuring(inst.ID),
+		}
+		if o := s.genMeasure.get(inst.ID); !row.Measuring {
+			row.MeasureNote, row.MeasureError, row.MeasureAt = o.Note, o.Err, o.At
 		}
 		if inst.MeasuredPeakMiB > 0 {
 			row.SuggestedMiB = suggestReservation(inst.MeasuredPeakMiB)
@@ -153,6 +170,37 @@ func (s *Server) handleGenInstanceForm(w http.ResponseWriter, r *http.Request) {
 	if store == nil {
 		return
 	}
+	respondHTML(w)
+	s.renderPartial(w, "gen_instance_form", s.genFormChoices(store))
+}
+
+// handleGenInstanceEditForm is the form for changing a stopped instance,
+// filled with its current values. It is shown in a dialog, so the
+// instance table can keep refreshing underneath.
+func (s *Server) handleGenInstanceEditForm(w http.ResponseWriter, r *http.Request) {
+	store := s.genStore(w)
+	if store == nil {
+		return
+	}
+	inst, ok := s.genInstance(w, r, store)
+	if !ok {
+		return
+	}
+	if s.genMgr.IsActive(inst.ID) || s.genMgr.IsMeasuring(inst.ID) {
+		http.Error(w, "stop the instance before editing it", http.StatusConflict)
+		return
+	}
+	data := s.genFormChoices(store)
+	data.Editing, data.EditID, data.EditName = true, inst.ID, inst.Name
+	data.EditSet, data.EditBuild, data.EditGPU = inst.ModelSetID, inst.BuildID, inst.GPU
+	data.EditArgs, data.EditAutoStart = strings.Join(inst.ExtraArgs, " "), inst.AutoStart
+	respondHTML(w)
+	s.renderPartial(w, "gen_instance_form", data)
+}
+
+// genFormChoices is what the create and edit forms offer: the downloaded
+// sets, the successful builds and the GPUs.
+func (s *Server) genFormChoices(store *generation.Store) genFormData {
 	data := genFormData{Builds: map[generation.BackendKind][]builder.BuildResult{}}
 	for _, m := range store.ModelSets() {
 		if m.Complete {
@@ -175,8 +223,7 @@ func (s *Server) handleGenInstanceForm(w http.ResponseWriter, r *http.Request) {
 	if len(data.Builds[generation.KindSD]) == 0 && len(data.Builds[generation.KindAce]) == 0 {
 		data.Missing = append(data.Missing, "a successful stable-diffusion.cpp or acestep.cpp build (Builds page)")
 	}
-	respondHTML(w)
-	s.renderPartial(w, "gen_instance_form", data)
+	return data
 }
 
 // genInstanceFromForm reads the instance fields the create and edit forms

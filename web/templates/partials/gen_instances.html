@@ -29,8 +29,15 @@
             <td>
                 {{- if .ReservedMiB}}<span title="{{if .MeasuredPeakMiB}}Measured peak {{printf "%.1f" .PeakGiB}} GiB on {{.MeasuredAt.Format "2006-01-02 15:04"}}{{if .MeasureEstimated}}, estimated from the whole GPU's use because the GPU tools gave no figure for this process{{end}}. {{end}}{{if eq .Kind "sd"}}sd-server is held to this amount.{{else}}ace-server cannot be held to an amount; this is the measured peak plus a margin, for planning.{{end}}" style="cursor:help;">{{printf "%.1f" .ReservedGiB}} GiB</span>
                 {{- else}}<small title="Not measured yet. The instance cannot start until it has a reservation.">none</small>{{end}}
-                {{- if and .SuggestedMiB (ne .SuggestedMiB .ReservedMiB)}} <small title="What the last measurement suggests: its peak plus 10%, rounded up to 0.5 GiB.">(suggested {{printf "%.1f" .SuggestedGiB}})</small>{{end}}
-                {{- if .MeasureEstimated}} <small>estimated (whole-GPU)</small>{{end}}
+                {{- if .MeasuredPeakMiB}}
+                <small style="display:block;color:var(--pico-muted-color);" title="The most GPU memory the last measurement saw this instance use.">peak {{printf "%.1f" .PeakGiB}} GiB, measured {{.MeasuredAt.Format "2006-01-02 15:04"}}{{if .MeasureEstimated}}, estimated (whole-GPU){{end}}</small>
+                {{- end}}
+                {{- if and .SuggestedMiB (ne .SuggestedMiB .ReservedMiB)}}
+                <button type="button" class="outline" style="margin:0.2rem 0 0;padding:0.1rem 0.5rem;font-size:0.75rem;"
+                        hx-put="/api/gen/instances/{{.ID}}/reservation" hx-vals='{"reserved_gib": "{{printf "%.1f" .SuggestedGiB}}"}' hx-target="#gen-instances"
+                        title="What the last measurement suggests: its peak plus 10%, rounded up to 0.5 GiB. Setting it is refused if it does not fit on the GPU."
+                        data-error-label="Reservation not set">Use suggested {{printf "%.1f" .SuggestedGiB}} GiB</button>
+                {{- end}}
                 <details style="margin:0;">
                     <summary style="font-size:0.75rem;">Change</summary>
                     <form hx-put="/api/gen/instances/{{.ID}}/reservation" hx-target="#gen-instances" style="display:flex;gap:0.3rem;margin:0.2rem 0 0;" data-error-label="Reservation not set">
@@ -40,7 +47,8 @@
                 </details>
             </td>
             <td{{with .Status.Error}} title="{{.}}" style="cursor:help;"{{end}}>{{if .Measuring}}<span aria-busy="true">measuring…</span>{{else}}{{.Status.State}}{{if eq .Status.State "running"}} <small>{{.Status.Uptime}}</small>{{end}}{{end}}
-                {{- with .MeasureError}}<br><small style="color:var(--pico-del-color);" title="{{.}}">measurement failed</small>{{end}}</td>
+                {{- if .MeasureNote}}<small style="display:block;color:var(--pico-ins-color);" title="The result of the last measurement. It is shown until the next one, or until llama-toolchest restarts; the peak stays under VRAM reserved.">Measured at {{.MeasureAt.Format "15:04"}}: {{.MeasureNote}}</small>{{end}}
+                {{- if .MeasureError}}<small style="display:block;color:var(--pico-del-color);">Measurement failed at {{.MeasureAt.Format "15:04"}}: {{.MeasureError}}</small>{{end}}</td>
             <td>{{if or .GPUJobsRunning .GPUJobsWaiting}}{{.GPUJobsRunning}} running{{if .GPUJobsWaiting}}, {{.GPUJobsWaiting}} waiting{{end}}{{else}}<small>idle</small>{{end}}</td>
             <td>
                 {{- with .WebUIURL}}
@@ -64,6 +72,9 @@
                 {{- else}}
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/enable" hx-target="#gen-instances" data-error-label="Not enabled">Enable</button>
                 {{- end}}
+                {{- if not (or (eq .Status.State "running") (eq .Status.State "starting") .Measuring)}}
+                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-get="/api/gen/instances/{{$id}}/form" hx-target="#gen-edit-form" hx-on::after-request="if (event.detail.successful) document.getElementById('gen-edit-dialog').showModal()" title="Change the model set, build, GPU, extra launch arguments or auto-start. Only while the instance is stopped." data-error-label="Cannot edit">Edit</button>
+                {{- end}}
                 {{- if not (or (eq .Status.State "running") (eq .Status.State "starting"))}}
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-delete="/api/gen/instances/{{$id}}" hx-confirm="Delete instance {{.Name}}? Its model set stays." hx-target="#gen-instances" data-error-label="Not deleted">Delete</button>
                 {{- end}}
@@ -81,14 +92,22 @@
 <p><small>Before an instance can be made, this machine needs:
 {{- range .Missing}} {{.}}.{{end}}</small></p>
 {{- else}}
-<form hx-post="/api/gen/instances" hx-target="#gen-instances" hx-swap="innerHTML" data-error-label="Instance not created">
+{{- /* The same form creates an instance and, with .Editing, changes a
+     stopped one (shown in the Server page's edit dialog). */}}
+<form {{if .Editing}}hx-put="/api/gen/instances/{{.EditID}}" hx-on::after-request="if (event.detail.successful) this.closest('dialog').close()" data-error-label="Instance not changed"{{else}}hx-post="/api/gen/instances" data-error-label="Instance not created"{{end}} hx-target="#gen-instances" hx-swap="innerHTML">
     <div class="grid">
+        {{- if .Editing}}
+        <label title="The name cannot be changed: API clients use the ID made from it as the model name. To rename, create a new instance and delete this one.">Name
+            <input type="text" value="{{.EditName}}" disabled>
+        </label>
+        {{- else}}
         <label title="Shown in the UI; API clients use its ID (made from the name) as the model name. Left blank, the model set's ID is used.">Name
             <input type="text" name="name" placeholder="defaults to the model set">
         </label>
+        {{- end}}
         <label>Model set
             <select name="model_set" required>
-                {{- range .Sets}}<option value="{{.ID}}">{{.Name}} ({{if eq .Kind "sd"}}image{{else}}music{{end}})</option>{{end}}
+                {{- range .Sets}}<option value="{{.ID}}"{{if and $.Editing (eq .ID $.EditSet)}} selected{{end}}>{{.Name}} ({{if eq .Kind "sd"}}image{{else}}music{{end}})</option>{{end}}
             </select>
         </label>
     </div>
@@ -96,23 +115,28 @@
         <label title="Which build runs it. Automatic uses the newest successful build of the set's backend.">Build
             <select name="build">
                 <option value="">Automatic (newest)</option>
-                {{- range $kind, $builds := .Builds}}{{range $builds}}<option value="{{.ID}}">{{.ID}}</option>{{end}}{{end}}
+                {{- range $kind, $builds := .Builds}}{{range $builds}}<option value="{{.ID}}"{{if and $.Editing (eq .ID $.EditBuild)}} selected{{end}}>{{.ID}}</option>{{end}}{{end}}
             </select>
         </label>
         <label title="The GPU this instance runs on. It only sees this GPU.">GPU
             <select name="gpu">
-                {{- range .GPUs}}<option value="{{.Index}}">{{.Index}}: {{.Name}}</option>{{else}}<option value="0">0</option>{{end}}
+                {{- range .GPUs}}<option value="{{.Index}}"{{if and $.Editing (eq .Index $.EditGPU)}} selected{{end}}>{{.Index}}: {{.Name}}</option>{{else}}<option value="0">0</option>{{end}}
             </select>
         </label>
     </div>
     <label title="Extra backend flags for this instance, added after the model set's own. The listen address, port, VRAM limit and model directory are set by llama-toolchest.">Extra launch arguments
-        <input type="text" name="extra_args" placeholder="e.g. --offload-to-cpu">
+        <input type="text" name="extra_args" placeholder="e.g. --offload-to-cpu"{{if .Editing}} value="{{.EditArgs}}"{{end}}>
     </label>
     <label>
-        <input type="checkbox" role="switch" name="auto_start">
+        <input type="checkbox" role="switch" name="auto_start"{{if and .Editing .EditAutoStart}} checked{{end}}>
         Start this instance when llama-toolchest starts
     </label>
+    {{- if .Editing}}
+    <p><small>Changing the model set, build, GPU or extra launch arguments clears the instance's VRAM reservation, because it was measured for the old setup. Measure it again before starting it.</small></p>
+    <button type="submit">Save changes</button>
+    {{- else}}
     <button type="submit">Create instance</button>
+    {{- end}}
 </form>
 {{- end}}
 {{end}}
