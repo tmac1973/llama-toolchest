@@ -30,7 +30,10 @@ import (
 // Image job phases: what a job is doing while it is queued or running.
 // A finished job has none.
 const (
-	imagePhaseQueued     = "queued"
+	imagePhaseQueued = "queued"
+	// imagePhaseStarting: with eviction on, the job's backend was stopped
+	// and is being started, after making room for it (gen_evict.go).
+	imagePhaseStarting   = "starting"
 	imagePhaseGenerating = "generating"
 	imagePhaseSaving     = "saving"
 )
@@ -102,6 +105,9 @@ func (s *Server) submitImageJob(inst generation.Instance, req imageJobRequest, b
 	// A free GPU starts the job at once; say so in the first answer.
 	if started := ticket.Info().Started; !started.IsZero() {
 		job.Status, job.Phase, job.Started = jobRunning, imagePhaseGenerating, &started
+		if !s.genMgr.IsRunning(inst.ID) {
+			job.Phase = imagePhaseStarting
+		}
 	}
 	s.genImageJobs.add(job)
 	go s.runImageJob(ctx, job.ID, inst, ticket)
@@ -139,6 +145,18 @@ func (s *Server) runImageJob(ctx context.Context, id string, inst generation.Ins
 		return
 	}
 	defer ticket.Done()
+	if !s.genMgr.IsRunning(inst.ID) {
+		now := time.Now()
+		s.genImageJobs.update(id, func(j *imageJob) {
+			if j.Status == jobCancelled {
+				return
+			}
+			if j.Started == nil {
+				j.Started = &now
+			}
+			j.Status, j.Phase = jobRunning, imagePhaseStarting
+		})
+	}
 	if err := s.genReady(ctx, inst); err != nil {
 		finish(jobFailed, "starting the backend: "+err.Error(), nil, nil)
 		return
