@@ -344,6 +344,15 @@ func ProjectOptions(project, profile string) []BuildOption {
 	opts = slices.DeleteFunc(opts, func(o BuildOption) bool {
 		return strings.HasPrefix(o.Flag, "LLAMA_") || slices.Contains(llamaOnlyOptions, o.Flag)
 	})
+	// stable-diffusion.cpp leaves CUDA graphs off (its ggml labels them
+	// "llama.cpp only"); llama.cpp and acestep.cpp turn them on.
+	if project == ProjectSDCpp {
+		for i := range opts {
+			if opts[i].Flag == "GGML_CUDA_GRAPHS" {
+				opts[i].Default = false
+			}
+		}
+	}
 	if project == ProjectSDCpp {
 		_, err := exec.LookPath("pnpm")
 		opts = append(opts, BuildOption{

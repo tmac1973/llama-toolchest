@@ -99,6 +99,20 @@ func TestProjectOptions(t *testing.T) {
 			}
 		}
 	}
+	// CUDA graphs start as each project's own build has them.
+	graphs := func(project string) bool {
+		for _, o := range ProjectOptions(project, "cuda") {
+			if o.Flag == "GGML_CUDA_GRAPHS" {
+				return o.Default
+			}
+		}
+		t.Fatalf("%s has no CUDA graphs option", project)
+		return false
+	}
+	if !graphs(ProjectLlamaCpp) || !graphs(ProjectAceStep) || graphs(ProjectSDCpp) {
+		t.Errorf("CUDA graphs default: llama.cpp %v, acestep.cpp %v, sd.cpp %v; want on, on, off",
+			graphs(ProjectLlamaCpp), graphs(ProjectAceStep), graphs(ProjectSDCpp))
+	}
 	for _, flag := range []string{"GGML_HIP_RCCL", "GGML_HIP_ROCWMMA_FATTN", "GGML_CUDA_FA_ALL_QUANTS"} {
 		if !has(ProjectOptions(ProjectLlamaCpp, "rocm"), flag) {
 			t.Errorf("llama.cpp lost %s", flag)
