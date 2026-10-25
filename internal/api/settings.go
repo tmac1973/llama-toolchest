@@ -29,6 +29,7 @@ type settingsResponse struct {
 	DataDir       string `json:"data_dir"`
 
 	GenerationEnabled bool `json:"generation_enabled"`
+	GenEvict          bool `json:"gen_evict"`
 	GenPortStart      int  `json:"gen_port_start"`
 	GenPortCount      int  `json:"gen_port_count"`
 
@@ -57,6 +58,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		DataDir:       s.cfg.DataDir,
 
 		GenerationEnabled: s.cfg.GenerationEnabled,
+		GenEvict:          s.cfg.GenEvict,
 	}
 	resp.GenPortStart, resp.GenPortCount = s.cfg.GenPorts(s.inContainer())
 	for _, f := range []string{config.FieldExternalURL, config.FieldLlamaPort, config.FieldGenPublicPortStart} {
@@ -102,6 +104,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			DefaultModelSource *string `json:"default_model_source,omitempty"`
 
 			GenerationEnabled *bool `json:"generation_enabled,omitempty"`
+			GenEvict          *bool `json:"gen_evict,omitempty"`
 			GenPortStart      *int  `json:"gen_port_start,omitempty"`
 			GenPortCount      *int  `json:"gen_port_count,omitempty"`
 		}
@@ -118,6 +121,9 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if update.GenerationEnabled != nil {
 			s.cfg.GenerationEnabled = *update.GenerationEnabled
+		}
+		if update.GenEvict != nil {
+			s.cfg.GenEvict = *update.GenEvict
 		}
 		if update.LlamaPort != nil {
 			s.cfg.SetLlamaPort(*update.LlamaPort)
@@ -206,6 +212,9 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if r.Form.Has("generation_touched") {
 			s.cfg.GenerationEnabled = r.FormValue("generation_enabled") == "on"
+		}
+		if r.Form.Has("gen_evict_touched") {
+			s.cfg.GenEvict = r.FormValue("gen_evict") == "on"
 		}
 		if r.Form.Has("models_dir") {
 			newDir := strings.TrimSpace(r.FormValue("models_dir"))

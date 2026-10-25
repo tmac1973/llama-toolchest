@@ -42,8 +42,9 @@ func (e *pickError) Error() string { return e.msg }
 // instance with that ID, or among the instances of the model set with that
 // ID the one whose GPU has the fewest jobs (lowest ID on a tie), or with
 // model empty the only one. Only instances that are enabled, running, not
-// being measured and have a VRAM reservation are eligible; instances do
-// not start on request.
+// being measured and have a VRAM reservation are eligible. With eviction
+// on, a stopped instance is eligible too, as genReady starts it on
+// request; a running one is picked before it.
 func (s *Server) pickInstance(model string, kind generation.BackendKind) (generation.Instance, *pickError) {
 	if s.gen == nil {
 		return generation.Instance{}, &pickError{http.StatusNotFound, "model_not_found", "generation backends are not available"}
@@ -82,7 +83,7 @@ func (s *Server) pickInstance(model string, kind generation.BackendKind) (genera
 			reasons = append(reasons, fmt.Sprintf("backend %s is being measured", inst.ID))
 		case inst.ReservedMiB == 0:
 			reasons = append(reasons, fmt.Sprintf("backend %s has no VRAM reservation yet", inst.ID))
-		case !s.genMgr.IsRunning(inst.ID):
+		case !s.genEvictOn() && !s.genMgr.IsRunning(inst.ID):
 			reasons = append(reasons, fmt.Sprintf("backend %s is not running", inst.ID))
 		default:
 			eligible = append(eligible, inst)
@@ -100,6 +101,12 @@ func (s *Server) pickInstance(model string, kind generation.BackendKind) (genera
 			"several backends can serve this request; set model to one of: " + strings.Join(ids, ", ")}
 	}
 	slices.SortFunc(eligible, func(a, b generation.Instance) int {
+		if ra, rb := s.genMgr.IsActive(a.ID), s.genMgr.IsActive(b.ID); ra != rb {
+			if ra {
+				return -1
+			}
+			return 1
+		}
 		if la, lb := s.genQueue.Load(a.GPU), s.genQueue.Load(b.GPU); la != lb {
 			return la - lb
 		}
@@ -190,6 +197,10 @@ func (s *Server) handleGenImages(w http.ResponseWriter, r *http.Request) {
 		return // the client went away while waiting
 	}
 	defer ticket.Done()
+	if err := s.genReady(r.Context(), inst); err != nil {
+		openAIError(w, http.StatusServiceUnavailable, "server_error", "backend_unavailable", err.Error())
+		return
+	}
 	s.forwardToInstance(w, r, inst, body)
 }
 

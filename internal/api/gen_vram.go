@@ -33,6 +33,12 @@ type genVRAM struct {
 // leaving out exclude (an instance being checked against the others).
 // Empty while generation backends are off.
 func (s *Server) genVRAMByGPU(exclude string) map[int]*genVRAM {
+	return s.genVRAM(exclude, false)
+}
+
+// genVRAM is genVRAMByGPU, leaving out the instances that are not
+// running when activeOnly is set.
+func (s *Server) genVRAM(exclude string, activeOnly bool) map[int]*genVRAM {
 	out := map[int]*genVRAM{}
 	if s.cfg == nil || !s.cfg.GenerationEnabled || s.gen == nil || s.genMgr == nil {
 		return out
@@ -50,6 +56,9 @@ func (s *Server) genVRAMByGPU(exclude string) map[int]*genVRAM {
 			}
 		}
 		if !inst.Enabled && using == 0 {
+			continue
+		}
+		if activeOnly && using == 0 && !s.genMgr.IsActive(inst.ID) {
 			continue
 		}
 		v := out[inst.GPU]
@@ -150,7 +159,7 @@ func (s *Server) genFitCheck(inst generation.Instance, reserveMiB int) error {
 	}
 	// hardware() counts this instance among the reservations; check it
 	// against the others only.
-	others := s.genVRAMByGPU(inst.ID)[inst.GPU]
+	others := s.genFitVRAMByGPU(inst.ID)[inst.GPU]
 	spec := *card
 	spec.ReservedMiB = 0
 	var otherNames []string
@@ -187,16 +196,25 @@ func (e *genLLMFitError) Error() string { return e.msg }
 // are taken as they were with nothing of ours loaded: the loaded model's
 // own unreported memory is freed with it.
 func (s *Server) checkLLMFitsReservations(m *models.Model) error {
+	hw, need, replacing := s.llmReservationNeed(m)
+	return s.reservationFitError(hw, need, !replacing)
+}
+
+// llmReservationNeed is what checkLLMFitsReservations checks: the cards,
+// and the planned LLM memory per GPU with m loaded. replacing is set when
+// the load replaces the loaded model (--models-max 1). need is nil when
+// no reservation can limit the load.
+func (s *Server) llmReservationNeed(m *models.Model) (hw models.Hardware, need map[int]int, replacing bool) {
 	if !s.genReservationsApply() {
-		return nil
+		return models.Hardware{}, nil, false
 	}
-	replacing := s.cfg.ModelsMax == 1
+	replacing = s.cfg.ModelsMax == 1
 	idle := s.idleHardware()
-	hw := idle
+	hw = idle
 	if !replacing {
 		hw = s.hardware()
 	}
-	return s.reservationFitError(hw, s.loadedLLMMiB(models.GPUMiB(idle), m.ID, replacing), !replacing)
+	return hw, s.loadedLLMMiB(models.GPUMiB(idle), m.ID, replacing), replacing
 }
 
 // checkConfigFitsReservations is checkLLMFitsReservations for a benchmark
@@ -216,19 +234,20 @@ func (s *Server) checkConfigFitsReservations(m *models.Model, cfg *models.ModelC
 // genReservationsApply reports whether any generation reservation can
 // limit LLM loads.
 func (s *Server) genReservationsApply() bool {
-	return s.cfg != nil && s.cfg.GenerationEnabled && s.gen != nil && len(s.genVRAMByGPU("")) > 0
+	return s.cfg != nil && s.cfg.GenerationEnabled && s.gen != nil && len(s.genFitVRAMByGPU("")) > 0
 }
 
 // reservationFitError is a *genLLMFitError for the first GPU where need
 // (planned LLM memory per GPU) is more than the card leaves beside its
 // generation reservations, or nil when it fits everywhere.
 func (s *Server) reservationFitError(hw models.Hardware, need map[int]int, suggestUnload bool) error {
-	byGPU := s.genVRAMByGPU("")
+	byGPU := s.genFitVRAMByGPU("")
 	for _, g := range hw.GPUs {
 		v := byGPU[g.Index]
 		if v == nil || v.Reserved == 0 {
 			continue
 		}
+		g.ReservedMiB = v.Reserved
 		budget := models.CardBudgetMiB(g)
 		if n, ok := need[g.Index]; ok && n > budget {
 			msg := fmt.Sprintf("Not enough VRAM: %.1f GiB reserved for generation backends on GPU %d (%s); the LLM needs about %s there and %s is left",
@@ -240,6 +259,25 @@ func (s *Server) reservationFitError(hw models.Hardware, need map[int]int, sugge
 		}
 	}
 	return nil
+}
+
+// reservationShortGPUs lists the GPUs where need is more than the card
+// leaves beside its generation reservations, as reservationFitError
+// counts them.
+func (s *Server) reservationShortGPUs(hw models.Hardware, need map[int]int) []int {
+	byGPU := s.genFitVRAMByGPU("")
+	var out []int
+	for _, g := range hw.GPUs {
+		v := byGPU[g.Index]
+		if v == nil || v.Reserved == 0 {
+			continue
+		}
+		g.ReservedMiB = v.Reserved
+		if n, ok := need[g.Index]; ok && n > models.CardBudgetMiB(g) {
+			out = append(out, g.Index)
+		}
+	}
+	return out
 }
 
 // procVRAMCache keeps per-process VRAM readings for a moment: hardware()

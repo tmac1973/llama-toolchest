@@ -57,6 +57,14 @@ type Config struct {
 	// nothing about them is shown or run.
 	GenerationEnabled bool `yaml:"generation_enabled,omitempty"`
 
+	// GenEvict lets LLMs and generation backends take a GPU from each
+	// other when both do not fit: a chat request for an LLM that is not
+	// loaded stops idle backends in its way, and a job for a stopped
+	// backend unloads idle LLMs and starts it. Reservations then count
+	// only while a backend runs. Off by default: fixed reservations, and
+	// a load that does not fit is refused.
+	GenEvict bool `yaml:"gen_evict,omitempty"`
+
 	// GenPortStart and GenPortCount set the port range the generation
 	// backends listen on, one port per backend instance. Zero means the
 	// default (8081, 8 ports); use GenPorts for the effective values.

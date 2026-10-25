@@ -461,8 +461,12 @@ func (s *Server) handleGenInstanceAction(w http.ResponseWriter, r *http.Request)
 			err = s.startGenInstance(inst.ID)
 		}
 	case "enable":
-		// Its reservation starts to count now, so it has to fit.
-		if err = s.genFitCheck(inst, inst.ReservedMiB); err == nil {
+		// Its reservation starts to count now, so it has to fit; with
+		// eviction on it counts only once the instance runs.
+		if s.genEvictOn() {
+			inst.Enabled = true
+			err = store.UpdateInstance(inst)
+		} else if err = s.genFitCheck(inst, inst.ReservedMiB); err == nil {
 			inst.Enabled = true
 			err = store.UpdateInstance(inst)
 		}

@@ -223,6 +223,11 @@ and GPU time sharing.
 - **VRAM model** → Fixed reservations for each backend, filled in from a
   measured test run and editable. The LLM fit planner subtracts them. There is
   no load-on-demand and no eviction.
+- **Eviction (added after the plan, 2026-10-25)** → An optional Settings
+  switch, off by default. When on, a reservation counts only while its backend
+  runs; the newest request gets the GPU: a chat load stops the idle backends in
+  its way, and a job for a stopped backend unloads idle LLMs and starts it.
+  Running jobs and chat replies always finish first. See internal/api/gen_evict.go.
 - **API shape** → OpenAI routes for images, plus a llama-toolchest music job API
   that wraps ace-server. llama-toolchest owns the queue for both.
 - **Models** → A curated catalog of model sets plus custom sets from files on

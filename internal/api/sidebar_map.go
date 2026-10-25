@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/tmac1973/llama-toolchest/internal/models"
@@ -72,7 +73,12 @@ func (s *Server) sidebarMapData(m monitor.Metrics) sidebarMap {
 			running["gen:"+inst.ID] = s.genMgr.IsActive(inst.ID)
 		}
 	}
-	return buildSidebarMap(m.GPU, s.gpuMapAllocations(len(m.GPU)), loaded, running)
+	allocs := s.gpuMapAllocations(len(m.GPU))
+	if s.genEvictOn() {
+		// A stopped backend gives its memory up, so it is not on the card.
+		allocs = slices.DeleteFunc(allocs, func(a models.GPUAllocation) bool { return a.Reserved && !running[a.ModelID] })
+	}
+	return buildSidebarMap(m.GPU, allocs, loaded, running)
 }
 
 // buildSidebarMap keeps the allocations that are on the GPUs now: LLMs
