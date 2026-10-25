@@ -1054,6 +1054,39 @@ PublishPort=127.0.0.1:18081-18088:8081-8088" "$(generate_quadlet_app | grep -E '
         grep -q 'reverse_proxy llama-toolchest:8081' <(caddy_gen_sites)
 )
 
+# ─── Container install (setup.sh) ────────────────────────────────────────────
+
+# A file the image build reads through a RUN bind mount is relabelled
+# container_file_t when SELinux is on, and left alone otherwise.
+test_label_for_build_mount() (
+    load_setup_fns label_for_build_mount
+    SCRIPT_DIR="${TMP_ROOT}/label"
+    rm -rf "$SCRIPT_DIR"; mkdir -p "$SCRIPT_DIR/dist"
+    touch "$SCRIPT_DIR/dist/llama-toolchest-local"
+    local calls="${TMP_ROOT}/chcon.log"
+    chcon() { echo "chcon $*" >> "$calls"; }
+
+    : > "$calls"
+    selinuxenabled() { return 0; }
+    label_for_build_mount dist/llama-toolchest-local
+    check_eq "label: relabelled with SELinux on" \
+        "chcon -t container_file_t ${SCRIPT_DIR}/dist/llama-toolchest-local" "$(cat "$calls")"
+
+    : > "$calls"
+    label_for_build_mount ""
+    label_for_build_mount dist/missing.rpm
+    check_eq "label: nothing to relabel" "" "$(cat "$calls")"
+
+    selinuxenabled() { return 1; }
+    label_for_build_mount dist/llama-toolchest-local
+    check_eq "label: SELinux off" "" "$(cat "$calls")"
+
+    # A failed chcon only warns: the build may still work.
+    selinuxenabled() { return 0; }
+    chcon() { return 1; }
+    check_true "label: chcon failure is not fatal" label_for_build_mount dist/llama-toolchest-local
+)
+
 # ─── Run ─────────────────────────────────────────────────────────────────────
 
 test_scope_current_user
@@ -1086,6 +1119,7 @@ test_gfx_target_from_kfd
 test_gen_ports_off
 test_gen_ports_on
 test_gen_ports_secure
+test_label_for_build_mount
 
 passes="$(grep -c '^PASS$' "$RESULTS")"
 fails="$(grep -c '^FAIL$' "$RESULTS")"

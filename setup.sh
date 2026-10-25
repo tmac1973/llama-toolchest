@@ -1646,7 +1646,31 @@ build_local_binary() {
 
     LOCAL_BINARY="$out"
     export LOCAL_BINARY
+    label_for_build_mount "$LOCAL_BINARY"
     ok "Built ${out} (${version})."
+}
+
+# label_for_build_mount <path> lets the image build read a file of this tree
+# that a Dockerfile takes from its RUN --mount=type=bind,target=/build_context
+# step (LOCAL_BINARY, INSTALL_PACKAGE). The path is relative to the build
+# context (the repository root).
+#
+# With SELinux on, a file under the home directory has the user_home_t label,
+# which processes in a container may not read: rootless Podman fails with
+# "cannot stat '/build_context/...': Permission denied". Podman relabels COPY
+# sources itself but not a RUN bind mount, and the mount option that would
+# (z) is unknown to Docker BuildKit, so the Dockerfiles can't ask for it. The
+# container_file_t label is readable by containers under Docker and Podman,
+# and only this one file is changed. Without SELinux this does nothing.
+label_for_build_mount() {
+    local rel="$1" path
+    [[ -n "$rel" ]] || return 0
+    path="${SCRIPT_DIR}/${rel}"
+    [[ -f "$path" ]] || return 0
+    command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled || return 0
+    if ! chcon -t container_file_t "$path" 2>/dev/null; then
+        warn "Could not relabel ${rel} for SELinux (chcon -t container_file_t). If the image build can't read it, run that command yourself."
+    fi
 }
 
 # caddy_hash_password hashes plaintext via the caddy image, feeding the secret
@@ -3077,6 +3101,7 @@ main() {
             ;;
         quick)
             log "Quick rebuild (cached)..."
+            label_for_build_mount "${INSTALL_PACKAGE:-}"
             container_quick_rebuild
             ok "llama-toolchest is running"
             echo ""
@@ -3119,6 +3144,10 @@ main() {
     # rather than surfacing after the image layers are done.
     if [[ "$FROM_SOURCE" == true && "$command" != "status" ]]; then
         build_local_binary
+    fi
+    # A package given with INSTALL_PACKAGE= is read the same way as the binary.
+    if [[ "$command" != "status" ]]; then
+        label_for_build_mount "${INSTALL_PACKAGE:-}"
     fi
 
     # ── Check prerequisites and show summary (install, rebuild, status) ──
