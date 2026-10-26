@@ -71,6 +71,8 @@ type genModelsData struct {
 	Catalog []genCatalogRow `json:"catalog"`
 	Sets    []genSetRow     `json:"sets"`
 	Recipes []string        `json:"recipes"`
+	// VideoRecipes are the recipes a custom video set may use.
+	VideoRecipes []string `json:"video_recipes"`
 	// FreeGB is the space a new download may use, or -1 when unknown.
 	FreeGB float64 `json:"free_gb"`
 }
@@ -95,7 +97,7 @@ type genSetRow struct {
 }
 
 func (s *Server) genModelsView(store *generation.Store) genModelsData {
-	data := genModelsData{Recipes: generation.Recipes(), FreeGB: -1}
+	data := genModelsData{Recipes: generation.Recipes(), VideoRecipes: generation.VideoRecipeIDs(), FreeGB: -1}
 	if avail := s.downloader.AvailableForDownload(); avail >= 0 {
 		data.FreeGB = float64(avail) / 1e9
 	}
@@ -186,7 +188,10 @@ func (s *Server) handleGenCatalogDownload(w http.ResponseWriter, r *http.Request
 			ID: entry.ID, Name: entry.Name, Kind: entry.Kind, CatalogID: entry.ID, Recipe: entry.Recipe,
 			Components: slices.Clone(entry.Components), LaunchArgs: entry.LaunchArgs,
 			Capabilities: entry.Capabilities, License: entry.License,
-			DefaultWidth: entry.DefaultWidth, DefaultHeight: entry.DefaultHeight, Created: time.Now(),
+			DefaultWidth: entry.DefaultWidth, DefaultHeight: entry.DefaultHeight,
+			DefaultFrames: entry.DefaultFrames, DefaultFPS: entry.DefaultFPS,
+			MaxFrames: entry.MaxFrames, MaxWidth: entry.MaxWidth, MaxHeight: entry.MaxHeight,
+			Created: time.Now(),
 		}
 		if err := store.AddModelSet(set); err != nil {
 			s.genSetMu.Unlock()
@@ -275,8 +280,13 @@ func (s *Server) handleGenCreateSet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "the set needs a name", http.StatusBadRequest)
 		return
 	}
-	if kind == generation.KindSD {
+	switch kind {
+	case generation.KindSD:
 		set.DefaultWidth, set.DefaultHeight = formInt(r, "width", 1024), formInt(r, "height", 1024)
+	case generation.KindVideo:
+		// A custom video set has no ceiling: its Max fields stay zero.
+		set.DefaultWidth, set.DefaultHeight = formInt(r, "width", 832), formInt(r, "height", 480)
+		set.DefaultFrames, set.DefaultFPS = formInt(r, "frames", 33), formInt(r, "fps", 24)
 	}
 	// The files field holds one "slot = /absolute/path" line per file;
 	// blank lines are skipped.
@@ -311,7 +321,7 @@ func (s *Server) handleGenCreateSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	set.LaunchArgs = args
-	if kind == generation.KindSD {
+	if kind == generation.KindSD || kind == generation.KindVideo {
 		set.Capabilities = generation.RecipeCapabilities(recipe, set.Components)
 	}
 

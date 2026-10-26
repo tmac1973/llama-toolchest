@@ -1,4 +1,4 @@
-// Package generation holds the image and music generation backends that
+// Package generation holds the image, video and music generation backends that
 // run next to llama-server: their model sets, backend instances and the
 // store that persists them.
 package generation
@@ -11,6 +11,10 @@ type BackendKind string
 const (
 	// KindSD is stable-diffusion.cpp's sd-server (images).
 	KindSD BackendKind = "sd"
+	// KindVideo also runs sd-server, with a video model. It is a kind of
+	// its own so image jobs never pick a video set and video jobs never
+	// pick an image set.
+	KindVideo BackendKind = "video"
 	// KindAce is acestep.cpp's ace-server (music).
 	KindAce BackendKind = "ace"
 )
@@ -48,10 +52,19 @@ type ModelSet struct {
 	// Capabilities lists extra abilities, e.g. "alpha" or "edit".
 	Capabilities []string `json:"capabilities,omitempty"`
 	License      string   `json:"license,omitempty"`
-	// DefaultWidth and DefaultHeight are the image size the measured test
-	// run uses. Zero for ace.
+	// DefaultWidth and DefaultHeight are the image or video size the
+	// measured test run uses. Zero for ace.
 	DefaultWidth  int `json:"default_width,omitempty"`
 	DefaultHeight int `json:"default_height,omitempty"`
+	// DefaultFrames and DefaultFPS are the test video's length and frame
+	// rate, and what a video request that gives none gets. Video sets only.
+	DefaultFrames int `json:"default_frames,omitempty"`
+	DefaultFPS    int `json:"default_fps,omitempty"`
+	// MaxFrames, MaxWidth and MaxHeight are the largest video a request
+	// may ask for; zero means no limit. Video sets only.
+	MaxFrames int `json:"max_frames,omitempty"`
+	MaxWidth  int `json:"max_width,omitempty"`
+	MaxHeight int `json:"max_height,omitempty"`
 	// Complete is true once every component file is present.
 	Complete bool      `json:"complete"`
 	Created  time.Time `json:"created"`

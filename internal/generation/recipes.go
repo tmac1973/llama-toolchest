@@ -40,17 +40,86 @@ var RecipeSlots = map[string]RecipeSlotSet{
 	"sdxl-checkpoint":      {Required: []string{"model"}, Optional: []string{"vae", "tae"}},
 }
 
-// Recipes returns the recipe IDs a custom set may use: the catalog's
-// recipes first, in catalog order, then the rest alphabetically.
+// Video capabilities: what a video set can start from. A set without
+// CapText needs a start image.
+const (
+	CapText       = "text"
+	CapStartImage = "start_image"
+	CapEndImage   = "end_image"
+)
+
+// VideoRecipe is a video recipe's slots, and what its model can start
+// from.
+type VideoRecipe struct {
+	Slots RecipeSlotSet
+	// Caps comes from the recipe's features (init_image gives
+	// CapStartImage, end_image CapEndImage), plus CapText when the model
+	// can work from a prompt alone.
+	Caps []string
+}
+
+// VideoRecipes holds the video recipes a set may use, copied from
+// stable-diffusion.cpp examples/server/recipes/*.json at
+// master-1000-95ff762 (2026-10-24). wan21-vace and wan22-s2v are left
+// out: they need control videos or audio, which toolchest does not send.
+var VideoRecipes = map[string]VideoRecipe{
+	"wan22-ti2v-5b":        {wanSlots(), []string{CapText, CapStartImage}},
+	"wan22-i2v":            {wanMoESlots(), []string{CapStartImage, CapEndImage}},
+	"wan22-t2v":            {wanMoESlots(), []string{CapText}},
+	"wan21-t2v":            {wanSlots(), []string{CapText}},
+	"wan21-i2v":            {RecipeSlotSet{Required: []string{"diffusion_model", "t5xxl"}, Optional: []string{"vae", "tae", "clip_vision"}, OneOf: []string{"vae", "tae"}}, []string{CapStartImage}},
+	"wan21-flf2v":          {RecipeSlotSet{Required: []string{"diffusion_model", "t5xxl", "clip_vision"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}}, []string{CapStartImage, CapEndImage}},
+	"ltx23-distilled":      {ltxSlots(), []string{CapText, CapStartImage, CapEndImage}},
+	"ltx23-dev":            {ltxSlots(), []string{CapText, CapStartImage, CapEndImage}},
+	"ltx25-dev":            {RecipeSlotSet{Required: []string{"diffusion_model", "llm"}, Optional: []string{"vae", "tae", "audio_vae"}, OneOf: []string{"vae", "tae"}}, []string{CapText, CapStartImage, CapEndImage}},
+	"hunyuan-video-15-t2v": {hunyuanSlots(), []string{CapText}},
+	"hunyuan-video-15-i2v": {hunyuanSlots(), []string{CapStartImage}},
+	"lingbot-video-dense":  {llmVideoSlots(), []string{CapText, CapStartImage}},
+	"lingbot-video-moe":    {llmVideoSlots(), []string{CapText, CapStartImage}},
+}
+
+func wanSlots() RecipeSlotSet {
+	return RecipeSlotSet{Required: []string{"diffusion_model", "t5xxl"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}}
+}
+
+// wanMoESlots are the Wan2.2 A14B pairs: a low-noise and a high-noise
+// expert.
+func wanMoESlots() RecipeSlotSet {
+	return RecipeSlotSet{Required: []string{"diffusion_model", "high_noise_diffusion_model", "t5xxl"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}}
+}
+
+func ltxSlots() RecipeSlotSet {
+	return RecipeSlotSet{Required: []string{"diffusion_model", "llm", "embeddings_connectors"}, Optional: []string{"vae", "tae", "audio_vae"}, OneOf: []string{"vae", "tae"}}
+}
+
+func hunyuanSlots() RecipeSlotSet {
+	return RecipeSlotSet{Required: []string{"diffusion_model", "llm", "t5xxl"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}}
+}
+
+func llmVideoSlots() RecipeSlotSet {
+	return RecipeSlotSet{Required: []string{"diffusion_model", "llm"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}}
+}
+
+// Recipes returns the image recipe IDs a custom set may use: the
+// catalog's recipes first, in catalog order, then the rest alphabetically.
 func Recipes() []string {
+	return recipeIDs(KindSD, func(id string) bool { _, ok := RecipeSlots[id]; return ok }, keys(RecipeSlots))
+}
+
+// VideoRecipeIDs is Recipes for video sets.
+func VideoRecipeIDs() []string {
+	return recipeIDs(KindVideo, func(id string) bool { _, ok := VideoRecipes[id]; return ok }, keys(VideoRecipes))
+}
+
+func recipeIDs(kind BackendKind, known func(string) bool, all []string) []string {
 	var ids []string
 	for _, e := range Catalog() {
-		if e.Recipe != "" && !slices.Contains(ids, e.Recipe) {
+		if e.Kind == kind && e.Recipe != "" && known(e.Recipe) && !slices.Contains(ids, e.Recipe) {
 			ids = append(ids, e.Recipe)
 		}
 	}
 	var rest []string
-	for id := range RecipeSlots {
+	for _, id := range all {
 		if !slices.Contains(ids, id) {
 			rest = append(rest, id)
 		}
@@ -59,14 +128,26 @@ func Recipes() []string {
 	return append(ids, rest...)
 }
 
+func keys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
 // AceSlots are the four files every ACE-Step set needs.
 var AceSlots = []string{"lm", "dit", "embedding", "vae"}
 
 // RecipeCapabilities returns the capabilities a custom set gets from its
 // recipe and files: alpha output for Ming-Image, and editing for the
 // recipes whose sd.cpp docs describe it. Qwen-Image edits need the vision
-// weights, so those recipes edit only with an llm_vision file.
+// weights, so those recipes edit only with an llm_vision file. A video
+// recipe gives what its model can start from (VideoRecipe.Caps).
 func RecipeCapabilities(recipe string, comps []Component) []string {
+	if r, ok := VideoRecipes[recipe]; ok {
+		return slices.Clone(r.Caps)
+	}
 	hasSlot := func(slot string) bool {
 		return slices.ContainsFunc(comps, func(c Component) bool { return c.Slot == slot })
 	}
@@ -92,8 +173,20 @@ func ValidateComponents(kind BackendKind, recipe string, comps []Component) erro
 	case KindSD:
 		var ok bool
 		if slots, ok = RecipeSlots[recipe]; !ok {
+			if _, video := VideoRecipes[recipe]; video {
+				return fmt.Errorf("recipe %s is a video recipe; make the set a video set", recipe)
+			}
 			return fmt.Errorf("unknown recipe %q", recipe)
 		}
+	case KindVideo:
+		r, ok := VideoRecipes[recipe]
+		if !ok {
+			if _, image := RecipeSlots[recipe]; image {
+				return fmt.Errorf("recipe %s is an image recipe; make the set an image set", recipe)
+			}
+			return fmt.Errorf("unknown video recipe %q", recipe)
+		}
+		slots = r.Slots
 	case KindAce:
 		slots = RecipeSlotSet{Required: AceSlots}
 	default:
@@ -121,8 +214,11 @@ func ValidateComponents(kind BackendKind, recipe string, comps []Component) erro
 }
 
 func describeSet(kind BackendKind, recipe string) string {
-	if kind == KindAce {
+	switch kind {
+	case KindAce:
 		return "an ACE-Step set"
+	case KindVideo:
+		return "video recipe " + recipe
 	}
 	return "recipe " + recipe
 }

@@ -98,12 +98,16 @@ func (s *Server) genV1Model(inst generation.Instance) map[string]any {
 	}
 	// api lists the route groups that serve this model, so a client can
 	// tell what this build supports without trying each route.
-	kind, api := "image", []string{"images.sync", "images.jobs"}
+	kind, api := genKindLabel(set.Kind), []string{"images.sync", "images.jobs"}
 	if slices.Contains(caps, "edit") {
 		api = append(api, "images.edits")
 	}
-	if set.Kind == generation.KindAce {
-		kind, api = "music", []string{"music.jobs", "music.ace_step"}
+	switch set.Kind {
+	case generation.KindAce:
+		api = []string{"music.jobs", "music.ace_step"}
+	case generation.KindVideo:
+		// The video routes come in a later version.
+		api = []string{}
 	}
 	meta := map[string]any{
 		"kind":         kind,
@@ -169,4 +173,15 @@ func advertisedToClients(m *models.Model, cfg *models.ModelConfig) bool {
 // API-package call sites stay readable.
 func (s *Server) findModelByAny(name string) (*models.Model, *models.ModelConfig) {
 	return s.registry.FindByAny(name)
+}
+
+// genKindLabel names a set's kind as /v1/models and the UI show it.
+func genKindLabel(k generation.BackendKind) string {
+	switch k {
+	case generation.KindAce:
+		return "music"
+	case generation.KindVideo:
+		return "video"
+	}
+	return "image"
 }

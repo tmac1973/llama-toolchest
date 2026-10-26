@@ -38,6 +38,11 @@ var sdSlotFlags = map[string]string{
 	"tokenizer":       "--tokenizer",
 	"vae":             "--vae",
 	"tae":             "--tae",
+	// Video sets.
+	"high_noise_diffusion_model": "--high-noise-diffusion-model",
+	"embeddings_connectors":      "--embeddings-connectors",
+	"audio_vae":                  "--audio-vae",
+	"clip_vision":                "--clip_vision",
 }
 
 // BuildBackend returns the profile backend ("rocm", "cuda", "vulkan") a
@@ -95,7 +100,7 @@ func LaunchSpec(inst Instance, set ModelSet, build builder.BuildResult, host, da
 
 	var args []string
 	switch set.Kind {
-	case KindSD:
+	case KindSD, KindVideo:
 		args = []string{"--listen-ip", host, "--listen-port", port}
 		for _, c := range set.Components {
 			flag := sdSlotFlags[c.Slot]

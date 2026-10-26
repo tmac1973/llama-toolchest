@@ -684,6 +684,9 @@ func (s *Server) gpuUsedMiB(gpu int) int {
 // so the reservation must cover the edit.
 func (s *Server) runMeasureGeneration(ctx context.Context, inst generation.Instance, set generation.ModelSet) error {
 	base := fmt.Sprintf("http://127.0.0.1:%d", inst.Port)
+	if set.Kind == generation.KindVideo {
+		return errors.New("measuring video sets is not supported in this version; set the reservation by hand")
+	}
 	if set.Kind == generation.KindSD {
 		w, h := max(set.DefaultWidth, 64), max(set.DefaultHeight, 64)
 		size := fmt.Sprintf("%dx%d", w, h)

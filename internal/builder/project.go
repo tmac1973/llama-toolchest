@@ -131,6 +131,21 @@ func projects() []Project {
 // Projects returns every project the builder knows, llama.cpp first.
 func Projects() []Project { return projects() }
 
+// ProjectForKind returns the project that builds a generation backend
+// kind. Video sets ("video") run stable-diffusion.cpp's sd-server, so they
+// use its project.
+func ProjectForKind(kind string) (Project, bool) {
+	if kind == "video" {
+		kind = "sd"
+	}
+	for _, p := range projects() {
+		if p.Kind != "" && p.Kind == kind {
+			return p, true
+		}
+	}
+	return Project{}, false
+}
+
 // FindProject returns the project with the given ID. "" means llama.cpp,
 // which is what builds recorded before projects existed were.
 func FindProject(id string) (Project, bool) {
