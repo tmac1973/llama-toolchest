@@ -82,11 +82,32 @@ func (s *Store) saveLocked() error {
 	return nil
 }
 
+// Sets and instances go in and out of the store as deep copies: their
+// slices must not share memory with the store's own, or a caller changing
+// a set (a download recording a file's path) writes into data another
+// goroutine is reading (a page being rendered).
+
+func (m ModelSet) clone() ModelSet {
+	m.Components = slices.Clone(m.Components)
+	m.LaunchArgs = slices.Clone(m.LaunchArgs)
+	m.Capabilities = slices.Clone(m.Capabilities)
+	return m
+}
+
+func (inst Instance) clone() Instance {
+	inst.ExtraArgs = slices.Clone(inst.ExtraArgs)
+	return inst
+}
+
 // ModelSets returns a copy of all model sets.
 func (s *Store) ModelSets() []ModelSet {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return slices.Clone(s.data.ModelSets)
+	out := make([]ModelSet, len(s.data.ModelSets))
+	for i, m := range s.data.ModelSets {
+		out[i] = m.clone()
+	}
+	return out
 }
 
 // ModelSet returns the set with the given ID.
@@ -95,7 +116,7 @@ func (s *Store) ModelSet(id string) (ModelSet, error) {
 	defer s.mu.RUnlock()
 	for _, m := range s.data.ModelSets {
 		if m.ID == id {
-			return m, nil
+			return m.clone(), nil
 		}
 	}
 	return ModelSet{}, fmt.Errorf("model set %q: %w", id, ErrNotFound)
@@ -108,7 +129,7 @@ func (s *Store) AddModelSet(m ModelSet) error {
 	if s.setIndexLocked(m.ID) >= 0 {
 		return fmt.Errorf("model set %q: %w", m.ID, ErrIDTaken)
 	}
-	s.data.ModelSets = append(s.data.ModelSets, m)
+	s.data.ModelSets = append(s.data.ModelSets, m.clone())
 	return s.saveLocked()
 }
 
@@ -120,7 +141,7 @@ func (s *Store) UpdateModelSet(m ModelSet) error {
 	if i < 0 {
 		return fmt.Errorf("model set %q: %w", m.ID, ErrNotFound)
 	}
-	s.data.ModelSets[i] = m
+	s.data.ModelSets[i] = m.clone()
 	return s.saveLocked()
 }
 
@@ -145,7 +166,11 @@ func (s *Store) DeleteModelSet(id string) error {
 func (s *Store) Instances() []Instance {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return slices.Clone(s.data.Instances)
+	out := make([]Instance, len(s.data.Instances))
+	for i, inst := range s.data.Instances {
+		out[i] = inst.clone()
+	}
+	return out
 }
 
 // Instance returns the instance with the given ID.
@@ -154,7 +179,7 @@ func (s *Store) Instance(id string) (Instance, error) {
 	defer s.mu.RUnlock()
 	for _, inst := range s.data.Instances {
 		if inst.ID == id {
-			return inst, nil
+			return inst.clone(), nil
 		}
 	}
 	return Instance{}, fmt.Errorf("instance %q: %w", id, ErrNotFound)
@@ -171,7 +196,7 @@ func (s *Store) AddInstance(inst Instance) error {
 	if s.setIndexLocked(inst.ModelSetID) < 0 {
 		return fmt.Errorf("model set %q: %w", inst.ModelSetID, ErrNotFound)
 	}
-	s.data.Instances = append(s.data.Instances, inst)
+	s.data.Instances = append(s.data.Instances, inst.clone())
 	return s.saveLocked()
 }
 
@@ -183,7 +208,7 @@ func (s *Store) UpdateInstance(inst Instance) error {
 	if i < 0 {
 		return fmt.Errorf("instance %q: %w", inst.ID, ErrNotFound)
 	}
-	s.data.Instances[i] = inst
+	s.data.Instances[i] = inst.clone()
 	return s.saveLocked()
 }
 
