@@ -21,7 +21,7 @@
     <tbody>
     {{- range .Rows}}
         <tr>
-            <td>{{.Name}}{{if not .Enabled}} <small title="A disabled instance cannot run.">(disabled)</small>{{end}}{{if .AutoStart}} <small title="Starts when llama-toolchest starts.">auto-start</small>{{end}}{{if and $.EvictOn .KeepRunning}} <small title="Locked: never stopped to make room for an LLM or another instance, and its VRAM reservation counts even while it is stopped.">locked</small>{{end}}</td>
+            <td>{{.Name}}{{if .AutoStart}} <small title="Starts when llama-toolchest starts.">auto-start</small>{{end}}{{if and $.EvictOn .KeepRunning}} <small title="Locked: never stopped to make room for an LLM or another instance, and its VRAM reservation counts even while it is stopped.">locked</small>{{end}}</td>
             <td>{{.SetName}} <small>({{kindLabel .Kind}})</small></td>
             <td>{{with .BuildLabel}}<kbd>{{.}}</kbd>{{else}}<small title="Build one on the Builds page.">no build</small>{{end}}</td>
             <td>{{.GPU}}{{with .GPUName}} <small>{{.}}</small>{{end}}</td>
@@ -46,7 +46,7 @@
                     </form>
                 </details>
             </td>
-            <td{{with .Status.Error}} title="{{.}}" style="cursor:help;"{{end}}>{{if .Measuring}}<span aria-busy="true">measuring…</span>{{else}}{{.Status.State}}{{if eq .Status.State "running"}} <small>{{.Status.Uptime}}</small>{{end}}{{end}}
+            <td{{with .Status.Error}} title="{{.}}" style="cursor:help;"{{end}}>{{if .Measuring}}<span aria-busy="true">measuring…</span>{{else if and (not .Enabled) (not (or (eq .Status.State "running") (eq .Status.State "starting")))}}<span title="A disabled instance cannot run. Press Enable to let it start." style="cursor:help;">disabled</span>{{else}}{{.Status.State}}{{if eq .Status.State "running"}} <small>{{.Status.Uptime}}</small>{{end}}{{end}}
                 {{- if .MeasureNote}}<small style="display:block;color:var(--pico-ins-color);" title="The result of the last measurement. It is shown until the next one, or until llama-toolchest restarts; the peak stays under VRAM reserved.">Measured at {{.MeasureAt.Format "15:04"}}: {{.MeasureNote}}</small>{{end}}
                 {{- if .MeasureError}}<small style="display:block;color:var(--pico-del-color);">Measurement failed at {{.MeasureAt.Format "15:04"}}: {{.MeasureError}}</small>{{end}}</td>
             <td>{{if or .GPUJobsRunning .GPUJobsWaiting}}{{.GPUJobsRunning}} running{{if .GPUJobsWaiting}}, {{.GPUJobsWaiting}} waiting{{end}}{{else if not .GPUHeldBy}}<small>idle</small>{{end}}
