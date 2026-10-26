@@ -21,19 +21,21 @@ func TestMeasureNote(t *testing.T) {
 		before    int
 		estimated bool
 		restarted bool
+		started   bool
 		want      string
 	}{
-		{"first measurement", 0, false, false, "Peak 18.6 GiB. Reservation set to 20.5 GiB."},
-		{"kept, as suggested", 20992, false, false, "Peak 18.6 GiB. Reservation stays at 20.5 GiB, as suggested."},
-		{"kept, suggests other", 30720, false, false, "Peak 18.6 GiB. Reservation stays at 30.0 GiB; this measurement suggests 20.5 GiB."},
-		{"estimated and restarted", 20992, true, true, "Peak 18.6 GiB (estimated from the whole GPU's use). Reservation stays at 20.5 GiB, as suggested. Restarted."},
+		{"first measurement", 0, false, false, false, "Peak 18.6 GiB. Reservation set to 20.5 GiB."},
+		{"first measurement from Start", 0, false, false, true, "Peak 18.6 GiB. Reservation set to 20.5 GiB. Started."},
+		{"kept, as suggested", 20992, false, false, false, "Peak 18.6 GiB. Reservation stays at 20.5 GiB, as suggested."},
+		{"kept, suggests other", 30720, false, false, false, "Peak 18.6 GiB. Reservation stays at 30.0 GiB; this measurement suggests 20.5 GiB."},
+		{"estimated and restarted", 20992, true, true, false, "Peak 18.6 GiB (estimated from the whole GPU's use). Reservation stays at 20.5 GiB, as suggested. Restarted."},
 	} {
 		in := inst
 		in.MeasureEstimated = c.estimated
 		if c.before != 0 && c.before != 20992 {
 			in.ReservedMiB = c.before
 		}
-		if got := measureNote(c.before, in, c.restarted); got != c.want {
+		if got := measureNote(c.before, in, c.restarted, c.started); got != c.want {
 			t.Errorf("%s:\n got  %q\n want %q", c.name, got, c.want)
 		}
 	}
@@ -68,6 +70,29 @@ func TestInstanceTableShowsMeasurement(t *testing.T) {
 	s.genMeasure.set("m", measureOutcome{Err: "the test generation failed: sd-server exited", At: time.Date(2026, 10, 25, 2, 20, 0, 0, time.Local)})
 	if out := table(); !strings.Contains(out, "Measurement failed at 02:20: the test generation failed: sd-server exited") {
 		t.Errorf("failure not shown in full:\n%s", out)
+	}
+}
+
+// Start on an instance with no reservation asks to measure it first
+// instead of posting a start that can only be refused.
+func TestStartWithoutReservationAsksToMeasure(t *testing.T) {
+	s := instanceServer(t)
+	for _, in := range []generation.Instance{
+		{ID: "new", Name: "new", ModelSetID: "ming-image", Port: 8081, Enabled: true},
+		{ID: "ok", Name: "ok", ModelSetID: "ming-image", Port: 8082, Enabled: true, ReservedMiB: 20992},
+	} {
+		if err := s.gen.AddInstance(in); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec := httptest.NewRecorder()
+	s.handleGenInstances(rec, instanceReq("GET", "/", "", "", nil))
+	out := rec.Body.String()
+	if !strings.Contains(out, `openGenMeasureStart('new'`) || strings.Contains(out, `hx-post="/api/gen/instances/new/start"`) {
+		t.Errorf("unmeasured instance's Start should open the measure dialog:\n%s", out)
+	}
+	if !strings.Contains(out, `hx-post="/api/gen/instances/ok/start"`) || strings.Contains(out, `openGenMeasureStart('ok'`) {
+		t.Errorf("measured instance's Start should start it directly:\n%s", out)
 	}
 }
 

@@ -424,8 +424,10 @@ func (g *genMeasureState) get(id string) measureOutcome {
 
 // measureNote says what a successful measurement found and what it did to
 // the reservation. before is the reservation before the run; inst is the
-// instance as saved after it.
-func measureNote(before int, inst generation.Instance, restarted bool) string {
+// instance as saved after it. restarted and started say whether it was
+// running again afterwards: restarted because it was running before,
+// started because Start asked for the measurement.
+func measureNote(before int, inst generation.Instance, restarted, started bool) string {
 	note := "Peak " + mibText(inst.MeasuredPeakMiB)
 	if inst.MeasureEstimated {
 		note += " (estimated from the whole GPU's use)"
@@ -440,8 +442,11 @@ func measureNote(before int, inst generation.Instance, restarted bool) string {
 	default:
 		note += "Reservation stays at " + mibText(before) + "; this measurement suggests " + mibText(suggest) + "."
 	}
-	if restarted {
+	switch {
+	case restarted:
 		note += " Restarted."
+	case started:
+		note += " Started."
 	}
 	return note
 }
@@ -458,7 +463,9 @@ var measureSongRequest = map[string]any{
 }
 
 // handleGenMeasure starts a measured test run in the background; the
-// instance table shows its progress and outcome.
+// instance table shows its progress and outcome. With start=1 (Start on
+// an instance that has no reservation yet) the instance is started once
+// the measurement has set one.
 func (s *Server) handleGenMeasure(w http.ResponseWriter, r *http.Request) {
 	store := s.genStore(w)
 	if store == nil {
@@ -475,9 +482,10 @@ func (s *Server) handleGenMeasure(w http.ResponseWriter, r *http.Request) {
 	s.genMgr.SetMeasuring(inst.ID, true)
 	s.genMeasure.clear(inst.ID)
 	before, wasRunning := inst.ReservedMiB, s.genMgr.IsActive(inst.ID)
+	startAfter := r.FormValue("start") == "1"
 	go func() {
 		defer s.genMgr.SetMeasuring(inst.ID, false)
-		if err := s.measureInstance(inst.ID); err != nil {
+		if err := s.measureInstance(inst.ID, startAfter); err != nil {
 			slog.Warn("generation instance measurement failed", "instance", inst.ID, "error", err)
 			s.genMeasure.set(inst.ID, measureOutcome{Err: err.Error(), At: time.Now()})
 			return
@@ -486,7 +494,7 @@ func (s *Server) handleGenMeasure(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return
 		}
-		s.genMeasure.set(inst.ID, measureOutcome{Note: measureNote(before, after, wasRunning), At: time.Now()})
+		s.genMeasure.set(inst.ID, measureOutcome{Note: measureNote(before, after, wasRunning, startAfter && !wasRunning), At: time.Now()})
 	}()
 	s.genInstancesChanged(w, r)
 }
@@ -518,8 +526,9 @@ func (s *Server) canMeasure(inst generation.Instance) error {
 // measureInstance runs the measured test run: start the instance without
 // its VRAM limit, run one fixed generation, record the peak, and set or
 // suggest a reservation. The instance is left as it was found: running
-// again (with its limit) if it was running, stopped otherwise.
-func (s *Server) measureInstance(id string) error {
+// again (with its limit) if it was running, stopped otherwise. With
+// startAfter it is started afterwards either way.
+func (s *Server) measureInstance(id string, startAfter bool) error {
 	inst, err := s.gen.Instance(id)
 	if err != nil {
 		return err
@@ -617,9 +626,12 @@ func (s *Server) measureInstance(id string) error {
 	if fitErr != nil {
 		return fmt.Errorf("measured %s at peak, but the suggested reservation does not fit, so the instance was disabled: %w", mibText(peak), fitErr)
 	}
-	if wasRunning {
+	if wasRunning || startAfter {
 		if err := s.startGenInstance(id); err != nil {
-			return fmt.Errorf("measured; restarting failed: %w", err)
+			if wasRunning {
+				return fmt.Errorf("measured; restarting failed: %w", err)
+			}
+			return fmt.Errorf("measured; starting failed: %w", err)
 		}
 	}
 	return nil
