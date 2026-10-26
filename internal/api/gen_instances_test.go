@@ -125,8 +125,13 @@ func TestGenInstanceEnableDisableStart(t *testing.T) {
 		s.handleGenInstanceAction(rec, instanceReq("POST", "/", "m", action, nil))
 		return rec
 	}
-	if rec := act("disable"); rec.Code != http.StatusOK {
+	rec := act("disable")
+	if rec.Code != http.StatusOK {
 		t.Fatalf("disable: %d %s", rec.Code, rec.Body.String())
+	}
+	// A disabled instance's state reads "disabled", not "stopped".
+	if body := rec.Body.String(); !strings.Contains(body, ">disabled</span>") || strings.Contains(body, ">stopped") {
+		t.Errorf("state after disable:\n%s", body)
 	}
 	if inst, _ := s.gen.Instance("m"); inst.Enabled {
 		t.Error("still enabled")
@@ -134,8 +139,12 @@ func TestGenInstanceEnableDisableStart(t *testing.T) {
 	if rec := act("start"); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "disabled") {
 		t.Errorf("start while disabled: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := act("enable"); rec.Code != http.StatusOK {
+	rec = act("enable")
+	if rec.Code != http.StatusOK {
 		t.Fatalf("enable: %d", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, ">stopped") || strings.Contains(body, ">disabled</span>") {
+		t.Errorf("state after enable:\n%s", body)
 	}
 	// The build's binary does not exist, so the start fails at launch;
 	// the error is reported rather than swallowed.
@@ -146,7 +155,7 @@ func TestGenInstanceEnableDisableStart(t *testing.T) {
 		t.Errorf("unknown action: %d", rec.Code)
 	}
 
-	rec := httptest.NewRecorder()
+	rec = httptest.NewRecorder()
 	s.handleGenDeleteInstance(rec, instanceReq("DELETE", "/", "m", "", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete: %d", rec.Code)
