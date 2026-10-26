@@ -453,11 +453,13 @@
             <tr><td>FLUX.3 Image Klein</td><td>13.5 GiB</td><td>–</td></tr>
             <tr><td>Chroma1-HD</td><td>17.0 GiB</td><td>–</td></tr>
             <tr><td>Qwen-Image-Edit 2511</td><td>22.0 GiB</td><td>–</td></tr>
+            <tr><td>Wan2.2 TI2V 5B (video)</td><td>26.0 GiB</td><td>14.5 GiB†</td></tr>
             <tr><td>ACE-Step 1.5 XL SFT</td><td>8.0 GiB</td><td>–</td></tr>
             <tr><td>ACE-Step 1.5 turbo</td><td>–</td><td>7.5 GiB</td></tr>
         </tbody>
     </table>
     <p>The sets that edit images (both kleins and Qwen-Image-Edit) were measured with an edit as well as an image; an edit needs more memory, about 2–3 GiB more on these three. *The A4000 figure for FLUX.2 klein is from before Measure included the edit, so it is too low for edits.</p>
+    <p>†Wan2.2 TI2V 5B fills a 16 GB card when it runs with no limit, so Measure suggests more than the card has and disables the instance. Set the reservation by hand to 14.5 GiB; sd-server then keeps inside it and runs at about the same speed. The R9700 figure covers the 33-frame 832×480 test video. A 5-second 1280×704 video took about 21 minutes on the R9700 and used about 4 GiB more than the reservation, so leave room next to it for those.</p>
     <p>sd-server decides by itself how much of a model set goes on the card. With room to spare it puts everything there; on a smaller card it keeps part of it in system RAM. Ming-Image's catalog set runs its 10 GB text model on the CPU instead (<code>--backend te=cpu</code>, as Haruspex does): on the R9700 that halved its peak, from 18.6 to 9.4 GiB, at the same speed. Measure on the card you will use.</p>
     <p><strong>What fits together on one 32 GB R9700.</strong> Ming-Image (10.5 GiB) fits next to Qwen-Image Turbo or ACE-Step XL, but not next to both. Next to Qwen-Image Turbo and ACE-Step XL together, about 8.6 GiB is left for LLMs: Qwen3-4B Q8_0 fits, Gemma 4 12B Q6 is refused. That trio once ran with only 1.8 GB to spare; reservations add 10% to each measured peak and the planner keeps its safety margin, so it is refused on purpose.</p>
 

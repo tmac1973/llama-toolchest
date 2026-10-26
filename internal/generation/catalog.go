@@ -257,7 +257,9 @@ func Catalog() []CatalogEntry {
 			LaunchArgs:   []string{"--steps", "20", "--cfg-scale", "5", "--flow-shift", "5", "--sampling-method", "euler", "--diffusion-fa"},
 			Capabilities: []string{CapText, CapStartImage},
 			License:      "Apache-2.0",
-			Notes:        "Text-to-video and image-to-video in one small model; 20 steps. Up to 5 seconds at 1280×704.",
+			Notes: "Text-to-video and image-to-video in one small model; 20 steps. On a Radeon AI PRO R9700, about 70 s for the 33-frame 832×480 test video " +
+				"(measured reservation 26 GiB) and about 21 minutes for 5 seconds at 1280×704, the most it makes. " +
+				"On a 16 GB RTX A4000 it works with the reservation set by hand to 14.5 GiB (about 75 s for the test video); Measure suggests more than the card has.",
 			// The test video is short and mid-sized so Measure finishes in
 			// minutes; the ceiling is the model's native size, 121 frames
 			// being 5 s at 24 fps.
