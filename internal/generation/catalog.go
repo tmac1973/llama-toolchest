@@ -249,7 +249,12 @@ func Catalog() []CatalogEntry {
 				umt5Q8,
 				{Slot: "vae", Repo: "Comfy-Org/Wan_2.2_ComfyUI_Repackaged", File: "split_files/vae/wan2.2_vae.safetensors", Bytes: 1409400960},
 			},
-			LaunchArgs:   []string{"--steps", "20", "--cfg-scale", "5", "--flow-shift", "5", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling"},
+			// No --vae-tiling: with it, sd.cpp (master-1000 and master-1006,
+			// ROCm) crashed decoding the Wan2.2 VAE on a Radeon AI PRO R9700
+			// on 2026-10-26. Without it the decode works but needs more
+			// memory: the whole card peaked at about 25 GiB for the test
+			// video.
+			LaunchArgs:   []string{"--steps", "20", "--cfg-scale", "5", "--flow-shift", "5", "--sampling-method", "euler", "--diffusion-fa"},
 			Capabilities: []string{CapText, CapStartImage},
 			License:      "Apache-2.0",
 			Notes:        "Text-to-video and image-to-video in one small model; 20 steps. Up to 5 seconds at 1280×704.",
