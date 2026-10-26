@@ -55,8 +55,17 @@ Video is different from images in ways toolchest does not handle yet:
 - **Video sets work with everything generation sets already have:**
   reservations, Measure, the per-GPU job queue, eviction and locking, the
   Server page's instances, and the Models page's catalog and custom sets.
-- **Each catalog set has a ceiling** on frames and size. A bigger request is
-  refused with a message that names the limit.
+- **Two limits on a video's size, each enforced with a clear message:**
+  - **The model's limit** (from the catalog): the most frames and the largest
+    size the model can make at all.
+  - **The instance's measured size:** Measure lets the user choose the size to
+    measure (presets Short, Medium and Full, or a custom size up to the
+    model's limit), and the instance then refuses any request with more video
+    (frames × width × height) than it was measured for. sd-server therefore
+    stays inside its reservation, and users who want longer videos measure at
+    a larger size.
+- **Measure runs inside what the card can give** (for sd-server, image and
+  video), so it never suggests a reservation the card cannot hold.
 - **Custom sets can use sd.cpp's other video recipes** (Wan2.2 T2V A14B,
   HunyuanVideo 1.5, LingBot-Video and the rest) from the user's own files,
   without being tested.
@@ -90,12 +99,15 @@ own GPU machine, and the programs they point at it.
 1. On the Models page, the user downloads a video set from the catalog, for
    example Wan2.2 TI2V 5B.
 2. On the Server page, they create an instance of it on a GPU and press
-   **Measure**. Toolchest makes a short test video and reserves its peak memory
-   plus 10%.
+   **Measure**, choosing a size: Short (the quick test video) or larger,
+   for longer videos. Toolchest makes a video of that size and reserves its
+   peak memory plus 10%, within what the card can give. The instance will
+   make videos up to that size.
 3. They start the instance (or, with eviction on, let the first job start it).
 4. A program sends a video job to `/v1/videos/jobs` with a prompt, and
    optionally a start image, an end image, a length and a format. Toolchest
-   checks the request against the set's abilities and ceiling, queues it on the
+   checks the request against the set's abilities, the model's limit and the
+   instance's measured size, queues it on the
    instance's GPU, and answers with a job ID.
 5. The program polls the job. Its phase moves through `queued`, then
    `starting` (only when eviction has to start the backend), `generating` and
@@ -123,7 +135,8 @@ own GPU machine, and the programs they point at it.
   (`plan/generation-backends/verification.md`).
 - **Long jobs:** toolchest's HTTP server and its client to the backends have no
   timeouts today. Anything time-limited must allow for videos that take many
-  minutes: the 10-minute limit on a measurement is one such limit.
+  minutes: the 10-minute limit on a measurement was one such limit (video
+  measurements now have up to 2 hours).
 - **Memory:** sd-server is held to its reservation with `--max-vram`; when a
   request needs more, it moves work to system RAM and runs slower. Video memory
   grows with frames × width × height.
@@ -151,8 +164,13 @@ own GPU machine, and the programs they point at it.
 - On a 16 GB A4000, Wan2.2 TI2V 5B is measured and makes a video through the
   job API. The A14B pair and LTX-2.3 are tried, and what happened is written
   down.
-- A request over a set's ceiling, or for a kind of video the set cannot make,
-  is refused with a message that says why; nothing is queued.
+- A request over the model's limit or the instance's measured size, or for a
+  kind of video the set cannot make, is refused with a message that says why;
+  nothing is queued.
+- After measuring at the largest preset, a video of that size stays within the
+  instance's reservation on the R9700.
+- On a 16 GB A4000, Measure gives a reservation the card can hold, with no
+  value set by hand.
 - The waiting route returns the same finished job as polling does.
 - With eviction on, a video job for a stopped video instance starts it, making
   room the same way image jobs do, and locked instances are left alone.
@@ -185,7 +203,18 @@ own GPU machine, and the programs they point at it.
 - **Video length** → Frames, with seconds as an option; both at once is an
   error.
 - **Requests bigger than the test video** → Allowed up to a per-set ceiling of
-  frames and size; bigger is refused.
+  frames and size; bigger is refused. Revised after the Phase 04 hardware check
+  (a 5-second video went about 4 GiB over its reservation) by the next three
+  decisions.
+- **Requests above the instance's measured size** → Refused, with a clear
+  message that says why and how to allow them (measure at a larger size).
+- **Choosing the size to measure** → Presets plus a custom size in the Measure
+  dialog. A video measurement always applies its reservation (and so the
+  instance's limit), since the user chose the size on purpose; image
+  measurements keep "Use suggested" for a second measurement.
+- **Measuring on a card the set would fill** → Measure runs inside the card's
+  budget and never suggests more than it, for image and video sets; music
+  sets keep measuring as before, since ace-server has no memory limit flag.
 - **Clients** → Built for clients in general and advertised in `meta.api`; no
   client work.
 - **Other video models** → Out of scope for the catalog; custom sets can use
