@@ -13,10 +13,17 @@ type CatalogEntry struct {
 	License      string      `json:"license"`
 	// Notes is shown as a tooltip on the entry.
 	Notes string `json:"notes,omitempty"`
-	// DefaultWidth and DefaultHeight are the image size the measured test
-	// run uses; zero for ace.
+	// DefaultWidth and DefaultHeight are the image or video size the
+	// measured test run uses; zero for ace.
 	DefaultWidth  int `json:"default_width,omitempty"`
 	DefaultHeight int `json:"default_height,omitempty"`
+	// DefaultFrames and DefaultFPS are a video set's test length and frame
+	// rate; MaxFrames, MaxWidth and MaxHeight its ceiling for requests.
+	DefaultFrames int `json:"default_frames,omitempty"`
+	DefaultFPS    int `json:"default_fps,omitempty"`
+	MaxFrames     int `json:"max_frames,omitempty"`
+	MaxWidth      int `json:"max_width,omitempty"`
+	MaxHeight     int `json:"max_height,omitempty"`
 }
 
 // TotalBytes is the download size of the whole set.
@@ -42,22 +49,25 @@ func aceComponents(ditFile string, ditBytes int64) []Component {
 	}
 }
 
-// Files shared by more than one image set. A shared file downloads once.
+// Files shared by more than one set. A shared file downloads once.
 var (
 	// fluxAE is the FLUX.1 VAE that Z-Image and Chroma use. The copy in
 	// black-forest-labs/FLUX.1-schnell is gated; this one is not.
 	fluxAE = Component{Slot: "vae", Repo: "Comfy-Org/z_image_turbo", File: "split_files/vae/ae.safetensors", Bytes: 335304388}
+	// chromaT5 is the text encoder both Chroma sets use.
+	chromaT5 = Component{Slot: "t5xxl", Repo: "city96/t5-v1_1-xxl-encoder-gguf", File: "t5-v1_1-xxl-encoder-Q8_0.gguf", Bytes: 5061584064}
+	// umt5Q8 is the text encoder of the Wan video sets.
+	umt5Q8 = Component{Slot: "t5xxl", Repo: "city96/umt5-xxl-encoder-gguf", File: "umt5-xxl-encoder-Q8_0.gguf", Bytes: 6043068256}
 	// flux2SmallDecoder is a FLUX.2 VAE, used by FLUX.2 klein and FLUX.3
 	// Image Klein. The FLUX.2-dev VAE is gated; this one is ungated and
 	// Apache-licensed.
-	// chromaT5 is the text encoder both Chroma sets use.
-	chromaT5          = Component{Slot: "t5xxl", Repo: "city96/t5-v1_1-xxl-encoder-gguf", File: "t5-v1_1-xxl-encoder-Q8_0.gguf", Bytes: 5061584064}
 	flux2SmallDecoder = Component{Slot: "vae", Repo: "black-forest-labs/FLUX.2-small-decoder", File: "full_encoder_small_decoder.safetensors", Bytes: 249519092}
 )
 
 // Catalog returns the built-in model sets. File sizes were read from the
 // Hugging Face tree API on 2026-10-24 (2026-10-25 for Z-Image Turbo,
-// FLUX.3 Image Klein, Chroma1-HD, Chroma1-Flash and Qwen-Image-Edit 2511);
+// FLUX.3 Image Klein, Chroma1-HD, Chroma1-Flash and Qwen-Image-Edit 2511;
+// 2026-10-26 for Wan2.2 TI2V 5B);
 // launch settings for Qwen-Image 2.1 Turbo and ACE-Step XL SFT are the
 // ones measured on asmodean on 2026-10-24.
 func Catalog() []CatalogEntry {
@@ -228,6 +238,36 @@ func Catalog() []CatalogEntry {
 			Notes:         "A single checkpoint file; 20 steps.",
 			DefaultWidth:  1024,
 			DefaultHeight: 1024,
+		},
+		{
+			ID:     "wan22-ti2v-5b",
+			Name:   "Wan2.2 TI2V 5B",
+			Kind:   KindVideo,
+			Recipe: "wan22-ti2v-5b",
+			Components: []Component{
+				{Slot: "diffusion_model", Repo: "QuantStack/Wan2.2-TI2V-5B-GGUF", File: "Wan2.2-TI2V-5B-Q8_0.gguf", Bytes: 5400179040},
+				umt5Q8,
+				{Slot: "vae", Repo: "Comfy-Org/Wan_2.2_ComfyUI_Repackaged", File: "split_files/vae/wan2.2_vae.safetensors", Bytes: 1409400960},
+			},
+			// No --vae-tiling: with it, sd.cpp (master-1000 and master-1006,
+			// ROCm) crashed decoding the Wan2.2 VAE on a Radeon AI PRO R9700
+			// on 2026-10-26. Without it the decode works but needs more
+			// memory: the whole card peaked at about 25 GiB for the test
+			// video.
+			LaunchArgs:   []string{"--steps", "20", "--cfg-scale", "5", "--flow-shift", "5", "--sampling-method", "euler", "--diffusion-fa"},
+			Capabilities: []string{CapText, CapStartImage},
+			License:      "Apache-2.0",
+			Notes:        "Text-to-video and image-to-video in one small model; 20 steps. Up to 5 seconds at 1280×704.",
+			// The test video is short and mid-sized so Measure finishes in
+			// minutes; the ceiling is the model's native size, 121 frames
+			// being 5 s at 24 fps.
+			DefaultWidth:  832,
+			DefaultHeight: 480,
+			DefaultFrames: 33,
+			DefaultFPS:    24,
+			MaxFrames:     121,
+			MaxWidth:      1280,
+			MaxHeight:     704,
 		},
 		{
 			ID:         "ace-step-turbo",

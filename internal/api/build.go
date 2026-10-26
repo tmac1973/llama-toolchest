@@ -664,15 +664,11 @@ func (s *Server) resolveBuild(id string) *builder.BuildResult {
 // the named build when it is a successful build of the backend's project,
 // otherwise the newest successful one. Nil when there is none.
 func (s *Server) resolveBackendBuild(kind, id string) *builder.BuildResult {
-	var project string
-	for _, p := range builder.Projects() {
-		if p.Kind != "" && p.Kind == kind {
-			project = p.ID
-		}
-	}
-	if project == "" {
+	p, ok := builder.ProjectForKind(kind)
+	if !ok {
 		return nil
 	}
+	project := p.ID
 	if id != "" {
 		if b, ok := s.builder.Find(id); ok && b.Status == builder.BuildStatusSuccess && b.ProjectID() == project {
 			return b

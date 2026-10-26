@@ -399,6 +399,13 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 func (s *Server) templateFuncs() template.FuncMap {
 	return template.FuncMap{
 		"divGB": models.BytesToGiB,
+		// kindLabel and kindTitle name a generation set's kind: "image",
+		// "video" or "music", and the same with a capital letter.
+		"kindLabel": genKindLabel,
+		"kindTitle": func(k generation.BackendKind) string {
+			l := genKindLabel(k)
+			return strings.ToUpper(l[:1]) + l[1:]
+		},
 		// cssID sanitizes a string so it's safe to use as both an HTML id
 		// attribute and a CSS selector (see domID in hf.go).
 		"cssID": domID,

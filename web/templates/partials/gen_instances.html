@@ -22,12 +22,12 @@
     {{- range .Rows}}
         <tr>
             <td>{{.Name}}{{if not .Enabled}} <small title="A disabled instance cannot run.">(disabled)</small>{{end}}{{if .AutoStart}} <small title="Starts when llama-toolchest starts.">auto-start</small>{{end}}{{if and $.EvictOn .KeepRunning}} <small title="Locked: never stopped to make room for an LLM or another instance, and its VRAM reservation counts even while it is stopped.">locked</small>{{end}}</td>
-            <td>{{.SetName}} <small>({{if eq .Kind "sd"}}image{{else}}music{{end}})</small></td>
+            <td>{{.SetName}} <small>({{kindLabel .Kind}})</small></td>
             <td>{{with .BuildLabel}}<kbd>{{.}}</kbd>{{else}}<small title="Build one on the Builds page.">no build</small>{{end}}</td>
             <td>{{.GPU}}{{with .GPUName}} <small>{{.}}</small>{{end}}</td>
             <td>{{.Port}}</td>
             <td>
-                {{- if .ReservedMiB}}<span title="{{if .MeasuredPeakMiB}}Measured peak {{printf "%.1f" .PeakGiB}} GiB on {{.MeasuredAt.Format "2006-01-02 15:04"}}{{if .MeasureEstimated}}, estimated from the whole GPU's use because the GPU tools gave no figure for this process{{end}}. {{end}}{{if eq .Kind "sd"}}sd-server is held to this amount.{{else}}ace-server cannot be held to an amount; this is the measured peak plus a margin, for planning.{{end}}" style="cursor:help;">{{printf "%.1f" .ReservedGiB}} GiB</span>
+                {{- if .ReservedMiB}}<span title="{{if .MeasuredPeakMiB}}Measured peak {{printf "%.1f" .PeakGiB}} GiB on {{.MeasuredAt.Format "2006-01-02 15:04"}}{{if .MeasureEstimated}}, estimated from the whole GPU's use because the GPU tools gave no figure for this process{{end}}. {{end}}{{if ne .Kind "ace"}}sd-server is held to this amount.{{else}}ace-server cannot be held to an amount; this is the measured peak plus a margin, for planning.{{end}}" style="cursor:help;">{{printf "%.1f" .ReservedGiB}} GiB</span>
                 {{- else}}<small title="Not measured yet. The instance cannot start until it has a reservation.">none</small>{{end}}
                 {{- if .MeasuredPeakMiB}}
                 <small style="display:block;color:var(--pico-muted-color);" title="The most GPU memory the last measurement saw this instance use.">peak {{printf "%.1f" .PeakGiB}} GiB, measured {{.MeasuredAt.Format "2006-01-02 15:04"}}{{if .MeasureEstimated}}, estimated (whole-GPU){{end}}</small>
@@ -120,7 +120,7 @@
         {{- end}}
         <label>Model set
             <select name="model_set" required>
-                {{- range .Sets}}<option value="{{.ID}}"{{if and $.Editing (eq .ID $.EditSet)}} selected{{end}}>{{.Name}} ({{if eq .Kind "sd"}}image{{else}}music{{end}})</option>{{end}}
+                {{- range .Sets}}<option value="{{.ID}}"{{if and $.Editing (eq .ID $.EditSet)}} selected{{end}}>{{.Name}} ({{kindLabel .Kind}})</option>{{end}}
             </select>
         </label>
     </div>

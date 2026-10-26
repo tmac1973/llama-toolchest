@@ -20,8 +20,8 @@
         <tbody>
         {{- range .Catalog}}
             <tr>
-                <td title="{{.Notes}}" style="cursor:help;">{{.Name}}{{range .Capabilities}} <kbd title="{{if eq . "alpha"}}Outputs an alpha channel (transparent backgrounds).{{else if eq . "edit"}}Can edit an image you send.{{end}}">{{.}}</kbd>{{end}}</td>
-                <td>{{if eq .Kind "sd"}}Image{{else}}Music{{end}}</td>
+                <td title="{{.Notes}}" style="cursor:help;">{{.Name}}{{range .Capabilities}} <kbd title="{{if eq . "alpha"}}Outputs an alpha channel (transparent backgrounds).{{else if eq . "edit"}}Can edit an image you send.{{else if eq . "text"}}Makes video from a prompt alone.{{else if eq . "start_image"}}Can start from an image you give.{{else if eq . "end_image"}}Can end on an image you give.{{end}}">{{.}}</kbd>{{end}}</td>
+                <td>{{kindTitle .Kind}}</td>
                 <td>{{printf "%.1f" .SizeGB}} GB</td>
                 <td><small>{{.License}}</small></td>
                 <td>
@@ -52,7 +52,7 @@
         {{- range .Sets}}
             <tr>
                 <td><span title="{{range .Components}}{{.Slot}}: {{if .Path}}{{.Path}}{{else}}{{.Repo}}/{{.File}} (not downloaded){{end}}&#10;{{end}}" style="cursor:help;">{{.Name}}</span>{{if not .CatalogID}} <small>(custom)</small>{{end}}</td>
-                <td>{{if eq .Kind "sd"}}Image{{else}}Music{{end}}</td>
+                <td>{{kindTitle .Kind}}</td>
                 <td>{{with .Recipe}}<code>{{.}}</code>{{else}}—{{end}}</td>
                 <td>
                     {{- if .Complete}}Ready
@@ -94,24 +94,36 @@
             <label>Backend
                 <select name="kind">
                     <option value="sd">Image (stable-diffusion.cpp)</option>
+                    <option value="video">Video (stable-diffusion.cpp)</option>
                     <option value="ace">Music (acestep.cpp)</option>
                 </select>
             </label>
-            <label title="The sd-server recipe the files follow; it decides which files are needed. Ignored for music sets.">Recipe
+            <label title="The sd-server recipe the files follow; it decides which files are needed. Pick an image recipe for an image set and a video recipe for a video set. Ignored for music sets.">Recipe
                 <select name="recipe">
+                    <optgroup label="Image">
                     {{- range .Recipes}}<option value="{{.}}">{{.}}</option>{{end}}
+                    </optgroup>
+                    <optgroup label="Video">
+                    {{- range .VideoRecipes}}<option value="{{.}}">{{.}}</option>{{end}}
+                    </optgroup>
                 </select>
             </label>
         </div>
-        <label title="One file per line, as slot = /absolute/path. Image slots: diffusion_model, model, llm, llm_vision, tokenizer, vae, tae, clip_l, t5xxl (which ones a recipe needs depends on the recipe). Music slots: lm, dit, embedding, vae (all four are needed).">Files
+        <label title="One file per line, as slot = /absolute/path. Image slots: diffusion_model, model, llm, llm_vision, tokenizer, vae, tae, clip_l, t5xxl. Video slots: diffusion_model, high_noise_diffusion_model, t5xxl, llm, clip_vision, embeddings_connectors, vae, tae, audio_vae. Which ones a recipe needs depends on the recipe. Music slots: lm, dit, embedding, vae (all four are needed).">Files
             <textarea name="files" rows="4" placeholder="diffusion_model = /models/qwen-image-2.1-turbo-Q4_K_M.gguf&#10;llm = /models/Qwen3VL-8B-Instruct-Q4_K_M.gguf&#10;vae = /models/qwen_image_2.1_vae_bf16.safetensors"></textarea>
         </label>
         <div class="grid">
-            <label title="Image size the measured test run uses. Ignored for music sets.">Test width
-                <input type="number" name="width" value="1024" min="64" step="16">
+            <label title="Image or video size the measured test run uses. Leave empty for the default: 1024 for image sets, 832×480 for video sets. Ignored for music sets.">Test width
+                <input type="number" name="width" min="64" step="8" placeholder="1024 / 832">
             </label>
-            <label title="Image size the measured test run uses. Ignored for music sets.">Test height
-                <input type="number" name="height" value="1024" min="64" step="16">
+            <label title="Image or video size the measured test run uses. Leave empty for the default: 1024 for image sets, 832×480 for video sets. Ignored for music sets.">Test height
+                <input type="number" name="height" min="64" step="8" placeholder="1024 / 480">
+            </label>
+            <label title="Length of the test video Measure makes, in frames. sd-server rounds it down to 4n+1. Video sets only.">Test frames
+                <input type="number" name="frames" min="1" placeholder="33">
+            </label>
+            <label title="Frames per second of the test video, and of requests that give none. Video sets only.">Frame rate
+                <input type="number" name="fps" min="1" max="240" placeholder="24">
             </label>
         </div>
         <label title="Extra backend flags, for example --sigmas qwen-image-2.1-turbo --cfg-scale 1. The listen address, port, VRAM limit and model directory are set by llama-toolchest and cannot be given here.">Extra launch arguments

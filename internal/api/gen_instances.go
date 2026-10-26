@@ -235,11 +235,10 @@ func (s *Server) genFormChoices(store *generation.Store) genFormData {
 			data.Sets = append(data.Sets, m)
 		}
 	}
+	// Video sets run on sd builds, so the sd list covers them too.
 	for _, kind := range []generation.BackendKind{generation.KindSD, generation.KindAce} {
-		for _, p := range builder.Projects() {
-			if p.Kind == string(kind) {
-				data.Builds[kind] = s.builder.SuccessfulBuildsRankedFor(p.ID)
-			}
+		if p, ok := builder.ProjectForKind(string(kind)); ok {
+			data.Builds[kind] = s.builder.SuccessfulBuildsRankedFor(p.ID)
 		}
 	}
 	for _, g := range s.monitor.Current().GPU {
@@ -310,10 +309,8 @@ func slicesEqual(a, b []string) bool {
 }
 
 func kindProject(kind generation.BackendKind) string {
-	for _, p := range builder.Projects() {
-		if p.Kind == string(kind) {
-			return p.ID
-		}
+	if p, ok := builder.ProjectForKind(string(kind)); ok {
+		return p.ID
 	}
 	return string(kind)
 }
