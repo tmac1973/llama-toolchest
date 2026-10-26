@@ -1,10 +1,10 @@
-# Phase 06 — LTX-2.3 Distilled 1.1 Set, with Sound
+# Phase 07 — LTX-2.3 Distilled 1.1 Set, with Sound
 
 **Depends on:** Phase 01 (the `embeddings_connectors` and `audio_vae` slots and
 the `ltx23-distilled` recipe), Phase 02 (Measure for video), Phase 03 (the job
-API), Phase 04 (the proven pipeline and `verification.md`), Phase 05 (its set
-comes before this one in the catalog, and its results are part of the success
-check) · **Enables:** the release: after this phase the overview's success
+API), Phase 04 (the proven pipeline and `verification.md`), Phase 05 (measure
+presets and measured limits), Phase 06 (its set comes before this one in the
+catalog, and its results are part of the success check) · **Enables:** the release: after this phase the overview's success
 criteria can all be checked
 
 ## Goal
@@ -57,6 +57,8 @@ results are summed up for the release notes.
      defaults.
    - DefaultWidth 768, DefaultHeight 512, DefaultFrames 33, DefaultFPS 24,
      MaxFrames 121, MaxWidth 1280, MaxHeight 720 (121 frames is 5 s at 24 fps).
+   - VideoSizes (Phase 05): Short 33 frames at 768×512; Medium 65 frames at
+     1280×720; Full 121 frames at 1280×720.
    - Notes: "Text-to-video, image-to-video and start-and-end videos with sound;
      8 steps. WebM videos have a sound track; animated WebP is silent. Up to
      5 seconds at 1280×720. Licence: free unless the organisation makes
@@ -67,21 +69,31 @@ results are summed up for the release notes.
    both licences, and add `unsloth/LTX-2.3-GGUF` and
    `unsloth/gemma-3-12b-it-GGUF` (both checked to be ungated) to the
    allowed-repos list from Phase 01.
-3. **asmodean.** Deploy, download the set, and measure it alone on GPU 0. Run
-   through the job API:
+3. **asmodean.** Deploy, download the set, and measure it alone on GPU 0 at
+   the Short preset. If sd-server crashes in the VAE decode with
+   `--vae-tiling`, as the Wan2.2 VAE did in Phase 01, remove `--vae-tiling`
+   from the entry's LaunchArgs with a comment and measure again. Run through
+   the job API:
    1. Text-to-video at the defaults, WebM.
    2. Image-to-video, WebM.
    3. Start-and-end, WebM.
    4. Text-to-video as animated WebP.
-   5. 1280×720 at 121 frames.
+
+   Then measure at the Full preset, which sets the reservation and the
+   instance's limit to Full, and run:
+   5. 1280×720 at 121 frames, watching that the card stays within the
+      reservation.
 
    Check:
    - that jobs 1–3 and 5 play with sound in Firefox and Chromium;
    - that `ffprobe` shows a video and an audio stream in the WebM;
    - that the WebP has no sound and plays in an image viewer.
 
-   Record times, peak, reservation and file sizes.
-4. **compute2 (16 GB A4000).** Measure the set and run job 1 on one A4000.
+   Record times, peaks, reservations and file sizes, and set the entry's
+   `FullMeasureTime` to the Full measuring time, in the form "about N minutes
+   on a Radeon AI PRO R9700".
+4. **compute2 (16 GB A4000).** Measure the set at Short and run job 1 on one
+   A4000.
    Record the peak and time, or the error and where it failed. A failure here
    is written down, not fixed.
 5. **Write it down.** Add an LTX-2.3 section to `verification.md`. Then go
@@ -93,7 +105,7 @@ results are summed up for the release notes.
    - formats;
    - the licences.
 
-   Add the measured figures to the catalog notes and the help table; in the
+   Add the measured figures to the catalog notes and the help table (the Short reservation in the table row, Full in the note under it, as Phase 05 sets out); in the
    help page's video jobs part, say that LTX-2.3 WebMs carry sound and WebP
    output is silent.
 

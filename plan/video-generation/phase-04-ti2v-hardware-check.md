@@ -1,7 +1,8 @@
 # Phase 04 — Wan2.2 TI2V 5B End to End on Real Hardware
 
 **Depends on:** Phase 01 (the TI2V 5B set), Phase 02 (Measure for video),
-Phase 03 (the video job API) · **Enables:** Phases 05 and 06, which repeat this
+Phase 03 (the video job API) · **Enables:** Phase 05, which answers its
+findings, and Phases 06 and 07, which repeat this
 check for their sets against a pipeline proven here
 
 ## Goal
