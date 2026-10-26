@@ -149,6 +149,12 @@ func TestRecipeCapabilities(t *testing.T) {
 	if got := RecipeCapabilities("qwen-image-21-turbo", []Component{{Slot: "llm_vision"}}); !slices.Equal(got, []string{"edit"}) {
 		t.Errorf("qwen with vision weights = %v, want edit", got)
 	}
+	if got := RecipeCapabilities("flux3-klein", nil); !slices.Equal(got, []string{"edit"}) {
+		t.Errorf("flux3-klein = %v, want edit", got)
+	}
+	if got := RecipeCapabilities("qwen-image-edit-2511", []Component{{Slot: "llm"}}); got != nil {
+		t.Errorf("qwen edit without vision weights = %v, want none", got)
+	}
 	if got := RecipeCapabilities("sdxl-checkpoint", nil); got != nil {
 		t.Errorf("sdxl = %v", got)
 	}

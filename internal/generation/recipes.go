@@ -26,15 +26,18 @@ func (r RecipeSlotSet) Slots() []string {
 // copied from stable-diffusion.cpp examples/server/recipes/*.json at
 // master-1000-95ff762 (2026-10-24).
 var RecipeSlots = map[string]RecipeSlotSet{
-	"ming-image":          {Required: []string{"diffusion_model", "llm", "tokenizer"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}},
-	"qwen-image-21-turbo": {Required: []string{"diffusion_model", "llm"}, Optional: []string{"llm_vision", "vae", "tae"}, OneOf: []string{"vae", "tae"}},
-	"qwen-image-21":       {Required: []string{"diffusion_model", "llm"}, Optional: []string{"llm_vision", "vae", "tae"}, OneOf: []string{"vae", "tae"}},
-	"flux2-klein-4b":      {Required: []string{"diffusion_model", "llm"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}},
-	"z-image":             {Required: []string{"diffusion_model", "llm"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}},
-	"chroma":              {Required: []string{"diffusion_model", "t5xxl"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}},
-	"flux1-dev":           {Required: []string{"diffusion_model", "clip_l", "t5xxl"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}},
-	"flux1-schnell":       {Required: []string{"diffusion_model", "clip_l", "t5xxl"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}},
-	"sdxl-checkpoint":     {Required: []string{"model"}, Optional: []string{"vae", "tae"}},
+	"ming-image":           {Required: []string{"diffusion_model", "llm", "tokenizer"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}},
+	"qwen-image-21-turbo":  {Required: []string{"diffusion_model", "llm"}, Optional: []string{"llm_vision", "vae", "tae"}, OneOf: []string{"vae", "tae"}},
+	"qwen-image-21":        {Required: []string{"diffusion_model", "llm"}, Optional: []string{"llm_vision", "vae", "tae"}, OneOf: []string{"vae", "tae"}},
+	"flux2-klein-4b":       {Required: []string{"diffusion_model", "llm"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}},
+	"z-image-turbo":        {Required: []string{"diffusion_model", "llm"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}},
+	"flux3-klein":          {Required: []string{"diffusion_model", "llm"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}},
+	"qwen-image-edit-2511": {Required: []string{"diffusion_model", "llm"}, Optional: []string{"llm_vision", "vae", "tae"}, OneOf: []string{"vae", "tae"}},
+	"z-image":              {Required: []string{"diffusion_model", "llm"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}},
+	"chroma":               {Required: []string{"diffusion_model", "t5xxl"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}},
+	"flux1-dev":            {Required: []string{"diffusion_model", "clip_l", "t5xxl"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}},
+	"flux1-schnell":        {Required: []string{"diffusion_model", "clip_l", "t5xxl"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}},
+	"sdxl-checkpoint":      {Required: []string{"model"}, Optional: []string{"vae", "tae"}},
 }
 
 // Recipes returns the recipe IDs a custom set may use: the catalog's
@@ -70,9 +73,9 @@ func RecipeCapabilities(recipe string, comps []Component) []string {
 	switch recipe {
 	case "ming-image":
 		return []string{"alpha"}
-	case "flux2-klein-4b":
+	case "flux2-klein-4b", "flux3-klein":
 		return []string{"edit"}
-	case "qwen-image-21", "qwen-image-21-turbo":
+	case "qwen-image-21", "qwen-image-21-turbo", "qwen-image-edit-2511":
 		if hasSlot("llm_vision") {
 			return []string{"edit"}
 		}
