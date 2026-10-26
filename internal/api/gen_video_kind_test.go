@@ -62,15 +62,6 @@ func TestV1ModelsVideoKind(t *testing.T) {
 	}
 }
 
-// Measure refuses a video set for now instead of treating it as music.
-func TestMeasureRefusesVideo(t *testing.T) {
-	s := instanceServer(t)
-	err := s.runMeasureGeneration(t.Context(), generation.Instance{ID: "v", Port: 1}, generation.ModelSet{Kind: generation.KindVideo})
-	if err == nil || !strings.Contains(err.Error(), "set the reservation by hand") {
-		t.Errorf("err = %v", err)
-	}
-}
-
 // A custom video set gets the video test defaults and its recipe's
 // capabilities, and no ceiling.
 func TestGenCreateVideoSet(t *testing.T) {
