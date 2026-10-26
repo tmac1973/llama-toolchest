@@ -116,3 +116,41 @@ func TestStartToOwnRootAndCallback(t *testing.T) {
 		t.Errorf("Status = %+v, %v; want complete", st, ok)
 	}
 }
+
+// Two generation sets can share a file. When the second asks for it while
+// the first's download is running, both must hear when it is done.
+func TestStartToSharedFileCallsEveryCallback(t *testing.T) {
+	const body = "vae contents"
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			<-release
+		}
+		w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	gen := t.TempDir()
+	d := NewDownloader(t.TempDir(), t.TempDir(), "")
+	d.RegisterProvider("fake", Provider{URL: func(string, string) string { return srv.URL }})
+
+	first, second := make(chan string, 1), make(chan string, 1)
+	id1, err := d.StartTo("fake", "Comfy-Org/z_image_turbo", "split_files/vae/ae.safetensors", gen, int64(len(body)),
+		func(path string, _ int64) { first <- path })
+	if err != nil {
+		t.Fatal(err)
+	}
+	id2, err := d.StartTo("fake", "Comfy-Org/z_image_turbo", "split_files/vae/ae.safetensors", gen, int64(len(body)),
+		func(path string, _ int64) { second <- path })
+	if err == nil || id2 != id1 {
+		t.Fatalf("second StartTo = %q, %v; want the running download %q and an error", id2, err, id1)
+	}
+	close(release)
+	for name, ch := range map[string]chan string{"first": first, "second": second} {
+		select {
+		case <-ch:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s callback never called", name)
+		}
+	}
+}
