@@ -215,6 +215,10 @@ own GPU machine, and the programs they point at it.
 - **Measuring on a card the set would fill** → Measure runs inside the card's
   budget and never suggests more than it, for image and video sets; music
   sets keep measuring as before, since ace-server has no memory limit flag.
+- **A measured video that needs more than the card can give** (found in the
+  Phase 05 hardware check: the untiled decode goes past `--max-vram`) →
+  Refuse that size, allowing 1 GiB for the GPU runtime's own memory; keep the
+  previous size.
 - **Clients** → Built for clients in general and advertised in `meta.api`; no
   client work.
 - **Other video models** → Out of scope for the catalog; custom sets can use

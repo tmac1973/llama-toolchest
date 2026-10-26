@@ -263,9 +263,9 @@ func Catalog() []CatalogEntry {
 			LaunchArgs:   []string{"--steps", "20", "--cfg-scale", "5", "--flow-shift", "5", "--sampling-method", "euler", "--diffusion-fa"},
 			Capabilities: []string{CapText, CapStartImage},
 			License:      "Apache-2.0",
-			Notes: "Text-to-video and image-to-video in one small model; 20 steps. On a Radeon AI PRO R9700, about 70 s for the 33-frame 832×480 test video " +
-				"(measured reservation 26 GiB) and about 21 minutes for 5 seconds at 1280×704, the most it makes. " +
-				"On a 16 GB RTX A4000 it works inside 14.5 GiB (about 75 s for the test video). Measure at a larger size to allow longer videos.",
+			Notes: "Text-to-video and image-to-video in one small model; 20 steps. On a Radeon AI PRO R9700 (32 GB), about 70 s for the 33-frame 832×480 Short size " +
+				"(reservation 26 GiB). Medium and Full need more memory than a 32 GB card can give while tiled decoding is broken in stable-diffusion.cpp, " +
+				"so Measure refuses them there; custom sizes between Short and Medium can be tried. On a 16 GB RTX A4000, Short works inside 14.7 GiB (about 75 s).",
 			// The test video is short and mid-sized so Measure finishes in
 			// minutes; the ceiling is the model's native size, 121 frames
 			// being 5 s at 24 fps.
@@ -281,7 +281,7 @@ func Catalog() []CatalogEntry {
 				{Label: "Medium", Frames: 81, Width: 1280, Height: 704},
 				{Label: "Full", Frames: 121, Width: 1280, Height: 704},
 			},
-			FullMeasureTime: "about 21 minutes on a Radeon AI PRO R9700",
+			FullMeasureTime: "about 21 minutes on a Radeon AI PRO R9700, which then could not give it enough memory",
 		},
 		{
 			ID:         "ace-step-turbo",

@@ -85,9 +85,9 @@ func TestApplyMeasurement(t *testing.T) {
 	video := ti2vSet()
 	full := generation.VideoSize{Frames: 121, Width: 1280, Height: 704}
 
-	// Capped: a peak above the room gives a reservation equal to the room,
-	// and the instance stays enabled.
-	inst := generation.Instance{ID: "v", GPU: 0, Enabled: true, MeasuredPeakMiB: 15641}
+	// Capped: a peak just above the room (within the runtime allowance)
+	// gives a reservation equal to the room, and the instance stays enabled.
+	inst := generation.Instance{ID: "v", GPU: 0, Enabled: true, MeasuredPeakMiB: 14500}
 	got, err := s.applyMeasurement(inst, video, full, 14000, true)
 	if err != nil || got.ReservedMiB != 14000 || got.MeasuredSuggestedMiB != 14000 || !got.Enabled {
 		t.Errorf("capped: %+v, %v", got, err)
@@ -226,5 +226,37 @@ func TestApplyMeasurementKeepsSizeWhenItDoesNotFit(t *testing.T) {
 	}
 	if l, m := generation.VideoLimit(got, video); !m || l.Label != "Medium" {
 		t.Errorf("limit = %+v, %v; want Medium still", l, m)
+	}
+}
+
+// A video size whose measured peak is over the room (plus the runtime
+// allowance) is not granted, whatever the cap would allow: sd-server went
+// past --max-vram decoding such videos. Within the allowance it is.
+func TestApplyMeasurementRefusesVideoOverRoom(t *testing.T) {
+	s := vramServer(t)
+	video := ti2vSet()
+	short := generation.Instance{ID: "v", GPU: 0, Enabled: true, ReservedMiB: 26624, MeasuredSuggestedMiB: 26624,
+		MeasuredFrames: 33, MeasuredWidth: 832, MeasuredHeight: 480}
+	// The R9700 Medium run: peak 30.6 GiB held to a 28.2 GiB room.
+	over := short
+	over.MeasuredPeakMiB = 31302
+	got, err := s.applyMeasurement(over, video, generation.VideoSize{Label: "Medium", Frames: 81, Width: 1280, Height: 704}, 28846, true)
+	if err == nil || !strings.Contains(err.Error(), "measure a smaller size") {
+		t.Fatalf("err = %v, want the size refused", err)
+	}
+	if got.ReservedMiB != 26624 || got.MeasuredFrames != 33 || !got.Enabled {
+		t.Errorf("after the refused size: %+v, want the Short state kept", got)
+	}
+	// The A4000 Short run: peak 15.3 GiB held to 14.7 GiB, within the
+	// allowance.
+	a4000 := generation.Instance{ID: "v", GPU: 0, Enabled: true, MeasuredPeakMiB: 15641}
+	got, err = s.applyMeasurement(a4000, video, generation.VideoSize{Frames: 33, Width: 832, Height: 480}, 15062, true)
+	if err != nil || got.ReservedMiB != 15062 || got.MeasuredFrames != 33 {
+		t.Errorf("A4000 Short: %+v, %v; want granted at the room", got, err)
+	}
+	// Image sets are still capped and granted.
+	image := generation.Instance{ID: "i", GPU: 0, Enabled: true, MeasuredPeakMiB: 31302}
+	if got, err := s.applyMeasurement(image, generation.ModelSet{Kind: generation.KindSD}, generation.VideoSize{}, 20000, true); err != nil || got.ReservedMiB != 20000 {
+		t.Errorf("image over the room: %+v, %v; want capped and granted", got, err)
 	}
 }

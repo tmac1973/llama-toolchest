@@ -688,6 +688,17 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 // size it was last measured for), and an instance left with no
 // reservation is disabled; the error says why.
 func (s *Server) applyMeasurement(inst generation.Instance, set generation.ModelSet, size generation.VideoSize, room int, haveRoom bool) (generation.Instance, error) {
+	// sd-server can go past --max-vram decoding a video (tiled decoding
+	// crashes for the Wan2.2 VAE, so the decode cannot shrink): a video
+	// size whose peak is over the room is not granted.
+	if set.Kind == generation.KindVideo && haveRoom && inst.MeasuredPeakMiB > room+measureOverheadMiB {
+		err := fmt.Errorf("%d frames at %dx%d needs about %s, but this card can give the instance %s; measure a smaller size",
+			size.Frames, size.Width, size.Height, mibText(inst.MeasuredPeakMiB), mibText(room))
+		if inst.ReservedMiB == 0 {
+			inst.Enabled = false
+		}
+		return inst, err
+	}
 	suggest := generation.SuggestReservation(inst.MeasuredPeakMiB)
 	sdKind := set.Kind == generation.KindSD || set.Kind == generation.KindVideo
 	if sdKind && haveRoom && suggest > room {
@@ -714,6 +725,12 @@ func (s *Server) applyMeasurement(inst generation.Instance, set generation.Model
 	}
 	return inst, nil
 }
+
+// measureOverheadMiB is how far a measured peak may exceed the room it was
+// held to and still count as fitting: inside a container the peak is read
+// from the whole card and includes the GPU runtime's own memory, which
+// --max-vram does not count (about 0.6 GiB on an RTX A4000).
+const measureOverheadMiB = 1024
 
 // gpuReleasedSlackMiB is how far above the reading from before a test run
 // the card may stay and still count as released: other programs on the

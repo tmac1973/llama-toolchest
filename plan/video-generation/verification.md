@@ -1,7 +1,7 @@
 # Video Generation — Hardware Verification
 
-Results of the hardware checks for each catalog set: Phase 04 (Wan2.2 TI2V 5B)
-now, Phases 05 and 06 later. Each entry gives the machine, the date and the
+Results of the hardware checks: Phase 04 (Wan2.2 TI2V 5B), Phase 05 (measured
+video size), and Phases 06 and 07 later. Each entry gives the machine, the date and the
 build refs.
 
 ## Machines
@@ -85,9 +85,54 @@ and the jobs, except where a step says otherwise.
    refused". The supervisor had already restarted the backend, so the job did
    not report "backend stopped". Cosmetic; not changed.
 
+## Phase 05 — measured video size
+
+All on 2026-10-26, with this branch's toolchest build and the same
+`sd-master-1015-e41fbcf` builds. asmodean had been rebooted before the check
+and its toolchest container restarted for it.
+
+### compute2 (RTX A4000 16 GB, CUDA)
+
+| Check | Result |
+|---|---|
+| Measure at Short (33 frames, 832×480), with the instance's old hand-set reservation | 91 s. Peak 15.3 GiB (whole card). "Reservation capped at 14.7 GiB, all this card can give it." The instance stayed enabled and its limit became Short — in Phase 04 Measure disabled it |
+| Text-to-video at Short through the job API | 76 s, 33 frames, 1.6 MB |
+| A Medium-size request (81 frames, 1280×704) | 400 `over_measured_size`: "ti2v is measured for videos up to 33 frames at 832x480 (Short). … To allow it, measure the instance at a larger size on the Server page (Measure, then Medium)." |
+| `meta.video` | `measured_frames` 33, `measured_size` 832x480, `measured_pixel_frames` 13178880, alongside `max_frames` 121 and `max_size` 1280x704 |
+| Measure at Medium | Sampling finished (20 steps, 433 s); the decode did not fit in 14.7 GiB, sd-server retried with temporal, then spatial and temporal tiling, and crashed (`CUDA error: unspecified launch failure`, finding 1). Measure failed after 461 s and the instance kept its Short size and reservation. On a 16 GB card Medium cannot be made until sd.cpp's tiled decode works |
+
+### asmodean (R9700 32 GB, ROCm)
+
+| Check | Result |
+|---|---|
+| Measure at Short | 80 s. Peak 23.5 GiB, reservation 26.0 GiB, limit Short |
+| Measure at Medium | 674 s. Peak 30.6 GiB while held to the 28.2 GiB room: sd-server went about 2.4 GiB past `--max-vram` in the untiled decode. The build at that time capped the reservation at 28.2 GiB and granted Medium |
+| Measure at Full | 1,247 s. Peak 31.5 GiB, more than the card's budget. The capped suggestion no longer fitted because other programs had grown during the run, and the instance dropped to its test size: both bugs, fixed below |
+
+### Fixed after the check
+
+- **Video sizes over the room are refused** (decided with the user): a video
+  measurement whose peak is more than the room plus 1 GiB is not granted, and
+  the instance keeps its previous size. By the measurements above this grants
+  Short on both cards and refuses Medium and Full on the R9700. Re-running the
+  R9700 Medium measurement with this rule was not done; the rule is checked by
+  `TestApplyMeasurementRefusesVideoOverRoom` with the measured figures.
+- **A measurement that cannot apply keeps the previous size and reservation**
+  (it overwrote the size before).
+- **The room is worked out again after the test run**, not only before it.
+- **A backend that dies mid-run** is reported as "the backend stopped …",
+  pointing to its log, in Measure and in video jobs (finding 5 of Phase 04).
+
+### Finding
+
+6. **sd-server does not stay within `--max-vram` when decoding large videos
+   without tiles.** Until tiled decoding works for the Wan2.2 VAE (finding 1),
+   TI2V 5B is limited to about the Short size on a 32 GB card and to Short on
+   a 16 GB card, within the reservation promise.
+
 ### Not run
 
 - Opening the videos in Firefox and Chromium (no desktop on the test
   machines); the files were checked with ffprobe, ffmpeg and Pillow instead.
 - Video on a Vulkan build.
-- Measure for the A14B pair and LTX-2.3 (Phases 05 and 06).
+- Measure for the A14B pair and LTX-2.3 (Phases 06 and 07).
