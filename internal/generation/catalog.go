@@ -50,14 +50,16 @@ var (
 	// flux2SmallDecoder is a FLUX.2 VAE, used by FLUX.2 klein and FLUX.3
 	// Image Klein. The FLUX.2-dev VAE is gated; this one is ungated and
 	// Apache-licensed.
+	// chromaT5 is the text encoder both Chroma sets use.
+	chromaT5          = Component{Slot: "t5xxl", Repo: "city96/t5-v1_1-xxl-encoder-gguf", File: "t5-v1_1-xxl-encoder-Q8_0.gguf", Bytes: 5061584064}
 	flux2SmallDecoder = Component{Slot: "vae", Repo: "black-forest-labs/FLUX.2-small-decoder", File: "full_encoder_small_decoder.safetensors", Bytes: 249519092}
 )
 
 // Catalog returns the built-in model sets. File sizes were read from the
-// Hugging Face tree API on 2026-10-24 (2026-10-25 for Z-Image Turbo, FLUX.3
-// Image Klein, Chroma1-HD and Qwen-Image-Edit 2511); launch settings for
-// Qwen-Image 2.1 Turbo and ACE-Step XL SFT are the ones measured on
-// asmodean on 2026-10-24.
+// Hugging Face tree API on 2026-10-24 (2026-10-25 for Z-Image Turbo,
+// FLUX.3 Image Klein, Chroma1-HD, Chroma1-Flash and Qwen-Image-Edit 2511);
+// launch settings for Qwen-Image 2.1 Turbo and ACE-Step XL SFT are the
+// ones measured on asmodean on 2026-10-24.
 func Catalog() []CatalogEntry {
 	return []CatalogEntry{
 		{
@@ -160,7 +162,7 @@ func Catalog() []CatalogEntry {
 			Recipe: "chroma",
 			Components: []Component{
 				{Slot: "diffusion_model", Repo: "silveroxides/Chroma-GGUF", File: "Chroma1-HD/Chroma1-HD-Q8_0.gguf", Bytes: 9735409824},
-				{Slot: "t5xxl", Repo: "city96/t5-v1_1-xxl-encoder-gguf", File: "t5-v1_1-xxl-encoder-Q8_0.gguf", Bytes: 5061584064},
+				chromaT5,
 				fluxAE,
 			},
 			// Without a negative prompt, Chroma's images came out covered
@@ -170,7 +172,26 @@ func Catalog() []CatalogEntry {
 			LaunchArgs: []string{"--steps", "40", "--cfg-scale", "4", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling",
 				"--negative-prompt", "low quality, ugly, unfinished, out of focus, deformed, disfigured, blurry, smudged, restricted palette, flat colors"},
 			License:       "Apache-2.0",
-			Notes:         "40 steps; about 3.5 minutes per 1024×1024 image on a Radeon AI PRO R9700, using about 15 GB of VRAM. Based on FLUX.1-schnell. Starts with a default negative prompt; a request can give its own. Shares its VAE with Z-Image Turbo.",
+			Notes:         "40 steps; about 3.5 minutes per 1024×1024 image on a Radeon AI PRO R9700, using about 15 GB of VRAM. Based on FLUX.1-schnell. Starts with a default negative prompt; a request can give its own. Shares its text model and VAE with Chroma1-Flash, and its VAE with Z-Image Turbo.",
+			DefaultWidth:  1024,
+			DefaultHeight: 1024,
+		},
+		{
+			ID:     "chroma1-flash",
+			Name:   "Chroma1-Flash",
+			Kind:   KindSD,
+			Recipe: "chroma",
+			Components: []Component{
+				{Slot: "diffusion_model", Repo: "silveroxides/Chroma1-Flash-GGUF", File: "Chroma1-HD-Flash-Q8_0.gguf", Bytes: 9735409824},
+				chromaT5,
+				fluxAE,
+			},
+			// Flash has guidance trained in, so it runs at CFG 1: one pass
+			// per step, and negative prompts do nothing. On 2026-10-25, 8
+			// Euler steps garbled text in the image; 16 did not.
+			LaunchArgs:    []string{"--steps", "16", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling"},
+			License:       "Apache-2.0",
+			Notes:         "Faster Chroma1-HD: 16 steps; about 46 s per 1024×1024 image on a Radeon AI PRO R9700 (Chroma1-HD takes about 3.5 minutes), using about 15 GB of VRAM. Ignores negative prompts. Shares its text model and VAE with Chroma1-HD.",
 			DefaultWidth:  1024,
 			DefaultHeight: 1024,
 		},
