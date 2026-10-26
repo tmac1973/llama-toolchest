@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"image/png"
 	"net/http"
 	"net/http/httptest"
@@ -200,5 +201,20 @@ func TestMeasurePicture(t *testing.T) {
 	}
 	if bytes.Equal(start, end) {
 		t.Error("the start and end pictures are the same")
+	}
+}
+
+// A backend that has died refuses connections; that is told apart from
+// other failures so the message can say the backend stopped.
+func TestBackendGone(t *testing.T) {
+	f := newFakeVidServer(t, 0, "completed")
+	url := f.srv.URL
+	f.srv.Close()
+	_, err := runVidGen(context.Background(), url, vidGenRequest{Prompt: "p"}, nil)
+	if err == nil || !backendGone(err) {
+		t.Errorf("err = %v, want it recognised as the backend gone", err)
+	}
+	if backendGone(errors.New("sd-server video job failed: out of memory")) {
+		t.Error("an ordinary failure was taken for the backend gone")
 	}
 }

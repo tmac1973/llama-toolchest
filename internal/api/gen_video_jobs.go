@@ -422,8 +422,8 @@ func (s *Server) runVideoJob(ctx context.Context, id string, inst generation.Ins
 		switch {
 		case ctx.Err() != nil:
 			finish(jobCancelled, "", nil, "")
-		case !s.genMgr.IsRunning(inst.ID):
-			finish(jobFailed, "backend stopped", nil, "")
+		case !s.genMgr.IsRunning(inst.ID) || backendGone(err):
+			finish(jobFailed, "the backend stopped while making the video; its log on the Server page says why", nil, "")
 		default:
 			finish(jobFailed, "generating: "+err.Error(), nil, "")
 		}

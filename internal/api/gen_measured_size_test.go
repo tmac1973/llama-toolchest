@@ -207,3 +207,24 @@ func TestInstanceRowVideoMeasure(t *testing.T) {
 		t.Errorf("suggested = %d, want the stored suggestion", rows[0].SuggestedMiB)
 	}
 }
+
+// A video measurement that does not fit leaves the size the instance was
+// last measured for, and its reservation, as they were.
+func TestApplyMeasurementKeepsSizeWhenItDoesNotFit(t *testing.T) {
+	s := vramServer(t)
+	addInstance(t, s, generation.Instance{ID: "other", Port: 8081, Enabled: true, ReservedMiB: 20000})
+	video := ti2vSet()
+	medium := generation.Instance{ID: "v", GPU: 0, Enabled: true, ReservedMiB: 8192, MeasuredSuggestedMiB: 8192,
+		MeasuredFrames: 81, MeasuredWidth: 1280, MeasuredHeight: 704, MeasuredPeakMiB: 30000}
+	// No room cap (no telemetry case), so the suggestion is far over what fits.
+	got, err := s.applyMeasurement(medium, video, generation.VideoSize{Frames: 121, Width: 1280, Height: 704}, 0, false)
+	if err == nil {
+		t.Fatal("a suggestion that does not fit was applied")
+	}
+	if got.ReservedMiB != 8192 || got.MeasuredFrames != 81 || got.MeasuredSuggestedMiB != 8192 {
+		t.Errorf("after a failed Full measurement: %+v, want the Medium state kept", got)
+	}
+	if l, m := generation.VideoLimit(got, video); !m || l.Label != "Medium" {
+		t.Errorf("limit = %+v, %v; want Medium still", l, m)
+	}
+}

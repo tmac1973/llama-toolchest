@@ -634,6 +634,9 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 	// own reservation not fit.
 	waitGPUReleased(func() int { return s.gpuUsedMiB(inst.GPU) }, baseline, 20*time.Second, 500*time.Millisecond)
 	if runErr != nil {
+		if backendGone(runErr) {
+			return errors.New("the backend stopped during the test generation, probably because it ran out of GPU memory at this size; its log on this page says more. Try a smaller size")
+		}
 		return fmt.Errorf("the test generation failed: %w", runErr)
 	}
 	if peak <= 0 {
@@ -645,7 +648,11 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 		return err
 	}
 	inst.MeasuredPeakMiB, inst.MeasuredAt, inst.MeasureEstimated = peak, time.Now(), !perProcess
-	if !sdKind {
+	// The room is worked out again now the backend has stopped: other
+	// programs on the card may have grown during a long test run.
+	if sdKind {
+		room, haveRoom = s.genRoomMiB(inst)
+	} else {
 		haveRoom = false
 	}
 	var fitErr error
@@ -677,31 +684,34 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 // haveRoom) and kept in MeasuredSuggestedMiB. A video measurement always
 // applies, with the size it was made at, since the user chose that size;
 // any other applies only to an instance without a reservation. A
-// suggestion that does not fit is not applied, and an instance left with
-// no reservation is disabled; fitErr says why.
+// suggestion that does not fit is not applied (a video instance keeps the
+// size it was last measured for), and an instance left with no
+// reservation is disabled; the error says why.
 func (s *Server) applyMeasurement(inst generation.Instance, set generation.ModelSet, size generation.VideoSize, room int, haveRoom bool) (generation.Instance, error) {
 	suggest := generation.SuggestReservation(inst.MeasuredPeakMiB)
-	if set.Kind == generation.KindSD || set.Kind == generation.KindVideo {
-		if haveRoom && suggest > room {
-			suggest = room
+	sdKind := set.Kind == generation.KindSD || set.Kind == generation.KindVideo
+	if sdKind && haveRoom && suggest > room {
+		suggest = room
+	}
+	apply := inst.ReservedMiB == 0 || set.Kind == generation.KindVideo
+	if apply {
+		if err := s.genFitCheck(inst, suggest); err != nil {
+			// A video instance keeps the size it was last measured for:
+			// this measurement did not take effect.
+			if inst.ReservedMiB == 0 {
+				inst.Enabled = false
+			}
+			return inst, err
 		}
+		inst.ReservedMiB = suggest
+		if set.Kind == generation.KindVideo {
+			inst.MeasuredFrames, inst.MeasuredWidth, inst.MeasuredHeight = size.Frames, size.Width, size.Height
+		}
+	}
+	// Kept for "Use suggested" (image re-measurements) and for VideoLimit.
+	if sdKind {
 		inst.MeasuredSuggestedMiB = suggest
 	}
-	apply := inst.ReservedMiB == 0
-	if set.Kind == generation.KindVideo {
-		inst.MeasuredFrames, inst.MeasuredWidth, inst.MeasuredHeight = size.Frames, size.Width, size.Height
-		apply = true
-	}
-	if !apply {
-		return inst, nil
-	}
-	if err := s.genFitCheck(inst, suggest); err != nil {
-		if inst.ReservedMiB == 0 {
-			inst.Enabled = false
-		}
-		return inst, err
-	}
-	inst.ReservedMiB = suggest
 	return inst, nil
 }
 

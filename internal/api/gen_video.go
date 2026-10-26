@@ -10,6 +10,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"syscall"
 	"time"
 )
 
@@ -237,4 +238,12 @@ func measurePicture(w, h int, end bool) []byte {
 	var buf bytes.Buffer
 	png.Encode(&buf, img)
 	return buf.Bytes()
+}
+
+// backendGone reports whether err means the backend's port no longer
+// answers: the process died mid-job. The supervisor may already have
+// restarted it by the time the error is seen, so the process state alone
+// does not tell.
+func backendGone(err error) bool {
+	return errors.Is(err, syscall.ECONNREFUSED)
 }
