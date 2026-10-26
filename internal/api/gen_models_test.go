@@ -72,8 +72,8 @@ func TestGenModelRoutesHiddenWhileOff(t *testing.T) {
 	}
 }
 
-// A catalog download fetches every file into gen-models (not the LLM
-// models dir), then marks the set complete.
+// A catalog download fetches every file into gen-models (a folder of its
+// own inside the LLM models dir), then marks the set complete.
 func TestGenCatalogDownloadCompletes(t *testing.T) {
 	s := genServer(t)
 	// The fake serves short bodies, so the expected sizes are not checked
@@ -105,8 +105,8 @@ func TestGenCatalogDownloadCompletes(t *testing.T) {
 			t.Errorf("%s holds %q", c.Slot, got)
 		}
 	}
-	if entries, _ := os.ReadDir(filepath.Join(s.cfg.DataDir, "models")); len(entries) != 0 {
-		t.Errorf("generation files reached the LLM models dir: %v", entries)
+	if entries, _ := os.ReadDir(filepath.Join(s.cfg.DataDir, "models")); len(entries) != 1 || entries[0].Name() != "gen-models" {
+		t.Errorf("models dir holds %v, want only gen-models", entries)
 	}
 	if !strings.Contains(rec.Body.String(), "FLUX.2 klein 4B") {
 		t.Error("response does not render the section")

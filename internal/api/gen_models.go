@@ -169,6 +169,10 @@ func (s *Server) handleGenCatalogDownload(w http.ResponseWriter, r *http.Request
 		http.Error(w, "unknown catalog set", http.StatusNotFound)
 		return
 	}
+	if err := s.genMove.busy(); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
 
 	s.genSetMu.Lock()
 	set, err := store.ModelSet(entry.ID)
@@ -333,6 +337,10 @@ func (s *Server) handleGenDeleteSet(w http.ResponseWriter, r *http.Request) {
 	if store == nil {
 		return
 	}
+	if err := s.genMove.busy(); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
 	id := chi.URLParam(r, "id")
 	for _, dl := range s.genDownloads.get(id) {
 		if st, ok := s.downloader.Status(dl); ok && st.Status == "downloading" {
@@ -363,7 +371,12 @@ func (s *Server) handleGenDeleteSet(w http.ResponseWriter, r *http.Request) {
 	if set.CatalogID != "" {
 		root := generation.ModelsDir(s.cfg)
 		for _, c := range set.Components {
-			path := huggingface.FilePath(root, c.Repo, c.File)
+			// The path the file was recorded at, which may be outside
+			// root (a file that could not be moved there).
+			path := c.Path
+			if path == "" {
+				path = huggingface.FilePath(root, c.Repo, c.File)
+			}
 			shared := slices.ContainsFunc(others, func(m generation.ModelSet) bool {
 				return slices.ContainsFunc(m.Components, func(o generation.Component) bool {
 					return o.Path == path || huggingface.FilePath(root, o.Repo, o.File) == path

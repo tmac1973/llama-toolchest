@@ -412,6 +412,9 @@ func (s *Server) startGenInstance(id string) error {
 	if !inst.Enabled {
 		return fmt.Errorf("instance %s is disabled; enable it first", inst.Name)
 	}
+	if err := s.genMove.busy(); err != nil {
+		return err
+	}
 	if s.genMgr.IsMeasuring(id) {
 		return fmt.Errorf("instance %s is being measured", inst.Name)
 	}
@@ -542,6 +545,8 @@ func (s *Server) autoStartGenInstances(afterRouter bool) {
 	if !on || s.gen == nil {
 		return
 	}
+	// Model files moved at startup must be in place before anything runs.
+	s.genMove.wait()
 	if afterRouter {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		_ = s.process.WaitRunning(ctx)

@@ -1117,6 +1117,9 @@ func (r *Registry) OrphanParts() []OrphanPart {
 	groups := make(map[string]*group)
 
 	filepath.Walk(walkRoot, func(path string, info os.FileInfo, err error) error {
+		if isGenModelsDir(walkRoot, path, info) {
+			return filepath.SkipDir
+		}
 		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".part") {
 			return nil
 		}
@@ -1182,6 +1185,17 @@ func (r *Registry) OrphanParts() []OrphanPart {
 	return out
 }
 
+// GenModelsDirName is the folder under the models directory that holds the
+// generation backends' model files. Their GGUFs are not language models,
+// so ScanModels and OrphanParts skip it.
+const GenModelsDirName = "gen-models"
+
+// isGenModelsDir reports whether path is the generation models folder
+// directly under the walk root.
+func isGenModelsDir(walkRoot, path string, info os.FileInfo) bool {
+	return info != nil && info.IsDir() && path == filepath.Join(walkRoot, GenModelsDirName)
+}
+
 // ScanModels walks the models directory for GGUF files not already in the
 // registry and adds them. Returns the number of new models found.
 func (r *Registry) ScanModels() int {
@@ -1217,6 +1231,9 @@ func (r *Registry) ScanModels() int {
 	// Walk looking for .gguf files
 	var found []*Model
 	filepath.Walk(walkRoot, func(path string, info os.FileInfo, err error) error {
+		if isGenModelsDir(walkRoot, path, info) {
+			return filepath.SkipDir
+		}
 		if err != nil || info.IsDir() {
 			return nil
 		}

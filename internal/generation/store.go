@@ -11,6 +11,7 @@ import (
 
 	"github.com/tmac1973/llama-toolchest/internal/atomicfile"
 	"github.com/tmac1973/llama-toolchest/internal/config"
+	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
 // SchemaVersion is the generation.json format this build reads and writes.
@@ -225,12 +226,11 @@ func (s *Store) instIndexLocked(id string) int {
 }
 
 // ModelsDir returns where generation model files are downloaded: a
-// gen-models directory next to the LLM models directory, so the LLM
-// registry's scan never picks them up as language models. It is not
-// created here; the downloader creates it when it is first needed.
+// gen-models folder inside the LLM models directory, so they sit with the
+// other model files (in a container, on the host's models mount). The LLM
+// registry skips that folder, so it never takes them for language models.
+// It is not created here; the downloader creates it when it is first
+// needed.
 func ModelsDir(cfg *config.Config) string {
-	if cfg.ModelsDir != "" {
-		return filepath.Join(filepath.Dir(filepath.Clean(cfg.ModelsDir)), "gen-models")
-	}
-	return filepath.Join(cfg.DataDir, "gen-models")
+	return filepath.Join(cfg.ModelsPath(), models.GenModelsDirName)
 }

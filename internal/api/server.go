@@ -91,6 +91,7 @@ type Server struct {
 	// download completions make from their own goroutines.
 	genSetMu     sync.Mutex
 	genDownloads genDownloads
+	genMove      genMove
 	// genMgr runs the generation backend instances.
 	genMgr *generation.Manager
 	// genMeasure holds each instance's last measured-test-run error.
@@ -293,6 +294,7 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 	if s.gen, s.genErr = generation.Load(cfg.DataDir); s.genErr != nil {
 		slog.Error("generation backends store not loaded", "error", s.genErr)
 	}
+	s.startGenMove()
 	// Subscribes to the router log for the life of the process. Started
 	// before anything can launch the router, so no load goes unwatched.
 	go s.watchRouterMemory()
