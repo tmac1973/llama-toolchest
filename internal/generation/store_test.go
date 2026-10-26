@@ -137,3 +137,33 @@ func TestModelsDir(t *testing.T) {
 		t.Errorf("with ModelsDir = %q, want /mnt/llm/gen-models", got)
 	}
 }
+
+// Sets and instances leave and enter the store as copies: changing one a
+// caller holds must not change the store's, or a download recording a
+// file's path races with a page reading the same set.
+func TestStoreHandsOutCopies(t *testing.T) {
+	s, _ := Load(t.TempDir())
+	set := testSet("a")
+	if err := s.AddModelSet(set); err != nil {
+		t.Fatal(err)
+	}
+	set.Components[0].Path = "/changed-after-add"
+	got, _ := s.ModelSet("a")
+	got.Components[0].Path = "/changed-after-get"
+	got.LaunchArgs = append(got.LaunchArgs[:0], "--changed")
+	all := s.ModelSets()
+	all[0].Components[0].Path = "/changed-in-list"
+	if again, _ := s.ModelSet("a"); again.Components[0].Path != testSet("a").Components[0].Path {
+		t.Errorf("stored component path = %q, changed through a copy", again.Components[0].Path)
+	}
+
+	if err := s.AddInstance(Instance{ID: "x", ModelSetID: "a", ExtraArgs: []string{"--steps", "4"}}); err != nil {
+		t.Fatal(err)
+	}
+	inst, _ := s.Instance("x")
+	inst.ExtraArgs[1] = "99"
+	s.Instances()[0].ExtraArgs[0] = "--changed"
+	if again, _ := s.Instance("x"); again.ExtraArgs[0] != "--steps" || again.ExtraArgs[1] != "4" {
+		t.Errorf("stored extra args = %q, changed through a copy", again.ExtraArgs)
+	}
+}
