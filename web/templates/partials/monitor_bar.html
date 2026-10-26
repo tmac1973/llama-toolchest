@@ -1,7 +1,7 @@
 {{define "monitor_bar"}}
 <div style="display:flex;flex-direction:column;gap:0.4rem;">
     {{with .Map}}{{if .GPUs}}
-    <div title="What is on each GPU now, from the planned sizes (the VRAM bars below are measured). Solid: a loaded LLM. Striped: a running image or music backend. Outline: memory reserved for a backend that is stopped. Hover a segment for its size.">
+    <div style="border-bottom:1px solid var(--pico-muted-border-color);padding-bottom:0.75rem;margin-bottom:0.35rem;" title="What is on each GPU now, from the planned sizes (the VRAM bars below are measured). Solid: a loaded LLM. Striped: a running image or music backend. Outline: memory reserved for a backend that is stopped. Hover a segment for its size.">
         <div style="margin-bottom:0.15rem;">On the GPUs</div>
         {{range .GPUs}}
         <div style="display:flex;align-items:center;gap:0.35rem;margin-bottom:0.2rem;">
