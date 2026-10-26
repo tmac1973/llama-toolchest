@@ -137,6 +137,12 @@ func (s *Server) genV1Model(inst generation.Instance) map[string]any {
 		if set.MaxWidth > 0 && set.MaxHeight > 0 {
 			video["max_size"] = fmt.Sprintf("%dx%d", set.MaxWidth, set.MaxHeight)
 		}
+		// measured_* is what this instance will take: the size it was
+		// measured for; larger requests are refused.
+		limit, _ := generation.VideoLimit(inst, set)
+		video["measured_frames"] = limit.Frames
+		video["measured_size"] = fmt.Sprintf("%dx%d", limit.Width, limit.Height)
+		video["measured_pixel_frames"] = generation.PixelFrames(limit.Frames, limit.Width, limit.Height)
 		meta["video"] = video
 	}
 	return map[string]any{

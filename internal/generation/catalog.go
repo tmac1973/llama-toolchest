@@ -24,6 +24,12 @@ type CatalogEntry struct {
 	MaxFrames     int `json:"max_frames,omitempty"`
 	MaxWidth      int `json:"max_width,omitempty"`
 	MaxHeight     int `json:"max_height,omitempty"`
+	// VideoSizes are the sizes Measure offers, the test size first and
+	// none past the ceiling. FullMeasureTime says how long measuring the
+	// largest took, for the Measure dialog, e.g. "about 21 minutes on a
+	// Radeon AI PRO R9700".
+	VideoSizes      []VideoSize `json:"video_sizes,omitempty"`
+	FullMeasureTime string      `json:"full_measure_time,omitempty"`
 }
 
 // TotalBytes is the download size of the whole set.
@@ -257,9 +263,9 @@ func Catalog() []CatalogEntry {
 			LaunchArgs:   []string{"--steps", "20", "--cfg-scale", "5", "--flow-shift", "5", "--sampling-method", "euler", "--diffusion-fa"},
 			Capabilities: []string{CapText, CapStartImage},
 			License:      "Apache-2.0",
-			Notes: "Text-to-video and image-to-video in one small model; 20 steps. On a Radeon AI PRO R9700, about 70 s for the 33-frame 832×480 test video " +
-				"(measured reservation 26 GiB) and about 21 minutes for 5 seconds at 1280×704, the most it makes. " +
-				"On a 16 GB RTX A4000 it works with the reservation set by hand to 14.5 GiB (about 75 s for the test video); Measure suggests more than the card has.",
+			Notes: "Text-to-video and image-to-video in one small model; 20 steps. On a Radeon AI PRO R9700 (32 GB), about 70 s for the 33-frame 832×480 Short size " +
+				"(reservation 26 GiB). Medium and Full need more memory than a 32 GB card can give while tiled decoding is broken in stable-diffusion.cpp, " +
+				"so Measure refuses them there; custom sizes between Short and Medium can be tried. On a 16 GB RTX A4000, Short works inside 14.7 GiB (about 75 s).",
 			// The test video is short and mid-sized so Measure finishes in
 			// minutes; the ceiling is the model's native size, 121 frames
 			// being 5 s at 24 fps.
@@ -270,6 +276,12 @@ func Catalog() []CatalogEntry {
 			MaxFrames:     121,
 			MaxWidth:      1280,
 			MaxHeight:     704,
+			VideoSizes: []VideoSize{
+				{Label: "Short", Frames: 33, Width: 832, Height: 480},
+				{Label: "Medium", Frames: 81, Width: 1280, Height: 704},
+				{Label: "Full", Frames: 121, Width: 1280, Height: 704},
+			},
+			FullMeasureTime: "about 21 minutes on a Radeon AI PRO R9700, which then could not give it enough memory",
 		},
 		{
 			ID:         "ace-step-turbo",

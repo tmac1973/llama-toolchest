@@ -14,9 +14,10 @@ import (
 
 // LaunchOptions adjusts a launch for special runs.
 type LaunchOptions struct {
-	// OmitMaxVRAM leaves out sd-server's --max-vram, so the measured test
-	// run sees what the set really uses.
-	OmitMaxVRAM bool
+	// MaxVRAMMiB, when positive, is sd-server's --max-vram instead of the
+	// instance's reservation: a measured test run uses the room the card
+	// can give the instance. ace-server takes no memory limit.
+	MaxVRAMMiB int
 }
 
 // deviceEnvVar is the variable that limits a backend process to one GPU,
@@ -111,7 +112,10 @@ func LaunchSpec(inst Instance, set ModelSet, build builder.BuildResult, host, da
 		}
 		args = append(args, set.RunArgs()...)
 		args = append(args, inst.ExtraArgs...)
-		if inst.ReservedMiB > 0 && !opts.OmitMaxVRAM {
+		switch {
+		case opts.MaxVRAMMiB > 0:
+			args = append(args, "--max-vram", maxVRAMGiB(opts.MaxVRAMMiB))
+		case inst.ReservedMiB > 0:
 			args = append(args, "--max-vram", maxVRAMGiB(inst.ReservedMiB))
 		}
 		cfg.Name, cfg.HealthURL = "sd-server:"+inst.ID, base+"/v1/models"

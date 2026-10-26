@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"image/png"
 	"net/http"
 	"net/http/httptest"
@@ -166,7 +167,7 @@ func TestMeasureVideoUsesHeaviestMode(t *testing.T) {
 	} {
 		f := newFakeVidServer(t, 0, "completed")
 		set := generation.ModelSet{Kind: generation.KindVideo, Capabilities: tc.caps, DefaultWidth: 832, DefaultHeight: 480, DefaultFrames: 33, DefaultFPS: 16}
-		if err := runMeasureVideo(context.Background(), f.srv.URL, set); err != nil {
+		if err := runMeasureVideo(context.Background(), f.srv.URL, set, generation.VideoSize{}); err != nil {
 			t.Fatalf("%v: %v", tc.caps, err)
 		}
 		_, hasStart := f.body["init_image"]
@@ -178,14 +179,14 @@ func TestMeasureVideoUsesHeaviestMode(t *testing.T) {
 			t.Errorf("%v: body %v, want the set's test video", tc.caps, f.body)
 		}
 	}
-	if err := runMeasureVideo(context.Background(), "http://127.0.0.1:1", generation.ModelSet{Kind: generation.KindVideo}); err == nil {
+	if err := runMeasureVideo(context.Background(), "http://127.0.0.1:1", generation.ModelSet{Kind: generation.KindVideo}, generation.VideoSize{}); err == nil {
 		t.Error("a set with no way to make a video was measured")
 	}
 }
 
 func TestMeasureTimeout(t *testing.T) {
-	if measureTimeout(generation.KindVideo) != 30*time.Minute || measureTimeout(generation.KindSD) != 10*time.Minute || measureTimeout(generation.KindAce) != 10*time.Minute {
-		t.Error("want 30 minutes for video, 10 for image and music")
+	if measureTimeout(generation.KindVideo) != 2*time.Hour || measureTimeout(generation.KindSD) != 10*time.Minute || measureTimeout(generation.KindAce) != 10*time.Minute {
+		t.Error("want 2 hours for video, 10 minutes for image and music")
 	}
 }
 
@@ -200,5 +201,20 @@ func TestMeasurePicture(t *testing.T) {
 	}
 	if bytes.Equal(start, end) {
 		t.Error("the start and end pictures are the same")
+	}
+}
+
+// A backend that has died refuses connections; that is told apart from
+// other failures so the message can say the backend stopped.
+func TestBackendGone(t *testing.T) {
+	f := newFakeVidServer(t, 0, "completed")
+	url := f.srv.URL
+	f.srv.Close()
+	_, err := runVidGen(context.Background(), url, vidGenRequest{Prompt: "p"}, nil)
+	if err == nil || !backendGone(err) {
+		t.Errorf("err = %v, want it recognised as the backend gone", err)
+	}
+	if backendGone(errors.New("sd-server video job failed: out of memory")) {
+		t.Error("an ordinary failure was taken for the backend gone")
 	}
 }

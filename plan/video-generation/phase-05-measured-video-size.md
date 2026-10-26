@@ -162,6 +162,16 @@ After this phase:
       Because the suggestion never exceeds the room, it always fits, so the
       branch that disables the instance when the suggestion does not fit is no
       longer reached for these kinds.
+   4. **A video size over the room is not granted.** Added after the hardware
+      check: sd-server went past `--max-vram` decoding large videos, because
+      tiled decoding crashes for the Wan2.2 VAE (on the R9700, Medium peaked at
+      30.6 GiB held to 28.2). So for a video measurement whose peak is more
+      than the room plus 1 GiB (`measureOverheadMiB`, for the GPU runtime's own
+      memory, which the whole-card reading includes and `--max-vram` does not
+      count), Measure refuses the size: "81 frames at 1280x704 needs about
+      30.6 GiB, but this card can give the instance 28.2 GiB; measure a smaller
+      size". The instance keeps its previous size and reservation. Image sets
+      are still capped and granted.
 
    Music instances keep measuring with no limit, as now (`MaxVRAMMiB` 0, and
    the existing fit check). The measurement note says when the suggestion was
