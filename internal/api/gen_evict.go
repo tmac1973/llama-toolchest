@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -20,7 +21,10 @@ import (
 // the LLM side holds the GPU's job queue, which waits for the running
 // job, and the backend side waits for the LLM's requests in progress
 // (llmUse). A reservation counts only while its backend runs
-// (genFitVRAMByGPU), so a stopped backend is not in the way.
+// (genFitVRAMByGPU), so a stopped backend is not in the way. Making room
+// stops only as many backends as it needs, largest first, and never one
+// marked keep-running (Instance.KeepRunning), whose reservation always
+// counts.
 
 // genStartTimeout caps how long a job waits for its backend to start.
 // Loading an image model set from disk can take a minute or two.
@@ -37,8 +41,8 @@ func (s *Server) genEvictOn() bool {
 }
 
 // genFitVRAMByGPU is genVRAMByGPU as the fit checks count it: with
-// eviction on, only the backends that are running, since a stopped one
-// gives its memory up.
+// eviction on, only the backends that are running or kept running, since
+// any other stopped one gives its memory up.
 func (s *Server) genFitVRAMByGPU(exclude string) map[int]*genVRAM {
 	return s.genVRAM(exclude, s.genEvictOn())
 }
@@ -144,7 +148,8 @@ func (s *Server) requestModelID(body []byte) string {
 // makeRoomForLLM checks that m fits beside the generation reservations,
 // as checkLLMFitsReservations does. With eviction on, when it does not,
 // it holds the job queues of the GPUs that are short, so their running
-// jobs finish and no new one starts, and stops the backends on them.
+// jobs finish and no new one starts, and stops backends on them until m
+// fits there.
 // release ends the hold; call it once the load has finished, so a job
 // waiting for those GPUs cannot take them back before the model is in.
 func (s *Server) makeRoomForLLM(ctx context.Context, m *models.Model) (release func(), err error) {
@@ -164,7 +169,10 @@ func (s *Server) makeRoomForLLM(ctx context.Context, m *models.Model) (release f
 	}
 	stopped := 0
 	for _, gpu := range short {
-		stopped += s.stopGenOn(gpu, "", "loading "+m.PublicName())
+		stopped += s.stopGenUntil(gpu, "", "loading "+m.PublicName(), func() bool {
+			hw, need, _ := s.llmReservationNeed(m)
+			return !slices.Contains(s.reservationShortGPUs(hw, need), gpu)
+		})
 	}
 	if stopped == 0 {
 		release()
@@ -177,13 +185,19 @@ func (s *Server) makeRoomForLLM(ctx context.Context, m *models.Model) (release f
 	return release, nil
 }
 
-// stopGenOn stops the running backends on gpu other than except, waits
-// for the card to show their memory free, and returns how many it
-// stopped. Its callers hold the GPU's job queue, so none is mid-job.
-func (s *Server) stopGenOn(gpu int, except, reason string) int {
-	stopped := 0
+// stopGenUntil stops running backends on gpu other than except, largest
+// first, until fits() reports there is room, waiting after each for the
+// card to show its memory free. Backends marked keep-running are never
+// stopped. It returns how many it stopped. Its callers hold the GPU's job
+// queue, so none is mid-job.
+func (s *Server) stopGenUntil(gpu int, except, reason string, fits func() bool) int {
+	type candidate struct {
+		inst  generation.Instance
+		share int
+	}
+	var cands []candidate
 	for _, inst := range s.gen.Instances() {
-		if inst.GPU != gpu || inst.ID == except || !s.genMgr.IsActive(inst.ID) {
+		if inst.GPU != gpu || inst.ID == except || inst.KeepRunning || !s.genMgr.IsActive(inst.ID) {
 			continue
 		}
 		share := inst.ReservedMiB
@@ -192,6 +206,15 @@ func (s *Server) stopGenOn(gpu int, except, reason string) int {
 				share = max(share, mib)
 			}
 		}
+		cands = append(cands, candidate{inst, share})
+	}
+	slices.SortStableFunc(cands, func(a, b candidate) int { return b.share - a.share })
+	stopped := 0
+	for _, c := range cands {
+		if fits() {
+			break
+		}
+		inst, share := c.inst, c.share
 		before := s.gpuUsedMiB(gpu)
 		if err := s.genMgr.Stop(inst.ID); err != nil {
 			slog.Warn("could not stop generation backend to make room", "instance", inst.ID, "error", err)
@@ -206,8 +229,9 @@ func (s *Server) stopGenOn(gpu int, except, reason string) int {
 
 // genReady makes sure inst is running before its job is sent; the job
 // holds inst's GPU turn. With eviction on, a stopped instance is started,
-// after making room: first by stopping the GPU's other backends, then by
-// unloading LLMs from the GPU, one at a time until it fits.
+// after making room: first by stopping other backends on the GPU (only
+// as many as needed, and none kept running), then by unloading LLMs from
+// the GPU, one at a time until it fits.
 func (s *Server) genReady(ctx context.Context, inst generation.Instance) error {
 	if s.genMgr.IsRunning(inst.ID) {
 		return nil
@@ -241,7 +265,8 @@ func (s *Server) makeRoomForGen(ctx context.Context, inst generation.Instance) e
 	if err == nil {
 		return nil
 	}
-	if s.stopGenOn(inst.GPU, inst.ID, "starting "+inst.Name) > 0 {
+	fits := func() bool { return s.genFitCheck(inst, inst.ReservedMiB) == nil }
+	if s.stopGenUntil(inst.GPU, inst.ID, "starting "+inst.Name, fits) > 0 {
 		if err = s.genFitCheck(inst, inst.ReservedMiB); err == nil {
 			return nil
 		}

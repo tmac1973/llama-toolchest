@@ -42,7 +42,7 @@ func (s *Server) genVRAMByGPU(exclude string) map[int]*genVRAM {
 }
 
 // genVRAM is genVRAMByGPU, leaving out the instances that are not
-// running when activeOnly is set.
+// running when activeOnly is set, except those kept running.
 func (s *Server) genVRAM(exclude string, activeOnly bool) map[int]*genVRAM {
 	out := map[int]*genVRAM{}
 	if s.cfg == nil || !s.cfg.GenerationEnabled || s.gen == nil || s.genMgr == nil {
@@ -63,7 +63,9 @@ func (s *Server) genVRAM(exclude string, activeOnly bool) map[int]*genVRAM {
 		if !inst.Enabled && using == 0 {
 			continue
 		}
-		if activeOnly && using == 0 && !s.genMgr.IsActive(inst.ID) {
+		// A kept-running instance is never stopped to make room, so its
+		// reservation counts even while it is stopped.
+		if activeOnly && using == 0 && !s.genMgr.IsActive(inst.ID) && !inst.KeepRunning {
 			continue
 		}
 		v := out[inst.GPU]

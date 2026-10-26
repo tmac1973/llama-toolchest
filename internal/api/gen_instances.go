@@ -26,6 +26,10 @@ const genListenHost = "0.0.0.0"
 // genInstancesData feeds the gen_instances_table partial.
 type genInstancesData struct {
 	Rows []genInstanceRow `json:"instances"`
+	// EvictOn shows the keep-running buttons: without eviction every
+	// instance already keeps its reservation and is never stopped for
+	// another.
+	EvictOn bool `json:"evict_on"`
 }
 
 type genInstanceRow struct {
@@ -180,7 +184,7 @@ func (s *Server) handleGenInstances(w http.ResponseWriter, r *http.Request) {
 	if store == nil {
 		return
 	}
-	data := genInstancesData{Rows: s.genInstanceRows(store)}
+	data := genInstancesData{Rows: s.genInstanceRows(store), EvictOn: s.genEvictOn()}
 	if !isHTMX(r) {
 		respondJSON(w, data)
 		return
@@ -465,8 +469,9 @@ func (s *Server) handleGenInstanceAction(w http.ResponseWriter, r *http.Request)
 		}
 	case "enable":
 		// Its reservation starts to count now, so it has to fit; with
-		// eviction on it counts only once the instance runs.
-		if s.genEvictOn() {
+		// eviction on it counts only once the instance runs, unless the
+		// instance is kept running.
+		if s.genEvictOn() && !inst.KeepRunning {
 			inst.Enabled = true
 			err = store.UpdateInstance(inst)
 		} else if err = s.genFitCheck(inst, inst.ReservedMiB); err == nil {
@@ -478,6 +483,19 @@ func (s *Server) handleGenInstanceAction(w http.ResponseWriter, r *http.Request)
 			inst.Enabled = false
 			err = store.UpdateInstance(inst)
 		}
+	case "keep-running":
+		// Its reservation now counts even while it is stopped, so an
+		// enabled instance has to fit. A running one already counts.
+		if inst.Enabled && !s.genMgr.IsActive(inst.ID) {
+			err = s.genFitCheck(inst, inst.ReservedMiB)
+		}
+		if err == nil {
+			inst.KeepRunning = true
+			err = store.UpdateInstance(inst)
+		}
+	case "allow-stop":
+		inst.KeepRunning = false
+		err = store.UpdateInstance(inst)
 	default:
 		http.Error(w, "unknown action", http.StatusNotFound)
 		return

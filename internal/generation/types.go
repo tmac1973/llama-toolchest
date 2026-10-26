@@ -89,4 +89,8 @@ type Instance struct {
 	// AutoStart starts the instance with toolchest. It is separate from
 	// the router's own auto-start setting.
 	AutoStart bool `json:"auto_start,omitempty"`
+	// KeepRunning exempts the instance from eviction: LLM loads and other
+	// backends' jobs never stop it to make room, and its reservation
+	// counts even while it is stopped, as it does with eviction off.
+	KeepRunning bool `json:"keep_running,omitempty"`
 }

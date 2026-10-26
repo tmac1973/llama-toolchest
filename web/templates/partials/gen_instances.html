@@ -21,7 +21,7 @@
     <tbody>
     {{- range .Rows}}
         <tr>
-            <td>{{.Name}}{{if not .Enabled}} <small title="A disabled instance cannot run.">(disabled)</small>{{end}}{{if .AutoStart}} <small title="Starts when llama-toolchest starts.">auto-start</small>{{end}}</td>
+            <td>{{.Name}}{{if not .Enabled}} <small title="A disabled instance cannot run.">(disabled)</small>{{end}}{{if .AutoStart}} <small title="Starts when llama-toolchest starts.">auto-start</small>{{end}}{{if and $.EvictOn .KeepRunning}} <small title="Locked: never stopped to make room for an LLM or another instance, and its VRAM reservation counts even while it is stopped.">locked</small>{{end}}</td>
             <td>{{.SetName}} <small>({{if eq .Kind "sd"}}image{{else}}music{{end}})</small></td>
             <td>{{with .BuildLabel}}<kbd>{{.}}</kbd>{{else}}<small title="Build one on the Builds page.">no build</small>{{end}}</td>
             <td>{{.GPU}}{{with .GPUName}} <small>{{.}}</small>{{end}}</td>
@@ -72,6 +72,13 @@
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" onclick="openGenLog('{{$id}}', '{{.Name}}')">Logs</button>
                 {{- if not .Measuring}}
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/measure" hx-target="#gen-instances" title="Run one test generation with nothing else on this GPU and record the peak GPU memory use. Takes from under a minute to several minutes." data-error-label="Not measured">Measure</button>
+                {{- end}}
+                {{- if $.EvictOn}}
+                {{- if .KeepRunning}}
+                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/allow-stop" hx-target="#gen-instances" title="Unlock: let eviction stop this instance when an LLM or another instance needs its GPU memory. While stopped, its reservation then no longer counts." data-error-label="Not unlocked">Unlock</button>
+                {{- else}}
+                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/keep-running" hx-target="#gen-instances" title="Lock: eviction never stops this instance to make room. Its reservation then counts even while it is stopped, so loading an LLM that does not fit next to it is refused instead. Refused if its reservation does not fit now." data-error-label="Not locked">Lock</button>
+                {{- end}}
                 {{- end}}
                 {{- if .Enabled}}
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/disable" hx-target="#gen-instances" title="Stops the instance and keeps it from running until enabled again." data-error-label="Not disabled">Disable</button>
