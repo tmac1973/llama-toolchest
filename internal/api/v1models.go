@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"slices"
 
@@ -106,8 +107,7 @@ func (s *Server) genV1Model(inst generation.Instance) map[string]any {
 	case generation.KindAce:
 		api = []string{"music.jobs", "music.ace_step"}
 	case generation.KindVideo:
-		// The video routes come in a later version.
-		api = []string{}
+		api = []string{"video.jobs", "video.sync"}
 	}
 	meta := map[string]any{
 		"kind":         kind,
@@ -122,6 +122,22 @@ func (s *Server) genV1Model(inst generation.Instance) map[string]any {
 	if set.Kind == generation.KindAce {
 		// tasks lists the music task_type values this model runs.
 		meta["tasks"] = aceTasks(set)
+	}
+	if set.Kind == generation.KindVideo {
+		// video gives the defaults a request gets and the largest video it
+		// may ask for (left out when the set has no ceiling).
+		video := map[string]any{
+			"default_size":   fmt.Sprintf("%dx%d", set.DefaultWidth, set.DefaultHeight),
+			"default_frames": set.DefaultFrames,
+			"default_fps":    set.DefaultFPS,
+		}
+		if set.MaxFrames > 0 {
+			video["max_frames"] = set.MaxFrames
+		}
+		if set.MaxWidth > 0 && set.MaxHeight > 0 {
+			video["max_size"] = fmt.Sprintf("%dx%d", set.MaxWidth, set.MaxHeight)
+		}
+		meta["video"] = video
 	}
 	return map[string]any{
 		"id":       inst.ID,

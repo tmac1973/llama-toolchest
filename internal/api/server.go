@@ -104,6 +104,9 @@ type Server struct {
 	genMusic jobStore[musicJob]
 	// genImageJobs holds this run's image jobs.
 	genImageJobs jobStore[imageJob]
+	// genVideoJobs holds this run's video jobs, at most videoJobMax
+	// finished ones.
+	genVideoJobs jobStore[videoJob]
 
 	// probeCache memoizes remote GGUF header probes, keyed by source,
 	// repo and file. A published file's layout does not change, so the
@@ -290,6 +293,7 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 		memory:         memreport.NewCollector(),
 	}
 	s.genMgr = generation.NewManager()
+	s.genVideoJobs.max = videoJobMax
 	s.genQueue = generation.NewQueue()
 	if s.gen, s.genErr = generation.Load(cfg.DataDir); s.genErr != nil {
 		slog.Error("generation backends store not loaded", "error", s.genErr)
@@ -827,6 +831,11 @@ func (s *Server) buildRouter() chi.Router {
 		r.Get("/images/jobs/{id}", s.handleImageJobGet)
 		r.Get("/images/jobs/{id}/image/{n}", s.handleImageJobImage)
 		r.Delete("/images/jobs/{id}", s.handleImageJobDelete)
+		r.Post("/videos/jobs", s.handleVideoJobCreate)
+		r.Get("/videos/jobs/{id}", s.handleVideoJobGet)
+		r.Get("/videos/jobs/{id}/video", s.handleVideoJobVideo)
+		r.Delete("/videos/jobs/{id}", s.handleVideoJobDelete)
+		r.Post("/videos/generations", s.handleVideoGenerate)
 		r.Post("/music/jobs", s.handleMusicCreate)
 		r.Get("/music/jobs/{id}", s.handleMusicGet)
 		r.Get("/music/jobs/{id}/audio", s.handleMusicAudio)

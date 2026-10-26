@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -37,8 +38,8 @@ func TestPickInstanceSkipsVideoForImages(t *testing.T) {
 	}
 }
 
-// /v1/models lists a video instance as kind video, with no API routes
-// yet.
+// /v1/models lists a video instance as kind video, with the video
+// routes.
 func TestV1ModelsVideoKind(t *testing.T) {
 	s := instanceServer(t)
 	addVideoSet(t, s, "ti2v")
@@ -57,8 +58,8 @@ func TestV1ModelsVideoKind(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Meta.Kind != "video" || len(got.Meta.API) != 0 || len(got.Meta.Capabilities) != 2 {
-		t.Errorf("meta = %+v, want kind video, no api, two capabilities", got.Meta)
+	if got.Meta.Kind != "video" || !slices.Equal(got.Meta.API, []string{"video.jobs", "video.sync"}) || len(got.Meta.Capabilities) != 2 {
+		t.Errorf("meta = %+v, want kind video, the video routes, two capabilities", got.Meta)
 	}
 }
 

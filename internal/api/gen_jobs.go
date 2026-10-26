@@ -1,6 +1,6 @@
 package api
 
-// The in-memory job store that image and music jobs share. Jobs live for
+// The in-memory job store that image, video and music jobs share. Jobs live for
 // the run of the server only; finished ones are pruned after jobKeep.
 
 import (
@@ -54,6 +54,8 @@ type jobStore[T jobRecord[T]] struct {
 	// onUpdate, when set, sees a copy of each job after every update.
 	// Tests use it to record the phases a job goes through.
 	onUpdate func(T)
+	// max is how many finished jobs are kept; zero means jobMax.
+	max int
 }
 
 func (m *jobStore[T]) add(j *T) {
@@ -97,12 +99,16 @@ func (m *jobStore[T]) update(id string, fn func(*T)) {
 }
 
 // prune drops finished jobs (and their output files) older than jobKeep,
-// and the oldest finished ones beyond jobMax.
+// and the oldest finished ones beyond the store's maximum.
 func (m *jobStore[T]) prune(now time.Time) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	limit := m.max
+	if limit == 0 {
+		limit = jobMax
+	}
 	keep := m.order[:0:0]
-	excess := len(m.order) - jobMax
+	excess := len(m.order) - limit
 	for _, id := range m.order {
 		st := (*m.jobs[id]).state()
 		if st.finished != nil && (now.Sub(*st.finished) > jobKeep || excess > 0) {
@@ -120,12 +126,14 @@ func (m *jobStore[T]) prune(now time.Time) {
 	m.order = keep
 }
 
-// watchGenJobs prunes old image and music jobs for the life of the server.
+// watchGenJobs prunes old image, video and music jobs for the life of the
+// server.
 func (s *Server) watchGenJobs() {
 	for range time.Tick(jobPruneEvery) {
 		now := time.Now()
 		s.genMusic.prune(now)
 		s.genImageJobs.prune(now)
+		s.genVideoJobs.prune(now)
 	}
 }
 

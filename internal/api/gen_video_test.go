@@ -43,6 +43,8 @@ func (f *fakeVidServer) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	switch {
+	case r.URL.Path == "/v1/models":
+		w.Write([]byte(`{"data":[]}`))
 	case r.Method == "POST" && r.URL.Path == "/sdcpp/v1/vid_gen":
 		if f.submitErr != 0 {
 			w.WriteHeader(f.submitErr)
