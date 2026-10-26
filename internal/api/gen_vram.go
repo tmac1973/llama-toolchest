@@ -1,12 +1,17 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -670,16 +675,34 @@ func (s *Server) gpuUsedMiB(gpu int) int {
 }
 
 // runMeasureGeneration sends the instance one fixed generation directly:
-// an image at the set's test size, or a 60-second song.
+// an image at the set's test size, or a 60-second song. A set that can
+// edit then also edits the image it just made: an edit holds the
+// reference image as well, and on Qwen-Image-Edit 2511 it peaked at
+// about 21 GiB against 17.4 GiB for a plain image (R9700, 2026-10-25),
+// so the reservation must cover the edit.
 func (s *Server) runMeasureGeneration(ctx context.Context, inst generation.Instance, set generation.ModelSet) error {
 	base := fmt.Sprintf("http://127.0.0.1:%d", inst.Port)
 	if set.Kind == generation.KindSD {
 		w, h := max(set.DefaultWidth, 64), max(set.DefaultHeight, 64)
-		_, _, err := postJSON(ctx, base+"/v1/images/generations", map[string]any{
-			"prompt": "a lighthouse on a rocky coast at sunset, photo", "size": fmt.Sprintf("%dx%d", w, h), "n": 1,
+		size := fmt.Sprintf("%dx%d", w, h)
+		body, _, err := postJSON(ctx, base+"/v1/images/generations", map[string]any{
+			"prompt": "a lighthouse on a rocky coast at sunset, photo", "size": size, "n": 1,
 			"response_format": "b64_json",
 		})
-		return err
+		if err != nil || !slices.Contains(set.Capabilities, "edit") {
+			return err
+		}
+		img, err := firstImage(body)
+		if err != nil {
+			return fmt.Errorf("reading the test image: %w", err)
+		}
+		_, _, err = postImageEdit(ctx, base+"/v1/images/edits", img, map[string]string{
+			"prompt": "make the sky stormy", "size": size, "n": "1", "response_format": "b64_json",
+		})
+		if err != nil {
+			return fmt.Errorf("the test edit failed: %w", err)
+		}
+		return nil
 	}
 	lm, _, err := runAceJob(ctx, base, "/lm", measureSongRequest, nil)
 	if err != nil {
@@ -699,6 +722,53 @@ func (s *Server) runMeasureGeneration(ctx context.Context, inst generation.Insta
 	req["output_format"] = "mp3"
 	_, _, err = runAceJob(ctx, base, "/synth", req, nil)
 	return err
+}
+
+// firstImage decodes the first image of an OpenAI images response.
+func firstImage(body []byte) ([]byte, error) {
+	var resp struct {
+		Data []struct {
+			B64JSON string `json:"b64_json"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, err
+	}
+	if len(resp.Data) == 0 || resp.Data[0].B64JSON == "" {
+		return nil, errors.New("the response holds no image")
+	}
+	return base64.StdEncoding.DecodeString(resp.Data[0].B64JSON)
+}
+
+// postImageEdit sends an OpenAI-style image edit: the fields, and img as
+// the reference image.
+func postImageEdit(ctx context.Context, url string, img []byte, fields map[string]string) ([]byte, string, error) {
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	for k, v := range fields {
+		if err := mw.WriteField(k, v); err != nil {
+			return nil, "", err
+		}
+	}
+	part, err := mw.CreatePart(textproto.MIMEHeader{
+		"Content-Disposition": {`form-data; name="image[]"; filename="reference.png"`},
+		"Content-Type":        {"image/png"},
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	if _, err := part.Write(img); err != nil {
+		return nil, "", err
+	}
+	if err := mw.Close(); err != nil {
+		return nil, "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", url, &buf)
+	if err != nil {
+		return nil, "", err
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	return doBody(req)
 }
 
 // handleGenSetReservation sets an instance's reservation by hand, in GiB.
