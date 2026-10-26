@@ -564,7 +564,7 @@ func (s *Server) measureInstance(id string, startAfter bool) error {
 	if err := s.launchGenInstance(inst, set, generation.LaunchOptions{OmitMaxVRAM: true}); err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), measureTimeout(set.Kind))
 	defer cancel()
 	if err := s.genMgr.WaitRunning(ctx, id); err != nil {
 		return fmt.Errorf("the instance did not start: %w", err)
@@ -685,7 +685,7 @@ func (s *Server) gpuUsedMiB(gpu int) int {
 func (s *Server) runMeasureGeneration(ctx context.Context, inst generation.Instance, set generation.ModelSet) error {
 	base := fmt.Sprintf("http://127.0.0.1:%d", inst.Port)
 	if set.Kind == generation.KindVideo {
-		return errors.New("measuring video sets is not supported in this version; set the reservation by hand")
+		return runMeasureVideo(ctx, base, set)
 	}
 	if set.Kind == generation.KindSD {
 		w, h := max(set.DefaultWidth, 64), max(set.DefaultHeight, 64)
@@ -726,6 +726,39 @@ func (s *Server) runMeasureGeneration(ctx context.Context, inst generation.Insta
 	}
 	req["output_format"] = "mp3"
 	_, _, err = runAceJob(ctx, base, "/synth", req, nil)
+	return err
+}
+
+// measureTimeout caps a measured test run, from launching the backend to
+// the end of its test generation. A video set loads large files and makes
+// a test video, which can take many minutes, so it gets longer.
+func measureTimeout(kind generation.BackendKind) time.Duration {
+	if kind == generation.KindVideo {
+		return 30 * time.Minute
+	}
+	return 10 * time.Minute
+}
+
+// runMeasureVideo makes a video set's test video: its test size, length
+// and frame rate, in the heaviest mode the set supports, with drawn
+// start and end pictures when it takes them.
+func runMeasureVideo(ctx context.Context, base string, set generation.ModelSet) error {
+	canStart := slices.Contains(set.Capabilities, generation.CapStartImage)
+	if !canStart && !slices.Contains(set.Capabilities, generation.CapText) {
+		return errors.New("this set has no supported way to make a test video")
+	}
+	w, h := max(set.DefaultWidth, 64), max(set.DefaultHeight, 64)
+	req := vidGenRequest{
+		Prompt: "a sunrise over a calm sea, slow camera pan", Width: w, Height: h, Seed: 42,
+		Frames: max(set.DefaultFrames, 1), FPS: max(set.DefaultFPS, 1), OutputFormat: "webm",
+	}
+	if canStart {
+		req.InitImage = base64.StdEncoding.EncodeToString(measurePicture(w, h, false))
+	}
+	if slices.Contains(set.Capabilities, generation.CapEndImage) {
+		req.EndImage = base64.StdEncoding.EncodeToString(measurePicture(w, h, true))
+	}
+	_, err := runVidGen(ctx, base, req, nil)
 	return err
 }
 
