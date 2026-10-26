@@ -505,6 +505,9 @@ func (s *Server) canMeasure(inst generation.Instance) error {
 	if s.genMgr.IsMeasuring(inst.ID) {
 		return errors.New("this instance is already being measured")
 	}
+	if err := s.genMove.busy(); err != nil {
+		return err
+	}
 	if reason := s.gpuBusyReason(); reason != "" {
 		return fmt.Errorf("cannot measure while %s", reason)
 	}

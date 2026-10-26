@@ -130,11 +130,11 @@ func TestAssignPort(t *testing.T) {
 }
 
 func TestModelsDir(t *testing.T) {
-	if got := ModelsDir(&config.Config{DataDir: "/data"}); got != "/data/gen-models" {
-		t.Errorf("default = %q, want /data/gen-models", got)
+	if got := ModelsDir(&config.Config{DataDir: "/data"}); got != "/data/models/gen-models" {
+		t.Errorf("default = %q, want /data/models/gen-models", got)
 	}
-	if got := ModelsDir(&config.Config{DataDir: "/data", ModelsDir: "/mnt/llm/models/"}); got != "/mnt/llm/gen-models" {
-		t.Errorf("with ModelsDir = %q, want /mnt/llm/gen-models", got)
+	if got := ModelsDir(&config.Config{DataDir: "/data", ModelsDir: "/mnt/llm/models/"}); got != "/mnt/llm/models/gen-models" {
+		t.Errorf("with ModelsDir = %q, want /mnt/llm/models/gen-models", got)
 	}
 }
 
