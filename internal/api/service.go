@@ -355,7 +355,9 @@ func (s *Server) handleActivateModel(w http.ResponseWriter, r *http.Request) {
 			go func() {
 				ctx, cancel := context.WithTimeout(context.Background(), autoLoadTimeout)
 				defer cancel()
-				s.waitForModelLoaded(ctx, s.registry.RouterName(id), m)
+				if s.waitForModelLoaded(ctx, s.registry.RouterName(id), m) == nil {
+					s.restorePromptCache(ctx, m, s.registry.RouterName(id))
+				}
 				release()
 			}()
 		}()
@@ -462,6 +464,9 @@ func (s *Server) startRouterWith(opt routerOptions) error {
 	port := s.cfg.LlamaPort
 	extraEnv := s.cfg.RuntimeEnvPairs()
 	s.cfgMu.Unlock()
+	if kv := s.promptCacheRouterEnv(); kv != "" {
+		extraEnv = append(extraEnv, kv)
+	}
 
 	// Find the build binary. Explicit selection wins; otherwise fall back
 	// to the successful build with the newest GitRef.

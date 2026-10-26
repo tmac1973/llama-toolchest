@@ -140,6 +140,34 @@ func (m *Manager) ListModels() ([]ModelStatus, error) {
 	return routerclient.List(context.Background(), url)
 }
 
+// Slots lists a loaded model's conversation slots.
+func (m *Manager) Slots(ctx context.Context, name string) ([]routerclient.Slot, error) {
+	url, err := m.routerBase()
+	if err != nil {
+		return nil, err
+	}
+	return routerclient.Slots(ctx, url, name)
+}
+
+// SaveSlot writes a slot's prompt cache to filename (see
+// routerclient.SaveSlot).
+func (m *Manager) SaveSlot(ctx context.Context, name string, id int, filename string) (routerclient.SlotResult, error) {
+	url, err := m.routerBase()
+	if err != nil {
+		return routerclient.SlotResult{}, err
+	}
+	return routerclient.SaveSlot(ctx, url, name, id, filename)
+}
+
+// RestoreSlot reads a slot's prompt cache back from filename.
+func (m *Manager) RestoreSlot(ctx context.Context, name string, id int, filename string) (routerclient.SlotResult, error) {
+	url, err := m.routerBase()
+	if err != nil {
+		return routerclient.SlotResult{}, err
+	}
+	return routerclient.RestoreSlot(ctx, url, name, id, filename)
+}
+
 // routerBase returns the running router's base URL.
 func (m *Manager) routerBase() (string, error) {
 	m.mu.Lock()

@@ -181,7 +181,13 @@ func (s *Server) ensureModelLoadedForRequest(ctx context.Context, body []byte) e
 		}
 		slog.Info("auto-loading model for inference request", "model", regModel.PublicName(), "router_name", routerName)
 	}
-	return s.waitForModelLoaded(ctx, routerName, regModel)
+	if err := s.waitForModelLoaded(ctx, routerName, regModel); err != nil {
+		return err
+	}
+	// After an eviction unloaded it: the conversations' prompt caches,
+	// before this request goes on.
+	s.restorePromptCache(ctx, regModel, routerName)
+	return nil
 }
 
 // lookupRouterState returns the router's current state for a model, plus
