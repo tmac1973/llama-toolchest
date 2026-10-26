@@ -64,6 +64,8 @@
                 {{- if or (eq .Status.State "running") (eq .Status.State "starting")}}
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/stop" hx-target="#gen-instances" data-error-label="Not stopped">Stop</button>
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/restart" hx-target="#gen-instances" data-error-label="Not restarted">Restart</button>
+                {{- else if and .Enabled (not .ReservedMiB) (not .Measuring)}}
+                    <button type="button" class="outline" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" onclick="openGenMeasureStart('{{$id}}', '{{.Name}}', '{{.GPU}}')" title="This instance has no VRAM reservation yet, so it is measured first. Asks before it does.">Start</button>
                 {{- else if .Enabled}}
                     <button type="button" class="outline" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/start" hx-target="#gen-instances" data-error-label="Not started">Start</button>
                 {{- end}}
