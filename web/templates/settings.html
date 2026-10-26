@@ -244,6 +244,20 @@
        chat replies always finish first. Each switch reloads a model, so
        expect a wait of seconds to a minute.</small></p>
     <div id="gen-evict-status"></div>
+    <form hx-put="/api/settings"
+          hx-target="#gen-prompt-cache-status"
+          hx-swap="innerHTML"
+          hx-trigger="change">
+        <input type="hidden" name="gen_keep_prompt_cache_touched" value="1">
+        <label title="Before an LLM is unloaded to make room for a backend, each of its conversations' prompt cache is saved to disk (under the data directory, in slot-cache), and restored when the model loads again. The next reply then processes only the new message, not the whole conversation: measured on 3×A4000 with a 26,600-token conversation, 1.1 s instead of 21.4 s. A file takes about 0.6 GB per 26,000 tokens on a hybrid model like Qwen3.6, more on a dense model, and is deleted once restored. Conversations under 1,024 tokens are not saved.">
+            <input type="checkbox" role="switch" name="gen_keep_prompt_cache"
+                   {{if .GenKeepPromptCache}}checked{{end}}>
+            Keep the LLM's prompt cache when it is unloaded for a backend
+        </label>
+    </form>
+    <p><small>Only with the switch above on. Takes effect the next time the
+       router starts (Server page → Restart).</small></p>
+    <div id="gen-prompt-cache-status"></div>
     {{end}}
     {{if and .GenerationEnabled (not .GenPortsPublished)}}
     <p><small>Web UI ports are not published, so the backends' own web pages

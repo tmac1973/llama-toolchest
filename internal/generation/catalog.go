@@ -42,9 +42,22 @@ func aceComponents(ditFile string, ditBytes int64) []Component {
 	}
 }
 
+// Files shared by more than one image set. A shared file downloads once.
+var (
+	// fluxAE is the FLUX.1 VAE that Z-Image and Chroma use. The copy in
+	// black-forest-labs/FLUX.1-schnell is gated; this one is not.
+	fluxAE = Component{Slot: "vae", Repo: "Comfy-Org/z_image_turbo", File: "split_files/vae/ae.safetensors", Bytes: 335304388}
+	// flux2SmallDecoder is a FLUX.2 VAE, used by FLUX.2 klein and FLUX.3
+	// Image Klein. The FLUX.2-dev VAE is gated; this one is ungated and
+	// Apache-licensed.
+	flux2SmallDecoder = Component{Slot: "vae", Repo: "black-forest-labs/FLUX.2-small-decoder", File: "full_encoder_small_decoder.safetensors", Bytes: 249519092}
+)
+
 // Catalog returns the built-in model sets. File sizes were read from the
-// Hugging Face tree API on 2026-10-24; launch settings for Qwen-Image 2.1
-// Turbo and ACE-Step XL SFT are the ones measured on asmodean that day.
+// Hugging Face tree API on 2026-10-24 (2026-10-25 for Z-Image Turbo, FLUX.3
+// Image Klein, Chroma1-HD and Qwen-Image-Edit 2511); launch settings for
+// Qwen-Image 2.1 Turbo and ACE-Step XL SFT are the ones measured on
+// asmodean on 2026-10-24.
 func Catalog() []CatalogEntry {
 	return []CatalogEntry{
 		{
@@ -98,13 +111,86 @@ func Catalog() []CatalogEntry {
 			Components: []Component{
 				{Slot: "diffusion_model", Repo: "leejet/FLUX.2-klein-4B-GGUF", File: "flux-2-klein-4b-Q8_0.gguf", Bytes: 4300629440},
 				{Slot: "llm", Repo: "unsloth/Qwen3-4B-GGUF", File: "Qwen3-4B-Q8_0.gguf", Bytes: 4280405792},
-				// The FLUX.2-dev VAE is gated; this one is ungated and Apache-licensed.
-				{Slot: "vae", Repo: "black-forest-labs/FLUX.2-small-decoder", File: "full_encoder_small_decoder.safetensors", Bytes: 249519092},
+				flux2SmallDecoder,
 			},
 			LaunchArgs:    []string{"--steps", "4", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa"},
 			Capabilities:  []string{"edit"},
 			License:       "Apache-2.0",
 			Notes:         "4 steps. Also edits images.",
+			DefaultWidth:  1024,
+			DefaultHeight: 1024,
+		},
+		{
+			ID:     "z-image-turbo",
+			Name:   "Z-Image Turbo",
+			Kind:   KindSD,
+			Recipe: "z-image-turbo",
+			Components: []Component{
+				{Slot: "diffusion_model", Repo: "leejet/Z-Image-Turbo-GGUF", File: "z_image_turbo-Q8_0.gguf", Bytes: 6577440704},
+				{Slot: "llm", Repo: "unsloth/Qwen3-4B-Instruct-2507-GGUF", File: "Qwen3-4B-Instruct-2507-Q8_0.gguf", Bytes: 4280405600},
+				fluxAE,
+			},
+			LaunchArgs:    []string{"--steps", "9", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling"},
+			License:       "Apache-2.0",
+			Notes:         "9 steps; about 19 s per 1024×1024 image on a Radeon AI PRO R9700, using about 11 GB of VRAM. Shares its VAE with Chroma1-HD.",
+			DefaultWidth:  1024,
+			DefaultHeight: 1024,
+		},
+		{
+			ID:     "flux3-image-klein",
+			Name:   "FLUX.3 Image Klein",
+			Kind:   KindSD,
+			Recipe: "flux3-klein",
+			Components: []Component{
+				{Slot: "diffusion_model", Repo: "leejet/flux-3-image-klein-GGUF", File: "flux3-image-klein-Q8_0.gguf", Bytes: 6151716032},
+				{Slot: "llm", Repo: "Qwen/Qwen3-VL-4B-Instruct-GGUF", File: "Qwen3VL-4B-Instruct-Q8_0.gguf", Bytes: 4280406144},
+				flux2SmallDecoder,
+			},
+			LaunchArgs:    []string{"--steps", "16", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa"},
+			Capabilities:  []string{"edit"},
+			License:       "FLUX Kommunity License (non-commercial)",
+			Notes:         "16 steps; about 21 s per 1024×1024 image (56 s for an edit) on a Radeon AI PRO R9700, using about 12 GB of VRAM. Also edits images, with up to 10 reference images. Shares its VAE with FLUX.2 klein 4B. Non-commercial licence: only people and companies with less than US$5 million yearly revenue may use the images commercially. Licence terms: https://huggingface.co/black-forest-labs/flux-3-image-klein",
+			DefaultWidth:  1024,
+			DefaultHeight: 1024,
+		},
+		{
+			ID:     "chroma1-hd",
+			Name:   "Chroma1-HD",
+			Kind:   KindSD,
+			Recipe: "chroma",
+			Components: []Component{
+				{Slot: "diffusion_model", Repo: "silveroxides/Chroma-GGUF", File: "Chroma1-HD/Chroma1-HD-Q8_0.gguf", Bytes: 9735409824},
+				{Slot: "t5xxl", Repo: "city96/t5-v1_1-xxl-encoder-gguf", File: "t5-v1_1-xxl-encoder-Q8_0.gguf", Bytes: 5061584064},
+				fluxAE,
+			},
+			// Without a negative prompt, Chroma's images came out covered
+			// in grainy noise on 2026-10-25; 20 steps still left some, 40
+			// did not. --negative-prompt sets the default for requests that
+			// give none.
+			LaunchArgs: []string{"--steps", "40", "--cfg-scale", "4", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling",
+				"--negative-prompt", "low quality, ugly, unfinished, out of focus, deformed, disfigured, blurry, smudged, restricted palette, flat colors"},
+			License:       "Apache-2.0",
+			Notes:         "40 steps; about 3.5 minutes per 1024×1024 image on a Radeon AI PRO R9700, using about 15 GB of VRAM. Based on FLUX.1-schnell. Starts with a default negative prompt; a request can give its own. Shares its VAE with Z-Image Turbo.",
+			DefaultWidth:  1024,
+			DefaultHeight: 1024,
+		},
+		{
+			ID:     "qwen-image-edit-2511",
+			Name:   "Qwen-Image-Edit 2511 (Q4)",
+			Kind:   KindSD,
+			Recipe: "qwen-image-edit-2511",
+			Components: []Component{
+				{Slot: "diffusion_model", Repo: "unsloth/Qwen-Image-Edit-2511-GGUF", File: "qwen-image-edit-2511-Q4_K_M.gguf", Bytes: 13244758624},
+				{Slot: "llm", Repo: "mradermacher/Qwen2.5-VL-7B-Instruct-GGUF", File: "Qwen2.5-VL-7B-Instruct.Q4_K_M.gguf", Bytes: 4683072512},
+				{Slot: "llm_vision", Repo: "mradermacher/Qwen2.5-VL-7B-Instruct-GGUF", File: "Qwen2.5-VL-7B-Instruct.mmproj-f16.gguf", Bytes: 1354162912},
+				{Slot: "vae", Repo: "Comfy-Org/Qwen-Image_ComfyUI", File: "split_files/vae/qwen_image_vae.safetensors", Bytes: 253806246},
+			},
+			// Without qwen_image_zero_cond_t=true, sd.cpp's docs say edit
+			// quality drops a lot.
+			LaunchArgs:    []string{"--steps", "20", "--cfg-scale", "4", "--flow-shift", "3", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling", "--model-args", "qwen_image_zero_cond_t=true"},
+			Capabilities:  []string{"edit"},
+			License:       "Apache-2.0",
+			Notes:         "Edits images from one or more reference images; 20 steps. About 6 minutes per 1024×1024 edit on a Radeon AI PRO R9700, using about 21 GB of VRAM, so it needs a 24 GB card.",
 			DefaultWidth:  1024,
 			DefaultHeight: 1024,
 		},
