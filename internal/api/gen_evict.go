@@ -316,6 +316,8 @@ func (s *Server) unloadForGen(ctx context.Context, id string, inst generation.In
 	}
 	defer done()
 	routerName := s.registry.RouterName(id)
+	// Its requests are done and new ones wait, so the slots are idle.
+	s.savePromptCache(ctx, m, routerName)
 	before := s.gpuUsedMiB(inst.GPU)
 	planned := s.loadedLLMMiB(models.GPUMiB(s.idleHardware()), "", false)[inst.GPU]
 	if err := s.process.UnloadModel(routerName); err != nil {

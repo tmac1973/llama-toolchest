@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"github.com/tmac1973/llama-toolchest/internal/routerclient"
 	"io"
 	"net"
 	"net/http"
@@ -271,6 +273,10 @@ type fakeRouter struct {
 	loads   []string
 	lists   int
 	onList  func(f *fakeRouter, n int)
+	// slots is what GET /slots answers; slotCalls records each slot
+	// action as "save 0 file.bin model".
+	slots     []routerclient.Slot
+	slotCalls []string
 }
 
 // reset replaces the router's state between subtests.
@@ -305,6 +311,18 @@ func (f *fakeRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			data = append(data, ms)
 		}
 		json.NewEncoder(w).Encode(map[string]any{"data": data, "object": "list"})
+	case r.URL.Path == "/slots" && r.Method == http.MethodGet:
+		json.NewEncoder(w).Encode(f.slots)
+	case strings.HasPrefix(r.URL.Path, "/slots/") && r.Method == http.MethodPost:
+		var req struct{ Model, Filename string }
+		json.NewDecoder(r.Body).Decode(&req)
+		action := r.URL.Query().Get("action")
+		f.slotCalls = append(f.slotCalls, fmt.Sprintf("%s %s %s %s", action, strings.TrimPrefix(r.URL.Path, "/slots/"), req.Filename, req.Model))
+		if action == "save" {
+			fmt.Fprintf(w, `{"n_saved":2000,"n_written":1048576}`)
+		} else {
+			fmt.Fprintf(w, `{"n_restored":2000,"n_read":1048576}`)
+		}
 	case r.URL.Path == "/models/load" && r.Method == http.MethodPost:
 		var req struct {
 			Model string `json:"model"`

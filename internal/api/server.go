@@ -78,6 +78,9 @@ type Server struct {
 	// llmUse counts each LLM's requests in progress, so an unload for a
 	// generation backend waits for them (see gen_evict.go).
 	llmUse llmUse
+	// promptCache records the LLM prompt caches saved before an eviction
+	// unload, until they are restored (see gen_prompt_cache.go).
+	promptCache promptCacheStore
 
 	// gen holds the generation backends' model sets and instances. It is
 	// nil when generation.json could not be read; genErr then says why,
@@ -1053,13 +1056,14 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		EnvWarnings      []string
 		EffectiveEnv     []envLine
 
-		GenerationEnabled bool
-		GenEvict          bool
-		GenPortStart      int
-		GenPortEnd        int
-		GenPortCount      int
-		InContainer       bool
-		GenPortsPublished bool
+		GenerationEnabled  bool
+		GenEvict           bool
+		GenKeepPromptCache bool
+		GenPortStart       int
+		GenPortEnd         int
+		GenPortCount       int
+		InContainer        bool
+		GenPortsPublished  bool
 	}{
 		pageData:         pageData{Title: "Settings", Nav: "settings"},
 		ProxyEndpoint:    proxyEndpoint,
@@ -1084,10 +1088,11 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		EnvWarnings:      s.cfg.EnvSet().Warnings(),
 		EffectiveEnv:     s.effectiveEnvLines(),
 
-		GenerationEnabled: s.cfg.GenerationEnabled,
-		GenEvict:          s.cfg.GenEvict,
-		InContainer:       s.inContainer(),
-		GenPortsPublished: s.genPortsPublished(),
+		GenerationEnabled:  s.cfg.GenerationEnabled,
+		GenEvict:           s.cfg.GenEvict,
+		GenKeepPromptCache: s.cfg.GenKeepPromptCache,
+		InContainer:        s.inContainer(),
+		GenPortsPublished:  s.genPortsPublished(),
 	}
 	data.GenPortStart, data.GenPortCount = s.cfg.GenPorts(data.InContainer)
 	data.GenPortEnd = data.GenPortStart + data.GenPortCount - 1

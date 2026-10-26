@@ -27,34 +27,35 @@ func renderSettings(t *testing.T, hasHF, hasMS bool) string {
 	base := testTemplates(t, "templates/layout.html", "templates/settings.html", "templates/partials/*.html")
 	data := struct {
 		pageData
-		ProxyEndpoint     string
-		LlamaPort         int
-		HasAPIKey         bool
-		HasHFToken        bool
-		HasMSToken        bool
-		DefaultSource     string
-		HasExtURL         bool
-		ExternalURL       string
-		ExternalURLEnv    string
-		ExternalURLInUse  string
-		DataDir           string
-		ModelsDir         string
-		DefaultModelsDir  string
-		AutoStart         bool
-		RuntimeEnvOpts    []config.RuntimeEnvOption
-		RuntimeEnv        map[string]string
-		RuntimeEnvExtra   string
-		EnvBackends       []string
-		ActiveBackend     string
-		EnvWarnings       []string
-		EffectiveEnv      []envLine
-		GenerationEnabled bool
-		GenEvict          bool
-		GenPortStart      int
-		GenPortEnd        int
-		GenPortCount      int
-		InContainer       bool
-		GenPortsPublished bool
+		ProxyEndpoint      string
+		LlamaPort          int
+		HasAPIKey          bool
+		HasHFToken         bool
+		HasMSToken         bool
+		DefaultSource      string
+		HasExtURL          bool
+		ExternalURL        string
+		ExternalURLEnv     string
+		ExternalURLInUse   string
+		DataDir            string
+		ModelsDir          string
+		DefaultModelsDir   string
+		AutoStart          bool
+		RuntimeEnvOpts     []config.RuntimeEnvOption
+		RuntimeEnv         map[string]string
+		RuntimeEnvExtra    string
+		EnvBackends        []string
+		ActiveBackend      string
+		EnvWarnings        []string
+		EffectiveEnv       []envLine
+		GenerationEnabled  bool
+		GenEvict           bool
+		GenKeepPromptCache bool
+		GenPortStart       int
+		GenPortEnd         int
+		GenPortCount       int
+		InContainer        bool
+		GenPortsPublished  bool
 	}{HasHFToken: hasHF, HasMSToken: hasMS}
 
 	var buf bytes.Buffer
@@ -180,33 +181,34 @@ func TestSettingsPageDefaultSourceSelect(t *testing.T) {
 	render := func(def string) string {
 		data := struct {
 			pageData
-			ProxyEndpoint     string
-			LlamaPort         int
-			HasAPIKey         bool
-			HasHFToken        bool
-			HasMSToken        bool
-			DefaultSource     string
-			HasExtURL         bool
-			ExternalURL       string
-			ExternalURLEnv    string
-			ExternalURLInUse  string
-			DataDir           string
-			ModelsDir         string
-			DefaultModelsDir  string
-			AutoStart         bool
-			RuntimeEnvOpts    []config.RuntimeEnvOption
-			RuntimeEnv        map[string]string
-			RuntimeEnvExtra   string
-			EnvBackends       []string
-			ActiveBackend     string
-			EnvWarnings       []string
-			EffectiveEnv      []envLine
-			GenerationEnabled bool
-			GenEvict          bool
-			GenPortStart      int
-			GenPortEnd        int
-			GenPortCount      int
-			InContainer       bool
+			ProxyEndpoint      string
+			LlamaPort          int
+			HasAPIKey          bool
+			HasHFToken         bool
+			HasMSToken         bool
+			DefaultSource      string
+			HasExtURL          bool
+			ExternalURL        string
+			ExternalURLEnv     string
+			ExternalURLInUse   string
+			DataDir            string
+			ModelsDir          string
+			DefaultModelsDir   string
+			AutoStart          bool
+			RuntimeEnvOpts     []config.RuntimeEnvOption
+			RuntimeEnv         map[string]string
+			RuntimeEnvExtra    string
+			EnvBackends        []string
+			ActiveBackend      string
+			EnvWarnings        []string
+			EffectiveEnv       []envLine
+			GenerationEnabled  bool
+			GenEvict           bool
+			GenKeepPromptCache bool
+			GenPortStart       int
+			GenPortEnd         int
+			GenPortCount       int
+			InContainer        bool
 		}{DefaultSource: def}
 		var buf bytes.Buffer
 		if err := base.ExecuteTemplate(&buf, "content", data); err != nil {

@@ -77,3 +77,32 @@ func TestErrorSnippet(t *testing.T) {
 		t.Errorf("snippet ends %q", got[len(got)-30:])
 	}
 }
+
+// Slots are listed by model, and a save sends the model and file name to
+// the slot's action URL.
+func TestSlotCalls(t *testing.T) {
+	var got []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		got = append(got, r.Method+" "+r.URL.String()+" "+string(body))
+		if r.Method == http.MethodGet {
+			io.WriteString(w, `[{"id":0,"n_ctx":8192,"is_processing":false,"n_prompt_tokens":26633},{"id":1,"n_ctx":8192,"is_processing":false}]`)
+			return
+		}
+		io.WriteString(w, `{"id_slot":0,"filename":"a.bin","n_saved":26633,"n_written":609154572,"timings":{"save_ms":472.9}}`)
+	}))
+	defer ts.Close()
+
+	slots, err := Slots(context.Background(), ts.URL, "qwen 3.6")
+	if err != nil || len(slots) != 2 || slots[0].PromptTokens != 26633 || slots[1].PromptTokens != 0 {
+		t.Fatalf("slots = %+v, %v", slots, err)
+	}
+	res, err := SaveSlot(context.Background(), ts.URL, "qwen 3.6", 0, "a.bin")
+	if err != nil || res.Tokens != 26633 || res.Bytes != 609154572 {
+		t.Fatalf("save = %+v, %v", res, err)
+	}
+	want := []string{"GET /slots?model=qwen+3.6 ", `POST /slots/0?action=save {"filename":"a.bin","model":"qwen 3.6"}`}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("requests\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}

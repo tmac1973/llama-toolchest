@@ -127,34 +127,35 @@ func TestSettingsPageGenerationSection(t *testing.T) {
 	render := func(enabled, inContainer bool) string {
 		data := struct {
 			pageData
-			ProxyEndpoint     string
-			LlamaPort         int
-			HasAPIKey         bool
-			HasHFToken        bool
-			HasMSToken        bool
-			DefaultSource     string
-			HasExtURL         bool
-			ExternalURL       string
-			ExternalURLEnv    string
-			ExternalURLInUse  string
-			DataDir           string
-			ModelsDir         string
-			DefaultModelsDir  string
-			AutoStart         bool
-			RuntimeEnvOpts    []config.RuntimeEnvOption
-			RuntimeEnv        map[string]string
-			RuntimeEnvExtra   string
-			EnvBackends       []string
-			ActiveBackend     string
-			EnvWarnings       []string
-			EffectiveEnv      []envLine
-			GenerationEnabled bool
-			GenEvict          bool
-			GenPortStart      int
-			GenPortEnd        int
-			GenPortCount      int
-			InContainer       bool
-			GenPortsPublished bool
+			ProxyEndpoint      string
+			LlamaPort          int
+			HasAPIKey          bool
+			HasHFToken         bool
+			HasMSToken         bool
+			DefaultSource      string
+			HasExtURL          bool
+			ExternalURL        string
+			ExternalURLEnv     string
+			ExternalURLInUse   string
+			DataDir            string
+			ModelsDir          string
+			DefaultModelsDir   string
+			AutoStart          bool
+			RuntimeEnvOpts     []config.RuntimeEnvOption
+			RuntimeEnv         map[string]string
+			RuntimeEnvExtra    string
+			EnvBackends        []string
+			ActiveBackend      string
+			EnvWarnings        []string
+			EffectiveEnv       []envLine
+			GenerationEnabled  bool
+			GenEvict           bool
+			GenKeepPromptCache bool
+			GenPortStart       int
+			GenPortEnd         int
+			GenPortCount       int
+			InContainer        bool
+			GenPortsPublished  bool
 		}{GenerationEnabled: enabled, GenPortStart: 8081, GenPortEnd: 8088, GenPortCount: 8, InContainer: inContainer,
 			GenPortsPublished: !inContainer || published}
 		var buf bytes.Buffer

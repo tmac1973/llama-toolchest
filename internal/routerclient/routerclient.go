@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -130,4 +131,87 @@ func post(ctx context.Context, url, name string) (int, string, error) {
 	// matters for an unexpected error page.
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	return resp.StatusCode, string(body), nil
+}
+
+// Slot is one of a loaded model's conversation slots, as GET /slots
+// reports it. PromptTokens is how many tokens its prompt cache holds;
+// zero for a slot that has not served a request yet.
+type Slot struct {
+	ID           int  `json:"id"`
+	Processing   bool `json:"is_processing"`
+	PromptTokens int  `json:"n_prompt_tokens"`
+}
+
+// slotClient bounds the slot calls. A save or restore writes or reads a
+// file of up to several GB, and waits for a slot that is busy.
+var slotClient = &http.Client{Timeout: 2 * time.Minute}
+
+// Slots lists the conversation slots of a loaded model. The router
+// passes GET /slots?model=NAME on to the model's own server.
+func Slots(ctx context.Context, baseURL, name string) ([]Slot, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/slots?model="+url.QueryEscape(name), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := slotClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("list slots: HTTP %d: %s", resp.StatusCode, ErrorSnippet(body))
+	}
+	var slots []Slot
+	if err := json.Unmarshal(body, &slots); err != nil {
+		return nil, fmt.Errorf("list slots: %w", err)
+	}
+	return slots, nil
+}
+
+// SlotResult is the answer to a slot save or restore: how many tokens
+// and bytes it moved.
+type SlotResult struct {
+	Tokens int
+	Bytes  int
+}
+
+// SaveSlot writes a slot's prompt cache to filename in the model
+// server's --slot-save-path directory.
+func SaveSlot(ctx context.Context, baseURL, name string, id int, filename string) (SlotResult, error) {
+	return slotAction(ctx, baseURL, name, id, "save", filename)
+}
+
+// RestoreSlot reads a slot's prompt cache back from filename.
+func RestoreSlot(ctx context.Context, baseURL, name string, id int, filename string) (SlotResult, error) {
+	return slotAction(ctx, baseURL, name, id, "restore", filename)
+}
+
+func slotAction(ctx context.Context, baseURL, name string, id int, action, filename string) (SlotResult, error) {
+	payload, _ := json.Marshal(map[string]string{"model": name, "filename": filename})
+	u := fmt.Sprintf("%s/slots/%d?action=%s", baseURL, id, action)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(payload))
+	if err != nil {
+		return SlotResult{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := slotClient.Do(req)
+	if err != nil {
+		return SlotResult{}, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	if resp.StatusCode != http.StatusOK {
+		return SlotResult{}, fmt.Errorf("slot %d %s: HTTP %d: %s", id, action, resp.StatusCode, ErrorSnippet(body))
+	}
+	var r struct {
+		Saved    int `json:"n_saved"`
+		Written  int `json:"n_written"`
+		Restored int `json:"n_restored"`
+		Read     int `json:"n_read"`
+	}
+	if err := json.Unmarshal(body, &r); err != nil {
+		return SlotResult{}, fmt.Errorf("slot %d %s: %w", id, action, err)
+	}
+	return SlotResult{Tokens: r.Saved + r.Restored, Bytes: r.Written + r.Read}, nil
 }

@@ -65,6 +65,12 @@ type Config struct {
 	// a load that does not fit is refused.
 	GenEvict bool `yaml:"gen_evict,omitempty"`
 
+	// GenKeepPromptCache saves an LLM's prompt cache to disk before an
+	// eviction unloads it, and restores it once the model is loaded
+	// again, so the next turn does not process the whole conversation
+	// again. Only with GenEvict; the router needs a restart to pick it up.
+	GenKeepPromptCache bool `yaml:"gen_keep_prompt_cache,omitempty"`
+
 	// GenPortStart and GenPortCount set the port range the generation
 	// backends listen on, one port per backend instance. Zero means the
 	// default (8081, 8 ports); use GenPorts for the effective values.
