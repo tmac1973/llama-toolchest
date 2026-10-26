@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -47,9 +48,11 @@ type download struct {
 
 	// destRoot replaces the downloader's models dir for this download,
 	// and onDone replaces its completion callback (see StartTo). Both are
-	// unset for ordinary LLM downloads.
+	// unset for ordinary LLM downloads. onDone holds one callback per
+	// StartTo call for the file: two generation sets can share a file, and
+	// each must hear when it is done. Guarded by Downloader.mu.
 	destRoot string
-	onDone   FileDoneFunc
+	onDone   []FileDoneFunc
 }
 
 func (dl *download) broadcast(status DownloadStatus) {
@@ -172,7 +175,9 @@ func (d *Downloader) Start(ctx context.Context, source, modelID, filename string
 // instead of the models dir, and calls onDone instead of the downloader's
 // completion callback, so the file is never registered as a language
 // model. Used for the generation backends' model files. The download ID
-// starts with "gen--" so it never collides with an LLM download.
+// starts with "gen--" so it never collides with an LLM download. If the
+// file is already downloading, StartTo returns that download's ID with an
+// error and adds onDone to it, so it is still called when the file is done.
 func (d *Downloader) StartTo(source, modelID, filename, destRoot string, expectedBytes int64, onDone FileDoneFunc) (string, error) {
 	return d.start(source, modelID, filename, expectedBytes, "gen--", destRoot, onDone)
 }
@@ -203,6 +208,9 @@ func (d *Downloader) start(source, modelID, filename string, expectedBytes int64
 	d.mu.Lock()
 	if existing, exists := d.active[downloadID]; exists {
 		if s := existing.last(); s.Status == "downloading" {
+			if onDone != nil {
+				existing.onDone = append(existing.onDone, onDone)
+			}
 			d.mu.Unlock()
 			return downloadID, errors.New("download already in progress")
 		}
@@ -230,7 +238,9 @@ func (d *Downloader) start(source, modelID, filename string, expectedBytes int64
 		done:     make(chan struct{}),
 		bc:       broadcast.New[DownloadStatus](1, 16),
 		destRoot: destRoot,
-		onDone:   onDone,
+	}
+	if onDone != nil {
+		dl.onDone = []FileDoneFunc{onDone}
 	}
 	// Seed the status so PendingBytes counts this download immediately,
 	// before run() reports its first progress tick.
@@ -442,8 +452,13 @@ func (d *Downloader) run(ctx context.Context, source, downloadID, modelID, filen
 
 	slog.Info("download complete", "model", modelID, "file", filename, "shards", len(filenames), "size", totalDownloaded)
 
-	if dl.onDone != nil {
-		dl.onDone(filepath.Join(modelDir, filenames[0]), totalDownloaded)
+	d.mu.Lock()
+	onDone := slices.Clone(dl.onDone)
+	d.mu.Unlock()
+	if len(onDone) > 0 {
+		for _, f := range onDone {
+			f(filepath.Join(modelDir, filenames[0]), totalDownloaded)
+		}
 	} else if d.onComplete != nil {
 		d.onComplete(source, downloadID, modelID, filenames[0], totalDownloaded)
 	}
