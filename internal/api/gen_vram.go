@@ -384,13 +384,6 @@ func mibText(mib int) string {
 	return fmt.Sprintf("%.1f GiB", float64(mib)/1024)
 }
 
-// suggestReservation is the reservation a measured peak suggests: 10%
-// more, rounded up to the next 512 MiB.
-func suggestReservation(peakMiB int) int {
-	n := peakMiB * 11 / 10
-	return (n + 511) / 512 * 512
-}
-
 // genMeasureState remembers how each instance's last measured test run
 // ended, so the instance table can say so: what was measured and what
 // happened to the reservation, or why it failed. It lasts until the next
@@ -440,9 +433,15 @@ func measureNote(before int, inst generation.Instance, restarted, started bool) 
 		note += " (estimated from the whole GPU's use)"
 	}
 	note += ". "
-	suggest := suggestReservation(inst.MeasuredPeakMiB)
+	suggest := generation.SuggestReservation(inst.MeasuredPeakMiB)
+	capped := inst.MeasuredSuggestedMiB > 0 && inst.MeasuredSuggestedMiB < suggest
+	if inst.MeasuredSuggestedMiB > 0 {
+		suggest = inst.MeasuredSuggestedMiB
+	}
 	switch {
-	case before == 0:
+	case capped && inst.ReservedMiB == suggest:
+		note += "Reservation capped at " + mibText(suggest) + ", all this card can give it."
+	case before == 0 || (inst.MeasuredFrames > 0 && inst.ReservedMiB == suggest):
 		note += "Reservation set to " + mibText(inst.ReservedMiB) + "."
 	case before == suggest:
 		note += "Reservation stays at " + mibText(before) + ", as suggested."
@@ -486,13 +485,25 @@ func (s *Server) handleGenMeasure(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
+	set, err := store.ModelSet(inst.ModelSetID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var size generation.VideoSize
+	if set.Kind == generation.KindVideo {
+		if size, err = videoMeasureSize(r, set); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
 	s.genMgr.SetMeasuring(inst.ID, true)
 	s.genMeasure.clear(inst.ID)
 	before, wasRunning := inst.ReservedMiB, s.genMgr.IsActive(inst.ID)
 	startAfter := r.FormValue("start") == "1"
 	go func() {
 		defer s.genMgr.SetMeasuring(inst.ID, false)
-		if err := s.measureInstance(inst.ID, startAfter); err != nil {
+		if err := s.measureInstance(inst.ID, startAfter, size); err != nil {
 			slog.Warn("generation instance measurement failed", "instance", inst.ID, "error", err)
 			s.genMeasure.set(inst.ID, measureOutcome{Err: err.Error(), At: time.Now()})
 			return
@@ -501,7 +512,12 @@ func (s *Server) handleGenMeasure(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return
 		}
-		s.genMeasure.set(inst.ID, measureOutcome{Note: measureNote(before, after, wasRunning, startAfter && !wasRunning), At: time.Now()})
+		note := measureNote(before, after, wasRunning, startAfter && !wasRunning)
+		if set.Kind == generation.KindVideo {
+			label := generation.PresetLabel(generation.VideoPresets(set), size)
+			note = fmt.Sprintf("Measured for %d frames at %dx%d (%s): ", size.Frames, size.Width, size.Height, label) + note
+		}
+		s.genMeasure.set(inst.ID, measureOutcome{Note: note, At: time.Now()})
 	}()
 	s.genInstancesChanged(w, r)
 }
@@ -538,7 +554,7 @@ func (s *Server) canMeasure(inst generation.Instance) error {
 // suggest a reservation. The instance is left as it was found: running
 // again (with its limit) if it was running, stopped otherwise. With
 // startAfter it is started afterwards either way.
-func (s *Server) measureInstance(id string, startAfter bool) error {
+func (s *Server) measureInstance(id string, startAfter bool, size generation.VideoSize) error {
 	inst, err := s.gen.Instance(id)
 	if err != nil {
 		return err
@@ -561,7 +577,16 @@ func (s *Server) measureInstance(id string, startAfter bool) error {
 	if err := s.genFitCheck(inst, 1024); err != nil {
 		return err
 	}
-	if err := s.launchGenInstance(inst, set, generation.LaunchOptions{OmitMaxVRAM: true}); err != nil {
+	// sd-server runs inside the room the card can give the instance, so
+	// it does not fill a smaller card and the suggestion always fits.
+	// ace-server takes no memory limit and is measured as it is.
+	sdKind := set.Kind == generation.KindSD || set.Kind == generation.KindVideo
+	room, haveRoom := s.genRoomMiB(inst)
+	opts := generation.LaunchOptions{}
+	if sdKind && haveRoom {
+		opts.MaxVRAMMiB = room
+	}
+	if err := s.launchGenInstance(inst, set, opts); err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), measureTimeout(set.Kind))
@@ -595,7 +620,7 @@ func (s *Server) measureInstance(id string, startAfter bool) error {
 			}
 		}
 	}()
-	runErr := s.runMeasureGeneration(ctx, inst, set)
+	runErr := s.runMeasureGeneration(ctx, inst, set, size)
 	close(stop)
 	<-sampled
 	peak, perProcess := gpuPeak, procOK
@@ -620,20 +645,19 @@ func (s *Server) measureInstance(id string, startAfter bool) error {
 		return err
 	}
 	inst.MeasuredPeakMiB, inst.MeasuredAt, inst.MeasureEstimated = peak, time.Now(), !perProcess
-	suggest := suggestReservation(peak)
-	var fitErr error
-	if inst.ReservedMiB == 0 {
-		if fitErr = s.genFitCheck(inst, suggest); fitErr == nil {
-			inst.ReservedMiB = suggest
-		} else {
-			inst.Enabled = false
-		}
+	if !sdKind {
+		haveRoom = false
 	}
+	var fitErr error
+	inst, fitErr = s.applyMeasurement(inst, set, size, room, haveRoom)
 	if err := s.gen.UpdateInstance(inst); err != nil {
 		return err
 	}
 	slog.Info("generation instance measured", "instance", id, "peak_mib", peak, "estimated", !perProcess, "reserved_mib", inst.ReservedMiB)
 	if fitErr != nil {
+		if inst.Enabled {
+			return fmt.Errorf("measured %s at peak, but the suggested reservation does not fit, so the reservation stays at %s: %w", mibText(peak), mibText(inst.ReservedMiB), fitErr)
+		}
 		return fmt.Errorf("measured %s at peak, but the suggested reservation does not fit, so the instance was disabled: %w", mibText(peak), fitErr)
 	}
 	if wasRunning || startAfter {
@@ -645,6 +669,40 @@ func (s *Server) measureInstance(id string, startAfter bool) error {
 		}
 	}
 	return nil
+}
+
+// applyMeasurement records what a measurement suggests on inst, whose
+// MeasuredPeakMiB is already set. For sd-server instances the suggestion
+// is capped at room (the memory the card could give the instance, when
+// haveRoom) and kept in MeasuredSuggestedMiB. A video measurement always
+// applies, with the size it was made at, since the user chose that size;
+// any other applies only to an instance without a reservation. A
+// suggestion that does not fit is not applied, and an instance left with
+// no reservation is disabled; fitErr says why.
+func (s *Server) applyMeasurement(inst generation.Instance, set generation.ModelSet, size generation.VideoSize, room int, haveRoom bool) (generation.Instance, error) {
+	suggest := generation.SuggestReservation(inst.MeasuredPeakMiB)
+	if set.Kind == generation.KindSD || set.Kind == generation.KindVideo {
+		if haveRoom && suggest > room {
+			suggest = room
+		}
+		inst.MeasuredSuggestedMiB = suggest
+	}
+	apply := inst.ReservedMiB == 0
+	if set.Kind == generation.KindVideo {
+		inst.MeasuredFrames, inst.MeasuredWidth, inst.MeasuredHeight = size.Frames, size.Width, size.Height
+		apply = true
+	}
+	if !apply {
+		return inst, nil
+	}
+	if err := s.genFitCheck(inst, suggest); err != nil {
+		if inst.ReservedMiB == 0 {
+			inst.Enabled = false
+		}
+		return inst, err
+	}
+	inst.ReservedMiB = suggest
+	return inst, nil
 }
 
 // gpuReleasedSlackMiB is how far above the reading from before a test run
@@ -682,10 +740,10 @@ func (s *Server) gpuUsedMiB(gpu int) int {
 // reference image as well, and on Qwen-Image-Edit 2511 it peaked at
 // about 21 GiB against 17.4 GiB for a plain image (R9700, 2026-10-25),
 // so the reservation must cover the edit.
-func (s *Server) runMeasureGeneration(ctx context.Context, inst generation.Instance, set generation.ModelSet) error {
+func (s *Server) runMeasureGeneration(ctx context.Context, inst generation.Instance, set generation.ModelSet, size generation.VideoSize) error {
 	base := fmt.Sprintf("http://127.0.0.1:%d", inst.Port)
 	if set.Kind == generation.KindVideo {
-		return runMeasureVideo(ctx, base, set)
+		return runMeasureVideo(ctx, base, set, size)
 	}
 	if set.Kind == generation.KindSD {
 		w, h := max(set.DefaultWidth, 64), max(set.DefaultHeight, 64)
@@ -730,27 +788,76 @@ func (s *Server) runMeasureGeneration(ctx context.Context, inst generation.Insta
 }
 
 // measureTimeout caps a measured test run, from launching the backend to
-// the end of its test generation. A video set loads large files and makes
-// a test video, which can take many minutes, so it gets longer.
+// the end of its test generation. A video set may be measured at its
+// largest size: that took 21 minutes on an R9700, and a slower card held
+// to a smaller budget can take several times as long.
 func measureTimeout(kind generation.BackendKind) time.Duration {
 	if kind == generation.KindVideo {
-		return 30 * time.Minute
+		return 2 * time.Hour
 	}
 	return 10 * time.Minute
+}
+
+// videoMeasureSize reads the video size to measure from the form: frames,
+// width and height, within the model's limit (either orientation) and in
+// multiples of 8.
+func videoMeasureSize(r *http.Request, set generation.ModelSet) (generation.VideoSize, error) {
+	var v [3]int
+	for i, name := range []string{"frames", "width", "height"} {
+		n, err := strconv.Atoi(strings.TrimSpace(r.FormValue(name)))
+		if err != nil || n <= 0 {
+			return generation.VideoSize{}, errors.New("Choose a video size to measure: frames, width and height")
+		}
+		v[i] = n
+	}
+	size := generation.VideoSize{Frames: v[0], Width: v[1], Height: v[2]}
+	long, short := max(size.Width, size.Height), min(size.Width, size.Height)
+	maxLong, maxShort := max(set.MaxWidth, set.MaxHeight), min(set.MaxWidth, set.MaxHeight)
+	if (set.MaxFrames > 0 && size.Frames > set.MaxFrames) || (maxShort > 0 && (long > maxLong || short > maxShort)) {
+		return generation.VideoSize{}, fmt.Errorf("%s makes at most %d frames and %dx%d; choose a size within that", set.Name, set.MaxFrames, set.MaxWidth, set.MaxHeight)
+	}
+	if size.Width%8 != 0 || size.Height%8 != 0 {
+		return generation.VideoSize{}, errors.New("Width and height must be multiples of 8")
+	}
+	return size, nil
+}
+
+// genRoomMiB is the GPU memory an instance may have on its card: the
+// planner's budget for the card, less the loaded LLMs and the other
+// instances' reservations, as genFitCheck counts them. ok is false
+// without GPU telemetry.
+func (s *Server) genRoomMiB(inst generation.Instance) (room int, ok bool) {
+	hw := s.hardware()
+	for i := range hw.GPUs {
+		if hw.GPUs[i].Index != inst.GPU {
+			continue
+		}
+		spec := hw.GPUs[i]
+		spec.ReservedMiB = 0
+		if others := s.genFitVRAMByGPU(inst.ID)[inst.GPU]; others != nil {
+			spec.ReservedMiB = others.Reserved
+		}
+		llm := s.loadedLLMMiB(models.GPUMiB(s.idleHardware()), "", false)[inst.GPU]
+		return max(0, models.CardBudgetMiB(spec)-llm), true
+	}
+	return 0, false
 }
 
 // runMeasureVideo makes a video set's test video: its test size, length
 // and frame rate, in the heaviest mode the set supports, with drawn
 // start and end pictures when it takes them.
-func runMeasureVideo(ctx context.Context, base string, set generation.ModelSet) error {
+func runMeasureVideo(ctx context.Context, base string, set generation.ModelSet, size generation.VideoSize) error {
 	canStart := slices.Contains(set.Capabilities, generation.CapStartImage)
 	if !canStart && !slices.Contains(set.Capabilities, generation.CapText) {
 		return errors.New("this set has no supported way to make a test video")
 	}
-	w, h := max(set.DefaultWidth, 64), max(set.DefaultHeight, 64)
+	if size.Frames == 0 {
+		size = generation.VideoSize{Frames: set.DefaultFrames, Width: set.DefaultWidth, Height: set.DefaultHeight}
+	}
+	w, h := max(size.Width, 64), max(size.Height, 64)
 	req := vidGenRequest{
 		Prompt: "a sunrise over a calm sea, slow camera pan", Width: w, Height: h, Seed: 42,
-		Frames: max(set.DefaultFrames, 1), FPS: max(set.DefaultFPS, 1), OutputFormat: "webm",
+		Frames: max(size.Frames, 1), FPS: max(set.DefaultFPS, 1), OutputFormat: "webm",
 	}
 	if canStart {
 		req.InitImage = base64.StdEncoding.EncodeToString(measurePicture(w, h, false))

@@ -64,7 +64,7 @@ func TestMeasureEditsWhenTheSetCanEdit(t *testing.T) {
 	} {
 		paths, editImg, editSize = nil, "", ""
 		set := generation.ModelSet{Kind: generation.KindSD, Capabilities: tc.caps, DefaultWidth: 1024, DefaultHeight: 768}
-		if err := s.runMeasureGeneration(context.Background(), inst, set); err != nil {
+		if err := s.runMeasureGeneration(context.Background(), inst, set, generation.VideoSize{}); err != nil {
 			t.Fatalf("caps %v: %v", tc.caps, err)
 		}
 		if !slices.Equal(paths, tc.want) {

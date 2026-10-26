@@ -42,7 +42,7 @@ func addInstance(t *testing.T, s *Server, inst generation.Instance) {
 func TestSuggestReservation(t *testing.T) {
 	// The October measurements: Qwen-Image 10,283 MiB, ACE-Step 7,239 MiB.
 	for peak, want := range map[int]int{10283: 11776, 7239: 8192, 512: 1024, 465: 512} {
-		if got := suggestReservation(peak); got != want {
+		if got := generation.SuggestReservation(peak); got != want {
 			t.Errorf("suggestReservation(%d) = %d, want %d", peak, got, want)
 		}
 	}

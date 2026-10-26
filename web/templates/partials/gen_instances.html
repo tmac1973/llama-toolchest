@@ -29,6 +29,10 @@
             <td>
                 {{- if .ReservedMiB}}<span title="{{if .MeasuredPeakMiB}}Measured peak {{printf "%.1f" .PeakGiB}} GiB on {{.MeasuredAt.Format "2006-01-02 15:04"}}{{if .MeasureEstimated}}, estimated from the whole GPU's use because the GPU tools gave no figure for this process{{end}}. {{end}}{{if ne .Kind "ace"}}sd-server is held to this amount.{{else}}ace-server cannot be held to an amount; this is the measured peak plus a margin, for planning.{{end}}" style="cursor:help;">{{printf "%.1f" .ReservedGiB}} GiB</span>
                 {{- else}}<small title="Not measured yet. The instance cannot start until it has a reservation.">none</small>{{end}}
+                {{- if eq .Kind "video"}}
+                <small style="display:block;color:var(--pico-muted-color);" title="The largest video this instance will make: frames × width × height, in any shape. Larger requests are refused, because the reservation only covers what was measured. Measure at a larger size to allow longer videos.">
+                    {{- if .LimitMeasured}}measured for up to {{.Limit.Frames}} frames at {{.Limit.Width}}×{{.Limit.Height}} ({{.Limit.Label}}){{else}}test size only: {{.Limit.Frames}} frames at {{.Limit.Width}}×{{.Limit.Height}}{{end}}</small>
+                {{- end}}
                 {{- if .MeasuredPeakMiB}}
                 <small style="display:block;color:var(--pico-muted-color);" title="The most GPU memory the last measurement saw this instance use.">peak {{printf "%.1f" .PeakGiB}} GiB, measured {{.MeasuredAt.Format "2006-01-02 15:04"}}{{if .MeasureEstimated}}, estimated (whole-GPU){{end}}</small>
                 {{- end}}
@@ -64,13 +68,17 @@
                 {{- if or (eq .Status.State "running") (eq .Status.State "starting")}}
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/stop" hx-target="#gen-instances" data-error-label="Not stopped">Stop</button>
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/restart" hx-target="#gen-instances" data-error-label="Not restarted">Restart</button>
+                {{- else if and .Enabled (not .ReservedMiB) (not .Measuring) (eq .Kind "video")}}
+                    <button type="button" class="outline" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" data-id="{{$id}}" data-name="{{.Name}}" data-gpu="{{.GPU}}" data-video="{{.VideoJSON}}" data-start="1" onclick="openGenMeasureVideo(this)" title="This instance has no VRAM reservation yet, so it is measured first, at a video size you choose. Asks before it does.">Start</button>
                 {{- else if and .Enabled (not .ReservedMiB) (not .Measuring)}}
                     <button type="button" class="outline" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" onclick="openGenMeasureStart('{{$id}}', '{{.Name}}', '{{.GPU}}')" title="This instance has no VRAM reservation yet, so it is measured first. Asks before it does.">Start</button>
                 {{- else if .Enabled}}
                     <button type="button" class="outline" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/start" hx-target="#gen-instances" data-error-label="Not started">Start</button>
                 {{- end}}
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" onclick="openGenLog('{{$id}}', '{{.Name}}')">Logs</button>
-                {{- if not .Measuring}}
+                {{- if and (not .Measuring) (eq .Kind "video")}}
+                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" data-id="{{$id}}" data-name="{{.Name}}" data-gpu="{{.GPU}}" data-video="{{.VideoJSON}}" onclick="openGenMeasureVideo(this)" title="Make one test video, at a size you choose, with nothing else on this GPU, and reserve its peak memory. The instance then makes videos up to that size.">Measure</button>
+                {{- else if not .Measuring}}
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/measure" hx-target="#gen-instances" title="Run one test generation with nothing else on this GPU and record the peak GPU memory use. Takes from under a minute to several minutes." data-error-label="Not measured">Measure</button>
                 {{- end}}
                 {{- if $.EvictOn}}

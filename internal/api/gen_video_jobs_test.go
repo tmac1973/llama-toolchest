@@ -42,7 +42,9 @@ func videoServer(t *testing.T, f *fakeVidServer, caps ...string) *Server {
 	}
 	u, _ := url.Parse(f.srv.URL)
 	port, _ := strconv.Atoi(u.Port())
-	addInstance(t, s, generation.Instance{ID: "ti2v", ModelSetID: "ti2v", Port: port, Enabled: true, ReservedMiB: 16384})
+	// Measured at the model's limit, so only the model's limits apply.
+	addInstance(t, s, generation.Instance{ID: "ti2v", ModelSetID: "ti2v", Port: port, Enabled: true, ReservedMiB: 16384,
+		MeasuredSuggestedMiB: 16384, MeasuredFrames: 121, MeasuredWidth: 1280, MeasuredHeight: 704})
 	bin := filepath.Join(t.TempDir(), "fake")
 	os.WriteFile(bin, []byte("#!/bin/sh\nexec sleep 30\n"), 0o755)
 	if err := s.genMgr.Start("ti2v", generation.KindVideo, process.SupervisorConfig{
@@ -160,7 +162,7 @@ func TestVideoJobChecks(t *testing.T) {
 		"no image, needs one":  {`{"prompt":"p"}`, []string{generation.CapStartImage}, "start_image_required"},
 		"too many frames":      {`{"prompt":"p","frames":122}`, nil, "over_limit"},
 		"too large":            {`{"prompt":"p","size":"1920x1080"}`, nil, "over_limit"},
-		"not a multiple of 8":  {`{"prompt":"p","size":"1004x480"}`, nil, "bad_size"},
+		"not a multiple of 8":  {`{"prompt":"p","size":"836x472"}`, nil, "bad_size"},
 		"zero frames":          {`{"prompt":"p","frames":0}`, nil, "bad_value"},
 		"fps too high":         {`{"prompt":"p","fps":300}`, nil, "bad_value"},
 		"too narrow":           {`{"prompt":"p","size":"32x480"}`, nil, "bad_value"},

@@ -34,6 +34,15 @@ type Component struct {
 	Bytes int64  `json:"bytes,omitempty"`
 }
 
+// VideoSize is a video's length and size: a Measure preset, or the size a
+// video instance was measured for.
+type VideoSize struct {
+	Label  string `json:"label,omitempty"`
+	Frames int    `json:"frames"`
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
+}
+
 // ModelSet is a named group of component files that a backend loads
 // together, e.g. a diffusion model, its text encoder and its VAE.
 type ModelSet struct {
@@ -65,6 +74,9 @@ type ModelSet struct {
 	MaxFrames int `json:"max_frames,omitempty"`
 	MaxWidth  int `json:"max_width,omitempty"`
 	MaxHeight int `json:"max_height,omitempty"`
+	// VideoSizes are the sizes Measure offers a video set, smallest (the
+	// test size) first. See VideoPresets.
+	VideoSizes []VideoSize `json:"video_sizes,omitempty"`
 	// Complete is true once every component file is present.
 	Complete bool      `json:"complete"`
 	Created  time.Time `json:"created"`
@@ -92,6 +104,16 @@ type Instance struct {
 	// MeasureEstimated is true when the peak came from whole-GPU use,
 	// because the GPU tools gave no per-process figure (e.g. Vulkan).
 	MeasureEstimated bool `json:"measure_estimated,omitempty"`
+	// MeasuredSuggestedMiB is the reservation the last measurement
+	// suggested, after capping it at what the card could give (sd-server
+	// instances only; zero for music). It is stored because that cap
+	// depends on what else was on the card at the time.
+	MeasuredSuggestedMiB int `json:"measured_suggested_mib,omitempty"`
+	// MeasuredFrames, MeasuredWidth and MeasuredHeight are the video size
+	// the last measurement made (video instances only). See VideoLimit.
+	MeasuredFrames int `json:"measured_frames,omitempty"`
+	MeasuredWidth  int `json:"measured_width,omitempty"`
+	MeasuredHeight int `json:"measured_height,omitempty"`
 	// ExtraArgs are backend flags for this instance, added after the
 	// set's LaunchArgs.
 	ExtraArgs []string `json:"extra_args,omitempty"`

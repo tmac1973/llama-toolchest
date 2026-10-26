@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -48,6 +49,11 @@ type genInstanceRow struct {
 	MeasureNote  string    `json:"measure_note,omitempty"`
 	MeasureError string    `json:"measure_error,omitempty"`
 	MeasureAt    time.Time `json:"measure_at,omitzero"`
+	// Video instances only: the size the instance may make (VideoLimit),
+	// shown in the row, and VideoJSON, what the Measure dialog offers.
+	Limit         generation.VideoSize `json:"video_limit,omitzero"`
+	LimitMeasured bool                 `json:"video_limit_measured,omitempty"`
+	VideoJSON     string               `json:"-"`
 	// SuggestedMiB is the reservation the last measurement suggests; 0
 	// before any measurement.
 	SuggestedMiB int `json:"suggested_mib,omitempty"`
@@ -163,7 +169,14 @@ func (s *Server) genInstanceRows(store *generation.Store) []genInstanceRow {
 			row.MeasureNote, row.MeasureError, row.MeasureAt = o.Note, o.Err, o.At
 		}
 		if inst.MeasuredPeakMiB > 0 {
-			row.SuggestedMiB = suggestReservation(inst.MeasuredPeakMiB)
+			row.SuggestedMiB = generation.SuggestReservation(inst.MeasuredPeakMiB)
+			if inst.MeasuredSuggestedMiB > 0 {
+				row.SuggestedMiB = inst.MeasuredSuggestedMiB
+			}
+		}
+		if set := sets[inst.ModelSetID]; set.Kind == generation.KindVideo {
+			row.Limit, row.LimitMeasured = generation.VideoLimit(inst, set)
+			row.VideoJSON = videoMeasureJSON(set)
 		}
 		if b := s.resolveBackendBuild(string(row.Kind), inst.BuildID); b != nil {
 			row.BuildLabel = b.ID
@@ -177,6 +190,22 @@ func (s *Server) genInstanceRows(store *generation.Store) []genInstanceRow {
 		rows = append(rows, row)
 	}
 	return rows
+}
+
+// videoMeasureJSON is what the Measure dialog offers a video set: its
+// presets, frame rate and limits, and how long measuring the largest took.
+func videoMeasureJSON(set generation.ModelSet) string {
+	info := map[string]any{
+		"presets":   generation.VideoPresets(set),
+		"fps":       set.DefaultFPS,
+		"maxFrames": set.MaxFrames,
+		"maxSide":   max(set.MaxWidth, set.MaxHeight),
+	}
+	if e, ok := generation.LookupCatalog(set.CatalogID); ok {
+		info["fullMeasureTime"] = e.FullMeasureTime
+	}
+	b, _ := json.Marshal(info)
+	return string(b)
 }
 
 func (s *Server) handleGenInstances(w http.ResponseWriter, r *http.Request) {
@@ -290,6 +319,7 @@ func (s *Server) genInstanceFromForm(r *http.Request, store *generation.Store, i
 	// Running it differently invalidates any VRAM measurement.
 	if inst.ModelSetID != set.ID || !slicesEqual(inst.ExtraArgs, args) || inst.BuildID != buildID || inst.GPU != gpu {
 		inst.ReservedMiB, inst.MeasuredPeakMiB, inst.MeasuredAt, inst.MeasureEstimated = 0, 0, time.Time{}, false
+		inst.MeasuredSuggestedMiB, inst.MeasuredFrames, inst.MeasuredWidth, inst.MeasuredHeight = 0, 0, 0, 0
 	}
 	inst.ModelSetID, inst.BuildID, inst.GPU, inst.ExtraArgs = set.ID, buildID, gpu, args
 	inst.AutoStart = r.FormValue("auto_start") == "on"

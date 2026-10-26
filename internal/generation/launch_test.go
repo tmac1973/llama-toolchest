@@ -66,9 +66,11 @@ func TestLaunchSpecSD(t *testing.T) {
 		t.Error("the build directory is not on the library path")
 	}
 
-	cfg, _ = LaunchSpec(inst, mingSet(), build, "0.0.0.0", data, LaunchOptions{OmitMaxVRAM: true})
-	if slices.Contains(cfg.Args, "--max-vram") {
-		t.Error("OmitMaxVRAM kept --max-vram")
+	// A measured test run uses the room the card can give, not the
+	// reservation.
+	cfg, _ = LaunchSpec(inst, mingSet(), build, "0.0.0.0", data, LaunchOptions{MaxVRAMMiB: 14848})
+	if got := strings.Join(cfg.Args, " "); !strings.Contains(got, "--max-vram 14.5") || strings.Contains(got, "--max-vram 10.0") {
+		t.Errorf("args %q, want --max-vram 14.5 instead of the reservation", got)
 	}
 }
 

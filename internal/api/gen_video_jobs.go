@@ -217,11 +217,11 @@ func stripDataURL(s string) string {
 	return s
 }
 
-// buildVideoRequest checks a request against the set and fills in its
-// defaults. The checks run in a fixed order, after seconds has become
-// frames and before sd-server's 4n+1 rounding (which only lowers the
-// count); the first failure is returned.
-func buildVideoRequest(in videoInput, set generation.ModelSet) (videoJobRequest, vidGenRequest, *videoError) {
+// buildVideoRequest checks a request against the set and the instance's
+// measured size, and fills in its defaults. The checks run in a fixed
+// order, after seconds has become frames and before sd-server's 4n+1
+// rounding (which only lowers the count); the first failure is returned.
+func buildVideoRequest(in videoInput, inst generation.Instance, set generation.ModelSet) (videoJobRequest, vidGenRequest, *videoError) {
 	in.Prompt = strings.TrimSpace(in.Prompt)
 	if in.Prompt == "" {
 		return videoJobRequest{}, vidGenRequest{}, badVideo("bad_request", "prompt is required")
@@ -296,6 +296,9 @@ func buildVideoRequest(in videoInput, set generation.ModelSet) (videoJobRequest,
 		return videoJobRequest{}, vidGenRequest{}, badVideo("over_limit", "%s makes at most %d frames (%.0f s at %d fps) and %dx%d",
 			set.Name, set.MaxFrames, float64(set.MaxFrames)/float64(max(set.DefaultFPS, 1)), set.DefaultFPS, set.MaxWidth, set.MaxHeight)
 	}
+	if verr := checkMeasuredSize(inst, set, frames, w, h); verr != nil {
+		return videoJobRequest{}, vidGenRequest{}, verr
+	}
 	if w%8 != 0 || h%8 != 0 {
 		return videoJobRequest{}, vidGenRequest{}, badVideo("bad_size", "width and height must be multiples of 8")
 	}
@@ -310,6 +313,28 @@ func buildVideoRequest(in videoInput, set generation.ModelSet) (videoJobRequest,
 		Frames: frames, FPS: fps, InitImage: in.StartImage, EndImage: in.EndImage, OutputFormat: format, Extra: in.Extra,
 	}
 	return shown, vid, nil
+}
+
+// checkMeasuredSize refuses a request with more video (frames × width ×
+// height) than the instance was measured for: its reservation covers that
+// much and no more, and sd-server can go past its memory limit when it
+// decodes a larger video.
+func checkMeasuredSize(inst generation.Instance, set generation.ModelSet, frames, w, h int) *videoError {
+	limit, measured := generation.VideoLimit(inst, set)
+	if generation.PixelFrames(frames, w, h) <= generation.PixelFrames(limit.Frames, limit.Width, limit.Height) {
+		return nil
+	}
+	first := fmt.Sprintf("%s is measured for videos up to %d frames at %dx%d (%s).", inst.Name, limit.Frames, limit.Width, limit.Height, limit.Label)
+	if !measured {
+		first = fmt.Sprintf("%s is only allowed its test size, %d frames at %dx%d, because it has not been measured at a larger size (or its reservation was set below what that measurement needs).",
+			inst.Name, limit.Frames, limit.Width, limit.Height)
+	}
+	how := "a custom size"
+	if p, ok := generation.CoveringPreset(generation.VideoPresets(set), frames, w, h); ok {
+		how = p.Label
+	}
+	return badVideo("over_measured_size", "%s This request is %d frames at %dx%d, which needs more GPU memory than the instance's reservation covers. "+
+		"To allow it, measure the instance at a larger size on the Server page (Measure, then %s).", first, frames, w, h, how)
 }
 
 // submitVideoJob queues a video request on the instance's GPU and runs it
@@ -480,7 +505,7 @@ func (s *Server) createVideoJob(w http.ResponseWriter, r *http.Request) (*videoJ
 		writeVideoError(w, http.StatusInternalServerError, "model_set_missing", err.Error())
 		return nil, false
 	}
-	req, vid, verr := buildVideoRequest(in, set)
+	req, vid, verr := buildVideoRequest(in, inst, set)
 	if verr != nil {
 		writeVideoError(w, verr.status, verr.code, verr.msg)
 		return nil, false
