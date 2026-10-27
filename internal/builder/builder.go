@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tmac1973/llama-toolchest/internal/atomicfile"
 	"github.com/tmac1973/llama-toolchest/internal/broadcast"
 )
 
@@ -548,7 +549,11 @@ func (b *Builder) runBuild(ctx context.Context, proj Project, prof BuildProfile,
 
 	buildDir := filepath.Join(srcDir, "build-"+prof.Name)
 	os.RemoveAll(buildDir) // clean stale cmake state from previous builds
-	os.MkdirAll(buildDir, 0o755)
+	if err := os.MkdirAll(buildDir, 0o755); err != nil {
+		b.finishBuild(result, BuildStatusFailed, fmt.Sprintf("creating build directory: %v", err))
+		sendLog(fmt.Sprintf("==> cmake FAILED: creating build directory: %v", err))
+		return
+	}
 
 	// cmake — the project's base args (for llama.cpp: only the server and
 	// the libraries it needs, no tests or examples) plus the profile flags.
@@ -691,7 +696,11 @@ func (b *Builder) runBuild(ctx context.Context, proj Project, prof BuildProfile,
 
 	// Install the project's programs and the shared libraries they need.
 	outDir := filepath.Join(b.dataDir, "builds", result.ID)
-	os.MkdirAll(outDir, 0o755)
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		b.finishBuild(result, BuildStatusFailed, fmt.Sprintf("install failed: %v", err))
+		sendLog(fmt.Sprintf("==> Install FAILED: %v", err))
+		return
+	}
 
 	srcBin := findBuilt(buildDir, proj.Required)
 	if srcBin == "" {
@@ -706,7 +715,11 @@ func (b *Builder) runBuild(ctx context.Context, proj Project, prof BuildProfile,
 		sendLog(fmt.Sprintf("==> Install FAILED: %v", err))
 		return
 	}
-	os.Chmod(dstBin, 0o755)
+	if err := os.Chmod(dstBin, 0o755); err != nil {
+		b.finishBuild(result, BuildStatusFailed, fmt.Sprintf("install failed: %v", err))
+		sendLog(fmt.Sprintf("==> Install FAILED: %v", err))
+		return
+	}
 
 	// Copy shared libraries the binary depends on: from lib/, from the
 	// binary's own directory (some versions put them there) and, for
@@ -738,10 +751,15 @@ func (b *Builder) runBuild(ctx context.Context, proj Project, prof BuildProfile,
 	for _, spec := range proj.Optional {
 		if src := findBuilt(buildDir, spec); src != "" {
 			dst := filepath.Join(outDir, spec.Name)
-			if err := copyFile(src, dst); err == nil {
-				os.Chmod(dst, 0o755)
-				sendLog("    Installed: " + spec.Name)
+			err := copyFile(src, dst)
+			if err == nil {
+				err = os.Chmod(dst, 0o755)
 			}
+			if err != nil {
+				sendLog(fmt.Sprintf("    Not installed: %s: %v", spec.Name, err))
+				continue
+			}
+			sendLog("    Installed: " + spec.Name)
 		}
 	}
 
@@ -1199,13 +1217,14 @@ func (b *Builder) loadBuilds() {
 }
 
 func (b *Builder) saveBuilds() {
-	os.MkdirAll(filepath.Dir(b.buildsPath()), 0o755)
 	data, err := json.MarshalIndent(b.builds, "", "  ")
 	if err != nil {
 		slog.Error("failed to marshal builds", "error", err)
 		return
 	}
-	os.WriteFile(b.buildsPath(), data, 0o644)
+	if err := atomicfile.Write(b.buildsPath(), data); err != nil {
+		slog.Error("failed to write builds", "path", b.buildsPath(), "error", err)
+	}
 }
 
 var validTagRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)

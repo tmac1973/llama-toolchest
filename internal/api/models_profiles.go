@@ -91,7 +91,9 @@ func (s *Server) renderConfigPanel(w http.ResponseWriter, id string, banner pane
 // handleSaveProfile saves the live config as a profile (form: profile_name).
 func (s *Server) handleSaveProfile(w http.ResponseWriter, r *http.Request) {
 	id := s.registry.ResolveID(chi.URLParam(r, "id"))
-	r.ParseForm()
+	if !parseForm(w, r) {
+		return
+	}
 	name := models.NormalizeProfileName(r.FormValue("profile_name"))
 
 	replaced, err := s.registry.SaveProfile(id, name, models.ProfileSourceUser, s.activeBuild())
@@ -113,7 +115,9 @@ func (s *Server) handleSaveProfile(w http.ResponseWriter, r *http.Request) {
 // undo.
 func (s *Server) handleApplyProfile(w http.ResponseWriter, r *http.Request) {
 	id := s.registry.ResolveID(chi.URLParam(r, "id"))
-	r.ParseForm()
+	if !parseForm(w, r) {
+		return
+	}
 	name := r.FormValue("profile")
 
 	p, err := s.registry.GetProfile(id, name)
@@ -152,7 +156,9 @@ func (s *Server) restoreProfile(w http.ResponseWriter, r *http.Request, id strin
 // the body, where ParseForm does not look for a DELETE.
 func (s *Server) handleDeleteProfile(w http.ResponseWriter, r *http.Request) {
 	id := s.registry.ResolveID(chi.URLParam(r, "id"))
-	r.ParseForm()
+	if !parseForm(w, r) {
+		return
+	}
 	name := r.FormValue("profile")
 
 	if err := s.registry.DeleteProfile(id, name); err != nil {

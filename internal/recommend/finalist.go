@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -150,7 +151,10 @@ func (e *Engine) repoFiles(ctx context.Context, hub Hub, repo, sha string) ([]mo
 	}
 	if path != "" && len(files) > 0 {
 		if data, err := json.Marshal(files); err == nil {
-			_ = atomicfile.Write(path, data) // creates the directory
+			// Caching is best effort; atomicfile creates the directory.
+			if err := atomicfile.Write(path, data); err != nil {
+				slog.Warn("file list cache write failed", "path", path, "error", err)
+			}
 		}
 	}
 	return files, nil

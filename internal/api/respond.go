@@ -39,6 +39,17 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
+// parseForm parses the request's form values. On failure (a malformed or
+// too large body) it answers 400 and returns false, and the handler should
+// return.
+func parseForm(w http.ResponseWriter, r *http.Request) bool {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form: "+err.Error(), http.StatusBadRequest)
+		return false
+	}
+	return true
+}
+
 // respondJSON writes v as JSON with the appropriate Content-Type header.
 func respondJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")

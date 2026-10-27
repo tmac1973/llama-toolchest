@@ -285,7 +285,9 @@ func (s *Server) genFormChoices(store *generation.Store) genFormData {
 // genInstanceFromForm reads the instance fields the create and edit forms
 // share, checking them against the store, builds and GPUs.
 func (s *Server) genInstanceFromForm(r *http.Request, store *generation.Store, inst *generation.Instance) error {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		return fmt.Errorf("invalid form: %w", err)
+	}
 	set, err := store.ModelSet(r.FormValue("model_set"))
 	if err != nil {
 		return fmt.Errorf("choose a model set: %w", err)

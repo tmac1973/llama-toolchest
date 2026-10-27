@@ -37,7 +37,9 @@ func (s *Server) handleFlagPresetRow(w http.ResponseWriter, r *http.Request) {
 // handleSaveFlagPreset saves the posted build form as a flag preset
 // named by the Build Tag. Upserts: an existing name is updated.
 func (s *Server) handleSaveFlagPreset(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if !parseForm(w, r) {
+		return
+	}
 	profile := r.FormValue("profile")
 	name := strings.TrimSpace(r.FormValue("tag"))
 	if name == "" {
@@ -67,7 +69,9 @@ func (s *Server) handleSaveFlagPreset(w http.ResponseWriter, r *http.Request) {
 
 // handleDeleteFlagPreset removes the selected preset.
 func (s *Server) handleDeleteFlagPreset(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if !parseForm(w, r) {
+		return
+	}
 	profile := r.FormValue("profile")
 	name := r.FormValue("preset")
 	if name == "" {

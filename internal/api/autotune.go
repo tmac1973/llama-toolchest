@@ -189,7 +189,9 @@ func (s *Server) autotuneHardware() (cards, cores int) {
 // so the estimate matches what is selected.
 func (s *Server) handleAutotuneEstimate(w http.ResponseWriter, r *http.Request) {
 	id := s.registry.ResolveID(chi.URLParam(r, "id"))
-	r.ParseForm()
+	if !parseForm(w, r) {
+		return
+	}
 	uc := autotune.UseCase(r.FormValue("use_case"))
 	if _, ok := autotune.Workloads[uc]; !ok {
 		uc = autotune.UseMixed
@@ -218,7 +220,9 @@ func (s *Server) handleAutotuneSaveCurrent(w http.ResponseWriter, r *http.Reques
 // handleAutotuneStart begins a run (form: profile, use_case).
 func (s *Server) handleAutotuneStart(w http.ResponseWriter, r *http.Request) {
 	id := s.registry.ResolveID(chi.URLParam(r, "id"))
-	r.ParseForm()
+	if !parseForm(w, r) {
+		return
+	}
 	uc := autotune.UseCase(r.FormValue("use_case"))
 	if _, ok := autotune.Workloads[uc]; !ok {
 		uc = autotune.UseMixed
@@ -282,7 +286,9 @@ func (s *Server) handleAutotuneResume(w http.ResponseWriter, r *http.Request) {
 // handleAutotuneRestore puts one of the measured profiles into use.
 func (s *Server) handleAutotuneRestore(w http.ResponseWriter, r *http.Request) {
 	id := s.registry.ResolveID(chi.URLParam(r, "id"))
-	r.ParseForm()
+	if !parseForm(w, r) {
+		return
+	}
 	name := r.FormValue("profile")
 
 	rec, _ := s.tuneStore.LatestForModel(id)
@@ -303,7 +309,9 @@ func (s *Server) handleAutotuneRestore(w http.ResponseWriter, r *http.Request) {
 // margin of error — and puts it into use, because the person asked to.
 func (s *Server) handleAutotuneUseAlternative(w http.ResponseWriter, r *http.Request) {
 	id := s.registry.ResolveID(chi.URLParam(r, "id"))
-	r.ParseForm()
+	if !parseForm(w, r) {
+		return
+	}
 	goal := autotune.Goal(r.FormValue("goal"))
 
 	rec, ok := s.tuneStore.LatestForModel(id)

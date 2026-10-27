@@ -569,7 +569,9 @@ func (s *Server) startRouterWith(opt routerOptions) error {
 func (s *Server) handleModelEnable(w http.ResponseWriter, r *http.Request) {
 	id := s.registry.ResolveID(chi.URLParam(r, "id"))
 
-	r.ParseForm()
+	if !parseForm(w, r) {
+		return
+	}
 	enabled := r.FormValue("enabled") == "true"
 
 	cfg, err := s.registry.GetConfig(id)
@@ -637,7 +639,9 @@ func (s *Server) handleModelVRAMEstimate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	r.ParseForm()
+	if !parseForm(w, r) {
+		return
+	}
 	contextSize, _ := strconv.Atoi(r.FormValue("context_size"))
 	kvCacheQuant := r.FormValue("kv_cache_quant")
 
@@ -960,7 +964,9 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	} else {
-		r.ParseForm()
+		if !parseForm(w, r) {
+			return
+		}
 		cfg.GPULayers, _ = strconv.Atoi(r.FormValue("gpu_layers"))
 
 		// GPU assignment — single dropdown drives tensor-split, split-mode,

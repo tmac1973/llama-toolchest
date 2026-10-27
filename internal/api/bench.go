@@ -201,7 +201,9 @@ func (s *Server) handleGetBenchmark(w http.ResponseWriter, r *http.Request) {
 // using the currently-active build. Equivalent to the new-job form with
 // {ModelIDs:[modelID], BuildIDs:[active], Presets:[preset]}.
 func (s *Server) handleStartBenchmark(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if !parseForm(w, r) {
+		return
+	}
 	modelID := r.FormValue("model_id")
 	presetName := r.FormValue("preset")
 

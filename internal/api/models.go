@@ -170,7 +170,9 @@ func (s *Server) handleEmbeddingPresets(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleDownloadEmbeddingPreset(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if !parseForm(w, r) {
+		return
+	}
 	repo := r.FormValue("repo")
 	filename := r.FormValue("filename")
 

@@ -3,10 +3,11 @@ package models
 import (
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/tmac1973/llama-toolchest/internal/atomicfile"
 )
 
 // GeneratePresetINI creates a llama.cpp preset INI file from the model
@@ -400,9 +401,7 @@ func (r *Registry) writePreset(name string, overrides map[string]*ModelConfig, t
 	content := GeneratePresetINI(r.modelsDir, models, configs, t)
 
 	presetPath := filepath.Join(r.dataDir, "config", name)
-	os.MkdirAll(filepath.Dir(presetPath), 0o755)
-
-	if err := os.WriteFile(presetPath, []byte(content), 0o644); err != nil {
+	if err := atomicfile.Write(presetPath, []byte(content)); err != nil {
 		return "", fmt.Errorf("write preset: %w", err)
 	}
 

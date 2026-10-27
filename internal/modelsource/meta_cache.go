@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -101,9 +102,9 @@ func (c *MetaCache) Put(key string, m *models.GGUFMeta) {
 	if err != nil {
 		return
 	}
+	// Caching is best effort: the copy in memory still serves this run.
 	path := filepath.Join(c.dir, key)
-	if os.MkdirAll(filepath.Dir(path), 0o755) != nil {
-		return
+	if err := atomicfile.Write(path, data); err != nil {
+		slog.Warn("meta cache write failed", "path", path, "error", err)
 	}
-	_ = atomicfile.Write(path, data)
 }
