@@ -2,8 +2,8 @@
 
 Results of the hardware checks: Phase 04 (Wan2.2 TI2V 5B), Phase 05 (measured
 video size), Phase 06 (Wan2.2 I2V A14B), Phase 08 (Wan2.2 I2V A14B
-Lightning), and Phase 07 later. Each entry gives the machine, the date and
-the build refs.
+Lightning) and Phase 07 (LTX-2.3), then the overview's success criteria and
+the release notes. Each entry gives the machine, the date and the build refs.
 
 ## Machines
 
@@ -303,3 +303,143 @@ until sd.cpp's CUDA crash is fixed. The test instance was deleted.
   squeezed to about 2.5 GiB, sd-server did not stop: the job failed with
   "generate_video returned no results", which toolchest now reads (the
   object-error fix above).
+
+## Phase 07 — LTX-2.3 distilled 1.1, with sound
+
+2026-10-27, with this branch's toolchest build and the same
+`sd-master-1015-e41fbcf` builds. Every video is 8 steps at CFG 1, seed 42.
+On asmodean the check again used the disabled `qwen-turbo-local` instance,
+pointed at the LTX set with ti2v disabled, and put both back afterwards.
+compute2 used a new instance, `ltx`, on GPU 1.
+
+### The decode: spatial tiles hang, time tiles work
+
+The entry first had `--vae-tiling`, the recipe's default.
+
+| Run | Result |
+|---|---|
+| asmodean, Measure at Short, `--vae-tiling` | Hung in the video decode until Measure's 2-hour limit: "the test generation failed: context deadline exceeded". The R9700 sat at 3% busy with one CPU core at 100%. A job through the API hung the same way after sampling (22 s) and the sound decode (1.5 s); gdb showed it waiting in `hipGraphLaunch` under `LTXVideoVAE::_compute` ← `compute_with_temporal_tiling` ← `process_tiles_2d` (finding 14) |
+| compute2, Measure at Short, `--vae-tiling` | Crashed in the tiled decode at tile 7 of 15: `ggml_cuda_compute_forward: CONCAT failed` (finding 1) |
+| asmodean, straight to `sd-cli`, no tiling, Short | 33 s in all: text model 5 s, sampling 22 s, sound 1.4 s, video decode 4 s. Whole card 27.6 GiB |
+| The same at Full (121 frames at 1280×720), no memory limit | 241 s: sampling 204 s, decode 28 s. Whole card 31.8 GiB, the whole card |
+| The same at Full with `--temporal-tiling --max-vram 28.4` | 250 s: decode 38 s. Peak 29.6 GiB above the card's starting use. 121 frames, no seams: the frame-to-frame difference has no jump anywhere but the last frame, and the untiled video has the same jump there |
+
+The entry now has `--temporal-tiling` in place of `--vae-tiling`, with a
+comment saying why. Between the two builds, Measure without any tiling
+granted Short (peak 27.6 GiB, reservation 28.4 GiB) and refused Medium and
+Full (peaks 30.9 and 30.8 GiB, over the 29.0–29.2 GiB room), so tiling in
+time is what lets Full fit.
+
+### asmodean (R9700 32 GB, ROCm)
+
+| Check | Result |
+|---|---|
+| Download | 25.6 GB, no token needed |
+| Launch | `--steps 8 --cfg-scale 1 --sampling-method euler --diffusion-fa --temporal-tiling`; all 25.2 GB of weights on the card |
+| Measure at Short (33 frames, 768×512) | About 70 s. Peak 27.7 GiB (whole GPU); reservation capped at 28.1 GiB, leaving 0.5 GiB of slack |
+| 1. Text-to-video at the defaults, WebM | 36 s; 33 frames, 768×512, 5.2 MB. VP8 video and a PCM sound track (mean −37 dB: birdsong and wind) |
+| 2. Image-to-video, WebM | 34 s; 4.8 MB; starts from the fox picture; has sound |
+| 3. Start-and-end, WebM | 38 s; 4.8 MB; the fox picture to the end picture; has sound |
+| 4. Text-to-video, animated WebP | 26 s; 33 frames, 4.8 MB, `image/webp`; no sound track |
+| Measure at Full (121 frames, 1280×720) | About 28 minutes. Peak 29.7 GiB (whole GPU); reservation capped at 28.8 GiB, all the card can give, 0.9 GiB under the peak and inside the 1 GiB allowance. Granted: the instance's limit became Full |
+| 5. Full, text-to-video, WebM | 260 s; 121 frames at 1280×736 (sd-server rounds 720 up to a multiple of 32), 5.0 s, 39.8 MB, with sound. The whole card went from 0.6 to 29.6 GiB: 29.0 GiB for the video against the 28.8 GiB reservation (finding 16) |
+| Full, start-and-end, WebM | 675 s. The two pictures make a video about 2.5 times slower, which is part of why Measure at Full is slow; it does not explain all of the 28 minutes, and nothing else was using the card |
+| Players | Job 3's WebM played in Chromium (the desktop app's browser) with its sound decoded (`webkitAudioDecodedByteCount` 526,080). Not opened in Firefox |
+
+Jobs 1–4 ran on the build without tiling; Measure at Short and job 5 ran on
+the build with `--temporal-tiling`.
+
+### compute2 (RTX A4000 16 GB, CUDA)
+
+| Check | Result |
+|---|---|
+| Download | 25.6 GB |
+| Measure at Short, `--vae-tiling` | Crashed (above) |
+| Measure at Short, no tiling | About 3 minutes. Peak 15.0 GiB; reservation 14.3 GiB, all the card could give |
+| 1. Text-to-video, no tiling | 140 s; 33 frames, 5.1 MB, with sound; the same fox in the grass as on asmodean |
+| Measure at Short, `--temporal-tiling` | Peak 15.0 GiB; reservation 14.4 GiB |
+| 1. Text-to-video, `--temporal-tiling` | Crashed while sampling, at step 2 of 8: `CUDA error: unspecified launch failure` in `ggml_backend_cuda_synchronize`, before the decode, so not caused by the tiling |
+
+So on a 16 GB card LTX-2.3 makes Short videos only some of the time: the
+same CUDA crashes as the Wan sets (finding 1), this time also in sampling.
+
+### Fixed in this phase
+
+- **The LTX entry decodes in time tiles**, not spatial tiles (above).
+- **Measure's crash message had progress-bar text in it.** An error that
+  sd-server prints while its progress bar shows lands on the bar's line,
+  so the message quoted the whole bar. Measure now quotes only what comes
+  after the bar's last redraw. Found with the compute2 crash above.
+- **A cap below the peak was described as leaving slack.** On the A4000
+  the reservation is all the room, below the peak, but the note said
+  "leaving up to 0.5 GiB free". That case now says the reservation is all
+  the card can give and how far the peak is above it, within the 1 GiB
+  allowance.
+- **Editing an instance kept the last Measure note or error.** Changing an
+  instance's set, build, GPU or arguments drops its measurement, but the
+  last note or error still showed, so `qwen-turbo-local`, put back to its
+  image set, showed an LTX video-size error. It is now dropped too
+  (checked on asmodean).
+
+### Findings
+
+14. **The spatially tiled LTX video decode hangs on ROCm** (master-1015),
+    as the Wan2.1 VAE's tiled encode does (finding 7). `--temporal-tiling`
+    works. Not yet reported upstream.
+15. **A job sent while its instance is starting is refused.** With
+    eviction off, jobs 1–4, sent right after Start, got 503
+    `backend_unavailable` "backend qwen-turbo-local is not running". Image
+    jobs behave the same. Not changed.
+16. **A video job reports the requested size, not the size made.**
+    sd-server rounds LTX sizes up to multiples of 32 and does not say so in
+    its result, so job 5 reported 1280×720 for a 1280×736 file. Not
+    changed.
+17. **Measure at Full is slow for LTX-2.3**: 28 minutes, against 4.5
+    minutes for a Full video from a prompt. Measure always sends a start
+    and an end picture when the set takes them, and those make the video
+    about 2.5 times slower. Not changed.
+
+### Not run
+
+- Opening the videos in Firefox.
+- Video on a Vulkan build. No video set was tried on a Vulkan build in
+  this project.
+- Medium on asmodean with `--temporal-tiling`: Full is granted, and Medium
+  has less video.
+
+## Success criteria
+
+From `overview.md`, checked at the end of Phase 07.
+
+| Criterion | Result |
+|---|---|
+| All three catalog sets download from the Models page with no Hugging Face token, and their licences show in the licence column | Met. Phases 04, 06 and 07; the Models page on asmodean shows Apache-2.0 for the Wan sets and both licences for LTX-2.3 |
+| On the R9700, each set is measured with Measure and gets a reservation | Met. TI2V 5B 26.0 GiB (Phase 04), I2V A14B 29.0 GiB (Phase 06), LTX-2.3 28.1 GiB (Phase 07) |
+| …makes a text-to-video (TI2V, LTX), an image-to-video (all three) and a start-and-end video (A14B, LTX) through the job API as WebM, and at least one as animated WebP | Partly met. TI2V and LTX-2.3: all of them, WebP included (Phases 04, 07). A14B: image-to-video and start-and-end through the job API with the Lightning set (Phase 08), which runs the same two experts; the 20-step set's videos were made through Measure and straight to sd-server (Phase 06). No A14B video was made as WebP |
+| …has its time per video and peak memory in the verification notes and the catalog notes | Met |
+| An LTX-2.3 WebM plays with sound in a browser | Met in Chromium (Phase 07). Firefox not run |
+| On a 16 GB A4000, TI2V 5B is measured and makes a video through the job API; A14B and LTX-2.3 are tried and written down | Met. Phases 05, 06, 08 and 07 |
+| A request over the model's limit or the measured size, or for a kind of video the set cannot make, is refused with a message, and nothing is queued | Met. Phases 04, 05 and 06 |
+| After measuring at the largest preset, a video of that size stays within the reservation on the R9700 | Met for LTX-2.3, within the 1 GiB allowance: 29.0 GiB for a 28.8 GiB reservation (Phase 07). For the Wan sets Measure refuses the largest preset on the R9700, so no reservation promises it |
+| On a 16 GB A4000, Measure gives a reservation the card can hold, with no value set by hand | Met. Phase 05 (TI2V), Phase 06 (A14B) and Phase 07 (LTX-2.3) |
+| The waiting route returns the same finished job as polling does | Met. Phase 04 |
+| With eviction on, a video job for a stopped instance starts it, making room as image jobs do, and locked instances are left alone | Met. Phase 04 |
+| Image and music jobs, Haruspex's routes and `meta.api` values behave as before | Met: the existing tests pass |
+| The help page documents the video API, the three sets and their measured reservations | Met, with the Lightning set as a fourth |
+
+## Release notes
+
+Video generation. llama-toolchest can now run stable-diffusion.cpp's
+sd-server for video, with four catalog sets: Wan2.2 TI2V 5B (text-to-video
+and image-to-video), Wan2.2 I2V A14B and its 4-step Lightning version
+(image-to-video and start-and-end videos), and LTX-2.3 distilled 1.1
+(text-to-video, image-to-video and start-and-end videos, with sound).
+Programs make videos with the job API (`POST /v1/videos/jobs`, then poll,
+or use the waiting route), and download them as WebM (VP8; LTX-2.3 adds a
+sound track) or silent animated WebP; videos are kept for 24 hours. Measure
+tests a video instance at a size you pick and refuses sizes the card cannot
+hold; requests over the measured size are refused. The Wan sets are under
+Apache-2.0. LTX-2.3 is under the LTX-2 Community Licence (free under US$10
+million yearly revenue) and its Gemma 3 text model under Google's Gemma
+Terms of Use. On a 16 GB card stable-diffusion.cpp's CUDA build crashes
+often in video; a 32 GB card is the tested size.
