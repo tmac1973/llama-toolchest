@@ -359,15 +359,10 @@ func ProjectOptions(project, profile string) []BuildOption {
 	opts = slices.DeleteFunc(opts, func(o BuildOption) bool {
 		return strings.HasPrefix(o.Flag, "LLAMA_") || slices.Contains(llamaOnlyOptions, o.Flag)
 	})
-	// stable-diffusion.cpp leaves CUDA graphs off (its ggml labels them
-	// "llama.cpp only"); llama.cpp and acestep.cpp turn them on.
-	if project == ProjectSDCpp {
-		for i := range opts {
-			if opts[i].Flag == "GGML_CUDA_GRAPHS" {
-				opts[i].Default = false
-			}
-		}
-	}
+	// CUDA graphs keep the profile's default (on) for stable-diffusion.cpp
+	// too, although its own build leaves them off (its ggml labels them
+	// "llama.cpp only"): built without them, sd-server crashes in the Wan
+	// VAE decode on RTX A4000s with an illegal memory access in CONCAT.
 	if project == ProjectSDCpp {
 		_, err := exec.LookPath("pnpm")
 		opts = append(opts, BuildOption{
