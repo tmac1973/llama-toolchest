@@ -53,7 +53,9 @@ func (s *Server) openAIModel(m *models.Model, cfg *models.ModelConfig) map[strin
 
 // handleV1Models returns an OpenAI-compatible model list with meta extensions.
 func (s *Server) handleV1Models(w http.ResponseWriter, r *http.Request) {
-	var data []map[string]any
+	// Not nil, so an empty list is [] rather than null, which some
+	// OpenAI clients cannot read.
+	data := []map[string]any{}
 	for _, m := range s.registry.List() {
 		cfg, _ := s.registry.GetConfig(m.ID)
 		if advertisedToClients(m, cfg) {

@@ -106,8 +106,7 @@ paths:
                   object:
                     const: list
                   data:
-                    description: Null, not an empty array, when no model is enabled.
-                    type: [array, "null"]
+                    type: array
                     items:
                       $ref: "#/components/schemas/Model"
         "401":

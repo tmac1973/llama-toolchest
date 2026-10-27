@@ -372,3 +372,14 @@ func withModelParam(r *http.Request, model string) *http.Request {
 	rc.URLParams.Add("model", model)
 	return r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rc))
 }
+
+// With nothing enabled, /v1/models lists data as [], not null, which
+// some OpenAI clients cannot read.
+func TestV1ModelsEmptyListIsArray(t *testing.T) {
+	s := newTestServer(t)
+	rec := httptest.NewRecorder()
+	s.handleV1Models(rec, httptest.NewRequest("GET", "/v1/models", nil))
+	if !strings.Contains(rec.Body.String(), `"data":[]`) {
+		t.Errorf("body = %s, want data as []", rec.Body)
+	}
+}
