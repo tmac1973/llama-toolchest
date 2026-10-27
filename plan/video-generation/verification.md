@@ -1,7 +1,7 @@
 # Video Generation — Hardware Verification
 
 Results of the hardware checks: Phase 04 (Wan2.2 TI2V 5B), Phase 05 (measured
-video size), and Phases 06 and 07 later. Each entry gives the machine, the date and the
+video size), Phase 06 (Wan2.2 I2V A14B), and Phase 07 later. Each entry gives the machine, the date and the
 build refs.
 
 ## Machines
@@ -135,4 +135,72 @@ and its toolchest container restarted for it.
 - Opening the videos in Firefox and Chromium (no desktop on the test
   machines); the files were checked with ffprobe, ffmpeg and Pillow instead.
 - Video on a Vulkan build.
-- Measure for the A14B pair and LTX-2.3 (Phases 06 and 07).
+- Measure for LTX-2.3 (Phase 07).
+
+## Phase 06 — Wan2.2 I2V A14B
+
+2026-10-26 and 27, with this branch's toolchest build and the same
+`sd-master-1015-e41fbcf` builds. Every A14B video here is 33 frames at
+832×480 (the Short size), 20 steps on each expert.
+
+### asmodean (R9700 32 GB, ROCm)
+
+| Check | Result |
+|---|---|
+| Download | 19.6 GB (the Wan2.1 VAE is new; the text model is shared with TI2V 5B) |
+| Launch | The `wan22-i2v` recipe has `high_noise_flow_shift`, but sd-server has no `--high-noise-flow-shift`: the first launch failed with "unknown argument". `--flow-shift` covers both experts. `--moe-boundary 0.9` sets the recipe's boundary (sd-server's default is 0.875) |
+| With `--vae-tiling` | Hung encoding the start picture: one CPU core at 100%, the GPU at 3–4%, for 27 minutes until stopped, twice. The first time ComfyUI was also using the card, the second time nothing else was. Without tiling the encode takes 10 s (finding 7) |
+| Without tiling | The video worked (1,645 s: 810 s per expert, 15 s decode), but the decode took the whole card from 28.9 to 32.3 GB, over the 28.5 GiB room, so Measure refused the size and disabled the instance |
+| With `--temporal-tiling` (the catalog's choice), straight to sd-server | 1,643 s; whole card peaked at 27.9 GB, decode included; 33 frames, the fox from the start picture looks up and smiles, no seams. `--temporal-tiling` tiles only the decode |
+| Measure at Short, instance running when Measure was pressed | sd-server was given 16.5 GiB, not the 28.5 GiB room: Measure read the card 2 s after stopping the instance, before the monitor's next reading, so the stopped backend's 12 GB counted as another program's. Sampling still fitted; the decode did not, sd-server fell back to spatial tiling and hung as above. Fixed (see below) |
+| Measure at Short, with the fix, instance running when Measure was pressed | 1,658 s. sd-server was given the full 28.5 GiB room. Peak 29.0 GiB (per process), within the room plus the 1 GiB allowance; whole card 28.2 GiB (`rocm-smi`). Reservation 29.0 GiB, limit Short. Restarting the instance afterwards failed with "instance a14b is being measured" (fixed, see below) |
+| Medium and Full | Not measured. Short takes about 28 minutes; Medium has about 3 times and Full about 5 times the video to sample, and attention grows faster than that, so both are expected to pass Measure's 2-hour limit. The Measure dialog says so |
+| ComfyUI on the same card | During the first `--vae-tiling` run, ComfyUI (Haruspex) ran Qwen-Image jobs on the card with about 27 GB loaded and hit a HIP out-of-memory error. Toolchest does not know about ComfyUI's memory (finding 9) |
+
+### compute2 (RTX A4000 16 GB, CUDA)
+
+| Check | Result |
+|---|---|
+| Download | 19.6 GB |
+| Measure at Short | 1,503 s. Sampling 711 + 722 s (a little faster than the R9700). The decode did not fit in the room; sd-server fell back to spatial and temporal tiling, which worked this time (42 s). Peak 14.9 GiB (whole card); reservation capped at 14.7 GiB, limit Short |
+| Refusals | No start image → 400 `start_image_required`; 49 frames at 1280×720 → 400 `over_measured_size`, naming the measured Short size; 97 frames → 400 `over_limit` ("at most 81 frames"). None reached the GPU |
+| TI2V 5B at Short, for the restart check | sd-server crashed in the decode with the same `CONCAT failed` error after sampling (49 s); in Phase 05 the same measurement worked |
+| Start-and-end job (the fox photo, and the last frame of the asmodean video as the end) | Failed twice. First: sd-server crashed after 4 s encoding the pictures (`ggml_cuda_compute_forward: CONCAT failed`, `CUDA error: unspecified launch failure`). Second: sampling finished (24 minutes), then the tiled decode crashed with the same error at tile 1 of 9 |
+
+So on a 16 GB card the A14B pair samples at about the R9700's speed, but
+the decode needs tiles there, and sd.cpp's tiled Wan decode on CUDA crashes
+more often than not (finding 1). The set is not usable on a 16 GB card until
+that is fixed upstream.
+
+### Fixed in this phase
+
+- **Measure on a running instance** waits, after stopping it, until two
+  monitor readings taken after the stop show the card no longer giving
+  memory back (at most 20 s), before it reads the baseline and the room.
+- **The start after a measurement** (the instance was running, or
+  *Measure, then start*) always failed with "instance … is being measured",
+  because Measure cleared that mark only after it had returned. It is now
+  cleared just before the start. This bug dates from the first reservations
+  (#313).
+- **Measure's error after a stop**: when the user stops the instance during
+  the test video, Measure says so, not "probably ran out of GPU memory". A
+  backend that crashed still gets the out-of-memory message: Measure reads
+  the state before it stops the backend itself.
+- Checked on compute2 after both fixes: FLUX.2 klein running on GPU 1,
+  Measure pressed, "… Restarted." and the instance kept running.
+
+### Findings
+
+7. **The Wan2.1 VAE hangs encoding with `--vae-tiling` on ROCm**
+   (master-1015). sd-server's own fallback to spatial tiling after a decode
+   runs out of memory hangs the same way. `--temporal-tiling` does not touch
+   the encode and works. Not yet reported upstream.
+8. **A14B is slow.** About 27 minutes for 2 seconds at 832×480 on the R9700
+   or the A4000, against 70 s for TI2V 5B: two 14B experts × 20 steps, and
+   with `--cfg-scale 3.5` each step runs the model twice. Published 4-step
+   LoRAs for this model may cut that to a few minutes; not tried.
+9. **ComfyUI and toolchest share asmodean's GPU without knowing about each
+   other.** Toolchest's reservations do not count ComfyUI's memory, so either
+   can run the card out of memory, or slow the other to a crawl.
+10. **Measure has no stall check.** On a backend that hangs, it waits out its
+    2-hour limit. Not changed.

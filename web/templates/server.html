@@ -306,7 +306,7 @@ function openGenMeasureVideo(btn) {
     var first = (info.presets || [])[0] || {};
     f.value = first.frames || ''; w.value = first.width || ''; h.value = first.height || '';
     var note = 'Longer and larger videos need more GPU memory and take much longer to measure.';
-    if (info.fullMeasureTime) note += ' Measuring the largest size took ' + info.fullMeasureTime + '.';
+    if (info.fullMeasureTime) note += ' ' + info.fullMeasureTime;
     note += ' Requests larger than the size you measure are refused. Other instances on that GPU must be stopped first.';
     if (start) note += ' The instance starts by itself afterwards.';
     document.getElementById('gen-measure-video-note').textContent = note;

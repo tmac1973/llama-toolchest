@@ -25,9 +25,10 @@ type CatalogEntry struct {
 	MaxWidth      int `json:"max_width,omitempty"`
 	MaxHeight     int `json:"max_height,omitempty"`
 	// VideoSizes are the sizes Measure offers, the test size first and
-	// none past the ceiling. FullMeasureTime says how long measuring the
-	// largest took, for the Measure dialog, e.g. "about 21 minutes on a
-	// Radeon AI PRO R9700".
+	// none past the ceiling. FullMeasureTime is a sentence for the Measure
+	// dialog on how long measuring the largest size takes, e.g.
+	// "Measuring the largest size took about 21 minutes on a Radeon AI PRO
+	// R9700."
 	VideoSizes      []VideoSize `json:"video_sizes,omitempty"`
 	FullMeasureTime string      `json:"full_measure_time,omitempty"`
 }
@@ -62,6 +63,8 @@ var (
 	fluxAE = Component{Slot: "vae", Repo: "Comfy-Org/z_image_turbo", File: "split_files/vae/ae.safetensors", Bytes: 335304388}
 	// chromaT5 is the text encoder both Chroma sets use.
 	chromaT5 = Component{Slot: "t5xxl", Repo: "city96/t5-v1_1-xxl-encoder-gguf", File: "t5-v1_1-xxl-encoder-Q8_0.gguf", Bytes: 5061584064}
+	// wan21VAE is the Wan2.1 VAE, used by the Wan2.2 A14B pairs.
+	wan21VAE = Component{Slot: "vae", Repo: "Comfy-Org/Wan_2.1_ComfyUI_repackaged", File: "split_files/vae/wan_2.1_vae.safetensors", Bytes: 253815318}
 	// umt5Q8 is the text encoder of the Wan video sets.
 	umt5Q8 = Component{Slot: "t5xxl", Repo: "city96/umt5-xxl-encoder-gguf", File: "umt5-xxl-encoder-Q8_0.gguf", Bytes: 6043068256}
 	// flux2SmallDecoder is a FLUX.2 VAE, used by FLUX.2 klein and FLUX.3
@@ -281,7 +284,54 @@ func Catalog() []CatalogEntry {
 				{Label: "Medium", Frames: 81, Width: 1280, Height: 704},
 				{Label: "Full", Frames: 121, Width: 1280, Height: 704},
 			},
-			FullMeasureTime: "about 21 minutes on a Radeon AI PRO R9700, which then could not give it enough memory",
+			FullMeasureTime: "Measuring the largest size took about 21 minutes on a Radeon AI PRO R9700, which then could not give it enough memory.",
+		},
+		{
+			ID:     "wan22-i2v-a14b",
+			Name:   "Wan2.2 I2V A14B (Q4)",
+			Kind:   KindVideo,
+			Recipe: "wan22-i2v",
+			Components: []Component{
+				{Slot: "diffusion_model", Repo: "QuantStack/Wan2.2-I2V-A14B-GGUF", File: "LowNoise/Wan2.2-I2V-A14B-LowNoise-Q4_K_M.gguf", Bytes: 9651728896},
+				{Slot: "high_noise_diffusion_model", Repo: "QuantStack/Wan2.2-I2V-A14B-GGUF", File: "HighNoise/Wan2.2-I2V-A14B-HighNoise-Q4_K_M.gguf", Bytes: 9651728896},
+				umt5Q8,
+				wan21VAE,
+			},
+			// The wan22-i2v recipe's defaults. sd-server has no flag for the
+			// recipe's high_noise_flow_shift; --flow-shift covers both
+			// experts. --moe-boundary is the recipe's 0.9, not sd-server's
+			// default 0.875.
+			LaunchArgs: []string{"--steps", "20", "--cfg-scale", "3.5", "--flow-shift", "5", "--moe-boundary", "0.9",
+				"--high-noise-cfg-scale", "3.5", "--high-noise-sampling-method", "euler",
+				"--sampling-method", "euler", "--diffusion-fa", "--temporal-tiling"},
+			// --temporal-tiling, not --vae-tiling: with --vae-tiling the
+			// Wan2.1 VAE hung encoding the start picture on a Radeon AI PRO
+			// R9700 (sd.cpp master-1015, 2026-10-26). Without any tiling the
+			// decode took the whole card to 32.3 GB at 33 frames of 832×480,
+			// over the 28.5 GiB the instance could have; --temporal-tiling
+			// tiles only the decode and kept the card at 27.9 GB.
+			Capabilities: []string{CapStartImage, CapEndImage},
+			License:      "Apache-2.0",
+			Notes: "Image-to-video and start-and-end videos; needs a start image. Two 14B experts (high and low noise); 20 steps. " +
+				"Up to 5 seconds at 1280×720. Shares its text model with Wan2.2 TI2V 5B. " +
+				"Slow: a 2-second video at 832×480 takes about 27 minutes on a Radeon AI PRO R9700, against about 70 seconds for TI2V 5B.",
+			// 81 frames is 5 s at 16 fps.
+			DefaultWidth:  832,
+			DefaultHeight: 480,
+			DefaultFrames: 33,
+			DefaultFPS:    16,
+			MaxFrames:     81,
+			MaxWidth:      1280,
+			MaxHeight:     720,
+			VideoSizes: []VideoSize{
+				{Label: "Short", Frames: 33, Width: 832, Height: 480},
+				{Label: "Medium", Frames: 49, Width: 1280, Height: 720},
+				{Label: "Full", Frames: 81, Width: 1280, Height: 720},
+			},
+			// Not measured above Short: Short took about 28 minutes, and the
+			// larger sizes have several times the video to sample.
+			FullMeasureTime: "On a Radeon AI PRO R9700 the smallest size took about 28 minutes to measure; " +
+				"the larger sizes are expected to take more than Measure's 2-hour limit.",
 		},
 		{
 			ID:         "ace-step-turbo",

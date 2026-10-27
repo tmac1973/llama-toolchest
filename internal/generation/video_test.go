@@ -160,6 +160,8 @@ func TestCatalogReposAllowed(t *testing.T) {
 		"QuantStack/Wan2.2-TI2V-5B-GGUF",
 		"city96/umt5-xxl-encoder-gguf",
 		"Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+		"QuantStack/Wan2.2-I2V-A14B-GGUF",
+		"Comfy-Org/Wan_2.1_ComfyUI_repackaged",
 	}
 	for _, e := range Catalog() {
 		for _, c := range e.Components {
@@ -167,5 +169,33 @@ func TestCatalogReposAllowed(t *testing.T) {
 				t.Errorf("%s/%s: repo %s is not on the checked list", e.ID, c.Slot, c.Repo)
 			}
 		}
+	}
+}
+
+// The Wan2.2 A14B pair shares its text model with TI2V 5B, so the second
+// set downloads it once, and it has both experts.
+func TestCatalogWanSetsShareText(t *testing.T) {
+	ti2v, _ := LookupCatalog("wan22-ti2v-5b")
+	pair, ok := LookupCatalog("wan22-i2v-a14b")
+	if !ok {
+		t.Fatal("no wan22-i2v-a14b in the catalog")
+	}
+	t5 := func(e CatalogEntry) Component {
+		for _, c := range e.Components {
+			if c.Slot == "t5xxl" {
+				return c
+			}
+		}
+		return Component{}
+	}
+	if t5(ti2v) != t5(pair) || t5(pair).Repo == "" {
+		t.Errorf("text models differ: %+v vs %+v", t5(ti2v), t5(pair))
+	}
+	slots := map[string]bool{}
+	for _, c := range pair.Components {
+		slots[c.Slot] = true
+	}
+	if !slots["diffusion_model"] || !slots["high_noise_diffusion_model"] {
+		t.Errorf("slots %v, want both experts", slots)
 	}
 }
