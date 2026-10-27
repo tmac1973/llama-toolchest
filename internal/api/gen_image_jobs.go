@@ -78,7 +78,29 @@ type imageJob struct {
 }
 
 func (j imageJob) state() jobState {
-	return jobState{id: j.ID, status: j.Status, ticket: j.ticket, finished: j.Finished, files: j.paths}
+	return jobState{id: j.ID, status: j.Status, ticket: j.ticket, submitted: j.Submitted, finished: j.Finished, files: j.paths}
+}
+
+// imageJobPrivate is the part of an image job its record keeps that
+// clients do not see.
+type imageJobPrivate struct {
+	Paths []string `json:"paths,omitempty"`
+}
+
+func (j imageJob) private() any { return imageJobPrivate{Paths: j.paths} }
+
+func (j imageJob) restored(raw json.RawMessage, now time.Time) (imageJob, error) {
+	var p imageJobPrivate
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return j, err
+		}
+	}
+	j.paths, j.Position = p.Paths, 0
+	if j.Finished == nil {
+		j.Status, j.Phase, j.Error, j.Finished = jobFailed, "", jobRestartedError, &now
+	}
+	return j, nil
 }
 
 func (j imageJob) withPosition(n int) imageJob {
@@ -122,7 +144,7 @@ func (s *Server) runImageJob(ctx context.Context, id string, inst generation.Ins
 	finish := func(status, errMsg string, images []imageJobImage, paths []string) {
 		now := time.Now()
 		cancelled := false
-		s.genImageJobs.update(id, func(j *imageJob) {
+		found := s.genImageJobs.update(id, func(j *imageJob) {
 			j.body = nil
 			if j.Status == jobCancelled {
 				cancelled = true
@@ -131,7 +153,8 @@ func (s *Server) runImageJob(ctx context.Context, id string, inst generation.Ins
 			j.Status, j.Phase, j.Error, j.Finished = status, "", errMsg, &now
 			j.Images, j.paths = images, paths
 		})
-		if cancelled {
+		// A job deleted after it was cancelled is gone from the store.
+		if cancelled || !found {
 			for _, p := range paths {
 				os.Remove(p)
 			}
@@ -391,11 +414,28 @@ func (s *Server) handleImageJobImage(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, j.paths[n])
 }
 
+func (s *Server) handleImageJobList(w http.ResponseWriter, r *http.Request) {
+	if !s.imageEnabled() {
+		openAIError(w, http.StatusNotFound, "invalid_request_error", "not_found", "image generation is not enabled on this server")
+		return
+	}
+	statuses, ok := jobStatusFilter(r.URL.Query().Get("status"))
+	if !ok {
+		openAIError(w, http.StatusBadRequest, "invalid_request_error", "bad_status", jobStatusFilterError)
+		return
+	}
+	respondJSON(w, jobList(s.genImageJobs.list(statuses)))
+}
+
+// handleImageJobDelete cancels a queued or running job, and deletes a
+// finished one with its images.
 func (s *Server) handleImageJobDelete(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if _, ok := s.imageJobOr404(w, id); !ok {
 		return
 	}
-	s.cancelImageJob(id)
+	if !s.genImageJobs.remove(id) {
+		s.cancelImageJob(id)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }

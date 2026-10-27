@@ -100,12 +100,12 @@ type Server struct {
 	genProcVRAM procVRAMCache
 	// genQueue lets one image or music job run per GPU at a time.
 	genQueue *generation.Queue
-	// genMusic holds this run's music jobs.
+	// genMusic holds the music jobs, kept on disk across restarts.
 	genMusic jobStore[musicJob]
-	// genImageJobs holds this run's image jobs.
+	// genImageJobs holds the image jobs, kept on disk across restarts.
 	genImageJobs jobStore[imageJob]
-	// genVideoJobs holds this run's video jobs, at most videoJobMax
-	// finished ones.
+	// genVideoJobs holds the video jobs, kept on disk across restarts,
+	// at most videoJobMax finished ones.
 	genVideoJobs jobStore[videoJob]
 
 	// probeCache memoizes remote GGUF header probes, keyed by source,
@@ -260,9 +260,13 @@ func (s *Server) clearDirty() {
 func (s *Server) SetVersion(v string) { s.version = v }
 
 // Shutdown releases server-owned resources that outlive the HTTP listener.
-// Today that's the child llama-server router: without this, the cgroup keeps
-// it alive until systemd's TimeoutStopSec fires SIGKILL.
+// Today that's the child llama-server router and the generation backends:
+// without this, the cgroup keeps them alive until systemd's TimeoutStopSec
+// fires SIGKILL. Generation jobs stop being saved first (jobStore.close).
 func (s *Server) Shutdown() {
+	s.genMusic.close()
+	s.genImageJobs.close()
+	s.genVideoJobs.close()
 	s.genMgr.StopAll()
 	if err := s.process.Stop(); err != nil {
 		// "router not running" is the expected case when nothing was started.
@@ -303,6 +307,7 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 	// before anything can launch the router, so no load goes unwatched.
 	go s.watchRouterMemory()
 	go s.watchOtherVRAM()
+	s.openGenJobs()
 	go s.watchGenJobs()
 	s.env = newJobEnv(s)
 	s.jobs = benchmark.NewJobQueue(s.bench, s.env)
@@ -828,15 +833,18 @@ func (s *Server) buildRouter() chi.Router {
 		r.Post("/images/generations", s.handleGenImages)
 		r.Post("/images/edits", s.handleGenImages)
 		r.Post("/images/jobs", s.handleImageJobCreate)
+		r.Get("/images/jobs", s.handleImageJobList)
 		r.Get("/images/jobs/{id}", s.handleImageJobGet)
 		r.Get("/images/jobs/{id}/image/{n}", s.handleImageJobImage)
 		r.Delete("/images/jobs/{id}", s.handleImageJobDelete)
 		r.Post("/videos/jobs", s.handleVideoJobCreate)
+		r.Get("/videos/jobs", s.handleVideoJobList)
 		r.Get("/videos/jobs/{id}", s.handleVideoJobGet)
 		r.Get("/videos/jobs/{id}/video", s.handleVideoJobVideo)
 		r.Delete("/videos/jobs/{id}", s.handleVideoJobDelete)
 		r.Post("/videos/generations", s.handleVideoGenerate)
 		r.Post("/music/jobs", s.handleMusicCreate)
+		r.Get("/music/jobs", s.handleMusicList)
 		r.Get("/music/jobs/{id}", s.handleMusicGet)
 		r.Get("/music/jobs/{id}/audio", s.handleMusicAudio)
 		r.Delete("/music/jobs/{id}", s.handleMusicDelete)
