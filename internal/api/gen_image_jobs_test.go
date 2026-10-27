@@ -344,20 +344,23 @@ func TestImageJobsPrune(t *testing.T) {
 	}
 }
 
-// With eviction on, a job for a stopped backend says it is starting the
-// backend, and fails with the reason when the backend cannot start.
+// A job for a stopped backend, with eviction on or off, says it is
+// starting the backend, and fails with the reason when the backend cannot
+// start.
 func TestImageJobStartingPhase(t *testing.T) {
-	s := vramServer(t)
-	s.cfg.GenEvict = true
-	addInstance(t, s, generation.Instance{ID: "ming", Port: 8089, Enabled: true, ReservedMiB: 4096})
-	rec := postImageJob(s, `{"model":"ming","prompt":"x"}`)
-	var created map[string]any
-	json.Unmarshal(rec.Body.Bytes(), &created)
-	if rec.Code != http.StatusAccepted || created["status"] != "running" || created["phase"] != "starting" {
-		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
-	}
-	// The test build's binary does not exist.
-	if j := waitImageJob(t, s, created["id"].(string), jobFailed); !strings.HasPrefix(j.Error, "starting the backend: ") {
-		t.Errorf("error = %q", j.Error)
+	for _, evict := range []bool{false, true} {
+		s := vramServer(t)
+		s.cfg.GenEvict = evict
+		addInstance(t, s, generation.Instance{ID: "ming", Port: 8089, Enabled: true, ReservedMiB: 4096})
+		rec := postImageJob(s, `{"model":"ming","prompt":"x"}`)
+		var created map[string]any
+		json.Unmarshal(rec.Body.Bytes(), &created)
+		if rec.Code != http.StatusAccepted || created["status"] != "running" || created["phase"] != "starting" {
+			t.Fatalf("eviction %v: create: %d %s", evict, rec.Code, rec.Body.String())
+		}
+		// The test build's binary does not exist.
+		if j := waitImageJob(t, s, created["id"].(string), jobFailed); !strings.HasPrefix(j.Error, "starting the backend: ") {
+			t.Errorf("eviction %v: error = %q", evict, j.Error)
+		}
 	}
 }

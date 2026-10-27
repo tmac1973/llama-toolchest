@@ -389,7 +389,7 @@ same CUDA crashes as the Wan sets (finding 1), this time also in sampling.
 15. **A job sent while its instance is starting is refused.** With
     eviction off, jobs 1–4, sent right after Start, got 503
     `backend_unavailable` "backend qwen-turbo-local is not running". Image
-    jobs behave the same. Not changed.
+    jobs behave the same. Fixed after the check (below).
 16. **A video job reports the requested size, not the size made.**
     sd-server rounds LTX sizes up to multiples of 32 and does not say so in
     its result, so job 5 reported 1280×720 for a 1280×736 file. Fixed
@@ -397,7 +397,8 @@ same CUDA crashes as the Wan sets (finding 1), this time also in sampling.
 17. **Measure at Full is slow for LTX-2.3**: 28 minutes, against 4.5
     minutes for a Full video from a prompt. Measure always sends a start
     and an end picture when the set takes them, and those make the video
-    about 2.5 times slower. Not changed.
+    about 2.5 times slower. Kept as it is, decided with the user: the
+    pictures keep the reservation safe for jobs that use them.
 
 ### Fixed after the check (decided with the user)
 
@@ -407,7 +408,15 @@ same CUDA crashes as the Wan sets (finding 1), this time also in sampling.
   LTX-2.3 and Wan2.2 TI2V 5B, 16 for Wan2.2 I2V A14B. A finished job's
   `width` and `height` are the request rounded up to it, and
   `meta.video.size_multiple` gives it. A custom set has no known multiple
-  and reports the size asked for. Checked by tests, not on hardware.
+  and reports the size asked for. Checked on asmodean with Wan2.2 TI2V
+  5B: a job asked for 800×456 reported 800×480, and the file is 800×480.
+- **A job for a stopped or starting instance waits for it** (finding 15):
+  with eviction off, the job starts a stopped instance, or waits for one
+  that is starting, as it does with eviction on, phase `starting`. Nothing
+  else is stopped or unloaded: an enabled instance's reservation already
+  counts while it is stopped, so the memory is set aside for it. If
+  another program has taken that memory since, the job fails with the fit
+  check's message. Checked by tests, not on hardware.
 
 ### Not run
 

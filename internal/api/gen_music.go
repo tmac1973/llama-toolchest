@@ -49,8 +49,8 @@ const (
 // A finished job has none.
 const (
 	musicPhaseQueued = "queued"
-	// musicPhaseStarting: with eviction on, the job's backend was stopped
-	// and is being started, after making room for it (gen_evict.go).
+	// musicPhaseStarting: the job's backend was stopped or still
+	// starting; with eviction on, room is made for it first (gen_evict.go).
 	musicPhaseStarting     = "starting"
 	musicPhaseComposing    = "composing"
 	musicPhaseSynthesizing = "synthesizing"

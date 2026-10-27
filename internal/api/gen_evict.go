@@ -228,20 +228,23 @@ func (s *Server) stopGenUntil(gpu int, except, reason string, fits func() bool) 
 }
 
 // genReady makes sure inst is running before its job is sent; the job
-// holds inst's GPU turn. With eviction on, a stopped instance is started,
-// after making room: first by stopping other backends on the GPU (only
-// as many as needed, and none kept running), then by unloading LLMs from
-// the GPU, one at a time until it fits.
+// holds inst's GPU turn. A stopped instance is started, and a starting
+// one waited for. With eviction off, an enabled instance's reservation
+// counts while it is stopped, so starting it takes no memory promised to
+// anything else; the fit check in startGenInstance still refuses it when
+// another program has taken the room. With eviction on, room is made
+// first: by stopping other backends on the GPU (only as many as needed,
+// and none kept running), then by unloading LLMs from the GPU, one at a
+// time until it fits.
 func (s *Server) genReady(ctx context.Context, inst generation.Instance) error {
 	if s.genMgr.IsRunning(inst.ID) {
 		return nil
 	}
-	if !s.genEvictOn() {
-		return fmt.Errorf("backend %s is not running", inst.ID)
-	}
 	if !s.genMgr.IsActive(inst.ID) {
-		if err := s.makeRoomForGen(ctx, inst); err != nil {
-			return err
+		if s.genEvictOn() {
+			if err := s.makeRoomForGen(ctx, inst); err != nil {
+				return err
+			}
 		}
 		slog.Info("starting generation backend for a job", "instance", inst.ID)
 		if err := s.startGenInstance(inst.ID); err != nil {

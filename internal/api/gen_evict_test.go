@@ -127,18 +127,17 @@ func TestMakeRoomForLLMStopsTheBackend(t *testing.T) {
 	}
 }
 
-// With eviction on, a stopped backend can be picked for a job (a running
-// one first), and it can be enabled whatever is loaded.
-func TestEvictionPicksStoppedBackends(t *testing.T) {
+// A stopped backend can be picked for a job, with eviction on or off (a
+// running one first).
+func TestPickStoppedBackends(t *testing.T) {
 	s := vramServer(t)
 	addInstance(t, s, generation.Instance{ID: "ming", Port: 8081, Enabled: true, ReservedMiB: 4096})
-	if _, pe := s.pickInstance("ming", generation.KindSD); pe == nil {
-		t.Fatal("a stopped backend was picked with eviction off")
-	}
-	s.cfg.GenEvict = true
-	inst, pe := s.pickInstance("ming", generation.KindSD)
-	if pe != nil || inst.ID != "ming" {
-		t.Fatalf("pick = %+v, %v; want the stopped backend", inst, pe)
+	for _, evict := range []bool{false, true} {
+		s.cfg.GenEvict = evict
+		inst, pe := s.pickInstance("ming", generation.KindSD)
+		if pe != nil || inst.ID != "ming" {
+			t.Fatalf("eviction %v: pick = %+v, %v; want the stopped backend", evict, inst, pe)
+		}
 	}
 
 	runFakeInstance(t, s, "ming-2", "ming-image", 0, newFakeBackend(t, 0))
@@ -167,6 +166,26 @@ func TestMakeRoomForGenStopsOtherBackends(t *testing.T) {
 	}
 	if s.genMgr.IsActive("other") {
 		t.Error("the other backend is still running")
+	}
+}
+
+// With eviction off, a job for a stopped backend starts it without
+// stopping anything, and is refused when it does not fit.
+func TestGenReadyWithEvictionOffStopsNothing(t *testing.T) {
+	s := vramServer(t)
+	runFakeInstance(t, s, "other", "ming-image", 0, newFakeBackend(t, 0))
+	other, _ := s.gen.Instance("other")
+	other.ReservedMiB = 20000
+	s.gen.UpdateInstance(other)
+	addInstance(t, s, generation.Instance{ID: "ming", Port: 8089, Enabled: true, ReservedMiB: 12000})
+	inst, _ := s.gen.Instance("ming")
+
+	err := s.genReady(context.Background(), inst)
+	if err == nil || s.genFitCheck(inst, inst.ReservedMiB) == nil {
+		t.Fatalf("genReady = %v; want the fit check's refusal", err)
+	}
+	if !s.genMgr.IsActive("other") {
+		t.Error("the other backend was stopped with eviction off")
 	}
 }
 

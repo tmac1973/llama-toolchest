@@ -41,10 +41,10 @@ func (e *pickError) Error() string { return e.msg }
 // pickInstance chooses the instance of a kind that serves model: the
 // instance with that ID, or among the instances of the model set with that
 // ID the one whose GPU has the fewest jobs (lowest ID on a tie), or with
-// model empty the only one. Only instances that are enabled, running, not
-// being measured and have a VRAM reservation are eligible. With eviction
-// on, a stopped instance is eligible too, as genReady starts it on
-// request; a running one is picked before it.
+// model empty the only one. Only instances that are enabled, not being
+// measured and have a VRAM reservation are eligible. A stopped one is
+// eligible too, as genReady starts it on request; a running one is picked
+// before it.
 func (s *Server) pickInstance(model string, kind generation.BackendKind) (generation.Instance, *pickError) {
 	if s.gen == nil {
 		return generation.Instance{}, &pickError{http.StatusNotFound, "model_not_found", "generation backends are not available"}
@@ -83,8 +83,6 @@ func (s *Server) pickInstance(model string, kind generation.BackendKind) (genera
 			reasons = append(reasons, fmt.Sprintf("backend %s is being measured", inst.ID))
 		case inst.ReservedMiB == 0:
 			reasons = append(reasons, fmt.Sprintf("backend %s has no VRAM reservation yet", inst.ID))
-		case !s.genEvictOn() && !s.genMgr.IsRunning(inst.ID):
-			reasons = append(reasons, fmt.Sprintf("backend %s is not running", inst.ID))
 		default:
 			eligible = append(eligible, inst)
 		}
