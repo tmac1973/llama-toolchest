@@ -37,12 +37,12 @@ func TestJobStoreKeepsJobsAcrossRestart(t *testing.T) {
 	st := openStore[imageJob](t, dir, start)
 	done := start.Add(time.Minute)
 	file := writeOutput(t, dir, "aaaaaaaaaaaaaaaa-0.png")
-	st.add(&imageJob{ID: "aaaaaaaaaaaaaaaa", Status: jobQueued, Submitted: start, Request: imageJobRequest{Prompt: "a fox"}})
+	st.add(&imageJob{genJob: genJob{ID: "aaaaaaaaaaaaaaaa", Status: jobQueued, Submitted: start}, Request: imageJobRequest{Prompt: "a fox"}})
 	st.update("aaaaaaaaaaaaaaaa", func(j *imageJob) {
 		j.Status, j.Finished, j.paths = jobSucceeded, &done, []string{file}
 		j.Images = []imageJobImage{{URL: "/v1/images/jobs/aaaaaaaaaaaaaaaa/image/0"}}
 	})
-	st.add(&imageJob{ID: "bbbbbbbbbbbbbbbb", Status: jobRunning, Phase: imagePhaseGenerating, Submitted: start.Add(time.Second)})
+	st.add(&imageJob{genJob: genJob{ID: "bbbbbbbbbbbbbbbb", Status: jobRunning, Phase: imagePhaseGenerating, Submitted: start.Add(time.Second)}})
 
 	restart := time.Now().Truncate(time.Second)
 	st = openStore[imageJob](t, dir, restart)
@@ -70,7 +70,7 @@ func TestJobStoreKeepsJobsAcrossRestart(t *testing.T) {
 func TestJobStoreClosedKeepsJobsUnfinished(t *testing.T) {
 	dir := t.TempDir()
 	st := openStore[imageJob](t, dir, time.Now())
-	st.add(&imageJob{ID: "aaaaaaaaaaaaaaaa", Status: jobRunning})
+	st.add(&imageJob{genJob: genJob{ID: "aaaaaaaaaaaaaaaa", Status: jobRunning}})
 	st.close()
 	now := time.Now()
 	st.update("aaaaaaaaaaaaaaaa", func(j *imageJob) { j.Status, j.Error, j.Finished = jobFailed, "generating: EOF", &now })
@@ -83,14 +83,14 @@ func TestJobStoreRestoresPrivateParts(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now()
 	music := openStore[musicJob](t, dir, now)
-	music.add(&musicJob{ID: "m", Status: musicSucceeded, Finished: &now, audioPath: "/x/m.mp3", lmModel: "lm", ditModel: "dit"})
+	music.add(&musicJob{genJob: genJob{ID: "m", Status: musicSucceeded, Finished: &now}, audioPath: "/x/m.mp3", lmModel: "lm", ditModel: "dit"})
 	if j, _ := openStore[musicJob](t, dir, now).view("m"); j.audioPath != "/x/m.mp3" || j.lmModel != "lm" || j.ditModel != "dit" {
 		t.Errorf("music job after restart = %+v", j)
 	}
 
 	dir = t.TempDir()
 	video := openStore[videoJob](t, dir, now)
-	video.add(&videoJob{ID: "v", Status: jobQueued, done: make(chan struct{})})
+	video.add(&videoJob{genJob: genJob{ID: "v", Status: jobQueued}, done: make(chan struct{})})
 	j, _ := openStore[videoJob](t, dir, now).view("v")
 	if j.Status != jobFailed {
 		t.Errorf("video job after restart is %q, want failed", j.Status)
@@ -105,9 +105,9 @@ func TestJobStoreRestoresPrivateParts(t *testing.T) {
 func TestJobStoreListFilters(t *testing.T) {
 	st := &jobStore[imageJob]{}
 	now := time.Now()
-	st.add(&imageJob{ID: "1", Status: jobSucceeded, Finished: &now})
-	st.add(&imageJob{ID: "2", Status: jobQueued})
-	st.add(&imageJob{ID: "3", Status: jobFailed, Finished: &now})
+	st.add(&imageJob{genJob: genJob{ID: "1", Status: jobSucceeded, Finished: &now}})
+	st.add(&imageJob{genJob: genJob{ID: "2", Status: jobQueued}})
+	st.add(&imageJob{genJob: genJob{ID: "3", Status: jobFailed, Finished: &now}})
 	if ids := jobIDs(st.list([]string{jobSucceeded, jobFailed})); !slices.Equal(ids, []string{"3", "1"}) {
 		t.Errorf("list(succeeded,failed) = %v", ids)
 	}
@@ -124,8 +124,8 @@ func TestJobStoreRemove(t *testing.T) {
 	st := openStore[imageJob](t, dir, time.Now())
 	now := time.Now()
 	file := writeOutput(t, dir, "aaaaaaaaaaaaaaaa-0.png")
-	st.add(&imageJob{ID: "aaaaaaaaaaaaaaaa", Status: jobSucceeded, Finished: &now, paths: []string{file}})
-	st.add(&imageJob{ID: "bbbbbbbbbbbbbbbb", Status: jobRunning})
+	st.add(&imageJob{genJob: genJob{ID: "aaaaaaaaaaaaaaaa", Status: jobSucceeded, Finished: &now}, paths: []string{file}})
+	st.add(&imageJob{genJob: genJob{ID: "bbbbbbbbbbbbbbbb", Status: jobRunning}})
 
 	if st.remove("bbbbbbbbbbbbbbbb") {
 		t.Error("a running job was removed")
@@ -159,7 +159,7 @@ func TestJobStorePrunesOrphanFiles(t *testing.T) {
 	for _, f := range []string{owned, orphan} {
 		os.Chtimes(f, old, old)
 	}
-	st.add(&musicJob{ID: "aaaaaaaaaaaaaaaa", Status: musicRunning, audioPath: owned})
+	st.add(&musicJob{genJob: genJob{ID: "aaaaaaaaaaaaaaaa", Status: musicRunning}, audioPath: owned})
 
 	st.prune(time.Now())
 	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
@@ -179,7 +179,7 @@ func TestImageJobListAndDeleteRoutes(t *testing.T) {
 	file := filepath.Join(s.imageDir(), "aaaaaaaaaaaaaaaa-0.png")
 	os.MkdirAll(s.imageDir(), 0o755)
 	os.WriteFile(file, []byte("img"), 0o644)
-	s.genImageJobs.add(&imageJob{ID: "aaaaaaaaaaaaaaaa", Status: jobSucceeded, Finished: &now, paths: []string{file}})
+	s.genImageJobs.add(&imageJob{genJob: genJob{ID: "aaaaaaaaaaaaaaaa", Status: jobSucceeded, Finished: &now}, paths: []string{file}})
 
 	list := func(q string) (int, []imageJob) {
 		rec := httptest.NewRecorder()
@@ -240,4 +240,20 @@ func jobIDs[T jobRecord[T]](jobs []T) []string {
 		ids = append(ids, j.state().id)
 	}
 	return ids
+}
+
+// start leaves a cancelled job alone, and sets Started only the first time.
+func TestGenJobStart(t *testing.T) {
+	first := time.Unix(100, 0)
+	g := genJob{Status: jobQueued}
+	if !g.start(imagePhaseStarting, first) || g.Status != jobRunning || g.Phase != imagePhaseStarting || !g.Started.Equal(first) {
+		t.Fatalf("queued job: %+v", g)
+	}
+	if !g.start(imagePhaseGenerating, first.Add(time.Minute)) || g.Phase != imagePhaseGenerating || !g.Started.Equal(first) {
+		t.Fatalf("second start moved Started or kept the phase: %+v", g)
+	}
+	c := genJob{Status: jobCancelled}
+	if c.start(imagePhaseGenerating, first) || c.Status != jobCancelled || c.Started != nil {
+		t.Fatalf("cancelled job was started: %+v", c)
+	}
 }

@@ -5,11 +5,13 @@ package api
 // restart does not lose it. Finished jobs are pruned after jobKeep.
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/tmac1973/llama-toolchest/internal/atomicfile"
 	"github.com/tmac1973/llama-toolchest/internal/generation"
 )
@@ -50,6 +53,88 @@ type jobState struct {
 	finished  *time.Time
 	// files are the job's output files, deleted when it is pruned.
 	files []string
+}
+
+// genJob is the part of an image, video or music job that the three
+// share. Each embeds it, so its fields are part of the job's JSON.
+type genJob struct {
+	ID         string     `json:"id"`
+	InstanceID string     `json:"model"`
+	Status     string     `json:"status"`
+	Phase      string     `json:"phase,omitempty"`
+	Position   int        `json:"queue_position"`
+	Error      string     `json:"error,omitempty"`
+	Submitted  time.Time  `json:"submitted"`
+	Started    *time.Time `json:"started,omitempty"`
+	Finished   *time.Time `json:"finished,omitempty"`
+
+	// Not shown to clients.
+	cancel context.CancelFunc
+	ticket *generation.Ticket
+}
+
+func (g *genJob) base() *genJob { return g }
+
+// jobState is the store's view of the job, with its output files.
+func (g genJob) jobState(files []string) jobState {
+	return jobState{id: g.ID, status: g.Status, ticket: g.ticket, submitted: g.Submitted, finished: g.Finished, files: files}
+}
+
+// restore readies a job read back from its record: it is in no queue, and
+// one that had not finished is failed at now, since its backend stopped
+// with the server.
+func (g *genJob) restore(now time.Time) {
+	g.Position = 0
+	if g.Finished == nil {
+		g.Status, g.Phase, g.Error, g.Finished = jobFailed, "", jobRestartedError, &now
+	}
+}
+
+// start marks the job running in phase, with Started set the first time.
+// A cancelled job is left as it is, and start reports false.
+func (g *genJob) start(phase string, now time.Time) bool {
+	if g.Status == jobCancelled {
+		return false
+	}
+	if g.Started == nil {
+		g.Started = &now
+	}
+	g.Status, g.Phase = jobRunning, phase
+	return true
+}
+
+// genJobPtr is a pointer to a job type that embeds genJob.
+type genJobPtr[T any] interface {
+	*T
+	base() *genJob
+}
+
+// startJob marks a stored job running in phase, as genJob.start does. It
+// reports false when the job was cancelled or is gone.
+func startJob[T jobRecord[T], P genJobPtr[T]](m *jobStore[T], id, phase string) bool {
+	now := time.Now()
+	started := false
+	m.update(id, func(j *T) { started = P(j).base().start(phase, now) })
+	return started
+}
+
+// cancelJob stops an image or music job: a queued one leaves the queue; a
+// running one is marked cancelled at once, and its result is discarded
+// when the backend answers. It reports whether the store has the job.
+func cancelJob[T jobRecord[T], P genJobPtr[T]](m *jobStore[T], id string) bool {
+	var cancel context.CancelFunc
+	found := m.update(id, func(j *T) {
+		g := P(j).base()
+		if g.Finished != nil {
+			return
+		}
+		now := time.Now()
+		cancel, g.Status, g.Phase, g.Finished = g.cancel, jobCancelled, "", &now
+	})
+	if cancel != nil {
+		cancel()
+	}
+	return found
 }
 
 // jobRecord is a job type the store can hold.
@@ -406,6 +491,75 @@ func (s *Server) watchGenJobs() {
 	for now := range time.Tick(jobPruneEvery) {
 		prune(now)
 	}
+}
+
+func (s *Server) genEnabled() bool {
+	return s.cfg.GenerationEnabled && s.gen != nil
+}
+
+// jobRoutes is what the routes that image, video and music jobs share need
+// from one kind of job.
+type jobRoutes[T jobRecord[T]] struct {
+	kind    string // "image", "video" or "music", for messages
+	store   *jobStore[T]
+	enabled func() bool
+	cancel  func(id string) bool
+	// show turns a stored job into its answer; nil answers it as stored.
+	show func(T) T
+}
+
+func (k jobRoutes[T]) shown(j T) T {
+	if k.show != nil {
+		return k.show(j)
+	}
+	return j
+}
+
+// jobOr404 returns the job with the ID, or answers 404 when generation is
+// off or there is no such job.
+func (k jobRoutes[T]) jobOr404(w http.ResponseWriter, id string) (T, bool) {
+	if !k.enabled() {
+		writeNotEnabled(w, k.kind)
+		var zero T
+		return zero, false
+	}
+	j, ok := k.store.view(id)
+	if !ok {
+		writeOpenAIError(w, http.StatusNotFound, "job_not_found", "no "+k.kind+" job "+id)
+	}
+	return j, ok
+}
+
+// list answers a list route: the jobs, newest first, filtered by
+// ?status=.
+func (k jobRoutes[T]) list(w http.ResponseWriter, r *http.Request) {
+	if !k.enabled() {
+		writeNotEnabled(w, k.kind)
+		return
+	}
+	statuses, ok := jobStatusFilter(r.URL.Query().Get("status"))
+	if !ok {
+		writeOpenAIError(w, http.StatusBadRequest, "bad_status", jobStatusFilterError)
+		return
+	}
+	jobs := k.store.list(statuses)
+	for i := range jobs {
+		jobs[i] = k.shown(jobs[i])
+	}
+	respondJSON(w, jobList(jobs))
+}
+
+// delete answers a delete route: it stops a queued or running job, and
+// deletes a finished one with its output files.
+func (k jobRoutes[T]) delete(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if _, ok := k.jobOr404(w, id); !ok {
+		return
+	}
+	if !k.store.remove(id) {
+		k.cancel(id)
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // jobStatusFilterError is a list route's answer to an unknown ?status=.

@@ -426,7 +426,7 @@ func TestMusicJobsPrune(t *testing.T) {
 		id := fmt.Sprintf("%016x", i)
 		file := filepath.Join(dir, id+".mp3")
 		os.WriteFile(file, []byte("x"), 0o644)
-		s.genMusic.add(&musicJob{ID: id, Status: musicSucceeded, Finished: fin, audioPath: file})
+		s.genMusic.add(&musicJob{genJob: genJob{ID: id, Status: musicSucceeded, Finished: fin}, audioPath: file})
 	}
 	s.genMusic.prune(time.Now())
 	if _, ok := s.genMusic.view("0000000000000000"); ok {

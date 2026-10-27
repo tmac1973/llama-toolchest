@@ -73,25 +73,15 @@ type videoJobVideo struct {
 
 // videoJob is one video request.
 type videoJob struct {
-	ID              string          `json:"id"`
-	InstanceID      string          `json:"model"`
-	Status          string          `json:"status"`
-	Phase           string          `json:"phase,omitempty"`
-	Position        int             `json:"queue_position"`
+	genJob
 	Progress        *vidProgress    `json:"progress,omitempty"`
 	CancelRequested bool            `json:"cancel_requested,omitempty"`
 	Request         videoJobRequest `json:"request"`
 	Video           *videoJobVideo  `json:"video,omitempty"`
-	Error           string          `json:"error,omitempty"`
-	Submitted       time.Time       `json:"submitted"`
-	Started         *time.Time      `json:"started,omitempty"`
-	Finished        *time.Time      `json:"finished,omitempty"`
 
 	// Not shown to clients.
-	vid    vidGenRequest // dropped once sent
-	path   string
-	cancel context.CancelFunc
-	ticket *generation.Ticket
+	vid  vidGenRequest // dropped once sent
+	path string
 	// done is closed when the job has finished, for the waiting route.
 	done chan struct{}
 }
@@ -101,7 +91,7 @@ func (j videoJob) state() jobState {
 	if j.path != "" {
 		files = []string{j.path}
 	}
-	return jobState{id: j.ID, status: j.Status, ticket: j.ticket, submitted: j.Submitted, finished: j.Finished, files: files}
+	return j.jobState(files)
 }
 
 // videoJobPrivate is the part of a video job its record keeps that clients
@@ -119,10 +109,8 @@ func (j videoJob) restored(raw json.RawMessage, now time.Time) (videoJob, error)
 			return j, err
 		}
 	}
-	j.path, j.Position, j.Progress = p.Path, 0, nil
-	if j.Finished == nil {
-		j.Status, j.Phase, j.Error, j.Finished = jobFailed, "", jobRestartedError, &now
-	}
+	j.path, j.Progress = p.Path, nil
+	j.restore(now)
 	j.done = make(chan struct{})
 	close(j.done)
 	return j, nil
@@ -360,8 +348,11 @@ func (s *Server) submitVideoJob(inst generation.Instance, req videoJobRequest, v
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	job := &videoJob{
-		ID: newGenJobID(), InstanceID: inst.ID, Status: jobQueued, Phase: imagePhaseQueued, Request: req,
-		Submitted: ticket.Info().Submitted, vid: vid, cancel: cancel, ticket: ticket, done: make(chan struct{}),
+		genJob: genJob{
+			ID: newGenJobID(), InstanceID: inst.ID, Status: jobQueued, Phase: imagePhaseQueued,
+			Submitted: ticket.Info().Submitted, cancel: cancel, ticket: ticket,
+		},
+		Request: req, vid: vid, done: make(chan struct{}),
 	}
 	if started := ticket.Info().Started; !started.IsZero() {
 		job.Status, job.Phase, job.Started = jobRunning, imagePhaseGenerating, &started
@@ -402,13 +393,7 @@ func (s *Server) runVideoJob(ctx context.Context, id string, inst generation.Ins
 	}
 	defer ticket.Done()
 	if !s.genMgr.IsRunning(inst.ID) {
-		now := time.Now()
-		s.genVideoJobs.update(id, func(j *videoJob) {
-			if j.Started == nil {
-				j.Started = &now
-			}
-			j.Status, j.Phase = jobRunning, imagePhaseStarting
-		})
+		startJob(&s.genVideoJobs, id, imagePhaseStarting)
 	}
 	if err := s.genReady(ctx, inst); err != nil {
 		if ctx.Err() != nil {
@@ -423,10 +408,7 @@ func (s *Server) runVideoJob(ctx context.Context, id string, inst generation.Ins
 	now := time.Now()
 	s.genVideoJobs.update(id, func(j *videoJob) {
 		vid = j.vid
-		if j.Started == nil {
-			j.Started = &now
-		}
-		j.Status, j.Phase = jobRunning, imagePhaseGenerating
+		j.start(imagePhaseGenerating, now)
 	})
 	base := inst.BaseURL()
 	res, err := runVidGen(ctx, base, vid, func(p vidProgress) {
@@ -474,9 +456,7 @@ func (s *Server) runVideoJob(ctx context.Context, id string, inst generation.Ins
 // has.
 func (s *Server) cancelVideoJob(id string) bool {
 	var cancel context.CancelFunc
-	found := false
-	s.genVideoJobs.update(id, func(j *videoJob) {
-		found = true
+	found := s.genVideoJobs.update(id, func(j *videoJob) {
 		if j.Finished != nil {
 			return
 		}
@@ -488,16 +468,12 @@ func (s *Server) cancelVideoJob(id string) bool {
 	return found
 }
 
-func (s *Server) videoEnabled() bool {
-	return s.cfg.GenerationEnabled && s.gen != nil
-}
-
 // --- /v1/videos -------------------------------------------------------------
 
 // createVideoJob reads, checks and queues a video request, writing the
 // error answer itself when it cannot.
 func (s *Server) createVideoJob(w http.ResponseWriter, r *http.Request) (*videoJob, bool) {
-	if !s.videoEnabled() {
+	if !s.genEnabled() {
 		writeNotEnabled(w, "video")
 		return nil, false
 	}
@@ -563,26 +539,19 @@ func (s *Server) handleVideoGenerate(w http.ResponseWriter, r *http.Request) {
 	respondJSONStatus(w, status, view)
 }
 
-func (s *Server) videoJobOr404(w http.ResponseWriter, id string) (videoJob, bool) {
-	if !s.videoEnabled() {
-		writeNotEnabled(w, "video")
-		return videoJob{}, false
-	}
-	j, ok := s.genVideoJobs.view(id)
-	if !ok {
-		writeOpenAIError(w, http.StatusNotFound, "job_not_found", "no video job "+id)
-	}
-	return j, ok
+// videoJobRoutes is what the shared job routes need from video jobs.
+func (s *Server) videoJobRoutes() jobRoutes[videoJob] {
+	return jobRoutes[videoJob]{kind: "video", store: &s.genVideoJobs, enabled: s.genEnabled, cancel: s.cancelVideoJob}
 }
 
 func (s *Server) handleVideoJobGet(w http.ResponseWriter, r *http.Request) {
-	if j, ok := s.videoJobOr404(w, chi.URLParam(r, "id")); ok {
+	if j, ok := s.videoJobRoutes().jobOr404(w, chi.URLParam(r, "id")); ok {
 		respondJSON(w, j)
 	}
 }
 
 func (s *Server) handleVideoJobVideo(w http.ResponseWriter, r *http.Request) {
-	j, ok := s.videoJobOr404(w, chi.URLParam(r, "id"))
+	j, ok := s.videoJobRoutes().jobOr404(w, chi.URLParam(r, "id"))
 	if !ok {
 		return
 	}
@@ -595,27 +564,9 @@ func (s *Server) handleVideoJobVideo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleVideoJobList(w http.ResponseWriter, r *http.Request) {
-	if !s.videoEnabled() {
-		writeNotEnabled(w, "video")
-		return
-	}
-	statuses, ok := jobStatusFilter(r.URL.Query().Get("status"))
-	if !ok {
-		writeOpenAIError(w, http.StatusBadRequest, "bad_status", jobStatusFilterError)
-		return
-	}
-	respondJSON(w, jobList(s.genVideoJobs.list(statuses)))
+	s.videoJobRoutes().list(w, r)
 }
 
-// handleVideoJobDelete asks a queued or running job to stop, and deletes a
-// finished one with its video.
 func (s *Server) handleVideoJobDelete(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if _, ok := s.videoJobOr404(w, id); !ok {
-		return
-	}
-	if !s.genVideoJobs.remove(id) {
-		s.cancelVideoJob(id)
-	}
-	w.WriteHeader(http.StatusNoContent)
+	s.videoJobRoutes().delete(w, r)
 }
