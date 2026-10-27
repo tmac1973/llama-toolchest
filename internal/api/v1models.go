@@ -139,6 +139,10 @@ func (s *Server) genV1Model(inst generation.Instance) map[string]any {
 		if set.MaxWidth > 0 && set.MaxHeight > 0 {
 			video["max_size"] = fmt.Sprintf("%dx%d", set.MaxWidth, set.MaxHeight)
 		}
+		// size_multiple is what sd-server rounds width and height up to.
+		if e, ok := generation.LookupCatalog(set.CatalogID); ok && set.CatalogID != "" && e.SizeMultiple > 0 {
+			video["size_multiple"] = e.SizeMultiple
+		}
 		// measured_* is what this instance will take: the size it was
 		// measured for; larger requests are refused.
 		limit, _ := generation.VideoLimit(inst, set)

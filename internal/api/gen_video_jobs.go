@@ -472,9 +472,14 @@ func (s *Server) runVideoJob(ctx context.Context, id string, inst generation.Ins
 		finish(jobFailed, "saving: "+err.Error(), nil, "")
 		return
 	}
+	// sd-server does not say what size it made; it rounds the request up.
+	width, height := vid.Width, vid.Height
+	if set, err := s.gen.ModelSet(inst.ModelSetID); err == nil {
+		width, height = set.MadeSize(width, height)
+	}
 	finish(jobSucceeded, "", &videoJobVideo{
 		URL: "/v1/videos/jobs/" + id + "/video", MimeType: res.MimeType, Format: format,
-		Frames: res.Frames, FPS: res.FPS, Width: vid.Width, Height: vid.Height, Bytes: int64(len(res.Data)),
+		Frames: res.Frames, FPS: res.FPS, Width: width, Height: height, Bytes: int64(len(res.Data)),
 	}, path)
 }
 
