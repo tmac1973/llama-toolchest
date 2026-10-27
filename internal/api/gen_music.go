@@ -287,7 +287,34 @@ type musicJob struct {
 }
 
 func (j musicJob) state() jobState {
-	return jobState{id: j.ID, status: j.Status, ticket: j.ticket, finished: j.Finished, files: []string{j.audioPath}}
+	return jobState{id: j.ID, status: j.Status, ticket: j.ticket, submitted: j.Submitted, finished: j.Finished, files: []string{j.audioPath}}
+}
+
+// musicJobPrivate is the part of a music job its record keeps that clients
+// do not see.
+type musicJobPrivate struct {
+	AudioPath string `json:"audio_path,omitempty"`
+	LMModel   string `json:"lm_model,omitempty"`
+	DiTModel  string `json:"dit_model,omitempty"`
+}
+
+func (j musicJob) private() any {
+	return musicJobPrivate{AudioPath: j.audioPath, LMModel: j.lmModel, DiTModel: j.ditModel}
+}
+
+func (j musicJob) restored(raw json.RawMessage, now time.Time) (musicJob, error) {
+	var p musicJobPrivate
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return j, err
+		}
+	}
+	j.audioPath, j.lmModel, j.ditModel, j.Position = p.AudioPath, p.LMModel, p.DiTModel, 0
+	j.AudioURL = "" // musicResponse sets it
+	if j.Finished == nil {
+		j.Status, j.Phase, j.Error, j.Finished = musicFailed, "", jobRestartedError, &now
+	}
+	return j, nil
 }
 
 func (j musicJob) withPosition(n int) musicJob {
@@ -483,7 +510,10 @@ func (s *Server) runMusicJob(ctx context.Context, id string, inst generation.Ins
 		fail("saving", err)
 		return
 	}
-	s.genMusic.update(id, func(j *musicJob) { j.audioPath = file })
+	if !s.genMusic.update(id, func(j *musicJob) { j.audioPath = file }) {
+		os.Remove(file) // the job was cancelled and deleted meanwhile
+		return
+	}
 	finish(musicSucceeded, "")
 }
 
@@ -677,6 +707,23 @@ func (s *Server) handleMusicGet(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handleMusicList(w http.ResponseWriter, r *http.Request) {
+	if !s.musicEnabled() {
+		openAIError(w, http.StatusNotFound, "invalid_request_error", "not_found", "music generation is not enabled on this server")
+		return
+	}
+	statuses, ok := jobStatusFilter(r.URL.Query().Get("status"))
+	if !ok {
+		openAIError(w, http.StatusBadRequest, "invalid_request_error", "bad_status", jobStatusFilterError)
+		return
+	}
+	jobs := s.genMusic.list(statuses)
+	for i := range jobs {
+		jobs[i] = musicResponse(jobs[i])
+	}
+	respondJSON(w, jobList(jobs))
+}
+
 func (s *Server) handleMusicAudio(w http.ResponseWriter, r *http.Request) {
 	j, ok := s.musicJobOr404(w, chi.URLParam(r, "id"))
 	if !ok {
@@ -698,12 +745,16 @@ func serveMusicFile(w http.ResponseWriter, r *http.Request, file string) {
 	http.ServeFile(w, r, file)
 }
 
+// handleMusicDelete cancels a queued or running job, and deletes a
+// finished one with its audio.
 func (s *Server) handleMusicDelete(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if _, ok := s.musicJobOr404(w, id); !ok {
 		return
 	}
-	s.cancelMusic(id)
+	if !s.genMusic.remove(id) {
+		s.cancelMusic(id)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

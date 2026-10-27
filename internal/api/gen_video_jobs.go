@@ -101,7 +101,31 @@ func (j videoJob) state() jobState {
 	if j.path != "" {
 		files = []string{j.path}
 	}
-	return jobState{id: j.ID, status: j.Status, ticket: j.ticket, finished: j.Finished, files: files}
+	return jobState{id: j.ID, status: j.Status, ticket: j.ticket, submitted: j.Submitted, finished: j.Finished, files: files}
+}
+
+// videoJobPrivate is the part of a video job its record keeps that clients
+// do not see.
+type videoJobPrivate struct {
+	Path string `json:"path,omitempty"`
+}
+
+func (j videoJob) private() any { return videoJobPrivate{Path: j.path} }
+
+func (j videoJob) restored(raw json.RawMessage, now time.Time) (videoJob, error) {
+	var p videoJobPrivate
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return j, err
+		}
+	}
+	j.path, j.Position, j.Progress = p.Path, 0, nil
+	if j.Finished == nil {
+		j.Status, j.Phase, j.Error, j.Finished = jobFailed, "", jobRestartedError, &now
+	}
+	j.done = make(chan struct{})
+	close(j.done)
+	return j, nil
 }
 
 func (j videoJob) withPosition(n int) videoJob {
@@ -588,11 +612,28 @@ func (s *Server) handleVideoJobVideo(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, j.path)
 }
 
+func (s *Server) handleVideoJobList(w http.ResponseWriter, r *http.Request) {
+	if !s.videoEnabled() {
+		writeVideoError(w, http.StatusNotFound, "not_found", "video generation is not enabled on this server")
+		return
+	}
+	statuses, ok := jobStatusFilter(r.URL.Query().Get("status"))
+	if !ok {
+		writeVideoError(w, http.StatusBadRequest, "bad_status", jobStatusFilterError)
+		return
+	}
+	respondJSON(w, jobList(s.genVideoJobs.list(statuses)))
+}
+
+// handleVideoJobDelete asks a queued or running job to stop, and deletes a
+// finished one with its video.
 func (s *Server) handleVideoJobDelete(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if _, ok := s.videoJobOr404(w, id); !ok {
 		return
 	}
-	s.cancelVideoJob(id)
+	if !s.genVideoJobs.remove(id) {
+		s.cancelVideoJob(id)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
