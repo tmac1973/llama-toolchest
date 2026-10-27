@@ -165,6 +165,8 @@ func TestCatalogReposAllowed(t *testing.T) {
 		"QuantStack/Wan2.2-I2V-A14B-GGUF",
 		"Comfy-Org/Wan_2.1_ComfyUI_repackaged",
 		"Kijai/WanVideo_comfy",
+		"unsloth/LTX-2.3-GGUF",
+		"unsloth/gemma-3-12b-it-GGUF",
 	}
 	for _, e := range Catalog() {
 		for _, c := range e.Components {
@@ -235,5 +237,24 @@ func TestLoraSlotsOnlyForWanPairs(t *testing.T) {
 	}
 	if err := ValidateComponents(KindVideo, "wan22-ti2v-5b", append(base, Component{Slot: "lora"})); err == nil {
 		t.Error("wan22-ti2v-5b took a LoRA slot")
+	}
+}
+
+// LTX-2.3 is under two licences, the model's and its Gemma text model's;
+// the catalog names both.
+func TestCatalogLTXLicence(t *testing.T) {
+	e, ok := LookupCatalog("ltx23-distilled")
+	if !ok {
+		t.Fatal("no ltx23-distilled in the catalog")
+	}
+	if !strings.Contains(e.License, "LTX-2 Community") || !strings.Contains(e.License, "Gemma") {
+		t.Errorf("licence %q, want both the LTX-2 Community Licence and the Gemma terms", e.License)
+	}
+	slots := map[string]bool{}
+	for _, c := range e.Components {
+		slots[c.Slot] = true
+	}
+	if !slots["audio_vae"] || !slots["embeddings_connectors"] {
+		t.Errorf("slots %v, want the audio VAE and the embeddings connectors", slots)
 	}
 }

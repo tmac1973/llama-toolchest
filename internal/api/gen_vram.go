@@ -440,6 +440,11 @@ func measureNote(before int, inst generation.Instance, restarted, started bool) 
 		suggest = inst.MeasuredSuggestedMiB
 	}
 	switch {
+	case capped && inst.ReservedMiB == suggest && suggest < inst.MeasuredPeakMiB:
+		// No slack was left: capReservation keeps the reservation at the
+		// room when the peak is above it, by at most measureOverheadMiB.
+		note += "Reservation capped at " + mibText(suggest) + ", all this card can give the instance. The peak is " +
+			mibText(inst.MeasuredPeakMiB-suggest) + " above it, within the " + mibText(measureOverheadMiB) + " allowed for memory the backend's own limit does not count, such as the GPU runtime's."
 	case capped && inst.ReservedMiB == suggest:
 		note += "Reservation capped at " + mibText(suggest) + " to fit this card, leaving up to " + mibText(reserveSlackMiB) +
 			" free for other programs' memory to change."
@@ -782,8 +787,17 @@ var (
 )
 
 // cleanLogLine shortens a log line for an error message: without sd.cpp's
-// "[E] " level and its " --- file.cpp:123" source suffix.
+// "[E] " level and its " --- file.cpp:123" source suffix. A progress bar
+// redraws itself with carriage returns and an erase-line code, and an error
+// printed while it shows lands on the same line, after the last of them.
 func cleanLogLine(line string) string {
+	line = strings.TrimRight(line, "\r\n")
+	if i := strings.LastIndex(line, "\r"); i >= 0 {
+		line = line[i+1:]
+	}
+	if i := strings.LastIndex(line, "\x1b[K"); i >= 0 {
+		line = line[i+len("\x1b[K"):]
+	}
 	line = strings.TrimSpace(line)
 	line = strings.TrimPrefix(line, "[E] ")
 	if i := strings.LastIndex(line, " --- "); i > 0 {

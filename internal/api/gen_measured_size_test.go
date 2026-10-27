@@ -295,6 +295,14 @@ func TestBackendStoppedError(t *testing.T) {
 	if !strings.Contains(err.Error(), "crashed") || !strings.Contains(err.Error(), "(ggml: ggml_cuda_compute_forward: CONCAT failed)") {
 		t.Errorf("CUDA crash: %v", err)
 	}
+	// The LTX-2.3 crash on the A4000 came while the progress bar showed.
+	bar := []string{"  |===>   |  1/15 -   1.13s/it - ETA 00:15\x1b[K\r  |======>   |  7/15 -   7.58it/s - ETA 00:02\x1b[K[E] ggml: ggml_cuda_compute_forward: CONCAT failed"}
+	if err := backendStoppedError(bar); !strings.Contains(err.Error(), "generation (ggml: ggml_cuda_compute_forward: CONCAT failed)") {
+		t.Errorf("crash after a progress bar: %v", err)
+	}
+	if got := cleanLogLine("[E] ggml: CUDA error\r\n"); got != "ggml: CUDA error" {
+		t.Errorf("line ending in CRLF: %q", got)
+	}
 	oom := []string{
 		"[W] model manager cannot make enough memory available on ROCm0: need 8092.58 MB device / 7580.58 MB budget --- model_manager.cpp:2013",
 		"[E] wan_vae segment 1/1 (graph) failed during weight preparation --- ggml_runner.cpp:898",

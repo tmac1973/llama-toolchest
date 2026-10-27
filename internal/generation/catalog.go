@@ -391,6 +391,53 @@ func Catalog() []CatalogEntry {
 				"Medium took about 25 minutes and needed more memory than that 32 GB card could give.",
 		},
 		{
+			ID:     "ltx23-distilled",
+			Name:   "LTX-2.3 distilled 1.1 (Q4)",
+			Kind:   KindVideo,
+			Recipe: "ltx23-distilled",
+			Components: []Component{
+				{Slot: "diffusion_model", Repo: "unsloth/LTX-2.3-GGUF", File: "distilled-1.1/ltx-2.3-22b-distilled-1.1-Q4_K_M.gguf", Bytes: 14194441248},
+				{Slot: "llm", Repo: "unsloth/gemma-3-12b-it-GGUF", File: "gemma-3-12b-it-Q4_K_M.gguf", Bytes: 7300778336},
+				{Slot: "embeddings_connectors", Repo: "unsloth/LTX-2.3-GGUF", File: "text_encoders/ltx-2.3-22b-dev_embeddings_connectors.safetensors", Bytes: 2312144712},
+				{Slot: "vae", Repo: "unsloth/LTX-2.3-GGUF", File: "vae/ltx-2.3-22b-dev_video_vae.safetensors", Bytes: 1452256522},
+				{Slot: "audio_vae", Repo: "unsloth/LTX-2.3-GGUF", File: "vae/ltx-2.3-22b-dev_audio_vae.safetensors", Bytes: 364853140},
+			},
+			// The ltx23-distilled recipe's defaults. LTX sizes are multiples
+			// of 32: sd-server rounds other sizes up (1280×720 becomes
+			// 1280×736), which the user chose to allow. --temporal-tiling
+			// and not --vae-tiling: sd.cpp master-1015's spatially tiled
+			// LTX video decode stopped progressing on ROCm (the R9700 sat
+			// idle in it for two hours). Tiling only in time, 121 frames of
+			// 1280×736 peaked at 29.6 GiB under a 28.4 GiB limit, against
+			// 30.9 GiB untiled, so Full fits a 32 GB card; the decode took
+			// 38 s against 28 s, with no seams between the tiles.
+			LaunchArgs:   []string{"--steps", "8", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--temporal-tiling"},
+			Capabilities: []string{CapText, CapStartImage, CapEndImage},
+			License:      "LTX-2 Community Licence (free under US$10M yearly revenue); text model: Gemma Terms of Use",
+			Notes: "Text-to-video, image-to-video and start-and-end videos with sound; 8 steps. " +
+				"WebM videos have a sound track; animated WebP is silent. Up to 5 seconds at 1280×720. " +
+				"On a Radeon AI PRO R9700 (32 GB), about 35 s for the 33-frame 768×512 Short size (reservation 28.1 GiB), " +
+				"and about 4.5 minutes for 5 s at 1280×720 (reservation 28.8 GiB, measured at Full); with a start and an end image, about 11 minutes. " +
+				"sd-server makes 1280×720 as 1280×736. On a 16 GB RTX A4000, Measure works at Short (14.4 GiB, about 140 s per video), " +
+				"but stable-diffusion.cpp crashed there with a CUDA error in one of two videos. " +
+				"Licence: free unless the organisation makes US$10 million a year or more; terms at https://huggingface.co/Lightricks/LTX-2.3. " +
+				"Its Gemma 3 text model is under Google's Gemma Terms of Use.",
+			// 121 frames is 5 s at 24 fps.
+			DefaultWidth:  768,
+			DefaultHeight: 512,
+			DefaultFrames: 33,
+			DefaultFPS:    24,
+			MaxFrames:     121,
+			MaxWidth:      1280,
+			MaxHeight:     720,
+			VideoSizes: []VideoSize{
+				{Label: "Short", Frames: 33, Width: 768, Height: 512},
+				{Label: "Medium", Frames: 65, Width: 1280, Height: 720},
+				{Label: "Full", Frames: 121, Width: 1280, Height: 720},
+			},
+			FullMeasureTime: "Measuring the largest size took about 28 minutes on a Radeon AI PRO R9700 (Measure uses a start and an end image, which makes a video about 2.5 times slower).",
+		},
+		{
 			ID:         "ace-step-turbo",
 			Name:       "ACE-Step 1.5 turbo",
 			Kind:       KindAce,

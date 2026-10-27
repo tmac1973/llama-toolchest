@@ -319,10 +319,12 @@ func (s *Server) genInstanceFromForm(r *http.Request, store *generation.Store, i
 	if err := generation.CheckLoraArgs(set, args); err != nil {
 		return err
 	}
-	// Running it differently invalidates any VRAM measurement.
+	// Running it differently invalidates any VRAM measurement, and the
+	// last measurement's note or error with it.
 	if inst.ModelSetID != set.ID || !slicesEqual(inst.ExtraArgs, args) || inst.BuildID != buildID || inst.GPU != gpu {
 		inst.ReservedMiB, inst.MeasuredPeakMiB, inst.MeasuredAt, inst.MeasureEstimated = 0, 0, time.Time{}, false
 		inst.MeasuredSuggestedMiB, inst.MeasuredFrames, inst.MeasuredWidth, inst.MeasuredHeight = 0, 0, 0, 0
+		s.genMeasure.clear(inst.ID)
 	}
 	inst.ModelSetID, inst.BuildID, inst.GPU, inst.ExtraArgs = set.ID, buildID, gpu, args
 	inst.AutoStart = r.FormValue("auto_start") == "on"
