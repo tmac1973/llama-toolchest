@@ -1,4 +1,17 @@
+{{/* "Get embedding models" on the Download Models tab. The embedding
+     models on this machine are on the Models tab. */}}
 {{define "embedding_presets"}}
+<article class="dl-card">
+<header class="rec-head">
+    <div>
+        <strong>Embedding models</strong><br>
+        <small class="rec-muted">Small models that turn text into vectors, for search and retrieval.</small>
+    </div>
+    <div class="rec-actions">
+        <button type="button" class="outline secondary" onclick="toggleDownloadCard('embedding', false)"
+                title="Hide the list. The embedding models you downloaded are on the Models tab.">Hide</button>
+    </div>
+</header>
 <table role="grid">
     <thead>
         <tr><th>Model</th><th>Dims</th><th>Size</th><th></th></tr>
@@ -30,4 +43,5 @@
         {{end}}
     </tbody>
 </table>
+</article>
 {{end}}

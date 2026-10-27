@@ -189,13 +189,6 @@ func TestTheFeedsOtherStates(t *testing.T) {
 	}
 }
 
-func TestTheCollapsedFeed(t *testing.T) {
-	out := renderAny(t, "recommend_collapsed", nil)
-	if !strings.Contains(out, "Find recommended models") || !strings.Contains(out, "/api/hf/recommend?intent=quality&ctx=32k") {
-		t.Errorf("collapsed = %s", out)
-	}
-}
-
 // Opened from a card, the file panel marks the suggested file, passes the
 // context on to its download, and lists the other publishers.
 func TestDetailsOpenedFromACard(t *testing.T) {

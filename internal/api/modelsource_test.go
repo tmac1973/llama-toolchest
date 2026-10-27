@@ -95,7 +95,8 @@ func TestBrowsePageRadioFollowsConfiguredDefault(t *testing.T) {
 		var buf bytes.Buffer
 		data := struct {
 			pageData
-			DefaultSource string
+			DefaultSource     string
+			GenerationEnabled bool
 		}{DefaultSource: def}
 		if err := base.ExecuteTemplate(&buf, "content", data); err != nil {
 			t.Fatalf("execute (default=%q): %v", def, err)
@@ -259,5 +260,37 @@ func TestApplyProbe(t *testing.T) {
 	applyProbe(&f, modelsource.ProbeResult{Probed: true, StreamedBytes: 999 * gib})
 	if f.VRAMEstGB != base.VRAMEstGB {
 		t.Errorf("oversized measurement changed the estimate to %.2f", f.VRAMEstGB)
+	}
+}
+
+// Every kind of model is downloaded from the browse page: one button per
+// card, and the generation catalog only while generation is on.
+func TestBrowsePageDownloadButtons(t *testing.T) {
+	base := testTemplates(t, "templates/layout.html", "templates/models_browse.html", "templates/partials/recommend_feed.html")
+	render := func(gen bool) string {
+		var buf bytes.Buffer
+		data := struct {
+			pageData
+			DefaultSource     string
+			GenerationEnabled bool
+		}{GenerationEnabled: gen}
+		if err := base.ExecuteTemplate(&buf, "content", data); err != nil {
+			t.Fatalf("execute (generation=%v): %v", gen, err)
+		}
+		return buf.String()
+	}
+
+	on := render(true)
+	for _, want := range []string{"Find recommended LLMs", "Get embedding models", "Get generation models", `id="gen-catalog"`, `id="downloads-panel"`} {
+		if !strings.Contains(on, want) {
+			t.Errorf("with generation on, the page has no %q", want)
+		}
+	}
+	off := render(false)
+	if strings.Contains(off, "Get generation models") || strings.Contains(off, `id="gen-catalog"`) {
+		t.Error("the generation catalog is offered while generation is off")
+	}
+	if !strings.Contains(off, "Get embedding models") {
+		t.Error("the embedding models button is missing while generation is off")
 	}
 }

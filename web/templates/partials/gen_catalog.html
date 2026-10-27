@@ -1,0 +1,51 @@
+{{/* "Get generation models" on the Download Models tab: the catalog of
+     known-good sets. The sets on this machine are on the Models tab
+     (gen_model_sets.html). Data: genModelsData (gen_models.go). While a
+     catalog set is downloading, the hidden poller re-fetches the card
+     every 3 seconds. */}}
+{{define "gen_catalog"}}
+{{- $downloading := false}}
+{{- range .Catalog}}{{if .Downloading}}{{$downloading = true}}{{end}}{{end}}
+{{- if $downloading}}
+<div hidden hx-get="/api/gen/models/catalog" hx-trigger="every 3s" hx-target="#gen-catalog" hx-swap="innerHTML"></div>
+{{- end}}
+<article class="dl-card">
+    <header class="rec-head">
+        <div>
+            <strong>Generation models</strong><br>
+            <small class="rec-muted">Known-good sets for the image, video and music backends. Each downloads in one click.
+            {{- if ge .FreeGB 0.0}} <span title="Free disk space a new download may use, after the safety margin and the downloads already running.">{{printf "%.0f" .FreeGB}} GB free.</span>{{end}}</small>
+        </div>
+        <div class="rec-actions">
+            <button type="button" class="outline secondary" onclick="toggleDownloadCard('generation', false)"
+                    title="Hide the catalog. The sets you downloaded are on the Models tab.">Hide</button>
+        </div>
+    </header>
+    <table role="grid">
+        <thead>
+            <tr><th>Set</th><th>Backend</th><th title="Total download size of every file in the set.">Size</th><th>Licence</th><th></th></tr>
+        </thead>
+        <tbody>
+        {{- range .Catalog}}
+            <tr>
+                <td title="{{.Notes}}" style="cursor:help;">{{.Name}}{{range .Capabilities}} <kbd title="{{if eq . "alpha"}}Outputs an alpha channel (transparent backgrounds).{{else if eq . "edit"}}Can edit an image you send.{{else if eq . "text"}}Makes video from a prompt alone.{{else if eq . "start_image"}}Can start from an image you give.{{else if eq . "end_image"}}Can end on an image you give.{{end}}">{{.}}</kbd>{{end}}</td>
+                <td>{{kindTitle .Kind}}</td>
+                <td>{{printf "%.1f" .SizeGB}} GB</td>
+                <td><small>{{.License}}</small></td>
+                <td>
+                    {{- if .Installed}}<small title="The set is ready. It is listed under Generation models on the Models tab.">On this machine</small>
+                    {{- else if .Downloading}}<small title="Progress is shown in the downloads list at the top of this page.">Downloading {{.Percent}}%</small>
+                    {{- else}}
+                    <button type="button" class="outline" style="margin:0;padding:0.2rem 0.6rem;font-size:0.8rem;"
+                            hx-post="/api/gen/models/catalog/{{.ID}}/download?view=catalog"
+                            hx-target="#gen-catalog" hx-swap="innerHTML"
+                            {{if .Incomplete}}title="Some files of this set are missing. Resume downloads only the missing files."{{end}}
+                            data-error-label="Download not started">{{if .Incomplete}}Resume{{else}}Download{{end}}</button>
+                    {{- end}}
+                </td>
+            </tr>
+        {{- end}}
+        </tbody>
+    </table>
+</article>
+{{end}}

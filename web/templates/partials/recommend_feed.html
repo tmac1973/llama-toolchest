@@ -1,20 +1,6 @@
-{{/* "Find recommended models" on the Download Models tab. The page loads
-     with the collapsed form; the button swaps in the feed, and Hide
-     swaps the collapsed form back. Every sentence comes from
-     recommend_view.go. */}}
-{{define "recommend_collapsed"}}
-<div class="rec-collapsed">
-    <button type="button" class="secondary"
-            hx-get="/api/hf/recommend?intent=quality&ctx=32k"
-            hx-target="#recommend-feed" hx-swap="innerHTML"
-            hx-on::before-request="this.setAttribute('aria-busy','true')"
-            hx-on::after-request="this.removeAttribute('aria-busy')"
-            title="Models from Hugging Face that should run on this machine, with the quant and context each would get. The first search can take up to a minute.">
-        Find recommended models
-    </button>
-</div>
-{{end}}
-
+{{/* "Find recommended LLMs" on the Download Models tab. The button
+     (models_browse.html) loads the feed into #recommend-feed, and Hide
+     empties it again. Every sentence comes from recommend_view.go. */}}
 {{define "recommend_feed"}}
 <article class="rec-feed">
     <header class="rec-head">
@@ -31,8 +17,7 @@
                     hx-on::after-request="this.removeAttribute('aria-busy')"
                     title="Ask Hugging Face again. The list is otherwise kept for six hours.">Refresh</button>
             <button type="button" class="outline secondary"
-                    hx-get="/api/hf/recommend?collapsed=1"
-                    hx-target="#recommend-feed" hx-swap="innerHTML"
+                    onclick="toggleDownloadCard('recommended', false)"
                     title="Hide the recommendations. They are kept, so showing them again is quick.">Hide</button>
         </div>
     </header>

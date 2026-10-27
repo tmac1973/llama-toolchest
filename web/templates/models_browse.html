@@ -1,7 +1,10 @@
 {{define "content"}}
 <style>
-    #recommend-feed { margin-bottom: 1.25rem; }
-    .rec-feed { padding: 1rem; margin: 0; }
+    .dl-buttons { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+    .dl-buttons button { width: auto; margin: 0; }
+    .dl-buttons button[aria-expanded="true"] { box-shadow: inset 0 -3px 0 var(--pico-primary); }
+    #recommend-feed:not(:empty), #embedding-presets:not(:empty), #gen-catalog:not(:empty) { margin-bottom: 1.25rem; }
+    .rec-feed, .dl-card { padding: 1rem; margin: 0; }
     .rec-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; flex-wrap: wrap; padding: 0 0 0.75rem; margin-bottom: 0.75rem; }
     .rec-actions { display: flex; gap: 0.4rem; }
     .rec-actions button, .rec-buttons button { padding: 0.25rem 0.7rem; font-size: 0.85rem; width: auto; margin: 0; }
@@ -21,7 +24,44 @@
 </style>
 <h1>Download Models</h1>
 
-<div id="recommend-feed">{{template "recommend_collapsed"}}</div>
+<div id="downloads-panel"
+     hx-get="/api/hf/downloads-panel"
+     hx-trigger="load, every 3s, dlPanelRefresh from:body"
+     hx-swap="innerHTML"
+     hx-on::before-swap="if(event.detail.xhr.responseText===this.innerHTML){event.detail.shouldSwap=false;}">
+</div>
+
+{{/* Each button opens its card below and closes it again. The Models
+     tab links here with ?open=embedding or ?open=generation, which opens
+     that card when the page loads. */}}
+<div class="dl-buttons">
+    <button type="button" class="secondary" id="dl-btn-recommended" aria-expanded="false"
+            onclick="toggleDownloadCard('recommended')"
+            data-error-label="Recommendations not loaded"
+            title="LLMs from Hugging Face that should run on this machine, with the quant and context each would get. The first search can take up to a minute.">
+        Find recommended LLMs
+    </button>
+    <button type="button" class="secondary" id="dl-btn-embedding" aria-expanded="false"
+            onclick="toggleDownloadCard('embedding')"
+            data-error-label="Embedding models not loaded"
+            title="A short list of embedding models that work well with llama-server, for search and retrieval.">
+        Get embedding models
+    </button>
+    {{- if .GenerationEnabled}}
+    <button type="button" class="secondary" id="dl-btn-generation" aria-expanded="false"
+            onclick="toggleDownloadCard('generation')"
+            data-error-label="Generation models not loaded"
+            title="Known-good model sets for the image, video and music backends.">
+        Get generation models
+    </button>
+    {{- end}}
+</div>
+
+<div id="recommend-feed"></div>
+<div id="embedding-presets"></div>
+{{- if .GenerationEnabled}}
+<div id="gen-catalog"></div>
+{{- end}}
 
 <form hx-get="/api/hf/search"
       data-error-label="Search failed"
@@ -47,4 +87,47 @@
 <span id="search-spinner" class="htmx-indicator" aria-busy="true">Searching...</span>
 
 <div id="hf-results"></div>
+
+<script>
+(function () {
+    var cards = {
+        recommended: { target: 'recommend-feed', url: '/api/hf/recommend?intent=quality&ctx=32k' },
+        embedding: { target: 'embedding-presets', url: '/api/models/embedding-presets' },
+        generation: { target: 'gen-catalog', url: '/api/gen/models/catalog' },
+    };
+
+    // toggleDownloadCard opens or closes one card. With show left out it
+    // switches between the two; the Hide buttons inside the cards pass false.
+    window.toggleDownloadCard = function (name, show) {
+        var card = cards[name];
+        var btn = document.getElementById('dl-btn-' + name);
+        var target = card && document.getElementById(card.target);
+        if (!target || !btn) return;
+        var open = target.innerHTML.trim() !== '';
+        if (show === undefined) show = !open;
+        if (!show) {
+            target.innerHTML = '';
+            btn.setAttribute('aria-expanded', 'false');
+            return;
+        }
+        if (open) return;
+        btn.setAttribute('aria-busy', 'true');
+        htmx.ajax('GET', card.url, { source: btn, target: target, swap: 'innerHTML' })
+            .finally(function () {
+                btn.removeAttribute('aria-busy');
+                btn.setAttribute('aria-expanded', target.innerHTML.trim() !== '' ? 'true' : 'false');
+            });
+    };
+
+    // Opened from a link: the search box's autofocus would scroll the page
+    // down to it, past the card, so it is focused without scrolling.
+    var opened = new URLSearchParams(location.search).get('open');
+    if (opened) {
+        var search = document.querySelector('input[name="q"]');
+        search.removeAttribute('autofocus');
+        search.focus({ preventScroll: true });
+        opened.split(',').forEach(function (name) { window.toggleDownloadCard(name.trim(), true); });
+    }
+})();
+</script>
 {{end}}

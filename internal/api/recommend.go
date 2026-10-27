@@ -142,14 +142,8 @@ func (s *Server) recommendAnswer(pool *recommend.Pool, intent recommend.Intent, 
 // /api/hf/recommend?intent=quality|fastest|context|newest&ctx=8k|32k|128k|max.
 // The first request builds the list; later ones read it. htmx requests
 // get the feed, others JSON. Always 200: a failure is a sentence in the
-// answer, so the page can show it. collapsed=1 returns the collapsed
-// form, for the feed's Hide button.
+// answer, so the page can show it.
 func (s *Server) handleRecommend(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Query().Get("collapsed") == "1" {
-		respondHTML(w)
-		s.renderPartial(w, "recommend_collapsed", nil)
-		return
-	}
 	s.serveRecommend(w, r, false)
 }
 

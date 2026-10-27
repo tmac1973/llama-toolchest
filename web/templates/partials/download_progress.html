@@ -11,7 +11,7 @@
         </div>
         <button type="button" class="outline secondary"
                 style="margin:0; padding:0.15rem 0.6rem; font-size:0.8rem; flex:0 0 auto;"
-                title="Stop downloading but keep the partial files — resume from the Models page"
+                title="Stop downloading but keep the partial files. Resume from the downloads list."
                 hx-delete="/api/hf/download/{{.DownloadID}}"
                 hx-swap="none"
                 hx-on::after-request="this.style.display='none'">Pause</button>

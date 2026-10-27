@@ -31,13 +31,12 @@
 <hr>
 <div style="display: flex; justify-content: space-between; align-items: center; padding: 0 0.25rem 0.5rem 0;">
     <h4 style="margin:0;">Embedding Models</h4>
-    <button type="button" class="outline" id="embedding-presets-btn"
-            style="margin: 0; padding: 0.2rem 0.6rem; font-size: 0.8rem;"
-            onclick="var t=document.getElementById('embedding-presets'); if(t.innerHTML.trim()){t.innerHTML='';} else {htmx.ajax('GET','/api/models/embedding-presets',{target:'#embedding-presets',swap:'innerHTML'});}">
-        Get Embedding Models
-    </button>
+    <a href="/models/browse?open=embedding" role="button" class="outline"
+       style="margin: 0; padding: 0.2rem 0.6rem; font-size: 0.8rem;"
+       title="Opens the Download Models tab with the list of embedding models.">
+        Get embedding models
+    </a>
 </div>
-<div id="embedding-presets"></div>
 <div id="embedding-list" hx-get="/api/models/embeddings" hx-trigger="load, modelsChanged from:body" hx-swap="innerHTML">
 </div>
 
@@ -46,7 +45,14 @@
 
 {{if .GenerationEnabled}}
 <hr>
-<h4 title="Model sets for the image (stable-diffusion.cpp) and music (acestep.cpp) backends. A set is the group of files a backend loads together.">Generation models</h4>
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 0 0.25rem 0.5rem 0;">
+    <h4 style="margin:0;" title="Model sets for the image and video (stable-diffusion.cpp) and music (acestep.cpp) backends. A set is the group of files a backend loads together.">Generation models</h4>
+    <a href="/models/browse?open=generation" role="button" class="outline"
+       style="margin: 0; padding: 0.2rem 0.6rem; font-size: 0.8rem;"
+       title="Opens the Download Models tab with the catalog of generation model sets.">
+        Get generation models
+    </a>
+</div>
 <div id="gen-model-sets" hx-get="/api/gen/models" hx-trigger="load" hx-swap="innerHTML">
     Loading...
 </div>

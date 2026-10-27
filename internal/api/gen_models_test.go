@@ -238,3 +238,70 @@ func TestGenModelsJSONKeys(t *testing.T) {
 		}
 	}
 }
+
+// The catalog card lives on the Download Models tab and the sets on the
+// Models tab. A download started from the catalog answers with the card
+// and asks the downloads list to refresh; the Models tab's Resume gets
+// the sets back.
+func TestGenCatalogCardIsSeparateFromSets(t *testing.T) {
+	s := genServer(t)
+	rec := httptest.NewRecorder()
+	s.handleGenCatalog(rec, htmxReq("GET", "/api/gen/models/catalog", nil))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "FLUX.2 klein 4B") {
+		t.Fatalf("catalog card: %d %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "Add a custom set") {
+		t.Error("the catalog card carries the custom set form")
+	}
+
+	sets := httptest.NewRecorder()
+	s.handleGenModels(sets, htmxReq("GET", "/api/gen/models", nil))
+	if strings.Contains(sets.Body.String(), "/download?view=catalog") {
+		t.Error("the Models tab section still carries the catalog")
+	}
+
+	dl := httptest.NewRecorder()
+	s.handleGenCatalogDownload(dl, withID(htmxReq("POST", "/?view=catalog", nil), "flux2-klein-4b"))
+	if dl.Code != http.StatusOK {
+		t.Fatalf("download: %d %s", dl.Code, dl.Body.String())
+	}
+	if got := dl.Header().Get("HX-Trigger"); got != "dlPanelRefresh" {
+		t.Errorf("HX-Trigger = %q, want dlPanelRefresh", got)
+	}
+	if strings.Contains(dl.Body.String(), "Add a custom set") || !strings.Contains(dl.Body.String(), "Generation models") {
+		t.Errorf("a catalog download did not answer with the catalog card:\n%s", dl.Body.String())
+	}
+}
+
+// A catalog row says what its set is doing: Download before it is
+// started, Resume when files are missing, On this machine when complete.
+func TestGenCatalogRowStatus(t *testing.T) {
+	s := genServer(t)
+	entry, _ := generation.LookupCatalog("flux2-klein-4b")
+	row := func() genCatalogRow {
+		for _, r := range s.genModelsView(s.gen).Catalog {
+			if r.ID == entry.ID {
+				return r
+			}
+		}
+		t.Fatal("catalog entry missing")
+		return genCatalogRow{}
+	}
+	if r := row(); r.Installed || r.Incomplete || r.Downloading {
+		t.Errorf("before download: %+v", r)
+	}
+	set := generation.ModelSet{ID: entry.ID, Name: entry.Name, Kind: entry.Kind, CatalogID: entry.ID, Recipe: entry.Recipe, Components: entry.Components}
+	if err := s.gen.AddModelSet(set); err != nil {
+		t.Fatal(err)
+	}
+	if r := row(); !r.Incomplete || r.Installed {
+		t.Errorf("with files missing: installed=%v incomplete=%v", r.Installed, r.Incomplete)
+	}
+	set.Complete = true
+	if err := s.gen.UpdateModelSet(set); err != nil {
+		t.Fatal(err)
+	}
+	if r := row(); !r.Installed || r.Incomplete {
+		t.Errorf("complete: installed=%v incomplete=%v", r.Installed, r.Incomplete)
+	}
+}
