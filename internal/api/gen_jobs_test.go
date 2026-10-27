@@ -65,6 +65,20 @@ func TestJobStoreKeepsJobsAcrossRestart(t *testing.T) {
 	}
 }
 
+// A job that fails because shutdown stopped its backend is not saved as
+// failed with that error: the next start fails it as interrupted.
+func TestJobStoreClosedKeepsJobsUnfinished(t *testing.T) {
+	dir := t.TempDir()
+	st := openStore[imageJob](t, dir, time.Now())
+	st.add(&imageJob{ID: "aaaaaaaaaaaaaaaa", Status: jobRunning})
+	st.close()
+	now := time.Now()
+	st.update("aaaaaaaaaaaaaaaa", func(j *imageJob) { j.Status, j.Error, j.Finished = jobFailed, "generating: EOF", &now })
+	if j, _ := openStore[imageJob](t, dir, time.Now()).view("aaaaaaaaaaaaaaaa"); j.Error != jobRestartedError {
+		t.Errorf("after a restart the job's error is %q, want %q", j.Error, jobRestartedError)
+	}
+}
+
 func TestJobStoreRestoresPrivateParts(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now()

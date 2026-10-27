@@ -90,6 +90,18 @@ type jobStore[T jobRecord[T]] struct {
 	outDir string
 	// saveMu keeps record writes in the order of the updates they save.
 	saveMu sync.Mutex
+	// closed stops saving, once the server is shutting down.
+	closed bool
+}
+
+// close stops the store saving changes. Shutdown calls it before stopping
+// the backends, so a job those stops fail is still saved as unfinished,
+// and the next start fails it with jobRestartedError rather than whatever
+// error the dying backend caused.
+func (m *jobStore[T]) close() {
+	m.mu.Lock()
+	m.closed = true
+	m.mu.Unlock()
 }
 
 // open sets the store's directories and loads the jobs saved there. Jobs
@@ -186,7 +198,7 @@ func encodeJob[T jobRecord[T]](j T) []byte {
 // releases: the file is written outside it, so a slow disk does not hold
 // up readers, but under saveMu, so writes land in order.
 func (m *jobStore[T]) saveLocked(j T) {
-	if m.dir == "" {
+	if m.dir == "" || m.closed {
 		m.mu.Unlock()
 		return
 	}

@@ -260,9 +260,13 @@ func (s *Server) clearDirty() {
 func (s *Server) SetVersion(v string) { s.version = v }
 
 // Shutdown releases server-owned resources that outlive the HTTP listener.
-// Today that's the child llama-server router: without this, the cgroup keeps
-// it alive until systemd's TimeoutStopSec fires SIGKILL.
+// Today that's the child llama-server router and the generation backends:
+// without this, the cgroup keeps them alive until systemd's TimeoutStopSec
+// fires SIGKILL. Generation jobs stop being saved first (jobStore.close).
 func (s *Server) Shutdown() {
+	s.genMusic.close()
+	s.genImageJobs.close()
+	s.genVideoJobs.close()
 	s.genMgr.StopAll()
 	if err := s.process.Stop(); err != nil {
 		// "router not running" is the expected case when nothing was started.
