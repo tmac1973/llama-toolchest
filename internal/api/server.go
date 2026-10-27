@@ -778,6 +778,7 @@ func (s *Server) buildRouter() chi.Router {
 		r.Get("/gen/banner", s.handleGenBanner)
 		r.Route("/gen/models", func(r chi.Router) {
 			r.Get("/", s.handleGenModels)
+			r.Get("/catalog", s.handleGenCatalog)
 			r.Post("/catalog/{id}/download", s.handleGenCatalogDownload)
 			r.Post("/sets", s.handleGenCreateSet)
 			r.Delete("/sets/{id}", s.handleGenDeleteSet)
@@ -985,9 +986,12 @@ func (s *Server) handleModelsBrowsePage(w http.ResponseWriter, r *http.Request) 
 	s.render(w, "models_browse.html", struct {
 		pageData
 		DefaultSource string
+		// GenerationEnabled shows "Get generation models".
+		GenerationEnabled bool
 	}{
-		pageData:      pageData{Title: "Download Models", Nav: "browse"},
-		DefaultSource: s.defaultModelSource(),
+		pageData:          pageData{Title: "Download Models", Nav: "browse"},
+		DefaultSource:     s.defaultModelSource(),
+		GenerationEnabled: s.cfg.GenerationEnabled,
 	})
 }
 

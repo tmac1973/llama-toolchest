@@ -1,7 +1,8 @@
-{{/* The Models page's Generation models section: the catalog, the sets
-     on this machine, and the custom set form. Data: genModelsData
-     (gen_models.go). While any set is downloading, the hidden poller
-     re-fetches the section every 3 seconds. */}}
+{{/* The Models page's Generation models section: the sets on this
+     machine and the custom set form. The catalog is on the Download
+     Models tab (gen_catalog.html). Data: genModelsData (gen_models.go).
+     While any set is downloading, the hidden poller re-fetches the
+     section every 3 seconds. */}}
 {{define "gen_model_sets"}}
 {{- $downloading := false}}
 {{- range .Sets}}{{if .Downloading}}{{$downloading = true}}{{end}}{{end}}
@@ -10,39 +11,9 @@
 {{- end}}
 
 <article>
-    <header>Catalog</header>
-    <p style="font-size:0.9rem;">Known-good sets that download in one click.
-    {{- if ge .FreeGB 0.0}} <span title="Free disk space a new download may use, after the safety margin and the downloads already running.">{{printf "%.0f" .FreeGB}} GB free.</span>{{end}}</p>
-    <table role="grid">
-        <thead>
-            <tr><th>Set</th><th>Backend</th><th title="Total download size of every file in the set.">Size</th><th>Licence</th><th></th></tr>
-        </thead>
-        <tbody>
-        {{- range .Catalog}}
-            <tr>
-                <td title="{{.Notes}}" style="cursor:help;">{{.Name}}{{range .Capabilities}} <kbd title="{{if eq . "alpha"}}Outputs an alpha channel (transparent backgrounds).{{else if eq . "edit"}}Can edit an image you send.{{else if eq . "text"}}Makes video from a prompt alone.{{else if eq . "start_image"}}Can start from an image you give.{{else if eq . "end_image"}}Can end on an image you give.{{end}}">{{.}}</kbd>{{end}}</td>
-                <td>{{kindTitle .Kind}}</td>
-                <td>{{printf "%.1f" .SizeGB}} GB</td>
-                <td><small>{{.License}}</small></td>
-                <td>
-                    {{- if .Installed}}<small>On this machine</small>
-                    {{- else}}
-                    <button type="button" class="outline" style="margin:0;padding:0.2rem 0.6rem;font-size:0.8rem;"
-                            hx-post="/api/gen/models/catalog/{{.ID}}/download"
-                            hx-target="#gen-model-sets" hx-swap="innerHTML"
-                            data-error-label="Download not started">Download</button>
-                    {{- end}}
-                </td>
-            </tr>
-        {{- end}}
-        </tbody>
-    </table>
-</article>
-
-<article>
     <header>On this machine</header>
     {{- if not .Sets}}
-    <p><small>No generation model sets yet. Download one from the catalog, or add one from files you already have.</small></p>
+    <p><small>No generation model sets yet. <a href="/models/browse?open=generation">Download one from the catalog</a>, or add one from files you already have.</small></p>
     {{- else}}
     <table role="grid">
         <thead>

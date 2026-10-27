@@ -79,8 +79,15 @@ type genModelsData struct {
 
 type genCatalogRow struct {
 	generation.CatalogEntry
+	// Installed is true once the set is complete on this machine.
 	Installed bool    `json:"installed"`
 	SizeGB    float64 `json:"size_gb"`
+	// Downloading and Incomplete describe a set that was started but is
+	// not complete yet: its files are downloading now, or some are missing
+	// and Resume fetches them.
+	Downloading bool `json:"downloading"`
+	Incomplete  bool `json:"incomplete"`
+	Percent     int  `json:"percent"`
 }
 
 type genSetRow struct {
@@ -101,13 +108,17 @@ func (s *Server) genModelsView(store *generation.Store) genModelsData {
 	if avail := s.downloader.AvailableForDownload(); avail >= 0 {
 		data.FreeGB = float64(avail) / 1e9
 	}
-	sets := store.ModelSets()
-	for _, e := range generation.Catalog() {
-		installed := slices.ContainsFunc(sets, func(m generation.ModelSet) bool { return m.ID == e.ID })
-		data.Catalog = append(data.Catalog, genCatalogRow{CatalogEntry: e, Installed: installed, SizeGB: float64(e.TotalBytes()) / 1e9})
-	}
-	for _, m := range sets {
+	for _, m := range store.ModelSets() {
 		data.Sets = append(data.Sets, s.genSetRowFor(m))
+	}
+	for _, e := range generation.Catalog() {
+		row := genCatalogRow{CatalogEntry: e, SizeGB: float64(e.TotalBytes()) / 1e9}
+		if i := slices.IndexFunc(data.Sets, func(m genSetRow) bool { return m.ID == e.ID }); i >= 0 {
+			set := data.Sets[i]
+			row.Installed, row.Downloading, row.Percent = set.Complete, set.Downloading, set.Percent
+			row.Incomplete = !set.Complete && !set.Downloading
+		}
+		data.Catalog = append(data.Catalog, row)
 	}
 	return data
 }
@@ -160,7 +171,25 @@ func (s *Server) handleGenModels(w http.ResponseWriter, r *http.Request) {
 	s.renderPartial(w, "gen_model_sets", data)
 }
 
+// handleGenCatalog serves the catalog card on the Download Models tab.
+// Non-htmx requests get the same JSON as GET /api/gen/models.
+func (s *Server) handleGenCatalog(w http.ResponseWriter, r *http.Request) {
+	store := s.genStore(w)
+	if store == nil {
+		return
+	}
+	data := s.genModelsView(store)
+	if !isHTMX(r) {
+		respondJSON(w, data)
+		return
+	}
+	respondHTML(w)
+	s.renderPartial(w, "gen_catalog", data)
+}
+
 // handleGenCatalogDownload starts, or resumes, downloading a catalog set.
+// It answers with the section the button is in: the catalog card for
+// view=catalog (Download Models tab), otherwise the Models tab's sets.
 func (s *Server) handleGenCatalogDownload(w http.ResponseWriter, r *http.Request) {
 	store := s.genStore(w)
 	if store == nil {
@@ -228,6 +257,12 @@ func (s *Server) handleGenCatalogDownload(w http.ResponseWriter, r *http.Request
 	}
 	s.genDownloads.set(set.ID, ids)
 	slog.Info("generation model set download started", "set", set.ID, "files", len(ids))
+	// The downloads list shows the new files without waiting for its poll.
+	w.Header().Set("HX-Trigger", "dlPanelRefresh")
+	if r.URL.Query().Get("view") == "catalog" {
+		s.handleGenCatalog(w, r)
+		return
+	}
 	s.handleGenModels(w, r)
 }
 
