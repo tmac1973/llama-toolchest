@@ -183,7 +183,9 @@ func Apply(f *File, sel Selections, deps Deps) Report {
 			merged.Curated[k] = v
 		}
 		if strings.TrimSpace(f.RuntimeEnv.Extra) != "" {
-			merged.Extra = f.RuntimeEnv.Extra
+			// A backup made without secrets has no secret-looking lines;
+			// the target's own are kept rather than dropped.
+			merged.Extra = config.KeepSecretEnv(f.RuntimeEnv.Extra, cur.Extra)
 		}
 		set := config.EnvSet{Curated: merged.Curated, Extra: merged.Extra}
 		if err := set.Validate(); err != nil {

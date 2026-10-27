@@ -61,8 +61,8 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [ ] A failed SIGTERM ("terminate failed") is logged at Debug — `internal/process/supervisor.go:173`
 
 ### Security
-- [ ] State-changing endpoints (settings, restore, build delete) have no CSRF, Origin or Sec-Fetch-Site check — `internal/api/settings.go:166`, `internal/api/server.go:646`
-- [ ] Extra runtime environment pairs are shown as full KEY=VALUE text and exported in every backup, so a token typed in as an env var is not masked — `internal/api/runtime_env_view.go:26`, `internal/backup/backup.go:143`
+- [x] State-changing endpoints (settings, restore, build delete) have no CSRF, Origin or Sec-Fetch-Site check — `internal/api/settings.go:166`, `internal/api/server.go:646` *(Go's `http.CrossOriginProtection` on every route except `/v1/` and the ACE-Step routes, which take the API key.)*
+- [x] Extra runtime environment pairs are shown as full KEY=VALUE text and exported in every backup, so a token typed in as an env var is not masked — `internal/api/runtime_env_view.go:26`, `internal/backup/backup.go:143` *(values of names with TOKEN, SECRET, PASSWORD, PASSWD, KEY, CREDENTIAL or AUTH are masked on the pages and left out of backups made without `?secrets=1`; a masked line saved unchanged keeps its value, and a restore keeps the target's own.)*
 
 ### Testing
 - [ ] `cmd/agent` has no tests: `executeTool` has no `..` check on file paths, `parseContentToolCalls` is untested, and the 8192-byte cut can split a multi-byte character — `cmd/agent/main.go:102`, `cmd/agent/main.go:330`, `cmd/agent/main.go:366`

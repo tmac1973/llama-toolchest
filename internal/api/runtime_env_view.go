@@ -3,6 +3,8 @@ package api
 import (
 	"os"
 	"strings"
+
+	"github.com/tmac1973/llama-toolchest/internal/config"
 )
 
 // envLine is one row of the effective-environment preview: the KEY=VALUE
@@ -20,11 +22,11 @@ type envLine struct {
 
 // effectiveEnvLines renders the configured runtime environment as the
 // launch will apply it, annotating entries the inherited service
-// environment overrides.
+// environment overrides. The value of a secret-looking name is masked.
 func (s *Server) effectiveEnvLines() []envLine {
 	var out []envLine
 	for _, kv := range s.cfg.EnvSet().Pairs() {
-		line := envLine{Text: kv}
+		line := envLine{Text: config.MaskEnvText(kv)}
 		name := kv
 		if i := strings.IndexByte(kv, '='); i > 0 {
 			name = kv[:i]

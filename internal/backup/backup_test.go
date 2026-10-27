@@ -161,3 +161,15 @@ func TestAssembleDedupesIdentity(t *testing.T) {
 		t.Errorf("smallest registry ID should win, got ctx=%d", f.ModelConfigs[0].Config.ContextSize)
 	}
 }
+
+// A secret-looking extra env line follows the secrets flag like the tokens.
+func TestAssembleLeavesSecretEnvLinesOut(t *testing.T) {
+	cfg, b, reg := testState(t)
+	cfg.RuntimeEnvExtra = "FOO=bar\nHF_TOKEN=hf_env_secret"
+	if plain := Assemble(cfg, b, reg, nil, false); plain.RuntimeEnv.Extra != "FOO=bar" {
+		t.Errorf("secrets-off extra = %q, want FOO=bar", plain.RuntimeEnv.Extra)
+	}
+	if full := Assemble(cfg, b, reg, nil, true); full.RuntimeEnv.Extra != cfg.RuntimeEnvExtra {
+		t.Errorf("secrets-on extra = %q, want %q", full.RuntimeEnv.Extra, cfg.RuntimeEnvExtra)
+	}
+}

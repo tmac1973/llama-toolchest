@@ -140,7 +140,13 @@ func Assemble(cfg *config.Config, b *builder.Builder, reg *models.Registry, gpus
 	}
 	f.Settings = s
 
-	f.RuntimeEnv = &RuntimeEnv{Curated: cfg.RuntimeEnv, Extra: cfg.RuntimeEnvExtra}
+	// Extra lines whose names look secret (HF_TOKEN=..., ..._API_KEY=...)
+	// are secrets too, so they follow the same flag.
+	extra := cfg.RuntimeEnvExtra
+	if !includeSecrets {
+		extra = config.StripSecretEnv(extra)
+	}
+	f.RuntimeEnv = &RuntimeEnv{Curated: cfg.RuntimeEnv, Extra: extra}
 
 	f.FlagPresets = b.FlagPresets("") // already name-sorted
 

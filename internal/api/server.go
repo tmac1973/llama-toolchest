@@ -646,6 +646,7 @@ func (s *Server) buildRouter() chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(crossOriginProtection)
 	r.Use(middleware.Compress(5))
 
 	// Static assets (htmx, Pico CSS)
@@ -1116,7 +1117,7 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		AutoStart:        s.cfg.AutoStart,
 		RuntimeEnvOpts:   config.RuntimeEnvOptions(),
 		RuntimeEnv:       s.cfg.RuntimeEnv,
-		RuntimeEnvExtra:  s.cfg.RuntimeEnvExtra,
+		RuntimeEnvExtra:  config.MaskEnvText(s.cfg.RuntimeEnvExtra),
 		EnvBackends:      config.RuntimeEnvBackends(),
 		ActiveBackend:    s.activeBackend(),
 		EnvWarnings:      s.cfg.EnvSet().Warnings(),

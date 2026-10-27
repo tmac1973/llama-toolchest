@@ -204,7 +204,9 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			}
 			extra := s.cfg.RuntimeEnvExtra
 			if r.Form.Has("runtime_env_extra") {
-				extra = r.FormValue("runtime_env_extra")
+				// The page shows secret-looking values masked; a line left
+				// masked keeps its stored value.
+				extra = config.UnmaskEnvText(r.FormValue("runtime_env_extra"), s.cfg.RuntimeEnvExtra)
 			}
 			set := config.EnvSet{Curated: env, Extra: extra}
 			if err := set.Validate(); err != nil {
