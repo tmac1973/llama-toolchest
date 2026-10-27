@@ -265,6 +265,10 @@ func buildVideoRequest(in videoInput, inst generation.Instance, set generation.M
 			return videoJobRequest{}, vidGenRequest{}, badVideo("bad_value", "extra may not set %q; use the request field instead", k)
 		}
 	}
+	loras := setLoras(set)
+	if _, ok := in.Extra["lora"]; ok && len(loras) > 0 {
+		return videoJobRequest{}, vidGenRequest{}, badVideo("bad_value", `extra may not set "lora"; %s sends its own LoRAs`, set.Name)
+	}
 
 	w, h := set.DefaultWidth, set.DefaultHeight
 	if in.Size != "" {
@@ -334,7 +338,7 @@ func buildVideoRequest(in videoInput, inst generation.Instance, set generation.M
 	}
 	vid := vidGenRequest{
 		Prompt: in.Prompt, NegativePrompt: in.NegativePrompt, Width: w, Height: h, Seed: seed,
-		Frames: frames, FPS: fps, InitImage: in.StartImage, EndImage: in.EndImage, OutputFormat: format, Extra: in.Extra,
+		Frames: frames, FPS: fps, InitImage: in.StartImage, EndImage: in.EndImage, OutputFormat: format, Lora: loras, Extra: in.Extra,
 	}
 	return shown, vid, nil
 }

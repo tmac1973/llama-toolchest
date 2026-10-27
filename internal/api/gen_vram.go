@@ -937,7 +937,7 @@ func runMeasureVideo(ctx context.Context, base string, set generation.ModelSet, 
 	w, h := max(size.Width, 64), max(size.Height, 64)
 	req := vidGenRequest{
 		Prompt: "a sunrise over a calm sea, slow camera pan", Width: w, Height: h, Seed: 42,
-		Frames: max(size.Frames, 1), FPS: max(set.DefaultFPS, 1), OutputFormat: "webm",
+		Frames: max(size.Frames, 1), FPS: max(set.DefaultFPS, 1), OutputFormat: "webm", Lora: setLoras(set),
 	}
 	if canStart {
 		req.InitImage = base64.StdEncoding.EncodeToString(measurePicture(w, h, false))

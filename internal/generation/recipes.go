@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -83,9 +84,57 @@ func wanSlots() RecipeSlotSet {
 }
 
 // wanMoESlots are the Wan2.2 A14B pairs: a low-noise and a high-noise
-// expert.
+// expert, each with an optional LoRA (such as the Lightning 4-step ones).
 func wanMoESlots() RecipeSlotSet {
-	return RecipeSlotSet{Required: []string{"diffusion_model", "high_noise_diffusion_model", "t5xxl"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}}
+	return RecipeSlotSet{Required: []string{"diffusion_model", "high_noise_diffusion_model", "t5xxl"},
+		Optional: []string{"vae", "tae", "lora", "high_noise_lora"}, OneOf: []string{"vae", "tae"}}
+}
+
+// LoraSlots are the LoRA slots, and whether each one is for the
+// high-noise expert. sd-server has no flag per LoRA file: it is given the
+// folder the files are in (--lora-model-dir), and each request names the
+// LoRAs to apply.
+var LoraSlots = map[string]bool{"lora": false, "high_noise_lora": true}
+
+// Loras returns the set's LoRA components.
+func (m ModelSet) Loras() []Component {
+	var out []Component
+	for _, c := range m.Components {
+		if _, ok := LoraSlots[c.Slot]; ok {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// LoraDir returns the folder all of the set's LoRA files are in, or "" for
+// a set without LoRAs. sd-server only uses LoRA files inside its
+// --lora-model-dir and skips links that point outside it, so the files
+// must share one folder.
+func LoraDir(set ModelSet) (string, error) {
+	dir := ""
+	for _, c := range set.Loras() {
+		d := filepath.Dir(c.Path)
+		if dir != "" && d != dir {
+			return "", fmt.Errorf("the LoRA files of a set must be in one folder: %s and %s", dir, d)
+		}
+		dir = d
+	}
+	return dir, nil
+}
+
+// CheckLoraArgs refuses --lora-model-dir in a set's or instance's flags
+// when the set has LoRAs of its own: toolchest sets that flag for them.
+func CheckLoraArgs(set ModelSet, args []string) error {
+	if len(set.Loras()) == 0 {
+		return nil
+	}
+	for _, a := range args {
+		if name, _, _ := strings.Cut(a, "="); name == "--lora-model-dir" {
+			return fmt.Errorf("--lora-model-dir is set by llama-toolchest for %s, which has LoRA files of its own", set.Name)
+		}
+	}
+	return nil
 }
 
 func ltxSlots() RecipeSlotSet {

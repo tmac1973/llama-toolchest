@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -104,11 +105,24 @@ func LaunchSpec(inst Instance, set ModelSet, build builder.BuildResult, host, da
 	case KindSD, KindVideo:
 		args = []string{"--listen-ip", host, "--listen-port", port}
 		for _, c := range set.Components {
+			if _, lora := LoraSlots[c.Slot]; lora {
+				continue
+			}
 			flag := sdSlotFlags[c.Slot]
 			if flag == "" {
 				return cfg, fmt.Errorf("model set %s: sd-server has no flag for slot %q", set.ID, c.Slot)
 			}
 			args = append(args, flag, c.Path)
+		}
+		loraDir, err := LoraDir(set)
+		if err != nil {
+			return cfg, fmt.Errorf("model set %s: %w", set.ID, err)
+		}
+		if loraDir != "" {
+			args = append(args, "--lora-model-dir", loraDir)
+		}
+		if err := CheckLoraArgs(set, append(slices.Clone(set.RunArgs()), inst.ExtraArgs...)); err != nil {
+			return cfg, err
 		}
 		args = append(args, set.RunArgs()...)
 		args = append(args, inst.ExtraArgs...)

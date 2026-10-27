@@ -1,6 +1,7 @@
 package generation
 
 import (
+	"path"
 	"slices"
 	"strings"
 	"testing"
@@ -9,11 +10,12 @@ import (
 )
 
 // Every slot a video recipe can take must have an sd-server flag, or a
-// set using it could not be launched.
+// set using it could not be launched. LoRA slots are the exception: they
+// go to sd-server as one --lora-model-dir.
 func TestVideoRecipeSlotsHaveFlags(t *testing.T) {
 	for id, r := range VideoRecipes {
 		for _, slot := range r.Slots.Slots() {
-			if sdSlotFlags[slot] == "" {
+			if _, lora := LoraSlots[slot]; !lora && sdSlotFlags[slot] == "" {
 				t.Errorf("%s: slot %q has no sd-server flag", id, slot)
 			}
 		}
@@ -162,6 +164,7 @@ func TestCatalogReposAllowed(t *testing.T) {
 		"Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
 		"QuantStack/Wan2.2-I2V-A14B-GGUF",
 		"Comfy-Org/Wan_2.1_ComfyUI_repackaged",
+		"Kijai/WanVideo_comfy",
 	}
 	for _, e := range Catalog() {
 		for _, c := range e.Components {
@@ -197,5 +200,40 @@ func TestCatalogWanSetsShareText(t *testing.T) {
 	}
 	if !slots["diffusion_model"] || !slots["high_noise_diffusion_model"] {
 		t.Errorf("slots %v, want both experts", slots)
+	}
+}
+
+// The Lightning set shares every file but its LoRAs with the 20-step A14B
+// set, and has one LoRA for each expert.
+func TestCatalogA14BLightningSharesFiles(t *testing.T) {
+	pair, _ := LookupCatalog("wan22-i2v-a14b")
+	fast, ok := LookupCatalog("wan22-i2v-a14b-lightning")
+	if !ok {
+		t.Fatal("no wan22-i2v-a14b-lightning in the catalog")
+	}
+	for _, c := range pair.Components {
+		if !slices.Contains(fast.Components, c) {
+			t.Errorf("the Lightning set does not share %s (%s)", c.Slot, c.File)
+		}
+	}
+	set := ModelSet{Components: fast.Components}
+	loras := set.Loras()
+	if len(loras) != 2 || LoraSlots[loras[0].Slot] == LoraSlots[loras[1].Slot] {
+		t.Errorf("LoRAs %+v, want one for each expert", loras)
+	}
+	if path.Dir(loras[0].File) != path.Dir(loras[1].File) {
+		t.Errorf("the LoRA files are in different folders: %s, %s", loras[0].File, loras[1].File)
+	}
+}
+
+// Only the two-expert Wan2.2 recipes take LoRA slots.
+func TestLoraSlotsOnlyForWanPairs(t *testing.T) {
+	base := []Component{{Slot: "diffusion_model"}, {Slot: "t5xxl"}, {Slot: "vae"}}
+	pair := append(slices.Clone(base), Component{Slot: "high_noise_diffusion_model"}, Component{Slot: "lora"}, Component{Slot: "high_noise_lora"})
+	if err := ValidateComponents(KindVideo, "wan22-i2v", pair); err != nil {
+		t.Errorf("wan22-i2v with LoRAs: %v", err)
+	}
+	if err := ValidateComponents(KindVideo, "wan22-ti2v-5b", append(base, Component{Slot: "lora"})); err == nil {
+		t.Error("wan22-ti2v-5b took a LoRA slot")
 	}
 }

@@ -65,6 +65,10 @@ var (
 	chromaT5 = Component{Slot: "t5xxl", Repo: "city96/t5-v1_1-xxl-encoder-gguf", File: "t5-v1_1-xxl-encoder-Q8_0.gguf", Bytes: 5061584064}
 	// wan21VAE is the Wan2.1 VAE, used by the Wan2.2 A14B pairs.
 	wan21VAE = Component{Slot: "vae", Repo: "Comfy-Org/Wan_2.1_ComfyUI_repackaged", File: "split_files/vae/wan_2.1_vae.safetensors", Bytes: 253815318}
+	// a14bLow and a14bHigh are the Wan2.2 I2V A14B experts, used by the
+	// 20-step set and the Lightning set.
+	a14bLow  = Component{Slot: "diffusion_model", Repo: "QuantStack/Wan2.2-I2V-A14B-GGUF", File: "LowNoise/Wan2.2-I2V-A14B-LowNoise-Q4_K_M.gguf", Bytes: 9651728896}
+	a14bHigh = Component{Slot: "high_noise_diffusion_model", Repo: "QuantStack/Wan2.2-I2V-A14B-GGUF", File: "HighNoise/Wan2.2-I2V-A14B-HighNoise-Q4_K_M.gguf", Bytes: 9651728896}
 	// umt5Q8 is the text encoder of the Wan video sets.
 	umt5Q8 = Component{Slot: "t5xxl", Repo: "city96/umt5-xxl-encoder-gguf", File: "umt5-xxl-encoder-Q8_0.gguf", Bytes: 6043068256}
 	// flux2SmallDecoder is a FLUX.2 VAE, used by FLUX.2 klein and FLUX.3
@@ -292,8 +296,8 @@ func Catalog() []CatalogEntry {
 			Kind:   KindVideo,
 			Recipe: "wan22-i2v",
 			Components: []Component{
-				{Slot: "diffusion_model", Repo: "QuantStack/Wan2.2-I2V-A14B-GGUF", File: "LowNoise/Wan2.2-I2V-A14B-LowNoise-Q4_K_M.gguf", Bytes: 9651728896},
-				{Slot: "high_noise_diffusion_model", Repo: "QuantStack/Wan2.2-I2V-A14B-GGUF", File: "HighNoise/Wan2.2-I2V-A14B-HighNoise-Q4_K_M.gguf", Bytes: 9651728896},
+				a14bLow,
+				a14bHigh,
 				umt5Q8,
 				wan21VAE,
 			},
@@ -314,7 +318,8 @@ func Catalog() []CatalogEntry {
 			License:      "Apache-2.0",
 			Notes: "Image-to-video and start-and-end videos; needs a start image. Two 14B experts (high and low noise); 20 steps. " +
 				"Up to 5 seconds at 1280×720. Shares its text model with Wan2.2 TI2V 5B. " +
-				"Slow: a 2-second video at 832×480 takes about 27 minutes on a Radeon AI PRO R9700, against about 70 seconds for TI2V 5B.",
+				"Slow: a 2-second video at 832×480 takes about 27 minutes on a Radeon AI PRO R9700, against about 70 seconds for TI2V 5B. " +
+				"For faster videos, use Wan2.2 I2V A14B Lightning.",
 			// 81 frames is 5 s at 16 fps.
 			DefaultWidth:  832,
 			DefaultHeight: 480,
@@ -332,6 +337,58 @@ func Catalog() []CatalogEntry {
 			// larger sizes have several times the video to sample.
 			FullMeasureTime: "On a Radeon AI PRO R9700 the smallest size took about 28 minutes to measure; " +
 				"the larger sizes are expected to take more than Measure's 2-hour limit.",
+		},
+		{
+			ID:     "wan22-i2v-a14b-lightning",
+			Name:   "Wan2.2 I2V A14B Lightning (Q4, 4 steps)",
+			Kind:   KindVideo,
+			Recipe: "wan22-i2v",
+			// The Lightning 4-step LoRAs, one for each expert. These are
+			// Kijai's fp16 copies of lightx2v's Wan2.2-Lightning I2V
+			// Seko-V1 weights (Apache-2.0): lightx2v's own files (F32, with
+			// I64 alpha values) made sd-server abort as they loaded
+			// (sd.cpp master-1015, 2026-10-26). Both are in one folder,
+			// which becomes --lora-model-dir.
+			Components: []Component{
+				a14bLow,
+				a14bHigh,
+				umt5Q8,
+				wan21VAE,
+				{Slot: "high_noise_lora", Repo: "Kijai/WanVideo_comfy", File: "LoRAs/Wan22-Lightning/old/Wan2.2-Lightning_I2V-A14B-4steps-lora_HIGH_fp16.safetensors", Bytes: 613561776},
+				{Slot: "lora", Repo: "Kijai/WanVideo_comfy", File: "LoRAs/Wan22-Lightning/old/Wan2.2-Lightning_I2V-A14B-4steps-lora_LOW_fp16.safetensors", Bytes: 613561776},
+			},
+			// 4 steps on each expert at CFG 1. The high-noise expert takes
+			// the first 4 steps, so --moe-boundary is not used. Lightning's
+			// own workflow uses 2 + 2, which was faster (110 s) but softer,
+			// smearing the face in the last frames on a Radeon AI PRO R9700;
+			// 4 + 4 (200 s) looked about as sharp as the 20-step set.
+			// --temporal-tiling as for Wan2.2 I2V A14B.
+			LaunchArgs: []string{"--steps", "4", "--high-noise-steps", "4", "--cfg-scale", "1", "--high-noise-cfg-scale", "1",
+				"--flow-shift", "5", "--sampling-method", "euler", "--high-noise-sampling-method", "euler",
+				"--diffusion-fa", "--temporal-tiling"},
+			Capabilities: []string{CapStartImage, CapEndImage},
+			License:      "Apache-2.0",
+			Notes: "Wan2.2 I2V A14B with the Lightning 4-step LoRAs: image-to-video and start-and-end videos; needs a start image. " +
+				"4 steps on each expert: about 3 minutes 20 seconds for a 2-second video at 832×480 on a Radeon AI PRO R9700, " +
+				"against about 27 for the 20-step set, with a little less detail. Up to 5 seconds at 1280×720. " +
+				"Shares its experts, text model and VAE with Wan2.2 I2V A14B.",
+			DefaultWidth:  832,
+			DefaultHeight: 480,
+			DefaultFrames: 33,
+			DefaultFPS:    16,
+			MaxFrames:     81,
+			MaxWidth:      1280,
+			MaxHeight:     720,
+			VideoSizes: []VideoSize{
+				{Label: "Short", Frames: 33, Width: 832, Height: 480},
+				{Label: "Medium", Frames: 49, Width: 1280, Height: 720},
+				{Label: "Full", Frames: 81, Width: 1280, Height: 720},
+			},
+			// Medium was measured on the R9700 (2026-10-27): 25 minutes and
+			// a 30.5 GiB peak, more than the card could give, so it was
+			// refused. Full was not measured: it has more video still.
+			FullMeasureTime: "On a Radeon AI PRO R9700 the smallest size took about 3 minutes to measure; " +
+				"Medium took about 25 minutes and needed more memory than that 32 GB card could give.",
 		},
 		{
 			ID:         "ace-step-turbo",

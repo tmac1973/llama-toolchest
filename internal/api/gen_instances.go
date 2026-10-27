@@ -316,6 +316,9 @@ func (s *Server) genInstanceFromForm(r *http.Request, store *generation.Store, i
 	if err != nil {
 		return err
 	}
+	if err := generation.CheckLoraArgs(set, args); err != nil {
+		return err
+	}
 	// Running it differently invalidates any VRAM measurement.
 	if inst.ModelSetID != set.ID || !slicesEqual(inst.ExtraArgs, args) || inst.BuildID != buildID || inst.GPU != gpu {
 		inst.ReservedMiB, inst.MeasuredPeakMiB, inst.MeasuredAt, inst.MeasureEstimated = 0, 0, time.Time{}, false
