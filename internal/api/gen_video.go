@@ -105,7 +105,7 @@ type vidResult struct {
 // one.
 type vidJobStatus struct {
 	Status  string       `json:"status"`
-	Error   string       `json:"error"`
+	Error   vidJobError  `json:"error"`
 	Preview *vidProgress `json:"preview"`
 	Result  *struct {
 		B64JSON      string `json:"b64_json"`
@@ -114,6 +114,28 @@ type vidJobStatus struct {
 		FPS          int    `json:"fps"`
 		FrameCount   int    `json:"frame_count"`
 	} `json:"result"`
+}
+
+// vidJobError is a job's error. sd-server master-1015 sends an object,
+// {"code": "generation_failed", "message": "…"}, or null; older builds
+// sent a plain string. Both are read as text.
+type vidJobError string
+
+func (e *vidJobError) UnmarshalJSON(b []byte) error {
+	var text string
+	if json.Unmarshal(b, &text) == nil {
+		*e = vidJobError(text)
+		return nil
+	}
+	var obj struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(b, &obj); err != nil {
+		return err
+	}
+	*e = vidJobError(firstNonEmpty(obj.Message, obj.Code))
+	return nil
 }
 
 // runVidGen makes one video through sd-server's native async API at base

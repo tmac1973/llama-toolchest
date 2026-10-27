@@ -19,8 +19,9 @@ import (
 
 // fakeVidServer is a stand-in for sd-server's native video API. A job
 // reports generating for steps polls (step 1..steps of total 20), then
-// ends with end: "completed", "failed" or "hang" (stays generating until
-// cancelled).
+// ends with end: "completed", "failed" (a string error, as older
+// sd-servers send), "failed-object" (master-1015's {code, message}) or
+// "hang" (stays generating until cancelled).
 type fakeVidServer struct {
 	srv       *httptest.Server
 	mu        sync.Mutex
@@ -69,6 +70,8 @@ func (f *fakeVidServer) serve(w http.ResponseWriter, r *http.Request) {
 				"preview": map[string]any{"pass": 1, "step": step, "total_steps": 20, "b64_json": "UFJFVklFVw=="}})
 		case f.end == "failed":
 			w.Write([]byte(`{"status":"failed","error":"out of memory"}`))
+		case f.end == "failed-object":
+			w.Write([]byte(`{"status":"failed","result":null,"error":{"code":"generation_failed","message":"out of memory"}}`))
 		default:
 			json.NewEncoder(w).Encode(map[string]any{"status": "completed", "result": map[string]any{
 				"b64_json": base64.StdEncoding.EncodeToString([]byte("WEBMDATA")), "mime_type": "video/webm",
@@ -111,10 +114,12 @@ func TestRunVidGenCompletes(t *testing.T) {
 
 func TestRunVidGenFails(t *testing.T) {
 	fastVidPoll(t)
-	f := newFakeVidServer(t, 1, "failed")
-	_, err := runVidGen(context.Background(), f.srv.URL, vidGenRequest{Prompt: "p"}, nil)
-	if err == nil || !strings.Contains(err.Error(), "out of memory") {
-		t.Errorf("err = %v, want sd-server's reason", err)
+	for _, end := range []string{"failed", "failed-object"} {
+		f := newFakeVidServer(t, 1, end)
+		_, err := runVidGen(context.Background(), f.srv.URL, vidGenRequest{Prompt: "p"}, nil)
+		if err == nil || !strings.Contains(err.Error(), "out of memory") {
+			t.Errorf("%s: err = %v, want sd-server's reason", end, err)
+		}
 	}
 }
 

@@ -369,7 +369,7 @@ func Catalog() []CatalogEntry {
 			Capabilities: []string{CapStartImage, CapEndImage},
 			License:      "Apache-2.0",
 			Notes: "Wan2.2 I2V A14B with the Lightning 4-step LoRAs: image-to-video and start-and-end videos; needs a start image. " +
-				"4 steps on each expert: about 3.5 minutes for a 2-second video at 832×480 on a Radeon AI PRO R9700, " +
+				"4 steps on each expert: about 3 minutes 20 seconds for a 2-second video at 832×480 on a Radeon AI PRO R9700, " +
 				"against about 27 for the 20-step set, with a little less detail. Up to 5 seconds at 1280×720. " +
 				"Shares its experts, text model and VAE with Wan2.2 I2V A14B.",
 			DefaultWidth:  832,
@@ -384,7 +384,11 @@ func Catalog() []CatalogEntry {
 				{Label: "Medium", Frames: 49, Width: 1280, Height: 720},
 				{Label: "Full", Frames: 81, Width: 1280, Height: 720},
 			},
-			FullMeasureTime: "On a Radeon AI PRO R9700 the smallest size took about 4 minutes to measure.",
+			// Medium was measured on the R9700 (2026-10-27): 25 minutes and
+			// a 30.5 GiB peak, more than the card could give, so it was
+			// refused. Full was not measured: it has more video still.
+			FullMeasureTime: "On a Radeon AI PRO R9700 the smallest size took about 3 minutes to measure; " +
+				"Medium took about 25 minutes and needed more memory than that 32 GB card could give.",
 		},
 		{
 			ID:         "ace-step-turbo",

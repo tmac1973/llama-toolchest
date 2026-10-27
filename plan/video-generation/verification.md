@@ -1,8 +1,9 @@
 # Video Generation — Hardware Verification
 
 Results of the hardware checks: Phase 04 (Wan2.2 TI2V 5B), Phase 05 (measured
-video size), Phase 06 (Wan2.2 I2V A14B), and Phase 07 later. Each entry gives the machine, the date and the
-build refs.
+video size), Phase 06 (Wan2.2 I2V A14B), Phase 08 (Wan2.2 I2V A14B
+Lightning), and Phase 07 later. Each entry gives the machine, the date and
+the build refs.
 
 ## Machines
 
@@ -197,10 +198,90 @@ that is fixed upstream.
    the encode and works. Not yet reported upstream.
 8. **A14B is slow.** About 27 minutes for 2 seconds at 832×480 on the R9700
    or the A4000, against 70 s for TI2V 5B: two 14B experts × 20 steps, and
-   with `--cfg-scale 3.5` each step runs the model twice. Published 4-step
-   LoRAs for this model may cut that to a few minutes; not tried.
+   with `--cfg-scale 3.5` each step runs the model twice. The Lightning
+   4-step LoRAs cut that to about 3 minutes (Phase 08).
 9. **ComfyUI and toolchest share asmodean's GPU without knowing about each
    other.** Toolchest's reservations do not count ComfyUI's memory, so either
    can run the card out of memory, or slow the other to a crawl.
 10. **Measure has no stall check.** On a backend that hangs, it waits out its
     2-hour limit. Not changed.
+
+## Phase 08 — Wan2.2 I2V A14B Lightning
+
+2026-10-26 and 27, with this branch's toolchest build and the same
+`sd-master-1015-e41fbcf` builds. The set is the 20-step A14B pair plus
+Kijai's fp16 copies of the Lightning 4-step LoRAs, with 4 steps on each
+expert at CFG 1.
+
+### Before the code (straight to sd-server)
+
+lightx2v's own Lightning I2V files (`lightx2v/Wan2.2-Lightning`, F32 with
+I64 `alpha` values) made sd-server abort as the LoRAs loaded
+("terminate called recursively" from the loader threads). Kijai's fp16
+copies of the same weights load. On asmodean, Short size, the fox picture,
+seed 42, `--max-vram 28.5`:
+
+| Run | Time | Whole-card peak | Look |
+|---|---|---|---|
+| 20 steps, CFG 3.5, no LoRA (Phase 06) | 1,643 s | 27.9 GB | sharp |
+| 2 + 2 steps, CFG 1 | 110 s | 29.5 GB | softer; the face smears in the last frames |
+| 4 + 4 steps, CFG 1 (the catalog's choice) | 200 s | 31.3 GB | about as sharp as 20 steps |
+
+Per step the LoRAs cost nothing measurable: about 20 s per step at CFG 1,
+against about 40 s at CFG 3.5, which runs the model twice.
+
+### asmodean (R9700 32 GB, ROCm)
+
+The generation port range was full, so the check used the disabled
+`qwen-turbo-local` instance, pointed at the Lightning set and put back
+afterwards. Ming-Image and klein were disabled for Measure: with eviction
+off, enabled instances' reservations count even while they are stopped,
+and the first Measure, with them enabled, gave sd-server 6.8 GiB and
+failed in the VAE encode.
+
+| Check | Result |
+|---|---|
+| Download | Only the two LoRAs (1.2 GB) were fetched; the experts, text model and VAE were already there from the 20-step set. Done in under a minute |
+| Launch | `--lora-model-dir /data/models/gen-models/Kijai--WanVideo_comfy/LoRAs/Wan22-Lightning/old`, no flag per LoRA file. sd-server loaded both LoRAs on every request |
+| Measure at Short | About 3 min 15 s (the 20-step set: about 28 min). Peak 28.6 GiB (whole GPU); reservation capped at 29.2 GiB, all the card could give. Whole card 31.2 GB (`rocm-smi`) |
+| Start after Measure | Refused: "needs 29.2 GiB, but only 29.0 GiB is left after other programs 0.4 GiB and the safety margin". Other programs had grown by 0.2 GiB since Measure. The reservation was set to 28.8 GiB by hand (finding 11) |
+| 1. Image-to-video at the defaults, WebM | 200 s (sampling 82 + 89 s); 33 frames, 5.1 MB, VP8. The frames match the straight-to-sd-server 4 + 4 run; the fox looks up and smiles |
+| 2. Start-and-end, WebM | 196 s; 33 frames, 4.6 MB; ends on the end picture |
+| 3. `extra: {"lora": []}` | 400 `bad_value`: "extra may not set "lora"; Wan2.2 I2V A14B Lightning (Q4, 4 steps) sends its own LoRAs" |
+| Measure at Medium (49 frames at 1280×720) | 1,475 s (about 25 min). Peak 30.5 GiB, more than the 29.0 GiB the card could give, so Measure refused the size and the instance kept Short, as Phase 05 set out. Whole card 33.9 GB |
+| Measure at Full | Stopped after it started: Full has more video than Medium, which already did not fit |
+
+### compute2 (RTX A4000 16 GB, CUDA)
+
+| Check | Result |
+|---|---|
+| Download | Only the two LoRAs, as on asmodean |
+| Measure at Short, first try | Sampling worked (71 + 102 s), then the tiled decode crashed: `ggml_cuda_compute_forward: CONCAT failed`, `CUDA error: unspecified launch failure` (finding 1) |
+| Measure at Short, second try | Crashed the same way, this time encoding the start picture, before sampling |
+
+As for the 20-step set, the Lightning set is not usable on a 16 GB card
+until sd.cpp's CUDA crash is fixed. The test instance was deleted.
+
+### Fixed in this phase
+
+- **A failed video job's reason was lost.** sd-server master-1015 reports
+  a failed or cancelled job's `error` as `{"code", "message"}`, not a
+  string, so toolchest could not read the job status and reported
+  "json: cannot unmarshal object into Go struct field vidJobStatus.error
+  of type string". It now reads both forms and shows the message. This
+  affected every failed video job on master-1015, not only this set.
+
+### Findings
+
+11. **A reservation capped at the room cannot always be started.** When a
+    measured peak fills the card, Measure caps the reservation at exactly
+    the room left. A few minutes later other programs had grown by
+    0.2 GiB, and the start check refused the instance. Not changed: the
+    user decides whether Measure should leave some slack under the room.
+12. **Measure blames memory for any crash.** On compute2 it said "probably
+    ran out of GPU memory at this size … Try a smaller size" for the CUDA
+    `CONCAT failed` crash, where a smaller size would not help. Not
+    changed.
+13. **lightx2v's own Lightning files crash sd-server** (master-1015) as
+    they load; the I64 `alpha` values are the likely cause. Not yet
+    reported upstream.
