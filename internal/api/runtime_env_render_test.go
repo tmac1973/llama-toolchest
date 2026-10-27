@@ -72,3 +72,17 @@ func TestEffectiveEnvHidesTheInheritedValue(t *testing.T) {
 		}
 	}
 }
+
+// A secret-looking value typed into the extra lines is masked in the
+// effective-environment preview.
+func TestEffectiveEnvMasksSecretValues(t *testing.T) {
+	s := &Server{cfg: &config.Config{RuntimeEnvExtra: "LT_TEST_HF_TOKEN=hf_typed_secret\nLT_PLAIN=1"}}
+	var texts []string
+	for _, l := range s.effectiveEnvLines() {
+		texts = append(texts, l.Text)
+	}
+	got := strings.Join(texts, "\n")
+	if strings.Contains(got, "hf_typed_secret") || !strings.Contains(got, "LT_TEST_HF_TOKEN="+config.EnvSecretMask) || !strings.Contains(got, "LT_PLAIN=1") {
+		t.Errorf("effective env = %q", got)
+	}
+}

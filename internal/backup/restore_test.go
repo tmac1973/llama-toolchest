@@ -355,3 +355,15 @@ func TestMissingModelBecomesPending(t *testing.T) {
 		}
 	}
 }
+
+// Restoring a backup made without secrets keeps the target's secret-looking
+// extra lines instead of dropping them with the rest of its extra text.
+func TestApplyEnvKeepsTargetSecrets(t *testing.T) {
+	rec := newRecorder(2, "")
+	rec.currentEnv = RuntimeEnv{Curated: map[string]string{}, Extra: "OLD=1\nHF_TOKEN=hf_target"}
+	f, _ := Parse([]byte(`{"version": 1, "runtime_env": {"extra": "NEW=1"}}`))
+	Apply(f, Selections{RuntimeEnv: true}, rec.deps)
+	if got := rec.env[0].Extra; got != "NEW=1\nHF_TOKEN=hf_target" {
+		t.Errorf("merged extra = %q", got)
+	}
+}
