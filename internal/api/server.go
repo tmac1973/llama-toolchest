@@ -665,6 +665,11 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/settings", s.handleSettingsPage)
 	r.Get("/help", s.handleHelpPage)
 
+	// API reference (apidocs.go)
+	r.Get("/docs/api", s.handleAPIDocsPage)
+	r.Get("/openapi.json", s.handleOpenAPIJSON)
+	r.Get("/openapi.yaml", s.handleOpenAPIYAML)
+
 	// Dashboard API (outside /api group, htmx-only)
 	r.Get("/api/dashboard", s.handleDashboard)
 

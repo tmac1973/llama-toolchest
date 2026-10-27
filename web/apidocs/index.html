@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>API Reference · Llama Toolchest</title>
+    <style>
+        /* Self-hosted IBM Plex, as in the main layout; Scalar's own fonts
+           come from fonts.scalar.com, so they are switched off below. */
+        @font-face {
+            font-family: 'IBM Plex Sans'; font-style: normal;
+            font-weight: 400 700; font-display: swap;
+            src: url('/static/fonts/ibm-plex-sans.woff2') format('woff2');
+        }
+        @font-face {
+            font-family: 'IBM Plex Mono'; font-style: normal;
+            font-weight: 400; font-display: swap;
+            src: url('/static/fonts/ibm-plex-mono-400.woff2') format('woff2');
+        }
+        :root {
+            --scalar-font: 'IBM Plex Sans', system-ui, sans-serif;
+            --scalar-font-code: 'IBM Plex Mono', ui-monospace, monospace;
+        }
+        body { margin: 0; }
+        .back-link {
+            display: block;
+            padding: 0.5rem 1rem;
+            font: 0.85rem var(--scalar-font);
+            background: var(--scalar-background-2, #1b1b1b);
+            border-bottom: 1px solid var(--scalar-border-color, #333);
+        }
+        .back-link a { color: var(--scalar-color-accent, #8ab4f8); text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="back-link"><a href="/server">← Llama Toolchest</a></div>
+    <div id="app"></div>
+    <script src="/static/scalar/standalone.js"></script>
+    <script>
+    (function () {
+        // Follow the theme picked in the main UI: dark unless the saved
+        // choice is "light" (the custom themes are all dark).
+        var dark = true;
+        try { dark = localStorage.getItem('llama-toolchest-theme') !== 'light'; } catch (e) {}
+        Scalar.createApiReference('#app', {
+            url: '/openapi.json',
+            forceDarkModeState: dark ? 'dark' : 'light',
+            hideDarkModeToggle: true,
+            // Nothing on this page may reach scalar.com: no fonts, no
+            // usage reports, no hosted client or AI features.
+            withDefaultFonts: false,
+            telemetry: false,
+            hideClientButton: true,
+            showDeveloperTools: 'never',
+            agent: { disabled: true },
+            mcp: { disabled: true },
+            documentDownloadType: 'both',
+            // Show the API key field in the test request form.
+            authentication: { preferredSecurityScheme: 'apiKey' },
+            // The schemas are shown with each route; a separate "Models"
+            // list beside the "Models" routes would only confuse.
+            hideModels: true,
+        });
+    })();
+    </script>
+</body>
+</html>

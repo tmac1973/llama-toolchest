@@ -1,0 +1,1790 @@
+# The public API of llama-toolchest, written by hand from the handlers in
+# internal/api. TestOpenAPISpecMatchesRouter fails when a route under /v1,
+# /release_task or /query_result is added or removed without a change
+# here. Paths that llama-server answers through the /v1 catch-all proxy
+# are marked x-proxied: true. info.version is replaced with the build's
+# version when the spec is served.
+openapi: 3.1.0
+info:
+  title: Llama Toolchest API
+  version: dev
+  summary: OpenAI-compatible LLM, image, video and music API.
+  description: |
+    llama-toolchest serves one API for everything it runs:
+
+    - **LLMs** use the OpenAI routes. `/v1/models` is answered by
+      llama-toolchest; chat, completions and embeddings go to llama-server,
+      which loads the model on the first request.
+    - **Images** use the OpenAI routes `/v1/images/generations` and
+      `/v1/images/edits`, which wait for the result, or image jobs, which
+      answer at once with a job ID.
+    - **Video** and **music** have no standard API, so they use jobs:
+      create a job, check it until it has finished, then download the file.
+    - **ACE-Step routes** (`/release_task`, `/query_result`, `/v1/audio`)
+      follow the official ACE-Step 1.5 server, so tools written for that
+      server can point here.
+
+    ## API key
+
+    When an API key is set on the Settings page, every request needs the
+    header `Authorization: Bearer <key>`. Without a key set, no header is
+    needed. A missing or wrong key gives HTTP 401.
+
+    ## Which model to use
+
+    `GET /v1/models` lists the LLMs and the generation instances that are
+    switched on. `meta.kind` is `text`, `image`, `video` or `music`, and
+    `meta.api` lists which routes serve a generation instance. For
+    generation routes, `model` is an instance ID or its model set's ID. It
+    may be left out when only one instance of that kind can take the job.
+
+    ## Jobs
+
+    Image, video and music jobs share one life cycle. A job is `queued`
+    while it waits for its GPU (one generation job runs on a GPU at a
+    time), `running` while it has the GPU, and then `succeeded`, `failed`
+    or `cancelled`. `phase` says what a waiting or running job is doing.
+    Jobs are saved to disk and survive a restart of llama-toolchest; a job
+    that was waiting or running at the restart becomes `failed` with the
+    error `the server restarted before the job finished`. Finished jobs
+    and their files are deleted 24 hours after they finish.
+
+    When 16 jobs are already waiting for a GPU, a new job for it is
+    refused with HTTP 429 and the header `Retry-After: 30`.
+  license:
+    name: See the project repository
+    url: https://github.com/tmac1973/llama-toolchest
+servers:
+  - url: /
+    description: This server
+security:
+  - apiKey: []
+  - {}
+tags:
+  - name: Models
+    description: The LLMs and generation instances this server offers.
+  - name: LLM
+    description: |
+      Answered by llama-server through llama-toolchest's proxy. The request
+      and response are the OpenAI ones; see the
+      [llama.cpp server documentation](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md)
+      for the fields llama-server adds. Any other `/v1` path not listed
+      here also goes to llama-server unchanged.
+  - name: Images
+    description: |
+      `generations` and `edits` are the OpenAI image routes. They wait
+      until the image is done, which can take minutes while other jobs
+      run first. Image jobs take the same JSON and answer at once.
+  - name: Video
+    description: Video jobs. Video takes minutes, so use the jobs route for anything but a quick test.
+  - name: Music
+    description: Music jobs with ACE-Step, from a caption or from an uploaded song.
+  - name: ACE-Step compatible
+    description: |
+      The routes of the official ACE-Step 1.5 server, for tools written
+      for it. Errors use that server's `{"detail": "..."}` shape. A model
+      name that matches nothing falls back to the only music instance.
+
+paths:
+  /v1/models:
+    get:
+      tags: [Models]
+      operationId: listModels
+      summary: List models
+      description: |
+        The enabled LLMs, then the enabled generation instances. LLMs used
+        as helpers or as draft models are not listed.
+      responses:
+        "200":
+          description: The model list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [object, data]
+                properties:
+                  object:
+                    const: list
+                  data:
+                    description: Null, not an empty array, when no model is enabled.
+                    type: [array, "null"]
+                    items:
+                      $ref: "#/components/schemas/Model"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/models/{model}:
+    get:
+      tags: [Models]
+      operationId: getModel
+      summary: Get one model
+      description: |
+        An LLM by its ID, public name, router name or alias, or a
+        generation instance by its instance ID (not its model set's ID).
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The model.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Model"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: "`model_not_found`: no enabled model has this name."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/chat/completions:
+    x-proxied: true
+    post:
+      tags: [LLM]
+      operationId: createChatCompletion
+      summary: Chat completion
+      description: |
+        Sent to llama-server. If `model` names an LLM that is not loaded,
+        llama-toolchest loads it first (waiting up to 90 seconds), so the
+        first request to a model can take a while. The model's sampling
+        settings from its Configure dialog fill in any sampling field the
+        request leaves out. `"stream": true` streams the answer as
+        server-sent events.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProxiedRequest"
+            example:
+              model: unsloth-Qwen3.5-4B.Q4_K_M
+              messages:
+                - role: user
+                  content: hello
+      responses:
+        "200":
+          description: The OpenAI chat completion, or a stream of chunks.
+          content:
+            application/json:
+              schema:
+                type: object
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ProxyUnavailable"
+        "507":
+          $ref: "#/components/responses/InsufficientVRAM"
+
+  /v1/completions:
+    x-proxied: true
+    post:
+      tags: [LLM]
+      operationId: createCompletion
+      summary: Text completion
+      description: Sent to llama-server. The model is loaded first when needed, as for chat completions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProxiedRequest"
+      responses:
+        "200":
+          description: The OpenAI completion, or a stream of chunks.
+          content:
+            application/json:
+              schema:
+                type: object
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ProxyUnavailable"
+        "507":
+          $ref: "#/components/responses/InsufficientVRAM"
+
+  /v1/embeddings:
+    x-proxied: true
+    post:
+      tags: [LLM]
+      operationId: createEmbedding
+      summary: Embeddings
+      description: |
+        Sent to llama-server. Use a model whose `meta.capabilities`
+        includes `embedding`. The model is loaded first when needed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProxiedRequest"
+      responses:
+        "200":
+          description: The OpenAI embeddings response.
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ProxyUnavailable"
+        "507":
+          $ref: "#/components/responses/InsufficientVRAM"
+
+  /v1/images/generations:
+    post:
+      tags: [Images]
+      operationId: createImage
+      summary: Generate images (waits)
+      description: |
+        Sent to the chosen sd-server (stable-diffusion.cpp) unchanged, so
+        the request and answer are sd-server's OpenAI-style ones.
+        llama-toolchest reads only `model`, to pick the instance. The
+        request waits in the GPU's queue and then while the image is made;
+        nothing is sent until it is done.
+
+        sd-server's own settings (for example `init_image` and `strength`)
+        can go in a `<sd_cpp_extra_args>{...}</sd_cpp_extra_args>` block
+        at the start of the prompt.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImageRequest"
+            example:
+              model: ming-image
+              prompt: a red fox sticker
+              size: 1024x1024
+              response_format: b64_json
+      responses:
+        "200":
+          description: sd-server's answer, passed on unchanged.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImagesResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/GenNotFound"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "429":
+          $ref: "#/components/responses/QueueFull"
+        "500":
+          $ref: "#/components/responses/ServerError"
+        "502":
+          description: "`backend_error`: the request to sd-server failed."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/BackendUnavailable"
+
+  /v1/images/edits:
+    post:
+      tags: [Images]
+      operationId: editImage
+      summary: Edit an image (waits)
+      description: |
+        As `generations`, for sets whose `meta.capabilities` includes
+        `edit`; other sets give HTTP 400 `edits_not_supported`. The form
+        is sent to sd-server unchanged.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [prompt]
+              properties:
+                model:
+                  type: string
+                  description: An image instance or set. Optional when only one image instance can take the job.
+                prompt:
+                  type: string
+                "image[]":
+                  type: string
+                  format: binary
+                  description: The image to edit.
+                size:
+                  type: string
+                  examples: [1024x1024]
+                n:
+                  type: integer
+                response_format:
+                  type: string
+                  examples: [b64_json]
+      responses:
+        "200":
+          description: sd-server's answer, passed on unchanged.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImagesResponse"
+        "400":
+          description: "`bad_request`, `model_required` or `edits_not_supported`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/GenNotFound"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "429":
+          $ref: "#/components/responses/QueueFull"
+        "500":
+          $ref: "#/components/responses/ServerError"
+        "502":
+          description: "`backend_error`: the request to sd-server failed."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/BackendUnavailable"
+
+  /v1/images/jobs:
+    post:
+      tags: [Images]
+      operationId: createImageJob
+      summary: Create an image job
+      description: |
+        Takes the same JSON as `/v1/images/generations` (not a multipart
+        form) and answers at once with a job ID. The body is sent to
+        sd-server unchanged when the job runs; sd-server must answer with
+        `b64_json` images. The job's `request` shows only `model`,
+        `prompt`, `size` and `n`; an `<sd_cpp_extra_args>` block is left
+        out.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImageRequest"
+            example:
+              model: ming-image
+              prompt: a red fox
+              size: 1024x1024
+      responses:
+        "202":
+          $ref: "#/components/responses/JobAccepted"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/GenNotFound"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "429":
+          $ref: "#/components/responses/QueueFull"
+        "500":
+          $ref: "#/components/responses/ServerError"
+        "503":
+          $ref: "#/components/responses/BackendUnavailable"
+    get:
+      tags: [Images]
+      operationId: listImageJobs
+      summary: List image jobs
+      description: Newest first. At most 200 finished jobs are kept.
+      parameters:
+        - $ref: "#/components/parameters/StatusFilter"
+      responses:
+        "200":
+          description: The jobs.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [object, data]
+                properties:
+                  object:
+                    const: list
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ImageJob"
+        "400":
+          $ref: "#/components/responses/BadStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/GenNotFound"
+
+  /v1/images/jobs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/JobID"
+    get:
+      tags: [Images]
+      operationId: getImageJob
+      summary: Get an image job
+      responses:
+        "200":
+          description: The job.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImageJob"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/JobNotFound"
+    delete:
+      tags: [Images]
+      operationId: deleteImageJob
+      summary: Cancel or delete an image job
+      description: |
+        A job that has not finished is cancelled: a waiting job leaves the
+        queue at once. **A running job cannot be interrupted**: sd-server
+        finishes the image, which is thrown away, and the GPU's next job
+        starts only after that. The cancelled job stays listed; a second
+        DELETE removes it. A finished job is deleted with its images.
+      responses:
+        "204":
+          description: Cancelled, or deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/JobNotFound"
+
+  /v1/images/jobs/{id}/image/{n}:
+    get:
+      tags: [Images]
+      operationId: getImageJobImage
+      summary: Download an image
+      description: Image `n` of a succeeded job, counting from 0, as a PNG. The `url` of each entry in the job's `images` points here.
+      parameters:
+        - $ref: "#/components/parameters/JobID"
+        - name: n
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: The PNG. Range requests are supported.
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: "`not_found` (also when `n` is out of range) or `job_not_found`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          $ref: "#/components/responses/NotReady"
+
+  /v1/videos/jobs:
+    post:
+      tags: [Video]
+      operationId: createVideoJob
+      summary: Create a video job
+      description: Answers at once with a job ID. Check the job until it has finished, then download the video from `video.url`.
+      requestBody:
+        $ref: "#/components/requestBodies/VideoRequest"
+      responses:
+        "202":
+          $ref: "#/components/responses/JobAccepted"
+        "400":
+          $ref: "#/components/responses/VideoBadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/GenNotFound"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "429":
+          $ref: "#/components/responses/QueueFull"
+        "500":
+          $ref: "#/components/responses/ServerError"
+        "503":
+          $ref: "#/components/responses/BackendUnavailable"
+    get:
+      tags: [Video]
+      operationId: listVideoJobs
+      summary: List video jobs
+      description: Newest first. At most 50 finished jobs are kept.
+      parameters:
+        - $ref: "#/components/parameters/StatusFilter"
+      responses:
+        "200":
+          description: The jobs.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [object, data]
+                properties:
+                  object:
+                    const: list
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/VideoJob"
+        "400":
+          $ref: "#/components/responses/BadStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/GenNotFound"
+
+  /v1/videos/generations:
+    post:
+      tags: [Video]
+      operationId: createVideo
+      summary: Generate a video (waits)
+      description: |
+        Takes the same request as `/v1/videos/jobs`, and answers only when
+        the video is done, with the finished job. Closing the connection
+        before then cancels the job.
+      requestBody:
+        $ref: "#/components/requestBodies/VideoRequest"
+      responses:
+        "200":
+          description: The job succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoJob"
+        "400":
+          $ref: "#/components/responses/VideoBadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/GenNotFound"
+        "409":
+          description: The job was cancelled (someone deleted it). The body is the job.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoJob"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "429":
+          $ref: "#/components/responses/QueueFull"
+        "500":
+          description: |
+            The job failed: the body is the job, with `error` set. An error
+            before the job was queued uses the usual error body instead.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/VideoJob"
+                  - $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/BackendUnavailable"
+
+  /v1/videos/jobs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/JobID"
+    get:
+      tags: [Video]
+      operationId: getVideoJob
+      summary: Get a video job
+      responses:
+        "200":
+          description: The job.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoJob"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/JobNotFound"
+    delete:
+      tags: [Video]
+      operationId: deleteVideoJob
+      summary: Cancel or delete a video job
+      description: |
+        A job that has not finished is cancelled: a waiting job leaves the
+        queue, and a running one is stopped in sd-server (it shows
+        `cancelled` once sd-server has stopped). The cancelled job stays
+        listed; a second DELETE removes it. A finished job is deleted with
+        its video.
+      responses:
+        "204":
+          description: Cancelled, or deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/JobNotFound"
+
+  /v1/videos/jobs/{id}/video:
+    get:
+      tags: [Video]
+      operationId: getVideoJobVideo
+      summary: Download a video
+      parameters:
+        - $ref: "#/components/parameters/JobID"
+      responses:
+        "200":
+          description: The video, with the job's `video.mime_type`. Range requests are supported.
+          content:
+            video/webm:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/JobNotFound"
+        "409":
+          $ref: "#/components/responses/NotReady"
+
+  /v1/music/jobs:
+    post:
+      tags: [Music]
+      operationId: createMusicJob
+      summary: Create a music job
+      description: |
+        A new song from a caption: send JSON.
+
+        To work on an existing song, set `task_type` and send
+        `multipart/form-data`, with the JSON in a `request` part and the
+        song (WAV or MP3, up to 128 MB) in an `audio` part. Any task can
+        also take a `ref_audio` part, a song whose sound (timbre) to
+        follow. Uploads are kept in memory only until the job reaches
+        ace-server.
+
+        The instance's `meta.tasks` in `/v1/models` lists the task types
+        it runs.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MusicRequest"
+            example:
+              caption: upbeat synth-pop with bright female vocals
+              lyrics: "[verse]\nCity lights are calling me home"
+              duration: 60
+          multipart/form-data:
+            schema:
+              type: object
+              required: [request]
+              properties:
+                request:
+                  description: The request JSON, as for a JSON body.
+                  $ref: "#/components/schemas/MusicRequest"
+                audio:
+                  type: string
+                  format: binary
+                  description: The song to work on. Needed by every task but `text2music`.
+                ref_audio:
+                  type: string
+                  format: binary
+                  description: A song whose sound to follow. Optional, any task.
+            encoding:
+              request:
+                contentType: application/json
+      responses:
+        "202":
+          $ref: "#/components/responses/JobAccepted"
+        "400":
+          description: |
+            `bad_request` (with a message naming the field),
+            `model_required`, `task_not_supported` (`lego`, `extract` and
+            `complete` need a base model, such as ACE-Step 1.5 XL base) or
+            `model_not_found` (the instance's model set is missing).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/GenNotFound"
+        "429":
+          $ref: "#/components/responses/QueueFull"
+        "503":
+          $ref: "#/components/responses/BackendUnavailable"
+    get:
+      tags: [Music]
+      operationId: listMusicJobs
+      summary: List music jobs
+      description: Newest first. At most 200 finished jobs are kept.
+      parameters:
+        - $ref: "#/components/parameters/StatusFilter"
+      responses:
+        "200":
+          description: The jobs.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [object, data]
+                properties:
+                  object:
+                    const: list
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/MusicJob"
+        "400":
+          $ref: "#/components/responses/BadStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/GenNotFound"
+
+  /v1/music/jobs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/JobID"
+    get:
+      tags: [Music]
+      operationId: getMusicJob
+      summary: Get a music job
+      responses:
+        "200":
+          description: The job.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MusicJob"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/JobNotFound"
+    delete:
+      tags: [Music]
+      operationId: deleteMusicJob
+      summary: Cancel or delete a music job
+      description: |
+        A job that has not finished is cancelled: a waiting job leaves the
+        queue and a running one is stopped in ace-server. The cancelled
+        job stays listed; a second DELETE removes it. A finished job is
+        deleted with its audio.
+      responses:
+        "204":
+          description: Cancelled, or deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/JobNotFound"
+
+  /v1/music/jobs/{id}/audio:
+    get:
+      tags: [Music]
+      operationId: getMusicJobAudio
+      summary: Download the song
+      parameters:
+        - $ref: "#/components/parameters/JobID"
+      responses:
+        "200":
+          description: The song. Range requests are supported.
+          content:
+            audio/mpeg:
+              schema:
+                type: string
+                format: binary
+            audio/wav:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/JobNotFound"
+        "409":
+          $ref: "#/components/responses/NotReady"
+
+  /release_task:
+    post:
+      tags: [ACE-Step compatible]
+      operationId: aceReleaseTask
+      summary: Start a music task
+      description: |
+        The official ACE-Step server's job creation route. Send JSON, or
+        `multipart/form-data` with each field as its own part and the
+        songs as `src_audio` (or `ctx_audio`) and `reference_audio` (or
+        `ref_audio`) files. `src_audio_path` and `reference_audio_path`
+        are refused, since they name files on the official server's disk.
+        The job is a normal music job, also listed at `/v1/music/jobs`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AceReleaseTask"
+          multipart/form-data:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/AceReleaseTask"
+                - type: object
+                  properties:
+                    src_audio:
+                      type: string
+                      format: binary
+                      description: The song to work on.
+                    reference_audio:
+                      type: string
+                      format: binary
+                      description: A song whose sound to follow.
+      responses:
+        "200":
+          description: The task was queued.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/AceEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [task_id, status, queue_position]
+                        properties:
+                          task_id:
+                            type: string
+                          status:
+                            type: string
+                            enum: [queued, running]
+                          queue_position:
+                            type: integer
+        "400":
+          $ref: "#/components/responses/AceError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Music generation is off, or no music instance matches (the message lists them).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AceError"
+        "415":
+          description: The body is neither JSON nor multipart/form-data.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AceError"
+        "429":
+          description: Too many jobs are waiting for the GPU.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AceError"
+        "503":
+          description: The music instance cannot take jobs now; the message says why.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AceError"
+
+  /query_result:
+    post:
+      tags: [ACE-Step compatible]
+      operationId: aceQueryResult
+      summary: Check music tasks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                task_id_list:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: One entry per requested ID, in the same order.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/AceEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/AceTaskResult"
+        "400":
+          $ref: "#/components/responses/AceError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Music generation is off.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AceError"
+
+  /v1/audio:
+    get:
+      tags: [ACE-Step compatible]
+      operationId: aceAudio
+      summary: Download a song
+      description: The download path that `/query_result` gives in `file`.
+      parameters:
+        - name: path
+          in: query
+          required: true
+          description: The song's file name, `<task id>.mp3` or `<task id>.wav`. Any directory part is ignored.
+          schema:
+            type: string
+            examples: [3f9c0a12b4d5e6f7.mp3]
+      responses:
+        "200":
+          description: The song. Range requests are supported.
+          content:
+            audio/mpeg:
+              schema:
+                type: string
+                format: binary
+            audio/wav:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/AceError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No such song, or music generation is off.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AceError"
+
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      description: The API key from the Settings page. Only needed when one is set.
+
+  parameters:
+    JobID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{16}$"
+    StatusFilter:
+      name: status
+      in: query
+      required: false
+      description: List only jobs in these states, comma-separated, for example `queued,running`. Left out, every job is listed.
+      schema:
+        type: string
+        examples: ["queued,running"]
+
+  requestBodies:
+    VideoRequest:
+      required: true
+      description: JSON, or a multipart form with the same field names (then `start_image` and `end_image` are files and `extra` is JSON text).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/VideoRequest"
+          example:
+            model: wan22-ti2v-5b
+            prompt: a sunrise over a calm sea
+            seconds: 2
+        multipart/form-data:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/VideoRequest"
+              - type: object
+                properties:
+                  start_image:
+                    type: string
+                    format: binary
+                  end_image:
+                    type: string
+                    format: binary
+
+  responses:
+    Unauthorized:
+      description: An API key is set and the request has none, or the wrong one.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    enum: [missing API key, invalid API key]
+                  type:
+                    const: auth_error
+    BadRequest:
+      description: "`bad_request` (the body cannot be read) or `model_required` (several instances could take the job; the message lists them)."
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    VideoBadRequest:
+      description: |
+        The request is not valid. `code` says why: `bad_request`,
+        `bad_value`, `bad_size` (width and height must be multiples of 8),
+        `start_image_required`, `input_not_supported`, `over_limit` (more
+        than the model can make), `over_measured_size` (more than this
+        instance was measured for) or `model_required`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    GenNotFound:
+      description: "`not_found` (generation is not switched on) or `model_not_found` (no instance of this kind matches `model`)."
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    JobNotFound:
+      description: "`job_not_found` (no job with this ID) or `not_found` (generation is not switched on)."
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotReady:
+      description: "`not_ready`: the job has not succeeded; the message gives its status."
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    BadStatus:
+      description: "`bad_status`: `status` has a value that is not a job state."
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TooLarge:
+      description: "`too_large`: the request is larger than 128 MiB."
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    QueueFull:
+      description: "`queue_full`: 16 jobs are already waiting for this GPU. Try again after `Retry-After` seconds."
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            const: 30
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ServerError:
+      description: "`queue_error` or `model_set_missing`: an error inside llama-toolchest."
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    BackendUnavailable:
+      description: |
+        `backend_unavailable`: the matching instances cannot take jobs
+        now. The message gives each one's reason: switched off, being
+        measured, no VRAM reservation yet, or not running (when eviction
+        is off).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ProxyUnavailable:
+      description: |
+        `service_unavailable`: the llama-server router is not running.
+        `auto_load_failed`: the model could not be loaded; the message
+        says why.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InsufficientVRAM:
+      description: |
+        `insufficient_vram`: the model does not fit on its GPUs next to
+        the VRAM reserved for generation instances.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    JobAccepted:
+      description: The job was created.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [id, status, phase, queue_position]
+            properties:
+              id:
+                type: string
+              status:
+                type: string
+                enum: [queued, running]
+              phase:
+                type: string
+                description: "`queued` while waiting, otherwise the first working phase."
+              queue_position:
+                $ref: "#/components/schemas/QueuePosition"
+          example:
+            id: 3f9c0a12b4d5e6f7
+            status: queued
+            phase: queued
+            queue_position: 1
+    AceError:
+      description: The request is not valid; `detail` says why.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AceError"
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [message, type, code]
+          properties:
+            message:
+              type: string
+              description: What went wrong, in words.
+            type:
+              type: string
+              enum: [invalid_request_error, server_error]
+              description: "`server_error` for HTTP 500 and above."
+            code:
+              type: string
+              description: A fixed word for the error, for programs to check.
+      example:
+        error:
+          message: "model not found: flux"
+          type: invalid_request_error
+          code: model_not_found
+
+    ProxiedRequest:
+      type: object
+      required: [model]
+      additionalProperties: true
+      description: The OpenAI request. Only `model` is read by llama-toolchest.
+      properties:
+        model:
+          type: string
+          description: An LLM's public name, registry ID, router name or alias.
+
+    Model:
+      type: object
+      required: [id, object, created, owned_by, meta]
+      properties:
+        id:
+          type: string
+          description: The name to use as `model`. For an LLM, its public name; for a generation instance, its instance ID.
+        object:
+          const: model
+        created:
+          type: integer
+          description: Unix time the LLM was downloaded, or the model set was added.
+        owned_by:
+          const: llama-toolchest
+        aliases:
+          type: array
+          items:
+            type: string
+          description: LLMs only, when aliases are set. Each also works as `model`.
+        meta:
+          oneOf:
+            - $ref: "#/components/schemas/LLMMeta"
+            - $ref: "#/components/schemas/GenerationMeta"
+
+    LLMMeta:
+      type: object
+      title: LLM
+      required: [arch, quant, n_layers, n_embd, n_ctx_train, size, capabilities]
+      properties:
+        kind:
+          const: text
+          description: Only present when generation is switched on.
+        arch:
+          type: string
+        quant:
+          type: string
+        n_layers:
+          type: integer
+        n_embd:
+          type: integer
+        n_ctx_train:
+          type: integer
+          description: The longest context the model was trained for.
+        size:
+          type: integer
+          description: File size in bytes.
+        capabilities:
+          type: array
+          items:
+            type: string
+            enum: [chat, embedding, tools, vision]
+        context_size:
+          type: integer
+          description: The whole context the server gives this model, shared by `parallel` conversations.
+        parallel:
+          type: integer
+          description: How many conversations are served at once.
+        context_shared:
+          type: boolean
+          description: True when the conversations share one context pool, so one can use more than an equal share.
+        context_per_request:
+          type: integer
+          description: The most context one conversation can use.
+
+    GenerationMeta:
+      type: object
+      title: Generation instance
+      required: [kind, model_set, recipe, capabilities, gpu, reserved_mib, state, api]
+      properties:
+        kind:
+          type: string
+          enum: [image, video, music]
+        model_set:
+          type: string
+          description: The model set's ID, which also works as `model`.
+        recipe:
+          type: string
+          description: The sd-server recipe; empty for music.
+        capabilities:
+          type: array
+          items:
+            type: string
+          description: |
+            Image sets: `alpha` (can draw on a transparent background),
+            `edit` (can edit images). Video sets: `text` (a prompt alone is
+            enough), `start_image`, `end_image`.
+        gpu:
+          type: integer
+        reserved_mib:
+          type: integer
+          description: VRAM reserved for this instance, in MiB; 0 until it is measured.
+        state:
+          type: string
+          enum: [stopped, starting, running, failed]
+        api:
+          type: array
+          items:
+            type: string
+            enum: [images.sync, images.jobs, images.edits, video.jobs, video.sync, music.jobs, music.ace_step]
+          description: |
+            The routes that serve this instance: `images.sync`
+            (`/v1/images/generations`), `images.jobs`, `images.edits`,
+            `video.jobs`, `video.sync` (`/v1/videos/generations`),
+            `music.jobs` and `music.ace_step` (the ACE-Step compatible
+            routes). Versions before this field existed had only the
+            synchronous image routes and music jobs.
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/MusicTaskType"
+          description: Music only. The `task_type` values this instance runs.
+        video:
+          type: object
+          description: Video only.
+          properties:
+            default_size:
+              type: string
+              examples: [832x480]
+            default_frames:
+              type: integer
+            default_fps:
+              type: integer
+            max_frames:
+              type: integer
+              description: The most frames the model can make. Left out when there is no limit.
+            max_size:
+              type: string
+              description: The largest size the model can make, in either orientation. Left out when there is no limit.
+            measured_frames:
+              type: integer
+              description: The length this instance was measured with.
+            measured_size:
+              type: string
+              description: The size this instance was measured with.
+            measured_pixel_frames:
+              type: integer
+              description: The largest frames × width × height this instance will take.
+
+    QueuePosition:
+      type: integer
+      minimum: 0
+      description: While `queued`, the place in the GPU's waiting line; 1 means it runs next. 0 otherwise.
+
+    JobStatus:
+      type: string
+      enum: [queued, running, succeeded, failed, cancelled]
+
+    JobBase:
+      type: object
+      required: [id, model, status, queue_position, submitted]
+      properties:
+        id:
+          type: string
+        model:
+          type: string
+          description: The instance that runs the job.
+        status:
+          $ref: "#/components/schemas/JobStatus"
+        queue_position:
+          $ref: "#/components/schemas/QueuePosition"
+        error:
+          type: string
+          description: Why the job failed. Only on `failed` jobs.
+        submitted:
+          type: string
+          format: date-time
+        started:
+          type: string
+          format: date-time
+          description: When the job got the GPU.
+        finished:
+          type: string
+          format: date-time
+          description: When the job succeeded, failed or was cancelled.
+
+    ImageRequest:
+      type: object
+      additionalProperties: true
+      description: Sent to sd-server unchanged; other sd-server fields may be added.
+      properties:
+        model:
+          type: string
+          description: An image instance or set. Optional when only one image instance can take the job.
+        prompt:
+          type: string
+        size:
+          type: string
+          examples: [1024x1024]
+        n:
+          type: integer
+          description: How many images.
+        response_format:
+          type: string
+          examples: [b64_json]
+
+    ImagesResponse:
+      type: object
+      description: sd-server's OpenAI-style answer.
+      properties:
+        created:
+          type: integer
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              b64_json:
+                type: string
+                description: The PNG, base64-encoded.
+
+    ImageJob:
+      allOf:
+        - $ref: "#/components/schemas/JobBase"
+        - type: object
+          required: [request]
+          properties:
+            phase:
+              type: string
+              enum: [queued, starting, generating, saving]
+              description: Left out once the job has finished. `starting` means room is being made on the GPU and the backend is starting.
+            request:
+              type: object
+              required: [prompt]
+              description: The request, without any `<sd_cpp_extra_args>` block or image data.
+              properties:
+                model:
+                  type: string
+                prompt:
+                  type: string
+                size:
+                  type: string
+                n:
+                  type: integer
+            images:
+              type: array
+              description: Only on `succeeded` jobs.
+              items:
+                type: object
+                properties:
+                  url:
+                    type: string
+                    examples: [/v1/images/jobs/3f9c0a12b4d5e6f7/image/0]
+
+    VideoRequest:
+      type: object
+      required: [prompt]
+      properties:
+        model:
+          type: string
+          description: A video instance or set. Optional when only one video instance can take the job.
+        prompt:
+          type: string
+        negative_prompt:
+          type: string
+        size:
+          type: string
+          description: "`WIDTHxHEIGHT`, each at least 64 and a multiple of 8. Defaults to the set's size."
+          examples: [832x480]
+        frames:
+          type: integer
+          minimum: 1
+          description: |
+            The length in frames; give this or `seconds`, not both.
+            sd-server rounds it down to the nearest 4n+1 (34 becomes 33),
+            and the finished job reports the real count. Defaults to the
+            set's length.
+        seconds:
+          type: number
+          description: The length in seconds, multiplied by `fps` to give `frames`.
+        fps:
+          type: integer
+          minimum: 1
+          maximum: 240
+          description: Frames per second. Defaults to the set's frame rate.
+        seed:
+          type: integer
+          description: Random when left out.
+        start_image:
+          type: string
+          description: |
+            Base64 or a `data:` URL. Any size: sd-server fits it to the
+            video. Needed by sets without the `text` capability.
+        end_image:
+          type: string
+          description: Base64 or a `data:` URL. Needs a set with the `end_image` capability, and a start image.
+        output_format:
+          type: string
+          enum: [webm, webp]
+          default: webm
+          description: "`webm` has a sound track when the set makes sound; `webp` is an animated WebP, always silent."
+        extra:
+          type: object
+          additionalProperties: true
+          description: |
+            Passed to sd-server's own video request as it is, for settings
+            such as `sample_params` (steps, guidance). It cannot set the
+            fields above, nor `lora` on sets that have their own LoRAs.
+
+    VideoJob:
+      allOf:
+        - $ref: "#/components/schemas/JobBase"
+        - type: object
+          required: [request]
+          properties:
+            phase:
+              type: string
+              enum: [queued, starting, generating, saving]
+              description: Left out once the job has finished.
+            progress:
+              type: object
+              description: While generating, once sd-server reports a step.
+              properties:
+                pass:
+                  type: integer
+                  description: The sampling pass; Wan2.2 A14B sets make two.
+                step:
+                  type: integer
+                total_steps:
+                  type: integer
+            cancel_requested:
+              type: boolean
+              description: True after a DELETE, until the job has stopped.
+            request:
+              type: object
+              description: The request with defaults filled in. Images are shown as true when given.
+              properties:
+                model:
+                  type: string
+                prompt:
+                  type: string
+                negative_prompt:
+                  type: string
+                size:
+                  type: string
+                frames:
+                  type: integer
+                fps:
+                  type: integer
+                seed:
+                  type: integer
+                output_format:
+                  type: string
+                start_image:
+                  type: boolean
+                end_image:
+                  type: boolean
+                extra:
+                  type: object
+            video:
+              type: object
+              description: Only on `succeeded` jobs.
+              properties:
+                url:
+                  type: string
+                  examples: [/v1/videos/jobs/9b1e0a12b4d5e6f7/video]
+                mime_type:
+                  type: string
+                format:
+                  type: string
+                frames:
+                  type: integer
+                  description: The real frame count.
+                fps:
+                  type: integer
+                width:
+                  type: integer
+                height:
+                  type: integer
+                bytes:
+                  type: integer
+
+    MusicTaskType:
+      type: string
+      enum: [text2music, cover, cover-nofsq, repaint, lego, extract, complete]
+
+    MusicTrack:
+      type: string
+      enum: [vocals, backing_vocals, drums, bass, guitar, keyboard, percussion, strings, synth, fx, brass, woodwinds]
+
+    MusicRequest:
+      type: object
+      properties:
+        model:
+          type: string
+          description: A music instance or set. Optional when only one music instance can take the job.
+        task_type:
+          allOf:
+            - $ref: "#/components/schemas/MusicTaskType"
+          default: text2music
+          description: |
+            `text2music` makes a new song. The others work on an uploaded
+            song: `cover` restyles it to the caption (new lyrics optional);
+            `cover-nofsq` stays closer to it; `repaint` redoes a part of
+            it; `lego` adds an instrument, `extract` pulls one out and
+            `complete` fills in the rest. `lego`, `extract` and `complete`
+            need a base model, such as ACE-Step 1.5 XL base.
+        caption:
+          type: string
+          description: What the music sounds like. Required except for `extract`. Used as written unless `rewrite_caption` is set.
+        lyrics:
+          type: string
+        duration:
+          type: number
+          description: Length in seconds.
+        bpm:
+          type: integer
+        keyscale:
+          type: string
+          examples: [C major]
+        timesignature:
+          type: string
+          examples: ["4"]
+        vocal_language:
+          type: string
+          examples: [en]
+        seed:
+          type: integer
+          description: Random when left out.
+        inference_steps:
+          type: integer
+        guidance_scale:
+          type: number
+        output_format:
+          type: string
+          enum: [mp3, wav]
+          default: mp3
+        rewrite_caption:
+          type: boolean
+          default: false
+          description: Let ACE-Step's language model rewrite the caption before composing.
+        track:
+          type: string
+          description: |
+            `lego`, `extract` and `complete` only: the instrument. One of
+            the names in MusicTrack; `complete` takes several joined by
+            ` | `.
+          examples: [drums]
+        audio_cover_strength:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 1
+          description: "`cover` only. 1 keeps the song's structure; about 0.2 is a loose restyle."
+        cover_noise_strength:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: "`cover` only. Starts the cover from the song rather than from noise."
+        repainting_start:
+          type: number
+          default: 0
+          description: "`repaint` and `lego` only. Start in seconds; below 0 extends the song at the start."
+        repainting_end:
+          type: number
+          default: -1
+          description: "`repaint` and `lego` only. End in seconds, -1 for the end of the song; past the end extends it."
+
+    MusicJob:
+      allOf:
+        - $ref: "#/components/schemas/JobBase"
+        - type: object
+          required: [request]
+          properties:
+            phase:
+              type: string
+              enum: [queued, starting, composing, synthesizing, saving]
+              description: |
+                `composing` writes the lyrics and arrangement (new songs
+                only), `synthesizing` makes the audio. Left out once the
+                job has finished.
+            request:
+              allOf:
+                - $ref: "#/components/schemas/MusicRequest"
+                - type: object
+                  properties:
+                    source_audio:
+                      type: boolean
+                      description: A song was uploaded.
+                    reference_audio:
+                      type: boolean
+                      description: A reference song was uploaded.
+            result:
+              type: object
+              additionalProperties: true
+              description: |
+                What was composed, once composing is done: some of
+                `caption`, `lyrics`, `bpm`, `duration`, `keyscale`,
+                `timesignature`, `vocal_language` and `seed`.
+            audio_url:
+              type: string
+              description: Only on `succeeded` jobs.
+              examples: [/v1/music/jobs/3f9c0a12b4d5e6f7/audio]
+
+    AceError:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          type: string
+
+    AceEnvelope:
+      type: object
+      required: [data, code, error, timestamp, extra]
+      properties:
+        data: {}
+        code:
+          const: 200
+        error:
+          type: "null"
+        timestamp:
+          type: integer
+          description: Unix time in milliseconds.
+        extra:
+          type: "null"
+
+    AceReleaseTask:
+      type: object
+      properties:
+        prompt:
+          type: string
+          description: The caption. Required except for `extract`.
+        caption:
+          type: string
+          description: Used when `prompt` is empty.
+        lyrics:
+          type: string
+        audio_duration:
+          type: number
+        bpm:
+          type: integer
+        key_scale:
+          type: string
+        time_signature:
+          type: string
+        vocal_language:
+          type: string
+        seed:
+          type: integer
+        use_random_seed:
+          type: boolean
+          description: When true, `seed` is ignored.
+        inference_steps:
+          type: integer
+        guidance_scale:
+          type: number
+        audio_format:
+          type: string
+          description: "`wav` or `flac` give WAV; anything else gives MP3."
+        model:
+          type: string
+        thinking:
+          type: boolean
+          description: Let ACE-Step's language model rewrite the caption.
+        batch_size:
+          type: integer
+          maximum: 1
+          description: Only 1 is supported.
+        task_type:
+          $ref: "#/components/schemas/MusicTaskType"
+        track:
+          type: string
+        repainting_start:
+          type: number
+        repainting_end:
+          type: number
+        audio_cover_strength:
+          type: number
+
+    AceTaskResult:
+      type: object
+      required: [task_id, status, result]
+      properties:
+        task_id:
+          type: string
+        status:
+          type: integer
+          enum: [0, 1, 2]
+          description: 0 waiting or running, 1 succeeded, 2 failed, cancelled or unknown.
+        result:
+          type: string
+          description: |
+            JSON text of a one-item array, as the official server sends it.
+            The item has `file` (the download path, once succeeded), `wave`,
+            `status`, `create_time`, `metas` (`bpm`, `duration`, `genres`,
+            `keyscale`, `timesignature`), `prompt`, `lyrics`, `seed_value`,
+            `lm_model`, `dit_model`, `generation_info` (the error, if any)
+            and `env`.

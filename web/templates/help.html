@@ -563,6 +563,7 @@ curl $BASE/v1/videos/generations -F prompt="the waves start to roll" -F start_im
 
     <h2 id="api">Using the API</h2>
     <p>The server speaks the OpenAI <code>/v1/*</code> dialect. Point any OpenAI-compatible client at the proxy endpoint.</p>
+    <p>The <a href="/docs/api">API reference</a> lists every route this server answers itself (models, images, video, music and the ACE-Step routes), with each field, the possible errors, and a form to send a test request. The same description is at <a href="/openapi.json"><code>/openapi.json</code></a> (OpenAPI 3.1) for tools that generate client code.</p>
     <pre>curl $BASE/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
