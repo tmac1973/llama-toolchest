@@ -441,7 +441,8 @@ func measureNote(before int, inst generation.Instance, restarted, started bool) 
 	}
 	switch {
 	case capped && inst.ReservedMiB == suggest:
-		note += "Reservation capped at " + mibText(suggest) + ", all this card can give it."
+		note += "Reservation capped at " + mibText(suggest) + " to fit this card, leaving up to " + mibText(reserveSlackMiB) +
+			" free for other programs' memory to change."
 	case before == 0 || (inst.MeasuredFrames > 0 && inst.ReservedMiB == suggest):
 		note += "Reservation set to " + mibText(inst.ReservedMiB) + "."
 	case before == suggest:
@@ -650,7 +651,7 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 			if userStopped {
 				return errors.New("the instance was stopped during the test generation")
 			}
-			return errors.New("the backend stopped during the test generation, probably because it ran out of GPU memory at this size; its log on this page says more. Try a smaller size")
+			return backendStoppedError(s.genMgr.RecentLogs(id))
 		}
 		return fmt.Errorf("the test generation failed: %w", runErr)
 	}
@@ -719,8 +720,8 @@ func (s *Server) applyMeasurement(inst generation.Instance, set generation.Model
 	}
 	suggest := generation.SuggestReservation(inst.MeasuredPeakMiB)
 	sdKind := set.Kind == generation.KindSD || set.Kind == generation.KindVideo
-	if sdKind && haveRoom && suggest > room {
-		suggest = room
+	if sdKind && haveRoom {
+		suggest = capReservation(suggest, inst.MeasuredPeakMiB, room)
 	}
 	apply := inst.ReservedMiB == 0 || set.Kind == generation.KindVideo
 	if apply {
@@ -742,6 +743,71 @@ func (s *Server) applyMeasurement(inst generation.Instance, set generation.Model
 		inst.MeasuredSuggestedMiB = suggest
 	}
 	return inst, nil
+}
+
+// backendStoppedError says why the backend stopped during a test
+// generation, from the end of its log. Running out of GPU memory is the
+// usual reason, and a smaller size helps; a crash such as a CUDA or HIP
+// error is quoted instead, since a smaller size may not help (sd.cpp's
+// tiled Wan decode crashed this way on an RTX A4000). With neither in the
+// log, it is probably memory.
+func backendStoppedError(lines []string) error {
+	const memory = "the backend stopped during the test generation, probably because it ran out of GPU memory at this size; its log on this page says more. Try a smaller size"
+	lines = lines[max(0, len(lines)-backendLogLines):]
+	crash := ""
+	for _, line := range lines {
+		lower := strings.ToLower(line)
+		if slices.ContainsFunc(oomMarkers, func(m string) bool { return strings.Contains(lower, m) }) {
+			return errors.New(memory)
+		}
+		if crash == "" && slices.ContainsFunc(crashMarkers, func(m string) bool { return strings.Contains(lower, m) }) {
+			crash = cleanLogLine(line)
+		}
+	}
+	if crash == "" {
+		return errors.New(memory)
+	}
+	return fmt.Errorf("the backend crashed during the test generation (%s). Its log shows a crash, not running out of GPU memory, so a smaller size may not help; the log on this page says more", crash)
+}
+
+// backendLogLines is how many of a stopped backend's last log lines
+// backendStoppedError reads.
+const backendLogLines = 80
+
+// oomMarkers and crashMarkers are lowercase text that marks a log line as
+// running out of memory, or as a crash.
+var (
+	oomMarkers   = []string{"out of memory", "outofmemory", "memoryallocation", "cannot make enough memory available", "failed to allocate"}
+	crashMarkers = []string{"[e] ", "cuda error", "hip error", "rocm error", "ggml_assert", "terminate called", "segmentation fault", "aborted"}
+)
+
+// cleanLogLine shortens a log line for an error message: without sd.cpp's
+// "[E] " level and its " --- file.cpp:123" source suffix.
+func cleanLogLine(line string) string {
+	line = strings.TrimSpace(line)
+	line = strings.TrimPrefix(line, "[E] ")
+	if i := strings.LastIndex(line, " --- "); i > 0 {
+		line = line[:i]
+	}
+	return line
+}
+
+// reserveSlackMiB is how much of the room a capped reservation leaves
+// free, when the measured peak allows it. Other programs on the card grow
+// a little between a measurement and the next start: a reservation equal
+// to the room was refused at its start on the R9700 when they had grown
+// by 0.2 GiB.
+const reserveSlackMiB = 512
+
+// capReservation fits a suggested reservation to the room the card can
+// give: a suggestion that leaves reserveSlackMiB of the room free is kept;
+// otherwise the reservation is the room less that slack, but never below
+// the measured peak, nor above the room.
+func capReservation(suggest, peak, room int) int {
+	if suggest <= room-reserveSlackMiB {
+		return suggest
+	}
+	return max(room-reserveSlackMiB, min(peak, room))
 }
 
 // measureOverheadMiB is how far a measured peak may exceed the room it was

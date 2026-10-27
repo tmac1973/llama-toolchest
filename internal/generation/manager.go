@@ -138,6 +138,15 @@ func (m *Manager) Subscribe(id string) chan string {
 	return nil
 }
 
+// RecentLogs returns the instance's buffered log lines, oldest first:
+// what it printed since it last started. Nil when it never ran.
+func (m *Manager) RecentLogs(id string) []string {
+	if s := m.existing(id); s != nil {
+		return s.RecentLogs()
+	}
+	return nil
+}
+
 // Unsubscribe removes a log subscriber.
 func (m *Manager) Unsubscribe(id string, ch chan string) {
 	if s := m.existing(id); s != nil {
