@@ -91,6 +91,17 @@ type Config struct {
 	// describes the deploy, not a setting.
 	ChatPublicPort int `yaml:"-"`
 
+	// GenPortsPublished is set in a container whose generation backend
+	// ports are published (LLAMA_TOOLCHEST_GEN_PORTS=1, from
+	// docker-compose.gen-ports.yml or the Quadlet unit). Never written to
+	// the YAML.
+	GenPortsPublished bool `yaml:"-"`
+
+	// ROCmBaseImage is the ROCm image a rocm-next container was built
+	// from (LLAMA_TOOLCHEST_ROCM_BASE_IMAGE, set by Dockerfile.rocm-next).
+	// Never written to the YAML.
+	ROCmBaseImage string `yaml:"-"`
+
 	// envVars maps the YAML name of each field applyEnvOverrides set to
 	// the environment variable that set it, and file holds the values
 	// those fields had before the override. Saving writes file's values
@@ -308,34 +319,45 @@ func applyEnvOverrides(cfg *Config) {
 			slog.Warn("ignoring LLAMA_TOOLCHEST_EXTERNAL_URL: not an http(s) URL with a host", "value", v)
 		}
 	}
-	if v := os.Getenv("LLAMA_TOOLCHEST_LLAMA_PORT"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.LlamaPort = n
-			set(FieldLlamaPort, "LLAMA_TOOLCHEST_LLAMA_PORT")
-		} else {
-			slog.Warn("ignoring non-numeric LLAMA_TOOLCHEST_LLAMA_PORT", "value", v)
-		}
+	if n, ok := envPort(envLlamaPort); ok {
+		cfg.LlamaPort = n
+		set(FieldLlamaPort, envLlamaPort)
 	}
 	// Set by the container's compose file when the generation web UI
 	// ports are published on different host ports, so the dashboard links
 	// point at the host side.
-	if v := os.Getenv("LLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 1 && n <= 65535 {
-			cfg.GenPublicPortStart = n
-			set(FieldGenPublicPortStart, "LLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START")
-		} else {
-			slog.Warn("ignoring LLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START: not a port number", "value", v)
-		}
+	if n, ok := envPort(envGenPublicPortStart); ok {
+		cfg.GenPublicPortStart = n
+		set(FieldGenPublicPortStart, envGenPublicPortStart)
 	}
 	// Set by setup.sh for a container: the host port llama-server's 8080
 	// is published on, or Caddy's chat port in secure mode.
-	if v := os.Getenv("LLAMA_TOOLCHEST_CHAT_PUBLIC_PORT"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 1 && n <= 65535 {
-			cfg.ChatPublicPort = n
-		} else {
-			slog.Warn("ignoring LLAMA_TOOLCHEST_CHAT_PUBLIC_PORT: not a port number", "value", v)
-		}
+	if n, ok := envPort("LLAMA_TOOLCHEST_CHAT_PUBLIC_PORT"); ok {
+		cfg.ChatPublicPort = n
 	}
+	cfg.GenPortsPublished = os.Getenv("LLAMA_TOOLCHEST_GEN_PORTS") == "1"
+	cfg.ROCmBaseImage = os.Getenv("LLAMA_TOOLCHEST_ROCM_BASE_IMAGE")
+}
+
+const (
+	envLlamaPort          = "LLAMA_TOOLCHEST_LLAMA_PORT"
+	envGenPublicPortStart = "LLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START"
+)
+
+// envPort reads a port number from the environment variable name. An
+// unset variable is not ok; a value that is not a port from 1 to 65535 is
+// not ok either, and is logged as ignored.
+func envPort(name string) (int, bool) {
+	v := os.Getenv(name)
+	if v == "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 || n > 65535 {
+		slog.Warn("ignoring environment variable: not a port number", "name", name, "value", v)
+		return 0, false
+	}
+	return n, true
 }
 
 // salvageModelsDir blanks ModelsDir if it points to a path that doesn't exist

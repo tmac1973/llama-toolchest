@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -81,7 +80,7 @@ func (r genInstanceRow) SuggestedGiB() float64 { return float64(r.SuggestedMiB) 
 // only when setup.sh was told to, and docker-compose.gen-ports.yml (or the
 // Quadlet unit) then sets LLAMA_TOOLCHEST_GEN_PORTS=1.
 func (s *Server) genPortsPublished() bool {
-	return !s.inContainer() || os.Getenv("LLAMA_TOOLCHEST_GEN_PORTS") == "1"
+	return !s.inContainer() || s.cfg.GenPortsPublished
 }
 
 // genWebUIURL is where a browser reaches the backend listening on port:

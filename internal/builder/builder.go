@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"maps"
 	"os"
@@ -710,7 +709,7 @@ func (b *Builder) runBuild(ctx context.Context, proj Project, prof BuildProfile,
 	}
 	dstBin := filepath.Join(outDir, proj.Required.Name)
 
-	if err := copyFile(srcBin, dstBin); err != nil {
+	if err := atomicfile.Copy(srcBin, dstBin); err != nil {
 		b.finishBuild(result, BuildStatusFailed, fmt.Sprintf("install failed: %v", err))
 		sendLog(fmt.Sprintf("==> Install FAILED: %v", err))
 		return
@@ -736,7 +735,7 @@ func (b *Builder) runBuild(ctx context.Context, proj Project, prof BuildProfile,
 		for _, e := range entries {
 			name := e.Name()
 			if strings.HasSuffix(name, ".so") || strings.Contains(name, ".so.") {
-				if err := copyFile(filepath.Join(dir, name), filepath.Join(outDir, name)); err == nil {
+				if err := atomicfile.Copy(filepath.Join(dir, name), filepath.Join(outDir, name)); err == nil {
 					sendLog(fmt.Sprintf("    Installed lib: %s", name))
 				}
 			}
@@ -751,7 +750,7 @@ func (b *Builder) runBuild(ctx context.Context, proj Project, prof BuildProfile,
 	for _, spec := range proj.Optional {
 		if src := findBuilt(buildDir, spec); src != "" {
 			dst := filepath.Join(outDir, spec.Name)
-			err := copyFile(src, dst)
+			err := atomicfile.Copy(src, dst)
 			if err == nil {
 				err = os.Chmod(dst, 0o755)
 			}
@@ -1264,23 +1263,6 @@ func copyFlags(in map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, in)
-	return err
 }
 
 // findBuilt returns the first existing candidate path of spec under

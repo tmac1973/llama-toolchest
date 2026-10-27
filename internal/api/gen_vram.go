@@ -901,7 +901,7 @@ func (s *Server) gpuUsedMiB(gpu int) int {
 // about 21 GiB against 17.4 GiB for a plain image (R9700, 2026-10-25),
 // so the reservation must cover the edit.
 func (s *Server) runMeasureGeneration(ctx context.Context, inst generation.Instance, set generation.ModelSet, size generation.VideoSize) error {
-	base := fmt.Sprintf("http://127.0.0.1:%d", inst.Port)
+	base := inst.BaseURL()
 	if set.Kind == generation.KindVideo {
 		return runMeasureVideo(ctx, base, set, size)
 	}

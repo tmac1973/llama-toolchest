@@ -34,11 +34,11 @@ func TestGenWebUIURLNeedsPublishedPortsInContainer(t *testing.T) {
 	s := vramServer(t)
 	s.cfg.ExternalURL = "https://compute2:3000"
 	s.inContainerFn = func() bool { return true }
-	t.Setenv("LLAMA_TOOLCHEST_GEN_PORTS", "")
+	s.cfg.GenPortsPublished = false
 	if got := s.genWebUIURL(8082); got != "" {
 		t.Errorf("unpublished ports: %q, want no link", got)
 	}
-	t.Setenv("LLAMA_TOOLCHEST_GEN_PORTS", "1")
+	s.cfg.GenPortsPublished = true
 	if got := s.genWebUIURL(8082); got != "https://compute2:8082" {
 		t.Errorf("published ports: %q", got)
 	}

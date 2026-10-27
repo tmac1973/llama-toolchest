@@ -18,26 +18,6 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/generation"
 )
 
-// maxImageRequestBytes bounds an image request body read into memory: a
-// prompt, or an edit's source image and mask.
-const maxImageRequestBytes = 128 << 20
-
-// openAIError writes an error in the OpenAI API's format.
-func openAIError(w http.ResponseWriter, status int, errType, code, message string) {
-	respondJSONStatus(w, status, map[string]any{
-		"error": map[string]any{"message": message, "type": errType, "code": code},
-	})
-}
-
-// pickError is why no instance can take a request, with its HTTP status.
-type pickError struct {
-	status int
-	code   string
-	msg    string
-}
-
-func (e *pickError) Error() string { return e.msg }
-
 // pickInstance chooses the instance of a kind that serves model: the
 // instance with that ID, or among the instances of the model set with that
 // ID the one whose GPU has the fewest jobs (lowest ID on a tie), or with
@@ -45,9 +25,9 @@ func (e *pickError) Error() string { return e.msg }
 // measured and have a VRAM reservation are eligible. A stopped one is
 // eligible too, as genReady starts it on request; a running one is picked
 // before it.
-func (s *Server) pickInstance(model string, kind generation.BackendKind) (generation.Instance, *pickError) {
+func (s *Server) pickInstance(model string, kind generation.BackendKind) (generation.Instance, *requestError) {
 	if s.gen == nil {
-		return generation.Instance{}, &pickError{http.StatusNotFound, "model_not_found", "generation backends are not available"}
+		return generation.Instance{}, &requestError{http.StatusNotFound, "model_not_found", "generation backends are not available"}
 	}
 	sets := map[string]generation.ModelSet{}
 	for _, m := range s.gen.ModelSets() {
@@ -71,7 +51,7 @@ func (s *Server) pickInstance(model string, kind generation.BackendKind) (genera
 		}
 	}
 	if len(matches) == 0 {
-		return generation.Instance{}, &pickError{http.StatusNotFound, "model_not_found", "model not found: " + model}
+		return generation.Instance{}, &requestError{http.StatusNotFound, "model_not_found", "model not found: " + model}
 	}
 	var eligible []generation.Instance
 	var reasons []string
@@ -88,14 +68,14 @@ func (s *Server) pickInstance(model string, kind generation.BackendKind) (genera
 		}
 	}
 	if len(eligible) == 0 {
-		return generation.Instance{}, &pickError{http.StatusServiceUnavailable, "backend_unavailable", strings.Join(reasons, "; ")}
+		return generation.Instance{}, &requestError{http.StatusServiceUnavailable, "backend_unavailable", strings.Join(reasons, "; ")}
 	}
 	if model == "" && len(eligible) > 1 {
 		ids := make([]string, len(eligible))
 		for i, inst := range eligible {
 			ids[i] = inst.ID
 		}
-		return generation.Instance{}, &pickError{http.StatusBadRequest, "model_required",
+		return generation.Instance{}, &requestError{http.StatusBadRequest, "model_required",
 			"several backends can serve this request; set model to one of: " + strings.Join(ids, ", ")}
 	}
 	slices.SortFunc(eligible, func(a, b generation.Instance) int {
@@ -146,16 +126,12 @@ func requestModel(contentType string, body []byte) (string, error) {
 // that GPU's queue, and forwards the request unchanged.
 func (s *Server) handleGenImages(w http.ResponseWriter, r *http.Request) {
 	if !s.cfg.GenerationEnabled || s.gen == nil {
-		openAIError(w, http.StatusNotFound, "invalid_request_error", "not_found", "image generation is not enabled on this server")
+		writeNotEnabled(w, "image")
 		return
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxImageRequestBytes+1))
-	if err != nil {
-		openAIError(w, http.StatusBadRequest, "invalid_request_error", "bad_request", "reading the request: "+err.Error())
-		return
-	}
-	if len(body) > maxImageRequestBytes {
-		openAIError(w, http.StatusRequestEntityTooLarge, "invalid_request_error", "too_large", "the request is larger than 128 MiB")
+	body, rerr := readImageBody(r)
+	if rerr != nil {
+		writeRequestError(w, rerr)
 		return
 	}
 	model, err := requestModel(r.Header.Get("Content-Type"), body)
@@ -165,11 +141,7 @@ func (s *Server) handleGenImages(w http.ResponseWriter, r *http.Request) {
 	}
 	inst, pe := s.pickInstance(model, generation.KindSD)
 	if pe != nil {
-		errType := "invalid_request_error"
-		if pe.status >= 500 {
-			errType = "server_error"
-		}
-		openAIError(w, pe.status, errType, pe.code, pe.msg)
+		writeRequestError(w, pe)
 		return
 	}
 	if strings.HasSuffix(r.URL.Path, "/edits") {
@@ -182,13 +154,8 @@ func (s *Server) handleGenImages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ticket, err := s.genQueue.Submit(inst.GPU, inst.ID, generation.KindSD)
-	if errors.Is(err, generation.ErrQueueFull) {
-		w.Header().Set("Retry-After", "30")
-		openAIError(w, http.StatusTooManyRequests, "server_error", "queue_full", err.Error())
-		return
-	}
 	if err != nil {
-		openAIError(w, http.StatusInternalServerError, "server_error", "queue_error", err.Error())
+		writeQueueError(w, err)
 		return
 	}
 	if err := ticket.Wait(r.Context()); err != nil {
@@ -232,7 +199,7 @@ func (s *Server) forwardToInstance(w http.ResponseWriter, r *http.Request, inst 
 // same path it came in on. The synchronous routes and image jobs share
 // it; the caller closes the response body.
 func forwardImage(ctx context.Context, inst generation.Instance, path, contentType, accept string, body []byte) (*http.Response, error) {
-	url := fmt.Sprintf("http://127.0.0.1:%d%s", inst.Port, path)
+	url := inst.BaseURL() + path
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err

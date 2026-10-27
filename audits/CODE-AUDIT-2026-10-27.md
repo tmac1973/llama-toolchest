@@ -33,7 +33,7 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [ ] The image, video and music job handlers are three copies of one set (`*JobOr404`, list, delete, `*Enabled()`); only the store, the job name and the cancel function differ — `internal/api/gen_image_jobs.go:327` (and `gen_video_jobs.go:505`, `gen_music.go:692`)
 - [ ] The `restored()`, `withPosition()` and `state()` record methods are nearly the same in all three job types — `internal/api/gen_image_jobs.go:80` (and `gen_video_jobs.go:99`, `gen_music.go:289`)
 - [ ] The run-job code is copied three times (the `finish` closure, `ticket.Wait`/`Done`, the "Starting" update, `genReady`) — `internal/api/gen_image_jobs.go:143` (and `gen_video_jobs.go:394`, `gen_music.go:387`)
-- [ ] The error handling at the end of each create handler is copied: the pickError mapping 4 times, the ErrQueueFull 429 reply 4 times, the 202 reply 3 times; `pickError` and `videoError` are the same struct *(Duplication + Standards)* — `internal/api/gen_images.go:168` (and `gen_image_jobs.go:359`, `gen_music.go:667`, `gen_video_jobs.go:142`)
+- [x] The error handling at the end of each create handler is copied: the pickError mapping 4 times, the ErrQueueFull 429 reply 4 times, the 202 reply 3 times; `pickError` and `videoError` are the same struct *(Duplication + Standards)* — `internal/api/gen_images.go:168` (and `gen_image_jobs.go:359`, `gen_music.go:667`, `gen_video_jobs.go:142`)
 
 ### Testing
 - [ ] The benchmark job HTTP handlers have almost no tests (create, update, cancel, retry, export, `decodeJobRequest`, `resolveSweeps`) — `internal/api/bench_jobs.go:271`
@@ -44,16 +44,16 @@ Each item has a checkbox; tick it in the PR that fixes it.
 
 ### Standards
 - [ ] Fields that Settings and restore change at runtime (ActiveBuild, the API key, the tokens, the external URL) are read without `cfgMu`, although a locked getter exists — `internal/api/server.go:1003`, `internal/api/middleware.go:13`, `internal/api/jobs_env.go:812`
-- [ ] Four functions build the same OpenAI-style error body (`writeProxyError`, `writeAuthError`, `writeVideoError` and `openAIError`) — `internal/api/proxy.go:242`, `internal/api/middleware.go:38`
+- [x] Four functions build the same OpenAI-style error body (`writeProxyError`, `writeAuthError`, `writeVideoError` and `openAIError`) — `internal/api/proxy.go:242`, `internal/api/middleware.go:38` *(`writeVideoError` is gone and `writeProxyError` calls `openAIError`; `writeAuthError` keeps its own body, which has no code and type `auth_error`.)*
 - [x] Best-effort cache writes drop their errors silently with `_ =`; the docs cache logs the same kind of failure — `internal/modelsource/meta_cache.go:105`, `internal/recommend/finalist.go:153`
 - [ ] Some JS calls `fetch` directly without checking `r.ok`, so an error page is inserted into the dialog; the About dialog sets `loaded` before the request succeeds, so it never retries — `web/templates/benchmarks.html:368`, `web/templates/server.html:429`
 
 ### Duplication
 - [ ] `cancelImageJob`, `cancelMusic` and `cancelVideoJob` are the same function — `internal/api/gen_image_jobs.go:310` (and `gen_music.go:522`, `gen_video_jobs.go:489`)
-- [ ] The "not enabled on this server" 404 is written by hand 13 times — `internal/api/gen_images.go:149` and others
-- [ ] The code that reads an image request body is pasted twice, and the "128 MiB" text is hard-coded in 4 places — `internal/api/gen_images.go:153`, `internal/api/gen_image_jobs.go:341`
-- [ ] Three functions repeat the same code to read the model name from a request body — `internal/api/gen_evict.go:133`, `internal/api/proxy.go:138`, `internal/api/proxy.go:318`
-- [ ] The backend URL `http://127.0.0.1:%d` is built by hand in 5 places — `internal/generation/launch.go:98` and others
+- [x] The "not enabled on this server" 404 is written by hand 13 times — `internal/api/gen_images.go:149` and others
+- [x] The code that reads an image request body is pasted twice, and the "128 MiB" text is hard-coded in 4 places — `internal/api/gen_images.go:153`, `internal/api/gen_image_jobs.go:341`
+- [x] Three functions repeat the same code to read the model name from a request body — `internal/api/gen_evict.go:133`, `internal/api/proxy.go:138`, `internal/api/proxy.go:318`
+- [x] The backend URL `http://127.0.0.1:%d` is built by hand in 5 places — `internal/generation/launch.go:98` and others
 - [ ] The copy-to-clipboard fallback is written twice — `web/static/log-panel.js:66`, `web/templates/server.html:381`
 
 ### Logging
@@ -89,11 +89,11 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [ ] The field `runningBuild_` has a trailing underscore, which no other name in the code has — `internal/api/server.go:168`
 
 ### Duplication
-- [ ] There are two `setEnv` helpers, plus `setEnvDefault` — `internal/builder/rocminstall.go:359`, `internal/generation/launch.go:175`
-- [ ] There are two `copyFile` helpers, and the builder one has no atomic-write safety — `internal/builder/builder.go:1250`, `internal/api/gen_move.go:159`
-- [ ] Environment variables are read directly in several places outside the config layer; in `applyEnvOverrides` the port block is repeated 3 times and `LLAMA_PORT` skips the range check *(Duplication + Security)* — `internal/config/config.go:311`, `internal/api/server.go:950`, `internal/api/gen_instances.go:84`
+- [x] There are two `setEnv` helpers, plus `setEnvDefault` — `internal/builder/rocminstall.go:359`, `internal/generation/launch.go:175` *(`setEnvDefault` stays in builder: it keeps an inherited value, which is a different rule.)*
+- [x] There are two `copyFile` helpers, and the builder one has no atomic-write safety — `internal/builder/builder.go:1250`, `internal/api/gen_move.go:159`
+- [x] Environment variables are read directly in several places outside the config layer; in `applyEnvOverrides` the port block is repeated 3 times and `LLAMA_PORT` skips the range check *(Duplication + Security)* — `internal/config/config.go:311`, `internal/api/server.go:950`, `internal/api/gen_instances.go:84` *(`ROCM_PATH` stays in builder, as it locates the ROCm tools, and `LLAMA_API_KEY` stays in the separate agent CLI; the runtime env view checks the process environment on purpose.)*
 - [ ] The server log SSE handler repeats the live-tail code in log-panel.js — `web/templates/server.html:507`
-- [ ] rocminfo is run and parsed twice, and the magic number `1<<20` appears 3 times — `internal/builder/detect.go:108`, `internal/monitor/rocm.go:395`
+- [x] rocminfo is run and parsed twice, and the magic number `1<<20` appears 3 times — `internal/builder/detect.go:108`, `internal/monitor/rocm.go:395` *(`1<<20` is now `musicJSONLimit`. rocminfo kept as is: the parsing is already shared, and the two callers cache differently on purpose, detection with a time limit and the monitor once.)*
 
 ### Logging
 - [ ] Stop errors during a supervisor restart and at shutdown are logged at Debug — `internal/process/supervisor.go:209`, `internal/api/server.go:273`

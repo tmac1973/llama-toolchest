@@ -45,7 +45,6 @@ func TestBuildsPageNamesTheRunningToolchainWithNoBuilds(t *testing.T) {
 // built without it — the stable Fedora one — must simply say less rather than
 // render an empty "built on" fragment.
 func TestBuildsPageOmitsTheBaseImageWhenUnknown(t *testing.T) {
-	t.Setenv("LLAMA_TOOLCHEST_ROCM_BASE_IMAGE", "")
 	out := buildsPage(t, bannerServer(t, "rocm 7.2.4"))
 	if strings.Contains(out, "built on") {
 		t.Errorf("the page claims a base image it was not given\n%s", out)
@@ -54,8 +53,9 @@ func TestBuildsPageOmitsTheBaseImageWhenUnknown(t *testing.T) {
 		t.Errorf("the toolchain is missing\n%s", out)
 	}
 
-	t.Setenv("LLAMA_TOOLCHEST_ROCM_BASE_IMAGE", "docker.io/rocm/dev-ubuntu-24.04:10.0.0-full")
-	out = buildsPage(t, bannerServer(t, "rocm 10.0.0"))
+	s := bannerServer(t, "rocm 10.0.0")
+	s.cfg.ROCmBaseImage = "docker.io/rocm/dev-ubuntu-24.04:10.0.0-full"
+	out = buildsPage(t, s)
 	if !strings.Contains(out, "built on") || !strings.Contains(out, "dev-ubuntu-24.04:10.0.0-full") {
 		t.Errorf("the page does not name the base image it was given\n%s", out)
 	}

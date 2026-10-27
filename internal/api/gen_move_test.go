@@ -86,17 +86,3 @@ func TestMoveGenModelsNothingToDo(t *testing.T) {
 	}
 	s.genMove.wait()
 }
-
-// A copy cut short leaves no file at the target that looks finished.
-func TestCopyFileLeavesNoPartOnError(t *testing.T) {
-	dir := t.TempDir()
-	dst := filepath.Join(dir, "out.gguf")
-	if err := copyFile(filepath.Join(dir, "missing.gguf"), dst); err == nil {
-		t.Fatal("copying a missing file succeeded")
-	}
-	for _, p := range []string{dst, dst + ".part"} {
-		if _, err := os.Stat(p); !os.IsNotExist(err) {
-			t.Errorf("%s exists after a failed copy", p)
-		}
-	}
-}

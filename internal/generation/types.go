@@ -3,7 +3,10 @@
 // store that persists them.
 package generation
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // BackendKind names a generation backend program.
 type BackendKind string
@@ -129,4 +132,10 @@ type Instance struct {
 	// backends' jobs never stop it to make room, and its reservation
 	// counts even while it is stopped, as it does with eviction off.
 	KeepRunning bool `json:"keep_running,omitempty"`
+}
+
+// BaseURL is the address the toolchest reaches the instance at, on
+// loopback whatever host it listens on.
+func (inst Instance) BaseURL() string {
+	return fmt.Sprintf("http://127.0.0.1:%d", inst.Port)
 }

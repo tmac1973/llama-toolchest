@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -133,13 +132,7 @@ func (u *llmUse) evict(ctx context.Context, id string) (done func(), err error) 
 // requestModelID is the registry ID of the model a proxied request body
 // names, or "" when it names none we know.
 func (s *Server) requestModelID(body []byte) string {
-	var req struct {
-		Model string `json:"model"`
-	}
-	if json.Unmarshal(body, &req) != nil || req.Model == "" {
-		return ""
-	}
-	if m, _ := s.findModelByAny(req.Model); m != nil {
+	if m, _ := s.modelFromBody(body); m != nil {
 		return m.ID
 	}
 	return ""

@@ -128,6 +128,9 @@ var musicTracks = []string{"vocals", "backing_vocals", "drums", "bass", "guitar"
 // frames).
 const musicUploadLimit = 128 << 20
 
+// musicJSONLimit bounds a JSON music request, which carries no audio.
+const musicJSONLimit = 1 << 20
+
 // aceTasks returns the tasks a music set can run: every one on a base DiT,
 // all but stemTasks on turbo or SFT. Every ACE-Step base GGUF we know of
 // says "base" in its name; acestep.cpp itself can't tell SFT from base.
@@ -444,7 +447,7 @@ func (s *Server) runMusicJob(ctx context.Context, id string, inst generation.Ins
 		})
 	}
 	setBackendJob := func(bid string) { s.genMusic.update(id, func(j *musicJob) { j.backendJobID = bid }) }
-	base := fmt.Sprintf("http://127.0.0.1:%d", inst.Port)
+	base := inst.BaseURL()
 
 	fail := func(step string, err error) {
 		switch {
@@ -545,7 +548,7 @@ func musicResponse(j musicJob) musicJob {
 }
 
 // pickMusicInstance is pickInstance for music, as /v1/music/jobs uses it.
-func (s *Server) pickMusicInstance(model string) (generation.Instance, *pickError) {
+func (s *Server) pickMusicInstance(model string) (generation.Instance, *requestError) {
 	return s.pickInstance(model, generation.KindAce)
 }
 
@@ -568,7 +571,7 @@ func (s *Server) checkMusic(inst generation.Instance, req musicRequest, captionF
 func readMusicRequest(w http.ResponseWriter, r *http.Request) (musicRequest, error) {
 	var req musicRequest
 	if !strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/") {
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, musicJSONLimit)).Decode(&req); err != nil {
 			return req, errors.New("the body is not valid JSON: " + err.Error())
 		}
 		req.SourceAudio, req.ReferenceAudio = false, false
@@ -654,7 +657,7 @@ func readFormFile(fh *multipart.FileHeader) ([]byte, error) {
 
 func (s *Server) handleMusicCreate(w http.ResponseWriter, r *http.Request) {
 	if !s.musicEnabled() {
-		openAIError(w, http.StatusNotFound, "invalid_request_error", "not_found", "music generation is not enabled on this server")
+		writeNotEnabled(w, "music")
 		return
 	}
 	req, err := readMusicRequest(w, r)
@@ -664,11 +667,7 @@ func (s *Server) handleMusicCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	inst, pe := s.pickMusicInstance(req.Model)
 	if pe != nil {
-		errType := "invalid_request_error"
-		if pe.status >= 500 {
-			errType = "server_error"
-		}
-		openAIError(w, pe.status, errType, pe.code, pe.msg)
+		writeRequestError(w, pe)
 		return
 	}
 	if code, msg := s.checkMusic(inst, req, "caption"); code != "" {
@@ -677,8 +676,7 @@ func (s *Server) handleMusicCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	job, err := s.submitMusic(inst, req)
 	if errors.Is(err, generation.ErrQueueFull) {
-		w.Header().Set("Retry-After", "30")
-		openAIError(w, http.StatusTooManyRequests, "server_error", "queue_full", err.Error())
+		writeQueueError(w, err)
 		return
 	}
 	if err != nil {
@@ -686,12 +684,12 @@ func (s *Server) handleMusicCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	view, _ := s.genMusic.view(job.ID)
-	respondJSONStatus(w, http.StatusAccepted, map[string]any{"id": view.ID, "status": view.Status, "phase": view.Phase, "queue_position": view.Position})
+	writeJobAccepted(w, view.ID, view.Status, view.Phase, view.Position)
 }
 
 func (s *Server) musicJobOr404(w http.ResponseWriter, id string) (musicJob, bool) {
 	if !s.musicEnabled() {
-		openAIError(w, http.StatusNotFound, "invalid_request_error", "not_found", "music generation is not enabled on this server")
+		writeNotEnabled(w, "music")
 		return musicJob{}, false
 	}
 	j, ok := s.genMusic.view(id)
@@ -709,7 +707,7 @@ func (s *Server) handleMusicGet(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleMusicList(w http.ResponseWriter, r *http.Request) {
 	if !s.musicEnabled() {
-		openAIError(w, http.StatusNotFound, "invalid_request_error", "not_found", "music generation is not enabled on this server")
+		writeNotEnabled(w, "music")
 		return
 	}
 	statuses, ok := jobStatusFilter(r.URL.Query().Get("status"))
@@ -838,7 +836,7 @@ func readReleaseTask(w http.ResponseWriter, r *http.Request) (releaseTaskRequest
 		if ct != "" && !strings.HasPrefix(ct, "application/json") {
 			return in, nil, nil, http.StatusUnsupportedMediaType, errors.New("send the request as JSON or multipart/form-data")
 		}
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, musicJSONLimit)).Decode(&in); err != nil {
 			return in, nil, nil, http.StatusBadRequest, errors.New("the body is not valid JSON: " + err.Error())
 		}
 		return in, nil, nil, 0, nil
@@ -899,7 +897,7 @@ func formFields(form *multipart.Form, dst any) error {
 
 func (s *Server) handleReleaseTask(w http.ResponseWriter, r *http.Request) {
 	if !s.musicEnabled() {
-		aceStepError(w, http.StatusNotFound, "music generation is not enabled on this server")
+		aceStepError(w, http.StatusNotFound, notEnabledMessage("music"))
 		return
 	}
 	in, src, ref, status, err := readReleaseTask(w, r)
@@ -963,13 +961,13 @@ func aceStepStatus(status string) int {
 
 func (s *Server) handleQueryResult(w http.ResponseWriter, r *http.Request) {
 	if !s.musicEnabled() {
-		aceStepError(w, http.StatusNotFound, "music generation is not enabled on this server")
+		aceStepError(w, http.StatusNotFound, notEnabledMessage("music"))
 		return
 	}
 	var in struct {
 		TaskIDList []string `json:"task_id_list"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, musicJSONLimit)).Decode(&in); err != nil {
 		aceStepError(w, http.StatusBadRequest, "the body is not valid JSON: "+err.Error())
 		return
 	}
@@ -1018,7 +1016,7 @@ var musicFileRE = regexp.MustCompile(`^[0-9a-f]{16}\.(mp3|wav)$`)
 
 func (s *Server) handleAceStepAudio(w http.ResponseWriter, r *http.Request) {
 	if !s.musicEnabled() {
-		aceStepError(w, http.StatusNotFound, "music generation is not enabled on this server")
+		aceStepError(w, http.StatusNotFound, notEnabledMessage("music"))
 		return
 	}
 	name := path.Base(r.URL.Query().Get("path"))

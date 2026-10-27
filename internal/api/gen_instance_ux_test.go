@@ -186,7 +186,7 @@ func TestGenWebUILinkReasons(t *testing.T) {
 	}
 
 	s.inContainerFn = func() bool { return true }
-	t.Setenv("LLAMA_TOOLCHEST_GEN_PORTS", "")
+	s.cfg.GenPortsPublished = false
 	if _, note := s.genWebUILink(withUI, inst, true); !strings.Contains(note, "setup.sh install") {
 		t.Errorf("ports not published: %q", note)
 	}
