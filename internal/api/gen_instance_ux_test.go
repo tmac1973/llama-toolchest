@@ -39,6 +39,13 @@ func TestMeasureNote(t *testing.T) {
 			t.Errorf("%s:\n got  %q\n want %q", c.name, got, c.want)
 		}
 	}
+	// LTX-2.3 on an RTX A4000: the room was below the peak, so the
+	// reservation is the room and leaves no slack.
+	a4000 := generation.Instance{MeasuredPeakMiB: 15320, ReservedMiB: 14676, MeasuredSuggestedMiB: 14676, MeasuredFrames: 33}
+	want := "Peak 15.0 GiB. Reservation capped at 14.3 GiB, all this card can give the instance. The peak is 0.6 GiB above it, within the 1.0 GiB allowed for memory the backend's own limit does not count, such as the GPU runtime's."
+	if got := measureNote(0, a4000, false, false); got != want {
+		t.Errorf("capped below the peak:\n got  %q\n want %q", got, want)
+	}
 }
 
 // The instance table shows the last measurement's result, or its full

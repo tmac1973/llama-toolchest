@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tmac1973/llama-toolchest/internal/builder"
@@ -104,6 +105,7 @@ func TestGenEditInstanceClearsMeasurement(t *testing.T) {
 	if err := s.gen.AddInstance(generation.Instance{ID: "m", Name: "m", ModelSetID: "ming-image", Port: 8081, Enabled: true, ReservedMiB: 20000, MeasuredPeakMiB: 18000}); err != nil {
 		t.Fatal(err)
 	}
+	s.genMeasure.set("m", measureOutcome{Err: "a measurement of the old settings failed", At: time.Now()})
 	rec := httptest.NewRecorder()
 	s.handleGenEditInstance(rec, instanceReq("PUT", "/", "m", "", url.Values{"model_set": {"ming-image"}, "gpu": {"0"}, "extra_args": {"--offload-to-cpu"}}))
 	if rec.Code != http.StatusOK {
@@ -112,6 +114,9 @@ func TestGenEditInstanceClearsMeasurement(t *testing.T) {
 	inst, _ := s.gen.Instance("m")
 	if inst.ReservedMiB != 0 || inst.MeasuredPeakMiB != 0 || len(inst.ExtraArgs) != 1 {
 		t.Errorf("after edit: %+v, want the measurement cleared and the argument stored", inst)
+	}
+	if o := s.genMeasure.get("m"); o.Err != "" {
+		t.Errorf("after edit the last measurement's error is still shown: %q", o.Err)
 	}
 }
 
