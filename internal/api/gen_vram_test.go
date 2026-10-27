@@ -294,3 +294,38 @@ func TestWaitGPUReleased(t *testing.T) {
 		t.Error("reading never came back, but the wait reported success")
 	}
 }
+
+// Before a measurement the instance is stopped and the card read again:
+// the wait skips readings from before the stop and returns once two later
+// readings show the memory no longer falling.
+func TestWaitGPUSettled(t *testing.T) {
+	stop := time.Now()
+	type reading struct {
+		at  time.Time
+		mib int
+	}
+	readings := []reading{
+		{stop.Add(-time.Second), 12500}, // before the stop
+		{stop.Add(-time.Second), 12500},
+		{stop.Add(time.Second), 6000}, // freeing
+		{stop.Add(time.Second), 6000}, // the same sample again
+		{stop.Add(2 * time.Second), 900},
+		{stop.Add(3 * time.Second), 880},
+	}
+	i := 0
+	read := func() (time.Time, int) {
+		r := readings[min(i, len(readings)-1)]
+		i++
+		return r.at, r.mib
+	}
+	if !waitGPUSettled(read, stop, time.Second, time.Millisecond) {
+		t.Error("the readings settled, but the wait gave up")
+	}
+	if i != 6 {
+		t.Errorf("read %d times, want 6 (stop at the first settled reading)", i)
+	}
+	old := func() (time.Time, int) { return stop.Add(-time.Second), 12500 }
+	if waitGPUSettled(old, stop, 20*time.Millisecond, time.Millisecond) {
+		t.Error("no reading came after the stop, but the wait reported success")
+	}
+}

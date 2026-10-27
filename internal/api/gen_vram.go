@@ -20,6 +20,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/generation"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/monitor"
+	"github.com/tmac1973/llama-toolchest/internal/process"
 )
 
 // genVRAM is what generation backends hold and reserve on one GPU.
@@ -564,12 +565,20 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 		return err
 	}
 	wasRunning := s.genMgr.IsActive(id)
+	stoppedAt := time.Now()
 	if wasRunning {
 		if err := s.genMgr.Stop(id); err != nil {
 			return err
 		}
+		// The baseline and the room below read the card's used VRAM.
+		// The monitor reads it every few seconds, so a reading from
+		// before the backend let go of its memory counts that memory as
+		// another program's: Wan2.2 I2V A14B was measured with 16.5 GiB
+		// of a 28.5 GiB room that way (R9700, 2026-10-27).
+		waitGPUSettled(s.gpuReading(inst.GPU), stoppedAt, 20*time.Second, 500*time.Millisecond)
+	} else {
+		time.Sleep(2 * time.Second)
 	}
-	time.Sleep(2 * time.Second)
 	baseline := s.gpuUsedMiB(inst.GPU)
 
 	// The first start has no reservation to check yet; it needs at least
@@ -621,6 +630,9 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 		}
 	}()
 	runErr := s.runMeasureGeneration(ctx, inst, set, size)
+	// Read before the Stop below, which leaves every backend stopped: a
+	// stopped one now was stopped by the user, not by a crash.
+	userStopped := s.genMgr.Status(id).State == process.StateStopped
 	close(stop)
 	<-sampled
 	peak, perProcess := gpuPeak, procOK
@@ -635,6 +647,9 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 	waitGPUReleased(func() int { return s.gpuUsedMiB(inst.GPU) }, baseline, 20*time.Second, 500*time.Millisecond)
 	if runErr != nil {
 		if backendGone(runErr) {
+			if userStopped {
+				return errors.New("the instance was stopped during the test generation")
+			}
 			return errors.New("the backend stopped during the test generation, probably because it ran out of GPU memory at this size; its log on this page says more. Try a smaller size")
 		}
 		return fmt.Errorf("the test generation failed: %w", runErr)
@@ -668,6 +683,9 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 		return fmt.Errorf("measured %s at peak, but the suggested reservation does not fit, so the instance was disabled: %w", mibText(peak), fitErr)
 	}
 	if wasRunning || startAfter {
+		// startGenInstance refuses an instance that is being measured,
+		// and the measurement is over.
+		s.genMgr.SetMeasuring(id, false)
 		if err := s.startGenInstance(id); err != nil {
 			if wasRunning {
 				return fmt.Errorf("measured; restarting failed: %w", err)
@@ -749,6 +767,41 @@ func waitGPUReleased(used func() int, baseline int, limit, step time.Duration) b
 		time.Sleep(step)
 	}
 	return true
+}
+
+// waitGPUSettled waits, for at most limit, until two readings taken after
+// since are no more than gpuReleasedSlackMiB apart: the card has stopped
+// giving memory back. read returns a reading's time and used MiB.
+func waitGPUSettled(read func() (time.Time, int), since time.Time, limit, step time.Duration) bool {
+	deadline := time.Now().Add(limit)
+	var last time.Time
+	prev := -1
+	for {
+		if at, mib := read(); at.After(since) && at.After(last) {
+			if prev >= 0 && prev-mib <= gpuReleasedSlackMiB {
+				return true
+			}
+			prev, last = mib, at
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		time.Sleep(step)
+	}
+}
+
+// gpuReading returns a function that reads the monitor's latest sample
+// for a GPU: when it was taken and the card's used VRAM.
+func (s *Server) gpuReading(gpu int) func() (time.Time, int) {
+	return func() (time.Time, int) {
+		m := s.monitor.Current()
+		for _, g := range m.GPU {
+			if g.Index == gpu {
+				return m.Timestamp, g.VRAMUsedMB
+			}
+		}
+		return m.Timestamp, 0
+	}
 }
 
 // gpuUsedMiB is the monitor's current used-VRAM reading for a GPU.
