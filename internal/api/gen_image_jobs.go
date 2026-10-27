@@ -31,8 +31,8 @@ import (
 // A finished job has none.
 const (
 	imagePhaseQueued = "queued"
-	// imagePhaseStarting: with eviction on, the job's backend was stopped
-	// and is being started, after making room for it (gen_evict.go).
+	// imagePhaseStarting: the job's backend was stopped or still
+	// starting; with eviction on, room is made for it first (gen_evict.go).
 	imagePhaseStarting   = "starting"
 	imagePhaseGenerating = "generating"
 	imagePhaseSaving     = "saving"

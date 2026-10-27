@@ -156,7 +156,6 @@ func TestImageRefusals(t *testing.T) {
 
 	for model, want := range map[string]string{
 		"nope":       "model_not_found",
-		"stopped":    "backend stopped is not running",
 		"unmeasured": "backend unmeasured has no VRAM reservation yet",
 	} {
 		rec := httptest.NewRecorder()

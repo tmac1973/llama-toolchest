@@ -1112,8 +1112,8 @@ components:
       description: |
         `backend_unavailable`: the matching instances cannot take jobs
         now. The message gives each one's reason: switched off, being
-        measured, no VRAM reservation yet, or not running (when eviction
-        is off).
+        measured, or no VRAM reservation yet. A stopped instance is
+        started for the job.
       content:
         application/json:
           schema:
@@ -1422,7 +1422,7 @@ components:
             phase:
               type: string
               enum: [queued, starting, generating, saving]
-              description: Left out once the job has finished. `starting` means room is being made on the GPU and the backend is starting.
+              description: Left out once the job has finished. `starting` means the backend is starting (with eviction on, after room is made on the GPU).
             request:
               type: object
               required: [prompt]
