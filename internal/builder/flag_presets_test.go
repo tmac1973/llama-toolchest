@@ -140,3 +140,16 @@ func TestSaveFlagPresetMigratesUnversioned(t *testing.T) {
 		t.Error("an unversioned preset should be migrated on save")
 	}
 }
+
+// A save that cannot write the file is reported to the caller, not
+// dropped: here the config directory's place is taken by a plain file.
+func TestSaveFlagPresetReportsWriteFailure(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b := NewBuilder(dir)
+	if err := b.SaveFlagPreset(FlagPreset{Name: "fast", Profile: "cuda", Options: map[string]bool{}}); err == nil {
+		t.Fatal("save succeeded although the config directory cannot be created")
+	}
+}

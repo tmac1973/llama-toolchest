@@ -149,7 +149,9 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			s.cfg.DefaultModelSource = modelsource.NormalizeSource(*update.DefaultModelSource)
 		}
 	} else {
-		r.ParseForm()
+		if !parseForm(w, r) {
+			return
+		}
 		if r.Form.Has("gen_port_start") || r.Form.Has("gen_port_count") {
 			start, count, err := formGenPorts(r)
 			if err == nil {

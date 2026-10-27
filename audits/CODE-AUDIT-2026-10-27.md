@@ -27,7 +27,7 @@ Each item has a checkbox; tick it in the PR that fixes it.
 ## High Priority
 
 ### Standards
-- [ ] `saveBuilds` and `saveFlagPresetsLocked` ignore the errors from `MkdirAll` and `WriteFile` and do not use `atomicfile`, so a failed or interrupted write can lose or corrupt builds.json or the flag presets without any message — `internal/builder/builder.go:1201`, `internal/builder/flag_presets.go:81`
+- [x] `saveBuilds` and `saveFlagPresetsLocked` ignore the errors from `MkdirAll` and `WriteFile` and do not use `atomicfile`, so a failed or interrupted write can lose or corrupt builds.json or the flag presets without any message — `internal/builder/builder.go:1201`, `internal/builder/flag_presets.go:81`
 
 ### Duplication
 - [ ] The image, video and music job handlers are three copies of one set (`*JobOr404`, list, delete, `*Enabled()`); only the store, the job name and the cancel function differ — `internal/api/gen_image_jobs.go:327` (and `gen_video_jobs.go:505`, `gen_music.go:692`)
@@ -45,7 +45,7 @@ Each item has a checkbox; tick it in the PR that fixes it.
 ### Standards
 - [ ] Fields that Settings and restore change at runtime (ActiveBuild, the API key, the tokens, the external URL) are read without `cfgMu`, although a locked getter exists — `internal/api/server.go:1003`, `internal/api/middleware.go:13`, `internal/api/jobs_env.go:812`
 - [ ] Four functions build the same OpenAI-style error body (`writeProxyError`, `writeAuthError`, `writeVideoError` and `openAIError`) — `internal/api/proxy.go:242`, `internal/api/middleware.go:38`
-- [ ] Best-effort cache writes drop their errors silently with `_ =`; the docs cache logs the same kind of failure — `internal/modelsource/meta_cache.go:105`, `internal/recommend/finalist.go:153`
+- [x] Best-effort cache writes drop their errors silently with `_ =`; the docs cache logs the same kind of failure — `internal/modelsource/meta_cache.go:105`, `internal/recommend/finalist.go:153`
 - [ ] Some JS calls `fetch` directly without checking `r.ok`, so an error page is inserted into the dialog; the About dialog sets `loaded` before the request succeeds, so it never retries — `web/templates/benchmarks.html:368`, `web/templates/server.html:429`
 
 ### Duplication
@@ -82,8 +82,8 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [ ] Some errors are built with `errors.New("..." + err.Error())`, which loses the original error — `internal/api/gen_music.go:572`, `:593`, `:842`
 - [ ] `handleBulkDeleteJobs` decodes JSON by hand instead of using `decodeJSONBody` — `internal/api/bench_jobs.go:1068`
 - [ ] The request content type is checked three different ways — `internal/api/gen_music.go:570`, `internal/api/gen_image_jobs.go:338`
-- [ ] About 25 handlers ignore the error from `r.ParseForm()` — `internal/api/settings.go:152` and others
-- [ ] Errors from `MkdirAll` and `Chmod` are ignored on install and download paths — `internal/builder/builder.go:551`, `internal/huggingface/downloader.go:406`
+- [x] About 25 handlers ignore the error from `r.ParseForm()` — `internal/api/settings.go:152` and others
+- [x] Errors from `MkdirAll` and `Chmod` are ignored on install and download paths — `internal/builder/builder.go:551`, `internal/huggingface/downloader.go:406`
 - [ ] Log messages are worded three ways ("failed to X", "X failed", "could not X"), model IDs are logged as `id` in some places and `model` in others, and some messages are built by joining strings *(Standards + Logging)* — `internal/models/registry.go:1007`, `internal/process/supervisor.go:154`
 - [ ] `log-panel.js` uses `const`/`let` and arrow functions, while every other script uses `var` and `function` — `web/static/log-panel.js:2`
 - [ ] The field `runningBuild_` has a trailing underscore, which no other name in the code has — `internal/api/server.go:168`

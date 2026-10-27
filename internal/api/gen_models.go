@@ -301,7 +301,9 @@ func (s *Server) handleGenCreateSet(w http.ResponseWriter, r *http.Request) {
 	if store == nil {
 		return
 	}
-	r.ParseForm()
+	if !parseForm(w, r) {
+		return
+	}
 	name := strings.TrimSpace(r.FormValue("name"))
 	kind := generation.BackendKind(r.FormValue("kind"))
 	recipe := r.FormValue("recipe")

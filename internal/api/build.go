@@ -321,7 +321,9 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		r.ParseForm()
+		if !parseForm(w, r) {
+			return
+		}
 		req.Project = r.FormValue("project")
 		req.Profile = r.FormValue("profile")
 		req.GitRef = r.FormValue("git_ref")

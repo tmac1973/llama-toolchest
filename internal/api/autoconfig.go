@@ -198,7 +198,9 @@ func (s *Server) handleAutoconfigDialog(w http.ResponseWriter, r *http.Request) 
 // handleAutoconfigStart starts a run (form: context_class).
 func (s *Server) handleAutoconfigStart(w http.ResponseWriter, r *http.Request) {
 	id := s.registry.ResolveID(chi.URLParam(r, "id"))
-	r.ParseForm()
+	if !parseForm(w, r) {
+		return
+	}
 	class := models.ContextClass(r.FormValue("context_class"))
 	switch class {
 	case models.ContextShort, models.ContextMedium, models.ContextLong, models.ContextMax:
@@ -425,7 +427,9 @@ func (s *Server) renderAutoconfigStatus(w http.ResponseWriter, id string, run au
 // with apply=1 also makes it the live config.
 func (s *Server) handleAutoconfigSave(w http.ResponseWriter, r *http.Request) {
 	id := s.registry.ResolveID(chi.URLParam(r, "id"))
-	r.ParseForm()
+	if !parseForm(w, r) {
+		return
+	}
 	apply := r.FormValue("apply") == "1"
 
 	run, ok := s.autoconfigSnapshot()

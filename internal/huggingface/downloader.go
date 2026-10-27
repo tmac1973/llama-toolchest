@@ -403,7 +403,11 @@ func (d *Downloader) run(ctx context.Context, source, downloadID, modelID, filen
 		root = dl.destRoot
 	}
 	modelDir := filepath.Join(root, safeName)
-	os.MkdirAll(modelDir, 0o755)
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		sendProgress(DownloadStatus{ID: downloadID, ModelID: modelID, Filename: filename, Status: "failed",
+			Error: fmt.Sprintf("creating model directory: %v", err)})
+		return
+	}
 
 	// Get combined total size via HEAD requests for accurate progress
 	var combinedTotal int64
@@ -503,7 +507,9 @@ func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, model
 	finalPath := filepath.Join(modelDir, filename)
 
 	// Ensure subdirectories exist (for files like "Q8_0/model.gguf")
-	os.MkdirAll(filepath.Dir(finalPath), 0o755)
+	if err := os.MkdirAll(filepath.Dir(finalPath), 0o755); err != nil {
+		return 0, fmt.Errorf("creating model directory: %w", err)
+	}
 
 	// Skip if already downloaded
 	if info, err := os.Stat(finalPath); err == nil {

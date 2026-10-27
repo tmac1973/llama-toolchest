@@ -1088,7 +1088,9 @@ func (s *Server) handleGenSetReservation(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	r.ParseForm()
+	if !parseForm(w, r) {
+		return
+	}
 	gib, err := strconv.ParseFloat(strings.TrimSpace(r.FormValue("reserved_gib")), 64)
 	if err != nil || gib < 0 || gib > 1024 {
 		http.Error(w, "the reservation must be a number of GiB", http.StatusBadRequest)

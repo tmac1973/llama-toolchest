@@ -140,8 +140,7 @@ func (s *Server) handleDeleteKLLogits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form: "+err.Error(), http.StatusBadRequest)
+	if !parseForm(w, r) {
 		return
 	}
 	filename := r.FormValue("filename")

@@ -214,7 +214,9 @@ func (s *Server) restoreDeps() backup.Deps {
 // hx-trigger="modelsChanged from:body") re-fetches itself — the ghost
 // card disappears through existing machinery.
 func (s *Server) handleDiscardPending(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if !parseForm(w, r) {
+		return
+	}
 	modelID, quant := r.FormValue("model_id"), r.FormValue("quant")
 	found, err := s.registry.DiscardPendingConfig(modelID, quant)
 	if err != nil {

@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/tmac1973/llama-toolchest/internal/atomicfile"
 )
 
 // FlagPreset is a saved build-flag set for a profile: toggle states plus
@@ -74,17 +77,23 @@ func (b *Builder) loadFlagPresetsLocked() {
 		}
 	}
 	if changed {
-		b.saveFlagPresetsLocked()
+		// The migrated copy stays in memory, so a failed write only means
+		// the migration runs again on the next start.
+		if err := b.saveFlagPresetsLocked(); err != nil {
+			slog.Warn("failed to save migrated flag presets", "error", err)
+		}
 	}
 }
 
-func (b *Builder) saveFlagPresetsLocked() {
-	os.MkdirAll(filepath.Dir(b.flagPresetsPath()), 0o755)
+func (b *Builder) saveFlagPresetsLocked() error {
 	data, err := json.MarshalIndent(b.flagPresets, "", "  ")
 	if err != nil {
-		return
+		return fmt.Errorf("saving flag presets: %w", err)
 	}
-	os.WriteFile(b.flagPresetsPath(), data, 0o644)
+	if err := atomicfile.Write(b.flagPresetsPath(), data); err != nil {
+		return fmt.Errorf("saving flag presets: %w", err)
+	}
+	return nil
 }
 
 // FlagPresets returns the saved flag sets for a profile ("" = all),
@@ -135,13 +144,11 @@ func (b *Builder) SaveFlagPreset(p FlagPreset) error {
 	for i := range b.flagPresets {
 		if b.flagPresets[i].Name == p.Name {
 			b.flagPresets[i] = p
-			b.saveFlagPresetsLocked()
-			return nil
+			return b.saveFlagPresetsLocked()
 		}
 	}
 	b.flagPresets = append(b.flagPresets, p)
-	b.saveFlagPresetsLocked()
-	return nil
+	return b.saveFlagPresetsLocked()
 }
 
 // DeleteFlagPreset removes a saved flag set, reporting whether it existed.
@@ -152,7 +159,9 @@ func (b *Builder) DeleteFlagPreset(name string) bool {
 	for i, p := range b.flagPresets {
 		if p.Name == name {
 			b.flagPresets = append(b.flagPresets[:i], b.flagPresets[i+1:]...)
-			b.saveFlagPresetsLocked()
+			if err := b.saveFlagPresetsLocked(); err != nil {
+				slog.Error("failed to save flag presets", "error", err)
+			}
 			return true
 		}
 	}

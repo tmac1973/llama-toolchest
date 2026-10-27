@@ -201,7 +201,9 @@ func (s *Server) handleHFDownload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		r.ParseForm()
+		if !parseForm(w, r) {
+			return
+		}
 		req.ModelID = r.FormValue("model_id")
 		req.Filename = r.FormValue("filename")
 		req.Size, _ = strconv.ParseInt(r.FormValue("size"), 10, 64)
@@ -450,7 +452,9 @@ func (s *Server) handleIncompleteDownloads(w http.ResponseWriter, r *http.Reques
 // `.part` fragments) for an orphan partial download identified by model_id +
 // filename. Paths are constrained to the models directory.
 func (s *Server) handleIncompleteDiscard(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if !parseForm(w, r) {
+		return
+	}
 	modelID := r.FormValue("model_id")
 	filename := r.FormValue("filename")
 	if modelID == "" || filename == "" {
