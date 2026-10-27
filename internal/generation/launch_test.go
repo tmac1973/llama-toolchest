@@ -219,3 +219,56 @@ func TestManagerLifecycle(t *testing.T) {
 		t.Errorf("unknown instance state %q", st.State)
 	}
 }
+
+func lightningSet(lowLora string) ModelSet {
+	return ModelSet{
+		ID: "fast", Name: "Fast", Kind: KindVideo, Recipe: "wan22-i2v", Complete: true,
+		Components: []Component{
+			{Slot: "diffusion_model", Path: "/m/low.gguf"},
+			{Slot: "high_noise_diffusion_model", Path: "/m/high.gguf"},
+			{Slot: "t5xxl", Path: "/m/t5.gguf"},
+			{Slot: "vae", Path: "/m/vae.safetensors"},
+			{Slot: "high_noise_lora", Path: "/m/loras/HIGH.safetensors"},
+			{Slot: "lora", Path: lowLora},
+		},
+		LaunchArgs: []string{"--steps", "4"},
+	}
+}
+
+// A set with LoRAs gets one --lora-model-dir, the folder its LoRA files
+// are in, and no flag per LoRA file.
+func TestLaunchSpecLoras(t *testing.T) {
+	build := builder.BuildResult{ID: "sd-x-rocm", Profile: "rocm", BinaryPath: "/b/sd-server"}
+	inst := Instance{ID: "fast", Port: 8090}
+	cfg, err := LaunchSpec(inst, lightningSet("/m/loras/LOW.safetensors"), build, "", t.TempDir(), LaunchOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"--listen-ip", "0.0.0.0", "--listen-port", "8090",
+		"--diffusion-model", "/m/low.gguf", "--high-noise-diffusion-model", "/m/high.gguf", "--t5xxl", "/m/t5.gguf", "--vae", "/m/vae.safetensors",
+		"--lora-model-dir", "/m/loras", "--steps", "4"}
+	if !slices.Equal(cfg.Args, want) {
+		t.Errorf("args =\n%q\nwant\n%q", cfg.Args, want)
+	}
+
+	if _, err := LaunchSpec(inst, lightningSet("/other/LOW.safetensors"), build, "", t.TempDir(), LaunchOptions{}); err == nil ||
+		!strings.Contains(err.Error(), "must be in one folder") {
+		t.Errorf("LoRA files in two folders: err = %v", err)
+	}
+
+	inst.ExtraArgs = []string{"--lora-model-dir=/x"}
+	if _, err := LaunchSpec(inst, lightningSet("/m/loras/LOW.safetensors"), build, "", t.TempDir(), LaunchOptions{}); err == nil {
+		t.Error("an instance's own --lora-model-dir was taken for a set with LoRAs")
+	}
+}
+
+// --lora-model-dir is refused only for a set with LoRAs of its own.
+func TestCheckLoraArgs(t *testing.T) {
+	args := []string{"--lora-model-dir", "/x"}
+	if err := CheckLoraArgs(lightningSet("/m/loras/LOW.safetensors"), args); err == nil {
+		t.Error("refused nothing for a set with LoRAs")
+	}
+	if err := CheckLoraArgs(mingSet(), args); err != nil {
+		t.Errorf("a set without LoRAs: %v", err)
+	}
+}

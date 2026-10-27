@@ -10,8 +10,11 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/tmac1973/llama-toolchest/internal/generation"
 )
 
 // vidGenPoll is how often a video job's status is read from sd-server.
@@ -37,8 +40,28 @@ type vidGenRequest struct {
 	InitImage    string `json:"init_image,omitempty"`
 	EndImage     string `json:"end_image,omitempty"`
 	OutputFormat string `json:"output_format"`
+	// Lora is the set's LoRA files, by name within --lora-model-dir.
+	Lora []vidLora `json:"lora,omitempty"`
 	// Extra is merged into the body last, at the top level.
 	Extra map[string]any `json:"-"`
+}
+
+// vidLora is one LoRA in a request to sd-server. IsHighNoise puts it on
+// the high-noise expert only; otherwise it goes on the low-noise one.
+type vidLora struct {
+	Path        string  `json:"path"`
+	Multiplier  float64 `json:"multiplier"`
+	IsHighNoise bool    `json:"is_high_noise"`
+}
+
+// setLoras returns the LoRAs a set's requests apply: each LoRA file by its
+// name, since sd-server is given the folder they are in, at full strength.
+func setLoras(set generation.ModelSet) []vidLora {
+	var out []vidLora
+	for _, c := range set.Loras() {
+		out = append(out, vidLora{Path: filepath.Base(c.Path), Multiplier: 1, IsHighNoise: generation.LoraSlots[c.Slot]})
+	}
+	return out
 }
 
 // body is the JSON sent to sd-server. It always asks for the cheapest

@@ -22,8 +22,9 @@ const (
 // Component is one file of a model set.
 type Component struct {
 	// Slot is the role of the file. For sd it is an sd-server recipe slot
-	// such as "diffusion_model", "llm", "tokenizer" or "vae"; for ace it
-	// is "lm", "dit", "embedding" or "vae".
+	// such as "diffusion_model", "llm", "tokenizer" or "vae", or a LoRA
+	// slot ("lora", "high_noise_lora"; see LoraSlots); for ace it is
+	// "lm", "dit", "embedding" or "vae".
 	Slot string `json:"slot"`
 	// Repo and File locate the file on Hugging Face. Both are empty for a
 	// custom set made from files already on disk.

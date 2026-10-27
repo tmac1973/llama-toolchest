@@ -315,8 +315,16 @@ func (s *Server) handleGenCreateSet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if _, err := generation.LoraDir(set); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	args, err := generation.ValidateExtraArgs(r.FormValue("launch_args"))
 	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := generation.CheckLoraArgs(set, args); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}

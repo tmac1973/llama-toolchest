@@ -346,3 +346,51 @@ func TestV1ModelsVideoMeta(t *testing.T) {
 		t.Errorf("meta.video = %v", v)
 	}
 }
+
+// A set with LoRAs sends them with every request, each by its file name,
+// and a request may not name its own; a set without LoRAs sends none and
+// passes extra.lora through.
+func TestBuildVideoRequestLoras(t *testing.T) {
+	inst := generation.Instance{ID: "fast", MeasuredSuggestedMiB: 1, MeasuredFrames: 81, MeasuredWidth: 1280, MeasuredHeight: 720}
+	set := generation.ModelSet{ID: "fast", Name: "Fast", Kind: generation.KindVideo, Recipe: "wan22-i2v",
+		Capabilities: []string{generation.CapStartImage}, DefaultWidth: 832, DefaultHeight: 480, DefaultFrames: 33, DefaultFPS: 16,
+		Components: []generation.Component{
+			{Slot: "diffusion_model", Path: "/m/low.gguf"},
+			{Slot: "high_noise_lora", Path: "/m/loras/HIGH.safetensors"},
+			{Slot: "lora", Path: "/m/loras/LOW.safetensors"},
+		}}
+	in := videoInput{Prompt: "p", StartImage: "UE5H"}
+	_, vid, verr := buildVideoRequest(in, inst, set)
+	if verr != nil {
+		t.Fatal(verr)
+	}
+	body, _ := vid.body()
+	var got struct {
+		Lora []map[string]any `json:"lora"`
+	}
+	json.Unmarshal(body, &got)
+	want := []map[string]any{
+		{"path": "HIGH.safetensors", "multiplier": float64(1), "is_high_noise": true},
+		{"path": "LOW.safetensors", "multiplier": float64(1), "is_high_noise": false},
+	}
+	if fmt.Sprint(got.Lora) != fmt.Sprint(want) {
+		t.Errorf("lora = %v, want %v", got.Lora, want)
+	}
+
+	in.Extra = map[string]any{"lora": []any{}}
+	if _, _, verr := buildVideoRequest(in, inst, set); verr == nil || verr.code != "bad_value" {
+		t.Errorf("extra.lora on a set with LoRAs: %+v, want bad_value", verr)
+	}
+
+	set.Components = set.Components[:1]
+	_, vid, verr = buildVideoRequest(in, inst, set)
+	if verr != nil {
+		t.Fatal(verr)
+	}
+	body, _ = vid.body()
+	var plain map[string]any
+	json.Unmarshal(body, &plain)
+	if l, ok := plain["lora"].([]any); !ok || len(l) != 0 {
+		t.Errorf("a set without LoRAs: lora = %v, want the request's own empty list", plain["lora"])
+	}
+}
