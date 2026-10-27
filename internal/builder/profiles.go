@@ -98,7 +98,7 @@ func ProfileOptions(profile string) []BuildOption {
 			{
 				Flag:        "GGML_CUDA_GRAPHS",
 				Label:       "CUDA Graphs",
-				Description: "Batch kernel launches into CUDA graphs, cutting launch overhead. llama.cpp and acestep.cpp build with this on by default, stable-diffusion.cpp with it off, and this switch starts the same way for each. To switch it off for llama-server without rebuilding, set GGML_CUDA_DISABLE_GRAPHS under Settings, Runtime environment.",
+				Description: "Batch kernel launches into CUDA graphs, cutting launch overhead. This switch starts on for every project. stable-diffusion.cpp's own build turns it off, but without it Wan video models can crash while decoding the video. To switch it off for llama-server without rebuilding, set GGML_CUDA_DISABLE_GRAPHS under Settings, Runtime environment.",
 				// llama.cpp's top-level CMakeLists turns GGML_CUDA_GRAPHS on
 				// when it is not set, so off must be written out.
 				Default:  true,
