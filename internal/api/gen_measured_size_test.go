@@ -260,3 +260,53 @@ func TestApplyMeasurementRefusesVideoOverRoom(t *testing.T) {
 		t.Errorf("image over the room: %+v, %v; want capped and granted", got, err)
 	}
 }
+
+// A capped reservation leaves up to 0.5 GiB of the room free, but never
+// goes below the measured peak: the figures are the R9700 Lightning run
+// (refused at its start when capped at the room) and the A4000 TI2V run.
+func TestCapReservation(t *testing.T) {
+	for _, tc := range []struct {
+		name                      string
+		suggest, peak, room, want int
+	}{
+		{"fits with slack", 20000, 18000, 28000, 20000},
+		{"R9700 Lightning: slack left", generation.SuggestReservation(29240), 29240, 29931, 29931 - reserveSlackMiB},
+		{"slack would cut the peak", generation.SuggestReservation(29600), 29600, 29931, 29600},
+		{"A4000 TI2V: peak over the room", generation.SuggestReservation(15641), 15641, 15062, 15062},
+		{"just inside the room", 21900, 20000, 22000, 22000 - reserveSlackMiB},
+	} {
+		if got := capReservation(tc.suggest, tc.peak, tc.room); got != tc.want {
+			t.Errorf("%s: capReservation(%d, %d, %d) = %d, want %d", tc.name, tc.suggest, tc.peak, tc.room, got, tc.want)
+		}
+	}
+}
+
+// A backend that stops during Measure is blamed on memory unless its log
+// shows a crash without running out of memory.
+func TestBackendStoppedError(t *testing.T) {
+	compute2 := []string{
+		"[I] sampling completed, taking 101.96s --- video.cpp:1776",
+		"[E] ggml: ggml_cuda_compute_forward: CONCAT failed",
+		"[E] ggml: CUDA error: unspecified launch failure",
+		"/data/stable-diffusion.cpp/ggml/src/ggml-cuda/ggml-cuda.cu:111: CUDA error",
+		"==> sd-server a14b-fast exited with error: signal: aborted (core dumped)",
+	}
+	err := backendStoppedError(compute2)
+	if !strings.Contains(err.Error(), "crashed") || !strings.Contains(err.Error(), "(ggml: ggml_cuda_compute_forward: CONCAT failed)") {
+		t.Errorf("CUDA crash: %v", err)
+	}
+	oom := []string{
+		"[W] model manager cannot make enough memory available on ROCm0: need 8092.58 MB device / 7580.58 MB budget --- model_manager.cpp:2013",
+		"[E] wan_vae segment 1/1 (graph) failed during weight preparation --- ggml_runner.cpp:898",
+		"==> sd-server x exited with error: signal: aborted (core dumped)",
+	}
+	if err := backendStoppedError(oom); !strings.Contains(err.Error(), "ran out of GPU memory") {
+		t.Errorf("out of memory: %v", err)
+	}
+	if err := backendStoppedError([]string{"[I] sampling", "==> sd-server x exited with error: signal: killed"}); !strings.Contains(err.Error(), "ran out of GPU memory") {
+		t.Errorf("no crash in the log: %v", err)
+	}
+	if err := backendStoppedError(nil); !strings.Contains(err.Error(), "ran out of GPU memory") {
+		t.Errorf("no log: %v", err)
+	}
+}

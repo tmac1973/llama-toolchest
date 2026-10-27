@@ -276,12 +276,30 @@ until sd.cpp's CUDA crash is fixed. The test instance was deleted.
 11. **A reservation capped at the room cannot always be started.** When a
     measured peak fills the card, Measure caps the reservation at exactly
     the room left. A few minutes later other programs had grown by
-    0.2 GiB, and the start check refused the instance. Not changed: the
-    user decides whether Measure should leave some slack under the room.
+    0.2 GiB, and the start check refused the instance. Fixed after the
+    check (below).
 12. **Measure blames memory for any crash.** On compute2 it said "probably
     ran out of GPU memory at this size … Try a smaller size" for the CUDA
-    `CONCAT failed` crash, where a smaller size would not help. Not
-    changed.
+    `CONCAT failed` crash, where a smaller size would not help. Fixed
+    after the check (below).
 13. **lightx2v's own Lightning files crash sd-server** (master-1015) as
     they load; the I64 `alpha` values are the likely cause. Not yet
     reported upstream.
+
+### Fixed after the check (decided with the user)
+
+- **Slack under a capped reservation** (finding 11): a capped reservation
+  is the room less 0.5 GiB, but never below the measured peak, nor above
+  the room. Checked on asmodean on 2026-10-27: the Lightning set at Short
+  (peak 28.6 GiB) got 28.7 GiB in a 29.2 GiB room, and the instance then
+  started with no hand-set reservation. TI2V Short on the A4000 (peak
+  15.3 GiB over a 14.7 GiB room) still gets the room, as before.
+- **Crash or memory** (finding 12): when the backend stops during
+  Measure, Measure reads the end of its log. An out-of-memory message
+  keeps the memory wording; a crash (a CUDA or HIP error, an abort, a
+  segfault, `GGML_ASSERT`) is quoted with "a smaller size may not help".
+  Checked with the compute2 and asmodean log lines in
+  `TestBackendStoppedError`; not reproduced on hardware. On asmodean,
+  squeezed to about 2.5 GiB, sd-server did not stop: the job failed with
+  "generate_video returned no results", which toolchest now reads (the
+  object-error fix above).
