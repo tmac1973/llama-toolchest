@@ -303,7 +303,7 @@ func TestVideoJobsPrune(t *testing.T) {
 		p := filepath.Join(dir, fmt.Sprintf("%d.webm", n))
 		os.WriteFile(p, []byte("v"), 0o644)
 		fin := old.Add(time.Duration(n) * time.Second)
-		s.genVideoJobs.add(&videoJob{ID: fmt.Sprint(n), Status: jobSucceeded, Finished: &fin, path: p})
+		s.genVideoJobs.add(&videoJob{genJob: genJob{ID: fmt.Sprint(n), Status: jobSucceeded, Finished: &fin}, path: p})
 	}
 	s.genVideoJobs.prune(time.Now())
 	if _, ok := s.genVideoJobs.view("0"); ok {

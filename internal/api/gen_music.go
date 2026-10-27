@@ -267,31 +267,19 @@ func (q musicRequest) ext() string {
 
 // musicJob is one song request.
 type musicJob struct {
-	ID         string         `json:"id"`
-	InstanceID string         `json:"model"`
-	Status     string         `json:"status"`
-	Phase      string         `json:"phase,omitempty"`
-	Position   int            `json:"queue_position"`
-	Request    musicRequest   `json:"request"`
-	Result     map[string]any `json:"result,omitempty"`
-	AudioURL   string         `json:"audio_url,omitempty"`
-	Error      string         `json:"error,omitempty"`
-	Submitted  time.Time      `json:"submitted"`
-	Started    *time.Time     `json:"started,omitempty"`
-	Finished   *time.Time     `json:"finished,omitempty"`
+	genJob
+	Request  musicRequest   `json:"request"`
+	Result   map[string]any `json:"result,omitempty"`
+	AudioURL string         `json:"audio_url,omitempty"`
 
 	// Not shown to clients.
 	audioPath    string
 	backendJobID string
-	cancel       context.CancelFunc
-	ticket       *generation.Ticket
 	lmModel      string
 	ditModel     string
 }
 
-func (j musicJob) state() jobState {
-	return jobState{id: j.ID, status: j.Status, ticket: j.ticket, submitted: j.Submitted, finished: j.Finished, files: []string{j.audioPath}}
-}
+func (j musicJob) state() jobState { return j.jobState([]string{j.audioPath}) }
 
 // musicJobPrivate is the part of a music job its record keeps that clients
 // do not see.
@@ -312,11 +300,9 @@ func (j musicJob) restored(raw json.RawMessage, now time.Time) (musicJob, error)
 			return j, err
 		}
 	}
-	j.audioPath, j.lmModel, j.ditModel, j.Position = p.AudioPath, p.LMModel, p.DiTModel, 0
+	j.audioPath, j.lmModel, j.ditModel = p.AudioPath, p.LMModel, p.DiTModel
 	j.AudioURL = "" // musicResponse sets it
-	if j.Finished == nil {
-		j.Status, j.Phase, j.Error, j.Finished = musicFailed, "", jobRestartedError, &now
-	}
+	j.restore(now)
 	return j, nil
 }
 
@@ -341,8 +327,11 @@ func (s *Server) submitMusic(inst generation.Instance, req musicRequest) (*music
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	job := &musicJob{
-		ID: newGenJobID(), InstanceID: inst.ID, Status: musicQueued, Phase: musicPhaseQueued, Request: req,
-		Submitted: ticket.Info().Submitted, cancel: cancel, ticket: ticket,
+		genJob: genJob{
+			ID: newGenJobID(), InstanceID: inst.ID, Status: musicQueued, Phase: musicPhaseQueued,
+			Submitted: ticket.Info().Submitted, cancel: cancel, ticket: ticket,
+		},
+		Request: req,
 	}
 	// A free GPU starts the job at once; say so in the first answer.
 	if started := ticket.Info().Started; !started.IsZero() {
@@ -407,16 +396,7 @@ func (s *Server) runMusicJob(ctx context.Context, id string, inst generation.Ins
 	}
 	defer ticket.Done()
 	if !s.genMgr.IsRunning(inst.ID) {
-		now := time.Now()
-		s.genMusic.update(id, func(j *musicJob) {
-			if j.Status == musicCancelled {
-				return
-			}
-			if j.Started == nil {
-				j.Started = &now
-			}
-			j.Status, j.Phase = musicRunning, musicPhaseStarting
-		})
+		startJob(&s.genMusic, id, musicPhaseStarting)
 	}
 	if err := s.genReady(ctx, inst); err != nil {
 		finish(musicFailed, "starting the backend: "+err.Error())
@@ -427,14 +407,7 @@ func (s *Server) runMusicJob(ctx context.Context, id string, inst generation.Ins
 	now := time.Now()
 	cancelled := false
 	s.genMusic.update(id, func(j *musicJob) {
-		if j.Status == musicCancelled {
-			cancelled = true
-			return
-		}
-		if j.Started == nil {
-			j.Started = &now
-		}
-		j.Status, j.Phase = musicRunning, j.Request.firstPhase()
+		cancelled = !j.start(j.Request.firstPhase(), now)
 	})
 	if cancelled {
 		return
@@ -523,20 +496,7 @@ func (s *Server) runMusicJob(ctx context.Context, id string, inst generation.Ins
 // cancelMusic stops a job: a queued one leaves the queue, a running one is
 // cancelled in ace-server.
 func (s *Server) cancelMusic(id string) bool {
-	var cancel context.CancelFunc
-	found := false
-	s.genMusic.update(id, func(j *musicJob) {
-		found = true
-		if j.Finished != nil {
-			return
-		}
-		now := time.Now()
-		cancel, j.Status, j.Phase, j.Finished = j.cancel, musicCancelled, "", &now
-	})
-	if cancel != nil {
-		cancel()
-	}
-	return found
+	return cancelJob(&s.genMusic, id)
 }
 
 // musicResponse is a job as the /v1/music/jobs routes return it.
@@ -550,10 +510,6 @@ func musicResponse(j musicJob) musicJob {
 // pickMusicInstance is pickInstance for music, as /v1/music/jobs uses it.
 func (s *Server) pickMusicInstance(model string) (generation.Instance, *requestError) {
 	return s.pickInstance(model, generation.KindAce)
-}
-
-func (s *Server) musicEnabled() bool {
-	return s.cfg.GenerationEnabled && s.gen != nil
 }
 
 // checkMusic is checkMusicRequest for the instance's set.
@@ -656,7 +612,7 @@ func readFormFile(fh *multipart.FileHeader) ([]byte, error) {
 // --- /v1/music/jobs ---------------------------------------------------------
 
 func (s *Server) handleMusicCreate(w http.ResponseWriter, r *http.Request) {
-	if !s.musicEnabled() {
+	if !s.genEnabled() {
 		writeNotEnabled(w, "music")
 		return
 	}
@@ -687,43 +643,26 @@ func (s *Server) handleMusicCreate(w http.ResponseWriter, r *http.Request) {
 	writeJobAccepted(w, view.ID, view.Status, view.Phase, view.Position)
 }
 
-func (s *Server) musicJobOr404(w http.ResponseWriter, id string) (musicJob, bool) {
-	if !s.musicEnabled() {
-		writeNotEnabled(w, "music")
-		return musicJob{}, false
+// musicJobRoutes is what the shared job routes need from music jobs.
+func (s *Server) musicJobRoutes() jobRoutes[musicJob] {
+	return jobRoutes[musicJob]{
+		kind: "music", store: &s.genMusic, enabled: s.genEnabled,
+		cancel: s.cancelMusic, show: musicResponse,
 	}
-	j, ok := s.genMusic.view(id)
-	if !ok {
-		openAIError(w, http.StatusNotFound, "invalid_request_error", "job_not_found", "no music job "+id)
-	}
-	return j, ok
 }
 
 func (s *Server) handleMusicGet(w http.ResponseWriter, r *http.Request) {
-	if j, ok := s.musicJobOr404(w, chi.URLParam(r, "id")); ok {
+	if j, ok := s.musicJobRoutes().jobOr404(w, chi.URLParam(r, "id")); ok {
 		respondJSON(w, musicResponse(j))
 	}
 }
 
 func (s *Server) handleMusicList(w http.ResponseWriter, r *http.Request) {
-	if !s.musicEnabled() {
-		writeNotEnabled(w, "music")
-		return
-	}
-	statuses, ok := jobStatusFilter(r.URL.Query().Get("status"))
-	if !ok {
-		openAIError(w, http.StatusBadRequest, "invalid_request_error", "bad_status", jobStatusFilterError)
-		return
-	}
-	jobs := s.genMusic.list(statuses)
-	for i := range jobs {
-		jobs[i] = musicResponse(jobs[i])
-	}
-	respondJSON(w, jobList(jobs))
+	s.musicJobRoutes().list(w, r)
 }
 
 func (s *Server) handleMusicAudio(w http.ResponseWriter, r *http.Request) {
-	j, ok := s.musicJobOr404(w, chi.URLParam(r, "id"))
+	j, ok := s.musicJobRoutes().jobOr404(w, chi.URLParam(r, "id"))
 	if !ok {
 		return
 	}
@@ -743,17 +682,8 @@ func serveMusicFile(w http.ResponseWriter, r *http.Request, file string) {
 	http.ServeFile(w, r, file)
 }
 
-// handleMusicDelete cancels a queued or running job, and deletes a
-// finished one with its audio.
 func (s *Server) handleMusicDelete(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if _, ok := s.musicJobOr404(w, id); !ok {
-		return
-	}
-	if !s.genMusic.remove(id) {
-		s.cancelMusic(id)
-	}
-	w.WriteHeader(http.StatusNoContent)
+	s.musicJobRoutes().delete(w, r)
 }
 
 // --- ACE-Step compatible routes ---------------------------------------------
@@ -896,7 +826,7 @@ func formFields(form *multipart.Form, dst any) error {
 }
 
 func (s *Server) handleReleaseTask(w http.ResponseWriter, r *http.Request) {
-	if !s.musicEnabled() {
+	if !s.genEnabled() {
 		aceStepError(w, http.StatusNotFound, notEnabledMessage("music"))
 		return
 	}
@@ -960,7 +890,7 @@ func aceStepStatus(status string) int {
 }
 
 func (s *Server) handleQueryResult(w http.ResponseWriter, r *http.Request) {
-	if !s.musicEnabled() {
+	if !s.genEnabled() {
 		aceStepError(w, http.StatusNotFound, notEnabledMessage("music"))
 		return
 	}
@@ -1015,7 +945,7 @@ func asString(v any) string {
 var musicFileRE = regexp.MustCompile(`^[0-9a-f]{16}\.(mp3|wav)$`)
 
 func (s *Server) handleAceStepAudio(w http.ResponseWriter, r *http.Request) {
-	if !s.musicEnabled() {
+	if !s.genEnabled() {
 		aceStepError(w, http.StatusNotFound, notEnabledMessage("music"))
 		return
 	}

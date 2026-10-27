@@ -30,9 +30,9 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [x] `saveBuilds` and `saveFlagPresetsLocked` ignore the errors from `MkdirAll` and `WriteFile` and do not use `atomicfile`, so a failed or interrupted write can lose or corrupt builds.json or the flag presets without any message — `internal/builder/builder.go:1201`, `internal/builder/flag_presets.go:81`
 
 ### Duplication
-- [ ] The image, video and music job handlers are three copies of one set (`*JobOr404`, list, delete, `*Enabled()`); only the store, the job name and the cancel function differ — `internal/api/gen_image_jobs.go:327` (and `gen_video_jobs.go:505`, `gen_music.go:692`)
-- [ ] The `restored()`, `withPosition()` and `state()` record methods are nearly the same in all three job types — `internal/api/gen_image_jobs.go:80` (and `gen_video_jobs.go:99`, `gen_music.go:289`)
-- [ ] The run-job code is copied three times (the `finish` closure, `ticket.Wait`/`Done`, the "Starting" update, `genReady`) — `internal/api/gen_image_jobs.go:143` (and `gen_video_jobs.go:394`, `gen_music.go:387`)
+- [x] The image, video and music job handlers are three copies of one set (`*JobOr404`, list, delete, `*Enabled()`); only the store, the job name and the cancel function differ — `internal/api/gen_image_jobs.go:327` (and `gen_video_jobs.go:505`, `gen_music.go:692`) *(`jobRoutes[T]` in gen_jobs.go; one `genEnabled`.)*
+- [x] The `restored()`, `withPosition()` and `state()` record methods are nearly the same in all three job types — `internal/api/gen_image_jobs.go:80` (and `gen_video_jobs.go:99`, `gen_music.go:289`) *(the shared fields are in an embedded `genJob`, with `jobState` and `restore`; each type keeps a short `restored` for its private part and a one-line `withPosition`.)*
+- [x] The run-job code is copied three times (the `finish` closure, `ticket.Wait`/`Done`, the "Starting" update, `genReady`) — `internal/api/gen_image_jobs.go:143` (and `gen_video_jobs.go:394`, `gen_music.go:387`) *(the starting and generating updates share `startJob` and `genJob.start`. The `finish` closures stay separate: video cancels by a request flag and closes `done`, image removes late output files, and music clears its source audio.)*
 - [x] The error handling at the end of each create handler is copied: the pickError mapping 4 times, the ErrQueueFull 429 reply 4 times, the 202 reply 3 times; `pickError` and `videoError` are the same struct *(Duplication + Standards)* — `internal/api/gen_images.go:168` (and `gen_image_jobs.go:359`, `gen_music.go:667`, `gen_video_jobs.go:142`)
 
 ### Testing
@@ -49,7 +49,7 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [ ] Some JS calls `fetch` directly without checking `r.ok`, so an error page is inserted into the dialog; the About dialog sets `loaded` before the request succeeds, so it never retries — `web/templates/benchmarks.html:368`, `web/templates/server.html:429`
 
 ### Duplication
-- [ ] `cancelImageJob`, `cancelMusic` and `cancelVideoJob` are the same function — `internal/api/gen_image_jobs.go:310` (and `gen_music.go:522`, `gen_video_jobs.go:489`)
+- [x] `cancelImageJob`, `cancelMusic` and `cancelVideoJob` are the same function — `internal/api/gen_image_jobs.go:310` (and `gen_music.go:522`, `gen_video_jobs.go:489`) *(image and music use `cancelJob`; video keeps its own, since it only asks sd-server to stop.)*
 - [x] The "not enabled on this server" 404 is written by hand 13 times — `internal/api/gen_images.go:149` and others
 - [x] The code that reads an image request body is pasted twice, and the "128 MiB" text is hard-coded in 4 places — `internal/api/gen_images.go:153`, `internal/api/gen_image_jobs.go:341`
 - [x] Three functions repeat the same code to read the model name from a request body — `internal/api/gen_evict.go:133`, `internal/api/proxy.go:138`, `internal/api/proxy.go:318`

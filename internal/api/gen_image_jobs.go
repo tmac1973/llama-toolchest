@@ -58,28 +58,16 @@ type imageJobImage struct {
 
 // imageJob is one image request.
 type imageJob struct {
-	ID         string          `json:"id"`
-	InstanceID string          `json:"model"`
-	Status     string          `json:"status"`
-	Phase      string          `json:"phase,omitempty"`
-	Position   int             `json:"queue_position"`
-	Request    imageJobRequest `json:"request"`
-	Images     []imageJobImage `json:"images,omitempty"`
-	Error      string          `json:"error,omitempty"`
-	Submitted  time.Time       `json:"submitted"`
-	Started    *time.Time      `json:"started,omitempty"`
-	Finished   *time.Time      `json:"finished,omitempty"`
+	genJob
+	Request imageJobRequest `json:"request"`
+	Images  []imageJobImage `json:"images,omitempty"`
 
 	// Not shown to clients.
-	body   []byte // the request as sent, until it is forwarded
-	paths  []string
-	cancel context.CancelFunc
-	ticket *generation.Ticket
+	body  []byte // the request as sent, until it is forwarded
+	paths []string
 }
 
-func (j imageJob) state() jobState {
-	return jobState{id: j.ID, status: j.Status, ticket: j.ticket, submitted: j.Submitted, finished: j.Finished, files: j.paths}
-}
+func (j imageJob) state() jobState { return j.jobState(j.paths) }
 
 // imageJobPrivate is the part of an image job its record keeps that
 // clients do not see.
@@ -96,10 +84,8 @@ func (j imageJob) restored(raw json.RawMessage, now time.Time) (imageJob, error)
 			return j, err
 		}
 	}
-	j.paths, j.Position = p.Paths, 0
-	if j.Finished == nil {
-		j.Status, j.Phase, j.Error, j.Finished = jobFailed, "", jobRestartedError, &now
-	}
+	j.paths = p.Paths
+	j.restore(now)
 	return j, nil
 }
 
@@ -121,8 +107,11 @@ func (s *Server) submitImageJob(inst generation.Instance, req imageJobRequest, b
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	job := &imageJob{
-		ID: newGenJobID(), InstanceID: inst.ID, Status: jobQueued, Phase: imagePhaseQueued, Request: req,
-		Submitted: ticket.Info().Submitted, body: body, cancel: cancel, ticket: ticket,
+		genJob: genJob{
+			ID: newGenJobID(), InstanceID: inst.ID, Status: jobQueued, Phase: imagePhaseQueued,
+			Submitted: ticket.Info().Submitted, cancel: cancel, ticket: ticket,
+		},
+		Request: req, body: body,
 	}
 	// A free GPU starts the job at once; say so in the first answer.
 	if started := ticket.Info().Started; !started.IsZero() {
@@ -169,16 +158,7 @@ func (s *Server) runImageJob(ctx context.Context, id string, inst generation.Ins
 	}
 	defer ticket.Done()
 	if !s.genMgr.IsRunning(inst.ID) {
-		now := time.Now()
-		s.genImageJobs.update(id, func(j *imageJob) {
-			if j.Status == jobCancelled {
-				return
-			}
-			if j.Started == nil {
-				j.Started = &now
-			}
-			j.Status, j.Phase = jobRunning, imagePhaseStarting
-		})
+		startJob(&s.genImageJobs, id, imagePhaseStarting)
 	}
 	if err := s.genReady(ctx, inst); err != nil {
 		finish(jobFailed, "starting the backend: "+err.Error(), nil, nil)
@@ -189,15 +169,11 @@ func (s *Server) runImageJob(ctx context.Context, id string, inst generation.Ins
 	cancelled := false
 	now := time.Now()
 	s.genImageJobs.update(id, func(j *imageJob) {
-		if j.Status == jobCancelled {
+		if !j.start(imagePhaseGenerating, now) {
 			cancelled = true
 			return
 		}
 		body = j.body
-		if j.Started == nil {
-			j.Started = &now
-		}
-		j.Status, j.Phase = jobRunning, imagePhaseGenerating
 	})
 	if cancelled {
 		finish(jobCancelled, "", nil, nil)
@@ -304,34 +280,10 @@ func backendErrorMessage(raw []byte) string {
 	return msg
 }
 
-// cancelImageJob stops a job: a queued one leaves the queue; a running
-// one is marked cancelled at once and its result is discarded when
-// sd-server answers.
-func (s *Server) cancelImageJob(id string) bool {
-	var cancel context.CancelFunc
-	found := false
-	s.genImageJobs.update(id, func(j *imageJob) {
-		found = true
-		if j.Finished != nil {
-			return
-		}
-		now := time.Now()
-		cancel, j.Status, j.Phase, j.Finished = j.cancel, jobCancelled, "", &now
-	})
-	if cancel != nil {
-		cancel()
-	}
-	return found
-}
-
-func (s *Server) imageEnabled() bool {
-	return s.cfg.GenerationEnabled && s.gen != nil
-}
-
 // --- /v1/images/jobs --------------------------------------------------------
 
 func (s *Server) handleImageJobCreate(w http.ResponseWriter, r *http.Request) {
-	if !s.imageEnabled() {
+	if !s.genEnabled() {
 		writeNotEnabled(w, "image")
 		return
 	}
@@ -364,26 +316,22 @@ func (s *Server) handleImageJobCreate(w http.ResponseWriter, r *http.Request) {
 	writeJobAccepted(w, view.ID, view.Status, view.Phase, view.Position)
 }
 
-func (s *Server) imageJobOr404(w http.ResponseWriter, id string) (imageJob, bool) {
-	if !s.imageEnabled() {
-		writeNotEnabled(w, "image")
-		return imageJob{}, false
+// imageJobRoutes is what the shared job routes need from image jobs.
+func (s *Server) imageJobRoutes() jobRoutes[imageJob] {
+	return jobRoutes[imageJob]{
+		kind: "image", store: &s.genImageJobs, enabled: s.genEnabled,
+		cancel: func(id string) bool { return cancelJob(&s.genImageJobs, id) },
 	}
-	j, ok := s.genImageJobs.view(id)
-	if !ok {
-		openAIError(w, http.StatusNotFound, "invalid_request_error", "job_not_found", "no image job "+id)
-	}
-	return j, ok
 }
 
 func (s *Server) handleImageJobGet(w http.ResponseWriter, r *http.Request) {
-	if j, ok := s.imageJobOr404(w, chi.URLParam(r, "id")); ok {
+	if j, ok := s.imageJobRoutes().jobOr404(w, chi.URLParam(r, "id")); ok {
 		respondJSON(w, j)
 	}
 }
 
 func (s *Server) handleImageJobImage(w http.ResponseWriter, r *http.Request) {
-	j, ok := s.imageJobOr404(w, chi.URLParam(r, "id"))
+	j, ok := s.imageJobRoutes().jobOr404(w, chi.URLParam(r, "id"))
 	if !ok {
 		return
 	}
@@ -402,27 +350,9 @@ func (s *Server) handleImageJobImage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleImageJobList(w http.ResponseWriter, r *http.Request) {
-	if !s.imageEnabled() {
-		writeNotEnabled(w, "image")
-		return
-	}
-	statuses, ok := jobStatusFilter(r.URL.Query().Get("status"))
-	if !ok {
-		openAIError(w, http.StatusBadRequest, "invalid_request_error", "bad_status", jobStatusFilterError)
-		return
-	}
-	respondJSON(w, jobList(s.genImageJobs.list(statuses)))
+	s.imageJobRoutes().list(w, r)
 }
 
-// handleImageJobDelete cancels a queued or running job, and deletes a
-// finished one with its images.
 func (s *Server) handleImageJobDelete(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if _, ok := s.imageJobOr404(w, id); !ok {
-		return
-	}
-	if !s.genImageJobs.remove(id) {
-		s.cancelImageJob(id)
-	}
-	w.WriteHeader(http.StatusNoContent)
+	s.imageJobRoutes().delete(w, r)
 }

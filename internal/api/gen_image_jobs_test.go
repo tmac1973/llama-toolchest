@@ -328,7 +328,7 @@ func TestImageJobsPrune(t *testing.T) {
 			os.WriteFile(file, []byte("x"), 0o644)
 			paths = append(paths, file)
 		}
-		s.genImageJobs.add(&imageJob{ID: id, Status: jobSucceeded, Finished: fin, paths: paths})
+		s.genImageJobs.add(&imageJob{genJob: genJob{ID: id, Status: jobSucceeded, Finished: fin}, paths: paths})
 	}
 	s.genImageJobs.prune(time.Now())
 	if _, ok := s.genImageJobs.view("0000000000000000"); ok {
