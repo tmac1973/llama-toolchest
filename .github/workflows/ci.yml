@@ -1,0 +1,77 @@
+name: ci
+
+# Build, vet and test every pull request to main, and every push to main.
+#
+# The tests need no GPU, no backend binaries and no network: tests that
+# would need them skip unless an environment variable turns them on (see
+# the *_live_test.go files). The JavaScript tests in web/jstest run as part
+# of `go test`, but only when node is installed, so this job installs node.
+#
+# No OS packages are installed: the Ubuntu runner already has git and sh,
+# which the tests use. Go and Node come from the setup actions, and
+# setup-go caches the Go module and build caches between runs.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      # Fails loudly if node is missing, instead of skipping the JS tests.
+      - name: JavaScript tests
+        run: make js-test
+
+      - name: Installer script tests
+        run: make installer-test
+
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Check for known vulnerabilities
+        run: govulncheck ./...
