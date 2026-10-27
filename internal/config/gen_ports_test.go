@@ -92,3 +92,22 @@ func TestGenPublicPortEnvOverride(t *testing.T) {
 		t.Errorf("invalid value was used: %d", cfg.GenPublicPortStart)
 	}
 }
+
+// The llama port override gets the same 1-65535 check as the other ports:
+// 0 or 70000 is ignored and the YAML value kept.
+func TestLlamaPortEnvOverrideChecksRange(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cfg.yaml")
+	if err := os.WriteFile(path, []byte("llama_port: 8080\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range []string{"0", "70000", "x"} {
+		t.Setenv("LLAMA_TOOLCHEST_LLAMA_PORT", v)
+		if cfg, err := Load(path); err != nil || cfg.LlamaPort != 8080 {
+			t.Errorf("LLAMA_TOOLCHEST_LLAMA_PORT=%s: LlamaPort = %d (err %v), want 8080", v, cfg.LlamaPort, err)
+		}
+	}
+	t.Setenv("LLAMA_TOOLCHEST_LLAMA_PORT", "8090")
+	if cfg, _ := Load(path); cfg.LlamaPort != 8090 {
+		t.Errorf("LlamaPort = %d, want 8090 from the environment", cfg.LlamaPort)
+	}
+}

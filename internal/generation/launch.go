@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
-	"strings"
 
 	"github.com/tmac1973/llama-toolchest/internal/builder"
 	"github.com/tmac1973/llama-toolchest/internal/models"
@@ -95,7 +94,7 @@ func LaunchSpec(inst Instance, set ModelSet, build builder.BuildResult, host, da
 		return cfg, fmt.Errorf("build %s uses the %s profile; generation backends need rocm, cuda or vulkan", build.ID, backend)
 	}
 	port := strconv.Itoa(inst.Port)
-	base := fmt.Sprintf("http://127.0.0.1:%d", inst.Port)
+	base := inst.BaseURL()
 	if host == "" {
 		host = "0.0.0.0"
 	}
@@ -149,7 +148,10 @@ func LaunchSpec(inst Instance, set ModelSet, build builder.BuildResult, host, da
 	}
 
 	env := process.BuildEnv(filepath.Dir(build.BinaryPath), nil)
-	env = setEnv(env, envVar, strconv.Itoa(models.BackendDeviceIndex(backend, inst.GPU)))
+	// The device selector must not follow BuildEnv's "inherited wins"
+	// rule: a stray HIP_VISIBLE_DEVICES around toolchest would put the
+	// backend on the wrong GPU.
+	env = builder.SetEnv(env, envVar, strconv.Itoa(models.BackendDeviceIndex(backend, inst.GPU)))
 
 	cfg.BinaryPath = build.BinaryPath
 	cfg.Args = args
@@ -166,20 +168,6 @@ func LaunchSpec(inst Instance, set ModelSet, build builder.BuildResult, host, da
 func maxVRAMGiB(mib int) string {
 	tenths := mib * 10 / 1024
 	return fmt.Sprintf("%d.%d", tenths/10, tenths%10)
-}
-
-// setEnv sets key=value, replacing any inherited value. The device
-// selector must not follow BuildEnv's "inherited wins" rule: a stray
-// HIP_VISIBLE_DEVICES around toolchest would put the backend on the wrong
-// GPU.
-func setEnv(env []string, key, value string) []string {
-	out := env[:0:0]
-	for _, kv := range env {
-		if !strings.HasPrefix(kv, key+"=") {
-			out = append(out, kv)
-		}
-	}
-	return append(out, key+"="+value)
 }
 
 // linkAceModels fills dir with links to an ACE-Step set's four files, and

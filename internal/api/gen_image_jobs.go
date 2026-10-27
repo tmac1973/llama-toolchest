@@ -332,20 +332,16 @@ func (s *Server) imageEnabled() bool {
 
 func (s *Server) handleImageJobCreate(w http.ResponseWriter, r *http.Request) {
 	if !s.imageEnabled() {
-		openAIError(w, http.StatusNotFound, "invalid_request_error", "not_found", "image generation is not enabled on this server")
+		writeNotEnabled(w, "image")
 		return
 	}
 	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt == "multipart/form-data" {
 		openAIError(w, http.StatusBadRequest, "invalid_request_error", "bad_request", "image jobs take JSON")
 		return
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxImageRequestBytes+1))
-	if err != nil {
-		openAIError(w, http.StatusBadRequest, "invalid_request_error", "bad_request", "reading the request: "+err.Error())
-		return
-	}
-	if len(body) > maxImageRequestBytes {
-		openAIError(w, http.StatusRequestEntityTooLarge, "invalid_request_error", "too_large", "the request is larger than 128 MiB")
+	body, rerr := readImageBody(r)
+	if rerr != nil {
+		writeRequestError(w, rerr)
 		return
 	}
 	var req imageJobRequest
@@ -356,30 +352,21 @@ func (s *Server) handleImageJobCreate(w http.ResponseWriter, r *http.Request) {
 	req.Prompt = strings.TrimSpace(extraArgsRE.ReplaceAllString(req.Prompt, ""))
 	inst, pe := s.pickInstance(req.Model, generation.KindSD)
 	if pe != nil {
-		errType := "invalid_request_error"
-		if pe.status >= 500 {
-			errType = "server_error"
-		}
-		openAIError(w, pe.status, errType, pe.code, pe.msg)
+		writeRequestError(w, pe)
 		return
 	}
 	job, err := s.submitImageJob(inst, req, body)
-	if errors.Is(err, generation.ErrQueueFull) {
-		w.Header().Set("Retry-After", "30")
-		openAIError(w, http.StatusTooManyRequests, "server_error", "queue_full", err.Error())
-		return
-	}
 	if err != nil {
-		openAIError(w, http.StatusInternalServerError, "server_error", "queue_error", err.Error())
+		writeQueueError(w, err)
 		return
 	}
 	view, _ := s.genImageJobs.view(job.ID)
-	respondJSONStatus(w, http.StatusAccepted, map[string]any{"id": view.ID, "status": view.Status, "phase": view.Phase, "queue_position": view.Position})
+	writeJobAccepted(w, view.ID, view.Status, view.Phase, view.Position)
 }
 
 func (s *Server) imageJobOr404(w http.ResponseWriter, id string) (imageJob, bool) {
 	if !s.imageEnabled() {
-		openAIError(w, http.StatusNotFound, "invalid_request_error", "not_found", "image generation is not enabled on this server")
+		writeNotEnabled(w, "image")
 		return imageJob{}, false
 	}
 	j, ok := s.genImageJobs.view(id)
@@ -416,7 +403,7 @@ func (s *Server) handleImageJobImage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleImageJobList(w http.ResponseWriter, r *http.Request) {
 	if !s.imageEnabled() {
-		openAIError(w, http.StatusNotFound, "invalid_request_error", "not_found", "image generation is not enabled on this server")
+		writeNotEnabled(w, "image")
 		return
 	}
 	statuses, ok := jobStatusFilter(r.URL.Query().Get("status"))

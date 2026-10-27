@@ -344,19 +344,19 @@ func pinEnv(env []string, inst ROCmInstall, compiler string) []string {
 		return unsetEnv(env, "ROCM_PATH", "HIP_PATH", "HIP_DEVICE_LIB_PATH", "HIP_CLANG_PATH")
 	}
 	env = prependPath(env, filepath.Join(inst.Root, "bin"))
-	env = setEnv(env, "ROCM_PATH", inst.Root)
-	env = setEnv(env, "HIP_PATH", inst.Root)
-	env = setEnv(env, "HIP_CLANG_PATH", filepath.Dir(compiler))
+	env = SetEnv(env, "ROCM_PATH", inst.Root)
+	env = SetEnv(env, "HIP_PATH", inst.Root)
+	env = SetEnv(env, "HIP_CLANG_PATH", filepath.Dir(compiler))
 	if dl := deviceLibDir("", compiler); dl != "" {
-		env = setEnv(env, "HIP_DEVICE_LIB_PATH", dl)
+		env = SetEnv(env, "HIP_DEVICE_LIB_PATH", dl)
 	} else {
 		env = unsetEnv(env, "HIP_DEVICE_LIB_PATH")
 	}
 	return env
 }
 
-// setEnv returns env with KEY=value, replacing any existing KEY.
-func setEnv(env []string, key, value string) []string {
+// SetEnv returns env with KEY=value, replacing any existing KEY.
+func SetEnv(env []string, key, value string) []string {
 	return append(unsetEnv(env, key), key+"="+value)
 }
 

@@ -4,6 +4,8 @@
 package atomicfile
 
 import (
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -41,4 +43,36 @@ func WriteMode(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+// Copy copies src to dst through dst.part, synced and renamed into place,
+// so a copy cut short never looks like a finished file. The new file has
+// the default mode for os.Create.
+func Copy(src, dst string) (err error) {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	part := dst + ".part"
+	out, err := os.Create(part)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			out.Close()
+			os.Remove(part)
+		}
+	}()
+	if _, err = io.Copy(out, in); err != nil {
+		return fmt.Errorf("copying: %w", err)
+	}
+	if err = out.Sync(); err != nil {
+		return err
+	}
+	if err = out.Close(); err != nil {
+		return err
+	}
+	return os.Rename(part, dst)
 }

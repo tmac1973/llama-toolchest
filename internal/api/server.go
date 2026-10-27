@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -947,7 +946,7 @@ func (s *Server) buildEnvBanner() (env, baseImage string) {
 	// variant switch.
 	for _, backend := range []string{"rocm", "cuda"} {
 		if env = s.currentBuildEnvFor(backend); env != "" {
-			return env, os.Getenv("LLAMA_TOOLCHEST_ROCM_BASE_IMAGE")
+			return env, s.cfg.ROCmBaseImage
 		}
 	}
 	return "", ""

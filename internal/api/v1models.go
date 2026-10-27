@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"slices"
@@ -201,6 +202,19 @@ func advertisedToClients(m *models.Model, cfg *models.ModelConfig) bool {
 // API-package call sites stay readable.
 func (s *Server) findModelByAny(name string) (*models.Model, *models.ModelConfig) {
 	return s.registry.FindByAny(name)
+}
+
+// modelFromBody finds the model a JSON request body's "model" field names,
+// as findModelByAny does. Both are nil when the body is not JSON, names no
+// model or names one we do not know.
+func (s *Server) modelFromBody(body []byte) (*models.Model, *models.ModelConfig) {
+	var req struct {
+		Model string `json:"model"`
+	}
+	if json.Unmarshal(body, &req) != nil || req.Model == "" {
+		return nil, nil
+	}
+	return s.findModelByAny(req.Model)
 }
 
 // genKindLabel names a set's kind as /v1/models and the UI show it.

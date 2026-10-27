@@ -138,13 +138,7 @@ func (s *Server) ensureModelLoadedForRequest(ctx context.Context, body []byte) e
 	if len(body) == 0 {
 		return nil
 	}
-	var req struct {
-		Model string `json:"model"`
-	}
-	if json.Unmarshal(body, &req) != nil || req.Model == "" {
-		return nil
-	}
-	regModel, _ := s.findModelByAny(req.Model)
+	regModel, _ := s.modelFromBody(body)
 	if regModel == nil {
 		return nil // unknown — let the upstream return its own error
 	}
@@ -240,13 +234,7 @@ func (s *Server) waitForModelLoaded(ctx context.Context, routerName string, m *m
 
 // writeProxyError writes an OpenAI-shaped error object with the given code.
 func writeProxyError(w http.ResponseWriter, status int, code, message string) {
-	respondJSONStatus(w, status, map[string]any{
-		"error": map[string]any{
-			"message": message,
-			"type":    "server_error",
-			"code":    code,
-		},
-	})
+	openAIError(w, status, "server_error", code, message)
 }
 
 // sseTimingCapture wraps a streaming SSE response body, passing bytes
@@ -318,16 +306,9 @@ func (s *sseTimingCapture) Close() error {
 // looks up per-model sampling config, and merges defaults for any
 // parameters the client didn't specify.
 func (s *Server) injectSamplingDefaults(body []byte) []byte {
-	var req struct {
-		Model string `json:"model"`
-	}
-	if json.Unmarshal(body, &req) != nil || req.Model == "" {
-		return body
-	}
-
 	// Clients name a model by its registry ID, public name (what
 	// /v1/models lists) or an alias; all three find its config.
-	_, cfg := s.findModelByAny(req.Model)
+	_, cfg := s.modelFromBody(body)
 	if cfg == nil {
 		return body
 	}

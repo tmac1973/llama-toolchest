@@ -137,20 +137,6 @@ func (s *Server) videoDir() string {
 	return filepath.Join(s.cfg.DataDir, "gen-output", "videos")
 }
 
-// videoError is a refused video request: its HTTP status, code and
-// message, answered in the OpenAI error shape.
-type videoError struct {
-	status int
-	code   string
-	msg    string
-}
-
-func (e *videoError) Error() string { return e.msg }
-
-func badVideo(code, format string, args ...any) *videoError {
-	return &videoError{http.StatusBadRequest, code, fmt.Sprintf(format, args...)}
-}
-
 // videoInput is a parsed video request before the set's defaults are
 // applied. Pointers tell a field left out from one set to zero.
 type videoInput struct {
@@ -171,7 +157,7 @@ type videoInput struct {
 // readVideoInput reads a JSON body or a multipart form with the same field
 // names; in a form, start_image and end_image are files and extra is JSON
 // text.
-func readVideoInput(r *http.Request) (videoInput, *videoError) {
+func readVideoInput(r *http.Request) (videoInput, *requestError) {
 	var in videoInput
 	r.Body = http.MaxBytesReader(nil, r.Body, maxImageRequestBytes)
 	tooLarge := func(err error) bool {
@@ -181,22 +167,22 @@ func readVideoInput(r *http.Request) (videoInput, *videoError) {
 	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt == "multipart/form-data" {
 		if err := r.ParseMultipartForm(32 << 20); err != nil {
 			if tooLarge(err) {
-				return in, &videoError{http.StatusRequestEntityTooLarge, "too_large", "the request is larger than 128 MiB"}
+				return in, tooLargeError()
 			}
-			return in, badVideo("bad_request", "reading the form: %v", err)
+			return in, badRequest("bad_request", "reading the form: %v", err)
 		}
 		f := r.FormValue
 		in.Model, in.Prompt, in.NegativePrompt, in.Size, in.OutputFormat = f("model"), f("prompt"), f("negative_prompt"), f("size"), f("output_format")
 		for name, dst := range map[string]any{"frames": &in.Frames, "seconds": &in.Seconds, "fps": &in.FPS, "seed": &in.Seed} {
 			if v := strings.TrimSpace(f(name)); v != "" {
 				if err := json.Unmarshal([]byte(v), dst); err != nil {
-					return in, badVideo("bad_value", "%s must be a number", name)
+					return in, badRequest("bad_value", "%s must be a number", name)
 				}
 			}
 		}
 		if v := strings.TrimSpace(f("extra")); v != "" {
 			if err := json.Unmarshal([]byte(v), &in.Extra); err != nil {
-				return in, badVideo("bad_value", "extra must be a JSON object")
+				return in, badRequest("bad_value", "extra must be a JSON object")
 			}
 		}
 		for name, dst := range map[string]*string{"start_image": &in.StartImage, "end_image": &in.EndImage} {
@@ -205,12 +191,12 @@ func readVideoInput(r *http.Request) (videoInput, *videoError) {
 				continue
 			}
 			if err != nil {
-				return in, badVideo("bad_request", "reading %s: %v", name, err)
+				return in, badRequest("bad_request", "reading %s: %v", name, err)
 			}
 			data, err := io.ReadAll(file)
 			file.Close()
 			if err != nil {
-				return in, badVideo("bad_request", "reading %s: %v", name, err)
+				return in, badRequest("bad_request", "reading %s: %v", name, err)
 			}
 			*dst = base64.StdEncoding.EncodeToString(data)
 		}
@@ -219,12 +205,12 @@ func readVideoInput(r *http.Request) (videoInput, *videoError) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		if tooLarge(err) {
-			return in, &videoError{http.StatusRequestEntityTooLarge, "too_large", "the request is larger than 128 MiB"}
+			return in, tooLargeError()
 		}
-		return in, badVideo("bad_request", "reading the request: %v", err)
+		return in, badRequest("bad_request", "reading the request: %v", err)
 	}
 	if err := json.Unmarshal(body, &in); err != nil {
-		return in, badVideo("bad_request", "the body is not valid JSON: %v", err)
+		return in, badRequest("bad_request", "the body is not valid JSON: %v", err)
 	}
 	in.StartImage, in.EndImage = stripDataURL(in.StartImage), stripDataURL(in.EndImage)
 	return in, nil
@@ -245,29 +231,29 @@ func stripDataURL(s string) string {
 // measured size, and fills in its defaults. The checks run in a fixed
 // order, after seconds has become frames and before sd-server's 4n+1
 // rounding (which only lowers the count); the first failure is returned.
-func buildVideoRequest(in videoInput, inst generation.Instance, set generation.ModelSet) (videoJobRequest, vidGenRequest, *videoError) {
+func buildVideoRequest(in videoInput, inst generation.Instance, set generation.ModelSet) (videoJobRequest, vidGenRequest, *requestError) {
 	in.Prompt = strings.TrimSpace(in.Prompt)
 	if in.Prompt == "" {
-		return videoJobRequest{}, vidGenRequest{}, badVideo("bad_request", "prompt is required")
+		return videoJobRequest{}, vidGenRequest{}, badRequest("bad_request", "prompt is required")
 	}
 	format := in.OutputFormat
 	if format == "" {
 		format = "webm"
 	}
 	if format != "webm" && format != "webp" {
-		return videoJobRequest{}, vidGenRequest{}, badVideo("bad_value", "output_format must be webm or webp")
+		return videoJobRequest{}, vidGenRequest{}, badRequest("bad_value", "output_format must be webm or webp")
 	}
 	if in.Frames != nil && in.Seconds != nil {
-		return videoJobRequest{}, vidGenRequest{}, badVideo("bad_value", "give frames or seconds, not both")
+		return videoJobRequest{}, vidGenRequest{}, badRequest("bad_value", "give frames or seconds, not both")
 	}
 	for k := range in.Extra {
 		if slices.Contains(videoReservedExtra, k) {
-			return videoJobRequest{}, vidGenRequest{}, badVideo("bad_value", "extra may not set %q; use the request field instead", k)
+			return videoJobRequest{}, vidGenRequest{}, badRequest("bad_value", "extra may not set %q; use the request field instead", k)
 		}
 	}
 	loras := setLoras(set)
 	if _, ok := in.Extra["lora"]; ok && len(loras) > 0 {
-		return videoJobRequest{}, vidGenRequest{}, badVideo("bad_value", `extra may not set "lora"; %s sends its own LoRAs`, set.Name)
+		return videoJobRequest{}, vidGenRequest{}, badRequest("bad_value", `extra may not set "lora"; %s sends its own LoRAs`, set.Name)
 	}
 
 	w, h := set.DefaultWidth, set.DefaultHeight
@@ -277,7 +263,7 @@ func buildVideoRequest(in videoInput, inst generation.Instance, set generation.M
 		w, err1 = strconv.Atoi(ws)
 		h, err2 = strconv.Atoi(hs)
 		if !ok || err1 != nil || err2 != nil {
-			return videoJobRequest{}, vidGenRequest{}, badVideo("bad_value", "size must be WIDTHxHEIGHT, e.g. 832x480")
+			return videoJobRequest{}, vidGenRequest{}, badRequest("bad_value", "size must be WIDTHxHEIGHT, e.g. 832x480")
 		}
 	}
 	fps := set.DefaultFPS
@@ -297,23 +283,23 @@ func buildVideoRequest(in videoInput, inst generation.Instance, set generation.M
 	}
 	switch {
 	case frames < 1:
-		return videoJobRequest{}, vidGenRequest{}, badVideo("bad_value", "the video needs at least 1 frame")
+		return videoJobRequest{}, vidGenRequest{}, badRequest("bad_value", "the video needs at least 1 frame")
 	case fps < 1 || fps > videoMaxFPS:
-		return videoJobRequest{}, vidGenRequest{}, badVideo("bad_value", "fps must be from 1 to %d", videoMaxFPS)
+		return videoJobRequest{}, vidGenRequest{}, badRequest("bad_value", "fps must be from 1 to %d", videoMaxFPS)
 	case w < 64 || h < 64:
-		return videoJobRequest{}, vidGenRequest{}, badVideo("bad_value", "width and height must be at least 64")
+		return videoJobRequest{}, vidGenRequest{}, badRequest("bad_value", "width and height must be at least 64")
 	}
 
 	can := func(c string) bool { return slices.Contains(set.Capabilities, c) }
 	switch {
 	case in.StartImage == "" && !can(generation.CapText):
-		return videoJobRequest{}, vidGenRequest{}, badVideo("start_image_required", "%s needs a start_image", set.Name)
+		return videoJobRequest{}, vidGenRequest{}, badRequest("start_image_required", "%s needs a start_image", set.Name)
 	case in.StartImage != "" && !can(generation.CapStartImage):
-		return videoJobRequest{}, vidGenRequest{}, badVideo("input_not_supported", "%s cannot start from an image", set.Name)
+		return videoJobRequest{}, vidGenRequest{}, badRequest("input_not_supported", "%s cannot start from an image", set.Name)
 	case in.EndImage != "" && !can(generation.CapEndImage):
-		return videoJobRequest{}, vidGenRequest{}, badVideo("input_not_supported", "%s cannot end on an image", set.Name)
+		return videoJobRequest{}, vidGenRequest{}, badRequest("input_not_supported", "%s cannot end on an image", set.Name)
 	case in.EndImage != "" && in.StartImage == "":
-		return videoJobRequest{}, vidGenRequest{}, badVideo("start_image_required", "an end_image needs a start_image too")
+		return videoJobRequest{}, vidGenRequest{}, badRequest("start_image_required", "an end_image needs a start_image too")
 	}
 
 	// The ceiling holds in either orientation, so a portrait video of the
@@ -321,14 +307,14 @@ func buildVideoRequest(in videoInput, inst generation.Instance, set generation.M
 	long, short := max(w, h), min(w, h)
 	maxLong, maxShort := max(set.MaxWidth, set.MaxHeight), min(set.MaxWidth, set.MaxHeight)
 	if (set.MaxFrames > 0 && frames > set.MaxFrames) || (maxShort > 0 && (long > maxLong || short > maxShort)) {
-		return videoJobRequest{}, vidGenRequest{}, badVideo("over_limit", "%s makes at most %d frames (%.0f s at %d fps) and %dx%d",
+		return videoJobRequest{}, vidGenRequest{}, badRequest("over_limit", "%s makes at most %d frames (%.0f s at %d fps) and %dx%d",
 			set.Name, set.MaxFrames, float64(set.MaxFrames)/float64(max(set.DefaultFPS, 1)), set.DefaultFPS, set.MaxWidth, set.MaxHeight)
 	}
 	if verr := checkMeasuredSize(inst, set, frames, w, h); verr != nil {
 		return videoJobRequest{}, vidGenRequest{}, verr
 	}
 	if w%8 != 0 || h%8 != 0 {
-		return videoJobRequest{}, vidGenRequest{}, badVideo("bad_size", "width and height must be multiples of 8")
+		return videoJobRequest{}, vidGenRequest{}, badRequest("bad_size", "width and height must be multiples of 8")
 	}
 
 	shown := videoJobRequest{
@@ -347,7 +333,7 @@ func buildVideoRequest(in videoInput, inst generation.Instance, set generation.M
 // height) than the instance was measured for: its reservation covers that
 // much and no more, and sd-server can go past its memory limit when it
 // decodes a larger video.
-func checkMeasuredSize(inst generation.Instance, set generation.ModelSet, frames, w, h int) *videoError {
+func checkMeasuredSize(inst generation.Instance, set generation.ModelSet, frames, w, h int) *requestError {
 	limit, measured := generation.VideoLimit(inst, set)
 	if generation.PixelFrames(frames, w, h) <= generation.PixelFrames(limit.Frames, limit.Width, limit.Height) {
 		return nil
@@ -361,7 +347,7 @@ func checkMeasuredSize(inst generation.Instance, set generation.ModelSet, frames
 	if p, ok := generation.CoveringPreset(generation.VideoPresets(set), frames, w, h); ok {
 		how = p.Label
 	}
-	return badVideo("over_measured_size", "%s This request is %d frames at %dx%d, which needs more GPU memory than the instance's reservation covers. "+
+	return badRequest("over_measured_size", "%s This request is %d frames at %dx%d, which needs more GPU memory than the instance's reservation covers. "+
 		"To allow it, measure the instance at a larger size on the Server page (Measure, then %s).", first, frames, w, h, how)
 }
 
@@ -442,7 +428,7 @@ func (s *Server) runVideoJob(ctx context.Context, id string, inst generation.Ins
 		}
 		j.Status, j.Phase = jobRunning, imagePhaseGenerating
 	})
-	base := fmt.Sprintf("http://127.0.0.1:%d", inst.Port)
+	base := inst.BaseURL()
 	res, err := runVidGen(ctx, base, vid, func(p vidProgress) {
 		s.genVideoJobs.update(id, func(j *videoJob) { j.Progress = &p })
 	})
@@ -508,49 +494,36 @@ func (s *Server) videoEnabled() bool {
 
 // --- /v1/videos -------------------------------------------------------------
 
-func writeVideoError(w http.ResponseWriter, status int, code, msg string) {
-	errType := "invalid_request_error"
-	if status >= 500 {
-		errType = "server_error"
-	}
-	openAIError(w, status, errType, code, msg)
-}
-
 // createVideoJob reads, checks and queues a video request, writing the
 // error answer itself when it cannot.
 func (s *Server) createVideoJob(w http.ResponseWriter, r *http.Request) (*videoJob, bool) {
 	if !s.videoEnabled() {
-		writeVideoError(w, http.StatusNotFound, "not_found", "video generation is not enabled on this server")
+		writeNotEnabled(w, "video")
 		return nil, false
 	}
 	in, verr := readVideoInput(r)
 	if verr != nil {
-		writeVideoError(w, verr.status, verr.code, verr.msg)
+		writeRequestError(w, verr)
 		return nil, false
 	}
 	inst, pe := s.pickInstance(in.Model, generation.KindVideo)
 	if pe != nil {
-		writeVideoError(w, pe.status, pe.code, pe.msg)
+		writeRequestError(w, pe)
 		return nil, false
 	}
 	set, err := s.gen.ModelSet(inst.ModelSetID)
 	if err != nil {
-		writeVideoError(w, http.StatusInternalServerError, "model_set_missing", err.Error())
+		writeOpenAIError(w, http.StatusInternalServerError, "model_set_missing", err.Error())
 		return nil, false
 	}
 	req, vid, verr := buildVideoRequest(in, inst, set)
 	if verr != nil {
-		writeVideoError(w, verr.status, verr.code, verr.msg)
+		writeRequestError(w, verr)
 		return nil, false
 	}
 	job, err := s.submitVideoJob(inst, req, vid)
-	if errors.Is(err, generation.ErrQueueFull) {
-		w.Header().Set("Retry-After", "30")
-		writeVideoError(w, http.StatusTooManyRequests, "queue_full", err.Error())
-		return nil, false
-	}
 	if err != nil {
-		writeVideoError(w, http.StatusInternalServerError, "queue_error", err.Error())
+		writeQueueError(w, err)
 		return nil, false
 	}
 	return job, true
@@ -562,7 +535,7 @@ func (s *Server) handleVideoJobCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	view, _ := s.genVideoJobs.view(job.ID)
-	respondJSONStatus(w, http.StatusAccepted, map[string]any{"id": view.ID, "status": view.Status, "phase": view.Phase, "queue_position": view.Position})
+	writeJobAccepted(w, view.ID, view.Status, view.Phase, view.Position)
 }
 
 // handleVideoGenerate is the waiting route: it answers with the finished
@@ -592,12 +565,12 @@ func (s *Server) handleVideoGenerate(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) videoJobOr404(w http.ResponseWriter, id string) (videoJob, bool) {
 	if !s.videoEnabled() {
-		writeVideoError(w, http.StatusNotFound, "not_found", "video generation is not enabled on this server")
+		writeNotEnabled(w, "video")
 		return videoJob{}, false
 	}
 	j, ok := s.genVideoJobs.view(id)
 	if !ok {
-		writeVideoError(w, http.StatusNotFound, "job_not_found", "no video job "+id)
+		writeOpenAIError(w, http.StatusNotFound, "job_not_found", "no video job "+id)
 	}
 	return j, ok
 }
@@ -614,7 +587,7 @@ func (s *Server) handleVideoJobVideo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if j.Status != jobSucceeded || j.Video == nil {
-		writeVideoError(w, http.StatusConflict, "not_ready", "the job is "+j.Status)
+		writeOpenAIError(w, http.StatusConflict, "not_ready", "the job is "+j.Status)
 		return
 	}
 	w.Header().Set("Content-Type", j.Video.MimeType)
@@ -623,12 +596,12 @@ func (s *Server) handleVideoJobVideo(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleVideoJobList(w http.ResponseWriter, r *http.Request) {
 	if !s.videoEnabled() {
-		writeVideoError(w, http.StatusNotFound, "not_found", "video generation is not enabled on this server")
+		writeNotEnabled(w, "video")
 		return
 	}
 	statuses, ok := jobStatusFilter(r.URL.Query().Get("status"))
 	if !ok {
-		writeVideoError(w, http.StatusBadRequest, "bad_status", jobStatusFilterError)
+		writeOpenAIError(w, http.StatusBadRequest, "bad_status", jobStatusFilterError)
 		return
 	}
 	respondJSON(w, jobList(s.genVideoJobs.list(statuses)))

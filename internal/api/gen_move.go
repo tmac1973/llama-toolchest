@@ -2,14 +2,13 @@ package api
 
 import (
 	"errors"
-	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
 	"syscall"
 
+	"github.com/tmac1973/llama-toolchest/internal/atomicfile"
 	"github.com/tmac1973/llama-toolchest/internal/generation"
 	"github.com/tmac1973/llama-toolchest/internal/huggingface"
 	"github.com/tmac1973/llama-toolchest/internal/models"
@@ -148,41 +147,10 @@ func moveGenFile(m genFileMove) error {
 	if err == nil || !errors.Is(err, syscall.EXDEV) {
 		return err
 	}
-	if err := copyFile(m.from, m.to); err != nil {
+	if err := atomicfile.Copy(m.from, m.to); err != nil {
 		return err
 	}
 	return os.Remove(m.from)
-}
-
-// copyFile copies src to dst through dst.part, so a copy cut short never
-// looks like a finished file.
-func copyFile(src, dst string) (err error) {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	part := dst + ".part"
-	out, err := os.Create(part)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err != nil {
-			out.Close()
-			os.Remove(part)
-		}
-	}()
-	if _, err = io.Copy(out, in); err != nil {
-		return fmt.Errorf("copying: %w", err)
-	}
-	if err = out.Sync(); err != nil {
-		return err
-	}
-	if err = out.Close(); err != nil {
-		return err
-	}
-	return os.Rename(part, dst)
 }
 
 // repointGenFile points every set component that used from at to.
