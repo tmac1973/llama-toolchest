@@ -331,6 +331,40 @@ func TestPickInstanceVideoOnly(t *testing.T) {
 	io.Copy(io.Discard, rec.Body)
 }
 
+// sd-server rounds a size up to the set's multiple without saying so: the
+// job reports the size made, and meta.video gives the multiple. LTX-2.3
+// made 1280x720 as 1280x736 on asmodean.
+func TestVideoJobReportsMadeSize(t *testing.T) {
+	f := newFakeVidServer(t, 0, "completed")
+	s := videoServer(t, f)
+	set, _ := s.gen.ModelSet("ti2v")
+	set.CatalogID = "ltx23-distilled"
+	if err := s.gen.UpdateModelSet(set); err != nil {
+		t.Fatal(err)
+	}
+	id := createVideoJobID(t, s, videoReq("/v1/videos/jobs", `{"prompt":"a calm sea","size":"1000x600","frames":33}`))
+	j := waitVideoJob(t, s, id)
+	if j.Status != jobSucceeded || j.Video == nil {
+		t.Fatalf("job = %+v", j)
+	}
+	if f.body["width"] != float64(1000) || f.body["height"] != float64(600) {
+		t.Errorf("sd-server got %vx%v, want the size asked for", f.body["width"], f.body["height"])
+	}
+	if j.Video.Width != 1024 || j.Video.Height != 608 {
+		t.Errorf("video size %dx%d, want 1024x608", j.Video.Width, j.Video.Height)
+	}
+	rec := serve(s, httptest.NewRequest("GET", "/v1/models/ti2v", nil))
+	var got struct {
+		Meta struct {
+			Video map[string]any `json:"video"`
+		} `json:"meta"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &got)
+	if got.Meta.Video["size_multiple"] != float64(32) {
+		t.Errorf("meta.video.size_multiple = %v, want 32", got.Meta.Video["size_multiple"])
+	}
+}
+
 func TestV1ModelsVideoMeta(t *testing.T) {
 	f := newFakeVidServer(t, 0, "completed")
 	s := videoServer(t, f)
@@ -344,6 +378,9 @@ func TestV1ModelsVideoMeta(t *testing.T) {
 	v := got.Meta.Video
 	if v["default_size"] != "832x480" || v["default_frames"] != float64(33) || v["max_frames"] != float64(121) || v["max_size"] != "1280x704" {
 		t.Errorf("meta.video = %v", v)
+	}
+	if _, ok := v["size_multiple"]; ok {
+		t.Errorf("a custom set has no known size multiple, got %v", v["size_multiple"])
 	}
 }
 

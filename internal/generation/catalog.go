@@ -31,6 +31,10 @@ type CatalogEntry struct {
 	// R9700."
 	VideoSizes      []VideoSize `json:"video_sizes,omitempty"`
 	FullMeasureTime string      `json:"full_measure_time,omitempty"`
+	// SizeMultiple is what sd-server rounds a video's width and height up
+	// to: the VAE's scale factor times the diffusion model's down factor
+	// (sd.cpp master-1015, request.cpp). Zero when not known.
+	SizeMultiple int `json:"size_multiple,omitempty"`
 }
 
 // TotalBytes is the download size of the whole set.
@@ -289,6 +293,8 @@ func Catalog() []CatalogEntry {
 				{Label: "Full", Frames: 121, Width: 1280, Height: 704},
 			},
 			FullMeasureTime: "Measuring the largest size took about 21 minutes on a Radeon AI PRO R9700, which then could not give it enough memory.",
+			// The Wan2.2 VAE scales by 16 and the model patches by 2.
+			SizeMultiple: 32,
 		},
 		{
 			ID:     "wan22-i2v-a14b",
@@ -337,6 +343,8 @@ func Catalog() []CatalogEntry {
 			// larger sizes have several times the video to sample.
 			FullMeasureTime: "On a Radeon AI PRO R9700 the smallest size took about 28 minutes to measure; " +
 				"the larger sizes are expected to take more than Measure's 2-hour limit.",
+			// The Wan2.1 VAE scales by 8 and the model patches by 2.
+			SizeMultiple: 16,
 		},
 		{
 			ID:     "wan22-i2v-a14b-lightning",
@@ -389,6 +397,8 @@ func Catalog() []CatalogEntry {
 			// refused. Full was not measured: it has more video still.
 			FullMeasureTime: "On a Radeon AI PRO R9700 the smallest size took about 3 minutes to measure; " +
 				"Medium took about 25 minutes and needed more memory than that 32 GB card could give.",
+			// The Wan2.1 VAE scales by 8 and the model patches by 2.
+			SizeMultiple: 16,
 		},
 		{
 			ID:     "ltx23-distilled",
@@ -436,6 +446,8 @@ func Catalog() []CatalogEntry {
 				{Label: "Full", Frames: 121, Width: 1280, Height: 720},
 			},
 			FullMeasureTime: "Measuring the largest size took about 28 minutes on a Radeon AI PRO R9700 (Measure uses a start and an end image, which makes a video about 2.5 times slower).",
+			// The LTX VAE scales by 32.
+			SizeMultiple: 32,
 		},
 		{
 			ID:         "ace-step-turbo",
@@ -472,6 +484,19 @@ func LookupCatalog(id string) (CatalogEntry, bool) {
 		}
 	}
 	return CatalogEntry{}, false
+}
+
+// MadeSize is the size sd-server makes for a requested width and height:
+// each rounded up to the catalog entry's SizeMultiple. It is the catalog's
+// current value, so sets downloaded before it was added have it too; a
+// custom set, with no catalog entry, keeps the size asked for.
+func (m ModelSet) MadeSize(width, height int) (int, int) {
+	e, ok := LookupCatalog(m.CatalogID)
+	if m.CatalogID == "" || !ok || e.SizeMultiple <= 1 {
+		return width, height
+	}
+	up := func(n int) int { return (n + e.SizeMultiple - 1) / e.SizeMultiple * e.SizeMultiple }
+	return up(width), up(height)
 }
 
 // RunArgs returns the backend flags a set runs with. A catalog set takes

@@ -1328,6 +1328,9 @@ components:
             max_size:
               type: string
               description: The largest size the model can make, in either orientation. Left out when there is no limit.
+            size_multiple:
+              type: integer
+              description: sd-server rounds a requested width and height up to a multiple of this (32 for LTX-2.3 and Wan2.2 TI2V 5B, 16 for Wan2.2 I2V A14B). Left out when not known.
             measured_frames:
               type: integer
               description: The length this instance was measured with.
@@ -1566,8 +1569,10 @@ components:
                   type: integer
                 width:
                   type: integer
+                  description: The width made, the requested width rounded up to `meta.video.size_multiple`.
                 height:
                   type: integer
+                  description: The height made, rounded up the same way.
                 bytes:
                   type: integer
 

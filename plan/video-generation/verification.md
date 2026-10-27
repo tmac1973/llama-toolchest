@@ -392,12 +392,22 @@ same CUDA crashes as the Wan sets (finding 1), this time also in sampling.
     jobs behave the same. Not changed.
 16. **A video job reports the requested size, not the size made.**
     sd-server rounds LTX sizes up to multiples of 32 and does not say so in
-    its result, so job 5 reported 1280×720 for a 1280×736 file. Not
-    changed.
+    its result, so job 5 reported 1280×720 for a 1280×736 file. Fixed
+    after the check (below).
 17. **Measure at Full is slow for LTX-2.3**: 28 minutes, against 4.5
     minutes for a Full video from a prompt. Measure always sends a start
     and an end picture when the set takes them, and those make the video
     about 2.5 times slower. Not changed.
+
+### Fixed after the check (decided with the user)
+
+- **A video job reports the size made** (finding 16): each catalog video
+  set has the multiple sd-server rounds width and height up to, the VAE's
+  scale factor times the model's down factor in sd.cpp master-1015: 32 for
+  LTX-2.3 and Wan2.2 TI2V 5B, 16 for Wan2.2 I2V A14B. A finished job's
+  `width` and `height` are the request rounded up to it, and
+  `meta.video.size_multiple` gives it. A custom set has no known multiple
+  and reports the size asked for. Checked by tests, not on hardware.
 
 ### Not run
 

@@ -122,6 +122,9 @@ func TestCatalogVideoSets(t *testing.T) {
 		if _, ok := VideoRecipes[e.Recipe]; !ok {
 			t.Errorf("%s: recipe %s is not a video recipe", e.ID, e.Recipe)
 		}
+		if e.SizeMultiple <= 0 {
+			t.Errorf("%s: needs the size multiple sd-server rounds to", e.ID)
+		}
 		if !slices.Equal(e.Capabilities, VideoRecipes[e.Recipe].Caps) {
 			t.Errorf("%s: capabilities %v differ from its recipe's %v", e.ID, e.Capabilities, VideoRecipes[e.Recipe].Caps)
 		}
@@ -256,5 +259,23 @@ func TestCatalogLTXLicence(t *testing.T) {
 	}
 	if !slots["audio_vae"] || !slots["embeddings_connectors"] {
 		t.Errorf("slots %v, want the audio VAE and the embeddings connectors", slots)
+	}
+}
+
+// MadeSize rounds up to the catalog entry's multiple, and leaves a custom
+// set's size alone.
+func TestMadeSize(t *testing.T) {
+	ltx := ModelSet{CatalogID: "ltx23-distilled"}
+	if w, h := ltx.MadeSize(1280, 720); w != 1280 || h != 736 {
+		t.Errorf("LTX 1280x720 made as %dx%d, want 1280x736", w, h)
+	}
+	if w, h := ltx.MadeSize(768, 512); w != 768 || h != 512 {
+		t.Errorf("LTX 768x512 made as %dx%d", w, h)
+	}
+	if w, h := (ModelSet{CatalogID: "wan22-i2v-a14b"}).MadeSize(1000, 600); w != 1008 || h != 608 {
+		t.Errorf("A14B 1000x600 made as %dx%d, want 1008x608", w, h)
+	}
+	if w, h := (ModelSet{}).MadeSize(1000, 600); w != 1000 || h != 600 {
+		t.Errorf("custom set 1000x600 made as %dx%d", w, h)
 	}
 }
