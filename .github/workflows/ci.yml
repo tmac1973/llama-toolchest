@@ -58,6 +58,10 @@ jobs:
       - name: Installer script tests
         run: make installer-test
 
+  # Checks the code with the same Go version that release.yml builds the
+  # shipped binaries with. go.mod only names the oldest Go the code builds
+  # with (1.26.0), and the standard library at that exact version has known
+  # vulnerabilities that later 1.26.x and 1.27 releases fix.
   govulncheck:
     runs-on: ubuntu-latest
     steps:
@@ -67,7 +71,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: "1.27"
           cache: true
 
       - name: Install govulncheck
