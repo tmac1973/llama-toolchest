@@ -221,5 +221,8 @@ own GPU machine, and the programs they point at it.
   previous size.
 - **Clients** → Built for clients in general and advertised in `meta.api`; no
   client work.
+- **Speed-up LoRAs for Wan2.2 I2V A14B** (asked after the Phase 06 hardware
+  check: 27 minutes for 2 seconds) → A second catalog set with the Lightning
+  4-step LoRAs, 4 steps on each expert; the 20-step set stays (Phase 08).
 - **Other video models** → Out of scope for the catalog; custom sets can use
   sd.cpp's other video recipes.
