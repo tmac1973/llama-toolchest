@@ -50,6 +50,14 @@ func TestSidebarMapShowsOnlyWhatIsOnTheGPUs(t *testing.T) {
 		t.Errorf("legend = %v, want the loaded LLM and both backends", names)
 	}
 
+	// A model still loading is drawn apart from a loaded one, and its
+	// legend entry says so: the card holds its planned size only once the
+	// weights are read.
+	loading := buildSidebarMap(gpus, allocs[:1], map[string]string{"qwen": "loading"}, nil)
+	if seg := loading.GPUs[0].Segments[0]; seg.Kind != sidebarLoading || loading.Legend[0].Name != "Qwen3-30B (loading)" {
+		t.Errorf("loading model = %+v, legend %q; want the loading kind and a legend that says so", seg, loading.Legend[0].Name)
+	}
+
 	if m := buildSidebarMap(gpus, allocs[:2], nil, nil); len(m.GPUs) != 0 || len(m.Legend) != 0 {
 		t.Errorf("nothing loaded gave %+v, want an empty map", m)
 	}
@@ -73,7 +81,10 @@ func TestSidebarMapRenders(t *testing.T) {
 		"On the GPUs",
 		`style="width:50.0%;background-color:#4e79a7;--side-map-color:#4e79a7;"`,
 		`class="side-map-stopped"`,
-		"Qwen3-30B: about 8.0 GiB on GPU 0 (LLM, loading)",
+		`class="side-map-loading"`,
+		`side-map-key side-map-loading`,
+		"Qwen3-30B (loading)",
+		"Qwen3-30B: about 8.0 GiB on GPU 0 (LLM, loading: the planned size; the VRAM bars below fill up as it loads)",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)

@@ -1,19 +1,19 @@
 {{define "monitor_bar"}}
 <div style="display:flex;flex-direction:column;gap:0.4rem;">
     {{with .Map}}{{if .GPUs}}
-    <div style="border-bottom:1px solid var(--pico-muted-border-color);padding-bottom:0.75rem;margin-bottom:0.35rem;" title="What is on each GPU now, from the planned sizes (the VRAM bars below are measured). Solid: a loaded LLM. Striped: a running image or music backend. Outline: memory reserved for a backend that is stopped. Hover a segment for its size.">
+    <div style="border-bottom:1px solid var(--pico-muted-border-color);padding-bottom:0.75rem;margin-bottom:0.35rem;" title="What is on each GPU now, from the planned sizes (the VRAM bars below are measured). Solid: a loaded LLM. Faded: an LLM still loading, whose memory the VRAM bars show filling up. Striped: a running image or music backend. Outline: memory reserved for a backend that is stopped. Hover a segment for its size.">
         <div style="margin-bottom:0.15rem;">On the GPUs</div>
         {{range .GPUs}}
         <div style="display:flex;align-items:center;gap:0.35rem;margin-bottom:0.2rem;">
             <span style="flex-shrink:0;">GPU{{.Index}}</span>
             <div class="side-map-bar" style="flex:1;">
-                {{range .Segments}}<span class="{{if eq .Kind "gen"}}side-map-gen{{else if eq .Kind "stopped"}}side-map-stopped{{end}}" style="width:{{printf "%.1f" .WidthPct}}%;background-color:{{.Color}};--side-map-color:{{.Color}};" title="{{.Title}}"></span>{{end}}
+                {{range .Segments}}<span class="{{if eq .Kind "gen"}}side-map-gen{{else if eq .Kind "stopped"}}side-map-stopped{{else if eq .Kind "loading"}}side-map-loading{{end}}" style="width:{{printf "%.1f" .WidthPct}}%;background-color:{{.Color}};--side-map-color:{{.Color}};" title="{{.Title}}"></span>{{end}}
             </div>
         </div>
         {{end}}
         <div class="side-map-legend">
             {{range .Legend}}
-            <span title="{{.Title}}"><span class="side-map-key{{if eq .Kind "gen"}} side-map-gen{{else if eq .Kind "stopped"}} side-map-stopped{{end}}" style="background-color:{{.Color}};--side-map-color:{{.Color}};"></span>{{.Name}}</span>
+            <span title="{{.Title}}"><span class="side-map-key{{if eq .Kind "gen"}} side-map-gen{{else if eq .Kind "stopped"}} side-map-stopped{{else if eq .Kind "loading"}} side-map-loading{{end}}" style="background-color:{{.Color}};--side-map-color:{{.Color}};"></span>{{.Name}}</span>
             {{end}}
         </div>
     </div>
