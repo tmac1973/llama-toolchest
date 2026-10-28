@@ -556,12 +556,12 @@ func (s *Server) handleGenInstanceAction(w http.ResponseWriter, r *http.Request)
 	var err error
 	switch chi.URLParam(r, "action") {
 	case "start":
-		err = s.startGenInstance(inst.ID)
+		err = s.startGenFromUI(r.Context(), inst)
 	case "stop":
 		err = s.genMgr.Stop(inst.ID)
 	case "restart":
 		if err = s.genMgr.Stop(inst.ID); err == nil {
-			err = s.startGenInstance(inst.ID)
+			err = s.startGenFromUI(r.Context(), inst)
 		}
 	case "enable":
 		// Its reservation starts to count now, so it has to fit; with

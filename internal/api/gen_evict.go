@@ -265,6 +265,46 @@ func (s *Server) genReady(ctx context.Context, inst generation.Instance) error {
 	return nil
 }
 
+// startGenFromUI starts inst for the Start and Restart buttons. When
+// inst fits, or eviction is off, it starts it as before (and is refused
+// when it does not fit). With eviction on and inst in the way of an LLM or
+// another backend, it makes room the way a job does: it takes the GPU's
+// turn in the queue, so no job is mid-run there, stops the backends and
+// unloads the LLMs in the way, and starts inst. The turn is kept until
+// inst runs, so a chat waiting for its LLM cannot load it into the room
+// first.
+func (s *Server) startGenFromUI(ctx context.Context, inst generation.Instance) error {
+	if !s.genEvictOn() || s.genQueue == nil || s.genFitCheck(inst, inst.ReservedMiB) == nil {
+		return s.startGenInstance(inst.ID)
+	}
+	set, err := s.gen.ModelSet(inst.ModelSetID)
+	if err != nil {
+		return err
+	}
+	ticket, err := s.genQueue.Submit(inst.GPU, inst.ID, set.Kind)
+	if err != nil {
+		return err
+	}
+	if err := ticket.Wait(ctx); err != nil {
+		return err
+	}
+	if err := s.makeRoomForGen(ctx, inst); err != nil {
+		ticket.Done()
+		return err
+	}
+	if err := s.startGenInstance(inst.ID); err != nil {
+		ticket.Done()
+		return err
+	}
+	go func() {
+		defer ticket.Done()
+		wctx, cancel := context.WithTimeout(context.Background(), genStartTimeout)
+		defer cancel()
+		s.genMgr.WaitRunning(wctx, inst.ID)
+	}()
+	return nil
+}
+
 // makeRoomForGen frees inst's GPU until inst's reservation fits.
 func (s *Server) makeRoomForGen(ctx context.Context, inst generation.Instance) error {
 	err := s.genFitCheck(inst, inst.ReservedMiB)
