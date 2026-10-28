@@ -1,6 +1,9 @@
 package models
 
-import "runtime"
+import (
+	"fmt"
+	"runtime"
+)
 
 // Helper models are the app's own: small models it loads to read a model
 // card for Autoconfigure, and unloads afterwards. Their settings are not
@@ -21,13 +24,45 @@ const (
 	HelperContextSmall = 8192
 )
 
-// HelperConfig is the launch config for a helper model on a machine with
-// budgetGiB of GPU memory to spare. Everything is on the GPU, at
-// llama.cpp's own batch sizes, with no speculative decoding and no
-// sampling settings: the requests set what they need.
+// HelperGPU is where a helper model runs: one GPU, by index, and the
+// memory it may use there. Index is -1 when the machine has no GPU the
+// helper can use, or is not known.
+type HelperGPU struct {
+	Index     int
+	BudgetGiB float64
+	// NumGPUs is how many GPUs the machine has, which the placement of a
+	// single GPU is written for.
+	NumGPUs int
+}
+
+// HelperGPUFor picks the GPU for a helper model: the dedicated GPU with
+// the most room, after what other programs hold and what generation
+// backends reserve on it, less the same safety margin the fit planner
+// leaves. A helper is small, so it runs on that one card rather than
+// spread over all of them: a share on a card that is nearly full would
+// refuse the load even with room to spare on another.
+func HelperGPUFor(hw Hardware) HelperGPU {
+	at := HelperGPU{Index: -1, NumGPUs: len(hw.GPUs)}
+	best := 0
+	for _, g := range hw.GPUs {
+		if g.IsIGPU {
+			continue
+		}
+		if mib := g.UsableMiB(); mib > best {
+			best, at.Index = mib, g.Index
+		}
+	}
+	at.BudgetGiB = float64(best) / 1024 * 0.92
+	return at
+}
+
+// HelperConfig is the launch config for a helper model on the GPU at.
+// Everything is on that GPU, at llama.cpp's own batch sizes, with no
+// speculative decoding and no sampling settings: the requests set what
+// they need.
 //
 // A budget of 0 (unknown hardware) uses the normal context.
-func HelperConfig(m *Model, budgetGiB float64) ModelConfig {
+func HelperConfig(m *Model, at HelperGPU) ModelConfig {
 	cfg := ModelConfig{
 		Enabled:        true,
 		GPULayers:      999,
@@ -36,9 +71,14 @@ func HelperConfig(m *Model, budgetGiB float64) ModelConfig {
 		FlashAttention: true,
 		Jinja:          true,
 	}
+	if at.NumGPUs > 1 && at.Index >= 0 {
+		cfg.GPUAssign = fmt.Sprintf("%d", at.Index)
+		cfg.TensorSplit, cfg.SplitMode, cfg.MainGPU = ResolveGPUAssign(cfg.GPUAssign, at.NumGPUs)
+	}
 	if m != nil && m.ContextLength > 0 && m.ContextLength < cfg.ContextSize {
 		cfg.ContextSize = m.ContextLength
 	}
+	budgetGiB := at.BudgetGiB
 	if budgetGiB <= 0 || m == nil {
 		return cfg
 	}

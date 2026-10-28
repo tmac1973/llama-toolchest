@@ -361,3 +361,62 @@ func TestCardBudgetWithReservations(t *testing.T) {
 		t.Errorf("GPUMiB = %v, want the card's budget with the reservations taken off (%d)", g, got)
 	}
 }
+
+// A card that generation backends have reserved nearly all of is left
+// out of the plan, so the model goes on the cards with room rather than
+// being given a share of the full one, which every load would refuse.
+func TestPlanFitLeavesOutACardWithNoRoom(t *testing.T) {
+	hw := Hardware{LogicalCores: 16, RAMTotalMiB: 64 * 1024, GPUs: []GPUSpec{
+		{Index: 0, Name: "GPU", VRAMTotalMiB: 16384, ReservedMiB: 15053},
+		{Index: 1, Name: "GPU", VRAMTotalMiB: 16384},
+		{Index: 2, Name: "GPU", VRAMTotalMiB: 16384, ReservedMiB: 7700},
+	}}
+	base := DefaultConfig()
+	r := PlanFit(dense8B, base, hw, ContextLong)
+	if !r.Fits || r.Config.GPUAssign != "1-2" || r.Config.TensorSplit != "0,1,1" || r.Config.MainGPU != 1 {
+		t.Fatalf("placement = %q split %q main %d (fits %v), want GPUs 1-2",
+			r.Config.GPUAssign, r.Config.TensorSplit, r.Config.MainGPU, r.Fits)
+	}
+	if loads := CardLoadsMiB(dense8B, &r.Config, GPUMiB(hw)); loads[0] != 0 {
+		t.Errorf("GPU 0 still gets %d MiB of the model", loads[0])
+	}
+	want := cardBudgetGiB(hw.GPUs[1]) + cardBudgetGiB(hw.GPUs[2])
+	if r.BudgetGiB != want {
+		t.Errorf("budget = %.2f GiB, want the two cards' %.2f", r.BudgetGiB, want)
+	}
+	said := false
+	for _, n := range r.Notes {
+		if n.Field == "gpu_assign" {
+			said = strings.Contains(n.Reason, "GPUs 1,2") && strings.Contains(n.Reason, "GPU 0 is left out")
+		}
+	}
+	if !said {
+		t.Errorf("the placement note does not say which card was left out: %+v", r.Notes)
+	}
+	assertOneNotePerChange(t, base, r)
+
+	// Only GPU 1 has room: the model goes on it alone.
+	hw.GPUs[2].ReservedMiB = 15500
+	if r := PlanFit(dense8B, base, hw, ContextShort); r.Config.GPUAssign != "1" || r.Config.TensorSplit != "0,1,0" {
+		t.Errorf("one card with room: placement = %q split %q, want GPU 1", r.Config.GPUAssign, r.Config.TensorSplit)
+	}
+
+	// No card has room: leaving them all out would place the model
+	// nowhere, so the plan keeps every card and reports it does not fit.
+	hw.GPUs[1].ReservedMiB = 15500
+	if r := PlanFit(dense8B, base, hw, ContextShort); r.Config.GPUAssign != "all" {
+		t.Errorf("no card with room: placement = %q, want all", r.Config.GPUAssign)
+	}
+}
+
+// A card is left out only for lack of room: with room on every card the
+// plan spans them all, as before.
+func TestPlanFitKeepsEveryCardWithRoom(t *testing.T) {
+	hw := Hardware{LogicalCores: 16, RAMTotalMiB: 64 * 1024, GPUs: []GPUSpec{
+		{Index: 0, Name: "GPU", VRAMTotalMiB: 16384, ReservedMiB: 8000},
+		{Index: 1, Name: "GPU", VRAMTotalMiB: 16384},
+	}}
+	if r := PlanFit(dense8B, DefaultConfig(), hw, ContextLong); r.Config.GPUAssign != "all" {
+		t.Errorf("placement = %q, want all", r.Config.GPUAssign)
+	}
+}
