@@ -53,9 +53,19 @@
         Get generation models
     </a>
 </div>
-<div id="gen-model-sets" hx-get="/api/gen/models" hx-trigger="load" hx-swap="innerHTML">
+<div id="gen-model-sets" hx-get="/api/gen/models" hx-trigger="load, genInstancesChanged from:body" hx-swap="innerHTML">
     Loading...
 </div>
+<dialog id="gen-new-instance-dialog" style="max-width:760px;width:95vw;">
+    <article>
+        <header>
+            <button type="button" aria-label="Close" rel="prev" onclick="this.closest('dialog').close();"></button>
+            New instance of <span id="gen-new-instance-name"></span>
+        </header>
+        <p><small>The instance appears on the Server page, under Generation backends, where you measure, start and stop it.</small></p>
+        <div id="gen-new-instance-form"></div>
+    </article>
+</dialog>
 {{end}}
 
 <template id="restart-icon-template">{{template "restart_icon"}}</template>

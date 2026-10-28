@@ -136,10 +136,11 @@ migrate_write_translated_config() {
             # On the host it is the folder that was bind-mounted there, if
             # any; otherwise it is left out and the host default applies.
             models_dir="${LLAMA_TOOLCHEST_MODELS_DIR:-}"
-            # Inside a container the range is always 8081-8088. On the host
-            # it must stay clear of the UI and llama-server ports.
+            # Inside a container the range always starts at 8081, and its
+            # size is GEN_PORT_COUNT (from .env). On the host it must stay
+            # clear of the UI and llama-server ports.
             gen_port_start="$(LLAMA_TOOLCHEST_PORT="${p:-3000}" host_gen_port_start)"
-            gen_port_count=8
+            gen_port_count="${GEN_PORT_COUNT:-8}"
             ;;
         to-container)
             # Inside the container, listen_addr is always :3000. The
@@ -155,10 +156,12 @@ migrate_write_translated_config() {
                 export LLAMA_TOOLCHEST_MODELS_DIR
             fi
             models_dir=""
-            # Inside the container the range is fixed at 8081-8088; the
-            # host side is chosen by setup.sh (.env).
+            # Inside the container the range starts at 8081; its size and
+            # the host side are chosen by setup.sh (.env). Keep the host
+            # install's count for that.
             gen_port_start=8081
-            gen_port_count=8
+            [[ -n "$gen_port_count" ]] && GEN_PORT_COUNT="$gen_port_count"
+            gen_port_count="${GEN_PORT_COUNT:-8}"
             # Translate the host listen_addr to the .env port, so the
             # caller's compose run maps the right host port. Strip the
             # leading ':'.

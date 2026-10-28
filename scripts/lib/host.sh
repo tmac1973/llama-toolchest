@@ -1693,13 +1693,13 @@ host_effective_port() {
 
 # host_gen_port_start prints the first port of the generation backend range
 # for a host install: 8081, moved up past the UI or llama-server port when
-# either falls inside the 8 ports.
+# either falls inside the range (GEN_PORT_COUNT ports, 8 by default).
 host_gen_port_start() {
     local start=8081 p moved=true
     while [[ "$moved" == true ]]; do
         moved=false
         for p in "${LLAMA_TOOLCHEST_PORT:-3000}" "${LLAMA_TOOLCHEST_INFERENCE_PORT:-8080}"; do
-            if (( p >= start && p <= start + 7 )); then
+            if (( p >= start && p <= start + ${GEN_PORT_COUNT:-8} - 1 )); then
                 start=$(( p + 1 ))
                 moved=true
             fi
@@ -1735,7 +1735,7 @@ log_level: "info"
 models_max: 1
 auto_start: false
 gen_port_start: $(host_gen_port_start)
-gen_port_count: 8
+gen_port_count: ${GEN_PORT_COUNT:-8}
 EOF
 }
 

@@ -175,11 +175,13 @@ the browser chat UI — not for programmatic clients.
   ACME), `443` (UI/API/`/v1`), and `8080` (chat UI). The app's raw router is
   reachable only from the host itself, on a loopback debug port.
 - **Generation web UI ports (opt-in).** If you answer yes to "Publish ports for
-  generation backend web UIs?" (or pass `--gen-ports`), Caddy also publishes 8
-  ports, `8081`–`8088` by default (`--gen-port-start` moves them). Each port is
-  its own Caddy site with the admin login, forwarding to the backend's port
-  inside the app container. The app's own copy of the range is on loopback
-  only, at `127.0.0.1:18081`–`18088`, and its loopback debug port moves from
+  generation backend web UIs?" (or pass `--gen-ports`), Caddy also publishes
+  one port per generation backend port, `8081`–`8088` by default
+  (`--gen-port-start` moves them, and `--gen-port-count` or the install
+  question sets how many, up to 64). Each port is its own Caddy site with the
+  admin login, forwarding to the backend's port inside the app container. The
+  app's own copy of the range is on loopback only, at `127.0.0.1:18081`
+  onwards, and its loopback debug port moves from
   `8081` to `18080` so it doesn't clash. The installer prints that move. With
   no (the default) none of this is added. The image and music APIs work
   either way, because they go through `443`.
@@ -215,8 +217,8 @@ exposing the server.
   above) or switch to Let's Encrypt.
 - **Let's Encrypt fails to issue:** confirm the domain resolves to this host and
   ports 80/443 are reachable from the internet; check `./setup.sh logs`.
-- **Generation web UI port already in use:** the installer checks all 8 ports
-  and asks for another first port. In a scripted install, pass
+- **Generation web UI port already in use:** the installer checks every port
+  in the range and asks for another first port. In a scripted install, pass
   `--gen-port-start <port>`.
 - **Port already in use:** something else holds 80/443/8080. Stop it, or adjust
   `CADDY_HTTP_PORT` / `CADDY_HTTPS_PORT` / `CADDY_CHAT_PORT` in `.env`. These

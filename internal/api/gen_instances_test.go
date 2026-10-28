@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/tmac1973/llama-toolchest/internal/builder"
 	"github.com/tmac1973/llama-toolchest/internal/generation"
+	"github.com/tmac1973/llama-toolchest/internal/huggingface"
 )
 
 // instanceServer returns a test server with generation on, one complete sd
@@ -193,5 +194,88 @@ func TestServerPageGenerationSection(t *testing.T) {
 	s.cfg.GenerationEnabled = false
 	if strings.Contains(render(), `id="gen-instances"`) {
 		t.Error("section shown while generation is off")
+	}
+}
+
+// withAceBuild adds a vulkan acestep.cpp build next to the sd one.
+func withAceBuild(t *testing.T, s *Server) {
+	t.Helper()
+	records := `[{"id":"sd-master-1-abc-vulkan","project":"stable-diffusion.cpp","profile":"vulkan","git_ref":"master-1-abc","git_sha":"0123456789abcdef0123456789abcdef01234567","status":"success","binary_path":"/nonexistent/sd-server","commit_count":1},` +
+		`{"id":"ace-master-1-abc-vulkan","project":"acestep.cpp","profile":"vulkan","git_ref":"master-1-abc","git_sha":"0123456789abcdef0123456789abcdef01234567","status":"success","binary_path":"/nonexistent/ace-server","commit_count":1}]`
+	if err := os.WriteFile(filepath.Join(s.cfg.DataDir, "config", "builds.json"), []byte(records), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s.builder = builder.NewBuilder(s.cfg.DataDir)
+}
+
+// The Models page's New instance form is for one set: the set is fixed and
+// only builds of its backend are offered.
+func TestGenInstanceFormForSet(t *testing.T) {
+	s := instanceServer(t)
+	withAceBuild(t, s)
+	form := func(target string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		s.handleGenInstanceForm(rec, instanceReq("GET", target, "", "", nil))
+		return rec
+	}
+	rec := form("/api/gen/instances/form?set=ming-image")
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("form: %d %s", rec.Code, body)
+	}
+	if !strings.Contains(body, `type="hidden" name="model_set" value="ming-image"`) || strings.Contains(body, `<select name="model_set"`) {
+		t.Errorf("the set is not fixed to ming-image:\n%s", body)
+	}
+	if !strings.Contains(body, "sd-master-1-abc-vulkan") || strings.Contains(body, "ace-master-1-abc-vulkan") {
+		t.Errorf("want only the sd build offered:\n%s", body)
+	}
+
+	// Without a set, both backends' builds are offered, grouped.
+	body = form("/api/gen/instances/form").Body.String()
+	if !strings.Contains(body, `<optgroup label="stable-diffusion.cpp">`) || !strings.Contains(body, "ace-master-1-abc-vulkan") {
+		t.Errorf("want both backends' builds:\n%s", body)
+	}
+
+	if rec := form("/api/gen/instances/form?set=nope"); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown set: %d, want 404", rec.Code)
+	}
+	if body := form("/api/gen/instances/form?set=half").Body.String(); !strings.Contains(body, "the download is not finished") {
+		t.Errorf("incomplete set: want it explained:\n%s", body)
+	}
+}
+
+// A build of another backend is refused, not saved and quietly replaced by
+// the newest build of the right one.
+func TestGenCreateInstanceRefusesWrongBuild(t *testing.T) {
+	s := instanceServer(t)
+	withAceBuild(t, s)
+	rec := httptest.NewRecorder()
+	s.handleGenCreateInstance(rec, instanceReq("POST", "/", "", "", url.Values{"model_set": {"ming-image"}, "gpu": {"0"}, "build": {"ace-master-1-abc-vulkan"}}))
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "not a successful stable-diffusion.cpp build") {
+		t.Errorf("wrong build: %d %s", rec.Code, rec.Body.String())
+	}
+	if len(s.gen.Instances()) != 0 {
+		t.Errorf("an instance was saved: %+v", s.gen.Instances())
+	}
+}
+
+// The Models page greys out New instance for a set that has an instance,
+// and for one that is not fully downloaded.
+func TestGenModelSetsNewInstanceButton(t *testing.T) {
+	s := instanceServer(t)
+	s.downloader = huggingface.NewDownloader(s.cfg.DataDir, filepath.Join(s.cfg.DataDir, "models"), "")
+	render := func() string {
+		rec := httptest.NewRecorder()
+		s.handleGenModels(rec, htmxReq("GET", "/api/gen/models", nil))
+		return rec.Body.String()
+	}
+	if body := render(); !strings.Contains(body, `hx-get="/api/gen/instances/form?set=ming-image"`) || strings.Contains(body, `form?set=half`) {
+		t.Errorf("want the button for ming-image only:\n%s", body)
+	}
+	if err := s.gen.AddInstance(generation.Instance{ID: "m", Name: "m", ModelSetID: "ming-image", Port: 8081, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if body := render(); strings.Contains(body, `form?set=ming-image`) || !strings.Contains(body, "already has an instance") {
+		t.Errorf("want the button greyed out once ming-image has an instance:\n%s", body)
 	}
 }

@@ -17,7 +17,7 @@
     {{- else}}
     <table role="grid">
         <thead>
-            <tr><th>Set</th><th>Backend</th><th title="sd-server recipe the set follows; music sets have none.">Recipe</th><th>Status</th><th></th></tr>
+            <tr><th>Set</th><th>Backend</th><th title="sd-server recipe the set follows; music sets have none.">Recipe</th><th>Status</th><th></th><th></th></tr>
         </thead>
         <tbody>
         {{- range .Sets}}
@@ -38,6 +38,25 @@
                             hx-target="#gen-model-sets" hx-swap="innerHTML"
                             data-error-label="Download not resumed">Resume</button>
                     {{- end}}
+                    {{- end}}
+                </td>
+                <td>
+                    {{- if .Instances}}
+                    <span title="{{.Name}} already has an instance. Manage it on the Server page, under Generation backends." style="display:inline-block;cursor:help;">
+                    <button type="button" class="outline" disabled style="margin:0;padding:0.1rem 0.5rem;font-size:0.8rem;pointer-events:none;">New instance</button>
+                    </span>
+                    {{- else if not .Complete}}
+                    <span title="Available once all of the set's files are downloaded." style="display:inline-block;cursor:help;">
+                    <button type="button" class="outline" disabled style="margin:0;padding:0.1rem 0.5rem;font-size:0.8rem;pointer-events:none;">New instance</button>
+                    </span>
+                    {{- else}}
+                    <button type="button" class="outline" style="margin:0;padding:0.1rem 0.5rem;font-size:0.8rem;"
+                            title="Set up a backend instance that runs {{.Name}}: choose its build and GPU. It gets its own port."
+                            hx-get="/api/gen/instances/form?set={{.ID}}"
+                            hx-target="#gen-new-instance-form" hx-swap="innerHTML"
+                            data-set-name="{{.Name}}"
+                            hx-on::after-request="if (event.detail.successful) { document.getElementById('gen-new-instance-name').textContent = this.dataset.setName; document.getElementById('gen-new-instance-dialog').showModal(); }"
+                            data-error-label="Form not loaded">New instance</button>
                     {{- end}}
                 </td>
                 <td>

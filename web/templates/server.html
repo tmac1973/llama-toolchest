@@ -199,11 +199,7 @@
         <header title="Image (stable-diffusion.cpp) and music (acestep.cpp) servers that run next to llama-server. Each instance runs one model set, on one GPU and one port.">Generation backends</header>
         <div id="gen-instances" hx-get="/api/gen/instances"
              hx-trigger="load, every 5s [!genInstancesBusy()], genInstancesChanged from:body" hx-swap="innerHTML">Loading…</div>
-        <details>
-            <summary>New instance</summary>
-            <div id="gen-instance-form" hx-get="/api/gen/instances/form"
-                 hx-trigger="toggle from:closest details once" hx-swap="innerHTML">Loading…</div>
-        </details>
+        <p><small>To add an instance, use the New instance button next to a model set on the <a href="/models">Models</a> page, under Generation models.</small></p>
     </article>
     {{end}}
 </div>

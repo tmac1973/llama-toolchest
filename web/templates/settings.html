@@ -268,13 +268,15 @@
     {{end}}
     <details>
         <summary>Backend ports ({{.GenPortStart}}–{{.GenPortEnd}})</summary>
-        <p>Each backend instance listens on its own port from this range, and
-           its built-in web UI is reached on that port.</p>
+        <p>Each backend instance keeps its own port from this range for as
+           long as it exists, and its built-in web UI is reached on that
+           port. Stopped instances keep their ports too, so the number of
+           ports is the most instances you can create.</p>
         {{if .InContainer}}
         <p><small>Inside a container the range is fixed at
-           {{.GenPortStart}}–{{.GenPortEnd}}, the ports the image publishes.
-           To use other ports on the host, change them with
-           <code>setup.sh</code>.</small></p>
+           {{.GenPortStart}}–{{.GenPortEnd}}, the ports the container
+           publishes. To change the number of ports, or the ports used on
+           the host, run <code>setup.sh install</code> again.</small></p>
         {{end}}
         <form hx-put="/api/settings"
               hx-target="#gen-ports-status"
@@ -286,9 +288,9 @@
                     <input type="number" name="gen_port_start" min="1024" max="65535"
                            value="{{.GenPortStart}}" {{if .InContainer}}readonly{{end}}>
                 </label>
-                <label title="How many ports the range holds. Each running backend instance uses one, so this is also the most instances that can run at once.">
+                <label title="How many ports the range holds, from 1 to 64. Every backend instance keeps one port, whether it is running or stopped, so this is the most instances that can exist.">
                     Number of ports
-                    <input type="number" name="gen_port_count" min="1" max="32"
+                    <input type="number" name="gen_port_count" min="1" max="64"
                            value="{{.GenPortCount}}" {{if .InContainer}}readonly{{end}}>
                 </label>
             </div>

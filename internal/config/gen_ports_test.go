@@ -18,10 +18,28 @@ func TestGenPortsDefaultsAndContainer(t *testing.T) {
 	if start, count := c.GenPorts(false); start != 9100 || count != 4 {
 		t.Errorf("host = %d,%d, want 9100,4", start, count)
 	}
-	// Inside a container the image publishes 8081–8088, so a saved value
-	// cannot move the range.
+	// Inside a container the range starts at 8081 and holds the ports
+	// setup.sh chose, so a saved value cannot move or resize it.
 	if start, count := c.GenPorts(true); start != 8081 || count != 8 {
 		t.Errorf("container = %d,%d, want 8081,8", start, count)
+	}
+	c.GenContainerPortCount = 40
+	if start, count := c.GenPorts(true); start != 8081 || count != 40 {
+		t.Errorf("container with a count = %d,%d, want 8081,40", start, count)
+	}
+}
+
+func TestGenPortCountFromEnv(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  int
+	}{{"", 0}, {"40", 40}, {"64", 64}, {"65", 0}, {"0", 0}, {"many", 0}} {
+		t.Setenv("LLAMA_TOOLCHEST_GEN_PORT_COUNT", tc.value)
+		c := &Config{}
+		applyEnvOverrides(c)
+		if c.GenContainerPortCount != tc.want {
+			t.Errorf("LLAMA_TOOLCHEST_GEN_PORT_COUNT=%q gives %d, want %d", tc.value, c.GenContainerPortCount, tc.want)
+		}
 	}
 }
 
@@ -43,8 +61,8 @@ func TestValidateGenPorts(t *testing.T) {
 	}{
 		{8081, 8, ""},
 		{80, 8, "between 1024 and 65535"},
-		{8081, 0, "between 1 and 32"},
-		{8081, 33, "between 1 and 32"},
+		{8081, 0, "between 1 and 64"},
+		{8081, 65, "between 1 and 64"},
 		{65530, 8, "past 65535"},
 		{8075, 8, "llama-server port 8080"},
 		{2995, 8, "web UI port 3000"},

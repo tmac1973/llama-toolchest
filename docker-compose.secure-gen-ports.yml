@@ -4,9 +4,9 @@
 # when both secure mode and LLAMA_TOOLCHEST_GEN_PORTS=1 are set.
 #
 # Caddy listens on the same port numbers it publishes (one site per port in
-# ./Caddyfile) and forwards each to the backend's port 8081-8088 inside the
-# app container. The app's own copy of the range is published on loopback
-# only (127.0.0.1:18081-18088) for debugging on the host.
+# ./Caddyfile) and forwards each to the backend's port (8081 onwards) inside
+# the app container. The app's own copy of the range is published on loopback
+# only (127.0.0.1:18081 onwards) for debugging on the host.
 services:
   caddy:
     ports:

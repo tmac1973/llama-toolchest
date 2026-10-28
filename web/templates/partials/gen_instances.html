@@ -2,7 +2,7 @@
      genInstancesData and genFormData (gen_instances.go). */}}
 {{define "gen_instances_table"}}
 {{- if not .Rows}}
-<p><small>No instances yet. Open "New instance" below to run a downloaded model set.</small></p>
+<p><small>No instances yet. To run a downloaded model set, use its New instance button on the <a href="/models">Models</a> page, under Generation models.</small></p>
 {{- else}}
 <table role="grid">
     <thead>
@@ -113,9 +113,12 @@
 <p><small>Before an instance can be made, this machine needs:
 {{- range .Missing}} {{.}}.{{end}}</small></p>
 {{- else}}
-{{- /* The same form creates an instance and, with .Editing, changes a
-     stopped one (shown in the Server page's edit dialog). */}}
-<form {{if .Editing}}hx-put="/api/gen/instances/{{.EditID}}" hx-on::after-request="if (event.detail.successful) this.closest('dialog').close()" data-error-label="Instance not changed"{{else}}hx-post="/api/gen/instances" data-error-label="Instance not created"{{end}} hx-target="#gen-instances" hx-swap="innerHTML">
+{{- /* The same form creates an instance for one set (.ForSet, in the
+     Models page's New instance dialog) and, with .Editing, changes a
+     stopped one (in the Server page's edit dialog). Both close their
+     dialog when the request succeeds; the server's genInstancesChanged
+     event refreshes the tables. */}}
+<form {{if .Editing}}hx-put="/api/gen/instances/{{.EditID}}" data-error-label="Instance not changed" hx-target="#gen-instances" hx-swap="innerHTML"{{else}}hx-post="/api/gen/instances" data-error-label="Instance not created" hx-swap="none"{{end}} hx-on::after-request="if (event.detail.successful) this.closest('dialog')?.close()">
     <div class="grid">
         {{- if .Editing}}
         <label title="The name cannot be changed: API clients use the ID made from it as the model name. To rename, create a new instance and delete this one.">Name
@@ -126,17 +129,24 @@
             <input type="text" name="name" placeholder="defaults to the model set">
         </label>
         {{- end}}
+        {{- with .ForSet}}
+        <label>Model set
+            <input type="text" value="{{.Name}} ({{kindLabel .Kind}})" disabled>
+            <input type="hidden" name="model_set" value="{{.ID}}">
+        </label>
+        {{- else}}
         <label>Model set
             <select name="model_set" required>
                 {{- range .Sets}}<option value="{{.ID}}"{{if and $.Editing (eq .ID $.EditSet)}} selected{{end}}>{{.Name}} ({{kindLabel .Kind}})</option>{{end}}
             </select>
         </label>
+        {{- end}}
     </div>
     <div class="grid">
-        <label title="Which build runs it. Automatic uses the newest successful build of the set's backend.">Build
+        <label title="Which build runs it. Automatic uses the newest successful build of the set's backend. Only builds that can run on this machine's GPUs are listed.">Build
             <select name="build">
                 <option value="">Automatic (newest)</option>
-                {{- range $kind, $builds := .Builds}}{{range $builds}}<option value="{{.ID}}"{{if and $.Editing (eq .ID $.EditBuild)}} selected{{end}}>{{.ID}}</option>{{end}}{{end}}
+                {{- range $kind, $builds := .Builds}}{{if $builds}}<optgroup label="{{kindProject $kind}}">{{range $builds}}<option value="{{.ID}}"{{if and $.Editing (eq .ID $.EditBuild)}} selected{{end}}>{{.ID}}</option>{{end}}</optgroup>{{end}}{{end}}
             </select>
         </label>
         <label title="The GPU this instance runs on. It only sees this GPU.">GPU
