@@ -108,3 +108,31 @@ func TestPromptCacheRestoredWhileCounted(t *testing.T) {
 	close(gate)
 	(<-done)()
 }
+
+// Two jobs that both need the LLM gone queue an unload each. The second,
+// once its turn comes, finds the model already out and leaves the router
+// alone: listing the slots of a model that is not loaded makes the router
+// load it, which put the 27B back on compute2's GPUs between flux's unload
+// and flux starting.
+func TestUnloadForGenSkipsAModelAlreadyOut(t *testing.T) {
+	s, f, m := startFakeRouter(t)
+	store, err := generation.Load(s.cfg.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.gen = store
+	s.cfg.GenerationEnabled, s.cfg.GenEvict, s.cfg.GenKeepPromptCache = true, true, true
+	f.mu.Lock()
+	f.status = map[string]string{s.registry.RouterName(m.ID): "unloaded"}
+	f.slots = []routerclient.Slot{{ID: 0, PromptTokens: 26000}}
+	f.mu.Unlock()
+
+	if err := s.unloadForGen(context.Background(), m.ID, generation.Instance{ID: "ace", GPU: 0}); err != nil {
+		t.Fatalf("unload of a model already out: %v", err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.slotLists != 0 || len(f.slotCalls) != 0 {
+		t.Errorf("the router was asked about the model's slots (%d lists, calls %q)", f.slotLists, f.slotCalls)
+	}
+}

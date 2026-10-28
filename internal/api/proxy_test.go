@@ -281,6 +281,9 @@ type fakeRouter struct {
 	// restoreGate, when set, holds each slot restore until it is closed,
 	// with the lock released so the model list still answers.
 	restoreGate chan struct{}
+	// slotLists counts GET /slots: on a real router, one for a model that
+	// is not loaded loads it.
+	slotLists int
 }
 
 // reset replaces the router's state between subtests.
@@ -316,6 +319,7 @@ func (f *fakeRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		json.NewEncoder(w).Encode(map[string]any{"data": data, "object": "list"})
 	case r.URL.Path == "/slots" && r.Method == http.MethodGet:
+		f.slotLists++
 		json.NewEncoder(w).Encode(f.slots)
 	case strings.HasPrefix(r.URL.Path, "/slots/") && r.Method == http.MethodPost:
 		var req struct{ Model, Filename string }
