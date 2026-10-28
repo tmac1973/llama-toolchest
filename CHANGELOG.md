@@ -1,5 +1,63 @@
 # Changelog
 
+## [2.44.0](https://github.com/tmac1973/llama-toolchest/compare/v2.43.0...v2.44.0) (2026-10-28)
+
+
+### Features
+
+* **api:** add a kind filter to /v1/models and point each model field to it ([#390](https://github.com/tmac1973/llama-toolchest/issues/390)) ([9bd58dc](https://github.com/tmac1973/llama-toolchest/commit/9bd58dc997667b262ee6fa3f73d90fa98955ee5d))
+* **download:** start every model download from the Download Models tab ([#380](https://github.com/tmac1973/llama-toolchest/issues/380)) ([fee5324](https://github.com/tmac1973/llama-toolchest/commit/fee5324bbc0379dd4285f3d1f9e17358b6c8dd49))
+* **generation:** add a video job API with a waiting route ([#364](https://github.com/tmac1973/llama-toolchest/issues/364)) ([4ee04a1](https://github.com/tmac1973/llama-toolchest/commit/4ee04a14d765c070bd62e3e66c6e3efbf578b11b))
+* **generation:** add Chroma1-Flash, a faster Chroma set ([#355](https://github.com/tmac1973/llama-toolchest/issues/355)) ([9322eb6](https://github.com/tmac1973/llama-toolchest/commit/9322eb677ec523f2176b6d567e46bf71e1198df6))
+* **generation:** add the LTX-2.3 distilled video set with sound (Phase 07) ([#378](https://github.com/tmac1973/llama-toolchest/issues/378)) ([eb74969](https://github.com/tmac1973/llama-toolchest/commit/eb74969b56b0199deaa3919424143d97b956714d))
+* **generation:** add the video kind, video recipes and the Wan2.2 TI2V 5B set ([#362](https://github.com/tmac1973/llama-toolchest/issues/362)) ([01410ce](https://github.com/tmac1973/llama-toolchest/commit/01410ceb7481e203acf73a4c52e02a2da6e280b3))
+* **generation:** add the Wan2.2 I2V A14B Lightning video set ([#374](https://github.com/tmac1973/llama-toolchest/issues/374)) ([d2e4ca2](https://github.com/tmac1973/llama-toolchest/commit/d2e4ca24026a78c2592567174a838cac576e1244))
+* **generation:** add the Wan2.2 I2V A14B video set ([#371](https://github.com/tmac1973/llama-toolchest/issues/371)) ([b13b0b1](https://github.com/tmac1973/llama-toolchest/commit/b13b0b1cea1d5a9b208138f9138660116a98e82c))
+* **generation:** add Z-Image Turbo, FLUX.3 Image Klein, Chroma1-HD and Qwen-Image-Edit 2511 sets ([e345cb5](https://github.com/tmac1973/llama-toolchest/commit/e345cb54836277e8ba4e5d9de3850aca95069b11))
+* **generation:** keep an LLM's prompt cache across an eviction unload ([e345cb5](https://github.com/tmac1973/llama-toolchest/commit/e345cb54836277e8ba4e5d9de3850aca95069b11))
+* **generation:** keep generation model files in the models directory ([#356](https://github.com/tmac1973/llama-toolchest/issues/356)) ([710d5fd](https://github.com/tmac1973/llama-toolchest/commit/710d5fd0ccf39aee36ab67a352bd788e72eec7b4))
+* **generation:** list, keep across restarts and delete generation jobs ([#372](https://github.com/tmac1973/llama-toolchest/issues/372)) ([1413dff](https://github.com/tmac1973/llama-toolchest/commit/1413dffc46551bff25fdd7b387f684dc779407f3))
+* **generation:** lock an instance so eviction never stops it, and stop only what is needed ([#360](https://github.com/tmac1973/llama-toolchest/issues/360)) ([10d2692](https://github.com/tmac1973/llama-toolchest/commit/10d269219f1168ad6f22a17f9be509db09b1f60e))
+* **generation:** measure edit-capable sets with an edit too ([#358](https://github.com/tmac1973/llama-toolchest/issues/358)) ([1d4248d](https://github.com/tmac1973/llama-toolchest/commit/1d4248dd86340c72015132181c83b046dd887bc4))
+* **generation:** measure video sets at a chosen size and refuse larger requests ([#370](https://github.com/tmac1973/llama-toolchest/issues/370)) ([139db33](https://github.com/tmac1973/llama-toolchest/commit/139db33e26a90395e6cc0cd0ff8b7c2c532dba46))
+* **generation:** measure video sets with a test video through sd-server's video API ([#363](https://github.com/tmac1973/llama-toolchest/issues/363)) ([2d1fc00](https://github.com/tmac1973/llama-toolchest/commit/2d1fc009a4988efa98c4ea5205a97c547032d9d2))
+* **generation:** offer to measure an unmeasured instance when Start is pressed ([#353](https://github.com/tmac1973/llama-toolchest/issues/353)) ([1dfd0a0](https://github.com/tmac1973/llama-toolchest/commit/1dfd0a096d352cecf9cdf262a8fc5217262ff2e9))
+* **generation:** optional eviction between LLMs and generation backends ([#345](https://github.com/tmac1973/llama-toolchest/issues/345)) ([b159d83](https://github.com/tmac1973/llama-toolchest/commit/b159d834446e02c00dbe68f2e23f466c0dc1a485))
+* **generation:** show a starting phase while a job's backend starts ([#349](https://github.com/tmac1973/llama-toolchest/issues/349)) ([b1432fe](https://github.com/tmac1973/llama-toolchest/commit/b1432fe17a878a245ca8db4141130b2921ea5fbe))
+* **gen:** New instance on the Models page, and a configurable port count ([#398](https://github.com/tmac1973/llama-toolchest/issues/398)) ([845a4a1](https://github.com/tmac1973/llama-toolchest/commit/845a4a18213de902b0d1143e234d729bea53b9f2)), closes [#397](https://github.com/tmac1973/llama-toolchest/issues/397)
+* **music:** add ACE-Step 1.5 XL base, the set that changes instruments ([#350](https://github.com/tmac1973/llama-toolchest/issues/350)) ([064724a](https://github.com/tmac1973/llama-toolchest/commit/064724ae648d526ddb53c344c4c6b6bfc0e58de9))
+* **music:** cover, repaint/extend and stems from uploaded audio ([#348](https://github.com/tmac1973/llama-toolchest/issues/348)) ([cfbb2f1](https://github.com/tmac1973/llama-toolchest/commit/cfbb2f1165d1895e8e497beb826b1b275e837578))
+* **ui:** show what is on each GPU now in the sidebar ([#343](https://github.com/tmac1973/llama-toolchest/issues/343)) ([f5ac912](https://github.com/tmac1973/llama-toolchest/commit/f5ac912f7b32056b2a6982a067eaad7b784ec972))
+
+
+### Bug Fixes
+
+* **api:** finish reading runtime settings under cfgMu; mark the [#393](https://github.com/tmac1973/llama-toolchest/issues/393) audit item decided ([#395](https://github.com/tmac1973/llama-toolchest/issues/395)) ([3a2ec21](https://github.com/tmac1973/llama-toolchest/commit/3a2ec21e0f2636ed160f6226ac9b7f9b7d4312a4))
+* **api:** read settings that change at runtime under cfgMu ([#394](https://github.com/tmac1973/llama-toolchest/issues/394)) ([b71853a](https://github.com/tmac1973/llama-toolchest/commit/b71853aa13530acb74ccda3b72aee37fe522678d)), closes [#392](https://github.com/tmac1973/llama-toolchest/issues/392)
+* **autoconfig:** keep the helper and plans off GPUs with no room left ([#396](https://github.com/tmac1973/llama-toolchest/issues/396)) ([2b7eb89](https://github.com/tmac1973/llama-toolchest/commit/2b7eb8968550d4d1c69068c84607dbc9f470e020))
+* **autoconfig:** use the whole GPUs for a model that does not fit beside evictable backends ([#403](https://github.com/tmac1973/llama-toolchest/issues/403)) ([4cbe10c](https://github.com/tmac1973/llama-toolchest/commit/4cbe10c2fd223f6e380f178c7e151b674c99534a))
+* **benchmark:** keep GPUs for the whole run and fail hung requests fast ([#400](https://github.com/tmac1973/llama-toolchest/issues/400)) ([4c616fd](https://github.com/tmac1973/llama-toolchest/commit/4c616fdc1c7139e255edd9a474d2db8311c22fba))
+* **builder:** build the fetched tip when the ref is a branch name ([#401](https://github.com/tmac1973/llama-toolchest/issues/401)) ([438af45](https://github.com/tmac1973/llama-toolchest/commit/438af45ff230fbcc1fce8161534e8df14d54a35c))
+* **builds:** build stable-diffusion.cpp with CUDA graphs on by default ([#377](https://github.com/tmac1973/llama-toolchest/issues/377)) ([248d720](https://github.com/tmac1973/llama-toolchest/commit/248d7201fd2494135e429f6851a9b543ebedef05))
+* check the write and form errors that were ignored (code audit step 1) ([#383](https://github.com/tmac1973/llama-toolchest/issues/383)) ([e46adcb](https://github.com/tmac1973/llama-toolchest/commit/e46adcb70e71099394360ac6ffbc0b8da4d9aef3))
+* **generation:** finish a set whose shared file another set is downloading ([#354](https://github.com/tmac1973/llama-toolchest/issues/354)) ([98175ee](https://github.com/tmac1973/llama-toolchest/commit/98175eea0eff91d6a86ce267d1e2a61e5237e85c))
+* **generation:** hand out copies of model sets and instances from the store ([#357](https://github.com/tmac1973/llama-toolchest/issues/357)) ([9cee3df](https://github.com/tmac1973/llama-toolchest/commit/9cee3df7c6dd56a468903b1893a598c7afe52d8b))
+* **generation:** leave slack under a capped reservation; report a backend crash in Measure ([#375](https://github.com/tmac1973/llama-toolchest/issues/375)) ([3eab16a](https://github.com/tmac1973/llama-toolchest/commit/3eab16a19bea1833a00c103040c3361861aef368))
+* **generation:** report the video size sd-server makes ([#379](https://github.com/tmac1973/llama-toolchest/issues/379)) ([3b443a7](https://github.com/tmac1973/llama-toolchest/commit/3b443a76efd948013d9fb4b58abe190699b5ea25))
+* **generation:** show a disabled backend's state as disabled, not stopped ([#369](https://github.com/tmac1973/llama-toolchest/issues/369)) ([c7493d0](https://github.com/tmac1973/llama-toolchest/commit/c7493d09e9c20eb47379e6d56a5be71c76af038b))
+* **generation:** start a stopped backend for a job with eviction off ([#381](https://github.com/tmac1973/llama-toolchest/issues/381)) ([91855b0](https://github.com/tmac1973/llama-toolchest/commit/91855b0ac4068ea25e928f0ca0c1e6e437c35aaa))
+* **gen:** stop the router reloading an evicted LLM behind the room checks ([#404](https://github.com/tmac1973/llama-toolchest/issues/404)) ([c80efbc](https://github.com/tmac1973/llama-toolchest/commit/c80efbcaf7773b8f08688d5edb7003846d4b8a61))
+* **gen:** the Start button evicts what is in a backend's way, as a job does ([#406](https://github.com/tmac1973/llama-toolchest/issues/406)) ([fcf5b3e](https://github.com/tmac1973/llama-toolchest/commit/fcf5b3e37937b2b17c67d3f57ef0e7d73d5bc38f))
+* **security:** refuse cross-site requests and mask secret env values (code audit step 4) ([#387](https://github.com/tmac1973/llama-toolchest/issues/387)) ([f2919e7](https://github.com/tmac1973/llama-toolchest/commit/f2919e7fa0c2326edb2d6b035e68830e64cb38b4))
+* **ui:** show an LLM that is still loading apart on the sidebar's GPU map ([#405](https://github.com/tmac1973/llama-toolchest/issues/405)) ([ef61c57](https://github.com/tmac1973/llama-toolchest/commit/ef61c57e6666663701dd2eff396e83d4b710b305))
+* **ui:** stop live streams from using up the browser's connections ([#402](https://github.com/tmac1973/llama-toolchest/issues/402)) ([739a33a](https://github.com/tmac1973/llama-toolchest/commit/739a33aa18b8be184dd6f399526a97a10b28705f))
+
+
+### Refactors
+
+* add shared helpers for errors, env and backend URLs (code audit step 2) ([#384](https://github.com/tmac1973/llama-toolchest/issues/384)) ([a5e654b](https://github.com/tmac1973/llama-toolchest/commit/a5e654b95cbcb4e2440c83b5deb47195c2373115))
+* **generation:** share the image, video and music job code (code audit step 3) ([#385](https://github.com/tmac1973/llama-toolchest/issues/385)) ([81e5e47](https://github.com/tmac1973/llama-toolchest/commit/81e5e478ff3ee50f26c36f965a3ec83fd9104fa5))
+
 ## [2.43.0](https://github.com/tmac1973/llama-toolchest/compare/v2.42.1...v2.43.0) (2026-10-25)
 
 
