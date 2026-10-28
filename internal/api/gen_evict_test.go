@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -344,4 +345,40 @@ func TestMakeRoomForLLMHoldsAllItsGPUs(t *testing.T) {
 		t.Errorf("the waiting job did not start after the load: %v", err)
 	}
 	other.Done()
+}
+
+// The Start button makes room the way a job does when the backend does
+// not fit: with eviction on it stops what is in the way and goes on to
+// start (here it stops launching the test's missing binary, past every room check), and
+// gives the GPU's turn back. With eviction off it is refused and stops
+// nothing.
+func TestStartGenFromUIMakesRoom(t *testing.T) {
+	s := vramServer(t)
+	runFakeInstance(t, s, "other", "ming-image", 0, newFakeBackend(t, 0))
+	other, _ := s.gen.Instance("other")
+	other.ReservedMiB = 20000
+	s.gen.UpdateInstance(other)
+	addInstance(t, s, generation.Instance{ID: "ming", Port: 8089, Enabled: true, ReservedMiB: 12000})
+	inst, _ := s.gen.Instance("ming")
+
+	err := s.startGenFromUI(context.Background(), inst)
+	if err == nil || !strings.Contains(err.Error(), "not enough VRAM") {
+		t.Fatalf("eviction off: err = %v, want the fit refusal", err)
+	}
+	if !s.genMgr.IsActive("other") {
+		t.Fatal("eviction off: the other backend was stopped")
+	}
+
+	s.cfg.GenEvict = true
+	err = s.startGenFromUI(context.Background(), inst)
+	t.Logf("eviction on: %v", err)
+	if err == nil || strings.Contains(err.Error(), "not enough VRAM") {
+		t.Errorf("eviction on: err = %v, want it past the room check (only the test's missing binary left)", err)
+	}
+	if s.genMgr.IsActive("other") {
+		t.Error("eviction on: the backend in the way is still running")
+	}
+	if snap := s.genQueue.Snapshot(0); snap.Running != nil || len(snap.Waiting) != 0 {
+		t.Errorf("the GPU's turn was not given back: %+v", snap)
+	}
 }
