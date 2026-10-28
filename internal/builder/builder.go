@@ -497,10 +497,15 @@ drain:
 
 	slog.Info("build started", "id", result.ID, "git_ref", resolvedRef, "git_sha", sha)
 
+	// The caller gets a copy taken before the build starts: runBuild goes on
+	// writing to result (status, binary path, archs) while the caller may
+	// be rendering what it got. Find returns the build's later state.
+	started := *result
+
 	// Run the actual build asynchronously
 	go b.runBuild(ctx, proj, prof, srcDir, result, logCh, pin)
 
-	return result, nil
+	return &started, nil
 }
 
 // Delete removes a build and its files.
