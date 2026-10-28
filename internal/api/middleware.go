@@ -10,7 +10,8 @@ import (
 // If no API key is configured, all requests are allowed.
 func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.cfg.APIKey == "" {
+		key := s.apiKey()
+		if key == "" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -24,7 +25,7 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		// Constant-time, so the response time says nothing about how much
 		// of a guessed key was right.
 		token := strings.TrimPrefix(auth, "Bearer ")
-		if subtle.ConstantTimeCompare([]byte(token), []byte(s.cfg.APIKey)) != 1 {
+		if subtle.ConstantTimeCompare([]byte(token), []byte(key)) != 1 {
 			writeAuthError(w, "invalid API key")
 			return
 		}

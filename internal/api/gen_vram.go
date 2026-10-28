@@ -46,7 +46,7 @@ func (s *Server) genVRAMByGPU(exclude string) map[int]*genVRAM {
 // running when activeOnly is set, except those kept running.
 func (s *Server) genVRAM(exclude string, activeOnly bool) map[int]*genVRAM {
 	out := map[int]*genVRAM{}
-	if s.cfg == nil || !s.cfg.GenerationEnabled || s.gen == nil || s.genMgr == nil {
+	if !s.generationOn() || s.gen == nil || s.genMgr == nil {
 		return out
 	}
 	for _, inst := range s.gen.Instances() {
@@ -216,7 +216,7 @@ func (s *Server) llmReservationNeed(m *models.Model) (hw models.Hardware, need m
 	if !s.genReservationsApply() {
 		return models.Hardware{}, nil, false
 	}
-	replacing = s.cfg.ModelsMax == 1
+	replacing = s.cfgCopy().ModelsMax == 1
 	idle := s.idleHardware()
 	hw = idle
 	if !replacing {
@@ -242,7 +242,7 @@ func (s *Server) checkConfigFitsReservations(m *models.Model, cfg *models.ModelC
 // genReservationsApply reports whether any generation reservation can
 // limit LLM loads.
 func (s *Server) genReservationsApply() bool {
-	return s.cfg != nil && s.cfg.GenerationEnabled && s.gen != nil && len(s.genFitVRAMByGPU("")) > 0
+	return s.generationOn() && s.gen != nil && len(s.genFitVRAMByGPU("")) > 0
 }
 
 // reservationFitError is a *genLLMFitError for the first GPU where need
@@ -327,7 +327,7 @@ func (c *procVRAMCache) read(pid int) (int, bool) {
 // entries already on the map, so every entry has a color of its own; the
 // map draws them striped to set them apart from LLMs.
 func (s *Server) genReservationAllocations(firstColor int) []models.GPUAllocation {
-	if s.cfg == nil || !s.cfg.GenerationEnabled || s.gen == nil {
+	if !s.generationOn() || s.gen == nil {
 		return nil
 	}
 	var out []models.GPUAllocation
@@ -354,7 +354,7 @@ type genBannerGPU struct {
 // genBannerGPUs lists the GPUs where an image or music job is running
 // while the router has an LLM loaded there, so chat on them is slowed.
 func (s *Server) genBannerGPUs() []genBannerGPU {
-	if s.cfg == nil || !s.cfg.GenerationEnabled || s.gen == nil || s.genQueue == nil {
+	if !s.generationOn() || s.gen == nil || s.genQueue == nil {
 		return nil
 	}
 	hw := s.idleHardware()

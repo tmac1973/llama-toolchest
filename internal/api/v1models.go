@@ -35,7 +35,7 @@ func (s *Server) openAIModel(m *models.Model, cfg *models.ModelConfig) map[strin
 
 	// Only while generation backends are on, so the list is unchanged for
 	// everyone else.
-	if s.cfg != nil && s.cfg.GenerationEnabled {
+	if s.generationOn() {
 		meta["kind"] = "text"
 	}
 
@@ -95,7 +95,7 @@ func (s *Server) handleV1Models(w http.ResponseWriter, r *http.Request) {
 // meta.kind "image", "video" or "music". Clients that only chat should skip kinds
 // other than "text". Empty while generation backends are off.
 func (s *Server) genV1Models() []map[string]any {
-	if s.cfg == nil || !s.cfg.GenerationEnabled || s.gen == nil {
+	if !s.generationOn() || s.gen == nil {
 		return nil
 	}
 	var out []map[string]any
@@ -185,7 +185,7 @@ func (s *Server) handleV1Model(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "model")
 
 	m, cfg := s.findModelByAny(id)
-	if m == nil && s.cfg != nil && s.cfg.GenerationEnabled && s.gen != nil {
+	if m == nil && s.generationOn() && s.gen != nil {
 		if inst, err := s.gen.Instance(id); err == nil && inst.Enabled {
 			if obj := s.genV1Model(inst); obj != nil {
 				respondJSON(w, obj)

@@ -23,9 +23,9 @@ type envLine struct {
 // effectiveEnvLines renders the configured runtime environment as the
 // launch will apply it, annotating entries the inherited service
 // environment overrides. The value of a secret-looking name is masked.
-func (s *Server) effectiveEnvLines() []envLine {
+func effectiveEnvLines(set config.EnvSet) []envLine {
 	var out []envLine
-	for _, kv := range s.cfg.EnvSet().Pairs() {
+	for _, kv := range set.Pairs() {
 		line := envLine{Text: config.MaskEnvText(kv)}
 		name := kv
 		if i := strings.IndexByte(kv, '='); i > 0 {

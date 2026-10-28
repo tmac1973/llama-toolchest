@@ -51,7 +51,7 @@ func (g *genDownloads) drop(setID string) {
 // nil: 404 while generation backends are off, 500 when generation.json
 // could not be read at startup.
 func (s *Server) genStore(w http.ResponseWriter) *generation.Store {
-	if !s.cfg.GenerationEnabled {
+	if !s.generationOn() {
 		http.NotFound(w, nil)
 		return nil
 	}

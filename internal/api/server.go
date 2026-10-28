@@ -218,6 +218,51 @@ func (s *Server) activeBuild() string {
 	return s.cfg.ActiveBuild
 }
 
+// Settings and a backup restore change config fields while requests read
+// them, so code outside cfgMu reads them through these getters or a
+// cfgCopy. Code that already holds cfgMu (the Settings save, the restore)
+// reads s.cfg directly: the mutex is not reentrant.
+
+// cfgCopy returns a copy of the config taken under cfgMu, for code that
+// reads several settings, such as a page handler. Its maps and slices are
+// shared with the live config; writers replace them rather than editing
+// them in place, so the copy stays as it was.
+func (s *Server) cfgCopy() config.Config {
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+	if s.cfg == nil {
+		return config.Config{}
+	}
+	return *s.cfg
+}
+
+// generationOn reports whether generation is switched on in Settings.
+func (s *Server) generationOn() bool {
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+	return s.cfg != nil && s.cfg.GenerationEnabled
+}
+
+// apiKey returns the API key for /v1, "" when none is set.
+func (s *Server) apiKey() string {
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+	if s.cfg == nil {
+		return ""
+	}
+	return s.cfg.APIKey
+}
+
+// externalURL returns the URL the dashboard links are built from.
+func (s *Server) externalURL() string {
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+	if s.cfg == nil {
+		return ""
+	}
+	return s.cfg.ExternalURL
+}
+
 // setRunningConfigs replaces the launch-config snapshot under lock.
 func (s *Server) setRunningConfigs(m map[string]*models.ModelConfig) {
 	s.stateMu.Lock()
@@ -884,6 +929,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleBuildsPage(w http.ResponseWriter, r *http.Request) {
+	cfg := s.cfgCopy()
 	env, base := s.buildEnvBanner()
 	data := struct {
 		pageData
@@ -904,7 +950,7 @@ func (s *Server) handleBuildsPage(w http.ResponseWriter, r *http.Request) {
 		BuildEnv:  env,
 		BaseImage: base,
 	}
-	if s.cfg.GenerationEnabled {
+	if cfg.GenerationEnabled {
 		for _, p := range builder.Projects() {
 			data.Projects = append(data.Projects, projectChoice{
 				ID:             p.ID,
@@ -954,9 +1000,10 @@ func (s *Server) buildEnvBanner() (env, baseImage string) {
 }
 
 func (s *Server) handleModelsPage(w http.ResponseWriter, r *http.Request) {
+	cfg := s.cfgCopy()
 	s.render(w, "models.html", modelsPageData{
 		pageData:          pageData{Title: "Models", Nav: "models"},
-		GenerationEnabled: s.cfg.GenerationEnabled,
+		GenerationEnabled: cfg.GenerationEnabled,
 	})
 }
 
@@ -983,6 +1030,7 @@ func (s *Server) handleBenchmarksPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleModelsBrowsePage(w http.ResponseWriter, r *http.Request) {
+	cfg := s.cfgCopy()
 	s.render(w, "models_browse.html", struct {
 		pageData
 		DefaultSource string
@@ -991,7 +1039,7 @@ func (s *Server) handleModelsBrowsePage(w http.ResponseWriter, r *http.Request) 
 	}{
 		pageData:          pageData{Title: "Download Models", Nav: "browse"},
 		DefaultSource:     s.defaultModelSource(),
-		GenerationEnabled: s.cfg.GenerationEnabled,
+		GenerationEnabled: cfg.GenerationEnabled,
 	})
 }
 
@@ -1000,7 +1048,8 @@ func (s *Server) handleServicePage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleServerPage(w http.ResponseWriter, r *http.Request) {
-	choices, allMismatched := s.serverBuildChoices(s.cfg.ActiveBuild)
+	cfg := s.cfgCopy()
+	choices, allMismatched := s.serverBuildChoices(cfg.ActiveBuild)
 
 	// Whether "Auto (newest ref)" would itself land on a build that cannot run
 	// here. Without this the one option that looks safest is the one that
@@ -1023,10 +1072,10 @@ func (s *Server) handleServerPage(w http.ResponseWriter, r *http.Request) {
 		// GenerationEnabled shows the Generation backends section.
 		GenerationEnabled bool
 	}{
-		GenerationEnabled: s.cfg.GenerationEnabled,
+		GenerationEnabled: cfg.GenerationEnabled,
 		pageData:          pageData{Title: "Server", Nav: "server"},
-		ActiveBuild:       s.cfg.ActiveBuild,
-		ModelsMax:         s.cfg.ModelsMax,
+		ActiveBuild:       cfg.ActiveBuild,
+		ModelsMax:         cfg.ModelsMax,
 		BuildChoices:      choices,
 		AutoMismatch:      autoMismatch,
 	}
@@ -1066,7 +1115,8 @@ func (s *Server) handleHelpPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
-	proxyEndpoint := s.proxyEndpoint()
+	cfg := s.cfgCopy()
+	proxyEndpoint := proxyEndpointFor(cfg.ExternalURL)
 	data := struct {
 		pageData
 		ProxyEndpoint    string
@@ -1103,29 +1153,29 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		pageData:         pageData{Title: "Settings", Nav: "settings"},
 		ProxyEndpoint:    proxyEndpoint,
 		LlamaPort:        s.cfg.LlamaPort,
-		HasAPIKey:        s.cfg.APIKey != "",
-		HasHFToken:       s.cfg.HFToken != "",
-		HasMSToken:       s.cfg.MSToken != "",
+		HasAPIKey:        cfg.APIKey != "",
+		HasHFToken:       cfg.HFToken != "",
+		HasMSToken:       cfg.MSToken != "",
 		DefaultSource:    s.defaultModelSource(),
-		HasExtURL:        s.cfg.ExternalURL != "",
+		HasExtURL:        cfg.ExternalURL != "",
 		ExternalURL:      s.cfg.SavedExternalURL(),
 		ExternalURLEnv:   s.cfg.EnvVar(config.FieldExternalURL),
-		ExternalURLInUse: s.cfg.ExternalURL,
+		ExternalURLInUse: cfg.ExternalURL,
 		DataDir:          s.cfg.DataDir,
-		ModelsDir:        s.cfg.ModelsDir,
+		ModelsDir:        cfg.ModelsDir,
 		DefaultModelsDir: filepath.Join(s.cfg.DataDir, "models"),
-		AutoStart:        s.cfg.AutoStart,
+		AutoStart:        cfg.AutoStart,
 		RuntimeEnvOpts:   config.RuntimeEnvOptions(),
-		RuntimeEnv:       s.cfg.RuntimeEnv,
-		RuntimeEnvExtra:  config.MaskEnvText(s.cfg.RuntimeEnvExtra),
+		RuntimeEnv:       cfg.RuntimeEnv,
+		RuntimeEnvExtra:  config.MaskEnvText(cfg.RuntimeEnvExtra),
 		EnvBackends:      config.RuntimeEnvBackends(),
 		ActiveBackend:    s.activeBackend(),
 		EnvWarnings:      s.cfg.EnvSet().Warnings(),
-		EffectiveEnv:     s.effectiveEnvLines(),
+		EffectiveEnv:     effectiveEnvLines(cfg.EnvSet()),
 
-		GenerationEnabled:  s.cfg.GenerationEnabled,
-		GenEvict:           s.cfg.GenEvict,
-		GenKeepPromptCache: s.cfg.GenKeepPromptCache,
+		GenerationEnabled:  cfg.GenerationEnabled,
+		GenEvict:           cfg.GenEvict,
+		GenKeepPromptCache: cfg.GenKeepPromptCache,
 		InContainer:        s.inContainer(),
 		GenPortsPublished:  s.genPortsPublished(),
 	}
@@ -1172,19 +1222,20 @@ func (d dashboardCardsData) APICopyButton() copyButtonData {
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
+	cfg := s.cfgCopy()
 	builds := s.builder.List()
 	registeredModels := s.registry.List()
 
 	data := dashboardCardsData{
 		ModelCount: len(registeredModels),
-		APIURL:     s.proxyEndpoint(),
+		APIURL:     proxyEndpointFor(cfg.ExternalURL),
 	}
 	for _, b := range builds {
 		if b.Status == builder.BuildStatusSuccess {
 			data.BuildCount++
 		}
 	}
-	if u, err := url.Parse(s.cfg.ExternalURL); err == nil && u.Hostname() != "" {
+	if u, err := url.Parse(cfg.ExternalURL); err == nil && u.Hostname() != "" {
 		data.ChatURL = fmt.Sprintf("%s://%s:%d", u.Scheme, u.Hostname(), s.cfg.ChatPort())
 	}
 
@@ -1315,22 +1366,17 @@ func (s *Server) requestSource(explicit string) string {
 // defaultModelSource is the configured browse default, falling back to
 // HuggingFace when unset or unrecognized.
 func (s *Server) defaultModelSource() string {
-	if s.cfg == nil {
-		return modelsource.SourceHuggingFace
-	}
-	return modelsource.NormalizeSource(s.cfg.DefaultModelSource)
+	return modelsource.NormalizeSource(s.cfgCopy().DefaultModelSource)
 }
 
 // sourceToken returns the credential for a source, for callers that make
 // their own requests rather than going through a client.
 func (s *Server) sourceToken(source string) string {
-	if s.cfg == nil {
-		return ""
-	}
+	cfg := s.cfgCopy()
 	if modelsource.NormalizeSource(source) == modelsource.SourceModelScope {
-		return s.cfg.MSToken
+		return cfg.MSToken
 	}
-	return s.cfg.HFToken
+	return cfg.HFToken
 }
 
 // sourceClient returns the client for a source id, defaulting to

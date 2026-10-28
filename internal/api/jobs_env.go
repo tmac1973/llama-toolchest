@@ -269,7 +269,7 @@ func (e *jobEnv) ApplyEphemeralConfig(ctx context.Context, modelID string, cfg b
 // generation backends are on.
 func (e *jobEnv) ClaimGPUs(ctx context.Context, modelID string, cfg benchmark.ConfigSnapshot, base *models.ModelConfig, who string) (func(), error) {
 	s := e.s
-	if s.cfg == nil || !s.cfg.GenerationEnabled || s.gen == nil || s.genQueue == nil {
+	if !s.generationOn() || s.gen == nil || s.genQueue == nil {
 		return func() {}, nil
 	}
 	m, err := s.registry.Get(modelID)
@@ -809,7 +809,7 @@ func (e *jobEnv) RouterURL() string {
 	return fmt.Sprintf("http://localhost:%d", e.s.cfg.LlamaPort)
 }
 
-func (e *jobEnv) HFToken() string { return e.s.cfg.HFToken }
+func (e *jobEnv) HFToken() string { return e.s.cfgCopy().HFToken }
 
 // HFCacheDir is a stable subdir of DataDir so the tokenizer cache
 // survives container restarts (DataDir is the mounted volume) and
