@@ -1,6 +1,7 @@
 package models
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -258,7 +259,7 @@ func TestAllocationsFollowTheSplit(t *testing.T) {
 	hw := compute2Reserved()
 	cfg := PlanFit(m, DefaultConfig(), hw, ContextMedium).Config
 	cfg.Enabled = true
-	allocs := ComputeAllocationsOn([]*Model{m}, map[string]*ModelConfig{m.ID: &cfg}, GPUMiB(hw))
+	allocs := ComputeAllocationsOn([]*Model{m}, map[string]*ModelConfig{m.ID: &cfg}, RoomOf(hw))
 	if len(allocs) != 1 || allocs[0].GPULoadGB == nil {
 		t.Fatalf("allocations = %+v, want per-card shares", allocs)
 	}
@@ -279,5 +280,101 @@ func TestAllocationsFollowTheSplit(t *testing.T) {
 	even := ComputeAllocations([]*Model{m}, map[string]*ModelConfig{m.ID: &cfg}, 3)
 	if even[0].GPULoadGB != nil {
 		t.Error("an allocation without card budgets got per-card shares")
+	}
+}
+
+// dense32 is a dense 32 GiB model, the size of a 27B at 8 bits: too big
+// for compute2 beside its reservations, small enough for the whole cards.
+func dense32() *Model {
+	return &Model{SizeBytes: 32 << 30, NLayers: 64, NEmbd: 5120, NHead: 40, NKVHead: 8,
+		ContextLength: 131072, KVFullPerTok: 8192}
+}
+
+// evictAll marks every reservation on hw as one a loading model may take
+// back, as auto-evict does for backends not kept running.
+func evictAll(hw Hardware) Hardware {
+	for i := range hw.GPUs {
+		hw.GPUs[i].EvictableMiB = hw.GPUs[i].ReservedMiB
+	}
+	return hw
+}
+
+// With auto-evict on, a model that would run partly from system memory
+// beside the reservations is planned on the whole cards, and its split
+// and load check use the whole cards too.
+func TestPlanFitTakesWholeCardsWhenSharingSpills(t *testing.T) {
+	m := dense32()
+	shared := PlanFit(m, DefaultConfig(), compute2Reserved(), ContextMedium)
+	if shared.CPURAMGiB < 0.5 {
+		t.Fatalf("without auto-evict the model was expected to spill to system memory; plan keeps %.1f GiB there", shared.CPURAMGiB)
+	}
+
+	hw := evictAll(compute2Reserved())
+	r := PlanFit(m, DefaultConfig(), hw, ContextMedium)
+	if !r.Fits || r.CPURAMGiB > 0.05 || r.Config.ContextSize < shared.Config.ContextSize {
+		t.Fatalf("with auto-evict: fits %v, %.1f GiB in system memory, context %d; want all on the GPUs",
+			r.Fits, r.CPURAMGiB, r.Config.ContextSize)
+	}
+	said := false
+	for _, n := range r.Notes {
+		said = said || strings.Contains(n.Reason, "use the whole GPUs")
+	}
+	if !said {
+		t.Errorf("no note says the plan takes the whole GPUs: %+v", r.Notes)
+	}
+
+	room := RoomOf(hw)
+	if got := room.For(m, &r.Config); !slices.Equal(got, room.Whole) {
+		t.Fatalf("room for the plan = %v, want the whole cards %v", got, room.Whole)
+	}
+	for g, mib := range CardLoadsMiB(m, &r.Config, room.Whole) {
+		if mib > room.Whole[g] {
+			t.Errorf("GPU %d holds %d MiB of the whole-card split, more than its %d", g, mib, room.Whole[g])
+		}
+	}
+	if loads := CardLoadsMiB(m, &r.Config, room.Shared); loads[1] <= room.Shared[1] {
+		t.Errorf("the plan fits GPU 1 beside flux (%d of %d MiB); the test model is too small", loads[1], room.Shared[1])
+	}
+}
+
+// A model that fits beside the reservations keeps sharing the cards with
+// auto-evict on: no switch between chat and images stops anything.
+func TestPlanFitSharesWhenItFits(t *testing.T) {
+	m := dense20()
+	hw := evictAll(compute2Reserved())
+	r := PlanFit(m, DefaultConfig(), hw, ContextMedium)
+	want := PlanFit(m, DefaultConfig(), compute2Reserved(), ContextMedium)
+	if r.Config.TensorSplit != want.Config.TensorSplit || r.Config.ContextSize != want.Config.ContextSize {
+		t.Errorf("plan with auto-evict = split %q context %d, want the shared plan's %q %d",
+			r.Config.TensorSplit, r.Config.ContextSize, want.Config.TensorSplit, want.Config.ContextSize)
+	}
+	for _, n := range r.Notes {
+		if strings.Contains(n.Reason, "whole GPUs") {
+			t.Errorf("a shared plan says it takes the whole GPUs: %s", n.Reason)
+		}
+	}
+	room := RoomOf(hw)
+	if got := room.For(m, &r.Config); !slices.Equal(got, room.Shared) {
+		t.Errorf("room for a model that fits beside the backends = %v, want shared %v", got, room.Shared)
+	}
+}
+
+// Only the reservations auto-evict may take back are given to the model:
+// a backend kept running keeps its memory.
+func TestWholeCardsKeepsKeptRunningReservations(t *testing.T) {
+	hw := compute2Reserved()
+	if _, ok := WholeCards(hw); ok {
+		t.Error("WholeCards reported room to take back with auto-evict off")
+	}
+	if RoomOf(hw).Whole != nil {
+		t.Error("RoomOf has whole cards with auto-evict off")
+	}
+	hw.GPUs[1].EvictableMiB = 9728 // flux may be stopped; ace is kept running
+	whole, ok := WholeCards(hw)
+	if !ok || whole.GPUs[1].ReservedMiB != 0 || whole.GPUs[2].ReservedMiB != 7680 {
+		t.Errorf("whole cards = %+v, want GPU 1 freed and GPU 2 still reserved", whole.GPUs)
+	}
+	if hw.GPUs[1].ReservedMiB != 9728 {
+		t.Error("WholeCards changed the hardware it was given")
 	}
 }

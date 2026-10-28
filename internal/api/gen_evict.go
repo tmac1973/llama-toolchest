@@ -292,7 +292,7 @@ func (s *Server) loadedLLMsOn(gpu int) []string {
 	if err != nil {
 		return nil
 	}
-	gpuMiB := models.GPUMiB(s.idleHardware())
+	room := models.RoomOf(s.idleHardware())
 	type entry struct {
 		id  string
 		mib int
@@ -307,7 +307,7 @@ func (s *Server) loadedLLMsOn(gpu int) []string {
 			continue
 		}
 		on := map[int]int{}
-		addLLMMiB(on, reg, cfg, gpuMiB)
+		addLLMMiB(on, reg, cfg, room)
 		if on[gpu] > 0 {
 			out = append(out, entry{reg.ID, on[gpu]})
 		}
@@ -344,7 +344,7 @@ func (s *Server) unloadForGen(ctx context.Context, id string, inst generation.In
 	// Its requests are done and new ones wait, so the slots are idle.
 	s.savePromptCache(ctx, m, routerName)
 	before := s.gpuUsedMiB(inst.GPU)
-	planned := s.loadedLLMMiB(models.GPUMiB(s.idleHardware()), "", false)[inst.GPU]
+	planned := s.loadedLLMMiB(models.RoomOf(s.idleHardware()), "", false)[inst.GPU]
 	if err := s.process.UnloadModel(routerName); err != nil {
 		return err
 	}
@@ -364,7 +364,7 @@ func (s *Server) unloadForGen(ctx context.Context, id string, inst generation.In
 		case <-time.After(autoLoadPollInterval):
 		}
 	}
-	after := s.loadedLLMMiB(models.GPUMiB(s.idleHardware()), "", false)[inst.GPU]
+	after := s.loadedLLMMiB(models.RoomOf(s.idleHardware()), "", false)[inst.GPU]
 	s.waitGPUFreed(inst.GPU, max(0, before-(planned-after)))
 	return nil
 }

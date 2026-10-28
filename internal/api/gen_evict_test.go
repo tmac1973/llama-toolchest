@@ -210,3 +210,24 @@ func TestGPUFreed(t *testing.T) {
 		t.Error("a reading still falling ended the wait")
 	}
 }
+
+// With eviction on, the planner's view marks the reservations a loading
+// model may take back: every enabled backend's, but not one kept running.
+func TestHardwareMarksEvictableReservations(t *testing.T) {
+	s := vramServer(t)
+	addInstance(t, s, generation.Instance{ID: "ming", Port: 8081, Enabled: true, ReservedMiB: 8000})
+	addInstance(t, s, generation.Instance{ID: "ace", Port: 8082, Enabled: true, ReservedMiB: 6000, KeepRunning: true})
+
+	g := s.hardware().GPUs[0]
+	if g.ReservedMiB != 14000 || g.EvictableMiB != 0 {
+		t.Errorf("eviction off: reserved %d, evictable %d; want 14000 and 0", g.ReservedMiB, g.EvictableMiB)
+	}
+	s.cfg.GenEvict = true
+	g = s.hardware().GPUs[0]
+	if g.ReservedMiB != 14000 || g.EvictableMiB != 8000 {
+		t.Errorf("eviction on: reserved %d, evictable %d; want 14000 and 8000 (ace is kept running)", g.ReservedMiB, g.EvictableMiB)
+	}
+	if room := models.RoomOf(s.idleHardware()); room.Whole == nil || room.Whole[0] <= room.Shared[0] {
+		t.Errorf("room = %+v, want more room on the whole card", room)
+	}
+}

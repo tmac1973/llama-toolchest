@@ -579,14 +579,14 @@ func AllocationColor(i int) string {
 // Each model is spread evenly over its GPUs; ComputeAllocationsOn follows
 // the split a launch writes.
 func ComputeAllocations(modelList []*Model, configs map[string]*ModelConfig, numGPUs int) []GPUAllocation {
-	return ComputeAllocationsOn(modelList, configs, make([]int, max(numGPUs, 0)))
+	return ComputeAllocationsOn(modelList, configs, CardRoom{Shared: make([]int, max(numGPUs, 0))})
 }
 
-// ComputeAllocationsOn is ComputeAllocations on cards with gpuMiB budgets
+// ComputeAllocationsOn is ComputeAllocations on cards with room budgets
 // (GPUMiB): a model the launch splits by the cards' room (CardLoadsMiB) is
 // shown with each card's own share.
-func ComputeAllocationsOn(modelList []*Model, configs map[string]*ModelConfig, gpuMiB []int) []GPUAllocation {
-	numGPUs := len(gpuMiB)
+func ComputeAllocationsOn(modelList []*Model, configs map[string]*ModelConfig, room CardRoom) []GPUAllocation {
+	numGPUs := len(room.Shared)
 	if numGPUs <= 0 {
 		return nil
 	}
@@ -615,6 +615,7 @@ func ComputeAllocationsOn(modelList []*Model, configs map[string]*ModelConfig, g
 			TotalGB:   totalGB,
 			Color:     allocationColors[colorIdx%len(allocationColors)],
 		}
+		gpuMiB := room.For(m, cfg)
 		if MoESplitConfig(cfg, m, gpuMiB) != cfg || splitWeights(cfg.TensorSplit, numGPUs) != nil {
 			// The shares count a compute buffer and overhead on every card
 			// the model spans, so they add up to more than the one-card
