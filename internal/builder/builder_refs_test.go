@@ -380,3 +380,91 @@ func llamaProject() Project {
 	p, _ := FindProject(ProjectLlamaCpp)
 	return p
 }
+
+// TestCheckoutRefBranchBuildsFetchedTip covers a branch name such as
+// "master": it must build the tip the fetch just brought in, not the
+// clone's local branch of that name, which never moves on its own. On
+// compute2 that local branch sat months behind, so "master" built old
+// code. The remote is a local bare repo, so this never touches the
+// network. Tags and SHAs must check out as before.
+func TestCheckoutRefBranchBuildsFetchedTip(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	root := t.TempDir()
+	upstream := filepath.Join(root, "upstream.git")
+	work := filepath.Join(root, "work")
+	srcDir := filepath.Join(root, "llama.cpp")
+	git := func(dir string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		// Keep the test independent of the machine's git config (signed
+		// commits and tags, default branch name).
+		cmd.Env = append(os.Environ(),
+			"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	commit := func(tag string) string {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(work, "f"), []byte(tag), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		git(work, "add", "f")
+		git(work, "commit", "-q", "-m", tag, "--no-gpg-sign")
+		git(work, "tag", tag)
+		git(work, "push", "-q", "origin", "master", tag)
+		return git(work, "rev-parse", "HEAD")
+	}
+
+	git(root, "init", "-q", "--bare", "-b", "master", upstream)
+	git(root, "init", "-q", "-b", "master", work)
+	git(work, "remote", "add", "origin", upstream)
+	oldSHA := commit("b1")
+
+	// The clone's local master starts at b1, like the one the original
+	// clone left on compute2. Then upstream moves on.
+	git(root, "clone", "-q", upstream, srcDir)
+	newSHA := commit("b2")
+
+	b := &Builder{}
+	logCh := make(chan string, 64)
+	ctx := context.Background()
+	if err := b.ensureRepo(ctx, llamaProject(), srcDir, logCh); err != nil {
+		t.Fatalf("ensureRepo: %v", err)
+	}
+
+	ref, sha, count, err := b.checkoutRef(ctx, llamaProject(), srcDir, "master", logCh)
+	if err != nil {
+		t.Fatalf("checkoutRef master: %v", err)
+	}
+	if ref != "master" {
+		t.Errorf("ref = %q, want master (the record keeps the branch name)", ref)
+	}
+	if sha != newSHA {
+		t.Errorf("master built %s, want the fetched tip %s (stale local branch is %s)", sha, newSHA, oldSHA)
+	}
+	if count != 2 {
+		t.Errorf("commit count = %d, want 2", count)
+	}
+
+	for _, tc := range []struct{ ref, want string }{
+		{"b1", oldSHA},
+		{oldSHA, oldSHA},
+		{"b2", newSHA},
+		{"latest", newSHA},
+	} {
+		_, sha, _, err := b.checkoutRef(ctx, llamaProject(), srcDir, tc.ref, logCh)
+		if err != nil {
+			t.Fatalf("checkoutRef %s: %v", tc.ref, err)
+		}
+		if sha != tc.want {
+			t.Errorf("%s built %s, want %s", tc.ref, sha, tc.want)
+		}
+	}
+}
