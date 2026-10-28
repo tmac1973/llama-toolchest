@@ -144,9 +144,11 @@ func (s *Server) requestModelID(body []byte) string {
 
 // makeRoomForLLM checks that m fits beside the generation reservations,
 // as checkLLMFitsReservations does. With eviction on, when it does not,
-// it holds the job queues of the GPUs that are short, so their running
-// jobs finish and no new one starts, and stops backends on them until m
-// fits there.
+// it holds the job queues of every GPU the LLMs would use, so their
+// running jobs finish and no new one starts, and stops backends on them
+// until m fits. Every GPU, not only the ones short now: while the hold
+// waits for one job, a job arriving for another of the model's GPUs would
+// otherwise start there and leave the load short again.
 // release ends the hold; call it once the load has finished, so a job
 // waiting for those GPUs cannot take them back before the model is in.
 func (s *Server) makeRoomForLLM(ctx context.Context, m *models.Model) (release func(), err error) {
@@ -160,11 +162,17 @@ func (s *Server) makeRoomForLLM(ctx context.Context, m *models.Model) (release f
 	if !s.genEvictOn() || s.genQueue == nil {
 		return noop, err
 	}
-	release, herr := s.genQueue.Hold(ctx, short, "loading "+m.PublicName())
+	var gpus []int
+	for gpu, mib := range need {
+		if mib > 0 {
+			gpus = append(gpus, gpu)
+		}
+	}
+	release, herr := s.genQueue.Hold(ctx, gpus, "loading "+m.PublicName())
 	if herr != nil {
 		return noop, herr
 	}
-	for _, gpu := range short {
+	for _, gpu := range gpus {
 		s.stopGenUntil(gpu, "", "loading "+m.PublicName(), func() bool {
 			hw, need, _ := s.llmReservationNeed(m)
 			return !slices.Contains(s.reservationShortGPUs(hw, need), gpu)

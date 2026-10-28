@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -280,4 +281,67 @@ func TestMakeRoomForLLMWaitsForAStartingBackend(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the load did not go ahead after the job ended")
 	}
+}
+
+// While a load waits for a job on one of its GPUs, a job arriving for
+// another of them waits behind the load instead of starting there and
+// leaving the load short again (seen on compute2: the 27B's load waited
+// for flux on GPU 1, ace's job took GPU 2, and the load failed).
+func TestMakeRoomForLLMHoldsAllItsGPUs(t *testing.T) {
+	s, _ := evictServer(t)
+	s.cfg.GenEvict = true
+	// Short beside ming on GPU 0 even when split over two cards.
+	big := &models.Model{ID: "huge", ModelID: "org/huge", Filename: "huge.gguf", SizeBytes: 30 << 30}
+	if err := s.registry.Add(big); err != nil {
+		t.Fatal(err)
+	}
+	s.testHardware.GPUs = append(s.testHardware.GPUs, models.GPUSpec{Index: 1, Name: "R9700", VRAMTotalMiB: 32624, OtherUsedMiB: 1300})
+	cfg, _ := s.registry.GetConfig(big.ID)
+	c := *cfg
+	c.GPUAssign, c.TensorSplit = "all", "1,1"
+	if err := s.registry.SetConfig(big.ID, &c); err != nil {
+		t.Fatal(err)
+	}
+	addInstance(t, s, generation.Instance{ID: "ace", Port: 8083, GPU: 1, Enabled: true, ReservedMiB: 30000, ModelSetID: "ming-image"})
+
+	if hw, need, _ := s.llmReservationNeed(big); need[1] == 0 || !slices.Contains(s.reservationShortGPUs(hw, need), 0) {
+		t.Fatalf("need = %v; want the model on both GPUs and short on GPU 0", need)
+	}
+	// ming's job has GPU 0; the load is short there and waits.
+	ticket, _ := s.genQueue.Submit(0, "ming", generation.KindSD)
+	if err := ticket.Wait(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	loaded := make(chan error, 1)
+	go func() {
+		release, err := s.makeRoomForLLM(context.Background(), big)
+		release()
+		loaded <- err
+	}()
+	time.Sleep(100 * time.Millisecond) // the load is waiting in Hold by now
+
+	// A job for GPU 1 arrives meanwhile: it must not start.
+	other, _ := s.genQueue.Submit(1, "ace", generation.KindAce)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if err := other.Wait(ctx); err == nil {
+		t.Fatal("a job started on GPU 1 while the load was waiting for it")
+	}
+	other, _ = s.genQueue.Submit(1, "ace", generation.KindAce)
+
+	ticket.Done()
+	select {
+	case err := <-loaded:
+		if err != nil {
+			t.Errorf("load after the job ended: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the load did not go ahead")
+	}
+	wctx, wcancel := context.WithTimeout(context.Background(), time.Second)
+	defer wcancel()
+	if err := other.Wait(wctx); err != nil {
+		t.Errorf("the waiting job did not start after the load: %v", err)
+	}
+	other.Done()
 }
