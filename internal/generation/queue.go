@@ -45,6 +45,9 @@ type gpuQueue struct {
 	// starts, so a hold is not kept waiting by jobs arriving after it.
 	held   *TicketInfo
 	claims int
+	// keptBy names the run keeping the GPU between its measurements
+	// (Keep); "" if none. A keep counts in claims too.
+	keptBy string
 }
 
 // KindLLM marks a hold in a GPU's history: an LLM measurement, not an
@@ -143,6 +146,38 @@ func (q *Queue) Hold(ctx context.Context, gpus []int, label string) (release fun
 			q.notifyLocked()
 		})
 	}, nil
+}
+
+// Keep keeps GPUs for a run of LLM measurements named label (a benchmark
+// job, an autotune) between its holds. Hold gives a GPU back when one
+// measurement ends, and a job waiting for it would start in the gap
+// before the next; while a GPU is kept, waiting jobs and new ones stay
+// queued. Keep does not wait: a job already running goes on, and the
+// run's next Hold waits for it as usual. release gives the GPUs back.
+func (q *Queue) Keep(gpus []int, label string) (release func()) {
+	gpus = slices.Compact(slices.Sorted(slices.Values(gpus)))
+	q.mu.Lock()
+	for _, i := range gpus {
+		g := q.gpu(i)
+		g.claims++
+		g.keptBy = label
+	}
+	q.mu.Unlock()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			q.mu.Lock()
+			defer q.mu.Unlock()
+			for _, i := range gpus {
+				g := q.gpu(i)
+				g.claims--
+				g.keptBy = ""
+				q.startNextLocked(g)
+			}
+			q.notifyLocked()
+		})
+	}
 }
 
 // startNextLocked starts the first waiting job when nothing runs on the
@@ -262,7 +297,8 @@ type GPUSnapshot struct {
 	GPU     int          `json:"gpu"`
 	Running *TicketInfo  `json:"running,omitempty"`
 	Waiting []TicketInfo `json:"waiting"`
-	// HeldBy names the LLM measurement holding the GPU, if one is.
+	// HeldBy names the LLM measurement holding or keeping the GPU, if
+	// one is.
 	HeldBy string `json:"held_by,omitempty"`
 }
 
@@ -281,6 +317,8 @@ func (q *Queue) Snapshot(gpu int) GPUSnapshot {
 	}
 	if g.held != nil {
 		snap.HeldBy = g.held.InstanceID
+	} else {
+		snap.HeldBy = g.keptBy
 	}
 	for _, t := range g.waiting {
 		snap.Waiting = append(snap.Waiting, t.info)
@@ -294,7 +332,7 @@ func (q *Queue) Load(gpu int) int {
 	defer q.mu.Unlock()
 	g := q.gpu(gpu)
 	n := len(g.waiting)
-	if g.running != nil || g.held != nil {
+	if g.running != nil || g.held != nil || g.keptBy != "" {
 		n++
 	}
 	return n

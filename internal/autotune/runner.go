@@ -35,6 +35,10 @@ type Deps struct {
 	// Busy returns a plain-language reason the GPU cannot be used now, or
 	// "" — a benchmark job, or an autoconfigure run.
 	Busy func() string
+	// ReleaseGPUs gives back the GPUs the stages kept for the run
+	// (benchmark.JobEnv.ReleaseGPUs, owner benchmark.AutotuneGPUOwner), once
+	// the last stage is done. Nil does nothing.
+	ReleaseGPUs func(owner string)
 }
 
 // Runner drives an autotune: it submits one ordinary benchmark job per
@@ -161,6 +165,11 @@ func (r *Runner) begin(rec *Autotune) error {
 	go func() {
 		defer cancel()
 		defer r.release(rec.ID)
+		// The stages keep their GPUs from one to the next, so an image or
+		// music job waiting for them runs once the whole run is over.
+		if r.deps.ReleaseGPUs != nil {
+			defer r.deps.ReleaseGPUs(benchmark.AutotuneGPUOwner(rec.ID))
+		}
 		r.run(ctx, rec)
 	}()
 	return nil

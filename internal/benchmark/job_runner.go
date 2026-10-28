@@ -67,8 +67,15 @@ type JobEnv interface {
 	// for other programs on those GPUs (image and music backends), and
 	// otherwise takes the GPUs from anything else that must not run beside
 	// a measurement, waiting for it to finish. Who names the job for
-	// anyone waiting. release gives the GPUs back.
-	ClaimGPUs(ctx context.Context, modelID string, cfg ConfigSnapshot, base *models.ModelConfig, who string) (release func(), err error)
+	// anyone waiting. release gives the GPUs back to other measurements,
+	// but the GPUs stay kept for owner (JobGPUOwner) until ReleaseGPUs:
+	// an image or music job waiting for them would otherwise start in the
+	// gap before the next cell.
+	ClaimGPUs(ctx context.Context, modelID string, cfg ConfigSnapshot, base *models.ModelConfig, who, owner string) (release func(), err error)
+
+	// ReleaseGPUs ends what ClaimGPUs kept for owner, so image and music
+	// jobs waiting for those GPUs start. A no-op when nothing is kept.
+	ReleaseGPUs(owner string)
 
 	// ClearEphemeralConfig drops any active override and restarts the
 	// router onto saved config. Must be a no-op when nothing is active.
@@ -320,6 +327,19 @@ func (q *JobQueue) RetryFailed(id string) error {
 	return q.Submit(*job)
 }
 
+// JobGPUOwner is who keeps the GPUs job's cells claim: its autotune run
+// when it is a stage of one, so the GPUs stay kept from one stage to the
+// next, and otherwise the job itself.
+func JobGPUOwner(job *BenchmarkJob) string {
+	if job.AutotuneID != "" {
+		return AutotuneGPUOwner(job.AutotuneID)
+	}
+	return "job:" + job.ID
+}
+
+// AutotuneGPUOwner is JobGPUOwner for the stages of autotune run id.
+func AutotuneGPUOwner(id string) string { return "autotune:" + id }
+
 // run is the per-job orchestration loop. It assumes job.Cells is already
 // ordered builds → models → presets so the prevBuildID amortization
 // minimizes router restarts.
@@ -345,6 +365,13 @@ func (q *JobQueue) run(ctx context.Context, job BenchmarkJob, rj *runningJob) {
 	var prevBuildID string
 	var anyCompleted bool
 	var lastApplied appliedConfig
+
+	// The GPUs the cells claim stay kept until the job ends, and are given
+	// back after the router is restored below. An autotune stage leaves
+	// them to its run, which has more stages to measure.
+	if job.AutotuneID == "" {
+		defer q.env.ReleaseGPUs(JobGPUOwner(&job))
+	}
 
 	// Whatever ends this job — completion, failure, cancel — the router
 	// has to go back to the user's saved config and build. Unconditional:
@@ -554,7 +581,7 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 	// Before the router restarts with these settings: they must fit beside
 	// the memory reserved on their GPUs, and nothing else may run on those
 	// GPUs while they are measured.
-	release, err := q.env.ClaimGPUs(ctx, cell.ModelID, cfg, baseConfig, job.Name)
+	release, err := q.env.ClaimGPUs(ctx, cell.ModelID, cfg, baseConfig, job.Name, JobGPUOwner(job))
 	if err != nil {
 		return err
 	}
@@ -694,7 +721,7 @@ func (q *JobQueue) runCapabilityCell(ctx context.Context, job *BenchmarkJob, cel
 		baseConfig = &cfgCopy
 	}
 	cfg := markProfileEdited(EvalConfigSnapshot(baseSnap, cellOv), baseSnap)
-	release, err := q.env.ClaimGPUs(ctx, cell.ModelID, cfg, baseConfig, job.Name)
+	release, err := q.env.ClaimGPUs(ctx, cell.ModelID, cfg, baseConfig, job.Name, JobGPUOwner(job))
 	if err != nil {
 		return err
 	}
