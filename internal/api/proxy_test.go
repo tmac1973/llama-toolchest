@@ -278,6 +278,12 @@ type fakeRouter struct {
 	// action as "save 0 file.bin model".
 	slots     []routerclient.Slot
 	slotCalls []string
+	// restoreGate, when set, holds each slot restore until it is closed,
+	// with the lock released so the model list still answers.
+	restoreGate chan struct{}
+	// slotLists counts GET /slots: on a real router, one for a model that
+	// is not loaded loads it.
+	slotLists int
 }
 
 // reset replaces the router's state between subtests.
@@ -313,12 +319,18 @@ func (f *fakeRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		json.NewEncoder(w).Encode(map[string]any{"data": data, "object": "list"})
 	case r.URL.Path == "/slots" && r.Method == http.MethodGet:
+		f.slotLists++
 		json.NewEncoder(w).Encode(f.slots)
 	case strings.HasPrefix(r.URL.Path, "/slots/") && r.Method == http.MethodPost:
 		var req struct{ Model, Filename string }
 		json.NewDecoder(r.Body).Decode(&req)
 		action := r.URL.Query().Get("action")
 		f.slotCalls = append(f.slotCalls, fmt.Sprintf("%s %s %s %s", action, strings.TrimPrefix(r.URL.Path, "/slots/"), req.Filename, req.Model))
+		if gate := f.restoreGate; action == "restore" && gate != nil {
+			f.mu.Unlock()
+			<-gate
+			f.mu.Lock()
+		}
 		if action == "save" {
 			fmt.Fprintf(w, `{"n_saved":2000,"n_written":1048576}`)
 		} else {

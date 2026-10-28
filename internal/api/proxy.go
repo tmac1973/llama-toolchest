@@ -139,6 +139,14 @@ func (s *Server) loadAndCountRequest(ctx context.Context, body []byte) (end func
 			return noop, err
 		}
 		if attempt+1 >= loadAttempts || s.modelLoaded(id) {
+			// After an eviction unloaded it: the conversations' prompt
+			// caches, before this request goes on. Restored once counted:
+			// a restore is a request to the model, and one reaching the
+			// router after an unload loads the model again behind every
+			// room check.
+			if m, _ := s.registry.Get(id); m != nil {
+				s.restorePromptCache(ctx, m, s.registry.RouterName(id))
+			}
 			return end, nil
 		}
 		end()
@@ -214,13 +222,7 @@ func (s *Server) ensureModelLoadedForRequest(ctx context.Context, body []byte) e
 		}
 		slog.Info("auto-loading model for inference request", "model", regModel.PublicName(), "router_name", routerName)
 	}
-	if err := s.waitForModelLoaded(ctx, routerName, regModel); err != nil {
-		return err
-	}
-	// After an eviction unloaded it: the conversations' prompt caches,
-	// before this request goes on.
-	s.restorePromptCache(ctx, regModel, routerName)
-	return nil
+	return s.waitForModelLoaded(ctx, routerName, regModel)
 }
 
 // lookupRouterState returns the router's current state for a model, plus

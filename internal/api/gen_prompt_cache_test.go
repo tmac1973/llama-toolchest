@@ -6,9 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/generation"
 	"github.com/tmac1973/llama-toolchest/internal/routerclient"
+	"github.com/tmac1973/llama-toolchest/internal/testutil"
 )
 
 // With the setting on, an eviction unload saves each slot holding a long
@@ -56,5 +58,81 @@ func TestPromptCacheSavedAndRestored(t *testing.T) {
 	s.savePromptCache(context.Background(), m, name)
 	if len(f.slotCalls) != 2 || s.promptCacheRouterEnv() != "" {
 		t.Errorf("with the setting off: calls %q", f.slotCalls)
+	}
+}
+
+// A request's prompt cache is restored after the request is counted, so
+// an unload waits for the restore. A restore reaching the router after an
+// unload made it load the model again behind every room check (seen on
+// compute2: the 27B came back between an unload and ace starting).
+func TestPromptCacheRestoredWhileCounted(t *testing.T) {
+	s, f, m := startFakeRouter(t)
+	store, err := generation.Load(s.cfg.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.gen = store
+	s.cfg.GenerationEnabled, s.cfg.GenEvict, s.cfg.GenKeepPromptCache = true, true, true
+	name := s.registry.RouterName(m.ID)
+	f.mu.Lock()
+	f.slots = []routerclient.Slot{{ID: 0, PromptTokens: 26000}}
+	f.status = map[string]string{name: "loaded"}
+	f.mu.Unlock()
+	s.savePromptCache(context.Background(), m, name)
+	os.WriteFile(filepath.Join(s.promptCacheDir(), promptCacheFile(m.ID, 0)), []byte("kv"), 0o644)
+
+	gate := make(chan struct{})
+	f.mu.Lock()
+	f.restoreGate = gate
+	f.mu.Unlock()
+	done := make(chan func(), 1)
+	go func() {
+		end, err := s.loadAndCountRequest(context.Background(), []byte(`{"model":"`+m.ID+`"}`))
+		if err != nil {
+			t.Error(err)
+		}
+		done <- end
+	}()
+	testutil.Eventually(t, func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return len(f.slotCalls) == 2
+	}, "the cache was not restored")
+
+	// The restore is under way: an unload waits for it.
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := s.llmUse.evict(ctx, m.ID); err == nil {
+		t.Error("an unload went ahead during the restore")
+	}
+	close(gate)
+	(<-done)()
+}
+
+// Two jobs that both need the LLM gone queue an unload each. The second,
+// once its turn comes, finds the model already out and leaves the router
+// alone: listing the slots of a model that is not loaded makes the router
+// load it, which put the 27B back on compute2's GPUs between flux's unload
+// and flux starting.
+func TestUnloadForGenSkipsAModelAlreadyOut(t *testing.T) {
+	s, f, m := startFakeRouter(t)
+	store, err := generation.Load(s.cfg.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.gen = store
+	s.cfg.GenerationEnabled, s.cfg.GenEvict, s.cfg.GenKeepPromptCache = true, true, true
+	f.mu.Lock()
+	f.status = map[string]string{s.registry.RouterName(m.ID): "unloaded"}
+	f.slots = []routerclient.Slot{{ID: 0, PromptTokens: 26000}}
+	f.mu.Unlock()
+
+	if err := s.unloadForGen(context.Background(), m.ID, generation.Instance{ID: "ace", GPU: 0}); err != nil {
+		t.Fatalf("unload of a model already out: %v", err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.slotLists != 0 || len(f.slotCalls) != 0 {
+		t.Errorf("the router was asked about the model's slots (%d lists, calls %q)", f.slotLists, f.slotCalls)
 	}
 }
