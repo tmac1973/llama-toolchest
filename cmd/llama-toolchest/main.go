@@ -48,7 +48,7 @@ func main() {
 	configureLogging(cfg.LogLevel)
 
 	if err := initDataDir(cfg); err != nil {
-		slog.Warn("could not init data dir (expected in local dev)", "error", err)
+		slog.Warn("failed to init data dir (expected in local dev)", "error", err)
 	}
 
 	srv := api.NewServer(cfg, *configPath)

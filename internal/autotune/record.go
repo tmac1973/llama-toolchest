@@ -384,13 +384,13 @@ func (a *Autotune) clone() *Autotune {
 	}
 	data, err := json.Marshal(a)
 	if err != nil {
-		slog.Error("could not copy an autotune record", "run", a.ID, "error", err)
+		slog.Error("failed to copy an autotune record", "run", a.ID, "error", err)
 		shallow := *a
 		return &shallow
 	}
 	var out Autotune
 	if err := json.Unmarshal(data, &out); err != nil {
-		slog.Error("could not copy an autotune record", "run", a.ID, "error", err)
+		slog.Error("failed to copy an autotune record", "run", a.ID, "error", err)
 		shallow := *a
 		return &shallow
 	}

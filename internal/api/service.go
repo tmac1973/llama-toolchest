@@ -167,7 +167,7 @@ func (s *Server) routerBusyWithJob() bool {
 
 func (s *Server) handleServiceStart(w http.ResponseWriter, r *http.Request) {
 	if s.routerBusyWithJob() {
-		slog.Info("refused router action: a benchmark job is using the router", "path", r.URL.Path)
+		slog.Debug("refused router action: a benchmark job is using the router", "path", r.URL.Path)
 		http.Error(w, "a benchmark job is currently running the router — cancel it first", http.StatusConflict)
 		return
 	}
@@ -198,7 +198,7 @@ func (s *Server) handleServiceStop(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleServiceRestart(w http.ResponseWriter, r *http.Request) {
 	if s.routerBusyWithJob() {
-		slog.Info("refused router action: a benchmark job is using the router", "path", r.URL.Path)
+		slog.Debug("refused router action: a benchmark job is using the router", "path", r.URL.Path)
 		http.Error(w, "a benchmark job is currently running the router — cancel it first", http.StatusConflict)
 		return
 	}
@@ -209,7 +209,7 @@ func (s *Server) handleServiceRestart(w http.ResponseWriter, r *http.Request) {
 	// preset INI from the current registry state.
 	if s.process.IsRunning() {
 		if err := s.process.Stop(); err != nil {
-			slog.Debug("stop during restart", "error", err)
+			slog.Warn("failed to stop the router before restart", "error", err)
 		}
 	}
 	if err := s.startRouter(); err != nil {
@@ -336,7 +336,7 @@ func (s *Server) handleActivateModel(w http.ResponseWriter, r *http.Request) {
 	// would launch the user's preset under a job, so the cell would
 	// measure saved config while reporting the override.
 	if s.routerBusyWithJob() {
-		slog.Info("refused router action: a benchmark job is using the router", "path", r.URL.Path)
+		slog.Debug("refused router action: a benchmark job is using the router", "path", r.URL.Path)
 		http.Error(w, "a benchmark job is currently running the router — cancel it first", http.StatusConflict)
 		return
 	}
@@ -405,7 +405,7 @@ func (s *Server) handleDeactivateModel(w http.ResponseWriter, r *http.Request) {
 	// which makes this more disruptive than Activate — it was left
 	// unguarded while Activate was not.
 	if s.routerBusyWithJob() {
-		slog.Info("refused model action: a benchmark job is using the router", "path", r.URL.Path)
+		slog.Debug("refused model action: a benchmark job is using the router", "path", r.URL.Path)
 		http.Error(w, "a benchmark job is currently using the router — cancel it first", http.StatusConflict)
 		return
 	}
@@ -1152,7 +1152,7 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 	// A change made here makes the config the user's own, whatever
 	// filled it in first.
 	if err := s.registry.ClearSeeded(id); err != nil {
-		slog.Warn("could not clear the recommendation mark", "model", id, "error", err)
+		slog.Warn("failed to clear the recommendation mark", "model", id, "error", err)
 	}
 
 	s.afterConfigChange(w, r, id, cfg)

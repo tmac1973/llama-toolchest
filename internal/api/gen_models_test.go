@@ -265,6 +265,13 @@ func TestGenCatalogCardIsSeparateFromSets(t *testing.T) {
 	if strings.Contains(dl.Body.String(), "Add a custom set") || !strings.Contains(dl.Body.String(), "Generation models") {
 		t.Errorf("a catalog download did not answer with the catalog card:\n%s", dl.Body.String())
 	}
+	// Let the download finish before the test ends: it saves the
+	// generation store as files arrive, and a write after the test would
+	// race the removal of its temp folder.
+	testutil.Eventually(t, func() bool {
+		set, _ := s.gen.ModelSet("flux2-klein-4b")
+		return set.Complete
+	}, "the catalog download never finished")
 }
 
 // A catalog row says what its set is doing: Download before it is

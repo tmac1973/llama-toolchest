@@ -287,7 +287,7 @@ func (s *Server) genFileDone(setID, slot, path string, size int64) {
 	}
 	set.Complete = complete
 	if err := s.gen.UpdateModelSet(set); err != nil {
-		slog.Error("recording a generation model file failed", "set", setID, "slot", slot, "error", err)
+		slog.Error("failed to record a generation model file", "set", setID, "slot", slot, "error", err)
 		return
 	}
 	if complete {
@@ -442,7 +442,7 @@ func (s *Server) handleGenDeleteSet(w http.ResponseWriter, r *http.Request) {
 			}
 			for _, p := range []string{path, path + ".part"} {
 				if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
-					slog.Warn("removing a generation model file failed", "path", p, "error", err)
+					slog.Warn("failed to remove a generation model file", "path", p, "error", err)
 				}
 			}
 		}

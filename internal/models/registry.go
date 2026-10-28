@@ -955,7 +955,7 @@ func (r *Registry) BackfillGGUFMeta() {
 			// Keep what was read, but leave the version as it is so the
 			// next start reads the file again: a copy still in progress
 			// finishes, and the full header and tensor table come through.
-			slog.Info("could not read the whole GGUF file; it will be read again on the next start",
+			slog.Info("failed to read the whole GGUF file; it will be read again on the next start",
 				"model", m.ID, "file", m.FilePath)
 		} else {
 			m.GGUFMetaVersion = GGUFMetaVersion
@@ -1004,7 +1004,7 @@ func (r *Registry) DeduplicateModels() int {
 	for _, id := range ids {
 		m := r.data.Models[id]
 		if existing, ok := seen[m.FilePath]; ok {
-			slog.Info("removing duplicate model entry", "id", id, "kept", existing, "path", m.FilePath)
+			slog.Info("removing duplicate model entry", "model", id, "kept", existing, "path", m.FilePath)
 			dupes = append(dupes, id)
 		} else {
 			seen[m.FilePath] = id
@@ -1328,7 +1328,7 @@ func (r *Registry) ScanModels() int {
 
 	for _, m := range found {
 		r.Add(m)
-		slog.Info("scanned model", "id", m.ID, "file", m.FilePath,
+		slog.Info("scanned model", "model", m.ID, "file", m.FilePath,
 			"size_gib", fmt.Sprintf("%.1f", float64(m.SizeBytes)/(1024*1024*1024)),
 			"arch", m.Arch)
 	}

@@ -43,10 +43,10 @@ Each item has a checkbox; tick it in the PR that fixes it.
 ## Medium Priority
 
 ### Standards
-- [ ] Fields that Settings and restore change at runtime (ActiveBuild, the API key, the tokens, the external URL) are read without `cfgMu`, although a locked getter exists — `internal/api/server.go:1003`, `internal/api/middleware.go:13`, `internal/api/jobs_env.go:812`
+- [ ] Fields that Settings and restore change at runtime (ActiveBuild, the API key, the tokens, the external URL) are read without `cfgMu`, although a locked getter exists — `internal/api/server.go:1003`, `internal/api/middleware.go:13`, `internal/api/jobs_env.go:812` *(tracked in #392.)*
 - [x] Four functions build the same OpenAI-style error body (`writeProxyError`, `writeAuthError`, `writeVideoError` and `openAIError`) — `internal/api/proxy.go:242`, `internal/api/middleware.go:38` *(`writeVideoError` is gone and `writeProxyError` calls `openAIError`; `writeAuthError` keeps its own body, which has no code and type `auth_error`.)*
 - [x] Best-effort cache writes drop their errors silently with `_ =`; the docs cache logs the same kind of failure — `internal/modelsource/meta_cache.go:105`, `internal/recommend/finalist.go:153`
-- [ ] Some JS calls `fetch` directly without checking `r.ok`, so an error page is inserted into the dialog; the About dialog sets `loaded` before the request succeeds, so it never retries — `web/templates/benchmarks.html:368`, `web/templates/server.html:429`
+- [x] Some JS calls `fetch` directly without checking `r.ok`, so an error page is inserted into the dialog; the About dialog sets `loaded` before the request succeeds, so it never retries — `web/templates/benchmarks.html:368`, `web/templates/server.html:429` *(the About and agent-config dialogs and the log clear use `apiCall`; the About dialog is marked loaded only on success.)*
 
 ### Duplication
 - [x] `cancelImageJob`, `cancelMusic` and `cancelVideoJob` are the same function — `internal/api/gen_image_jobs.go:310` (and `gen_music.go:522`, `gen_video_jobs.go:489`) *(image and music use `cancelJob`; video keeps its own, since it only asks sd-server to stop.)*
@@ -54,11 +54,11 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [x] The code that reads an image request body is pasted twice, and the "128 MiB" text is hard-coded in 4 places — `internal/api/gen_images.go:153`, `internal/api/gen_image_jobs.go:341`
 - [x] Three functions repeat the same code to read the model name from a request body — `internal/api/gen_evict.go:133`, `internal/api/proxy.go:138`, `internal/api/proxy.go:318`
 - [x] The backend URL `http://127.0.0.1:%d` is built by hand in 5 places — `internal/generation/launch.go:98` and others
-- [ ] The copy-to-clipboard fallback is written twice — `web/static/log-panel.js:66`, `web/templates/server.html:381`
+- [x] The copy-to-clipboard fallback is written twice — `web/static/log-panel.js:66`, `web/templates/server.html:381`
 
 ### Logging
-- [ ] When the router fails to stop before a restart, this is logged at Debug and the restart carries on; a llama-server left running may still hold the port — `internal/api/service.go:212`, `internal/api/helper_model.go:128`, `internal/api/helper_model.go:187`
-- [ ] A failed SIGTERM ("terminate failed") is logged at Debug — `internal/process/supervisor.go:173`
+- [x] When the router fails to stop before a restart, this is logged at Debug and the restart carries on; a llama-server left running may still hold the port — `internal/api/service.go:212`, `internal/api/helper_model.go:128`, `internal/api/helper_model.go:187`
+- [x] A failed SIGTERM ("terminate failed") is logged at Debug — `internal/process/supervisor.go:173`
 
 ### Security
 - [x] State-changing endpoints (settings, restore, build delete) have no CSRF, Origin or Sec-Fetch-Site check — `internal/api/settings.go:166`, `internal/api/server.go:646` *(Go's `http.CrossOriginProtection` on every route except `/v1/` and the ACE-Step routes, which take the API key.)*
@@ -78,35 +78,35 @@ Each item has a checkbox; tick it in the PR that fixes it.
 ## Low Priority
 
 ### Standards
-- [ ] One error is wrapped with `%v` instead of `%w` — `internal/api/jobs_env.go:277`
-- [ ] Some errors are built with `errors.New("..." + err.Error())`, which loses the original error — `internal/api/gen_music.go:572`, `:593`, `:842`
-- [ ] `handleBulkDeleteJobs` decodes JSON by hand instead of using `decodeJSONBody` — `internal/api/bench_jobs.go:1068`
-- [ ] The request content type is checked three different ways — `internal/api/gen_music.go:570`, `internal/api/gen_image_jobs.go:338`
+- [x] One error is wrapped with `%v` instead of `%w` — `internal/api/jobs_env.go:277`
+- [x] Some errors are built with `errors.New("..." + err.Error())`, which loses the original error — `internal/api/gen_music.go:572`, `:593`, `:842`
+- [x] `handleBulkDeleteJobs` decodes JSON by hand instead of using `decodeJSONBody` — `internal/api/bench_jobs.go:1068`
+- [x] The request content type is checked three different ways — `internal/api/gen_music.go:570`, `internal/api/gen_image_jobs.go:338` *(`isMultipartForm` and `isJSONContentType`.)*
 - [x] About 25 handlers ignore the error from `r.ParseForm()` — `internal/api/settings.go:152` and others
 - [x] Errors from `MkdirAll` and `Chmod` are ignored on install and download paths — `internal/builder/builder.go:551`, `internal/huggingface/downloader.go:406`
-- [ ] Log messages are worded three ways ("failed to X", "X failed", "could not X"), model IDs are logged as `id` in some places and `model` in others, and some messages are built by joining strings *(Standards + Logging)* — `internal/models/registry.go:1007`, `internal/process/supervisor.go:154`
-- [ ] `log-panel.js` uses `const`/`let` and arrow functions, while every other script uses `var` and `function` — `web/static/log-panel.js:2`
-- [ ] The field `runningBuild_` has a trailing underscore, which no other name in the code has — `internal/api/server.go:168`
+- [x] Log messages are worded three ways ("failed to X", "X failed", "could not X"), model IDs are logged as `id` in some places and `model` in others, and some messages are built by joining strings *(Standards + Logging)* — `internal/models/registry.go:1007`, `internal/process/supervisor.go:154` *(a failed action is "failed to X"; a job, build or cell that ended failed keeps "X failed", which reports an outcome. Model IDs use `model`, build IDs `build`, and messages are constant with attributes.)*
+- [x] `log-panel.js` uses `const`/`let` and arrow functions, while every other script uses `var` and `function` — `web/static/log-panel.js:2`
+- [x] The field `runningBuild_` has a trailing underscore, which no other name in the code has — `internal/api/server.go:168` *(now `routerBuild`.)*
 
 ### Duplication
 - [x] There are two `setEnv` helpers, plus `setEnvDefault` — `internal/builder/rocminstall.go:359`, `internal/generation/launch.go:175` *(`setEnvDefault` stays in builder: it keeps an inherited value, which is a different rule.)*
 - [x] There are two `copyFile` helpers, and the builder one has no atomic-write safety — `internal/builder/builder.go:1250`, `internal/api/gen_move.go:159`
 - [x] Environment variables are read directly in several places outside the config layer; in `applyEnvOverrides` the port block is repeated 3 times and `LLAMA_PORT` skips the range check *(Duplication + Security)* — `internal/config/config.go:311`, `internal/api/server.go:950`, `internal/api/gen_instances.go:84` *(`ROCM_PATH` stays in builder, as it locates the ROCm tools, and `LLAMA_API_KEY` stays in the separate agent CLI; the runtime env view checks the process environment on purpose.)*
-- [ ] The server log SSE handler repeats the live-tail code in log-panel.js — `web/templates/server.html:507`
+- [x] The server log SSE handler repeats the live-tail code in log-panel.js — `web/templates/server.html:507` *(the gen-log dialog keeps its own scroll, since it is not a log panel.)*
 - [x] rocminfo is run and parsed twice, and the magic number `1<<20` appears 3 times — `internal/builder/detect.go:108`, `internal/monitor/rocm.go:395` *(`1<<20` is now `musicJSONLimit`. rocminfo kept as is: the parsing is already shared, and the two callers cache differently on purpose, detection with a time limit and the monitor once.)*
 
 ### Logging
-- [ ] Stop errors during a supervisor restart and at shutdown are logged at Debug — `internal/process/supervisor.go:209`, `internal/api/server.go:273`
-- [ ] `ListModels` failures on a running router are logged at Debug only — `internal/api/service.go:272`, `:308`
-- [ ] Expected refusals (a benchmark job holds the router) are logged at Info — `internal/api/service.go:170`
-- [ ] The clone log writes the repo URL as-is, including any credentials in it — `internal/builder/builder.go:888`
-- [ ] `cmd/agent` writes its diagnostics with `fmt.Fprintf(os.Stderr)` and prints tool results (which can be file contents) to the terminal — `cmd/agent/main.go:232`, `:312`
+- [x] Stop errors during a supervisor restart and at shutdown are logged at Debug — `internal/process/supervisor.go:209`, `internal/api/server.go:273`
+- [x] `ListModels` failures on a running router are logged at Debug only — `internal/api/service.go:272`, `:308` *(kept at Debug: these paths are polled every few seconds, so Warn would repeat the same line constantly.)*
+- [x] Expected refusals (a benchmark job holds the router) are logged at Info — `internal/api/service.go:170`
+- [x] The clone log writes the repo URL as-is, including any credentials in it — `internal/builder/builder.go:888` *(`redactURL`, which also hides a token given as the user name.)*
+- [x] `cmd/agent` writes its diagnostics with `fmt.Fprintf(os.Stderr)` and prints tool results (which can be file contents) to the terminal — `cmd/agent/main.go:232`, `:312` *(kept: it is an interactive command-line tool, and its output is for the person running it.)*
 
 ### Security
 - [x] `/api` has no login, including `backup?secrets=1` and `PUT /api/settings` — `internal/api/server.go:692`, `internal/api/backup.go:20` *(decided 2026-10-05, left as is: the documented default; `--secure` puts the UI and `/api` behind a login.)*
-- [ ] Child processes inherit the full service environment through `os.Environ()` — `internal/process/supervisor.go:80`, `internal/builder/builder.go:573`
+- [ ] Child processes inherit the full service environment through `os.Environ()` — `internal/process/supervisor.go:80`, `internal/builder/builder.go:573` *(tracked in #393.)*
 - [x] The agent CLI takes the API key as a command-line flag, so it shows in `ps` output and shell history — `cmd/agent/main.go:222` *(kept for existing scripts; its help text now says to use `LLAMA_API_KEY`, and why.)*
-- [ ] .gitignore has no entries for model or data folders, `*.gguf`, `*.p12`, `id_rsa*` or `.DS_Store` — `.gitignore`
+- [x] .gitignore has no entries for model or data folders, `*.gguf`, `*.p12`, `id_rsa*` or `.DS_Store` — `.gitignore`
 
 ### Testing
 - [x] Some tests build `&Server{}` literals instead of using `newTestServer`, so they will crash when a handler reads a new field — `internal/api/job_capability_test.go:237`, `internal/api/bench_config_test.go:230` *(the handler and job-env tests use `newTestServer`; literals that only call a pure method, such as `templateFuncs`, stay.)*
@@ -115,8 +115,8 @@ Each item has a checkbox; tick it in the PR that fixes it.
 
 ### Dependencies
 - [x] govulncheck is not installed; v1.9.0 run through `go run` found no vulnerabilities — `golang.org/x/vuln@v1.9.0` *(CI runs govulncheck on every pull request since #386.)*
-- [ ] A newer minor version of chi is available — `github.com/go-chi/chi/v5@v5.3.2 (v5.3.2 -> v5.5.0)`
-- [ ] The versions of the files in web/static were not checked against their latest releases: htmx 2.0.11, plotly 3.7.0, scalar 1.73.1, pico 2.1.1 — `web/static/*`
+- [x] A newer minor version of chi is available — `github.com/go-chi/chi/v5@v5.3.2 (v5.3.2 -> v5.5.0)` *(updated to v5.5.0.)*
+- [x] The versions of the files in web/static were not checked against their latest releases: htmx 2.0.11, plotly 3.7.0, scalar 1.73.1, pico 2.1.1 — `web/static/*` *(checked 2026-10-27: htmx 2.0.11 and Pico 2.1.1 are current; Scalar 1.76.0 and plotly.js 4.1.2 are out. Plotly 4 is a major version, so updating it needs the charts checked; both left as they are.)*
 
 ---
 
@@ -176,7 +176,7 @@ Each item has a checkbox; tick it in the PR that fixes it.
 7. **Cosmetic.** Log wording, JS style, renames and dependency updates.
 
 ## Verification
-- [ ] `go build ./...` and `go vet ./...` report 0 errors
-- [ ] `go test -race ./...` passes, including the node JS tests
-- [ ] New tests cover the handlers and packages that had none
-- [ ] govulncheck shows no vulnerabilities
+- [x] `go build ./...` and `go vet ./...` report 0 errors
+- [x] `go test -race ./...` passes, including the node JS tests
+- [x] New tests cover the handlers and packages that had none
+- [x] govulncheck shows no vulnerabilities

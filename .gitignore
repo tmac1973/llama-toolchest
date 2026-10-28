@@ -10,6 +10,10 @@ dist/
 *.pem
 *.key
 *.crt
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
 # A backup exported with secrets holds the tokens and the API key.
 llama-toolchest-backup-*.json
 # Rendered from Caddyfile.template by `setup.sh install --secure`; contains the
@@ -28,3 +32,11 @@ debug_output.txt
 
 # Added by the autonomous coding run: regenerable, never commit.
 vendor/
+
+# Model files and local data folders: large, and downloaded rather than
+# written here.
+*.gguf
+/models/
+/data/
+# macOS folder metadata.
+.DS_Store

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -495,7 +496,7 @@ drain:
 		}
 	}
 
-	slog.Info("build started", "id", result.ID, "git_ref", resolvedRef, "git_sha", sha)
+	slog.Info("build started", "build", result.ID, "git_ref", resolvedRef, "git_sha", sha)
 
 	// The caller gets a copy taken before the build starts: runBuild goes on
 	// writing to result (status, binary path, archs) while the caller may
@@ -561,7 +562,7 @@ func (b *Builder) runBuild(ctx context.Context, proj Project, prof BuildProfile,
 
 	// cmake — the project's base args (for llama.cpp: only the server and
 	// the libraries it needs, no tests or examples) plus the profile flags.
-	slog.Info("running cmake", "id", result.ID)
+	slog.Info("running cmake", "build", result.ID)
 	sendLog("==> Running cmake...")
 	cmakeArgs := append([]string{"..", "-G", "Ninja"}, proj.BaseCMakeArgs...)
 	for k, v := range prof.CMakeFlags {
@@ -690,7 +691,7 @@ func (b *Builder) runBuild(ctx context.Context, proj Project, prof BuildProfile,
 	}
 
 	// ninja — build all targets (target names vary across llama.cpp versions)
-	slog.Info("running ninja", "id", result.ID)
+	slog.Info("running ninja", "build", result.ID)
 	sendLog("==> Running ninja...")
 	if err := b.runCmd(ctx, buildDir, logCh, result.ID, buildEnv, "ninja", "-j", fmt.Sprintf("%d", runtime.NumCPU())); err != nil {
 		b.finishBuild(result, BuildStatusFailed, fmt.Sprintf("ninja failed: %v", err))
@@ -793,9 +794,9 @@ func (b *Builder) finishBuild(result *BuildResult, status, errMsg string) {
 	result.FinishedAt = time.Now()
 
 	if status == BuildStatusFailed {
-		slog.Error("build failed", "id", result.ID, "error", errMsg)
+		slog.Error("build failed", "build", result.ID, "error", errMsg)
 	} else {
-		slog.Info("build succeeded", "id", result.ID, "binary", result.BinaryPath)
+		slog.Info("build succeeded", "build", result.ID, "binary", result.BinaryPath)
 	}
 
 	for i, br := range b.builds {
@@ -877,7 +878,7 @@ func pruneTempPacks(srcDir string) {
 		}
 		path := filepath.Join(packDir, e.Name())
 		if err := os.Remove(path); err != nil {
-			slog.Warn("removing abandoned temp pack failed", "path", path, "error", err)
+			slog.Warn("failed to remove an abandoned temp pack", "path", path, "error", err)
 			continue
 		}
 		slog.Info("removed abandoned temp pack", "path", path, "bytes", info.Size())
@@ -887,7 +888,7 @@ func pruneTempPacks(srcDir string) {
 func (b *Builder) ensureRepo(ctx context.Context, proj Project, srcDir string, logCh chan string) error {
 	switch inspectRepo(srcDir) {
 	case repoUsable:
-		slog.Info("fetching "+proj.ID, "dir", srcDir)
+		slog.Info("fetching the project", "project", proj.ID, "dir", srcDir)
 		sendLog(logCh, "==> Fetching latest from "+proj.ID+"...")
 		pruneTempPacks(srcDir)
 		return b.runCmd(ctx, srcDir, logCh, "", nil, "git", "fetch", "--all", "--tags")
@@ -907,7 +908,7 @@ func (b *Builder) ensureRepo(ctx context.Context, proj Project, srcDir string, l
 		return fmt.Errorf("%s exists but is not a usable %s clone; move it aside and build again", srcDir, proj.ID)
 	}
 
-	slog.Info("cloning "+proj.ID, "repo", proj.Repo, "dir", srcDir)
+	slog.Info("cloning the project", "project", proj.ID, "repo", redactURL(proj.Repo), "dir", srcDir)
 	sendLog(logCh, "==> Cloning "+proj.ID+"...")
 	if err := os.MkdirAll(filepath.Dir(srcDir), 0o755); err != nil {
 		return fmt.Errorf("creating clone parent: %w", err)
@@ -1211,7 +1212,7 @@ func (b *Builder) loadBuilds() {
 		if br.Status != BuildStatusBuilding {
 			cleaned = append(cleaned, br)
 		} else {
-			slog.Warn("discarding build interrupted by restart", "id", br.ID)
+			slog.Warn("discarding build interrupted by restart", "build", br.ID)
 		}
 	}
 	if len(cleaned) != len(b.builds) {
@@ -1489,4 +1490,19 @@ func prependPath(env []string, dir string) []string {
 		out = append(out, "PATH="+dir)
 	}
 	return out
+}
+
+// redactURL returns a repository URL without any user name or password in
+// it, for logs: a custom repo can carry a token (https://user:token@host/...).
+// A value that is not a URL is returned unchanged.
+func redactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.User == nil {
+		return raw
+	}
+	if _, hasPassword := u.User.Password(); !hasPassword {
+		// A token can be the user name alone: https://TOKEN@host/...
+		u.User = url.User("xxxxx")
+	}
+	return u.Redacted()
 }

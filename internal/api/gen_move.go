@@ -169,7 +169,7 @@ func (s *Server) repointGenFile(from, to string) {
 			continue
 		}
 		if err := s.gen.UpdateModelSet(set); err != nil {
-			slog.Error("recording a moved generation model file failed", "set", set.ID, "error", err)
+			slog.Error("failed to record a moved generation model file", "set", set.ID, "error", err)
 		}
 	}
 }

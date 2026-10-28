@@ -316,6 +316,13 @@ func (r *Runner) runStage(ctx context.Context, rec *Autotune, stageKey string) e
 	}
 	done, err := r.deps.Jobs.Wait(ctx, job.ID)
 	if err != nil {
+		if ctx.Err() != nil {
+			// Cancelled. Cancel has told the stage's job to stop too; wait
+			// for it to finish, so the run ends only once the job queue is
+			// free and a resume can start at once.
+			r.deps.Jobs.Cancel(job.ID)
+			r.deps.Jobs.Wait(context.Background(), job.ID)
+		}
 		return err
 	}
 
@@ -575,7 +582,7 @@ func secondsPerCell(job *benchmark.BenchmarkJob) float64 {
 
 func (r *Runner) save(rec *Autotune) error {
 	if err := r.deps.Store.Save(rec); err != nil {
-		slog.Warn("could not save the autotune record", "run", rec.ID, "error", err)
+		slog.Warn("failed to save the autotune record", "run", rec.ID, "error", err)
 		return err
 	}
 	return nil
@@ -636,7 +643,7 @@ func (r *Runner) conclude(rec *Autotune) {
 		winner := byKey[key]
 		name := profileName(goals)
 		if err := r.saveProfile(rec, name, winner, baseline, goals, false); err != nil {
-			slog.Warn("could not save an autotune profile", "run", rec.ID, "profile", name, "error", err)
+			slog.Warn("failed to save an autotune profile", "run", rec.ID, "profile", name, "error", err)
 			rec.Error = "the results were measured, but a profile could not be saved: " + err.Error()
 			continue
 		}

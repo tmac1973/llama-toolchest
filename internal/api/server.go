@@ -161,10 +161,10 @@ type Server struct {
 	// the whole process down rather than failing one request.
 	stateMu        sync.RWMutex
 	runningConfigs map[string]*models.ModelConfig
-	// runningBuild_ is the build id the router was last started with.
+	// routerBuild is the build id the router was last started with.
 	// Distinct from cfg.ActiveBuild, which is the user's saved choice: a
 	// job launches other builds without changing that.
-	runningBuild_ string
+	routerBuild string
 	// cfgMu serializes access to cfg and its persistence. The benchmark
 	// queue and the Settings handlers both write config fields, and two
 	// interleaved saveConfig calls could otherwise serialize a
@@ -200,7 +200,7 @@ func (s *Server) withConfig(fn func()) {
 func (s *Server) setRunningBuild(id string) {
 	s.stateMu.Lock()
 	defer s.stateMu.Unlock()
-	s.runningBuild_ = id
+	s.routerBuild = id
 }
 
 // runningBuild returns the build the router is actually serving, which
@@ -208,7 +208,7 @@ func (s *Server) setRunningBuild(id string) {
 func (s *Server) runningBuild() string {
 	s.stateMu.RLock()
 	defer s.stateMu.RUnlock()
-	return s.runningBuild_
+	return s.routerBuild
 }
 
 // activeBuild reads the selected build under lock.
@@ -269,7 +269,7 @@ func (s *Server) Shutdown() {
 	s.genMgr.StopAll()
 	if err := s.process.Stop(); err != nil {
 		// "router not running" is the expected case when nothing was started.
-		slog.Debug("router stop during shutdown", "error", err)
+		slog.Warn("failed to stop the router during shutdown", "error", err)
 	}
 }
 
@@ -344,7 +344,7 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 	}
 	if orphans := s.registry.FindOrphans(); len(orphans) > 0 {
 		for _, m := range orphans {
-			slog.Warn("model file missing", "id", m.ID, "path", m.FilePath)
+			slog.Warn("model file missing", "model", m.ID, "path", m.FilePath)
 		}
 	}
 	s.pages = s.parseTemplates()
@@ -381,7 +381,7 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 			// can attach before the router spews its startup output.
 			time.Sleep(500 * time.Millisecond)
 			if err := s.startRouter(); err != nil {
-				slog.Warn("auto-start failed", "error", err)
+				slog.Warn("failed to auto-start the inference server", "error", err)
 			} else {
 				slog.Info("auto-started inference server")
 			}

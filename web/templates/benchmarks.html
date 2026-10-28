@@ -366,10 +366,12 @@ function openBenchHelp() {
     var dialog = document.getElementById('bench-help');
     var slot = document.getElementById('bench-about-slot');
     if (!slot.dataset.loaded) {
-        slot.dataset.loaded = '1';
-        fetch('/api/benchmarks/about', {headers:{'HX-Request':'true'}})
+        // Marked loaded only on success, so a failed load is tried again
+        // on the next open.
+        apiCall('/api/benchmarks/about', {headers:{'HX-Request':'true'}}, 'Loading the benchmark help failed')
             .then(function(r){ return r.text(); })
-            .then(function(html){ slot.innerHTML = html; });
+            .then(function(html){ slot.innerHTML = html; slot.dataset.loaded = '1'; })
+            .catch(function(){});
     }
     dialog.showModal();
 }

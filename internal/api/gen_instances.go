@@ -608,7 +608,7 @@ func (s *Server) autoStartGenInstances(afterRouter bool) {
 			continue
 		}
 		if err := s.startGenInstance(inst.ID); err != nil {
-			slog.Warn("generation instance auto-start failed", "instance", inst.ID, "error", err)
+			slog.Warn("failed to auto-start a generation instance", "instance", inst.ID, "error", err)
 		} else {
 			slog.Info("auto-started generation instance", "instance", inst.ID)
 		}

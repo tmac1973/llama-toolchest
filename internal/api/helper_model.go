@@ -48,13 +48,13 @@ func (s *Server) adoptExistingHelper() {
 		return
 	}
 	if err := s.registry.SetHelperRole(m.ID, true); err != nil {
-		slog.Warn("could not mark the installed helper model", "model", m.ID, "error", err)
+		slog.Warn("failed to mark the installed helper model", "model", m.ID, "error", err)
 		return
 	}
 	// Put it on the fixed settings straight away, so what is stored
 	// matches what the Models page says about it.
 	if _, err := s.ensureHelperConfig(m.ID); err != nil {
-		slog.Warn("could not set the helper model's settings", "model", m.ID, "error", err)
+		slog.Warn("failed to set the helper model's settings", "model", m.ID, "error", err)
 	}
 	slog.Info("marked the installed recommended model as the helper model", "model", m.ID)
 }
@@ -125,7 +125,7 @@ func (b *helperBackend) Prepare(ctx context.Context, id string) (llmcall.Target,
 	case needRestart || !s.routerKnows(routerName, m):
 		slog.Info("restarting the router so it can load the helper model", "model", id)
 		if err := s.process.Stop(); err != nil {
-			slog.Debug("stop before helper restart", "error", err)
+			slog.Warn("failed to stop the router before the helper restart", "error", err)
 		}
 		if err := s.startRouter(); err != nil {
 			return llmcall.Target{}, fmt.Errorf("restarting the server for the helper model: %w", err)
@@ -184,7 +184,7 @@ func (s *Server) waitForRouterModel(ctx context.Context, routerName string, m *m
 		knows: func() bool { return s.routerKnows(routerName, m) },
 		restart: func() error {
 			if err := s.process.Stop(); err != nil {
-				slog.Debug("stop before helper restart", "error", err)
+				slog.Warn("failed to stop the router before the helper restart", "error", err)
 			}
 			return s.startRouter()
 		},
@@ -309,7 +309,7 @@ func (s *Server) unloadHelper(id string) {
 		return
 	}
 	if err := s.process.UnloadModel(s.registry.RouterName(id)); err != nil {
-		slog.Warn("could not unload the helper model", "model", id, "error", err)
+		slog.Warn("failed to unload the helper model", "model", id, "error", err)
 	}
 }
 
@@ -323,17 +323,17 @@ func (s *Server) claimDownloadedHelper(m *models.Model) {
 		return
 	}
 	if err := s.registry.SetHelperRole(m.ID, true); err != nil {
-		slog.Warn("could not mark the downloaded helper model", "model", m.ID, "error", err)
+		slog.Warn("failed to mark the downloaded helper model", "model", m.ID, "error", err)
 		return
 	}
 	s.cfgMu.Lock()
 	s.cfg.PendingHelper = ""
 	if err := s.saveConfigLocked(); err != nil {
-		slog.Warn("could not save that the helper model download finished", "error", err)
+		slog.Warn("failed to save that the helper model download finished", "error", err)
 	}
 	s.cfgMu.Unlock()
 	if _, err := s.ensureHelperConfig(m.ID); err != nil {
-		slog.Warn("could not set the helper model's settings", "model", m.ID, "error", err)
+		slog.Warn("failed to set the helper model's settings", "model", m.ID, "error", err)
 	}
 	slog.Info("helper model installed", "model", m.ID)
 }
@@ -445,7 +445,7 @@ func (s *Server) handleDownloadHelperModel(w http.ResponseWriter, r *http.Reques
 	s.cfgMu.Lock()
 	s.cfg.PendingHelper = defaultHelperRepo + "|" + f.Filename
 	if err := s.saveConfigLocked(); err != nil {
-		slog.Warn("could not save the pending helper model download", "error", err)
+		slog.Warn("failed to save the pending helper model download", "error", err)
 	}
 	s.cfgMu.Unlock()
 	if _, err := s.downloader.Start(context.Background(), modelsource.SourceHuggingFace, defaultHelperRepo, f.Filename, f.Size); err != nil {

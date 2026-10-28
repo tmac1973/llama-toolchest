@@ -378,37 +378,14 @@ document.getElementById('gen-log-dialog').addEventListener('close', function() {
 
 <script>
 // --- Copy the value from a button's data-copy to clipboard (flash a check) ---
-// Falls back to a hidden textarea + execCommand when the async clipboard API
-// is unavailable (non-secure contexts — HTTP on a LAN IP, etc).
-async function copyFromButton(btn) {
-    var text = btn.dataset.copy || '';
-    var flashCheck = function() {
+// copyToClipboard (log-panel.js) falls back to a hidden textarea when the
+// async clipboard API is unavailable (HTTP on a LAN address, etc).
+function copyFromButton(btn) {
+    copyToClipboard(btn.dataset.copy || '').then(function() {
         var originalIcon = btn.dataset.icon;
         btn.innerHTML = btn.dataset.iconCheck;
         setTimeout(function(){ btn.innerHTML = originalIcon; }, 900);
-    };
-    var fallback = function() {
-        var ta = document.createElement('textarea');
-        ta.value = text;
-        ta.setAttribute('readonly', '');
-        ta.style.position = 'fixed';
-        ta.style.top = '-9999px';
-        document.body.appendChild(ta);
-        ta.select();
-        try { document.execCommand('copy'); } catch (e) {}
-        document.body.removeChild(ta);
-        flashCheck();
-    };
-    if (navigator.clipboard && window.isSecureContext) {
-        try {
-            await navigator.clipboard.writeText(text);
-            flashCheck();
-        } catch (e) {
-            fallback();
-        }
-    } else {
-        fallback();
-    }
+    }).catch(function() {});
 }
 
 // --- Clear "Settings saved." confirmation after a moment ---
@@ -426,7 +403,7 @@ function openAgentConfigs() {
     var dialog = document.getElementById('agent-configs-dialog');
     var slot = document.getElementById('agent-configs-slot');
     slot.innerHTML = 'Loading…';
-    fetch('/api/agent-configs', {headers: {'HX-Request': 'true'}})
+    apiCall('/api/agent-configs', {headers: {'HX-Request': 'true'}}, 'Loading the agent configs failed')
         .then(function(r) { return r.text(); })
         .then(function(html) { slot.innerHTML = html; htmx.process(slot); })
         .catch(function() { slot.textContent = 'Could not load the agent configs.'; });
@@ -506,12 +483,8 @@ async function restartServer(btn) {
     // --- Server log stream ---
     var logSSE = new EventSource('/api/service/logs');
     logSSE.onmessage = function(e) {
-        var pre = document.getElementById('service-logs');
-        pre.textContent += e.data;
-        var toggle = document.querySelector('.log-tail-toggle');
-        if (toggle && toggle.checked) {
-            pre.scrollTop = pre.scrollHeight;
-        }
+        // The log panel (log-panel.js) scrolls when live tail is on.
+        document.getElementById('service-logs').textContent += e.data;
     };
     logSSE.addEventListener('done', function() {
         logSSE.close();

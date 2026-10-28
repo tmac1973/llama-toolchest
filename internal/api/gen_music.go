@@ -526,9 +526,9 @@ func (s *Server) checkMusic(inst generation.Instance, req musicRequest, captionF
 // "audio" and "ref_audio" parts, the names ace-server's /synth uses.
 func readMusicRequest(w http.ResponseWriter, r *http.Request) (musicRequest, error) {
 	var req musicRequest
-	if !strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/") {
+	if !isMultipartForm(r) {
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, musicJSONLimit)).Decode(&req); err != nil {
-			return req, errors.New("the body is not valid JSON: " + err.Error())
+			return req, fmt.Errorf("the body is not valid JSON: %w", err)
 		}
 		req.SourceAudio, req.ReferenceAudio = false, false
 		return req, nil
@@ -549,7 +549,7 @@ func readMusicRequest(w http.ResponseWriter, r *http.Request) (musicRequest, err
 		}
 	}
 	if err := json.Unmarshal([]byte(raw), &req); err != nil {
-		return req, errors.New("the request part is not valid JSON: " + err.Error())
+		return req, fmt.Errorf("the request part is not valid JSON: %w", err)
 	}
 	req.source, req.ref, err = musicUploads(form, []string{"audio"}, []string{"ref_audio"})
 	req.SourceAudio, req.ReferenceAudio = req.source != nil, req.ref != nil
@@ -762,12 +762,12 @@ type releaseTaskRequest struct {
 func readReleaseTask(w http.ResponseWriter, r *http.Request) (releaseTaskRequest, *aceFile, *aceFile, int, error) {
 	var in releaseTaskRequest
 	ct := r.Header.Get("Content-Type")
-	if !strings.HasPrefix(ct, "multipart/form-data") {
-		if ct != "" && !strings.HasPrefix(ct, "application/json") {
+	if !isMultipartForm(r) {
+		if ct != "" && !isJSONContentType(ct) {
 			return in, nil, nil, http.StatusUnsupportedMediaType, errors.New("send the request as JSON or multipart/form-data")
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, musicJSONLimit)).Decode(&in); err != nil {
-			return in, nil, nil, http.StatusBadRequest, errors.New("the body is not valid JSON: " + err.Error())
+			return in, nil, nil, http.StatusBadRequest, fmt.Errorf("the body is not valid JSON: %w", err)
 		}
 		return in, nil, nil, 0, nil
 	}
