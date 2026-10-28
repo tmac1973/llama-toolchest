@@ -341,12 +341,18 @@ func TestPlanFitTakesWholeCardsWhenSharingSpills(t *testing.T) {
 // layers on the CPU. A whole-card plan with every layer on the GPUs at a
 // shorter context wins: the CPU is the last resort, as in PlanFit.
 func TestPlanFitPrefersGPUOverContextOnWholeCards(t *testing.T) {
-	m := dense32()
+	// 36 GiB with a large KV cache: on the whole cards every layer fits
+	// only at a shortened context.
+	m := &Model{SizeBytes: 36 << 30, NLayers: 64, NEmbd: 5120, NHead: 40, NKVHead: 8,
+		ContextLength: 262144, KVFullPerTok: 98304}
 	hw := evictAll(compute2Reserved())
 	shared := PlanFit(m, DefaultConfig(), compute2Reserved(), ContextMax)
 	r := PlanFit(m, DefaultConfig(), hw, ContextMax)
 	if shared.CPURAMGiB < 0.5 {
 		t.Fatalf("the shared plan was expected to use system memory; it keeps %.1f GiB there", shared.CPURAMGiB)
+	}
+	if whole, _ := WholeCards(hw); planFit(m, DefaultConfig(), whole, ContextMax).Config.ContextSize >= m.ContextLength {
+		t.Fatal("the test model fits the whole cards at its full context; it cannot tell the rules apart")
 	}
 	if !r.Fits || r.CPURAMGiB > 0.05 || r.Config.GPULayers != 999 {
 		t.Errorf("with auto-evict at the longest context: layers %d, %.1f GiB in system memory, context %d; want every layer on the GPUs",
