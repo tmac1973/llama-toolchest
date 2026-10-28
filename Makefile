@@ -82,7 +82,7 @@ scrape-sampling-presets:
 .PHONY: js-test
 js-test:
 	@command -v node >/dev/null || { echo "node is required for js-test"; exit 1; }
-	go test ./internal/api/ -run 'TestParameterControlsJS|TestVisualizeMetricFilterJS|TestModelsPageListenersJS|TestErrorNoticeJS' -v
+	go test ./internal/api/ -run 'TestParameterControlsJS|TestVisualizeMetricFilterJS|TestModelsPageListenersJS|TestErrorNoticeJS|TestLiveStreamJS' -v
 
 # Plain-bash tests for the installer libraries in scripts/lib/ (scope and
 # path helpers, version and port parsing, package name choice, migration

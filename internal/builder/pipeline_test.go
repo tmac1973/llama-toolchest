@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/testutil"
 )
@@ -383,4 +384,45 @@ func TestDeleteRemovesRecordAndFiles(t *testing.T) {
 	if len(b.ListAll()) != 1 {
 		t.Errorf("a failed Delete changed the list: %v", b.ListAll())
 	}
+}
+
+// Deleting a build that is still running stops it and ends its log
+// streams. Before, the build ran on and a page showing its log kept its
+// connection open until the build finished — which held one of the
+// browser's few connections to the server.
+func TestDeleteStopsARunningBuildAndEndsItsLogStreams(t *testing.T) {
+	dataDir, _, _ := covBuildSetup(t, "", "#!/bin/sh\necho 'ninja started'\nexec sleep 60\n")
+	b := NewBuilder(dataDir)
+	res, err := b.Build(context.Background(), "cpu", "b2", "", false, nil, "", "")
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	testutil.EventuallyMsg(t, func() bool {
+		return slices.Contains(covBuildLog(b, res.ID), "ninja started")
+	}, func() string { return "ninja did not start; log: " + strings.Join(covBuildLog(b, res.ID), " | ") })
+
+	sub := b.SubscribeLogs(res.ID)
+	if sub == nil {
+		t.Fatal("no log stream for the running build")
+	}
+	if err := b.Delete(res.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	deadline := time.After(5 * time.Second)
+	for open := true; open; {
+		select {
+		case _, open = <-sub:
+		case <-deadline:
+			t.Fatal("the log stream stayed open after the build was deleted")
+		}
+	}
+	if b.SubscribeLogs(res.ID) != nil {
+		t.Error("a deleted build still offers a log stream")
+	}
+	testutil.EventuallyMsg(t, func() bool {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		return len(b.runs) == 0
+	}, func() string { return "the deleted build was not stopped" })
 }

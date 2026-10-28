@@ -2,9 +2,8 @@
 <td colspan="6">
     <div style="display:flex; align-items:center; gap:0.75rem;">
         <div style="flex:1;"
-             hx-ext="sse"
-             sse-connect="/api/hf/download/{{.DownloadID}}/progress"
-             sse-swap="progress"
+             hx-get="/api/hf/download/{{.DownloadID}}/progress"
+             hx-trigger="every 2s"
              hx-swap="innerHTML">
             <progress></progress>
             <small>Downloading {{.Filename}}...</small>
