@@ -740,6 +740,11 @@ func (r *Runner) sendCompletionWithTimings(ctx context.Context, routerURL, model
 		})
 		defer idle.Stop()
 		timings, err = readStreamTimings(resp.Body, func() { idle.Reset(wait) })
+		if err == nil && timings == nil {
+			// The headers went out, so the request had started: a reply
+			// that stops short of its last message was cut off.
+			err = errors.New("the reply ended before it was finished; llama-server probably crashed (its log on the Server page says why)")
+		}
 	} else {
 		// A server that answers in one piece despite the stream request.
 		timings, err = readTimings(resp.Body)

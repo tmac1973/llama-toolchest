@@ -118,3 +118,18 @@ func TestStalledRequestEndsTheCell(t *testing.T) {
 		t.Errorf("hung server sent %d benchmark requests, want 2", router.stalled)
 	}
 }
+
+// A server that dies mid-reply is named as a likely crash, not as a reply
+// without timings.
+func TestStreamCutOffReadsAsCrash(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, `data: {"choices":[{"delta":{"content":"def"}}]}`+"\n\n")
+	}))
+	t.Cleanup(srv.Close)
+	r := &Runner{}
+	_, err := r.sendCompletionWithTimings(context.Background(), srv.URL, "m", 64, 16, 1, SamplingParams{}, "", promptOptions{})
+	if err == nil || !strings.Contains(err.Error(), "probably crashed") {
+		t.Errorf("err = %v, want the crash message", err)
+	}
+}
