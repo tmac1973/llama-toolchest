@@ -11,11 +11,24 @@ name: ci
 # which the tests use. Go and Node come from the setup actions, and
 # setup-go caches the Go module and build caches between runs.
 
+# A change that touches only documentation runs nothing: paths-ignore
+# skips the workflow when every changed file matches. A change that also
+# touches code runs all of it.
 on:
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "audits/**"
+      - "plan/**"
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "audits/**"
+      - "plan/**"
 
 permissions:
   contents: read
