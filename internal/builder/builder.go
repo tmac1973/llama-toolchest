@@ -945,7 +945,18 @@ func (b *Builder) checkoutRef(ctx context.Context, proj Project, srcDir string, 
 	// (e.g. a checkout interrupted by a restart, which leaves the tree
 	// half-updated) can't block future builds with "Please commit your
 	// changes or stash them".
-	if err := b.runCmd(ctx, srcDir, logCh, "", nil, "git", "checkout", "--force", ref); err != nil {
+	//
+	// A branch name such as "master" must build the tip ensureRepo just
+	// fetched. A plain checkout would pick up a local branch of that name
+	// instead, and the clone's local branches never move: one left behind
+	// by the original clone built months-old code. So when origin has the
+	// branch, reset the local branch to it (-B) before checking it out.
+	// Tags win over branches of the same name, as they do for git.
+	args := []string{"checkout", "--force", ref}
+	if !refExists(ctx, srcDir, "refs/tags/"+ref) && refExists(ctx, srcDir, "refs/remotes/origin/"+ref) {
+		args = []string{"checkout", "--force", "-B", ref, "origin/" + ref}
+	}
+	if err := b.runCmd(ctx, srcDir, logCh, "", nil, "git", args...); err != nil {
 		return "", "", 0, err
 	}
 	if proj.Submodules {
@@ -970,6 +981,12 @@ func (b *Builder) checkoutRef(ctx context.Context, proj Project, srcDir string, 
 		slog.Warn("counting commits failed; build will rank by ref only", "ref", ref, "error", err)
 	}
 	return ref, sha, count, nil
+}
+
+// refExists reports whether the fully qualified ref (refs/tags/...,
+// refs/remotes/...) exists in srcDir.
+func refExists(ctx context.Context, srcDir, ref string) bool {
+	return exec.CommandContext(ctx, "git", "-C", srcDir, "rev-parse", "--verify", "--quiet", ref+"^{commit}").Run() == nil
 }
 
 // releaseTagRE matches the tag families llama.cpp releases under: bN nightlies
