@@ -164,17 +164,15 @@ func (s *Server) makeRoomForLLM(ctx context.Context, m *models.Model) (release f
 	if herr != nil {
 		return noop, herr
 	}
-	stopped := 0
 	for _, gpu := range short {
-		stopped += s.stopGenUntil(gpu, "", "loading "+m.PublicName(), func() bool {
+		s.stopGenUntil(gpu, "", "loading "+m.PublicName(), func() bool {
 			hw, need, _ := s.llmReservationNeed(m)
 			return !slices.Contains(s.reservationShortGPUs(hw, need), gpu)
 		})
 	}
-	if stopped == 0 {
-		release()
-		return noop, err
-	}
+	// Checked again whether or not anything was stopped: the hold waited
+	// for a job that was starting its backend, which may have failed to
+	// start, and then there is room with nothing to stop.
 	if err := s.checkLLMFitsReservations(m); err != nil {
 		release()
 		return noop, err

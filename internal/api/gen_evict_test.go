@@ -116,8 +116,10 @@ func TestMakeRoomForLLMStopsTheBackend(t *testing.T) {
 	if err := <-waited; err != nil {
 		t.Fatal(err)
 	}
+	ticket.Done()
 
-	// Stopped, the backend's reservation no longer counts against a load.
+	// Stopped, with no job of its own on the GPU, the backend's
+	// reservation no longer counts against a load.
 	if err := s.checkLLMFitsReservations(big); err != nil {
 		t.Errorf("with the backend stopped: %v", err)
 	}
@@ -229,5 +231,53 @@ func TestHardwareMarksEvictableReservations(t *testing.T) {
 	}
 	if room := models.RoomOf(s.idleHardware()); room.Whole == nil || room.Whole[0] <= room.Shared[0] {
 		t.Errorf("room = %+v, want more room on the whole card", room)
+	}
+}
+
+// A job starting a stopped backend has the GPU before the backend runs.
+// An LLM load arriving then (a chat waiting for the model the job just
+// unloaded) waits for the job instead of taking the room it needs.
+func TestMakeRoomForLLMWaitsForAStartingBackend(t *testing.T) {
+	s, big := evictServer(t)
+	s.cfg.GenEvict = true
+	if err := s.genMgr.Stop("ming"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.checkLLMFitsReservations(big); err != nil {
+		t.Fatalf("with the backend stopped and no job: %v", err)
+	}
+
+	ticket, err := s.genQueue.Submit(0, "ming", generation.KindSD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ticket.Wait(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.checkLLMFitsReservations(big); err == nil {
+		t.Fatal("a backend whose job has the GPU did not count against the load")
+	}
+
+	loaded := make(chan error, 1)
+	go func() {
+		release, err := s.makeRoomForLLM(context.Background(), big)
+		release()
+		loaded <- err
+	}()
+	select {
+	case err := <-loaded:
+		t.Fatalf("the load went ahead while the job had the GPU: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	// The job ends without its backend running (it failed to start):
+	// there is room again, with nothing to stop.
+	ticket.Done()
+	select {
+	case err := <-loaded:
+		if err != nil {
+			t.Errorf("load after the job ended: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the load did not go ahead after the job ended")
 	}
 }

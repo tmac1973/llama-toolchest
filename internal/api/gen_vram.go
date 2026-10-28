@@ -46,7 +46,9 @@ func (s *Server) genVRAMByGPU(exclude string) map[int]*genVRAM {
 }
 
 // genVRAM is genVRAMByGPU, leaving out the instances that are not
-// running when activeOnly is set, except those kept running.
+// running when activeOnly is set, except those kept running and those
+// whose job has the GPU (genJobHasGPU): a job may be starting its backend,
+// which is not running yet, and an LLM load must not take the room first.
 func (s *Server) genVRAM(exclude string, activeOnly bool) map[int]*genVRAM {
 	out := map[int]*genVRAM{}
 	if !s.generationOn() || s.gen == nil || s.genMgr == nil {
@@ -69,7 +71,7 @@ func (s *Server) genVRAM(exclude string, activeOnly bool) map[int]*genVRAM {
 		}
 		// A kept-running instance is never stopped to make room, so its
 		// reservation counts even while it is stopped.
-		if activeOnly && using == 0 && !s.genMgr.IsActive(inst.ID) && !inst.KeepRunning {
+		if activeOnly && using == 0 && !s.genMgr.IsActive(inst.ID) && !inst.KeepRunning && !s.genJobHasGPU(inst) {
 			continue
 		}
 		v := out[inst.GPU]
@@ -88,6 +90,16 @@ func (s *Server) genVRAM(exclude string, activeOnly bool) map[int]*genVRAM {
 		}
 	}
 	return out
+}
+
+// genJobHasGPU reports whether a job for inst has its GPU's turn: it is
+// starting the backend or running on it.
+func (s *Server) genJobHasGPU(inst generation.Instance) bool {
+	if s.genQueue == nil {
+		return false
+	}
+	r := s.genQueue.Snapshot(inst.GPU).Running
+	return r != nil && r.InstanceID == inst.ID
 }
 
 // applyGenVRAM folds the generation backends into the planner's view of
