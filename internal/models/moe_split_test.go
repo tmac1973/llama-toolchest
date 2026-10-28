@@ -401,3 +401,54 @@ func TestWholeCardsKeepsKeptRunningReservations(t *testing.T) {
 		t.Error("WholeCards changed the hardware it was given")
 	}
 }
+
+// qwen38Hybrid27B is Qwen3.8-27B at UD-Q8_K_XL as compute2's registry has
+// it: a hybrid model, 16 of 65 layers attention, the rest linear
+// attention with 0.146 GiB of state per conversation, and an MTP layer.
+func qwen38Hybrid27B() *Model {
+	return &Model{SizeBytes: 31457991680, NLayers: 65, AttnLayers: 16, NEmbd: 5120, NHead: 24, NKVHead: 4,
+		ContextLength: 262144, KVFullPerTok: 32768, RecurrentStateBytes: 156893184, NextNLayers: 1,
+		TokenEmbdBytes: 1350860800}
+}
+
+// With MTP's default of 16 drafted tokens, each keeping a copy of the
+// recurrent state, the 27B does not fit compute2's whole cards at 128K.
+// The plan drafts fewer tokens rather than running layers on the CPU.
+func TestPlanFitLowersDraftCountToFit(t *testing.T) {
+	SetVRAMBackend("cuda")
+	defer SetVRAMBackend("")
+	m := qwen38Hybrid27B()
+	base := DefaultConfig()
+	base.SpecType = "draft-mtp"
+	hw := evictAll(compute2Reserved())
+
+	r := PlanFit(m, base, hw, ContextLong)
+	if !r.Fits || r.Config.GPULayers != 999 || r.CPURAMGiB > 0.05 {
+		t.Fatalf("plan: layers %d, %.1f GiB in system memory; want every layer on the GPUs", r.Config.GPULayers, r.CPURAMGiB)
+	}
+	if r.Config.DraftMax <= 0 || r.Config.DraftMax >= specDraftTokens {
+		t.Errorf("draft max = %d, want fewer than llama.cpp's default %d", r.Config.DraftMax, specDraftTokens)
+	}
+	if r.Config.ContextSize != ContextClassTokens[ContextLong] {
+		t.Errorf("context = %d, want the requested %d kept", r.Config.ContextSize, ContextClassTokens[ContextLong])
+	}
+	said := false
+	for _, n := range r.Notes {
+		said = said || (n.Field == "draft_max" && strings.Contains(n.Reason, "instead of 16"))
+	}
+	if !said {
+		t.Errorf("no note explains the draft count: %+v", r.Notes)
+	}
+	assertOneNotePerChange(t, base, r)
+
+	// A draft count the user set that already fits is kept.
+	base.DraftMax = 4
+	if r := PlanFit(m, base, hw, ContextLong); r.Config.DraftMax != 4 {
+		t.Errorf("draft max 4 that fits became %d", r.Config.DraftMax)
+	}
+	// Without speculative decoding nothing is set.
+	base.SpecType, base.DraftMax = "", 0
+	if r := PlanFit(m, base, hw, ContextLong); r.Config.DraftMax != 0 {
+		t.Errorf("a plan without a drafter set draft max %d", r.Config.DraftMax)
+	}
+}
