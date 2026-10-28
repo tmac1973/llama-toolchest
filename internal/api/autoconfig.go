@@ -266,7 +266,7 @@ func (s *Server) handleAutoconfigStart(w http.ResponseWriter, r *http.Request) {
 		run.done, run.result, run.err = true, res, err
 		s.autoconf.mu.Unlock()
 		if err != nil {
-			slog.Warn("autoconfigure failed", "model", id, "error", err)
+			slog.Warn("failed to autoconfigure", "model", id, "error", err)
 		}
 	}()
 

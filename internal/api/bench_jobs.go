@@ -1072,8 +1072,7 @@ type jobBulkDeleteResponse struct {
 //     stage jobs up as it moves on.
 func (s *Server) handleBulkDeleteJobs(w http.ResponseWriter, r *http.Request) {
 	var req jobBulkDeleteRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 	if len(req.IDs) == 0 {

@@ -210,7 +210,7 @@ func (s *Server) stopGenUntil(gpu int, except, reason string, fits func() bool) 
 		inst, share := c.inst, c.share
 		before := s.gpuUsedMiB(gpu)
 		if err := s.genMgr.Stop(inst.ID); err != nil {
-			slog.Warn("could not stop generation backend to make room", "instance", inst.ID, "error", err)
+			slog.Warn("failed to stop generation backend to make room", "instance", inst.ID, "error", err)
 			continue
 		}
 		slog.Info("stopped generation backend to make room", "instance", inst.ID, "gpu", gpu, "for", reason)

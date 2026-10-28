@@ -575,7 +575,7 @@ func secondsPerCell(job *benchmark.BenchmarkJob) float64 {
 
 func (r *Runner) save(rec *Autotune) error {
 	if err := r.deps.Store.Save(rec); err != nil {
-		slog.Warn("could not save the autotune record", "run", rec.ID, "error", err)
+		slog.Warn("failed to save the autotune record", "run", rec.ID, "error", err)
 		return err
 	}
 	return nil
@@ -636,7 +636,7 @@ func (r *Runner) conclude(rec *Autotune) {
 		winner := byKey[key]
 		name := profileName(goals)
 		if err := r.saveProfile(rec, name, winner, baseline, goals, false); err != nil {
-			slog.Warn("could not save an autotune profile", "run", rec.ID, "profile", name, "error", err)
+			slog.Warn("failed to save an autotune profile", "run", rec.ID, "profile", name, "error", err)
 			rec.Error = "the results were measured, but a profile could not be saved: " + err.Error()
 			continue
 		}

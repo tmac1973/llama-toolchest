@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -287,7 +286,7 @@ func (s *Server) handleImageJobCreate(w http.ResponseWriter, r *http.Request) {
 		writeNotEnabled(w, "image")
 		return
 	}
-	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt == "multipart/form-data" {
+	if isMultipartForm(r) {
 		openAIError(w, http.StatusBadRequest, "invalid_request_error", "bad_request", "image jobs take JSON")
 		return
 	}

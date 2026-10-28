@@ -274,7 +274,7 @@ func (e *jobEnv) ClaimGPUs(ctx context.Context, modelID string, cfg benchmark.Co
 	}
 	m, err := s.registry.Get(modelID)
 	if err != nil || m == nil {
-		return nil, fmt.Errorf("resolve model %s: %v", modelID, err)
+		return nil, fmt.Errorf("resolve model %s: %w", modelID, err)
 	}
 	saved, err := s.registry.GetConfig(modelID)
 	if err != nil {

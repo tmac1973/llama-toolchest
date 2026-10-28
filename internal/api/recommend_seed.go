@@ -67,7 +67,7 @@ func (s *Server) seedFromRecommendation(id string, class models.ContextClass) {
 	})
 	switch {
 	case err != nil:
-		slog.Warn("could not apply the recommended settings", "model", id, "error", err)
+		slog.Warn("failed to apply the recommended settings", "model", id, "error", err)
 	case seeded:
 		slog.Info("applied the recommended settings", "model", id, "context", p.ContextSize, "kv", p.KVCacheQuant, "cpu_moe", p.CPUMoE)
 	}

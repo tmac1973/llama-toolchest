@@ -17,7 +17,6 @@ import (
 	"io"
 	"log/slog"
 	"math"
-	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -152,7 +151,7 @@ func readVideoInput(r *http.Request) (videoInput, *requestError) {
 		var mbe *http.MaxBytesError
 		return errors.As(err, &mbe)
 	}
-	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt == "multipart/form-data" {
+	if isMultipartForm(r) {
 		if err := r.ParseMultipartForm(32 << 20); err != nil {
 			if tooLarge(err) {
 				return in, tooLargeError()

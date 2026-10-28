@@ -105,6 +105,6 @@ func (c *MetaCache) Put(key string, m *models.GGUFMeta) {
 	// Caching is best effort: the copy in memory still serves this run.
 	path := filepath.Join(c.dir, key)
 	if err := atomicfile.Write(path, data); err != nil {
-		slog.Warn("meta cache write failed", "path", path, "error", err)
+		slog.Warn("failed to write the meta cache", "path", path, "error", err)
 	}
 }

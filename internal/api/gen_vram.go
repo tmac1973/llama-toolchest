@@ -511,7 +511,7 @@ func (s *Server) handleGenMeasure(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer s.genMgr.SetMeasuring(inst.ID, false)
 		if err := s.measureInstance(inst.ID, startAfter, size); err != nil {
-			slog.Warn("generation instance measurement failed", "instance", inst.ID, "error", err)
+			slog.Warn("failed to measure a generation instance", "instance", inst.ID, "error", err)
 			s.genMeasure.set(inst.ID, measureOutcome{Err: err.Error(), At: time.Now()})
 			return
 		}

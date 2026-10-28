@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"mime"
 	"net/http"
 	"strings"
 )
@@ -27,6 +28,13 @@ func isHTMX(r *http.Request) bool {
 // suffix, so "application/json; charset=utf-8" is not read as a form.
 func isJSONRequest(r *http.Request) bool {
 	return isJSONContentType(r.Header.Get("Content-Type"))
+}
+
+// isMultipartForm reports whether the request body is a multipart form
+// (multipart/form-data, with any parameters such as its boundary).
+func isMultipartForm(r *http.Request) bool {
+	mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	return mt == "multipart/form-data"
 }
 
 // decodeJSONBody decodes the request body into v. On failure it answers

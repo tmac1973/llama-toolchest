@@ -148,7 +148,7 @@ func (s *Supervisor) Start(cfg SupervisorConfig) error {
 	go s.monitorProcess(cmd, out, done)
 	go s.pollHealth(cfg)
 
-	slog.Info(cfg.Name+" started", "pid", cmd.Process.Pid)
+	slog.Info("process started", "name", cfg.Name, "pid", cmd.Process.Pid)
 	return nil
 }
 
@@ -167,7 +167,7 @@ func (s *Supervisor) Stop() error {
 	s.mu.Unlock()
 
 	if err := terminate(cmd.Process); err != nil {
-		slog.Debug("terminate failed", "error", err)
+		slog.Warn("failed to send SIGTERM", "name", s.label, "error", err)
 	}
 
 	select {
@@ -187,7 +187,7 @@ func (s *Supervisor) Stop() error {
 	s.mu.Unlock()
 
 	s.broadcast("==> " + s.label + " stopped")
-	slog.Info(cfg.Name + " stopped")
+	slog.Info("process stopped", "name", cfg.Name)
 	return nil
 }
 
@@ -203,7 +203,7 @@ func (s *Supervisor) Restart() error {
 	cfgCopy := *cfg
 
 	if err := s.Stop(); err != nil {
-		slog.Debug("stop during restart", "error", err)
+		slog.Warn("failed to stop before restart", "name", s.label, "error", err)
 	}
 
 	time.Sleep(500 * time.Millisecond)
