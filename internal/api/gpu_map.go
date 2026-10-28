@@ -94,11 +94,13 @@ func (s *Server) gpuMapAllocations(numGPUs int) []models.GPUAllocation {
 	}
 
 	// Each model as its launch splits it: by the cards' room, beside the
-	// generation reservations, as the preset was written (targetFor).
-	gpuMiB := models.GPUMiB(s.idleHardware())
-	if len(gpuMiB) != numGPUs {
-		gpuMiB = make([]int, numGPUs)
+	// generation reservations or, for a model that does not fit beside
+	// them with auto-evict on, on the whole cards, as the preset was
+	// written (targetFor).
+	room := models.RoomOf(s.idleHardware())
+	if len(room.Shared) != numGPUs {
+		room = models.CardRoom{Shared: make([]int, numGPUs)}
 	}
-	allocations := models.ComputeAllocationsOn(allModels, allConfigs, gpuMiB)
+	allocations := models.ComputeAllocationsOn(allModels, allConfigs, room)
 	return append(allocations, s.genReservationAllocations(len(allocations))...)
 }

@@ -23,7 +23,13 @@ type Target struct {
 	// keeps experts in system memory be given a split balanced by size
 	// (MoESplitConfig); without it llama.cpp's own split by count is used.
 	GPUMiB []int
+	// WholeGPUMiB is GPUMiB with the reservations auto-evict may take back
+	// given to the model (CardRoom.Whole); nil when it may take none.
+	WholeGPUMiB []int
 }
+
+// Room is t's CardRoom.
+func (t Target) Room() CardRoom { return CardRoom{Shared: t.GPUMiB, Whole: t.WholeGPUMiB} }
 
 // Where the options below changed upstream, as the first release tag
 // with each change. Checked against llama.cpp's own history.

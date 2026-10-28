@@ -619,7 +619,8 @@ func (s *Server) activeTarget() models.Target {
 // the room the cards have then.
 func (s *Server) targetFor(b *builder.BuildResult) models.Target {
 	t := buildTarget(b)
-	t.GPUMiB = models.GPUMiB(s.idleHardware())
+	room := models.RoomOf(s.idleHardware())
+	t.GPUMiB, t.WholeGPUMiB = room.Shared, room.Whole
 	return t
 }
 

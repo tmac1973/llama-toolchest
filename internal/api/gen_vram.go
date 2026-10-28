@@ -33,6 +33,9 @@ type genVRAM struct {
 	Using int
 	// Names lists each reserving instance and its share, for messages.
 	Names []string
+	// Evictable is the part of Reserved held by instances a loading LLM
+	// may stop: every one not kept running.
+	Evictable int
 }
 
 // genVRAMByGPU sums the generation backends' memory per GPU index,
@@ -43,7 +46,9 @@ func (s *Server) genVRAMByGPU(exclude string) map[int]*genVRAM {
 }
 
 // genVRAM is genVRAMByGPU, leaving out the instances that are not
-// running when activeOnly is set, except those kept running.
+// running when activeOnly is set, except those kept running and those
+// whose job has the GPU (genJobHasGPU): a job may be starting its backend,
+// which is not running yet, and an LLM load must not take the room first.
 func (s *Server) genVRAM(exclude string, activeOnly bool) map[int]*genVRAM {
 	out := map[int]*genVRAM{}
 	if !s.generationOn() || s.gen == nil || s.genMgr == nil {
@@ -66,7 +71,7 @@ func (s *Server) genVRAM(exclude string, activeOnly bool) map[int]*genVRAM {
 		}
 		// A kept-running instance is never stopped to make room, so its
 		// reservation counts even while it is stopped.
-		if activeOnly && using == 0 && !s.genMgr.IsActive(inst.ID) && !inst.KeepRunning {
+		if activeOnly && using == 0 && !s.genMgr.IsActive(inst.ID) && !inst.KeepRunning && !s.genJobHasGPU(inst) {
 			continue
 		}
 		v := out[inst.GPU]
@@ -79,20 +84,40 @@ func (s *Server) genVRAM(exclude string, activeOnly bool) map[int]*genVRAM {
 		if inst.Enabled || using > 0 {
 			v.Reserved += share
 			v.Names = append(v.Names, fmt.Sprintf("%s %s", inst.Name, mibText(share)))
+			if !inst.KeepRunning {
+				v.Evictable += share
+			}
 		}
 	}
 	return out
 }
 
+// genJobHasGPU reports whether a job for inst has its GPU's turn: it is
+// starting the backend or running on it.
+func (s *Server) genJobHasGPU(inst generation.Instance) bool {
+	if s.genQueue == nil {
+		return false
+	}
+	r := s.genQueue.Snapshot(inst.GPU).Running
+	return r != nil && r.InstanceID == inst.ID
+}
+
 // applyGenVRAM folds the generation backends into the planner's view of
 // the GPUs: what they use leaves "other programs", and what they reserve
-// is set apart. With generation backends off this changes nothing.
+// is set apart. With auto-evict on, the part a loading model may take
+// back is marked, so a model that does not fit beside it is planned on
+// the whole cards (models.PlanFit, models.CardRoom). With generation
+// backends off this changes nothing.
 func (s *Server) applyGenVRAM(hw *models.Hardware) {
 	byGPU := s.genVRAMByGPU("")
+	evict := s.genEvictOn()
 	for i := range hw.GPUs {
 		if v := byGPU[hw.GPUs[i].Index]; v != nil {
 			hw.GPUs[i].OtherUsedMiB = max(0, hw.GPUs[i].OtherUsedMiB-v.Using)
 			hw.GPUs[i].ReservedMiB = v.Reserved
+			if evict {
+				hw.GPUs[i].EvictableMiB = v.Evictable
+			}
 		}
 	}
 }
@@ -103,9 +128,9 @@ func (s *Server) applyGenVRAM(hw *models.Hardware) {
 // model is replaced by the new one. gpuMiB is each GPU's room
 // (models.GPUMiB), which decides how a model is split over the cards:
 // from idleHardware, the room the preset was balanced for.
-func (s *Server) loadedLLMMiB(gpuMiB []int, extraID string, skipLoaded bool) map[int]int {
+func (s *Server) loadedLLMMiB(room models.CardRoom, extraID string, skipLoaded bool) map[int]int {
 	out := map[int]int{}
-	if len(gpuMiB) == 0 {
+	if len(room.Shared) == 0 {
 		return out
 	}
 	add := func(id string) {
@@ -117,7 +142,7 @@ func (s *Server) loadedLLMMiB(gpuMiB []int, extraID string, skipLoaded bool) map
 		if err != nil {
 			return
 		}
-		addLLMMiB(out, m, cfg, gpuMiB)
+		addLLMMiB(out, m, cfg, room)
 	}
 	if !skipLoaded && s.process.IsRunning() {
 		if list, err := s.process.ListModels(); err == nil {
@@ -141,8 +166,8 @@ func (s *Server) loadedLLMMiB(gpuMiB []int, extraID string, skipLoaded bool) map
 // split over the cards the way its launch will split it (see
 // models.CardLoadsMiB): by each card's room where that differs, so a card
 // with a generation reservation is given less.
-func addLLMMiB(out map[int]int, m *models.Model, cfg *models.ModelConfig, gpuMiB []int) {
-	for g, mib := range models.CardLoadsMiB(m, cfg, gpuMiB) {
+func addLLMMiB(out map[int]int, m *models.Model, cfg *models.ModelConfig, room models.CardRoom) {
+	for g, mib := range models.CardLoadsMiB(m, cfg, room.For(m, cfg)) {
 		out[g] += mib
 	}
 }
@@ -176,7 +201,7 @@ func (s *Server) genFitCheck(inst generation.Instance, reserveMiB int) error {
 		otherNames = others.Names
 	}
 	budget := models.CardBudgetMiB(spec)
-	llm := s.loadedLLMMiB(models.GPUMiB(s.idleHardware()), "", false)[inst.GPU]
+	llm := s.loadedLLMMiB(models.RoomOf(s.idleHardware()), "", false)[inst.GPU]
 	if llm+reserveMiB <= budget {
 		return nil
 	}
@@ -222,7 +247,7 @@ func (s *Server) llmReservationNeed(m *models.Model) (hw models.Hardware, need m
 	if !replacing {
 		hw = s.hardware()
 	}
-	return hw, s.loadedLLMMiB(models.GPUMiB(idle), m.ID, replacing), replacing
+	return hw, s.loadedLLMMiB(models.RoomOf(idle), m.ID, replacing), replacing
 }
 
 // checkConfigFitsReservations is checkLLMFitsReservations for a benchmark
@@ -235,7 +260,7 @@ func (s *Server) checkConfigFitsReservations(m *models.Model, cfg *models.ModelC
 	}
 	hw := s.idleHardware()
 	need := map[int]int{}
-	addLLMMiB(need, m, cfg, models.GPUMiB(hw))
+	addLLMMiB(need, m, cfg, models.RoomOf(hw))
 	return s.reservationFitError(hw, need, false)
 }
 
@@ -359,7 +384,7 @@ func (s *Server) genBannerGPUs() []genBannerGPU {
 	}
 	hw := s.idleHardware()
 	return bannerGPUs(hw.GPUs, func(gpu int) bool { return s.genQueue.Snapshot(gpu).Running != nil },
-		s.loadedLLMMiB(models.GPUMiB(hw), "", false))
+		s.loadedLLMMiB(models.RoomOf(hw), "", false))
 }
 
 // bannerGPUs picks the GPUs with a generation job running and LLM memory
@@ -997,7 +1022,7 @@ func (s *Server) genRoomMiB(inst generation.Instance) (room int, ok bool) {
 		if others := s.genFitVRAMByGPU(inst.ID)[inst.GPU]; others != nil {
 			spec.ReservedMiB = others.Reserved
 		}
-		llm := s.loadedLLMMiB(models.GPUMiB(s.idleHardware()), "", false)[inst.GPU]
+		llm := s.loadedLLMMiB(models.RoomOf(s.idleHardware()), "", false)[inst.GPU]
 		return max(0, models.CardBudgetMiB(spec)-llm), true
 	}
 	return 0, false

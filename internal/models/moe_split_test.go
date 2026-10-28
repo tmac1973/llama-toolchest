@@ -1,6 +1,7 @@
 package models
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -258,7 +259,7 @@ func TestAllocationsFollowTheSplit(t *testing.T) {
 	hw := compute2Reserved()
 	cfg := PlanFit(m, DefaultConfig(), hw, ContextMedium).Config
 	cfg.Enabled = true
-	allocs := ComputeAllocationsOn([]*Model{m}, map[string]*ModelConfig{m.ID: &cfg}, GPUMiB(hw))
+	allocs := ComputeAllocationsOn([]*Model{m}, map[string]*ModelConfig{m.ID: &cfg}, RoomOf(hw))
 	if len(allocs) != 1 || allocs[0].GPULoadGB == nil {
 		t.Fatalf("allocations = %+v, want per-card shares", allocs)
 	}
@@ -279,5 +280,175 @@ func TestAllocationsFollowTheSplit(t *testing.T) {
 	even := ComputeAllocations([]*Model{m}, map[string]*ModelConfig{m.ID: &cfg}, 3)
 	if even[0].GPULoadGB != nil {
 		t.Error("an allocation without card budgets got per-card shares")
+	}
+}
+
+// dense32 is a dense 32 GiB model, the size of a 27B at 8 bits: too big
+// for compute2 beside its reservations, small enough for the whole cards.
+func dense32() *Model {
+	return &Model{SizeBytes: 32 << 30, NLayers: 64, NEmbd: 5120, NHead: 40, NKVHead: 8,
+		ContextLength: 131072, KVFullPerTok: 8192}
+}
+
+// evictAll marks every reservation on hw as one a loading model may take
+// back, as auto-evict does for backends not kept running.
+func evictAll(hw Hardware) Hardware {
+	for i := range hw.GPUs {
+		hw.GPUs[i].EvictableMiB = hw.GPUs[i].ReservedMiB
+	}
+	return hw
+}
+
+// With auto-evict on, a model that would run partly from system memory
+// beside the reservations is planned on the whole cards, and its split
+// and load check use the whole cards too.
+func TestPlanFitTakesWholeCardsWhenSharingSpills(t *testing.T) {
+	m := dense32()
+	shared := PlanFit(m, DefaultConfig(), compute2Reserved(), ContextMedium)
+	if shared.CPURAMGiB < 0.5 {
+		t.Fatalf("without auto-evict the model was expected to spill to system memory; plan keeps %.1f GiB there", shared.CPURAMGiB)
+	}
+
+	hw := evictAll(compute2Reserved())
+	r := PlanFit(m, DefaultConfig(), hw, ContextMedium)
+	if !r.Fits || r.CPURAMGiB > 0.05 || r.Config.ContextSize < shared.Config.ContextSize {
+		t.Fatalf("with auto-evict: fits %v, %.1f GiB in system memory, context %d; want all on the GPUs",
+			r.Fits, r.CPURAMGiB, r.Config.ContextSize)
+	}
+	said := false
+	for _, n := range r.Notes {
+		said = said || strings.Contains(n.Reason, "use the whole GPUs")
+	}
+	if !said {
+		t.Errorf("no note says the plan takes the whole GPUs: %+v", r.Notes)
+	}
+
+	room := RoomOf(hw)
+	if got := room.For(m, &r.Config); !slices.Equal(got, room.Whole) {
+		t.Fatalf("room for the plan = %v, want the whole cards %v", got, room.Whole)
+	}
+	for g, mib := range CardLoadsMiB(m, &r.Config, room.Whole) {
+		if mib > room.Whole[g] {
+			t.Errorf("GPU %d holds %d MiB of the whole-card split, more than its %d", g, mib, room.Whole[g])
+		}
+	}
+	if loads := CardLoadsMiB(m, &r.Config, room.Shared); loads[1] <= room.Shared[1] {
+		t.Errorf("the plan fits GPU 1 beside flux (%d of %d MiB); the test model is too small", loads[1], room.Shared[1])
+	}
+}
+
+// At the longest context, a shared plan can keep it only by running
+// layers on the CPU. A whole-card plan with every layer on the GPUs at a
+// shorter context wins: the CPU is the last resort, as in PlanFit.
+func TestPlanFitPrefersGPUOverContextOnWholeCards(t *testing.T) {
+	// 36 GiB with a large KV cache: on the whole cards every layer fits
+	// only at a shortened context.
+	m := &Model{SizeBytes: 36 << 30, NLayers: 64, NEmbd: 5120, NHead: 40, NKVHead: 8,
+		ContextLength: 262144, KVFullPerTok: 98304}
+	hw := evictAll(compute2Reserved())
+	shared := PlanFit(m, DefaultConfig(), compute2Reserved(), ContextMax)
+	r := PlanFit(m, DefaultConfig(), hw, ContextMax)
+	if shared.CPURAMGiB < 0.5 {
+		t.Fatalf("the shared plan was expected to use system memory; it keeps %.1f GiB there", shared.CPURAMGiB)
+	}
+	if whole, _ := WholeCards(hw); planFit(m, DefaultConfig(), whole, ContextMax).Config.ContextSize >= m.ContextLength {
+		t.Fatal("the test model fits the whole cards at its full context; it cannot tell the rules apart")
+	}
+	if !r.Fits || r.CPURAMGiB > 0.05 || r.Config.GPULayers != 999 {
+		t.Errorf("with auto-evict at the longest context: layers %d, %.1f GiB in system memory, context %d; want every layer on the GPUs",
+			r.Config.GPULayers, r.CPURAMGiB, r.Config.ContextSize)
+	}
+}
+
+// A model that fits beside the reservations keeps sharing the cards with
+// auto-evict on: no switch between chat and images stops anything.
+func TestPlanFitSharesWhenItFits(t *testing.T) {
+	m := dense20()
+	hw := evictAll(compute2Reserved())
+	r := PlanFit(m, DefaultConfig(), hw, ContextMedium)
+	want := PlanFit(m, DefaultConfig(), compute2Reserved(), ContextMedium)
+	if r.Config.TensorSplit != want.Config.TensorSplit || r.Config.ContextSize != want.Config.ContextSize {
+		t.Errorf("plan with auto-evict = split %q context %d, want the shared plan's %q %d",
+			r.Config.TensorSplit, r.Config.ContextSize, want.Config.TensorSplit, want.Config.ContextSize)
+	}
+	for _, n := range r.Notes {
+		if strings.Contains(n.Reason, "whole GPUs") {
+			t.Errorf("a shared plan says it takes the whole GPUs: %s", n.Reason)
+		}
+	}
+	room := RoomOf(hw)
+	if got := room.For(m, &r.Config); !slices.Equal(got, room.Shared) {
+		t.Errorf("room for a model that fits beside the backends = %v, want shared %v", got, room.Shared)
+	}
+}
+
+// Only the reservations auto-evict may take back are given to the model:
+// a backend kept running keeps its memory.
+func TestWholeCardsKeepsKeptRunningReservations(t *testing.T) {
+	hw := compute2Reserved()
+	if _, ok := WholeCards(hw); ok {
+		t.Error("WholeCards reported room to take back with auto-evict off")
+	}
+	if RoomOf(hw).Whole != nil {
+		t.Error("RoomOf has whole cards with auto-evict off")
+	}
+	hw.GPUs[1].EvictableMiB = 9728 // flux may be stopped; ace is kept running
+	whole, ok := WholeCards(hw)
+	if !ok || whole.GPUs[1].ReservedMiB != 0 || whole.GPUs[2].ReservedMiB != 7680 {
+		t.Errorf("whole cards = %+v, want GPU 1 freed and GPU 2 still reserved", whole.GPUs)
+	}
+	if hw.GPUs[1].ReservedMiB != 9728 {
+		t.Error("WholeCards changed the hardware it was given")
+	}
+}
+
+// qwen38Hybrid27B is Qwen3.8-27B at UD-Q8_K_XL as compute2's registry has
+// it: a hybrid model, 16 of 65 layers attention, the rest linear
+// attention with 0.146 GiB of state per conversation, and an MTP layer.
+func qwen38Hybrid27B() *Model {
+	return &Model{SizeBytes: 31457991680, NLayers: 65, AttnLayers: 16, NEmbd: 5120, NHead: 24, NKVHead: 4,
+		ContextLength: 262144, KVFullPerTok: 32768, RecurrentStateBytes: 156893184, NextNLayers: 1,
+		TokenEmbdBytes: 1350860800}
+}
+
+// With MTP's default of 16 drafted tokens, each keeping a copy of the
+// recurrent state, the 27B does not fit compute2's whole cards at 128K.
+// The plan drafts fewer tokens rather than running layers on the CPU.
+func TestPlanFitLowersDraftCountToFit(t *testing.T) {
+	SetVRAMBackend("cuda")
+	defer SetVRAMBackend("")
+	m := qwen38Hybrid27B()
+	base := DefaultConfig()
+	base.SpecType = "draft-mtp"
+	hw := evictAll(compute2Reserved())
+
+	r := PlanFit(m, base, hw, ContextLong)
+	if !r.Fits || r.Config.GPULayers != 999 || r.CPURAMGiB > 0.05 {
+		t.Fatalf("plan: layers %d, %.1f GiB in system memory; want every layer on the GPUs", r.Config.GPULayers, r.CPURAMGiB)
+	}
+	if r.Config.DraftMax <= 0 || r.Config.DraftMax >= specDraftTokens {
+		t.Errorf("draft max = %d, want fewer than llama.cpp's default %d", r.Config.DraftMax, specDraftTokens)
+	}
+	if r.Config.ContextSize != ContextClassTokens[ContextLong] {
+		t.Errorf("context = %d, want the requested %d kept", r.Config.ContextSize, ContextClassTokens[ContextLong])
+	}
+	said := false
+	for _, n := range r.Notes {
+		said = said || (n.Field == "draft_max" && strings.Contains(n.Reason, "instead of 16"))
+	}
+	if !said {
+		t.Errorf("no note explains the draft count: %+v", r.Notes)
+	}
+	assertOneNotePerChange(t, base, r)
+
+	// A draft count the user set that already fits is kept.
+	base.DraftMax = 4
+	if r := PlanFit(m, base, hw, ContextLong); r.Config.DraftMax != 4 {
+		t.Errorf("draft max 4 that fits became %d", r.Config.DraftMax)
+	}
+	// Without speculative decoding nothing is set.
+	base.SpecType, base.DraftMax = "", 0
+	if r := PlanFit(m, base, hw, ContextLong); r.Config.DraftMax != 0 {
+		t.Errorf("a plan without a drafter set draft max %d", r.Config.DraftMax)
 	}
 }

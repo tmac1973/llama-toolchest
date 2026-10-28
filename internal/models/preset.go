@@ -85,7 +85,7 @@ func GeneratePresetINI(modelsDir string, models []*Model, configs map[string]*Mo
 		isEmbed := m.IsEmbedding()
 		// Expert offload over several GPUs: a split balanced by size, not
 		// llama.cpp's split by layer count (see MoESplitConfig).
-		writeConfigParams(&b, MoESplitConfig(cfg, m, t.GPUMiB), isEmbed, t)
+		writeConfigParams(&b, MoESplitConfig(cfg, m, t.Room().For(m, cfg)), isEmbed, t)
 		b.WriteString("\n")
 	}
 

@@ -160,6 +160,11 @@ func Run(ctx context.Context, d Deps, id string, class models.ContextClass) (*Re
 		case "":
 			p := Proposal{Field: "spec_type", Value: "draft-mtp", Origin: "model file", Reason: mtpWhy}
 			ApplyProposal(&res.Proposed, p)
+			// Turning MTP on applies its defaults; a draft depth the fit
+			// lowered to make the plan fit is what the plan holds for.
+			if fit.Config.DraftMax != fitBase.DraftMax {
+				res.Proposed.DraftMax = fit.Config.DraftMax
+			}
 			addNote(models.ProfileNote{Field: p.Field, Reason: p.Reason, Origin: p.Origin})
 			mtpTurnedOn = true
 		case "draft-mtp":

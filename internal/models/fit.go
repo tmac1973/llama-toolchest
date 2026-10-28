@@ -47,6 +47,13 @@ type GPUSpec struct {
 	// instances (image and music servers), whether they are running or
 	// not. A plan leaves it to them, as it does other programs' memory.
 	ReservedMiB int
+	// EvictableMiB is the part of ReservedMiB a loading model may take
+	// back by stopping the backends that hold it: with auto-evict on,
+	// every reservation but those of backends kept running. 0 when
+	// auto-evict is off. A model that fits beside the reservations is
+	// planned beside them; one that does not gets the whole cards
+	// (WholeCards, RoomFor).
+	EvictableMiB int
 }
 
 // UsableMiB is what the card leaves for llama.cpp before the safety
@@ -133,7 +140,78 @@ func ramMarginGiB(totalGiB float64) float64 {
 //     c. MoE only: the fewest expert layers in system memory that fits
 //  2. dense only, when nothing above fits: the most GPU layers that fit,
 //     at the requested context first
+//
+// With auto-evict on (GPUSpec.EvictableMiB), the plan beside the
+// generation reservations is kept when it is as good as one on the whole
+// cards; when the reservations cost the model context or put part of it
+// in system memory, the whole-card plan is taken instead, and loading the
+// model stops the backends in its way.
 func PlanFit(m *Model, base ModelConfig, hw Hardware, class ContextClass) FitResult {
+	shared := planFit(m, base, hw, class)
+	whole, ok := WholeCards(hw)
+	if !ok {
+		return shared
+	}
+	w := planFit(m, base, whole, class)
+	if !wholeCardsBetter(shared, w) {
+		return shared
+	}
+	w.Notes = append(w.Notes, ProfileNote{Origin: "hardware fit", Reason: fmt.Sprintf(
+		"Beside the %.1f GiB reserved for image and music backends, this model would get less context or run partly from system memory, so these settings use the whole GPUs. Auto-evict is on: loading the model stops those backends, and each starts again for its next job.",
+		evictableGiB(hw))})
+	return w
+}
+
+// wholeCardsBetter reports whether the plan on the whole cards beats the
+// one beside the reservations: it fits where the other does not, keeps
+// less of the model in system memory, or, with as much there, keeps more
+// context. System memory counts first, as in PlanFit itself: a shared
+// plan that keeps the longest context only by running layers on the CPU
+// loses to a whole-card plan with everything on the GPUs. A better KV
+// cache precision alone is not worth stopping the backends for.
+func wholeCardsBetter(shared, whole FitResult) bool {
+	if !whole.Fits {
+		return false
+	}
+	if !shared.Fits {
+		return true
+	}
+	if math.Abs(whole.CPURAMGiB-shared.CPURAMGiB) > 0.05 {
+		return whole.CPURAMGiB < shared.CPURAMGiB
+	}
+	return whole.Config.ContextSize > shared.Config.ContextSize
+}
+
+// WholeCards is hw with the reservations a loading model may take back
+// (EvictableMiB) given to the model: the cards as a model that does not
+// fit beside the backends gets them. ok is false when nothing is
+// evictable.
+func WholeCards(hw Hardware) (Hardware, bool) {
+	out := hw
+	out.GPUs = slices.Clone(hw.GPUs)
+	ok := false
+	for i := range out.GPUs {
+		if e := min(out.GPUs[i].EvictableMiB, out.GPUs[i].ReservedMiB); e > 0 {
+			out.GPUs[i].ReservedMiB -= e
+			ok = true
+		}
+		out.GPUs[i].EvictableMiB = 0
+	}
+	return out, ok
+}
+
+// evictableGiB is what a loading model may take back on the cards a plan
+// uses.
+func evictableGiB(hw Hardware) float64 {
+	var n int
+	for _, g := range PlanCards(hw) {
+		n += min(g.EvictableMiB, g.ReservedMiB)
+	}
+	return float64(n) / 1024
+}
+
+// planFit is PlanFit on hw as given.
+func planFit(m *Model, base ModelConfig, hw Hardware, class ContextClass) FitResult {
 	cfg := cloneConfig(base)
 
 	// Placement: the same "all (discrete) GPUs" choice the config form
@@ -186,22 +264,39 @@ func PlanFit(m *Model, base ModelConfig, hw Hardware, class ContextClass) FitRes
 
 	var last ModelConfig
 	var lastB VRAMBreakdown
+	// Before giving up anything the model itself uses — context, cache
+	// precision, layers on the GPU — the plan tries the drafter's own
+	// settings: a small micro-batch of its own (it drafts a few tokens a
+	// step, so only reading a prompt through it gets slower, and
+	// slightly), then fewer tokens per draft. On a hybrid model each
+	// drafted token keeps its own copy of the recurrent state, so
+	// llama.cpp's default of 16 can cost more than the context does.
+	draftUBatches := []int{0}
+	if smallDraftUBatch {
+		draftUBatches = append(draftUBatches, planDraftUBatch)
+	}
+	draftCounts := []int{cfg.DraftMax}
+	if IsDraftMode(cfg.SpecType) {
+		for _, n := range planDraftCounts {
+			if n < effectiveDraftMax(&cfg) {
+				draftCounts = append(draftCounts, n)
+			}
+		}
+	}
 	try := func(ctx int, kv string, gpuLayers, cpuMoE int) bool {
 		c := cfg
 		c.ContextSize, c.KVCacheQuant, c.GPULayers, c.CPUMoE = ctx, kv, gpuLayers, cpuMoE
-		b, ok := fits(&c)
-		last, lastB = c, b
-		if ok || !smallDraftUBatch {
-			return ok
+		for _, n := range draftCounts {
+			for _, ub := range draftUBatches {
+				c.DraftMax, c.DraftUBatchSize = n, ub
+				b, ok := fits(&c)
+				last, lastB = c, b
+				if ok {
+					return true
+				}
+			}
 		}
-		// Before giving up anything the model itself uses — context, cache
-		// precision, layers on the GPU — try the drafter with a small
-		// micro-batch of its own. It drafts a few tokens a step, so only
-		// reading a prompt through it gets slower, and slightly.
-		c.DraftUBatchSize = planDraftUBatch
-		b, ok = fits(&c)
-		last, lastB = c, b
-		return ok
+		return false
 	}
 	done := func(ok bool) FitResult {
 		return finishFit(m, base, last, lastB, budget, requested, hw, ok)
@@ -306,6 +401,21 @@ func planPlacement(gpus []GPUSpec) (opt *GPUOption, leftOut []int) {
 		}
 	}
 	return &GPUOption{Value: joinInts(keep), GPUs: keep}, leftOut
+}
+
+// planDraftCounts are the draft sizes (--spec-draft-n-max) PlanFit tries,
+// largest first, when the drafter's tokens are what keeps a setting from
+// fitting. 6 is what autotune has found fastest on the models measured
+// here; 3 still drafts.
+var planDraftCounts = []int{6, 3}
+
+// effectiveDraftMax is the most tokens c drafts a step: its own setting,
+// or llama.cpp's default when it has none.
+func effectiveDraftMax(c *ModelConfig) int {
+	if c.DraftMax > 0 {
+		return c.DraftMax
+	}
+	return specDraftTokens
 }
 
 // planDraftUBatch is the drafter micro-batch PlanFit sets when it needs
@@ -435,6 +545,10 @@ func finishFit(m *Model, base, cfg ModelConfig, b VRAMBreakdown, budget float64,
 		} else {
 			note("draft_ubatch_size", "The speculative drafter uses the model's micro-batch again: these settings fit without a smaller one.")
 		}
+	}
+	if cfg.DraftMax != base.DraftMax && IsDraftMode(cfg.SpecType) {
+		note("draft_max", fmt.Sprintf("Drafts at most %d tokens at a time instead of %d, so these settings fit. On this model each drafted token keeps its own copy of the model's state, which uses GPU memory. Generation speed changes little; autotune can measure the best count.",
+			effectiveDraftMax(&cfg), effectiveDraftMax(&base)))
 	}
 	if cfg.MoECacheMiB != base.MoECacheMiB {
 		note("moe_cache_mib", "The MoE cache is left off: it uses GPU memory the plan gives to the model first. Autotune measures whether a cache helps with the memory left over.")
@@ -573,6 +687,41 @@ func reservedGiB(hw Hardware) float64 {
 		n += g.ReservedMiB
 	}
 	return float64(n) / 1024
+}
+
+// CardRoom is each GPU's room for a model, by index, two ways: Shared
+// beside every generation reservation (GPUMiB), and Whole with the
+// reservations auto-evict may take back given to the model (nil when it
+// may take none). RoomFor picks between them for one model.
+type CardRoom struct {
+	Shared []int
+	Whole  []int
+}
+
+// RoomOf is hw's CardRoom.
+func RoomOf(hw Hardware) CardRoom {
+	r := CardRoom{Shared: GPUMiB(hw)}
+	if whole, ok := WholeCards(hw); ok {
+		r.Whole = GPUMiB(whole)
+	}
+	return r
+}
+
+// For is the room m under cfg is split over and counted against: Shared
+// when every card it uses holds its share there, otherwise Whole, where
+// loading it stops the backends in its way. This is the rule PlanFit
+// plans by, applied to the config as saved, so the split a launch writes
+// and the memory the load checks count agree with the plan.
+func (r CardRoom) For(m *Model, cfg *ModelConfig) []int {
+	if len(r.Whole) != len(r.Shared) || m == nil || cfg == nil {
+		return r.Shared
+	}
+	for g, mib := range CardLoadsMiB(m, cfg, r.Shared) {
+		if g < len(r.Shared) && mib > r.Shared[g] {
+			return r.Whole
+		}
+	}
+	return r.Shared
 }
 
 // GPUMiB is what each GPU lets a model use, by position: CardBudgetMiB,

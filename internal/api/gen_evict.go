@@ -144,9 +144,11 @@ func (s *Server) requestModelID(body []byte) string {
 
 // makeRoomForLLM checks that m fits beside the generation reservations,
 // as checkLLMFitsReservations does. With eviction on, when it does not,
-// it holds the job queues of the GPUs that are short, so their running
-// jobs finish and no new one starts, and stops backends on them until m
-// fits there.
+// it holds the job queues of every GPU the LLMs would use, so their
+// running jobs finish and no new one starts, and stops backends on them
+// until m fits. Every GPU, not only the ones short now: while the hold
+// waits for one job, a job arriving for another of the model's GPUs would
+// otherwise start there and leave the load short again.
 // release ends the hold; call it once the load has finished, so a job
 // waiting for those GPUs cannot take them back before the model is in.
 func (s *Server) makeRoomForLLM(ctx context.Context, m *models.Model) (release func(), err error) {
@@ -160,21 +162,25 @@ func (s *Server) makeRoomForLLM(ctx context.Context, m *models.Model) (release f
 	if !s.genEvictOn() || s.genQueue == nil {
 		return noop, err
 	}
-	release, herr := s.genQueue.Hold(ctx, short, "loading "+m.PublicName())
+	var gpus []int
+	for gpu, mib := range need {
+		if mib > 0 {
+			gpus = append(gpus, gpu)
+		}
+	}
+	release, herr := s.genQueue.Hold(ctx, gpus, "loading "+m.PublicName())
 	if herr != nil {
 		return noop, herr
 	}
-	stopped := 0
-	for _, gpu := range short {
-		stopped += s.stopGenUntil(gpu, "", "loading "+m.PublicName(), func() bool {
+	for _, gpu := range gpus {
+		s.stopGenUntil(gpu, "", "loading "+m.PublicName(), func() bool {
 			hw, need, _ := s.llmReservationNeed(m)
 			return !slices.Contains(s.reservationShortGPUs(hw, need), gpu)
 		})
 	}
-	if stopped == 0 {
-		release()
-		return noop, err
-	}
+	// Checked again whether or not anything was stopped: the hold waited
+	// for a job that was starting its backend, which may have failed to
+	// start, and then there is room with nothing to stop.
 	if err := s.checkLLMFitsReservations(m); err != nil {
 		release()
 		return noop, err
@@ -292,7 +298,7 @@ func (s *Server) loadedLLMsOn(gpu int) []string {
 	if err != nil {
 		return nil
 	}
-	gpuMiB := models.GPUMiB(s.idleHardware())
+	room := models.RoomOf(s.idleHardware())
 	type entry struct {
 		id  string
 		mib int
@@ -307,7 +313,7 @@ func (s *Server) loadedLLMsOn(gpu int) []string {
 			continue
 		}
 		on := map[int]int{}
-		addLLMMiB(on, reg, cfg, gpuMiB)
+		addLLMMiB(on, reg, cfg, room)
 		if on[gpu] > 0 {
 			out = append(out, entry{reg.ID, on[gpu]})
 		}
@@ -344,7 +350,7 @@ func (s *Server) unloadForGen(ctx context.Context, id string, inst generation.In
 	// Its requests are done and new ones wait, so the slots are idle.
 	s.savePromptCache(ctx, m, routerName)
 	before := s.gpuUsedMiB(inst.GPU)
-	planned := s.loadedLLMMiB(models.GPUMiB(s.idleHardware()), "", false)[inst.GPU]
+	planned := s.loadedLLMMiB(models.RoomOf(s.idleHardware()), "", false)[inst.GPU]
 	if err := s.process.UnloadModel(routerName); err != nil {
 		return err
 	}
@@ -364,7 +370,7 @@ func (s *Server) unloadForGen(ctx context.Context, id string, inst generation.In
 		case <-time.After(autoLoadPollInterval):
 		}
 	}
-	after := s.loadedLLMMiB(models.GPUMiB(s.idleHardware()), "", false)[inst.GPU]
+	after := s.loadedLLMMiB(models.RoomOf(s.idleHardware()), "", false)[inst.GPU]
 	s.waitGPUFreed(inst.GPU, max(0, before-(planned-after)))
 	return nil
 }

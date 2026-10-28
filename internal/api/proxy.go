@@ -87,16 +87,11 @@ func (s *Server) newProxyHandler() http.Handler {
 			body, err := io.ReadAll(r.Body)
 			r.Body.Close()
 			if err == nil {
-				// Counted from before the load to the end of the reply, so
-				// an unload for a generation backend waits for it.
-				if id := s.requestModelID(body); id != "" {
-					end, useErr := s.llmUse.begin(r.Context(), id)
-					if useErr != nil {
-						return // the client went away while the model was unloaded
+				end, loadErr := s.loadAndCountRequest(r.Context(), body)
+				if loadErr != nil {
+					if r.Context().Err() != nil {
+						return // the client went away
 					}
-					defer end()
-				}
-				if loadErr := s.ensureModelLoadedForRequest(r.Context(), body); loadErr != nil {
 					var fitErr *genLLMFitError
 					if errors.As(loadErr, &fitErr) {
 						writeProxyError(w, http.StatusInsufficientStorage, "insufficient_vram", loadErr.Error())
@@ -105,6 +100,7 @@ func (s *Server) newProxyHandler() http.Handler {
 					writeProxyError(w, http.StatusServiceUnavailable, "auto_load_failed", loadErr.Error())
 					return
 				}
+				defer end()
 				if strings.HasSuffix(r.URL.Path, "/chat/completions") {
 					body = s.injectSamplingDefaults(body)
 				}
@@ -114,6 +110,49 @@ func (s *Server) newProxyHandler() http.Handler {
 		}
 		proxy.ServeHTTP(w, r)
 	})
+}
+
+// loadAttempts caps how many times a request loads its model again
+// after an unload for a generation backend got in between the load and
+// the request being counted.
+const loadAttempts = 4
+
+// loadAndCountRequest makes sure the model a request names is loaded,
+// then counts the request (llmUse) until end is called, so an unload for
+// a generation backend waits for its reply. The request is counted only
+// once the model is loaded: while it waits for the load — which may wait
+// for a generation job's turn on the GPU — it holds nothing a job's
+// unload waits for, so neither waits on the other. When an unload got in
+// between the load and the count, the model is loaded again.
+func (s *Server) loadAndCountRequest(ctx context.Context, body []byte) (end func(), err error) {
+	noop := func() {}
+	id := s.requestModelID(body)
+	for attempt := 0; ; attempt++ {
+		if err := s.ensureModelLoadedForRequest(ctx, body); err != nil {
+			return noop, err
+		}
+		if id == "" {
+			return noop, nil
+		}
+		end, err := s.llmUse.begin(ctx, id)
+		if err != nil {
+			return noop, err
+		}
+		if attempt+1 >= loadAttempts || s.modelLoaded(id) {
+			return end, nil
+		}
+		end()
+	}
+}
+
+// modelLoaded reports whether the router has model id loaded.
+func (s *Server) modelLoaded(id string) bool {
+	m, err := s.registry.Get(id)
+	if err != nil || m == nil {
+		return false
+	}
+	state, _ := s.lookupRouterState(s.registry.RouterName(id), m)
+	return state == "loaded"
 }
 
 // isJSONContentType returns true for application/json content types,
