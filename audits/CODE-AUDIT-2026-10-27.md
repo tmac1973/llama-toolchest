@@ -111,7 +111,7 @@ Each item has a checkbox; tick it in the PR that fixes it.
 ### Testing
 - [x] Some tests build `&Server{}` literals instead of using `newTestServer`, so they will crash when a handler reads a new field — `internal/api/job_capability_test.go:237`, `internal/api/bench_config_test.go:230` *(the handler and job-env tests use `newTestServer`; literals that only call a pure method, such as `templateFuncs`, stay.)*
 - [x] Some tests compare exact HTML strings that include inline styles — `internal/api/build_render_test.go:36`, `:63`
-- [x] Some tests assert nothing outside `-race`, and one test calls the live HuggingFace API and treats a failure as 0 — `internal/api/ms_token_test.go:309`, `internal/models/gguf_derive_local_test.go:117` *(the HuggingFace lookup now fails the test on a network or HTTP error; the two concurrency tests stay, since they exist for `-race`; CI does not run `-race` yet.)*
+- [x] Some tests assert nothing outside `-race`, and one test calls the live HuggingFace API and treats a failure as 0 — `internal/api/ms_token_test.go:309`, `internal/models/gguf_derive_local_test.go:117` *(the HuggingFace lookup now fails the test on a network or HTTP error; the two concurrency tests stay, since they exist for `-race`, and CI now runs the tests with `-race`.)*
 
 ### Dependencies
 - [ ] govulncheck is not installed; v1.9.0 run through `go run` found no vulnerabilities — `golang.org/x/vuln@v1.9.0`

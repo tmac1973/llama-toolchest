@@ -48,8 +48,11 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      # With the race detector: several tests check concurrent code and only
+      # prove something under -race. It needs cgo, which the runner's gcc
+      # provides.
       - name: Test
-        run: go test ./...
+        run: go test -race ./...
 
       # Fails loudly if node is missing, instead of skipping the JS tests.
       - name: JavaScript tests
