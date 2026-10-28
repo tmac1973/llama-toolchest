@@ -450,22 +450,22 @@ func runJob(t *testing.T, job BenchmarkJob, env *fakeEnv) (*BenchmarkJob, *Store
 		t.Fatalf("submit: %v", err)
 	}
 
-	return waitJobDone(t, store, job.ID), store
+	return waitJobDone(t, q, job.ID), store
 }
 
-// waitJobDone waits until the job is neither pending nor running, and
-// returns it.
-func waitJobDone(t *testing.T, store *Store, id string) *BenchmarkJob {
+// waitJobDone waits until the job's run has ended, and returns it. It
+// waits on the queue rather than on the stored status: the job is saved
+// as finished before its deferred cleanup (ClearEphemeralConfig,
+// ReleaseGPUs) runs, so a test that reads the status could check the
+// cleanup before it has happened.
+func waitJobDone(t *testing.T, q *JobQueue, id string) *BenchmarkJob {
 	t.Helper()
-	var done *BenchmarkJob
-	testutil.Eventually(t, func() bool {
-		got, err := store.GetJob(id)
-		if err == nil && got.Status != JobStatusRunning && got.Status != JobStatusPending {
-			done = got
-			return true
-		}
-		return false
-	}, "job %s did not finish", id)
+	ctx, cancel := context.WithTimeout(context.Background(), testutil.EventuallyTimeout)
+	defer cancel()
+	done, err := q.Wait(ctx, id)
+	if err != nil {
+		t.Fatalf("job %s did not finish: %v", id, err)
+	}
 	return done
 }
 
@@ -668,7 +668,7 @@ func TestCancelledJobStillRestoresConfig(t *testing.T) {
 	}
 	once.Do(func() { close(release) })
 
-	waitJobDone(t, store, job.ID)
+	waitJobDone(t, q, job.ID)
 	if _, cleared := env.snapshotCalls(); cleared != 1 {
 		t.Errorf("ClearEphemeralConfig called %d times after cancel, want 1 — the router would be left on benchmark config", cleared)
 	}

@@ -388,7 +388,7 @@ func TestKLBaseCancelDeletesPartialAndRegenerates(t *testing.T) {
 		t.Fatalf("cancel: %v", err)
 	}
 
-	done := waitJobDone(t, store, job.ID)
+	done := waitJobDone(t, q, job.ID)
 	if done.Status != JobStatusCanceled {
 		t.Fatalf("job status = %s, want canceled", done.Status)
 	}
@@ -459,7 +459,7 @@ func TestCapabilityCancelRestoresRouter(t *testing.T) {
 	}
 	close(env.evalBlock)
 
-	waitJobDone(t, store, job.ID)
+	waitJobDone(t, q, job.ID)
 	// The cleanup runs in a deferred call that can finish just after the
 	// job's status changes, so wait for it, and read under the fake's lock
 	// (the race detector caught the unlocked read).
