@@ -337,6 +337,23 @@ func TestPlanFitTakesWholeCardsWhenSharingSpills(t *testing.T) {
 	}
 }
 
+// At the longest context, a shared plan can keep it only by running
+// layers on the CPU. A whole-card plan with every layer on the GPUs at a
+// shorter context wins: the CPU is the last resort, as in PlanFit.
+func TestPlanFitPrefersGPUOverContextOnWholeCards(t *testing.T) {
+	m := dense32()
+	hw := evictAll(compute2Reserved())
+	shared := PlanFit(m, DefaultConfig(), compute2Reserved(), ContextMax)
+	r := PlanFit(m, DefaultConfig(), hw, ContextMax)
+	if shared.CPURAMGiB < 0.5 {
+		t.Fatalf("the shared plan was expected to use system memory; it keeps %.1f GiB there", shared.CPURAMGiB)
+	}
+	if !r.Fits || r.CPURAMGiB > 0.05 || r.Config.GPULayers != 999 {
+		t.Errorf("with auto-evict at the longest context: layers %d, %.1f GiB in system memory, context %d; want every layer on the GPUs",
+			r.Config.GPULayers, r.CPURAMGiB, r.Config.ContextSize)
+	}
+}
+
 // A model that fits beside the reservations keeps sharing the cards with
 // auto-evict on: no switch between chat and images stops anything.
 func TestPlanFitSharesWhenItFits(t *testing.T) {

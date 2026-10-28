@@ -164,7 +164,10 @@ func PlanFit(m *Model, base ModelConfig, hw Hardware, class ContextClass) FitRes
 
 // wholeCardsBetter reports whether the plan on the whole cards beats the
 // one beside the reservations: it fits where the other does not, keeps
-// more context, or keeps less of the model in system memory. A better KV
+// less of the model in system memory, or, with as much there, keeps more
+// context. System memory counts first, as in PlanFit itself: a shared
+// plan that keeps the longest context only by running layers on the CPU
+// loses to a whole-card plan with everything on the GPUs. A better KV
 // cache precision alone is not worth stopping the backends for.
 func wholeCardsBetter(shared, whole FitResult) bool {
 	if !whole.Fits {
@@ -173,10 +176,10 @@ func wholeCardsBetter(shared, whole FitResult) bool {
 	if !shared.Fits {
 		return true
 	}
-	if whole.Config.ContextSize != shared.Config.ContextSize {
-		return whole.Config.ContextSize > shared.Config.ContextSize
+	if math.Abs(whole.CPURAMGiB-shared.CPURAMGiB) > 0.05 {
+		return whole.CPURAMGiB < shared.CPURAMGiB
 	}
-	return whole.CPURAMGiB < shared.CPURAMGiB-0.05
+	return whole.Config.ContextSize > shared.Config.ContextSize
 }
 
 // WholeCards is hw with the reservations a loading model may take back
