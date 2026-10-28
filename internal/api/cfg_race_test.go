@@ -12,8 +12,8 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/config"
 )
 
-// Settings saves change the API key, the external URL and the generation
-// switch while requests read them. Run with -race, this fails if any of
+// Settings saves change the API key, the external URL, the llama-server
+// port and the generation switch while requests read them. Run with -race, this fails if any of
 // these readers takes a setting without cfgMu: the API key check on /v1,
 // the settings and server pages, the dashboard, the settings JSON, and
 // the generation checks.
@@ -34,6 +34,13 @@ func TestSettingsSaveRacesNoReader(t *testing.T) {
 		}
 		req := httptest.NewRequest("PUT", "/api/settings", strings.NewReader(form.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		if i%3 == 1 {
+			// The JSON form changes the llama-server port; it has no
+			// external URL.
+			req = httptest.NewRequest("PUT", "/api/settings", strings.NewReader(fmt.Sprintf(
+				`{"api_key":"sk-%d","llama_port":%d}`, i, 18080+i)))
+			req.Header.Set("Content-Type", "application/json")
+		}
 		router.ServeHTTP(httptest.NewRecorder(), req)
 	}
 	read := func() {
@@ -52,6 +59,8 @@ func TestSettingsSaveRacesNoReader(t *testing.T) {
 			s.genEnabled()
 			s.genEvictOn()
 			s.proxyEndpoint()
+			s.genWebUIURL(8082)
+			s.llamaPort()
 		}
 	}
 	for range 2 {
@@ -64,15 +73,16 @@ func TestSettingsSaveRacesNoReader(t *testing.T) {
 	close(stop)
 	wg.Wait()
 
-	// The last save is what the readers now see.
+	// A last form save is what the readers now see.
+	save(99)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/v1/models", nil)
-	req.Header.Set("Authorization", "Bearer sk-19")
+	req.Header.Set("Authorization", "Bearer sk-99")
 	router.ServeHTTP(rec, req)
 	if rec.Code == http.StatusUnauthorized {
 		t.Errorf("the last saved API key is refused: %s", rec.Body)
 	}
-	if got := s.proxyEndpoint(); got != "http://host19:3000/v1" {
+	if got := s.proxyEndpoint(); got != "http://host99:3000/v1" {
 		t.Errorf("proxyEndpoint = %q, want the last saved URL", got)
 	}
 }

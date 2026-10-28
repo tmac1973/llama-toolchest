@@ -312,7 +312,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTestConnection(w http.ResponseWriter, r *http.Request) {
-	url := fmt.Sprintf("http://localhost:%d/v1/models", s.cfg.LlamaPort)
+	url := fmt.Sprintf("http://localhost:%d/v1/models", s.llamaPort())
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	start := time.Now()

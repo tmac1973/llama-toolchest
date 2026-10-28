@@ -33,7 +33,7 @@ const autoLoadPollInterval = 250 * time.Millisecond
 func (s *Server) newProxyHandler() http.Handler {
 	target := &url.URL{
 		Scheme: "http",
-		Host:   fmt.Sprintf("localhost:%d", s.cfg.LlamaPort),
+		Host:   fmt.Sprintf("localhost:%d", s.llamaPort()),
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(target)

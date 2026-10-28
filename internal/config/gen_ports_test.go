@@ -111,3 +111,25 @@ func TestLlamaPortEnvOverrideChecksRange(t *testing.T) {
 		t.Errorf("LlamaPort = %d, want 8090 from the environment", cfg.LlamaPort)
 	}
 }
+
+// A Clone keeps the saved file values a later Set changes, so a reader
+// holding a copy never sees a save in progress.
+func TestCloneCopiesTheSavedFileValues(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cfg.yaml")
+	if err := os.WriteFile(path, []byte("external_url: http://saved:3000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LLAMA_TOOLCHEST_EXTERNAL_URL", "http://env:3000")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := cfg.Clone()
+	cfg.SetExternalURL("http://changed:3000")
+	if got := c.SavedExternalURL(); got != "http://saved:3000" {
+		t.Errorf("the copy's saved URL = %q, want it unchanged by the later Set", got)
+	}
+	if got := cfg.SavedExternalURL(); got != "http://changed:3000" {
+		t.Errorf("the config's saved URL = %q, want the new value", got)
+	}
+}
