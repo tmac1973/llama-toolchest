@@ -22,12 +22,17 @@ LLAMA_TOOLCHEST_PORT="3000"            # host port for the management UI and the
 LLAMA_TOOLCHEST_INFERENCE_PORT="8080"  # host port for llama.cpp's router and its chat UI
 LLAMA_TOOLCHEST_MODELS_DIR=""          # host path for model storage (empty = use docker volume)
 
-# Generation backend web UI ports (opt-in). Inside the container the image and
-# music backends always listen on 8081-8088, one port per instance; these
-# settings only choose whether, and on which host ports, that range is
-# published. Stored in .env as LLAMA_TOOLCHEST_GEN_PORTS=1 and
+# Generation backend ports. Inside the container the image and music backends
+# listen on 8081 onwards, one port per instance; GEN_PORT_COUNT is how many
+# (1-64), and so the most instances that can be created. Publishing the range
+# for the backends' web UIs is opt-in, and the other settings choose whether,
+# and on which host ports, it is published. Stored in .env as
+# LLAMA_TOOLCHEST_GEN_PORT_COUNT, LLAMA_TOOLCHEST_GEN_PORTS=1 and
 # LLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START.
-readonly GEN_PORT_COUNT=8
+readonly GEN_PORT_COUNT_MAX=64
+GEN_PORT_COUNT_EXPLICIT="${GEN_PORT_COUNT:+true}"
+GEN_PORT_COUNT_EXPLICIT="${GEN_PORT_COUNT_EXPLICIT:-false}"
+GEN_PORT_COUNT="${GEN_PORT_COUNT:-8}"
 case "${GEN_PORTS:-}" in 1|true|yes) GEN_PORTS=true; GEN_PORTS_EXPLICIT=true ;; *) GEN_PORTS=false; GEN_PORTS_EXPLICIT=false ;; esac
 GEN_PUBLIC_PORT_START="${GEN_PORT_START:-8081}"  # first port as a browser reaches it (Caddy's in secure mode)
 GEN_PORT_START_EXPLICIT="${GEN_PORT_START:+true}"
@@ -752,6 +757,14 @@ gen_app_port_start() {
     fi
 }
 
+# gen_port_count_problem <count> prints why the generation range can't hold
+# count ports, or nothing when it can.
+gen_port_count_problem() {
+    if ! [[ "$1" =~ ^[0-9]+$ ]] || (( $1 < 1 || $1 > GEN_PORT_COUNT_MAX )); then
+        echo "the number of ports must be a number from 1 to ${GEN_PORT_COUNT_MAX}"
+    fi
+}
+
 # gen_port_end <start> prints the last port of the range that begins at start.
 gen_port_end() {
     echo $(( $1 + GEN_PORT_COUNT - 1 ))
@@ -788,7 +801,7 @@ gen_port_start_problem() {
         used=("${LLAMA_TOOLCHEST_PORT}:the management UI" "${CADDY_HTTP_PORT:-80}:Caddy's HTTP port"
               "${CADDY_HTTPS_PORT:-443}:Caddy's HTTPS port" "${CADDY_CHAT_PORT:-8080}:the chat UI"
               "8080:the chat UI inside the Caddy container")
-        # The app's loopback ports, 18080-18088.
+        # The app's loopback ports, 18080 to 18080 + the port count.
         for (( p = SECURE_GEN_DEBUG_INF_PORT; p < SECURE_GEN_APP_PORT_START + GEN_PORT_COUNT; p++ )); do
             used+=("${p}:the app's loopback ports (${SECURE_GEN_DEBUG_INF_PORT}-$(gen_port_end "$SECURE_GEN_APP_PORT_START"))")
         done
@@ -816,10 +829,11 @@ settle_gen_ports() {
     fi
 }
 
-# prompt_gen_ports asks whether to publish the generation backend web UI
-# ports, and from which port. Defaults to no on a new install; on a re-run the
-# current setting is the default. Install only: in secure mode the Caddyfile
-# (rendered at install) has to match.
+# prompt_gen_ports asks how many generation backend ports there are, whether
+# to publish them for the backends' web UIs, and from which port. Publishing
+# defaults to no on a new install; on a re-run the current settings are the
+# defaults. Install only: in secure mode the Caddyfile (rendered at install)
+# has to match.
 prompt_gen_ports() {
     # The generation backends need a GPU build profile; the CPU image has none.
     if [[ "$GPU_VENDOR" == "cpu" ]]; then
@@ -827,13 +841,35 @@ prompt_gen_ports() {
         GEN_PORTS=false
         return 0
     fi
+    local problem count
+    if [[ "$GEN_PORT_COUNT_EXPLICIT" != true && "$INTERACTIVE" == true && "$ASSUME_YES" != true ]]; then
+        echo ""
+        echo -e "${BOLD}Generation backends${NC}"
+        echo ""
+        echo "  Each image, video or music backend instance (Models → Generation"
+        echo "  models) keeps its own port while it exists, running or stopped."
+        echo "  The number of ports is the most instances you can create."
+        echo ""
+        while true; do
+            read -rp "$(echo -e "  ${BOLD}Number of generation backend ports${NC} (1-${GEN_PORT_COUNT_MAX}) [${GEN_PORT_COUNT}]: ")" count
+            count="${count:-$GEN_PORT_COUNT}"
+            problem="$(gen_port_count_problem "$count")"
+            if [[ -n "$problem" ]]; then
+                err "Can't use that number: ${problem}"
+                continue
+            fi
+            GEN_PORT_COUNT="$count"
+            break
+        done
+    else
+        problem="$(gen_port_count_problem "$GEN_PORT_COUNT")"
+        [[ -z "$problem" ]] || fatal "Generation backend ports: ${problem}. Set another number with --gen-port-count."
+    fi
     if [[ "$GEN_PORTS_EXPLICIT" != true && "$INTERACTIVE" == true && "$ASSUME_YES" != true ]]; then
         echo ""
-        echo -e "${BOLD}Generation backend web UIs${NC}"
-        echo ""
-        echo "  The image and music generation backends (Settings → Generation"
-        echo "  backends) each have their own web page. Opening those needs ${GEN_PORT_COUNT} more"
-        echo "  ports. The image and music APIs work without them."
+        echo "  The generation backends each have their own web page. Opening"
+        echo "  those needs ${GEN_PORT_COUNT} more ports on this machine. The image and music"
+        echo "  APIs work without them."
         echo ""
         local def=no
         [[ "$GEN_PORTS" == true ]] && def=yes
@@ -845,7 +881,7 @@ prompt_gen_ports() {
     fi
     [[ "$GEN_PORTS" == true ]] || return 0
 
-    local problem start p busy
+    local start p busy
     if [[ "$GEN_PORT_START_EXPLICIT" != true && "$INTERACTIVE" == true && "$ASSUME_YES" != true ]]; then
         while true; do
             read -rp "$(echo -e "  ${BOLD}Generation web UI ports (${GEN_PORT_COUNT} ports), first port${NC} [${GEN_PUBLIC_PORT_START}]: ")" start
@@ -1159,6 +1195,10 @@ load_env_ports() {
         val="$(grep '^LLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
         [[ -n "$val" ]] && GEN_PUBLIC_PORT_START="$val" || true
     fi
+    if [[ "$GEN_PORT_COUNT_EXPLICIT" != true ]]; then
+        val="$(grep '^LLAMA_TOOLCHEST_GEN_PORT_COUNT=' "$env_file" 2>/dev/null | cut -d= -f2)" || true
+        [[ -n "$val" ]] && GEN_PORT_COUNT="$val" || true
+    fi
 }
 
 # Legacy rename: copy contents of pre-rebrand 'llamactl-data' Docker volume
@@ -1380,13 +1420,17 @@ write_env_file() {
     # link. The compose files pass all of .env into the container.
     echo "LLAMA_TOOLCHEST_CHAT_PUBLIC_PORT=$(chat_public_port)" >> "$env_file"
 
-    # Generation backend web UI ports, read by docker-compose.gen-ports.yml.
-    # The HOST_PORT names are only the host side of the mapping: inside the
-    # container the backends always listen on 8081-8088.
+    # Generation backend ports. The count reaches the app (the compose files
+    # pass all of .env into the container); the rest is read by
+    # docker-compose.gen-ports.yml. The HOST_PORT names are only the host
+    # side of the mapping: inside the container the backends listen on 8081
+    # to LLAMA_TOOLCHEST_GEN_PORT_END.
+    echo "LLAMA_TOOLCHEST_GEN_PORT_COUNT=${GEN_PORT_COUNT}" >> "$env_file"
     if [[ "$GEN_PORTS" == true ]]; then
         local gen_start; gen_start="$(gen_app_port_start)"
         {
             echo "LLAMA_TOOLCHEST_GEN_PORTS=1"
+            echo "LLAMA_TOOLCHEST_GEN_PORT_END=$(gen_port_end 8081)"
             echo "LLAMA_TOOLCHEST_GEN_HOST_PORT_START=${gen_start}"
             echo "LLAMA_TOOLCHEST_GEN_HOST_PORT_END=$(gen_port_end "$gen_start")"
             echo "LLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START=${GEN_PUBLIC_PORT_START}"
@@ -2248,12 +2292,13 @@ else
     echo "PublishPort=${LLAMA_TOOLCHEST_INFERENCE_PORT}:8080"
 fi
 echo "Environment=LLAMA_TOOLCHEST_CHAT_PUBLIC_PORT=$(chat_public_port)"
+echo "Environment=LLAMA_TOOLCHEST_GEN_PORT_COUNT=${GEN_PORT_COUNT}"
 if [[ "$GEN_PORTS" == true ]]; then
     gen_start="$(gen_app_port_start)"
     if [[ "$SECURE" == true ]]; then
-        echo "PublishPort=127.0.0.1:${gen_start}-$(gen_port_end "$gen_start"):8081-8088"
+        echo "PublishPort=127.0.0.1:${gen_start}-$(gen_port_end "$gen_start"):8081-$(gen_port_end 8081)"
     else
-        echo "PublishPort=${gen_start}-$(gen_port_end "$gen_start"):8081-8088"
+        echo "PublishPort=${gen_start}-$(gen_port_end "$gen_start"):8081-$(gen_port_end 8081)"
     fi
     echo "Environment=LLAMA_TOOLCHEST_GEN_PORTS=1"
     echo "Environment=LLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START=${GEN_PUBLIC_PORT_START}"
@@ -2803,12 +2848,16 @@ admin login in front of the UI/API):
      point, AS-IS and not hardened for any specific threat model. You are
      responsible for auditing it before relying on it. See docs/secure.md.
 
-Generation backend web UIs (container install):
+Generation backends (container install):
+  --gen-port-count <n>     How many generation backend ports there are, from
+                           1 to 64 (default 8). Every backend instance keeps
+                           one, so this is the most instances you can create.
+                           Without the flag, `install` asks.
   --gen-ports / --no-gen-ports   Publish (or not) the ports of the image and
                            music generation backends' own web pages. Without
                            either flag, `install` asks; the default is no. The
                            image and music APIs work either way.
-  --gen-port-start <port>  First of the 8 ports (default 8081). Implies
+  --gen-port-start <port>  First of the published ports (default 8081). Implies
                            --gen-ports. In secure mode these are Caddy's
                            ports, each behind the admin login.
 
@@ -2981,6 +3030,8 @@ main() {
             --auth-pass-file)   AUTH_PASS_FILE="$(require_value "$1" "${2:-}")"; shift ;;
             --auth-pass-file=*) AUTH_PASS_FILE="${1#*=}" ;;
             # ── Generation backend web UI ports (container install) ──
+            --gen-port-count)   GEN_PORT_COUNT="$(require_value "$1" "${2:-}")"; GEN_PORT_COUNT_EXPLICIT=true; shift ;;
+            --gen-port-count=*) GEN_PORT_COUNT="${1#*=}"; GEN_PORT_COUNT_EXPLICIT=true ;;
             --gen-ports)    GEN_PORTS=true;  GEN_PORTS_EXPLICIT=true ;;
             --no-gen-ports) GEN_PORTS=false; GEN_PORTS_EXPLICIT=true ;;
             --gen-port-start)   GEN_PUBLIC_PORT_START="$(require_value "$1" "${2:-}")"; GEN_PORT_START_EXPLICIT=true; GEN_PORTS=true; GEN_PORTS_EXPLICIT=true; shift ;;

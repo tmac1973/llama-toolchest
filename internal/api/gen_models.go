@@ -101,6 +101,9 @@ type genSetRow struct {
 	TotalGB float64 `json:"total_gb"`
 	// FailedError is set when a download of this set failed.
 	FailedError string `json:"failed_error,omitempty"`
+	// Instances counts the backend instances that run this set. The
+	// Models page offers New instance only for a set with none.
+	Instances int `json:"instances"`
 }
 
 func (s *Server) genModelsView(store *generation.Store) genModelsData {
@@ -108,8 +111,14 @@ func (s *Server) genModelsView(store *generation.Store) genModelsData {
 	if avail := s.downloader.AvailableForDownload(); avail >= 0 {
 		data.FreeGB = float64(avail) / 1e9
 	}
+	instances := map[string]int{}
+	for _, inst := range store.Instances() {
+		instances[inst.ModelSetID]++
+	}
 	for _, m := range store.ModelSets() {
-		data.Sets = append(data.Sets, s.genSetRowFor(m))
+		row := s.genSetRowFor(m)
+		row.Instances = instances[m.ID]
+		data.Sets = append(data.Sets, row)
 	}
 	for _, e := range generation.Catalog() {
 		row := genCatalogRow{CatalogEntry: e, SizeGB: float64(e.TotalBytes()) / 1e9}

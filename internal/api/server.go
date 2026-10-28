@@ -469,6 +469,9 @@ func (s *Server) templateFuncs() template.FuncMap {
 			l := genKindLabel(k)
 			return strings.ToUpper(l[:1]) + l[1:]
 		},
+		// kindProject names the build project that runs a generation kind,
+		// e.g. stable-diffusion.cpp.
+		"kindProject": kindProject,
 		// cssID sanitizes a string so it's safe to use as both an HTML id
 		// attribute and a CSS selector (see domID in hf.go).
 		"cssID": domID,

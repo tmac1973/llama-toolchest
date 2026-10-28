@@ -97,6 +97,12 @@ type Config struct {
 	// the YAML.
 	GenPortsPublished bool `yaml:"-"`
 
+	// GenContainerPortCount is the number of generation backend ports in a
+	// container, from LLAMA_TOOLCHEST_GEN_PORT_COUNT (written by setup.sh,
+	// which publishes that many ports). Zero means the default. Never
+	// written to the YAML: it describes the deploy, not a setting.
+	GenContainerPortCount int `yaml:"-"`
+
 	// ROCmBaseImage is the ROCm image a rocm-next container was built
 	// from (LLAMA_TOOLCHEST_ROCM_BASE_IMAGE, set by Dockerfile.rocm-next).
 	// Never written to the YAML.
@@ -197,22 +203,27 @@ func (c *Config) ChatPort() int {
 	return c.LlamaPort
 }
 
-// Default generation backend port range. Container images always publish
-// this range, so inside a container it cannot be changed.
+// Default generation backend port range, and the most ports it can hold.
+// Inside a container the range always starts at DefaultGenPortStart.
 const (
 	DefaultGenPortStart = 8081
 	DefaultGenPortCount = 8
+	MaxGenPortCount     = 64
 )
 
 // GenPorts returns the effective generation backend port range. In a
-// container the range is fixed at the defaults, because that is the range
-// the image publishes.
+// container the range starts at the default, and its size is the one
+// setup.sh chose (GenContainerPortCount), because that is what the
+// container publishes; Settings cannot change either.
 func (c *Config) GenPorts(inContainer bool) (start, count int) {
 	start, count = c.GenPortStart, c.GenPortCount
-	if inContainer || start == 0 {
+	if inContainer {
+		start, count = DefaultGenPortStart, c.GenContainerPortCount
+	}
+	if start == 0 {
 		start = DefaultGenPortStart
 	}
-	if inContainer || count == 0 {
+	if count == 0 {
 		count = DefaultGenPortCount
 	}
 	return start, count
@@ -229,15 +240,15 @@ func (c *Config) GenPublicStart(inContainer bool) int {
 }
 
 // ValidateGenPorts checks a generation port range against the ports
-// toolchest already uses: the start must be 1024–65535, the count 1–32,
+// toolchest already uses: the start must be 1024–65535, the count 1–64,
 // the whole range must fit below 65536, and it must not include the
 // llama-server port or the web UI's listen port.
 func ValidateGenPorts(start, count, llamaPort int, listenAddr string) error {
 	if start < 1024 || start > 65535 {
 		return fmt.Errorf("port range start %d must be between 1024 and 65535", start)
 	}
-	if count < 1 || count > 32 {
-		return fmt.Errorf("port count %d must be between 1 and 32", count)
+	if count < 1 || count > MaxGenPortCount {
+		return fmt.Errorf("port count %d must be between 1 and %d", count, MaxGenPortCount)
 	}
 	end := start + count - 1
 	if end > 65535 {
@@ -348,12 +359,22 @@ func applyEnvOverrides(cfg *Config) {
 		cfg.ChatPublicPort = n
 	}
 	cfg.GenPortsPublished = os.Getenv("LLAMA_TOOLCHEST_GEN_PORTS") == "1"
+	// Set by setup.sh: how many generation backend ports the container has
+	// (and publishes, when they are published).
+	if v := os.Getenv(envGenPortCount); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 && n <= MaxGenPortCount {
+			cfg.GenContainerPortCount = n
+		} else {
+			slog.Warn("ignoring environment variable: not a port count from 1 to 64", "name", envGenPortCount, "value", v)
+		}
+	}
 	cfg.ROCmBaseImage = os.Getenv("LLAMA_TOOLCHEST_ROCM_BASE_IMAGE")
 }
 
 const (
 	envLlamaPort          = "LLAMA_TOOLCHEST_LLAMA_PORT"
 	envGenPublicPortStart = "LLAMA_TOOLCHEST_GEN_PUBLIC_PORT_START"
+	envGenPortCount       = "LLAMA_TOOLCHEST_GEN_PORT_COUNT"
 )
 
 // envPort reads a port number from the environment variable name. An

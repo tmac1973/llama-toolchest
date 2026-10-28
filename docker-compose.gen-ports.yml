@@ -6,14 +6,15 @@
 # Manual usage:
 #   docker compose -f docker-compose.rocm.yml -f docker-compose.gen-ports.yml up -d
 #
-# Inside the container the backends always listen on 8081-8088, one port per
-# instance. Only the host side of the mapping can change. The image and music
+# Inside the container the backends listen on 8081 to
+# LLAMA_TOOLCHEST_GEN_PORT_END (8088 by default), one port per instance;
+# setup.sh sets the number of ports. The image and music
 # APIs (/v1/images/*, /v1/music/*, /release_task, /query_result) go through
 # the management port and work without this file.
 services:
   llama-toolchest:
     ports:
-      - "${LLAMA_TOOLCHEST_BIND:-}${LLAMA_TOOLCHEST_GEN_HOST_PORT_START:-8081}-${LLAMA_TOOLCHEST_GEN_HOST_PORT_END:-8088}:8081-8088"
+      - "${LLAMA_TOOLCHEST_BIND:-}${LLAMA_TOOLCHEST_GEN_HOST_PORT_START:-8081}-${LLAMA_TOOLCHEST_GEN_HOST_PORT_END:-8088}:8081-${LLAMA_TOOLCHEST_GEN_PORT_END:-8088}"
     environment:
       # Tells the app the range is published (Settings warns when it is not).
       LLAMA_TOOLCHEST_GEN_PORTS: "1"

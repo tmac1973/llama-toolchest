@@ -126,9 +126,15 @@ func (s *Server) genWebUILink(b *builder.BuildResult, inst generation.Instance, 
 // instance can be made from, and when editing, the instance's current
 // values to fill the form with.
 type genFormData struct {
-	Sets   []generation.ModelSet
+	Sets []generation.ModelSet
+	// Builds are the successful builds that can run on this machine's
+	// GPUs, by backend kind (sd, which video sets use too, and ace).
 	Builds map[generation.BackendKind][]builder.BuildResult
 	GPUs   []genGPUChoice
+	// ForSet is the set a new instance is for, when the form was opened
+	// from that set on the Models page. Sets and Builds then hold only it
+	// and the builds of its backend.
+	ForSet *generation.ModelSet
 	// Missing explains why an instance cannot be made yet, e.g. no
 	// downloaded set or no build.
 	Missing []string
@@ -222,13 +228,25 @@ func (s *Server) handleGenInstances(w http.ResponseWriter, r *http.Request) {
 	s.renderPartial(w, "gen_instances_table", data)
 }
 
+// handleGenInstanceForm is the form for a new instance. With ?set=<id> it
+// is for that set only (the Models page's New instance dialog): the set is
+// fixed and only builds of its backend are offered.
 func (s *Server) handleGenInstanceForm(w http.ResponseWriter, r *http.Request) {
 	store := s.genStore(w)
 	if store == nil {
 		return
 	}
+	data := s.genFormChoices(store)
+	if id := r.URL.Query().Get("set"); id != "" {
+		set, err := store.ModelSet(id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		data = s.genFormChoicesFor(data, set)
+	}
 	respondHTML(w)
-	s.renderPartial(w, "gen_instance_form", s.genFormChoices(store))
+	s.renderPartial(w, "gen_instance_form", data)
 }
 
 // handleGenInstanceEditForm is the form for changing a stopped instance,
@@ -256,7 +274,8 @@ func (s *Server) handleGenInstanceEditForm(w http.ResponseWriter, r *http.Reques
 }
 
 // genFormChoices is what the create and edit forms offer: the downloaded
-// sets, the successful builds and the GPUs.
+// sets, the successful builds that can run on this machine's GPUs, and the
+// GPUs.
 func (s *Server) genFormChoices(store *generation.Store) genFormData {
 	data := genFormData{Builds: map[generation.BackendKind][]builder.BuildResult{}}
 	for _, m := range store.ModelSets() {
@@ -266,9 +285,7 @@ func (s *Server) genFormChoices(store *generation.Store) genFormData {
 	}
 	// Video sets run on sd builds, so the sd list covers them too.
 	for _, kind := range []generation.BackendKind{generation.KindSD, generation.KindAce} {
-		if p, ok := builder.ProjectForKind(string(kind)); ok {
-			data.Builds[kind] = s.builder.SuccessfulBuildsRankedFor(p.ID)
-		}
+		data.Builds[kind] = s.genBuildsFor(kind)
 	}
 	for _, g := range s.monitor.Current().GPU {
 		data.GPUs = append(data.GPUs, genGPUChoice{Index: g.Index, Name: g.Name})
@@ -280,6 +297,44 @@ func (s *Server) genFormChoices(store *generation.Store) genFormData {
 		data.Missing = append(data.Missing, "a successful stable-diffusion.cpp or acestep.cpp build (Builds page)")
 	}
 	return data
+}
+
+// genFormChoicesFor narrows the new-instance choices to one set: the set
+// itself and the builds of its backend.
+func (s *Server) genFormChoicesFor(data genFormData, set generation.ModelSet) genFormData {
+	data.ForSet = &set
+	data.Sets, data.Missing = []generation.ModelSet{set}, nil
+	kind := set.Kind
+	if kind == generation.KindVideo {
+		kind = generation.KindSD
+	}
+	data.Builds = map[generation.BackendKind][]builder.BuildResult{kind: data.Builds[kind]}
+	if !set.Complete {
+		data.Missing = append(data.Missing, "all of "+set.Name+"'s files (the download is not finished)")
+	}
+	if len(data.Builds[kind]) == 0 {
+		data.Missing = append(data.Missing, "a successful "+kindProject(set.Kind)+" build for this machine's GPUs (Builds page)")
+	}
+	return data
+}
+
+// genBuildsFor lists the successful builds of the backend that runs kind,
+// newest first, leaving out builds this machine's GPUs cannot run (a CUDA
+// build on AMD GPUs, or a ROCm build on NVIDIA GPUs).
+func (s *Server) genBuildsFor(kind generation.BackendKind) []builder.BuildResult {
+	p, ok := builder.ProjectForKind(string(kind))
+	if !ok {
+		return nil
+	}
+	vendor := s.monitor.GPUVendor()
+	var out []builder.BuildResult
+	for _, b := range s.builder.SuccessfulBuildsRankedFor(p.ID) {
+		if backend, err := generation.BuildBackend(b); err == nil && generation.CheckGPUVendor(backend, vendor) != nil {
+			continue
+		}
+		out = append(out, b)
+	}
+	return out
 }
 
 // genInstanceFromForm reads the instance fields the create and edit forms
@@ -299,6 +354,12 @@ func (s *Server) genInstanceFromForm(r *http.Request, store *generation.Store, i
 	build := s.resolveBackendBuild(string(set.Kind), buildID)
 	if build == nil {
 		return fmt.Errorf("there is no successful %s build to run %s; build one on the Builds page", kindProject(set.Kind), set.Name)
+	}
+	// resolveBackendBuild falls back to the newest build when the chosen
+	// one cannot run the set; refuse that here instead of saving a build
+	// that is then quietly not used.
+	if buildID != "" && build.ID != buildID {
+		return fmt.Errorf("build %s is not a successful %s build, so it cannot run %s; choose another build or Automatic", buildID, kindProject(set.Kind), set.Name)
 	}
 	backend, err := generation.BuildBackend(*build)
 	if err != nil {

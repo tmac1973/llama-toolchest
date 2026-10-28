@@ -85,9 +85,11 @@ The package doesn't pull GPU SDKs — install them yourself for the backend you 
 These are optional (Settings → Generation backends). Two things matter for a
 host install:
 
-- **Ports.** Each backend instance listens on its own port, from a range that
-  starts at 8081 and holds 8 ports by default (`gen_port_start` and
-  `gen_port_count` in the config, or Settings). The range must not include
+- **Ports.** Each backend instance keeps its own port, from a range that
+  starts at 8081 and holds 8 ports by default, up to 64 (`gen_port_start` and
+  `gen_port_count` in the config, or Settings). Stopped instances keep their
+  ports too, so the number of ports is the most instances you can create. The
+  range must not include
   the UI port or `llama_port`. Open the range in your firewall if you want
   to reach the backends' own web pages from other machines; the image and
   music APIs go through the UI port and don't need it.

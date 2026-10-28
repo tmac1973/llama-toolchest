@@ -223,8 +223,8 @@ func TestApplyGenPortsValidates(t *testing.T) {
 	}{
 		{"start below 1024", ptr(80), nil, "must be between 1024 and 65535"},
 		{"start above 65535", ptr(70000), nil, "must be between 1024 and 65535"},
-		{"count zero", nil, ptr(0), "port count 0 must be between 1 and 32"},
-		{"count too large", nil, ptr(33), "port count 33 must be between 1 and 32"},
+		{"count zero", nil, ptr(0), "port count 0 must be between 1 and 64"},
+		{"count too large", nil, ptr(65), "port count 65 must be between 1 and 64"},
 		{"range past 65535", ptr(65530), ptr(8), "goes past 65535"},
 		{"includes the llama-server port", ptr(9000), ptr(8), "includes the llama-server port 9005"},
 		{"includes the web UI port", ptr(2995), ptr(8), "includes the web UI port 3000"},

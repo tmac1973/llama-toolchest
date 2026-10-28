@@ -348,7 +348,8 @@ func (s *Server) handleTestConnection(w http.ResponseWriter, r *http.Request) {
 // the published ports, so any change is refused. Callers must hold cfgMu.
 func (s *Server) applyGenPorts(start, count *int) error {
 	if s.inContainer() {
-		return errors.New("the generation port range is fixed at 8081–8088 inside a container; change the host side with setup.sh instead")
+		start, count := s.cfg.GenPorts(true)
+		return fmt.Errorf("the generation port range is fixed at %d–%d inside a container; change the number of ports or the host side with setup.sh instead", start, start+count-1)
 	}
 	newStart, newCount := s.cfg.GenPorts(false)
 	if start != nil {
