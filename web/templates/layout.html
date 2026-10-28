@@ -115,9 +115,11 @@
             color: var(--pico-primary-hover);
         }
         #monitor-bar { flex-shrink: 0; }
-        /* The sidebar's map of what is on each GPU now: LLMs solid, running
-           generation backends striped (as on the Server page's map), and a
-           stopped backend's reservation as a faint outline. */
+        /* The sidebar's map of what is on each GPU now: LLMs solid, an LLM
+           still loading faded and pulsing (its planned size shows before
+           the card holds it), running generation backends striped (as on
+           the Server page's map), and a stopped backend's reservation as a
+           faint outline. */
         .side-map-bar {
             display: flex; height: 8px; overflow: hidden; border-radius: 3px;
             background: var(--pico-muted-border-color);
@@ -130,6 +132,16 @@
             background-color: transparent !important;
             box-shadow: inset 0 0 0 1px var(--side-map-color);
             opacity: 0.6;
+        }
+        .side-map-loading {
+            opacity: 0.4;
+            animation: side-map-loading 1.6s ease-in-out infinite alternate;
+        }
+        @keyframes side-map-loading {
+            to { opacity: 0.7; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .side-map-loading { animation: none; }
         }
         .side-map-legend {
             display: flex; flex-direction: column; gap: 0.1rem; margin-top: 0.15rem;

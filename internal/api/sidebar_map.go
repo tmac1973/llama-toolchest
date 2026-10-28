@@ -12,6 +12,7 @@ import (
 // Kinds of entry on the sidebar's map.
 const (
 	sidebarLLM     = "llm"     // an LLM the router has loaded
+	sidebarLoading = "loading" // an LLM the router is still loading
 	sidebarGen     = "gen"     // a running image or music backend
 	sidebarStopped = "stopped" // a stopped backend's reservation
 )
@@ -115,8 +116,12 @@ func buildSidebarMap(gpus []monitor.GPUInfo, allocs []models.GPUAllocation, load
 		if !ok {
 			continue
 		}
+		name := sidebarName(a)
+		if kind == sidebarLoading {
+			name += " (loading)"
+		}
 		out.Legend = append(out.Legend, sidebarLegendEntry{
-			Name: sidebarName(a), Color: a.Color, Kind: kind,
+			Name: name, Color: a.Color, Kind: kind,
 			Title: fmt.Sprintf("%s: about %.1f GiB (%s)", sidebarName(a), a.TotalGB, sidebarKindText(kind, loaded[a.ModelID])),
 		})
 	}
@@ -128,7 +133,13 @@ func buildSidebarMap(gpus []monitor.GPUInfo, allocs []models.GPUAllocation, load
 func sidebarKind(a models.GPUAllocation, loaded map[string]string, running map[string]bool) (string, bool) {
 	switch {
 	case !a.Reserved:
-		_, ok := loaded[a.ModelID]
+		// A loading model is drawn apart: its planned size shows at once,
+		// while the card fills up only as the weights are read, which
+		// takes half a minute for a large one.
+		status, ok := loaded[a.ModelID]
+		if status == "loading" {
+			return sidebarLoading, ok
+		}
 		return sidebarLLM, ok
 	case running[a.ModelID]:
 		return sidebarGen, true
@@ -144,10 +155,8 @@ func sidebarKindText(kind, routerStatus string) string {
 		return "generation backend, running"
 	case sidebarStopped:
 		return "reserved for a generation backend that is stopped"
-	case sidebarLLM:
-		if routerStatus == "loading" {
-			return "LLM, loading"
-		}
+	case sidebarLoading:
+		return "LLM, loading: the planned size; the VRAM bars below fill up as it loads"
 	}
 	return "LLM, loaded"
 }
