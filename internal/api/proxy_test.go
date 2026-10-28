@@ -20,6 +20,7 @@ import (
 
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/process"
+	"github.com/tmac1973/llama-toolchest/internal/testutil"
 )
 
 // proxyModelID is the registry ID of the model the proxy tests register.
@@ -475,5 +476,98 @@ func TestEnsureModelLoadedReportsAStoppedRouter(t *testing.T) {
 	err := s.ensureModelLoadedForRequest(context.Background(), []byte(`{"model":"`+m.PublicName()+`"}`))
 	if err == nil || !strings.Contains(err.Error(), "router is not running") {
 		t.Fatalf("err = %v, want the router-not-running message", err)
+	}
+}
+
+// A request waiting for its model to load is not counted yet, so a
+// generation job's unload does not wait for it. Counting it from before
+// the load deadlocked compute2 for 15 minutes: two chats waited for a
+// music job's turn on the GPU while the job waited for the chats to end.
+func TestLoadAndCountRequestCountsOnlyOnceLoaded(t *testing.T) {
+	s, f, m := startFakeRouter(t)
+	release := make(chan struct{})
+	f.reset(map[string]string{m.ID: "unloaded"}, func(f *fakeRouter, n int) {
+		select {
+		case <-release:
+			if f.status[m.ID] == "loading" {
+				f.status[m.ID] = "loaded"
+			}
+		default:
+		}
+	})
+	type result struct {
+		end func()
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		end, err := s.loadAndCountRequest(context.Background(), []byte(`{"model":"`+m.ID+`"}`))
+		done <- result{end, err}
+	}()
+	testutil.Eventually(t, func() bool { return len(f.loadCalls()) == 1 }, "the model was not loaded")
+
+	// While the load is under way, an unload does not wait for the request.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	evicted, err := s.llmUse.evict(ctx, m.ID)
+	if err != nil {
+		t.Fatalf("an unload waited for a request that was still loading its model: %v", err)
+	}
+	evicted()
+
+	close(release)
+	r := <-done
+	if r.err != nil {
+		t.Fatal(r.err)
+	}
+	// Loaded and replying: now an unload waits for it.
+	short, cancel2 := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel2()
+	if _, err := s.llmUse.evict(short, m.ID); err == nil {
+		t.Error("an unload did not wait for a request with its reply under way")
+	}
+	r.end()
+}
+
+// An unload that gets in between the load and the count leaves the model
+// unloaded: the request loads it again rather than going to the router
+// for a model that is not there.
+func TestLoadAndCountRequestReloadsAfterAnUnload(t *testing.T) {
+	s, f, m := startFakeRouter(t)
+	f.reset(map[string]string{m.ID: "loaded"}, func(f *fakeRouter, n int) {
+		if f.status[m.ID] == "loading" {
+			f.status[m.ID] = "loaded"
+		}
+	})
+	// An unload is under way: the request finds the model loaded, then
+	// waits to be counted until the unload is done.
+	evicted, err := s.llmUse.evict(context.Background(), m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		end, err := s.loadAndCountRequest(context.Background(), []byte(`{"model":"`+m.ID+`"}`))
+		if err == nil {
+			end()
+		}
+		done <- err
+	}()
+	time.Sleep(50 * time.Millisecond)
+	f.mu.Lock()
+	f.status[m.ID] = "unloaded"
+	f.mu.Unlock()
+	evicted()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the request did not finish")
+	}
+	if loads := f.loadCalls(); len(loads) != 1 {
+		t.Errorf("load calls = %v, want the model loaded again once", loads)
 	}
 }
