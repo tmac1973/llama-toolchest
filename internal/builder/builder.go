@@ -106,6 +106,7 @@ type Builder struct {
 	mu     sync.Mutex
 	builds []BuildResult
 	logChs map[string]chan string
+	runs   map[string]*buildRun // build ID → the build while it runs
 
 	// Log history and broadcasting per build
 	logMu       sync.Mutex
@@ -127,6 +128,7 @@ func NewBuilder(dataDir string) *Builder {
 	b := &Builder{
 		dataDir:   dataDir,
 		logChs:    make(map[string]chan string),
+		runs:      make(map[string]*buildRun),
 		logBcasts: make(map[string]*broadcast.Broadcaster[string]),
 	}
 	b.loadBuilds()
@@ -503,13 +505,39 @@ drain:
 	// be rendering what it got. Find returns the build's later state.
 	started := *result
 
-	// Run the actual build asynchronously
-	go b.runBuild(ctx, proj, prof, srcDir, result, logCh, pin)
+	// Run the actual build asynchronously. Delete stops it through run.
+	ctx, cancel := context.WithCancel(ctx)
+	run := &buildRun{cancel: cancel}
+	b.mu.Lock()
+	b.runs[result.ID] = run
+	b.mu.Unlock()
+	go func() {
+		defer b.endRun(result.ID, run)
+		b.runBuild(ctx, proj, prof, srcDir, result, logCh, pin)
+	}()
 
 	return &started, nil
 }
 
-// Delete removes a build and its files.
+// buildRun is a build that is still running.
+type buildRun struct {
+	cancel context.CancelFunc
+}
+
+// endRun forgets a finished build run. A forced rebuild may already have
+// put a newer run under the same ID; that one is left alone.
+func (b *Builder) endRun(id string, run *buildRun) {
+	b.mu.Lock()
+	if b.runs[id] == run {
+		delete(b.runs, id)
+	}
+	b.mu.Unlock()
+	run.cancel()
+}
+
+// Delete removes a build and its files. A build that is still running is
+// stopped, and its log streams end: a log page left open on it would
+// otherwise hold its connection until the build finished.
 func (b *Builder) Delete(id string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -523,6 +551,18 @@ func (b *Builder) Delete(id string) error {
 	}
 	if idx == -1 {
 		return fmt.Errorf("build not found: %s", id)
+	}
+
+	if run := b.runs[id]; run != nil {
+		run.cancel() // endRun forgets it once runBuild has returned
+	}
+	delete(b.logChs, id)
+	b.logMu.Lock()
+	bc := b.logBcasts[id]
+	delete(b.logBcasts, id)
+	b.logMu.Unlock()
+	if bc != nil {
+		bc.CloseSubscribers()
 	}
 
 	// Remove build directory

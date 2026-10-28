@@ -1,6 +1,7 @@
 {{define "service_logs"}}
 <div hx-ext="sse"
      sse-connect="/api/service/logs"
+     data-sse-replay
      sse-swap="message"
      hx-swap="beforeend">
 </div>

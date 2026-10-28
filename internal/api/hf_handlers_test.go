@@ -494,7 +494,7 @@ func TestHFDownloadDuplicateAndCancel(t *testing.T) {
 	form := url.Values{"model_id": {"org/Model-GGUF"}, "filename": {"m.gguf"}}
 
 	rec := hfhPost(s, form, true)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `sse-connect="/api/hf/download/org--Model-GGUF--m/progress"`) {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `hx-get="/api/hf/download/org--Model-GGUF--m/progress"`) {
 		t.Fatalf("first start: status %d, want the progress row:\n%s", rec.Code, rec.Body.String())
 	}
 	testutil.Eventually(t, func() bool { return host.gets.Load() == 1 }, "the download never reached the host")
@@ -728,5 +728,51 @@ func TestProbeCacheIsKeyedBySource(t *testing.T) {
 	}
 	if r, ok := s.cachedProbe(modelsource.SourceHuggingFace, "org/M", "m.gguf"); !ok || r.StreamedBytes != 5 {
 		t.Errorf("cached = %+v (%v), want the stored result", r, ok)
+	}
+}
+
+func hfhProgress(s *Server, id string, htmx bool) *httptest.ResponseRecorder {
+	r := chi.NewRouter()
+	r.Get("/api/hf/download/{id}/progress", s.handleHFDownloadProgress)
+	req := httptest.NewRequest(http.MethodGet, "/api/hf/download/"+id+"/progress", nil)
+	if htmx {
+		req.Header.Set("HX-Request", "true")
+	}
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	return rec
+}
+
+// A download row on a page asks for its progress every few seconds instead
+// of holding a stream open. It is told to stop asking (status 286) once the
+// download has ended, or when the download is no longer known.
+func TestHFDownloadProgressPollingStopsWhenTheDownloadEnds(t *testing.T) {
+	s := hfhServer(t)
+	host := newHFHFileHost(t, "GGUF-bytes", true)
+	hfhUseFileHost(s, host)
+	form := url.Values{"model_id": {"org/Model-GGUF"}, "filename": {"m.gguf"}}
+	if rec := hfhPost(s, form, true); rec.Code != http.StatusOK {
+		t.Fatalf("start: status %d\n%s", rec.Code, rec.Body.String())
+	}
+	id := "org--Model-GGUF--m"
+	testutil.Eventually(t, func() bool { return host.gets.Load() == 1 }, "the download never reached the host")
+
+	if rec := hfhProgress(s, id, true); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "<progress") {
+		t.Errorf("while downloading: status %d body %q, want 200 with a progress bar", rec.Code, rec.Body.String())
+	}
+
+	host.unblock()
+	testutil.Eventually(t, func() bool {
+		rec := hfhProgress(s, id, true)
+		return rec.Code == htmxStopPolling && strings.Contains(rec.Body.String(), "Download complete!")
+	}, "the finished download did not stop the polling")
+
+	// The stream for other clients ends with a done event.
+	if body := hfhProgress(s, id, false).Body.String(); !strings.HasSuffix(body, "event: done\ndata: complete\n\n") {
+		t.Errorf("stream did not end with the done event: %q", body)
+	}
+
+	if rec := hfhProgress(s, "no-such-download", true); rec.Code != htmxStopPolling {
+		t.Errorf("unknown download: status %d, want %d", rec.Code, htmxStopPolling)
 	}
 }

@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"html"
 	"log/slog"
@@ -293,8 +292,16 @@ func downloadProgressHTML(status huggingface.DownloadStatus, progressStyle strin
 		pct, progressStyle, downloadedGB, totalGB, speedMB, pct)
 }
 
+// handleHFDownloadProgress reports a download's progress. A page (htmx)
+// asks again every few seconds and gets the current state; see
+// downloadProgressPoll. Other clients get a stream of progress events that
+// ends with a done event.
 func (s *Server) handleHFDownloadProgress(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if isHTMX(r) {
+		s.downloadProgressPoll(w, id)
+		return
+	}
 	ch, ok := s.downloader.Subscribe(id)
 	if !ok {
 		http.NotFound(w, r)
@@ -311,30 +318,61 @@ func (s *Server) handleHFDownloadProgress(w http.ResponseWriter, r *http.Request
 	for {
 		select {
 		case status := <-ch:
-			data, _ := json.Marshal(status)
-			// Send HTML progress update
-			var fragment string
-			switch status.Status {
-			case "downloading":
-				fragment = downloadProgressHTML(status, "")
-			case "complete":
-				fragment = `<p>Download complete!</p>`
-			case "failed":
-				// The error can quote a server response, so it is escaped.
-				fragment = fmt.Sprintf(`<p>Download failed: %s</p>`, html.EscapeString(status.Error))
-			case "cancelled":
-				fragment = `<p>Download paused — resume it from the Models page.</p>`
-			default:
-				fragment = string(data)
-			}
-			sse.SendEvent("progress", fragment)
-			// Terminal states — stop streaming
-			if status.Status == "complete" || status.Status == "failed" || status.Status == "cancelled" {
+			sse.SendEvent("progress", downloadStatusHTML(status))
+			// Terminal states — stop streaming. The done event tells the
+			// client to close the stream; without it a browser reconnects
+			// and is sent the same final state again, every few seconds.
+			if downloadEnded(status.Status) {
+				sse.SendEvent("done", status.Status)
 				return
 			}
 		case <-r.Context().Done():
 			return
 		}
+	}
+}
+
+// htmxStopPolling is the status that tells htmx to stop repeating a
+// polling request (it still shows the response).
+const htmxStopPolling = 286
+
+// downloadProgressPoll answers one progress request from a download row.
+// The row asks every few seconds rather than holding a stream open: each
+// stream holds one of the browser's few connections to the server (6
+// over plain HTTP), so several downloads started from one page used to
+// leave the rest of the UI waiting.
+func (s *Server) downloadProgressPoll(w http.ResponseWriter, id string) {
+	respondHTML(w)
+	status, ok := s.downloader.Status(id)
+	if !ok {
+		// Finished downloads are dropped after a short while.
+		w.WriteHeader(htmxStopPolling)
+		fmt.Fprint(w, `<p>This download has ended. The Downloads panel shows the result.</p>`)
+		return
+	}
+	if downloadEnded(status.Status) {
+		w.WriteHeader(htmxStopPolling)
+	}
+	fmt.Fprint(w, downloadStatusHTML(status))
+}
+
+// downloadEnded reports whether a download status is final.
+func downloadEnded(status string) bool {
+	return status == "complete" || status == "failed" || status == "cancelled"
+}
+
+// downloadStatusHTML is the row fragment for a download's status.
+func downloadStatusHTML(status huggingface.DownloadStatus) string {
+	switch status.Status {
+	case "complete":
+		return `<p>Download complete!</p>`
+	case "failed":
+		// The error can quote a server response, so it is escaped.
+		return fmt.Sprintf(`<p>Download failed: %s</p>`, html.EscapeString(status.Error))
+	case "cancelled":
+		return `<p>Download paused — resume it from the Models page.</p>`
+	default:
+		return downloadProgressHTML(status, "")
 	}
 }
 

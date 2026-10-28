@@ -347,13 +347,16 @@ function openGenLog(id, name) {
     document.getElementById('gen-log-title').textContent = name + ' log';
     pre.textContent = '';
     if (genLogSSE) genLogSSE.close();
-    genLogSSE = new EventSource('/api/gen/instances/' + encodeURIComponent(id) + '/logs');
+    // LiveStream (live-stream.js) closes on the done event and while the
+    // tab is hidden. Each new connection sends the log again from the
+    // start, so the panel is emptied first.
+    genLogSSE = new LiveStream('/api/gen/instances/' + encodeURIComponent(id) + '/logs');
+    genLogSSE.onopen = function() { pre.textContent = ''; };
     genLogSSE.onmessage = function(e) {
         pre.textContent += e.data;
         pre.scrollTop = pre.scrollHeight;
     };
-    genLogSSE.addEventListener('done', function() { genLogSSE.close(); });
-    genLogSSE.onerror = function() { genLogSSE.close(); };
+    genLogSSE.onerror = function() { this.close(); };
     dlg.showModal();
 }
 document.getElementById('gen-log-dialog').addEventListener('close', function() {
@@ -477,14 +480,17 @@ async function restartServer(btn) {
 
 (function() {
     // --- Server log stream ---
-    var logSSE = new EventSource('/api/service/logs');
+    // LiveStream (live-stream.js) holds the connection only while this tab
+    // is shown. Each new connection sends the recent lines again, so the
+    // panel is emptied first.
+    var logSSE = new LiveStream('/api/service/logs');
+    logSSE.onopen = function() {
+        document.getElementById('service-logs').textContent = '';
+    };
     logSSE.onmessage = function(e) {
         // The log panel (log-panel.js) scrolls when live tail is on.
         document.getElementById('service-logs').textContent += e.data;
     };
-    logSSE.addEventListener('done', function() {
-        logSSE.close();
-    });
 })();
 </script>
 {{end}}

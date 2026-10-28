@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -450,5 +451,52 @@ func TestRefusedConfigUpdateChangesNothing(t *testing.T) {
 	cfg, _ := s.registry.GetConfig("m")
 	if cfg.ContextSize != 4096 || cfg.BatchSize != 512 || cfg.UBatchSize != 256 {
 		t.Errorf("refused update changed the config: ctx %d batch %d ubatch %d", cfg.ContextSize, cfg.BatchSize, cfg.UBatchSize)
+	}
+}
+
+// goneWriter is a stream whose browser has left without closing the
+// connection: every write fails.
+type goneWriter struct{ header http.Header }
+
+func (g *goneWriter) Header() http.Header       { return g.header }
+func (g *goneWriter) WriteHeader(int)           {}
+func (g *goneWriter) Write([]byte) (int, error) { return 0, errors.New("connection reset") }
+func (g *goneWriter) Flush()                    {}
+
+// A quiet log stream (the router idle, nothing printed) must still notice
+// a browser that went away without closing the connection. The keep-alive
+// write fails and the stream ends, freeing its subscriber.
+func TestStreamLinesEndsWhenAKeepAliveCannotBeSent(t *testing.T) {
+	old := sseKeepAliveInterval
+	sseKeepAliveInterval = 10 * time.Millisecond
+	defer func() { sseKeepAliveInterval = old }()
+
+	done := make(chan struct{})
+	go func() {
+		StreamLines(&goneWriter{header: http.Header{}}, context.Background(), make(chan string), "finished")
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("StreamLines kept running after the keep-alive write failed")
+	}
+}
+
+// The stream's headers go out before the first line, so the browser
+// reports it as open even when there is nothing to replay.
+func TestStreamLinesSendsHeadersAtOnce(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		StreamLines(w, r.Context(), make(chan string), "finished")
+	}))
+	defer srv.Close()
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("no response before the first line: %v", err)
+	}
+	resp.Body.Close()
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Errorf("Content-Type = %q", ct)
 	}
 }
