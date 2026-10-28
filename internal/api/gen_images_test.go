@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -337,6 +338,50 @@ func TestV1ModelsMetaAPI(t *testing.T) {
 	}
 	if len(want) != 0 || len(out.Data) != 4 {
 		t.Errorf("missing entries: %v (list %s)", want, rec.Body.String())
+	}
+}
+
+// ?kind= keeps only the models of one meta.kind; an unknown kind is
+// refused rather than giving an empty list.
+func TestV1ModelsKindFilter(t *testing.T) {
+	s, _ := musicServer(t)
+	addInstance(t, s, generation.Instance{ID: "ming", Port: 8081, Enabled: true, ReservedMiB: 4096})
+	if err := s.gen.AddModelSet(generation.ModelSet{ID: "wan", Name: "wan", Kind: generation.KindVideo}); err != nil {
+		t.Fatal(err)
+	}
+	addInstance(t, s, generation.Instance{ID: "wan", ModelSetID: "wan", Port: 8082, Enabled: true, ReservedMiB: 4096})
+	if err := s.registry.Add(&models.Model{ID: "chat", ModelID: "org/chat", Filename: "chat.gguf"}); err != nil {
+		t.Fatal(err)
+	}
+	for kind, want := range map[string]string{
+		"":      "[ming music org-chat wan]",
+		"text":  "[org-chat]",
+		"image": "[ming]",
+		"video": "[wan]",
+		"music": "[music]",
+	} {
+		rec := httptest.NewRecorder()
+		s.handleV1Models(rec, httptest.NewRequest("GET", "/v1/models?kind="+kind, nil))
+		var out struct {
+			Data []struct{ ID string }
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatalf("kind %q: decode: %v\n%s", kind, err, rec.Body)
+		}
+		var ids []string
+		for _, m := range out.Data {
+			ids = append(ids, m.ID)
+		}
+		slices.Sort(ids)
+		if fmt.Sprint(ids) != want {
+			t.Errorf("kind %q: ids = %v, want %s", kind, ids, want)
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	s.handleV1Models(rec, httptest.NewRequest("GET", "/v1/models?kind=audio", nil))
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "invalid_kind") {
+		t.Errorf("kind=audio: HTTP %d %s, want 400 invalid_kind", rec.Code, rec.Body)
 	}
 }
 

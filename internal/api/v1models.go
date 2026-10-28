@@ -52,19 +52,38 @@ func (s *Server) openAIModel(m *models.Model, cfg *models.ModelConfig) map[strin
 	return obj
 }
 
+// v1ModelKinds are the meta.kind values /v1/models?kind= accepts.
+var v1ModelKinds = []string{"text", "image", "video", "music"}
+
 // handleV1Models returns an OpenAI-compatible model list with meta extensions.
+// ?kind= keeps only the models of one meta.kind.
 func (s *Server) handleV1Models(w http.ResponseWriter, r *http.Request) {
+	kind := r.URL.Query().Get("kind")
+	if kind != "" && !slices.Contains(v1ModelKinds, kind) {
+		writeOpenAIError(w, http.StatusBadRequest, "invalid_kind",
+			fmt.Sprintf("unknown kind %q: use text, image, video or music", kind))
+		return
+	}
+
 	// Not nil, so an empty list is [] rather than null, which some
 	// OpenAI clients cannot read.
 	data := []map[string]any{}
-	for _, m := range s.registry.List() {
-		cfg, _ := s.registry.GetConfig(m.ID)
-		if advertisedToClients(m, cfg) {
-			data = append(data, s.openAIModel(m, cfg))
+	// LLMs carry meta.kind only while generation is on, so they are
+	// filtered here rather than by their meta.
+	if kind == "" || kind == "text" {
+		for _, m := range s.registry.List() {
+			cfg, _ := s.registry.GetConfig(m.ID)
+			if advertisedToClients(m, cfg) {
+				data = append(data, s.openAIModel(m, cfg))
+			}
 		}
 	}
 
-	data = append(data, s.genV1Models()...)
+	for _, obj := range s.genV1Models() {
+		if kind == "" || obj["meta"].(map[string]any)["kind"] == kind {
+			data = append(data, obj)
+		}
+	}
 
 	respondJSON(w, map[string]any{
 		"object": "list",
@@ -73,7 +92,7 @@ func (s *Server) handleV1Models(w http.ResponseWriter, r *http.Request) {
 }
 
 // genV1Models lists the enabled generation instances as models, with
-// meta.kind "image" or "music". Clients that only chat should skip kinds
+// meta.kind "image", "video" or "music". Clients that only chat should skip kinds
 // other than "text". Empty while generation backends are off.
 func (s *Server) genV1Models() []map[string]any {
 	if s.cfg == nil || !s.cfg.GenerationEnabled || s.gen == nil {
