@@ -85,7 +85,7 @@ func (b *helperBackend) Busy() string {
 }
 
 func (b *helperBackend) RouterURL() string {
-	return fmt.Sprintf("http://localhost:%d", b.s.cfg.LlamaPort)
+	return fmt.Sprintf("http://localhost:%d", b.s.llamaPort())
 }
 
 // Prepare makes the helper model loadable and loads it. The router reads

@@ -806,7 +806,7 @@ func (e *jobEnv) MeasuredMemory(modelID string) (benchmark.MemorySnapshot, bool)
 func (e *jobEnv) RecentServerLog() []string { return e.s.process.RecentLogs() }
 
 func (e *jobEnv) RouterURL() string {
-	return fmt.Sprintf("http://localhost:%d", e.s.cfg.LlamaPort)
+	return fmt.Sprintf("http://localhost:%d", e.s.llamaPort())
 }
 
 func (e *jobEnv) HFToken() string { return e.s.cfgCopy().HFToken }

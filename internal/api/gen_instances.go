@@ -91,13 +91,14 @@ func (s *Server) genWebUIURL(port int) string {
 	if !s.genPortsPublished() {
 		return ""
 	}
-	u, err := url.Parse(s.externalURL())
+	cfg := s.cfgCopy()
+	u, err := url.Parse(cfg.ExternalURL)
 	if err != nil || u.Hostname() == "" {
 		return ""
 	}
 	inC := s.inContainer()
-	start, _ := s.cfg.GenPorts(inC)
-	return fmt.Sprintf("%s://%s:%d", u.Scheme, u.Hostname(), port-start+s.cfg.GenPublicStart(inC))
+	start, _ := cfg.GenPorts(inC)
+	return fmt.Sprintf("%s://%s:%d", u.Scheme, u.Hostname(), port-start+cfg.GenPublicStart(inC))
 }
 
 // genWebUILink is the link to an instance's own web page, or why there is
@@ -370,7 +371,8 @@ func (s *Server) handleGenCreateInstance(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "the instance needs a name", http.StatusBadRequest)
 		return
 	}
-	start, count := s.cfg.GenPorts(s.inContainer())
+	cfg := s.cfgCopy()
+	start, count := cfg.GenPorts(s.inContainer())
 	port, err := store.AssignPort(start, count)
 	if err != nil {
 		http.Error(w, err.Error()+"; widen the range in Settings, or delete an instance", http.StatusConflict)

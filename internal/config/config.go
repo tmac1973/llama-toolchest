@@ -111,6 +111,18 @@ type Config struct {
 	file    *Config
 }
 
+// Clone returns a copy of c that a later Set call on c does not change:
+// the saved file values are copied too. Maps and slices are shared, since
+// their writers replace them rather than editing them in place.
+func (c *Config) Clone() Config {
+	out := *c
+	if c.file != nil {
+		f := *c.file
+		out.file = &f
+	}
+	return out
+}
+
 // YAML names of the fields an environment variable can override.
 const (
 	FieldExternalURL        = "external_url"

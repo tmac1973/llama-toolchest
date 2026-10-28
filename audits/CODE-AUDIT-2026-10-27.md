@@ -104,7 +104,7 @@ Each item has a checkbox; tick it in the PR that fixes it.
 
 ### Security
 - [x] `/api` has no login, including `backup?secrets=1` and `PUT /api/settings` — `internal/api/server.go:692`, `internal/api/backup.go:20` *(decided 2026-10-05, left as is: the documented default; `--secure` puts the UI and `/api` behind a login.)*
-- [ ] Child processes inherit the full service environment through `os.Environ()` — `internal/process/supervisor.go:80`, `internal/builder/builder.go:573` *(tracked in #393.)*
+- [x] Child processes inherit the full service environment through `os.Environ()` — `internal/process/supervisor.go:80`, `internal/builder/builder.go:573` *(decided 2026-10-27, left as is (#393): the service environment is a supported way to configure llama-server and wins over Settings on purpose; Settings variables are added on top of it, so an allowlist would only cut off inherited ones.)*
 - [x] The agent CLI takes the API key as a command-line flag, so it shows in `ps` output and shell history — `cmd/agent/main.go:222` *(kept for existing scripts; its help text now says to use `LLAMA_API_KEY`, and why.)*
 - [x] .gitignore has no entries for model or data folders, `*.gguf`, `*.p12`, `id_rsa*` or `.DS_Store` — `.gitignore`
 

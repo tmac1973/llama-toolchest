@@ -233,7 +233,7 @@ func (s *Server) cfgCopy() config.Config {
 	if s.cfg == nil {
 		return config.Config{}
 	}
-	return *s.cfg
+	return s.cfg.Clone()
 }
 
 // generationOn reports whether generation is switched on in Settings.
@@ -251,6 +251,16 @@ func (s *Server) apiKey() string {
 		return ""
 	}
 	return s.cfg.APIKey
+}
+
+// llamaPort returns the port llama-server listens on.
+func (s *Server) llamaPort() int {
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+	if s.cfg == nil {
+		return 0
+	}
+	return s.cfg.LlamaPort
 }
 
 // externalURL returns the URL the dashboard links are built from.
@@ -1152,14 +1162,14 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 	}{
 		pageData:         pageData{Title: "Settings", Nav: "settings"},
 		ProxyEndpoint:    proxyEndpoint,
-		LlamaPort:        s.cfg.LlamaPort,
+		LlamaPort:        cfg.LlamaPort,
 		HasAPIKey:        cfg.APIKey != "",
 		HasHFToken:       cfg.HFToken != "",
 		HasMSToken:       cfg.MSToken != "",
 		DefaultSource:    s.defaultModelSource(),
 		HasExtURL:        cfg.ExternalURL != "",
-		ExternalURL:      s.cfg.SavedExternalURL(),
-		ExternalURLEnv:   s.cfg.EnvVar(config.FieldExternalURL),
+		ExternalURL:      cfg.SavedExternalURL(),
+		ExternalURLEnv:   cfg.EnvVar(config.FieldExternalURL),
 		ExternalURLInUse: cfg.ExternalURL,
 		DataDir:          s.cfg.DataDir,
 		ModelsDir:        cfg.ModelsDir,
@@ -1170,7 +1180,7 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		RuntimeEnvExtra:  config.MaskEnvText(cfg.RuntimeEnvExtra),
 		EnvBackends:      config.RuntimeEnvBackends(),
 		ActiveBackend:    s.activeBackend(),
-		EnvWarnings:      s.cfg.EnvSet().Warnings(),
+		EnvWarnings:      cfg.EnvSet().Warnings(),
 		EffectiveEnv:     effectiveEnvLines(cfg.EnvSet()),
 
 		GenerationEnabled:  cfg.GenerationEnabled,
@@ -1179,7 +1189,7 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		InContainer:        s.inContainer(),
 		GenPortsPublished:  s.genPortsPublished(),
 	}
-	data.GenPortStart, data.GenPortCount = s.cfg.GenPorts(data.InContainer)
+	data.GenPortStart, data.GenPortCount = cfg.GenPorts(data.InContainer)
 	data.GenPortEnd = data.GenPortStart + data.GenPortCount - 1
 	s.render(w, "settings.html", data)
 }
@@ -1236,7 +1246,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if u, err := url.Parse(cfg.ExternalURL); err == nil && u.Hostname() != "" {
-		data.ChatURL = fmt.Sprintf("%s://%s:%d", u.Scheme, u.Hostname(), s.cfg.ChatPort())
+		data.ChatURL = fmt.Sprintf("%s://%s:%d", u.Scheme, u.Hostname(), cfg.ChatPort())
 	}
 
 	for _, sm := range s.servedChatModels() {
