@@ -34,7 +34,8 @@ info:
 
     `GET /v1/models` lists the LLMs and the generation instances that are
     switched on. `meta.kind` is `text`, `image`, `video` or `music`, and
-    `meta.api` lists which routes serve a generation instance. For
+    `meta.api` lists which routes serve a generation instance. Add
+    `?kind=image` (or `text`, `video`, `music`) to list only one kind. For
     generation routes, `model` is an instance ID or its model set's ID. It
     may be left out when only one instance of that kind can take the job.
 
@@ -62,7 +63,10 @@ security:
   - {}
 tags:
   - name: Models
-    description: The LLMs and generation instances this server offers.
+    description: |
+      Every model this server offers: the LLMs (chat) and the generation
+      models (image, video and music). Use these IDs as `model` in any
+      request.
   - name: LLM
     description: |
       Answered by llama-server through llama-toolchest's proxy. The request
@@ -90,10 +94,29 @@ paths:
     get:
       tags: [Models]
       operationId: listModels
-      summary: List models
+      summary: List models (LLM, image, video, music)
       description: |
-        The enabled LLMs, then the enabled generation instances. LLMs used
-        as helpers or as draft models are not listed.
+        Lists every model you can send as `model`: the LLMs for chat, and
+        the image, video and music generation models. Each entry's
+        `meta.kind` is `text`, `image`, `video` or `music`.
+
+        Only enabled models are listed. The LLMs come first, then the
+        generation models (one entry per generation instance). LLMs used
+        as helpers or as draft models are not listed. Use `kind` to list
+        only the models one route can use, for example `?kind=image` for
+        `/v1/images/generations`.
+      parameters:
+        - name: kind
+          in: query
+          required: false
+          description: |
+            List only the models whose `meta.kind` is this value. `text`
+            lists the LLMs, also while generation is switched off (their
+            `meta.kind` is only set while it is on). Left out, every model
+            is listed.
+          schema:
+            type: string
+            enum: [text, image, video, music]
       responses:
         "200":
           description: The model list.
@@ -109,6 +132,12 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/Model"
+        "400":
+          description: "`invalid_kind`: `kind` is not `text`, `image`, `video` or `music`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -315,7 +344,7 @@ paths:
               properties:
                 model:
                   type: string
-                  description: An image instance or set. Optional when only one image instance can take the job.
+                  description: An image instance or set. Optional when only one image instance can take the job. `GET /v1/models?kind=image` lists the choices.
                 prompt:
                   type: string
                 "image[]":
@@ -1198,7 +1227,7 @@ components:
       properties:
         model:
           type: string
-          description: An LLM's public name, registry ID, router name or alias.
+          description: An LLM's public name, registry ID, router name or alias. `GET /v1/models?kind=text` lists the choices.
 
     Model:
       type: object
@@ -1385,7 +1414,7 @@ components:
       properties:
         model:
           type: string
-          description: An image instance or set. Optional when only one image instance can take the job.
+          description: An image instance or set. Optional when only one image instance can take the job. `GET /v1/models?kind=image` lists the choices.
         prompt:
           type: string
         size:
@@ -1452,7 +1481,7 @@ components:
       properties:
         model:
           type: string
-          description: A video instance or set. Optional when only one video instance can take the job.
+          description: A video instance or set. Optional when only one video instance can take the job. `GET /v1/models?kind=video` lists the choices.
         prompt:
           type: string
         negative_prompt:
@@ -1589,7 +1618,7 @@ components:
       properties:
         model:
           type: string
-          description: A music instance or set. Optional when only one music instance can take the job.
+          description: A music instance or set. Optional when only one music instance can take the job. `GET /v1/models?kind=music` lists the choices.
         task_type:
           allOf:
             - $ref: "#/components/schemas/MusicTaskType"
@@ -1755,6 +1784,7 @@ components:
           description: "`wav` or `flac` give WAV; anything else gives MP3."
         model:
           type: string
+          description: A music instance or set. Optional when only one music instance can take the job. `GET /v1/models?kind=music` lists the choices.
         thinking:
           type: boolean
           description: Let ACE-Step's language model rewrite the caption.
