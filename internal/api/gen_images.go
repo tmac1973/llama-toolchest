@@ -125,7 +125,7 @@ func requestModel(contentType string, body []byte) (string, error) {
 // picks the sd-server instance for the request's model, waits its turn in
 // that GPU's queue, and forwards the request unchanged.
 func (s *Server) handleGenImages(w http.ResponseWriter, r *http.Request) {
-	if !s.cfg.GenerationEnabled || s.gen == nil {
+	if !s.generationOn() || s.gen == nil {
 		writeNotEnabled(w, "image")
 		return
 	}

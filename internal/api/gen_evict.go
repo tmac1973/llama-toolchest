@@ -36,7 +36,11 @@ const llmUnloadTimeout = time.Minute
 // genEvictOn reports whether LLMs and backends may take a GPU from each
 // other.
 func (s *Server) genEvictOn() bool {
-	return s.cfg != nil && s.cfg.GenerationEnabled && s.cfg.GenEvict && s.gen != nil && s.genMgr != nil
+	if s.gen == nil || s.genMgr == nil {
+		return false
+	}
+	cfg := s.cfgCopy()
+	return cfg.GenerationEnabled && cfg.GenEvict
 }
 
 // genFitVRAMByGPU is genVRAMByGPU as the fit checks count it: with

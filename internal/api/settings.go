@@ -48,23 +48,30 @@ type connectionTestResult struct {
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
-	resp := settingsResponse{
-		ListenAddr:    s.cfg.ListenAddr,
-		LlamaPort:     s.cfg.LlamaPort,
-		ProxyEndpoint: s.proxyEndpoint(),
-		HasAPIKey:     s.cfg.APIKey != "",
-		HasHFToken:    s.cfg.HFToken != "",
-		HasMSToken:    s.cfg.MSToken != "",
-		DefaultSource: s.defaultModelSource(),
-		DataDir:       s.cfg.DataDir,
+	cfg := s.cfgCopy()
+	s.writeSettings(w, r, &cfg)
+}
 
-		GenerationEnabled:  s.cfg.GenerationEnabled,
-		GenEvict:           s.cfg.GenEvict,
-		GenKeepPromptCache: s.cfg.GenKeepPromptCache,
+// writeSettings answers with the settings in cfg: a copy, or s.cfg when
+// the caller holds cfgMu (the Settings save).
+func (s *Server) writeSettings(w http.ResponseWriter, r *http.Request, cfg *config.Config) {
+	resp := settingsResponse{
+		ListenAddr:    cfg.ListenAddr,
+		LlamaPort:     cfg.LlamaPort,
+		ProxyEndpoint: proxyEndpointFor(cfg.ExternalURL),
+		HasAPIKey:     cfg.APIKey != "",
+		HasHFToken:    cfg.HFToken != "",
+		HasMSToken:    cfg.MSToken != "",
+		DefaultSource: modelsource.NormalizeSource(cfg.DefaultModelSource),
+		DataDir:       cfg.DataDir,
+
+		GenerationEnabled:  cfg.GenerationEnabled,
+		GenEvict:           cfg.GenEvict,
+		GenKeepPromptCache: cfg.GenKeepPromptCache,
 	}
-	resp.GenPortStart, resp.GenPortCount = s.cfg.GenPorts(s.inContainer())
+	resp.GenPortStart, resp.GenPortCount = cfg.GenPorts(s.inContainer())
 	for _, f := range []string{config.FieldExternalURL, config.FieldLlamaPort, config.FieldGenPublicPortStart} {
-		if v := s.cfg.EnvVar(f); v != "" {
+		if v := cfg.EnvVar(f); v != "" {
 			if resp.EnvOverrides == nil {
 				resp.EnvOverrides = map[string]string{}
 			}
@@ -288,7 +295,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 				Effective []envLine
 			}{
 				Warnings:  s.cfg.EnvSet().Warnings(),
-				Effective: s.effectiveEnvLines(),
+				Effective: effectiveEnvLines(s.cfg.EnvSet()),
 			})
 			return
 		}
@@ -297,11 +304,11 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			msg = "Saved to the config file. " + v + " still sets the URL in use; the saved value applies once that variable is removed."
 		}
 		// Out-of-band swap to update the proxy endpoint display
-		fmt.Fprintf(w, `<p>%s</p><pre id="proxy-endpoint" hx-swap-oob="true">%s</pre>`, html.EscapeString(msg), html.EscapeString(s.proxyEndpoint()))
+		fmt.Fprintf(w, `<p>%s</p><pre id="proxy-endpoint" hx-swap-oob="true">%s</pre>`, html.EscapeString(msg), html.EscapeString(proxyEndpointFor(s.cfg.ExternalURL)))
 		return
 	}
 
-	s.handleGetSettings(w, r)
+	s.writeSettings(w, r, s.cfg)
 }
 
 func (s *Server) handleTestConnection(w http.ResponseWriter, r *http.Request) {
@@ -452,5 +459,11 @@ func validateModelsDir(path string) error {
 // address, which gave "http://localhost127.0.0.1:3000/v1" when that
 // address included a host.
 func (s *Server) proxyEndpoint() string {
-	return strings.TrimRight(s.cfg.ExternalURL, "/") + "/v1"
+	return proxyEndpointFor(s.externalURL())
+}
+
+// proxyEndpointFor is proxyEndpoint for a given external URL, for code
+// that holds cfgMu.
+func proxyEndpointFor(externalURL string) string {
+	return strings.TrimRight(externalURL, "/") + "/v1"
 }

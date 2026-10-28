@@ -43,7 +43,7 @@ Each item has a checkbox; tick it in the PR that fixes it.
 ## Medium Priority
 
 ### Standards
-- [ ] Fields that Settings and restore change at runtime (ActiveBuild, the API key, the tokens, the external URL) are read without `cfgMu`, although a locked getter exists — `internal/api/server.go:1003`, `internal/api/middleware.go:13`, `internal/api/jobs_env.go:812` *(tracked in #392.)*
+- [x] Fields that Settings and restore change at runtime (ActiveBuild, the API key, the tokens, the external URL) are read without `cfgMu`, although a locked getter exists — `internal/api/server.go:1003`, `internal/api/middleware.go:13`, `internal/api/jobs_env.go:812` *(fixed for #392: page handlers read a `cfgCopy`, small helpers use locked getters, and `TestSettingsSaveRacesNoReader` checks it under -race.)*
 - [x] Four functions build the same OpenAI-style error body (`writeProxyError`, `writeAuthError`, `writeVideoError` and `openAIError`) — `internal/api/proxy.go:242`, `internal/api/middleware.go:38` *(`writeVideoError` is gone and `writeProxyError` calls `openAIError`; `writeAuthError` keeps its own body, which has no code and type `auth_error`.)*
 - [x] Best-effort cache writes drop their errors silently with `_ =`; the docs cache logs the same kind of failure — `internal/modelsource/meta_cache.go:105`, `internal/recommend/finalist.go:153`
 - [x] Some JS calls `fetch` directly without checking `r.ok`, so an error page is inserted into the dialog; the About dialog sets `loaded` before the request succeeds, so it never retries — `web/templates/benchmarks.html:368`, `web/templates/server.html:429` *(the About and agent-config dialogs and the log clear use `apiCall`; the About dialog is marked loaded only on success.)*

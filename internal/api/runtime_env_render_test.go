@@ -62,7 +62,7 @@ func TestEffectiveEnvEmptyPlaceholder(t *testing.T) {
 func TestEffectiveEnvHidesTheInheritedValue(t *testing.T) {
 	t.Setenv("LT_TEST_SECRET", "hf_inherited_secret")
 	s := &Server{cfg: &config.Config{RuntimeEnvExtra: "LT_TEST_SECRET=configured"}}
-	lines := s.effectiveEnvLines()
+	lines := effectiveEnvLines(s.cfg.EnvSet())
 	if len(lines) != 1 || lines[0].Overridden != "LT_TEST_SECRET" {
 		t.Fatalf("lines = %+v, want LT_TEST_SECRET marked as overridden", lines)
 	}
@@ -78,7 +78,7 @@ func TestEffectiveEnvHidesTheInheritedValue(t *testing.T) {
 func TestEffectiveEnvMasksSecretValues(t *testing.T) {
 	s := &Server{cfg: &config.Config{RuntimeEnvExtra: "LT_TEST_HF_TOKEN=hf_typed_secret\nLT_PLAIN=1"}}
 	var texts []string
-	for _, l := range s.effectiveEnvLines() {
+	for _, l := range effectiveEnvLines(s.cfg.EnvSet()) {
 		texts = append(texts, l.Text)
 	}
 	got := strings.Join(texts, "\n")

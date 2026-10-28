@@ -494,7 +494,7 @@ func (s *Server) watchGenJobs() {
 }
 
 func (s *Server) genEnabled() bool {
-	return s.cfg.GenerationEnabled && s.gen != nil
+	return s.generationOn() && s.gen != nil
 }
 
 // jobRoutes is what the routes that image, video and music jobs share need

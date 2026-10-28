@@ -77,7 +77,7 @@ func (p *promptCacheStore) reset() {
 // promptCacheOn reports whether LLM prompt caches are saved across
 // evictions.
 func (s *Server) promptCacheOn() bool {
-	return s.genEvictOn() && s.cfg.GenKeepPromptCache
+	return s.genEvictOn() && s.cfgCopy().GenKeepPromptCache
 }
 
 func (s *Server) promptCacheDir() string {

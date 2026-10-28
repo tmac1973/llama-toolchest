@@ -91,7 +91,7 @@ func (s *Server) genWebUIURL(port int) string {
 	if !s.genPortsPublished() {
 		return ""
 	}
-	u, err := url.Parse(s.cfg.ExternalURL)
+	u, err := url.Parse(s.externalURL())
 	if err != nil || u.Hostname() == "" {
 		return ""
 	}

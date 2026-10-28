@@ -66,7 +66,7 @@ type agentConfigStep struct {
 func (s *Server) agentInput(base string) agentconfig.Input {
 	in := agentconfig.Input{
 		BaseURL:     base,
-		APIKey:      s.cfg.APIKey != "",
+		APIKey:      s.apiKey() != "",
 		GeneratedAt: time.Now(),
 	}
 	var loaded, rest []agentconfig.Model
@@ -100,7 +100,7 @@ func (s *Server) agentInput(base string) agentconfig.Input {
 func (s *Server) agentBaseURL(r *http.Request) (string, error) {
 	raw := strings.TrimSpace(r.URL.Query().Get("base"))
 	if raw == "" {
-		raw = s.cfg.ExternalURL
+		raw = s.externalURL()
 	}
 	if raw == "" && r.Host != "" {
 		scheme := "http"
