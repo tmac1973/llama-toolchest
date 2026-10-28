@@ -249,7 +249,7 @@ func (s *Server) handleAutoconfigStart(w http.ResponseWriter, r *http.Request) {
 		// the card budget is sized from those, not from what is stored
 		// now.
 		deps.HelperID = helper.ID
-		deps.HelperContext = models.HelperConfig(helper, s.helperVRAMBudget()).ContextSize
+		deps.HelperContext = s.helperConfig(helper).ContextSize
 	}
 
 	go func() {

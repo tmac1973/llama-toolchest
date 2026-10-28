@@ -49,7 +49,7 @@ func (s *Server) handleListHelperModels(w http.ResponseWriter, r *http.Request) 
 	rows := make([]helperRow, 0, len(helpers))
 	for _, m := range helpers {
 		rows = append(rows, helperRow{Model: *m, SizeGiB: models.BytesToGiB(m.SizeBytes),
-			ContextSize: models.HelperConfig(m, s.helperVRAMBudget()).ContextSize})
+			ContextSize: s.helperConfig(m).ContextSize})
 	}
 	s.renderPartial(w, "helper_model_list", rows)
 }

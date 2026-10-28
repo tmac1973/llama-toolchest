@@ -268,7 +268,7 @@ func (s *Server) ensureHelperConfig(id string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	want := models.HelperConfig(m, s.helperVRAMBudget())
+	want := s.helperConfig(m)
 	if models.ProfileEqual(*cfg, want) && cfg.Enabled == want.Enabled {
 		return false, nil
 	}
@@ -283,23 +283,11 @@ func (s *Server) ensureHelperConfig(id string) (bool, error) {
 	return true, nil
 }
 
-// helperVRAMBudget is the GPU memory a helper model may use: the largest
-// dedicated GPU, less what other programs hold on it, less the same
-// safety margin the fit planner leaves.
-func (s *Server) helperVRAMBudget() float64 {
-	best := 0.0
-	for _, g := range s.hardware().GPUs {
-		if g.IsIGPU {
-			continue
-		}
-		if gib := float64(g.UsableMiB()) / 1024; gib > best {
-			best = gib
-		}
-	}
-	if best == 0 {
-		return 0
-	}
-	return best * 0.92
+// helperConfig is the helper model's fixed launch config on this
+// machine: on the dedicated GPU with the most room (models.HelperGPUFor),
+// with a context sized to that GPU.
+func (s *Server) helperConfig(m *models.Model) models.ModelConfig {
+	return models.HelperConfig(m, models.HelperGPUFor(s.hardware()))
 }
 
 // unloadHelper frees the GPU after autoconfigure. Failure is logged, not
@@ -369,7 +357,7 @@ func (s *Server) helperPanelData() helperPanelData {
 		d.Installed = true
 		d.Name = m.PublicName()
 		d.SizeGiB = models.BytesToGiB(m.SizeBytes)
-		d.ContextSize = models.HelperConfig(m, s.helperVRAMBudget()).ContextSize
+		d.ContextSize = s.helperConfig(m).ContextSize
 	}
 	for _, st := range s.downloader.ListActive() {
 		if st.ModelID == defaultHelperRepo && st.Status == "downloading" {

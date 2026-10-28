@@ -293,3 +293,32 @@ func TestRouterAlive(t *testing.T) {
 		}
 	}
 }
+
+// On a machine with several GPUs the helper is pinned to the one with
+// the most room, so a nearly full card cannot refuse its load; when that
+// changes, the next use moves it.
+func TestEnsureHelperConfigPinsTheRoomiestGPU(t *testing.T) {
+	s := newHelperServer(t)
+	s.testHardware = &models.Hardware{GPUs: []models.GPUSpec{
+		{Index: 0, VRAMTotalMiB: 16384, OtherUsedMiB: 15000},
+		{Index: 1, VRAMTotalMiB: 16384},
+		{Index: 2, VRAMTotalMiB: 16384, OtherUsedMiB: 7000},
+	}}
+	id := addDefaultHelper(t, s)
+	if _, err := s.ensureHelperConfig(id); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.registry.GetConfig(id)
+	if got.GPUAssign != "1" || got.TensorSplit != "0,1,0" {
+		t.Errorf("helper placement = %q split %q, want GPU 1", got.GPUAssign, got.TensorSplit)
+	}
+
+	s.testHardware.GPUs[1].OtherUsedMiB = 15000
+	if changed, _ := s.ensureHelperConfig(id); !changed {
+		t.Fatal("the helper was not moved when GPU 1 filled up")
+	}
+	got, _ = s.registry.GetConfig(id)
+	if got.GPUAssign != "2" {
+		t.Errorf("helper placement = %q, want GPU 2", got.GPUAssign)
+	}
+}
