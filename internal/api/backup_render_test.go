@@ -93,7 +93,8 @@ func TestDiscardPendingHandler(t *testing.T) {
 	dir := t.TempDir()
 	reg := models.NewRegistry(dir, dir)
 	reg.SetPendingConfig(models.PendingConfig{ModelID: "org/x-GGUF", Quant: "Q8_0", Filename: "x.gguf"})
-	s := &Server{registry: reg}
+	s := newTestServer(t)
+	s.registry = reg
 
 	req := httptest.NewRequest("POST", "/api/backup/pending/discard",
 		strings.NewReader("model_id=org/x-GGUF&quant=Q8_0"))

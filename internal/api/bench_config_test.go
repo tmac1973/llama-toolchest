@@ -3,11 +3,9 @@ package api
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/benchmark"
 	"github.com/tmac1973/llama-toolchest/internal/models"
-	"github.com/tmac1973/llama-toolchest/internal/monitor"
 )
 
 func baseConfig() models.ModelConfig {
@@ -227,7 +225,7 @@ func TestGPUAssignUnchangedLeavesDerivedFields(t *testing.T) {
 // defined, so resolution never has to guess.
 func TestContradictoryGPUPlacementIsRefused(t *testing.T) {
 	assign, split := "0-1", "70,30"
-	s := &Server{monitor: monitor.New(time.Hour)}
+	s := newTestServer(t)
 
 	err := s.validateGPUAssignment(
 		&benchmark.ConfigOverrides{GPUAssign: &assign, TensorSplit: &split}, nil)
@@ -248,7 +246,7 @@ func TestContradictoryGPUPlacementIsRefused(t *testing.T) {
 // every value collapses to the same configuration.
 func TestGPUAssignRefusedWithoutGPUCount(t *testing.T) {
 	assign := "0-1"
-	s := &Server{monitor: monitor.New(time.Hour)} // never polled: no GPUs
+	s := newTestServer(t) // its monitor is never polled: no GPUs
 	if err := s.validateGPUAssignment(&benchmark.ConfigOverrides{GPUAssign: &assign}, nil); err == nil {
 		t.Error("a gpu_assign job with no detected GPUs must be refused up front")
 	}
@@ -256,7 +254,7 @@ func TestGPUAssignRefusedWithoutGPUCount(t *testing.T) {
 
 // Jobs that don't touch GPU placement are unaffected.
 func TestGPUPlacementValidationIgnoresUnrelatedJobs(t *testing.T) {
-	s := &Server{monitor: monitor.New(time.Hour)}
+	s := newTestServer(t)
 	if err := s.validateGPUAssignment(nil, []benchmark.SweepAxis{
 		{Field: "ubatch_size", Values: []string{"512", "1024"}},
 	}); err != nil {
@@ -280,7 +278,7 @@ func TestGPUAssignFailsWhenGPUCountUnknown(t *testing.T) {
 // ownership covers that window. Ownership can no longer strand the
 // guard, because cleanup releases it even when the restore fails.
 func TestRouterBusyGuardUsesOwnershipWhenQueueIsBlind(t *testing.T) {
-	s := &Server{}
+	s := newTestServer(t)
 	if s.routerBusyWithJob() {
 		t.Error("nothing wired; nothing is busy")
 	}

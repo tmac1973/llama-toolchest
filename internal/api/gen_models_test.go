@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -9,12 +10,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tmac1973/llama-toolchest/internal/generation"
 	"github.com/tmac1973/llama-toolchest/internal/huggingface"
 	"github.com/tmac1973/llama-toolchest/internal/modelsource"
+	"github.com/tmac1973/llama-toolchest/internal/testutil"
 )
 
 // genServer returns a test server with generation backends on, an empty
@@ -84,18 +85,11 @@ func TestGenCatalogDownloadCompletes(t *testing.T) {
 		t.Fatalf("download: %d %s", rec.Code, rec.Body.String())
 	}
 
-	deadline := time.Now().Add(10 * time.Second)
 	var set generation.ModelSet
-	for time.Now().Before(deadline) {
+	testutil.EventuallyMsg(t, func() bool {
 		set, _ = s.gen.ModelSet("flux2-klein-4b")
-		if set.Complete {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if !set.Complete {
-		t.Fatalf("set never completed: %+v", set)
-	}
+		return set.Complete
+	}, func() string { return fmt.Sprintf("set never completed: %+v", set) })
 	root := generation.ModelsDir(s.cfg)
 	for _, c := range set.Components {
 		if !strings.HasPrefix(c.Path, root) {

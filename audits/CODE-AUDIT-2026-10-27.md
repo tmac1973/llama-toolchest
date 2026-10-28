@@ -69,11 +69,11 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [ ] The builder pipeline (`runBuild`, `finishBuild`, the compiler finders, `filterReleaseTags`) and `detect.go` are untested, and tests cannot give it a fake host — `internal/builder/builder.go:531`, `internal/builder/detect.go:42`
 - [ ] The benchmark helpers (`keepUnchangedCopies`, the `RecordTiming` cap, `LeastFreeCard`) and the recommend scoring helpers are untested — `internal/benchmark/benchmark.go:1154`, `internal/recommend/score.go`
 - [ ] The settings handlers (`handleTestConnection`, `validateModelsDir`, gen-port conflicts) have no direct tests — `internal/api/settings.go`
-- [ ] Some tests wait for goroutines with fixed 20–100 ms sleeps, so they can fail on a busy machine — `internal/recommend/recommend_test.go:448`, `internal/generation/queue_test.go:191`, `internal/api/gen_video_jobs_test.go:257`
-- [ ] Some "nothing happened" checks run after a fixed sleep, so a late event slips past them — `internal/api/gen_image_jobs_test.go:228`, `internal/api/gen_music_test.go:296`
-- [ ] A poll loop stops quietly at its deadline instead of failing the test — `internal/api/gen_video_jobs_test.go:207`
-- [ ] The same poll-until helper is copied more than 20 times, with different timeouts — `internal/api/gen_image_jobs_test.go:31`, `internal/process/supervisor_test.go:52`
-- [ ] Two packages each have a full fake of the benchmark job environment and of the router — `internal/autotune/runner_test.go:22`, `internal/benchmark/job_runner_test.go:25`
+- [x] Some tests wait for goroutines with fixed 20–100 ms sleeps, so they can fail on a busy machine — `internal/recommend/recommend_test.go:448`, `internal/generation/queue_test.go:191`, `internal/api/gen_video_jobs_test.go:257` *(each now waits for the state it needs: the hold's claim, the build in flight, sd-server polling, the backend job ID.)*
+- [x] Some "nothing happened" checks run after a fixed sleep, so a late event slips past them — `internal/api/gen_image_jobs_test.go:228`, `internal/api/gen_music_test.go:296` *(they wait for the GPU to be freed, which the run does last.)*
+- [x] A poll loop stops quietly at its deadline instead of failing the test — `internal/api/gen_video_jobs_test.go:207`
+- [x] The same poll-until helper is copied more than 20 times, with different timeouts — `internal/api/gen_image_jobs_test.go:31`, `internal/process/supervisor_test.go:52` *(`testutil.Eventually` and `EventuallyMsg`, one 60 s timeout; benchmark tests share `waitJobDone`. One loop that runs in a goroutine stays, since only the test goroutine can fail a test.)*
+- [x] Two packages each have a full fake of the benchmark job environment and of the router — `internal/autotune/runner_test.go:22`, `internal/benchmark/job_runner_test.go:25` *(kept apart: benchmark's fake gives every method real behaviour and its in-package tests cannot import a shared package without an import cycle, so sharing would only save autotune nine one-line stubs.)*
 
 ## Low Priority
 
@@ -109,9 +109,9 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [ ] .gitignore has no entries for model or data folders, `*.gguf`, `*.p12`, `id_rsa*` or `.DS_Store` — `.gitignore`
 
 ### Testing
-- [ ] Some tests build `&Server{}` literals instead of using `newTestServer`, so they will crash when a handler reads a new field — `internal/api/job_capability_test.go:237`, `internal/api/bench_config_test.go:230`
-- [ ] Some tests compare exact HTML strings that include inline styles — `internal/api/build_render_test.go:36`, `:63`
-- [ ] Some tests assert nothing outside `-race`, and one test calls the live HuggingFace API and treats a failure as 0 — `internal/api/ms_token_test.go:309`, `internal/models/gguf_derive_local_test.go:117`
+- [x] Some tests build `&Server{}` literals instead of using `newTestServer`, so they will crash when a handler reads a new field — `internal/api/job_capability_test.go:237`, `internal/api/bench_config_test.go:230` *(the handler and job-env tests use `newTestServer`; literals that only call a pure method, such as `templateFuncs`, stay.)*
+- [x] Some tests compare exact HTML strings that include inline styles — `internal/api/build_render_test.go:36`, `:63`
+- [x] Some tests assert nothing outside `-race`, and one test calls the live HuggingFace API and treats a failure as 0 — `internal/api/ms_token_test.go:309`, `internal/models/gguf_derive_local_test.go:117` *(the HuggingFace lookup now fails the test on a network or HTTP error; the two concurrency tests stay, since they exist for `-race`; CI does not run `-race` yet.)*
 
 ### Dependencies
 - [ ] govulncheck is not installed; v1.9.0 run through `go run` found no vulnerabilities — `golang.org/x/vuln@v1.9.0`

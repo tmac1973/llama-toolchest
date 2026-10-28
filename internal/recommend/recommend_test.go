@@ -12,6 +12,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/huggingface"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/modelsource"
+	"github.com/tmac1973/llama-toolchest/internal/testutil"
 )
 
 // --- a small market -------------------------------------------------------
@@ -445,7 +446,9 @@ func TestOneBuildAtATime(t *testing.T) {
 			pools[i] = e.Get(context.Background(), machine(24), false)
 		}()
 	}
-	time.Sleep(50 * time.Millisecond)
+	// Release the build once it is under way. A request that comes later
+	// finds the build in flight or its finished pool: one build either way.
+	testutil.Eventually(t, func() bool { return h.lists.Load() > 0 }, "the build never started")
 	close(h.block)
 	wg.Wait()
 	if pools[0] != pools[1] || pools[1] != pools[2] {

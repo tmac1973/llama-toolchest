@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tmac1973/llama-toolchest/internal/generation"
+	"github.com/tmac1973/llama-toolchest/internal/testutil"
 )
 
 func postImageJob(s *Server, body string) *httptest.ResponseRecorder {
@@ -30,15 +31,11 @@ func postImageJob(s *Server, body string) *httptest.ResponseRecorder {
 
 func waitImageJob(t *testing.T, s *Server, id, status string) imageJob {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if j, _ := s.genImageJobs.view(id); j.Status == status {
-			return j
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	j, _ := s.genImageJobs.view(id)
-	t.Fatalf("job %s is %q (%s), want %q", id, j.Status, j.Error, status)
+	var j imageJob
+	testutil.EventuallyMsg(t, func() bool {
+		j, _ = s.genImageJobs.view(id)
+		return j.Status == status
+	}, func() string { return fmt.Sprintf("job %s is %q (%s), want %q", id, j.Status, j.Error, status) })
 	return j
 }
 
@@ -201,13 +198,8 @@ func TestImageJobCancelQueuedAndRunning(t *testing.T) {
 	}
 	del(queued)
 	waitImageJob(t, s, queued, jobCancelled)
-	deadline := time.Now().Add(5 * time.Second)
-	for len(s.genQueue.Snapshot(0).Waiting) != 0 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if n := len(s.genQueue.Snapshot(0).Waiting); n != 0 {
-		t.Errorf("%d jobs still waiting after the cancel", n)
-	}
+	testutil.Eventually(t, func() bool { return len(s.genQueue.Snapshot(0).Waiting) == 0 },
+		"jobs still waiting after the cancel")
 	busy.Done()
 
 	// Running: marked cancelled at once; sd-server's late answer is
@@ -218,14 +210,10 @@ func TestImageJobCancelQueuedAndRunning(t *testing.T) {
 	if j, _ := s.genImageJobs.view(running); j.Status != jobCancelled || j.Phase != "" {
 		t.Errorf("after the cancel: %s/%s", j.Status, j.Phase)
 	}
-	deadline = time.Now().Add(5 * time.Second)
-	for s.genQueue.Load(0) != 0 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if s.genQueue.Load(0) != 0 {
-		t.Fatal("the GPU is still booked after the cancelled job")
-	}
-	time.Sleep(50 * time.Millisecond)
+	testutil.Eventually(t, func() bool { return s.genQueue.Load(0) == 0 },
+		"the GPU is still booked after the cancelled job")
+	// runImageJob drops the late result before it frees the GPU (the
+	// ticket's Done is deferred), so with the GPU free the job is final.
 	if j, _ := s.genImageJobs.view(running); j.Status != jobCancelled || len(j.Images) != 0 || len(j.paths) != 0 {
 		t.Errorf("the late result appeared: %+v", j)
 	}

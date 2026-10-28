@@ -1,17 +1,18 @@
 package api
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/memreport"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/process"
+	"github.com/tmac1973/llama-toolchest/internal/testutil"
 )
 
 // oneLoad is a single instance's report, trimmed to one line per kind:
@@ -255,18 +256,15 @@ func TestWatchRouterMemoryCollectsFromTheLiveLogStream(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if meas, ok := s.memory.Latest("m1"); ok && len(meas.Report.Entries) == 5 {
-			if got := meas.Report.GPUMiB(true); got != 23552 {
-				t.Errorf("GPU = %v MiB; want 23552", got)
-			}
-			return
-		}
-		if time.Now().After(deadline) {
-			meas, ok := s.memory.Latest("m1")
-			t.Fatalf("nothing collected from the log stream: found=%v entries=%d", ok, len(meas.Report.Entries))
-		}
-		time.Sleep(20 * time.Millisecond)
+	testutil.EventuallyMsg(t, func() bool {
+		meas, ok := s.memory.Latest("m1")
+		return ok && len(meas.Report.Entries) == 5
+	}, func() string {
+		meas, ok := s.memory.Latest("m1")
+		return fmt.Sprintf("nothing collected from the log stream: found=%v entries=%d", ok, len(meas.Report.Entries))
+	})
+	meas, _ := s.memory.Latest("m1")
+	if got := meas.Report.GPUMiB(true); got != 23552 {
+		t.Errorf("GPU = %v MiB; want 23552", got)
 	}
 }

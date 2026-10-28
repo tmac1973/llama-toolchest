@@ -12,14 +12,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/benchmark"
 	"github.com/tmac1973/llama-toolchest/internal/builder"
 	"github.com/tmac1973/llama-toolchest/internal/config"
 	"github.com/tmac1973/llama-toolchest/internal/models"
-	"github.com/tmac1973/llama-toolchest/internal/monitor"
 	"github.com/tmac1973/llama-toolchest/internal/process"
+	"github.com/tmac1973/llama-toolchest/internal/testutil"
 )
 
 // testBuilder constructs a Builder whose persisted state (builds.json
@@ -234,7 +233,8 @@ func TestValidateKLJobAllowsReferenceAmongModels(t *testing.T) {
 	addModel("m4", "Q4_K_XL", 2<<30)
 	addModel("m8", "Q8_0", 4<<30) // the automatic reference
 
-	s := &Server{registry: reg}
+	s := newTestServer(t)
+	s.registry = reg
 	req := jobCreateRequest{
 		Name: "kl", ModelIDs: []string{"m4", "m8"}, BuildIDs: []string{"b"},
 		Presets: []string{"kl-divergence-quick"},
@@ -279,10 +279,8 @@ func TestEvalBinaryFindsAndMisses(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(withoutBin, "llama-server"), []byte("x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{
-		cfg:     &config.Config{DataDir: t.TempDir()},
-		builder: testBuilder(t, testBuild("b1", withBin), testBuild("b2", withoutBin)),
-	}
+	s := newTestServer(t)
+	s.builder = testBuilder(t, testBuild("b1", withBin), testBuild("b2", withoutBin))
 	env := newJobEnv(s)
 
 	got, err := env.EvalBinary("b1")
@@ -321,7 +319,8 @@ func TestResolveKLReferencePolicy(t *testing.T) {
 	addModel("m8", "u/M", "Q8_0", 4<<30)
 	addModel("l4", "u/L", "Q4_K_M", 5<<30)
 
-	s := &Server{registry: reg, cfg: &config.Config{DataDir: t.TempDir()}}
+	s := newTestServer(t)
+	s.registry = reg
 	env := newJobEnv(s)
 
 	// Automatic: the largest quant of the SAME repo, not the largest
@@ -371,7 +370,8 @@ func TestEvalFlagsCompleteAndValidated(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{registry: reg, cfg: &config.Config{DataDir: t.TempDir()}, monitor: monitor.New(time.Hour)}
+	s := newTestServer(t)
+	s.registry = reg
 	s.builder = testBuilder(t)
 	env := newJobEnv(s)
 
@@ -581,14 +581,7 @@ func (s *Server) builderDataDirForTest(t *testing.T) string {
 
 func waitRouterRunning(t *testing.T, m *process.Manager) {
 	t.Helper()
-	deadline := time.Now().Add(15 * time.Second)
-	for time.Now().Before(deadline) {
-		if m.IsRunning() {
-			return
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	t.Fatal("router did not report running within 15s")
+	testutil.Eventually(t, m.IsRunning, "router did not report running")
 }
 
 // A KL reference from a different model produces a number that means
@@ -596,7 +589,8 @@ func waitRouterRunning(t *testing.T, m *process.Manager) {
 // 0.321 where the correct reference gave 0.038 — the dropdown lists
 // every installed model, so it is one click away.
 func TestKLReferenceMustBeTheSameModel(t *testing.T) {
-	s := &Server{registry: models.NewRegistry(t.TempDir(), t.TempDir())}
+	s := newTestServer(t)
+	s.registry = models.NewRegistry(t.TempDir(), t.TempDir())
 
 	add := func(id, repo, quant, base, arch string, vocab int) {
 		s.registry.Add(&models.Model{
@@ -660,7 +654,9 @@ func TestEvalFlagsBalanceExpertOffload(t *testing.T) {
 	for i := range 3 {
 		hw.GPUs = append(hw.GPUs, models.GPUSpec{Index: i, Name: "RTX A4000", VRAMTotalMiB: 16376})
 	}
-	s := &Server{registry: reg, cfg: &config.Config{DataDir: t.TempDir()}, monitor: monitor.New(time.Hour), testHardware: &hw}
+	s := newTestServer(t)
+	s.registry = reg
+	s.testHardware = &hw
 	s.builder = testBuilder(t)
 
 	flags, err := newJobEnv(s).EvalFlags("flash", benchmark.ConfigSnapshot{GPULayers: 999, CPUMoE: 32, KVCacheQuant: "q8_0"}, "b1")

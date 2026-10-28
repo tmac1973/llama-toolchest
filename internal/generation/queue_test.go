@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/tmac1973/llama-toolchest/internal/testutil"
 )
 
 // Jobs on one GPU run strictly one after another, in order.
@@ -188,7 +190,12 @@ func TestQueueHoldCancelled(t *testing.T) {
 		_, err := q.Hold(ctx, []int{0}, "a benchmark")
 		done <- err
 	}()
-	time.Sleep(20 * time.Millisecond)
+	// Submit once the hold has claimed the GPU, so the job queues behind it.
+	testutil.Eventually(t, func() bool {
+		q.mu.Lock()
+		defer q.mu.Unlock()
+		return q.gpu(0).claims > 0
+	}, "the hold never claimed the GPU")
 	waiting, _ := q.Submit(0, "img", KindSD)
 	cancel()
 	if err := <-done; !errors.Is(err, context.Canceled) {

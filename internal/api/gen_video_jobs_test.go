@@ -21,6 +21,7 @@ import (
 
 	"github.com/tmac1973/llama-toolchest/internal/generation"
 	"github.com/tmac1973/llama-toolchest/internal/process"
+	"github.com/tmac1973/llama-toolchest/internal/testutil"
 )
 
 // videoServer is an instanceServer with a running TI2V-like video instance
@@ -70,15 +71,12 @@ func videoReq(target, body string) *http.Request {
 // waitVideoJob polls a job until it has finished.
 func waitVideoJob(t *testing.T, s *Server, id string) videoJob {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if j, _ := s.genVideoJobs.view(id); j.Finished != nil {
-			return j
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatal("the video job did not finish")
-	return videoJob{}
+	var j videoJob
+	testutil.Eventually(t, func() bool {
+		j, _ = s.genVideoJobs.view(id)
+		return j.Finished != nil
+	}, "the video job did not finish")
+	return j
 }
 
 func createVideoJobID(t *testing.T, s *Server, r *http.Request) string {
@@ -204,13 +202,10 @@ func TestVideoJobCancelRunning(t *testing.T) {
 	f := newFakeVidServer(t, 0, "hang")
 	s := videoServer(t, f)
 	id := createVideoJobID(t, s, videoReq("/v1/videos/jobs", `{"prompt":"p"}`))
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if j, _ := s.genVideoJobs.view(id); j.Progress != nil || time.Now().After(deadline) {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	testutil.Eventually(t, func() bool {
+		j, _ := s.genVideoJobs.view(id)
+		return j.Progress != nil
+	}, "the job never reported progress")
 	rec := serve(s, httptest.NewRequest("DELETE", "/v1/videos/jobs/"+id, nil))
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("DELETE: HTTP %d", rec.Code)
@@ -254,20 +249,19 @@ func TestVideoGenerateClientLeaves(t *testing.T) {
 		serve(s, videoReq("/v1/videos/generations", `{"prompt":"p"}`).WithContext(ctx))
 		close(done)
 	}()
-	time.Sleep(100 * time.Millisecond)
+	// Leave once sd-server is working on the job.
+	testutil.Eventually(t, func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return f.polls > 0
+	}, "sd-server never got the job")
 	cancel()
 	<-done
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
+	testutil.Eventually(t, func() bool {
 		f.mu.Lock()
-		c := f.cancelled
-		f.mu.Unlock()
-		if c {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Error("leaving the waiting route did not cancel the job in sd-server")
+		defer f.mu.Unlock()
+		return f.cancelled
+	}, "leaving the waiting route did not cancel the job in sd-server")
 }
 
 // A DELETE from elsewhere while the waiting route waits makes it answer
