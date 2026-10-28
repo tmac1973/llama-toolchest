@@ -17,6 +17,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/evaluate"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/monitor"
+	"github.com/tmac1973/llama-toolchest/internal/testutil"
 )
 
 // fakeEnv records the calls the cell loop makes so a test can assert
@@ -438,16 +439,23 @@ func runJob(t *testing.T, job BenchmarkJob, env *fakeEnv) (*BenchmarkJob, *Store
 		t.Fatalf("submit: %v", err)
 	}
 
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
-		got, err := store.GetJob(job.ID)
+	return waitJobDone(t, store, job.ID), store
+}
+
+// waitJobDone waits until the job is neither pending nor running, and
+// returns it.
+func waitJobDone(t *testing.T, store *Store, id string) *BenchmarkJob {
+	t.Helper()
+	var done *BenchmarkJob
+	testutil.Eventually(t, func() bool {
+		got, err := store.GetJob(id)
 		if err == nil && got.Status != JobStatusRunning && got.Status != JobStatusPending {
-			return got, store
+			done = got
+			return true
 		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatal("job did not finish within 30s")
-	return nil, nil
+		return false
+	}, "job %s did not finish", id)
+	return done
 }
 
 func oneCellJob(overrides *ConfigOverrides) BenchmarkJob {
@@ -613,30 +621,19 @@ func TestCancelledJobStillRestoresConfig(t *testing.T) {
 	}
 
 	// Wait until the cell is actually in flight, then cancel.
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if applied, _ := env.snapshotCalls(); len(applied) > 0 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	testutil.Eventually(t, func() bool {
+		applied, _ := env.snapshotCalls()
+		return len(applied) > 0
+	}, "the cell never started")
 	if err := q.Cancel(job.ID); err != nil {
 		t.Fatalf("cancel: %v", err)
 	}
 	once.Do(func() { close(release) })
 
-	deadline = time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
-		got, err := store.GetJob(job.ID)
-		if err == nil && got.Status != JobStatusRunning && got.Status != JobStatusPending {
-			if _, cleared := env.snapshotCalls(); cleared != 1 {
-				t.Errorf("ClearEphemeralConfig called %d times after cancel, want 1 — the router would be left on benchmark config", cleared)
-			}
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
+	waitJobDone(t, store, job.ID)
+	if _, cleared := env.snapshotCalls(); cleared != 1 {
+		t.Errorf("ClearEphemeralConfig called %d times after cancel, want 1 — the router would be left on benchmark config", cleared)
 	}
-	t.Fatal("cancelled job did not wind down within 30s")
 }
 
 // newSlowRouter blocks completions until release is closed, giving a

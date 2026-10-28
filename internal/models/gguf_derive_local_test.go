@@ -55,7 +55,7 @@ func TestDeriveMatchesFullParse(t *testing.T) {
 		}
 		repo := strings.Replace(filepath.Base(filepath.Dir(path)), "--", "/", 1)
 		if _, ok := params[repo]; !ok {
-			params[repo] = hfParamCount(repo)
+			params[repo] = hfParamCount(t, repo)
 		}
 		size := totalSize(path)
 
@@ -114,18 +114,27 @@ func totalSize(path string) int64 {
 	return n
 }
 
-func hfParamCount(repo string) int64 {
+// hfParamCount asks HuggingFace for a repo's parameter count. The test
+// cannot judge an estimate without it, so a failed request fails the test
+// rather than estimating from a count of 0.
+func hfParamCount(t *testing.T, repo string) int64 {
+	t.Helper()
 	c := http.Client{Timeout: 20 * time.Second}
 	resp, err := c.Get("https://huggingface.co/api/models/" + repo)
 	if err != nil {
-		return 0
+		t.Fatalf("asking HuggingFace for %s's parameter count: %v", repo, err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("asking HuggingFace for %s's parameter count: HTTP %d", repo, resp.StatusCode)
+	}
 	var info struct {
 		GGUF struct {
 			Total int64 `json:"total"`
 		} `json:"gguf"`
 	}
-	json.NewDecoder(resp.Body).Decode(&info)
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		t.Fatalf("reading HuggingFace's answer for %s: %v", repo, err)
+	}
 	return info.GGUF.Total
 }

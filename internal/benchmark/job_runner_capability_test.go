@@ -5,9 +5,9 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/evaluate"
+	"github.com/tmac1973/llama-toolchest/internal/testutil"
 )
 
 // capabilityEnv builds a fakeEnv wired for capability cells: the router
@@ -377,33 +377,18 @@ func TestKLBaseCancelDeletesPartialAndRegenerates(t *testing.T) {
 	}
 
 	// Wait until the partial appears (generation in flight), then cancel.
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(evaluate.KLBasePartialPath(env.dataDir, evaluate.KLBaseKey{
+	testutil.Eventually(t, func() bool {
+		_, err := os.Stat(evaluate.KLBasePartialPath(env.dataDir, evaluate.KLBaseKey{
 			ModelID: "u/M-GGUF", Quant: "Q8_0", Dataset: "wikitext-2",
 			Chunks: 100, Ctx: evaluate.EvalContextSize,
-		})); err == nil {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+		}))
+		return err == nil
+	}, "the partial never appeared")
 	if err := q.Cancel(job.ID); err != nil {
 		t.Fatalf("cancel: %v", err)
 	}
 
-	deadline = time.Now().Add(30 * time.Second)
-	var done *BenchmarkJob
-	for time.Now().Before(deadline) {
-		got, err := store.GetJob(job.ID)
-		if err == nil && got.Status != JobStatusRunning && got.Status != JobStatusPending {
-			done = got
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	if done == nil {
-		t.Fatal("cancelled job did not wind down within 30s")
-	}
+	done := waitJobDone(t, store, job.ID)
 	if done.Status != JobStatusCanceled {
 		t.Fatalf("job status = %s, want canceled", done.Status)
 	}
@@ -464,44 +449,25 @@ func TestCapabilityCancelRestoresRouter(t *testing.T) {
 	}
 
 	// Wait until the router is stopped (the eval is in flight), then cancel.
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
+	testutil.Eventually(t, func() bool {
 		env.mu.Lock()
-		stopped := !env.running
-		env.mu.Unlock()
-		if stopped {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+		defer env.mu.Unlock()
+		return !env.running
+	}, "the router was never stopped for the eval")
 	if err := q.Cancel(job.ID); err != nil {
 		t.Fatalf("cancel: %v", err)
 	}
 	close(env.evalBlock)
 
-	deadline = time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
-		got, err := store.GetJob(job.ID)
-		if err == nil && got.Status != JobStatusRunning && got.Status != JobStatusPending {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	waitJobDone(t, store, job.ID)
 	// The cleanup runs in a deferred call that can finish just after the
-	// job's status changes, so give it a moment, and read under the fake's
-	// lock (the race detector caught the unlocked read).
-	clean := false
-	for deadline = time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	// job's status changes, so wait for it, and read under the fake's lock
+	// (the race detector caught the unlocked read).
+	testutil.Eventually(t, func() bool {
 		env.mu.Lock()
-		clean = !env.dirty
-		env.mu.Unlock()
-		if clean {
-			break
-		}
-	}
-	if !clean {
-		t.Error("cleanup did not restore the router after a cancelled capability cell (dirty still set)")
-	}
+		defer env.mu.Unlock()
+		return !env.dirty
+	}, "cleanup did not restore the router after a cancelled capability cell (dirty still set)")
 }
 
 // The user had the router STOPPED before the job: StopRouterForEval

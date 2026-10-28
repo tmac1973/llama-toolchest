@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tmac1973/llama-toolchest/internal/testutil"
 )
 
 // fakeProgram writes a shell script to a temp dir and returns its path.
@@ -51,14 +53,7 @@ func testConfig(t *testing.T, body string) SupervisorConfig {
 // waitFor polls cond until it is true or the deadline passes.
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for %s", what)
+	testutil.Eventually(t, cond, "waiting for %s", what)
 }
 
 func TestSupervisorStartRunStop(t *testing.T) {

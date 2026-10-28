@@ -20,6 +20,7 @@ import (
 
 	"github.com/tmac1973/llama-toolchest/internal/generation"
 	"github.com/tmac1973/llama-toolchest/internal/process"
+	"github.com/tmac1973/llama-toolchest/internal/testutil"
 )
 
 // fakeAce is a stand-in ace-server with acestep.cpp's job API: POST /lm and
@@ -170,15 +171,11 @@ func postMusic(s *Server, body string) *httptest.ResponseRecorder {
 
 func waitMusic(t *testing.T, s *Server, id string, status string) musicJob {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if j, _ := s.genMusic.view(id); j.Status == status {
-			return j
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	j, _ := s.genMusic.view(id)
-	t.Fatalf("job %s is %q (%s), want %q", id, j.Status, j.Error, status)
+	var j musicJob
+	testutil.EventuallyMsg(t, func() bool {
+		j, _ = s.genMusic.view(id)
+		return j.Status == status
+	}, func() string { return fmt.Sprintf("job %s is %q (%s), want %q", id, j.Status, j.Error, status) })
 	return j
 }
 
@@ -280,20 +277,16 @@ func TestMusicCancelQueuedAndRunning(t *testing.T) {
 	f.mu.Unlock()
 	running := createdID(t, postMusic(s, `{"caption":"x"}`))
 	waitMusic(t, s, running, musicRunning)
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		f.mu.Lock()
-		n := len(f.lmReqs)
-		f.mu.Unlock()
-		if n >= 1 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	time.Sleep(100 * time.Millisecond)
+	// Cancel once ace-server has the job, so the cancel goes to it.
+	testutil.Eventually(t, func() bool {
+		j, _ := s.genMusic.view(running)
+		return j.backendJobID != ""
+	}, "the job never reached ace-server")
 	s.cancelMusic(running)
 	waitMusic(t, s, running, musicCancelled)
-	time.Sleep(aceJobPoll * 3)
+	// The run frees the GPU last, after it has sent the cancel.
+	testutil.Eventually(t, func() bool { return s.genQueue.Load(0) == 0 },
+		"the GPU is still booked after the cancelled job")
 	f.mu.Lock()
 	cancels := len(f.cancels)
 	f.mu.Unlock()

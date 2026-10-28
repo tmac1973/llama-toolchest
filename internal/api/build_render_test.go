@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -33,8 +34,9 @@ func TestBuildInfoFlagList(t *testing.T) {
 	}
 
 	out := info("b1")
-	want := `word-break:break-all;">-DA=&lt;x&gt; \` + "\n" + `  -DB=ON</pre>`
-	if !strings.Contains(out, want) {
+	// Check the text inside the <pre>, whatever its styling.
+	pre := regexp.MustCompile(`(?s)<pre[^>]*>(.*?)</pre>`).FindStringSubmatch(out)
+	if want := `-DA=&lt;x&gt; \` + "\n" + `  -DB=ON`; pre == nil || pre[1] != want {
 		t.Errorf("flag list not sorted one per line and escaped once:\n%s", out)
 	}
 	if strings.Contains(out, "not recorded") {
@@ -60,12 +62,12 @@ func TestGitRefOptions(t *testing.T) {
 	}
 
 	out := render([]string{"v0.2.0", "b100"}, map[string]int{"v0.2.0": 10500}, nil)
-	want := `<option value="latest">latest</option>` +
-		` <optgroup label="Releases"> <option value="v0.2.0">v0.2.0 (b10500)</option> </optgroup>` +
-		` <optgroup label="Nightly builds"> <option value="b100">b100</option> </optgroup>`
-	if out != want {
-		t.Errorf("got\n%s\nwant\n%s", out, want)
-	}
+	// The parts in order: latest, the releases group with the release
+	// labelled by its nightly, then the nightlies group.
+	inOrder(t, out,
+		`<option value="latest">latest</option>`,
+		`<optgroup label="Releases">`, `<option value="v0.2.0">v0.2.0 (b10500)</option>`, `</optgroup>`,
+		`<optgroup label="Nightly builds">`, `<option value="b100">b100</option>`, `</optgroup>`)
 
 	out = render(nil, nil, errors.New("fetch <failed>"))
 	if !strings.Contains(out, `<option disabled>— fetch &lt;failed&gt; —</option>`) || strings.Contains(out, "optgroup") {
@@ -73,5 +75,20 @@ func TestGitRefOptions(t *testing.T) {
 	}
 	if out := render([]string{"b1"}, nil, errors.New("x")); strings.Contains(out, "disabled") {
 		t.Errorf("a failed refresh with cached tags shows the cached tags only:\n%s", out)
+	}
+}
+
+// inOrder fails the test unless each part appears in s after the one
+// before it.
+func inOrder(t *testing.T, s string, parts ...string) {
+	t.Helper()
+	rest := s
+	for _, p := range parts {
+		i := strings.Index(rest, p)
+		if i < 0 {
+			t.Errorf("%q missing or out of order in\n%s", p, s)
+			return
+		}
+		rest = rest[i+len(p):]
 	}
 }

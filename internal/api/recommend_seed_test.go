@@ -11,12 +11,12 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/huggingface"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/modelsource"
 	"github.com/tmac1973/llama-toolchest/internal/presets"
+	"github.com/tmac1973/llama-toolchest/internal/testutil"
 )
 
 // seedGGUF writes a header-only GGUF describing a model, where the
@@ -85,11 +85,8 @@ func download(t *testing.T, s *Server, repo, file string, size int64, class mode
 	// Wait for the background preset fetch, so it is not still writing
 	// the registry when the test reads the model or removes its folder.
 	// Asked under the registry's lock: the model itself is shared.
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-		if !slices.Contains(s.registry.ListNeedingPresetFetch(), modelID) {
-			break
-		}
-	}
+	testutil.Eventually(t, func() bool { return !slices.Contains(s.registry.ListNeedingPresetFetch(), modelID) },
+		"%s still needs its preset fetch", modelID)
 	m, err := s.registry.Get(modelID)
 	if err != nil {
 		t.Fatalf("not registered: %v", err)

@@ -16,6 +16,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/evaluate"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/monitor"
+	"github.com/tmac1973/llama-toolchest/internal/testutil"
 )
 
 // fakeEnv is the job environment the stages run in: it records the config
@@ -236,19 +237,20 @@ func newFixture(t *testing.T, mtpLayers int) *tuneFixture {
 // waitForRun waits for a run to reach a terminal status.
 func (f *tuneFixture) waitForRun(t *testing.T, id string) *Autotune {
 	t.Helper()
-	deadline := time.Now().Add(60 * time.Second)
-	for time.Now().Before(deadline) {
-		rec, ok := f.store.Get(id)
-		if ok {
-			switch rec.Status {
-			case StatusDone, StatusFailed, StatusCancelled:
-				return rec
-			}
+	var rec *Autotune
+	testutil.Eventually(t, func() bool {
+		r, ok := f.store.Get(id)
+		if !ok {
+			return false
 		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatal("the autotune run did not finish")
-	return nil
+		switch r.Status {
+		case StatusDone, StatusFailed, StatusCancelled:
+			rec = r
+			return true
+		}
+		return false
+	}, "the autotune run did not finish")
+	return rec
 }
 
 // A whole run on a machine where MTP plus an n-gram assist is fastest:
@@ -546,14 +548,11 @@ func TestRunnerCancelKeepsFinishedStages(t *testing.T) {
 	}
 
 	// Cancel as soon as the first stage has a job to cancel.
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
+	testutil.Eventually(t, func() bool {
 		cur, _ := f.store.Get(rec.ID)
-		if st, ok := cur.Stage(StageBatch); ok && st.JobID != "" {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+		st, ok := cur.Stage(StageBatch)
+		return ok && st.JobID != ""
+	}, "the first stage never had a job")
 	if err := f.runner.Cancel(rec.ID); err != nil {
 		t.Fatalf("cancel: %v", err)
 	}
@@ -732,17 +731,13 @@ func TestRunnerTreatsAJobCancelledElsewhereAsAStop(t *testing.T) {
 		t.Fatal(err)
 	}
 	var jobID string
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) && jobID == "" {
+	testutil.Eventually(t, func() bool {
 		cur, _ := f.store.Get(rec.ID)
 		if st, ok := cur.Stage(StageBatch); ok {
 			jobID = st.JobID
 		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	if jobID == "" {
-		t.Fatal("the first stage never started")
-	}
+		return jobID != ""
+	}, "the first stage never started")
 	if err := f.runner.deps.Jobs.Cancel(jobID); err != nil {
 		t.Fatalf("cancelling the stage's job: %v", err)
 	}

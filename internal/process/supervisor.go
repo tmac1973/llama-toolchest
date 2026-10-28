@@ -1,7 +1,7 @@
 package process
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -19,6 +19,10 @@ import (
 
 // Default timings for a supervised process.
 const (
+	// outputWaitDelay is how long Wait keeps copying output after the
+	// program has exited, for a child process still holding it open.
+	outputWaitDelay = 2 * time.Second
+
 	defaultHealthInterval = 2 * time.Second
 	defaultHealthTimeout  = 5 * time.Minute
 	defaultStopTimeout    = 30 * time.Second
@@ -116,12 +120,13 @@ func (s *Supervisor) Start(cfg SupervisorConfig) error {
 	cmd.Env = cfg.Env
 	cmd.Dir = cfg.WorkDir
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		cancel()
-		return fmt.Errorf("stdout pipe: %w", err)
-	}
-	cmd.Stderr = cmd.Stdout
+	// exec copies the output into out, and Wait returns only once the copy
+	// is done, so the last lines of a program that dies are not lost. A
+	// child process that keeps the output open after the program exits
+	// would hold Wait up; WaitDelay ends the copy then.
+	out := &lineWriter{emit: s.broadcast}
+	cmd.Stdout, cmd.Stderr = out, out
+	cmd.WaitDelay = outputWaitDelay
 
 	if err := cmd.Start(); err != nil {
 		cancel()
@@ -140,15 +145,7 @@ func (s *Supervisor) Start(cfg SupervisorConfig) error {
 		StartedAt: time.Now(),
 	}
 
-	go func() {
-		scanner := bufio.NewScanner(stdout)
-		scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
-		for scanner.Scan() {
-			s.broadcast(scanner.Text())
-		}
-	}()
-
-	go s.monitorProcess(cmd, done)
+	go s.monitorProcess(cmd, out, done)
 	go s.pollHealth(cfg)
 
 	slog.Info(cfg.Name+" started", "pid", cmd.Process.Pid)
@@ -328,8 +325,13 @@ func (s *Supervisor) broadcast(line string) {
 	s.logs.Broadcast(line)
 }
 
-func (s *Supervisor) monitorProcess(cmd *exec.Cmd, done chan struct{}) {
+func (s *Supervisor) monitorProcess(cmd *exec.Cmd, out *lineWriter, done chan struct{}) {
 	err := cmd.Wait()
+	if errors.Is(err, exec.ErrWaitDelay) {
+		// The program exited cleanly; only a child kept its output open.
+		err = nil
+	}
+	out.flush() // a last line without a newline
 	close(done)
 
 	s.mu.Lock()
@@ -386,4 +388,51 @@ func (s *Supervisor) pollHealth(cfg SupervisorConfig) {
 		s.status.Error = "health check timeout"
 	}
 	s.mu.Unlock()
+}
+
+// maxLogLine is the longest output line kept whole; a longer one is
+// emitted in pieces of this size.
+const maxLogLine = 256 * 1024
+
+// lineWriter splits a program's output into lines and emits each one. exec
+// calls Write from one goroutine at a time, even with Stdout and Stderr
+// both set to it.
+type lineWriter struct {
+	emit func(string)
+	buf  []byte
+}
+
+func (w *lineWriter) Write(p []byte) (int, error) {
+	w.buf = append(w.buf, p...)
+	for {
+		i := bytes.IndexByte(w.buf, '\n')
+		if i < 0 {
+			break
+		}
+		w.line(w.buf[:i])
+		w.buf = w.buf[i+1:]
+	}
+	for len(w.buf) >= maxLogLine {
+		w.emit(string(w.buf[:maxLogLine]))
+		w.buf = w.buf[maxLogLine:]
+	}
+	return len(p), nil
+}
+
+// line emits one line, in pieces of maxLogLine when it is longer.
+func (w *lineWriter) line(b []byte) {
+	b = bytes.TrimSuffix(b, []byte("\r"))
+	for len(b) > maxLogLine {
+		w.emit(string(b[:maxLogLine]))
+		b = b[maxLogLine:]
+	}
+	w.emit(string(b))
+}
+
+// flush emits a last line that had no newline. Call it after Wait.
+func (w *lineWriter) flush() {
+	if len(w.buf) > 0 {
+		w.line(w.buf)
+		w.buf = nil
+	}
 }
