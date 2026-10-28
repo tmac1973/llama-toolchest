@@ -316,6 +316,13 @@ func (r *Runner) runStage(ctx context.Context, rec *Autotune, stageKey string) e
 	}
 	done, err := r.deps.Jobs.Wait(ctx, job.ID)
 	if err != nil {
+		if ctx.Err() != nil {
+			// Cancelled. Cancel has told the stage's job to stop too; wait
+			// for it to finish, so the run ends only once the job queue is
+			// free and a resume can start at once.
+			r.deps.Jobs.Cancel(job.ID)
+			r.deps.Jobs.Wait(context.Background(), job.ID)
+		}
 		return err
 	}
 

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/tmac1973/llama-toolchest/internal/generation"
+	"github.com/tmac1973/llama-toolchest/internal/testutil"
 )
 
 // addVideoSet adds a complete video set to an instanceServer.
@@ -123,4 +124,10 @@ func TestGenCatalogDownloadVideoFields(t *testing.T) {
 	if set.Kind != generation.KindVideo || set.DefaultFrames != 33 || set.DefaultFPS != 24 || set.MaxFrames != 121 || set.MaxWidth != 1280 || set.MaxHeight != 704 {
 		t.Errorf("set = %+v, want the catalog's video fields", set)
 	}
+	// Let the download finish before the test ends, as in
+	// TestGenCatalogCardIsSeparateFromSets.
+	testutil.Eventually(t, func() bool {
+		set, _ := s.gen.ModelSet("wan22-ti2v-5b")
+		return set.Complete
+	}, "the catalog download never finished")
 }

@@ -933,7 +933,9 @@ func (s *Store) ListJobs() []BenchmarkJob {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]BenchmarkJob, len(s.jobs))
-	copy(out, s.jobs)
+	for i := range s.jobs {
+		out[i] = s.jobs[i].clone()
+	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if (out[i].ID == AdhocJobID) != (out[j].ID == AdhocJobID) {
 			return out[j].ID == AdhocJobID
@@ -949,15 +951,24 @@ func (s *Store) GetJob(id string) (*BenchmarkJob, error) {
 	defer s.mu.RUnlock()
 	for i := range s.jobs {
 		if s.jobs[i].ID == id {
-			job := s.jobs[i]
+			job := s.jobs[i].clone()
 			return &job, nil
 		}
 	}
 	return nil, fmt.Errorf("job not found: %s", id)
 }
 
+// clone returns a copy of the job that shares no cells with it. A running
+// job keeps writing its cells' status, so the store keeps its own copy,
+// and callers get theirs.
+func (j BenchmarkJob) clone() BenchmarkJob {
+	j.Cells = slices.Clone(j.Cells)
+	return j
+}
+
 // SaveJob adds or updates a job.
 func (s *Store) SaveJob(job BenchmarkJob) {
+	job = job.clone()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := range s.jobs {
