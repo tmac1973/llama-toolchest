@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -37,6 +38,8 @@ type fakeEnv struct {
 	// runs, but the monitor then reports less than benchmark.MinCardFreeMiB
 	// free on the card.
 	tightWhen func(benchmark.ConfigSnapshot) bool
+	// gpusReleased lists each ReleaseGPUs call.
+	gpusReleased []string
 }
 
 func (e *fakeEnv) CheckBuildRunnable(context.Context, string) error { return nil }
@@ -63,8 +66,14 @@ func (e *fakeEnv) ApplyEphemeralConfig(_ context.Context, _ string, cfg benchmar
 	return nil
 }
 
-func (e *fakeEnv) ClaimGPUs(context.Context, string, benchmark.ConfigSnapshot, *models.ModelConfig, string) (func(), error) {
+func (e *fakeEnv) ClaimGPUs(context.Context, string, benchmark.ConfigSnapshot, *models.ModelConfig, string, string) (func(), error) {
 	return func() {}, nil
+}
+
+func (e *fakeEnv) ReleaseGPUs(owner string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.gpusReleased = append(e.gpusReleased, owner)
 }
 
 func (e *fakeEnv) ClearEphemeralConfig(context.Context) error {
@@ -230,6 +239,7 @@ func newFixture(t *testing.T, mtpLayers int) *tuneFixture {
 		Store: f.store, Runs: runs, Jobs: benchmark.NewJobQueue(runs, env), Registry: reg,
 		ActiveBuild: func() string { return "b1" },
 		Hardware:    func() (int, int) { return 1, 16 },
+		ReleaseGPUs: env.ReleaseGPUs,
 	})
 	return f
 }
@@ -269,6 +279,17 @@ func TestRunnerFindsTheFastestSettings(t *testing.T) {
 	if len(rec.Stages) != len(StageOrder) {
 		t.Fatalf("stages = %v", stageKeys(rec))
 	}
+	// The stages kept their GPUs; the run gives them back once, at the end.
+	testutil.Eventually(t, func() bool {
+		f.env.mu.Lock()
+		defer f.env.mu.Unlock()
+		return len(f.env.gpusReleased) > 0
+	}, "the run never gave its GPUs back")
+	f.env.mu.Lock()
+	if want := []string{benchmark.AutotuneGPUOwner(rec.ID)}; !slices.Equal(f.env.gpusReleased, want) {
+		t.Errorf("GPUs released for %v, want %v", f.env.gpusReleased, want)
+	}
+	f.env.mu.Unlock()
 	for _, st := range rec.Stages {
 		if st.Status != StatusDone {
 			t.Errorf("stage %s = %s", st.Key, st.Status)

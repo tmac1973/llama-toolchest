@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -81,20 +82,30 @@ type fakeEnv struct {
 	// claimErr refuses every claim.
 	claims, released int
 	claimErr         error
+	// owners lists the owner of each claim, and gpusReleased each
+	// ReleaseGPUs call.
+	owners, gpusReleased []string
 }
 
-func (f *fakeEnv) ClaimGPUs(context.Context, string, ConfigSnapshot, *models.ModelConfig, string) (func(), error) {
+func (f *fakeEnv) ClaimGPUs(_ context.Context, _ string, _ ConfigSnapshot, _ *models.ModelConfig, _, owner string) (func(), error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.claimErr != nil {
 		return nil, f.claimErr
 	}
 	f.claims++
+	f.owners = append(f.owners, owner)
 	return func() {
 		f.mu.Lock()
 		f.released++
 		f.mu.Unlock()
 	}, nil
+}
+
+func (f *fakeEnv) ReleaseGPUs(owner string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.gpusReleased = append(f.gpusReleased, owner)
 }
 
 func (f *fakeEnv) CheckBuildRunnable(context.Context, string) error { return nil }
@@ -576,6 +587,33 @@ func TestJobCellClaimsGPUs(t *testing.T) {
 	defer env.mu.Unlock()
 	if env.claims != 1 || env.released != 1 {
 		t.Errorf("claims %d, released %d; want one of each", env.claims, env.released)
+	}
+	// Kept for the job between cells, and given back when it ends.
+	owner := "job:" + job.ID
+	if !slices.Equal(env.owners, []string{owner}) || !slices.Equal(env.gpusReleased, []string{owner}) {
+		t.Errorf("claimed for %v, released for %v; want %q for both", env.owners, env.gpusReleased, owner)
+	}
+}
+
+// An autotune stage keeps its GPUs for the run: they stay kept into the
+// next stage, and the run gives them back.
+func TestAutotuneStageLeavesGPUsKept(t *testing.T) {
+	router := newFakeRouter(t)
+	ngl := 50
+	env := &fakeEnv{routerURL: router.URL, saved: ConfigSnapshot{GPULayers: 999}}
+	j := oneCellJob(&ConfigOverrides{GPULayers: &ngl})
+	j.AutotuneID = "at-1"
+	job, _ := runJob(t, j, env)
+	if job.Cells[0].Status != CellStatusCompleted {
+		t.Fatalf("cell status = %s (%s), want completed", job.Cells[0].Status, job.Cells[0].Error)
+	}
+	env.mu.Lock()
+	defer env.mu.Unlock()
+	if !slices.Equal(env.owners, []string{"autotune:at-1"}) {
+		t.Errorf("claimed for %v, want the autotune run", env.owners)
+	}
+	if len(env.gpusReleased) != 0 {
+		t.Errorf("the stage released its GPUs (%v); the run should", env.gpusReleased)
 	}
 }
 

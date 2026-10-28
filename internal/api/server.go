@@ -420,9 +420,10 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 			}
 			return ""
 		},
-		Hardware: s.autotuneHardware,
-		MoECache: s.autotuneMoECache,
-		Busy:     s.gpuBusyReason,
+		Hardware:    s.autotuneHardware,
+		MoECache:    s.autotuneMoECache,
+		Busy:        s.gpuBusyReason,
+		ReleaseGPUs: s.env.ReleaseGPUs,
 	})
 	// A run finished by an older version may have measured its fastest
 	// settings and saved none of them. The measurements are still in its

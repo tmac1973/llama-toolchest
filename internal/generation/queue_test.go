@@ -208,3 +208,71 @@ func TestQueueHoldCancelled(t *testing.T) {
 		t.Errorf("job behind a cancelled hold did not start: %v", err)
 	}
 }
+
+// A kept GPU stays closed to waiting jobs between one hold and the next,
+// and a hold on it is not kept waiting by the keep itself.
+func TestQueueKeep(t *testing.T) {
+	q := NewQueue()
+	first, err := q.Hold(context.Background(), []int{1, 2}, "autotune")
+	if err != nil {
+		t.Fatal(err)
+	}
+	keep := q.Keep([]int{2, 1, 2}, "autotune")
+	song, _ := q.Submit(2, "ace", KindAce)
+	first()
+
+	// The gap between two cells: the song must not start.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if err := song.Wait(ctx); err == nil {
+		t.Fatal("song started while the GPU was kept")
+	}
+	song, _ = q.Submit(2, "ace", KindAce)
+	if snap := q.Snapshot(2); snap.HeldBy != "autotune" || snap.Running != nil || len(snap.Waiting) != 1 {
+		t.Errorf("between holds: %+v, want kept by autotune with the song waiting", snap)
+	}
+	if q.Load(2) != 2 {
+		t.Errorf("load while kept = %d, want 2 (the keep and the waiting song)", q.Load(2))
+	}
+
+	hctx, hcancel := context.WithTimeout(context.Background(), time.Second)
+	defer hcancel()
+	second, err := q.Hold(hctx, []int{1, 2}, "autotune")
+	if err != nil {
+		t.Fatalf("hold on a kept GPU did not go through: %v", err)
+	}
+	second()
+	if q.Snapshot(1).HeldBy != "autotune" {
+		t.Error("GPU 1 not kept after the second hold ended")
+	}
+
+	keep()
+	keep() // a second call does nothing
+	wctx, wcancel := context.WithTimeout(context.Background(), time.Second)
+	defer wcancel()
+	if err := song.Wait(wctx); err != nil {
+		t.Fatalf("song did not start after the keep ended: %v", err)
+	}
+	song.Done()
+	if snap := q.Snapshot(1); snap.HeldBy != "" {
+		t.Errorf("GPU 1 still shows %q after the keep ended", snap.HeldBy)
+	}
+}
+
+// A keep taken while a job runs lets it finish, then holds the queue.
+func TestQueueKeepRunningJob(t *testing.T) {
+	q := NewQueue()
+	img, _ := q.Submit(0, "img", KindSD)
+	if err := img.Wait(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	keep := q.Keep([]int{0}, "a benchmark")
+	defer keep()
+	next, _ := q.Submit(0, "img", KindSD)
+	img.Done()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if err := next.Wait(ctx); err == nil {
+		t.Fatal("a waiting job started while the GPU was kept")
+	}
+}

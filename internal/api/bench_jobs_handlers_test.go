@@ -46,6 +46,7 @@ func (e *bjhEnv) CheckBuildRunnable(ctx context.Context, buildID string) error {
 }
 
 func (e *bjhEnv) ClearEphemeralConfig(context.Context) error { return nil }
+func (e *bjhEnv) ReleaseGPUs(string)                         {}
 
 func (e *bjhEnv) checkCount() int {
 	e.mu.Lock()

@@ -43,6 +43,13 @@ type jobEnv struct {
 	// both read as IsRunning() == false — and only the first case may
 	// restart the router on cleanup.
 	stoppedForEval bool
+
+	// keepMu covers kept: the GPUs the running job's cells have claimed,
+	// kept between cells for the job or autotune run that claimed them
+	// (benchmark.JobGPUOwner), each with the call that gives it back.
+	keepMu    sync.Mutex
+	keepOwner string
+	kept      map[int]func()
 }
 
 // routerOwnedByJob reports whether a benchmark job currently controls the
@@ -265,9 +272,10 @@ func (e *jobEnv) ApplyEphemeralConfig(ctx context.Context, modelID string, cfg b
 // ClaimGPUs checks a cell's settings against the GPU memory reserved for
 // image and music backends, then holds the GPUs it will use in their job
 // queue for the length of the cell: a running image or music job finishes
-// first, and new ones wait until release. Both only apply while
-// generation backends are on.
-func (e *jobEnv) ClaimGPUs(ctx context.Context, modelID string, cfg benchmark.ConfigSnapshot, base *models.ModelConfig, who string) (func(), error) {
+// first, and new ones wait. The GPUs then stay kept for owner until
+// ReleaseGPUs, so waiting jobs do not start between cells. All of this
+// only applies while generation backends are on.
+func (e *jobEnv) ClaimGPUs(ctx context.Context, modelID string, cfg benchmark.ConfigSnapshot, base *models.ModelConfig, who, owner string) (func(), error) {
 	s := e.s
 	if !s.generationOn() || s.gen == nil || s.genQueue == nil {
 		return func() {}, nil
@@ -298,7 +306,49 @@ func (e *jobEnv) ClaimGPUs(ctx context.Context, modelID string, cfg benchmark.Co
 	if who == "" {
 		who = "a benchmark"
 	}
-	return s.genQueue.Hold(ctx, gpus, who)
+	release, err := s.genQueue.Hold(ctx, gpus, who)
+	if err != nil {
+		return nil, err
+	}
+	e.keepGPUs(owner, gpus, who)
+	return release, nil
+}
+
+// keepGPUs keeps gpus for owner until ReleaseGPUs. One job runs at a
+// time, so GPUs still kept for another owner are given back first: a
+// run that ended without releasing must not close them for good.
+func (e *jobEnv) keepGPUs(owner string, gpus []int, who string) {
+	e.keepMu.Lock()
+	defer e.keepMu.Unlock()
+	if e.keepOwner != owner {
+		e.releaseKeptLocked()
+		e.keepOwner = owner
+	}
+	if e.kept == nil {
+		e.kept = map[int]func(){}
+	}
+	for _, gpu := range gpus {
+		if e.kept[gpu] == nil {
+			e.kept[gpu] = e.s.genQueue.Keep([]int{gpu}, who)
+		}
+	}
+}
+
+// ReleaseGPUs gives back the GPUs kept for owner, so the image and music
+// jobs waiting for them start.
+func (e *jobEnv) ReleaseGPUs(owner string) {
+	e.keepMu.Lock()
+	defer e.keepMu.Unlock()
+	if e.keepOwner == owner {
+		e.releaseKeptLocked()
+	}
+}
+
+func (e *jobEnv) releaseKeptLocked() {
+	for _, release := range e.kept {
+		release()
+	}
+	e.kept, e.keepOwner = nil, ""
 }
 
 // ClearEphemeralConfig hands the router back to the user's saved build

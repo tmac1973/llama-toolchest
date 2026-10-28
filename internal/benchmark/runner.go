@@ -1,6 +1,7 @@
 package benchmark
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -246,6 +247,7 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 	completedTests := 0
 
 	var lastErr error
+tests:
 	for _, promptTokens := range cfg.Preset.PromptTokens {
 		for rep := 1; rep <= cfg.Preset.Repetitions; rep++ {
 			if ctx.Err() != nil {
@@ -268,6 +270,12 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 			if err != nil {
 				lastErr = err
 				slog.Error("benchmark test failed", "prompt_tokens", promptTokens, "rep", rep, "error", err)
+				if errors.Is(err, errBenchStalled) {
+					// The server is still hung: the next request would
+					// wait the whole timeout for it to start. The job
+					// restarts the router for the next cell anyway.
+					break tests
+				}
 				continue
 			}
 			slog.Info("benchmark result", "prompt_tokens", result.PromptTokens,
@@ -659,12 +667,31 @@ type timingsResponse struct {
 	PredictedPerSec float64 `json:"predicted_per_second"`
 }
 
+// benchRequestTimeout caps one benchmark request from start to end.
+const benchRequestTimeout = 10 * time.Minute
+
+// benchStallTimeout is how long a streamed benchmark request may go
+// without a word from llama-server before it counts as hung. The server
+// streams one message per batch of prompt it reads and one per token it
+// writes, so this only has to cover one batch on the slowest machine.
+// Without it a server that hangs mid-request holds the cell for the
+// whole of benchRequestTimeout, once per repetition.
+var benchStallTimeout = 3 * time.Minute
+
+// errBenchStalled ends a request that stopped making progress.
+var errBenchStalled = errors.New("llama-server stopped responding in the middle of the request")
+
 func (r *Runner) sendCompletionWithTimings(ctx context.Context, routerURL, model string, promptTokens, genTokens, repetition int, sampling SamplingParams, nonce string, opts promptOptions) (*timingsResponse, error) {
 	prompt := buildPromptFor(nonce, promptTokens, repetition, opts.Style)
 	reqPayload := map[string]any{
 		"model":      model,
 		"max_tokens": genTokens,
-		"stream":     false,
+		// Streamed so a request that stops making progress is seen at
+		// once (benchStallTimeout). return_progress makes the server
+		// report while it reads the prompt too, which is otherwise
+		// silent. The timings come in the last message.
+		"stream":          true,
+		"return_progress": true,
 		"messages": []map[string]string{
 			{"role": "user", "content": prompt},
 		},
@@ -679,38 +706,113 @@ func (r *Runner) sendCompletionWithTimings(ctx context.Context, routerURL, model
 	sampling.applyTo(reqPayload)
 	reqBody, _ := json.Marshal(reqPayload)
 
+	ctx, cancel := context.WithTimeoutCause(ctx, benchRequestTimeout,
+		fmt.Errorf("the request took longer than %s", benchRequestTimeout))
+	defer cancel()
+	ctx, stall := context.WithCancelCause(ctx)
+	defer stall(nil)
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, routerURL+"/v1/chat/completions", bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 10 * time.Minute}
-	resp, err := client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, benchRequestErr(ctx, err)
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
 	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, routerclient.ErrorSnippet(body))
 	}
 
-	// Parse timings from response
+	var timings *timingsResponse
+	if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+		// The server sends its headers once the request has a slot, so
+		// the stall timer starts here: waiting for a model to load is
+		// not a stall.
+		wait := benchStallTimeout
+		idle := time.AfterFunc(wait, func() {
+			stall(fmt.Errorf("%w (no progress for %s)", errBenchStalled, wait))
+		})
+		defer idle.Stop()
+		timings, err = readStreamTimings(resp.Body, func() { idle.Reset(wait) })
+	} else {
+		// A server that answers in one piece despite the stream request.
+		timings, err = readTimings(resp.Body)
+	}
+	if err != nil {
+		return nil, benchRequestErr(ctx, err)
+	}
+	if timings == nil || timings.PredictedN == 0 {
+		return nil, errors.New("no timings in response")
+	}
+	return timings, nil
+}
+
+// benchRequestErr names why a request was cut off when it was: a stall
+// or the overall timeout reads better than "context canceled".
+func benchRequestErr(ctx context.Context, err error) error {
+	if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.Canceled) {
+		return cause
+	}
+	return err
+}
+
+// streamChunk is the part of a streamed chat message the benchmark reads.
+type streamChunk struct {
+	Timings *timingsResponse `json:"timings"`
+	Error   *struct {
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+// readStreamTimings reads a streamed chat completion to the end and
+// returns the timings in its last message. progress is called for every
+// line the server sends.
+func readStreamTimings(body io.Reader, progress func()) (*timingsResponse, error) {
+	var timings *timingsResponse
+	sc := bufio.NewScanner(body)
+	sc.Buffer(make([]byte, 64*1024), 16*1024*1024)
+	for sc.Scan() {
+		progress()
+		data, ok := strings.CutPrefix(sc.Text(), "data:")
+		data = strings.TrimSpace(data)
+		if !ok || data == "" || data == "[DONE]" {
+			continue
+		}
+		var chunk streamChunk
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			return nil, fmt.Errorf("parse response: %w", err)
+		}
+		if chunk.Error != nil {
+			return nil, fmt.Errorf("llama-server reported an error: %s", chunk.Error.Message)
+		}
+		if chunk.Timings != nil {
+			timings = chunk.Timings
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	return timings, nil
+}
+
+// readTimings reads the timings from a chat completion sent in one piece.
+func readTimings(body io.Reader) (*timingsResponse, error) {
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return nil, err
+	}
 	var result struct {
 		Timings timingsResponse `json:"timings"`
 	}
-	if err := json.Unmarshal(body, &result); err != nil {
+	if err := json.Unmarshal(data, &result); err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
-	if result.Timings.PredictedN == 0 {
-		return nil, errors.New("no timings in response")
-	}
-
 	return &result.Timings, nil
 }
 
