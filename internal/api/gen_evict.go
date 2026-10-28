@@ -347,6 +347,12 @@ func (s *Server) unloadForGen(ctx context.Context, id string, inst generation.In
 	}
 	defer done()
 	routerName := s.registry.RouterName(id)
+	// Another job's unload may have taken it out while this one waited
+	// its turn. Then there is nothing to save or unload, and asking the
+	// router for the model's slots would load it again.
+	if state, _ := s.lookupRouterState(routerName, m); state != "loaded" && state != "loading" {
+		return nil
+	}
 	// Its requests are done and new ones wait, so the slots are idle.
 	s.savePromptCache(ctx, m, routerName)
 	before := s.gpuUsedMiB(inst.GPU)
