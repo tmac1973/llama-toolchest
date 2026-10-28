@@ -274,8 +274,7 @@ func (s *Server) handleHFDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusAccepted)
-	respondJSON(w, map[string]string{"download_id": downloadID})
+	respondJSONStatus(w, http.StatusAccepted, map[string]string{"download_id": downloadID})
 }
 
 // downloadProgressHTML renders the progress-bar + stats fragment shared by

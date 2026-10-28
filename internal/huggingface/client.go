@@ -69,7 +69,7 @@ func NewClient(token string) *Client {
 // Search queries HuggingFace for GGUF models.
 func (c *Client) Search(ctx context.Context, query string) ([]ModelSearchResult, error) {
 	u := fmt.Sprintf("%s/models?search=%s&filter=gguf&sort=downloads&direction=-1&limit=50",
-		baseURL, url.QueryEscape(query))
+		c.apiURL(), url.QueryEscape(query))
 
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
@@ -96,7 +96,7 @@ func (c *Client) Search(ctx context.Context, query string) ([]ModelSearchResult,
 
 // GetModel fetches model details and returns only GGUF files.
 func (c *Client) GetModel(ctx context.Context, modelID string) (*ModelDetail, error) {
-	u := fmt.Sprintf("%s/models/%s", baseURL, modelID)
+	u := fmt.Sprintf("%s/models/%s", c.apiURL(), modelID)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
@@ -165,7 +165,7 @@ func (c *Client) populateFileSizes(ctx context.Context, modelID string, detail *
 	// a Link header. Repositories that large are rare (the biggest checked
 	// held 395 files), but a missed page would leave sizes unknown.
 	var tree []treeEntry
-	next := fmt.Sprintf("%s/models/%s/tree/main?recursive=true", baseURL, modelID)
+	next := fmt.Sprintf("%s/models/%s/tree/main?recursive=true", c.apiURL(), modelID)
 	for page := 0; next != "" && page < 20; page++ {
 		req, err := http.NewRequestWithContext(ctx, "GET", next, nil)
 		if err != nil {

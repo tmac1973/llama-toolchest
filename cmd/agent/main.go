@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 // --- OpenAI-compatible types ---
@@ -99,6 +100,49 @@ var tools = []tool{
 	},
 }
 
+// maxToolResult is the largest tool result (in bytes) sent back to the model.
+const maxToolResult = 8192
+
+// resolveToolPath returns the full path for a path given to a file tool.
+// A relative path is taken relative to workDir. An absolute path is used
+// as given. The result must be workDir itself or a path inside it; any
+// other path (for example "../x" or "/etc/passwd") returns an error.
+// Symbolic links are not followed.
+func resolveToolPath(workDir, p string) (string, error) {
+	base, err := filepath.Abs(workDir)
+	if err != nil {
+		return "", err
+	}
+	full := p
+	if !filepath.IsAbs(full) {
+		full = filepath.Join(base, full)
+	}
+	full = filepath.Clean(full)
+	rel, err := filepath.Rel(base, full)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path %q is outside the working directory %s", p, base)
+	}
+	return full, nil
+}
+
+// truncateResult cuts s to maxToolResult bytes and adds a note when it
+// was cut.
+func truncateResult(s string) string {
+	if len(s) <= maxToolResult {
+		return s
+	}
+	return s[:runeBoundary(s, maxToolResult)] + "\n... (truncated)"
+}
+
+// runeBoundary returns the largest index i <= n where s can be cut
+// without splitting a UTF-8 character. It expects n < len(s).
+func runeBoundary(s string, n int) int {
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return n
+}
+
 func executeTool(name, argsJSON, workDir string) string {
 	var args map[string]string
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
@@ -111,7 +155,10 @@ func executeTool(name, argsJSON, workDir string) string {
 		if path == "" {
 			path = "."
 		}
-		fullPath := filepath.Join(workDir, path)
+		fullPath, err := resolveToolPath(workDir, path)
+		if err != nil {
+			return fmt.Sprintf("error: %v", err)
+		}
 		entries, err := os.ReadDir(fullPath)
 		if err != nil {
 			return fmt.Sprintf("error: %v", err)
@@ -128,17 +175,16 @@ func executeTool(name, argsJSON, workDir string) string {
 
 	case "read_file":
 		path := args["path"]
-		fullPath := filepath.Join(workDir, path)
+		fullPath, err := resolveToolPath(workDir, path)
+		if err != nil {
+			return fmt.Sprintf("error: %v", err)
+		}
 		data, err := os.ReadFile(fullPath)
 		if err != nil {
 			return fmt.Sprintf("error: %v", err)
 		}
 		// Truncate very large files
-		content := string(data)
-		if len(content) > 8192 {
-			content = content[:8192] + "\n... (truncated)"
-		}
-		return content
+		return truncateResult(string(data))
 
 	case "run_command":
 		command := args["command"]
@@ -149,10 +195,7 @@ func executeTool(name, argsJSON, workDir string) string {
 		if err != nil {
 			result += fmt.Sprintf("\nexit status: %v", err)
 		}
-		if len(result) > 8192 {
-			result = result[:8192] + "\n... (truncated)"
-		}
-		return result
+		return truncateResult(result)
 
 	default:
 		return fmt.Sprintf("unknown tool: %s", name)
@@ -199,7 +242,7 @@ func main() {
 	port := flag.Int("port", 3000, "server port")
 	urlFlag := flag.String("url", "", "full API endpoint URL (overrides -host/-port)")
 	model := flag.String("model", "", "model name (optional)")
-	apiKey := flag.String("api-key", "", "API key (or set LLAMA_API_KEY env var)")
+	apiKey := flag.String("api-key", "", "API key; prefer the LLAMA_API_KEY env var, because a flag value shows in ps and shell history")
 	system := flag.String("system", "", "system prompt")
 	noTools := flag.Bool("no-tools", false, "disable tool use")
 	workDirFlag := flag.String("work-dir", "", "working directory for tools (default: cwd)")
@@ -218,7 +261,8 @@ func main() {
 		apiURL = fmt.Sprintf("http://%s:%d/v1/chat/completions", *host, *port)
 	}
 
-	// Resolve API key: flag > env
+	// Resolve API key: flag > env. The flag is kept for old scripts;
+	// LLAMA_API_KEY is the preferred way.
 	authKey := *apiKey
 	if authKey == "" {
 		authKey = os.Getenv("LLAMA_API_KEY")
@@ -367,7 +411,7 @@ func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	return s[:n] + "..."
+	return s[:runeBoundary(s, n)] + "..."
 }
 
 // --- Chat with streaming ---

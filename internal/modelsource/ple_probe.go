@@ -114,6 +114,9 @@ func ProbePLE(ctx context.Context, client *http.Client, token string, shards []S
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
 
+	// unread counts the shards that could not be read or parsed, which
+	// leaves the answer unknown rather than "no table".
+	unread := 0
 	for _, sh := range shards {
 		if sh.Size <= 0 || sh.URL == "" {
 			continue
@@ -130,6 +133,7 @@ func ProbePLE(ctx context.Context, client *http.Client, token string, shards []S
 			continue
 		}
 		if _, err := r.Seek(0, io.SeekStart); err != nil {
+			unread++
 			continue
 		}
 		meta, err := models.ParseGGUFMetaFrom(r)
@@ -137,11 +141,18 @@ func ProbePLE(ctx context.Context, client *http.Client, token string, shards []S
 			// A shard that isn't parseable on its own — or a probe that
 			// ran out of budget — tells us nothing about the others, so
 			// keep going rather than giving up on the file.
+			unread++
 			continue
 		}
 		if meta.PLEBytes > 0 {
 			return ProbeResult{StreamedBytes: offDeviceBytes(meta.PLEBytes), Probed: true}
 		}
+	}
+	// A shard that could not be read (a rate limit, a dropped connection,
+	// a cancelled request) may be the one with the table, so the answer is
+	// unknown, and the caller must not keep it as final.
+	if unread > 0 {
+		return ProbeResult{}
 	}
 	// Every shard parsed and none held a table: that is a real answer,
 	// not a failure. Saying so lets the caller skip re-probing.

@@ -708,6 +708,13 @@ func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	// Refuse before saving: the edit resets the job to pending and moves
+	// runs to Ad-Hoc, so saving it and then failing to submit it would
+	// change the job while answering an error.
+	if _, running := s.jobs.Status(); running {
+		http.Error(w, benchmark.ErrJobAlreadyRunning.Error(), http.StatusConflict)
+		return
+	}
 
 	updated, err := s.bench.UpdateJobDefinition(id, benchmark.JobDefinition{
 		Name:        req.Name,

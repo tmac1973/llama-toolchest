@@ -36,9 +36,9 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [x] The error handling at the end of each create handler is copied: the pickError mapping 4 times, the ErrQueueFull 429 reply 4 times, the 202 reply 3 times; `pickError` and `videoError` are the same struct *(Duplication + Standards)* — `internal/api/gen_images.go:168` (and `gen_image_jobs.go:359`, `gen_music.go:667`, `gen_video_jobs.go:142`)
 
 ### Testing
-- [ ] The benchmark job HTTP handlers have almost no tests (create, update, cancel, retry, export, `decodeJobRequest`, `resolveSweeps`) — `internal/api/bench_jobs.go:271`
-- [ ] The service and model handlers are untested beyond one stop request (start, restart, logs, `resolveRouterModel`, delete and scan models) — `internal/api/service.go`, `internal/api/models.go`
-- [ ] The HuggingFace client (`Search`, `GetModel`, `populateFileSizes`) and the download and cancel handlers have no tests — `internal/huggingface/client.go:70`, `internal/api/hf.go`
+- [x] The benchmark job HTTP handlers have almost no tests (create, update, cancel, retry, export, `decodeJobRequest`, `resolveSweeps`) — `internal/api/bench_jobs.go:271` *(the tests found two data races and a refused edit that still changed the job; fixed.)*
+- [x] The service and model handlers are untested beyond one stop request (start, restart, logs, `resolveRouterModel`, delete and scan models) — `internal/api/service.go`, `internal/api/models.go`
+- [x] The HuggingFace client (`Search`, `GetModel`, `populateFileSizes`) and the download and cancel handlers have no tests — `internal/huggingface/client.go:70`, `internal/api/hf.go` *(the tests found the 202 download answer without a JSON Content-Type, the client ignoring its test address, and a failed size probe cached as final; fixed.)*
 
 ## Medium Priority
 
@@ -65,10 +65,10 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [x] Extra runtime environment pairs are shown as full KEY=VALUE text and exported in every backup, so a token typed in as an env var is not masked — `internal/api/runtime_env_view.go:26`, `internal/backup/backup.go:143` *(values of names with TOKEN, SECRET, PASSWORD, PASSWD, KEY, CREDENTIAL or AUTH are masked on the pages and left out of backups made without `?secrets=1`; a masked line saved unchanged keeps its value, and a restore keeps the target's own.)*
 
 ### Testing
-- [ ] `cmd/agent` has no tests: `executeTool` has no `..` check on file paths, `parseContentToolCalls` is untested, and the 8192-byte cut can split a multi-byte character — `cmd/agent/main.go:102`, `cmd/agent/main.go:330`, `cmd/agent/main.go:366`
-- [ ] The builder pipeline (`runBuild`, `finishBuild`, the compiler finders, `filterReleaseTags`) and `detect.go` are untested, and tests cannot give it a fake host — `internal/builder/builder.go:531`, `internal/builder/detect.go:42`
-- [ ] The benchmark helpers (`keepUnchangedCopies`, the `RecordTiming` cap, `LeastFreeCard`) and the recommend scoring helpers are untested — `internal/benchmark/benchmark.go:1154`, `internal/recommend/score.go`
-- [ ] The settings handlers (`handleTestConnection`, `validateModelsDir`, gen-port conflicts) have no direct tests — `internal/api/settings.go`
+- [x] `cmd/agent` has no tests: `executeTool` has no `..` check on file paths, `parseContentToolCalls` is untested, and the 8192-byte cut can split a multi-byte character — `cmd/agent/main.go:102`, `cmd/agent/main.go:330`, `cmd/agent/main.go:366` *(the file tools now refuse paths outside the working folder, and output is cut on a UTF-8 character boundary.)*
+- [x] The builder pipeline (`runBuild`, `finishBuild`, the compiler finders, `filterReleaseTags`) and `detect.go` are untested, and tests cannot give it a fake host — `internal/builder/builder.go:531`, `internal/builder/detect.go:42` *(cpu builds are tested from start to end with fake cmake and ninja; the rocm and cuda environment setup and the fixed host paths still read the real machine. The tests found a data race on the returned build result; fixed.)*
+- [x] The benchmark helpers (`keepUnchangedCopies`, the `RecordTiming` cap, `LeastFreeCard`) and the recommend scoring helpers are untested — `internal/benchmark/benchmark.go:1154`, `internal/recommend/score.go`
+- [x] The settings handlers (`handleTestConnection`, `validateModelsDir`, gen-port conflicts) have no direct tests — `internal/api/settings.go`
 - [x] Some tests wait for goroutines with fixed 20–100 ms sleeps, so they can fail on a busy machine — `internal/recommend/recommend_test.go:448`, `internal/generation/queue_test.go:191`, `internal/api/gen_video_jobs_test.go:257` *(each now waits for the state it needs: the hold's claim, the build in flight, sd-server polling, the backend job ID.)*
 - [x] Some "nothing happened" checks run after a fixed sleep, so a late event slips past them — `internal/api/gen_image_jobs_test.go:228`, `internal/api/gen_music_test.go:296` *(they wait for the GPU to be freed, which the run does last.)*
 - [x] A poll loop stops quietly at its deadline instead of failing the test — `internal/api/gen_video_jobs_test.go:207`
@@ -105,7 +105,7 @@ Each item has a checkbox; tick it in the PR that fixes it.
 ### Security
 - [x] `/api` has no login, including `backup?secrets=1` and `PUT /api/settings` — `internal/api/server.go:692`, `internal/api/backup.go:20` *(decided 2026-10-05, left as is: the documented default; `--secure` puts the UI and `/api` behind a login.)*
 - [ ] Child processes inherit the full service environment through `os.Environ()` — `internal/process/supervisor.go:80`, `internal/builder/builder.go:573`
-- [ ] The agent CLI takes the API key as a command-line flag, so it shows in `ps` output and shell history — `cmd/agent/main.go:222`
+- [x] The agent CLI takes the API key as a command-line flag, so it shows in `ps` output and shell history — `cmd/agent/main.go:222` *(kept for existing scripts; its help text now says to use `LLAMA_API_KEY`, and why.)*
 - [ ] .gitignore has no entries for model or data folders, `*.gguf`, `*.p12`, `id_rsa*` or `.DS_Store` — `.gitignore`
 
 ### Testing
@@ -114,7 +114,7 @@ Each item has a checkbox; tick it in the PR that fixes it.
 - [x] Some tests assert nothing outside `-race`, and one test calls the live HuggingFace API and treats a failure as 0 — `internal/api/ms_token_test.go:309`, `internal/models/gguf_derive_local_test.go:117` *(the HuggingFace lookup now fails the test on a network or HTTP error; the two concurrency tests stay, since they exist for `-race`, and CI now runs the tests with `-race`.)*
 
 ### Dependencies
-- [ ] govulncheck is not installed; v1.9.0 run through `go run` found no vulnerabilities — `golang.org/x/vuln@v1.9.0`
+- [x] govulncheck is not installed; v1.9.0 run through `go run` found no vulnerabilities — `golang.org/x/vuln@v1.9.0` *(CI runs govulncheck on every pull request since #386.)*
 - [ ] A newer minor version of chi is available — `github.com/go-chi/chi/v5@v5.3.2 (v5.3.2 -> v5.5.0)`
 - [ ] The versions of the files in web/static were not checked against their latest releases: htmx 2.0.11, plotly 3.7.0, scalar 1.73.1, pico 2.1.1 — `web/static/*`
 

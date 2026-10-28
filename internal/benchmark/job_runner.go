@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -248,6 +249,10 @@ func (q *JobQueue) Submit(job BenchmarkJob) error {
 		return errors.New("job has no cells")
 	}
 	job.Status = JobStatusPending
+	// The run writes each cell's status as it goes. It gets its own copy
+	// of the cells, so the caller can still read the job it passed in (the
+	// HTTP handlers answer with it) without a data race.
+	job.Cells = slices.Clone(job.Cells)
 	q.store.SaveJob(job)
 
 	ctx, cancel := context.WithCancel(context.Background())

@@ -192,7 +192,7 @@ func TestProbeReportsSmallTableAsOffDevice(t *testing.T) {
 // be true so the caller can cache it and not ask again.
 func TestProbeReportsNoTableAsAnswer(t *testing.T) {
 	data := buildGGUF(t, 0, []tensorSpec{{"token_embd.weight", 0}, {"output.weight", 1 << 20}}, 1024)
-	srv, _ := serveRanges(t, [][]byte{data})
+	srv, _ := serveRanges(t, [][]byte{data, data})
 	defer srv.Close()
 	got := ProbePLE(context.Background(), srv.Client(), "", []ShardURL{
 		{URL: srv.URL + "/1", Size: 1 << 20},
@@ -200,6 +200,22 @@ func TestProbeReportsNoTableAsAnswer(t *testing.T) {
 	}, probeMinBytes+1)
 	if !got.Probed || got.StreamedBytes != 0 {
 		t.Errorf("got %+v, want a completed probe reporting no table", got)
+	}
+}
+
+// A shard that cannot be read may be the one holding the table, so the
+// answer is unknown: Probed must be false, or the caller would keep "no
+// table" as final and the estimate would stay too high.
+func TestProbeWithAnUnreadableShardIsUnknown(t *testing.T) {
+	data := buildGGUF(t, 0, []tensorSpec{{"token_embd.weight", 0}, {"output.weight", 1 << 20}}, 1024)
+	srv, _ := serveRanges(t, [][]byte{data}) // shard /1 is not served
+	defer srv.Close()
+	got := ProbePLE(context.Background(), srv.Client(), "", []ShardURL{
+		{URL: srv.URL + "/1", Size: 1 << 20},
+		{URL: srv.URL + "/0", Size: 8 << 30},
+	}, probeMinBytes+1)
+	if got.Probed {
+		t.Errorf("got %+v, want an unknown answer", got)
 	}
 }
 
