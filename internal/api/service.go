@@ -768,6 +768,11 @@ type modelConfigPanelData struct {
 	// StatusOOB marks the profile status line for an out-of-band swap, in
 	// the autosave response only.
 	StatusOOB bool
+
+	// DefaultContext is the context "Model Default" gives, when it is not
+	// MaxContext: an embedding model that reads each input in one
+	// micro-batch (see models.EmbeddingLaunchConfig). Zero otherwise.
+	DefaultContext int
 }
 
 // handleGetModelConfig returns the launch config for a model.
@@ -904,6 +909,13 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 		PLESizeLabel:   pleSizeLabel(model),
 		ReadOnlyReason: s.registry.ReadOnlyReason(),
 		NeedsRestart:   s.isDirty(id) && s.process != nil && s.process.IsRunning(),
+	}
+	if isEmbedding && model != nil {
+		def := *cfg
+		def.ContextSize = 0
+		if c := models.EmbeddingLaunchConfig(&def, model).ContextSize; c != maxContext {
+			data.DefaultContext = c
+		}
 	}
 	if model != nil {
 		data.SeededText, data.SeededTip = seededNote(model.Seeded)

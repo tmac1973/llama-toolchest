@@ -39,6 +39,16 @@ func (meta *GGUFMeta) IsEmbedding() bool {
 	return IsEncoderArch(meta.Architecture)
 }
 
+// EmbeddingDefaultContext is the context EmbeddingLaunchConfig gives a
+// model that reads each input in one micro-batch, when the config leaves
+// the context at the model's default. The micro-batch has to be as large,
+// and the compute buffer grows faster than both: EmbeddingGemma 2 on one
+// RTX A4000 needs 1.1 GiB at 8192, 7.3 GiB at 32768, and 22.5 GiB (no
+// load) at 65536. Its own default context of 262144 would ask for 1 TiB.
+// A context above the micro-batch gains nothing for these models, as no
+// input may be longer than the micro-batch, and still costs memory.
+const EmbeddingDefaultContext = 8192
+
 // EmbeddingLaunchConfig returns cfg as llama-server must get it for the
 // embedding model m, or cfg itself when nothing changes.
 //
@@ -48,15 +58,21 @@ func (meta *GGUFMeta) IsEmbedding() bool {
 // longer than that ("input is too large to process"), so the micro-batch
 // is raised to the context unless the config sets one. Its default of 512
 // would otherwise limit every input to 512 tokens, whatever the context.
+// For those models a context left at the model's default is at most
+// EmbeddingDefaultContext; a context set on purpose is followed.
 //
 // Like MoESplitConfig, it is applied each time the flags are written and
 // the VRAM is estimated, so the saved config and the form are unchanged.
 func EmbeddingLaunchConfig(cfg *ModelConfig, m *Model) *ModelConfig {
+	oneBatch := m.PoolingType != PoolingLast
 	ctx := cfg.ContextSize
 	if ctx <= 0 || (m.ContextLength > 0 && ctx > m.ContextLength) {
 		ctx = m.ContextLength
 	}
-	raiseUB := m.PoolingType != PoolingLast && cfg.UBatchSize <= 0
+	if cfg.ContextSize <= 0 && oneBatch {
+		ctx = min(ctx, EmbeddingDefaultContext)
+	}
+	raiseUB := oneBatch && cfg.UBatchSize <= 0
 	if ctx <= 0 || (ctx == cfg.ContextSize && !raiseUB) {
 		return cfg
 	}

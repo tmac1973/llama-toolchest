@@ -140,6 +140,11 @@ func TestEmbeddingLaunchConfig(t *testing.T) {
 		{"a set micro-batch is kept", mean, ModelConfig{ContextSize: 2048, UBatchSize: 256}, 2048, 256, 0},
 		{"a larger batch is kept", mean, ModelConfig{ContextSize: 2048, BatchSize: 4096}, 2048, 2048, 4096},
 		{"last-token pooling splits the input", last, ModelConfig{ContextSize: 8192}, 8192, 0, 0},
+		{"model default stops at 8192", &Model{ContextLength: 262144, PoolingType: PoolingMean},
+			ModelConfig{}, EmbeddingDefaultContext, EmbeddingDefaultContext, EmbeddingDefaultContext},
+		{"model default with last-token pooling is the trained context", last, ModelConfig{}, 40960, 0, 0},
+		{"a context set on purpose is followed", &Model{ContextLength: 262144, PoolingType: PoolingMean},
+			ModelConfig{ContextSize: 16384}, 16384, 16384, 16384},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

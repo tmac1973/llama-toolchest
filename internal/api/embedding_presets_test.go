@@ -62,7 +62,10 @@ func TestEmbeddingConfigPanelShowsContext(t *testing.T) {
 	rec := httptest.NewRecorder()
 	s.renderPartial(rec, "model_config", data)
 	body := rec.Body.String()
-	for _, want := range []string{`name="context_size"`, "one embedding request can hold"} {
+	if data.DefaultContext != models.EmbeddingDefaultContext {
+		t.Errorf("DefaultContext = %d, want %d", data.DefaultContext, models.EmbeddingDefaultContext)
+	}
+	for _, want := range []string{`name="context_size"`, "one embedding request can hold", "Model Default (8192)"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("config panel does not contain %q", want)
 		}
