@@ -731,6 +731,11 @@ type modelConfigPanelData struct {
 	HasReasoning             bool
 	ReasoningPreserveDefault string
 	ReasoningPreserveNote    string
+	// EffortLevels fills the Default Reasoning Effort dropdown: the
+	// levels the template accepts, read from llama-server after a load.
+	// The dropdown is shown when there are some, or when a default is
+	// saved, so it can be cleared.
+	EffortLevels []string
 	// HasExperts shows the CPU Expert Layers field (mixture-of-experts
 	// models only); NLayers bounds it.
 	HasExperts bool
@@ -925,6 +930,11 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 		data.HasExperts = model.ExpertCount > 0
 		data.NLayers = model.NLayers
 		data.HasReasoning = model.EffectiveReasoning(cfg).Supported
+		data.EffortLevels = model.EffortLevels()
+		if cfg.ReasoningEffort != "" && !slices.Contains(data.EffortLevels, cfg.ReasoningEffort) {
+			// Kept as a choice, so saving the dialog does not drop it.
+			data.EffortLevels = append(data.EffortLevels, cfg.ReasoningEffort)
+		}
 		data.EffectiveSplit = models.BalancedSplit(model, cfg, s.activeTarget().Room().For(model, cfg))
 		if gib := models.VRAMBreakdownForConfigOn(model, cfg, models.DeviceCountForConfig(cfg, numGPUs)).CPURAM; gib >= 0.05 {
 			data.CPURAMLabel = fmt.Sprintf("About %.1f GiB of the model's weights stay in system memory with these settings.", gib)
@@ -1031,6 +1041,17 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 			cfg.ReasoningPreserve = v
 		default:
 			cfg.ReasoningPreserve = ""
+		}
+		// Only a level the template accepts, or "" for its own default.
+		// A form without the dropdown keeps what is saved.
+		if r.Form.Has("reasoning_effort") {
+			saved := cfg.ReasoningEffort
+			cfg.ReasoningEffort = ""
+			if v := r.FormValue("reasoning_effort"); v != "" {
+				if m, err := s.registry.Get(id); err == nil && m != nil && (slices.Contains(m.EffortLevels(), v) || v == saved) {
+					cfg.ReasoningEffort = v
+				}
+			}
 		}
 		cfg.ExtraFlags = r.FormValue("extra_flags")
 

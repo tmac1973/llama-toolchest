@@ -29,6 +29,10 @@ func (s *Server) openAIModel(m *models.Model, cfg *models.ModelConfig) map[strin
 		"size":         m.SizeBytes,
 		"capabilities": m.Capabilities(cfg),
 		"architecture": modelArchitecture(m, cfg),
+		// The reasoning_effort values the template accepts, lowest first;
+		// null until the model has been loaded on a llama.cpp build that
+		// reports them.
+		"reasoning_effort_levels": m.EffortLevels(),
 	}
 	if cfg != nil {
 		// The same context fields as the capabilities object, so a client

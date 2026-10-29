@@ -921,5 +921,5 @@ func reasoningControl(m *models.Model, cfg *models.ModelConfig) benchmark.Reason
 	if !r.Supported {
 		return benchmark.ReasoningControl{Toggle: models.ReasoningToggleNone}
 	}
-	return benchmark.ReasoningControl{Toggle: r.Toggle, Kwarg: r.Kwarg}
+	return benchmark.ReasoningControl{Toggle: r.Toggle, Kwarg: r.Kwarg, Levels: r.EffortLevels}
 }

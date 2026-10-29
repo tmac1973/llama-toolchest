@@ -1389,6 +1389,18 @@ components:
             (transcription, voice chat with `/v1/realtime`). `speech`: makes
             speech with `/tts` or `/v1/realtime`. A text-to-speech-only
             model has `speech` and no `chat`.
+        reasoning_effort_levels:
+          type: [array, "null"]
+          items:
+            type: string
+            enum: [minimal, low, medium, high, xhigh, max]
+          description: |
+            The `reasoning_effort` values the model's chat template accepts,
+            lowest first, as llama-server reports them. `null` until the
+            model has been loaded on llama.cpp v0.8.0 or newer, and empty
+            when the template accepts none. A default level can be set in
+            the model's Configure dialog; it is added to chat requests that
+            set neither `reasoning_effort` nor `chat_template_kwargs`.
         architecture:
           type: object
           description: |

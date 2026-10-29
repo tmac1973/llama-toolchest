@@ -166,6 +166,20 @@ type Model struct {
 	// parsed before detection existed (BackfillGGUFMeta re-parses the latter).
 	Reasoning        ReasoningCapability `json:"reasoning,omitempty"`
 	ReasoningChecked bool                `json:"reasoning_checked,omitempty"`
+	// ReasoningEffortLevels are the reasoning_effort values the chat
+	// template accepts, lowest first, as llama-server reports them in
+	// /props (chat_template_caps.reasoning_effort_levels) once the model
+	// is loaded; llama.cpp works them out by rendering the template, which
+	// toolchest cannot do. ReasoningLevelsBuild is the llama.cpp build
+	// they were read on: "" means never read, and a build that does not
+	// report them leaves the levels nil (not known) rather than empty
+	// (none accepted). See SetReasoningLevels.
+	ReasoningEffortLevels []string `json:"reasoning_effort_levels,omitempty"`
+	ReasoningLevelsBuild  string   `json:"reasoning_levels_build,omitempty"`
+	// ReasoningLevelsKnown is whether the build reported levels at all,
+	// so an empty list (the template accepts none) is kept apart from
+	// nil after a save.
+	ReasoningLevelsKnown bool `json:"reasoning_levels_known,omitempty"`
 
 	// KV-cache scaling factors (see GGUFMeta). Persisted so VRAM estimates
 	// don't re-parse the GGUF on every render. Zero on records parsed before
@@ -244,6 +258,12 @@ type ModelConfig struct {
 	// leaves llama.cpp's default, which is on from b10763. Only some chat
 	// templates support it; for the others llama.cpp ignores it.
 	ReasoningPreserve string `json:"reasoning_preserve,omitempty"` // "", "on", "off"
+
+	// ReasoningEffort is the reasoning_effort added to chat requests that
+	// do not set one, like the sampling defaults. "" leaves it to the
+	// template. Offered only from the levels the template accepts
+	// (Model.ReasoningEffortLevels).
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 
 	// Speculative decoding, draft-method slot. See specmodes.go for why
 	// there are two slots and specDecodingParams for what each emits.
@@ -407,6 +427,9 @@ func (c *ModelConfig) SamplingOverrides() map[string]any {
 	}
 	if c.RepeatPenalty != nil {
 		m["repeat_penalty"] = *c.RepeatPenalty
+	}
+	if c.ReasoningEffort != "" {
+		m["reasoning_effort"] = c.ReasoningEffort
 	}
 	return m
 }
@@ -628,6 +651,7 @@ func (m *Model) clone() *Model {
 		c.Seeded = &seeded
 	}
 	c.SamplingPresets = slices.Clone(m.SamplingPresets)
+	c.ReasoningEffortLevels = slices.Clone(m.ReasoningEffortLevels)
 	return &c
 }
 
@@ -872,6 +896,26 @@ func (r *Registry) SetSamplingPresets(id string, presets []SamplingPreset, check
 	}
 	m.SamplingPresets = presets
 	m.PresetsCheckedAt = checkedAt
+	return r.save()
+}
+
+// SetReasoningLevels records the reasoning effort levels llama-server
+// reported for a model on build, or that it reported none (known false:
+// the build is too old to say). Called from a background goroutine after
+// the model is loaded.
+func (r *Registry) SetReasoningLevels(id string, levels []string, known bool, build string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.writableLocked(); err != nil {
+		return err
+	}
+	m, ok := r.data.Models[id]
+	if !ok {
+		return fmt.Errorf("model not found: %s", id)
+	}
+	m.ReasoningEffortLevels = slices.Clone(levels)
+	m.ReasoningLevelsKnown = known
+	m.ReasoningLevelsBuild = build
 	return r.save()
 }
 

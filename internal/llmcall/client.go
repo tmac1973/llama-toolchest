@@ -33,6 +33,7 @@ type Message struct {
 type Thinking struct {
 	Toggle string
 	Kwarg  string
+	Levels []string // reasoning_effort values the template accepts, lowest first
 }
 
 // Target is a model ready to answer: the name the router serves it under,
@@ -142,7 +143,7 @@ func (c *Client) complete(ctx context.Context, target Target, schemaName string,
 			},
 		},
 	}
-	models.ApplyThinkingOff(target.Thinking.Toggle, target.Thinking.Kwarg, payload)
+	models.ApplyThinkingOff(target.Thinking.Toggle, target.Thinking.Kwarg, target.Thinking.Levels, payload)
 
 	body, err := json.Marshal(payload)
 	if err != nil {

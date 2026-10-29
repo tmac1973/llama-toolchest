@@ -225,6 +225,15 @@
                 <option value="off" {{if eq .Config.ReasoningPreserve "off"}}selected{{end}}>Drop earlier reasoning</option>
             </select>
         </label>
+        {{if or .EffortLevels .Config.ReasoningEffort}}
+        <label title="How hard the model reasons when a chat request does not say (its reasoning_effort). The list holds the levels this model's chat template accepts, lowest first, as llama-server reported them when the model was last loaded. Template default leaves it to the template. A request that sets reasoning_effort or chat_template_kwargs itself is not changed.">
+            Default Reasoning Effort
+            <select name="reasoning_effort">
+                <option value="" {{if eq .Config.ReasoningEffort ""}}selected{{end}}>Template default</option>
+                {{range .EffortLevels}}<option value="{{.}}" {{if eq $.Config.ReasoningEffort .}}selected{{end}}>{{.}}</option>{{end}}
+            </select>
+        </label>
+        {{end}}
     </div>
     {{end}}
 

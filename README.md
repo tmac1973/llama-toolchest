@@ -440,7 +440,10 @@ old to report". `schema_version` is bumped only on breaking changes.
           "supported": true,
           "default_enabled": true,
           "toggle": "chat_template_kwargs", // or "reasoning_effort" | "none"
-          "kwarg": "enable_thinking"        // key when toggle == chat_template_kwargs, else ""
+          "kwarg": "enable_thinking",       // key when toggle == chat_template_kwargs, else ""
+          "effort_levels": ["low", "medium", "xhigh"] // reasoning_effort values the template accepts, lowest
+                                            // first; null until the model has been loaded on llama.cpp
+                                            // v0.8.0 or newer, [] when it accepts none
         },
 
         // recommended sampling — per-model override wins, else the card

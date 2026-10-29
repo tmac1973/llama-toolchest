@@ -64,6 +64,9 @@ func (s *Server) sidebarMapData(m monitor.Metrics) sidebarMap {
 				}
 				if reg, _ := s.resolveRouterModel(rm); reg != nil {
 					loaded[reg.ID] = rm.Status.Value
+					if rm.Status.Value == "loaded" {
+						s.noteModelLoaded(reg)
+					}
 				}
 			}
 		}
