@@ -2,6 +2,8 @@ package huggingface
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +16,7 @@ import (
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/broadcast"
+	"github.com/tmac1973/llama-toolchest/internal/filehash"
 
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/modelsource"
@@ -102,8 +105,16 @@ type Downloader struct {
 	// what every download recorded before this existed came from.
 	providers map[string]Provider
 
+	// hashes, when set, receives the SHA-256 of every file the
+	// downloader finishes, worked out as the file is written.
+	hashes *filehash.Store
+
 	mu     sync.Mutex
 	active map[string]*download
+	// expected maps a file's final path to the SHA-256 the host gave for
+	// it. A download that does not match is discarded rather than put in
+	// place. Set by ExpectSHA256; only updates use it.
+	expected map[string]string
 }
 
 func NewDownloader(dataDir, modelsDir, token string) *Downloader {
@@ -112,6 +123,7 @@ func NewDownloader(dataDir, modelsDir, token string) *Downloader {
 		modelsDir: modelsDir,
 		active:    make(map[string]*download),
 		providers: make(map[string]Provider),
+		expected:  make(map[string]string),
 	}
 	d.providers[modelsource.SourceHuggingFace] = Provider{
 		URL:   func(modelID, filename string) string { return hfDownloadURL(modelID, filename) },
@@ -155,6 +167,21 @@ func (d *Downloader) provider(source string) Provider {
 
 func hfDownloadURL(modelID, filename string) string {
 	return (&Client{}).DownloadURL(modelID, filename)
+}
+
+// SetHashStore makes the downloader record the SHA-256 of each file it
+// finishes.
+func (d *Downloader) SetHashStore(s *filehash.Store) {
+	d.hashes = s
+}
+
+// ExpectSHA256 sets the hash the next download of the file at finalPath
+// must have. A file that does not match is deleted and the download
+// fails, so a bad transfer never replaces a working file.
+func (d *Downloader) ExpectSHA256(finalPath, sha string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.expected[finalPath] = sha
 }
 
 // SetOnComplete registers a callback invoked when a download finishes.
@@ -511,15 +538,18 @@ func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, model
 		return 0, fmt.Errorf("creating model directory: %w", err)
 	}
 
-	// Skip if already downloaded
-	if info, err := os.Stat(finalPath); err == nil {
-		return info.Size(), nil
-	}
-
 	// Check for existing partial download
 	var existingSize int64
-	if info, err := os.Stat(partPath); err == nil {
-		existingSize = info.Size()
+	partInfo, partErr := os.Stat(partPath)
+	if partErr == nil {
+		existingSize = partInfo.Size()
+	}
+
+	// Skip if already downloaded. A .part file beside a finished one is
+	// an update of it (see the Models tab's Update): the new version is
+	// downloaded into the .part and replaces the old file when complete.
+	if info, err := os.Stat(finalPath); err == nil && partErr != nil {
+		return info.Size(), nil
 	}
 
 	p := d.provider(source)
@@ -579,6 +609,15 @@ func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, model
 	}
 	defer f.Close()
 
+	// The hash covers the whole file, so a resumed download first reads
+	// back the part already on disk.
+	hasher := sha256.New()
+	if existingSize > 0 {
+		if err := hashPrefix(hasher, partPath, existingSize); err != nil {
+			return 0, err
+		}
+	}
+
 	buf := make([]byte, 256*1024)
 	downloaded := existingSize
 	lastReport := time.Now()
@@ -596,6 +635,7 @@ func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, model
 			if _, werr := f.Write(buf[:n]); werr != nil {
 				return downloaded, werr
 			}
+			hasher.Write(buf[:n])
 			downloaded += int64(n)
 		}
 
@@ -625,9 +665,34 @@ func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, model
 	}
 
 	f.Close()
+	sha := hex.EncodeToString(hasher.Sum(nil))
+	d.mu.Lock()
+	want, checked := d.expected[finalPath]
+	delete(d.expected, finalPath)
+	d.mu.Unlock()
+	if checked && want != sha {
+		os.Remove(partPath)
+		return downloaded, fmt.Errorf("%s does not match the repository's checksum; the old file was kept", filename)
+	}
 	if err := os.Rename(partPath, finalPath); err != nil {
 		return downloaded, err
 	}
+	if d.hashes != nil {
+		if err := d.hashes.Record(finalPath, sha); err != nil {
+			slog.Warn("file hash not saved", "path", finalPath, "error", err)
+		}
+	}
 
 	return downloaded, nil
+}
+
+// hashPrefix adds the first n bytes of the file at path to h.
+func hashPrefix(h io.Writer, path string, n int64) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = io.CopyN(h, f, n)
+	return err
 }

@@ -206,13 +206,18 @@ type filesResponse struct {
 	Success bool   `json:"Success"`
 	Message string `json:"Message"`
 	Data    struct {
-		Files []struct {
-			Name string `json:"Name"` // basename
-			Path string `json:"Path"` // path within the repo, which is what we want
-			Size int64  `json:"Size"`
-			Type string `json:"Type"` // "blob" or "tree"
-		} `json:"Files"`
+		Files []repoFileEntry `json:"Files"`
 	} `json:"Data"`
+}
+
+// repoFileEntry is one entry of ModelScope's file listing.
+type repoFileEntry struct {
+	Name string `json:"Name"` // basename
+	Path string `json:"Path"` // path within the repo, which is what we want
+	Size int64  `json:"Size"`
+	Type string `json:"Type"` // "blob" or "tree"
+	// Sha256 is the content hash, given for every file.
+	Sha256 string `json:"Sha256"`
 }
 
 // GetModel fetches a repository's GGUF files. Unlike the HuggingFace
@@ -220,6 +225,34 @@ type filesResponse struct {
 // sizes, where HuggingFace returns names and sizes from separate
 // endpoints.
 func (c *Client) GetModel(ctx context.Context, modelID string) (*modelsource.Detail, error) {
+	files, err := c.listFiles(ctx, modelID)
+	if err != nil {
+		return nil, err
+	}
+
+	detail := &modelsource.Detail{ID: modelID}
+	for _, f := range files {
+		rel := f.Path
+		if !strings.HasSuffix(strings.ToLower(rel), ".gguf") {
+			continue
+		}
+		detail.Files = append(detail.Files, modelsource.File{
+			Filename:  rel,
+			Size:      f.Size,
+			Quant:     models.ParseQuant(rel),
+			IsMMProj:  models.IsMMProjFile(rel),
+			VRAMEstGB: models.EstimateVRAM(f.Size),
+		})
+	}
+	detail.Files = modelsource.GroupShards(detail.Files)
+	return detail, nil
+}
+
+// listFiles fetches a repository's files, folders left out. Path is
+// filled for every entry: it carries any subdirectory (quant folders
+// like "UD-IQ1_M/"), which is what the download URL and the shard
+// grouping need.
+func (c *Client) listFiles(ctx context.Context, modelID string) ([]repoFileEntry, error) {
 	owner, name, ok := splitID(modelID)
 	if !ok {
 		return nil, fmt.Errorf("invalid ModelScope model id %q, want owner/name", modelID)
@@ -250,30 +283,30 @@ func (c *Client) GetModel(ctx context.Context, modelID string) (*modelsource.Det
 		return nil, fmt.Errorf("ModelScope file listing failed: %s", raw.Message)
 	}
 
-	detail := &modelsource.Detail{ID: modelID}
+	var files []repoFileEntry
 	for _, f := range raw.Data.Files {
 		if f.Type == "tree" {
 			continue
 		}
-		// Path carries any subdirectory (quant folders like "UD-IQ1_M/"),
-		// which is what the download URL and the shard grouping need.
-		rel := f.Path
-		if rel == "" {
-			rel = f.Name
+		if f.Path == "" {
+			f.Path = f.Name
 		}
-		if !strings.HasSuffix(strings.ToLower(rel), ".gguf") {
-			continue
-		}
-		detail.Files = append(detail.Files, modelsource.File{
-			Filename:  rel,
-			Size:      f.Size,
-			Quant:     models.ParseQuant(rel),
-			IsMMProj:  models.IsMMProjFile(rel),
-			VRAMEstGB: models.EstimateVRAM(f.Size),
-		})
+		files = append(files, f)
 	}
-	detail.Files = modelsource.GroupShards(detail.Files)
-	return detail, nil
+	return files, nil
+}
+
+// RepoFiles lists every file in a repository with its size and SHA-256.
+func (c *Client) RepoFiles(ctx context.Context, modelID string) ([]modelsource.RepoFile, error) {
+	files, err := c.listFiles(ctx, modelID)
+	if err != nil {
+		return nil, err
+	}
+	var out []modelsource.RepoFile
+	for _, f := range files {
+		out = append(out, modelsource.RepoFile{Path: f.Path, Size: f.Size, SHA256: f.Sha256})
+	}
+	return out, nil
 }
 
 // DownloadURL returns a range-capable URL for one file.

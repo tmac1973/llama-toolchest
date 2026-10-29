@@ -1,0 +1,52 @@
+{{/* Update: the check of a model's files against its repository, what
+     it found, and the message once the download has started. Renders
+     into the model card's #update-<id> container; see model_update.go. */}}
+
+{{define "model_update"}}
+<div class="model-config-panel"
+     {{if eq .State "checking"}}
+     hx-get="/api/models/{{.ID}}/update"
+     hx-trigger="every 1s"
+     hx-target="#update-{{cssID .ID}}"
+     hx-swap="innerHTML"
+     {{end}}>
+    <div class="model-config-header">
+        <span>Update <span class="mc-owner">— {{.ModelName}}</span></span>
+    </div>
+    {{if eq .State "checking"}}
+        {{if .Hashing}}
+        <p aria-busy="true" title="A file downloaded before this version of Toolchest has no saved checksum, so it is read once to work one out. The result is saved, and later checks are quick.">Reading {{.Hashing}} to compare it with the repository…</p>
+        <progress value="{{printf "%.0f" .Pct}}" max="100"></progress>
+        {{else}}
+        <p aria-busy="true">Comparing the files on disk with the repository…</p>
+        {{end}}
+    {{else if eq .State "failed"}}
+        <p><mark>{{.Err}}</mark></p>
+    {{else if eq .State "started"}}
+        <p>Downloading the update. Progress is in the Downloads panel above. Each file replaces the old one when its download is complete.</p>
+    {{else if .Changed}}
+        <p>The repository has a newer version of {{len .Changed}} {{if eq (len .Changed) 1}}file{{else}}files{{end}}, {{sizeText .Bytes}} to download:</p>
+        <ul>
+            {{range .Changed}}<li><code>{{.Path}}</code> <small>({{.Role}}, {{sizeText .Size}})</small></li>{{end}}
+        </ul>
+        {{if .Loaded}}<p><small>This model is loaded. It keeps using the old files until it is loaded again; the card shows when a restart is needed.</small></p>{{end}}
+    {{else}}
+        <p>This model is up to date: every file matches the repository.</p>
+    {{end}}
+    {{if .Missing}}
+    <p><small title="These files are no longer in the repository, perhaps renamed or removed. The copies on disk are kept as they are.">Not in the repository any more: {{range $i, $p := .Missing}}{{if $i}}, {{end}}<code>{{$p}}</code>{{end}}</small></p>
+    {{end}}
+    <div role="group">
+        {{if and (eq .State "ready") .Changed}}
+        <button type="button"
+                hx-post="/api/models/{{.ID}}/update"
+                hx-target="#update-{{cssID .ID}}"
+                hx-swap="innerHTML">Download update</button>
+        {{end}}
+        <button type="button" class="secondary"
+                hx-delete="/api/models/{{.ID}}/update"
+                hx-target="#update-{{cssID .ID}}"
+                hx-swap="innerHTML">{{if eq .State "checking"}}Cancel{{else}}Close{{end}}</button>
+    </div>
+</div>
+{{end}}

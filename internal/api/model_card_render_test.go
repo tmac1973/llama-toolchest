@@ -66,3 +66,15 @@ func TestModelCardHealthy(t *testing.T) {
 		t.Errorf("healthy model should show Configure; output=\n%s", out)
 	}
 }
+
+// The Update button shows only for a model that can be checked against
+// its repository.
+func TestModelCardUpdateButton(t *testing.T) {
+	m := models.Model{ID: "org--repo--model", ModelID: "org/repo", Filename: "model.gguf"}
+	if out := renderModelCardPartial(t, modelCardData{Model: m, CanUpdate: true}); !strings.Contains(out, `hx-post="/api/models/org--repo--model/update/check"`) {
+		t.Errorf("expected an Update button; output=\n%s", out)
+	}
+	if out := renderModelCardPartial(t, modelCardData{Model: m}); strings.Contains(out, "/update/check") {
+		t.Errorf("Update button shown for a model that cannot be updated; output=\n%s", out)
+	}
+}

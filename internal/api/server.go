@@ -20,6 +20,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/builder"
 	"github.com/tmac1973/llama-toolchest/internal/config"
 	"github.com/tmac1973/llama-toolchest/internal/evaluate"
+	"github.com/tmac1973/llama-toolchest/internal/filehash"
 	"github.com/tmac1973/llama-toolchest/internal/generation"
 	"github.com/tmac1973/llama-toolchest/internal/huggingface"
 	"github.com/tmac1973/llama-toolchest/internal/llmcall"
@@ -141,6 +142,13 @@ type Server struct {
 	// the calls made against a host that rate-limits.
 	detailMu    sync.RWMutex
 	detailCache map[string]detailEntry
+	// hashes holds the SHA-256 of downloaded files, which the Update
+	// button on a model card compares with the repository's.
+	hashes *filehash.Store
+	// updates holds each model's update check, by registry id; see
+	// model_update.go. Kept in memory only.
+	updatesMu   sync.Mutex
+	updates     map[string]*modelUpdate
 	downloader  *huggingface.Downloader
 	registry    *models.Registry
 	presets     *presets.Fetcher
@@ -349,7 +357,10 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 		dirtyModels:    make(map[string]bool),
 		runningConfigs: make(map[string]*models.ModelConfig),
 		memory:         memreport.NewCollector(),
+		hashes:         filehash.Open(filepath.Join(cfg.DataDir, "cache", "file-hashes.json")),
+		updates:        make(map[string]*modelUpdate),
 	}
+	s.downloader.SetHashStore(s.hashes)
 	s.genMgr = generation.NewManager()
 	s.genVideoJobs.max = videoJobMax
 	s.genQueue = generation.NewQueue()
@@ -463,6 +474,8 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 func (s *Server) templateFuncs() template.FuncMap {
 	return template.FuncMap{
 		"divGB": models.BytesToGiB,
+		// sizeText writes a file size in GiB, or MiB below 1 GiB.
+		"sizeText": sizeText,
 		// kindLabel and kindTitle name a generation set's kind: "image",
 		// "video" or "music", and the same with a capital letter.
 		"kindLabel": genKindLabel,
@@ -798,6 +811,10 @@ func (s *Server) buildRouter() chi.Router {
 			r.Put("/{id}/activate", s.handleActivateModel)
 			r.Delete("/{id}/activate", s.handleDeactivateModel)
 			r.Put("/{id}/enable", s.handleModelEnable)
+			r.Post("/{id}/update/check", s.handleModelUpdateCheck)
+			r.Get("/{id}/update", s.handleModelUpdateStatus)
+			r.Post("/{id}/update", s.handleModelUpdateApply)
+			r.Delete("/{id}/update", s.handleModelUpdateDismiss)
 			r.Get("/{id}/config", s.handleGetModelConfig)
 			r.Put("/{id}/config", s.handleUpdateModelConfig)
 			r.Get("/{id}/autotune", s.handleAutotuneDialog)

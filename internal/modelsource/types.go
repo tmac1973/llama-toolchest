@@ -90,4 +90,17 @@ type Client interface {
 	ModelURL(modelID string) string
 	// DownloadURL locates one file within a repository.
 	DownloadURL(modelID, filename string) string
+	// RepoFiles lists every file in a repository with its size and
+	// SHA-256, for checking downloaded files against the current version.
+	RepoFiles(ctx context.Context, modelID string) ([]RepoFile, error)
+}
+
+// RepoFile is one file in a repository as the host has it now.
+type RepoFile struct {
+	Path string
+	Size int64
+	// SHA256 is the file's content hash, empty when the host gives none
+	// (HuggingFace has one only for files stored with Git LFS, which
+	// every model file is).
+	SHA256 string
 }

@@ -537,6 +537,9 @@ func (s *Server) onDownloadComplete(source, downloadID, modelID, filename string
 	safeName := huggingface.SafeModelID(modelID)
 	filePath := filepath.Join(s.cfg.ModelsPath(), safeName, filename)
 
+	// An update replaces a file that a loaded model may still have open.
+	s.markUpdatedModelsDirty(filePath)
+
 	// mmproj files are vision projectors — don't register as models.
 	// Instead, auto-associate with sibling models in the same directory.
 	if models.IsMMProjFile(filename) {
@@ -573,6 +576,16 @@ func (s *Server) onDownloadComplete(source, downloadID, modelID, filename string
 	// Architecture-aware VRAM estimation from the GGUF header parsed above.
 	if meta != nil {
 		meta.ApplyTo(m)
+	}
+
+	// An update registers the model again over its old record. What the
+	// file does not say about itself comes from the old record.
+	if old, err := s.registry.Get(m.ID); err == nil {
+		m.HelperRole = old.HelperRole
+		m.Seeded = old.Seeded
+		if m.Source == "" {
+			m.Source = old.Source
+		}
 	}
 
 	if err := s.registry.Add(m); err != nil {

@@ -151,40 +151,85 @@ func (c *Client) GetModel(ctx context.Context, modelID string) (*ModelDetail, er
 	return detail, nil
 }
 
-// populateFileSizes fetches file sizes from the HF tree API.
-func (c *Client) populateFileSizes(ctx context.Context, modelID string, detail *ModelDetail) {
-	type treeEntry struct {
-		Path string `json:"path"`
-		Size int64  `json:"size"`
-		OID  string `json:"oid"`
-		LFS  *struct {
-			OID string `json:"oid"`
-		} `json:"lfs"`
-	}
-	// The listing is paged past 1,000 entries, with the next page named in
-	// a Link header. Repositories that large are rare (the biggest checked
-	// held 395 files), but a missed page would leave sizes unknown.
+type treeEntry struct {
+	Type string `json:"type"`
+	Path string `json:"path"`
+	Size int64  `json:"size"`
+	OID  string `json:"oid"`
+	LFS  *struct {
+		OID string `json:"oid"`
+	} `json:"lfs"`
+}
+
+// tree lists a repository's files through the HF tree API. The listing
+// is paged past 1,000 entries, with the next page named in a Link
+// header. Repositories that large are rare (the biggest checked held 395
+// files), but a missed page would leave files out. A page that fails
+// ends the listing early: err is set only when no page was read.
+func (c *Client) tree(ctx context.Context, modelID string) ([]treeEntry, error) {
 	var tree []treeEntry
 	next := fmt.Sprintf("%s/models/%s/tree/main?recursive=true", c.apiURL(), modelID)
 	for page := 0; next != "" && page < 20; page++ {
 		req, err := http.NewRequestWithContext(ctx, "GET", next, nil)
 		if err != nil {
-			return
+			return tree, err
 		}
 		c.setAuth(req)
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			return
+			if page == 0 {
+				return nil, err
+			}
+			break
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			if page == 0 {
+				return nil, fmt.Errorf("Hugging Face API returned HTTP %d", resp.StatusCode)
+			}
+			break
 		}
 		var part []treeEntry
 		err = json.NewDecoder(resp.Body).Decode(&part)
 		resp.Body.Close()
 		if err != nil {
+			if page == 0 {
+				return nil, err
+			}
 			break
 		}
 		tree = append(tree, part...)
 		next = nextLink(resp.Header.Get("Link"))
 	}
+	return tree, nil
+}
+
+// RepoFiles lists every file in a repository with its size and, for
+// files kept in Git LFS, its SHA-256.
+func (c *Client) RepoFiles(ctx context.Context, modelID string) ([]modelsource.RepoFile, error) {
+	tree, err := c.tree(ctx, modelID)
+	if err != nil {
+		return nil, err
+	}
+	var out []modelsource.RepoFile
+	for _, t := range tree {
+		if t.Type == "directory" {
+			continue
+		}
+		f := modelsource.RepoFile{Path: t.Path, Size: t.Size}
+		// A plain git file's oid is a git blob SHA-1, not a SHA-256 of
+		// the content, so only the LFS one is usable.
+		if t.LFS != nil {
+			f.SHA256 = t.LFS.OID
+		}
+		out = append(out, f)
+	}
+	return out, nil
+}
+
+// populateFileSizes fetches file sizes from the HF tree API.
+func (c *Client) populateFileSizes(ctx context.Context, modelID string, detail *ModelDetail) {
+	tree, _ := c.tree(ctx, modelID)
 
 	type entry struct {
 		size int64
