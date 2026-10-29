@@ -73,8 +73,7 @@ func (s *Server) agentInput(base string) agentconfig.Input {
 	for _, sm := range s.servedChatModels() {
 		caps := s.buildCapabilities(sm.Model, sm.Config)
 		ctx, _ := caps["context_per_request"].(int)
-		vision := sm.Model.HasBuiltinVision ||
-			(sm.Config != nil && sm.Config.MmprojPath != "" && !sm.Config.MmprojDisabled)
+		vision := sm.Model.HasVision(sm.Config)
 		m := agentconfig.Model{
 			ID:        sm.Model.PublicName(),
 			Context:   ctx,

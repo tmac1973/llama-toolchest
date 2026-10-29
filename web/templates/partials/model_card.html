@@ -31,7 +31,9 @@
             <span id="restart-{{cssID .Model.ID}}">{{if .NeedsReload}}{{template "restart_icon"}}{{end}}</span>
             {{.ModelID}}
             {{with sourceModelURL .Source .ModelID}}<a href="{{.}}" target="_blank" rel="noopener" title="Open model page" style="text-decoration:none;color:var(--pico-muted-color);font-size:0.85em;margin-left:0.15rem;">&#x2197;</a>{{end}}
-            {{if .HasVision}} <mark style="padding:0 0.3rem;font-size:0.75rem;">vision</mark>{{end}}
+            {{if .HasVision}} <mark style="padding:0 0.3rem;font-size:0.75rem;" title="Reads images: send them in chat messages.">vision</mark>{{end}}
+            {{if .HasAudio}} <mark style="padding:0 0.3rem;font-size:0.75rem;" title="Understands speech: send audio in chat messages, transcribe it with /v1/audio/transcriptions, or talk to it live with /v1/realtime (llama.cpp v0.8.0 or newer).">audio</mark>{{end}}
+            {{if .Speaks}} <mark style="padding:0 0.3rem;font-size:0.75rem;" title="Makes speech: use POST /tts{{if .HasAudio}} or /v1/realtime{{end}} (llama.cpp v0.8.0 or newer).{{if not .HasChatTemplate}} It only speaks; it does not answer chat requests.{{end}}">speech</mark>{{end}}
             {{if .SupportsTools}} <mark style="padding:0 0.3rem;font-size:0.75rem;">tools</mark>{{end}}
             {{if .GPULabel}} <mark style="padding:0 0.3rem;font-size:0.75rem;background:var(--pico-muted-border-color);color:var(--pico-color);">{{.GPULabel}}</mark>{{end}}
             {{if .IsOrphan}} <del>missing</del>{{end}}

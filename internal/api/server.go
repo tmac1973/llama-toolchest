@@ -1341,6 +1341,9 @@ func (s *Server) servedChatModels() []servedModel {
 		if err != nil {
 			cfg = nil
 		}
+		if !m.CanChat(cfg) {
+			continue // text-to-speech only
+		}
 		out = append(out, servedModel{Model: m, Config: cfg, State: state})
 	}
 	return out

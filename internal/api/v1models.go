@@ -11,6 +11,13 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
+// modelArchitecture is what a model reads and makes, in the shape of
+// llama-server's own /v1/models architecture object.
+func modelArchitecture(m *models.Model, cfg *models.ModelConfig) map[string]any {
+	in, out := m.Modalities(cfg)
+	return map[string]any{"input_modalities": in, "output_modalities": out}
+}
+
 // openAIModel builds an OpenAI-compatible Model object with a meta extension.
 func (s *Server) openAIModel(m *models.Model, cfg *models.ModelConfig) map[string]any {
 	meta := map[string]any{
@@ -21,6 +28,7 @@ func (s *Server) openAIModel(m *models.Model, cfg *models.ModelConfig) map[strin
 		"n_ctx_train":  m.ContextLength,
 		"size":         m.SizeBytes,
 		"capabilities": m.Capabilities(cfg),
+		"architecture": modelArchitecture(m, cfg),
 	}
 	if cfg != nil {
 		// The same context fields as the capabilities object, so a client

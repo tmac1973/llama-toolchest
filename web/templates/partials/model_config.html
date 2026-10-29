@@ -286,12 +286,12 @@
     </div>
     {{else if .HasMMProj}}
     <div class="grid">
-        <label title="Path to the multimodal projector GGUF file. Enables vision/image understanding for this model. Auto-detected from the model directory.">
-            Vision Projector (mmproj)
+        <label title="Path to the multimodal projector GGUF file. Lets this model read images or audio, or make speech, depending on the file. Auto-detected from the model directory.">
+            Projector (mmproj)
             <input type="text" name="mmproj_path" value="{{.Config.MmprojPath}}"
                    placeholder="Auto-detected or enter path to mmproj GGUF">
         </label>
-        <label title="Uncheck to launch without the vision projector while keeping the path saved. Useful when the projector pushes a tight VRAM budget over the edge.">
+        <label title="Uncheck to launch without the projector while keeping the path saved. Useful when the projector pushes a tight VRAM budget over the edge.">
             Load Projector
             <input type="checkbox" name="mmproj_enabled" role="switch"
                    {{if not .Config.MmprojDisabled}}checked{{end}}>
