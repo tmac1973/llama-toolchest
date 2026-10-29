@@ -76,9 +76,10 @@ tags:
       here also goes to llama-server unchanged.
   - name: Speech
     description: |
-      Text-to-speech with a TTS model in llama-server (llama.cpp v0.8.0
-      or newer), such as Qwen3-TTS, Soprano or LFM3-Audio. The route is at
-      the server root, as llama-server has it.
+      Voice routes of llama-server (llama.cpp v0.8.0 or newer):
+      text-to-speech with a TTS model such as Qwen3-TTS, Soprano or
+      LFM3-Audio, at the server root as llama-server has it, and realtime
+      voice sessions with a model such as LFM3-Audio or Voxtral Realtime.
   - name: Images
     description: |
       `generations` and `edits` are the OpenAI image routes. They wait
@@ -326,6 +327,47 @@ paths:
               schema:
                 type: string
                 format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ProxyUnavailable"
+        "507":
+          $ref: "#/components/responses/InsufficientVRAM"
+
+  /v1/realtime:
+    get:
+      tags: [Speech]
+      operationId: realtimeSession
+      summary: Realtime voice session (WebSocket)
+      description: |
+        A WebSocket session in the OpenAI realtime protocol, sent to
+        llama-server: live transcription, and voice chat with audio in and
+        out. Connect with an OpenAI realtime client. llama-toolchest loads
+        the model first when needed, as for chat, and an image, video or
+        music job does not unload the model while the session is open: the
+        job waits for the session to close.
+
+        Browsers cannot send an `Authorization` header on a WebSocket. When
+        an API key is set, a browser client sends it as the subprotocol
+        `openai-insecure-api-key.<key>` instead, as OpenAI's clients do.
+        This is accepted on this route only, and is not passed on to
+        llama-server.
+      parameters:
+        - name: model
+          in: query
+          required: true
+          description: A model's public name, registry ID, router name or alias.
+          schema:
+            type: string
+        - name: intent
+          in: query
+          required: false
+          description: "`transcription` opens a transcription session."
+          schema:
+            type: string
+      responses:
+        "101":
+          description: The session is open.
         "401":
           $ref: "#/components/responses/Unauthorized"
         "503":

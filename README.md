@@ -350,6 +350,7 @@ All requests are forwarded to llama.cpp's router. Per-model sampling defaults ar
 - `POST /v1/chat/completions` — streaming, tool calling, JSON schema / `json_object`
 - `POST /v1/completions` — text completion
 - `POST /v1/embeddings` — vector embeddings (auto-configured for `--embeddings` builds)
+- `GET /v1/realtime` — realtime voice sessions over WebSocket (OpenAI realtime protocol; llama.cpp v0.8.0 or newer). The model is loaded first, and generation jobs wait for an open session instead of unloading its model. Browser clients may send the API key as the `openai-insecure-api-key.<key>` subprotocol.
 - `POST /tts` — text to speech with a TTS model (llama.cpp v0.8.0 or newer); JSON, or multipart with a `speaker_ref` file. At the root, as llama-server has it.
 
 ```bash

@@ -286,6 +286,9 @@ type fakeRouter struct {
 	slotLists int
 	// ttsBodies records the body of each POST /tts.
 	ttsBodies [][]byte
+	// realtimeProtocols records the Sec-WebSocket-Protocol header of
+	// each realtime session.
+	realtimeProtocols []string
 }
 
 // reset replaces the router's state between subtests.
@@ -309,6 +312,11 @@ func (f *fakeRouter) loadCalls() []string {
 }
 
 func (f *fakeRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Before the lock: a session stays open while the test lists models.
+	if r.URL.Path == realtimePath {
+		f.serveRealtime(w, r)
+		return
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	switch {
