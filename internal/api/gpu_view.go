@@ -113,11 +113,14 @@ func matchSplitMode(cfg *models.ModelConfig, gpuOptions []models.GPUOption, numG
 }
 
 // gpuAssignWarning reports why a model's current GPU assignment will
-// fail on the active build: it places the model on an iGPU whose gfx
-// target the build didn't compile kernels for. Empty when there is
-// nothing to warn about (no iGPU in the assignment, targets unknown, or
-// the build opted the iGPU in).
-func (s *Server) gpuAssignWarning(cfg *models.ModelConfig, gpus []monitor.GPUInfo) string {
+// fail on the active build: it asks for a tensor split the build refuses
+// for the model's architecture, or it places the model on an iGPU whose
+// gfx target the build didn't compile kernels for. Empty when there is
+// nothing to warn about (no such problem, or not known).
+func (s *Server) gpuAssignWarning(cfg *models.ModelConfig, model *models.Model, gpus []monitor.GPUInfo) string {
+	if model != nil && cfg.SplitMode == "tensor" && s.tensorSplitRefused(model.Arch) {
+		return models.TensorSplitRefusedText(model.Arch)
+	}
 	build := s.resolveActiveBuild()
 	if build == nil {
 		return ""

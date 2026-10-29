@@ -759,6 +759,15 @@ func (s *Server) renderPartial(w http.ResponseWriter, name string, data any) {
 	}
 }
 
+// tensorSplitRefused reports whether the build the router runs refuses to
+// load a model of this architecture with --split-mode tensor. False when
+// that is not known: no build, a build without a recorded list, or a
+// model whose architecture was not read.
+func (s *Server) tensorSplitRefused(arch string) bool {
+	b := s.resolveActiveBuild()
+	return b != nil && arch != "" && slices.Contains(b.NoTensorSplitArchs, arch)
+}
+
 // supportedArchs is the set of model architectures the build the router
 // runs can load. known is false when that is not known (no build, or one
 // without a recorded list), and then nothing should be judged by it: a

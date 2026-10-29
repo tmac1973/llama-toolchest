@@ -14,8 +14,31 @@ type GPUOption struct {
 	IsTensor     bool   // true for tensor parallelism mode
 	IsSpanAll    bool   // the "All (discrete) GPUs" option — the default when nothing is saved
 	IncludesIGPU bool   // true when any member GPU is an integrated GPU
-	Disabled     bool   // model doesn't fit
+	Disabled     bool   // the model cannot use this option
+	Note         string // why the option is disabled, shown as its tooltip
 	Recommend    bool   // suggested option
+}
+
+// DisableTensorOptions marks the tensor parallelism options unusable for
+// a model whose architecture the active build refuses to load with a
+// tensor split: llama.cpp stops with "LLAMA_SPLIT_MODE_TENSOR not
+// implemented for architecture". The option already chosen (current) is
+// left selectable, so saving the form does not drop it; the warning under
+// the dropdown says why it will not load.
+func DisableTensorOptions(opts []GPUOption, current, arch string) {
+	for i := range opts {
+		if !opts[i].IsTensor || opts[i].Value == current {
+			continue
+		}
+		opts[i].Disabled = true
+		opts[i].Note = TensorSplitRefusedText(arch)
+	}
+}
+
+// TensorSplitRefusedText explains, in plain language, why a model cannot
+// use tensor parallelism.
+func TensorSplitRefusedText(arch string) string {
+	return fmt.Sprintf("The active llama.cpp build does not support tensor parallelism for this model's architecture (%s). The model would fail to load. Use a layer split instead.", arch)
 }
 
 // GPUAssignOptions generates all GPU assignment options. igpu marks
@@ -707,7 +730,7 @@ func MarkRecommended(options []GPUOption, modelVRAMGB float64, perGPUGB float64,
 
 	for i := range options {
 		opt := &options[i]
-		if opt.Value == "custom" {
+		if opt.Value == "custom" || opt.Disabled {
 			continue
 		}
 		// Never recommend a placement touching an iGPU: it shares system

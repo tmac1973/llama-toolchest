@@ -89,6 +89,10 @@ type BuildResult struct {
 	// when not known: a build from before the field existed whose commit
 	// is gone, or a source layout ParseArchNames does not recognize.
 	Archs []string `json:"archs,omitempty"`
+	// NoTensorSplitArchs lists the architectures this build refuses to
+	// load with --split-mode tensor (llm_arch_supports_sm_tensor), by
+	// their GGUF names. Empty when not known, as for Archs.
+	NoTensorSplitArchs []string `json:"no_tensor_split_archs,omitempty"`
 	// Project is the source tree built (see Project); empty on builds
 	// from before projects existed, which were all llama.cpp.
 	Project string `json:"project,omitempty"`
@@ -814,7 +818,7 @@ func (b *Builder) runBuild(ctx context.Context, proj Project, prof BuildProfile,
 	result.BinaryPath = dstBin
 	switch proj.ID {
 	case ProjectLlamaCpp:
-		result.Archs = archsFromCheckout(srcDir)
+		result.Archs, result.NoTensorSplitArchs = archsFromCheckout(srcDir)
 	case ProjectSDCpp:
 		result.HasWebUI = prof.CMakeFlags[sdFrontendFlag] == "ON"
 	case ProjectAceStep:

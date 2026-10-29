@@ -35,6 +35,11 @@ type PlanInput struct {
 	MoECacheMiB int
 	// Quick is a run at DepthQuick.
 	Quick bool
+	// NoTensorSplit is the model's architecture when the active build
+	// refuses to load it with a tensor split, and "" otherwise (also when
+	// that is not known). The placement stage then measures no tensor
+	// split: every such setting would fail to load.
+	NoTensorSplit string
 }
 
 // carry is how many finalists a stage of this run builds on.
@@ -148,7 +153,7 @@ func planBatch(in PlanInput) []map[string]string {
 // on one GPU with nothing on the CPU, and the stage is then skipped.
 func planPlacement(in PlanInput) []map[string]string {
 	splits := []string{""}
-	if in.Cards > 1 {
+	if in.Cards > 1 && in.NoTensorSplit == "" {
 		splits = []string{"layer", "tensor"}
 	}
 	threads := []string{""}

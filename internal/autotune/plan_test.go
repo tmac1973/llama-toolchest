@@ -105,6 +105,14 @@ func TestPlacementStageMeasuresSplitAndThreadsWhenTheyMatter(t *testing.T) {
 		t.Errorf("placement is not measured on the batch finalists: %v", got)
 	}
 
+	// An architecture the build refuses to split by tensor: every tensor
+	// cell would fail to load, so none is planned.
+	in.NoTensorSplit = "lfm3"
+	cells, _, _ = PlanStage(StagePlacement, in)
+	if got := values(cells, "split_mode"); got["tensor"] {
+		t.Errorf("tensor split planned for a refused architecture: %v", got)
+	}
+
 	in = baseInput()
 	in.Base.CPUMoE = 12
 	in.Finalists[StageBatch] = finalists

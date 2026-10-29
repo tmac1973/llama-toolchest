@@ -71,6 +71,8 @@
 
         <p id="autotune-estimate-{{cssID .ModelID}}">{{template "autotune_estimate" .}}</p>
 
+        {{if .TensorSplitNote}}<p><small>{{.TensorSplitNote}}</small></p>{{end}}
+
         {{if .Skipped}}
         <details>
             <summary><small>Some speculative decoding methods cannot be measured on this machine ({{len .Skipped}})</small></summary>
