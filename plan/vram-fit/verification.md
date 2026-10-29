@@ -248,3 +248,31 @@ was put back afterwards.
 The reservation inside a budget came out at 12.0 and 13.5 GiB, below the
 14 GiB budget. The branch was changed afterwards to reserve at least the
 budget; unit tests cover it.
+
+## On the RTX A4000 (compute2, 2026-10-29 and 30)
+
+**Setup:** GPU 2 of compute2 (16 GB), running another session's test build
+(`2.44.2-realtime420-test`, which includes Phases 01–04). Measure ran through
+the API; nothing else was on the GPU. compute2's sd.cpp build is
+`sd-master-1015-e41fbcf-cuda-b9622b`, with CUDA graphs on.
+
+| Set | Result |
+|---|---|
+| FLUX.2 klein 4B (with edit) | 7.5 GiB (peak 6.8), against 9.5 GiB before, which was measured without an edit |
+| TI2V 5B Short | Peak 14.3 GiB, reservation 13.8 GiB (the room). A real video took 110 s. One earlier try crashed ("CUDA error: an internal operation failed") |
+| TI2V 5B Medium | Crashed with the whole room and inside a 10 GiB budget. See below |
+| LTX-2.3 Medium, Full | Both fit: peaks 14.0 and 13.9 GiB, reservation 13.8 GiB. Short crashed once ("CONCAT failed") |
+| A14B Short | Crashed at 13.8 GiB (log not kept) |
+| HunyuanVideo 1.5 I2V 480p step-distilled | Crashed 3 times in 3: "ggml_cuda_compute_forward: CONCAT failed", 13 s in, at 3.4 GiB |
+
+**What happened to TI2V Medium,** from its log (rerun 2026-10-30):
+1. The whole decode needed 25.1 GB and ran out of memory. sd.cpp retried with
+   temporal tiling.
+2. That needed 28.6 GB and also ran out. sd.cpp reduced the tiles to 640×352
+   and retried with spatial and temporal tiling.
+3. That decode crashed: "CONCAT failed", "unspecified launch failure", then
+   abort.
+
+This is the crash in the drafted sd.cpp report. Measure reported it as
+"probably out of memory" because of the warnings before the retries.
+`backendStoppedError` now reads only the lines after the last retry.

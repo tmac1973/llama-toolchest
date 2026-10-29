@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
@@ -310,6 +311,28 @@ func TestBackendStoppedError(t *testing.T) {
 	}
 	if err := backendStoppedError(oom); !strings.Contains(err.Error(), "ran out of GPU memory") {
 		t.Errorf("out of memory: %v", err)
+	}
+	// TI2V 5B at 81 frames on the A4000 (2026-10-30): the whole decode ran
+	// out of memory, sd.cpp retried twice, then crashed in the small-piece
+	// decode. The memory warnings before the last retry were recovered
+	// from; the crash after it is what stopped the backend.
+	retried := []string{
+		"[W] model manager cannot make enough memory available on CUDA0: need 25114.96 MB device / 24602.96 MB budget --- model_manager.cpp:2013",
+		"[E] wan_vae segment 1/1 (graph) failed during weight preparation --- ggml_runner.cpp:898",
+		"[W] VAE decode ran out of memory; retrying with temporal tiling --- backend_fit.cpp:518",
+		"[W] model manager cannot make enough memory available on CUDA0: need 28560.03 MB device / 28048.03 MB budget --- model_manager.cpp:2013",
+		"[W] VAE decode ran out of memory; retrying with spatial+temporal tiling --- backend_fit.cpp:518",
+		"[E] ggml: ggml_cuda_compute_forward: CONCAT failed",
+		"[E] ggml: CUDA error: unspecified launch failure",
+		"==> sd-server ti2v-log exited with error: signal: aborted (core dumped)",
+	}
+	if err := backendStoppedError(retried); !strings.Contains(err.Error(), "crashed during the test generation (ggml: ggml_cuda_compute_forward: CONCAT failed), while decoding the video in smaller pieces") {
+		t.Errorf("crash after a decode retry: %v", err)
+	}
+	// Running out of memory again after a retry is still memory.
+	again := append(slices.Clone(retried[:5]), "[E] ggml: CUDA error: out of memory", "==> sd-server x exited with error: signal: aborted (core dumped)")
+	if err := backendStoppedError(again); !strings.Contains(err.Error(), "ran out of GPU memory") {
+		t.Errorf("out of memory after a retry: %v", err)
 	}
 	if err := backendStoppedError([]string{"[I] sampling", "==> sd-server x exited with error: signal: killed"}); !strings.Contains(err.Error(), "ran out of GPU memory") {
 		t.Errorf("no crash in the log: %v", err)
