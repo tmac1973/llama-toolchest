@@ -347,7 +347,10 @@ func (c *procVRAMCache) read(pid int) (int, bool) {
 }
 
 // genReservationAllocations lists each enabled instance's reservation as
-// a GPU map entry on its GPU, so the map and its legend show them. Their
+// a GPU map entry on its GPU, so the map and its legend show them. A
+// disabled instance is listed while it runs, as it does while Measure
+// tests it; with no reservation yet, its size is what the process uses.
+// Their
 // colors continue the map's palette from firstColor, the number of
 // entries already on the map, so every entry has a color of its own; the
 // map draws them striped to set them apart from LLMs.
@@ -357,10 +360,20 @@ func (s *Server) genReservationAllocations(firstColor int) []models.GPUAllocatio
 	}
 	var out []models.GPUAllocation
 	for _, inst := range s.gen.Instances() {
-		if !inst.Enabled || inst.ReservedMiB == 0 {
+		active := s.genMgr != nil && s.genMgr.IsActive(inst.ID)
+		if !inst.Enabled && !active {
 			continue
 		}
-		gb := float64(inst.ReservedMiB) / 1024
+		mib := inst.ReservedMiB
+		if mib == 0 && active {
+			if pid := s.genMgr.PID(inst.ID); pid > 0 {
+				mib, _ = s.genProcVRAM.read(pid)
+			}
+		}
+		if mib == 0 {
+			continue
+		}
+		gb := float64(mib) / 1024
 		out = append(out, models.GPUAllocation{
 			ModelID: "gen:" + inst.ID, ModelName: inst.Name + " (reserved)",
 			GPUs: []int{inst.GPU}, PerGPUGB: gb, TotalGB: gb,
@@ -1122,7 +1135,10 @@ func (s *Server) handleGenSetReservation(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	mib := int(gib*1024 + 0.5)
-	if inst.Enabled {
+	// As for Enable: the reservation has to fit only where it counts while
+	// the instance is stopped. With eviction on it does not, unless the
+	// instance is kept running; starting it makes the room.
+	if inst.Enabled && (!s.genEvictOn() || inst.KeepRunning) {
 		if err := s.genFitCheck(inst, mib); err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return

@@ -329,3 +329,54 @@ func TestWaitGPUSettled(t *testing.T) {
 		t.Error("no reading came after the stop, but the wait reported success")
 	}
 }
+
+// A disabled instance is on the map while it runs, as during Measure; a
+// stopped one is not.
+func TestGPUMapShowsRunningDisabledInstance(t *testing.T) {
+	s := vramServer(t)
+	runFakeInstance(t, s, "ti2v", "ming-image", 0, newFakeBackend(t, 0))
+	addInstance(t, s, generation.Instance{ID: "off", Port: 8090, ReservedMiB: 8192})
+	inst, _ := s.gen.Instance("ti2v")
+	inst.Enabled = false
+	if err := s.gen.UpdateInstance(inst); err != nil {
+		t.Fatal(err)
+	}
+	allocs := s.genReservationAllocations(0)
+	if len(allocs) != 1 || allocs[0].ModelID != "gen:ti2v" || allocs[0].PerGPUGB != 4 {
+		t.Fatalf("allocations = %+v, want only the running ti2v at 4 GiB", allocs)
+	}
+}
+
+// Setting an enabled instance's reservation is checked against the card
+// only where the reservation counts while it is stopped: with eviction
+// on, only for an instance kept running, as for Enable. Starting it
+// stops the running backend in its way.
+func TestSetReservationWithEviction(t *testing.T) {
+	s := vramServer(t)
+	runFakeInstance(t, s, "other", "ming-image", 0, newFakeBackend(t, 0))
+	other, _ := s.gen.Instance("other")
+	other.ReservedMiB = 16384
+	s.gen.UpdateInstance(other)
+	addInstance(t, s, generation.Instance{ID: "big", Port: 8082, Enabled: true, ReservedMiB: 8192})
+	set := func() int {
+		rec := httptest.NewRecorder()
+		s.handleGenSetReservation(rec, instanceReq("PUT", "/", "big", "", url.Values{"reserved_gib": {"20"}}))
+		inst, _ := s.gen.Instance("big")
+		inst.ReservedMiB = 8192
+		s.gen.UpdateInstance(inst)
+		return rec.Code
+	}
+	if code := set(); code != http.StatusConflict {
+		t.Errorf("eviction off: %d, want refused beside the other reservation", code)
+	}
+	s.cfg.GenEvict = true
+	if code := set(); code != http.StatusOK {
+		t.Errorf("eviction on: %d, want set", code)
+	}
+	inst, _ := s.gen.Instance("big")
+	inst.KeepRunning = true
+	s.gen.UpdateInstance(inst)
+	if code := set(); code != http.StatusConflict {
+		t.Errorf("eviction on, kept running: %d, want refused", code)
+	}
+}
