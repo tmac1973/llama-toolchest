@@ -79,7 +79,70 @@ var (
 	// Image Klein. The FLUX.2-dev VAE is gated; this one is ungated and
 	// Apache-licensed.
 	flux2SmallDecoder = Component{Slot: "vae", Repo: "black-forest-labs/FLUX.2-small-decoder", File: "full_encoder_small_decoder.safetensors", Bytes: 249519092}
+	// qwen25VL is Qwen2.5-VL 7B's language part: Qwen-Image Edit 2511's
+	// text model, and HunyuanVideo 1.5's main one.
+	qwen25VL = Component{Slot: "llm", Repo: "mradermacher/Qwen2.5-VL-7B-Instruct-GGUF", File: "Qwen2.5-VL-7B-Instruct.Q4_K_M.gguf", Bytes: 4683072512}
+	// hunyuanByT5 (the glyph text model, for writing in the video) and
+	// hunyuanVAE are shared by every HunyuanVideo 1.5 set.
+	hunyuanByT5 = Component{Slot: "t5xxl", Repo: hunyuanRepo, File: "split_files/text_encoders/byt5_small_glyphxl_fp16.safetensors", Bytes: 438643184}
+	hunyuanVAE  = Component{Slot: "vae", Repo: hunyuanRepo, File: "split_files/vae/hunyuanvideo15_vae_fp16.safetensors", Bytes: 2521292758}
 )
+
+// hunyuanRepo is Comfy-Org's repackaged HunyuanVideo 1.5 files (once
+// named Comfy-Org/HunyuanVideo_1.5_repackaged, which now redirects here).
+const hunyuanRepo = "Comfy-Org/Hunyuan-Video-1.5"
+
+// hunyuanLicense is the HunyuanVideo 1.5 sets' licence.
+const hunyuanLicense = "Tencent Hunyuan Community License (does not apply in the EU, the UK or South Korea)"
+
+// hunyuanEntry is one HunyuanVideo 1.5 set (Tencent, November 2025, 8.3B):
+// its own video model with the shared text models and VAE. hd says the
+// model is a 720p one (1280×720); otherwise 480p (848×480). steps, cfg and
+// shift are Tencent's settings for that version (the model card's table).
+// Every version makes up to 121 frames, 5 s at 24 fps; frames go in steps
+// of 4 plus 1 (the recipe's video_constraints).
+func hunyuanEntry(id, name, recipe string, model Component, hd bool, steps, cfg, shift, notes string) CatalogEntry {
+	w, h := 848, 480
+	if hd {
+		w, h = 1280, 720
+	}
+	caps := []string{CapText}
+	if recipe == "hunyuan-video-15-i2v" {
+		caps = []string{CapStartImage}
+	}
+	return CatalogEntry{
+		ID:         id,
+		Name:       name,
+		Kind:       KindVideo,
+		Recipe:     recipe,
+		Components: []Component{model, qwen25VL, hunyuanByT5, hunyuanVAE},
+		LaunchArgs: []string{"--steps", steps, "--cfg-scale", cfg, "--flow-shift", shift, "--sampling-method", "euler",
+			"--diffusion-fa", "--backend", "te=cpu"},
+		Capabilities:  caps,
+		License:       hunyuanLicense,
+		Notes:         notes + " Shares its text models and VAE with the other HunyuanVideo 1.5 sets, and Qwen2.5-VL with Qwen-Image-Edit 2511. Licence: Tencent Hunyuan Community License, which does not apply in the EU, the UK or South Korea; terms at https://huggingface.co/tencent/HunyuanVideo-1.5.",
+		DefaultWidth:  w,
+		DefaultHeight: h,
+		DefaultFrames: 33,
+		DefaultFPS:    24,
+		MaxFrames:     121,
+		MaxWidth:      w,
+		MaxHeight:     h,
+		VideoSizes: []VideoSize{
+			{Label: "Short", Frames: 33, Width: w, Height: h},
+			{Label: "Medium", Frames: 65, Width: w, Height: h},
+			{Label: "Full", Frames: 121, Width: w, Height: h},
+		},
+		// The HunyuanVideo 1.5 VAE scales by 16 (the recipe's size_multiple).
+		SizeMultiple: 16,
+	}
+}
+
+// hunyuanGGUF is a HunyuanVideo 1.5 video model from jayn7's GGUF repos,
+// at Q8_0 (9.0 GB each), as TI2V 5B uses.
+func hunyuanGGUF(repo, file string) Component {
+	return Component{Slot: "diffusion_model", Repo: "jayn7/HunyuanVideo-1.5_" + repo + "-GGUF", File: file, Bytes: 8995313888}
+}
 
 // Every sd-server set but SDXL runs its text encoder on the CPU
 // (--backend te=cpu). On a Radeon AI PRO R9700 with a Ryzen 9 5950X
@@ -239,7 +302,7 @@ func Catalog() []CatalogEntry {
 			Recipe: "qwen-image-edit-2511",
 			Components: []Component{
 				{Slot: "diffusion_model", Repo: "unsloth/Qwen-Image-Edit-2511-GGUF", File: "qwen-image-edit-2511-Q4_K_M.gguf", Bytes: 13244758624},
-				{Slot: "llm", Repo: "mradermacher/Qwen2.5-VL-7B-Instruct-GGUF", File: "Qwen2.5-VL-7B-Instruct.Q4_K_M.gguf", Bytes: 4683072512},
+				qwen25VL,
 				{Slot: "llm_vision", Repo: "mradermacher/Qwen2.5-VL-7B-Instruct-GGUF", File: "Qwen2.5-VL-7B-Instruct.mmproj-f16.gguf", Bytes: 1354162912},
 				{Slot: "vae", Repo: "Comfy-Org/Qwen-Image_ComfyUI", File: "split_files/vae/qwen_image_vae.safetensors", Bytes: 253806246},
 			},
@@ -460,15 +523,37 @@ func Catalog() []CatalogEntry {
 				{Label: "Medium", Frames: 65, Width: 1280, Height: 720},
 				{Label: "Full", Frames: 121, Width: 1280, Height: 720},
 			},
-			// Measured 2026-10-29 with the one-step Measure: Medium granted
-			// in 93 s (peak 29.0 GiB); Full stopped after 153 s at 29.3 GiB
-			// against a 28.2 GiB room. On 2026-10-27 Full was granted with a
-			// 29.7 GiB peak in a 28.8 GiB room: it is at the card's edge.
-			FullMeasureTime: "On a Radeon AI PRO R9700, measuring Medium took about 1.5 minutes and Full about 2.5 minutes. " +
-				"Full needs about 29.5 GiB, right at what that 32 GB card can give, so whether it is granted depends on what else uses the card.",
+			// Measured 2026-10-29 with the one-step Measure and the text
+			// model on the CPU: Full granted in 123 s, peak 26.3 GiB.
+			FullMeasureTime: "On a Radeon AI PRO R9700, measuring Full took about 2 minutes.",
 			// The LTX VAE scales by 32.
 			SizeMultiple: 32,
 		},
+		hunyuanEntry("hunyuan15-i2v-480p-step-distilled", "HunyuanVideo 1.5 I2V 480p step-distilled", "hunyuan-video-15-i2v",
+			Component{Slot: "diffusion_model", Repo: hunyuanRepo, File: "split_files/diffusion_models/hunyuanvideo1.5_480p_i2v_step_distilled_fp16.safetensors", Bytes: 16662813912},
+			false, "8", "1", "7",
+			"Image-to-video at 848×480 in 8 steps: the fastest HunyuanVideo 1.5 set (Tencent suggests 8 or 12 steps). Needs a start image."),
+		hunyuanEntry("hunyuan15-i2v-480p-cfg-distilled", "HunyuanVideo 1.5 I2V 480p CFG-distilled (Q8)", "hunyuan-video-15-i2v",
+			hunyuanGGUF("I2V_480p", "480p_distilled/hunyuanvideo1.5_480p_i2v_cfg_distilled-Q8_0.gguf"), false, "50", "1", "5",
+			"Image-to-video at 848×480, 50 steps. CFG-distilled: one pass per step instead of two, so about twice as fast as the base 480p I2V set. Needs a start image."),
+		hunyuanEntry("hunyuan15-i2v-480p", "HunyuanVideo 1.5 I2V 480p (Q8)", "hunyuan-video-15-i2v",
+			hunyuanGGUF("I2V_480p", "480p/hunyuanvideo1.5_480p_i2v-Q8_0.gguf"), false, "50", "6", "5",
+			"Image-to-video at 848×480, 50 steps: Tencent's base 480p model. Needs a start image."),
+		hunyuanEntry("hunyuan15-i2v-720p-cfg-distilled", "HunyuanVideo 1.5 I2V 720p CFG-distilled (Q8)", "hunyuan-video-15-i2v",
+			hunyuanGGUF("I2V_720p", "720p_distilled/hunyuanvideo1.5_720p_i2v_cfg_distilled-Q8_0.gguf"), true, "50", "1", "7",
+			"Image-to-video at 1280×720, 50 steps. CFG-distilled: one pass per step instead of two, so about twice as fast as the base 720p I2V set. Needs a start image."),
+		hunyuanEntry("hunyuan15-i2v-720p", "HunyuanVideo 1.5 I2V 720p (Q8)", "hunyuan-video-15-i2v",
+			hunyuanGGUF("I2V_720p", "720p/hunyuanvideo1.5_720p_i2v-Q8_0.gguf"), true, "50", "6", "7",
+			"Image-to-video at 1280×720, 50 steps: Tencent's base 720p model, the most detail. Needs a start image."),
+		hunyuanEntry("hunyuan15-t2v-480p-cfg-distilled", "HunyuanVideo 1.5 T2V 480p CFG-distilled (Q8)", "hunyuan-video-15-t2v",
+			hunyuanGGUF("T2V_480p", "480p_distilled/hunyuanvideo1.5_480p_t2v_cfg_distilled-Q8_0.gguf"), false, "50", "1", "5",
+			"Text-to-video at 848×480, 50 steps. CFG-distilled: one pass per step instead of two, so about twice as fast as the base 480p T2V set."),
+		hunyuanEntry("hunyuan15-t2v-480p", "HunyuanVideo 1.5 T2V 480p (Q8)", "hunyuan-video-15-t2v",
+			hunyuanGGUF("T2V_480p", "480p/hunyuanvideo1.5_480p_t2v-Q8_0.gguf"), false, "50", "6", "5",
+			"Text-to-video at 848×480, 50 steps: Tencent's base 480p model."),
+		hunyuanEntry("hunyuan15-t2v-720p", "HunyuanVideo 1.5 T2V 720p (Q8)", "hunyuan-video-15-t2v",
+			hunyuanGGUF("T2V_720p", "720p/hunyuanvideo1.5_720p_t2v-Q8_0.gguf"), true, "50", "6", "9",
+			"Text-to-video at 1280×720, 50 steps: Tencent's base 720p model, the most detail. (Tencent has not released a CFG-distilled 720p T2V model yet.)"),
 		{
 			ID:         "ace-step-turbo",
 			Name:       "ACE-Step 1.5 turbo",
