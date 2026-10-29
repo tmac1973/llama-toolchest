@@ -81,9 +81,6 @@ func PlanStage(key string, in PlanInput) (cells []map[string]string, axes []benc
 		cells = planBatch(in)
 	case StagePlacement:
 		cells = planPlacement(in)
-		if in.Cards > 1 && in.NoTensorSplit != "" {
-			skipped = append(skipped, fmt.Sprintf("Tensor split: llama.cpp does not support it for this model's architecture (%s)", in.NoTensorSplit))
-		}
 	case StageMoECache:
 		cells = planMoECache(in)
 	case StageSpec:

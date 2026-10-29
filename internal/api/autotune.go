@@ -21,14 +21,18 @@ const currentSettingsProfile = "Current settings"
 
 // autotuneDialogData is what the autotune_dialog partial renders.
 type autotuneDialogData struct {
-	ModelID    string
-	ModelName  string
-	Profiles   []profileOption
-	UseCases   []useCaseOption
-	Cells      int
-	Minutes    int
-	Skipped    []string
-	BusyReason string
+	ModelID   string
+	ModelName string
+	Profiles  []profileOption
+	UseCases  []useCaseOption
+	Cells     int
+	Minutes   int
+	Skipped   []string
+	// TensorSplitNote says why tensor split is not measured on a machine
+	// with several GPUs: the active build refuses it for this model's
+	// architecture. Empty otherwise.
+	TensorSplitNote string
+	BusyReason      string
 	// HasAutoconfig reports an Autoconfigure profile among the choices.
 	// Without one, nothing has checked that this model's context size and
 	// memory settings fit the machine, and Autotune will not notice.
@@ -105,6 +109,11 @@ func (s *Server) renderAutotuneDialog(w http.ResponseWriter, id string, banner *
 	} else {
 		d.Cells, d.Minutes, d.Skipped = s.autotuneEstimate(id, selectedProfile(d.Profiles), autotune.UseMixed, autotune.DepthThorough)
 	}
+	if m, err := s.registry.Get(id); err == nil && s.tensorSplitRefused(m.Arch) {
+		if cards, _ := s.autotuneHardware(); cards > 1 {
+			d.TensorSplitNote = fmt.Sprintf("Tensor split is not measured: the active llama.cpp build does not support it for this model's architecture (%s).", m.Arch)
+		}
+	}
 	if reason := s.gpuBusyReason(); reason != "" {
 		d.BusyReason = "The GPU is in use: " + reason + ". Start Autotune when it finishes."
 	} else if active := s.tuner.Active(); active != "" {
@@ -162,9 +171,8 @@ func (s *Server) autotuneEstimate(id, profileName string, uc autotune.UseCase, d
 		return 0
 	})
 	cells, minutes = autotune.EstimateRun(in, uc, size, perCell)
-	_, _, placementSkipped := autotune.PlanStage(autotune.StagePlacement, in)
-	_, _, specSkipped := autotune.PlanStage(autotune.StageSpec, in)
-	return cells, minutes, append(placementSkipped, specSkipped...)
+	_, _, skipped = autotune.PlanStage(autotune.StageSpec, in)
+	return cells, minutes, skipped
 }
 
 // autotuneMoECache is the largest MoE cache that fits beside a profile

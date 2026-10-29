@@ -106,14 +106,11 @@ func TestPlacementStageMeasuresSplitAndThreadsWhenTheyMatter(t *testing.T) {
 	}
 
 	// An architecture the build refuses to split by tensor: every tensor
-	// cell would fail to load, so none is planned, and the dialog says so.
+	// cell would fail to load, so none is planned.
 	in.NoTensorSplit = "lfm3"
-	cells, _, skipped := PlanStage(StagePlacement, in)
+	cells, _, _ = PlanStage(StagePlacement, in)
 	if got := values(cells, "split_mode"); got["tensor"] {
 		t.Errorf("tensor split planned for a refused architecture: %v", got)
-	}
-	if len(skipped) != 1 || !strings.Contains(skipped[0], "lfm3") {
-		t.Errorf("skipped = %v, want one note naming lfm3", skipped)
 	}
 
 	in = baseInput()
