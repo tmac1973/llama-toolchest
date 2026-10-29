@@ -768,6 +768,11 @@ type modelConfigPanelData struct {
 	// StatusOOB marks the profile status line for an out-of-band swap, in
 	// the autosave response only.
 	StatusOOB bool
+
+	// DefaultContext is the context "Model Default" gives, when it is not
+	// MaxContext: an embedding model that reads each input in one
+	// micro-batch (see models.EmbeddingLaunchConfig). Zero otherwise.
+	DefaultContext int
 }
 
 // handleGetModelConfig returns the launch config for a model.
@@ -904,6 +909,13 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 		PLESizeLabel:   pleSizeLabel(model),
 		ReadOnlyReason: s.registry.ReadOnlyReason(),
 		NeedsRestart:   s.isDirty(id) && s.process != nil && s.process.IsRunning(),
+	}
+	if isEmbedding && model != nil {
+		def := *cfg
+		def.ContextSize = 0
+		if c := models.EmbeddingLaunchConfig(&def, model).ContextSize; c != maxContext {
+			data.DefaultContext = c
+		}
 	}
 	if model != nil {
 		data.SeededText, data.SeededTip = seededNote(model.Seeded)
@@ -1236,7 +1248,12 @@ func pleSizeLabel(m *models.Model) string {
 }
 
 // effectiveFlags are the flags the preset gives the model, including a
-// split balanced by size when experts are kept in system memory.
+// split balanced by size when experts are kept in system memory, and an
+// embedding model's context and micro-batch (see EmbeddingLaunchConfig).
 func effectiveFlags(cfg *models.ModelConfig, m *models.Model, isEmbedding bool, t models.Target) string {
-	return models.MoESplitConfig(cfg, m, t.Room().For(m, cfg)).EffectiveFlagsFor(isEmbedding, t)
+	launch := models.MoESplitConfig(cfg, m, t.Room().For(m, cfg))
+	if isEmbedding && m != nil {
+		launch = models.EmbeddingLaunchConfig(launch, m)
+	}
+	return launch.EffectiveFlagsFor(isEmbedding, t)
 }

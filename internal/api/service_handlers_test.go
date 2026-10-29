@@ -421,7 +421,9 @@ func TestSvcRegistryErrorStatus(t *testing.T) {
 
 // effectiveFlags shows the flags the preset really gives the model. For
 // a chat model they include the context size; for an embedding model the
-// embeddings flag and no context size. On two GPUs with unequal memory
+// embeddings flag, the context capped at the model's own, and a
+// micro-batch as large as the context, which the saved config does not
+// have. On two GPUs with unequal memory
 // the layers are split by size, so the shown flags carry that split even
 // though the saved config has none, and the saved config is not changed.
 func TestSvcEffectiveFlags(t *testing.T) {
@@ -433,9 +435,15 @@ func TestSvcEffectiveFlags(t *testing.T) {
 	if !strings.Contains(chat, "--ctx-size 8192") || strings.Contains(chat, "--embeddings") {
 		t.Errorf("chat flags = %q, want --ctx-size 8192 and no --embeddings", chat)
 	}
-	emb := effectiveFlags(cfg, m, true, one)
-	if !strings.Contains(emb, "--embeddings") || strings.Contains(emb, "--ctx-size") {
-		t.Errorf("embedding flags = %q, want --embeddings and no --ctx-size", emb)
+	enc := &models.Model{ID: "e", ModelID: "org/E-GGUF", NLayers: 12, SizeBytes: 300 << 20,
+		ContextLength: 2048, PoolingType: models.PoolingMean, Embedding: true}
+	emb := effectiveFlags(cfg, enc, true, one)
+	if !strings.Contains(emb, "--embeddings") || !strings.Contains(emb, "--ctx-size 2048") ||
+		!strings.Contains(emb, "--ubatch-size 2048") {
+		t.Errorf("embedding flags = %q, want --embeddings, --ctx-size 2048 and --ubatch-size 2048", emb)
+	}
+	if cfg.ContextSize != 8192 || cfg.UBatchSize != 0 {
+		t.Errorf("effectiveFlags changed the saved config: ctx %d, ub %d", cfg.ContextSize, cfg.UBatchSize)
 	}
 
 	unequal := models.Target{GPUMiB: []int{24576, 8192}}

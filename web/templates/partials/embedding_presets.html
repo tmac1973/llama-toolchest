@@ -5,7 +5,7 @@
 <header class="rec-head">
     <div>
         <strong>Embedding models</strong><br>
-        <small class="rec-muted">Small models that turn text into vectors, for search and retrieval.</small>
+        <small class="rec-muted">Models that turn text into vectors, for search and retrieval. The small ones run beside a chat model; the larger Qwen3 models give better results but need a GPU with room.</small>
     </div>
     <div class="rec-actions">
         <button type="button" class="outline secondary" onclick="toggleDownloadCard('embedding', false)"
@@ -14,7 +14,14 @@
 </header>
 <table role="grid">
     <thead>
-        <tr><th>Model</th><th>Dims</th><th>Size</th><th></th></tr>
+        <tr>
+            <th>Model</th>
+            <th title="The length of each vector the model returns. Larger vectors can hold more detail but take more space in a vector database. Vectors from different models cannot be compared, so changing models means embedding your documents again.">Dims</th>
+            <th title="The longest input, in tokens, the model was trained on. The limit actually used is the Context Size in the model's settings, 8192 tokens by default (or this number, if it is smaller). A longer input is refused, so split long documents into pieces no longer than that. Raising Context Size uses more GPU memory.">Context</th>
+            <th title="The licence of the model weights. Apache-2.0 and MIT allow any use. The Gemma licence allows commercial use but has a use policy you must follow.">Licence</th>
+            <th title="The download size of the file.">Size</th>
+            <th></th>
+        </tr>
     </thead>
     <tbody>
         {{range .Presets}}
@@ -24,7 +31,9 @@
                 <br><small style="opacity: 0.7;">{{.Desc}}</small>
             </td>
             <td>{{.Dims}}</td>
-            <td>{{.SizeMB}} MB</td>
+            <td>{{.Context}}</td>
+            <td>{{.License}}</td>
+            <td>{{.SizeLabel}}</td>
             <td>
                 {{if index $.Downloaded .Repo}}
                     <small><ins>Downloaded</ins></small>

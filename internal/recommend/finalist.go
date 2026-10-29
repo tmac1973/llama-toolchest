@@ -79,7 +79,7 @@ func (e *Engine) verify(ctx context.Context, hub Hub, g *Group, p Profile) verdi
 	if !p.supports(g.Arch) {
 		return verdict{unverified: reasonUnsupported(g.Arch)}
 	}
-	if encoderArchs[g.Arch] || models.IsMTPHeadArch(g.Arch) {
+	if models.IsEncoderArch(g.Arch) || models.IsMTPHeadArch(g.Arch) {
 		return verdict{dropped: true}
 	}
 	if meta.ContextLength > 0 {

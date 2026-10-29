@@ -153,6 +153,12 @@ type Model struct {
 	VocabChecked     bool `json:"vocab_checked,omitempty"`
 	SupportsTools    bool `json:"supports_tools,omitempty"`     // chat template handles tools
 	HasBuiltinVision bool `json:"has_builtin_vision,omitempty"` // vision encoder baked into model
+	// Embedding records that the GGUF file describes an embedding model
+	// (see GGUFMeta.IsEmbedding), and PoolingType is the file's
+	// {arch}.pooling_type. Both are zero on records read before parser
+	// version 8; IsEmbedding then falls back to the name.
+	Embedding   bool `json:"embedding,omitempty"`
+	PoolingType int  `json:"pooling_type,omitempty"`
 
 	// Reasoning / thinking mode detected from the chat template at parse time.
 	// ReasoningChecked distinguishes a genuine "no reasoning" from a record
@@ -417,7 +423,7 @@ func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool, t Target) string {
 	if isEmbedding {
 		parts = append(parts, "--embeddings")
 	}
-	if !isEmbedding && c.ContextSize > 0 {
+	if c.ContextSize > 0 {
 		parts = append(parts, "--ctx-size", strconv.Itoa(c.ContextSize))
 	}
 	parts = append(parts, "--threads", strconv.Itoa(c.Threads))
@@ -917,7 +923,9 @@ func (r *Registry) ListNeedingPresetFetch() []string {
 //	    tensors, not just the key that describes them.
 //	7 — a hybrid model's recurrent state size for one conversation
 //	    (RecurrentStateBytes), read from the ssm.* keys.
-const GGUFMetaVersion = 7
+//	8 — embedding models recognized from the file ({arch}.pooling_type
+//	    and the encoder architectures) rather than only by name.
+const GGUFMetaVersion = 8
 
 // BackfillGGUFMeta re-reads GGUF metadata for records written by an older
 // parser, in one pass at startup.
@@ -1348,9 +1356,14 @@ func IsMMProjFile(filename string) bool {
 }
 
 // embeddingPattern matches common embedding model name patterns.
-var embeddingPattern = regexp.MustCompile(`(?i)([-/]embed[-/]|[-/]embed$|nomic-embed|^bge-|[-/]bge[-/]|[-/]e5[-/]|[-/]gte[-/]|snowflake-arctic-embed|mxbai-embed|jina-embed)`)
+// "embedding" covers Qwen3-Embedding, EmbeddingGemma and granite-embedding,
+// whose names have no "embed-".
+var embeddingPattern = regexp.MustCompile(`(?i)(embedding|[-/]embed[-/]|[-/]embed$|nomic-embed|^bge-|[-/]bge[-/]|[-/]e5[-/]|[-/]gte[-/]|snowflake-arctic-embed|mxbai-embed|jina-embed)`)
 
-// IsEmbeddingModel returns true if the model name/ID suggests it's an embedding model.
+// IsEmbeddingModel returns true if the model name/ID suggests it's an
+// embedding model. It is the only test for a download that has no file
+// yet; a downloaded model is also recognized from its file (see
+// Model.IsEmbedding).
 func IsEmbeddingModel(name string) bool {
 	return embeddingPattern.MatchString(name)
 }
@@ -1363,11 +1376,12 @@ func IsEmbeddingModel(name string) bool {
 // where the draft pickers find it.
 func (m *Model) IsDraftHead() bool { return m.DraftHead != "" }
 
-// IsEmbedding reports whether the model looks like an embedding model.
-// It checks both the HF repo ID and the registry ID because legacy records
-// may have only one populated.
+// IsEmbedding reports whether the model is an embedding model: its file
+// says so, or its name looks like one. The name is checked as well because
+// records read before parser version 8 have no Embedding flag, and because
+// legacy records may have only one of the HF repo ID and the registry ID.
 func (m *Model) IsEmbedding() bool {
-	return IsEmbeddingModel(m.ModelID) || IsEmbeddingModel(m.ID)
+	return m.Embedding || IsEmbeddingModel(m.ModelID) || IsEmbeddingModel(m.ID)
 }
 
 // HasVision reports whether the model can accept images — either built-in
