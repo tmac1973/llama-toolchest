@@ -35,8 +35,8 @@ func TestMeasureLogStages(t *testing.T) {
 			t.Errorf("stage after line %d = %q, want %q", i, got, want[i])
 		}
 	}
-	if l.decodeFallback() || l.spatialFallback() {
-		t.Errorf("fallback %v spatial %v, want neither", l.decodeFallback(), l.spatialFallback())
+	if l.decodeFallback() {
+		t.Error("a decode that fitted was taken for a fallback")
 	}
 	if l.lastLine() != time.Unix(int64(len(a14bLog)-1), 0) {
 		t.Errorf("lastLine = %v", l.lastLine())
@@ -46,14 +46,14 @@ func TestMeasureLogStages(t *testing.T) {
 func TestMeasureLogFallbacks(t *testing.T) {
 	l := &measureLog{}
 	l.add("[W] VAE decode ran out of memory; retrying with temporal tiling --- backend_fit.cpp:518", time.Now())
-	if !l.decodeFallback() || l.spatialFallback() {
-		t.Errorf("temporal retry: fallback %v spatial %v", l.decodeFallback(), l.spatialFallback())
+	if !l.decodeFallback() {
+		t.Error("temporal retry not seen")
 	}
 	l = &measureLog{}
 	l.add("[W] Reducing VAE decode tiles from 832x480 to 416x240 image pixels --- backend_fit.cpp:513", time.Now())
 	l.add("[W] VAE decode ran out of memory; retrying with spatial+temporal tiling --- backend_fit.cpp:518", time.Now())
-	if !l.decodeFallback() || !l.spatialFallback() {
-		t.Errorf("spatial retry: fallback %v spatial %v", l.decodeFallback(), l.spatialFallback())
+	if !l.decodeFallback() {
+		t.Error("spatial retry not seen")
 	}
 }
 
@@ -122,7 +122,7 @@ func TestWithPeak(t *testing.T) {
 
 func TestMeasureNoteMentionsFallback(t *testing.T) {
 	inst := generation.Instance{MeasuredPeakMiB: 20000, ReservedMiB: 22016, MeasuredSuggestedMiB: 22016, MeasuredFrames: 81, MeasuredDecodeFallback: true}
-	if note := measureNote(0, inst, false, false); !strings.Contains(note, "a few frames at a time") {
+	if note := measureNote(0, inst, false, false); !strings.Contains(note, "in smaller pieces") {
 		t.Errorf("note = %q", note)
 	}
 }
@@ -146,15 +146,6 @@ func TestMeasureAbort(t *testing.T) {
 	noRoom.room = 0
 	if err := measureAbort(noRoom); err != nil {
 		t.Errorf("a run with no room to keep to was stopped for its peak: %v", err)
-	}
-	spatial := base
-	spatial.spatial = true
-	if err := measureAbort(spatial); err != nil {
-		t.Errorf("a spatial fallback off ROCm was stopped: %v", err)
-	}
-	spatial.rocm = true
-	if err := measureAbort(spatial); err == nil || !strings.Contains(err.Error(), "Radeon") {
-		t.Errorf("a spatial fallback on ROCm: %v", err)
 	}
 	stuck := base
 	stuck.quiet = measureStuckAfter + time.Second

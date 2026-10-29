@@ -530,7 +530,12 @@ func Catalog() []CatalogEntry {
 			SizeMultiple: 32,
 		},
 		hunyuanEntry("hunyuan15-i2v-480p-step-distilled", "HunyuanVideo 1.5 I2V 480p step-distilled", "hunyuan-video-15-i2v",
-			Component{Slot: "diffusion_model", Repo: hunyuanRepo, File: "split_files/diffusion_models/hunyuanvideo1.5_480p_i2v_step_distilled_fp16.safetensors", Bytes: 16662813912},
+			// No GGUF of the step-distilled model exists. The scaled fp8 file
+			// (8.3 GB) made the same video as the fp16 one (16.7 GB) and as
+			// the fp16 one converted to Q8_0 as it loaded, with the least
+			// VRAM (24.3 GiB against 29.2 and 24.8) and the quickest load
+			// (5.6 s against 23.5 and 9.5); R9700, 2026-10-29.
+			Component{Slot: "diffusion_model", Repo: hunyuanRepo, File: "split_files/diffusion_models/hunyuanvideo1.5_480p_i2v_step_distilled_fp8_scaled.safetensors", Bytes: 8335127098},
 			false, "8", "1", "7",
 			"Image-to-video at 848×480 in 8 steps: the fastest HunyuanVideo 1.5 set (Tencent suggests 8 or 12 steps). Needs a start image."),
 		hunyuanEntry("hunyuan15-i2v-480p-cfg-distilled", "HunyuanVideo 1.5 I2V 480p CFG-distilled (Q8)", "hunyuan-video-15-i2v",

@@ -36,7 +36,7 @@
                 <small style="display:block;color:var(--pico-muted-color);cursor:help;" title="How long sd-server took to make this instance's last video, on {{.LastVideo.At.Format "2006-01-02 15:04"}}. Start and end images make a video slower, and the first video after the instance starts also loads the model.">last video: {{.LastVideo.Frames}} frames at {{.LastVideo.Width}}×{{.LastVideo.Height}} from {{.LastVideo.Inputs}}, {{.LastVideoTime}}</small>
                 {{- end}}
                 {{- if and .LimitMeasured .MeasuredDecodeFallback}}
-                <small style="display:block;color:var(--pico-muted-color);cursor:help;" title="The decode (turning the result into frames) did not fit in the room at once, so sd.cpp decoded a few frames at a time. The video is the same, but the decode takes longer than it would with more room.">decoded a few frames at a time to fit</small>
+                <small style="display:block;color:var(--pico-muted-color);cursor:help;" title="The decode (turning the result into frames) did not fit in the room at once, so sd.cpp decoded the video in smaller pieces. The video is the same, but the decode takes longer than it would with more room.">decoded in smaller pieces to fit</small>
                 {{- end}}
                 {{- end}}
                 {{- if .MeasuredPeakMiB}}
