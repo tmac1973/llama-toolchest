@@ -593,7 +593,7 @@ func Catalog() []CatalogEntry {
 		hunyuanEntry("hunyuan15-t2v-720p", "HunyuanVideo 1.5 T2V 720p (Q8)", "hunyuan-video-15-t2v",
 			hunyuanGGUF("T2V_720p", "720p/hunyuanvideo1.5_720p_t2v-Q8_0.gguf"), true, "50", "6", "9",
 			"Text-to-video at 1280×720, 50 steps: Tencent's base 720p model, the most detail. (Tencent has not released a CFG-distilled 720p T2V model yet.) "+
-				hunyuan720Fit+" A 33-frame video took about T2V720TIME minutes.",
+				hunyuan720Fit+" A 33-frame video took about 70 minutes.",
 			hunyuan720Measure),
 		{
 			ID:         "ace-step-turbo",

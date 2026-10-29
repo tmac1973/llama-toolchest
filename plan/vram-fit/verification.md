@@ -199,7 +199,7 @@ with the downloaded files kept.
 | T2V 480p | 25.1 GiB | 24.3 GiB | 23.8 GiB | 945 s |
 | I2V 720p CFG-distilled | crash (CONCAT failed) | out of memory in the decode | 13.0 GiB, tiled decode | 2,210 s |
 | I2V 720p | crash | out of memory | 13.0 GiB, tiled decode | not run |
-| T2V 720p | crash | out of memory | 11.6 GiB, tiled decode | see the PR |
+| T2V 720p | crash | out of memory | 11.6 GiB, tiled decode | 4,194 s |
 
 Measuring took about 4 minutes at Full for the 480p sets (about 6 for the
 base ones), and about 5 minutes at Short for the 720p sets.
