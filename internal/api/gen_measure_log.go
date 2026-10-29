@@ -14,10 +14,8 @@ type measureLog struct {
 	sampled bool // the last sampling pass has finished
 	decoded bool
 	// fallback: the decode ran out of memory and sd.cpp retried it
-	// tiled. spatial: that retry tiles spatially as well, which hung on
-	// ROCm (Wan2.2 I2V A14B inside 14 GiB, R9700, 2026-10-28).
+	// tiled (by frames, and maybe within frames too).
 	fallback bool
-	spatial  bool
 	last     time.Time
 }
 
@@ -34,9 +32,7 @@ func (l *measureLog) add(line string, now time.Time) {
 		l.sampled = true
 	case strings.Contains(line, "decode_first_stage completed"):
 		l.decoded = true
-	case strings.Contains(line, "retrying with spatial"):
-		l.fallback, l.spatial = true, true
-	case strings.Contains(line, "decode ran out of memory; retrying with temporal tiling"):
+	case strings.Contains(line, "decode ran out of memory; retrying with"):
 		l.fallback = true
 	}
 }
@@ -60,13 +56,6 @@ func (l *measureLog) lastLine() time.Time {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.last
-}
-
-// spatialFallback says sd.cpp is retrying the decode with spatial tiling.
-func (l *measureLog) spatialFallback() bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.spatial
 }
 
 // decodeFallback says the decode did not fit at once and was retried tiled.

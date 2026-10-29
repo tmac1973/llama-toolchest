@@ -170,6 +170,11 @@ func TestCatalogReposAllowed(t *testing.T) {
 		"Kijai/WanVideo_comfy",
 		"unsloth/LTX-2.3-GGUF",
 		"unsloth/gemma-3-12b-it-GGUF",
+		"Comfy-Org/Hunyuan-Video-1.5",
+		"jayn7/HunyuanVideo-1.5_I2V_480p-GGUF",
+		"jayn7/HunyuanVideo-1.5_I2V_720p-GGUF",
+		"jayn7/HunyuanVideo-1.5_T2V_480p-GGUF",
+		"jayn7/HunyuanVideo-1.5_T2V_720p-GGUF",
 	}
 	for _, e := range Catalog() {
 		for _, c := range e.Components {
@@ -286,6 +291,36 @@ func TestHasHighNoiseModel(t *testing.T) {
 		want := e.ID == "wan22-i2v-a14b" || e.ID == "wan22-i2v-a14b-lightning"
 		if set.HasHighNoiseModel() != want {
 			t.Errorf("%s: HasHighNoiseModel = %v, want %v", e.ID, !want, want)
+		}
+	}
+}
+
+// The HunyuanVideo 1.5 sets differ only in their video model: the text
+// models and VAE download once, and Qwen2.5-VL is the same file as
+// Qwen-Image Edit 2511's.
+func TestCatalogHunyuanSetsShareFiles(t *testing.T) {
+	edit, _ := LookupCatalog("qwen-image-edit-2511")
+	var sets []CatalogEntry
+	for _, e := range Catalog() {
+		if strings.HasPrefix(e.ID, "hunyuan15-") {
+			sets = append(sets, e)
+		}
+	}
+	if len(sets) != 8 {
+		t.Fatalf("%d HunyuanVideo 1.5 sets, want 8", len(sets))
+	}
+	models := map[string]bool{}
+	for _, e := range sets {
+		if !slices.Equal(e.Components[1:], sets[0].Components[1:]) {
+			t.Errorf("%s: shared files %+v differ from %s's", e.ID, e.Components[1:], sets[0].ID)
+		}
+		if !slices.Contains(e.Components, edit.Components[1]) || edit.Components[1].Slot != "llm" {
+			t.Errorf("%s does not share Qwen2.5-VL with Qwen-Image Edit 2511", e.ID)
+		}
+		if m := e.Components[0]; m.Slot != "diffusion_model" || models[m.File] {
+			t.Errorf("%s: video model %+v is not its own", e.ID, m)
+		} else {
+			models[m.File] = true
 		}
 	}
 }

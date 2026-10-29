@@ -494,7 +494,7 @@ func measureNote(before int, inst generation.Instance, restarted, started bool) 
 		note += "Reservation stays at " + mibText(before) + "; this measurement suggests " + mibText(suggest) + "."
 	}
 	if inst.MeasuredDecodeFallback {
-		note += " The decode did not fit at once, so sd.cpp decoded a few frames at a time, which is slower."
+		note += " The decode did not fit at once, so sd.cpp decoded the video in smaller pieces, which is slower."
 	}
 	switch {
 	case restarted:
@@ -624,7 +624,12 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 		// of a 28.5 GiB room that way (R9700, 2026-10-27).
 		waitGPUSettled(s.gpuReading(inst.GPU), stoppedAt, 20*time.Second, 500*time.Millisecond)
 	} else {
-		time.Sleep(2 * time.Second)
+		// Another backend on the card may have stopped just before, and
+		// still be giving its memory back: a baseline read then counts
+		// that memory as other programs', and the peak comes out far too
+		// low (HunyuanVideo 1.5 T2V measured 5.9 GiB at 121 frames right
+		// after another HunyuanVideo instance stopped; R9700, 2026-10-29).
+		waitGPUSettled(s.gpuReading(inst.GPU), time.Now(), 20*time.Second, 500*time.Millisecond)
 	}
 	baseline := s.gpuUsedMiB(inst.GPU)
 
@@ -682,11 +687,6 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 		}()
 	}
 	video := set.Kind == generation.KindVideo
-	rocm := false
-	if b := s.resolveBackendBuild(string(set.Kind), inst.BuildID); b != nil {
-		backend, _ := generation.BuildBackend(*b)
-		rocm = backend == "rocm"
-	}
 	stop := make(chan struct{})
 	sampled := make(chan struct{})
 	go func() {
@@ -716,7 +716,7 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 					room = opts.MaxVRAMMiB
 				}
 				abortErr = measureAbort(measureRunState{
-					peak: peak, room: room, rocm: rocm, spatial: mlog.spatialFallback(), sawBusy: sawBusy,
+					peak: peak, room: room, sawBusy: sawBusy,
 					quiet: time.Since(latestTime(busyAt, mlog.lastLine(), started)), size: videoSizeText(size, set), stage: mlog.stage(),
 				})
 				if abortErr != nil {
@@ -999,27 +999,27 @@ const (
 // measureRunState is what a video measurement's sampler knows at one
 // reading. room is 0 when the run has no room to keep to.
 type measureRunState struct {
-	peak, room    int
-	rocm, spatial bool
-	sawBusy       bool
-	quiet         time.Duration
-	size, stage   string
+	peak, room  int
+	sawBusy     bool
+	quiet       time.Duration
+	size, stage string
 }
 
 // measureAbort says why a video measurement must be stopped now, or nil:
 // its peak has gone past the room (plus what the backend's own limit does
-// not count); on ROCm, sd.cpp has fallen back to a spatially tiled decode,
-// which hangs there; or the GPU has been idle with a silent log for
+// not count), or the GPU has been idle with a silent log for
 // measureStuckAfter, after it was seen busy (so a card without a use
 // reading is never taken for stuck).
+//
+// sd.cpp's fallback to a spatially tiled decode is left to run: on ROCm it
+// hung for the Wan2.1 and LTX-2.3 VAEs, which the stuck check catches, but
+// it worked for HunyuanVideo 1.5 at 1280x720 (225 s, R9700, 2026-10-29),
+// whose untiled decode needs more than a 32 GB card has.
 func measureAbort(st measureRunState) error {
 	switch {
 	case st.room > 0 && st.peak > st.room+measureOverheadMiB:
 		return fmt.Errorf("%s needed more than %s %s, more than the %s this card can give the instance; measure a smaller size",
 			st.size, mibText(st.peak), st.stage, mibText(st.room))
-	case st.rocm && st.spatial:
-		return fmt.Errorf("%s did not fit for the decode, and sd.cpp's fallback (decoding in small tiles) can hang on Radeon cards, so the test was stopped (it reached %s); measure a smaller size, or with more room",
-			st.size, mibText(st.peak))
 	case st.sawBusy && st.quiet > measureStuckAfter:
 		return fmt.Errorf("the test video stopped making progress %s (the GPU was idle and the backend wrote nothing for %s; it reached %s). On Radeon cards sd.cpp's tiled decode can hang; measure a smaller size, or with more room",
 			st.stage, measureStuckAfter, mibText(st.peak))

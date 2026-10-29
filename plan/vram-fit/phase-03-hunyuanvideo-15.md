@@ -3,6 +3,31 @@
 **Depends on:** Phase 01 (measuring eight sets quickly), Phase 02 (the
 placement rules these sets follow) · **Enables:** nothing
 
+## What was built (2026-10-29)
+
+All eight sets were added as planned, with these changes:
+- **Repository name.** Comfy-Org renamed its repository to
+  `Comfy-Org/Hunyuan-Video-1.5`, and the catalog uses the new name.
+- **The step-distilled file (step 2).** It uses the scaled fp8 file (8.3 GB).
+  It made the same video as the fp16 file, and as the fp16 file converted to
+  Q8_0 as it loaded, with the least VRAM and the quickest load.
+- **Decode settings (step 4).** No decode flag is set.
+  - At 480p, `--temporal-tiling` changed the peak by under 1 GiB.
+  - At 720p, the untiled decode needs 31.4 GB. sd.cpp then falls back to
+    spatial and temporal tiles, which worked (225 s, no seams).
+  - `--vae-tiling` hung while encoding the start image.
+- **Phase 01's stop on Radeon cards was dropped.** Measure used to stop at
+  once when sd.cpp fell back to small spatial tiles on a Radeon card. That
+  blocked the 720p sets, whose fallback works, so it was removed. The
+  stuck-run check still stops a fallback that hangs.
+- **Measure's starting reading (fix).** It now waits for the card to settle
+  after another backend has stopped. Before, a T2V 480p Full measurement read
+  5.9 GiB instead of about 25 GiB.
+- **The 720p sets work at Short only on a 32 GB card.** At 65 frames the
+  tiled decode ran out of memory. At 121 frames, sd.cpp master-1015 crashed
+  during sampling with "CONCAT failed". The catalog notes say so.
+- **Not done:** the A4000 check (step 7).
+
 ## Goal
 
 Every HunyuanVideo 1.5 version that runs on consumer cards and that sd.cpp
