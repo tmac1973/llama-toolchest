@@ -100,8 +100,9 @@ const hunyuanLicense = "Tencent Hunyuan Community License (does not apply in the
 // model is a 720p one (1280×720); otherwise 480p (848×480). steps, cfg and
 // shift are Tencent's settings for that version (the model card's table).
 // Every version makes up to 121 frames, 5 s at 24 fps; frames go in steps
-// of 4 plus 1 (the recipe's video_constraints).
-func hunyuanEntry(id, name, recipe string, model Component, hd bool, steps, cfg, shift, notes string) CatalogEntry {
+// of 4 plus 1 (the recipe's video_constraints). measureTime is the Measure
+// dialog's sentence on how long measuring Full takes.
+func hunyuanEntry(id, name, recipe string, model Component, hd bool, steps, cfg, shift, notes, measureTime string) CatalogEntry {
 	w, h := 848, 480
 	if hd {
 		w, h = 1280, 720
@@ -133,10 +134,29 @@ func hunyuanEntry(id, name, recipe string, model Component, hd bool, steps, cfg,
 			{Label: "Medium", Frames: 65, Width: w, Height: h},
 			{Label: "Full", Frames: 121, Width: w, Height: h},
 		},
+		FullMeasureTime: measureTime,
 		// The HunyuanVideo 1.5 VAE scales by 16 (the recipe's size_multiple).
 		SizeMultiple: 16,
 	}
 }
+
+// hunyuan480Fit is what the 480p HunyuanVideo 1.5 sets need on a Radeon AI
+// PRO R9700 (32 GB), measured 2026-10-29 with the text model on the CPU:
+// every size peaked at 24-26 GiB, as sd.cpp keeps more of the model loaded
+// when the card has room.
+const hunyuan480Fit = "On a Radeon AI PRO R9700 (32 GB), every size up to 5 s fits, reserving about 27.5 GiB."
+
+// hunyuan720Fit and hunyuan720Measure say how the 720p HunyuanVideo 1.5
+// sets fared on a Radeon AI PRO R9700 (32 GB), measured 2026-10-29 with
+// the text model on the CPU. The untiled decode at 1280x720 needs 31.4 GB,
+// so sd.cpp falls back to decoding in smaller pieces (225 s for 33 frames,
+// no seams). Short reserves 13-14.5 GiB; at 65 frames that decode ran out
+// of memory, and at 121 frames stable-diffusion.cpp master-1015 crashed
+// during sampling with "CONCAT failed".
+const (
+	hunyuan720Fit     = "On a Radeon AI PRO R9700 (32 GB), only the Short size (33 frames) works, reserving about 14.5 GiB: the decode is done in smaller pieces, as the whole 720p decode needs more than the card has, and longer videos ran out of memory or crashed in stable-diffusion.cpp."
+	hunyuan720Measure = "On a Radeon AI PRO R9700, measuring Short took about 5 minutes. Medium ran out of memory in the decode, and Full crashed in stable-diffusion.cpp."
+)
 
 // hunyuanGGUF is a HunyuanVideo 1.5 video model from jayn7's GGUF repos,
 // at Q8_0 (9.0 GB each), as TI2V 5B uses.
@@ -537,28 +557,44 @@ func Catalog() []CatalogEntry {
 			// (5.6 s against 23.5 and 9.5); R9700, 2026-10-29.
 			Component{Slot: "diffusion_model", Repo: hunyuanRepo, File: "split_files/diffusion_models/hunyuanvideo1.5_480p_i2v_step_distilled_fp8_scaled.safetensors", Bytes: 8335127098},
 			false, "8", "1", "7",
-			"Image-to-video at 848×480 in 8 steps: the fastest HunyuanVideo 1.5 set (Tencent suggests 8 or 12 steps). Needs a start image."),
+			"Image-to-video at 848×480 in 8 steps: the fastest HunyuanVideo 1.5 set (Tencent suggests 8 or 12 steps). Needs a start image. "+
+				hunyuan480Fit+" A 33-frame video took about 2 minutes.",
+			"On a Radeon AI PRO R9700, measuring Full took about 4 minutes."),
 		hunyuanEntry("hunyuan15-i2v-480p-cfg-distilled", "HunyuanVideo 1.5 I2V 480p CFG-distilled (Q8)", "hunyuan-video-15-i2v",
 			hunyuanGGUF("I2V_480p", "480p_distilled/hunyuanvideo1.5_480p_i2v_cfg_distilled-Q8_0.gguf"), false, "50", "1", "5",
-			"Image-to-video at 848×480, 50 steps. CFG-distilled: one pass per step instead of two, so about twice as fast as the base 480p I2V set. Needs a start image."),
+			"Image-to-video at 848×480, 50 steps. CFG-distilled: one pass per step instead of two, so about twice as fast as the base 480p I2V set. Needs a start image. "+
+				hunyuan480Fit+" A 33-frame video took about 8 minutes.",
+			"On a Radeon AI PRO R9700, measuring Full took about 4 minutes."),
 		hunyuanEntry("hunyuan15-i2v-480p", "HunyuanVideo 1.5 I2V 480p (Q8)", "hunyuan-video-15-i2v",
 			hunyuanGGUF("I2V_480p", "480p/hunyuanvideo1.5_480p_i2v-Q8_0.gguf"), false, "50", "6", "5",
-			"Image-to-video at 848×480, 50 steps: Tencent's base 480p model. Needs a start image."),
+			"Image-to-video at 848×480, 50 steps: Tencent's base 480p model. Needs a start image. "+
+				hunyuan480Fit+" A 33-frame video took about 16 minutes.",
+			"On a Radeon AI PRO R9700, measuring Full took about 6 minutes."),
 		hunyuanEntry("hunyuan15-i2v-720p-cfg-distilled", "HunyuanVideo 1.5 I2V 720p CFG-distilled (Q8)", "hunyuan-video-15-i2v",
 			hunyuanGGUF("I2V_720p", "720p_distilled/hunyuanvideo1.5_720p_i2v_cfg_distilled-Q8_0.gguf"), true, "50", "1", "7",
-			"Image-to-video at 1280×720, 50 steps. CFG-distilled: one pass per step instead of two, so about twice as fast as the base 720p I2V set. Needs a start image."),
+			"Image-to-video at 1280×720, 50 steps. CFG-distilled: one pass per step instead of two, so about twice as fast as the base 720p I2V set. Needs a start image. "+
+				hunyuan720Fit+" A 33-frame video took about 37 minutes.",
+			hunyuan720Measure),
 		hunyuanEntry("hunyuan15-i2v-720p", "HunyuanVideo 1.5 I2V 720p (Q8)", "hunyuan-video-15-i2v",
 			hunyuanGGUF("I2V_720p", "720p/hunyuanvideo1.5_720p_i2v-Q8_0.gguf"), true, "50", "6", "7",
-			"Image-to-video at 1280×720, 50 steps: Tencent's base 720p model, the most detail. Needs a start image."),
+			"Image-to-video at 1280×720, 50 steps: Tencent's base 720p model, the most detail. Needs a start image. "+
+				hunyuan720Fit+" Not timed; expect about twice the CFG-distilled 720p set's 37 minutes for 33 frames.",
+			hunyuan720Measure),
 		hunyuanEntry("hunyuan15-t2v-480p-cfg-distilled", "HunyuanVideo 1.5 T2V 480p CFG-distilled (Q8)", "hunyuan-video-15-t2v",
 			hunyuanGGUF("T2V_480p", "480p_distilled/hunyuanvideo1.5_480p_t2v_cfg_distilled-Q8_0.gguf"), false, "50", "1", "5",
-			"Text-to-video at 848×480, 50 steps. CFG-distilled: one pass per step instead of two, so about twice as fast as the base 480p T2V set."),
+			"Text-to-video at 848×480, 50 steps. CFG-distilled: one pass per step instead of two, so about twice as fast as the base 480p T2V set. "+
+				hunyuan480Fit+" A 33-frame video took about 8 minutes.",
+			"On a Radeon AI PRO R9700, measuring Full took about 4 minutes."),
 		hunyuanEntry("hunyuan15-t2v-480p", "HunyuanVideo 1.5 T2V 480p (Q8)", "hunyuan-video-15-t2v",
 			hunyuanGGUF("T2V_480p", "480p/hunyuanvideo1.5_480p_t2v-Q8_0.gguf"), false, "50", "6", "5",
-			"Text-to-video at 848×480, 50 steps: Tencent's base 480p model."),
+			"Text-to-video at 848×480, 50 steps: Tencent's base 480p model. "+
+				hunyuan480Fit+" A 33-frame video took about 16 minutes.",
+			"On a Radeon AI PRO R9700, measuring Full took about 6 minutes."),
 		hunyuanEntry("hunyuan15-t2v-720p", "HunyuanVideo 1.5 T2V 720p (Q8)", "hunyuan-video-15-t2v",
 			hunyuanGGUF("T2V_720p", "720p/hunyuanvideo1.5_720p_t2v-Q8_0.gguf"), true, "50", "6", "9",
-			"Text-to-video at 1280×720, 50 steps: Tencent's base 720p model, the most detail. (Tencent has not released a CFG-distilled 720p T2V model yet.)"),
+			"Text-to-video at 1280×720, 50 steps: Tencent's base 720p model, the most detail. (Tencent has not released a CFG-distilled 720p T2V model yet.) "+
+				hunyuan720Fit+" A 33-frame video took about T2V720TIME minutes.",
+			hunyuan720Measure),
 		{
 			ID:         "ace-step-turbo",
 			Name:       "ACE-Step 1.5 turbo",

@@ -179,3 +179,51 @@ GPU and 20 s with it on the CPU. Together:
 **The ROCm small-tile check worked live:** Measure stopped A14B Medium and
 the tiled TI2V Medium and Full when sd.cpp began its spatially tiled
 fallback.
+
+## Phase 03 (2026-10-29)
+
+**Setup:** asmodean, with the branch's binary in the toolchest container. All
+eight sets were downloaded through the catalog. Each downloaded 3 files: the
+Qwen2.5-VL file was already there for Qwen-Image Edit 2511. Measure ran
+through the API, at Full, then Medium, then Short. Real Short videos (33
+frames) went through `/v1/videos/generations`, with a drawn start image for
+I2V, and frame 16 of each was looked at. asmodean was put back afterwards
+with the downloaded files kept.
+
+| Set | Full | Medium | Short | Real Short video |
+|---|---|---|---|---|
+| I2V 480p step-distilled (fp8) | 25.6 GiB | 24.8 GiB | 24.3 GiB | 119 s |
+| I2V 480p CFG-distilled | 26.0 GiB | 25.3 GiB | 24.8 GiB | 488 s |
+| I2V 480p | 26.1 GiB | 25.3 GiB | 24.8 GiB | 944 s |
+| T2V 480p CFG-distilled | 25.1 GiB (after the fix) | 24.3 GiB | 23.8 GiB | 489 s |
+| T2V 480p | 25.1 GiB | 24.3 GiB | 23.8 GiB | 945 s |
+| I2V 720p CFG-distilled | crash (CONCAT failed) | out of memory in the decode | 13.0 GiB, tiled decode | 2,210 s |
+| I2V 720p | crash | out of memory | 13.0 GiB, tiled decode | not run |
+| T2V 720p | crash | out of memory | 11.6 GiB, tiled decode | see the PR |
+
+Measuring took about 4 minutes at Full for the 480p sets (about 6 for the
+base ones), and about 5 minutes at Short for the 720p sets.
+
+**The step-distilled file,** through sd-cli: 8 steps, 33 frames at 848×480,
+`--max-vram 28`. The three frames looked the same.
+
+| File | Total | Load | Sampling | VRAM |
+|---|---|---|---|---|
+| fp16 as it is | 141 s | 23.5 s | 94.8 s | 29.2 GiB |
+| fp16, converted to Q8_0 as it loads (`--tensor-type-rules '^model\.diffusion_model\.=q8_0'`) | 126 s | 9.5 s | 80.6 s | 24.8 GiB |
+| scaled fp8 | 125 s | 5.6 s | 79.2 s | 24.3 GiB |
+
+**The 720p decode,** through sd-cli: I2V CFG-distilled, 33 frames.
+- **`--vae-tiling --max-vram 28`:** hung while encoding the start image. The
+  GPU sat at 6% and the run was cut off at 15 minutes.
+- **`--temporal-tiling --max-vram 20`, and the same with `--max-vram 28`:**
+  the untiled decode needed 31,416 MB. sd.cpp reduced the tiles to 640×352
+  and retried with spatial and temporal tiling. The decode took 225 s, with a
+  13.0 GiB peak.
+- **The same with 50 steps:** 2,212 s. Frames 4, 16 and 28 were sharp, with
+  no seam at the tile edges.
+
+**The baseline fix:**
+- **Before:** T2V 480p CFG-distilled at Full, measured right after another
+  HunyuanVideo instance stopped, read 5.9 GiB.
+- **After:** the same measurement with the fix read 25.1 GiB.
