@@ -205,3 +205,92 @@ func TestVRAMEmbeddingUsesLaunchConfig(t *testing.T) {
 		t.Errorf("estimate for the saved config %+v, for the launch config %+v; want the same", saved, launched)
 	}
 }
+
+// Three A4000-sized cards, the way compute2 has them.
+func threeCards() Hardware {
+	return Hardware{GPUs: []GPUSpec{
+		{Index: 0, VRAMTotalMiB: 16376}, {Index: 1, VRAMTotalMiB: 16376}, {Index: 2, VRAMTotalMiB: 16376},
+	}}
+}
+
+func eg2() *Model {
+	return &Model{ID: "e", ModelID: "ggml-org/embeddinggemma-2-GGUF", Arch: "gemma-embedding2", Embedding: true,
+		PoolingType: PoolingMean, NLayers: 24, NEmbd: 512, NHead: 4, NKVHead: 1, ContextLength: 262144,
+		SizeBytes: 310 << 20}
+}
+
+func TestEmbeddingGPU(t *testing.T) {
+	cfg := DefaultConfig()
+
+	t.Run("most room", func(t *testing.T) {
+		hw := threeCards()
+		hw.GPUs[0].OtherUsedMiB = 2000 // a desktop
+		hw.GPUs[2].ReservedMiB = 6000  // a generation backend
+		opt, ok := EmbeddingGPU(eg2(), cfg, hw)
+		if !ok || opt.Value != "1" {
+			t.Errorf("got %q, %v; want GPU 1, the one with the most room", opt.Value, ok)
+		}
+	})
+	t.Run("ties go to the lower index", func(t *testing.T) {
+		opt, ok := EmbeddingGPU(eg2(), cfg, threeCards())
+		if !ok || opt.Value != "0" {
+			t.Errorf("got %q, %v; want GPU 0", opt.Value, ok)
+		}
+	})
+	t.Run("the integrated GPU is never chosen", func(t *testing.T) {
+		hw := Hardware{GPUs: []GPUSpec{
+			{Index: 0, VRAMTotalMiB: 65536, IsIGPU: true}, {Index: 1, VRAMTotalMiB: 16376}, {Index: 2, VRAMTotalMiB: 8192},
+		}}
+		opt, ok := EmbeddingGPU(eg2(), cfg, hw)
+		if !ok || opt.Value != "1" {
+			t.Errorf("got %q, %v; want GPU 1, the larger discrete GPU", opt.Value, ok)
+		}
+	})
+	t.Run("one discrete GPU changes nothing", func(t *testing.T) {
+		hw := Hardware{GPUs: []GPUSpec{{Index: 0, VRAMTotalMiB: 16376, IsIGPU: true}, {Index: 1, VRAMTotalMiB: 16376}}}
+		if opt, ok := EmbeddingGPU(eg2(), cfg, hw); ok {
+			t.Errorf("got %q; want no placement with one discrete GPU", opt.Value)
+		}
+		if opt, ok := EmbeddingGPU(eg2(), cfg, Hardware{GPUs: threeCards().GPUs[:1]}); ok {
+			t.Errorf("got %q; want no placement with one GPU", opt.Value)
+		}
+	})
+	t.Run("too large for one GPU", func(t *testing.T) {
+		big := &Model{ID: "q", ModelID: "Qwen/Qwen3-Embedding-8B-GGUF", Arch: "qwen3", Embedding: true,
+			PoolingType: PoolingLast, NLayers: 36, NEmbd: 4096, NHead: 32, NKVHead: 8, ContextLength: 40960,
+			SizeBytes: 4677 << 20}
+		hw := Hardware{GPUs: []GPUSpec{{Index: 0, VRAMTotalMiB: 4096}, {Index: 1, VRAMTotalMiB: 4096}}}
+		if opt, ok := EmbeddingGPU(big, cfg, hw); ok {
+			t.Errorf("got %q; want no placement when the model fits on no GPU alone", opt.Value)
+		}
+	})
+}
+
+func TestRegistryPlaceOnGPU(t *testing.T) {
+	dir := t.TempDir()
+	r := NewRegistry(dir, dir)
+	for _, id := range []string{"new", "chosen"} {
+		if err := r.Add(&Model{ID: id, ModelID: "org/" + id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	chosen, _ := r.GetConfig("chosen")
+	chosen.GPUAssign = "all"
+	if err := r.SetConfig("chosen", chosen); err != nil {
+		t.Fatal(err)
+	}
+
+	if placed, err := r.PlaceOnGPU("new", "1", 3); err != nil || !placed {
+		t.Fatalf("PlaceOnGPU(new) = %v, %v; want placed", placed, err)
+	}
+	cfg, _ := r.GetConfig("new")
+	if cfg.GPUAssign != "1" || cfg.TensorSplit != "0,1,0" || cfg.SplitMode != "layer" || cfg.MainGPU != 1 {
+		t.Errorf("config after placing: assign %q split %q mode %q main %d", cfg.GPUAssign, cfg.TensorSplit, cfg.SplitMode, cfg.MainGPU)
+	}
+	if placed, _ := r.PlaceOnGPU("chosen", "1", 3); placed {
+		t.Error("a chosen assignment was replaced")
+	}
+	if cfg, _ := r.GetConfig("chosen"); cfg.GPUAssign != "all" {
+		t.Errorf("chosen assignment is now %q", cfg.GPUAssign)
+	}
+}

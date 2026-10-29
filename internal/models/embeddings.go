@@ -87,6 +87,47 @@ func EmbeddingLaunchConfig(cfg *ModelConfig, m *Model) *ModelConfig {
 	return &out
 }
 
+// EmbeddingGPU returns the one GPU an embedding model is placed on by
+// default: the discrete GPU with the most room (cardBudgetGiB: after other
+// programs, generation reservations and the safety margin), when the
+// model's estimate at cfg fits there. ok is false when the machine has
+// fewer than two discrete GPUs, where one GPU is what "all" gives anyway,
+// and when the model fits on none of them alone.
+//
+// Spread over several GPUs, a small embedding model gains nothing and
+// costs a lot: each GPU holds a compute buffer of its own, and llama.cpp
+// keeps extra copies of it for pipeline parallelism. EmbeddingGemma 2 at
+// a context of 16384 used 18 GiB over three RTX A4000s, and 2.7 GiB on
+// one (issue #425).
+func EmbeddingGPU(m *Model, cfg ModelConfig, hw Hardware) (opt GPUOption, ok bool) {
+	igpu := make([]bool, len(hw.GPUs))
+	for i, g := range hw.GPUs {
+		igpu[i] = g.IsIGPU
+	}
+	singles, room := 0, -1.0
+	for _, o := range GPUAssignOptions(len(hw.GPUs), igpu) {
+		if len(o.GPUs) != 1 || o.IsTensor || o.IsSpanAll || o.IncludesIGPU {
+			continue
+		}
+		singles++
+		// Ties go to the lower index, so the choice does not depend on
+		// small differences between readings of identical cards.
+		if r := cardBudgetGiB(hw.GPUs[o.GPUs[0]]); r > room {
+			opt, room = o, r
+		}
+	}
+	if singles < 2 {
+		return GPUOption{}, false
+	}
+	c := cloneConfig(cfg)
+	c.GPUAssign = opt.Value
+	c.TensorSplit, c.SplitMode, c.MainGPU = ResolveGPUAssign(opt.Value, len(hw.GPUs))
+	if VRAMBreakdownForConfigOn(m, &c, 1).Total() > room {
+		return GPUOption{}, false
+	}
+	return opt, true
+}
+
 // EmbeddingModelPreset defines a curated embedding model available for one-click download.
 type EmbeddingModelPreset struct {
 	Name     string `json:"name"`

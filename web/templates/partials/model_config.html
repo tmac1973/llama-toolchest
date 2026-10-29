@@ -128,7 +128,7 @@
 
     <div class="grid">
         {{if gt .NumGPUs 0}}
-        <label title="How this model is spread across GPUs. Layer options split layers sequentially. Tensor Parallelism splits tensors across N GPUs simultaneously (experimental, needs fast interconnect).">
+        <label title="How this model is spread across GPUs. Layer options split layers sequentially. Tensor Parallelism splits tensors across N GPUs simultaneously (experimental, needs fast interconnect).{{if .IsEmbedding}} An embedding model is put on the one GPU with the most room when it is downloaded, if it fits there: spread over several GPUs, each GPU needs its own working memory for the model, which can be many times the model's size. Choose All GPUs here to spread it anyway.{{end}}">
             GPU Assignment
             <select name="gpu_assign"
                     onchange="var c=this.closest('form').querySelector('.tensor-split-custom'); if(this.value==='custom'){c.style.display='';c.querySelector('input').name='tensor_split';}else{c.style.display='none';c.querySelector('input').removeAttribute('name');}">

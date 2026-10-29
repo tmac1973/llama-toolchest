@@ -71,3 +71,51 @@ func TestEmbeddingConfigPanelShowsContext(t *testing.T) {
 		}
 	}
 }
+
+// An embedding model with no GPU assignment is put on the GPU with the
+// most room and the preset follows. A chat model, a helper model and an
+// assignment someone chose are left alone.
+func TestPlaceEmbeddingModel(t *testing.T) {
+	s := newTestServer(t)
+	hw := models.Hardware{GPUs: []models.GPUSpec{
+		{Index: 0, VRAMTotalMiB: 16376, OtherUsedMiB: 2000},
+		{Index: 1, VRAMTotalMiB: 16376},
+		{Index: 2, VRAMTotalMiB: 16376, ReservedMiB: 6000},
+	}}
+	emb := func(id string) *models.Model {
+		return &models.Model{ID: id, ModelID: "org/" + id, Filename: id + ".gguf", FilePath: "/models/" + id + ".gguf",
+			Embedding: true, PoolingType: models.PoolingMean, NLayers: 24, NEmbd: 768, NHead: 3, NKVHead: 1,
+			ContextLength: 2048, SizeBytes: 300 << 20}
+	}
+	chat := &models.Model{ID: "chat", ModelID: "org/Chat-GGUF", Filename: "c.gguf", NLayers: 32, NEmbd: 4096,
+		NHead: 32, NKVHead: 8, ContextLength: 32768, SizeBytes: 5 << 30}
+	helper := emb("helper")
+	helper.HelperRole = true
+	for _, m := range []*models.Model{emb("e"), emb("chosen"), chat, helper} {
+		if err := s.registry.Add(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg, _ := s.registry.GetConfig("chosen")
+	cfg.GPUAssign = "all"
+	if err := s.registry.SetConfig("chosen", cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, id := range []string{"e", "chosen", "chat", "helper"} {
+		s.placeEmbeddingModel(id, hw)
+	}
+	want := map[string]string{"e": "1", "chosen": "all", "chat": "", "helper": ""}
+	for id, w := range want {
+		if cfg, _ := s.registry.GetConfig(id); cfg.GPUAssign != w {
+			t.Errorf("%s: GPU assignment %q, want %q", id, cfg.GPUAssign, w)
+		}
+	}
+
+	m, _ := s.registry.Get("e")
+	cfg, _ = s.registry.GetConfig("e")
+	ini := models.GeneratePresetINI("/models", []*models.Model{m}, map[string]*models.ModelConfig{"e": cfg}, models.Target{})
+	if !strings.Contains(ini, "tensor-split = 0,1,0") {
+		t.Errorf("preset does not keep the model on GPU 1:\n%s", ini)
+	}
+}

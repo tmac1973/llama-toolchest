@@ -38,6 +38,28 @@ func (r *Registry) SeedConfig(id string, cfg ModelConfig, note SeedNote) (bool, 
 	return true, r.save()
 }
 
+// PlaceOnGPU gives model id the GPU assignment assign (a GPUOption
+// value), with the split it resolves to on numGPUs GPUs, but only while
+// the config still has no assignment at all: a choice anyone has made,
+// "all" included, is kept. It reports whether the config changed.
+func (r *Registry) PlaceOnGPU(id, assign string, numGPUs int) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.writableLocked(); err != nil {
+		return false, err
+	}
+	_, cur, err := r.modelAndConfigLocked(id)
+	if err != nil {
+		return false, err
+	}
+	if cur.GPUAssign != "" {
+		return false, nil
+	}
+	cur.GPUAssign = assign
+	cur.TensorSplit, cur.SplitMode, cur.MainGPU = ResolveGPUAssign(assign, numGPUs)
+	return true, r.save()
+}
+
 // ClearSeeded removes the seeded mark: the config is now someone's own.
 func (r *Registry) ClearSeeded(id string) error {
 	r.mu.Lock()
