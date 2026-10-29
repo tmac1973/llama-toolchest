@@ -548,8 +548,9 @@ def restock_from_plan(inventory, plan, reason="plan"):
 // whichever way that model exposes. Detected from the chat template
 // (models.ReasoningCapability) and carried through ModelInfo.
 type ReasoningControl struct {
-	Toggle string // one of the models.ReasoningToggle* constants
-	Kwarg  string // kwarg key when Toggle is chat_template_kwargs
+	Toggle string   // one of the models.ReasoningToggle* constants
+	Kwarg  string   // kwarg key when Toggle is chat_template_kwargs
+	Levels []string // reasoning_effort values the template accepts, lowest first
 }
 
 // applyThinkingOff adds whatever the model needs to skip its reasoning
@@ -561,7 +562,7 @@ type ReasoningControl struct {
 // echo preset that reads almost exactly like the analysis preset, because
 // that is what it is running.
 func (rc ReasoningControl) applyThinkingOff(payload map[string]any) {
-	models.ApplyThinkingOff(rc.Toggle, rc.Kwarg, payload)
+	models.ApplyThinkingOff(rc.Toggle, rc.Kwarg, rc.Levels, payload)
 }
 
 // promptOptions bundle what the prompt and the request need beyond the

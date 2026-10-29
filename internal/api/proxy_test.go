@@ -289,6 +289,10 @@ type fakeRouter struct {
 	// realtimeProtocols records the Sec-WebSocket-Protocol header of
 	// each realtime session.
 	realtimeProtocols []string
+	// props is what GET /props answers, and propsQueries records the
+	// query of each call.
+	props        string
+	propsQueries []string
 }
 
 // reset replaces the router's state between subtests.
@@ -353,6 +357,13 @@ func (f *fakeRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else {
 			fmt.Fprintf(w, `{"n_restored":2000,"n_read":1048576}`)
 		}
+	case r.URL.Path == "/props" && r.Method == http.MethodGet:
+		f.propsQueries = append(f.propsQueries, r.URL.RawQuery)
+		if f.props == "" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		io.WriteString(w, f.props)
 	case r.URL.Path == "/tts" && r.Method == http.MethodPost:
 		body, _ := io.ReadAll(r.Body)
 		f.ttsBodies = append(f.ttsBodies, body)

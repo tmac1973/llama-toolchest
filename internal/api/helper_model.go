@@ -145,7 +145,7 @@ func (b *helperBackend) Prepare(ctx context.Context, id string) (llmcall.Target,
 		return llmcall.Target{}, fmt.Errorf("loading the helper model: %w", err)
 	}
 	rc := reasoningControl(m, cfg)
-	return llmcall.Target{RouterName: routerName, Thinking: llmcall.Thinking{Toggle: rc.Toggle, Kwarg: rc.Kwarg}}, nil
+	return llmcall.Target{RouterName: routerName, Thinking: llmcall.Thinking{Toggle: rc.Toggle, Kwarg: rc.Kwarg, Levels: rc.Levels}}, nil
 }
 
 // routerReadyTimeout bounds the wait for a just-started router to list

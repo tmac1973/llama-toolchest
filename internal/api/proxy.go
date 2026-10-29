@@ -275,6 +275,7 @@ func (s *Server) ensureModelLoadedForRequest(ctx context.Context, body []byte) e
 	}
 	state, knownToRouter := s.lookupRouterState(routerName, regModel)
 	if state == "loaded" {
+		s.noteModelLoaded(regModel)
 		return nil
 	}
 	if !knownToRouter {
@@ -297,7 +298,11 @@ func (s *Server) ensureModelLoadedForRequest(ctx context.Context, body []byte) e
 		}
 		slog.Info("auto-loading model for inference request", "model", regModel.PublicName(), "router_name", routerName)
 	}
-	return s.waitForModelLoaded(ctx, routerName, regModel)
+	if err := s.waitForModelLoaded(ctx, routerName, regModel); err != nil {
+		return err
+	}
+	s.noteModelLoaded(regModel)
+	return nil
 }
 
 // lookupRouterState returns the router's current state for a model, plus
@@ -439,6 +444,12 @@ func (s *Server) injectSamplingDefaults(body []byte) []byte {
 		return body
 	}
 
+	// The default effort is left out when the client chose its own
+	// thinking switch: a chat_template_kwargs that turns thinking off and
+	// an added effort level can contradict each other.
+	if _, ok := reqMap["chat_template_kwargs"]; ok {
+		delete(overrides, "reasoning_effort")
+	}
 	for k, v := range overrides {
 		if _, exists := reqMap[k]; !exists {
 			reqMap[k] = v

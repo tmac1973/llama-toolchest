@@ -78,6 +78,10 @@ type Server struct {
 	// llmUse counts each LLM's requests in progress, so an unload for a
 	// generation backend waits for them (see gen_evict.go).
 	llmUse llmUse
+
+	// levels tracks the models whose reasoning effort levels are being read
+	// from llama-server (reasoning_levels.go).
+	levels reasoningLevelsReads
 	// promptCache records the LLM prompt caches saved before an eviction
 	// unload, until they are restored (see gen_prompt_cache.go).
 	promptCache promptCacheStore

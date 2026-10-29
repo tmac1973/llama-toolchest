@@ -1,6 +1,9 @@
 package models
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // Reasoning toggle mechanisms — the *how* a client flips a model's thinking
 // mode on or off. These are stable string constants because they're part of
@@ -22,7 +25,14 @@ const (
 // to skip its reasoning pass, given how it exposes the switch (one of the
 // ReasoningToggle* constants, and the kwarg name for chat_template_kwargs).
 // A model with no switch (ReasoningToggleNone, or no kwarg) is left as is.
-func ApplyThinkingOff(toggle, kwarg string, payload map[string]any) {
+//
+// For reasoning_effort, levels are the values the template accepts, lowest
+// first (ReasoningCapability.EffortLevels). "none" is not one llama.cpp
+// tests for, and a template that does not know it falls back to its own
+// default, which can be a medium or high effort; so the lowest accepted
+// level is sent instead when the levels are known, and "none" only when
+// they are not.
+func ApplyThinkingOff(toggle, kwarg string, levels []string, payload map[string]any) {
 	switch toggle {
 	case ReasoningToggleChatTemplateKwargs:
 		if kwarg != "" {
@@ -30,6 +40,9 @@ func ApplyThinkingOff(toggle, kwarg string, payload map[string]any) {
 		}
 	case ReasoningToggleReasoningEffort:
 		payload["reasoning_effort"] = "none"
+		if len(levels) > 0 {
+			payload["reasoning_effort"] = levels[0]
+		}
 	}
 }
 
@@ -42,6 +55,12 @@ type ReasoningCapability struct {
 	DefaultEnabled bool   `json:"default_enabled"` // reasoning is on unless the client turns it off
 	Toggle         string `json:"toggle"`          // one of the ReasoningToggle* constants
 	Kwarg          string `json:"kwarg"`           // kwarg key when Toggle == chat_template_kwargs; "" otherwise
+	// EffortLevels are the reasoning_effort values the template accepts,
+	// lowest first, read from llama-server after a load
+	// (Model.ReasoningEffortLevels). null until known: before the model has
+	// been loaded on a llama.cpp build that reports them. Never taken from
+	// a per-model override.
+	EffortLevels []string `json:"effort_levels"`
 }
 
 // EffectiveReasoning returns the reasoning capability to report for this model:
@@ -49,18 +68,27 @@ type ReasoningCapability struct {
 // the chat template. The toggle is normalized to "none" so the contract never
 // emits an empty mechanism for older records parsed before detection existed.
 func (m *Model) EffectiveReasoning(cfg *ModelConfig) ReasoningCapability {
-	if cfg != nil && cfg.ReasoningOverride != nil {
-		r := *cfg.ReasoningOverride
-		if r.Toggle == "" {
-			r.Toggle = ReasoningToggleNone
-		}
-		return r
-	}
 	r := m.Reasoning
+	if cfg != nil && cfg.ReasoningOverride != nil {
+		r = *cfg.ReasoningOverride
+	}
 	if r.Toggle == "" {
 		r.Toggle = ReasoningToggleNone
 	}
+	r.EffortLevels = m.EffortLevels()
 	return r
+}
+
+// EffortLevels returns the reasoning_effort values the model's template
+// accepts, lowest first: nil when not known, empty when it accepts none.
+func (m *Model) EffortLevels() []string {
+	if !m.ReasoningLevelsKnown {
+		return nil
+	}
+	if m.ReasoningEffortLevels == nil {
+		return []string{}
+	}
+	return slices.Clone(m.ReasoningEffortLevels)
 }
 
 // detectReasoning inspects a chat-template string for the markers of a
