@@ -121,7 +121,7 @@ func hunyuanEntry(id, name, recipe string, model Component, hd bool, steps, cfg,
 			"--diffusion-fa", "--backend", "te=cpu"},
 		Capabilities:  caps,
 		License:       hunyuanLicense,
-		Notes:         notes + " Shares its text models and VAE with the other HunyuanVideo 1.5 sets, and Qwen2.5-VL with Qwen-Image-Edit 2511. Licence: Tencent Hunyuan Community License, which does not apply in the EU, the UK or South Korea; terms at https://huggingface.co/tencent/HunyuanVideo-1.5.",
+		Notes:         notes + " " + hunyuanNVIDIA + " Shares its text models and VAE with the other HunyuanVideo 1.5 sets, and Qwen2.5-VL with Qwen-Image-Edit 2511. Licence: Tencent Hunyuan Community License, which does not apply in the EU, the UK or South Korea; terms at https://huggingface.co/tencent/HunyuanVideo-1.5.",
 		DefaultWidth:  w,
 		DefaultHeight: h,
 		DefaultFrames: 33,
@@ -139,6 +139,14 @@ func hunyuanEntry(id, name, recipe string, model Component, hd bool, steps, cfg,
 		SizeMultiple: 16,
 	}
 }
+
+// hunyuanNVIDIA warns that the HunyuanVideo 1.5 sets do not work on NVIDIA
+// cards yet: on an RTX A4000 (CUDA, 2026-10-29) stable-diffusion.cpp
+// master-1015 crashed 3 times in 3 with "ggml_cuda_compute_forward: CONCAT
+// failed", 13 s into the step-distilled 480p set's test video, at 3.4 GiB.
+// The other sets were not tried there; they share its model and decode
+// code.
+const hunyuanNVIDIA = "Not working on NVIDIA cards yet: stable-diffusion.cpp crashed at the start of every video on an RTX A4000 (CUDA), so use it on an AMD card."
 
 // hunyuan480Fit is what the 480p HunyuanVideo 1.5 sets need on a Radeon AI
 // PRO R9700 (32 GB), measured 2026-10-29 with the text model on the CPU:
@@ -369,7 +377,8 @@ func Catalog() []CatalogEntry {
 			License:      "Apache-2.0",
 			Notes: "Text-to-video and image-to-video in one small model; 20 steps. On a Radeon AI PRO R9700 (32 GB), about 70 s for the 33-frame 832×480 Short size " +
 				"(reservation 20 GiB, with its text model on the CPU). Medium and Full need more memory than a 32 GB card can give with the whole room, " +
-				"but fit when measured inside a 14 GiB budget, where sd.cpp decodes in smaller pieces: about 14 minutes for a 3.4 s Medium video. On a 16 GB RTX A4000, Short works inside 14.7 GiB (about 75 s).",
+				"but fit when measured inside a 14 GiB budget, where sd.cpp decodes in smaller pieces: about 14 minutes for a 3.4 s Medium video. On a 16 GB RTX A4000, Short reserves 13.8 GiB, all that card can give (about 110 s per video); " +
+				"Medium crashed there in stable-diffusion.cpp's CUDA code while decoding in smaller pieces, with the whole room and inside a 10 GiB budget.",
 			// The test video is short and mid-sized so Measure finishes in
 			// minutes; the ceiling is the model's native size, 121 frames
 			// being 5 s at 24 fps.
@@ -530,8 +539,8 @@ func Catalog() []CatalogEntry {
 				"WebM videos have a sound track; animated WebP is silent. Up to 5 seconds at 1280×720. " +
 				"On a Radeon AI PRO R9700 (32 GB), about 35 s for the 33-frame 768×512 Short size, " +
 				"and about 4.5 minutes for 5 s at 1280×720 (reservation 27.7 GiB, measured at Full, with its text model on the CPU); with a start and an end image, about 11 minutes. " +
-				"sd-server makes 1280×720 as 1280×736. On a 16 GB RTX A4000, Measure works at Short (14.4 GiB, about 140 s per video), " +
-				"but stable-diffusion.cpp crashed there with a CUDA error in one of two videos. " +
+				"sd-server makes 1280×720 as 1280×736. On a 16 GB RTX A4000 with its text model on the CPU, Medium and Full both measured inside 13.8 GiB, " +
+				"all that card can give, as sd.cpp keeps the rest of the model in system RAM; stable-diffusion.cpp's CUDA code still crashed there now and then (\"CONCAT failed\"). " +
 				"Licence: free unless the organisation makes US$10 million a year or more; terms at https://huggingface.co/Lightricks/LTX-2.3. " +
 				"Its Gemma 3 text model is under Google's Gemma Terms of Use.",
 			// 121 frames is 5 s at 24 fps.

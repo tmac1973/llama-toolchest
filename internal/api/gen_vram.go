@@ -899,9 +899,21 @@ func (s *Server) applyMeasurement(inst generation.Instance, set generation.Model
 // error is quoted instead, since a smaller size may not help (sd.cpp's
 // tiled Wan decode crashed this way on an RTX A4000). With neither in the
 // log, it is probably memory.
+//
+// Only the lines after sd.cpp's last "retrying with …" count: the memory
+// warnings before it were recovered from. TI2V 5B on the A4000 ran out of
+// memory for the whole decode, retried twice, and then crashed ("CONCAT
+// failed") decoding in small pieces (2026-10-30).
 func backendStoppedError(lines []string) error {
 	const memory = "the backend stopped during the test generation, probably because it ran out of GPU memory at this size; its log on this page says more. Try a smaller size"
 	lines = lines[max(0, len(lines)-backendLogLines):]
+	retried := false
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.Contains(lines[i], "retrying with") {
+			lines, retried = lines[i+1:], true
+			break
+		}
+	}
 	crash := ""
 	for _, line := range lines {
 		lower := strings.ToLower(line)
@@ -914,6 +926,9 @@ func backendStoppedError(lines []string) error {
 	}
 	if crash == "" {
 		return errors.New(memory)
+	}
+	if retried {
+		return fmt.Errorf("the backend crashed during the test generation (%s), while decoding the video in smaller pieces because the whole decode did not fit. A smaller size, whose decode fits at once, may work; the log on this page says more", crash)
 	}
 	return fmt.Errorf("the backend crashed during the test generation (%s). Its log shows a crash, not running out of GPU memory, so a smaller size may not help; the log on this page says more", crash)
 }
