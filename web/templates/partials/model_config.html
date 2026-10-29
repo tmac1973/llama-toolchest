@@ -87,11 +87,10 @@
             <small>{{if .MoECacheNote}}{{.MoECacheNote}}{{else if and (gt .Config.MoECacheMiB 0) (gt .Config.CPUMoE 0)}}Effective: <code>--moe-cache-mib {{.Config.MoECacheMiB}}</code>{{else if gt .Config.MoECacheMiB 0}}Not used: no expert layers are kept in system memory.{{else}}not set (off){{end}}</small>
         </label>
         {{end}}
-        {{if not .IsEmbedding}}
         {{$cs := .Config.ContextSize}}
         {{$mc := .MaxContext}}
         {{$isCustom := and (ne $cs 0) (ne $cs 2048) (ne $cs 4096) (ne $cs 8192) (ne $cs 16384) (ne $cs 32768) (ne $cs 65536) (ne $cs 131072) (ne $cs 262144)}}
-        <label title="Maximum token context window. Larger values use more VRAM.{{if gt $mc 0}} This model supports up to {{$mc}} tokens.{{end}}">
+        <label title="{{if .IsEmbedding}}The longest text, in tokens, that one embedding request can hold. A longer input is refused. Most embedding models read each input in one micro-batch, so the micro-batch is raised to the same size, and larger values use more VRAM. A value above the model's own limit is lowered to it.{{else}}Maximum token context window. Larger values use more VRAM.{{end}}{{if gt $mc 0}} This model supports up to {{$mc}} tokens.{{end}}">
             Context Size{{if gt $mc 0}} <small>(max {{$mc}})</small>{{end}}
             <div class="ctx-size-picker">
                 <select {{if not $isCustom}}name="context_size"{{end}}
@@ -124,7 +123,6 @@
                 </div>
             </div>
         </label>
-        {{end}}
     </div>
 
     <div class="grid">

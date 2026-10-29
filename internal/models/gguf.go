@@ -29,6 +29,11 @@ type GGUFMeta struct {
 	VocabSize     int  `json:"vocab_size,omitempty"`
 	SupportsTools bool `json:"supports_tools"` // chat template references tools
 	HasVision     bool `json:"has_vision"`     // model has a built-in vision encoder
+	// PoolingType is {arch}.pooling_type: how llama.cpp turns the token
+	// vectors into one vector for the input (see the Pooling* constants).
+	// Converted embedding and reranking models carry it; chat models do
+	// not.
+	PoolingType int `json:"pooling_type,omitempty"`
 
 	// Reasoning / thinking mode detected from the chat template (see
 	// detectReasoning). Reasoning is the assembled capability; ReasoningChecked
@@ -185,6 +190,8 @@ func (meta *GGUFMeta) ApplyTo(m *Model) {
 	}
 	m.SupportsTools = meta.SupportsTools
 	m.HasBuiltinVision = meta.HasVision
+	m.PoolingType = meta.PoolingType
+	m.Embedding = meta.IsEmbedding()
 	m.Reasoning = meta.Reasoning
 	m.ReasoningChecked = meta.ReasoningChecked
 	m.KVFullPerTok = meta.KVFullPerTok
@@ -566,6 +573,11 @@ keys:
 		case arch != "" && key == arch+".context_length":
 			if v, ok := readGGUFScalarInt(f, valueType); ok {
 				meta.ContextLength = v
+				continue
+			}
+		case arch != "" && key == arch+".pooling_type":
+			if v, ok := readGGUFScalarInt(f, valueType); ok {
+				meta.PoolingType = v
 				continue
 			}
 

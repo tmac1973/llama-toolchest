@@ -85,7 +85,11 @@ func GeneratePresetINI(modelsDir string, models []*Model, configs map[string]*Mo
 		isEmbed := m.IsEmbedding()
 		// Expert offload over several GPUs: a split balanced by size, not
 		// llama.cpp's split by layer count (see MoESplitConfig).
-		writeConfigParams(&b, MoESplitConfig(cfg, m, t.Room().For(m, cfg)), isEmbed, t)
+		launch := MoESplitConfig(cfg, m, t.Room().For(m, cfg))
+		if isEmbed {
+			launch = EmbeddingLaunchConfig(launch, m)
+		}
+		writeConfigParams(&b, launch, isEmbed, t)
 		b.WriteString("\n")
 	}
 
@@ -109,7 +113,7 @@ func autoDiscoveryName(modelsDir, filePath string) string {
 }
 
 func writeConfigParams(b *strings.Builder, cfg *ModelConfig, isEmbedding bool, t Target) {
-	if !isEmbedding && cfg.ContextSize > 0 {
+	if cfg.ContextSize > 0 {
 		b.WriteString(fmt.Sprintf("ctx-size = %d\n", cfg.ContextSize))
 	}
 	if cfg.BatchSize > 0 {

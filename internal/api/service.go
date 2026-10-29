@@ -1236,7 +1236,12 @@ func pleSizeLabel(m *models.Model) string {
 }
 
 // effectiveFlags are the flags the preset gives the model, including a
-// split balanced by size when experts are kept in system memory.
+// split balanced by size when experts are kept in system memory, and an
+// embedding model's context and micro-batch (see EmbeddingLaunchConfig).
 func effectiveFlags(cfg *models.ModelConfig, m *models.Model, isEmbedding bool, t models.Target) string {
-	return models.MoESplitConfig(cfg, m, t.Room().For(m, cfg)).EffectiveFlagsFor(isEmbedding, t)
+	launch := models.MoESplitConfig(cfg, m, t.Room().For(m, cfg))
+	if isEmbedding && m != nil {
+		launch = models.EmbeddingLaunchConfig(launch, m)
+	}
+	return launch.EffectiveFlagsFor(isEmbedding, t)
 }

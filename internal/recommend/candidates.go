@@ -103,14 +103,6 @@ const (
 // without a tag is kept: many quantizers leave it empty.
 var generativeTags = map[string]bool{"": true, "text-generation": true, "image-text-to-text": true}
 
-// encoderArchs are architectures llama.cpp loads for embeddings and
-// reranking, not for chat. Their repos are often tagged as text models.
-var encoderArchs = map[string]bool{
-	"bert": true, "modern-bert": true, "nomic-bert": true, "nomic-bert-moe": true,
-	"neo-bert": true, "jina-bert-v2": true, "jina-bert-v3": true, "t5encoder": true,
-	"eurobert": true,
-}
-
 // clipArch is what HuggingFace's GGUF summary says when it happened to
 // describe the repo's image reader rather than the model. The summary's
 // parameter count is then the image reader's too.
@@ -135,7 +127,7 @@ func judgeCandidate(r huggingface.ListedModel, p Profile) candidateVerdict {
 		return candidateDrop
 	}
 	arch := r.GGUF.Architecture
-	if encoderArchs[arch] || models.IsMTPHeadArch(arch) {
+	if models.IsEncoderArch(arch) || models.IsMTPHeadArch(arch) {
 		return candidateDrop
 	}
 	lower := strings.ToLower(r.ID)
