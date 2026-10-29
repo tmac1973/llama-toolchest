@@ -279,3 +279,40 @@ func TestMadeSize(t *testing.T) {
 		t.Errorf("custom set 1000x600 made as %dx%d", w, h)
 	}
 }
+
+func TestSampleSteps(t *testing.T) {
+	for _, tc := range []struct {
+		args        []string
+		steps, high int
+		ok          bool
+	}{
+		{[]string{"--steps", "20", "--cfg-scale", "5"}, 20, 0, true},
+		{[]string{"--steps", "4", "--high-noise-steps", "4"}, 4, 4, true},
+		{[]string{"--steps", "20", "--steps=8"}, 8, 0, true},
+		{[]string{"--cfg-scale", "1"}, 0, 0, false},
+		{[]string{"--steps", "20", "--sigmas", "qwen-image-2.1-turbo"}, 0, 0, false},
+	} {
+		steps, high, ok := SampleSteps(tc.args)
+		if steps != tc.steps || high != tc.high || ok != tc.ok {
+			t.Errorf("SampleSteps(%v) = %d, %d, %v; want %d, %d, %v", tc.args, steps, high, ok, tc.steps, tc.high, tc.ok)
+		}
+	}
+	for _, e := range Catalog() {
+		if e.Kind != KindVideo {
+			continue
+		}
+		if _, _, ok := SampleSteps(e.LaunchArgs); !ok {
+			t.Errorf("catalog video set %s has no --steps, so Measure cannot estimate its job time", e.ID)
+		}
+	}
+}
+
+func TestHasHighNoiseModel(t *testing.T) {
+	for _, e := range Catalog() {
+		set := ModelSet{Components: e.Components}
+		want := e.ID == "wan22-i2v-a14b" || e.ID == "wan22-i2v-a14b-lightning"
+		if set.HasHighNoiseModel() != want {
+			t.Errorf("%s: HasHighNoiseModel = %v, want %v", e.ID, !want, want)
+		}
+	}
+}

@@ -118,6 +118,14 @@ type Instance struct {
 	MeasuredFrames int `json:"measured_frames,omitempty"`
 	MeasuredWidth  int `json:"measured_width,omitempty"`
 	MeasuredHeight int `json:"measured_height,omitempty"`
+	// MeasuredJobSeconds is how long a whole video at the measured size
+	// takes, worked out from the measurement's step and decode times
+	// (video instances only; zero when the log did not give them).
+	MeasuredJobSeconds int `json:"measured_job_seconds,omitempty"`
+	// MeasuredDecodeFallback is true when the measured decode did not fit
+	// at once and sd.cpp retried it with temporal tiling: the size fits,
+	// but its decode is slower than with more room.
+	MeasuredDecodeFallback bool `json:"measured_decode_fallback,omitempty"`
 	// ExtraArgs are backend flags for this instance, added after the
 	// set's LaunchArgs.
 	ExtraArgs []string `json:"extra_args,omitempty"`

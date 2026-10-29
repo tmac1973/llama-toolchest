@@ -25,9 +25,10 @@ var vidGenPoll = time.Second
 const vidCancelWait = time.Minute
 
 // vidGenRequest is the part of sd-server's POST /sdcpp/v1/vid_gen body
-// toolchest sets. Steps, CFG, flow shift and sampler are left out: the
-// set's launch settings give them, and sd-server uses its startup
-// defaults for anything a request does not name.
+// toolchest sets. CFG, flow shift and sampler are left out: the set's
+// launch settings give them, and sd-server uses its startup defaults for
+// anything a request does not name. Steps are left out too, except by
+// Measure.
 type vidGenRequest struct {
 	Prompt         string `json:"prompt"`
 	NegativePrompt string `json:"negative_prompt,omitempty"`
@@ -42,6 +43,11 @@ type vidGenRequest struct {
 	OutputFormat string `json:"output_format"`
 	// Lora is the set's LoRA files, by name within --lora-model-dir.
 	Lora []vidLora `json:"lora,omitempty"`
+	// Steps and HighNoiseSteps, when above zero, replace the set's
+	// sampling steps for this video (sample_params.sample_steps and
+	// high_noise_sample_params.sample_steps, sd.cpp master-1015).
+	Steps          int `json:"-"`
+	HighNoiseSteps int `json:"-"`
 	// Extra is merged into the body last, at the top level.
 	Extra map[string]any `json:"-"`
 }
@@ -80,7 +86,23 @@ func (r vidGenRequest) body() ([]byte, error) {
 	for k, v := range r.Extra {
 		m[k] = v
 	}
+	setSampleSteps(m, "sample_params", r.Steps)
+	setSampleSteps(m, "high_noise_sample_params", r.HighNoiseSteps)
 	return json.Marshal(m)
+}
+
+// setSampleSteps sets m[key].sample_steps when steps is above zero,
+// keeping any other fields an extra settings object already put there.
+func setSampleSteps(m map[string]any, key string, steps int) {
+	if steps <= 0 {
+		return
+	}
+	params, _ := m[key].(map[string]any)
+	if params == nil {
+		params = map[string]any{}
+	}
+	params["sample_steps"] = steps
+	m[key] = params
 }
 
 // vidProgress is where a generating video job is: the sampling pass (a

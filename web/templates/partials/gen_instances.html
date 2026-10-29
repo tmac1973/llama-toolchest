@@ -32,6 +32,12 @@
                 {{- if eq .Kind "video"}}
                 <small style="display:block;color:var(--pico-muted-color);" title="The largest video this instance will make: frames × width × height, in any shape. Larger requests are refused, because the reservation only covers what was measured. Measure at a larger size to allow longer videos.">
                     {{- if .LimitMeasured}}measured for up to {{.Limit.Frames}} frames at {{.Limit.Width}}×{{.Limit.Height}} ({{.Limit.Label}}){{else}}test size only: {{.Limit.Frames}} frames at {{.Limit.Width}}×{{.Limit.Height}}{{end}}</small>
+                {{- if and .LimitMeasured .JobTimeText}}
+                <small style="display:block;color:var(--pico-muted-color);cursor:help;" title="How long one video of this size takes: worked out from the measurement's one sampling step and its decode, for the set's full number of steps. The first video after the instance starts also loads the model, which adds to this.">{{.JobTimeText}} a video at this size</small>
+                {{- end}}
+                {{- if and .LimitMeasured .MeasuredDecodeFallback}}
+                <small style="display:block;color:var(--pico-muted-color);cursor:help;" title="The decode (turning the result into frames) did not fit in the room at once, so sd.cpp decoded a few frames at a time. The video is the same, but the decode takes longer than it would with more room.">decoded a few frames at a time to fit</small>
+                {{- end}}
                 {{- end}}
                 {{- if .MeasuredPeakMiB}}
                 <small style="display:block;color:var(--pico-muted-color);" title="The most GPU memory the last measurement saw this instance use.">peak {{printf "%.1f" .PeakGiB}} GiB, measured {{.MeasuredAt.Format "2006-01-02 15:04"}}{{if .MeasureEstimated}}, estimated (whole-GPU){{end}}</small>
