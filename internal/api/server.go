@@ -408,6 +408,8 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 	if n := s.registry.AutoDetectMTP(); n > 0 {
 		slog.Info("auto-detected MTP drafter heads", "count", n)
 	}
+	// Before the router can start, so its first preset has the placement.
+	s.placeEmbeddingModels()
 	if orphans := s.registry.FindOrphans(); len(orphans) > 0 {
 		for _, m := range orphans {
 			slog.Warn("model file missing", "model", m.ID, "path", m.FilePath)

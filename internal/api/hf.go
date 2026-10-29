@@ -605,6 +605,8 @@ func (s *Server) onDownloadComplete(source, downloadID, modelID, filename string
 	if class, ok := s.takeSeed(downloadID); ok {
 		s.seedFromRecommendation(m.ID, class)
 	}
+	// An embedding model gets one GPU rather than all of them.
+	s.placeEmbeddingModel(m.ID, s.idleHardware())
 
 	// Check if an mmproj file already exists in the same directory
 	if mmproj := models.FindMMProj(filePath); mmproj != "" {

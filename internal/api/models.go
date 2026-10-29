@@ -204,6 +204,7 @@ func (s *Server) handleScanModels(w http.ResponseWriter, r *http.Request) {
 	found := s.registry.ScanModels()
 	if found > 0 {
 		go s.backfillPresets()
+		s.placeEmbeddingModels()
 	}
 
 	if isHTMX(r) {
