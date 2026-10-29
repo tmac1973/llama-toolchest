@@ -301,7 +301,7 @@ function openGenMeasureVideo(btn) {
     if (info.maxSide) { w.max = info.maxSide; h.max = info.maxSide; } else { w.removeAttribute('max'); h.removeAttribute('max'); }
     var first = (info.presets || [])[0] || {};
     f.value = first.frames || ''; w.value = first.width || ''; h.value = first.height || '';
-    var note = 'Longer and larger videos need more GPU memory and take much longer to measure.';
+    var note = 'Longer and larger videos need more GPU memory. The test runs one sampling step and the whole decode, and stops as soon as the size cannot fit.';
     if (info.fullMeasureTime) note += ' ' + info.fullMeasureTime;
     note += ' Requests larger than the size you measure are refused. Other instances on that GPU must be stopped first.';
     if (start) note += ' The instance starts by itself afterwards.';

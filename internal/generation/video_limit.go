@@ -74,3 +74,14 @@ func CoveringPreset(presets []VideoSize, frames, width, height int) (VideoSize, 
 	}
 	return best, found
 }
+
+// HasHighNoiseModel says the set is a Wan2.2 A14B-style pair, with a
+// high-noise expert besides the low-noise one.
+func (m ModelSet) HasHighNoiseModel() bool {
+	for _, c := range m.Components {
+		if c.Slot == "high_noise_diffusion_model" {
+			return true
+		}
+	}
+	return false
+}

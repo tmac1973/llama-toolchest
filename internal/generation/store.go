@@ -213,6 +213,21 @@ func (s *Store) UpdateInstance(inst Instance) error {
 	return s.saveLocked()
 }
 
+// EditInstance changes the stored instance with this ID through fn, in one
+// step, so that a change made meanwhile elsewhere is not overwritten.
+func (s *Store) EditInstance(id string, fn func(*Instance)) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := s.instIndexLocked(id)
+	if i < 0 {
+		return fmt.Errorf("instance %q: %w", id, ErrNotFound)
+	}
+	inst := s.data.Instances[i].clone()
+	fn(&inst)
+	s.data.Instances[i] = inst
+	return s.saveLocked()
+}
+
 // DeleteInstance removes an instance.
 func (s *Store) DeleteInstance(id string) error {
 	s.mu.Lock()

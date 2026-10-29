@@ -493,6 +493,9 @@ func measureNote(before int, inst generation.Instance, restarted, started bool) 
 	default:
 		note += "Reservation stays at " + mibText(before) + "; this measurement suggests " + mibText(suggest) + "."
 	}
+	if inst.MeasuredDecodeFallback {
+		note += " The decode did not fit at once, so sd.cpp decoded a few frames at a time, which is slower."
+	}
 	switch {
 	case restarted:
 		note += " Restarted."
@@ -655,17 +658,67 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 	// in a container).
 	var procPeak, gpuPeak int
 	var procOK bool
+	// abortErr is set when the sampler stops the backend itself: a video
+	// size that has gone past the room, or a run that is stuck.
+	var abortErr error
+	mlog := &measureLog{}
+	if logs := s.genMgr.Subscribe(id); logs != nil {
+		// Unsubscribing does not close the channel, so the reader also
+		// ends when Measure returns.
+		done := make(chan struct{})
+		defer func() {
+			s.genMgr.Unsubscribe(id, logs)
+			close(done)
+		}()
+		go func() {
+			for {
+				select {
+				case line := <-logs:
+					mlog.add(line, time.Now())
+				case <-done:
+					return
+				}
+			}
+		}()
+	}
+	video := set.Kind == generation.KindVideo
+	rocm := false
+	if b := s.resolveBackendBuild(string(set.Kind), inst.BuildID); b != nil {
+		backend, _ := generation.BuildBackend(*b)
+		rocm = backend == "rocm"
+	}
 	stop := make(chan struct{})
 	sampled := make(chan struct{})
 	go func() {
 		defer close(sampled)
 		tick := time.NewTicker(300 * time.Millisecond)
 		defer tick.Stop()
+		started, busyAt, sawBusy := time.Now(), time.Now(), false
 		for {
 			if mib, ok := monitor.ProcessVRAMMiB(s.genMgr.PID(id)); ok {
 				procPeak, procOK = max(procPeak, mib), true
 			}
 			gpuPeak = max(gpuPeak, s.gpuUsedMiB(inst.GPU)-baseline)
+			if busy, ok := s.gpuBusyPercent(inst.GPU); ok && busy >= measureBusyPercent {
+				busyAt, sawBusy = time.Now(), true
+			}
+			if video && abortErr == nil {
+				peak := gpuPeak
+				if procOK {
+					peak = procPeak
+				}
+				room := 0
+				if sdKind && haveRoom {
+					room = opts.MaxVRAMMiB
+				}
+				abortErr = measureAbort(measureRunState{
+					peak: peak, room: room, rocm: rocm, spatial: mlog.spatialFallback(), sawBusy: sawBusy,
+					quiet: time.Since(latestTime(busyAt, mlog.lastLine(), started)), size: videoSizeText(size, set), stage: mlog.stage(),
+				})
+				if abortErr != nil {
+					go s.genMgr.Stop(id)
+				}
+			}
 			select {
 			case <-stop:
 				return
@@ -689,14 +742,17 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 	// backend itself, which then counts as another program and makes its
 	// own reservation not fit.
 	waitGPUReleased(func() int { return s.gpuUsedMiB(inst.GPU) }, baseline, 20*time.Second, 500*time.Millisecond)
+	if abortErr != nil {
+		return abortErr
+	}
 	if runErr != nil {
 		if backendGone(runErr) {
 			if userStopped {
-				return errors.New("the instance was stopped during the test generation")
+				return withPeak(errors.New("the instance was stopped during the test generation"), peak)
 			}
-			return backendStoppedError(s.genMgr.RecentLogs(id))
+			return withPeak(backendStoppedError(s.genMgr.RecentLogs(id)), peak)
 		}
-		return fmt.Errorf("the test generation failed: %w", runErr)
+		return withPeak(fmt.Errorf("the test generation failed: %w", runErr), peak)
 	}
 	if peak <= 0 {
 		return errors.New("no GPU memory use was seen during the test generation")
@@ -716,6 +772,9 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 	}
 	var fitErr error
 	inst, fitErr = s.applyMeasurement(inst, set, size, room, haveRoom)
+	if video && fitErr == nil {
+		inst.MeasuredDecodeFallback = mlog.decodeFallback()
+	}
 	if err := s.gen.UpdateInstance(inst); err != nil {
 		return err
 	}
@@ -922,6 +981,86 @@ func (s *Server) gpuReading(gpu int) func() (time.Time, int) {
 	}
 }
 
+// measureBusyPercent is the GPU use below which a measured run counts as
+// idle, and measureStuckAfter how long it may be idle with a silent log
+// before Measure stops it. A stuck tiled decode on ROCm sat at 3% with no
+// log line for 45 minutes (R9700, 2026-10-28); real work keeps the GPU far
+// busier, even while a long step or decode writes nothing.
+const (
+	measureBusyPercent = 10
+	measureStuckAfter  = 5 * time.Minute
+)
+
+// measureRunState is what a video measurement's sampler knows at one
+// reading. room is 0 when the run has no room to keep to.
+type measureRunState struct {
+	peak, room    int
+	rocm, spatial bool
+	sawBusy       bool
+	quiet         time.Duration
+	size, stage   string
+}
+
+// measureAbort says why a video measurement must be stopped now, or nil:
+// its peak has gone past the room (plus what the backend's own limit does
+// not count); on ROCm, sd.cpp has fallen back to a spatially tiled decode,
+// which hangs there; or the GPU has been idle with a silent log for
+// measureStuckAfter, after it was seen busy (so a card without a use
+// reading is never taken for stuck).
+func measureAbort(st measureRunState) error {
+	switch {
+	case st.room > 0 && st.peak > st.room+measureOverheadMiB:
+		return fmt.Errorf("%s needed more than %s %s, more than the %s this card can give the instance; measure a smaller size",
+			st.size, mibText(st.peak), st.stage, mibText(st.room))
+	case st.rocm && st.spatial:
+		return fmt.Errorf("%s did not fit for the decode, and sd.cpp's fallback (decoding in small tiles) can hang on Radeon cards, so the test was stopped (it reached %s); measure a smaller size, or with more room",
+			st.size, mibText(st.peak))
+	case st.sawBusy && st.quiet > measureStuckAfter:
+		return fmt.Errorf("the test video stopped making progress %s (the GPU was idle and the backend wrote nothing for %s; it reached %s). On Radeon cards sd.cpp's tiled decode can hang; measure a smaller size, or with more room",
+			st.stage, measureStuckAfter, mibText(st.peak))
+	}
+	return nil
+}
+
+// latestTime is the latest of ts.
+func latestTime(ts ...time.Time) time.Time {
+	var out time.Time
+	for _, t := range ts {
+		if t.After(out) {
+			out = t
+		}
+	}
+	return out
+}
+
+// withPeak adds the peak a failed test run reached to its error.
+func withPeak(err error, peak int) error {
+	if peak <= 0 {
+		return err
+	}
+	return fmt.Errorf("%w (it reached %s before it stopped)", err, mibText(peak))
+}
+
+// videoSizeText names a video size for a message, e.g. "81 frames at
+// 1280x704".
+func videoSizeText(size generation.VideoSize, set generation.ModelSet) string {
+	if size.Frames == 0 {
+		size = generation.VideoSize{Frames: set.DefaultFrames, Width: set.DefaultWidth, Height: set.DefaultHeight}
+	}
+	return fmt.Sprintf("%d frames at %dx%d", size.Frames, size.Width, size.Height)
+}
+
+// gpuBusyPercent is the monitor's current use reading for a GPU; ok is
+// false without one.
+func (s *Server) gpuBusyPercent(gpu int) (int, bool) {
+	for _, g := range s.monitor.Current().GPU {
+		if g.Index == gpu {
+			return g.UtilPercent, true
+		}
+	}
+	return 0, false
+}
+
 // gpuUsedMiB is the monitor's current used-VRAM reading for a GPU.
 func (s *Server) gpuUsedMiB(gpu int) int {
 	for _, g := range s.monitor.Current().GPU {
@@ -1053,9 +1192,19 @@ func runMeasureVideo(ctx context.Context, base string, set generation.ModelSet, 
 		size = generation.VideoSize{Frames: set.DefaultFrames, Width: set.DefaultWidth, Height: set.DefaultHeight}
 	}
 	w, h := max(size.Width, 64), max(size.Height, 64)
+	// One sampling step: memory peaks in the first step or in the decode,
+	// and the steps after it only take time (Wan2.2 TI2V 5B at 81 frames
+	// 1280x704 peaked the same with 1 step as with 20, in 166 s against
+	// 659 s; R9700, 2026-10-28). A pair runs one step on each expert, so
+	// both load; with two low-noise steps and one high-noise step,
+	// sd-server master-1015 made no video.
 	req := vidGenRequest{
 		Prompt: "a sunrise over a calm sea, slow camera pan", Width: w, Height: h, Seed: 42,
 		Frames: max(size.Frames, 1), FPS: max(set.DefaultFPS, 1), OutputFormat: "webm", Lora: setLoras(set),
+		Steps: 1,
+	}
+	if set.HasHighNoiseModel() {
+		req.HighNoiseSteps = 1
 	}
 	if canStart {
 		req.InitImage = base64.StdEncoding.EncodeToString(measurePicture(w, h, false))

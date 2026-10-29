@@ -279,3 +279,13 @@ func TestMadeSize(t *testing.T) {
 		t.Errorf("custom set 1000x600 made as %dx%d", w, h)
 	}
 }
+
+func TestHasHighNoiseModel(t *testing.T) {
+	for _, e := range Catalog() {
+		set := ModelSet{Components: e.Components}
+		want := e.ID == "wan22-i2v-a14b" || e.ID == "wan22-i2v-a14b-lightning"
+		if set.HasHighNoiseModel() != want {
+			t.Errorf("%s: HasHighNoiseModel = %v, want %v", e.ID, !want, want)
+		}
+	}
+}

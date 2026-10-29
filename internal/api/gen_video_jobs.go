@@ -444,10 +444,27 @@ func (s *Server) runVideoJob(ctx context.Context, id string, inst generation.Ins
 	if set, err := s.gen.ModelSet(inst.ModelSetID); err == nil {
 		width, height = set.MadeSize(width, height)
 	}
+	last := generation.LastVideo{Frames: res.Frames, Width: width, Height: height, Inputs: videoInputs(vid),
+		Seconds: int(time.Since(now).Round(time.Second).Seconds()), At: time.Now()}
+	if err := s.gen.EditInstance(inst.ID, func(i *generation.Instance) { i.LastVideo = last }); err != nil {
+		slog.Warn("could not record the video's time on its instance", "instance", inst.ID, "error", err)
+	}
 	finish(jobSucceeded, "", &videoJobVideo{
 		URL: "/v1/videos/jobs/" + id + "/video", MimeType: res.MimeType, Format: format,
 		Frames: res.Frames, FPS: res.FPS, Width: width, Height: height, Bytes: int64(len(res.Data)),
 	}, path)
+}
+
+// videoInputs names what a video was made from, for the instance row.
+func videoInputs(vid vidGenRequest) string {
+	switch {
+	case vid.EndImage != "":
+		return "start and end images"
+	case vid.InitImage != "":
+		return "a start image"
+	default:
+		return "text"
+	}
 }
 
 // cancelVideoJob asks a job to stop: a queued one leaves the queue at

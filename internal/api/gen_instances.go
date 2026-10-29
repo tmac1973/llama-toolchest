@@ -75,6 +75,29 @@ func (r genInstanceRow) ReservedGiB() float64  { return float64(r.ReservedMiB) /
 func (r genInstanceRow) PeakGiB() float64      { return float64(r.MeasuredPeakMiB) / 1024 }
 func (r genInstanceRow) SuggestedGiB() float64 { return float64(r.SuggestedMiB) / 1024 }
 
+// LastVideoTime is how long the instance's last video took, for the row,
+// e.g. "about 7 min"; empty before its first.
+func (r genInstanceRow) LastVideoTime() string {
+	return durationText(r.LastVideo.Seconds)
+}
+
+// durationText rounds seconds for a person: "about 45 s" under two
+// minutes, "about 11 min" up to two hours, then hours and minutes. Empty
+// for zero.
+func durationText(sec int) string {
+	switch {
+	case sec <= 0:
+		return ""
+	case sec < 120:
+		return fmt.Sprintf("about %d s", sec)
+	case sec < 2*3600:
+		return fmt.Sprintf("about %d min", (sec+30)/60)
+	default:
+		m := (sec + 30) / 60
+		return fmt.Sprintf("about %d h %d min", m/60, m%60)
+	}
+}
+
 // genPortsPublished reports whether a browser can reach the generation
 // backend ports. On the host it always can. A container publishes them
 // only when setup.sh was told to, and docker-compose.gen-ports.yml (or the
@@ -387,6 +410,7 @@ func (s *Server) genInstanceFromForm(r *http.Request, store *generation.Store, i
 	if inst.ModelSetID != set.ID || !slicesEqual(inst.ExtraArgs, args) || inst.BuildID != buildID || inst.GPU != gpu {
 		inst.ReservedMiB, inst.MeasuredPeakMiB, inst.MeasuredAt, inst.MeasureEstimated = 0, 0, time.Time{}, false
 		inst.MeasuredSuggestedMiB, inst.MeasuredFrames, inst.MeasuredWidth, inst.MeasuredHeight = 0, 0, 0, 0
+		inst.MeasuredDecodeFallback, inst.LastVideo = false, generation.LastVideo{}
 		s.genMeasure.clear(inst.ID)
 	}
 	inst.ModelSetID, inst.BuildID, inst.GPU, inst.ExtraArgs = set.ID, buildID, gpu, args
