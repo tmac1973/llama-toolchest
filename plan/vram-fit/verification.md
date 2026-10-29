@@ -227,3 +227,24 @@ base ones), and about 5 minutes at Short for the 720p sets.
 - **Before:** T2V 480p CFG-distilled at Full, measured right after another
   HunyuanVideo instance stopped, read 5.9 GiB.
 - **After:** the same measurement with the fix read 25.1 GiB.
+
+## Phase 04 (2026-10-29)
+
+**Setup:** asmodean, with the branch's binary in the toolchest container.
+Measure ran through the API. The dialog's data was read from the instance
+row's `data-video`, and the dialog was looked at in the browser. asmodean
+was put back afterwards.
+
+| Step | Result |
+|---|---|
+| LTX-2.3: Short, then Medium (whole room) | 18.4 GiB and 23.4 GiB. The dialog then predicted 28.8 GiB for Full, "close to the limit" |
+| LTX-2.3: Full | 26.3 GiB measured: the prediction was 2.5 GiB high (see the phase file) |
+| TI2V 5B: Short, then Medium (whole room) | Short 17.9 GiB. Medium was stopped at 30.3 GiB in the decode. The dialog: Medium "needed more than 30.3 GiB: will not fit", and Full "will not fit" |
+| TI2V 5B: Medium inside 14 GiB | Granted in 349 s, peak 10.6 GiB, decoded in smaller pieces. The row says "runs inside a 14.0 GiB budget", and sd-server ran with `--max-vram 14.0` |
+| TI2V 5B: a real Medium video inside the budget | 829 s, 81 frames. A frame looked right |
+| TI2V 5B: Full inside 14 GiB | Granted in 515 s, peak 11.8 GiB |
+| Dialog for TI2V afterwards | For the 14.0 GiB budget: Short "about 8.5 GiB predicted: fits"; Medium "measured 10.6 GiB: fits"; Full "measured 11.8 GiB: fits" |
+
+The reservation inside a budget came out at 12.0 and 13.5 GiB, below the
+14 GiB budget. The branch was changed afterwards to reserve at least the
+budget; unit tests cover it.

@@ -72,6 +72,14 @@ func TestLaunchSpecSD(t *testing.T) {
 	if got := strings.Join(cfg.Args, " "); !strings.Contains(got, "--max-vram 14.5") || strings.Contains(got, "--max-vram 10.0") {
 		t.Errorf("args %q, want --max-vram 14.5 instead of the reservation", got)
 	}
+
+	// An instance measured inside a budget runs inside it, not its
+	// (larger) reservation.
+	inst.BudgetMiB = 8192
+	cfg, _ = LaunchSpec(inst, mingSet(), build, "0.0.0.0", data, LaunchOptions{})
+	if got := strings.Join(cfg.Args, " "); !strings.Contains(got, "--max-vram 8.0") || strings.Contains(got, "--max-vram 10.0") {
+		t.Errorf("args %q, want --max-vram 8.0, the budget", got)
+	}
 }
 
 func TestLaunchSpecDeviceVariablePerProfile(t *testing.T) {

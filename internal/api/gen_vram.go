@@ -472,6 +472,9 @@ func measureNote(before int, inst generation.Instance, restarted, started bool) 
 		note += " (estimated from the whole GPU's use)"
 	}
 	note += ". "
+	if inst.BudgetMiB > 0 {
+		note += "Measured inside a budget of " + mibText(inst.BudgetMiB) + ", which sd-server keeps to from now on: it holds model weights in system RAM and decodes in smaller pieces as needed, so videos take longer. "
+	}
 	suggest := generation.SuggestReservation(inst.MeasuredPeakMiB)
 	capped := inst.MeasuredSuggestedMiB > 0 && inst.MeasuredSuggestedMiB < suggest
 	if inst.MeasuredSuggestedMiB > 0 {
@@ -545,13 +548,18 @@ func (s *Server) handleGenMeasure(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	budget, err := measureBudget(r, set)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	s.genMgr.SetMeasuring(inst.ID, true)
 	s.genMeasure.clear(inst.ID)
 	before, wasRunning := inst.ReservedMiB, s.genMgr.IsActive(inst.ID)
 	startAfter := r.FormValue("start") == "1"
 	go func() {
 		defer s.genMgr.SetMeasuring(inst.ID, false)
-		if err := s.measureInstance(inst.ID, startAfter, size); err != nil {
+		if err := s.measureInstance(inst.ID, startAfter, size, budget); err != nil {
 			slog.Warn("failed to measure a generation instance", "instance", inst.ID, "error", err)
 			s.genMeasure.set(inst.ID, measureOutcome{Err: err.Error(), At: time.Now()})
 			return
@@ -601,8 +609,10 @@ func (s *Server) canMeasure(inst generation.Instance) error {
 // its VRAM limit, run one fixed generation, record the peak, and set or
 // suggest a reservation. The instance is left as it was found: running
 // again (with its limit) if it was running, stopped otherwise. With
-// startAfter it is started afterwards either way.
-func (s *Server) measureInstance(id string, startAfter bool, size generation.VideoSize) error {
+// startAfter it is started afterwards either way. A video instance with a
+// budget (MiB, 0 for the whole room) is measured inside it, and runs
+// inside it afterwards.
+func (s *Server) measureInstance(id string, startAfter bool, size generation.VideoSize, budget int) error {
 	inst, err := s.gen.Instance(id)
 	if err != nil {
 		return err
@@ -647,6 +657,19 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 	if sdKind && haveRoom {
 		opts.MaxVRAMMiB = room
 	}
+	if budget > 0 {
+		if haveRoom && budget > room {
+			return fmt.Errorf("a budget of %s is more than the %s this card can give the instance; leave it empty to measure inside the whole room", mibText(budget), mibText(room))
+		}
+		opts.MaxVRAMMiB = budget
+	}
+	// The early stop compares the peak with the room, not the budget:
+	// sd.cpp goes a little past its budget, and the reservation may take
+	// the whole room.
+	limit := 0
+	if sdKind && haveRoom {
+		limit = room
+	}
 	if err := s.launchGenInstance(inst, set, opts); err != nil {
 		return err
 	}
@@ -664,8 +687,11 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 	var procPeak, gpuPeak, ramPeak int
 	var procOK bool
 	// abortErr is set when the sampler stops the backend itself: a video
-	// size that has gone past the room, or a run that is stuck.
+	// size that has gone past the room (abortOver, at abortPeak), or a run
+	// that is stuck.
 	var abortErr error
+	var abortPeak int
+	var abortOver bool
 	mlog := &measureLog{}
 	if logs := s.genMgr.Subscribe(id); logs != nil {
 		// Unsubscribing does not close the channel, so the reader also
@@ -711,15 +737,12 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 				if procOK {
 					peak = procPeak
 				}
-				room := 0
-				if sdKind && haveRoom {
-					room = opts.MaxVRAMMiB
-				}
 				abortErr = measureAbort(measureRunState{
-					peak: peak, room: room, sawBusy: sawBusy,
+					peak: peak, room: limit, sawBusy: sawBusy,
 					quiet: time.Since(latestTime(busyAt, mlog.lastLine(), started)), size: videoSizeText(size, set), stage: mlog.stage(),
 				})
 				if abortErr != nil {
+					abortPeak, abortOver = peak, limit > 0 && peak > limit+measureOverheadMiB
 					go s.genMgr.Stop(id)
 				}
 			}
@@ -747,6 +770,16 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 	// own reservation not fit.
 	waitGPUReleased(func() int { return s.gpuUsedMiB(inst.GPU) }, baseline, 20*time.Second, 500*time.Millisecond)
 	if abortErr != nil {
+		if abortOver {
+			// What this size needs is known to be more than the room: a
+			// point for predicting the sizes above it.
+			point := generation.MeasurePoint{Frames: size.Frames, Width: size.Width, Height: size.Height, PeakMiB: abortPeak, BudgetMiB: budget, Over: true}
+			if err := s.gen.EditInstance(id, func(i *generation.Instance) {
+				i.MeasurePoints = generation.AddMeasurePoint(i.MeasurePoints, point)
+			}); err != nil {
+				slog.Warn("could not record a measurement point", "instance", id, "error", err)
+			}
+		}
 		return abortErr
 	}
 	if runErr != nil {
@@ -776,9 +809,13 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 		haveRoom = false
 	}
 	var fitErr error
-	inst, fitErr = s.applyMeasurement(inst, set, size, room, haveRoom)
-	if video && fitErr == nil {
-		inst.MeasuredDecodeFallback = mlog.decodeFallback()
+	inst, fitErr = s.applyMeasurement(inst, set, size, budget, room, haveRoom)
+	if video {
+		inst.MeasurePoints = generation.AddMeasurePoint(inst.MeasurePoints, generation.MeasurePoint{
+			Frames: size.Frames, Width: size.Width, Height: size.Height, PeakMiB: peak, BudgetMiB: budget, Fallback: mlog.decodeFallback()})
+		if fitErr == nil {
+			inst.MeasuredDecodeFallback, inst.BudgetMiB = mlog.decodeFallback(), budget
+		}
 	}
 	if err := s.gen.UpdateInstance(inst); err != nil {
 		return err
@@ -813,7 +850,7 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 // suggestion that does not fit is not applied (a video instance keeps the
 // size it was last measured for), and an instance left with no
 // reservation is disabled; the error says why.
-func (s *Server) applyMeasurement(inst generation.Instance, set generation.ModelSet, size generation.VideoSize, room int, haveRoom bool) (generation.Instance, error) {
+func (s *Server) applyMeasurement(inst generation.Instance, set generation.ModelSet, size generation.VideoSize, budget, room int, haveRoom bool) (generation.Instance, error) {
 	// sd-server can go past --max-vram decoding a video (tiled decoding
 	// crashes for the Wan2.2 VAE, so the decode cannot shrink): a video
 	// size whose peak is over the room is not granted.
@@ -825,7 +862,11 @@ func (s *Server) applyMeasurement(inst generation.Instance, set generation.Model
 		}
 		return inst, err
 	}
-	suggest := generation.SuggestReservation(inst.MeasuredPeakMiB)
+	// Inside a budget the reservation is at least the budget: sd-server
+	// may use all of it on another video, though the test did not (TI2V
+	// 5B at 81 frames peaked at 10.6 GiB inside 14 GiB; R9700,
+	// 2026-10-29).
+	suggest := max(generation.SuggestReservation(inst.MeasuredPeakMiB), budget)
 	sdKind := set.Kind == generation.KindSD || set.Kind == generation.KindVideo
 	if sdKind && haveRoom {
 		suggest = capReservation(suggest, inst.MeasuredPeakMiB, room)
@@ -1146,6 +1187,25 @@ func measureTimeout(kind generation.BackendKind) time.Duration {
 	return 10 * time.Minute
 }
 
+// measureBudget reads the budget a video instance is to be measured
+// inside, from the form's budget_gib, in MiB: 0 (empty) for the whole
+// room. Image and music instances take none.
+func measureBudget(r *http.Request, set generation.ModelSet) (int, error) {
+	text := strings.TrimSpace(r.FormValue("budget_gib"))
+	if text == "" || set.Kind != generation.KindVideo {
+		return 0, nil
+	}
+	gib, err := strconv.ParseFloat(text, 64)
+	if err != nil || gib < minMeasureBudgetGiB {
+		return 0, fmt.Errorf("the budget must be a number of GiB, at least %d, or empty for the whole room", minMeasureBudgetGiB)
+	}
+	return int(gib * 1024), nil
+}
+
+// minMeasureBudgetGiB is the smallest budget Measure takes: below it even
+// small video models spend most of their time copying weights in.
+const minMeasureBudgetGiB = 4
+
 // videoMeasureSize reads the video size to measure from the form: frames,
 // width and height, within the model's limit (either orientation) and in
 // multiples of 8.
@@ -1304,7 +1364,9 @@ func (s *Server) handleGenSetReservation(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
-	inst.ReservedMiB = mib
+	// A reservation set by hand is sd-server's limit again: a budget
+	// chosen at Measure was for the reservation that Measure set.
+	inst.ReservedMiB, inst.BudgetMiB = mib, 0
 	if err := store.UpdateInstance(inst); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

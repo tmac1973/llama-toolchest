@@ -88,7 +88,7 @@ func TestApplyMeasurement(t *testing.T) {
 	// Capped: a peak just above the room (within the runtime allowance)
 	// gives a reservation equal to the room, and the instance stays enabled.
 	inst := generation.Instance{ID: "v", GPU: 0, Enabled: true, MeasuredPeakMiB: 14500}
-	got, err := s.applyMeasurement(inst, video, full, 14000, true)
+	got, err := s.applyMeasurement(inst, video, full, 0, 14000, true)
 	if err != nil || got.ReservedMiB != 14000 || got.MeasuredSuggestedMiB != 14000 || !got.Enabled {
 		t.Errorf("capped: %+v, %v", got, err)
 	}
@@ -98,7 +98,7 @@ func TestApplyMeasurement(t *testing.T) {
 
 	// A video re-measurement applies over an existing reservation.
 	inst = generation.Instance{ID: "v", GPU: 0, Enabled: true, ReservedMiB: 12288, MeasuredPeakMiB: 20000}
-	got, _ = s.applyMeasurement(inst, video, full, 28000, true)
+	got, _ = s.applyMeasurement(inst, video, full, 0, 28000, true)
 	if want := generation.SuggestReservation(20000); got.ReservedMiB != want {
 		t.Errorf("video re-measure: reservation %d, want %d", got.ReservedMiB, want)
 	}
@@ -110,7 +110,7 @@ func TestApplyMeasurement(t *testing.T) {
 	// suggestion for "Use suggested".
 	image := generation.ModelSet{Kind: generation.KindSD}
 	inst = generation.Instance{ID: "i", GPU: 0, Enabled: true, ReservedMiB: 10240, MeasuredPeakMiB: 15641}
-	got, _ = s.applyMeasurement(inst, image, generation.VideoSize{}, 14000, true)
+	got, _ = s.applyMeasurement(inst, image, generation.VideoSize{}, 0, 14000, true)
 	if got.ReservedMiB != 10240 || got.MeasuredSuggestedMiB != 14000 {
 		t.Errorf("image re-measure: %+v", got)
 	}
@@ -118,7 +118,7 @@ func TestApplyMeasurement(t *testing.T) {
 	// Music is never capped and records no suggestion of its own.
 	music := generation.ModelSet{Kind: generation.KindAce}
 	inst = generation.Instance{ID: "a", GPU: 0, Enabled: true, MeasuredPeakMiB: 7300}
-	got, _ = s.applyMeasurement(inst, music, generation.VideoSize{}, 0, false)
+	got, _ = s.applyMeasurement(inst, music, generation.VideoSize{}, 0, 0, false)
 	if got.ReservedMiB != generation.SuggestReservation(7300) || got.MeasuredSuggestedMiB != 0 {
 		t.Errorf("music: %+v", got)
 	}
@@ -217,7 +217,7 @@ func TestApplyMeasurementKeepsSizeWhenItDoesNotFit(t *testing.T) {
 	medium := generation.Instance{ID: "v", GPU: 0, Enabled: true, ReservedMiB: 8192, MeasuredSuggestedMiB: 8192,
 		MeasuredFrames: 81, MeasuredWidth: 1280, MeasuredHeight: 704, MeasuredPeakMiB: 30000}
 	// No room cap (no telemetry case), so the suggestion is far over what fits.
-	got, err := s.applyMeasurement(medium, video, generation.VideoSize{Frames: 121, Width: 1280, Height: 704}, 0, false)
+	got, err := s.applyMeasurement(medium, video, generation.VideoSize{Frames: 121, Width: 1280, Height: 704}, 0, 0, false)
 	if err == nil {
 		t.Fatal("a suggestion that does not fit was applied")
 	}
@@ -240,7 +240,7 @@ func TestApplyMeasurementRefusesVideoOverRoom(t *testing.T) {
 	// The R9700 Medium run: peak 30.6 GiB held to a 28.2 GiB room.
 	over := short
 	over.MeasuredPeakMiB = 31302
-	got, err := s.applyMeasurement(over, video, generation.VideoSize{Label: "Medium", Frames: 81, Width: 1280, Height: 704}, 28846, true)
+	got, err := s.applyMeasurement(over, video, generation.VideoSize{Label: "Medium", Frames: 81, Width: 1280, Height: 704}, 0, 28846, true)
 	if err == nil || !strings.Contains(err.Error(), "measure a smaller size") {
 		t.Fatalf("err = %v, want the size refused", err)
 	}
@@ -250,13 +250,13 @@ func TestApplyMeasurementRefusesVideoOverRoom(t *testing.T) {
 	// The A4000 Short run: peak 15.3 GiB held to 14.7 GiB, within the
 	// allowance.
 	a4000 := generation.Instance{ID: "v", GPU: 0, Enabled: true, MeasuredPeakMiB: 15641}
-	got, err = s.applyMeasurement(a4000, video, generation.VideoSize{Frames: 33, Width: 832, Height: 480}, 15062, true)
+	got, err = s.applyMeasurement(a4000, video, generation.VideoSize{Frames: 33, Width: 832, Height: 480}, 0, 15062, true)
 	if err != nil || got.ReservedMiB != 15062 || got.MeasuredFrames != 33 {
 		t.Errorf("A4000 Short: %+v, %v; want granted at the room", got, err)
 	}
 	// Image sets are still capped and granted.
 	image := generation.Instance{ID: "i", GPU: 0, Enabled: true, MeasuredPeakMiB: 31302}
-	if got, err := s.applyMeasurement(image, generation.ModelSet{Kind: generation.KindSD}, generation.VideoSize{}, 20000, true); err != nil || got.ReservedMiB != 20000 {
+	if got, err := s.applyMeasurement(image, generation.ModelSet{Kind: generation.KindSD}, generation.VideoSize{}, 0, 20000, true); err != nil || got.ReservedMiB != 20000 {
 		t.Errorf("image over the room: %+v, %v; want capped and granted", got, err)
 	}
 }

@@ -32,6 +32,9 @@
                 {{- if eq .Kind "video"}}
                 <small style="display:block;color:var(--pico-muted-color);" title="The largest video this instance will make: frames × width × height, in any shape. Larger requests are refused, because the reservation only covers what was measured. Measure at a larger size to allow longer videos.">
                     {{- if .LimitMeasured}}measured for up to {{.Limit.Frames}} frames at {{.Limit.Width}}×{{.Limit.Height}} ({{.Limit.Label}}){{else}}test size only: {{.Limit.Frames}} frames at {{.Limit.Width}}×{{.Limit.Height}}{{end}}</small>
+                {{- if .BudgetMiB}}
+                <small style="display:block;color:var(--pico-muted-color);cursor:help;" title="This instance was measured inside a budget smaller than the room on the card, and sd-server keeps to it: it holds model weights in system RAM and decodes in smaller pieces as needed, so videos take longer than with the whole room. Measure with the budget left empty to use the whole room again.">runs inside a {{printf "%.1f" .BudgetGiB}} GiB budget</small>
+                {{- end}}
                 {{- if .LastVideoTime}}
                 <small style="display:block;color:var(--pico-muted-color);cursor:help;" title="How long sd-server took to make this instance's last video, on {{.LastVideo.At.Format "2006-01-02 15:04"}}. Start and end images make a video slower, and the first video after the instance starts also loads the model.">last video: {{.LastVideo.Frames}} frames at {{.LastVideo.Width}}×{{.LastVideo.Height}} from {{.LastVideo.Inputs}}, {{.LastVideoTime}}</small>
                 {{- end}}

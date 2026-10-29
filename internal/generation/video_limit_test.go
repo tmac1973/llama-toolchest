@@ -91,3 +91,54 @@ func TestCatalogVideoPresets(t *testing.T) {
 		}
 	}
 }
+
+func TestAddMeasurePoint(t *testing.T) {
+	short := MeasurePoint{Frames: 33, Width: 832, Height: 480, PeakMiB: 18000}
+	var pts []MeasurePoint
+	pts = AddMeasurePoint(pts, short)
+	pts = AddMeasurePoint(pts, MeasurePoint{Frames: 33, Width: 832, Height: 480, PeakMiB: 18000, BudgetMiB: 14336})
+	pts = AddMeasurePoint(pts, MeasurePoint{Frames: 33, Width: 832, Height: 480, PeakMiB: 17500})
+	if len(pts) != 2 || pts[1].PeakMiB != 17500 || pts[0].BudgetMiB != 14336 {
+		t.Errorf("a new measurement of a size inside the same budget should replace the old one: %+v", pts)
+	}
+	for f := 1; f <= 10; f++ {
+		pts = AddMeasurePoint(pts, MeasurePoint{Frames: f, Width: 64, Height: 64, PeakMiB: f})
+	}
+	if len(pts) != maxMeasurePoints || pts[len(pts)-1].Frames != 10 {
+		t.Errorf("want the %d newest kept: %+v", maxMeasurePoints, pts)
+	}
+}
+
+func TestPredictPeak(t *testing.T) {
+	// LTX-2.3 on the R9700 (2026-10-27): Short 27.7 GiB, Medium 29.0 GiB;
+	// Full measured 29.7 GiB (30413 MiB). The line through Short and
+	// Medium gives about 30.4 GiB (31160 MiB): a little above, within
+	// 1.5 GiB.
+	short := MeasurePoint{Frames: 33, Width: 768, Height: 512, PeakMiB: 28365}
+	medium := MeasurePoint{Frames: 65, Width: 1280, Height: 720, PeakMiB: 29696}
+	full := VideoSize{Frames: 121, Width: 1280, Height: 720}
+	got, over, ok := PredictPeak([]MeasurePoint{short, medium}, full, 0)
+	if !ok || over || got < 31160-50 || got > 31160+50 || got-30413 > 1536 {
+		t.Errorf("PredictPeak = %d, %v, %v; want about 31160, within 1.5 GiB of the measured 30413", got, over, ok)
+	}
+	if _, _, ok := PredictPeak([]MeasurePoint{short}, full, 0); ok {
+		t.Error("predicted from one measurement")
+	}
+	if _, _, ok := PredictPeak([]MeasurePoint{short, medium}, full, 14336); ok {
+		t.Error("predicted inside a budget nothing was measured in")
+	}
+	tiled := medium
+	tiled.Fallback = true
+	if _, _, ok := PredictPeak([]MeasurePoint{short, tiled}, full, 0); ok {
+		t.Error("predicted across a decode that fitted only in smaller pieces")
+	}
+	// A size stopped for going past the room: it and anything larger will
+	// not fit, whatever the line says.
+	stopped := MeasurePoint{Frames: 65, Width: 1280, Height: 720, PeakMiB: 30106, Over: true}
+	if _, over, _ := PredictPeak([]MeasurePoint{short, stopped}, full, 0); !over {
+		t.Error("a size above one stopped for going past the room was not marked over")
+	}
+	if _, over, _ := PredictPeak([]MeasurePoint{short, stopped}, VideoSize{Frames: 49, Width: 832, Height: 480}, 0); over {
+		t.Error("a smaller size than the stopped one was marked over")
+	}
+}

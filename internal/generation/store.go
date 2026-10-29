@@ -98,6 +98,7 @@ func (m ModelSet) clone() ModelSet {
 func (inst Instance) clone() Instance {
 	inst.ExtraArgs = slices.Clone(inst.ExtraArgs)
 	inst.MeasuredArgs = slices.Clone(inst.MeasuredArgs)
+	inst.MeasurePoints = slices.Clone(inst.MeasurePoints)
 	return inst
 }
 

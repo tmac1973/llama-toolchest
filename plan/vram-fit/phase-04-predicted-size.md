@@ -3,6 +3,28 @@
 **Depends on:** Phase 01 (short Measure, times from the log) · **Enables:**
 nothing
 
+## What was built (2026-10-29)
+
+Built as written, with these changes:
+- **Points carry the decode and stopped runs.** `MeasurePoint` also notes
+  whether the decode fitted only in smaller pieces (`Fallback`). With that,
+  no line is drawn across two different kinds of decode. It also notes a
+  test stopped for going past the room (`Over`): that size, and any size
+  above it, "will not fit".
+- **A prediction alone never says "will not fit".** For LTX-2.3 the line ran
+  2.5 GiB high: 28.8 GiB predicted for Full against 26.3 GiB measured,
+  because its tiled decode stops growing with the length. That is outside
+  the 1.5 GiB in "Done when". A prediction past the limit says "may not fit,
+  measure to check".
+- **Inside a budget, the reservation is at least the budget.** TI2V Medium
+  inside 14 GiB peaked at only 10.6 GiB, but sd-server may use its whole
+  budget.
+- **The dialog shows the points of the budget the instance runs in,** and
+  says which budget that is.
+- **No time estimate.** Phase 01 found step times too uneven to estimate a
+  job from Measure. The row's last-video time is what shows how much slower
+  a smaller budget is.
+
 ## Goal
 
 Before running anything long, the user sees roughly what each video size

@@ -128,6 +128,8 @@ func LaunchSpec(inst Instance, set ModelSet, build builder.BuildResult, host, da
 		switch {
 		case opts.MaxVRAMMiB > 0:
 			args = append(args, "--max-vram", maxVRAMGiB(opts.MaxVRAMMiB))
+		case inst.BudgetMiB > 0:
+			args = append(args, "--max-vram", maxVRAMGiB(inst.BudgetMiB))
 		case inst.ReservedMiB > 0:
 			args = append(args, "--max-vram", maxVRAMGiB(inst.ReservedMiB))
 		}

@@ -368,8 +368,8 @@ func Catalog() []CatalogEntry {
 			Capabilities: []string{CapText, CapStartImage},
 			License:      "Apache-2.0",
 			Notes: "Text-to-video and image-to-video in one small model; 20 steps. On a Radeon AI PRO R9700 (32 GB), about 70 s for the 33-frame 832×480 Short size " +
-				"(reservation 20 GiB, with its text model on the CPU). Medium and Full need more memory than a 32 GB card can give: the decode alone needs more than the card has left, " +
-				"so Measure refuses them there; custom sizes between Short and Medium can be tried. On a 16 GB RTX A4000, Short works inside 14.7 GiB (about 75 s).",
+				"(reservation 20 GiB, with its text model on the CPU). Medium and Full need more memory than a 32 GB card can give with the whole room, " +
+				"but fit when measured inside a 14 GiB budget, where sd.cpp decodes in smaller pieces: about 14 minutes for a 3.4 s Medium video. On a 16 GB RTX A4000, Short works inside 14.7 GiB (about 75 s).",
 			// The test video is short and mid-sized so Measure finishes in
 			// minutes; the ceiling is the model's native size, 121 frames
 			// being 5 s at 24 fps.
@@ -388,7 +388,11 @@ func Catalog() []CatalogEntry {
 			// Measured 2026-10-29 with the one-step Measure: Short in 43 s;
 			// Medium stopped after 43 s, needing more than 29.4 GiB in the
 			// decode against a 28.2 GiB room.
-			FullMeasureTime: "On a Radeon AI PRO R9700, measuring Short took under a minute; Medium needed more memory than that 32 GB card could give, and Measure stopped it within a minute.",
+			// Inside a 14 GiB budget (2026-10-29), Medium measured in 349 s
+			// (peak 10.6 GiB) and Full in 515 s (11.8 GiB); a real Medium
+			// video took 829 s.
+			FullMeasureTime: "On a Radeon AI PRO R9700, measuring Short took under a minute. Medium and Full need more memory than that 32 GB card can give, " +
+				"but fit when measured inside a 14 GiB budget (about 9 minutes to measure Full).",
 			// The Wan2.2 VAE scales by 16 and the model patches by 2.
 			SizeMultiple: 32,
 		},
