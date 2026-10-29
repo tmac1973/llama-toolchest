@@ -624,7 +624,12 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 		// of a 28.5 GiB room that way (R9700, 2026-10-27).
 		waitGPUSettled(s.gpuReading(inst.GPU), stoppedAt, 20*time.Second, 500*time.Millisecond)
 	} else {
-		time.Sleep(2 * time.Second)
+		// Another backend on the card may have stopped just before, and
+		// still be giving its memory back: a baseline read then counts
+		// that memory as other programs', and the peak comes out far too
+		// low (HunyuanVideo 1.5 T2V measured 5.9 GiB at 121 frames right
+		// after another HunyuanVideo instance stopped; R9700, 2026-10-29).
+		waitGPUSettled(s.gpuReading(inst.GPU), time.Now(), 20*time.Second, 500*time.Millisecond)
 	}
 	baseline := s.gpuUsedMiB(inst.GPU)
 
