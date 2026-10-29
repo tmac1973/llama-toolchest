@@ -1100,7 +1100,7 @@ PublishPort=127.0.0.1:18081-18088:8081-8088" "$(generate_quadlet_app | grep -E '
         $':8088 {\n\ttls internal {\n\t\ton_demand\n\t}\n\tbasic_auth {\n\t\tadmin $2a$14$abc/def.ghi\n\t}\n\treverse_proxy llama-toolchest:8088\n}' \
         "$(sed -n '/^:8088 {/,/^}/p' "$cf")"
     check_true "secure gen: ACE-Step routes use the Bearer key" \
-        grep -q '@v1 path /v1 /v1/\* /release_task /query_result' "$cf"
+        grep -q '@v1 path /v1 /v1/\* /release_task /query_result /tts' "$cf"
     check_false "secure gen: no leftover token" grep -q '@@' "$cf"
 
     # The public range may not reach into the app's loopback ports.
