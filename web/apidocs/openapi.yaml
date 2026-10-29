@@ -1383,7 +1383,31 @@ components:
           type: array
           items:
             type: string
-            enum: [chat, embedding, tools, vision]
+            enum: [chat, embedding, tools, vision, audio, speech]
+          description: |
+            `vision`: reads images. `audio`: understands speech
+            (transcription, voice chat with `/v1/realtime`). `speech`: makes
+            speech with `/tts` or `/v1/realtime`. A text-to-speech-only
+            model has `speech` and no `chat`.
+        architecture:
+          type: object
+          description: |
+            What the model reads and makes, in the shape of llama-server's
+            own `/v1/models`, worked out from the model's files as
+            llama-server does before a model is loaded. A text-to-speech
+            model lists `audio` as an input too: it reads a voice sample to
+            copy.
+          properties:
+            input_modalities:
+              type: array
+              items:
+                type: string
+                enum: [text, image, audio]
+            output_modalities:
+              type: array
+              items:
+                type: string
+                enum: [text, audio]
         context_size:
           type: integer
           description: The whole context the server gives this model, shared by `parallel` conversations.

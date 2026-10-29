@@ -29,6 +29,13 @@ type GGUFMeta struct {
 	VocabSize     int  `json:"vocab_size,omitempty"`
 	SupportsTools bool `json:"supports_tools"` // chat template references tools
 	HasVision     bool `json:"has_vision"`     // model has a built-in vision encoder
+	// HasChatTemplate is whether the file has a tokenizer.chat_template.
+	// llama.cpp uses it to tell a text-to-speech model that can also chat
+	// (LFM3-Audio) from one that only speaks (Qwen3-TTS).
+	HasChatTemplate bool `json:"has_chat_template,omitempty"`
+	// Projector is what a projector (mmproj) file says its encoders do,
+	// from its clip.has_*_encoder keys. Zero for a model file.
+	Projector ProjectorCaps `json:"-"`
 	// PoolingType is {arch}.pooling_type: how llama.cpp turns the token
 	// vectors into one vector for the input (see the Pooling* constants).
 	// Converted embedding and reranking models carry it; chat models do
@@ -190,6 +197,7 @@ func (meta *GGUFMeta) ApplyTo(m *Model) {
 	}
 	m.SupportsTools = meta.SupportsTools
 	m.HasBuiltinVision = meta.HasVision
+	m.HasChatTemplate = meta.HasChatTemplate
 	m.PoolingType = meta.PoolingType
 	m.Embedding = meta.IsEmbedding()
 	m.Reasoning = meta.Reasoning
@@ -496,8 +504,15 @@ keys:
 				continue
 			}
 
+		case key == "clip.has_vision_encoder" || key == "clip.has_audio_encoder" || key == "clip.has_gen_audio_encoder":
+			if v, ok := readGGUFScalarInt(f, valueType); ok {
+				meta.Projector.set(key, v != 0)
+				continue
+			}
+
 		case key == "tokenizer.chat_template" && valueType == ggufTypeString:
 			if v, err := readGGUFString(f); err == nil {
+				meta.HasChatTemplate = true
 				meta.SupportsTools = strings.Contains(v, "tools")
 				meta.Reasoning = detectReasoning(v)
 				meta.ReasoningChecked = true

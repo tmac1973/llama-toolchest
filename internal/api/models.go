@@ -432,15 +432,15 @@ func (s *Server) renderModelCard(w http.ResponseWriter, m *models.Model, routerK
 
 	vramGB := models.BytesToGiB(m.SizeBytes) + 0.2
 	enabled := true
-	hasVision := m.HasBuiltinVision
 	gpuLabel := ""
 	var aliases []string
-	if cfg, err := s.registry.GetConfig(m.ID); err == nil {
+	cfg, err := s.registry.GetConfig(m.ID)
+	if err != nil {
+		cfg = nil
+	}
+	if cfg != nil {
 		vramGB = models.VRAMEstimateForConfigOn(m, cfg, models.DeviceCountForConfig(cfg, len(s.monitor.Current().GPU)))
 		enabled = cfg.Enabled
-		if cfg.MmprojPath != "" {
-			hasVision = true
-		}
 		if cfg.GPUAssign != "" && cfg.GPUAssign != "all" {
 			gpuLabel = models.GPUAssignLabel(cfg.GPUAssign)
 		}
@@ -464,7 +464,9 @@ func (s *Server) renderModelCard(w http.ResponseWriter, m *models.Model, routerK
 		PendingEnable:  pendingEnable,
 		PendingDisable: pendingDisable,
 		NeedsReload:    configChanged,
-		HasVision:      hasVision,
+		HasVision:      m.HasVision(cfg),
+		HasAudio:       m.UnderstandsAudio(cfg),
+		Speaks:         m.Speaks(cfg),
 		GPULabel:       gpuLabel,
 		ServiceState:   state,
 		VRAMGB:         vramGB,
@@ -496,6 +498,8 @@ type modelCardView struct {
 	PendingDisable bool
 	NeedsReload    bool
 	HasVision      bool
+	HasAudio       bool // understands speech
+	Speaks         bool // makes speech
 	GPULabel       string
 	ServiceState   string
 	VRAMGB         float64

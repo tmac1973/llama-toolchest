@@ -153,6 +153,7 @@ type Model struct {
 	VocabChecked     bool `json:"vocab_checked,omitempty"`
 	SupportsTools    bool `json:"supports_tools,omitempty"`     // chat template handles tools
 	HasBuiltinVision bool `json:"has_builtin_vision,omitempty"` // vision encoder baked into model
+	HasChatTemplate  bool `json:"has_chat_template,omitempty"`  // file has tokenizer.chat_template
 	// Embedding records that the GGUF file describes an embedding model
 	// (see GGUFMeta.IsEmbedding), and PoolingType is the file's
 	// {arch}.pooling_type. Both are zero on records read before parser
@@ -925,7 +926,9 @@ func (r *Registry) ListNeedingPresetFetch() []string {
 //	    (RecurrentStateBytes), read from the ssm.* keys.
 //	8 — embedding models recognized from the file ({arch}.pooling_type
 //	    and the encoder architectures) rather than only by name.
-const GGUFMetaVersion = 8
+//	9 — whether the file has a chat template (HasChatTemplate), so a
+//	    text-to-speech model that cannot chat is told apart.
+const GGUFMetaVersion = 9
 
 // BackfillGGUFMeta re-reads GGUF metadata for records written by an older
 // parser, in one pass at startup.
@@ -1384,19 +1387,14 @@ func (m *Model) IsEmbedding() bool {
 	return m.Embedding || IsEmbeddingModel(m.ModelID) || IsEmbeddingModel(m.ID)
 }
 
-// HasVision reports whether the model can accept images — either built-in
-// or via a configured mmproj projector.
-func (m *Model) HasVision(cfg *ModelConfig) bool {
-	return m.HasBuiltinVision || (cfg != nil && cfg.MmprojPath != "")
-}
-
 // Capabilities returns the capability list for a model: "chat" or
-// "embedding", plus "tools" and "vision" when supported.
+// "embedding" (neither for a model that only speaks), plus "tools",
+// "vision", "audio" and "speech" when supported (see projector.go).
 func (m *Model) Capabilities(cfg *ModelConfig) []string {
 	var caps []string
 	if m.IsEmbedding() {
 		caps = append(caps, "embedding")
-	} else {
+	} else if m.CanChat(cfg) {
 		caps = append(caps, "chat")
 	}
 	if m.SupportsTools {
@@ -1404,6 +1402,12 @@ func (m *Model) Capabilities(cfg *ModelConfig) []string {
 	}
 	if m.HasVision(cfg) {
 		caps = append(caps, "vision")
+	}
+	if m.UnderstandsAudio(cfg) {
+		caps = append(caps, "audio")
+	}
+	if m.Speaks(cfg) {
+		caps = append(caps, "speech")
 	}
 	return caps
 }

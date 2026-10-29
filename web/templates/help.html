@@ -210,8 +210,9 @@
         <li>The list is kept for six hours, or until the GPUs or build change; <em>Refresh</em> asks again.</li>
     </ul>
 
-    <h3>Vision models</h3>
-    <p>Many vision models need a separate <strong>mmproj</strong> file from the same repo. Download it from the file list as well; once it is in the model's folder, Configure picks it up. Models with built-in vision show <em>Vision: Built-in</em>.</p>
+    <h3>Vision and audio models</h3>
+    <p>Many vision models need a separate <strong>mmproj</strong> (projector) file from the same repo. Download it from the file list as well; once it is in the model's folder, Configure picks it up. Models with built-in vision show <em>Vision: Built-in</em>.</p>
+    <p>Audio models use a projector file too. Toolchest reads from it what the model can do and shows it as badges: <em>vision</em> reads images, <em>audio</em> understands speech (transcription, live voice with <code>/v1/realtime</code>), <em>speech</em> speaks (<code>/tts</code>). A model that only speaks, such as Qwen3-TTS, has no chat; it is left out of the agent configs. The audio routes need llama.cpp v0.8.0 or newer.</p>
 
     <h2 id="benchmarks">Benchmarks</h2>
     <p>A <strong>job</strong> runs every combination of the chosen models, builds and presets. Each result records the build flags, settings and GPU state, so it stays meaningful after you change things. A job never changes your saved model settings.</p>
