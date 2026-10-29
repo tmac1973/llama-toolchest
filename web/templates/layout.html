@@ -750,6 +750,14 @@
             --pico-form-element-spacing-vertical: 0.3rem;
             --pico-form-element-spacing-horizontal: 0.5rem;
         }
+        /* On a very wide window the grid columns grow past 1200px. Chrome
+           will not open a select's option list that wide: it narrows the
+           list and scrolls it sideways, which cuts off the start of every
+           option. Keep selects narrow enough for the list to fit. */
+        .model-card-config select {
+            display: block;
+            max-width: 40rem;
+        }
         .model-card-config input[type="checkbox"][role="switch"] {
             height: 1.1rem;
         }
