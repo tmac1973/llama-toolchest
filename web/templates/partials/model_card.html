@@ -94,6 +94,15 @@
                     {{.Autotune.ButtonLabel}}
                 </button>
                 {{end}}
+                {{if .CanUpdate}}
+                <button type="button" class="outline"
+                        title="Check whether the repository has a newer version of this model's files. Nothing is downloaded until you confirm."
+                        hx-post="/api/models/{{.ID}}/update/check"
+                        hx-target="#update-{{cssID .ID}}"
+                        hx-swap="innerHTML">
+                    Update
+                </button>
+                {{end}}
                 <button type="button" class="outline secondary"
                         onclick="this.closest('.model-card').querySelector('.remove-dialog').showModal();">
                     Remove
@@ -142,6 +151,7 @@
         </small>
     </p>
     {{end}}
+    <div class="model-card-config" id="update-{{cssID .ID}}"></div>
     <div class="model-card-config" id="autoconfig-{{cssID .ID}}"></div>
     <div class="model-card-config" id="autotune-{{cssID .ID}}"></div>
     <div class="model-card-config" id="model-config-{{cssID .ID}}"></div>

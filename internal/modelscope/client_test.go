@@ -229,3 +229,26 @@ func TestURLs(t *testing.T) {
 		t.Errorf("ModelURL of a malformed id = %q, want empty", got)
 	}
 }
+
+// RepoFiles lists every file, not only GGUFs, with its SHA-256.
+func TestRepoFilesKeepsHashes(t *testing.T) {
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"Code":200,"Success":true,"Data":{"Files":[
+			{"Name":"Q8_0","Path":"Q8_0","Type":"tree"},
+			{"Name":"m.gguf","Path":"Q8_0/m.gguf","Size":99,"Type":"blob","Sha256":"f00d"},
+			{"Name":"README.md","Path":"","Size":10,"Type":"blob","Sha256":"beef"}]}}`))
+	})
+	files, err := c.RepoFiles(context.Background(), "org/m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("got %d files, want 2: %+v", len(files), files)
+	}
+	if f := files[0]; f.Path != "Q8_0/m.gguf" || f.SHA256 != "f00d" || f.Size != 99 {
+		t.Errorf("model file = %+v", f)
+	}
+	if files[1].Path != "README.md" {
+		t.Errorf("a file with no Path takes its Name, got %q", files[1].Path)
+	}
+}

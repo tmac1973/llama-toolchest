@@ -12,6 +12,7 @@ import (
 
 	"github.com/tmac1973/llama-toolchest/internal/builder"
 	"github.com/tmac1973/llama-toolchest/internal/config"
+	"github.com/tmac1973/llama-toolchest/internal/filehash"
 	"github.com/tmac1973/llama-toolchest/internal/generation"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/monitor"
@@ -50,6 +51,8 @@ func newTestServer(t *testing.T) *Server {
 		monitor:     monitor.New(time.Hour),
 		process:     process.NewManager(),
 		dirtyModels: map[string]bool{},
+		hashes:      filehash.Open(filepath.Join(dir, "cache", "file-hashes.json")),
+		updates:     map[string]*modelUpdate{},
 		// No ROCm installs unless a test says otherwise, so results do not
 		// depend on what the machine running the tests has.
 		rocmInstallsFn: func() []builder.ROCmInstall { return nil },

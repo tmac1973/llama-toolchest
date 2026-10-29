@@ -423,3 +423,26 @@ func TestSearchAndGetModelUseAPIBase(t *testing.T) {
 		t.Errorf("test server saw %v, want the search, model and tree requests", paths)
 	}
 }
+
+// RepoFiles keeps the LFS SHA-256 and leaves the hash empty for a plain
+// git file, whose oid is a git blob SHA-1 rather than a content hash.
+func TestRepoFilesTakesTheLFSHash(t *testing.T) {
+	c, _ := newHFCFake(t, "", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`[{"type":"file","path":"README.md","size":10,"oid":"abc"},
+		                 {"type":"directory","path":"Q8_0","size":0,"oid":"def"},
+		                 {"type":"file","path":"Q8_0/m.gguf","size":99,"oid":"ghi","lfs":{"oid":"f00d","size":99}}]`))
+	})
+	files, err := c.RepoFiles(context.Background(), "org/m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("got %d files, want 2 (folder left out): %+v", len(files), files)
+	}
+	if files[0].SHA256 != "" {
+		t.Errorf("README.md hash = %q, want empty", files[0].SHA256)
+	}
+	if f := files[1]; f.Path != "Q8_0/m.gguf" || f.Size != 99 || f.SHA256 != "f00d" {
+		t.Errorf("model file = %+v", f)
+	}
+}

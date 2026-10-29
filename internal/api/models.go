@@ -473,6 +473,7 @@ func (s *Server) renderModelCard(w http.ResponseWriter, m *models.Model, routerK
 		SearchText:     searchText,
 		CanAutoconfig:  !m.IsEmbedding() && !isOrphan && !isIncomplete,
 	}
+	_, data.CanUpdate = s.updateTargets(m)
 	// nil in the render tests, which build a server without the store.
 	var latest *autotune.Autotune
 	if s.tuneStore != nil {
@@ -502,6 +503,9 @@ type modelCardView struct {
 	ResumeFilename string
 	SearchText     string
 	CanAutoconfig  bool
+	// CanUpdate is set for a model downloaded from a repository, which
+	// the Update button can check against it.
+	CanUpdate bool
 	// Autotune is the state of this model's latest autotune run, so a
 	// finished run is visible on the card rather than only behind the
 	// button that started it.

@@ -150,6 +150,7 @@
         <dt>VRAM Est.</dt><dd><em>Base</em> is the weights; <em>peak</em> adds the full KV cache at the configured context.</dd>
         <dt>Downloads card</dt><dd>One row per download: <em>Pause</em>, <em>Resume</em> or <em>Discard</em> (deletes the partial files). Interrupted downloads come back paused after a restart.</dd>
         <dt><code>incomplete</code>, orphan</dt><dd>An unfinished download, or a GGUF missing from disk. Neither can be enabled.</dd>
+        <dt>Update</dt><dd>Checks the model's files against its repository on HuggingFace or ModelScope, for when a publisher uploads a fixed version under the same name. It compares SHA-256 checksums and lists the changed files: the model, its shards, and its vision projector and MTP head when they come from the same repository. Nothing downloads until you confirm, and then only the changed files do. A file downloaded before this check existed is read once to work out its checksum, which takes about a minute per 20 GB. Each new file replaces the old one only when it is complete and matches the repository's checksum. A loaded model keeps the old files until the server restarts (&#x21bb;). If an update is paused, click Update again to continue it.</dd>
         <dt>Remove</dt><dd><em>Keep Files</em> or <em>Delete Files</em>.</dd>
     </dl>
 
