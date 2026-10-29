@@ -184,3 +184,15 @@ func TestRunArgs(t *testing.T) {
 		t.Errorf("set from a removed catalog entry runs with %q, want its own flags", got)
 	}
 }
+
+func TestCatalogTextEncodersOnCPU(t *testing.T) {
+	for _, e := range Catalog() {
+		if e.Kind != KindSD && e.Kind != KindVideo {
+			continue
+		}
+		args := strings.Join(e.LaunchArgs, " ")
+		if want := e.ID != "sdxl-base"; strings.Contains(args, "--backend te=cpu") != want {
+			t.Errorf("%s: --backend te=cpu in its flags is %v, want %v", e.ID, !want, want)
+		}
+	}
+}

@@ -656,7 +656,7 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 	// samples before that have no per-process entry yet. The whole-GPU
 	// figure is used only when no sample had one (Vulkan, or PIDs hidden
 	// in a container).
-	var procPeak, gpuPeak int
+	var procPeak, gpuPeak, ramPeak int
 	var procOK bool
 	// abortErr is set when the sampler stops the backend itself: a video
 	// size that has gone past the room, or a run that is stuck.
@@ -695,8 +695,12 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 		defer tick.Stop()
 		started, busyAt, sawBusy := time.Now(), time.Now(), false
 		for {
-			if mib, ok := monitor.ProcessVRAMMiB(s.genMgr.PID(id)); ok {
+			pid := s.genMgr.PID(id)
+			if mib, ok := monitor.ProcessVRAMMiB(pid); ok {
 				procPeak, procOK = max(procPeak, mib), true
+			}
+			if mib, ok := monitor.ProcessPeakRAMMiB(pid); ok {
+				ramPeak = max(ramPeak, mib)
 			}
 			gpuPeak = max(gpuPeak, s.gpuUsedMiB(inst.GPU)-baseline)
 			if busy, ok := s.gpuBusyPercent(inst.GPU); ok && busy >= measureBusyPercent {
@@ -763,6 +767,7 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 		return err
 	}
 	inst.MeasuredPeakMiB, inst.MeasuredAt, inst.MeasureEstimated = peak, time.Now(), !perProcess
+	inst.MeasuredArgs, inst.MeasuredRAMMiB = runArgs(set, inst), ramPeak
 	// The room is worked out again now the backend has stopped: other
 	// programs on the card may have grown during a long test run.
 	if sdKind {
@@ -1020,6 +1025,12 @@ func measureAbort(st measureRunState) error {
 			st.stage, measureStuckAfter, mibText(st.peak))
 	}
 	return nil
+}
+
+// runArgs are the backend flags an instance runs with: its set's, then
+// its own extra ones.
+func runArgs(set generation.ModelSet, inst generation.Instance) []string {
+	return append(slices.Clone(set.RunArgs()), inst.ExtraArgs...)
 }
 
 // latestTime is the latest of ts.

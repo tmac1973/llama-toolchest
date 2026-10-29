@@ -302,6 +302,9 @@
         <li><strong>Reservations are planned, not held.</strong> The LLM planner leaves them free (after a margin of 1 GiB or 8% of the card), and LLM loads that would crowd one out are refused: HTTP 507 from the API, an error from <em>Load</em>, benchmarks, Autotune and Autoconfigure. An enabled instance keeps its reservation while stopped.</li>
         <li><strong>llama-server's own chat page</strong> (port 8080) loads models without asking llama-toolchest, so it is not checked. On a GPU with reservations, load models from the Models page or the API.</li>
         <li>sd-server is held to its reservation; ace-server's is a planning figure. sd-server keeps part of a set in system RAM on a smaller card, so measure on the card you will use.</li>
+        <li>Every catalog image and video set except SDXL runs its text encoder on the CPU (<code>--backend te=cpu</code>). On the R9700 this saved 3–5 GiB on each image set at no cost, and 5.7 GiB (TI2V 5B) and 9 GiB (LTX-2.3) on video, for 13–16 s a video. Wan2.2 A14B saves nothing at its full reservation, because sd.cpp already drops its encoder from GPU memory before sampling. A custom set can do the same by adding <code>--backend te=cpu</code> to its launch arguments.</li>
+        <li>An instance row shows how much system RAM the backend used while it was measured: the text encoder, and any weights sd.cpp kept in RAM. Other programs need that RAM too.</li>
+        <li>An instance measured before its set's settings changed says <em>Measured with older settings</em>. Measure it again: it may need less memory now.</li>
         <li><strong>Example, one 32 GB R9700:</strong> Ming-Image fits beside Qwen-Image Turbo or ACE-Step XL, not both. With Qwen-Image Turbo and ACE-Step XL, about 8.6 GiB is left for an LLM.</li>
     </ul>
 

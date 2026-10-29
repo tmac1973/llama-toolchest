@@ -53,6 +53,9 @@ type genInstanceRow struct {
 	Limit         generation.VideoSize `json:"video_limit,omitzero"`
 	LimitMeasured bool                 `json:"video_limit_measured,omitempty"`
 	VideoJSON     string               `json:"-"`
+	// MeasuredStale is true when the last measurement ran with other
+	// backend flags than the instance has now (see measuredStale).
+	MeasuredStale bool `json:"measured_stale,omitempty"`
 	// SuggestedMiB is the reservation the last measurement suggests; 0
 	// before any measurement.
 	SuggestedMiB int `json:"suggested_mib,omitempty"`
@@ -74,6 +77,25 @@ type genInstanceRow struct {
 func (r genInstanceRow) ReservedGiB() float64  { return float64(r.ReservedMiB) / 1024 }
 func (r genInstanceRow) PeakGiB() float64      { return float64(r.MeasuredPeakMiB) / 1024 }
 func (r genInstanceRow) SuggestedGiB() float64 { return float64(r.SuggestedMiB) / 1024 }
+
+// RAMGiB is the most system RAM the backend held during its last
+// measurement.
+func (r genInstanceRow) RAMGiB() float64 { return float64(r.MeasuredRAMMiB) / 1024 }
+
+// measuredStale says an instance's last measurement ran with other backend
+// flags than it has now, so its reservation may no longer fit what it
+// needs: a catalog set's flags changed after it was measured. An sd-server
+// catalog instance measured before measurements kept their flags counts as
+// stale too: the catalog moved its text encoders to the CPU since.
+func measuredStale(inst generation.Instance, set generation.ModelSet) bool {
+	if inst.MeasuredPeakMiB == 0 {
+		return false
+	}
+	if inst.MeasuredArgs == nil {
+		return set.CatalogID != "" && (set.Kind == generation.KindSD || set.Kind == generation.KindVideo)
+	}
+	return !slicesEqual(inst.MeasuredArgs, runArgs(set, inst))
+}
 
 // LastVideoTime is how long the instance's last video took, for the row,
 // e.g. "about 7 min"; empty before its first.
@@ -197,6 +219,7 @@ func (s *Server) genInstanceRows(store *generation.Store) []genInstanceRow {
 		if o := s.genMeasure.get(inst.ID); !row.Measuring {
 			row.MeasureNote, row.MeasureError, row.MeasureAt = o.Note, o.Err, o.At
 		}
+		row.MeasuredStale = measuredStale(inst, sets[inst.ModelSetID])
 		if inst.MeasuredPeakMiB > 0 {
 			row.SuggestedMiB = generation.SuggestReservation(inst.MeasuredPeakMiB)
 			if inst.MeasuredSuggestedMiB > 0 {
@@ -411,6 +434,7 @@ func (s *Server) genInstanceFromForm(r *http.Request, store *generation.Store, i
 		inst.ReservedMiB, inst.MeasuredPeakMiB, inst.MeasuredAt, inst.MeasureEstimated = 0, 0, time.Time{}, false
 		inst.MeasuredSuggestedMiB, inst.MeasuredFrames, inst.MeasuredWidth, inst.MeasuredHeight = 0, 0, 0, 0
 		inst.MeasuredDecodeFallback, inst.LastVideo = false, generation.LastVideo{}
+		inst.MeasuredArgs, inst.MeasuredRAMMiB = nil, 0
 		s.genMeasure.clear(inst.ID)
 	}
 	inst.ModelSetID, inst.BuildID, inst.GPU, inst.ExtraArgs = set.ID, buildID, gpu, args
