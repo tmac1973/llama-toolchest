@@ -26,6 +26,12 @@ type Target struct {
 	// WholeGPUMiB is GPUMiB with the reservations auto-evict may take back
 	// given to the model (CardRoom.Whole); nil when it may take none.
 	WholeGPUMiB []int
+	// NgramCacheDir is where models using the N-gram Cache method keep
+	// what they learned between loads (lookup-cache-dynamic), one file per
+	// model. Set only for the user's preset: a benchmark preset leaves it
+	// "", so measurements start from an empty cache and do not add their
+	// prompts to it.
+	NgramCacheDir string
 }
 
 // Room is t's CardRoom.
@@ -72,6 +78,11 @@ const (
 	// versionDraftUBatch is b11630 (#30459), which added
 	// --spec-draft-n-ubatch.
 	versionDraftUBatch = 11630
+	// versionNgramCacheSave is b11758 (#22055): from it llama-server
+	// writes --lookup-cache-dynamic when the model is unloaded. Before, a
+	// path that did not exist stopped the load, and the file was never
+	// written.
+	versionNgramCacheSave = 11758
 )
 
 // newest reports whether the target is to be written for as current
@@ -119,6 +130,10 @@ func (t Target) DraftSamplingOption() bool { return t.newest(versionDraftSamplin
 
 // DraftUBatchOption reports whether the build takes --spec-draft-n-ubatch.
 func (t Target) DraftUBatchOption() bool { return t.newest(versionDraftUBatch) }
+
+// NgramCacheFileOption reports whether the build keeps the N-gram Cache
+// method's learned n-grams in a file between loads.
+func (t Target) NgramCacheFileOption() bool { return t.newest(versionNgramCacheSave) }
 
 // MoECacheOption is moeCacheOption for the config form and Autotune.
 func (t Target) MoECacheOption() bool { return t.moeCacheOption() }
