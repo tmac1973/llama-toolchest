@@ -98,3 +98,33 @@ uses the free VRAM). Video sets at Short with 1 step.
 
 The output files were deleted from the container afterwards. Toolchest's
 instances were not started, stopped or changed.
+
+## Phase 01 (PR #414, 2026-10-29)
+
+**Setup:** asmodean, with the branch's binary swapped into the toolchest
+container. Each run is toolchest's own Measure through the API; the jobs are
+real video jobs through `/v1/videos/generations`, with start and end images
+where the set takes them. Afterwards the original binary and
+`generation.json` were put back, the test instances deleted and the test
+videos removed.
+
+| Set and size | Measure | Result | Real job |
+|---|---|---|---|
+| TI2V 5B Short | 43 s (80 s before) | granted, peak 23.5 GiB | 68 s |
+| TI2V 5B Medium | stopped after 43 s (674 s before) | needed more than 29.4 GiB in the decode; room 28.2 GiB | — |
+| LTX-2.3 Medium | 93 s | granted, peak 29.0 GiB | 409 s |
+| LTX-2.3 Full | stopped after 153 s | 29.3 GiB during sampling; room 28.2 GiB | — |
+| A14B Short | 123 s (1,658 s before) | granted, peak 27.3 GiB | 1,650 s |
+| A14B Lightning Short | 83 s (about 3 min before) | granted, peak 28.6 GiB | 200 s |
+
+- **LTX-2.3 Full** was granted on 2026-10-27, with a 29.7 GiB peak in a
+  28.8 GiB room. It is at the card's edge, and Phase 02's text encoder on the
+  CPU should leave it plenty of room.
+- **Uneven step times.** The real LTX-2.3 Medium job's step times were 136.6,
+  119.2, then 18.0–21.7 s. That is why the time estimate was dropped.
+- **A14B with two low-noise steps.** An A14B Measure with two low-noise steps
+  and one high-noise step failed in sd-server: "generate_video returned no
+  results".
+- **Not triggered live:** the stuck-run and ROCm spatial-fallback stops (unit
+  tests only).
+- **Not checked:** the A4000.

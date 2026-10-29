@@ -102,10 +102,10 @@ Where the prediction can be wrong:
    small for even the temporally tiled decode makes sd.cpp fall back to
    spatial tiling, which hung on ROCm (A14B inside 14 GiB, 2026-10-28).
    Phase 01's stuck-run check stops it, and the dialog's tooltip warns that a
-   budget below what the decode needs may not work on Radeon cards. The result
-   shows the time estimate next to the one measured with the whole room, when
-   there is one: "inside 14 GiB: about 14 min a video; with the whole room:
-   about 11 min".
+   budget below what the decode needs may not work on Radeon cards. Measure
+   cannot say how much slower the smaller budget makes a job (Phase 01 found
+   step times too uneven to estimate). The instance row's last-video time
+   shows it once a real video has been made.
 
 6. **Help.** Explain the two parts of a peak, what a prediction can and cannot
    say, and why a smaller budget is slower (weights in system RAM, frames
@@ -117,6 +117,6 @@ Where the prediction can be wrong:
   within 1.5 GiB of a Full measurement inside the same budget.
 - On LTX-2.3 (temporal tiling), the Full prediction from Short and Medium is
   within 1.5 GiB of the measured Full.
-- TI2V measured inside 14 GiB is granted Medium, and its time estimate is
-  within 15% of a real job inside that reservation.
+- TI2V measured inside 14 GiB is granted Medium, and a real Medium video
+  inside that reservation finishes.
 - `go test ./...` and the JS tests pass.

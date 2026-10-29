@@ -4,6 +4,24 @@
 quickly), Phase 03 (measuring seven new sets), Phase 04 (two quick
 measurements for a prediction)
 
+## What was built (PR #414, 2026-10-29)
+
+The phase was built as written below, with one change: **Measure does not
+estimate a whole job's time.**
+- **Step times vary too much.** LTX-2.3's first two steps with start and end
+  images took 120–137 s each, and the other six 18–22 s.
+- **Two steps did not help.** A two-step test said 17 minutes for a job that
+  took 409 s.
+- **A14B could not run two steps.** sd-server made no video for an A14B pair
+  given two low-noise steps and one high-noise step.
+
+So Measure runs one step on each expert, as planned. Instead of an estimate,
+each finished video job records its size, inputs and time on the instance
+(`Instance.LastVideo`), and the row shows the last one. `measureLog` keeps
+only the stage, the fallback lines and the time of the last line.
+`MeasuredJobSeconds`, `measureLogTimes` and `SetSteps` were not added.
+Steps 3 and 6 below, and the estimate in "Done when", are replaced by this.
+
 ## Goal
 
 Measuring a video set takes minutes, and a size that cannot fit is found out
