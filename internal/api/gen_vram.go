@@ -493,9 +493,6 @@ func measureNote(before int, inst generation.Instance, restarted, started bool) 
 	default:
 		note += "Reservation stays at " + mibText(before) + "; this measurement suggests " + mibText(suggest) + "."
 	}
-	if t := durationText(inst.MeasuredJobSeconds); t != "" {
-		note += " A video this size takes " + t + "."
-	}
 	if inst.MeasuredDecodeFallback {
 		note += " The decode did not fit at once, so sd.cpp decoded a few frames at a time, which is slower."
 	}
@@ -776,13 +773,6 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 	var fitErr error
 	inst, fitErr = s.applyMeasurement(inst, set, size, room, haveRoom)
 	if video && fitErr == nil {
-		// The test ran one step per expert; a full video runs the set's.
-		measured := 1
-		if set.HasHighNoiseModel() {
-			measured = 2
-		}
-		steps, high, _ := generation.SampleSteps(append(slices.Clone(set.RunArgs()), inst.ExtraArgs...))
-		inst.MeasuredJobSeconds = mlog.jobSeconds(measured, steps+high)
 		inst.MeasuredDecodeFallback = mlog.decodeFallback()
 	}
 	if err := s.gen.UpdateInstance(inst); err != nil {
@@ -1206,7 +1196,8 @@ func runMeasureVideo(ctx context.Context, base string, set generation.ModelSet, 
 	// and the steps after it only take time (Wan2.2 TI2V 5B at 81 frames
 	// 1280x704 peaked the same with 1 step as with 20, in 166 s against
 	// 659 s; R9700, 2026-10-28). A pair runs one step on each expert, so
-	// both load.
+	// both load; with two low-noise steps and one high-noise step,
+	// sd-server master-1015 made no video.
 	req := vidGenRequest{
 		Prompt: "a sunrise over a calm sea, slow camera pan", Width: w, Height: h, Seed: 42,
 		Frames: max(size.Frames, 1), FPS: max(set.DefaultFPS, 1), OutputFormat: "webm", Lora: setLoras(set),

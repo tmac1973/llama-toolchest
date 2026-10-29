@@ -129,6 +129,24 @@ func TestAssignPort(t *testing.T) {
 	}
 }
 
+func TestEditInstance(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Load(dir)
+	_ = s.AddModelSet(testSet("a"))
+	_ = s.AddInstance(Instance{ID: "x", ModelSetID: "a", Port: 8081, ReservedMiB: 1024})
+	if err := s.EditInstance("x", func(i *Instance) { i.LastVideo = LastVideo{Frames: 33, Seconds: 68} }); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, _ := Load(dir)
+	got, err := reloaded.Instance("x")
+	if err != nil || got.LastVideo.Seconds != 68 || got.ReservedMiB != 1024 {
+		t.Errorf("after EditInstance and reload: %+v, %v", got, err)
+	}
+	if err := s.EditInstance("missing", func(*Instance) {}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("EditInstance on a missing instance: %v, want ErrNotFound", err)
+	}
+}
+
 func TestModelsDir(t *testing.T) {
 	if got := ModelsDir(&config.Config{DataDir: "/data"}); got != "/data/models/gen-models" {
 		t.Errorf("default = %q, want /data/models/gen-models", got)

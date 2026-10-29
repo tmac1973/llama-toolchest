@@ -86,6 +86,16 @@ type ModelSet struct {
 	Created  time.Time `json:"created"`
 }
 
+// LastVideo is one finished video job, for the instance row.
+type LastVideo struct {
+	Frames  int       `json:"frames"`
+	Width   int       `json:"width"`
+	Height  int       `json:"height"`
+	Inputs  string    `json:"inputs"` // "text", "a start image" or "start and end images"
+	Seconds int       `json:"seconds"`
+	At      time.Time `json:"at"`
+}
+
 // Instance is one backend process: a model set, run by one build, on one
 // GPU and one port.
 type Instance struct {
@@ -118,14 +128,16 @@ type Instance struct {
 	MeasuredFrames int `json:"measured_frames,omitempty"`
 	MeasuredWidth  int `json:"measured_width,omitempty"`
 	MeasuredHeight int `json:"measured_height,omitempty"`
-	// MeasuredJobSeconds is how long a whole video at the measured size
-	// takes, worked out from the measurement's step and decode times
-	// (video instances only; zero when the log did not give them).
-	MeasuredJobSeconds int `json:"measured_job_seconds,omitempty"`
 	// MeasuredDecodeFallback is true when the measured decode did not fit
 	// at once and sd.cpp retried it with temporal tiling: the size fits,
 	// but its decode is slower than with more room.
 	MeasuredDecodeFallback bool `json:"measured_decode_fallback,omitempty"`
+	// LastVideo is the instance's last finished video job: its size, its
+	// inputs and how long sd-server took to make it (video instances
+	// only). A measurement cannot say this: the steps of a job differ too
+	// much in time (LTX-2.3's first two steps with start and end images
+	// took 120-137 s each and the other six 18-22 s; R9700, 2026-10-28).
+	LastVideo LastVideo `json:"last_video,omitzero"`
 	// ExtraArgs are backend flags for this instance, added after the
 	// set's LaunchArgs.
 	ExtraArgs []string `json:"extra_args,omitempty"`

@@ -292,7 +292,10 @@ func Catalog() []CatalogEntry {
 				{Label: "Medium", Frames: 81, Width: 1280, Height: 704},
 				{Label: "Full", Frames: 121, Width: 1280, Height: 704},
 			},
-			FullMeasureTime: "Measuring the largest size took about 21 minutes on a Radeon AI PRO R9700, which then could not give it enough memory.",
+			// Measured 2026-10-29 with the one-step Measure: Short in 43 s;
+			// Medium stopped after 43 s, needing more than 29.4 GiB in the
+			// decode against a 28.2 GiB room.
+			FullMeasureTime: "On a Radeon AI PRO R9700, measuring Short took under a minute; Medium needed more memory than that 32 GB card could give, and Measure stopped it within a minute.",
 			// The Wan2.2 VAE scales by 16 and the model patches by 2.
 			SizeMultiple: 32,
 		},
@@ -339,10 +342,10 @@ func Catalog() []CatalogEntry {
 				{Label: "Medium", Frames: 49, Width: 1280, Height: 720},
 				{Label: "Full", Frames: 81, Width: 1280, Height: 720},
 			},
-			// Not measured above Short: Short took about 28 minutes, and the
-			// larger sizes have several times the video to sample.
-			FullMeasureTime: "On a Radeon AI PRO R9700 the smallest size took about 28 minutes to measure; " +
-				"the larger sizes are expected to take more than Measure's 2-hour limit.",
+			// Short measured in 123 s on 2026-10-29 (one step on each
+			// expert); a real Short video with start and end images took
+			// 1,650 s. Medium and Full not measured yet.
+			FullMeasureTime: "On a Radeon AI PRO R9700, measuring Short took about 2 minutes; larger sizes have more video to decode and take longer.",
 			// The Wan2.1 VAE scales by 8 and the model patches by 2.
 			SizeMultiple: 16,
 		},
@@ -394,9 +397,11 @@ func Catalog() []CatalogEntry {
 			},
 			// Medium was measured on the R9700 (2026-10-27): 25 minutes and
 			// a 30.5 GiB peak, more than the card could give, so it was
-			// refused. Full was not measured: it has more video still.
-			FullMeasureTime: "On a Radeon AI PRO R9700 the smallest size took about 3 minutes to measure; " +
-				"Medium took about 25 minutes and needed more memory than that 32 GB card could give.",
+			// refused. Full was not measured: it has more video still. With
+			// the one-step Measure (2026-10-29), Short took 83 s; a real
+			// Short video with start and end images took 200 s.
+			FullMeasureTime: "On a Radeon AI PRO R9700, measuring Short took under 1.5 minutes; " +
+				"Medium needed more memory than that 32 GB card could give.",
 			// The Wan2.1 VAE scales by 8 and the model patches by 2.
 			SizeMultiple: 16,
 		},
@@ -445,7 +450,12 @@ func Catalog() []CatalogEntry {
 				{Label: "Medium", Frames: 65, Width: 1280, Height: 720},
 				{Label: "Full", Frames: 121, Width: 1280, Height: 720},
 			},
-			FullMeasureTime: "Measuring the largest size took about 28 minutes on a Radeon AI PRO R9700 (Measure uses a start and an end image, which makes a video about 2.5 times slower).",
+			// Measured 2026-10-29 with the one-step Measure: Medium granted
+			// in 93 s (peak 29.0 GiB); Full stopped after 153 s at 29.3 GiB
+			// against a 28.2 GiB room. On 2026-10-27 Full was granted with a
+			// 29.7 GiB peak in a 28.8 GiB room: it is at the card's edge.
+			FullMeasureTime: "On a Radeon AI PRO R9700, measuring Medium took about 1.5 minutes and Full about 2.5 minutes. " +
+				"Full needs about 29.5 GiB, right at what that 32 GB card can give, so whether it is granted depends on what else uses the card.",
 			// The LTX VAE scales by 32.
 			SizeMultiple: 32,
 		},

@@ -75,10 +75,10 @@ func (r genInstanceRow) ReservedGiB() float64  { return float64(r.ReservedMiB) /
 func (r genInstanceRow) PeakGiB() float64      { return float64(r.MeasuredPeakMiB) / 1024 }
 func (r genInstanceRow) SuggestedGiB() float64 { return float64(r.SuggestedMiB) / 1024 }
 
-// JobTimeText is how long a video at the measured size takes, for the
-// row, e.g. "about 11 min"; empty when the measurement gave no time.
-func (r genInstanceRow) JobTimeText() string {
-	return durationText(r.MeasuredJobSeconds)
+// LastVideoTime is how long the instance's last video took, for the row,
+// e.g. "about 7 min"; empty before its first.
+func (r genInstanceRow) LastVideoTime() string {
+	return durationText(r.LastVideo.Seconds)
 }
 
 // durationText rounds seconds for a person: "about 45 s" under two
@@ -410,7 +410,7 @@ func (s *Server) genInstanceFromForm(r *http.Request, store *generation.Store, i
 	if inst.ModelSetID != set.ID || !slicesEqual(inst.ExtraArgs, args) || inst.BuildID != buildID || inst.GPU != gpu {
 		inst.ReservedMiB, inst.MeasuredPeakMiB, inst.MeasuredAt, inst.MeasureEstimated = 0, 0, time.Time{}, false
 		inst.MeasuredSuggestedMiB, inst.MeasuredFrames, inst.MeasuredWidth, inst.MeasuredHeight = 0, 0, 0, 0
-		inst.MeasuredJobSeconds, inst.MeasuredDecodeFallback = 0, false
+		inst.MeasuredDecodeFallback, inst.LastVideo = false, generation.LastVideo{}
 		s.genMeasure.clear(inst.ID)
 	}
 	inst.ModelSetID, inst.BuildID, inst.GPU, inst.ExtraArgs = set.ID, buildID, gpu, args

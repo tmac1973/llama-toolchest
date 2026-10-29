@@ -122,6 +122,28 @@ func TestVideoJobSucceeds(t *testing.T) {
 	if f.body["width"] != float64(832) || f.body["video_frames"] != float64(33) || f.body["fps"] != float64(24) || f.body["seed"] != float64(-1) {
 		t.Errorf("sd-server got %v, want the set's defaults and a random seed", f.body)
 	}
+	if _, ok := f.body["sample_params"]; ok {
+		t.Errorf("a job sent its own steps: %v", f.body["sample_params"])
+	}
+	inst, err := s.gen.Instance("ti2v")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lv := inst.LastVideo; lv.Frames != 33 || lv.Width != 832 || lv.Height != 480 || lv.Inputs != "text" || lv.At.IsZero() {
+		t.Errorf("instance's last video = %+v", lv)
+	}
+}
+
+func TestVideoInputs(t *testing.T) {
+	for want, vid := range map[string]vidGenRequest{
+		"text":                 {},
+		"a start image":        {InitImage: "x"},
+		"start and end images": {InitImage: "x", EndImage: "y"},
+	} {
+		if got := videoInputs(vid); got != want {
+			t.Errorf("videoInputs(%+v) = %q, want %q", vid, got, want)
+		}
+	}
 }
 
 func TestVideoJobMultipart(t *testing.T) {

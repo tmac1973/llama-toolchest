@@ -1,10 +1,5 @@
 package generation
 
-import (
-	"strconv"
-	"strings"
-)
-
 // SuggestReservation is the reservation a measured peak suggests: 10%
 // more, rounded up to the next 512 MiB.
 func SuggestReservation(peakMiB int) int {
@@ -78,33 +73,6 @@ func CoveringPreset(presets []VideoSize, frames, width, height int) (VideoSize, 
 		}
 	}
 	return best, found
-}
-
-// SampleSteps reads the sampling steps from a set's backend flags (its run
-// arguments, then the instance's extra ones; the last wins): --steps, and
-// --high-noise-steps for a Wan2.2 A14B pair. highNoise is 0 when not given:
-// sd.cpp then splits steps between the two experts itself, within the
-// same total. ok is false without --steps, or with --sigmas, whose count
-// decides the steps instead.
-func SampleSteps(args []string) (steps, highNoise int, ok bool) {
-	for i := 0; i < len(args); i++ {
-		name, value, inline := strings.Cut(args[i], "=")
-		if !inline {
-			if i+1 >= len(args) {
-				break
-			}
-			value = args[i+1]
-		}
-		switch name {
-		case "--steps":
-			steps, _ = strconv.Atoi(value)
-		case "--high-noise-steps":
-			highNoise, _ = strconv.Atoi(value)
-		case "--sigmas":
-			return 0, 0, false
-		}
-	}
-	return steps, max(highNoise, 0), steps > 0
 }
 
 // HasHighNoiseModel says the set is a Wan2.2 A14B-style pair, with a

@@ -15,41 +15,31 @@ import (
 // I2V A14B pair (sd.cpp master-1015, R9700, 2026-10-28), progress bars
 // and all.
 var a14bLog = []string{
-	"[I] loading tensors completed, taking 1.41s (read: 0.43s, memcpy: 0.00s, convert: 0.00s, copy_to_backend: 0.18s) --- model_loader.cpp:1400",
 	"[I] encode_first_stage completed, taking 1504 ms --- video.cpp:1033",
 	"[I] get_learned_condition completed, taking 1.97s --- video.cpp:1259",
-	"  |==================================================| 1/1 - 46.00s/it\x1b[K\r[I] sampling(high noise) completed, taking 46.03s --- video.cpp:1735",
+	"\r  |==================================================| 1/1 -  46.00s/it\x1b[K\r[I] sampling(high noise) completed, taking 46.03s --- video.cpp:1735",
 	"[I] sampling completed, taking 45.93s --- video.cpp:1776",
 	"[I] generating latent video completed, taking 92.10s --- video.cpp:1920",
 	"[I] decode_first_stage completed, taking 15.21s --- video.cpp:1290",
 }
 
-func TestMeasureLogJobTime(t *testing.T) {
+func TestMeasureLogStages(t *testing.T) {
 	l := &measureLog{}
 	if got := l.stage(); got != "during sampling" {
 		t.Errorf("stage before any line = %q", got)
 	}
+	want := []string{"during sampling", "during sampling", "during sampling", "during the decode", "during the decode", "after the decode"}
 	for i, line := range a14bLog {
 		l.add(line, time.Unix(int64(i), 0))
-		if i == 3 && l.stage() != "during the decode" {
-			t.Errorf("stage after the first sampling pass = %q", l.stage())
+		if got := l.stage(); got != want[i] {
+			t.Errorf("stage after line %d = %q, want %q", i, got, want[i])
 		}
 	}
-	// encode 1.504 + 1.97, 2 measured steps at 91.96 s, 20 steps, decode 15.21.
-	if got := l.jobSeconds(2, 20); got != 938 {
-		t.Errorf("jobSeconds = %d, want 938", got)
-	}
-	if l.stage() != "after the decode" || l.decodeFallback() || l.spatialFallback() {
-		t.Errorf("stage %q fallback %v spatial %v", l.stage(), l.decodeFallback(), l.spatialFallback())
+	if l.decodeFallback() || l.spatialFallback() {
+		t.Errorf("fallback %v spatial %v, want neither", l.decodeFallback(), l.spatialFallback())
 	}
 	if l.lastLine() != time.Unix(int64(len(a14bLog)-1), 0) {
 		t.Errorf("lastLine = %v", l.lastLine())
-	}
-	if got := l.jobSeconds(2, 0); got != 0 {
-		t.Errorf("jobSeconds without steps = %d, want 0", got)
-	}
-	if got := (&measureLog{}).jobSeconds(1, 20); got != 0 {
-		t.Errorf("jobSeconds with no times = %d, want 0", got)
 	}
 }
 
@@ -64,18 +54,6 @@ func TestMeasureLogFallbacks(t *testing.T) {
 	l.add("[W] VAE decode ran out of memory; retrying with spatial+temporal tiling --- backend_fit.cpp:518", time.Now())
 	if !l.decodeFallback() || !l.spatialFallback() {
 		t.Errorf("spatial retry: fallback %v spatial %v", l.decodeFallback(), l.spatialFallback())
-	}
-}
-
-func TestTakingSeconds(t *testing.T) {
-	for line, want := range map[string]float64{
-		"sampling completed, taking 26.78s":            26.78,
-		"encode_first_stage completed, taking 1566 ms": 1.566,
-		"no time here": 0,
-	} {
-		if got := takingSeconds(line); got != want {
-			t.Errorf("takingSeconds(%q) = %v, want %v", line, got, want)
-		}
 	}
 }
 
@@ -142,11 +120,9 @@ func TestWithPeak(t *testing.T) {
 	}
 }
 
-func TestMeasureNoteGivesJobTime(t *testing.T) {
-	inst := generation.Instance{MeasuredPeakMiB: 20000, ReservedMiB: 22016, MeasuredSuggestedMiB: 22016, MeasuredFrames: 81,
-		MeasuredJobSeconds: 659, MeasuredDecodeFallback: true}
-	note := measureNote(0, inst, false, false)
-	if !strings.Contains(note, "A video this size takes about 11 min.") || !strings.Contains(note, "a few frames at a time") {
+func TestMeasureNoteMentionsFallback(t *testing.T) {
+	inst := generation.Instance{MeasuredPeakMiB: 20000, ReservedMiB: 22016, MeasuredSuggestedMiB: 22016, MeasuredFrames: 81, MeasuredDecodeFallback: true}
+	if note := measureNote(0, inst, false, false); !strings.Contains(note, "a few frames at a time") {
 		t.Errorf("note = %q", note)
 	}
 }
