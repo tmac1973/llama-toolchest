@@ -32,6 +32,10 @@ type Deps struct {
 	// profile on this machine with the active build (PlanInput.MoECacheMiB);
 	// nil or 0 skips the expert-cache stage.
 	MoECache func(m *models.Model, base models.ModelConfig) int
+	// TensorSplitRefused reports whether the active build refuses to load
+	// a model of this architecture with a tensor split
+	// (PlanInput.NoTensorSplit). Nil means not known.
+	TensorSplitRefused func(arch string) bool
 	// Busy returns a plain-language reason the GPU cannot be used now, or
 	// "" — a benchmark job, or an autoconfigure run.
 	Busy func() string
@@ -443,6 +447,9 @@ func (r *Runner) planInput(rec *Autotune) (PlanInput, error) {
 	}
 	if r.deps.MoECache != nil {
 		in.MoECacheMiB = r.deps.MoECache(m, profile.Config)
+	}
+	if r.deps.TensorSplitRefused != nil && r.deps.TensorSplitRefused(m.Arch) {
+		in.NoTensorSplit = m.Arch
 	}
 	for _, s := range rec.Stages {
 		in.Finalists[s.Key] = s.Finalists

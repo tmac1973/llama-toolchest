@@ -38,6 +38,61 @@ func TestParseArchNamesWithoutTheTable(t *testing.T) {
 	}
 }
 
+// llama.cpp v0.8.0 refuses a tensor split for 34 architectures. The
+// function after it (llama_arch_supports_save) is a similar switch and
+// must not be read as part of it.
+func TestParseNoTensorSplitArchs(t *testing.T) {
+	src, err := os.ReadFile("testdata/llama-arch-v0.8.0.cpp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	refused := ParseNoTensorSplitArchs(src)
+	if len(refused) != 34 {
+		t.Errorf("%d refused, want 34: %v", len(refused), refused)
+	}
+	for _, want := range []string{"grok", "deepseek2", "lfm3", "flint", "mellum", "laguna", "minimax-m2", "qwen3tts"} {
+		if !slices.Contains(refused, want) {
+			t.Errorf("%q missing", want)
+		}
+	}
+	// Only in llama_arch_supports_save, or not listed at all.
+	for _, unwanted := range []string{"sensenova_u1", "step35", "apertus", "llama", "qwen3moe"} {
+		if slices.Contains(refused, unwanted) {
+			t.Errorf("%q listed", unwanted)
+		}
+	}
+	if names := ParseArchNames(src); len(names) != 164 {
+		t.Errorf("%d names, want 164", len(names))
+	}
+}
+
+// Without the function (a build from before tensor split) or without the
+// names table, the list is "not known", never "nothing refused".
+func TestParseNoTensorSplitArchsNotFound(t *testing.T) {
+	table := `static const std::map<llm_arch, const char *> LLM_ARCH_NAMES = {
+    { LLM_ARCH_GROK, "grok" },
+};
+`
+	fn := `bool llm_arch_supports_sm_tensor(const llm_arch & arch) {
+    switch (arch) {
+        case LLM_ARCH_GROK:
+            return false;
+        default:
+            return true;
+    }
+}
+`
+	if got := ParseNoTensorSplitArchs([]byte(table)); got != nil {
+		t.Errorf("without the function: %v, want nil", got)
+	}
+	if got := ParseNoTensorSplitArchs([]byte(fn)); got != nil {
+		t.Errorf("without the table: %v, want nil", got)
+	}
+	if got := ParseNoTensorSplitArchs([]byte(table + fn)); !slices.Equal(got, []string{"grok"}) {
+		t.Errorf("both: %v, want [grok]", got)
+	}
+}
+
 // Builds from before the list was recorded get it from the checkout's
 // history, at the commit they were built from.
 func TestBackfillArchs(t *testing.T) {
@@ -60,7 +115,17 @@ func TestBackfillArchs(t *testing.T) {
 	src := `static const std::map<llm_arch, const char *> LLM_ARCH_NAMES = {
     { LLM_ARCH_LLAMA, "llama" },
     { LLM_ARCH_QWEN3, "qwen3" },
-};`
+    { LLM_ARCH_GROK,  "grok"  },
+};
+
+bool llm_arch_supports_sm_tensor(const llm_arch & arch) {
+    switch (arch) {
+        case LLM_ARCH_GROK:
+            return false;
+        default:
+            return true;
+    }
+}`
 	if err := os.WriteFile(filepath.Join(srcDir, archSourceFile), []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -77,11 +142,16 @@ func TestBackfillArchs(t *testing.T) {
 	b.BackfillArchs()
 
 	got := map[string][]string{}
+	noTS := map[string][]string{}
 	for _, br := range b.List() {
 		got[br.ID] = br.Archs
+		noTS[br.ID] = br.NoTensorSplitArchs
 	}
-	if !slices.Equal(got["old"], []string{"llama", "qwen3"}) {
-		t.Errorf("old = %v, want [llama qwen3]", got["old"])
+	if !slices.Equal(got["old"], []string{"llama", "qwen3", "grok"}) {
+		t.Errorf("old = %v, want [llama qwen3 grok]", got["old"])
+	}
+	if !slices.Equal(noTS["old"], []string{"grok"}) || !slices.Equal(noTS["recorded"], []string{"grok"}) {
+		t.Errorf("tensor-split lists: old = %v, recorded = %v; want [grok] for both", noTS["old"], noTS["recorded"])
 	}
 	if got["gone"] != nil || got["failed"] != nil {
 		t.Errorf("gone = %v, failed = %v; want both empty", got["gone"], got["failed"])
@@ -92,7 +162,7 @@ func TestBackfillArchs(t *testing.T) {
 
 	// And it was saved.
 	reloaded := NewBuilder(dataDir)
-	if br, ok := reloaded.Find("old"); !ok || len(br.Archs) != 2 {
+	if br, ok := reloaded.Find("old"); !ok || len(br.Archs) != 3 || len(br.NoTensorSplitArchs) != 1 {
 		t.Errorf("not saved: %+v", br)
 	}
 }

@@ -835,6 +835,9 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 	// Migration: map legacy and pre-iGPU-audit configs onto the
 	// current dropdown values.
 	migrateGPUAssign(cfg, gpuOptions, numGPUs)
+	if model != nil && s.tensorSplitRefused(model.Arch) {
+		models.DisableTensorOptions(gpuOptions, cfg.GPUAssign, model.Arch)
+	}
 
 	// Mark disabled/recommended options
 	if numGPUs > 0 && model != nil {
@@ -892,7 +895,7 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 		AssistParams:        models.SpecAssistParams(cfg.SpecAssist),
 		EffectiveSpecType:   cfg.EffectiveSpecType(),
 		GPUOptions:          gpuOptions,
-		GPUAssignWarning:    s.gpuAssignWarning(cfg, metrics.GPU),
+		GPUAssignWarning:    s.gpuAssignWarning(cfg, model, metrics.GPU),
 		NumGPUs:             numGPUs,
 		SamplingPresets:     samplingPresets,
 		SamplingPresetsJSON: samplingPresetsJSON,

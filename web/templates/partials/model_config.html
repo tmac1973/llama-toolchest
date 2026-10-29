@@ -137,8 +137,9 @@
                 <option value="{{.Value}}"
                         {{if eq $.Config.GPUAssign .Value}}selected{{end}}
                         {{if and (eq $.Config.GPUAssign "") .IsSpanAll}}selected{{end}}
-                        {{if .Disabled}}disabled{{end}}>
-                    {{.Label}}{{if .Recommend}} ★{{end}}
+                        {{if .Disabled}}disabled{{end}}
+                        {{if .Note}}title="{{.Note}}"{{end}}>
+                    {{.Label}}{{if .Note}} (not supported for this model){{end}}{{if .Recommend}} ★{{end}}
                 </option>
                 {{end}}
             </select>

@@ -149,6 +149,9 @@ func (s *Server) autotuneEstimate(id, profileName string, uc autotune.UseCase, d
 		MoECacheMiB: s.autotuneMoECache(m, profile.Config),
 		Quick:       depth == autotune.DepthQuick,
 	}
+	if s.tensorSplitRefused(m.Arch) {
+		in.NoTensorSplit = m.Arch
+	}
 	// How long a cell takes on this machine, from the runs it has done;
 	// the guess by size only when it has done none.
 	size := models.BytesToGiB(m.SizeBytes)
@@ -159,8 +162,9 @@ func (s *Server) autotuneEstimate(id, profileName string, uc autotune.UseCase, d
 		return 0
 	})
 	cells, minutes = autotune.EstimateRun(in, uc, size, perCell)
-	_, _, skipped = autotune.PlanStage(autotune.StageSpec, in)
-	return cells, minutes, skipped
+	_, _, placementSkipped := autotune.PlanStage(autotune.StagePlacement, in)
+	_, _, specSkipped := autotune.PlanStage(autotune.StageSpec, in)
+	return cells, minutes, append(placementSkipped, specSkipped...)
 }
 
 // autotuneMoECache is the largest MoE cache that fits beside a profile
