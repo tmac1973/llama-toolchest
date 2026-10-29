@@ -16,15 +16,19 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 			return
 		}
 
-		auth := r.Header.Get("Authorization")
-		if !strings.HasPrefix(auth, "Bearer ") {
+		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !ok {
+			// Browsers cannot set the header on a WebSocket, so the
+			// realtime route also takes the key as a subprotocol.
+			token, ok = realtimeSubprotocolKey(r)
+		}
+		if !ok {
 			writeAuthError(w, "missing API key")
 			return
 		}
 
 		// Constant-time, so the response time says nothing about how much
 		// of a guessed key was right.
-		token := strings.TrimPrefix(auth, "Bearer ")
 		if subtle.ConstantTimeCompare([]byte(token), []byte(key)) != 1 {
 			writeAuthError(w, "invalid API key")
 			return

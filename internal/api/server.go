@@ -940,6 +940,8 @@ func (s *Server) buildRouter() chi.Router {
 		r.Delete("/music/jobs/{id}", s.handleMusicDelete)
 		// The official ACE-Step server's audio download path.
 		r.Get("/audio", s.handleAceStepAudio)
+		// llama-server's realtime voice sessions (WebSocket).
+		r.Get("/realtime", s.realtimeHandler(llamaProxy))
 		r.Handle("/*", llamaProxy)
 	})
 

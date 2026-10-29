@@ -47,6 +47,10 @@ func (s *Server) newProxyHandler() http.Handler {
 
 	// Capture timings from chat completion responses — both JSON and SSE streams.
 	proxy.ModifyResponse = func(resp *http.Response) error {
+		if resp.StatusCode == http.StatusSwitchingProtocols {
+			acceptRealtimeProtocol(resp)
+			return nil
+		}
 		if resp.Request == nil || resp.StatusCode != http.StatusOK {
 			return nil
 		}
