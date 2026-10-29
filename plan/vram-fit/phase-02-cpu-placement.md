@@ -3,6 +3,23 @@
 **Depends on:** Phase 01 (re-measuring every set quickly) · **Enables:**
 Phase 03 (the HunyuanVideo sets follow the same rules)
 
+## What was built (PR #415, 2026-10-29)
+
+Steps 1–4 and 6–8 were built as written, except the A4000 check (step 7),
+which was not done. What the checks found:
+- **Step 2:** sd.cpp places only `diffusion`, `te` and `vae`, so Qwen-Image
+  Edit's picture reader goes to the CPU with its text model. An edit takes
+  about 17 s longer (360 s against 343 s). `te=cpu` was kept.
+- **Step 5:** an LLM with half its layers on the CPU and an image job slowed
+  each other no more than before (6.5 against 6.4 tok/s; 32 s against 29 s for
+  the image). No `-t` was set.
+- **Step 6:** every set measured smaller (see `verification.md`), and LTX-2.3
+  Full now fits.
+- **Not met: TI2V at Medium** is still not granted. Its untiled decode needs
+  more than the card has left. With `--temporal-tiling` too, the decode fell
+  back to small tiles and Measure stopped it. It fitted inside
+  `--max-vram 14` in sd-cli, so this moves to Phase 04's smaller budget.
+
 ## Goal
 
 Every image and video set in the catalog keeps on the GPU only what needs to

@@ -128,3 +128,54 @@ videos removed.
 - **Not triggered live:** the stuck-run and ROCm spatial-fallback stops (unit
   tests only).
 - **Not checked:** the A4000.
+
+## Phase 02 (PR #415, 2026-10-29)
+
+**Setup:** asmodean, with the branch's binary in the toolchest container.
+Every catalog sd-server set was measured through toolchest's API.
+Reservations are Measure's suggestion, capped at the room. RAM is the
+backend's VmHWM. asmodean was put back afterwards.
+
+| Set | Before | Now | RAM | Measure took |
+|---|---|---|---|---|
+| Qwen-Image 2.1 Turbo | 11.0 GiB | 6.5 GiB (peak 5.6) | 6.6 GiB | 38 s |
+| FLUX.2 klein 4B | 11.5 GiB | 8.5 GiB (peak 7.4) | 5.4 GiB | 43 s |
+| Z-Image Turbo | 12.5 GiB | 8.5 GiB (peak 7.4) | 5.3 GiB | 28 s |
+| FLUX.3 image klein, with edit | 13.5 GiB | 9.5 GiB (peak 8.6) | 5.7 GiB | 88 s |
+| Chroma1 Flash | 17.0 GiB | 12.0 GiB (peak 10.5) | 6.4 GiB | 78 s |
+| Chroma1 HD | 17.0 GiB | 12.0 GiB (peak 10.5) | 6.4 GiB | 233 s |
+| Qwen-Image Edit 2511, with edit | 22.0 GiB | 16.5 GiB (peak 14.8) | 7.5 GiB | 508 s |
+| TI2V 5B Short | 26.0 GiB | 20.0 GiB (peak 17.9) | 7.7 GiB | 53 s |
+| TI2V 5B Medium / Full | refused | stopped: decode needs more than 29.4 / 30.2 GiB | | 53 / 88 s |
+| LTX-2.3 Full | stopped at 29.3 GiB | 27.7 GiB (peak 26.3), granted | 14.7 GiB | 123 s |
+| A14B Short | 28.5 GiB (peak 27.3) | 28.0 GiB (peak 26.0) | 8.5 GiB | 138 s |
+| A14B Medium | not measured | stopped by the ROCm small-tile check at 27.9 GiB | | 703 s |
+| A14B Lightning Short | 28.6 GiB (peak 28.6) | 28.3 GiB (peak 26.6) | 8.4 GiB | 88 s |
+
+**TI2V with `--temporal-tiling`** as an extra flag, with the encoder on the
+CPU:
+- Short peaked at 20.5 GiB, more than the 17.9 GiB untiled.
+- Medium and Full were stopped by the ROCm small-tile check, at 25.0 and
+  25.5 GiB.
+- A real Short job took 83 s, the same as untiled with the encoder on the CPU
+  (68 s with it on the GPU, Phase 01).
+
+**Qwen-Image Edit 2511,** one 1024² edit through sd-cli:
+
+| Encoder | Time | Encode | Peak |
+|---|---|---|---|
+| on the GPU | 343 s | 3.7 s | 19.6 GiB |
+| on the CPU | 360 s | 21.1 s | 15.1 GiB |
+
+**CPU sharing:** gemma-4-12b Q6 with `-ngl 24` (half its layers on the CPU)
+made 7.1 tok/s alone. Z-Image Turbo alone took 23 s with its encoder on the
+GPU and 20 s with it on the CPU. Together:
+
+| Image encoder | Image time | LLM speed meanwhile |
+|---|---|---|
+| on the GPU | 29 s | 6.4 tok/s |
+| on the CPU | 32 s | 6.5 tok/s |
+
+**The ROCm small-tile check worked live:** Measure stopped A14B Medium and
+the tiled TI2V Medium and Full when sd.cpp began its spatially tiled
+fallback.
