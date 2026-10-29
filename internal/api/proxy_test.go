@@ -284,6 +284,8 @@ type fakeRouter struct {
 	// slotLists counts GET /slots: on a real router, one for a model that
 	// is not loaded loads it.
 	slotLists int
+	// ttsBodies records the body of each POST /tts.
+	ttsBodies [][]byte
 }
 
 // reset replaces the router's state between subtests.
@@ -291,6 +293,13 @@ func (f *fakeRouter) reset(status map[string]string, onList func(*fakeRouter, in
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.status, f.aliases, f.loads, f.lists, f.onList = status, nil, nil, 0, onList
+	f.ttsBodies = nil
+}
+
+func (f *fakeRouter) ttsCalls() [][]byte {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([][]byte(nil), f.ttsBodies...)
 }
 
 func (f *fakeRouter) loadCalls() []string {
@@ -336,6 +345,11 @@ func (f *fakeRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else {
 			fmt.Fprintf(w, `{"n_restored":2000,"n_read":1048576}`)
 		}
+	case r.URL.Path == "/tts" && r.Method == http.MethodPost:
+		body, _ := io.ReadAll(r.Body)
+		f.ttsBodies = append(f.ttsBodies, body)
+		w.Header().Set("Content-Type", "audio/wav")
+		io.WriteString(w, "RIFF")
 	case r.URL.Path == "/models/load" && r.Method == http.MethodPost:
 		var req struct {
 			Model string `json:"model"`

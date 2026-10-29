@@ -35,6 +35,7 @@ nothing but Caddy faces the network.
 | OpenAI API (`/v1/*`) | optional Bearer key, HTTP | HTTPS; Bearer `api_key` (no Basic Auth, so clients work) |
 | Router chat UI / raw inference (`:8080`) | open, HTTP, bypasses the key | HTTPS + admin login via Caddy; raw port no longer LAN-exposed |
 | ACE-Step music API (`/release_task`, `/query_result`) | optional Bearer key, HTTP | HTTPS; Bearer `api_key`, like `/v1/*` |
+| Text-to-speech (`/tts`) | optional Bearer key, HTTP | HTTPS; Bearer `api_key`, like `/v1/*` |
 | Generation backend web UIs (`:8081`–`:8088`, opt-in) | open, HTTP | HTTPS + admin login via Caddy, one site per port |
 
 **Not** addressed (your responsibility): OS/container hardening, firewalling,
@@ -192,12 +193,12 @@ the browser chat UI — not for programmatic clients.
   switching back to plain mode returns to the URL saved in Settings.
 - **TLS termination.** Browser ↔ Caddy is encrypted; Caddy ↔ app is plain HTTP
   over the private container network and never leaves the host.
-- **Auth split.** Everything except `/v1/*`, `/release_task` and
-  `/query_result` requires Basic Auth. Those are left to the app's Bearer
-  `api_key` so OpenAI and ACE-Step clients (which send
+- **Auth split.** Everything except `/v1/*`, `/release_task`,
+  `/query_result` and `/tts` requires Basic Auth. Those are left to the
+  app's Bearer `api_key` so OpenAI and ACE-Step clients (which send
   `Authorization: Bearer …`) aren't broken by a Basic-Auth challenge. The
-  ACE-Step routes are at the server root because that is where ACE-Step
-  clients call them.
+  ACE-Step routes and `/tts` are at the server root because that is where
+  their clients call them.
 
 Read [`Caddyfile.template`](../Caddyfile.template) and your rendered
 `./Caddyfile` to confirm all of the above matches your expectations before

@@ -14,7 +14,7 @@ import (
 // publicRoute reports whether a router path belongs to the public API
 // that openapi.yaml documents.
 func publicRoute(path string) bool {
-	return path == "/release_task" || path == "/query_result" ||
+	return path == "/release_task" || path == "/query_result" || path == "/tts" ||
 		strings.HasPrefix(path, "/v1/")
 }
 

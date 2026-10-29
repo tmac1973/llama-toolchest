@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -78,26 +80,24 @@ func (s *Server) newProxyHandler() http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// JSON POSTs can carry a "model" field that would 400 upstream if
-		// the named model is enabled in the registry but not currently
-		// resident in the router. Read the body, ensure the model is
-		// loaded, then forward. We restrict to JSON so multipart uploads
-		// (audio transcription etc.) stream through without buffering.
-		if r.Method == http.MethodPost && isJSONContentType(r.Header.Get("Content-Type")) {
+		// POSTs can carry a "model" field that would 400 upstream if the
+		// named model is enabled in the registry but not currently
+		// resident in the router, or that the router would load itself,
+		// past the room checks. Find the model, ensure it is loaded, then
+		// forward. A JSON body is read whole; a multipart form (a /tts
+		// speaker reference, an audio transcription) only up to its
+		// "model" field, and the rest streams through.
+		if r.Method != http.MethodPost {
+			proxy.ServeHTTP(w, r)
+			return
+		}
+		switch {
+		case isJSONContentType(r.Header.Get("Content-Type")):
 			body, err := io.ReadAll(r.Body)
 			r.Body.Close()
 			if err == nil {
-				end, loadErr := s.loadAndCountRequest(r.Context(), body)
-				if loadErr != nil {
-					if r.Context().Err() != nil {
-						return // the client went away
-					}
-					var fitErr *genLLMFitError
-					if errors.As(loadErr, &fitErr) {
-						writeProxyError(w, http.StatusInsufficientStorage, "insufficient_vram", loadErr.Error())
-						return
-					}
-					writeProxyError(w, http.StatusServiceUnavailable, "auto_load_failed", loadErr.Error())
+				end, ok := s.loadForProxy(w, r, body)
+				if !ok {
 					return
 				}
 				defer end()
@@ -107,9 +107,80 @@ func (s *Server) newProxyHandler() http.Handler {
 				r.Body = io.NopCloser(bytes.NewReader(body))
 				r.ContentLength = int64(len(body))
 			}
+		case isMultipartForm(r):
+			if model := multipartModel(r, multipartModelLimit); model != "" {
+				body, _ := json.Marshal(map[string]string{"model": model})
+				end, ok := s.loadForProxy(w, r, body)
+				if !ok {
+					return
+				}
+				defer end()
+			}
 		}
 		proxy.ServeHTTP(w, r)
 	})
+}
+
+// loadForProxy loads and counts the model a proxied request names (see
+// loadAndCountRequest). When that fails it answers the request and
+// returns false.
+func (s *Server) loadForProxy(w http.ResponseWriter, r *http.Request, body []byte) (end func(), ok bool) {
+	end, err := s.loadAndCountRequest(r.Context(), body)
+	if err == nil {
+		return end, true
+	}
+	if r.Context().Err() != nil {
+		return end, false // the client went away
+	}
+	var fitErr *genLLMFitError
+	if errors.As(err, &fitErr) {
+		writeProxyError(w, http.StatusInsufficientStorage, "insufficient_vram", err.Error())
+	} else {
+		writeProxyError(w, http.StatusServiceUnavailable, "auto_load_failed", err.Error())
+	}
+	return end, false
+}
+
+// multipartModelLimit caps how much of a multipart form is held in
+// memory while looking for its "model" field. Files sent before the field
+// count towards it.
+const multipartModelLimit = 64 << 20
+
+// multipartModel returns the "model" field of a multipart form request,
+// reading the body only as far as that field. What it read is put back in
+// front of the rest, so the body is forwarded unchanged. "" when the form
+// has no model field before limit bytes, or cannot be read; the router
+// then gets the request as it is.
+func multipartModel(r *http.Request, limit int64) string {
+	_, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || params["boundary"] == "" {
+		return ""
+	}
+	var read bytes.Buffer
+	orig := r.Body
+	defer func() {
+		r.Body = struct {
+			io.Reader
+			io.Closer
+		}{io.MultiReader(&read, orig), orig}
+	}()
+	mr := multipart.NewReader(io.TeeReader(io.LimitReader(orig, limit), &read), params["boundary"])
+	for {
+		part, err := mr.NextPart()
+		if err != nil {
+			return ""
+		}
+		if part.FormName() == "model" && part.FileName() == "" {
+			value, err := io.ReadAll(io.LimitReader(part, 1024))
+			if err != nil {
+				return ""
+			}
+			return strings.TrimSpace(string(value))
+		}
+		if _, err := io.Copy(io.Discard, part); err != nil {
+			return ""
+		}
+	}
 }
 
 // loadAttempts caps how many times a request loads its model again

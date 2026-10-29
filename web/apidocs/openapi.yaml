@@ -1,6 +1,6 @@
 # The public API of llama-toolchest, written by hand from the handlers in
 # internal/api. TestOpenAPISpecMatchesRouter fails when a route under /v1,
-# /release_task or /query_result is added or removed without a change
+# /release_task, /query_result or /tts is added or removed without a change
 # here. Paths that llama-server answers through the /v1 catch-all proxy
 # are marked x-proxied: true. info.version is replaced with the build's
 # version when the spec is served.
@@ -74,6 +74,11 @@ tags:
       [llama.cpp server documentation](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md)
       for the fields llama-server adds. Any other `/v1` path not listed
       here also goes to llama-server unchanged.
+  - name: Speech
+    description: |
+      Text-to-speech with a TTS model in llama-server (llama.cpp v0.8.0
+      or newer), such as Qwen3-TTS, Soprano or LFM3-Audio. The route is at
+      the server root, as llama-server has it.
   - name: Images
     description: |
       `generations` and `edits` are the OpenAI image routes. They wait
@@ -264,6 +269,63 @@ paths:
             application/json:
               schema:
                 type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ProxyUnavailable"
+        "507":
+          $ref: "#/components/responses/InsufficientVRAM"
+
+  /tts:
+    post:
+      tags: [Speech]
+      operationId: createSpeech
+      summary: Text to speech
+      description: |
+        Sent to llama-server's `/tts`. Send JSON, or `multipart/form-data`
+        with a `speaker_ref` file to copy a voice from. If `model` names
+        a model that is not loaded, llama-toolchest loads it first, as for
+        chat. In a form, a `model` field after a large file is not looked
+        for past 64 MiB; llama-server then loads the model itself. See the
+        [llama.cpp server documentation](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md)
+        for the other fields. A llama.cpp build older than v0.8.0 answers
+        404.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/ProxiedRequest"
+                - type: object
+                  properties:
+                    input:
+                      type: string
+                      description: The text to speak.
+            example:
+              model: my-tts-model
+              input: Hello, this is a test.
+          multipart/form-data:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/ProxiedRequest"
+                - type: object
+                  properties:
+                    input:
+                      type: string
+                      description: The text to speak.
+                    speaker_ref:
+                      type: string
+                      format: binary
+                      description: A short recording of the voice to use.
+      responses:
+        "200":
+          description: The speech.
+          content:
+            audio/wav:
+              schema:
+                type: string
+                format: binary
         "401":
           $ref: "#/components/responses/Unauthorized"
         "503":

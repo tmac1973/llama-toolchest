@@ -39,7 +39,8 @@
 	# with the "Authorization: Bearer …" header those clients send.
 	# /release_task and /query_result are the ACE-Step music API, which
 	# ACE-Step clients call at the server root; they use the same Bearer key.
-	@v1 path /v1 /v1/* /release_task /query_result
+	# So does /tts, llama-server's text-to-speech route.
+	@v1 path /v1 /v1/* /release_task /query_result /tts
 	handle @v1 {
 		reverse_proxy llama-toolchest:3000
 	}

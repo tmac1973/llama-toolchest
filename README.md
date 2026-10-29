@@ -350,6 +350,7 @@ All requests are forwarded to llama.cpp's router. Per-model sampling defaults ar
 - `POST /v1/chat/completions` — streaming, tool calling, JSON schema / `json_object`
 - `POST /v1/completions` — text completion
 - `POST /v1/embeddings` — vector embeddings (auto-configured for `--embeddings` builds)
+- `POST /tts` — text to speech with a TTS model (llama.cpp v0.8.0 or newer); JSON, or multipart with a `speaker_ref` file. At the root, as llama-server has it.
 
 ```bash
 curl http://localhost:3000/v1/chat/completions \
@@ -357,7 +358,7 @@ curl http://localhost:3000/v1/chat/completions \
   -d '{"model": "qwen35", "messages": [{"role": "user", "content": "Hello!"}]}'
 ```
 
-When `api_key` is set, all `/v1/*` requests require `Authorization: Bearer <key>`. The management UI is unaffected.
+When `api_key` is set, all `/v1/*` and `/tts` requests require `Authorization: Bearer <key>`. The management UI is unaffected.
 
 ### Coding agents
 

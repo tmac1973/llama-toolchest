@@ -909,6 +909,11 @@ func (s *Server) buildRouter() chi.Router {
 	r.With(s.apiKeyAuth).Post("/release_task", s.handleReleaseTask)
 	r.With(s.apiKeyAuth).Post("/query_result", s.handleQueryResult)
 
+	// llama-server's text-to-speech route, at the root as llama-server
+	// has it. Proxied like /v1, with the same API key.
+	llamaProxy := s.newProxyHandler()
+	r.With(s.apiKeyAuth).Post("/tts", llamaProxy.ServeHTTP)
+
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(s.apiKeyAuth)
 		r.Get("/models", s.handleV1Models)
@@ -935,7 +940,7 @@ func (s *Server) buildRouter() chi.Router {
 		r.Delete("/music/jobs/{id}", s.handleMusicDelete)
 		// The official ACE-Step server's audio download path.
 		r.Get("/audio", s.handleAceStepAudio)
-		r.Handle("/*", s.newProxyHandler())
+		r.Handle("/*", llamaProxy)
 	})
 
 	return r
