@@ -198,7 +198,7 @@ func TestInstanceRowVideoMeasure(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	for _, want := range []string{"measured for up to 81 frames at 1280×704 (Medium)", "openGenMeasureVideo(this)", "Full", "about 21 minutes"} {
+	for _, want := range []string{"measured for up to 81 frames at 1280×704 (Medium)", "openGenMeasureVideo(this)", "Full", "measuring Short took under a minute"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("row lacks %q", want)
 		}
