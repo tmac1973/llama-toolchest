@@ -257,6 +257,10 @@
                 <input type="number" id="gen-measure-video-height" min="64" step="8">
             </label>
         </div>
+        <p><small id="gen-measure-video-predict"></small></p>
+        <label title="The most GPU memory sd-server may use, in GiB. Empty measures inside the whole room the card can give the instance, which is the fastest. A smaller budget leaves room for other models: sd.cpp then keeps model weights in system RAM and decodes in smaller pieces, so videos take longer. The instance keeps to this budget afterwards. On Radeon cards, a budget too small for the decode can make sd.cpp's small-piece decode hang; Measure stops it after 5 minutes.">Measure inside (GiB)
+            <input type="number" id="gen-measure-video-budget" min="4" step="0.5">
+        </label>
         <p><small id="gen-measure-video-note"></small></p>
         <footer>
             <button type="button" class="secondary" onclick="this.closest('dialog').close();">Cancel</button>
@@ -279,16 +283,41 @@ function openGenMeasureVideo(btn) {
     document.getElementById('gen-measure-video-name').textContent = btn.dataset.name;
     document.getElementById('gen-measure-video-gpu').textContent = btn.dataset.gpu;
     var fps = info.fps || 24;
+    var needs = info.needs || [];
+    // With measurements already made, the suggested size is the smallest
+    // not yet measured: a second size makes predictions for the others.
+    var pick = 0;
+    if (info.points > 0) {
+        pick = needs.findIndex(function(n) { return !n.measured; });
+        if (pick < 0) pick = 0;
+    }
     box.innerHTML = '';
     (info.presets || []).forEach(function(p, i) {
         var l = document.createElement('label');
         var r = document.createElement('input');
-        r.type = 'radio'; r.name = 'gen-measure-video-size'; r.value = i; r.checked = i === 0;
+        r.type = 'radio'; r.name = 'gen-measure-video-size'; r.value = i; r.checked = i === pick;
         r.dataset.frames = p.frames; r.dataset.width = p.width; r.dataset.height = p.height;
         l.appendChild(r);
         l.appendChild(document.createTextNode(' ' + p.label + ': ' + p.frames + ' frames (' + (p.frames / fps).toFixed(1) + ' s) at ' + p.width + '×' + p.height));
+        var t = genSizeNeedText(needs[i] || {});
+        if (t.text) {
+            var s = document.createElement('small');
+            s.style.cursor = 'help';
+            s.style.color = t.over ? 'var(--pico-del-color)' : 'var(--pico-muted-color)';
+            s.textContent = ' — ' + t.text;
+            s.title = t.title;
+            l.appendChild(s);
+        }
         box.appendChild(l);
     });
+    var predict = 'Measured sizes and predictions are for the whole room' + (info.roomGiB ? ' (' + info.roomGiB.toFixed(1) + ' GiB on this card)' : '') + '.';
+    if (info.points === 1) predict += ' Measure one more size to see predictions for the others.';
+    if (!info.points) predict = 'Once two sizes are measured, the others show a prediction of what they need.';
+    document.getElementById('gen-measure-video-predict').textContent = predict;
+    var budget = document.getElementById('gen-measure-video-budget');
+    budget.value = info.budgetGiB ? info.budgetGiB.toFixed(1) : '';
+    budget.placeholder = info.roomGiB ? 'whole room: ' + info.roomGiB.toFixed(1) : 'whole room';
+    if (info.roomGiB) budget.max = info.roomGiB.toFixed(1); else budget.removeAttribute('max');
     var cl = document.createElement('label');
     var cr = document.createElement('input');
     cr.type = 'radio'; cr.name = 'gen-measure-video-size'; cr.value = 'custom';
@@ -313,11 +342,35 @@ function openGenMeasureVideo(btn) {
         var vals = cr.checked ? {frames: f.value, width: w.value, height: h.value}
             : {frames: picked.dataset.frames, width: picked.dataset.width, height: picked.dataset.height};
         if (start) vals.start = '1';
+        if (budget.value) vals.budget_gib = budget.value;
         dlg.close();
         htmx.ajax('POST', '/api/gen/instances/' + encodeURIComponent(btn.dataset.id) + '/measure',
             {source: this, target: '#gen-instances', values: vals});
     };
     dlg.showModal();
+}
+// genSizeNeedText says what one video size needs, from the Measure
+// dialog's needs entry (see sizeNeed in gen_instances.go): its text, its
+// tooltip, and whether it will not fit.
+function genSizeNeedText(n) {
+    if (!n.fit && !n.gib) return {};
+    var gib = n.gib ? n.gib.toFixed(1) + ' GiB' : '';
+    var word = {fits: 'fits', close: 'close to the limit, measure to be sure', over: 'will not fit'}[n.fit] || '';
+    var text, title;
+    if (n.measured && n.fit === 'over') {
+        text = 'needed more than ' + gib + ': will not fit';
+        title = 'Measured: the test went past what the card can give the instance and was stopped. A smaller budget may still fit it, more slowly.';
+    } else if (n.measured) {
+        text = 'measured ' + gib + (word ? ': ' + word : '');
+        title = 'The peak the last measurement at this size saw.';
+    } else if (n.fit === 'over' && !n.gib) {
+        text = 'will not fit';
+        title = 'A smaller size was already too big for the card.';
+    } else {
+        text = 'about ' + gib + ' predicted' + (word ? ': ' + word : '');
+        title = 'Predicted from two measured sizes: memory grows with frames × width × height. Near the limit, sd.cpp may decode in smaller pieces, which bends this line. Only Measure grants a size.';
+    }
+    return {text: text, title: title, over: n.fit === 'over'};
 }
 // Start on an instance with no reservation: it cannot start until it is
 // measured, so ask, then measure and start it in one go.

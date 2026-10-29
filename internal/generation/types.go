@@ -86,6 +86,21 @@ type ModelSet struct {
 	Created  time.Time `json:"created"`
 }
 
+// MeasurePoint is one video measurement: the size, the peak, and the
+// budget it ran inside (0 for the whole room). Over says the test was
+// stopped once its peak passed the room, so PeakMiB is only a lower bound.
+type MeasurePoint struct {
+	Frames    int  `json:"frames"`
+	Width     int  `json:"width"`
+	Height    int  `json:"height"`
+	PeakMiB   int  `json:"peak_mib"`
+	BudgetMiB int  `json:"budget_mib,omitempty"`
+	Over      bool `json:"over,omitempty"`
+	// Fallback says the decode only fitted by being done in smaller
+	// pieces, which changes how memory grows with the size.
+	Fallback bool `json:"fallback,omitempty"`
+}
+
 // LastVideo is one finished video job, for the instance row.
 type LastVideo struct {
 	Frames  int       `json:"frames"`
@@ -139,6 +154,15 @@ type Instance struct {
 	// it: a text encoder on the CPU, and any weights sd.cpp kept in RAM.
 	MeasuredArgs   []string `json:"measured_args,omitempty"`
 	MeasuredRAMMiB int      `json:"measured_ram_mib,omitempty"`
+	// BudgetMiB is the GPU budget (sd-server's --max-vram) a video
+	// instance was measured inside, when the user chose one smaller than
+	// the room on the card; 0 means the whole room. sd-server runs with it,
+	// so it keeps to what was measured: inside a smaller budget sd.cpp
+	// keeps weights in system RAM and decodes in smaller pieces.
+	BudgetMiB int `json:"budget_mib,omitempty"`
+	// MeasurePoints are a video instance's recent measurements, for
+	// predicting what other sizes need (see PredictPeak).
+	MeasurePoints []MeasurePoint `json:"measure_points,omitempty"`
 	// LastVideo is the instance's last finished video job: its size, its
 	// inputs and how long sd-server took to make it (video instances
 	// only). A measurement cannot say this: the steps of a job differ too

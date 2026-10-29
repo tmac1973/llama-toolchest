@@ -78,6 +78,10 @@ func (r genInstanceRow) ReservedGiB() float64  { return float64(r.ReservedMiB) /
 func (r genInstanceRow) PeakGiB() float64      { return float64(r.MeasuredPeakMiB) / 1024 }
 func (r genInstanceRow) SuggestedGiB() float64 { return float64(r.SuggestedMiB) / 1024 }
 
+// BudgetGiB is the budget a video instance runs inside, when smaller than
+// the room.
+func (r genInstanceRow) BudgetGiB() float64 { return float64(r.BudgetMiB) / 1024 }
+
 // RAMGiB is the most system RAM the backend held during its last
 // measurement.
 func (r genInstanceRow) RAMGiB() float64 { return float64(r.MeasuredRAMMiB) / 1024 }
@@ -228,7 +232,8 @@ func (s *Server) genInstanceRows(store *generation.Store) []genInstanceRow {
 		}
 		if set := sets[inst.ModelSetID]; set.Kind == generation.KindVideo {
 			row.Limit, row.LimitMeasured = generation.VideoLimit(inst, set)
-			row.VideoJSON = videoMeasureJSON(set)
+			room, haveRoom := s.genRoomMiB(inst)
+			row.VideoJSON = videoMeasureJSON(set, inst, room, haveRoom)
 		}
 		if b := s.resolveBackendBuild(string(row.Kind), inst.BuildID); b != nil {
 			row.BuildLabel = b.ID
@@ -244,20 +249,84 @@ func (s *Server) genInstanceRows(store *generation.Store) []genInstanceRow {
 	return rows
 }
 
-// videoMeasureJSON is what the Measure dialog offers a video set: its
-// presets, frame rate and limits, and how long measuring the largest took.
-func videoMeasureJSON(set generation.ModelSet) string {
+// videoMeasureJSON is what the Measure dialog offers a video instance:
+// its set's presets, frame rate and limits, how long measuring the largest
+// took, and, from the instance's measurements inside the whole room, what
+// each preset needs (sizeNeeds).
+func videoMeasureJSON(set generation.ModelSet, inst generation.Instance, room int, haveRoom bool) string {
+	presets := generation.VideoPresets(set)
+	needs := make([]sizeNeed, len(presets))
+	points := 0
+	for _, p := range inst.MeasurePoints {
+		if p.BudgetMiB == 0 {
+			points++
+		}
+	}
+	for i, p := range presets {
+		needs[i] = presetNeed(inst.MeasurePoints, p, room, haveRoom)
+	}
 	info := map[string]any{
-		"presets":   generation.VideoPresets(set),
+		"presets":   presets,
+		"needs":     needs,
+		"points":    points,
 		"fps":       set.DefaultFPS,
 		"maxFrames": set.MaxFrames,
 		"maxSide":   max(set.MaxWidth, set.MaxHeight),
+		"budgetGiB": float64(inst.BudgetMiB) / 1024,
+	}
+	if haveRoom {
+		info["roomGiB"] = float64(room) / 1024
 	}
 	if e, ok := generation.LookupCatalog(set.CatalogID); ok {
 		info["fullMeasureTime"] = e.FullMeasureTime
 	}
 	b, _ := json.Marshal(info)
 	return string(b)
+}
+
+// sizeNeed is what one video size needs, for the Measure dialog: GiB, the
+// measured or predicted peak (0 when neither is known); Measured, whether
+// it was measured; Fit, "fits", "close" (to the limit) or "over" (will not
+// fit), judged against the room; empty when nothing is known.
+type sizeNeed struct {
+	GiB      float64 `json:"gib,omitempty"`
+	Measured bool    `json:"measured,omitempty"`
+	Fit      string  `json:"fit,omitempty"`
+}
+
+// predictCloseMiB is how near the room a predicted peak counts as close to
+// the limit: near it, sd.cpp may decode in smaller pieces to fit, so the
+// line through two measurements no longer holds.
+const predictCloseMiB = 2048
+
+// presetNeed is what size needs, from the instance's measurements inside
+// the whole room: the measured peak when it was measured at that size,
+// else a prediction.
+func presetNeed(points []generation.MeasurePoint, size generation.VideoSize, room int, haveRoom bool) sizeNeed {
+	var need sizeNeed
+	peak, over := 0, false
+	for _, p := range points {
+		if p.BudgetMiB == 0 && p.Frames == size.Frames && p.Width == size.Width && p.Height == size.Height {
+			peak, over, need.Measured = p.PeakMiB, p.Over, true
+		}
+	}
+	if !need.Measured {
+		var ok bool
+		if peak, over, ok = generation.PredictPeak(points, size, 0); !ok && !over {
+			return sizeNeed{}
+		}
+	}
+	need.GiB = float64(peak) / 1024
+	switch {
+	case !haveRoom && !over:
+	case over || peak > room+measureOverheadMiB:
+		need.Fit = "over"
+	case peak > room-predictCloseMiB:
+		need.Fit = "close"
+	default:
+		need.Fit = "fits"
+	}
+	return need
 }
 
 func (s *Server) handleGenInstances(w http.ResponseWriter, r *http.Request) {
@@ -435,6 +504,7 @@ func (s *Server) genInstanceFromForm(r *http.Request, store *generation.Store, i
 		inst.MeasuredSuggestedMiB, inst.MeasuredFrames, inst.MeasuredWidth, inst.MeasuredHeight = 0, 0, 0, 0
 		inst.MeasuredDecodeFallback, inst.LastVideo = false, generation.LastVideo{}
 		inst.MeasuredArgs, inst.MeasuredRAMMiB = nil, 0
+		inst.BudgetMiB, inst.MeasurePoints = 0, nil
 		s.genMeasure.clear(inst.ID)
 	}
 	inst.ModelSetID, inst.BuildID, inst.GPU, inst.ExtraArgs = set.ID, buildID, gpu, args

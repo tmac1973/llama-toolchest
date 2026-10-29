@@ -85,3 +85,64 @@ func (m ModelSet) HasHighNoiseModel() bool {
 	}
 	return false
 }
+
+// maxMeasurePoints is how many measurements an instance keeps.
+const maxMeasurePoints = 6
+
+// AddMeasurePoint adds p to points, replacing an earlier measurement of
+// the same size inside the same budget, and dropping the oldest beyond
+// maxMeasurePoints.
+func AddMeasurePoint(points []MeasurePoint, p MeasurePoint) []MeasurePoint {
+	out := make([]MeasurePoint, 0, len(points)+1)
+	for _, q := range points {
+		if q.Frames != p.Frames || q.Width != p.Width || q.Height != p.Height || q.BudgetMiB != p.BudgetMiB {
+			out = append(out, q)
+		}
+	}
+	out = append(out, p)
+	return out[max(0, len(out)-maxMeasurePoints):]
+}
+
+// PredictPeak predicts the peak of a video of size, from an instance's
+// measurements inside budget (0 for the whole room). A peak has two parts:
+// the weights, which do not change with the video's size, and working
+// memory, which grows with frames × width × height (PixelFrames). So a
+// line through two measurements at different sizes gives the rest: the
+// two largest such sizes, both measured to the end, whose decodes fitted
+// the same way. ok is false without two.
+//
+// A larger size measured and stopped for going past the room is known to
+// need at least that much: over is true for any size at or above it.
+func PredictPeak(points []MeasurePoint, size VideoSize, budget int) (peak int, over, ok bool) {
+	pf := PixelFrames(size.Frames, size.Width, size.Height)
+	var a, b *MeasurePoint
+	for i := range points {
+		p := &points[i]
+		if p.BudgetMiB != budget {
+			continue
+		}
+		if p.Over {
+			if pf >= PixelFrames(p.Frames, p.Width, p.Height) {
+				over = true
+			}
+			continue
+		}
+		switch {
+		case a == nil || PixelFrames(p.Frames, p.Width, p.Height) > PixelFrames(a.Frames, a.Width, a.Height):
+			a, b = p, a
+		case PixelFrames(p.Frames, p.Width, p.Height) != PixelFrames(a.Frames, a.Width, a.Height) &&
+			(b == nil || PixelFrames(p.Frames, p.Width, p.Height) > PixelFrames(b.Frames, b.Width, b.Height)):
+			b = p
+		}
+	}
+	if a == nil || b == nil || a.Fallback != b.Fallback {
+		return 0, over, false
+	}
+	pa, pb := PixelFrames(a.Frames, a.Width, a.Height), PixelFrames(b.Frames, b.Width, b.Height)
+	if pa == pb {
+		return 0, over, false
+	}
+	rate := float64(a.PeakMiB-b.PeakMiB) / float64(pa-pb)
+	peak = a.PeakMiB + int(rate*float64(pf-pa)+0.5)
+	return max(peak, 0), over, true
+}
