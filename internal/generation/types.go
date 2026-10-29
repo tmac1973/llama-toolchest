@@ -132,6 +132,13 @@ type Instance struct {
 	// at once and sd.cpp retried it with temporal tiling: the size fits,
 	// but its decode is slower than with more room.
 	MeasuredDecodeFallback bool `json:"measured_decode_fallback,omitempty"`
+	// MeasuredArgs are the backend flags the last measurement ran with:
+	// the set's run arguments, then the instance's extra ones. When they
+	// differ from today's (a catalog change), the measurement is out of
+	// date. MeasuredRAMMiB is the most system RAM the backend held during
+	// it: a text encoder on the CPU, and any weights sd.cpp kept in RAM.
+	MeasuredArgs   []string `json:"measured_args,omitempty"`
+	MeasuredRAMMiB int      `json:"measured_ram_mib,omitempty"`
 	// LastVideo is the instance's last finished video job: its size, its
 	// inputs and how long sd-server took to make it (video instances
 	// only). A measurement cannot say this: the steps of a job differ too

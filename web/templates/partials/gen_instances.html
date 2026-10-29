@@ -42,6 +42,12 @@
                 {{- if .MeasuredPeakMiB}}
                 <small style="display:block;color:var(--pico-muted-color);" title="The most GPU memory the last measurement saw this instance use.">peak {{printf "%.1f" .PeakGiB}} GiB, measured {{.MeasuredAt.Format "2006-01-02 15:04"}}{{if .MeasureEstimated}}, estimated (whole-GPU){{end}}</small>
                 {{- end}}
+                {{- if .MeasuredRAMMiB}}
+                <small style="display:block;color:var(--pico-muted-color);cursor:help;" title="The most system RAM the backend held during the last measurement. The text encoder runs on the CPU, and sd.cpp keeps model weights here when they do not fit the reservation. Other programs need this RAM too.">uses {{printf "%.1f" .RAMGiB}} GiB of system RAM</small>
+                {{- end}}
+                {{- if .MeasuredStale}}
+                <small style="display:block;color:var(--pico-ins-color);cursor:help;" title="This instance was measured with other backend settings than it runs with now: the model set's settings changed since (for example, its text encoder now runs on the CPU). Its reservation may be larger than it needs. Press Measure to find out.">Measured with older settings; measure again, it may need less memory now</small>
+                {{- end}}
                 {{- if and .SuggestedMiB (ne .SuggestedMiB .ReservedMiB)}}
                 <button type="button" class="outline" style="margin:0.2rem 0 0;padding:0.1rem 0.5rem;font-size:0.75rem;"
                         hx-put="/api/gen/instances/{{.ID}}/reservation" hx-vals='{"reserved_gib": "{{printf "%.1f" .SuggestedGiB}}"}' hx-target="#gen-instances"

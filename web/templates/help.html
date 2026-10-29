@@ -267,7 +267,7 @@
     </ol>
 
     <h3 id="generation-vram">Measured reservations</h3>
-    <p>October 2026, sd.cpp <code>master-1006</code>, acestep.cpp <code>de858d8</code>. Video figures are the Short size unless noted. Times are on the R9700.</p>
+    <p>October 2026, sd.cpp <code>master-1015</code>, acestep.cpp <code>de858d8</code>. Video figures are the Short size unless noted. Times are on the R9700. The R9700 figures were measured on 2026-10-29 with text models on the CPU; the A4000 figures are older, with them on the GPU, and would be smaller now.</p>
     <div class="help-wide">
     <table>
         <thead>
@@ -283,16 +283,16 @@
         </thead>
         <tbody>
             <tr><td>Ming-Image 0.1 Design</td><td>Images, transparent backgrounds</td><td class="num">10.5 GiB</td><td class="num">10.5 GiB</td><td></td><td></td><td>Text model runs on the CPU: half the memory, same speed</td></tr>
-            <tr><td>Qwen-Image 2.1 Turbo</td><td>Images</td><td class="num">11.0 GiB</td><td>–</td><td></td><td></td><td></td></tr>
-            <tr><td>Z-Image Turbo</td><td>Images</td><td class="num">12.5 GiB</td><td>–</td><td></td><td></td><td></td></tr>
-            <tr><td>FLUX.2 klein 4B</td><td>Images, edits</td><td class="num">11.5 GiB</td><td class="num">9.5 GiB</td><td></td><td>5.1 s at 1024² (A4000)</td><td>A4000 figure measured without an edit: too low for edits</td></tr>
-            <tr><td>FLUX.3 Image Klein</td><td>Images, edits</td><td class="num">13.5 GiB</td><td>–</td><td></td><td></td><td>Edits need 2–3 GiB more than images</td></tr>
-            <tr><td>Chroma1-HD</td><td>Images</td><td class="num">17.0 GiB</td><td>–</td><td></td><td></td><td></td></tr>
-            <tr><td>Qwen-Image-Edit 2511</td><td>Images, edits</td><td class="num">22.0 GiB</td><td>–</td><td></td><td></td><td>Edits need 2–3 GiB more than images</td></tr>
-            <tr><td>Wan2.2 TI2V 5B</td><td>Video</td><td class="num">26.0 GiB</td><td class="num">14.5 GiB</td><td>Short: 33 frames, 832×480</td><td></td><td>Medium and Full need ~30.6 and ~31.5 GiB: too much for the R9700</td></tr>
-            <tr><td>Wan2.2 I2V A14B</td><td>Video from a start (and end) image</td><td class="num">29.0 GiB</td><td>Fails</td><td>Short: 33 frames, 832×480</td><td>~27 min</td><td>Medium and Full not measured yet. A4000: tiled decode crashes</td></tr>
-            <tr><td>Wan2.2 I2V A14B Lightning</td><td>Video from a start (and end) image</td><td class="num">28.7 GiB</td><td>Fails</td><td>Short: 33 frames, 832×480</td><td>~3 min 20 s</td><td>A little less detail than A14B. Medium needs 30.5 GiB: too much for the R9700</td></tr>
-            <tr><td>LTX-2.3 distilled 1.1</td><td>Video with sound</td><td class="num">28.1 GiB<br>28.8 GiB Full</td><td class="num">14.4 GiB<br>unreliable</td><td>Short: 33 frames, 768×512<br>Full: 5 s, 1280×720</td><td>~35 s Short<br>~4 min 20 s Full (~11 min with start and end images)</td><td>A4000: CUDA crash in 1 of 2 tries</td></tr>
+            <tr><td>Qwen-Image 2.1 Turbo</td><td>Images</td><td class="num">6.5 GiB</td><td>–</td><td></td><td></td><td></td></tr>
+            <tr><td>Z-Image Turbo</td><td>Images</td><td class="num">8.5 GiB</td><td>–</td><td></td><td></td><td></td></tr>
+            <tr><td>FLUX.2 klein 4B</td><td>Images, edits</td><td class="num">8.5 GiB</td><td class="num">9.5 GiB</td><td></td><td>5.1 s at 1024² (A4000)</td><td>A4000 figure measured without an edit: too low for edits</td></tr>
+            <tr><td>FLUX.3 Image Klein</td><td>Images, edits</td><td class="num">9.5 GiB</td><td>–</td><td></td><td></td><td>Edits need 2–3 GiB more than images</td></tr>
+            <tr><td>Chroma1-HD</td><td>Images</td><td class="num">12.0 GiB</td><td>–</td><td></td><td></td><td></td></tr>
+            <tr><td>Qwen-Image-Edit 2511</td><td>Images, edits</td><td class="num">16.5 GiB</td><td>–</td><td></td><td></td><td>Edits need 2–3 GiB more than images. Its picture reader runs on the CPU with the text model: about 17 s more per edit</td></tr>
+            <tr><td>Wan2.2 TI2V 5B</td><td>Video</td><td class="num">20.0 GiB</td><td class="num">14.5 GiB</td><td>Short: 33 frames, 832×480</td><td>~70 s</td><td>Medium and Full: the decode needs more than the R9700 has left, even with the text model on the CPU</td></tr>
+            <tr><td>Wan2.2 I2V A14B</td><td>Video from a start (and end) image</td><td class="num">28.0 GiB</td><td>Fails</td><td>Short: 33 frames, 832×480</td><td>~27 min</td><td>Medium: the decode does not fit the R9700. Full not measured. A4000: tiled decode crashes</td></tr>
+            <tr><td>Wan2.2 I2V A14B Lightning</td><td>Video from a start (and end) image</td><td class="num">28.3 GiB</td><td>Fails</td><td>Short: 33 frames, 832×480</td><td>~3 min 20 s</td><td>A little less detail than A14B. Medium needs 30.5 GiB: too much for the R9700</td></tr>
+            <tr><td>LTX-2.3 distilled 1.1</td><td>Video with sound</td><td class="num">27.7 GiB Full</td><td class="num">14.4 GiB<br>unreliable</td><td>Short: 33 frames, 768×512<br>Full: 5 s, 1280×720</td><td>~35 s Short<br>~4 min 20 s Full (~11 min with start and end images)</td><td>A4000: CUDA crash in 1 of 2 tries</td></tr>
             <tr><td>ACE-Step 1.5 XL SFT</td><td>Music</td><td class="num">8.0 GiB</td><td>–</td><td></td><td></td><td></td></tr>
             <tr><td>ACE-Step 1.5 turbo</td><td>Music</td><td>–</td><td class="num">7.5 GiB</td><td></td><td>~13 s per 60 s song (A4000)</td><td></td></tr>
         </tbody>
@@ -302,6 +302,9 @@
         <li><strong>Reservations are planned, not held.</strong> The LLM planner leaves them free (after a margin of 1 GiB or 8% of the card), and LLM loads that would crowd one out are refused: HTTP 507 from the API, an error from <em>Load</em>, benchmarks, Autotune and Autoconfigure. An enabled instance keeps its reservation while stopped.</li>
         <li><strong>llama-server's own chat page</strong> (port 8080) loads models without asking llama-toolchest, so it is not checked. On a GPU with reservations, load models from the Models page or the API.</li>
         <li>sd-server is held to its reservation; ace-server's is a planning figure. sd-server keeps part of a set in system RAM on a smaller card, so measure on the card you will use.</li>
+        <li>Every catalog image and video set except SDXL runs its text encoder on the CPU (<code>--backend te=cpu</code>). On the R9700 this saved 4–5.5 GiB on each image set at no real cost, 6 GiB on TI2V 5B and 3 GiB on LTX-2.3 at Full (enough for Full to fit), for 13–16 s a video. Wan2.2 A14B saves only about 1 GiB, because sd.cpp already drops its encoder from GPU memory before sampling. An LLM running partly on the CPU and an image job slowed each other no more than before: the encoder runs only for a second or two. A custom set can do the same by adding <code>--backend te=cpu</code> to its launch arguments.</li>
+        <li>An instance row shows how much system RAM the backend used while it was measured: the text encoder, and any weights sd.cpp kept in RAM. Other programs need that RAM too.</li>
+        <li>An instance measured before its set's settings changed says <em>Measured with older settings</em>. Measure it again: it may need less memory now.</li>
         <li><strong>Example, one 32 GB R9700:</strong> Ming-Image fits beside Qwen-Image Turbo or ACE-Step XL, not both. With Qwen-Image Turbo and ACE-Step XL, about 8.6 GiB is left for an LLM.</li>
     </ul>
 

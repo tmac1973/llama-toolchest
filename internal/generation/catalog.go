@@ -81,6 +81,16 @@ var (
 	flux2SmallDecoder = Component{Slot: "vae", Repo: "black-forest-labs/FLUX.2-small-decoder", File: "full_encoder_small_decoder.safetensors", Bytes: 249519092}
 )
 
+// Every sd-server set but SDXL runs its text encoder on the CPU
+// (--backend te=cpu). On a Radeon AI PRO R9700 with a Ryzen 9 5950X
+// (2026-10-28/29) Measure's reservations went down by 4-5.5 GiB on each
+// image set at no real cost (the Qwen encoders were faster on the CPU, as
+// nothing was copied to the GPU), 6 GiB on TI2V 5B, 3 GiB on LTX-2.3 at
+// Full (which then fitted) and about 1 GiB on Wan2.2 A14B, for 13-16 s a
+// video. Qwen-Image Edit's picture reader goes with its text model (sd.cpp
+// places only diffusion, te and vae), adding about 17 s to an edit. SDXL's
+// two CLIP encoders are small and were not tried.
+//
 // Catalog returns the built-in model sets. File sizes were read from the
 // Hugging Face tree API on 2026-10-24 (2026-10-25 for Z-Image Turbo,
 // FLUX.3 Image Klein, Chroma1-HD, Chroma1-Flash and Qwen-Image-Edit 2511;
@@ -124,11 +134,11 @@ func Catalog() []CatalogEntry {
 				{Slot: "llm", Repo: "Qwen/Qwen3-VL-8B-Instruct-GGUF", File: "Qwen3VL-8B-Instruct-Q4_K_M.gguf", Bytes: 5027784800},
 				{Slot: "vae", Repo: "Comfy-Org/Qwen-Image-2.1", File: "vae/qwen_image_2.1_vae_bf16.safetensors", Bytes: 675509688},
 			},
-			LaunchArgs: []string{"--sigmas", "qwen-image-2.1-turbo", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling"},
+			LaunchArgs: []string{"--sigmas", "qwen-image-2.1-turbo", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling", "--backend", "te=cpu"},
 			// No "edit": Qwen-Image edits need the llm_vision weights,
 			// which this set leaves out.
 			License:       "Qwen-Image 2.1 licence",
-			Notes:         "8 steps; about 36 s per 1024×1024 image on a Radeon AI PRO R9700, using about 10 GB of VRAM. Licence terms: https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo",
+			Notes:         "8 steps; about 36 s per 1024×1024 image on a Radeon AI PRO R9700, reserving about 6.5 GiB of VRAM with its text model on the CPU (11 GiB with it on the GPU). Licence terms: https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo",
 			DefaultWidth:  1024,
 			DefaultHeight: 1024,
 		},
@@ -142,7 +152,7 @@ func Catalog() []CatalogEntry {
 				{Slot: "llm", Repo: "unsloth/Qwen3-4B-GGUF", File: "Qwen3-4B-Q8_0.gguf", Bytes: 4280405792},
 				flux2SmallDecoder,
 			},
-			LaunchArgs:    []string{"--steps", "4", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa"},
+			LaunchArgs:    []string{"--steps", "4", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--backend", "te=cpu"},
 			Capabilities:  []string{"edit"},
 			License:       "Apache-2.0",
 			Notes:         "4 steps. Also edits images.",
@@ -159,9 +169,9 @@ func Catalog() []CatalogEntry {
 				{Slot: "llm", Repo: "unsloth/Qwen3-4B-Instruct-2507-GGUF", File: "Qwen3-4B-Instruct-2507-Q8_0.gguf", Bytes: 4280405600},
 				fluxAE,
 			},
-			LaunchArgs:    []string{"--steps", "9", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling"},
+			LaunchArgs:    []string{"--steps", "9", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling", "--backend", "te=cpu"},
 			License:       "Apache-2.0",
-			Notes:         "9 steps; about 19 s per 1024×1024 image on a Radeon AI PRO R9700, using about 11 GB of VRAM. Shares its VAE with Chroma1-HD.",
+			Notes:         "9 steps; about 19 s per 1024×1024 image on a Radeon AI PRO R9700, reserving about 8.5 GiB of VRAM with its text model on the CPU. Shares its VAE with Chroma1-HD.",
 			DefaultWidth:  1024,
 			DefaultHeight: 1024,
 		},
@@ -175,10 +185,10 @@ func Catalog() []CatalogEntry {
 				{Slot: "llm", Repo: "Qwen/Qwen3-VL-4B-Instruct-GGUF", File: "Qwen3VL-4B-Instruct-Q8_0.gguf", Bytes: 4280406144},
 				flux2SmallDecoder,
 			},
-			LaunchArgs:    []string{"--steps", "16", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa"},
+			LaunchArgs:    []string{"--steps", "16", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--backend", "te=cpu"},
 			Capabilities:  []string{"edit"},
 			License:       "FLUX Kommunity License (non-commercial)",
-			Notes:         "16 steps; about 21 s per 1024×1024 image (56 s for an edit) on a Radeon AI PRO R9700, using about 12 GB of VRAM. Also edits images, with up to 10 reference images. Shares its VAE with FLUX.2 klein 4B. Non-commercial licence: only people and companies with less than US$5 million yearly revenue may use the images commercially. Licence terms: https://huggingface.co/black-forest-labs/flux-3-image-klein",
+			Notes:         "16 steps; about 21 s per 1024×1024 image (56 s for an edit) on a Radeon AI PRO R9700, reserving about 9.5 GiB of VRAM with its text model on the CPU. Also edits images, with up to 10 reference images. Shares its VAE with FLUX.2 klein 4B. Non-commercial licence: only people and companies with less than US$5 million yearly revenue may use the images commercially. Licence terms: https://huggingface.co/black-forest-labs/flux-3-image-klein",
 			DefaultWidth:  1024,
 			DefaultHeight: 1024,
 		},
@@ -197,9 +207,9 @@ func Catalog() []CatalogEntry {
 			// did not. --negative-prompt sets the default for requests that
 			// give none.
 			LaunchArgs: []string{"--steps", "40", "--cfg-scale", "4", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling",
-				"--negative-prompt", "low quality, ugly, unfinished, out of focus, deformed, disfigured, blurry, smudged, restricted palette, flat colors"},
+				"--negative-prompt", "low quality, ugly, unfinished, out of focus, deformed, disfigured, blurry, smudged, restricted palette, flat colors", "--backend", "te=cpu"},
 			License:       "Apache-2.0",
-			Notes:         "40 steps; about 3.5 minutes per 1024×1024 image on a Radeon AI PRO R9700, using about 15 GB of VRAM. Based on FLUX.1-schnell. Starts with a default negative prompt; a request can give its own. Shares its text model and VAE with Chroma1-Flash, and its VAE with Z-Image Turbo.",
+			Notes:         "40 steps; about 3.5 minutes per 1024×1024 image on a Radeon AI PRO R9700, reserving about 12 GiB of VRAM with its text model on the CPU (about 10 s more per image, for its negative prompt). Based on FLUX.1-schnell. Starts with a default negative prompt; a request can give its own. Shares its text model and VAE with Chroma1-Flash, and its VAE with Z-Image Turbo.",
 			DefaultWidth:  1024,
 			DefaultHeight: 1024,
 		},
@@ -216,9 +226,9 @@ func Catalog() []CatalogEntry {
 			// Flash has guidance trained in, so it runs at CFG 1: one pass
 			// per step, and negative prompts do nothing. On 2026-10-25, 8
 			// Euler steps garbled text in the image; 16 did not.
-			LaunchArgs:    []string{"--steps", "16", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling"},
+			LaunchArgs:    []string{"--steps", "16", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling", "--backend", "te=cpu"},
 			License:       "Apache-2.0",
-			Notes:         "Faster Chroma1-HD: 16 steps; about 46 s per 1024×1024 image on a Radeon AI PRO R9700 (Chroma1-HD takes about 3.5 minutes), using about 15 GB of VRAM. Ignores negative prompts. Shares its text model and VAE with Chroma1-HD.",
+			Notes:         "Faster Chroma1-HD: 16 steps; about 46 s per 1024×1024 image on a Radeon AI PRO R9700 (Chroma1-HD takes about 3.5 minutes), reserving about 12 GiB of VRAM with its text model on the CPU. Ignores negative prompts. Shares its text model and VAE with Chroma1-HD.",
 			DefaultWidth:  1024,
 			DefaultHeight: 1024,
 		},
@@ -235,10 +245,10 @@ func Catalog() []CatalogEntry {
 			},
 			// Without qwen_image_zero_cond_t=true, sd.cpp's docs say edit
 			// quality drops a lot.
-			LaunchArgs:    []string{"--steps", "20", "--cfg-scale", "4", "--flow-shift", "3", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling", "--model-args", "qwen_image_zero_cond_t=true"},
+			LaunchArgs:    []string{"--steps", "20", "--cfg-scale", "4", "--flow-shift", "3", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling", "--model-args", "qwen_image_zero_cond_t=true", "--backend", "te=cpu"},
 			Capabilities:  []string{"edit"},
 			License:       "Apache-2.0",
-			Notes:         "Edits images from one or more reference images; 20 steps. About 6 minutes per 1024×1024 edit on a Radeon AI PRO R9700, using about 21 GB of VRAM, so it needs a 24 GB card.",
+			Notes:         "Edits images from one or more reference images; 20 steps. About 6 minutes per 1024×1024 edit on a Radeon AI PRO R9700, reserving about 16.5 GiB of VRAM with its text model (and its picture reader) on the CPU, which adds about 17 s to an edit.",
 			DefaultWidth:  1024,
 			DefaultHeight: 1024,
 		},
@@ -271,11 +281,11 @@ func Catalog() []CatalogEntry {
 			// on 2026-10-26. Without it the decode works but needs more
 			// memory: the whole card peaked at about 25 GiB for the test
 			// video.
-			LaunchArgs:   []string{"--steps", "20", "--cfg-scale", "5", "--flow-shift", "5", "--sampling-method", "euler", "--diffusion-fa"},
+			LaunchArgs:   []string{"--steps", "20", "--cfg-scale", "5", "--flow-shift", "5", "--sampling-method", "euler", "--diffusion-fa", "--backend", "te=cpu"},
 			Capabilities: []string{CapText, CapStartImage},
 			License:      "Apache-2.0",
 			Notes: "Text-to-video and image-to-video in one small model; 20 steps. On a Radeon AI PRO R9700 (32 GB), about 70 s for the 33-frame 832×480 Short size " +
-				"(reservation 26 GiB). Medium and Full need more memory than a 32 GB card can give while tiled decoding is broken in stable-diffusion.cpp, " +
+				"(reservation 20 GiB, with its text model on the CPU). Medium and Full need more memory than a 32 GB card can give: the decode alone needs more than the card has left, " +
 				"so Measure refuses them there; custom sizes between Short and Medium can be tried. On a 16 GB RTX A4000, Short works inside 14.7 GiB (about 75 s).",
 			// The test video is short and mid-sized so Measure finishes in
 			// minutes; the ceiling is the model's native size, 121 frames
@@ -316,7 +326,7 @@ func Catalog() []CatalogEntry {
 			// default 0.875.
 			LaunchArgs: []string{"--steps", "20", "--cfg-scale", "3.5", "--flow-shift", "5", "--moe-boundary", "0.9",
 				"--high-noise-cfg-scale", "3.5", "--high-noise-sampling-method", "euler",
-				"--sampling-method", "euler", "--diffusion-fa", "--temporal-tiling"},
+				"--sampling-method", "euler", "--diffusion-fa", "--temporal-tiling", "--backend", "te=cpu"},
 			// --temporal-tiling, not --vae-tiling: with --vae-tiling the
 			// Wan2.1 VAE hung encoding the start picture on a Radeon AI PRO
 			// R9700 (sd.cpp master-1015, 2026-10-26). Without any tiling the
@@ -376,7 +386,7 @@ func Catalog() []CatalogEntry {
 			// --temporal-tiling as for Wan2.2 I2V A14B.
 			LaunchArgs: []string{"--steps", "4", "--high-noise-steps", "4", "--cfg-scale", "1", "--high-noise-cfg-scale", "1",
 				"--flow-shift", "5", "--sampling-method", "euler", "--high-noise-sampling-method", "euler",
-				"--diffusion-fa", "--temporal-tiling"},
+				"--diffusion-fa", "--temporal-tiling", "--backend", "te=cpu"},
 			Capabilities: []string{CapStartImage, CapEndImage},
 			License:      "Apache-2.0",
 			Notes: "Wan2.2 I2V A14B with the Lightning 4-step LoRAs: image-to-video and start-and-end videos; needs a start image. " +
@@ -426,13 +436,13 @@ func Catalog() []CatalogEntry {
 			// 1280×736 peaked at 29.6 GiB under a 28.4 GiB limit, against
 			// 30.9 GiB untiled, so Full fits a 32 GB card; the decode took
 			// 38 s against 28 s, with no seams between the tiles.
-			LaunchArgs:   []string{"--steps", "8", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--temporal-tiling"},
+			LaunchArgs:   []string{"--steps", "8", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--temporal-tiling", "--backend", "te=cpu"},
 			Capabilities: []string{CapText, CapStartImage, CapEndImage},
 			License:      "LTX-2 Community Licence (free under US$10M yearly revenue); text model: Gemma Terms of Use",
 			Notes: "Text-to-video, image-to-video and start-and-end videos with sound; 8 steps. " +
 				"WebM videos have a sound track; animated WebP is silent. Up to 5 seconds at 1280×720. " +
-				"On a Radeon AI PRO R9700 (32 GB), about 35 s for the 33-frame 768×512 Short size (reservation 28.1 GiB), " +
-				"and about 4.5 minutes for 5 s at 1280×720 (reservation 28.8 GiB, measured at Full); with a start and an end image, about 11 minutes. " +
+				"On a Radeon AI PRO R9700 (32 GB), about 35 s for the 33-frame 768×512 Short size, " +
+				"and about 4.5 minutes for 5 s at 1280×720 (reservation 27.7 GiB, measured at Full, with its text model on the CPU); with a start and an end image, about 11 minutes. " +
 				"sd-server makes 1280×720 as 1280×736. On a 16 GB RTX A4000, Measure works at Short (14.4 GiB, about 140 s per video), " +
 				"but stable-diffusion.cpp crashed there with a CUDA error in one of two videos. " +
 				"Licence: free unless the organisation makes US$10 million a year or more; terms at https://huggingface.co/Lightricks/LTX-2.3. " +
