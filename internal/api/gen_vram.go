@@ -809,7 +809,7 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 		haveRoom = false
 	}
 	var fitErr error
-	inst, fitErr = s.applyMeasurement(inst, set, size, room, haveRoom)
+	inst, fitErr = s.applyMeasurement(inst, set, size, budget, room, haveRoom)
 	if video {
 		inst.MeasurePoints = generation.AddMeasurePoint(inst.MeasurePoints, generation.MeasurePoint{
 			Frames: size.Frames, Width: size.Width, Height: size.Height, PeakMiB: peak, BudgetMiB: budget, Fallback: mlog.decodeFallback()})
@@ -850,7 +850,7 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 // suggestion that does not fit is not applied (a video instance keeps the
 // size it was last measured for), and an instance left with no
 // reservation is disabled; the error says why.
-func (s *Server) applyMeasurement(inst generation.Instance, set generation.ModelSet, size generation.VideoSize, room int, haveRoom bool) (generation.Instance, error) {
+func (s *Server) applyMeasurement(inst generation.Instance, set generation.ModelSet, size generation.VideoSize, budget, room int, haveRoom bool) (generation.Instance, error) {
 	// sd-server can go past --max-vram decoding a video (tiled decoding
 	// crashes for the Wan2.2 VAE, so the decode cannot shrink): a video
 	// size whose peak is over the room is not granted.
@@ -862,7 +862,11 @@ func (s *Server) applyMeasurement(inst generation.Instance, set generation.Model
 		}
 		return inst, err
 	}
-	suggest := generation.SuggestReservation(inst.MeasuredPeakMiB)
+	// Inside a budget the reservation is at least the budget: sd-server
+	// may use all of it on another video, though the test did not (TI2V
+	// 5B at 81 frames peaked at 10.6 GiB inside 14 GiB; R9700,
+	// 2026-10-29).
+	suggest := max(generation.SuggestReservation(inst.MeasuredPeakMiB), budget)
 	sdKind := set.Kind == generation.KindSD || set.Kind == generation.KindVideo
 	if sdKind && haveRoom {
 		suggest = capReservation(suggest, inst.MeasuredPeakMiB, room)

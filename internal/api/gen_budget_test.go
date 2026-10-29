@@ -42,27 +42,35 @@ func TestPresetNeed(t *testing.T) {
 	medium := generation.MeasurePoint{Frames: 65, Width: 1280, Height: 720, PeakMiB: 22000}
 	full := generation.VideoSize{Frames: 121, Width: 1280, Height: 720}
 	room := 28000
-	if n := presetNeed(nil, full, room, true); n != (sizeNeed{}) {
+	if n := presetNeed(nil, full, 0, room, true); n != (sizeNeed{}) {
 		t.Errorf("nothing measured: %+v, want nothing", n)
 	}
-	if n := presetNeed([]generation.MeasurePoint{short, medium}, generation.VideoSize{Frames: 65, Width: 1280, Height: 720}, room, true); !n.Measured || n.Fit != "fits" {
+	if n := presetNeed([]generation.MeasurePoint{short, medium}, generation.VideoSize{Frames: 65, Width: 1280, Height: 720}, 0, room, true); !n.Measured || n.Fit != "fits" {
 		t.Errorf("a measured size: %+v", n)
 	}
 	// About 26.4 GiB predicted for Full: within 2 GiB of the 27.3 GiB room.
-	if n := presetNeed([]generation.MeasurePoint{short, medium}, full, room, true); n.Measured || n.Fit != "close" || n.GiB < 25 || n.GiB > 27 {
+	if n := presetNeed([]generation.MeasurePoint{short, medium}, full, 0, room, true); n.Measured || n.Fit != "close" || n.GiB < 25 || n.GiB > 27 {
 		t.Errorf("Full predicted: %+v, want close to the limit", n)
 	}
-	if n := presetNeed([]generation.MeasurePoint{short, medium}, full, 22000, true); n.Fit != "over" {
-		t.Errorf("Full with a small room: %+v, want over", n)
+	if n := presetNeed([]generation.MeasurePoint{short, medium}, full, 0, 22000, true); n.Fit != "maybe" {
+		t.Errorf("Full predicted past a small room: %+v, want maybe, as a prediction alone never says will not fit", n)
+	}
+	big := medium
+	big.PeakMiB = 30000
+	if n := presetNeed([]generation.MeasurePoint{short, big}, generation.VideoSize{Frames: 65, Width: 1280, Height: 720}, 0, room, true); n.Fit != "over" {
+		t.Errorf("a size measured past the room: %+v, want over", n)
 	}
 	stopped := generation.MeasurePoint{Frames: 65, Width: 1280, Height: 720, PeakMiB: 30000, Over: true}
-	if n := presetNeed([]generation.MeasurePoint{short, stopped}, full, room, true); n.Fit != "over" {
+	if n := presetNeed([]generation.MeasurePoint{short, stopped}, full, 0, room, true); n.Fit != "over" {
 		t.Errorf("above a stopped size: %+v, want over", n)
 	}
 	inBudget := short
 	inBudget.BudgetMiB = 14336
-	if n := presetNeed([]generation.MeasurePoint{inBudget}, generation.VideoSize{Frames: 33, Width: 768, Height: 512}, room, true); n.Measured {
+	if n := presetNeed([]generation.MeasurePoint{inBudget}, generation.VideoSize{Frames: 33, Width: 768, Height: 512}, 0, room, true); n.Measured {
 		t.Errorf("a size measured inside a budget counted for the whole room: %+v", n)
+	}
+	if n := presetNeed([]generation.MeasurePoint{inBudget}, generation.VideoSize{Frames: 33, Width: 768, Height: 512}, 14336, room, true); !n.Measured {
+		t.Errorf("a size measured inside the instance's budget did not count for it: %+v", n)
 	}
 }
 
@@ -73,6 +81,7 @@ func TestVideoMeasureJSONNeeds(t *testing.T) {
 	presets := generation.VideoPresets(set)
 	inst := generation.Instance{BudgetMiB: 14336, MeasurePoints: []generation.MeasurePoint{
 		{Frames: presets[0].Frames, Width: presets[0].Width, Height: presets[0].Height, PeakMiB: 18000},
+		{Frames: presets[1].Frames, Width: presets[1].Width, Height: presets[1].Height, PeakMiB: 11000, BudgetMiB: 14336},
 	}}
 	var info struct {
 		Needs     []sizeNeed `json:"needs"`
@@ -83,7 +92,8 @@ func TestVideoMeasureJSONNeeds(t *testing.T) {
 	if err := json.Unmarshal([]byte(videoMeasureJSON(set, inst, 28672, true)), &info); err != nil {
 		t.Fatal(err)
 	}
-	if len(info.Needs) != len(presets) || !info.Needs[0].Measured || info.Needs[1].GiB != 0 || info.Points != 1 || info.RoomGiB != 28 || info.BudgetGiB != 14 {
+	// The instance runs inside 14 GiB: the needs are for that budget.
+	if len(info.Needs) != len(presets) || info.Needs[0].Measured || !info.Needs[1].Measured || info.Points != 1 || info.RoomGiB != 28 || info.BudgetGiB != 14 {
 		t.Errorf("dialog data = %+v", info)
 	}
 }
@@ -104,5 +114,21 @@ func TestMeasureNoteMentionsBudget(t *testing.T) {
 	inst := generation.Instance{MeasuredPeakMiB: 15000, ReservedMiB: 16896, MeasuredSuggestedMiB: 16896, MeasuredFrames: 81, BudgetMiB: 14336}
 	if note := measureNote(0, inst, false, false); !strings.Contains(note, "inside a budget of 14.0 GiB") {
 		t.Errorf("note = %q", note)
+	}
+}
+
+// Inside a budget, the reservation is at least the budget: sd-server may
+// use all of it, though the test used less.
+func TestApplyMeasurementInsideBudget(t *testing.T) {
+	s := vramServer(t)
+	video := ti2vSet()
+	if err := s.gen.AddModelSet(video); err != nil {
+		t.Fatal(err)
+	}
+	inst := generation.Instance{ID: "vid", ModelSetID: video.ID, Port: 8082, Enabled: true, MeasuredPeakMiB: 10854}
+	addInstance(t, s, inst)
+	got, err := s.applyMeasurement(inst, video, generation.VideoSize{Frames: 81, Width: 1280, Height: 704}, 14336, 28672, true)
+	if err != nil || got.ReservedMiB != 14336 {
+		t.Errorf("reservation %d, %v; want the 14 GiB budget, above the 12 GiB the peak suggests", got.ReservedMiB, err)
 	}
 }

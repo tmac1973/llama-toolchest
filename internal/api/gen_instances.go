@@ -251,19 +251,19 @@ func (s *Server) genInstanceRows(store *generation.Store) []genInstanceRow {
 
 // videoMeasureJSON is what the Measure dialog offers a video instance:
 // its set's presets, frame rate and limits, how long measuring the largest
-// took, and, from the instance's measurements inside the whole room, what
-// each preset needs (sizeNeeds).
+// took, and, from the instance's measurements inside the budget it runs
+// in (the whole room when it has none), what each preset needs (sizeNeed).
 func videoMeasureJSON(set generation.ModelSet, inst generation.Instance, room int, haveRoom bool) string {
 	presets := generation.VideoPresets(set)
 	needs := make([]sizeNeed, len(presets))
 	points := 0
 	for _, p := range inst.MeasurePoints {
-		if p.BudgetMiB == 0 {
+		if p.BudgetMiB == inst.BudgetMiB {
 			points++
 		}
 	}
 	for i, p := range presets {
-		needs[i] = presetNeed(inst.MeasurePoints, p, room, haveRoom)
+		needs[i] = presetNeed(inst.MeasurePoints, p, inst.BudgetMiB, room, haveRoom)
 	}
 	info := map[string]any{
 		"presets":   presets,
@@ -286,8 +286,10 @@ func videoMeasureJSON(set generation.ModelSet, inst generation.Instance, room in
 
 // sizeNeed is what one video size needs, for the Measure dialog: GiB, the
 // measured or predicted peak (0 when neither is known); Measured, whether
-// it was measured; Fit, "fits", "close" (to the limit) or "over" (will not
-// fit), judged against the room; empty when nothing is known.
+// it was measured; Fit, judged against the room: "fits", "close" (to the
+// limit), "maybe" (predicted past it: may not fit) or "over" (will not
+// fit: measured past it, or larger than a size that was); empty when
+// nothing is known.
 type sizeNeed struct {
 	GiB      float64 `json:"gib,omitempty"`
 	Measured bool    `json:"measured,omitempty"`
@@ -300,27 +302,34 @@ type sizeNeed struct {
 const predictCloseMiB = 2048
 
 // presetNeed is what size needs, from the instance's measurements inside
-// the whole room: the measured peak when it was measured at that size,
-// else a prediction.
-func presetNeed(points []generation.MeasurePoint, size generation.VideoSize, room int, haveRoom bool) sizeNeed {
+// budget (0 for the whole room): the measured peak when it was measured at
+// that size, else a prediction. It is judged against the room, which the
+// reservation may take even inside a smaller budget.
+func presetNeed(points []generation.MeasurePoint, size generation.VideoSize, budget, room int, haveRoom bool) sizeNeed {
 	var need sizeNeed
 	peak, over := 0, false
 	for _, p := range points {
-		if p.BudgetMiB == 0 && p.Frames == size.Frames && p.Width == size.Width && p.Height == size.Height {
+		if p.BudgetMiB == budget && p.Frames == size.Frames && p.Width == size.Width && p.Height == size.Height {
 			peak, over, need.Measured = p.PeakMiB, p.Over, true
 		}
 	}
 	if !need.Measured {
 		var ok bool
-		if peak, over, ok = generation.PredictPeak(points, size, 0); !ok && !over {
+		if peak, over, ok = generation.PredictPeak(points, size, budget); !ok && !over {
 			return sizeNeed{}
 		}
 	}
 	need.GiB = float64(peak) / 1024
 	switch {
 	case !haveRoom && !over:
-	case over || peak > room+measureOverheadMiB:
+	case over || (need.Measured && peak > room+measureOverheadMiB):
 		need.Fit = "over"
+	case peak > room+measureOverheadMiB:
+		// The line through two sizes ran 2.5 GiB high for LTX-2.3 at
+		// Full (28.8 against 26.3 GiB; R9700, 2026-10-29): its decode
+		// stops growing with the frames. A prediction alone never says a
+		// size will not fit.
+		need.Fit = "maybe"
 	case peak > room-predictCloseMiB:
 		need.Fit = "close"
 	default:

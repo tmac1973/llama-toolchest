@@ -303,14 +303,20 @@ function openGenMeasureVideo(btn) {
         if (t.text) {
             var s = document.createElement('small');
             s.style.cursor = 'help';
+            // Pico pulls a small right after an input up under it, as a
+            // field's help text; this one goes under the label's text.
+            s.style.display = 'block';
+            s.style.margin = '0 0 0 1.9rem';
             s.style.color = t.over ? 'var(--pico-del-color)' : 'var(--pico-muted-color)';
-            s.textContent = ' — ' + t.text;
+            s.textContent = t.text;
             s.title = t.title;
             l.appendChild(s);
         }
         box.appendChild(l);
     });
-    var predict = 'Measured sizes and predictions are for the whole room' + (info.roomGiB ? ' (' + info.roomGiB.toFixed(1) + ' GiB on this card)' : '') + '.';
+    var predict = info.budgetGiB
+        ? 'Measured sizes and predictions are for the ' + info.budgetGiB.toFixed(1) + ' GiB budget this instance runs in.'
+        : 'Measured sizes and predictions are for the whole room' + (info.roomGiB ? ' (' + info.roomGiB.toFixed(1) + ' GiB on this card)' : '') + '.';
     if (info.points === 1) predict += ' Measure one more size to see predictions for the others.';
     if (!info.points) predict = 'Once two sizes are measured, the others show a prediction of what they need.';
     document.getElementById('gen-measure-video-predict').textContent = predict;
@@ -355,7 +361,7 @@ function openGenMeasureVideo(btn) {
 function genSizeNeedText(n) {
     if (!n.fit && !n.gib) return {};
     var gib = n.gib ? n.gib.toFixed(1) + ' GiB' : '';
-    var word = {fits: 'fits', close: 'close to the limit, measure to be sure', over: 'will not fit'}[n.fit] || '';
+    var word = {fits: 'fits', close: 'close to the limit, measure to be sure', maybe: 'may not fit, measure to check', over: 'will not fit'}[n.fit] || '';
     var text, title;
     if (n.measured && n.fit === 'over') {
         text = 'needed more than ' + gib + ': will not fit';
@@ -368,7 +374,7 @@ function genSizeNeedText(n) {
         title = 'A smaller size was already too big for the card.';
     } else {
         text = 'about ' + gib + ' predicted' + (word ? ': ' + word : '');
-        title = 'Predicted from two measured sizes: memory grows with frames × width × height. Near the limit, sd.cpp may decode in smaller pieces, which bends this line. Only Measure grants a size.';
+        title = 'Predicted from two measured sizes: memory grows with frames × width × height. The line can run high, for a model whose decode stops growing with the length, and near the limit sd.cpp may decode in smaller pieces, which bends it. Only Measure grants a size.';
     }
     return {text: text, title: title, over: n.fit === 'over'};
 }

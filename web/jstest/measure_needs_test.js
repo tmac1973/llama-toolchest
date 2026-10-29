@@ -19,6 +19,9 @@ t = genSizeNeedText({gib: 26.4, fit: 'close'});
 ok(t.text === 'about 26.4 GiB predicted: close to the limit, measure to be sure', 'a prediction near the limit');
 ok(t.title.indexOf('Only Measure grants a size') >= 0, 'a prediction says it grants nothing');
 
+t = genSizeNeedText({gib: 30.1, fit: 'maybe'});
+ok(t.text === 'about 30.1 GiB predicted: may not fit, measure to check' && !t.over, 'a prediction past the limit only says it may not fit');
+
 t = genSizeNeedText({fit: 'over'});
 ok(t.text === 'will not fit' && t.over, 'above a size already too big, with no prediction');
 
