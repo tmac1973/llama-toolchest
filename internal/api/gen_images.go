@@ -62,7 +62,7 @@ func (s *Server) pickInstance(model string, kind generation.BackendKind) (genera
 		case s.genMgr.IsMeasuring(inst.ID):
 			reasons = append(reasons, fmt.Sprintf("backend %s is being measured", inst.ID))
 		case inst.ReservedMiB == 0:
-			reasons = append(reasons, fmt.Sprintf("backend %s has no VRAM reservation yet", inst.ID))
+			reasons = append(reasons, fmt.Sprintf("backend %s has no VRAM reservation yet; measure it, or set a reservation, on the toolchest's Server page", inst.ID))
 		default:
 			eligible = append(eligible, inst)
 		}

@@ -156,7 +156,20 @@ func (s *Server) makeRoomForLLM(ctx context.Context, m *models.Model) (release f
 	hw, need, replacing := s.llmReservationNeed(m)
 	short := s.reservationShortGPUs(hw, need)
 	if len(short) == 0 {
-		return noop, nil
+		// A measurement on one of its GPUs holds that GPU
+		// (makeRoomForMeasure) and may grow into any of its room, so with
+		// eviction on the load waits for it even when it fits beside what
+		// is there now.
+		if !s.genEvictOn() {
+			return noop, nil
+		}
+		on := s.measuringOn(m)
+		if on == nil {
+			return noop, nil
+		}
+		// need is nil when no reservation counts yet, as before the
+		// measured backend has started.
+		need = on
 	}
 	err = s.reservationFitError(hw, need, !replacing)
 	if !s.genEvictOn() || s.genQueue == nil {
@@ -184,6 +197,56 @@ func (s *Server) makeRoomForLLM(ctx context.Context, m *models.Model) (release f
 	if err := s.checkLLMFitsReservations(m); err != nil {
 		release()
 		return noop, err
+	}
+	return release, nil
+}
+
+// measuringOn returns m's planned GPU memory per GPU (as a load
+// replacing the loaded models) when an instance is being measured on one
+// of those GPUs, and nil otherwise. Only with generation backends set up
+// (genEvictOn checks it).
+func (s *Server) measuringOn(m *models.Model) map[int]int {
+	var on map[int]int
+	for _, inst := range s.gen.Instances() {
+		if !s.genMgr.IsMeasuring(inst.ID) {
+			continue
+		}
+		if on == nil {
+			on = s.loadedLLMMiB(models.RoomOf(s.idleHardware()), m.ID, true)
+		}
+		if on[inst.GPU] > 0 {
+			return on
+		}
+	}
+	return nil
+}
+
+// makeRoomForMeasure gives a measurement of inst the GPU the way eviction
+// gives it to inst's jobs: it holds the GPU's job queue, stops the other
+// backends there (none kept running) and unloads the LLMs on it. The room
+// measured is then the room inst gets when a job makes room for it, so
+// its reservation is not cut down for an LLM a job would unload anyway
+// (ACE-Step 1.5 XL was refused a reservation for a loaded 5.4 GiB LLM on
+// an RX 9070 XT, 2026-10-30). The hold also makes an LLM load wait until
+// the measurement is over (makeRoomForLLM). release ends the hold. With
+// eviction off it does nothing: loaded LLMs keep their memory, and the
+// measurement fits beside them.
+func (s *Server) makeRoomForMeasure(ctx context.Context, inst generation.Instance) (release func(), err error) {
+	noop := func() {}
+	if !s.genEvictOn() || s.genQueue == nil {
+		return noop, nil
+	}
+	reason := "measuring " + inst.Name
+	release, err = s.genQueue.Hold(ctx, []int{inst.GPU}, reason)
+	if err != nil {
+		return noop, err
+	}
+	s.stopGenUntil(inst.GPU, inst.ID, reason, func() bool { return false })
+	for _, id := range s.loadedLLMsOn(inst.GPU) {
+		if err := s.unloadForGen(ctx, id, inst); err != nil {
+			release()
+			return noop, err
+		}
 	}
 	return release, nil
 }

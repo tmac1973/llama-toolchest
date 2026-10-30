@@ -68,8 +68,9 @@ type genInstanceRow struct {
 	// the instance's GPU, whichever instance they are for.
 	GPUJobsRunning int `json:"gpu_jobs_running"`
 	GPUJobsWaiting int `json:"gpu_jobs_waiting"`
-	// GPUHeldBy names the LLM measurement (a benchmark, Autotune or
-	// Autoconfigure's test load) that has the GPU while its jobs wait.
+	// GPUHeldBy names what has the GPU while its jobs wait: an LLM
+	// measurement (a benchmark, Autotune or Autoconfigure's test load), an
+	// LLM load, or a Measure with eviction on.
 	GPUHeldBy string `json:"gpu_held_by,omitempty"`
 }
 

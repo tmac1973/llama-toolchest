@@ -69,7 +69,7 @@
                 {{- if .MeasureNote}}<small style="display:block;color:var(--pico-ins-color);" title="Result of the last measurement. Shown until the next one or a restart. The peak stays under VRAM reserved.">Measured at {{.MeasureAt.Format "15:04"}}: {{.MeasureNote}}</small>{{end}}
                 {{- if .MeasureError}}<small style="display:block;color:var(--pico-del-color);">Measurement failed at {{.MeasureAt.Format "15:04"}}: {{.MeasureError}}</small>{{end}}</td>
             <td>{{if or .GPUJobsRunning .GPUJobsWaiting}}{{.GPUJobsRunning}} running{{if .GPUJobsWaiting}}, {{.GPUJobsWaiting}} waiting{{end}}{{else if not .GPUHeldBy}}<small>idle</small>{{end}}
-                {{- with .GPUHeldBy}}<small style="display:block;" title="An LLM measurement (benchmark, Autotune or Autoconfigure) uses this GPU. Jobs wait until it finishes.">GPU in use by: {{.}}</small>{{end}}</td>
+                {{- with .GPUHeldBy}}<small style="display:block;" title="Something other than a job uses this GPU: an LLM measurement (benchmark, Autotune or Autoconfigure), an LLM load, or Measure. Jobs wait until it finishes.">GPU in use by: {{.}}</small>{{end}}</td>
             <td>
                 {{- with .WebUIURL}}
                 <a href="{{.}}" target="_blank" rel="noopener" style="font-size:0.85rem;" title="The backend web page. Its jobs skip the toolchest queue, so they can run with API jobs on the same GPU.">Open web UI →</a>
