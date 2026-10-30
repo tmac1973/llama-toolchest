@@ -83,6 +83,9 @@ const (
 	// path that did not exist stopped the load, and the file was never
 	// written.
 	versionNgramCacheSave = 11758
+	// versionRouterMemory is b11930 (#21231), which added
+	// --models-memory-margin to the router.
+	versionRouterMemory = 11930
 )
 
 // newest reports whether the target is to be written for as current
@@ -134,6 +137,10 @@ func (t Target) DraftUBatchOption() bool { return t.newest(versionDraftUBatch) }
 // NgramCacheFileOption reports whether the build keeps the N-gram Cache
 // method's learned n-grams in a file between loads.
 func (t Target) NgramCacheFileOption() bool { return t.newest(versionNgramCacheSave) }
+
+// RouterMemoryOption reports whether the build's router takes
+// --models-memory-margin.
+func (t Target) RouterMemoryOption() bool { return t.newest(versionRouterMemory) }
 
 // MoECacheOption is moeCacheOption for the config form and Autotune.
 func (t Target) MoECacheOption() bool { return t.moeCacheOption() }

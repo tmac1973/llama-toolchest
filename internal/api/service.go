@@ -444,6 +444,9 @@ type routerOptions struct {
 	// overrides substitutes model configs for this start only. Nil uses
 	// the user's saved config, written to the normal preset.
 	overrides map[string]*models.ModelConfig
+	// job is set for a benchmark or Autotune start: the router then runs
+	// one model at a time, without the router memory option.
+	job bool
 }
 
 // startRouter starts the llama-server on the user's saved build and
@@ -462,6 +465,7 @@ func (s *Server) startRouterWith(opt routerOptions) error {
 		buildID = s.cfg.ActiveBuild
 	}
 	modelsMax := s.cfg.ModelsMax
+	routerMemory := s.cfg.RouterMemory && !s.cfg.GenerationEnabled
 	port := s.cfg.LlamaPort
 	extraEnv := s.cfg.RuntimeEnvPairs()
 	s.cfgMu.Unlock()
@@ -516,12 +520,16 @@ func (s *Server) startRouterWith(opt routerOptions) error {
 	// that is about to be cleared.
 	s.memory.Reset()
 
+	modelsMax, marginMiB := routerLimits(modelsMax, routerMemory, opt.job,
+		s.targetFor(build).RouterMemoryOption(), s.routerMemoryMarginMiB())
+
 	if err := s.process.Start(process.RouterConfig{
-		BinaryPath: build.BinaryPath,
-		PresetPath: presetPath,
-		ModelsMax:  modelsMax,
-		Port:       port,
-		ExtraEnv:   extraEnv,
+		BinaryPath:            build.BinaryPath,
+		PresetPath:            presetPath,
+		ModelsMax:             modelsMax,
+		ModelsMemoryMarginMiB: marginMiB,
+		Port:                  port,
+		ExtraEnv:              extraEnv,
 	}); err != nil {
 		return err
 	}

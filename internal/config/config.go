@@ -33,7 +33,14 @@ type Config struct {
 	LogLevel    string `yaml:"log_level"`    // default "info"
 	ActiveBuild string `yaml:"active_build"` // which llama.cpp build to use
 	ModelsMax   int    `yaml:"models_max"`   // max loaded models, 0 = unlimited
-	AutoStart   bool   `yaml:"auto_start"`   // start the llama-server on container startup
+	// RouterMemory lets the llama-server router keep several models loaded
+	// and unload the least recently used ones when a new one does not fit
+	// (--models-memory-margin). It is the other way to share GPU memory
+	// from GenEvict, and only allowed while generation backends are off:
+	// the router cannot see their reservations. One or the other decides
+	// what is unloaded, never both.
+	RouterMemory bool `yaml:"router_memory"`
+	AutoStart    bool `yaml:"auto_start"` // start the llama-server on container startup
 
 	// RuntimeEnv holds curated environment variables applied to the
 	// llama-server router process. Router-wide by nature: every spawned

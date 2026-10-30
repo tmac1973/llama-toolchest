@@ -1117,6 +1117,8 @@ func (s *Server) handleServerPage(w http.ResponseWriter, r *http.Request) {
 		PickerHint   string
 		// GenerationEnabled shows the Generation backends section.
 		GenerationEnabled bool
+		// RouterMemory is the router memory switch (router_memory.go).
+		RouterMemory routerMemoryView
 	}{
 		GenerationEnabled: cfg.GenerationEnabled,
 		pageData:          pageData{Title: "Server", Nav: "server"},
@@ -1124,6 +1126,7 @@ func (s *Server) handleServerPage(w http.ResponseWriter, r *http.Request) {
 		ModelsMax:         cfg.ModelsMax,
 		BuildChoices:      choices,
 		AutoMismatch:      autoMismatch,
+		RouterMemory:      s.routerMemoryInfo(),
 	}
 	data.PickerHint = s.buildPickerHint(choices, allMismatched)
 	s.render(w, "server.html", data)
