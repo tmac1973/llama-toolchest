@@ -366,12 +366,11 @@ func ProjectOptions(project, profile string) []BuildOption {
 	if project == ProjectSDCpp {
 		_, err := exec.LookPath("pnpm")
 		opts = append(opts, BuildOption{
-			Flag:  sdFrontendFlag,
-			Label: "Built-in web UI (needs pnpm)",
-			Description: "Build sd-server's own web page for generating images in a browser. Building it needs pnpm on this machine; " +
-				"without the web UI, sd-server still serves the image API.",
-			Default:  err == nil,
-			OffValue: "OFF",
+			Flag:        sdFrontendFlag,
+			Label:       "Built-in web UI (needs pnpm)",
+			Description: "Builds the sd-server web page for images in a browser. Needs pnpm. Without it, sd-server still serves the API.",
+			Default:     err == nil,
+			OffValue:    "OFF",
 		})
 	}
 	return opts

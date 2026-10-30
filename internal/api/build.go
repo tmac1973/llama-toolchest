@@ -481,7 +481,7 @@ func (s *Server) buildRowFor(b *builder.BuildResult) buildRow {
 		row.BuiltAgainstText = b.BuiltAgainst
 		row.Mismatch = true
 		row.BuiltAgainstTitle = fmt.Sprintf(
-			"Built against %s, and that ROCm install is no longer on this machine at that version. A build is linked against the libraries it was made with, so it may fail to load — rebuild it if the server does not start. Nothing has been deleted; it will work again if %s comes back.",
+			"Built against %s. That ROCm install is no longer on this machine, so the build may fail to load; rebuild it if the server does not start. It loads again if %s comes back.",
 			b.BuiltAgainst, root)
 	case perInstall:
 		row.BuiltAgainstText = b.BuiltAgainst
@@ -489,8 +489,8 @@ func (s *Server) buildRowFor(b *builder.BuildResult) buildRow {
 		row.BuiltAgainstText = b.BuiltAgainst
 		row.Mismatch = true
 		row.BuiltAgainstTitle = fmt.Sprintf(
-			"Built against %s; this container runs %s. A build is linked against the libraries of the image it was made in, so it may fail to load here — rebuild it if the server does not start. Nothing has been deleted; it is still here if you switch back to %s.",
-			b.BuiltAgainst, current, b.BuiltAgainst)
+			"Built against %s; this container runs %s. The build is linked against the libraries of its own image, so it may fail to load here; rebuild it if the server does not start.",
+			b.BuiltAgainst, current)
 	default:
 		row.BuiltAgainstText = b.BuiltAgainst
 	}

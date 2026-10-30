@@ -1152,11 +1152,11 @@ func (s *Server) buildPickerHint(choices []serverBuildChoice, allMismatched bool
 		where = running
 	}
 	if allMismatched {
-		return "Every build listed was compiled in a different container image than " + where +
-			", so any of them may fail to load. They can still be chosen, because refusing all of them would leave nothing to start — but rebuilding on the Builds page is what will work."
+		return "All builds come from another container image than " + where +
+			", so any of them may fail to load. They stay selectable, so that something can start. Rebuild on the Builds page."
 	}
-	return "Builds marked with a warning sign were compiled in a different container image than " + where +
-		", and cannot be chosen. Rebuild them on the Builds page to use them here; nothing has been deleted."
+	return "Builds with a warning sign come from another container image than " + where +
+		" and cannot be chosen. Rebuild them on the Builds page."
 }
 
 func (s *Server) handleHelpPage(w http.ResponseWriter, r *http.Request) {

@@ -2,7 +2,7 @@
      #flag-presets. Data: flagPresetRowData (build_flag_presets.go). */}}
 {{define "flag_preset_row"}}
 <div class="grid" style="align-items:end;">
-    <label style="margin-bottom:0;" title="Apply a saved flag set: fills the toggles, Extra CMake Flags, and Build Tag. Saved sets belong to the selected profile and carry no git ref, so they replay against any ref.">
+    <label style="margin-bottom:0;" title="Applies a saved flag set: the toggles, Extra CMake Flags and Build Tag. Sets belong to the profile and work with any git ref.">
         Saved Flag Sets
         <select id="flag-preset-select" name="preset" style="margin-bottom:0;"
                 hx-get="/api/builds/options"
@@ -18,7 +18,7 @@
     </label>
     <div style="display:flex;gap:0.5rem;align-items:end;">
         <button type="button" class="outline" style="margin-bottom:0;"
-                title="Save the current toggles and Extra CMake Flags under the Build Tag name (tag required)."
+                title="Saves the toggles and Extra CMake Flags under the Build Tag name. Needs a tag."
                 hx-post="/api/builds/flag-presets"
                 hx-include="closest form"
                 hx-target="#flag-presets" hx-swap="innerHTML">Save Flags</button>

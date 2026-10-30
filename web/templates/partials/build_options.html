@@ -12,7 +12,7 @@
     {{/* Only with more than one ROCm install. The build uses the chosen
          one's compiler, headers and libraries and nothing from the others;
          the flags it adds show in the preview below. */}}
-    <label title="This machine has more than one ROCm. The build uses only the one chosen here.">ROCm Install
+    <label title="This machine has more than one ROCm. The build uses only the one you choose here.">ROCm Install
         <select name="rocm_root">
             {{- range .}}
             <option value="{{.Root}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
@@ -38,7 +38,7 @@
         <input type="text" name="extra_cmake" value="{{.ExtraCMake}}" placeholder="-DFOO=BAR -DBAZ=ON">
     </label>
     {{- if .ShowEffective}}
-    <label title="The full set of cmake flags that will be passed to the build.">Effective CMake Flags
+    <label title="All cmake flags that the build gets.">Effective CMake Flags
         <input type="text" value="{{.EffectiveFlags}}" readonly style="opacity:0.7;cursor:default;font-size:0.85rem;">
     </label>
     {{- end}}

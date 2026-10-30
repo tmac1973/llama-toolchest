@@ -7,7 +7,7 @@
      detection found something, so it never states a guess. */}}
 {{if .BuildEnv}}
 <p style="margin-top:-0.5rem;">
-    <small class="mono" title="The GPU toolchain this container is running. Builds in the list below record the toolchain they were compiled against; one that does not match this needs rebuilding before it will load.">
+    <small class="mono" title="GPU toolchain of this container. A build compiled against another toolchain must be rebuilt before it loads.">
         Running <strong>{{.BuildEnv}}</strong>{{if .BaseImage}} · built on <kbd>{{.BaseImage}}</kbd>{{end}}
     </small>
 </p>
@@ -26,7 +26,7 @@
              list partly off the page. hx-include="#build-project" sends
              the checked one. */}}
         <fieldset id="build-project" class="project-choice"
-                  title="Which source to build: llama.cpp for language models, stable-diffusion.cpp for image generation (sd-server), or acestep.cpp for music generation (ace-server). They share the profiles, compiler setup and build list.">
+                  title="The source to build: llama.cpp (language models), stable-diffusion.cpp (images, sd-server) or acestep.cpp (music, ace-server).">
             <legend>Project</legend>
             {{range $i, $p := .Projects}}
             <label>
@@ -83,7 +83,7 @@
             </label>
         </div>
 
-        <label title="Optional label appended to the build ID so multiple builds of the same ref+profile can coexist (e.g. 'rocwmma' or 'no-fattn'). Lowercase letters, digits, and hyphens. If left blank and a build with the same ref+profile already exists with different flags, a short hash of the flags is appended automatically. Also names a saved flag set when you press Save Flags.">
+        <label title="Label added to the build ID (for example rocwmma), so builds of the same ref and profile can coexist. Lowercase letters, digits and hyphens. Also names a saved flag set.">
             Build Tag <small>(optional; names saved flag sets)</small>
             <input type="text" id="build-tag" name="tag" placeholder="e.g. rocwmma" pattern="[a-z0-9][a-z0-9-]*" autocomplete="off">
         </label>

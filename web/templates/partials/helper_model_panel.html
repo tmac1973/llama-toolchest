@@ -7,7 +7,7 @@
 {{if .Installed}}
 <p>
     <strong>{{.Name}}</strong> is installed ({{printf "%.1f" .SizeGiB}} GiB).
-    <br><small title="These settings are fixed so the helper model always works: everything on the GPU, and a context large enough to hold a model card. The context is chosen from your GPU's memory.">Settings are managed by llama-toolchest: {{groupThousands .ContextSize}} tokens of context, all layers on the GPU.</small>
+    <br><small title="Fixed settings, so the helper always works: all layers on the GPU, and a context that holds a model card. Your VRAM sets the context.">Settings are managed by llama-toolchest: {{groupThousands .ContextSize}} tokens of context, all layers on the GPU.</small>
 </p>
 <button type="button" class="outline secondary" style="width:auto;"
         hx-post="/api/helper-model/remove" hx-target="#helper-model-panel" hx-swap="innerHTML"
@@ -19,7 +19,7 @@
 <p>No helper model is installed, so Autoconfigure cannot read model cards. It still works from what fits on your hardware.</p>
 <button type="button" class="secondary" style="width:auto;"
         hx-post="/api/helper-model/download" hx-target="#helper-model-panel" hx-swap="innerHTML"
-        title="Downloads {{.DefaultLabel}} from Hugging Face, about 3 GB. It is loaded only while Autoconfigure runs and unloaded afterwards.">
+        title="Downloads {{.DefaultLabel}} from Hugging Face, about 3 GB. Loaded only while Autoconfigure runs.">
     Download helper model ({{.DefaultLabel}}, about 3 GB)
 </button>
 {{end}}

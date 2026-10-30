@@ -101,7 +101,7 @@ func TestServerPickerKeepsBuildsWhenAllOfThemMismatch(t *testing.T) {
 			t.Errorf("%s was refused although every build mismatches:\n%s", id, opt)
 		}
 	}
-	if !strings.Contains(page, "would leave nothing to start") {
+	if !strings.Contains(page, "so that something can start") {
 		t.Errorf("the tooltip does not explain why they are still selectable:\n%s", page)
 	}
 }

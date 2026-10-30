@@ -207,7 +207,7 @@
 
     {{if .GenerationEnabled}}
     <article>
-        <header title="Image (stable-diffusion.cpp) and music (acestep.cpp) servers that run next to llama-server. Each instance runs one model set, on one GPU and one port.">Generation backends</header>
+        <header title="Image (stable-diffusion.cpp) and music (acestep.cpp) servers next to llama-server. Each instance runs one model set on one GPU and one port.">Generation backends</header>
         <div id="gen-instances" hx-get="/api/gen/instances"
              hx-trigger="load, every 5s [!genInstancesBusy()], genInstancesChanged from:body" hx-swap="innerHTML">Loading…</div>
         <p><small>To add an instance, use the New instance button next to a model set on the <a href="/models">Models</a> page, under Generation models.</small></p>
@@ -269,7 +269,7 @@
             </label>
         </div>
         <p><small id="gen-measure-video-predict"></small></p>
-        <label title="The most GPU memory sd-server may use, in GiB. Empty measures inside the whole room the card can give the instance, which is the fastest. A smaller budget leaves room for other models: sd.cpp then keeps model weights in system RAM and decodes in smaller pieces, so videos take longer. The instance keeps to this budget afterwards. On Radeon cards, a budget too small for the decode can make sd.cpp's small-piece decode hang; Measure stops it after 5 minutes.">Measure inside (GiB)
+        <label title="Maximum VRAM for sd-server, in GiB. Empty: all free room, fastest. Smaller: weights stay in system RAM, slower. On Radeon, too small can hang; Measure stops it after 5 minutes.">Measure inside (GiB)
             <input type="number" id="gen-measure-video-budget" min="4" step="0.5">
         </label>
         <p><small id="gen-measure-video-note"></small></p>
