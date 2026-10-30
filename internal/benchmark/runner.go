@@ -15,6 +15,7 @@ import (
 
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/routerclient"
+	"github.com/tmac1973/llama-toolchest/internal/serverlog"
 )
 
 // RunConfig holds everything needed to execute a benchmark.
@@ -141,7 +142,7 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 	fail := func(headline string) {
 		run.Status = StatusFailed
 		if cfg.ServerLog != nil {
-			run.FailureLog = serverErrorLines(linesAfter(cfg.ServerLog(), logMark))
+			run.FailureLog = serverlog.ErrorLines(linesAfter(cfg.ServerLog(), logMark))
 		}
 		run.Error = withServerReason(headline, run.FailureLog)
 		send("error", run.Error, 0)

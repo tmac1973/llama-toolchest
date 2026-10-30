@@ -1,42 +1,11 @@
 package memreport
 
 import (
-	"regexp"
 	"sync"
 	"time"
+
+	"github.com/tmac1973/llama-toolchest/internal/serverlog"
 )
-
-// spawnRE matches the router's announcement that it has started a child
-// process for a model, which is the only line tying an instance back to
-// the model it serves:
-//
-//	0.05.123.456 I srv          load: spawning server instance with name=Qwen3.6-27B on port 46231
-//
-// The router logs this itself rather than through a model instance, at
-// LOG_INF — verbosity 3, llama.cpp's default. The buffer report the
-// instance then prints needs verbosity 4, so a stream can carry the
-// mapping with nothing to map, but never the reverse.
-//
-// The name is matched greedily up to the port so a model whose id
-// contains " on port " still resolves.
-var spawnRE = regexp.MustCompile(`spawning server instance with name=(.+) on port (\d+)\s*$`)
-
-// readyRE matches the line a child writes when it has finished loading
-// and is ready to serve:
-//
-//	0.14.275.900 D [46231] cmd_child_to_router:state:{"state":"ready","payload":{...}}
-//
-// The router logs these control messages itself, at debug level, so the
-// line carries the router's own timestamp and level prefix — unlike the
-// child's ordinary output, which it forwards bare. The prefix is optional
-// here so a build that logs it without one still matches. It is the end
-// of the load — and so the moment at which the card counters are worth
-// reading.
-//
-// A model waking from sleep reports ready again without a spawn. That
-// leaves the first ready standing rather than replacing it, which is the
-// honest reading: the load being described is still the one measured.
-var readyRE = regexp.MustCompile(`^(?:[\d.]+ )?(?:[A-Z] )?\[\s*(\d+)\] cmd_child_to_router:state:.*"state"\s*:\s*"ready"`)
 
 // Measurement is what one model load allocated, as llama.cpp reported it
 // while loading.
@@ -128,8 +97,7 @@ func (c *Collector) Add(line string) Event {
 	if c == nil {
 		return Event{}
 	}
-	if m := spawnRE.FindStringSubmatch(line); m != nil {
-		name, port := m[1], m[2]
+	if name, port, ok := serverlog.ParseSpawn(line); ok {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		// A fresh record rather than a reset one: the previous
@@ -141,14 +109,17 @@ func (c *Collector) Add(line string) Event {
 		return Event{Kind: EventSpawned, Model: name, Port: port}
 	}
 
-	if m := readyRE.FindStringSubmatch(line); m != nil {
-		port := m[1]
+	if port, ok := serverlog.ReadyPort(line); ok {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		ld := c.byPort[port]
 		if ld == nil {
 			return Event{}
 		}
+		// A model waking from sleep reports ready again without a
+		// spawn. The first ready stands rather than being replaced, which
+		// is the honest reading: the load being described is still the
+		// one measured.
 		if ld.Ready.IsZero() {
 			ld.Ready = c.now()
 		}

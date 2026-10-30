@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/tmac1973/llama-toolchest/internal/serverlog"
 )
 
 // A load that runs out of memory, as llama-server prints it: the
@@ -22,62 +24,6 @@ var oomLog = []string{
 	"[40947] 0.03.552.300 W srv    load_model: retrying is not going to help",
 	"[40947] 0.03.553.871 E main: exiting due to model loading error",
 	"0.03.700.004 E srv  operator(): instance name=big exited with status 1",
-}
-
-func TestServerErrorLinesKeepsTheCauseFirst(t *testing.T) {
-	got := serverErrorLines(oomLog)
-	want := []string{
-		"ggml_backend_cuda_buffer_type_alloc_buffer: allocating 5120.00 MiB on device 2: cudaMalloc failed: out of memory",
-		"alloc_tensor_range: failed to allocate CUDA2 buffer of size 5368709120",
-		"llama_init_from_model: failed to initialize the context: failed to allocate buffer for kv cache",
-		"main: exiting due to model loading error",
-		"srv  operator(): instance name=big exited with status 1",
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("error lines =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-	}
-}
-
-// A warm-up is retried, and every retry loads the model and prints the
-// same failure. The record should say it once.
-func TestServerErrorLinesDropsRepeatsFromRetries(t *testing.T) {
-	twice := append(append([]string{}, oomLog...), oomLog...)
-	if got, once := serverErrorLines(twice), serverErrorLines(oomLog); !reflect.DeepEqual(got, once) {
-		t.Errorf("two attempts gave %d lines, one attempt gave %d", len(got), len(once))
-	}
-}
-
-// A process that aborts prints straight to its error stream, with no
-// timestamp and no level. Those lines are the only record of a crash.
-func TestServerErrorLinesKeepsACrashThatBypassesTheLogger(t *testing.T) {
-	got := serverErrorLines([]string{
-		"[ 8081] 0.09.100.000 I slot launch_slot_: id  0 | task 0 | processing task",
-		"[ 8081] /src/ggml/src/ggml-cuda/ggml-cuda.cu:98: CUDA error",
-		"[ 8081] CUDA error: out of memory",
-		"[ 8081]   current device: 2, in function alloc at /src/ggml/src/ggml-cuda/ggml-cuda.cu:512",
-		"==> Router stopped",
-	})
-	want := []string{
-		"/src/ggml/src/ggml-cuda/ggml-cuda.cu:98: CUDA error",
-		"CUDA error: out of memory",
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("error lines = %q, want %q", got, want)
-	}
-}
-
-func TestServerErrorLinesIsBounded(t *testing.T) {
-	var log []string
-	for i := 0; i < 3*maxFailureLogLines; i++ {
-		log = append(log, "0.00.000.001 E srv  problem number "+strings.Repeat("x", i+1))
-	}
-	got := serverErrorLines(log)
-	if len(got) != maxFailureLogLines {
-		t.Fatalf("kept %d lines, want %d", len(got), maxFailureLogLines)
-	}
-	if got[0] != "srv  problem number x" {
-		t.Errorf("first kept line = %q, want the first one printed", got[0])
-	}
 }
 
 // Only what the server printed after the run started belongs to the run.
@@ -198,7 +144,7 @@ var crashLog = []string{
 // The error text quotes the line that says memory ran out, not whichever
 // error line happens to be first in the log.
 func TestFailureReasonPrefersTheOutOfMemoryLine(t *testing.T) {
-	lines := serverErrorLines(crashLog)
+	lines := serverlog.ErrorLines(crashLog)
 	if got := failureReason(lines); got != "CUDA error: out of memory" {
 		t.Errorf("reason = %q, want the out-of-memory line", got)
 	}
@@ -222,27 +168,5 @@ func TestFailureReasonFallsBackToTheFirstLine(t *testing.T) {
 	}
 	if got := failureReason(nil); got != "" {
 		t.Errorf("reason for no lines = %q, want empty", got)
-	}
-}
-
-// Backtrace frames are most of what an aborting process prints. They
-// name no cause, and they would push the lines that do out of the dozen
-// that are kept.
-func TestServerErrorLinesLeavesOutBacktraceFrames(t *testing.T) {
-	lines := serverErrorLines(crashLog)
-	for _, l := range lines {
-		if strings.Contains(l, "[0x") {
-			t.Errorf("kept a backtrace frame: %q", l)
-		}
-	}
-	want := []string{
-		"srv    operator(): http client error: Failed to read connection",
-		"/data/llama.cpp/ggml/src/ggml-cuda/ggml-cuda.cu:106: CUDA error",
-		"CUDA error: out of memory",
-		"current device: 2, in function ggml_cuda_graph_evaluate_and_capture at /data/llama.cpp/ggml/src/ggml-cuda/ggml-cuda.cu:4209",
-		"cudaGraphLaunch(graph->instance, cuda_ctx->stream())",
-	}
-	if !reflect.DeepEqual(lines, want) {
-		t.Errorf("error lines =\n%s\nwant\n%s", strings.Join(lines, "\n"), strings.Join(want, "\n"))
 	}
 }
