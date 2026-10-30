@@ -764,6 +764,7 @@ func (s *Server) buildRouter() chi.Router {
 			r.Post("/flag-presets", s.handleSaveFlagPreset)
 			r.Post("/flag-presets/delete", s.handleDeleteFlagPreset)
 			r.Get("/active-log", s.handleActiveBuildLog)
+			r.Get("/start/{token}/logs", s.handleBuildStartLogs)
 			r.Get("/{id}/logs", s.handleBuildLogs)
 			r.Get("/{id}/info", s.handleBuildInfo)
 			r.Delete("/{id}", s.handleDeleteBuild)

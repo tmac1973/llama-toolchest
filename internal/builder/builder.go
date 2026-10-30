@@ -117,6 +117,10 @@ type Builder struct {
 	logBcasts   map[string]*broadcast.Broadcaster[string] // build ID → log stream
 	lastBuildID string                                    // most recent build ID
 
+	// starts holds the fetch and checkout lines of build starts by start
+	// token, from before the build has an ID (start_log.go).
+	starts startLogs
+
 	refsMu        sync.Mutex
 	cachedRefs    map[string][]string // project ID → release tags
 	cachedAnchors map[string]int      // llama.cpp release tag → its nightly b-number
@@ -426,17 +430,52 @@ func (b *Builder) BuildProject(ctx context.Context, project, profile string, git
 
 	logCh := make(chan string, 256)
 
-	// Clone/fetch and resolve ref synchronously to get the ID before returning
-	srcDir := filepath.Join(b.dataDir, proj.CloneDir)
-	if err := b.ensureRepo(ctx, proj, srcDir, logCh); err != nil {
-		close(logCh)
-		return nil, fmt.Errorf("repo setup: %w", err)
+	// The fetch and checkout run before the build has an ID. Their lines
+	// are kept, replayed into the build's log once it has one, and shown
+	// while they happen on the stream of the start token, if the caller
+	// gave one (WithStartToken).
+	prepCh := make(chan string, 256)
+	var prepLines []string
+	var start *startLog
+	if token := startTokenFrom(ctx); token != "" {
+		start = b.starts.get(token)
+	}
+	prepDone := make(chan struct{})
+	go func() {
+		defer close(prepDone)
+		for line := range prepCh {
+			prepLines = append(prepLines, line)
+			if start != nil {
+				start.bc.Broadcast(line)
+			}
+		}
+	}()
+	// endPrep ends the fetch and checkout phase, with a last line for the
+	// start's stream.
+	endPrep := func(last string) {
+		close(prepCh)
+		<-prepDone
+		if start != nil {
+			start.bc.Broadcast(last)
+			b.starts.end(start)
+		}
 	}
 
-	resolvedRef, sha, commitCount, err := b.checkoutRef(ctx, proj, srcDir, gitRef, logCh)
-	if err != nil {
+	// Clone/fetch and resolve ref synchronously to get the ID before returning
+	srcDir := filepath.Join(b.dataDir, proj.CloneDir)
+	if err := b.ensureRepo(ctx, proj, srcDir, prepCh); err != nil {
+		err = fmt.Errorf("repo setup: %w", err)
+		endPrep("==> The build did not start: " + err.Error())
 		close(logCh)
-		return nil, fmt.Errorf("checkout: %w", err)
+		return nil, err
+	}
+
+	resolvedRef, sha, commitCount, err := b.checkoutRef(ctx, proj, srcDir, gitRef, prepCh)
+	if err != nil {
+		err = fmt.Errorf("checkout: %w", err)
+		endPrep("==> The build did not start: " + err.Error())
+		close(logCh)
+		return nil, err
 	}
 
 	result.GitRef = resolvedRef
@@ -468,6 +507,7 @@ func (b *Builder) BuildProject(ctx context.Context, project, profile string, git
 		if br.ID == result.ID {
 			if !force {
 				b.mu.Unlock()
+				endPrep("==> The build did not start: build " + result.ID + " already exists.")
 				close(logCh)
 				return nil, &DuplicateBuildError{ID: result.ID}
 			}
@@ -489,17 +529,11 @@ func (b *Builder) BuildProject(ctx context.Context, project, profile string, git
 	b.logBcasts[result.ID] = broadcast.New[string](buildLogHistorySize, buildLogHistorySize)
 	b.logMu.Unlock()
 
-	// The git clone/fetch/checkout lines were buffered before the build ID
-	// existed; replay them into the broadcaster so they show up in the
-	// streamed log rather than being silently discarded.
-drain:
-	for {
-		select {
-		case line := <-logCh:
-			b.broadcastLog(result.ID, line)
-		default:
-			break drain
-		}
+	// The git clone/fetch/checkout lines came before the build ID existed;
+	// replay them into the build's log so they show up there too.
+	endPrep("==> Started build " + result.ID + ".")
+	for _, line := range prepLines {
+		b.broadcastLog(result.ID, line)
 	}
 
 	slog.Info("build started", "build", result.ID, "git_ref", resolvedRef, "git_sha", sha)
