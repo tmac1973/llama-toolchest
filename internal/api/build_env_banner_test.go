@@ -36,7 +36,7 @@ func TestBuildsPageNamesTheRunningToolchainWithNoBuilds(t *testing.T) {
 	if !strings.Contains(out, "rocm 10.0.0") {
 		t.Errorf("the builds page does not say what it is running\n%s", out)
 	}
-	if !strings.Contains(out, "needs rebuilding before it will load") {
+	if !strings.Contains(out, "must be rebuilt before it loads") {
 		t.Errorf("the banner does not explain why the version matters\n%s", out)
 	}
 }

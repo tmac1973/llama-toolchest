@@ -52,19 +52,19 @@ func ProfileOptions(profile string) []BuildOption {
 		{
 			Flag:        "GGML_NATIVE",
 			Label:       "Native CPU Optimizations",
-			Description: "Compile with -march=native for best performance on this machine. Disable if building for a different CPU.",
+			Description: "Compiles with -march=native for this CPU. Turn it off to build for another CPU.",
 			Default:     true,
 		},
 		{
 			Flag:        "LLAMA_OPENSSL",
 			Label:       "HTTPS Support (OpenSSL)",
-			Description: "Enable HTTPS for fetching remote images in vision models and downloading models by URL. Requires OpenSSL dev libraries.",
+			Description: "HTTPS for remote images and model downloads by URL. Needs the OpenSSL development libraries.",
 			Default:     true,
 		},
 		{
 			Flag:        "GGML_LTO",
 			Label:       "Link-Time Optimization",
-			Description: "Optimize across compilation units at link time. Small speedup in CPU-side code at the cost of a noticeably longer build.",
+			Description: "Link-time optimization. A small CPU speedup and a longer build.",
 			Default:     false,
 		},
 	}
@@ -74,13 +74,13 @@ func ProfileOptions(profile string) []BuildOption {
 	faAllQuants := BuildOption{
 		Flag:        "GGML_CUDA_FA_ALL_QUANTS",
 		Label:       "FlashAttention for All KV Quants",
-		Description: "Compile FlashAttention kernels for every K/V cache type combination. Not needed for the KV cache quantizations the model config offers: q8_0 and q4_0 (with K and V the same type) are compiled by default. It matters only for other types or mixed K/V types set through Extra flags, which without it fall back to the f16 kernel with a warning. From b10876 upstream treats this as an alias for GGML_CUDA_FA_QUANTS=all; pass -DGGML_CUDA_FA_QUANTS=\"q8_0-q4_0;...\" in Extra CMake flags to compile a chosen few instead. Significantly longer build time.",
+		Description: "Compiles FlashAttention kernels for all K/V cache type pairs. q8_0 and q4_0 are already compiled. Needed only for other or mixed types. Much longer build.",
 		Default:     false,
 	}
 	forceMMQ := BuildOption{
 		Flag:        "GGML_CUDA_FORCE_MMQ",
 		Label:       "Force Custom Matrix Multiply (MMQ)",
-		Description: "Always use ggml's own matrix-multiply kernels (MMQ) for quantized weights instead of the BLAS library. Lower VRAM use; often faster on consumer GPUs, can be slower at large batch sizes on datacenter cards. Mutually exclusive with Force cuBLAS.",
+		Description: "Uses ggml MMQ kernels for quantized weights, not BLAS. Less VRAM, often faster on consumer GPUs. Not with Force cuBLAS.",
 		Default:     false,
 	}
 
@@ -91,14 +91,14 @@ func ProfileOptions(profile string) []BuildOption {
 			{
 				Flag:        "GGML_CUDA_FORCE_CUBLAS",
 				Label:       "Force cuBLAS",
-				Description: "Always use cuBLAS instead of ggml's MMQ kernels. Can help large batches (for an LLM, prompt processing) on datacenter GPUs with strong tensor cores. Mutually exclusive with Force MMQ.",
+				Description: "Uses cuBLAS, not MMQ kernels. Can help large batches on datacenter GPUs. Not with Force MMQ.",
 				Default:     false,
 			},
 			faAllQuants,
 			{
 				Flag:        "GGML_CUDA_GRAPHS",
 				Label:       "CUDA Graphs",
-				Description: "Batch kernel launches into CUDA graphs, cutting launch overhead. This switch starts on for every project. stable-diffusion.cpp's own build turns it off, but without it Wan video models can crash while decoding the video. To switch it off for llama-server without rebuilding, set GGML_CUDA_DISABLE_GRAPHS under Settings, Runtime environment.",
+				Description: "Groups kernel launches into CUDA graphs. On by default. Without it, Wan video models can crash in the decode. GGML_CUDA_DISABLE_GRAPHS turns it off at runtime.",
 				// llama.cpp's top-level CMakeLists turns GGML_CUDA_GRAPHS on
 				// when it is not set, so off must be written out.
 				Default:  true,
@@ -107,7 +107,7 @@ func ProfileOptions(profile string) []BuildOption {
 			{
 				Flag:        "GGML_CUDA_NO_PEER_COPY",
 				Label:       "Disable Peer-to-Peer Copies",
-				Description: "Route multi-GPU transfers through system memory instead of direct GPU-to-GPU copies. Fixes corrupt or garbage output on multi-GPU boards whose PCIe topology lacks real peer-to-peer support (common on consumer chipsets). Leave off unless you see that symptom.",
+				Description: "Sends multi-GPU transfers through system memory. Fixes bad output on boards without real P2P support. Leave it off unless you see bad output.",
 				Default:     false,
 			},
 		}...)
@@ -118,13 +118,13 @@ func ProfileOptions(profile string) []BuildOption {
 			{
 				Flag:        "GGML_HIP_RCCL",
 				Label:       "RCCL Collectives (Tensor Parallelism)",
-				Description: "Build against RCCL, ROCm's collective communications library, for the AllReduce that fires every layer under tensor parallelism. Without it, a split over exactly two GPUs uses llama.cpp's internal AllReduce (ROCm builds have it from b10989) and any other GPU count falls back to the slower generic path (the 'falling back to meta-backend butterfly' message in the logs). Only matters for split-mode tensor across 2+ GPUs; requires rccl-devel to build. The GGML_CUDA_ALLREDUCE variable under Settings picks the path at runtime.",
+				Description: "Builds with RCCL for the tensor-parallel AllReduce. Without it, two GPUs use the internal AllReduce and other counts a slower path. Needs rccl-devel.",
 				Default:     false,
 			},
 			{
 				Flag:        "GGML_HIP_ROCWMMA_FATTN",
 				Label:       "rocWMMA FlashAttention (older refs only)",
-				Description: "Builds the FlashAttention kernel against rocWMMA. Upstream REMOVED this path at b10332 (PR #26046) — on b10332 or newer this toggle is a silent no-op and the native MMA kernel is always used. That native kernel regresses prompt processing on RDNA4 (gfx1201) by 25-49% at deep context (upstream issue #26220, still open); rocWMMA measured +24% prompt processing on Qwen3.6-27B-MTP here. To use it, pin a ref older than b10332 and enable this. Requires rocwmma-devel to build and --flash-attn at runtime.",
+				Description: "Builds FlashAttention with rocWMMA. Upstream removed it at b10332, so it works only on older refs. It was faster for prompt processing on RDNA4. Needs rocwmma-devel and flash attention.",
 				Default:     false,
 			},
 		}...)
@@ -207,7 +207,7 @@ func igpuTargetOption(gpus []string) *BuildOption {
 		Flag:  "GPU_TARGETS",
 		Value: strings.Join(append(dgpu, igpu...), ";"),
 		Label: "Include iGPU Build Target",
-		Description: fmt.Sprintf("Also compile kernels for the integrated GPU (%s). Off by default: the iGPU shares system RAM, is far slower than the discrete card, and some ROCm math libraries don't ship kernels for it. Note the iGPU still appears as a device at runtime either way — this only controls whether the build can execute on it.",
+		Description: fmt.Sprintf("Also compiles kernels for the integrated GPU (%s). Off by default: the iGPU is much slower, and some ROCm libraries have no kernels for it.",
 			strings.Join(igpu, ", ")),
 		Default: false,
 	}

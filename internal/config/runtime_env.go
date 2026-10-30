@@ -38,97 +38,71 @@ type RuntimeEnvOption struct {
 func RuntimeEnvOptions() []RuntimeEnvOption {
 	return []RuntimeEnvOption{
 		{
-			Name:  "LLAMA_ARG_LOG_VERBOSITY",
-			Label: "Model loading detail",
-			Help: "How much llama.cpp reports while loading a model. The router passes its own " +
-				"environment to every model instance it starts, so this reaches them too. " +
-				"3 is llama.cpp's default. 4 adds the per-buffer memory report — model weights, " +
-				"KV cache, recurrent state and compute buffers, each with the device holding it — " +
-				"which is the only place those figures are stated and the way to check a VRAM " +
-				"estimate against what was really allocated. 5 adds per-layer and per-tensor debug " +
-				"output and is very noisy: roughly 12,000 log lines per model load against 900 at 4.",
+			Name:   "LLAMA_ARG_LOG_VERBOSITY",
+			Label:  "Model loading detail",
+			Help:   "Log detail of llama.cpp at model load. It reaches every model instance. 3: llama.cpp default. 4: adds the memory report per buffer, to check VRAM estimates. 5: per-tensor debug output, about 12,000 lines per load.",
 			Values: []string{"", "3", "4", "5"},
 		},
 		{
-			Name:  "GGML_CUDA_CUBLAS_COMPUTE_TYPE",
-			Label: "cuBLAS/hipBLAS compute type",
-			Help: "Accumulator precision for GEMMs that fall through to cuBLAS/hipBLAS. " +
-				"Replaces the old GGML_CUDA_FORCE_CUBLAS_COMPUTE_16F build flag, which current llama.cpp no longer defines. " +
-				"Leave on auto unless you are measuring a specific difference.",
+			Name:     "GGML_CUDA_CUBLAS_COMPUTE_TYPE",
+			Label:    "cuBLAS/hipBLAS compute type",
+			Help:     "Accumulator precision for GEMMs that use cuBLAS or hipBLAS. Replaces the GGML_CUDA_FORCE_CUBLAS_COMPUTE_16F build flag. Keep auto unless you measure a difference.",
 			Values:   []string{"", "auto", "f16", "bf16", "f32"},
 			Backends: []string{"cuda", "rocm"},
 		},
 		{
-			Name:  "ROCBLAS_USE_HIPBLASLT",
-			Label: "Prefer hipBLASLt (ROCm)",
-			Help: "Routes rocBLAS calls through hipBLASLt where possible. " +
-				"Note this is already the default on gfx12 (RDNA4), where setting it changes nothing, " +
-				"and llama.cpp's own source reports a hipBLASLt crash on gfx942 (CDNA3). " +
-				"Most quantized matmuls bypass rocBLAS entirely, so measure before keeping it.",
+			Name:     "ROCBLAS_USE_HIPBLASLT",
+			Label:    "Prefer hipBLASLt (ROCm)",
+			Help:     "Sends rocBLAS calls to hipBLASLt where possible. Already the default on gfx12 (RDNA4). Can crash on gfx942 (CDNA3). Measure before you keep it.",
 			Values:   []string{"", "1", "0"},
 			Backends: []string{"rocm"},
 		},
 		{
-			Name:  "GGML_CUDA_DISABLE_GRAPHS",
-			Label: "Disable CUDA/HIP graphs",
-			Help: "Graphs are enabled by default and generally help token generation. " +
-				"This is a compatibility and troubleshooting option — expect a small slowdown, not a speedup.",
+			Name:     "GGML_CUDA_DISABLE_GRAPHS",
+			Label:    "Disable CUDA/HIP graphs",
+			Help:     "Turns off CUDA graphs, which usually help token generation. For troubleshooting only. Expect a small slowdown.",
 			Values:   []string{"", "1"},
 			Backends: []string{"cuda", "rocm"},
 		},
 		{
-			Name:  "GGML_CUDA_ALLREDUCE",
-			Label: "Tensor-parallel AllReduce path",
-			Help: "Which AllReduce split mode tensor uses to combine results across GPUs. Auto (unset) tries " +
-				"NCCL/RCCL first — present in CUDA builds by default and in ROCm builds with the RCCL toggle — then " +
-				"llama.cpp's internal AllReduce, which handles exactly two GPUs (ROCm builds have it from b10989), " +
-				"then the generic meta-backend butterfly. 'internal' skips NCCL/RCCL, which sidesteps an RCCL " +
-				"regression on a two-GPU split without rebuilding; 'none' forces the butterfly. " +
-				"Only matters for models split by tensor.",
+			Name:     "GGML_CUDA_ALLREDUCE",
+			Label:    "Tensor-parallel AllReduce path",
+			Help:     "AllReduce mode for a tensor split over GPUs. Auto: NCCL/RCCL, then the internal AllReduce (two GPUs), then the butterfly. internal: skips NCCL/RCCL. none: butterfly only.",
 			Values:   []string{"", "nccl", "internal", "none"},
 			Backends: []string{"cuda", "rocm"},
 		},
 		{
-			Name:  "GGML_CUDA_ENABLE_UNIFIED_MEMORY",
-			Label: "Unified memory (VRAM overflow)",
-			Help: "Lets allocations spill into system RAM instead of failing when VRAM runs out. " +
-				"A survivability option, not a performance one — spilled layers are much slower.",
+			Name:     "GGML_CUDA_ENABLE_UNIFIED_MEMORY",
+			Label:    "Unified memory (VRAM overflow)",
+			Help:     "Lets allocations spill into system RAM when VRAM is full, instead of failing. Spilled layers are much slower.",
 			Values:   []string{"", "1"},
 			Backends: []string{"cuda", "rocm"},
 		},
 		{
-			Name:  "GGML_CUDA_P2P",
-			Label: "Peer-to-peer transfers (CUDA)",
-			Help: "Opt-in direct GPU-to-GPU transfers for multi-GPU splits. Needs driver P2P support " +
-				"(usually workstation/datacenter cards); on consumer boards or with IOMMU enabled it can " +
-				"crash or corrupt output. If you see garbage at long context on multi-GPU, leave this off " +
-				"and consider the 'Disable Peer-to-Peer Copies' build toggle instead.",
+			Name:     "GGML_CUDA_P2P",
+			Label:    "Peer-to-peer transfers (CUDA)",
+			Help:     "Direct GPU-to-GPU transfers for multi-GPU splits. Needs driver P2P support. On consumer boards or with IOMMU, it can crash or give bad output.",
 			Values:   []string{"", "1"},
 			Backends: []string{"cuda"},
 		},
 		{
-			Name:  "CUDA_SCALE_LAUNCH_QUEUES",
-			Label: "Scale CUDA launch queues",
-			Help: "Grows the CUDA command buffers (e.g. 4x) so multi-GPU pipelines stall less on kernel " +
-				"launches. Only relevant when several GPUs serve one model; measure before keeping.",
+			Name:     "CUDA_SCALE_LAUNCH_QUEUES",
+			Label:    "Scale CUDA launch queues",
+			Help:     "Makes the CUDA command buffers larger (for example 4x), so multi-GPU pipelines stall less. Only for one model on several GPUs. Measure before you keep it.",
 			Values:   []string{"", "2x", "4x"},
 			Backends: []string{"cuda"},
 		},
 		{
-			Name:  "GGML_VK_DISABLE_COOPMAT",
-			Label: "Disable Vulkan matrix cores",
-			Help: "Turns off cooperative-matrix use in the Vulkan backend. A troubleshooting option for " +
-				"driver hangs and GPU resets (seen on some Intel Arc drivers); costs significant speed " +
-				"when the driver is healthy — 'matrix cores: none' in the log confirms it took effect.",
+			Name:     "GGML_VK_DISABLE_COOPMAT",
+			Label:    "Disable Vulkan matrix cores",
+			Help:     "Turns off cooperative matrix in the Vulkan backend. For driver hangs and GPU resets (some Intel Arc drivers). Slower on a healthy driver.",
 			Values:   []string{"", "1"},
 			Backends: []string{"vulkan"},
 		},
 		{
-			Name:  "GGML_VK_FORCE_MAX_ALLOCATION_SIZE",
-			Label: "Cap Vulkan allocation size",
-			Help: "Caps a single Vulkan device allocation, in bytes (e.g. 1073741824 for 1 GiB). " +
-				"Workaround for 'device memory allocation failed' on drivers with low allocation limits; " +
-				"leave unset otherwise.",
+			Name:     "GGML_VK_FORCE_MAX_ALLOCATION_SIZE",
+			Label:    "Cap Vulkan allocation size",
+			Help:     "Maximum size of one Vulkan allocation, in bytes (for example 1073741824 for 1 GiB). For device memory allocation errors on drivers with low limits.",
 			Backends: []string{"vulkan"},
 		},
 	}
