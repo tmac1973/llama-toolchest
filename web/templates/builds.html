@@ -150,6 +150,48 @@ function buildProjectChanged(o) {
         {target: '#git-ref-select', swap: 'innerHTML'}).then(updateRefLink);
     updateRefLink();
 }
+
+// A build has no ID until its source is fetched (or cloned the first
+// time), which can take a minute. So a start shows a Starting panel at once,
+// with those git lines streamed under a token the request carries; the
+// start answer then replaces it with the log panels of the running builds.
+document.addEventListener('htmx:configRequest', function (evt) {
+    var form = evt.detail.elt;
+    if (!form.matches || !form.matches('form[hx-post="/api/builds"]')) return;
+    var bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    var token = Array.from(bytes, function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+    evt.detail.parameters.start_token = token;
+
+    var field = form.querySelector('input[name=project]:checked') || form.querySelector('input[type=hidden][name=project]');
+    var project = (field && field.value) || 'llama.cpp';
+    var panel = document.createElement('article');
+    panel.className = 'log-panel';
+    var header = document.createElement('header');
+    header.textContent = 'Starting a ' + project + ' build: fetching the source…';
+    var pre = document.createElement('pre');
+    pre.setAttribute('hx-ext', 'sse');
+    pre.setAttribute('sse-connect', '/api/builds/start/' + token + '/logs');
+    pre.setAttribute('sse-swap', 'message');
+    pre.setAttribute('sse-close', 'done');
+    pre.setAttribute('data-sse-replay', '');
+    pre.setAttribute('hx-swap', 'beforeend');
+    pre.style.cssText = 'max-height: 400px; overflow-y: auto; font-size: 0.85rem;';
+    panel.append(header, pre);
+    var out = document.getElementById('build-output');
+    out.insertBefore(panel, out.firstChild);
+    htmx.process(panel);
+    form._startingPanel = panel;
+});
+
+// A start that failed takes its Starting panel away; the page's error
+// notice says why. A start that worked has had it replaced already.
+document.addEventListener('htmx:afterRequest', function (evt) {
+    var form = evt.detail.elt;
+    if (!form._startingPanel) return;
+    if (!evt.detail.successful) form._startingPanel.remove();
+    form._startingPanel = null;
+});
 </script>
 
 <dialog id="build-info-modal" style="max-width:640px;">

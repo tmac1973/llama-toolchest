@@ -313,6 +313,10 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 		// ROCmRoot picks the ROCm install when the machine has several;
 		// empty for the newest.
 		ROCmRoot string `json:"rocm_root"`
+		// StartToken names this start for /api/builds/start/{token}/logs,
+		// which streams the fetch and checkout lines before the build has
+		// an ID. Optional.
+		StartToken string `json:"start_token"`
 	}
 
 	// Support both JSON and form-encoded
@@ -330,6 +334,7 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 		req.Tag = r.FormValue("tag")
 		req.Force = r.FormValue("force") == "1"
 		req.ROCmRoot = r.FormValue("rocm_root")
+		req.StartToken = r.FormValue("start_token")
 	}
 
 	// Collect option overrides and extra cmake flags from form
@@ -349,7 +354,8 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 	if req.Project == "" {
 		req.Project = builder.ProjectLlamaCpp
 	}
-	result, err := s.builder.BuildProject(context.Background(), req.Project, req.Profile, req.GitRef, req.Tag, req.Force, optionOverrides, extraCMake, req.ROCmRoot)
+	ctx := builder.WithStartToken(context.Background(), req.StartToken)
+	result, err := s.builder.BuildProject(ctx, req.Project, req.Profile, req.GitRef, req.Tag, req.Force, optionOverrides, extraCMake, req.ROCmRoot)
 	if err != nil {
 		var dup *builder.DuplicateBuildError
 		if errors.As(err, &dup) {
@@ -358,6 +364,9 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 				s.renderPartial(w, "build_duplicate", buildDuplicateData{
 					ID: dup.ID, Project: req.Project, Profile: req.Profile, GitRef: req.GitRef, Tag: req.Tag,
 				})
+				// The prompt replaces the log area; the running builds'
+				// logs stay under it.
+				s.renderPartial(w, "build_logs", s.buildLogPanels())
 				return
 			}
 			http.Error(w, err.Error(), http.StatusConflict)
@@ -368,10 +377,12 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return the log streaming partial for htmx to swap in
+	// Return the log panels for htmx to swap in: the new build's and those
+	// of the builds still running, so a build started beside another does
+	// not hide its log.
 	if isHTMX(r) {
 		respondHTML(w)
-		s.renderPartial(w, "build_log", result)
+		s.renderPartial(w, "build_logs", s.buildLogPanels())
 		return
 	}
 
@@ -403,18 +414,38 @@ func (s *Server) handleBuildLogs(w http.ResponseWriter, r *http.Request) {
 // allowing the builds page to reconnect after tab switches.
 func (s *Server) handleActiveBuildLog(w http.ResponseWriter, r *http.Request) {
 	respondHTML(w)
+	s.renderPartial(w, "build_logs", s.buildLogPanels())
+}
+
+// buildLogPanels is the builds whose log the Builds page shows: every
+// running build, newest first, or else the most recent build, so its
+// finished log stays in view.
+func (s *Server) buildLogPanels() []builder.BuildResult {
+	if running := s.builder.RunningBuilds(); len(running) > 0 {
+		return running
+	}
 	lastID := s.builder.LastBuildID()
 	if lastID == "" {
-		return
+		return nil
 	}
-
 	status := s.builder.BuildStatus(lastID)
 	if status == "" {
+		return nil
+	}
+	return []builder.BuildResult{{ID: lastID, Status: status}}
+}
+
+// handleBuildStartLogs streams the fetch and checkout lines of a build
+// start named by its token, before the build has an ID. The page shows
+// them in a "Starting" panel until the start request returns.
+func (s *Server) handleBuildStartLogs(w http.ResponseWriter, r *http.Request) {
+	ch, done, ok := s.builder.SubscribeStart(chi.URLParam(r, "token"))
+	if !ok {
+		http.NotFound(w, r)
 		return
 	}
-
-	// Show the log panel for running or recently completed builds
-	s.renderPartial(w, "build_log", &builder.BuildResult{ID: lastID, Status: status})
+	defer done()
+	StreamLines(w, r.Context(), ch, "Started")
 }
 
 // resolveActiveBuild returns the build the router should run: the explicitly
