@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.46.0](https://github.com/tmac1973/llama-toolchest/compare/v2.45.0...v2.46.0) (2026-10-30)
+
+
+### Features
+
+* **enginenotes:** keep engine events and model usage in engine-notes.json ([#460](https://github.com/tmac1973/llama-toolchest/issues/460)) ([245b5ba](https://github.com/tmac1973/llama-toolchest/commit/245b5ba40de91d6f6feafc97b09e476ebf4115bc))
+* **enginenotes:** read model loads, crashes and unloads from the router log ([#458](https://github.com/tmac1973/llama-toolchest/issues/458)) ([196ff6c](https://github.com/tmac1973/llama-toolchest/commit/196ff6c2eb7390bcbdf4922b76ab9fc572f8e39f))
+* **server:** record llama-server starts, crashes and model usage in engine notes ([#462](https://github.com/tmac1973/llama-toolchest/issues/462)) ([f904b13](https://github.com/tmac1973/llama-toolchest/commit/f904b1386a2dae8a38e22aa27f04ebfee1f543d0))
+* **ui:** let the Server log be resized by dragging its bottom edge ([#454](https://github.com/tmac1973/llama-toolchest/issues/454)) ([082e52e](https://github.com/tmac1973/llama-toolchest/commit/082e52e6d3700deb646c542aee80490f47a7dda5))
+* **ui:** show engine notes above the Server log, with a Review dialog ([#463](https://github.com/tmac1973/llama-toolchest/issues/463)) ([e77cc3c](https://github.com/tmac1973/llama-toolchest/commit/e77cc3cca3989052707bed39a7f8f429d934aeab))
+
+
+### Bug Fixes
+
+* **memreport:** end a load on the instance's model loaded line ([#461](https://github.com/tmac1973/llama-toolchest/issues/461)) ([dac1c0e](https://github.com/tmac1973/llama-toolchest/commit/dac1c0e4c64110ae53b50d177c06b193616233a7))
+
+
+### Refactors
+
+* **serverlog:** share the llama-server log helpers between benchmark and memreport ([#456](https://github.com/tmac1973/llama-toolchest/issues/456)) ([769cf90](https://github.com/tmac1973/llama-toolchest/commit/769cf904019e6f68de2242e316e63c0f84d66393))
+
 ## [2.45.0](https://github.com/tmac1973/llama-toolchest/compare/v2.44.0...v2.45.0) (2026-10-30)
 
 
