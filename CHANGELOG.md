@@ -1,5 +1,35 @@
 # Changelog
 
+## [2.45.0](https://github.com/tmac1973/llama-toolchest/compare/v2.44.0...v2.45.0) (2026-10-30)
+
+
+### Features
+
+* **api:** forward llama-server's POST /tts text-to-speech route ([#428](https://github.com/tmac1973/llama-toolchest/issues/428)) ([705785e](https://github.com/tmac1973/llama-toolchest/commit/705785eaf4d15e69ea024358bd844fbac0d5e97e)), closes [#419](https://github.com/tmac1973/llama-toolchest/issues/419)
+* **api:** load and hold the model for /v1/realtime voice sessions ([#429](https://github.com/tmac1973/llama-toolchest/issues/429)) ([6579a57](https://github.com/tmac1973/llama-toolchest/commit/6579a57152279dc887eed9d31f9afb8ece0871e5)), closes [#420](https://github.com/tmac1973/llama-toolchest/issues/420)
+* **autoconfig:** choose which GPUs Autoconfigure fits a model on ([#449](https://github.com/tmac1973/llama-toolchest/issues/449)) ([a522af3](https://github.com/tmac1973/llama-toolchest/commit/a522af36b467b726dc057d1693cc8b50758cb4c1)), closes [#448](https://github.com/tmac1973/llama-toolchest/issues/448)
+* **gen:** add the HunyuanVideo 1.5 catalog sets, and two Measure fixes ([#424](https://github.com/tmac1973/llama-toolchest/issues/424)) ([c9dce95](https://github.com/tmac1973/llama-toolchest/commit/c9dce95056c785d1441afd55cbcf254e4015c98b))
+* **gen:** measure video with one sampling step, stop early, show the last video's time ([#414](https://github.com/tmac1973/llama-toolchest/issues/414)) ([106cdfe](https://github.com/tmac1973/llama-toolchest/commit/106cdfef412aaff21d5b16abd2a77a8b99a7c915))
+* **gen:** predict what each video size needs, and measure inside a chosen budget ([#427](https://github.com/tmac1973/llama-toolchest/issues/427)) ([e50291f](https://github.com/tmac1973/llama-toolchest/commit/e50291f33618e57e9bfb935111d3fb37a41cd07d))
+* **gen:** run catalog sets' text encoders on the CPU and flag out-of-date measurements ([#415](https://github.com/tmac1973/llama-toolchest/issues/415)) ([6bae10b](https://github.com/tmac1973/llama-toolchest/commit/6bae10b7a12e093fed10103e3329a93318a9bacf))
+* **models:** detect speech models and report what they read and make ([#436](https://github.com/tmac1973/llama-toolchest/issues/436)) ([85b5bbf](https://github.com/tmac1973/llama-toolchest/commit/85b5bbfc8541759631001e259d924264a609e2d4)), closes [#430](https://github.com/tmac1973/llama-toolchest/issues/430)
+* **models:** keep N-gram Cache's learned n-grams between loads ([#438](https://github.com/tmac1973/llama-toolchest/issues/438)) ([4b03c4d](https://github.com/tmac1973/llama-toolchest/commit/4b03c4dd67fdca771f68f57ca7659431975839cc)), closes [#432](https://github.com/tmac1973/llama-toolchest/issues/432)
+* **models:** put embedding models on one GPU by default ([#426](https://github.com/tmac1973/llama-toolchest/issues/426)) ([2701db7](https://github.com/tmac1973/llama-toolchest/commit/2701db7c7c3917c30b7eabdc4ae61936567741b8)), closes [#425](https://github.com/tmac1973/llama-toolchest/issues/425)
+* **models:** read the reasoning effort levels a template accepts ([#437](https://github.com/tmac1973/llama-toolchest/issues/437)) ([a175fbf](https://github.com/tmac1973/llama-toolchest/commit/a175fbf00537fbee63f60e416095fd2dfdf9252f)), closes [#431](https://github.com/tmac1973/llama-toolchest/issues/431)
+* **models:** recognize embedding models from the file and refresh the embedding list ([#423](https://github.com/tmac1973/llama-toolchest/issues/423)) ([bbc54af](https://github.com/tmac1973/llama-toolchest/commit/bbc54afd150729de5b1e4b298fdfe7c446244ba7))
+* **models:** update a downloaded model when its repository changes ([#417](https://github.com/tmac1973/llama-toolchest/issues/417)) ([1962790](https://github.com/tmac1973/llama-toolchest/commit/196279074ad407724e0ba5c602568f2c4bbdefa0)), closes [#416](https://github.com/tmac1973/llama-toolchest/issues/416)
+* **router:** let the router keep several models loaded by GPU memory ([#439](https://github.com/tmac1973/llama-toolchest/issues/439)) ([479c34c](https://github.com/tmac1973/llama-toolchest/commit/479c34c137703691fdca76cf7fbe571c4f82267e))
+
+
+### Bug Fixes
+
+* **autotune:** skip tensor split for architectures llama.cpp refuses to split ([#422](https://github.com/tmac1973/llama-toolchest/issues/422)) ([b9cf281](https://github.com/tmac1973/llama-toolchest/commit/b9cf2810e0f186589bebea38430cf30d55d94219))
+* **builds:** show a log panel per running build, and the start at once ([#450](https://github.com/tmac1973/llama-toolchest/issues/450)) ([bad8271](https://github.com/tmac1973/llama-toolchest/commit/bad82717e31e5dcd6e862cb3b954929c39ae3c23))
+* **gen:** show a running disabled backend on the GPU maps, and let eviction mode set reservations ([#409](https://github.com/tmac1973/llama-toolchest/issues/409)) ([d517956](https://github.com/tmac1973/llama-toolchest/commit/d5179566be0ae3d8bbaa5c962c965af1f7f7f8e8))
+* **gen:** tell a crash in sd.cpp's small-piece decode from running out of memory, and add the A4000 results ([#435](https://github.com/tmac1973/llama-toolchest/issues/435)) ([ae0c100](https://github.com/tmac1973/llama-toolchest/commit/ae0c100fbdca55cd228e051d75eedd8a80fe57a5))
+* **ui:** keep model config selects narrow enough for their option lists ([#411](https://github.com/tmac1973/llama-toolchest/issues/411)) ([ebe51c6](https://github.com/tmac1973/llama-toolchest/commit/ebe51c681b11510055cb4bae4c1ec39489318f89))
+* **ui:** stop the GPU reservation note overlapping its label in Autoconfigure ([#451](https://github.com/tmac1973/llama-toolchest/issues/451)) ([b1005ac](https://github.com/tmac1973/llama-toolchest/commit/b1005acff0a8e3e7fc5bc0aa574a8d0de737072b))
+
 ## [2.44.0](https://github.com/tmac1973/llama-toolchest/compare/v2.43.0...v2.44.0) (2026-10-28)
 
 
