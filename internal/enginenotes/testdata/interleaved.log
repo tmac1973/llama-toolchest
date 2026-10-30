@@ -1,0 +1,10 @@
+0.00.100.000 I srv          load: spawning server instance with name=modelA on port 46231
+0.00.200.000 I srv          load: spawning server instance with name=modelB on port 9114
+[46231] 0.01.000.000 I srv  server_run_i: model loaded
+[ 9114] 0.01.100.000 I srv  server_run_i: model loaded
+[46231] 0.02.000.000 I slot launch_slot_: id  0 | task 0 | processing task (A)
+[ 9114] 0.02.100.000 I slot launch_slot_: id  0 | task 0 | processing task (B)
+[46231] 0.02.200.000 I slot release: id  0 | task 0 | stop processing (A)
+[ 9114] /src/ggml/src/ggml-cuda/ggml-cuda.cu:98: CUDA error
+[ 9114] CUDA error: misaligned address
+0.03.000.000 I srv    operator(): instance name=modelB exited with status 1

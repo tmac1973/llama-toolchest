@@ -175,3 +175,22 @@ func TestInstancePort(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadedPort(t *testing.T) {
+	cases := []struct {
+		line, port string
+		ok         bool
+	}{
+		{"[45221] 0.07.999.369 I srv  server_run_i: model loaded", "45221", true},
+		{"[ 8081] 0.07.999.369 I srv  server_run_i: model loaded", "8081", true},
+		{"[45221] 0.07.999.377 I srv  server_on_li: listening on http://127.0.0.1:45221", "", false},
+		// The router's own lines have no instance prefix.
+		{"0.07.999.369 I srv  server_run_i: model loaded", "", false},
+	}
+	for _, c := range cases {
+		port, ok := LoadedPort(c.line)
+		if port != c.port || ok != c.ok {
+			t.Errorf("LoadedPort(%q) = %q, %v; want %q, %v", c.line, port, ok, c.port, c.ok)
+		}
+	}
+}

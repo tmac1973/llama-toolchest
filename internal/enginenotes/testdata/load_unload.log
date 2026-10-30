@@ -1,0 +1,6 @@
+0.02.475.230 I srv          load: spawning server instance with name=qwen on port 45221
+[45221] 0.00.102.276 I cmn  common_param: common_params_print_info: verbosity = 4 (adjust with the `-lv N` CLI arg)
+[45221] 0.07.999.369 I srv  server_run_i: model loaded
+[45221] 0.08.003.414 I srv  update_slots: all slots are idle
+0.20.000.000 I srv        unload: stopping model instance name=qwen
+0.20.500.000 I srv    operator(): instance name=qwen exited with status 0

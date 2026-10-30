@@ -1,0 +1,23 @@
+data: 0.00.527.236 W srv  server_setup: security: router mode enabled - do not expose to untrusted environments
+data: 0.00.532.193 I srv  server_on_li: listening on http://0.0.0.0:8080
+data: ==> Router health check passed — ready
+data: 0.02.475.230 I srv          load: spawning server instance with name=unsloth--Qwen3.6-35B-A3B-MTP-GGUF--Qwen3.6-35B-A3B-UD-IQ4_NL on port 45221
+data: 0.02.475.263 I srv          load: spawning server instance with args:
+data: 0.02.475.263 I srv          load:   /data/builds/v0.8.0-cuda-optimized/llama-server
+data: 0.02.475.263 I srv          load:   --host
+data: 0.02.475.263 I srv          load:   127.0.0.1
+data: 0.02.475.264 I srv          load:   --jinja
+data: 0.02.475.264 I srv          load:   --log-colors
+data: 0.02.475.264 I srv          load:   off
+data: 0.02.475.264 I srv          load:   --min-p
+data: [45221] 0.07.999.245 I srv          init: init: chat template, thinking = 1
+data: [45221] 0.07.999.293 I srv          init: preserve_reasoning kwarg: true
+data: [45221] 0.07.999.295 W srv          init: chat template supports preserving reasoning, it is enabled by default (may use more tokens, disable via --no-reasoning-preserve)
+data: [45221] 0.07.999.369 I srv  server_run_i: model loaded
+data: [45221] 0.07.999.377 I srv  server_on_li: listening on http://127.0.0.1:45221
+data: [45221] 0.07.999.488 I srv    operator(): child server monitoring thread started, waiting for EOF on stdin...
+data: [45221] 0.08.003.414 I srv  update_slots: all slots are idle
+data: 0.10.527.404 I srv  proxy_reques: proxying request to model unsloth--Qwen3.6-35B-A3B-MTP-GGUF--Qwen3.6-35B-A3B-UD-IQ4_NL on port 45221
+data: [45221] 0.08.005.177 I srv  server_strea: conv_id= (empty=1)
+data: [45221] 0.08.005.639 I slot get_availabl: id  0 | task -1 |  - skipping, slot is empty
+data: [45221] 0.08.005.640 I slot get_availabl: id  1 | task -1 |  - skipping, slot is empty

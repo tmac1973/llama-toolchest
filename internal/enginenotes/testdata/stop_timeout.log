@@ -1,0 +1,4 @@
+0.02.475.230 I srv          load: spawning server instance with name=qwen on port 45221
+[45221] 0.07.999.369 I srv  server_run_i: model loaded
+0.20.000.000 I srv        unload: stopping model instance name=qwen
+0.50.000.000 I srv    operator(): instance name=qwen exited with status 1

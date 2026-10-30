@@ -1,0 +1,6 @@
+0.00.412.118 I srv  operator(): spawning server instance with name=big on port 40947
+[40947] 0.01.004.220 I load_tensors: offloaded 66/66 layers to GPU
+[40947] 0.03.551.902 E ggml_backend_cuda_buffer_type_alloc_buffer: allocating 5120.00 MiB on device 2: cudaMalloc failed: out of memory
+[40947] 0.03.551.940 E alloc_tensor_range: failed to allocate CUDA2 buffer of size 5368709120
+[40947] 0.03.553.871 E main: exiting due to model loading error
+0.03.700.004 E srv  operator(): instance name=big exited with status 1
