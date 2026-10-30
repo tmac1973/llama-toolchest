@@ -483,9 +483,19 @@ func measureNote(before int, inst generation.Instance, restarted, started bool) 
 	switch {
 	case capped && inst.ReservedMiB == suggest && suggest < inst.MeasuredPeakMiB:
 		// No slack was left: capReservation keeps the reservation at the
-		// room when the peak is above it, by at most measureOverheadMiB.
-		note += "Reservation capped at " + mibText(suggest) + ", all this card can give the instance. The peak is " +
-			mibText(inst.MeasuredPeakMiB-suggest) + " above it, within the " + mibText(measureOverheadMiB) + " allowed for memory the backend's own limit does not count, such as the GPU runtime's."
+		// room when the peak is above it.
+		over := inst.MeasuredPeakMiB - suggest
+		note += "Reservation capped at " + mibText(suggest) + ", all this card can give the instance. The peak is " + mibText(over) + " above it, "
+		if over <= measureOverheadMiB {
+			note += "within the " + mibText(measureOverheadMiB) + " allowed for memory the backend's own limit does not count, such as the GPU runtime's."
+		} else {
+			// Image sets are not refused for this (video sets are, in
+			// applyMeasurement), so the note must not claim it fits.
+			note += "more than the " + mibText(measureOverheadMiB) + " expected for memory the backend's own limit does not count, such as the GPU runtime's."
+			if inst.MeasureEstimated {
+				note += " The peak is read from the whole GPU, so it also counts other programs' memory that changed during the test; measure again when the card is quieter."
+			}
+		}
 	case capped && inst.ReservedMiB == suggest:
 		note += "Reservation capped at " + mibText(suggest) + " to fit this card, leaving up to " + mibText(reserveSlackMiB) +
 			" free for other programs' memory to change."
@@ -593,9 +603,12 @@ func (s *Server) canMeasure(inst generation.Instance) error {
 	if s.genQueue != nil && s.genQueue.Snapshot(inst.GPU).Busy() {
 		return fmt.Errorf("measuring needs GPU %d to itself; wait for its image and music jobs to finish", inst.GPU)
 	}
+	// With eviction on, the measurement stops the other backends itself
+	// (makeRoomForMeasure), except those kept running.
+	evict := s.genEvictOn()
 	var busy []string
 	for _, other := range s.gen.Instances() {
-		if other.ID != inst.ID && other.GPU == inst.GPU && s.genMgr.IsActive(other.ID) {
+		if other.ID != inst.ID && other.GPU == inst.GPU && s.genMgr.IsActive(other.ID) && (!evict || other.KeepRunning) {
 			busy = append(busy, other.Name)
 		}
 	}
@@ -611,7 +624,8 @@ func (s *Server) canMeasure(inst generation.Instance) error {
 // again (with its limit) if it was running, stopped otherwise. With
 // startAfter it is started afterwards either way. A video instance with a
 // budget (MiB, 0 for the whole room) is measured inside it, and runs
-// inside it afterwards.
+// inside it afterwards. With eviction on, room is made on the GPU first
+// (makeRoomForMeasure).
 func (s *Server) measureInstance(id string, startAfter bool, size generation.VideoSize, budget int) error {
 	inst, err := s.gen.Instance(id)
 	if err != nil {
@@ -621,6 +635,14 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 	if err != nil {
 		return err
 	}
+	// The settling waits below also cover the memory this frees.
+	rctx, rcancel := context.WithTimeout(context.Background(), genStartTimeout)
+	release, err := s.makeRoomForMeasure(rctx, inst)
+	rcancel()
+	if err != nil {
+		return fmt.Errorf("making room on GPU %d: %w", inst.GPU, err)
+	}
+	defer release()
 	wasRunning := s.genMgr.IsActive(id)
 	stoppedAt := time.Now()
 	if wasRunning {

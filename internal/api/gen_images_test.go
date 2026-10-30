@@ -274,14 +274,22 @@ func TestV1ModelsListsInstances(t *testing.T) {
 	s := vramServer(t)
 	addInstance(t, s, generation.Instance{ID: "ming", Port: 8081, Enabled: true, ReservedMiB: 4096})
 	addInstance(t, s, generation.Instance{ID: "off", Port: 8082, Enabled: false})
+	// pickInstance refuses an instance with no reservation, so it is not
+	// offered either.
+	addInstance(t, s, generation.Instance{ID: "unmeasured", Port: 8083, Enabled: true})
 	list := func() string {
 		rec := httptest.NewRecorder()
 		s.handleV1Models(rec, httptest.NewRequest("GET", "/v1/models", nil))
 		return rec.Body.String()
 	}
 	on := list()
-	if !strings.Contains(on, `"id":"ming"`) || !strings.Contains(on, `"kind":"image"`) || strings.Contains(on, `"id":"off"`) {
+	if !strings.Contains(on, `"id":"ming"`) || !strings.Contains(on, `"kind":"image"`) || strings.Contains(on, `"id":"off"`) || strings.Contains(on, `"id":"unmeasured"`) {
 		t.Errorf("list with generation on: %s", on)
+	}
+	rec0 := httptest.NewRecorder()
+	s.handleV1Model(rec0, withModelParam(httptest.NewRequest("GET", "/v1/models/unmeasured", nil), "unmeasured"))
+	if rec0.Code != http.StatusNotFound {
+		t.Errorf("single lookup of an instance with no reservation: %d %s", rec0.Code, rec0.Body.String())
 	}
 	rec := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "/v1/models/ming", nil)

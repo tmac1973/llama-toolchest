@@ -103,16 +103,18 @@ func (s *Server) handleV1Models(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// genV1Models lists the enabled generation instances as models, with
-// meta.kind "image", "video" or "music". Clients that only chat should skip kinds
-// other than "text". Empty while generation backends are off.
+// genV1Models lists the generation instances that can take requests as
+// models, with meta.kind "image", "video" or "music": enabled, with a VRAM
+// reservation (pickInstance refuses any other). Clients that only chat
+// should skip kinds other than "text". Empty while generation backends
+// are off.
 func (s *Server) genV1Models() []map[string]any {
 	if !s.generationOn() || s.gen == nil {
 		return nil
 	}
 	var out []map[string]any
 	for _, inst := range s.gen.Instances() {
-		if !inst.Enabled {
+		if !inst.Enabled || inst.ReservedMiB == 0 {
 			continue
 		}
 		if obj := s.genV1Model(inst); obj != nil {
@@ -198,7 +200,7 @@ func (s *Server) handleV1Model(w http.ResponseWriter, r *http.Request) {
 
 	m, cfg := s.findModelByAny(id)
 	if m == nil && s.generationOn() && s.gen != nil {
-		if inst, err := s.gen.Instance(id); err == nil && inst.Enabled {
+		if inst, err := s.gen.Instance(id); err == nil && inst.Enabled && inst.ReservedMiB > 0 {
 			if obj := s.genV1Model(inst); obj != nil {
 				respondJSON(w, obj)
 				return

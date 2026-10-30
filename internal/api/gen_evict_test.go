@@ -382,3 +382,95 @@ func TestStartGenFromUIMakesRoom(t *testing.T) {
 		t.Errorf("the GPU's turn was not given back: %+v", snap)
 	}
 }
+
+// With eviction on, a measurement takes the GPU the way a job does: it
+// stops the other backends there instead of being refused, and holds the
+// GPU's job queue until release. A kept-running backend still refuses
+// it. With eviction off nothing is stopped.
+func TestMakeRoomForMeasure(t *testing.T) {
+	s := vramServer(t)
+	runFakeInstance(t, s, "other", "ming-image", 0, newFakeBackend(t, 0))
+	addInstance(t, s, generation.Instance{ID: "m", Port: 8089, Enabled: true})
+	inst, _ := s.gen.Instance("m")
+
+	if err := s.canMeasure(inst); err == nil || !strings.Contains(err.Error(), "stop other first") {
+		t.Errorf("eviction off: canMeasure = %v, want stop other first", err)
+	}
+	release, err := s.makeRoomForMeasure(context.Background(), inst)
+	release()
+	if err != nil || !s.genMgr.IsActive("other") {
+		t.Fatalf("eviction off: err %v, other running %v; want nothing stopped", err, s.genMgr.IsActive("other"))
+	}
+
+	s.cfg.GenEvict = true
+	other, _ := s.gen.Instance("other")
+	other.KeepRunning = true
+	s.gen.UpdateInstance(other)
+	if err := s.canMeasure(inst); err == nil {
+		t.Error("eviction on: measuring beside a kept-running backend was allowed")
+	}
+	other.KeepRunning = false
+	s.gen.UpdateInstance(other)
+	if err := s.canMeasure(inst); err != nil {
+		t.Errorf("eviction on: canMeasure = %v", err)
+	}
+	release, err = s.makeRoomForMeasure(context.Background(), inst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.genMgr.IsActive("other") {
+		t.Error("eviction on: the other backend is still running")
+	}
+	ticket, _ := s.genQueue.Submit(0, "other", generation.KindSD)
+	defer ticket.Done()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if err := ticket.Wait(ctx); err == nil {
+		t.Fatal("a job got the GPU during the measurement")
+	}
+	release()
+	if snap := s.genQueue.Snapshot(0); snap.Running != nil || len(snap.Waiting) != 0 {
+		t.Errorf("the GPU was not given back: %+v", snap)
+	}
+}
+
+// With eviction on, an LLM load waits for a measurement on its GPU even
+// when it fits beside what runs there now: the backend may grow into the
+// room.
+func TestMakeRoomForLLMWaitsForAMeasurement(t *testing.T) {
+	s, big := evictServer(t)
+	s.cfg.GenEvict = true
+	if err := s.genMgr.Stop("ming"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.checkLLMFitsReservations(big); err != nil {
+		t.Fatalf("with the backend stopped: %v", err)
+	}
+	s.genMgr.SetMeasuring("ming", true)
+	inst, _ := s.gen.Instance("ming")
+	hold, err := s.makeRoomForMeasure(context.Background(), inst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded := make(chan error, 1)
+	go func() {
+		release, err := s.makeRoomForLLM(context.Background(), big)
+		release()
+		loaded <- err
+	}()
+	select {
+	case err := <-loaded:
+		t.Fatalf("the load went ahead during the measurement: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	s.genMgr.SetMeasuring("ming", false)
+	hold()
+	select {
+	case err := <-loaded:
+		if err != nil {
+			t.Errorf("load after the measurement: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the load did not go ahead after the measurement")
+	}
+}

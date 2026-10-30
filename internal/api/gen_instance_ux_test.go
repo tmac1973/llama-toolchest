@@ -46,6 +46,14 @@ func TestMeasureNote(t *testing.T) {
 	if got := measureNote(0, a4000, false, false); got != want {
 		t.Errorf("capped below the peak:\n got  %q\n want %q", got, want)
 	}
+	// Ming-Image on an RX 9070 XT, the peak read from the whole GPU: more
+	// than the allowance above the room, which the note must not call
+	// within it (2026-10-30).
+	ming := generation.Instance{MeasuredPeakMiB: 8620, ReservedMiB: 6507, MeasuredSuggestedMiB: 6507, MeasureEstimated: true}
+	want = "Peak 8.4 GiB (estimated from the whole GPU's use). Reservation capped at 6.4 GiB, all this card can give the instance. The peak is 2.1 GiB above it, more than the 1.0 GiB expected for memory the backend's own limit does not count, such as the GPU runtime's. The peak is read from the whole GPU, so it also counts other programs' memory that changed during the test; measure again when the card is quieter."
+	if got := measureNote(0, ming, false, false); got != want {
+		t.Errorf("capped, peak over the allowance:\n got  %q\n want %q", got, want)
+	}
 }
 
 // The instance table shows the last measurement's result, or its full
