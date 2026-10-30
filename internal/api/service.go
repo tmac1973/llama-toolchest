@@ -958,14 +958,14 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 	}
 	if t := s.activeTarget(); models.IsDraftMode(cfg.SpecType) {
 		if !t.DraftSamplingOption() {
-			data.DraftSamplingNote = "The active llama.cpp build is older than b11368 and does not have this setting, so it is not used."
+			data.DraftSamplingNote = "The active llama.cpp build is older than b11368 and does not use this setting."
 		}
 		if !t.DraftUBatchOption() {
-			data.DraftUBatchNote = "The active llama.cpp build is older than b11630 and does not have this setting, so it is not used."
+			data.DraftUBatchNote = "The active llama.cpp build is older than b11630 and does not use this setting."
 		}
 	}
 	if data.HasExperts && !s.activeTarget().MoECacheOption() {
-		data.MoECacheNote = "The active llama.cpp build is older than b11507 and does not have this setting, so it is not used."
+		data.MoECacheNote = "The active llama.cpp build is older than b11507 and does not use this setting."
 	}
 	if data.HasReasoning {
 		t := s.activeTarget()
@@ -974,7 +974,7 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 			data.ReasoningPreserveDefault = "keep"
 		}
 		if !t.ReasoningPreserveOption() {
-			data.ReasoningPreserveNote = "The active llama.cpp build is older than b9837 and does not have this setting, so it is not used."
+			data.ReasoningPreserveNote = "The active llama.cpp build is older than b9837 and does not use this setting."
 		}
 	}
 	data.Profiles, data.ActiveProfile, data.ProfileEdited = s.profileBarData(id)

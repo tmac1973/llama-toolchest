@@ -187,14 +187,17 @@
     <h3>Key settings</h3>
     <dl>
         <dt>GPU Layers</dt><dd>Layers on the GPU; 999 means all.</dd>
-        <dt>Context Size</dt><dd>Larger needs more memory for the KV cache.</dd>
+        <dt>Context Size</dt><dd>Larger needs more memory for the KV cache. For an embedding model, Context Size is the longest input of one request. Most embedding models read an input in one micro-batch, so toolchest raises the micro-batch to the same size. VRAM use grows fast: about 1&nbsp;GiB at 8K and 7&nbsp;GiB at 32K for EmbeddingGemma 2. The default is 8192, or the model's limit if it is lower.</dd>
+        <dt>Embedding models and GPUs</dt><dd>At download, toolchest puts an embedding model on the one GPU with the most room, if it fits. Spread over several GPUs, each GPU needs its own working memory for the model. That can be many times the model's size.</dd>
+        <dt>Parallel Conversations and Shared Context</dt><dd>With Shared Context on, all conversations use one context pool. A long conversation can use more than its part. If the pool fills, llama.cpp clears waiting conversations, and they read their prompt again. If that is not enough, a request fails. A per-conversation limit stops one conversation from taking the whole pool.</dd>
         <dt>Flash Attention</dt><dd>Usually on: faster, less memory.</dd>
         <dt>KV Cache Quant</dt><dd><code>q8_0</code> about halves KV memory at almost no quality cost; <code>q4_0</code> saves more, with some loss.</dd>
         <dt>Micro-batch (<code>-ub</code>) and Batch (<code>-b</code>)</dt><dd>Micro-batch usually has the biggest effect on prompt speed; measure it (Autotune or a benchmark sweep). Batch must be &ge; micro-batch. Defaults 512 and 2048.</dd>
         <dt>Direct I/O</dt><dd>Loads weights without the OS page cache; useful when GPU memory is larger than system RAM.</dd>
         <dt>Per-Layer Embeddings</dt><dd>Only for models with such a table (Gemma-3N, Gemma-4 E-series, Qwen4-Exp). <em>Auto</em> reads tables over 4&nbsp;GiB from the file as needed. Has no effect with Direct I/O.</dd>
-        <dt>Vision Projector (mmproj)</dt><dd>Found automatically when it is in the model's folder.</dd>
+        <dt>Projector (mmproj)</dt><dd>Lets the model read images or audio, or speak. Toolchest finds it when it is in the model's folder.</dd>
         <dt>Speculative Decoding</dt><dd>Predicts several tokens per step, with no change to the answer. A draft model gives the biggest gain; n-gram modes need no extra model. The <strong>?</strong> button explains each mode.</dd>
+        <dt>N-gram Cache file</dt><dd>With llama.cpp b11758 or newer, toolchest keeps what N-gram Cache learns in <code>/data/cache/ngram/&lt;model id&gt;.bin</code>. llama-server reads the file at load and writes it at unload. Benchmarks and Autotune do not use it. A broken file makes llama-server stop at load, so toolchest deletes a broken file before a load. <em>Clear learned n-grams</em> deletes the file; a loaded model writes it again at unload.</dd>
         <dt>Sampling</dt><dd>Applied per request, no restart. The <em>Preset</em> list offers defaults found in the GGUF, the Unsloth docs and the base model's <code>generation_config.json</code>. Blank fields still use the GGUF's own defaults. <em>&#8635; Refresh presets</em> looks again.</dd>
         <dt>Extra Flags</dt><dd>Any other llama-server flags, added as written.</dd>
     </dl>

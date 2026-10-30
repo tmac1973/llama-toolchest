@@ -47,13 +47,13 @@ func (s *Server) ngramCacheView(id string, cfg *models.ModelConfig) ngramCacheIn
 	}
 	t := s.activeTarget()
 	if !t.NgramCacheFileOption() {
-		return ngramCacheInfo{Show: true, Note: "The active llama.cpp build is older than b11758 and does not keep what N-gram Cache learned; it starts empty at every load."}
+		return ngramCacheInfo{Show: true, Note: "The active llama.cpp build is older than b11758. N-gram Cache starts empty at every load."}
 	}
 	path := s.registry.NgramCacheFile(id, cfg, t)
 	if path == "" {
-		return ngramCacheInfo{Show: true, Note: "The extra flags set lookup-cache-dynamic, so toolchest does not manage the file."}
+		return ngramCacheInfo{Show: true, Note: "The extra flags set lookup-cache-dynamic. Toolchest does not manage the file."}
 	}
-	info := ngramCacheInfo{Show: true, Text: "Nothing learned yet. The file is written when the model is unloaded."}
+	info := ngramCacheInfo{Show: true, Text: "Nothing learned yet. llama-server writes the file at unload."}
 	if st, err := os.Stat(path); err == nil {
 		info.Size = st.Size()
 		info.Text = fmt.Sprintf("Learned n-grams: %s, kept between loads.", humanBytes(st.Size()))

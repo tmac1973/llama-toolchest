@@ -38,7 +38,7 @@ func DisableTensorOptions(opts []GPUOption, current, arch string) {
 // TensorSplitRefusedText explains, in plain language, why a model cannot
 // use tensor parallelism.
 func TensorSplitRefusedText(arch string) string {
-	return fmt.Sprintf("The active llama.cpp build does not support tensor parallelism for this model's architecture (%s). The model would fail to load. Use a layer split instead.", arch)
+	return fmt.Sprintf("The active llama.cpp build cannot use tensor parallelism for this architecture (%s). The model does not load with it. Use a layer split.", arch)
 }
 
 // GPUAssignOptions generates all GPU assignment options. igpu marks

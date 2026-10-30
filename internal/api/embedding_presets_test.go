@@ -65,7 +65,7 @@ func TestEmbeddingConfigPanelShowsContext(t *testing.T) {
 	if data.DefaultContext != models.EmbeddingDefaultContext {
 		t.Errorf("DefaultContext = %d, want %d", data.DefaultContext, models.EmbeddingDefaultContext)
 	}
-	for _, want := range []string{`name="context_size"`, "one embedding request can hold", "Model Default (8192)"} {
+	for _, want := range []string{`name="context_size"`, "The longest input of one embedding request", "Model Default (8192)"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("config panel does not contain %q", want)
 		}

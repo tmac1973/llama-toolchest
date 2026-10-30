@@ -50,13 +50,13 @@ func (s *Server) routerMemoryInfo() routerMemoryView {
 	cfg := s.cfgCopy()
 	v := routerMemoryView{On: cfg.RouterMemory}
 	if cfg.GenerationEnabled {
-		v.Blocked = "Turn off generation backends in Settings first: the router cannot see their GPU reservations, so it could fill the memory an image, video or music job needs. While they are on, toolchest's own unloading decides."
+		v.Blocked = "Turn off generation backends in Settings to use this. The router cannot see their VRAM reservations."
 	}
 	if mib := s.routerMemoryMarginMiB(); mib > 0 {
 		v.Margin = fmt.Sprintf("%.1f GiB free on each GPU", float64(mib)/1024)
 	}
 	if !s.activeTarget().RouterMemoryOption() {
-		v.Note = "The active llama.cpp build is older than b11930 and does not have this option, so only Max Loaded applies."
+		v.Note = "The active llama.cpp build is older than b11930 and does not use this setting."
 	}
 	return v
 }

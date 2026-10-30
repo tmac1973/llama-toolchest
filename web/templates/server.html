@@ -121,14 +121,14 @@
                                 {{end}}
                             </select>
                         </label>
-                        <label title="How many models the router keeps loaded at once. 1 (the default): loading a model unloads the one before. 0: no limit. With &quot;Let the router keep several models loaded&quot; on, memory decides and this is only an upper limit. Takes effect when the server restarts.">
+                        <label title="Maximum models loaded at once. 1: loading a model unloads the one before. 0: no limit. Applies at the next server start.">
                             Max Loaded
                             <input type="number" name="models_max" value="{{.ModelsMax}}" min="0"
                                    placeholder="0 = unlimited">
                         </label>
                     </div>
                     <input type="hidden" name="router_memory_touched" value="1">
-                    <label title="{{if .RouterMemory.Blocked}}{{.RouterMemory.Blocked}}{{else}}Off: toolchest decides, and with Max Loaded at 1 only one model is loaded at a time. On: the llama-server router keeps several models loaded, for example small embedding or speech models beside a large chat model, and when a new model does not fit it unloads the least recently used idle ones until it does, keeping the margin below free on each GPU. A model answering a request is never unloaded. A small model can unload a big one: when the big one leaves too little room on a GPU the small one uses, a request for the small one unloads the big one, so give the big one a smaller context if both should stay loaded. The router does not count a model's projector (mmproj), so the margin has to cover it. Benchmarks and Autotune still load one model at a time. Takes effect when the server restarts.{{if .RouterMemory.Note}} {{.RouterMemory.Note}}{{end}}{{end}}">
+                    <label title="{{if .RouterMemory.Blocked}}{{.RouterMemory.Blocked}}{{else}}Lets llama-server keep several models loaded and unload idle ones when VRAM runs short. Applies at the next server start.{{if .RouterMemory.Note}} {{.RouterMemory.Note}}{{end}}{{end}}">
                         <input type="checkbox" role="switch" name="router_memory"
                                onchange="if (this.checked && this.form.models_max && this.form.models_max.value === '1') this.form.models_max.value = '0'"
                                {{if .RouterMemory.On}}checked{{end}}
@@ -136,7 +136,7 @@
                         Let the router keep several models loaded
                     </label>
                     {{if and .RouterMemory.On .RouterMemory.Margin}}
-                    <small title="Toolchest's own memory margin for the largest GPU: at least 1 GiB, or 8% of its memory. The router uses one value for every GPU.">Effective margin: {{.RouterMemory.Margin}}.{{if .RouterMemory.Note}} {{.RouterMemory.Note}}{{end}}</small>
+                    <small title="Toolchest fit margin of the largest GPU: 1 GiB or 8%, the larger value. The router uses one value for all GPUs.">Effective margin: {{.RouterMemory.Margin}}.{{if .RouterMemory.Note}} {{.RouterMemory.Note}}{{end}}</small>
                     {{end}}
                 </form>
                 <div id="build-save-status"></div>
