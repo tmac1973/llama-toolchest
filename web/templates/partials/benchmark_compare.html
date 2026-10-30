@@ -89,7 +89,7 @@
         <button type="button" class="outline secondary" data-sort-key="name"   data-sort-dir="asc"  onclick="sortBenchCompare(this)">Name</button>
         <button type="button" class="outline secondary active" data-sort-key="gen"    data-sort-dir="desc" onclick="sortBenchCompare(this)">Gen tok/s ▼</button>
         <button type="button" class="outline secondary" data-sort-key="prompt" data-sort-dir="desc" onclick="sortBenchCompare(this)">Prompt tok/s ▼</button>
-        {{if .HasEval}}<button type="button" class="outline secondary" data-sort-key="score"  data-sort-dir="asc"  onclick="sortBenchCompare(this)" title="Sort by the capability score, best result first. Each row keeps its own metric — lower perplexity and KLD are better, higher accuracy is better — and the sort normalises for that rather than comparing the raw numbers across metrics. Performance runs have no score and sort to the end.">Score ▲</button>{{end}}
+        {{if .HasEval}}<button type="button" class="outline secondary" data-sort-key="score"  data-sort-dir="asc"  onclick="sortBenchCompare(this)" title="Sorts by capability score, best first. Each row uses its own metric: lower PPL and KLD are better, higher accuracy is better. Performance runs sort last.">Score ▲</button>{{end}}
     </div>
 
     {{if .MixedPromptSizes}}
@@ -171,7 +171,7 @@
         {{range $i, $c := .Common}}{{if $i}} · {{end}}{{$c.Name}} <kbd>{{$c.Value}}</kbd>{{end}}
     </p>
     <div class="bench-compare-colbar">
-        <label title="These columns hold the same value in every compared run, so they say nothing about which run won. They are folded into the line above; tick to put them back in the table.">
+        <label title="These columns have the same value in all compared runs. They are folded into the line above. Tick to show them in the table.">
             <input type="checkbox" role="switch" class="bench-compare-showall"
                    onchange="toggleConstantColumns(this)">
             Show the {{len .Common}} column{{if ne (len .Common) 1}}s{{end}} every run shares
@@ -190,19 +190,19 @@
                 <th>Model</th>
                 <th class="{{constCol .Varies "quant"}}">Quant</th>
                 <th class="sweep-cell {{constCol .Varies "sweep"}}" title="Which point of a parameter sweep this run measured">Sweep</th>
-                <th class="{{constCol .Varies "prompt sizes"}}" title="The prompt lengths this run measured, which is what its averages cover. Prompt speed climbs steeply with prompt length, so two runs are only strictly comparable when this column matches. Hover a value for the breakdown by length.">Prompt sizes</th>
-                <th title="Prompt Processing tokens/sec, averaged over everything this run measured — the same figure as the bar chart above.">PP t/s</th>
-                <th title="Token Generation tokens/sec, averaged over everything this run measured — the same figure as the bar chart above.">TG t/s</th>
+                <th class="{{constCol .Varies "prompt sizes"}}" title="The prompt lengths that this run measured. Prompt speed changes much with length, so compare runs only when this matches. Hover for the breakdown.">Prompt sizes</th>
+                <th title="Prompt processing tokens/s, averaged over this run. The same value as the bar chart.">PP t/s</th>
+                <th title="Token generation tokens/s, averaged over this run. The same value as the bar chart.">TG t/s</th>
                 <th title="Time To First Token in milliseconds, averaged over everything this run measured.">TTFT (ms)</th>
-                {{if .HasEval}}<th title="Capability evaluation score — only capability runs (perplexity / KL-divergence / HellaSwag / Winogrande) produce one; each row shows its own metric (the mode is part of the row identity, so rows of different modes are not compared against each other). PPL: perplexity — lower is better. HellaSwag / Winogrande: accuracy with confidence interval and task count. KLD: deviation from the reference — 0 = identical. Performance runs show an em-dash here.">Score</th>{{end}}
+                {{if .HasEval}}<th title="Capability score; only capability runs have one. PPL: perplexity on wikitext-2, lower is better. HellaSwag, Winogrande: accuracy with confidence interval and task count. KLD: difference from the reference, 0 is identical.">Score</th>{{end}}
                 <th class="{{constCol .Varies "size"}}">Size</th>
-                <th title="GPU memory the load actually used, in GiB, read from llama.cpp's own report as it allocated — not an estimate. Hover a value for the split between weights, KV cache and working buffers. An em-dash means the run recorded none: llama.cpp reports its buffers only at Model loading detail 4, on the Settings page.">VRAM</th>
+                <th title="VRAM that the load used, in GiB, from the llama.cpp report. Hover for weights, KV cache and buffers. A dash: no report; set Model loading detail to 4 in Settings.">VRAM</th>
                 <th class="{{constCol .Varies "GPUs"}}">GPUs</th>
                 <th class="{{constCol .Varies "context"}}">Context</th>
                 <th class="{{constCol .Varies "batch"}}" title="Batch / micro-batch (-b / -ub). A dash means llama.cpp's default.">Batch b/ub</th>
                 <th class="{{constCol .Varies "KV cache"}}">KV Quant</th>
                 <th class="{{constCol .Varies "flash attention"}}">Flash Attn</th>
-                <th class="{{constCol .Varies "profile"}}" title="The saved profile the model's settings came from when this run started. &quot;(edited)&quot; means what ran was not exactly that profile: its settings had been changed since, or the job overrode or swept one of them.">Profile</th>
+                <th class="{{constCol .Varies "profile"}}" title="The saved profile that the settings came from at the start. &quot;(edited)&quot;: the settings changed after that, or the job changed or swept one of them.">Profile</th>
                 <th class="{{constCol .Varies "build"}}">Build</th>
                 {{if .HasLlamaBench}}<th title="llama-bench TG t/s (legacy)">lb TG</th>{{end}}
             </tr>
@@ -227,7 +227,7 @@
             <td title="{{(index $.Labels $run.ID).Full}}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help;">{{$run.ModelName}}</td>
             <td class="{{constCol $.Varies "quant"}}"><kbd>{{$run.Quant}}</kbd></td>
             <td class="{{constCol $.Varies "sweep"}}">—</td>
-            <td class="{{constCol $.Varies "prompt sizes"}}"><span title="A capability evaluation reads the model&#39;s own predictions over a fixed text; it measures no speed and no prompt lengths." style="color:var(--pico-muted-color);cursor:help;">not a speed run</span></td>
+            <td class="{{constCol $.Varies "prompt sizes"}}"><span title="A capability evaluation scores the predictions of the model over a fixed text. It measures no speed and no prompt lengths." style="color:var(--pico-muted-color);cursor:help;">not a speed run</span></td>
             <td>—</td>
             <td>—</td>
             <td>—</td>
@@ -265,7 +265,7 @@
             data-sort-gen="{{printf "%.4f" $s.AvgGenTokPerSec}}"
             data-sort-prompt="{{printf "%.4f" $s.AvgPromptTokPerSec}}"
             data-sort-score="{{printf "%.4f" (evalScoreValue $run.Eval)}}">
-            <td title="{{(index $.Labels $run.ID).Full}}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help;">{{if $run.ConfigUnverified}}<span title="Config columns for this run may not reflect what actually ran — its job declared overrides before overrides were applied. Throughput is still valid." style="color:var(--pico-del-color,#b3261e);cursor:help;">&#9888;</span> {{end}}{{$run.ModelName}}</td>
+            <td title="{{(index $.Labels $run.ID).Full}}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help;">{{if $run.ConfigUnverified}}<span title="The config columns of this run can be wrong: its job had overrides before they were applied. The throughput is valid." style="color:var(--pico-del-color,#b3261e);cursor:help;">&#9888;</span> {{end}}{{$run.ModelName}}</td>
             <td class="{{constCol $.Varies "quant"}}"><kbd>{{$run.Quant}}</kbd></td>
             <td class="sweep-cell {{constCol $.Varies "sweep"}}">{{if $run.SweepValues}}{{range sweepChips $run.SweepValues}}<kbd>{{.}}</kbd> {{end}}{{else}}—{{end}}</td>
             <td class="{{constCol $.Varies "prompt sizes"}}" title="{{$run.PromptSizesDetail}}" style="cursor:help;">{{with $run.PromptSizesText}}{{.}}{{else}}—{{end}}</td>

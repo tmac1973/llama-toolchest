@@ -71,20 +71,20 @@
         </label>
         {{if .Profiles}}
         <div class="start-list" data-model="{{.ID}}" hidden>
-            <label title="The settings this model loads today{{if .ActiveProfile}}. They came from the {{.ActiveProfile}} profile{{if .ActiveEdited}} and were changed after it was restored{{end}}{{end}}. Each checked item becomes its own set of cells.">
+            <label title="The settings this model loads now{{if .ActiveProfile}}, from the {{.ActiveProfile}} profile{{if .ActiveEdited}}, changed after the restore{{end}}{{end}}. Each checked item gets its own cells.">
                 <input type="checkbox" name="start" value="" data-model="{{.ID}}"{{if and .ActiveProfile (not .ActiveEdited)}} data-same-as="{{.ActiveProfile}}"{{end}} checked
                        onchange="updateMatrixCount()">
                 <span>Current settings{{if .ActiveProfile}} ({{.ActiveProfile}}{{if .ActiveEdited}}, edited{{end}}){{end}}
                 <span class="start-same-warn" hidden style="cursor:help;"
-                      title="The current settings are the same as the {{.ActiveProfile}} profile, which is also checked. The job would measure the same settings twice.">&#9888;</span></span>
+                      title="The current settings are the same as the {{.ActiveProfile}} profile, which is also checked. The job would measure them twice.">&#9888;</span></span>
             </label>
             {{range .Profiles}}
-            <label title="Saved profile, saved {{.SavedAt.Format "Jan 2 2006 15:04"}}{{if .BuildID}} on build {{.BuildID}}{{end}}. The job measures a copy of its settings taken when the job is saved.">
+            <label title="Saved profile, saved {{.SavedAt.Format "Jan 2 2006 15:04"}}{{if .BuildID}} on build {{.BuildID}}{{end}}. The job measures a copy taken when the job is saved.">
                 <input type="checkbox" name="start" value="{{.Name}}" data-model="{{$m.ID}}" data-build="{{.BuildID}}"
                        onchange="updateMatrixCount()">
                 <span>{{.Name}} <small style="color:var(--pico-muted-color);">(saved {{.SavedAt.Format "Jan 2"}})</small>
                 <span class="start-build-warn" hidden style="cursor:help;"
-                      title="Saved on build {{.BuildID}}, which is not one of the checked builds. Speculative decoding methods and options depend on the build, so results on another build may differ.">&#9888;</span></span>
+                      title="Saved on build {{.BuildID}}, which is not a checked build. Speculative decoding depends on the build, so results can differ.">&#9888;</span></span>
             </label>
             {{end}}
         </div>
@@ -131,7 +131,7 @@
     <details open id="job-params">
         <summary>Parameters <small style="color:var(--pico-muted-color);">(pick one value to fix it, several to sweep)</small></summary>
         <p id="job-params-off" hidden style="margin:0.25rem 0;font-size:0.9em;"
-           title="A saved profile is measured exactly as it was saved, so its results describe the profile itself. Uncheck every saved profile to set or sweep parameters again; the choices below are kept.">
+           title="A saved profile is measured as saved. Uncheck all saved profiles to set or sweep parameters. Your choices below stay.">
             Parameters are not available while comparing saved profiles. Each profile runs exactly as saved.
         </p>
         <fieldset id="job-params-fields" style="margin:0;padding:0;border:0;">
@@ -191,7 +191,7 @@
                         </label>
                         {{end}}
                         {{if eq .Slot "draft"}}
-                        <label class="spec-param" title="Runs alongside the draft method. Loads no extra file and uses no extra memory. When both propose tokens for the same step, the n-gram proposal is the one used.">
+                        <label class="spec-param" title="Runs with the draft method. Needs no file or extra memory. Its proposal wins when both propose.">
                             <small>N-gram assist</small>
                             <select class="spec-assist-select" onchange="updateSpecValue(this)">
                                 <option value="">None</option>

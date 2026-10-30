@@ -28,7 +28,7 @@ main.container { max-width: none; }
 
     <div class="viz-controls">
         <label>
-            <span title="What the chart draws. Heatmap and 3D surface need two parameters that were both swept.">Chart</span>
+            <span title="What the chart shows. Heatmap and 3D surface need two swept parameters.">Chart</span>
             <select id="viz-chart" onchange="vizRender()">
                 <option value="scatter">Scatter — one parameter against a measurement</option>
                 <option value="leaderboard">Leaderboard — every run ranked by the measurement</option>
@@ -53,11 +53,11 @@ main.container { max-width: none; }
             <select id="viz-y" onchange="vizRender()"></select>
         </label>
         <label id="viz-panel-wrap">
-            <span title="The third parameter — the faceted view draws one panel per value of it.">Panels</span>
+            <span title="The third parameter. The faceted view shows one panel per value.">Panels</span>
             <select id="viz-panel" onchange="vizRender()"></select>
         </label>
         <label id="viz-color-wrap">
-            <span title="The parameter that colours the points, so its values can be told apart.">Colour by</span>
+            <span title="The parameter that colors the points.">Colour by</span>
             <select id="viz-color" onchange="vizRender()"></select>
         </label>
     </div>

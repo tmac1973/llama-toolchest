@@ -6,7 +6,7 @@
 <p>No benchmark jobs yet. Click <strong>+ New Batch Job</strong> to create one.</p>
 {{else}}
 <div class="job-bulk-bar">
-    <label title="Select every job that can be deleted. The Ad-Hoc Runs list and a running job cannot be deleted.">
+    <label title="Selects all jobs that can be deleted. Ad-Hoc Runs and running jobs cannot be deleted.">
         <input type="checkbox" id="job-select-all" onchange="selectAllJobs(this.checked)"> Select all
     </label>
     <button type="button" class="outline secondary"
@@ -18,7 +18,7 @@
                 title="Delete the selected jobs and every benchmark run they hold."
                 onclick="deleteSelectedJobs('cascade')">Delete (with runs)</button>
         <button type="button" class="outline secondary job-bulk-btn" disabled
-                title="Delete the selected jobs but keep their benchmark runs. The runs move to Ad-Hoc Runs."
+                title="Deletes the selected jobs and keeps their runs in Ad-Hoc Runs."
                 onclick="deleteSelectedJobs('orphan')">Delete (keep runs)</button>
     </span>
 </div>

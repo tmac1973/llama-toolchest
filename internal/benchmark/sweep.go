@@ -558,7 +558,7 @@ var sweepFields = map[string]SweepField{
 	// reason spec_type spells out "none".
 	"ple_mode": {
 		Name: "ple_mode", Label: "Per-Layer Embeddings", Kind: SweepKindStr,
-		Help:    "How the per-layer embedding table is held. Auto follows llama.cpp and reads it on demand above 4 GiB. Only meaningful for models that carry such a table.",
+		Help:    "How the per-layer embedding table is held. Auto streams tables over 4 GiB, as llama.cpp does. Only for models with such a table.",
 		Example: "auto,on,off", RestartsRouter: true, Separator: ",",
 		Choices: []SweepChoice{
 			{Value: "auto", Label: "Auto (stream if over 4 GiB)"},

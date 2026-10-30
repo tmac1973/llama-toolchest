@@ -4,7 +4,7 @@
     <p style="color:var(--pico-del-color);">Failed: {{.Error}}</p>
     {{if .FailureLog}}
     <details style="margin-bottom:0.5rem;">
-        <summary><small title="The error lines llama-server printed while this run was failing, in the order they appeared. The first line is usually the cause, for example a buffer that did not fit on a GPU. The lines after it are usually each later step reporting that it could not continue." style="cursor:help;">What llama-server reported ({{len .FailureLog}} {{if eq (len .FailureLog) 1}}line{{else}}lines{{end}})</small></summary>
+        <summary><small title="Error lines of llama-server in this failed run, in order. The first line is usually the cause, for example a buffer that did not fit on a GPU." style="cursor:help;">What llama-server reported ({{len .FailureLog}} {{if eq (len .FailureLog) 1}}line{{else}}lines{{end}})</small></summary>
         <pre style="white-space:pre-wrap;font-size:0.8rem;margin:0.25rem 0 0;">{{range .FailureLog}}{{.}}
 {{end}}</pre>
     </details>
@@ -15,7 +15,7 @@
         <div>
             <small><strong>Configuration</strong>
                 {{if .ConfigUnverified}}
-                <span title="This run predates the fix that made benchmark config overrides take effect. Its job declared overrides, but they were never applied to llama-server — the values below may not be what actually ran. The throughput numbers are still valid."
+                <span title="This run is older than the fix for config overrides. Its overrides did not reach llama-server, so the values below can be wrong. The throughput is valid."
                       style="color:var(--pico-del-color,#b3261e);font-weight:600;cursor:help;">&#9888; unverified</span>
                 {{end}}
             </small><br>
@@ -31,7 +31,7 @@
                 {{if .Config.BatchSize}} | Batch: {{.Config.BatchSize}}{{end}}
                 {{if .Config.UBatchSize}} | Micro-batch: {{.Config.UBatchSize}}{{end}}
                 {{if .Config.SpecType}} | Spec: {{.Config.SpecType}}{{end}}
-                {{if .Config.ProfileName}}<br><span title="The saved profile the model's settings came from when this run started. &quot;(edited)&quot; means what ran was not exactly that profile: its settings had been changed since, or the job overrode or swept one of them." style="cursor:help;">Profile: {{profileCell .Config}}</span>{{end}}
+                {{if .Config.ProfileName}}<br><span title="The saved profile that the settings came from at the start. &quot;(edited)&quot;: the settings changed after that, or the job changed or swept one of them." style="cursor:help;">Profile: {{profileCell .Config}}</span>{{end}}
                 {{if .SweepValues}}<br>Sweep point: {{range $k, $v := .SweepValues}}<kbd>{{$k}}={{$v}}</kbd> {{end}}{{end}}
             </small>
         </div>
@@ -58,7 +58,7 @@
                 {{end}}
             </small>
             {{with .LeastFreeCard}}
-            <br><small title="The memory left on the fullest GPU the model was loaded on, read when the run finished. Normal use needs more working memory than a test run, so settings should leave at least {{minCardFreeMiB}} MiB free on every GPU. Less than that can run out of memory and stop the model." style="cursor:help;">
+            <br><small title="Free VRAM on the fullest GPU at the end of the run. Leave at least {{minCardFreeMiB}} MiB free on every GPU; less can run out of memory in normal use." style="cursor:help;">
                 Least free: GPU {{.Index}}, {{.FreeMiB}} MiB of {{.TotalMiB}} MiB{{if .TooFull}} <mark>&#9888; too little for normal use</mark>{{end}}
             </small>
             {{end}}
@@ -194,25 +194,25 @@
          list/compare views use; the raw fields follow for the
          precision the tool reported. The timing sections above are
          absent for this run by construction — it produced no t/s. */}}
-    <small><strong>Capability evaluation</strong> — <span title="Ran offline through llama-perplexity (no router), at the fixed 512-token evaluation context, with an f16 KV cache unless the job asked for another. Sampling parameters do not apply to these scores — they are deterministic log-likelihood measurements.">what the model can do, not how fast</span></small>
+    <small><strong>Capability evaluation</strong> — <span title="Ran offline in llama-perplexity at a fixed 512-token context, with an f16 KV cache unless the job set another. Sampling does not apply: these scores are deterministic.">what the model can do, not how fast</span></small>
     <table role="grid" style="font-size:0.85rem;margin-top:0.25rem;">
         <tbody>
             <tr><td style="width:12rem;"{{with evalDoc .Eval.Mode}} title="{{.Headline}}"{{end}}>Score</td><td><strong>{{evalScoreText .Eval}}</strong></td></tr>
             <tr><td>Mode</td><td><kbd>{{.Eval.Mode}}</kbd> · dataset {{if .Eval.Dataset}}{{.Eval.Dataset}}{{else}}—{{end}}{{if .Eval.ContextSize}} · ctx {{.Eval.ContextSize}}{{end}}</td></tr>
-            {{if .Eval.Chunks}}<tr><td title="How much of the dataset was scored. Reported by the tool, not the requested cap.">Chunks scored</td><td>{{.Eval.Chunks}}</td></tr>{{end}}
+            {{if .Eval.Chunks}}<tr><td title="How much of the dataset was scored, as the tool reports it.">Chunks scored</td><td>{{.Eval.Chunks}}</td></tr>{{end}}
             {{if .Eval.Perplexity}}
-            <tr><td title="Perplexity over the wikitext-2 test set. Lower is better; the error bar is the tool's reported uncertainty.">Perplexity</td><td>{{printf "%.4f" .Eval.Perplexity}} ± {{printf "%.5f" .Eval.PerplexityErr}}</td></tr>
+            <tr><td title="Perplexity on the wikitext-2 test set. Lower is better. The error bar is the uncertainty from the tool.">Perplexity</td><td>{{printf "%.4f" .Eval.Perplexity}} ± {{printf "%.5f" .Eval.PerplexityErr}}</td></tr>
             {{end}}
             {{if .Eval.Accuracy}}
-            <tr><td title="Percentage of tasks answered correctly. HellaSwag's bounds are the tool's asymmetric 95% confidence interval; Winogrande's are the symmetric ± error.">Accuracy</td>
+            <tr><td title="Percentage of correct tasks. HellaSwag bounds: asymmetric 95% confidence interval. Winogrande: symmetric ± error.">Accuracy</td>
                 <td>{{printf "%.4f%%" .Eval.Accuracy}}
                     {{if and .Eval.AccuracyCILow .Eval.AccuracyCIHigh}} [{{printf "%.4f%%" .Eval.AccuracyCILow}}, {{printf "%.4f%%" .Eval.AccuracyCIHigh}}]{{end}}
                     {{if .Eval.Tasks}} · {{.Eval.Tasks}} tasks{{end}}</td></tr>
             {{end}}
             {{if .Eval.KLMean}}
-            <tr><td title="KL divergence between this model's logits and the reference model's. 0 = identical probabilities; lower is better.">KL mean</td><td>{{printf "%.6f" .Eval.KLMean}} ± {{printf "%.6f" .Eval.KLMeanErr}}</td></tr>
-            <tr><td title="The maximum per-token divergence — one bad chunk can spike this, so the mean is the comparable figure.">KL max / p99.9</td><td>{{printf "%.6f" .Eval.KLMax}} / {{printf "%.6f" .Eval.KLP999}}</td></tr>
-            <tr><td title="Share of positions where both models pick the same top token — the plain-language form of the KL figure.">Same top token</td><td>{{printf "%.3f%%" .Eval.SameTopPct}} ± {{printf "%.3f" .Eval.SameTopPctErr}}</td></tr>
+            <tr><td title="KL divergence from the reference model. 0: identical probabilities. Lower is better.">KL mean</td><td>{{printf "%.6f" .Eval.KLMean}} ± {{printf "%.6f" .Eval.KLMeanErr}}</td></tr>
+            <tr><td title="The largest per-token divergence. One bad chunk can raise it, so compare the mean.">KL max / p99.9</td><td>{{printf "%.6f" .Eval.KLMax}} / {{printf "%.6f" .Eval.KLP999}}</td></tr>
+            <tr><td title="Share of positions where both models pick the same top token.">Same top token</td><td>{{printf "%.3f%%" .Eval.SameTopPct}} ± {{printf "%.3f" .Eval.SameTopPctErr}}</td></tr>
             {{end}}
             {{if .Eval.Reference}}
             <tr><td title="The model these logits were measured against.">Reference</td>

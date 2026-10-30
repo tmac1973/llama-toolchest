@@ -18,10 +18,10 @@
      hx-swap="outerHTML"
      {{end}}>
     {{if $j.AutotuneID}}
-    <small title="Autotune measures one stage per job, so its measurements are ordinary benchmark runs you can read here."><strong>Part of an Autotune run</strong> — {{$j.AutotuneStage}} stage. Its results are on the model's card, under Autotune.</small><br>
+    <small title="Autotune measures one stage per job, so its measurements are normal benchmark runs."><strong>Part of an Autotune run</strong> — {{$j.AutotuneStage}} stage. Its results are on the model's card, under Autotune.</small><br>
     {{end}}
     {{if $j.Profiles}}
-    <small title="The job measures copies of these saved profiles, taken at the time shown. Changing or deleting a profile later does not change what the job measures. Editing the job takes a new copy of any profile that has changed."><strong>Compares saved profiles:</strong>
+    <small title="The job measures copies of these profiles, made at the time shown. Later changes to a profile do not change the job. Editing the job copies changed profiles again."><strong>Compares saved profiles:</strong>
         {{range $i, $p := $j.Profiles}}{{if $i}} · {{end}}{{$p.Name}} <span style="color:var(--pico-muted-color);">(copied {{$p.CopiedAt.Format "Jan 2 15:04"}})</span>{{end}}
     </small><br>
     {{end}}
@@ -47,7 +47,7 @@
                 <th style="width:2rem;"><input type="checkbox" id="cell-check-all-{{$j.ID}}" style="margin:0;"
                     onchange="this.closest('table').querySelectorAll('.cell-check').forEach(function(c){c.checked=this.checked}.bind(this));"></th>
                 <th>Model</th>
-                {{if .HasProfiles}}<th title="The starting point the cell measures: the model's current settings, or a copy of a saved profile.">Profile</th>{{end}}
+                {{if .HasProfiles}}<th title="The start point of the cell: the current settings of the model, or a copy of a saved profile.">Profile</th>{{end}}
                 <th>Quant</th>
                 <th>Build</th>
                 <th>Preset</th>
@@ -55,7 +55,7 @@
                 <th class="status-cell">Status</th>
                 <th title="Token Generation tokens/sec">TG t/s</th>
                 <th title="Prompt Processing tokens/sec">PP t/s</th>
-                {{if .HasEval}}<th title="Capability evaluation score — only capability cells (perplexity / KL-divergence / HellaSwag / Winogrande) produce one. PPL: perplexity on the wikitext-2 test set — lower is better; the error bar is the uncertainty. HellaSwag / Winogrande: percentage of tasks answered correctly, with the confidence interval and task count in parentheses. KLD: deviation of this model's probabilities from the reference model's — 0 means identical, so lower is better. Performance cells show an em-dash here.">Score</th>{{end}}
+                {{if .HasEval}}<th title="Capability score; only capability cells have one. PPL: perplexity on wikitext-2, lower is better. HellaSwag, Winogrande: accuracy with confidence interval and task count. KLD: difference from the reference, 0 is identical.">Score</th>{{end}}
                 <th>Attempt</th>
                 <th></th>
             </tr>
@@ -103,7 +103,7 @@
         <button type="button" class="outline secondary" style="margin:0;padding:0.2rem 0.6rem;font-size:0.8rem;width:auto;"
                 onclick="compareSelectedCells(this)">Compare selected</button>
         <button type="button" class="outline secondary" style="margin:0;padding:0.2rem 0.6rem;font-size:0.8rem;width:auto;"
-                title="Open charts of the selected cells in a new tab — scatter, heatmap and 3D views of a parameter sweep."
+                title="Opens charts of the selected cells in a new tab: scatter, heatmap and 3D views of a sweep."
                 onclick="visualizeSelectedCells(this)">Visualize selected</button>
         {{if eq $j.Status "running"}}
         <button type="button" class="outline secondary" style="margin:0;padding:0.2rem 0.6rem;font-size:0.8rem;width:auto;"

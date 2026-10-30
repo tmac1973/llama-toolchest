@@ -152,7 +152,7 @@ func TestReviewShowsTheTestLoad(t *testing.T) {
 	}
 	out := buf.String()
 	for _, want := range []string{"1 setting was adjusted", "sends the model one request",
-		"a custom split (20,20,17)", "a test load (what ran when the settings were loaded)"} {
+		"a custom split (20,20,17)", "hardware fit, test load"} {
 		if !strings.Contains(out, want) && !strings.Contains(out, strings.ReplaceAll(want, `"`, "&#34;")) {
 			t.Errorf("review missing %q", want)
 		}
