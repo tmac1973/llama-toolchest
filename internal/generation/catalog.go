@@ -121,7 +121,7 @@ func hunyuanEntry(id, name, recipe string, model Component, hd bool, steps, cfg,
 			"--diffusion-fa", "--backend", "te=cpu"},
 		Capabilities:  caps,
 		License:       hunyuanLicense,
-		Notes:         notes + " " + hunyuanNVIDIA + " Shares its text models and VAE with the other HunyuanVideo 1.5 sets, and Qwen2.5-VL with Qwen-Image-Edit 2511. Licence: Tencent Hunyuan Community License, which does not apply in the EU, the UK or South Korea; terms at https://huggingface.co/tencent/HunyuanVideo-1.5.",
+		Notes:         notes + " " + hunyuanNVIDIA + " Shares its text models and VAE with the other HunyuanVideo 1.5 sets, and Qwen2.5-VL with Qwen-Image-Edit 2511. Licence: Tencent Hunyuan Community License, not valid in the EU, the UK or South Korea; terms at https://huggingface.co/tencent/HunyuanVideo-1.5.",
 		DefaultWidth:  w,
 		DefaultHeight: h,
 		DefaultFrames: 33,
@@ -146,13 +146,13 @@ func hunyuanEntry(id, name, recipe string, model Component, hd bool, steps, cfg,
 // failed", 13 s into the step-distilled 480p set's test video, at 3.4 GiB.
 // The other sets were not tried there; they share its model and decode
 // code.
-const hunyuanNVIDIA = "Not working on NVIDIA cards yet: stable-diffusion.cpp crashed at the start of every video on an RTX A4000 (CUDA), so use it on an AMD card."
+const hunyuanNVIDIA = "Does not work on NVIDIA cards yet: stable-diffusion.cpp crashed at the start of every video on an RTX A4000 (CUDA). Use an AMD card."
 
 // hunyuan480Fit is what the 480p HunyuanVideo 1.5 sets need on a Radeon AI
 // PRO R9700 (32 GB), measured 2026-10-29 with the text model on the CPU:
 // every size peaked at 24-26 GiB, as sd.cpp keeps more of the model loaded
 // when the card has room.
-const hunyuan480Fit = "On a Radeon AI PRO R9700 (32 GB), every size up to 5 s fits, reserving about 27.5 GiB."
+const hunyuan480Fit = "On a Radeon AI PRO R9700 (32 GB), all sizes up to 5 s fit, with a reservation of about 27.5 GiB."
 
 // hunyuan720Fit and hunyuan720Measure say how the 720p HunyuanVideo 1.5
 // sets fared on a Radeon AI PRO R9700 (32 GB), measured 2026-10-29 with
@@ -162,8 +162,8 @@ const hunyuan480Fit = "On a Radeon AI PRO R9700 (32 GB), every size up to 5 s fi
 // of memory, and at 121 frames stable-diffusion.cpp master-1015 crashed
 // during sampling with "CONCAT failed".
 const (
-	hunyuan720Fit     = "On a Radeon AI PRO R9700 (32 GB), only the Short size (33 frames) works, reserving about 14.5 GiB: the decode is done in smaller pieces, as the whole 720p decode needs more than the card has, and longer videos ran out of memory or crashed in stable-diffusion.cpp."
-	hunyuan720Measure = "On a Radeon AI PRO R9700, measuring Short took about 5 minutes. Medium ran out of memory in the decode, and Full crashed in stable-diffusion.cpp."
+	hunyuan720Fit     = "On a Radeon AI PRO R9700 (32 GB), only Short (33 frames) works, with a reservation of about 14.5 GiB and the decode in parts. Longer videos ran out of memory or crashed in stable-diffusion.cpp."
+	hunyuan720Measure = "On a Radeon AI PRO R9700, measuring Short took about 5 minutes. Medium ran out of memory in the decode. Full crashed in stable-diffusion.cpp."
 )
 
 // hunyuanGGUF is a HunyuanVideo 1.5 video model from jayn7's GGUF repos,
@@ -205,13 +205,10 @@ func Catalog() []CatalogEntry {
 			// Haruspex does. Measured on a Radeon AI PRO R9700 on
 			// 2026-10-25: peak 9.4 GiB instead of 18.6 GiB, and the same
 			// 20.7 s per transparent 1024x1024 image.
-			LaunchArgs:   []string{"--steps", "12", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling", "--backend", "te=cpu"},
-			Capabilities: []string{"alpha"},
-			License:      "MIT",
-			Notes: "Used by Haruspex. Can make PNG images with transparent backgrounds: the prompt must start with " +
-				"\"RGBA, 4-channel, transparent background.\" and the image must start from a fully transparent canvas at strength 0.9 " +
-				"(sd-server's <sd_cpp_extra_args> block, with init_image and strength). Without both, images come back opaque. " +
-				"Its 10 GB text model runs on the CPU, so it needs about 10.5 GiB of GPU memory and fits on a 16 GB card.",
+			LaunchArgs:    []string{"--steps", "12", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling", "--backend", "te=cpu"},
+			Capabilities:  []string{"alpha"},
+			License:       "MIT",
+			Notes:         "Used by Haruspex. Makes PNG images with transparent backgrounds: the prompt must start with \"RGBA, 4-channel, transparent background.\", and the image must start from a fully transparent canvas at strength 0.9 (init_image and strength in the <sd_cpp_extra_args> block). Without both, images are opaque. Its 10 GB text model runs on the CPU, so it needs about 10.5 GiB of VRAM and fits a 16 GB card.",
 			DefaultWidth:  2048,
 			DefaultHeight: 2048,
 		},
@@ -229,7 +226,7 @@ func Catalog() []CatalogEntry {
 			// No "edit": Qwen-Image edits need the llm_vision weights,
 			// which this set leaves out.
 			License:       "Qwen-Image 2.1 licence",
-			Notes:         "8 steps; about 36 s per 1024×1024 image on a Radeon AI PRO R9700, reserving about 6.5 GiB of VRAM with its text model on the CPU (11 GiB with it on the GPU). Licence terms: https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo",
+			Notes:         "8 steps. About 36 s per 1024×1024 image on a Radeon AI PRO R9700. Reserves about 6.5 GiB of VRAM with its text model on the CPU (11 GiB with it on the GPU). Licence terms: https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo",
 			DefaultWidth:  1024,
 			DefaultHeight: 1024,
 		},
@@ -262,7 +259,7 @@ func Catalog() []CatalogEntry {
 			},
 			LaunchArgs:    []string{"--steps", "9", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling", "--backend", "te=cpu"},
 			License:       "Apache-2.0",
-			Notes:         "9 steps; about 19 s per 1024×1024 image on a Radeon AI PRO R9700, reserving about 8.5 GiB of VRAM with its text model on the CPU. Shares its VAE with Chroma1-HD.",
+			Notes:         "9 steps. About 19 s per 1024×1024 image on a Radeon AI PRO R9700. Reserves about 8.5 GiB of VRAM with its text model on the CPU. Shares its VAE with Chroma1-HD.",
 			DefaultWidth:  1024,
 			DefaultHeight: 1024,
 		},
@@ -279,7 +276,7 @@ func Catalog() []CatalogEntry {
 			LaunchArgs:    []string{"--steps", "16", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--backend", "te=cpu"},
 			Capabilities:  []string{"edit"},
 			License:       "FLUX Kommunity License (non-commercial)",
-			Notes:         "16 steps; about 21 s per 1024×1024 image (56 s for an edit) on a Radeon AI PRO R9700, reserving about 9.5 GiB of VRAM with its text model on the CPU. Also edits images, with up to 10 reference images. Shares its VAE with FLUX.2 klein 4B. Non-commercial licence: only people and companies with less than US$5 million yearly revenue may use the images commercially. Licence terms: https://huggingface.co/black-forest-labs/flux-3-image-klein",
+			Notes:         "16 steps. About 21 s per 1024×1024 image (56 s for an edit) on a Radeon AI PRO R9700. Reserves about 9.5 GiB of VRAM with its text model on the CPU. Edits images with up to 10 reference images. Shares its VAE with FLUX.2 klein 4B. Non-commercial licence: commercial use of the images only under US$5 million yearly revenue. Licence terms: https://huggingface.co/black-forest-labs/flux-3-image-klein",
 			DefaultWidth:  1024,
 			DefaultHeight: 1024,
 		},
@@ -300,7 +297,7 @@ func Catalog() []CatalogEntry {
 			LaunchArgs: []string{"--steps", "40", "--cfg-scale", "4", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling",
 				"--negative-prompt", "low quality, ugly, unfinished, out of focus, deformed, disfigured, blurry, smudged, restricted palette, flat colors", "--backend", "te=cpu"},
 			License:       "Apache-2.0",
-			Notes:         "40 steps; about 3.5 minutes per 1024×1024 image on a Radeon AI PRO R9700, reserving about 12 GiB of VRAM with its text model on the CPU (about 10 s more per image, for its negative prompt). Based on FLUX.1-schnell. Starts with a default negative prompt; a request can give its own. Shares its text model and VAE with Chroma1-Flash, and its VAE with Z-Image Turbo.",
+			Notes:         "40 steps. About 3.5 minutes per 1024×1024 image on a Radeon AI PRO R9700. Reserves about 12 GiB of VRAM with its text model on the CPU. Based on FLUX.1-schnell. Has a default negative prompt (about 10 s more per image); a request can give its own. Shares its text model and VAE with Chroma1-Flash, and its VAE with Z-Image Turbo.",
 			DefaultWidth:  1024,
 			DefaultHeight: 1024,
 		},
@@ -319,7 +316,7 @@ func Catalog() []CatalogEntry {
 			// Euler steps garbled text in the image; 16 did not.
 			LaunchArgs:    []string{"--steps", "16", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling", "--backend", "te=cpu"},
 			License:       "Apache-2.0",
-			Notes:         "Faster Chroma1-HD: 16 steps; about 46 s per 1024×1024 image on a Radeon AI PRO R9700 (Chroma1-HD takes about 3.5 minutes), reserving about 12 GiB of VRAM with its text model on the CPU. Ignores negative prompts. Shares its text model and VAE with Chroma1-HD.",
+			Notes:         "Faster Chroma1-HD: 16 steps. About 46 s per 1024×1024 image on a Radeon AI PRO R9700 (Chroma1-HD: about 3.5 minutes). Reserves about 12 GiB of VRAM with its text model on the CPU. Ignores negative prompts. Shares its text model and VAE with Chroma1-HD.",
 			DefaultWidth:  1024,
 			DefaultHeight: 1024,
 		},
@@ -339,7 +336,7 @@ func Catalog() []CatalogEntry {
 			LaunchArgs:    []string{"--steps", "20", "--cfg-scale", "4", "--flow-shift", "3", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling", "--model-args", "qwen_image_zero_cond_t=true", "--backend", "te=cpu"},
 			Capabilities:  []string{"edit"},
 			License:       "Apache-2.0",
-			Notes:         "Edits images from one or more reference images; 20 steps. About 6 minutes per 1024×1024 edit on a Radeon AI PRO R9700, reserving about 16.5 GiB of VRAM with its text model (and its picture reader) on the CPU, which adds about 17 s to an edit.",
+			Notes:         "Edits images from one or more reference images, 20 steps. About 6 minutes per 1024×1024 edit on a Radeon AI PRO R9700. Reserves about 16.5 GiB of VRAM with its text model and picture reader on the CPU (about 17 s more per edit).",
 			DefaultWidth:  1024,
 			DefaultHeight: 1024,
 		},
@@ -375,10 +372,7 @@ func Catalog() []CatalogEntry {
 			LaunchArgs:   []string{"--steps", "20", "--cfg-scale", "5", "--flow-shift", "5", "--sampling-method", "euler", "--diffusion-fa", "--backend", "te=cpu"},
 			Capabilities: []string{CapText, CapStartImage},
 			License:      "Apache-2.0",
-			Notes: "Text-to-video and image-to-video in one small model; 20 steps. On a Radeon AI PRO R9700 (32 GB), about 70 s for the 33-frame 832×480 Short size " +
-				"(reservation 20 GiB, with its text model on the CPU). Medium and Full need more memory than a 32 GB card can give with the whole room, " +
-				"but fit when measured inside a 14 GiB budget, where sd.cpp decodes in smaller pieces: about 14 minutes for a 3.4 s Medium video. On a 16 GB RTX A4000, Short reserves 13.8 GiB, all that card can give (about 110 s per video); " +
-				"Medium crashed there in stable-diffusion.cpp's CUDA code while decoding in smaller pieces, with the whole room and inside a 10 GiB budget.",
+			Notes:        "Text-to-video and image-to-video in one small model, 20 steps. On a Radeon AI PRO R9700 (32 GB): about 70 s for Short (33 frames, 832×480), with a 20 GiB reservation and the text model on the CPU. Medium and Full fit only in a 14 GiB budget, decoded in parts: about 14 minutes for a 3.4 s Medium video. On a 16 GB RTX A4000: Short reserves 13.8 GiB, all the card can give (about 110 s per video). Medium crashed there in the CUDA code of stable-diffusion.cpp, with and without a 10 GiB budget.",
 			// The test video is short and mid-sized so Measure finishes in
 			// minutes; the ceiling is the model's native size, 121 frames
 			// being 5 s at 24 fps.
@@ -431,10 +425,7 @@ func Catalog() []CatalogEntry {
 			// tiles only the decode and kept the card at 27.9 GB.
 			Capabilities: []string{CapStartImage, CapEndImage},
 			License:      "Apache-2.0",
-			Notes: "Image-to-video and start-and-end videos; needs a start image. Two 14B experts (high and low noise); 20 steps. " +
-				"Up to 5 seconds at 1280×720. Shares its text model with Wan2.2 TI2V 5B. " +
-				"Slow: a 2-second video at 832×480 takes about 27 minutes on a Radeon AI PRO R9700, against about 70 seconds for TI2V 5B. " +
-				"For faster videos, use Wan2.2 I2V A14B Lightning.",
+			Notes:        "Image-to-video and start-and-end videos; needs a start image. Two 14B experts (high and low noise), 20 steps. Up to 5 seconds at 1280×720. Shares its text model with Wan2.2 TI2V 5B. Slow: a 2-second 832×480 video takes about 27 minutes on a Radeon AI PRO R9700 (TI2V 5B: about 70 s). For faster videos, use Wan2.2 I2V A14B Lightning.",
 			// 81 frames is 5 s at 16 fps.
 			DefaultWidth:  832,
 			DefaultHeight: 480,
@@ -483,12 +474,9 @@ func Catalog() []CatalogEntry {
 			LaunchArgs: []string{"--steps", "4", "--high-noise-steps", "4", "--cfg-scale", "1", "--high-noise-cfg-scale", "1",
 				"--flow-shift", "5", "--sampling-method", "euler", "--high-noise-sampling-method", "euler",
 				"--diffusion-fa", "--temporal-tiling", "--backend", "te=cpu"},
-			Capabilities: []string{CapStartImage, CapEndImage},
-			License:      "Apache-2.0",
-			Notes: "Wan2.2 I2V A14B with the Lightning 4-step LoRAs: image-to-video and start-and-end videos; needs a start image. " +
-				"4 steps on each expert: about 3 minutes 20 seconds for a 2-second video at 832×480 on a Radeon AI PRO R9700, " +
-				"against about 27 for the 20-step set, with a little less detail. Up to 5 seconds at 1280×720. " +
-				"Shares its experts, text model and VAE with Wan2.2 I2V A14B.",
+			Capabilities:  []string{CapStartImage, CapEndImage},
+			License:       "Apache-2.0",
+			Notes:         "Wan2.2 I2V A14B with the Lightning 4-step LoRAs: image-to-video and start-and-end videos; needs a start image. 4 steps per expert: about 3 minutes 20 seconds for a 2-second 832×480 video on a Radeon AI PRO R9700 (about 27 minutes with 20 steps), with a little less detail. Up to 5 seconds at 1280×720. Shares its experts, text model and VAE with Wan2.2 I2V A14B.",
 			DefaultWidth:  832,
 			DefaultHeight: 480,
 			DefaultFrames: 33,
@@ -535,14 +523,7 @@ func Catalog() []CatalogEntry {
 			LaunchArgs:   []string{"--steps", "8", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--temporal-tiling", "--backend", "te=cpu"},
 			Capabilities: []string{CapText, CapStartImage, CapEndImage},
 			License:      "LTX-2 Community Licence (free under US$10M yearly revenue); text model: Gemma Terms of Use",
-			Notes: "Text-to-video, image-to-video and start-and-end videos with sound; 8 steps. " +
-				"WebM videos have a sound track; animated WebP is silent. Up to 5 seconds at 1280×720. " +
-				"On a Radeon AI PRO R9700 (32 GB), about 35 s for the 33-frame 768×512 Short size, " +
-				"and about 4.5 minutes for 5 s at 1280×720 (reservation 27.7 GiB, measured at Full, with its text model on the CPU); with a start and an end image, about 11 minutes. " +
-				"sd-server makes 1280×720 as 1280×736. On a 16 GB RTX A4000 with its text model on the CPU, Medium and Full both measured inside 13.8 GiB, " +
-				"all that card can give, as sd.cpp keeps the rest of the model in system RAM; stable-diffusion.cpp's CUDA code still crashed there now and then (\"CONCAT failed\"). " +
-				"Licence: free unless the organisation makes US$10 million a year or more; terms at https://huggingface.co/Lightricks/LTX-2.3. " +
-				"Its Gemma 3 text model is under Google's Gemma Terms of Use.",
+			Notes:        "Text-to-video, image-to-video and start-and-end videos with sound, 8 steps. WebM has a sound track; animated WebP is silent. Up to 5 seconds at 1280×720 (sd-server makes it 1280×736). On a Radeon AI PRO R9700 (32 GB): about 35 s for Short (33 frames, 768×512); about 4.5 minutes for 5 s at 1280×720 (reservation 27.7 GiB, measured at Full, text model on the CPU); about 11 minutes with a start and an end image. On a 16 GB RTX A4000 with the text model on the CPU: Medium and Full fit in 13.8 GiB, all the card can give, with the rest in system RAM; stable-diffusion.cpp still crashed there now and then (\"CONCAT failed\"). Licence: free unless the organisation makes US$10 million a year or more; terms at https://huggingface.co/Lightricks/LTX-2.3. Its Gemma 3 text model is under the Gemma Terms of Use.",
 			// 121 frames is 5 s at 24 fps.
 			DefaultWidth:  768,
 			DefaultHeight: 512,
@@ -570,42 +551,42 @@ func Catalog() []CatalogEntry {
 			// (5.6 s against 23.5 and 9.5); R9700, 2026-10-29.
 			Component{Slot: "diffusion_model", Repo: hunyuanRepo, File: "split_files/diffusion_models/hunyuanvideo1.5_480p_i2v_step_distilled_fp8_scaled.safetensors", Bytes: 8335127098},
 			false, "8", "1", "7",
-			"Image-to-video at 848×480 in 8 steps: the fastest HunyuanVideo 1.5 set (Tencent suggests 8 or 12 steps). Needs a start image. "+
+			"Image-to-video at 848×480 in 8 steps, the fastest HunyuanVideo 1.5 set (Tencent suggests 8 or 12 steps). Needs a start image. "+
 				hunyuan480Fit+" A 33-frame video took about 2 minutes.",
 			"On a Radeon AI PRO R9700, measuring Full took about 4 minutes."),
 		hunyuanEntry("hunyuan15-i2v-480p-cfg-distilled", "HunyuanVideo 1.5 I2V 480p CFG-distilled (Q8)", "hunyuan-video-15-i2v",
 			hunyuanGGUF("I2V_480p", "480p_distilled/hunyuanvideo1.5_480p_i2v_cfg_distilled-Q8_0.gguf"), false, "50", "1", "5",
-			"Image-to-video at 848×480, 50 steps. CFG-distilled: one pass per step instead of two, so about twice as fast as the base 480p I2V set. Needs a start image. "+
+			"Image-to-video at 848×480, 50 steps. CFG-distilled: one pass per step, so about twice as fast as the base 480p I2V set. Needs a start image. "+
 				hunyuan480Fit+" A 33-frame video took about 8 minutes.",
 			"On a Radeon AI PRO R9700, measuring Full took about 4 minutes."),
 		hunyuanEntry("hunyuan15-i2v-480p", "HunyuanVideo 1.5 I2V 480p (Q8)", "hunyuan-video-15-i2v",
 			hunyuanGGUF("I2V_480p", "480p/hunyuanvideo1.5_480p_i2v-Q8_0.gguf"), false, "50", "6", "5",
-			"Image-to-video at 848×480, 50 steps: Tencent's base 480p model. Needs a start image. "+
+			"Image-to-video at 848×480, 50 steps, the base 480p model of Tencent. Needs a start image. "+
 				hunyuan480Fit+" A 33-frame video took about 16 minutes.",
 			"On a Radeon AI PRO R9700, measuring Full took about 6 minutes."),
 		hunyuanEntry("hunyuan15-i2v-720p-cfg-distilled", "HunyuanVideo 1.5 I2V 720p CFG-distilled (Q8)", "hunyuan-video-15-i2v",
 			hunyuanGGUF("I2V_720p", "720p_distilled/hunyuanvideo1.5_720p_i2v_cfg_distilled-Q8_0.gguf"), true, "50", "1", "7",
-			"Image-to-video at 1280×720, 50 steps. CFG-distilled: one pass per step instead of two, so about twice as fast as the base 720p I2V set. Needs a start image. "+
+			"Image-to-video at 1280×720, 50 steps. CFG-distilled: one pass per step, so about twice as fast as the base 720p I2V set. Needs a start image. "+
 				hunyuan720Fit+" A 33-frame video took about 37 minutes.",
 			hunyuan720Measure),
 		hunyuanEntry("hunyuan15-i2v-720p", "HunyuanVideo 1.5 I2V 720p (Q8)", "hunyuan-video-15-i2v",
 			hunyuanGGUF("I2V_720p", "720p/hunyuanvideo1.5_720p_i2v-Q8_0.gguf"), true, "50", "6", "7",
-			"Image-to-video at 1280×720, 50 steps: Tencent's base 720p model, the most detail. Needs a start image. "+
-				hunyuan720Fit+" Not timed; expect about twice the CFG-distilled 720p set's 37 minutes for 33 frames.",
+			"Image-to-video at 1280×720, 50 steps, the base 720p model of Tencent with the most detail. Needs a start image. "+
+				hunyuan720Fit+" Not timed; expect about twice the 37 minutes of the CFG-distilled 720p set for 33 frames.",
 			hunyuan720Measure),
 		hunyuanEntry("hunyuan15-t2v-480p-cfg-distilled", "HunyuanVideo 1.5 T2V 480p CFG-distilled (Q8)", "hunyuan-video-15-t2v",
 			hunyuanGGUF("T2V_480p", "480p_distilled/hunyuanvideo1.5_480p_t2v_cfg_distilled-Q8_0.gguf"), false, "50", "1", "5",
-			"Text-to-video at 848×480, 50 steps. CFG-distilled: one pass per step instead of two, so about twice as fast as the base 480p T2V set. "+
+			"Text-to-video at 848×480, 50 steps. CFG-distilled: one pass per step, so about twice as fast as the base 480p T2V set. "+
 				hunyuan480Fit+" A 33-frame video took about 8 minutes.",
 			"On a Radeon AI PRO R9700, measuring Full took about 4 minutes."),
 		hunyuanEntry("hunyuan15-t2v-480p", "HunyuanVideo 1.5 T2V 480p (Q8)", "hunyuan-video-15-t2v",
 			hunyuanGGUF("T2V_480p", "480p/hunyuanvideo1.5_480p_t2v-Q8_0.gguf"), false, "50", "6", "5",
-			"Text-to-video at 848×480, 50 steps: Tencent's base 480p model. "+
+			"Text-to-video at 848×480, 50 steps, the base 480p model of Tencent. "+
 				hunyuan480Fit+" A 33-frame video took about 16 minutes.",
 			"On a Radeon AI PRO R9700, measuring Full took about 6 minutes."),
 		hunyuanEntry("hunyuan15-t2v-720p", "HunyuanVideo 1.5 T2V 720p (Q8)", "hunyuan-video-15-t2v",
 			hunyuanGGUF("T2V_720p", "720p/hunyuanvideo1.5_720p_t2v-Q8_0.gguf"), true, "50", "6", "9",
-			"Text-to-video at 1280×720, 50 steps: Tencent's base 720p model, the most detail. (Tencent has not released a CFG-distilled 720p T2V model yet.) "+
+			"Text-to-video at 1280×720, 50 steps, the base 720p model of Tencent with the most detail. There is no CFG-distilled 720p T2V model yet. "+
 				hunyuan720Fit+" A 33-frame video took about 70 minutes.",
 			hunyuan720Measure),
 		{
@@ -622,7 +603,7 @@ func Catalog() []CatalogEntry {
 			Kind:       KindAce,
 			Components: aceComponents("acestep-v15-xl-sft-Q8_0.gguf", 5305828704),
 			License:    "MIT",
-			Notes:      "Higher quality, 50 steps; a 60-second song in about 17–19 s on a Radeon AI PRO R9700, peaking at about 7 GB of VRAM. Can't add, pull out or complete instruments (use XL base). Shares three files with ACE-Step 1.5 turbo.",
+			Notes:      "Higher quality, 50 steps. A 60-second song in about 17–19 s on a Radeon AI PRO R9700, with a peak of about 7 GB of VRAM. Cannot add, pull out or complete instruments (use XL base). Shares three files with ACE-Step 1.5 turbo.",
 		},
 		{
 			ID:         "ace-step-xl-base",
@@ -630,7 +611,7 @@ func Catalog() []CatalogEntry {
 			Kind:       KindAce,
 			Components: aceComponents("acestep-v15-xl-base-Q8_0.gguf", 5305828704),
 			License:    "MIT",
-			Notes:      "The one that can add, pull out or complete instruments in a song; 50 steps. Shares three files with the other ACE-Step sets.",
+			Notes:      "The set that can add, pull out or complete instruments in a song, 50 steps. Shares three files with the other ACE-Step sets.",
 		},
 	}
 }

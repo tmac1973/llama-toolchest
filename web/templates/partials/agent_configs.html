@@ -13,7 +13,7 @@
     {{- if not .Models}}
     <p role="alert">The server isn't serving any chat models. Start it on this tab, then open this again.</p>
     {{- else}}
-    <label title="The address the agent will use to reach this server. Change it if the agent runs on another machine.">Server URL
+    <label title="The address that the agent uses for this server. Change it if the agent runs on another machine.">Server URL
         <input type="url" name="base" value="{{.BaseURL}}"
                hx-get="/api/agent-configs" hx-target="#agent-configs" hx-swap="outerHTML"
                hx-trigger="change">

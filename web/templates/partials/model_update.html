@@ -15,7 +15,7 @@
     </div>
     {{if eq .State "checking"}}
         {{if .Hashing}}
-        <p aria-busy="true" title="A file downloaded before this version of Toolchest has no saved checksum, so it is read once to work one out. The result is saved, and later checks are quick.">Reading {{.Hashing}} to compare it with the repository…</p>
+        <p aria-busy="true" title="This file has no saved checksum yet, so toolchest reads it once to calculate one. Later checks are quick.">Reading {{.Hashing}} to compare it with the repository…</p>
         <progress value="{{printf "%.0f" .Pct}}" max="100"></progress>
         {{else}}
         <p aria-busy="true">Comparing the files on disk with the repository…</p>
@@ -34,7 +34,7 @@
         <p>This model is up to date: every file matches the repository.</p>
     {{end}}
     {{if .Missing}}
-    <p><small title="These files are no longer in the repository, perhaps renamed or removed. The copies on disk are kept as they are.">Not in the repository any more: {{range $i, $p := .Missing}}{{if $i}}, {{end}}<code>{{$p}}</code>{{end}}</small></p>
+    <p><small title="These files are no longer in the repository. The copies on disk stay.">Not in the repository any more: {{range $i, $p := .Missing}}{{if $i}}, {{end}}<code>{{$p}}</code>{{end}}</small></p>
     {{end}}
     <div role="group">
         {{if and (eq .State "ready") .Changed}}

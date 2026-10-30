@@ -3,7 +3,7 @@
 {{define "pending_card"}}
 <article class="model-card" style="opacity:0.6;" id="pending-card-{{.Ident}}" data-search="{{.Search}}">
 	<div class="model-card-row">
-		<div class="model-card-toggle" title="Not installed — this is a config imported from a backup, waiting for its model."><span>&#x23F3;</span></div>
+		<div class="model-card-toggle" title="Not installed: a config from a backup, waiting for its model."><span>&#x23F3;</span></div>
 		<div class="model-card-name">{{.ModelID}}
 			<small style="display:block;color:var(--pico-muted-color);">not installed &mdash; config waiting (imported {{.SavedAt.Format "2006-01-02"}})</small>
 			<span id="pending-dl-{{.Ident}}"></span>

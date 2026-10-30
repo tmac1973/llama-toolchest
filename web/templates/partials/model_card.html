@@ -32,15 +32,15 @@
             {{.ModelID}}
             {{with sourceModelURL .Source .ModelID}}<a href="{{.}}" target="_blank" rel="noopener" title="Open model page" style="text-decoration:none;color:var(--pico-muted-color);font-size:0.85em;margin-left:0.15rem;">&#x2197;</a>{{end}}
             {{if .HasVision}} <mark style="padding:0 0.3rem;font-size:0.75rem;" title="Reads images: send them in chat messages.">vision</mark>{{end}}
-            {{if .HasAudio}} <mark style="padding:0 0.3rem;font-size:0.75rem;" title="Understands speech: send audio in chat messages, transcribe it with /v1/audio/transcriptions, or talk to it live with /v1/realtime (llama.cpp v0.8.0 or newer).">audio</mark>{{end}}
-            {{if .Speaks}} <mark style="padding:0 0.3rem;font-size:0.75rem;" title="Makes speech: use POST /tts{{if .HasAudio}} or /v1/realtime{{end}} (llama.cpp v0.8.0 or newer).{{if not .HasChatTemplate}} It only speaks; it does not answer chat requests.{{end}}">speech</mark>{{end}}
+            {{if .HasAudio}} <mark style="padding:0 0.3rem;font-size:0.75rem;" title="Understands speech: audio in chat, /v1/audio/transcriptions, or live with /v1/realtime (llama.cpp v0.8.0 or newer).">audio</mark>{{end}}
+            {{if .Speaks}} <mark style="padding:0 0.3rem;font-size:0.75rem;" title="Makes speech: POST /tts{{if .HasAudio}} or /v1/realtime{{end}} (llama.cpp v0.8.0 or newer).{{if not .HasChatTemplate}} It only speaks, and does not answer chat requests.{{end}}">speech</mark>{{end}}
             {{if .SupportsTools}} <mark style="padding:0 0.3rem;font-size:0.75rem;">tools</mark>{{end}}
             {{if .GPULabel}} <mark style="padding:0 0.3rem;font-size:0.75rem;background:var(--pico-muted-border-color);color:var(--pico-color);">{{.GPULabel}}</mark>{{end}}
             {{if .IsOrphan}} <del>missing</del>{{end}}
             {{if .IsIncomplete}} <mark style="padding:0 0.3rem;font-size:0.75rem;background:var(--pico-del-color);color:var(--pico-card-background-color);">incomplete</mark>{{end}}
         </div>
         <div class="model-card-quant"><kbd>{{.Quant}}</kbd></div>
-        <div class="model-card-vram" id="vram-{{.ID}}" title="Estimated VRAM at the configured context size — llama.cpp pre-allocates the full KV cache at load time, so this is what the model actually needs to load">{{printf "%.1f" .VRAMGB}} GiB</div>
+        <div class="model-card-vram" id="vram-{{.ID}}" title="Estimated VRAM at the configured context. llama.cpp allocates the full KV cache at load, so the model needs all of it to load.">{{printf "%.1f" .VRAMGB}} GiB</div>
         <div class="model-card-size">{{printf "%.1f" (divGB .SizeBytes)}} GiB</div>
         <div class="model-card-actions">
             {{if .IsOrphan}}
@@ -80,7 +80,7 @@
                 </button>
                 {{if .CanAutoconfig}}
                 <button type="button" class="outline"
-                        title="Suggest settings for this model: what fits on this machine, plus the publisher's advice from the model card. You review them before anything is saved."
+                        title="Suggests settings for this model: what fits on this machine, and the advice of the publisher. You review them before anything is saved."
                         hx-get="/api/models/{{.ID}}/autoconfig"
                         hx-target="#autoconfig-{{cssID .ID}}"
                         hx-swap="innerHTML"
@@ -88,7 +88,7 @@
                     Autoconfigure
                 </button>
                 <button type="button" class="outline"
-                        title="{{if .Autotune.Summary}}{{.Autotune.Summary}}{{else}}Measures this model at different settings and saves the fastest ones as profiles. It changes only settings that cannot change the model's answers, and keeps the profile's context size and memory settings as they are — so set the model up with Autoconfigure, or by hand, first.{{end}}"
+                        title="{{if .Autotune.Summary}}{{.Autotune.Summary}}{{else}}Measures this model at different settings and saves the fastest as profiles. It keeps the context and memory settings, so set up the model first.{{end}}"
                         hx-get="/api/models/{{.ID}}/autotune"
                         hx-target="#autotune-{{cssID .ID}}"
                         hx-swap="innerHTML"
@@ -98,7 +98,7 @@
                 {{end}}
                 {{if .CanUpdate}}
                 <button type="button" class="outline"
-                        title="Check whether the repository has a newer version of this model's files. Nothing is downloaded until you confirm."
+                        title="Checks if the repository has newer files for this model. Nothing downloads until you confirm."
                         hx-post="/api/models/{{.ID}}/update/check"
                         hx-target="#update-{{cssID .ID}}"
                         hx-swap="innerHTML">
