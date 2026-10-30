@@ -208,7 +208,7 @@
     <div id="auto-start-status"></div>
 </article>
 
-<article>
+<article id="generation">
     <header>Generation backends</header>
     <p>Lets llama-toolchest also run image generation
        (stable-diffusion.cpp) and music generation (acestep.cpp) next to
@@ -216,7 +216,8 @@
     <form hx-put="/api/settings"
           hx-target="#generation-status"
           hx-swap="innerHTML"
-          hx-trigger="change">
+          hx-trigger="change"
+          hx-on::before-request="history.replaceState(null, '', '#generation')">
         <input type="hidden" name="generation_touched" value="1">
         <label title="Turning this on turns off &quot;Let the router keep several models loaded&quot; on the Server page.">
             <input type="checkbox" role="switch" name="generation_enabled"
@@ -225,6 +226,16 @@
         </label>
     </form>
     <div id="generation-status"></div>
+    <script>
+    // The switch above reloads the page at #generation. A reload restores
+    // the old scroll position rather than going to the anchor, so go back
+    // to this card here.
+    if (location.hash === '#generation') {
+        window.addEventListener('load', function() {
+            document.getElementById('generation').scrollIntoView();
+        });
+    }
+    </script>
     {{if .GenerationEnabled}}
     <form hx-put="/api/settings"
           hx-target="#gen-evict-status"
