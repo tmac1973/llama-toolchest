@@ -107,6 +107,60 @@ func TestCollectorSeesThePrefixedReady(t *testing.T) {
 	}
 }
 
+// At verbosity 4, which the buffer report needs, the router does not log
+// its ready line: it is a debug line. The instance's own "model loaded"
+// line is all there is to mark the end of a load. This is the shape of
+// a compute2 router log at verbosity 4 (llama.cpp v0.8.0).
+func TestCollectorSeesTheModelLoadedLine(t *testing.T) {
+	c := NewCollector()
+	feed(c, `0.07.990.000 I srv          load: spawning server instance with name=modelA on port 45221
+[45221] 0.07.995.000 I load_tensors:        CUDA0 model buffer size =  8192.00 MiB
+[45221] 0.07.999.369 I srv  server_run_i: model loaded`)
+	if got := c.InFlight(); got != 0 {
+		t.Errorf("in flight = %d; want 0 — the load reported itself loaded", got)
+	}
+	m, _ := c.Latest("modelA")
+	if m.Ready.IsZero() {
+		t.Error("the measurement does not record when loading finished")
+	}
+	// The line carries the instance prefix, so it must not be taken for
+	// anything else that instance logs.
+	if len(m.Report.Entries) != 1 {
+		t.Errorf("entries = %d; want 1, the buffer line only", len(m.Report.Entries))
+	}
+
+	c = NewCollector()
+	c.Add("0.07.990.000 I srv          load: spawning server instance with name=modelA on port 45221")
+	ev := c.Add("[45221] 0.07.999.369 I srv  server_run_i: model loaded")
+	if ev.Kind != EventReady || ev.Model != "modelA" || ev.Port != "45221" {
+		t.Errorf("model loaded line = %+v; want a ready for modelA on 45221", ev)
+	}
+}
+
+// At verbosity 5 both lines mark the end of one load, in either order.
+// The first is the ready; the second must not announce it again, or the
+// card counters would be read twice for one load.
+func TestCollectorAnnouncesOneReadyWhenBothLinesArrive(t *testing.T) {
+	for _, order := range [][2]string{
+		{"[45221] 0.07.999.369 I srv  server_run_i: model loaded", `0.07.999.400 D [45221] cmd_child_to_router:state:{"state":"ready","payload":{}}`},
+		{`0.07.999.300 D [45221] cmd_child_to_router:state:{"state":"ready","payload":{}}`, "[45221] 0.07.999.369 I srv  server_run_i: model loaded"},
+	} {
+		c := NewCollector()
+		c.Add("0.07.990.000 I srv          load: spawning server instance with name=modelA on port 45221")
+		if ev := c.Add(order[0]); ev.Kind != EventReady {
+			t.Errorf("first line %q = %+v; want a ready", order[0], ev)
+		}
+		first, _ := c.Latest("modelA")
+		if ev := c.Add(order[1]); ev.Kind != EventNone {
+			t.Errorf("second line %q = %+v; want no event", order[1], ev)
+		}
+		again, _ := c.Latest("modelA")
+		if !again.Ready.Equal(first.Ready) {
+			t.Errorf("ready moved from %v to %v on the second line", first.Ready, again.Ready)
+		}
+	}
+}
+
 // A ready for a port with no load — a leftover from a previous router
 // run, say — must not invent one.
 func TestCollectorIgnoresReadyForAnUnknownPort(t *testing.T) {
@@ -123,7 +177,9 @@ func TestCollectorKeepsTheFirstReady(t *testing.T) {
 	c.Add("0.00.100.000 I srv          load: spawning server instance with name=modelA on port 46231")
 	c.Add(`[46231] cmd_child_to_router:state:{"state":"ready","payload":{}}`)
 	first, _ := c.Latest("modelA")
-	c.Add(`[46231] cmd_child_to_router:state:{"state":"ready","payload":{}}`)
+	if ev := c.Add(`[46231] cmd_child_to_router:state:{"state":"ready","payload":{}}`); ev.Kind != EventNone {
+		t.Errorf("ready on a wakeup = %+v; want no event — the load was already announced", ev)
+	}
 	again, _ := c.Latest("modelA")
 	if !again.Ready.Equal(first.Ready) {
 		t.Errorf("ready moved from %v to %v on a wakeup", first.Ready, again.Ready)

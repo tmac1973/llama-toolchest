@@ -35,11 +35,23 @@ type Measurement struct {
 	Report Report
 }
 
+// readyPort reports the port of an instance that has finished loading.
+// Two lines say so. The instance's own "model loaded" line is printed at
+// info level, so it is there at the verbosity the buffer report needs.
+// The router's ready line is printed at debug level and appears only at
+// verbosity 5. Whichever arrives first marks the end of the load.
+func readyPort(line string) (string, bool) {
+	if port, ok := serverlog.LoadedPort(line); ok {
+		return port, true
+	}
+	return serverlog.ReadyPort(line)
+}
+
 // Collector turns the router's combined log stream into one Measurement
 // per model, which is the only way to see what a load really cost rather
 // than what it was predicted to cost.
 //
-// Feed it every line: it picks out the two kinds it needs and ignores the
+// Feed it every line: it picks out the kinds it needs and ignores the
 // rest. Safe for concurrent use — the reader goroutine writes while
 // request handlers read.
 type Collector struct {
@@ -78,7 +90,8 @@ const (
 	EventNone EventKind = iota
 	// EventSpawned is a load starting.
 	EventSpawned
-	// EventReady is a load finishing.
+	// EventReady is a load finishing. It is announced once per load:
+	// a later ready for the same instance is no event.
 	EventReady
 )
 
@@ -109,7 +122,7 @@ func (c *Collector) Add(line string) Event {
 		return Event{Kind: EventSpawned, Model: name, Port: port}
 	}
 
-	if port, ok := serverlog.ReadyPort(line); ok {
+	if port, ok := readyPort(line); ok {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		ld := c.byPort[port]
@@ -117,12 +130,14 @@ func (c *Collector) Add(line string) Event {
 			return Event{}
 		}
 		// A model waking from sleep reports ready again without a
-		// spawn. The first ready stands rather than being replaced, which
-		// is the honest reading: the load being described is still the
-		// one measured.
-		if ld.Ready.IsZero() {
-			ld.Ready = c.now()
+		// spawn, and at verbosity 5 one load reports it twice — once in
+		// each of the lines readyPort reads. The first ready stands, and
+		// only it is announced: the load being described is still the
+		// one measured, and the card counters belong to its end.
+		if !ld.Ready.IsZero() {
+			return Event{}
 		}
+		ld.Ready = c.now()
 		return Event{Kind: EventReady, Model: ld.Model, Port: port}
 	}
 
