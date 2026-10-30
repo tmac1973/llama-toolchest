@@ -1,0 +1,127 @@
+{{/* Engine notes: what llama-server did, from engine-notes.json.
+
+     The strip (a notesStripView) is polled into #engine-notes above the
+     Server log. The dialog body (a notesBodyView) is loaded into
+     #engine-notes-body, inside a <dialog> that server.html keeps outside the
+     polled element, so a poll never closes the dialog. */}}
+{{define "engine_notes_strip"}}
+<div class="engine-notes" data-level="{{if .Warn}}warning{{else}}quiet{{end}}" data-sig="{{.Sig}}">
+  {{- if .Warn}}
+  <span class="engine-notes-icon" aria-hidden="true">
+    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2.2L14.5 13.5h-13z" stroke-linejoin="round"/><path d="M8 6.4v3.2" stroke-linecap="round"/><path d="M8 11.6v.1" stroke-linecap="round"/></svg>
+  </span>
+  {{- end}}
+  <span class="engine-notes-text">{{.Text}}{{with .LastAt}} at <time datetime="{{.ISO}}">{{.Label}}</time>{{end}}</span>
+  <button type="button" {{if not .Warn}}class="outline secondary"{{end}} onclick="openEngineNotes()">Review</button>
+</div>
+{{end}}
+
+{{define "engine_notes_body"}}
+<div class="engine-notes-body">
+  <div role="group" class="engine-notes-periods">
+    {{- range .Periods}}
+    <button type="button" {{if .Active}}aria-current="true"{{else}}class="outline secondary"{{end}}
+            hx-get="/api/service/notes?period={{.Key}}" hx-target="#engine-notes-body" hx-swap="innerHTML">{{.Label}}</button>
+    {{- end}}
+  </div>
+  <p class="engine-notes-range">From <time datetime="{{.From.ISO}}">{{.From.Label}}</time> to now. Counting since <time datetime="{{.Since.ISO}}">{{.Since.Label}}</time>.</p>
+  {{- if .Result}}<p class="engine-notes-result"><mark>{{.Result}}</mark></p>{{end}}
+
+  {{- if .Empty}}
+  <p class="engine-notes-empty">Nothing recorded in this period.</p>
+  {{- else}}
+  {{- with .Totals}}
+  <dl class="engine-notes-totals">
+    <div title="Router starts. A job (a benchmark or Autotune) restarts the router for each setting it tests."><dt>Router starts</dt><dd>{{.RouterStartsUser}} by you, {{.RouterStartsJob}} by jobs</dd></div>
+    <div><dt>Router stops</dt><dd>{{.RouterStops}}</dd></div>
+    <div title="The router stopped without a request to stop it."><dt>Router exits on their own</dt><dd>{{.RouterExits}}</dd></div>
+    <div><dt>Loads</dt><dd>{{.Loads}}</dd></div>
+    <div title="The model stopped before it finished loading."><dt>Failed loads</dt><dd>{{.FailedLoads}}</dd></div>
+    <div title="A loaded model stopped with an error, and nobody asked it to stop."><dt>Crashes</dt><dd>{{.Crashes}}</dd></div>
+    <div title="Crashes and failed loads while a job held the router."><dt>Failures in jobs</dt><dd>{{.FailuresInJobs}}</dd></div>
+    <div title="A model stopped as asked: an unload, an eviction or a router stop."><dt>Unloads</dt><dd>{{.Unloads}}</dd></div>
+  </dl>
+  {{- end}}
+
+  {{- if .Models}}
+  <h4>Models</h4>
+  <div class="engine-notes-table">
+  <table class="striped">
+    <thead><tr>
+      <th>Model</th>
+      <th title="Loads that finished.">Loads</th>
+      <th title="Loads that stopped before they finished.">Failed</th>
+      <th title="Stops with an error that nobody asked for.">Crashes</th>
+      <th title="Stops that were asked for.">Unloads</th>
+      <th title="Total time loaded in this period. A model that is loaded now counts up to now.">Time loaded</th>
+      <th title="Average time from start to loaded.">Avg load</th>
+      <th title="Requests to the model through toolchest. Job requests are not counted.">Requests</th>
+      <th title="Requests that got an error answer.">Failed requests</th>
+      <th title="Tokens the model read.">Prompt tokens</th>
+      <th title="Tokens the model wrote.">Generated tokens</th>
+      <th title="The latest load or request. Requests count by the hour.">Last used</th>
+    </tr></thead>
+    <tbody>
+    {{- range .Models}}
+      <tr>
+        <td>{{.Name}}</td>
+        <td>{{.Loads}}</td>
+        <td>{{.FailedLoads}}</td>
+        <td>{{if .Crashes}}<strong>{{.Crashes}}</strong>{{else}}0{{end}}</td>
+        <td>{{.Unloads}}</td>
+        <td>{{.Loaded}}</td>
+        <td>{{.AvgLoad}}</td>
+        <td>{{.Requests}}</td>
+        <td>{{.FailedRequests}}</td>
+        <td>{{.PromptTokens}}</td>
+        <td>{{.GenTokens}}</td>
+        <td>{{with .LastUsed}}<time datetime="{{.ISO}}">{{.Label}}</time>{{else}}—{{end}}</td>
+      </tr>
+    {{- end}}
+    </tbody>
+  </table>
+  </div>
+  {{- end}}
+
+  <h4>Crashes and failed loads</h4>
+  <p class="engine-notes-note">A crash is an exit with an error status that nobody asked for. An unload, an eviction or a stop that had to be forced is not a crash.</p>
+  {{- if .Failures}}
+  <ul class="engine-notes-failures">
+    {{- range .Failures}}
+    <li>
+      <div><strong><time datetime="{{.At.ISO}}">{{.At.Label}}</time></strong> · {{.Model}} · {{.What}} · exit status {{.ExitStatus}}</div>
+      <div class="engine-notes-meta">
+        {{- if .Build}}Build {{.Build}}{{end}}{{if .GPUs}}{{if .Build}} · {{end}}{{.GPUs}}{{end}}{{if .Job}}{{if or .Build .GPUs}} · {{end}}during job “{{.Job}}”{{end -}}
+      </div>
+      {{- if .ErrorLines}}<pre>{{range .ErrorLines}}{{.}}
+{{end}}</pre>{{end}}
+      {{- if .Tail}}
+      <details>
+        <summary>What llama-server wrote</summary>
+        <pre>{{range .Tail}}{{.}}
+{{end}}</pre>
+      </details>
+      {{- end}}
+    </li>
+    {{- end}}
+  </ul>
+  {{- else}}
+  <p class="engine-notes-empty">None in this period.</p>
+  {{- end}}
+  {{- end}}
+
+  <form class="engine-notes-delete" hx-post="/api/service/notes/delete" hx-target="#engine-notes-body" hx-swap="innerHTML"
+        hx-confirm="Delete engine notes older than 30 days? This cannot be undone.">
+    <input type="hidden" name="period" value="{{.Period}}">
+    <label>Delete old data
+      <select name="older_than" onchange="this.form.setAttribute('hx-confirm', this.selectedOptions[0].dataset.confirm)">
+        <option value="7d" data-confirm="Delete engine notes older than 7 days? This cannot be undone.">older than 7 days</option>
+        <option value="30d" selected data-confirm="Delete engine notes older than 30 days? This cannot be undone.">older than 30 days</option>
+        <option value="90d" data-confirm="Delete engine notes older than 90 days? This cannot be undone.">older than 90 days</option>
+        <option value="all" data-confirm="Delete all engine notes? This cannot be undone.">everything</option>
+      </select>
+    </label>
+    <button type="submit" class="outline secondary">Delete</button>
+  </form>
+</div>
+{{end}}
