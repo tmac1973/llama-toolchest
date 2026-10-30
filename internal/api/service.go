@@ -381,6 +381,7 @@ func (s *Server) handleActivateModel(w http.ResponseWriter, r *http.Request) {
 
 	// Try router name, fall back to file path
 	routerName := s.registry.RouterName(id)
+	s.prepareNgramCacheForLoad(id)
 	if err := s.process.LoadModel(routerName); err != nil {
 		filePath := s.registry.ModelFilePath(id)
 		if filePath == "" || s.process.LoadModel(filePath) != nil {
@@ -736,6 +737,9 @@ type modelConfigPanelData struct {
 	// reasoning mode). ReasoningPreserveDefault names what the active
 	// build does when it is left at default, and ReasoningPreserveNote
 	// says when the build is too old for the option.
+	// NgramCache describes the learned n-gram file of a model that uses
+	// the N-gram Cache method (ngram_cache.go).
+	NgramCache               ngramCacheInfo
 	HasReasoning             bool
 	ReasoningPreserveDefault string
 	ReasoningPreserveNote    string
@@ -938,6 +942,7 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 		data.HasExperts = model.ExpertCount > 0
 		data.NLayers = model.NLayers
 		data.HasReasoning = model.EffectiveReasoning(cfg).Supported
+		data.NgramCache = s.ngramCacheView(model.ID, cfg)
 		data.EffortLevels = model.EffortLevels()
 		if cfg.ReasoningEffort != "" && !slices.Contains(data.EffortLevels, cfg.ReasoningEffort) {
 			// Kept as a choice, so saving the dialog does not drop it.

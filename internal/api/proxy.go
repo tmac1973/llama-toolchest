@@ -293,6 +293,7 @@ func (s *Server) ensureModelLoadedForRequest(ctx context.Context, body []byte) e
 			return err
 		}
 		defer release()
+		s.prepareNgramCacheForLoad(regModel.ID)
 		if err := s.process.LoadModel(routerName); err != nil {
 			return fmt.Errorf("auto-load %s: %w", regModel.PublicName(), err)
 		}

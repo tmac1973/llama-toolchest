@@ -368,6 +368,9 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), registryErrorStatus(err, http.StatusNotFound))
 		return
 	}
+	if err := s.registry.RemoveNgramCacheFile(id); err != nil {
+		slog.Warn("failed to remove the learned n-gram file", "model", id, "error", err)
+	}
 
 	// Regenerate preset INI so the router doesn't reference a deleted model
 	if _, err := s.registry.WritePresetINI(s.activeTarget()); err != nil {
