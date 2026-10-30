@@ -916,6 +916,7 @@ func (s *Server) buildRouter() chi.Router {
 			r.Get("/health", s.handleServiceHealth)
 			r.Get("/loaded-models", s.handleLoadedModels)
 			r.Get("/notes", s.handleEngineNotes)
+			r.Get("/notes/strip", s.handleEngineNotesStrip)
 			r.Post("/notes/delete", s.handleEngineNotesDelete)
 		})
 		r.Get("/ps", s.handlePS)

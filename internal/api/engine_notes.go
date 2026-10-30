@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -183,6 +184,10 @@ func (s *Server) handleEngineNotes(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "engine notes are not available", http.StatusServiceUnavailable)
 		return
 	}
+	if isHTMX(r) {
+		s.renderNotesBody(w, r.URL.Query().Get("period"), "")
+		return
+	}
 	sum, ok := s.notesSummary(r.URL.Query().Get("period"))
 	if !ok {
 		http.Error(w, "period must be 24h, 7d, 30d or all", http.StatusBadRequest)
@@ -224,6 +229,12 @@ func (s *Server) handleEngineNotesDelete(w http.ResponseWriter, r *http.Request)
 		slog.Warn("engine notes delete not saved", "error", err)
 	}
 	slog.Info("engine notes deleted", "older_than", r.FormValue("older_than"), "events", events, "usage_hours", hours)
+	if isHTMX(r) {
+		w.Header().Set("HX-Trigger", "engineNotesChanged")
+		s.renderNotesBody(w, r.FormValue("period"), fmt.Sprintf("Deleted %s and %s of usage.",
+			count(events, "event", "events"), count(hours, "hour", "hours")))
+		return
+	}
 	respondJSON(w, map[string]int{"removed_events": events, "removed_hours": hours})
 }
 

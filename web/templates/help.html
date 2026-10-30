@@ -125,7 +125,18 @@
         <dt>Live Performance</dt>
         <dd>Average generation and prompt speed per model, taken from real chat requests.</dd>
         <dt>Server Logs</dt>
-        <dd>Live output from llama-server.</dd>
+        <dd>Live output from llama-server. To change the height, drag the bottom edge. Double-click the edge for the default height.</dd>
+        <dt id="engine-notes">Engine notes</dt>
+        <dd>The line above the Server Logs counts what llama-server did in the last 24 hours. It turns amber when a model crashed or failed to load. <em>Review</em> shows more: router starts and stops, loads, failed loads, crashes and unloads, and a table for each model with its time loaded, average load time, requests and tokens. Choose the period at the top: 24 hours, 7 days, 30 days or all.
+            <ul>
+                <li>A <strong>crash</strong> is a model that stopped with an error and nobody asked it to stop. An unload, an eviction, or a stop that had to be forced is not a crash. A <strong>failed load</strong> is a model that stopped before it finished loading.</li>
+                <li>Each crash shows the time, the model, the exit status, the build, the GPUs, and the error lines from the log. <em>What llama-server wrote</em> shows the last lines of that model's output.</li>
+                <li>Events while a benchmark or Autotune job holds the router show the job's name. The requests of a job are not counted as model usage.</li>
+                <li>Requests count by the hour, for completions, chat, embeddings and rerank. A request that gets an error answer counts as a failed request.</li>
+                <li>The data is kept in <code>engine-notes.json</code> in the data folder, so it stays after a restart. It stays until you delete it: use <em>Delete old data</em> at the bottom of Review. The same data is at <code>GET /api/service/notes?period=24h</code> (or <code>7d</code>, <code>30d</code>, <code>all</code>) as JSON.</li>
+                <li>A crash also writes a <code>WARN</code> line to the toolchest log.</li>
+            </ul>
+        </dd>
     </dl>
 
     <h2 id="builds">Builds</h2>
@@ -398,7 +409,7 @@ curl $BASE/v1/videos/generations -F prompt="the waves start to roll" -F start_im
     <h2 id="troubleshooting">Troubleshooting</h2>
     <dl>
         <dt>Start does nothing, or "no compiled build available"</dt><dd>There is no successful build. Build llama.cpp on Builds.</dd>
-        <dt>Model will not load, or llama-server crashes</dt><dd>Check Server Logs. If you use tensor parallelism, try a layer-split GPU Assignment.</dd>
+        <dt>Model will not load, or llama-server crashes</dt><dd>Check Server Logs. The Server Logs start again with each router start, so for an earlier crash use <a href="#engine-notes">Engine notes</a>: it keeps each crash with its error lines. If you use tensor parallelism, try a layer-split GPU Assignment.</dd>
         <dt>Model missing from <code>/v1/models</code></dt><dd>Check its <em>On</em> switch, then restart the server.</dd>
         <dt>Stuck on "loading"</dt><dd>It probably failed to start; check Server Logs.</dd>
         <dt>Out of VRAM</dt><dd>Run Autoconfigure, or lower GPU Layers or Context Size, use KV Cache Quant, or lower Max Loaded.</dd>

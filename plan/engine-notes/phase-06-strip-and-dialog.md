@@ -54,3 +54,12 @@ Show the data on the Server page: a one-line strip above the log, quiet or amber
 ## Rollback
 
 Revert the commit. The strip and dialog disappear; recording from Phase 05 continues and the JSON endpoint still answers, so no data is lost.
+
+## As built
+
+- View code is in `internal/api/engine_notes_view.go` (`notesStripView`, `notesBodyView`, `formatSeconds`, `failureSig`); the HTMX branches of the Phase 05 handlers call it.
+- `.log-section` is now a flex column, so the strip sits above the log panel and the Phase 01 grip still sizes the whole section.
+- Totals show "Failures in jobs" as its own figure (crashes and failed loads), since the count covers both kinds.
+- The delete form carries the shown period, so the dialog stays on it after a delete. Its `hx-confirm` text follows the chosen age.
+- Pico keeps a dialog's article narrow; `#engine-notes-dialog > article` is set to full width so the model table fits.
+- Checked locally in the browser with sample data: strip, dialog, period buttons, delete with its confirm, the strip reload after a delete, and the dialog staying open through polls. The compute2 check is still to do.

@@ -13,10 +13,13 @@
         flex: 1;
         min-height: 300px;
         overflow: hidden;
+        display: flex;
+        flex-direction: column;
     }
     .server-page .log-section .log-panel {
         margin: 0;
-        height: 100%;
+        flex: 1;
+        min-height: 0;
         display: flex;
         flex-direction: column;
     }
@@ -49,6 +52,91 @@
         opacity: 0.45;
     }
     .log-grip:hover::before { opacity: 1; }
+
+    /* Engine notes: the strip above the log and the Review dialog
+       (partials/engine_notes.html). */
+    #engine-notes { flex-shrink: 0; }
+    .engine-notes {
+        --notes-rule: var(--pico-muted-border-color);
+        --notes-tint: transparent;
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        padding: 0.35rem 0.7rem;
+        margin-bottom: 0.5rem;
+        border-left: 3px solid var(--notes-rule);
+        background: var(--notes-tint);
+        border-radius: var(--pico-border-radius);
+        font-size: 0.85rem;
+    }
+    .engine-notes[data-level="quiet"] .engine-notes-text { color: var(--pico-muted-color); }
+    .engine-notes[data-level="warning"] {
+        --notes-rule: #b86e00;
+        --notes-tint: rgba(184, 110, 0, 0.12);
+    }
+    .engine-notes-icon { display: flex; color: var(--notes-rule); flex-shrink: 0; }
+    .engine-notes-text {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .engine-notes button {
+        margin: 0;
+        padding: 0.2rem 0.75rem;
+        font-size: 0.75rem;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+    @keyframes engine-notes-pulse {
+        0%, 100% { box-shadow: 0 0 0 0 transparent; }
+        50%      { box-shadow: 0 0 0 4px var(--notes-tint); }
+    }
+    .engine-notes.is-new { animation: engine-notes-pulse 1.1s ease-out 3; }
+    @media (prefers-reduced-motion: reduce) {
+        .engine-notes.is-new { animation: none; }
+    }
+    /* Pico keeps a dialog's article narrow; the model table needs the room. */
+    #engine-notes-dialog > article { max-width: none; width: 100%; }
+    #engine-notes-body { max-height: 70vh; overflow-y: auto; font-size: 0.85rem; }
+    .engine-notes-periods { width: auto; margin-bottom: 0.6rem; }
+    .engine-notes-periods button { padding: 0.25rem 0.75rem; font-size: 0.8rem; }
+    .engine-notes-range, .engine-notes-note, .engine-notes-empty { color: var(--pico-muted-color); margin: 0 0 0.6rem; }
+    .engine-notes-result { margin: 0 0 0.6rem; }
+    .engine-notes-totals {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+        gap: 0.4rem 1rem;
+        margin: 0 0 1rem;
+    }
+    .engine-notes-totals dt { font-size: 0.75rem; color: var(--pico-muted-color); margin: 0; }
+    .engine-notes-totals dd { margin: 0; font-weight: 600; }
+    #engine-notes-body h4 { font-size: 0.95rem; margin: 1rem 0 0.4rem; }
+    .engine-notes-table { overflow-x: auto; }
+    .engine-notes-table table { font-size: 0.8rem; margin: 0; }
+    .engine-notes-table th, .engine-notes-table td { white-space: nowrap; padding: 0.3rem 0.5rem; }
+    .engine-notes-failures { list-style: none; padding: 0; margin: 0; }
+    .engine-notes-failures li {
+        list-style: none;
+        margin: 0 0 0.8rem;
+        padding-left: 0.6rem;
+        border-left: 3px solid #b86e00;
+    }
+    .engine-notes-meta { color: var(--pico-muted-color); font-size: 0.8rem; }
+    .engine-notes-failures pre { font-size: 0.75rem; margin: 0.3rem 0; padding: 0.4rem 0.6rem; max-height: 20rem; overflow: auto; }
+    .engine-notes-failures summary { font-size: 0.8rem; }
+    .engine-notes-delete {
+        display: flex;
+        align-items: flex-end;
+        gap: 0.6rem;
+        margin: 1.2rem 0 0;
+        padding-top: 0.8rem;
+        border-top: 1px solid var(--pico-muted-border-color);
+    }
+    .engine-notes-delete label { margin: 0; font-size: 0.8rem; }
+    .engine-notes-delete select { margin: 0.15rem 0 0; padding: 0.25rem 2rem 0.25rem 0.5rem; font-size: 0.8rem; height: auto; }
+    .engine-notes-delete button { margin: 0; padding: 0.3rem 0.8rem; font-size: 0.8rem; }
     .server-action-error {
         color: var(--pico-del-color);
         font-size: 0.8rem;
@@ -202,6 +290,12 @@
     </div>
 
     <div class="log-section">
+        <div id="engine-notes" hx-get="/api/service/notes/strip"
+             hx-trigger="load, every 10s, engineNotesChanged from:body" hx-swap="innerHTML">
+            <div class="engine-notes" data-level="quiet" data-sig="loading">
+                <span class="engine-notes-text">Engine notes — loading…</span>
+            </div>
+        </div>
         <article class="log-panel" data-clear-url="/api/service/logs">
             <header>
                 <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -458,6 +552,64 @@ document.getElementById('gen-log-dialog').addEventListener('close', function() {
 });
 </script>
 {{end}}
+
+<dialog id="engine-notes-dialog" style="max-width:1100px;width:95vw;">
+    <article>
+        <header>
+            <button type="button" aria-label="Close" rel="prev" onclick="this.closest('dialog').close();"></button>
+            Engine notes
+        </header>
+        <div id="engine-notes-body"></div>
+    </article>
+</dialog>
+<script>
+// Engine notes (partials/engine_notes.html). The dialog stays outside the
+// polled strip, so a poll never closes it.
+function openEngineNotes() {
+    var body = document.getElementById('engine-notes-body');
+    body.innerHTML = '<p aria-busy="true">Loading…</p>';
+    htmx.ajax('GET', '/api/service/notes?period=24h', {target: body, swap: 'innerHTML'})
+        .catch(function() { body.textContent = 'Could not load the engine notes.'; });
+    document.getElementById('engine-notes-dialog').showModal();
+}
+
+// Pulse the strip when its failures change, and only then. The strip is
+// drawn again on every poll, so a plain animation would play each time;
+// comparing fingerprints makes it play on the change.
+var lastEngineNotesSig = null;
+function markNewEngineNotes() {
+    var el = document.querySelector('#engine-notes .engine-notes');
+    if (!el || el.dataset.sig === 'loading') return;
+    if (el.dataset.level !== 'quiet' && lastEngineNotesSig !== el.dataset.sig) {
+        el.classList.add('is-new');
+    }
+    lastEngineNotesSig = el.dataset.sig;
+}
+
+// The server writes times in UTC; show them in the browser's time zone.
+// Without this script the UTC text stays, and it is still correct.
+function localEngineNotesTimes(root) {
+    var today = new Date().toDateString();
+    root.querySelectorAll('time[datetime]').forEach(function(el) {
+        var d = new Date(el.getAttribute('datetime'));
+        if (isNaN(d)) return;
+        el.title = el.title || el.textContent;
+        el.textContent = d.toDateString() === today
+            ? d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})
+            : d.toLocaleString([], {dateStyle: 'medium', timeStyle: 'short'});
+    });
+}
+
+document.body.addEventListener('htmx:afterSwap', function(e) {
+    var t = e.detail && e.detail.target;
+    if (!t) return;
+    if (t.id === 'engine-notes') {
+        markNewEngineNotes();
+        localEngineNotesTimes(t);
+    }
+    if (t.id === 'engine-notes-body') localEngineNotesTimes(t);
+});
+</script>
 
 <dialog id="agent-configs-dialog" style="max-width:720px;">
     <article>
