@@ -31,7 +31,7 @@
                     <progress value="{{.Percent}}" max="100" style="margin:0;" title="{{printf "%.1f" .DoneGB}} of {{printf "%.1f" .TotalGB}} GB downloaded"></progress>
                     <small>{{.Percent}}%</small>
                     {{- else}}
-                    <span title="{{with .FailedError}}The download failed: {{.}}{{else}}Some files are missing, for example because llama-toolchest restarted during the download.{{end}}" style="cursor:help;">Incomplete{{if .FailedError}} (failed){{end}}</span>
+                    <span title="{{with .FailedError}}The download failed: {{.}}{{else}}Some files are missing, for example after a restart during the download.{{end}}" style="cursor:help;">Incomplete{{if .FailedError}} (failed){{end}}</span>
                     {{- if .CatalogID}}
                     <button type="button" class="outline" style="margin:0 0 0 0.5rem;padding:0.1rem 0.5rem;font-size:0.8rem;"
                             hx-post="/api/gen/models/catalog/{{.CatalogID}}/download"
@@ -51,7 +51,7 @@
                     </span>
                     {{- else}}
                     <button type="button" class="outline" style="margin:0;padding:0.1rem 0.5rem;font-size:0.8rem;"
-                            title="Set up a backend instance that runs {{.Name}}: choose its build and GPU. It gets its own port."
+                            title="Sets up an instance that runs {{.Name}}. Choose its build and GPU. It gets its own port."
                             hx-get="/api/gen/instances/form?set={{.ID}}"
                             hx-target="#gen-new-instance-form" hx-swap="innerHTML"
                             data-set-name="{{.Name}}"
@@ -78,7 +78,7 @@
     <form hx-post="/api/gen/models/sets" hx-target="#gen-model-sets" hx-swap="innerHTML"
           data-error-label="Set not added">
         <div class="grid">
-            <label title="Shown in the UI. The set's ID, which API clients use, is made from it.">Name
+            <label title="Shown in the UI. The set ID for API clients comes from it.">Name
                 <input type="text" name="name" required placeholder="e.g. qwen-turbo-local">
             </label>
             <label>Backend
@@ -88,7 +88,7 @@
                     <option value="ace">Music (acestep.cpp)</option>
                 </select>
             </label>
-            <label title="The sd-server recipe the files follow; it decides which files are needed. Pick an image recipe for an image set and a video recipe for a video set. Ignored for music sets.">Recipe
+            <label title="The sd-server recipe of the files. It sets which files are needed. Image recipes for image sets, video recipes for video sets. Not for music sets.">Recipe
                 <select name="recipe">
                     <optgroup label="Image">
                     {{- range .Recipes}}<option value="{{.}}">{{.}}</option>{{end}}
@@ -99,24 +99,24 @@
                 </select>
             </label>
         </div>
-        <label title="One file per line, as slot = /absolute/path. Image slots: diffusion_model, model, llm, llm_vision, tokenizer, vae, tae, clip_l, t5xxl. Video slots: diffusion_model, high_noise_diffusion_model, t5xxl, llm, clip_vision, embeddings_connectors, vae, tae, audio_vae. Which ones a recipe needs depends on the recipe. Music slots: lm, dit, embedding, vae (all four are needed).">Files
+        <label title="One file per line: slot = /absolute/path. The recipe sets which slots are needed. Image slots: diffusion_model, model, llm, llm_vision, tokenizer, vae, tae, clip_l, t5xxl. Video slots: diffusion_model, high_noise_diffusion_model, t5xxl, llm, clip_vision, embeddings_connectors, vae, tae, audio_vae. Music slots: lm, dit, embedding, vae (all needed).">Files
             <textarea name="files" rows="4" placeholder="diffusion_model = /models/qwen-image-2.1-turbo-Q4_K_M.gguf&#10;llm = /models/Qwen3VL-8B-Instruct-Q4_K_M.gguf&#10;vae = /models/qwen_image_2.1_vae_bf16.safetensors"></textarea>
         </label>
         <div class="grid">
-            <label title="Image or video size the measured test run uses. Leave empty for the default: 1024 for image sets, 832×480 for video sets. Ignored for music sets.">Test width
+            <label title="Size of the Measure test run. Empty: 1024 for image sets, 832×480 for video sets. Not for music sets.">Test width
                 <input type="number" name="width" min="64" step="8" placeholder="1024 / 832">
             </label>
-            <label title="Image or video size the measured test run uses. Leave empty for the default: 1024 for image sets, 832×480 for video sets. Ignored for music sets.">Test height
+            <label title="Size of the Measure test run. Empty: 1024 for image sets, 832×480 for video sets. Not for music sets.">Test height
                 <input type="number" name="height" min="64" step="8" placeholder="1024 / 480">
             </label>
-            <label title="Length of the test video Measure makes, in frames. sd-server rounds it down to 4n+1. Video sets only.">Test frames
+            <label title="Length of the Measure test video, in frames. sd-server rounds it down to 4n+1. Video sets only.">Test frames
                 <input type="number" name="frames" min="1" placeholder="33">
             </label>
-            <label title="Frames per second of the test video, and of requests that give none. Video sets only.">Frame rate
+            <label title="Frames per second of the test video, and of requests without fps. Video sets only.">Frame rate
                 <input type="number" name="fps" min="1" max="240" placeholder="24">
             </label>
         </div>
-        <label title="Extra backend flags, for example --sigmas qwen-image-2.1-turbo --cfg-scale 1. The listen address, port, VRAM limit and model directory are set by llama-toolchest and cannot be given here.">Extra launch arguments
+        <label title="Extra backend flags, for example --sigmas qwen-image-2.1-turbo --cfg-scale 1. Toolchest sets the address, port, VRAM limit and model folder.">Extra launch arguments
             <input type="text" name="launch_args" placeholder="--steps 8 --cfg-scale 1">
         </label>
         <button type="submit">Add set</button>

@@ -14,7 +14,7 @@
         <div>
             <strong>Generation models</strong><br>
             <small class="rec-muted">Known-good sets for the image, video and music backends. Each downloads in one click.
-            {{- if ge .FreeGB 0.0}} <span title="Free disk space a new download may use, after the safety margin and the downloads already running.">{{printf "%.0f" .FreeGB}} GB free.</span>{{end}}</small>
+            {{- if ge .FreeGB 0.0}} <span title="Free disk space for a new download, after the safety margin and the running downloads.">{{printf "%.0f" .FreeGB}} GB free.</span>{{end}}</small>
         </div>
         <div class="rec-actions">
             <button type="button" class="outline secondary" onclick="toggleDownloadCard('generation', false)"
@@ -33,13 +33,13 @@
                 <td>{{printf "%.1f" .SizeGB}} GB</td>
                 <td><small>{{.License}}</small></td>
                 <td>
-                    {{- if .Installed}}<small title="The set is ready. It is listed under Generation models on the Models tab.">On this machine</small>
-                    {{- else if .Downloading}}<small title="Progress is shown in the downloads list at the top of this page.">Downloading {{.Percent}}%</small>
+                    {{- if .Installed}}<small title="The set is ready. See Generation models on the Models tab.">On this machine</small>
+                    {{- else if .Downloading}}<small title="The downloads list at the top of this page shows the progress.">Downloading {{.Percent}}%</small>
                     {{- else}}
                     <button type="button" class="outline" style="margin:0;padding:0.2rem 0.6rem;font-size:0.8rem;"
                             hx-post="/api/gen/models/catalog/{{.ID}}/download?view=catalog"
                             hx-target="#gen-catalog" hx-swap="innerHTML"
-                            {{if .Incomplete}}title="Some files of this set are missing. Resume downloads only the missing files."{{end}}
+                            {{if .Incomplete}}title="Some files are missing. Resume downloads only the missing files."{{end}}
                             data-error-label="Download not started">{{if .Incomplete}}Resume{{else}}Download{{end}}</button>
                     {{- end}}
                 </td>

@@ -9,52 +9,52 @@
         <tr>
             <th>Instance</th>
             <th title="The model set the instance runs.">Model set</th>
-            <th title="The build the instance runs: the one chosen for it, or the newest successful build of its backend.">Build</th>
+            <th title="The build of the instance: the chosen one, or the newest successful build of its backend.">Build</th>
             <th>GPU</th>
             <th title="The port its API and built-in web UI listen on.">Port</th>
-            <th title="GPU memory held for the instance on its GPU, whether it is running or not, so starting it can never fail for lack of memory. The LLM fit planner leaves it free. Press Measure to work it out from a test generation.">VRAM reserved</th>
+            <th title="VRAM held for the instance, running or not, so it can always start. The LLM fit planner keeps it free. Measure calculates it.">VRAM reserved</th>
             <th>State</th>
-            <th title="Image and music jobs on this instance's GPU, for any instance: running now, and waiting their turn. Only one runs per GPU at a time, because jobs sharing a GPU slow each other down.">GPU jobs</th>
+            <th title="Image and music jobs on this GPU, running and waiting. Only one job runs per GPU at a time.">GPU jobs</th>
             <th></th>
         </tr>
     </thead>
     <tbody>
     {{- range .Rows}}
         <tr>
-            <td>{{.Name}}{{if .AutoStart}} <small title="Starts when llama-toolchest starts.">auto-start</small>{{end}}{{if and $.EvictOn .KeepRunning}} <small title="Locked: never stopped to make room for an LLM or another instance, and its VRAM reservation counts even while it is stopped.">locked</small>{{end}}</td>
+            <td>{{.Name}}{{if .AutoStart}} <small title="Starts when llama-toolchest starts.">auto-start</small>{{end}}{{if and $.EvictOn .KeepRunning}} <small title="Locked: never stopped for an LLM or another instance. Its VRAM reservation counts also when it is stopped.">locked</small>{{end}}</td>
             <td>{{.SetName}} <small>({{kindLabel .Kind}})</small></td>
             <td>{{with .BuildLabel}}<kbd>{{.}}</kbd>{{else}}<small title="Build one on the Builds page.">no build</small>{{end}}</td>
             <td>{{.GPU}}{{with .GPUName}} <small>{{.}}</small>{{end}}</td>
             <td>{{.Port}}</td>
             <td>
-                {{- if .ReservedMiB}}<span title="{{if .MeasuredPeakMiB}}Measured peak {{printf "%.1f" .PeakGiB}} GiB on {{.MeasuredAt.Format "2006-01-02 15:04"}}{{if .MeasureEstimated}}, estimated from the whole GPU's use because the GPU tools gave no figure for this process{{end}}. {{end}}{{if ne .Kind "ace"}}sd-server is held to this amount.{{else}}ace-server cannot be held to an amount; this is the measured peak plus a margin, for planning.{{end}}" style="cursor:help;">{{printf "%.1f" .ReservedGiB}} GiB</span>
+                {{- if .ReservedMiB}}<span title="{{if .MeasuredPeakMiB}}Measured peak {{printf "%.1f" .PeakGiB}} GiB on {{.MeasuredAt.Format "2006-01-02 15:04"}}{{if .MeasureEstimated}}, estimated from the use of the whole GPU{{end}}. {{end}}{{if ne .Kind "ace"}}sd-server stays within this amount.{{else}}ace-server has no limit. This is the measured peak plus a margin.{{end}}" style="cursor:help;">{{printf "%.1f" .ReservedGiB}} GiB</span>
                 {{- else}}<small title="Not measured yet. The instance cannot start until it has a reservation.">none</small>{{end}}
                 {{- if eq .Kind "video"}}
-                <small style="display:block;color:var(--pico-muted-color);" title="The largest video this instance will make: frames × width × height, in any shape. Larger requests are refused, because the reservation only covers what was measured. Measure at a larger size to allow longer videos.">
+                <small style="display:block;color:var(--pico-muted-color);" title="The largest video of this instance: frames × width × height, in any shape. Larger requests are refused. Measure at a larger size to allow more.">
                     {{- if .LimitMeasured}}measured for up to {{.Limit.Frames}} frames at {{.Limit.Width}}×{{.Limit.Height}} ({{.Limit.Label}}){{else}}test size only: {{.Limit.Frames}} frames at {{.Limit.Width}}×{{.Limit.Height}}{{end}}</small>
                 {{- if .BudgetMiB}}
-                <small style="display:block;color:var(--pico-muted-color);cursor:help;" title="This instance was measured inside a budget smaller than the room on the card, and sd-server keeps to it: it holds model weights in system RAM and decodes in smaller pieces as needed, so videos take longer than with the whole room. Measure with the budget left empty to use the whole room again.">runs inside a {{printf "%.1f" .BudgetGiB}} GiB budget</small>
+                <small style="display:block;color:var(--pico-muted-color);cursor:help;" title="Measured in a budget below the GPU room, so sd-server keeps weights in system RAM and runs slower. Measure with no budget to use the whole room.">runs inside a {{printf "%.1f" .BudgetGiB}} GiB budget</small>
                 {{- end}}
                 {{- if .LastVideoTime}}
                 <small style="display:block;color:var(--pico-muted-color);cursor:help;" title="How long sd-server took to make this instance's last video, on {{.LastVideo.At.Format "2006-01-02 15:04"}}. Start and end images make a video slower, and the first video after the instance starts also loads the model.">last video: {{.LastVideo.Frames}} frames at {{.LastVideo.Width}}×{{.LastVideo.Height}} from {{.LastVideo.Inputs}}, {{.LastVideoTime}}</small>
                 {{- end}}
                 {{- if and .LimitMeasured .MeasuredDecodeFallback}}
-                <small style="display:block;color:var(--pico-muted-color);cursor:help;" title="The decode (turning the result into frames) did not fit in the room at once, so sd.cpp decoded the video in smaller pieces. The video is the same, but the decode takes longer than it would with more room.">decoded in smaller pieces to fit</small>
+                <small style="display:block;color:var(--pico-muted-color);cursor:help;" title="The decode did not fit at once, so sd.cpp decoded the video in parts. The video is the same, but slower.">decoded in smaller pieces to fit</small>
                 {{- end}}
                 {{- end}}
                 {{- if .MeasuredPeakMiB}}
                 <small style="display:block;color:var(--pico-muted-color);" title="The most GPU memory the last measurement saw this instance use.">peak {{printf "%.1f" .PeakGiB}} GiB, measured {{.MeasuredAt.Format "2006-01-02 15:04"}}{{if .MeasureEstimated}}, estimated (whole-GPU){{end}}</small>
                 {{- end}}
                 {{- if .MeasuredRAMMiB}}
-                <small style="display:block;color:var(--pico-muted-color);cursor:help;" title="The most system RAM the backend held during the last measurement. The text encoder runs on the CPU, and sd.cpp keeps model weights here when they do not fit the reservation. Other programs need this RAM too.">uses {{printf "%.1f" .RAMGiB}} GiB of system RAM</small>
+                <small style="display:block;color:var(--pico-muted-color);cursor:help;" title="Peak system RAM of the backend in the last measurement. The text encoder and the weights that do not fit in VRAM use it.">uses {{printf "%.1f" .RAMGiB}} GiB of system RAM</small>
                 {{- end}}
                 {{- if .MeasuredStale}}
-                <small style="display:block;color:var(--pico-ins-color);cursor:help;" title="This instance was measured with other backend settings than it runs with now: the model set's settings changed since (for example, its text encoder now runs on the CPU). Its reservation may be larger than it needs. Press Measure to find out.">Measured with older settings; measure again, it may need less memory now</small>
+                <small style="display:block;color:var(--pico-ins-color);cursor:help;" title="Measured with other backend settings than now. The reservation can be too large. Press Measure to check.">Measured with older settings; measure again, it may need less memory now</small>
                 {{- end}}
                 {{- if and .SuggestedMiB (ne .SuggestedMiB .ReservedMiB)}}
                 <button type="button" class="outline" style="margin:0.2rem 0 0;padding:0.1rem 0.5rem;font-size:0.75rem;"
                         hx-put="/api/gen/instances/{{.ID}}/reservation" hx-vals='{"reserved_gib": "{{printf "%.1f" .SuggestedGiB}}"}' hx-target="#gen-instances"
-                        title="What the last measurement suggests: its peak plus 10%, rounded up to 0.5 GiB. Setting it is refused if it does not fit on the GPU."
+                        title="The last measurement suggests its peak plus 10%, rounded up to 0.5 GiB. Refused if it does not fit on the GPU."
                         data-error-label="Reservation not set">Use suggested {{printf "%.1f" .SuggestedGiB}} GiB</button>
                 {{- end}}
                 <details style="margin:0;">
@@ -66,13 +66,13 @@
                 </details>
             </td>
             <td{{with .Status.Error}} title="{{.}}" style="cursor:help;"{{end}}>{{if .Measuring}}<span aria-busy="true">measuring…</span>{{else if and (not .Enabled) (not (or (eq .Status.State "running") (eq .Status.State "starting")))}}<span title="A disabled instance cannot run. Press Enable to let it start." style="cursor:help;">disabled</span>{{else}}{{.Status.State}}{{if eq .Status.State "running"}} <small>{{.Status.Uptime}}</small>{{end}}{{end}}
-                {{- if .MeasureNote}}<small style="display:block;color:var(--pico-ins-color);" title="The result of the last measurement. It is shown until the next one, or until llama-toolchest restarts; the peak stays under VRAM reserved.">Measured at {{.MeasureAt.Format "15:04"}}: {{.MeasureNote}}</small>{{end}}
+                {{- if .MeasureNote}}<small style="display:block;color:var(--pico-ins-color);" title="Result of the last measurement. Shown until the next one or a restart. The peak stays under VRAM reserved.">Measured at {{.MeasureAt.Format "15:04"}}: {{.MeasureNote}}</small>{{end}}
                 {{- if .MeasureError}}<small style="display:block;color:var(--pico-del-color);">Measurement failed at {{.MeasureAt.Format "15:04"}}: {{.MeasureError}}</small>{{end}}</td>
             <td>{{if or .GPUJobsRunning .GPUJobsWaiting}}{{.GPUJobsRunning}} running{{if .GPUJobsWaiting}}, {{.GPUJobsWaiting}} waiting{{end}}{{else if not .GPUHeldBy}}<small>idle</small>{{end}}
-                {{- with .GPUHeldBy}}<small style="display:block;" title="An LLM measurement (a benchmark, Autotune or Autoconfigure's test load) has this GPU. Image and music jobs wait until it finishes, so neither slows the other down or runs out of memory.">GPU in use by: {{.}}</small>{{end}}</td>
+                {{- with .GPUHeldBy}}<small style="display:block;" title="An LLM measurement (benchmark, Autotune or Autoconfigure) uses this GPU. Jobs wait until it finishes.">GPU in use by: {{.}}</small>{{end}}</td>
             <td>
                 {{- with .WebUIURL}}
-                <a href="{{.}}" target="_blank" rel="noopener" style="font-size:0.85rem;" title="The backend's own web page, on its own port. Jobs started from the web UI skip the llama-toolchest queue, so they can run at the same time as API jobs on the same GPU.">Open web UI →</a>
+                <a href="{{.}}" target="_blank" rel="noopener" style="font-size:0.85rem;" title="The backend web page. Its jobs skip the toolchest queue, so they can run with API jobs on the same GPU.">Open web UI →</a>
                 <small style="display:block;color:var(--pico-muted-color);">Jobs started from the web UI skip the llama-toolchest queue.</small>
                 {{- end}}
                 {{- with .WebUINote}}
@@ -84,23 +84,23 @@
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/stop" hx-target="#gen-instances" data-error-label="Not stopped">Stop</button>
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/restart" hx-target="#gen-instances" data-error-label="Not restarted">Restart</button>
                 {{- else if and .Enabled (not .ReservedMiB) (not .Measuring) (eq .Kind "video")}}
-                    <button type="button" class="outline" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" data-id="{{$id}}" data-name="{{.Name}}" data-gpu="{{.GPU}}" data-video="{{.VideoJSON}}" data-start="1" onclick="openGenMeasureVideo(this)" title="This instance has no VRAM reservation yet, so it is measured first, at a video size you choose. Asks before it does.">Start</button>
+                    <button type="button" class="outline" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" data-id="{{$id}}" data-name="{{.Name}}" data-gpu="{{.GPU}}" data-video="{{.VideoJSON}}" data-start="1" onclick="openGenMeasureVideo(this)" title="No VRAM reservation yet. Toolchest measures first, at a video size you choose. It asks before it starts.">Start</button>
                 {{- else if and .Enabled (not .ReservedMiB) (not .Measuring)}}
-                    <button type="button" class="outline" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" onclick="openGenMeasureStart('{{$id}}', '{{.Name}}', '{{.GPU}}')" title="This instance has no VRAM reservation yet, so it is measured first. Asks before it does.">Start</button>
+                    <button type="button" class="outline" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" onclick="openGenMeasureStart('{{$id}}', '{{.Name}}', '{{.GPU}}')" title="No VRAM reservation yet. Toolchest measures first. It asks before it starts.">Start</button>
                 {{- else if .Enabled}}
                     <button type="button" class="outline" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/start" hx-target="#gen-instances" data-error-label="Not started">Start</button>
                 {{- end}}
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" onclick="openGenLog('{{$id}}', '{{.Name}}')">Logs</button>
                 {{- if and (not .Measuring) (eq .Kind "video")}}
-                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" data-id="{{$id}}" data-name="{{.Name}}" data-gpu="{{.GPU}}" data-video="{{.VideoJSON}}" onclick="openGenMeasureVideo(this)" title="Make one test video, at a size you choose, with nothing else on this GPU, and reserve its peak memory. The instance then makes videos up to that size.">Measure</button>
+                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" data-id="{{$id}}" data-name="{{.Name}}" data-gpu="{{.GPU}}" data-video="{{.VideoJSON}}" onclick="openGenMeasureVideo(this)" title="Makes one test video at a size you choose, alone on this GPU, and reserves its peak VRAM. Videos up to that size are then allowed.">Measure</button>
                 {{- else if not .Measuring}}
-                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/measure" hx-target="#gen-instances" title="Run one test generation with nothing else on this GPU and record the peak GPU memory use. Takes from under a minute to several minutes." data-error-label="Not measured">Measure</button>
+                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/measure" hx-target="#gen-instances" title="Runs one test generation alone on this GPU and records the peak VRAM. Takes from under a minute to several minutes." data-error-label="Not measured">Measure</button>
                 {{- end}}
                 {{- if $.EvictOn}}
                 {{- if .KeepRunning}}
-                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/allow-stop" hx-target="#gen-instances" title="Unlock: let eviction stop this instance when an LLM or another instance needs its GPU memory. While stopped, its reservation then no longer counts." data-error-label="Not unlocked">Unlock</button>
+                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/allow-stop" hx-target="#gen-instances" title="Unlock: eviction can stop this instance for an LLM or another instance. Its reservation does not count while it is stopped." data-error-label="Not unlocked">Unlock</button>
                 {{- else}}
-                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/keep-running" hx-target="#gen-instances" title="Lock: eviction never stops this instance to make room. Its reservation then counts even while it is stopped, so loading an LLM that does not fit next to it is refused instead. Refused if its reservation does not fit now." data-error-label="Not locked">Lock</button>
+                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/keep-running" hx-target="#gen-instances" title="Lock: eviction never stops this instance, and its reservation always counts. An LLM that does not fit is refused. Refused if the reservation does not fit now." data-error-label="Not locked">Lock</button>
                 {{- end}}
                 {{- end}}
                 {{- if .Enabled}}
@@ -109,7 +109,7 @@
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/enable" hx-target="#gen-instances" data-error-label="Not enabled">Enable</button>
                 {{- end}}
                 {{- if not (or (eq .Status.State "running") (eq .Status.State "starting") .Measuring)}}
-                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-get="/api/gen/instances/{{$id}}/form" hx-target="#gen-edit-form" hx-on::after-request="if (event.detail.successful) document.getElementById('gen-edit-dialog').showModal()" title="Change the model set, build, GPU, extra launch arguments or auto-start. Only while the instance is stopped." data-error-label="Cannot edit">Edit</button>
+                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-get="/api/gen/instances/{{$id}}/form" hx-target="#gen-edit-form" hx-on::after-request="if (event.detail.successful) document.getElementById('gen-edit-dialog').showModal()" title="Change the model set, build, GPU, launch arguments or auto-start. Only while the instance is stopped." data-error-label="Cannot edit">Edit</button>
                 {{- end}}
                 {{- if not (or (eq .Status.State "running") (eq .Status.State "starting"))}}
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-delete="/api/gen/instances/{{$id}}" hx-confirm="Delete instance {{.Name}}? Its model set stays." hx-target="#gen-instances" data-error-label="Not deleted">Delete</button>
@@ -136,11 +136,11 @@
 <form {{if .Editing}}hx-put="/api/gen/instances/{{.EditID}}" data-error-label="Instance not changed" hx-target="#gen-instances" hx-swap="innerHTML"{{else}}hx-post="/api/gen/instances" data-error-label="Instance not created" hx-swap="none"{{end}} hx-on::after-request="if (event.detail.successful) this.closest('dialog')?.close()">
     <div class="grid">
         {{- if .Editing}}
-        <label title="The name cannot be changed: API clients use the ID made from it as the model name. To rename, create a new instance and delete this one.">Name
+        <label title="The name cannot change: API clients use its ID as the model name. To rename, create a new instance and delete this one.">Name
             <input type="text" value="{{.EditName}}" disabled>
         </label>
         {{- else}}
-        <label title="Shown in the UI; API clients use its ID (made from the name) as the model name. Left blank, the model set's ID is used.">Name
+        <label title="Shown in the UI. API clients use its ID as the model name. Empty: the model set ID.">Name
             <input type="text" name="name" placeholder="defaults to the model set">
         </label>
         {{- end}}
@@ -158,7 +158,7 @@
         {{- end}}
     </div>
     <div class="grid">
-        <label title="Which build runs it. Automatic uses the newest successful build of the set's backend. Only builds that can run on this machine's GPUs are listed.">Build
+        <label title="The build that runs it. Automatic: the newest successful build of the backend. The list shows only builds for the GPUs of this machine.">Build
             <select name="build">
                 <option value="">Automatic (newest)</option>
                 {{- range $kind, $builds := .Builds}}{{if $builds}}<optgroup label="{{kindProject $kind}}">{{range $builds}}<option value="{{.ID}}"{{if and $.Editing (eq .ID $.EditBuild)}} selected{{end}}>{{.ID}}</option>{{end}}</optgroup>{{end}}{{end}}
@@ -170,7 +170,7 @@
             </select>
         </label>
     </div>
-    <label title="Extra backend flags for this instance, added after the model set's own. The listen address, port, VRAM limit and model directory are set by llama-toolchest.">Extra launch arguments
+    <label title="Extra backend flags, after the model set flags. Toolchest sets the address, port, VRAM limit and model folder.">Extra launch arguments
         <input type="text" name="extra_args" placeholder="e.g. --offload-to-cpu"{{if .Editing}} value="{{.EditArgs}}"{{end}}>
     </label>
     <label>
