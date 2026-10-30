@@ -11,5 +11,6 @@
 // arrives and keeps what matters, so the count and the reason survive.
 //
 // It imports nothing from this project but internal/serverlog, which
-// knows the shape of the router's lines.
+// knows the shape of the router's lines, and internal/atomicfile, which
+// writes the saved copy (engine-notes.json) safely.
 package enginenotes
