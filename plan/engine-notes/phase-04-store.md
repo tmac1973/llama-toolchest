@@ -68,3 +68,14 @@ A store that keeps lifecycle events and per-model usage in `<data>/engine-notes.
 ## Rollback
 
 Revert the commit. Nothing records into the store until Phase 05, so no file is written yet. After Phase 05, revert that phase first; a leftover `engine-notes.json` is harmless and can be deleted by hand.
+
+## As built
+
+Names and choices that differ from the steps above, for Phases 05 and 06:
+
+- The failure list is `Summary.Failures` (crashes and failed loads, newest first), and the job count is `Totals.FailuresInJobs`, which counts both kinds.
+- `Summary(window, open, resolve)` takes a `Resolver func(routerName string) (id, name string)`. It also names usage-only rows, whose events hold no display name.
+- `DeleteOlderThan` moves `counting_since` up to the cutoff, since nothing older is left.
+- `KindRouterStart` and `SourceLlamaServer` are defined in `store.go`; `Event.IsFailure()` says whether an event is a crash or failed load.
+- Saves are one at a time (`saveMu`), so a copy taken earlier never overwrites a later one.
+
