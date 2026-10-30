@@ -39,8 +39,12 @@ type RouterConfig struct {
 	ModelsDir  string
 	PresetPath string
 	ModelsMax  int
-	Host       string
-	Port       int
+	// ModelsMemoryMarginMiB is --models-memory-margin: memory the router
+	// keeps free on each GPU, unloading the least recently used models
+	// until a new one fits. 0 leaves it out.
+	ModelsMemoryMarginMiB int
+	Host                  string
+	Port                  int
 	// ExtraEnv holds KEY=VALUE pairs appended to the child environment,
 	// for curated performance-related variables set in Settings.
 	ExtraEnv []string
@@ -85,6 +89,9 @@ func (m *Manager) Start(cfg RouterConfig) error {
 	}
 	if cfg.ModelsMax >= 0 {
 		args = append(args, "--models-max", fmt.Sprintf("%d", cfg.ModelsMax))
+	}
+	if cfg.ModelsMemoryMarginMiB > 0 {
+		args = append(args, "--models-memory-margin", fmt.Sprintf("%d", cfg.ModelsMemoryMarginMiB))
 	}
 
 	url := fmt.Sprintf("http://localhost:%d", cfg.Port)

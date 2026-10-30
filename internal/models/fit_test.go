@@ -420,3 +420,20 @@ func TestPlanFitKeepsEveryCardWithRoom(t *testing.T) {
 		t.Errorf("placement = %q, want all", r.Config.GPUAssign)
 	}
 }
+
+func TestRouterMemoryMarginMiB(t *testing.T) {
+	cases := []struct {
+		gpus []int
+		want int
+	}{
+		{nil, 0},
+		{[]int{8192}, 1024},                // 8% is under 1 GiB
+		{[]int{16376, 16376, 16376}, 1311}, // A4000: 8% of 16376 MiB
+		{[]int{8192, 32768}, 2622},         // the largest GPU decides
+	}
+	for _, c := range cases {
+		if got := RouterMemoryMarginMiB(c.gpus); got != c.want {
+			t.Errorf("%v: %d, want %d", c.gpus, got, c.want)
+		}
+	}
+}

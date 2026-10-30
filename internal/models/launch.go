@@ -72,6 +72,9 @@ const (
 	// versionDraftUBatch is b11630 (#30459), which added
 	// --spec-draft-n-ubatch.
 	versionDraftUBatch = 11630
+	// versionRouterMemory is b11930 (#21231), which added
+	// --models-memory-margin to the router.
+	versionRouterMemory = 11930
 )
 
 // newest reports whether the target is to be written for as current
@@ -119,6 +122,10 @@ func (t Target) DraftSamplingOption() bool { return t.newest(versionDraftSamplin
 
 // DraftUBatchOption reports whether the build takes --spec-draft-n-ubatch.
 func (t Target) DraftUBatchOption() bool { return t.newest(versionDraftUBatch) }
+
+// RouterMemoryOption reports whether the build's router takes
+// --models-memory-margin.
+func (t Target) RouterMemoryOption() bool { return t.newest(versionRouterMemory) }
 
 // MoECacheOption is moeCacheOption for the config form and Autotune.
 func (t Target) MoECacheOption() bool { return t.moeCacheOption() }

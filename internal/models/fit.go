@@ -122,6 +122,21 @@ func fitMarginGiB(totalGiB float64) float64 {
 	return math.Max(1, totalGiB*0.08)
 }
 
+// RouterMemoryMarginMiB is the margin the router keeps free on each GPU
+// when it manages memory (--models-memory-margin): toolchest's own fit
+// margin for the largest GPU, since the router takes one number for all
+// of them. 0 without GPUs.
+func RouterMemoryMarginMiB(gpuTotalMiB []int) int {
+	largest := 0
+	for _, t := range gpuTotalMiB {
+		largest = max(largest, t)
+	}
+	if largest == 0 {
+		return 0
+	}
+	return int(math.Ceil(fitMarginGiB(float64(largest)/1024) * 1024))
+}
+
 // ramMarginGiB is the system memory left free for the operating system
 // and other programs: at least 4 GiB, or 10%.
 func ramMarginGiB(totalGiB float64) float64 {

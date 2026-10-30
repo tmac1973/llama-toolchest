@@ -124,6 +124,13 @@ func (s *Server) restoreDeps() backup.Deps {
 				s.cfg.ModelsMax = *in.ModelsMax
 				changed = append(changed, "models_max")
 			}
+			// Never on while generation backends are on: toolchest's own
+			// unloading decides then (applyRouterMemoryLocked).
+			if in.RouterMemory != nil && s.cfg.RouterMemory != *in.RouterMemory &&
+				!(*in.RouterMemory && s.cfg.GenerationEnabled) {
+				s.cfg.RouterMemory = *in.RouterMemory
+				changed = append(changed, "router_memory")
+			}
 			if in.AutoStart != nil && s.cfg.AutoStart != *in.AutoStart {
 				s.cfg.AutoStart = *in.AutoStart
 				changed = append(changed, "auto_start")

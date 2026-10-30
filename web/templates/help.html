@@ -108,6 +108,8 @@
         <dd>The model is in GPU memory and ready. The router loads it on the first request, or when you press <span class="inline-icon"><svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor" aria-hidden="true"><path d="M4 3l9 5-9 5z"/></svg></span> in the Server tab's Available Models card.</dd>
         <dt>Max Loaded</dt>
         <dd>How many models can be loaded at once. When it is reached, the least recently used one is unloaded. <code>0</code> means no limit.</dd>
+        <dt>Let the router keep several models loaded</dt>
+        <dd>Lets the llama-server router decide by GPU memory instead of by count: it keeps models loaded, for example small embedding or speech models beside a large chat model, and when a new one does not fit it unloads the least recently used idle ones until it does, keeping a margin free on each GPU (shown under the switch). A model answering a request is never unloaded. It needs llama.cpp b11930 or newer, and it is only available while generation backends are off: the router cannot see their GPU reservations, so toolchest's own unloading decides while they are on. Benchmarks and Autotune still load one model at a time.</dd>
         <dt>Public name and aliases</dt>
         <dd>The <code>id</code> in <code>/v1/models</code> is a short name from the repo and quant (e.g. <code>unsloth-Qwen3.5-4B.Q4_K_M</code>). The long registry ID and any aliases you add in <em>Configure → Aliases</em> work too.</dd>
     </dl>

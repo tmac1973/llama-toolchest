@@ -33,6 +33,7 @@ type settingsResponse struct {
 	GenKeepPromptCache bool `json:"gen_keep_prompt_cache"`
 	GenPortStart       int  `json:"gen_port_start"`
 	GenPortCount       int  `json:"gen_port_count"`
+	RouterMemory       bool `json:"router_memory"`
 
 	// EnvOverrides maps each setting an environment variable overrides
 	// (by its YAML name) to that variable. The values above are the ones
@@ -66,6 +67,7 @@ func (s *Server) writeSettings(w http.ResponseWriter, r *http.Request, cfg *conf
 		DataDir:       cfg.DataDir,
 
 		GenerationEnabled:  cfg.GenerationEnabled,
+		RouterMemory:       cfg.RouterMemory,
 		GenEvict:           cfg.GenEvict,
 		GenKeepPromptCache: cfg.GenKeepPromptCache,
 	}
@@ -102,6 +104,9 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	// Switching generation backends off stops every running instance;
 	// switching them on starts the auto-start ones, as a start does.
 	wasGenerationEnabled := s.cfg.GenerationEnabled
+	// routerOn is the router memory option as this request sets it, nil
+	// when it does not; applied once the rest is (applyRouterMemory).
+	var routerOn *bool
 
 	if isJSONRequest(r) {
 		var update struct {
@@ -117,10 +122,20 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			GenKeepPromptCache *bool `json:"gen_keep_prompt_cache,omitempty"`
 			GenPortStart       *int  `json:"gen_port_start,omitempty"`
 			GenPortCount       *int  `json:"gen_port_count,omitempty"`
+			RouterMemory       *bool `json:"router_memory,omitempty"`
 		}
 		if !decodeJSONBody(w, r, &update) {
 			return
 		}
+		genOn := s.cfg.GenerationEnabled
+		if update.GenerationEnabled != nil {
+			genOn = *update.GenerationEnabled
+		}
+		if update.RouterMemory != nil && *update.RouterMemory && genOn {
+			http.Error(w, errRouterMemoryWithGeneration.Error(), http.StatusBadRequest)
+			return
+		}
+		routerOn = update.RouterMemory
 		// Checked before anything is changed, so a rejected range leaves
 		// the other fields in this request unsaved too.
 		if update.GenPortStart != nil || update.GenPortCount != nil {
@@ -158,6 +173,19 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	} else {
 		if !parseForm(w, r) {
 			return
+		}
+		if r.Form.Has("router_memory_touched") {
+			on := r.FormValue("router_memory") == "on"
+			genOn := s.cfg.GenerationEnabled
+			if r.Form.Has("generation_touched") {
+				genOn = r.FormValue("generation_enabled") == "on"
+			}
+			if on && genOn {
+				respondHTML(w)
+				fmt.Fprintf(w, `<p><mark>Settings not saved: %s</mark></p>`, html.EscapeString(errRouterMemoryWithGeneration.Error()))
+				return
+			}
+			routerOn = &on
 		}
 		if r.Form.Has("gen_port_start") || r.Form.Has("gen_port_count") {
 			start, count, err := formGenPorts(r)
@@ -247,6 +275,8 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
+	s.applyRouterMemoryLocked(routerOn)
 
 	// Persist config
 	if err := s.saveConfigLocked(); err != nil {

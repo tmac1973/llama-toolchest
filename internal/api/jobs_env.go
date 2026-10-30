@@ -64,7 +64,7 @@ func (e *jobEnv) routerOwnedByJob() bool {
 func (e *jobEnv) jobRouterOptions() routerOptions {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return routerOptions{buildID: e.jobBuildID, overrides: e.jobConfigs}
+	return routerOptions{buildID: e.jobBuildID, overrides: e.jobConfigs, job: true}
 }
 
 func newJobEnv(s *Server) *jobEnv { return &jobEnv{s: s} }

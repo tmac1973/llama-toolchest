@@ -160,6 +160,9 @@ api_key: ""                 # Bearer token for /v1 proxy (empty = no auth)
 log_level: "info"
 active_build: ""            # Active llama.cpp build ID
 models_max: 1               # Max simultaneously loaded models (0 = unlimited)
+router_memory: false        # Let the router keep several models loaded and unload the least
+                            # recently used ones by GPU memory (llama.cpp b11930+); only while
+                            # generation backends are off
 auto_start: false           # Start the inference router on container startup
 ```
 

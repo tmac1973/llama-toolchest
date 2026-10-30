@@ -62,9 +62,11 @@ type SourceInfo struct {
 // (auto_start: false) is a real value — the merge-never-deletes
 // guarantee depends on the distinction.
 type Settings struct {
-	ModelsMax *int    `json:"models_max,omitempty"`
-	AutoStart *bool   `json:"auto_start,omitempty"`
-	LogLevel  *string `json:"log_level,omitempty"`
+	ModelsMax *int `json:"models_max,omitempty"`
+	// RouterMemory is the router memory option (config.RouterMemory).
+	RouterMemory *bool   `json:"router_memory,omitempty"`
+	AutoStart    *bool   `json:"auto_start,omitempty"`
+	LogLevel     *string `json:"log_level,omitempty"`
 	// DefaultModelSource is a plain preference, not a secret, so it
 	// travels with every backup.
 	DefaultModelSource *string `json:"default_model_source,omitempty"`
@@ -114,9 +116,10 @@ func Assemble(cfg *config.Config, b *builder.Builder, reg *models.Registry, gpus
 	}
 
 	s := &Settings{
-		ModelsMax: ptr(cfg.ModelsMax),
-		AutoStart: ptr(cfg.AutoStart),
-		LogLevel:  ptr(cfg.LogLevel),
+		ModelsMax:    ptr(cfg.ModelsMax),
+		RouterMemory: ptr(cfg.RouterMemory),
+		AutoStart:    ptr(cfg.AutoStart),
+		LogLevel:     ptr(cfg.LogLevel),
 	}
 	// Only when set: an empty value would restore as "no preference",
 	// which the target already has, so there is nothing to say.
