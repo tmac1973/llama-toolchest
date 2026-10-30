@@ -62,10 +62,10 @@
 
     {{if .Unverified}}
     <details class="rec-more">
-        <summary title="Models that looked promising but could not be checked in full. They are left out of the list rather than guessed at.">{{len .Unverified}} could not be fully checked</summary>
+        <summary title="Models that looked good but could not be checked in full. They are left out, not guessed.">{{len .Unverified}} could not be fully checked</summary>
         <ul>
             {{range .Unverified}}
-            <li><a href="https://huggingface.co/{{.Repo}}" target="_blank" rel="noopener">{{.Repo}}</a>{{if .Gated}} <mark title="You must accept the model's license on Hugging Face and set your token in Settings.">gated</mark>{{end}} — {{.Reason}}</li>
+            <li><a href="https://huggingface.co/{{.Repo}}" target="_blank" rel="noopener">{{.Repo}}</a>{{if .Gated}} <mark title="Accept the model license on Hugging Face and set your token in Settings.">gated</mark>{{end}} — {{.Reason}}</li>
             {{end}}
         </ul>
     </details>
@@ -79,22 +79,22 @@
     <div class="rec-card-main">
         <div>
             <a href="{{.NameURL}}" target="_blank" rel="noopener"><strong>{{.Name}}</strong> ↗</a>
-            <small class="rec-muted" title="The repository this file comes from. Others publishing the same model are listed under Details.">from {{.Publisher}}</small>
-            {{if .Gated}}<mark title="You must accept the model's license on Hugging Face and set your token in Settings.">gated</mark>{{end}}
+            <small class="rec-muted" title="The repository of this file. Others with the same model are under Details.">from {{.Publisher}}</small>
+            {{if .Gated}}<mark title="Accept the model license on Hugging Face and set your token in Settings.">gated</mark>{{end}}
             {{if .Vision}}<mark title="{{.Vision}}">vision</mark>{{end}}
         </div>
         <div>
             <kbd title="The suggested file's quantization: how the model's weights are stored.">{{.Quant}}</kbd>
             <small>{{.Size}} ·
-                <span title="Average bits stored per weight. Around 4.5 or more keeps nearly all of the model's quality; below 4 the loss starts to show.">{{.BPW}}</span></small>
+                <span title="Average bits per weight. About 4.5 or more keeps nearly all quality; below 4 the loss shows.">{{.BPW}}</span></small>
         </div>
         <div>
             <small>
                 <span title="{{.PlacementTip}}"{{if .Slow}} class="rec-slow"{{end}}>{{.Placement}}</span> ·
-                <span title="How much text the model can keep in mind at once with this file.">{{.Context}}</span> ·
+                <span title="How much text the model holds at once with this file.">{{.Context}}</span> ·
                 <span title="{{.KVTip}}">{{.KV}}</span> ·
                 <span title="{{.MemoryTip}}">{{.Memory}}</span>{{if .Fewest}} ·
-                <span title="The plan spreads the model over every GPU, as Autoconfigure does, but it would also fit on fewer: useful for running two models at once.">{{.Fewest}}</span>{{end}}
+                <span title="The plan uses all GPUs, as Autoconfigure does, but the model also fits on fewer. Useful to run two models at once.">{{.Fewest}}</span>{{end}}
             </small>
         </div>
         {{if .Next}}<div><small class="rec-muted" title="What the suggestion would be at the next larger context size.">{{.Next}}</small></div>{{end}}

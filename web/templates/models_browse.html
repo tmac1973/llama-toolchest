@@ -38,13 +38,13 @@
     <button type="button" class="secondary" id="dl-btn-recommended" aria-expanded="false"
             onclick="toggleDownloadCard('recommended')"
             data-error-label="Recommendations not loaded"
-            title="LLMs from Hugging Face that should run on this machine, with the quant and context each would get. The first search can take up to a minute.">
+            title="LLMs from Hugging Face that should run on this machine, with the quant and context of each. The first search can take a minute.">
         Find recommended LLMs
     </button>
     <button type="button" class="secondary" id="dl-btn-embedding" aria-expanded="false"
             onclick="toggleDownloadCard('embedding')"
             data-error-label="Embedding models not loaded"
-            title="A short list of embedding models that work well with llama-server, for search and retrieval.">
+            title="Embedding models that work well with llama-server, for search and retrieval.">
         Get embedding models
     </button>
     {{- if .GenerationEnabled}}

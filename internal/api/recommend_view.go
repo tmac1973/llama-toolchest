@@ -57,9 +57,9 @@ type recommendCardView struct {
 
 var intentButtons = []feedButton{
 	{Value: string(recommend.IntentQuality), Label: "Best quality",
-		Tip: "Larger models first, counting the quant: a much larger model at 4 bits usually beats a smaller one at 8 bits. How widely a model is used counts a little too."},
+		Tip: "Larger models first, counting the quant: a much larger model at 4 bits usually beats a smaller one at 8 bits. Popularity counts a little."},
 	{Value: string(recommend.IntentFastest), Label: "Fastest",
-		Tip: "Models that read the least data for each word they write come first. Mixture-of-experts models read only part of their weights, so they are often fast for their size."},
+		Tip: "Models that read the least data per word come first. MoE models read only part of their weights, so they are often fast for their size."},
 	{Value: string(recommend.IntentContext), Label: "Longest context",
 		Tip: "Models that can hold the most text on this machine come first."},
 	{Value: string(recommend.IntentNewest), Label: "Newest",

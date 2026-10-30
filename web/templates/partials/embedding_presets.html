@@ -16,9 +16,9 @@
     <thead>
         <tr>
             <th>Model</th>
-            <th title="The length of each vector the model returns. Larger vectors can hold more detail but take more space in a vector database. Vectors from different models cannot be compared, so changing models means embedding your documents again.">Dims</th>
-            <th title="The longest input, in tokens, the model was trained on. The limit actually used is the Context Size in the model's settings, 8192 tokens by default (or this number, if it is smaller). A longer input is refused, so split long documents into pieces no longer than that. Raising Context Size uses more GPU memory.">Context</th>
-            <th title="The licence of the model weights. Apache-2.0 and MIT allow any use. The Gemma licence allows commercial use but has a use policy you must follow.">Licence</th>
+            <th title="Length of each vector. Larger vectors hold more detail and use more space. Vectors from different models do not compare, so a new model means embedding again.">Dims</th>
+            <th title="Longest input that the model was trained on, in tokens. The limit used is Context Size (default 8192, or this value if smaller). Longer inputs are refused.">Context</th>
+            <th title="License of the weights. Apache-2.0 and MIT allow any use. The Gemma license allows commercial use, with a use policy.">Licence</th>
             <th title="The download size of the file.">Size</th>
             <th></th>
         </tr>
