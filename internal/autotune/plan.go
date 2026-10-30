@@ -17,9 +17,9 @@ type PlanInput struct {
 	// Base is the starting profile's config: what every cell is measured
 	// against, and what the values below are layered on.
 	Base models.ModelConfig
-	// Cards is how many GPUs the model is spread over, and Cores the
-	// machine's logical cores. Both decide whether a setting is worth
-	// measuring at all.
+	// Cards is how many GPUs the profile spreads the model over, and
+	// Cores the machine's logical cores. Both decide whether a setting is
+	// worth measuring at all.
 	Cards int
 	Cores int
 	// DraftCandidates lists the installed files usable by a draft

@@ -23,7 +23,7 @@ func newTuneServer(t *testing.T) *Server {
 	s.tuner = autotune.NewRunner(autotune.Deps{
 		Store: s.tuneStore, Runs: s.bench, Registry: s.registry,
 		ActiveBuild: func() string { return "b1" },
-		Hardware:    func() (int, int) { return 1, 16 },
+		Hardware:    func(models.ModelConfig) (int, int) { return 1, 16 },
 	})
 	return s
 }
