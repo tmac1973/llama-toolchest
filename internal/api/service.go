@@ -537,6 +537,7 @@ func (s *Server) startRouterWith(opt routerOptions) error {
 	// Record which build is actually serving, so callers can tell the
 	// user's saved selection from what a job temporarily launched.
 	s.setRunningBuild(build.ID)
+	s.noteRouterStart(opt.job, build.ID)
 
 	// Snapshot each model's launch config so /api/models/{id}/info can
 	// report live values for restart-requiring fields vs. a subsequent

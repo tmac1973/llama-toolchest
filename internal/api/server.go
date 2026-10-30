@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -19,6 +20,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/benchmark"
 	"github.com/tmac1973/llama-toolchest/internal/builder"
 	"github.com/tmac1973/llama-toolchest/internal/config"
+	"github.com/tmac1973/llama-toolchest/internal/enginenotes"
 	"github.com/tmac1973/llama-toolchest/internal/evaluate"
 	"github.com/tmac1973/llama-toolchest/internal/filehash"
 	"github.com/tmac1973/llama-toolchest/internal/generation"
@@ -193,6 +195,15 @@ type Server struct {
 	// exists only for models that have been loaded since the server
 	// started. See internal/api/memory_measured.go.
 	memory *memreport.Collector
+
+	// notes keeps the router's starts, loads, crashes and unloads, and
+	// each model's requests, in <data>/engine-notes.json. Nil when the
+	// file could not be opened. notesOpen is what the log reader last saw
+	// loaded, and notesJob the job that last started the router; see
+	// engine_notes.go.
+	notes     *enginenotes.Store
+	notesOpen atomic.Pointer[[]enginenotes.OpenInstance]
+	notesJob  atomic.Pointer[jobRef]
 }
 
 // jobEnv returns the benchmark job environment, if wired.
@@ -338,6 +349,12 @@ func (s *Server) Shutdown() {
 		// "router not running" is the expected case when nothing was started.
 		slog.Warn("failed to stop the router during shutdown", "error", err)
 	}
+	// After the router, so its last lines are recorded first.
+	if s.notes != nil {
+		if err := s.notes.Close(); err != nil {
+			slog.Warn("engine notes not saved during shutdown", "error", err)
+		}
+	}
 }
 
 func NewServer(cfg *config.Config, configPath string) *Server {
@@ -375,6 +392,12 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 	// Subscribes to the router log for the life of the process. Started
 	// before anything can launch the router, so no load goes unwatched.
 	go s.watchRouterMemory()
+	if notes, err := enginenotes.Open(filepath.Join(cfg.DataDir, "engine-notes.json"), time.Now); err != nil {
+		slog.Error("engine notes not opened", "error", err)
+	} else {
+		s.notes = notes
+	}
+	go s.watchEngineNotes()
 	go s.watchOtherVRAM()
 	s.openGenJobs()
 	go s.watchGenJobs()
@@ -892,6 +915,8 @@ func (s *Server) buildRouter() chi.Router {
 			r.Get("/log-tabs", s.handleServiceLogTabs)
 			r.Get("/health", s.handleServiceHealth)
 			r.Get("/loaded-models", s.handleLoadedModels)
+			r.Get("/notes", s.handleEngineNotes)
+			r.Post("/notes/delete", s.handleEngineNotesDelete)
 		})
 		r.Get("/ps", s.handlePS)
 		r.Get("/helper-model/panel", s.handleHelperPanel)

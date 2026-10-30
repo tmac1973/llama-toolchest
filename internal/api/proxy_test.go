@@ -173,7 +173,7 @@ func readThroughCapture(t *testing.T, r io.Reader) (string, chan timingCall, *ss
 	calls := make(chan timingCall, 4)
 	c := newSSETimingCapture(io.NopCloser(r), func(model string, timings map[string]any) {
 		calls <- timingCall{model, timings}
-	})
+	}, nil)
 	out, err := io.ReadAll(c)
 	if err != nil {
 		t.Fatalf("read: %v", err)
@@ -293,6 +293,8 @@ type fakeRouter struct {
 	// query of each call.
 	props        string
 	propsQueries []string
+	// v1, when set, answers the /v1/ requests the cases below do not.
+	v1 http.HandlerFunc
 }
 
 // reset replaces the router's state between subtests.
@@ -319,6 +321,10 @@ func (f *fakeRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Before the lock: a session stays open while the test lists models.
 	if r.URL.Path == realtimePath {
 		f.serveRealtime(w, r)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/v1/") && f.v1 != nil {
+		f.v1(w, r)
 		return
 	}
 	f.mu.Lock()
