@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.46.2](https://github.com/tmac1973/llama-toolchest/compare/v2.46.1...v2.46.2) (2026-10-30)
+
+
+### Bug Fixes
+
+* **gen:** measure in the room eviction gives, and hide unreserved instances ([#466](https://github.com/tmac1973/llama-toolchest/issues/466)) ([60778e9](https://github.com/tmac1973/llama-toolchest/commit/60778e9334742cfe3a850f85a47527e83efdbf05))
+
 ## [2.46.1](https://github.com/tmac1973/llama-toolchest/compare/v2.46.0...v2.46.1) (2026-10-30)
 
 
