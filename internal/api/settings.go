@@ -316,6 +316,14 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if isHTMX(r) {
+		if wasGenerationEnabled != s.cfg.GenerationEnabled {
+			// The Settings page shows the generation settings (evict,
+			// prompt cache) only while generation is on, and draws them
+			// once, server-side. Reload it so they appear or go at once;
+			// the switch's form puts #generation in the address first, so
+			// the reload lands on that card.
+			w.Header().Set("HX-Refresh", "true")
+		}
 		respondHTML(w)
 		if envTouched {
 			// Variable warnings plus an out-of-band refresh of the

@@ -76,6 +76,39 @@ func TestGenerationSwitchOnStartsAutoStartInstances(t *testing.T) {
 	expect("switched on again", true)
 }
 
+// The generation settings (evict, prompt cache) are drawn only while
+// generation is on, so turning it on or off reloads the Settings page.
+// Before, the evict switch stayed hidden until a manual reload. Other
+// saves do not reload: they would lose the "Settings saved." line.
+func TestGenerationSwitchReloadsTheSettingsPage(t *testing.T) {
+	s := newSettingsServer(t, &config.Config{LlamaPort: 8080, ListenAddr: ":3000"})
+	s.genAutoStartFn = func() {}
+	put := func(form url.Values) string {
+		req := httptest.NewRequest("PUT", "/api/settings", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("HX-Request", "true")
+		rec := httptest.NewRecorder()
+		s.handleUpdateSettings(rec, req)
+		return rec.Header().Get("HX-Refresh")
+	}
+	on := url.Values{"generation_touched": {"1"}, "generation_enabled": {"on"}}
+	off := url.Values{"generation_touched": {"1"}}
+	for _, c := range []struct {
+		what string
+		form url.Values
+		want string
+	}{
+		{"switched on", on, "true"},
+		{"saved while on", on, ""},
+		{"another setting", url.Values{"auto_start_touched": {"1"}}, ""},
+		{"switched off", off, "true"},
+	} {
+		if got := put(c.form); got != c.want {
+			t.Errorf("%s: HX-Refresh = %q, want %q", c.what, got, c.want)
+		}
+	}
+}
+
 func TestGenPortRangeValidated(t *testing.T) {
 	s := newSettingsServer(t, &config.Config{LlamaPort: 8080, ListenAddr: ":3000"})
 
