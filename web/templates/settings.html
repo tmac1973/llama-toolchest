@@ -218,7 +218,7 @@
           hx-swap="innerHTML"
           hx-trigger="change">
         <input type="hidden" name="generation_touched" value="1">
-        <label title="Turning this on also turns off &quot;Let the router keep several models loaded&quot; on the Server page: the router cannot see the backends' GPU reservations, so toolchest's own unloading takes over again.">
+        <label title="Turning this on turns off &quot;Let the router keep several models loaded&quot; on the Server page.">
             <input type="checkbox" role="switch" name="generation_enabled"
                    {{if .GenerationEnabled}}checked{{end}}>
             Enable image and music generation backends

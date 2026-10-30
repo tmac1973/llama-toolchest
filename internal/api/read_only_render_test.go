@@ -36,10 +36,10 @@ func TestModelConfigShowsReadOnlyReason(t *testing.T) {
 	if !strings.Contains(out, `role="alert"`) || !strings.Contains(out, "schema 99") {
 		t.Errorf("read-only panel does not show the reason as an alert")
 	}
-	if !strings.Contains(out, "The file on disk has not been changed") {
+	if !strings.Contains(out, "The file on disk is not changed") {
 		t.Errorf("read-only banner has no explanatory tooltip")
 	}
-	if strings.Contains(render(""), "The file on disk has not been changed") {
+	if strings.Contains(render(""), "The file on disk is not changed") {
 		t.Errorf("writable panel shows the read-only banner")
 	}
 }

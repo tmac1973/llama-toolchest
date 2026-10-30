@@ -12,12 +12,12 @@
         <button type="button" class="mc-restart" id="mc-restart-{{cssID .ModelID}}"
                 onclick="openRestartDialog()"
                 {{if not .NeedsRestart}}hidden{{end}}
-                title="Settings changed since this model was loaded. Click to restart the server and use them.">Restart required</button>
+                title="Settings changed after this model loaded. Click to restart the server and use them.">Restart required</button>
     </div>
 
     {{if .ReadOnlyReason}}
     <p role="alert" style="margin:0.5rem 0;"
-       title="The file on disk has not been changed. Fix or restore models.json, or upgrade llama-toolchest, then restart it.">
+       title="The file on disk is not changed. Fix or restore models.json, or upgrade llama-toolchest. Then restart it.">
         <mark>&#9888; {{.ReadOnlyReason}}</mark>
     </p>
     {{end}}
@@ -61,26 +61,26 @@
     {{end}}
 
 
-    <label title="Friendly names for this model. Clients can use these instead of the full ID. Comma-separated, e.g. qwen3:latest, my-chat-model">
+    <label title="Other names for this model. Clients can use them instead of the full ID. Separate them with commas, for example qwen3:latest.">
         Aliases
         <input type="text" name="aliases" value="{{range $i, $a := .Config.Aliases}}{{if $i}}, {{end}}{{$a}}{{end}}"
                placeholder="e.g. qwen3:latest, my-chat-model">
     </label>
 
     <div class="grid">
-        <label title="Number of model layers to offload to the GPU. 999 offloads all layers. Lower values keep some layers on CPU, reducing VRAM usage at the cost of speed.">
+        <label title="Number of layers on the GPU. 999 puts all layers on the GPU. Fewer layers use less VRAM and run slower.">
             GPU Layers
             <input type="number" name="gpu_layers" value="{{.Config.GPULayers}}"
                    min="0" max="999" placeholder="999 = all layers">
         </label>
         {{if .HasExperts}}
-        <label title="Mixture-of-experts models only. Keeps the expert weights of this many layers in system memory instead of GPU memory. Use it when the model does not fit on the GPU: it is much faster than lowering GPU Layers, because each token only reads the few experts it uses. 0 keeps everything on the GPU. At most {{.NLayers}}.">
+        <label title="MoE models only. Keeps the experts of this many layers in system memory to fit VRAM. Faster than fewer GPU Layers. 0: none. Maximum: {{.NLayers}}.">
             CPU Expert Layers
             <input type="number" name="cpu_moe" value="{{if gt .Config.CPUMoE 0}}{{.Config.CPUMoE}}{{end}}"
                    min="0" max="{{.NLayers}}" placeholder="0 = all on GPU">
             <small>Effective: {{if gt .Config.CPUMoE 0}}<code>--n-cpu-moe {{.Config.CPUMoE}}</code>{{else}}not set (all experts on the GPU){{end}}</small>
         </label>
-        <label title="Mixture-of-experts models with CPU expert layers only. Keeps the most recently used of those experts in a GPU cache of this many MiB, so a token whose experts are cached does not read them from system memory. Uses GPU memory left over after the model; Autotune measures which size helps. 0 turns it off.">
+        <label title="MoE models with CPU Expert Layers only. VRAM cache, in MiB, for recently used experts. 0: off. Autotune finds a good size.">
             MoE Cache (MiB)
             <input type="number" name="moe_cache_mib" value="{{if gt .Config.MoECacheMiB 0}}{{.Config.MoECacheMiB}}{{end}}"
                    min="0" step="256" placeholder="0 = off">
@@ -91,7 +91,7 @@
         {{$mc := .MaxContext}}
         {{$dc := or .DefaultContext .MaxContext}}
         {{$isCustom := and (ne $cs 0) (ne $cs 2048) (ne $cs 4096) (ne $cs 8192) (ne $cs 16384) (ne $cs 32768) (ne $cs 65536) (ne $cs 131072) (ne $cs 262144)}}
-        <label title="{{if .IsEmbedding}}The longest text, in tokens, that one embedding request can hold. A longer input is refused. Most embedding models read each input in one micro-batch, so the micro-batch is raised to the same size, and the GPU memory it needs grows quickly: about 1 GiB at 8K and 7 GiB at 32K for EmbeddingGemma 2. For those models Model Default is 8192 tokens, or less if the model's own limit is lower. A value above the model's own limit is lowered to it.{{else}}Maximum token context window. Larger values use more VRAM.{{end}}{{if gt $mc 0}} This model supports up to {{$mc}} tokens.{{end}}">
+        <label title="{{if .IsEmbedding}}The longest input of one embedding request, in tokens. Longer inputs are refused. VRAM use grows fast with this value.{{else}}Maximum context, in tokens. More context uses more VRAM.{{end}}{{if gt $mc 0}} Model maximum: {{$mc}}.{{end}}">
             Context Size{{if gt $mc 0}} <small>(max {{$mc}})</small>{{end}}
             <div class="ctx-size-picker">
                 <select {{if not $isCustom}}name="context_size"{{end}}
@@ -128,7 +128,7 @@
 
     <div class="grid">
         {{if gt .NumGPUs 0}}
-        <label title="How this model is spread across GPUs. Layer options split layers sequentially. Tensor Parallelism splits tensors across N GPUs simultaneously (experimental, needs fast interconnect).{{if .IsEmbedding}} An embedding model is put on the one GPU with the most room when it is downloaded, if it fits there: spread over several GPUs, each GPU needs its own working memory for the model, which can be many times the model's size. Choose All GPUs here to spread it anyway.{{end}}">
+        <label title="How the model uses the GPUs. Tensor Parallelism splits each tensor over the GPUs: experimental, needs a fast GPU link.{{if .IsEmbedding}} Embedding models use one GPU when they fit.{{end}}">
             GPU Assignment
             <select name="gpu_assign"
                     onchange="var c=this.closest('form').querySelector('.tensor-split-custom'); if(this.value==='custom'){c.style.display='';c.querySelector('input').name='tensor_split';}else{c.style.display='none';c.querySelector('input').removeAttribute('name');}">
@@ -147,7 +147,7 @@
             {{end}}
         </label>
         <div class="tensor-split-custom" style="{{if ne .Config.GPUAssign "custom"}}display:none;{{end}}">
-            <label title="Manual tensor-split ratios. Comma-separated values for each GPU.">
+            <label title="Tensor-split ratios, one per GPU, separated by commas.">
                 Tensor Split
                 <input type="text" {{if eq .Config.GPUAssign "custom"}}name="tensor_split"{{end}}
                        value="{{.Config.TensorSplit}}"
@@ -155,13 +155,13 @@
             </label>
         </div>
         {{else}}
-        <label title="Split model across multiple GPUs. Comma-separated ratios that must match the number of selected GPUs. Leave empty for auto (equal split across all selected GPUs).">
+        <label title="Split ratios, one per selected GPU, separated by commas. Empty: equal split.">
             Tensor Split
             <input type="text" name="tensor_split" value="{{.Config.TensorSplit}}"
                    placeholder="Auto (equal split)">
         </label>
         {{end}}
-        <label title="Number of CPU threads for inference. More threads help with CPU-bound layers. Generally set to your physical core count.">
+        <label title="CPU threads for inference. Set it to the number of physical cores.">
             Threads
             <input type="number" name="threads" value="{{.Config.Threads}}"
                    min="1" placeholder="8">
@@ -171,31 +171,31 @@
          (models.BalancedSplit) that the saved GPU assignment does not
          show, so it is listed here. */}}
     {{if .EffectiveSplit}}
-    <small class="effective-split" title="How the layers are divided between the GPUs when the model loads. The cards do not have the same room (memory reserved for generation backends, memory other programs use, or cards of different sizes), or some expert layers stay in system memory, so the layers are not split evenly. Each GPU shows the layers it gets, then the estimated GPU memory the model uses on it, of the memory it can use there. The split is worked out again each time llama-server starts, so it changes when the reservations change. It is the --tensor-split in Effective Flags."
+    <small class="effective-split" title="Layers and VRAM per GPU at load time. Toolchest calculates the split again at each server start. It is the --tensor-split in Effective Flags."
            style="display:block;margin-bottom:0.75rem;cursor:help;">
         Effective split:
         {{range $i, $c := .EffectiveSplit}}{{if $i}} · {{end}}GPU {{$c.GPU}}: {{$c.Layers}} layers, {{printf "%.1f" $c.LoadGiB}} of {{printf "%.1f" $c.BudgetGiB}} GiB{{end}}
     </small>
     {{end}}
     {{if .CPURAMLabel}}
-    <small title="The part of the model's weights these settings keep in system memory rather than GPU memory: layers left off the GPU by GPU Layers, and expert layers kept on the CPU by CPU Expert Layers. The GPU memory estimate on the model card already leaves this out."
+    <small title="Model weights that these settings keep in system memory, from GPU Layers and CPU Expert Layers. The VRAM estimate does not include them."
            style="display:block;margin-bottom:0.75rem;cursor:help;">{{.CPURAMLabel}}</small>
     {{end}}
 
 
     {{if not .IsEmbedding}}
     <div class="grid">
-        <label title="Use flash attention for faster inference and lower VRAM usage. Recommended for most models. Disable if you experience compatibility issues.">
+        <label title="Faster inference and less VRAM. Recommended for most models. Turn it off if the model gives errors.">
             Flash Attention
             <input type="checkbox" name="flash_attention" role="switch"
                    {{if .Config.FlashAttention}}checked{{end}}>
         </label>
-        <label title="Enable Jinja2 chat template processing. Required for models that use Jinja-based prompt templates (most modern models).">
+        <label title="Uses the model's Jinja chat template. Most modern models need it.">
             Jinja Templates
             <input type="checkbox" name="jinja" role="switch"
                    {{if .Config.Jinja}}checked{{end}}>
         </label>
-        <label title="Bypass the OS page cache and load model weights directly to VRAM. Useful when VRAM exceeds system RAM, avoiding double-buffering through RAM.">
+        <label title="Loads the weights into VRAM directly, not through the OS page cache. Use it when VRAM is larger than system memory.">
             Direct I/O
             <input type="checkbox" name="direct_io" role="switch"
                    {{if .Config.DirectIO}}checked{{end}}>
@@ -204,7 +204,7 @@
 
     {{if .HasPLE}}
     <div class="grid">
-        <label title="How the per-layer embedding table is held in system memory. This model carries one in addition to its weights. The table is never placed on the GPU, whichever setting you choose, so this does not change the VRAM estimate — it trades system memory against loading and lookup speed. Streaming reads the table&#39;s rows from the model file as they are needed rather than holding all of it in memory at once, which uses less system memory and is slightly slower. Auto follows llama.cpp: stream tables over 4 GiB, keep smaller ones in memory. Streaming needs memory mapping, so it does not apply when Direct I/O is on.">
+        <label title="Per-layer embedding table in system memory, never in VRAM. Stream: less memory, a little slower. Auto streams tables over 4 GiB. Not with Direct I/O.">
             Per-Layer Embeddings ({{.PLESizeLabel}} table)
             <select name="ple_mode">
                 <option value="" {{if eq .Config.PLEMode ""}}selected{{end}}>Auto (stream if over 4 GiB)</option>
@@ -217,7 +217,7 @@
 
     {{if .HasReasoning}}
     <div class="grid">
-        <label title="Whether the model sees its own reasoning from earlier turns when it answers the next message. Keeping it helps long agent sessions (opencode, for example) stay consistent, but every earlier reasoning trace stays in the context, so a long session fills the context sooner. Dropping it keeps only the final answers from earlier turns. Only some chat templates support this; for the others llama.cpp ignores it.{{if .ReasoningPreserveNote}} {{.ReasoningPreserveNote}}{{end}}">
+        <label title="Keep: the model sees its earlier reasoning, and the context fills sooner. Drop: it sees only its earlier answers. Some templates ignore this.{{if .ReasoningPreserveNote}} {{.ReasoningPreserveNote}}{{end}}">
             Reasoning in Conversation History
             <select name="reasoning_preserve">
                 <option value="" {{if eq .Config.ReasoningPreserve ""}}selected{{end}}>Default (llama.cpp: {{.ReasoningPreserveDefault}})</option>
@@ -226,7 +226,7 @@
             </select>
         </label>
         {{if or .EffortLevels .Config.ReasoningEffort}}
-        <label title="How hard the model reasons when a chat request does not say (its reasoning_effort). The list holds the levels this model's chat template accepts, lowest first, as llama-server reported them when the model was last loaded. Template default leaves it to the template. A request that sets reasoning_effort or chat_template_kwargs itself is not changed.">
+        <label title="The reasoning_effort for requests without one. The list shows the levels that this template accepts. Requests with reasoning_effort or chat_template_kwargs do not change.">
             Default Reasoning Effort
             <select name="reasoning_effort">
                 <option value="" {{if eq .Config.ReasoningEffort ""}}selected{{end}}>Template default</option>
@@ -238,7 +238,7 @@
     {{end}}
 
     <div class="grid">
-        <label title="Quantize the KV cache to reduce VRAM usage. q8_0 saves ~50% KV memory with minimal quality loss. q4_0 saves ~75% but may affect output quality.">
+        <label title="Quantizes the KV cache to use less VRAM. q8_0 halves it with little quality loss. q4_0 uses a quarter and can lower quality.">
             KV Cache Quantization
             <select name="kv_cache_quant">
                 <option value="" {{if eq .Config.KVCacheQuant ""}}selected{{end}}>Off (f16)</option>
@@ -246,7 +246,7 @@
                 <option value="q4_0" {{if eq .Config.KVCacheQuant "q4_0"}}selected{{end}}>q4_0</option>
             </select>
         </label>
-        <label title="How many conversations the model serves at the same time. Blank leaves llama.cpp's default: 4 conversations sharing the whole context, so one conversation can use all of it. 1 serves one conversation at a time, and other requests wait. From 2, each conversation gets an equal share of the Context Size (32,768 with 4 gives each 8,192), unless Shared Context is on.">
+        <label title="Conversations served at once. Empty: llama.cpp default, 4 that share the context. From 2, each gets an equal part, unless Shared Context is on.">
             Parallel Conversations
             <input type="number" name="parallel" value="{{if gt .Config.Parallel 0}}{{.Config.Parallel}}{{end}}"
                    min="1" max="32" placeholder="Auto (4, shared)">
@@ -257,12 +257,12 @@
          re-renders the form, so they enable as soon as Parallel changes. */}}
     {{$multi := gt .Config.Parallel 1}}
     <div class="grid">
-        <label title="Put all conversations in one pool the size of Context Size, instead of giving each an equal share. A long conversation can then use more than its share while the others are short. If several long conversations run at the same time and the pool fills, llama.cpp first clears waiting conversations, which then have to re-read their prompt, and if that is not enough a request fails with an error. Set a per-conversation limit to keep one conversation from taking the whole pool. Needs Parallel Conversations set to 2 or more; with Auto, llama.cpp already shares the context.">
+        <label title="All conversations share one context pool. If the pool fills, waiting conversations are cleared, or a request fails. Needs Parallel Conversations of 2 or more.">
             Shared Context
             <input type="checkbox" name="shared_context" role="switch"
                    {{if .Config.SharedContext}}checked{{end}} {{if not $multi}}disabled{{end}}>
         </label>
-        <label title="The most context one conversation can use from the shared pool, in tokens. Blank means no limit besides the pool. A limit times the number of conversations that is no larger than the pool can never run out; a larger total lets one conversation grow further, at the risk described under Shared Context. Needs Shared Context on.">
+        <label title="Maximum context of one conversation in the shared pool. Empty: no limit. If limit times conversations is at most the pool, it cannot fill. Needs Shared Context.">
             Max Context per Conversation
             <input type="number" name="context_per_slot" value="{{if gt .Config.ContextPerSlot 0}}{{.Config.ContextPerSlot}}{{end}}"
                    min="256" step="256" placeholder="Whole pool" {{if not .Config.SharedContext}}disabled{{end}}>
@@ -273,12 +273,12 @@
     {{end}}
 
     <div class="grid">
-        <label title="Physical compute batch (--ubatch-size). The main prompt-processing tuning knob: larger values generally raise prefill throughput at the cost of compute-buffer memory, but the optimum is machine- and model-specific. Must be <= Batch Size. Leave blank for llama.cpp's default of 512. Use a benchmark job sweep to find the best value rather than guessing.">
+        <label title="--ubatch-size. Larger values usually process prompts faster and use more VRAM. At most Batch. Empty: 512. A benchmark finds the best value.">
             Micro-batch (-ub)
             <input type="number" name="ubatch_size" value="{{if gt .Config.UBatchSize 0}}{{.Config.UBatchSize}}{{end}}"
                    min="1" max="32768" placeholder="512 (default)">
         </label>
-        <label title="Logical batch size (--batch-size). Tokens submitted per decode call, processed in Micro-batch-sized chunks. Must be >= Micro-batch. Leave blank for llama.cpp's default of 2048.">
+        <label title="--batch-size. Tokens per decode call, processed in Micro-batch parts. Must be at least Micro-batch. Empty: 2048.">
             Batch (-b)
             <input type="number" name="batch_size" value="{{if gt .Config.BatchSize 0}}{{.Config.BatchSize}}{{end}}"
                    min="1" max="65536" placeholder="2048 (default)">
@@ -295,12 +295,12 @@
     </div>
     {{else if .HasMMProj}}
     <div class="grid">
-        <label title="Path to the multimodal projector GGUF file. Lets this model read images or audio, or make speech, depending on the file. Auto-detected from the model directory.">
+        <label title="Path to the projector (mmproj) GGUF. It lets the model read images or audio, or speak. Toolchest finds it in the model folder.">
             Projector (mmproj)
             <input type="text" name="mmproj_path" value="{{.Config.MmprojPath}}"
                    placeholder="Auto-detected or enter path to mmproj GGUF">
         </label>
-        <label title="Uncheck to launch without the projector while keeping the path saved. Useful when the projector pushes a tight VRAM budget over the edge.">
+        <label title="Off: start without the projector and keep the path. Use it to save VRAM.">
             Load Projector
             <input type="checkbox" name="mmproj_enabled" role="switch"
                    {{if not .Config.MmprojDisabled}}checked{{end}}>
@@ -397,7 +397,7 @@
         </article>
     </dialog>
     <div class="grid">
-        <label title="A model or trained head proposes tokens that the main model verifies in parallel. Only one draft method can run at a time.">
+        <label title="A model or trained head proposes tokens. The main model checks them in parallel. Only one draft method can run.">
             Draft method
             <select name="spec_type">
                 <option value="" {{if eq .Config.SpecType ""}}selected{{end}}>Disabled</option>
@@ -406,7 +406,7 @@
                 {{end}}
             </select>
         </label>
-        <label title="Matches repeated text in the prompt and the generation so far, and proposes what came next. Loads no extra file and uses no extra memory, and runs alongside the draft method. When both propose tokens for the same step, the n-gram proposal is the one used.">
+        <label title="Proposes tokens from repeated text in the prompt and reply. Needs no file or extra memory. Runs with the draft method, and wins when both propose.">
             N-gram assist
             <select name="spec_assist">
                 <option value="" {{if eq .Config.SpecAssist ""}}selected{{end}}>None</option>
@@ -415,10 +415,10 @@
                 {{end}}
             </select>
             {{if .NgramCache.Show}}
-            <small title="N-gram Cache learns which tokens follow which short runs of tokens. Toolchest keeps what it learned in a file for this model, so it does not start empty after every load: llama-server reads the file when the model loads and writes it when the model is unloaded. Benchmarks and Autotune never use the file, so their results do not depend on it. A file that was cut short is deleted before a load, and the model learns again.">
+            <small title="Toolchest keeps what N-gram Cache learns in a file. llama-server reads it at load and writes it at unload. Benchmarks do not use it.">
                 {{if .NgramCache.Note}}{{.NgramCache.Note}}{{else}}<span id="ngram-cache-text">{{.NgramCache.Text}}</span>
                 {{if .NgramCache.Size}}<button type="button" class="outline secondary" style="padding: 0 0.4rem; margin-left: 0.5rem; font-size: 0.8em;"
-                        title="Delete what this model learned, so N-gram Cache starts empty at the next load. A loaded model still holds what it learned and writes it again when it is unloaded, so unload it first for a clean start."
+                        title="Deletes what this model learned. A loaded model writes it again at unload, so unload the model first."
                         hx-post="/api/models/{{.ModelID}}/ngram-cache/clear"
                         hx-target="#ngram-cache-text"
                         hx-on::after-request="this.remove()">Clear learned n-grams</button>{{end}}{{end}}
@@ -426,7 +426,7 @@
             {{end}}
         </label>
         {{if eq .Config.SpecType "draft"}}
-        <label title="A smaller model of the same architecture proposes tokens that the main model verifies in parallel.">
+        <label title="A smaller model of the same architecture proposes tokens. The main model checks them in parallel.">
             Draft Model
             <select name="draft_model_path">
                 <option value="">None</option>
@@ -439,7 +439,7 @@
         </label>
         {{end}}
         {{if isHeadBasedDraftMode .Config.SpecType}}
-        <label title="The converted head for this model. The list is not filtered by architecture or size, because a head is a trained extra layer rather than a smaller model of the same family.">
+        <label title="The converted head for this model. The list shows all heads, not only matching ones.">
             Drafter Head
             <select name="draft_model_path">
                 <option value="">None</option>
@@ -452,12 +452,12 @@
         </label>
         {{end}}
         {{if and (eq .Config.SpecType "draft-mtp") .HasMTP}}
-        <label title="A separate MTP drafter-head GGUF (e.g. gemma-4's gemma4-assistant), loaded via --model-draft. Auto-detected from the model's MTP/ subdirectory. Leave blank for self-speculation MTP models (Qwen3.6, DeepSeek-V3) whose head is baked into the main GGUF.">
+        <label title="Separate MTP head GGUF (for example gemma4-assistant), loaded with --model-draft. Found in the MTP/ folder. Empty for built-in heads (Qwen3.6, DeepSeek-V3).">
             MTP Drafter Head
             <input type="text" name="mtp_path" value="{{.Config.MtpPath}}"
                    placeholder="Auto-detected, or blank for self-speculation MTP">
         </label>
-        <label title="Uncheck to launch without the separate MTP head while keeping the path saved.">
+        <label title="Off: start without the separate MTP head and keep the path.">
             Load MTP Head
             <input type="checkbox" name="mtp_enabled" role="switch"
                    {{if not .Config.MtpDisabled}}checked{{end}}>
@@ -466,17 +466,17 @@
     </div>
     {{if .DraftParams}}
     <div class="grid">
-        <label title="Maximum tokens the draft method proposes per step. Higher means more aggressive speculation. MoE models benefit from longer drafts. llama.cpp default: 3">
+        <label title="Maximum tokens that the draft method proposes per step. MoE models gain from longer drafts. llama.cpp default: 3">
             Draft tokens max
             <input type="number" name="draft_max" value="{{if gt .Config.DraftMax 0}}{{.Config.DraftMax}}{{end}}"
                    min="0" max="128" placeholder="3">
         </label>
-        <label title="Minimum tokens to draft before verification. Dense models can use lower values. llama.cpp default: 0">
+        <label title="Minimum tokens to draft before the check. llama.cpp default: 0">
             Draft tokens min
             <input type="number" name="draft_min" value="{{if gt .Config.DraftMin 0}}{{.Config.DraftMin}}{{end}}"
                    min="0" max="64" placeholder="0">
         </label>
-        <label title="Stop drafting once a token's probability falls below this. Lower drafts more tokens at a lower acceptance rate; higher drafts fewer, more accurate ones. Leave blank to use llama.cpp's default.">
+        <label title="Drafting stops when a token probability is below this value. Lower: more tokens, fewer accepted. Empty: llama.cpp default.">
             Draft probability min
             <input type="number" name="draft_p_min" step="0.05" min="0" max="1"
                    value="{{.Config.DraftPMin}}"
@@ -485,7 +485,7 @@
     </div>
     <div class="grid">
         {{if or (eq .Config.SpecType "draft") (eq .Config.SpecType "draft-mtp")}}
-        <label title="How the drafter picks its tokens. Greedy takes its most likely token. Probabilistic samples the draft and has the model check it by rejection sampling, which accepts more of the draft when replies are sampled at a temperature above 0. Neither changes the answers. llama.cpp default: greedy.">
+        <label title="Greedy: the drafter takes its most likely token. Probabilistic: it samples, so more drafts pass above temperature 0. Answers do not change. Default: greedy.">
             Draft sampling
             <select name="draft_sampling">
                 <option value="" {{if eq .Config.DraftSampling ""}}selected{{end}}>Default (greedy)</option>
@@ -495,7 +495,7 @@
             {{if .DraftSamplingNote}}<small>{{.DraftSamplingNote}}</small>{{end}}
         </label>
         {{end}}
-        <label title="Micro-batch of the drafter's own context. The drafter only ever processes the few tokens it drafts per step, so a small value (e.g. 16) shrinks its compute buffer and leaves more GPU memory for the model. Blank follows the model's micro-batch, as llama.cpp does by default.">
+        <label title="Micro-batch of the drafter. A small value (for example 16) uses less VRAM. Empty: same as the model's Micro-batch.">
             Draft micro-batch
             <input type="number" name="draft_ubatch_size" value="{{if gt .Config.DraftUBatchSize 0}}{{.Config.DraftUBatchSize}}{{end}}"
                    min="0" placeholder="same as micro-batch">
@@ -506,29 +506,29 @@
     {{if or (usesDraftFile .Config.SpecType) (and (eq .Config.SpecType "draft-mtp") .HasMTP)}}
     <small><strong>Draft model resources</strong> — leave blank to inherit llama-server defaults. Set these when the draft model or head needs its own GPU offload, context, or cache type (e.g. <code>--device-draft CUDA0</code> on multi-GPU). They apply whenever a drafter is loaded through <code>--model-draft</code>, so not to self-speculation MTP, where the draft <em>is</em> the main model.</small>
     <div class="grid">
-        <label title="Context size for the draft model. Only llama.cpp builds older than b9109 (May 2026) have this setting. Newer builds give the draft model the same context as the main model, and this value is not used with them.">
+        <label title="Draft model context. Only llama.cpp builds older than b9109 use it. Newer builds use the main model's context.">
             Draft Ctx Size
             <input type="number" name="draft_ctx_size" value="{{if gt .Config.DraftCtxSize 0}}{{.Config.DraftCtxSize}}{{end}}"
                    min="0" placeholder="Inherit">
         </label>
-        <label title="Number of draft-model layers to offload to GPU. Default: 0 (CPU only).">
+        <label title="Draft model layers on the GPU. Default: 0 (CPU only).">
             Draft GPU Layers
             <input type="number" name="draft_gpu_layers" value="{{if gt .Config.DraftGPULayers 0}}{{.Config.DraftGPULayers}}{{end}}"
                    min="0" max="999" placeholder="0">
         </label>
-        <label title="Comma-separated device list for the draft model (e.g. CUDA0 or CUDA1). Default: same as main model.">
+        <label title="Devices for the draft model, separated by commas (for example CUDA0). Default: same as the main model.">
             Draft Device
             <input type="text" name="draft_device" value="{{.Config.DraftDevice}}"
                    placeholder="e.g. CUDA0">
         </label>
     </div>
     <div class="grid">
-        <label title="Keep MoE weights of the first N draft-model layers in CPU memory. Saves draft-model VRAM at the cost of speed.">
+        <label title="Keeps the MoE weights of the first N draft model layers in system memory. Uses less VRAM and runs slower.">
             Draft CPU MoE Layers
             <input type="number" name="draft_cpu_moe" value="{{if gt .Config.DraftCPUMoE 0}}{{.Config.DraftCPUMoE}}{{end}}"
                    min="0" placeholder="0">
         </label>
-        <label title="KV cache quantization for the draft model. Default: inherits from main cache type.">
+        <label title="KV cache quantization for the draft model. Default: same as the main model.">
             Draft KV Cache Quant
             <select name="draft_kv_cache_quant">
                 <option value="" {{if eq .Config.DraftKVCacheQuant ""}}selected{{end}}>Inherit</option>
@@ -551,17 +551,17 @@
     {{end}}
     {{if eq .Config.SpecAssist "ngram-mod"}}
     <div class="grid">
-        <label title="Maximum tokens the n-gram assist proposes per step. N-gram Mod drafts much longer sequences than a draft model does. Default: 64">
+        <label title="Maximum tokens that the n-gram assist proposes per step. Default: 64">
             Assist tokens max
             <input type="number" name="assist_n_max" value="{{if gt .Config.AssistNMax 0}}{{.Config.AssistNMax}}{{end}}"
                    min="0" max="512" placeholder="64">
         </label>
-        <label title="Minimum tokens the n-gram assist proposes before verification. Default: 48">
+        <label title="Minimum tokens that the n-gram assist proposes. Default: 48">
             Assist tokens min
             <input type="number" name="assist_n_min" value="{{if gt .Config.AssistNMin 0}}{{.Config.AssistNMin}}{{end}}"
                    min="0" max="512" placeholder="48">
         </label>
-        <label title="How many recent tokens must match before the assist proposes a continuation. Longer means fewer but more reliable matches. Default: 24">
+        <label title="Recent tokens that must match before the assist proposes. More: fewer, more reliable matches. Default: 24">
             Match length
             <input type="number" name="assist_n_match" value="{{if gt .Config.AssistNMatch 0}}{{.Config.AssistNMatch}}{{end}}"
                    min="0" max="128" placeholder="24">
@@ -570,17 +570,17 @@
     {{end}}
     {{if and (ne .Config.SpecAssist "") (ne .Config.SpecAssist "ngram-mod") (ne .Config.SpecAssist "ngram-cache")}}
     <div class="grid">
-        <label title="How many recent tokens are used as the search key. Larger means fewer but more precise matches. Default: 12">
+        <label title="Recent tokens used as the search key. More: fewer, more exact matches. Default: 12">
             Lookup size
             <input type="number" name="assist_size_n" value="{{if gt .Config.AssistSizeN 0}}{{.Config.AssistSizeN}}{{end}}"
                    min="0" max="64" placeholder="12">
         </label>
-        <label title="How many tokens following a match are proposed as the draft. Larger values pay off more when patterns repeat at length. Default: 48">
+        <label title="Tokens after a match that the assist proposes. More helps when text repeats at length. Default: 48">
             Draft size
             <input type="number" name="assist_size_m" value="{{if gt .Config.AssistSizeM 0}}{{.Config.AssistSizeM}}{{end}}"
                    min="0" max="128" placeholder="48">
         </label>
-        <label title="How many times a pattern must have been seen before the assist will propose it. Higher is more selective. Default: 1">
+        <label title="Times a pattern must occur before the assist proposes it. Default: 1">
             Minimum hits
             <input type="number" name="assist_min_hits" value="{{if gt .Config.AssistMinHits 0}}{{.Config.AssistMinHits}}{{end}}"
                    min="0" max="64" placeholder="1">
@@ -597,7 +597,7 @@
     <hr style="margin: 1rem 0 0.5rem;">
     <small><strong>Sampling</strong> — applied per-request, no restart needed. Leave blank for server defaults.
         <button type="button" class="outline secondary" style="padding: 0 0.4rem; margin-left: 0.5rem; font-size: 0.8em;"
-                title="Re-fetch recommended presets from the model's publisher (GGUF metadata, Unsloth docs, generation_config.json)"
+                title="Gets the recommended presets again from the publisher (GGUF, Unsloth docs, generation_config.json)."
                 hx-post="/api/models/{{.ModelID}}/refresh-presets"
                 hx-target="closest form"
                 hx-swap="outerHTML focus-scroll:false show:none"
@@ -610,7 +610,7 @@
     <small style="display: block; opacity: 0.7;">This model ships embedded sampling defaults — llama-server already applies them when the fields below are blank. Pick a preset to see or override the values.</small>
     {{end}}
     {{if .SamplingPresets}}
-    <label title="Apply a sampling preset recommended by the model's publisher — gathered at download time from the GGUF file's embedded defaults, the Unsloth docs, and the base model's generation_config.json. Fills in the fields below and stays selected so you can see which preset is running. Editing a field by hand deselects it — the values are yours from then on.">
+    <label title="Applies a sampling preset from the model's publisher. It fills the fields below. A manual edit clears the selection.">
         Preset
         <select class="sampling-preset-picker" name="sampling_preset"
                 data-presets="{{.SamplingPresetsJSON}}"
@@ -668,13 +668,13 @@
     </script>
     {{end}}
     <div class="grid">
-        <label title="Controls randomness. Lower values make output more deterministic. Server default: 0.8">
+        <label title="Randomness. Lower values give more predictable output. Server default: 0.8">
             Temperature
             <input type="number" name="temperature" step="0.05" min="0" max="2"
                    value="{{with .Config.Temperature}}{{.}}{{end}}"
                    placeholder="Default (0.8)">
         </label>
-        <label title="Nucleus sampling: only consider tokens whose cumulative probability exceeds this value. Server default: 0.95">
+        <label title="Uses only the tokens inside this cumulative probability. Server default: 0.95">
             Top P
             <input type="number" name="top_p" step="0.05" min="0" max="1"
                    value="{{with .Config.TopP}}{{.}}{{end}}"
@@ -682,13 +682,13 @@
         </label>
     </div>
     <div class="grid">
-        <label title="Only consider the top K most likely tokens. Server default: 40">
+        <label title="Uses only the K most likely tokens. Server default: 40">
             Top K
             <input type="number" name="top_k" step="1" min="0"
                    value="{{with .Config.TopK}}{{.}}{{end}}"
                    placeholder="Default (40)">
         </label>
-        <label title="Minimum probability threshold relative to the top token. Adapts to model confidence. Server default: 0.05">
+        <label title="Minimum probability, relative to the most likely token. Server default: 0.05">
             Min P
             <input type="number" name="min_p" step="0.01" min="0" max="1"
                    value="{{with .Config.MinP}}{{.}}{{end}}"
@@ -696,13 +696,13 @@
         </label>
     </div>
     <div class="grid">
-        <label title="Additive bias against tokens that have appeared. Positive values reduce repetition. Server default: 0.0">
+        <label title="Lowers the chance of tokens that already appeared. Positive values reduce repetition. Server default: 0.0">
             Presence Penalty
             <input type="number" name="presence_penalty" step="0.1" min="-2" max="2"
                    value="{{with .Config.PresencePenalty}}{{.}}{{end}}"
                    placeholder="Default (0.0)">
         </label>
-        <label title="Multiplicative penalty for repeated tokens (llama.cpp extension). 1.0 = disabled. Server default: 1.0">
+        <label title="Penalty for repeated tokens. 1.0: off. Server default: 1.0">
             Repeat Penalty
             <input type="number" name="repeat_penalty" step="0.05" min="0" max="3"
                    value="{{with .Config.RepeatPenalty}}{{.}}{{end}}"
@@ -711,13 +711,13 @@
     </div>
     {{end}}
 
-    <label title="Additional command-line flags passed directly to llama-server. See llama.cpp docs for available options.">
+    <label title="More llama-server command-line flags. See the llama.cpp documentation.">
         Extra Flags
         <input type="text" name="extra_flags" value="{{.Config.ExtraFlags}}"
                placeholder="--cont-batching --mlock">
     </label>
 
-    <label title="The full set of flags that will be passed to llama-server when this model starts.">
+    <label title="All flags that llama-server gets when this model starts.">
         Effective Flags
         <input type="text" value="{{.EffectiveFlags}}" readonly
                style="opacity: 0.7; cursor: default;">
