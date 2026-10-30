@@ -24,9 +24,9 @@
             <input type="hidden" name="gpu_choice" value="1">
             <legend title="Autoconfigure fits the model only on the GPUs you select. Clear a GPU to keep it for image, video or music models.">Which GPUs can the model use?</legend>
             {{range .GPUs}}
-            <label>
+            <label class="autoconfig-gpu">
                 <input type="checkbox" name="gpu" value="{{.Index}}"{{if .Checked}} checked{{end}}>
-                GPU {{.Index}}{{if .Name}} — {{.Name}}{{end}}{{if .ReservedGiB}} <small>({{printf "%.1f" .ReservedGiB}} GiB reserved for image, video and music)</small>{{end}}
+                <span>GPU {{.Index}}{{if .Name}} — {{.Name}}{{end}}{{if .ReservedGiB}}<small>{{printf "%.1f" .ReservedGiB}} GiB reserved for image, video and music</small>{{end}}</span>
             </label>
             {{end}}
         </fieldset>

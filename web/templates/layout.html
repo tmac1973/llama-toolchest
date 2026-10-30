@@ -712,6 +712,12 @@
         .profile-banner { margin: 0 0 10px; }
         .autoconfig-review td, .autoconfig-review th { vertical-align: top; font-size: 0.8rem; }
         .autoconfig-notes { margin: 0.5rem 0; }
+        /* One GPU choice: the reservation note sits under the GPU name, not
+           under the checkbox. Inside the span it is also not the input's
+           next sibling, which Pico would pull up over the label. */
+        .autoconfig-gpu { display: flex; align-items: flex-start; }
+        .autoconfig-gpu input { flex: none; margin-top: 0.15em; }
+        .autoconfig-gpu small { display: block; color: var(--pico-muted-color); }
         /* Autotune's four stages, and one result card per goal. */
         .autotune-steps { margin: 0.5rem 0; padding-left: 1.2rem; }
         .autotune-steps li { margin-bottom: 0.2rem; }
