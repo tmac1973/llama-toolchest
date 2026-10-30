@@ -51,6 +51,27 @@ var spawnRE = regexp.MustCompile(`spawning server instance with name=(.+) on por
 // here so a build that logs it without one still matches.
 var readyRE = regexp.MustCompile(`^(?:[\d.]+ )?(?:[A-Z] )?\[\s*(\d+)\] cmd_child_to_router:state:.*"state"\s*:\s*"ready"`)
 
+// loadedRE matches the line a model instance prints through its own
+// logger when its model is loaded and it is about to serve:
+//
+//	[45221] 0.07.999.369 I srv  server_run_i: model loaded
+//
+// It is logged at info level, so it is there at llama.cpp's default
+// verbosity. The router's own "ready" line (readyRE) is logged at debug
+// level and only appears at verbosity 5.
+var loadedRE = regexp.MustCompile(`^\[\s*(\d+)\] (?:[\d.]+ )?(?:[A-Z] )?srv\s+\S+: model loaded\s*$`)
+
+// LoadedPort reports the port of the instance whose own line says its
+// model is loaded. Unlike ReadyPort it needs no more than the default
+// verbosity.
+func LoadedPort(line string) (port string, ok bool) {
+	m := loadedRE.FindStringSubmatch(line)
+	if m == nil {
+		return "", false
+	}
+	return m[1], true
+}
+
 // ParseSpawn reports the model name and port in the router's line
 // announcing a new model instance.
 func ParseSpawn(line string) (name, port string, ok bool) {

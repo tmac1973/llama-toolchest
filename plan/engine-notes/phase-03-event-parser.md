@@ -23,7 +23,7 @@ A tested parser that turns the router's log, line by line, into lifecycle outcom
    - Strip a leading `data: ` (as `ErrorLines` does).
    - `serverlog.ParseSpawn` → open the instance for that port; clear any stop flag for that name (a new instance of a name starts fresh).
    - `serverlog.InstancePort` → append the line to that instance's tail ring.
-   - `serverlog.ReadyPort` → set `readyAt`, emit `load` with `LoadSeconds`.
+   - `serverlog.LoadedPort` (the instance's own `srv server_run_i: model loaded`, printed at the default verbosity) or `serverlog.ReadyPort` (the router's `cmd_child_to_router` ready line, printed only at verbosity 5) → set `readyAt`, emit `load` with `LoadSeconds`. The first one seen counts. Checked before the `[port]` test, since the router's ready line starts with a timestamp. `LoadedPort` is added to `internal/serverlog` in this phase: the compute2 log at verbosity 4 has no router ready line at all.
    - `stopping model instance name=(\S+)` → mark the name as stopping.
    - `instance name=(\S+) exited with status (-?\d+)` → find the open instance with that name and close it:
      - stop was requested → `unload`, whatever the status (a stop that timed out is killed and reports 1);

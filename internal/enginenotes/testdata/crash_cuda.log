@@ -1,0 +1,49 @@
+0.44.300.000 I srv          load: spawning server instance with name=big on port 50915
+[50915] 0.08.999.369 I srv  server_run_i: model loaded
+[50915] 0.09.000.000 I slot launch_slot_: id  0 | task 0 | processing task
+[50915] 0.09.001.000 I slot launch_slot_: id  0 | task 1 | processing task
+[50915] 0.09.002.000 I slot launch_slot_: id  0 | task 2 | processing task
+[50915] 0.09.003.000 I slot launch_slot_: id  0 | task 3 | processing task
+[50915] 0.09.004.000 I slot launch_slot_: id  0 | task 4 | processing task
+[50915] 0.09.005.000 I slot launch_slot_: id  0 | task 5 | processing task
+[50915] 0.09.006.000 I slot launch_slot_: id  0 | task 6 | processing task
+[50915] 0.09.007.000 I slot launch_slot_: id  0 | task 7 | processing task
+[50915] 0.09.008.000 I slot launch_slot_: id  0 | task 8 | processing task
+[50915] 0.09.009.000 I slot launch_slot_: id  0 | task 9 | processing task
+[50915] 0.09.010.000 I slot launch_slot_: id  0 | task 10 | processing task
+[50915] 0.09.011.000 I slot launch_slot_: id  0 | task 11 | processing task
+[50915] 0.09.012.000 I slot launch_slot_: id  0 | task 12 | processing task
+[50915] 0.09.013.000 I slot launch_slot_: id  0 | task 13 | processing task
+[50915] 0.09.014.000 I slot launch_slot_: id  0 | task 14 | processing task
+[50915] 0.09.015.000 I slot launch_slot_: id  0 | task 15 | processing task
+[50915] 0.09.016.000 I slot launch_slot_: id  0 | task 16 | processing task
+[50915] 0.09.017.000 I slot launch_slot_: id  0 | task 17 | processing task
+[50915] 0.09.018.000 I slot launch_slot_: id  0 | task 18 | processing task
+[50915] 0.09.019.000 I slot launch_slot_: id  0 | task 19 | processing task
+[50915] 0.09.020.000 I slot launch_slot_: id  0 | task 20 | processing task
+[50915] 0.09.021.000 I slot launch_slot_: id  0 | task 21 | processing task
+[50915] 0.09.022.000 I slot launch_slot_: id  0 | task 22 | processing task
+[50915] 0.09.023.000 I slot launch_slot_: id  0 | task 23 | processing task
+[50915] 0.09.024.000 I slot launch_slot_: id  0 | task 24 | processing task
+[50915] 0.09.025.000 I slot launch_slot_: id  0 | task 25 | processing task
+[50915] 0.09.026.000 I slot launch_slot_: id  0 | task 26 | processing task
+[50915] 0.09.027.000 I slot launch_slot_: id  0 | task 27 | processing task
+[50915] 0.09.028.000 I slot launch_slot_: id  0 | task 28 | processing task
+[50915] 0.09.029.000 I slot launch_slot_: id  0 | task 29 | processing task
+[50915] 0.09.030.000 I slot launch_slot_: id  0 | task 30 | processing task
+[50915] 0.09.031.000 I slot launch_slot_: id  0 | task 31 | processing task
+[50915] 0.09.032.000 I slot launch_slot_: id  0 | task 32 | processing task
+[50915] 0.09.033.000 I slot launch_slot_: id  0 | task 33 | processing task
+[50915] 0.09.034.000 I slot launch_slot_: id  0 | task 34 | processing task
+[50915] 0.09.035.000 I slot launch_slot_: id  0 | task 35 | processing task
+[50915] 0.09.036.000 I slot launch_slot_: id  0 | task 36 | processing task
+[50915] 0.09.037.000 I slot launch_slot_: id  0 | task 37 | processing task
+[50915] 0.09.038.000 I slot launch_slot_: id  0 | task 38 | processing task
+[50915] 0.09.039.000 I slot launch_slot_: id  0 | task 39 | processing task
+[50915] /data/llama.cpp/ggml/src/ggml-cuda/ggml-cuda.cu:110: CUDA error
+[50915] 0.09.211.300 E CUDA error: an illegal memory access was encountered
+[50915] 0.09.211.301 E   current device: 2, in function ggml_cuda_compute_forward at /data/llama.cpp/ggml/src/ggml-cuda/ggml-cuda.cu:2771
+[50915] /data/builds/v0.8.0-cuda-optimized/libggml-base.so.0(ggml_abort+0x15b)[0x7fd7ee536c6b]
+[50915] /data/builds/v0.8.0-cuda-optimized/libggml-cuda.so.0(_Z15ggml_cuda_errorPKcS0_S0_iS0_+0xb7)[0x7fd7e9a89927]
+[50915] /data/builds/v0.8.0-cuda-optimized/llama-server[0x55d0c1a2b3e5]
+0.45.120.010 I srv    operator(): instance name=big exited with status 1
