@@ -9,7 +9,7 @@
           hx-swap="innerHTML"
           hx-on::after-request="if(event.detail.successful) this.reset();">
         <div class="grid">
-            <label title="Select an enabled model to benchmark. The model will be loaded automatically if not already in VRAM.">
+            <label title="An enabled model to benchmark. It loads when needed.">
                 Model
                 <select name="model_id" required>
                     {{range .Models}}

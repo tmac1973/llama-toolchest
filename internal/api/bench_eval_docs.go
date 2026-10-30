@@ -176,7 +176,7 @@ var evalDocs = map[evaluate.Mode]evalDoc{
 		},
 	},
 	evaluate.ModeHellaSwag: {
-		Headline: "HellaSwag is a common-sense test. The model reads the start of a sentence and picks which of four endings makes sense. The score is the percentage it got right.",
+		Headline: "HellaSwag is a common-sense test: the model picks the right ending of a sentence from four. The score is the percentage it got right.",
 		Reading: []string{
 			"There are four endings to choose from, so a model that is only guessing scores about 25%. A score near 25% means something is wrong, not that the model is weak.",
 			"The two numbers in brackets are the margin of error. If two models' ranges overlap, this test has not found a real difference between them.",
@@ -199,7 +199,7 @@ var evalDocs = map[evaluate.Mode]evalDoc{
 		},
 	},
 	evaluate.ModeWinogrande: {
-		Headline: "Winogrande tests whether the model works out who or what a word like \"it\" or \"they\" refers to. The score is the percentage of sentences it got right.",
+		Headline: "Winogrande tests if the model knows what a word like \"it\" or \"they\" refers to. The score is the percentage of sentences it got right.",
 		Reading: []string{
 			"There are two choices, so a model that is only guessing scores about 50%. A score near 50% means something is wrong, not that the model is weak.",
 			"Because guessing already scores 50%, the useful range runs from 50% to 100%, not from 0%. A jump from 60% to 70% is a large improvement here.",

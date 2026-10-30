@@ -523,7 +523,7 @@ func Presets() []Preset {
 		{
 			Name:         "internal-echo",
 			Label:        "internal-echo — 3 reps × 2048-token prompt, 512 gen, recall workload (~2 min)",
-			Description:  "Three repetitions of a 2048-token prompt asking the model to reproduce the passage verbatim, with 512 generated tokens. Generation is recall of text already in the context rather than new prose, which is the workload where n-gram speculative decoding pays off: a file being rewritten, a structured response, a tool-call loop. Compare against internal-standard, whose prompts ask for new text, to see what a speculative setting costs on one workload and earns on the other.",
+			Description:  "Three runs of a 2048-token prompt that the model must repeat word for word, 512 generated tokens. N-gram speculative decoding helps here. Compare with internal-standard.",
 			Source:       PresetSourceInternal,
 			PromptTokens: []int{2048}, GenTokens: 512, Repetitions: 3,
 			PromptStyle: PromptStyleEcho,
@@ -531,7 +531,7 @@ func Presets() []Preset {
 		{
 			Name:         "autoconfig-check",
 			Label:        "autoconfig-check — 1 rep, 2048-token prompt (~15s)",
-			Description:  "Autoconfigure's test load: one request with a prompt longer than llama.cpp's default prompt batch and 64 generated tokens. It answers one question, whether the proposed settings load and run on this machine, so it measures once and is hidden from the pickers.",
+			Description:  "Autoconfigure test load: one request with a prompt longer than the default prompt batch, 64 generated tokens. Checks that the settings load and run. Hidden from the pickers.",
 			Source:       PresetSourceInternal,
 			PromptTokens: []int{2048}, GenTokens: 64, Repetitions: 1,
 			Hidden: true,
@@ -539,7 +539,7 @@ func Presets() []Preset {
 		{
 			Name:         "autotune-chat",
 			Label:        "autotune-chat — 3 reps, 512 and 4096-token prompts (~1 min)",
-			Description:  "Autotune's general-chat workload: a short prompt for response time and a long one for prompt speed, with 256 generated tokens of new prose. Hidden from the pickers because it exists to be compared across autotune's own runs.",
+			Description:  "Autotune chat workload: a short prompt for response time, a long one for prompt speed, 256 generated tokens of new text. Hidden from the pickers.",
 			Source:       PresetSourceInternal,
 			PromptTokens: []int{512, 4096}, GenTokens: 256, Repetitions: 3,
 			Hidden: true,
@@ -547,7 +547,7 @@ func Presets() []Preset {
 		{
 			Name:         "autotune-code",
 			Label:        "autotune-code — 3 reps × 1536-token prompt, code edit (~2 min)",
-			Description:  "Autotune's coding workload: a source file to return with mechanical edits, 512 generated tokens. Most of the answer repeats the prompt, which is where speculative decoding pays off. Hidden from the pickers for the same reason as autotune-chat.",
+			Description:  "Autotune coding workload: a source file returned with small edits, 512 generated tokens. Most of the answer repeats the prompt. Hidden from the pickers.",
 			Source:       PresetSourceInternal,
 			PromptTokens: []int{1536}, GenTokens: 512, Repetitions: 3,
 			PromptStyle: PromptStyleCode,
@@ -570,7 +570,7 @@ func Presets() []Preset {
 		{
 			Name:         "internal-long-ctx-thorough",
 			Label:        "internal-long-ctx-thorough — 3 reps × 4 prompt sizes 8K–64K (~20 min)",
-			Description:  "Three repetitions at 8192 / 16384 / 32768 / 65536-token prompts with 512 generated tokens each. Long-context companion to internal-long-ctx: enough repetitions to see run-to-run variance, and enough prompt sizes to show how prefill throughput scales with context depth. Prompt sizes are nominal — prompts are built at an estimated 4 chars/token, so the tokenized length typically comes out 10-25% lower depending on the tokenizer (check prompt_tokens in the results). Needs a model context of at least 64K.",
+			Description:  "Three runs at 8192 / 16384 / 32768 / 65536-token prompts, 512 generated tokens each. Shows how prefill scales with context. Real prompts are 10-25% shorter. Needs 64K context.",
 			Source:       PresetSourceInternal,
 			PromptTokens: []int{8192, 16384, 32768, 65536}, GenTokens: 512, Repetitions: 3,
 		},
@@ -597,7 +597,7 @@ func Presets() []Preset {
 		{
 			Name:        "perplexity-quick",
 			Label:       "perplexity-quick — 100 chunks of wikitext-2 (~2-5 min/model)",
-			Description: "Perplexity over the first 100 chunks of the wikitext-2 test set at a fixed 512-token context: lower is better, and differences between quants of one model show up in the error bar. Runs llama-perplexity directly, so the inference server is offline while the cell runs.",
+			Description: "Perplexity on the first 100 chunks of wikitext-2 at a 512-token context. Lower is better. The inference server is offline while it runs.",
 			Source:      PresetSourceCapability,
 			EvalMode:    evaluate.ModePerplexity,
 			EvalChunks:  100,
@@ -605,7 +605,7 @@ func Presets() []Preset {
 		{
 			Name:        "perplexity-full",
 			Label:       "perplexity-full — all ~650 chunks of wikitext-2 (~15-40 min/model)",
-			Description: "Perplexity over the entire wikitext-2 test set (about 650 chunks at the fixed 512-token context). The publishable number; comparable to the figures llama.cpp quotes for models. Runs llama-perplexity directly, so the inference server is offline while the cell runs.",
+			Description: "Perplexity on the whole wikitext-2 test set (about 650 chunks). Comparable to the llama.cpp figures. The inference server is offline while it runs.",
 			Source:      PresetSourceCapability,
 			EvalMode:    evaluate.ModePerplexity,
 			EvalChunks:  0,
@@ -613,7 +613,7 @@ func Presets() []Preset {
 		{
 			Name:        "kl-divergence-quick",
 			Label:       "kl-divergence-quick — 100 chunks vs the reference quant (~2-5 min/model)",
-			Description: "KL divergence between this model's logits and the reference model's over the first 100 chunks of wikitext-2 at the fixed 512-token context: zero means identical probabilities, so it measures how much a quantization changed the model. The reference defaults to the largest installed quant of the same repo; its logits are generated once (a visible step) and cached. The inference server is offline while the cell runs.",
+			Description: "KL divergence from the reference model on the first 100 chunks of wikitext-2. 0: identical. Reference: the largest installed quant of the repo; its logits are cached. Server offline while it runs.",
 			Source:      PresetSourceCapability,
 			EvalMode:    evaluate.ModeKLDiv,
 			EvalChunks:  100,
@@ -621,7 +621,7 @@ func Presets() []Preset {
 		{
 			Name:        "kl-divergence-full",
 			Label:       "kl-divergence-full — all ~650 chunks vs the reference quant (~15-40 min/model; base is tens of GiB for large-vocab models)",
-			Description: "KL divergence against the reference model over the entire wikitext-2 test set at the fixed 512-token context. The full-run reference base is tens of GiB for large-vocab models and is gated by a disk-space check before generation; it is generated once and cached. The inference server is offline while the cell runs.",
+			Description: "KL divergence from the reference model on the whole wikitext-2 test set. The reference base is tens of GiB, so a disk check runs first. Server offline while it runs.",
 			Source:      PresetSourceCapability,
 			EvalMode:    evaluate.ModeKLDiv,
 			EvalChunks:  0,
@@ -629,7 +629,7 @@ func Presets() []Preset {
 		{
 			Name:        "hellaswag-quick",
 			Label:       "hellaswag-quick — 400 HellaSwag tasks (~1-5 min/model)",
-			Description: "HellaSwag commonsense accuracy on 400 tasks: the percentage of candidate endings the model ranks first, matching the preprocessing llama.cpp uses so scores are comparable to published numbers. Runs llama-perplexity directly, so the inference server is offline while the cell runs.",
+			Description: "HellaSwag accuracy on 400 tasks, prepared as llama.cpp does, so scores match published ones. The inference server is offline while it runs.",
 			Source:      PresetSourceCapability,
 			EvalMode:    evaluate.ModeHellaSwag,
 			EvalTasks:   400,
@@ -637,7 +637,7 @@ func Presets() []Preset {
 		{
 			Name:        "hellaswag-full",
 			Label:       "hellaswag-full — all ~10K HellaSwag tasks (~1-3 h/model)",
-			Description: "HellaSwag commonsense accuracy on the full validation set (~10K tasks), the publishable number. Runs llama-perplexity directly, so the inference server is offline while the cell runs.",
+			Description: "HellaSwag accuracy on the full validation set (about 10K tasks). The publishable number. The inference server is offline while it runs.",
 			Source:      PresetSourceCapability,
 			EvalMode:    evaluate.ModeHellaSwag,
 			EvalTasks:   0,
@@ -645,7 +645,7 @@ func Presets() []Preset {
 		{
 			Name:        "winogrande-quick",
 			Label:       "winogrande-quick — 400 Winogrande tasks (~1-3 min/model)",
-			Description: "Winogrande pronoun-resolution accuracy on 400 tasks of the debiased eval set: the percentage of sentences the model completes with the correct referent. Runs llama-perplexity directly, so the inference server is offline while the cell runs.",
+			Description: "Winogrande accuracy on 400 tasks of the debiased set: the share of sentences with the right referent. The inference server is offline while it runs.",
 			Source:      PresetSourceCapability,
 			EvalMode:    evaluate.ModeWinogrande,
 			EvalTasks:   400,
@@ -653,7 +653,7 @@ func Presets() []Preset {
 		{
 			Name:        "winogrande-full",
 			Label:       "winogrande-full — all ~1.2K Winogrande tasks (~5-15 min/model)",
-			Description: "Winogrande pronoun-resolution accuracy on the entire debiased eval set (~1.2K tasks), the publishable number. Runs llama-perplexity directly, so the inference server is offline while the cell runs.",
+			Description: "Winogrande accuracy on the whole debiased set (about 1.2K tasks). The publishable number. The inference server is offline while it runs.",
 			Source:      PresetSourceCapability,
 			EvalMode:    evaluate.ModeWinogrande,
 			EvalTasks:   0,

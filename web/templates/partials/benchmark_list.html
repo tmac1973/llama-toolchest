@@ -16,7 +16,7 @@
         <button type="button" class="outline secondary" onclick="collapseAllBenchGroups(this)">Collapse All</button>
         <button type="button" class="outline secondary" onclick="expandAllBenchGroups(this)">Expand All</button>
         <button type="button" class="outline secondary" onclick="compareSelectedRuns(this)">Compare</button>
-        <button type="button" class="outline secondary" onclick="visualizeSelectedRuns(this)" title="Open charts of the selected runs in a new tab — scatter, heatmap and 3D views of a parameter sweep.">Visualize</button>
+        <button type="button" class="outline secondary" onclick="visualizeSelectedRuns(this)" title="Opens charts of the selected runs in a new tab: scatter, heatmap and 3D views of a sweep.">Visualize</button>
         <button type="button" class="outline secondary" onclick="exportSelectedRuns(this, 'csv')">Export CSV</button>
         <button type="button" class="outline secondary" onclick="exportSelectedRuns(this, 'json')">Export JSON</button>
         <button type="button" class="outline secondary" onclick="deleteSelectedRuns(this)">Delete Selected</button>
@@ -33,7 +33,7 @@
                    the list is a capability run; a pure performance list
                    has no Score header and no Score cells. */}}
             {{- if .HasEval}}
-            <th title="Capability evaluation score — only capability runs (perplexity / KL-divergence / HellaSwag / Winogrande presets) produce one. PPL: perplexity on the wikitext-2 test set — lower is better; the error bar is the uncertainty. HellaSwag / Winogrande: percentage of tasks answered correctly, with the confidence interval and the task count in parentheses. KLD: deviation of this model's probabilities from the reference model's — 0 means identical, so lower is better. Performance runs show an em-dash here.">Score</th>
+            <th title="Capability score; only capability runs have one. PPL: perplexity on wikitext-2, lower is better. HellaSwag, Winogrande: accuracy with confidence interval and task count. KLD: difference from the reference, 0 is identical.">Score</th>
             {{- end}}
             <th>Build</th>
             <th>Preset</th>

@@ -11,7 +11,7 @@
     <p>Autoconfigure suggests settings for this model: it works out what fits on this machine, and reads the model's documentation for the publisher's advice. You review every setting before anything is saved.</p>
     <form hx-post="/api/models/{{.ModelID}}/autoconfig" hx-target="#autoconfig-{{cssID .ModelID}}" hx-swap="innerHTML">
         <fieldset>
-            <legend title="The context is how much text the model can hold at once: the conversation so far plus any documents you give it. More context needs more GPU memory, so this choice decides most of the other settings.">How long are your conversations or documents?</legend>
+            <legend title="Context is the text that the model holds at once: the conversation and any documents. More context needs more VRAM, so it sets most other settings.">How long are your conversations or documents?</legend>
             {{range .Classes}}
             <label title="{{.Help}}">
                 <input type="radio" name="context_class" value="{{.Value}}"{{if .Checked}} checked{{end}}>
@@ -25,7 +25,7 @@
         {{else}}
         <p><small>Reads the documentation with the helper model {{.Helper}}. It is loaded for about a minute and unloaded afterwards. The server starts or restarts if that is needed to load it.</small></p>
         {{end}}
-        <p><small title="The memory estimate compares what the model needs with the memory of all GPUs added together, and llama.cpp does not fill them evenly. Loading the settings is the only way to know they run. If they run out of memory, Autoconfigure adjusts them and loads them again, which takes a few more minutes." style="cursor:help;">Then loads the proposed settings once and sends a test request, to check that they run on this machine. This restarts the server, and takes from half a minute to a few minutes depending on the size of the model.</small></p>
+        <p><small title="The estimate adds all GPUs together, but llama.cpp does not fill them evenly. A test load checks the settings. If memory runs out, Autoconfigure adjusts them and loads again." style="cursor:help;">Then loads the proposed settings once and sends a test request, to check that they run on this machine. This restarts the server, and takes from half a minute to a few minutes depending on the size of the model.</small></p>
         {{if .OtherLoaded}}
         <p><mark>&#9888; This will unload: {{range $i, $m := .OtherLoaded}}{{if $i}}, {{end}}{{$m}}{{end}}.</mark></p>
         {{end}}
@@ -65,7 +65,7 @@
                 hx-target="#autoconfig-{{cssID .ModelID}}" hx-swap="innerHTML">Close</button>
     </div>
     {{else}}
-    <p title="The GPU memory these settings are estimated to use, against what is available after a safety margin left for the driver and other programs. System memory is what stays on the CPU side: layers or expert weights that did not fit on the GPU.">
+    <p title="Estimated VRAM of these settings, against the VRAM free after a safety margin. System memory: layers or expert weights that stay on the CPU side.">
         Estimated <strong>{{printf "%.1f" .EstimateGiB}} GiB</strong> of {{printf "%.1f" .BudgetGiB}} GiB of GPU memory{{if gt .CPURAMGiB 0.05}}, and {{printf "%.1f" .CPURAMGiB}} GiB in system memory{{end}}.
     </p>
     {{if not .Fits}}<p role="alert"><mark>&#9888; This model does not fit on this machine even with the settings below. Choose a smaller quantization of it.</mark></p>{{end}}
@@ -82,7 +82,7 @@
             <th title="What the model uses now.">Now</th>
             <th title="What Autoconfigure proposes.">Proposed</th>
             <th>Why</th>
-            <th title="Where the proposal comes from: the hardware fit (what fits on this machine), a test load (what ran when the settings were loaded), the model card, the publisher's sampling settings, or the model file itself.">Source</th>
+            <th title="Source of the proposal: hardware fit, test load, model card, publisher sampling settings, or the model file.">Source</th>
         </tr></thead>
         <tbody>
         {{range .Changed}}
@@ -141,11 +141,11 @@
         <button type="button"
                 hx-post="/api/models/{{.ModelID}}/autoconfig/save" hx-vals='{"apply":"0"}'
                 hx-target="#autoconfig-{{cssID .ModelID}}" hx-swap="innerHTML"
-                title="Save these settings as the profile &quot;Autoconfig&quot;. The model keeps its current settings until you restore the profile from Configure.">Save as profile</button>
+                title="Saves these settings as the profile &quot;Autoconfig&quot;. The model keeps its settings until you restore the profile in Configure.">Save as profile</button>
         <button type="button" class="secondary"
                 hx-post="/api/models/{{.ModelID}}/autoconfig/save" hx-vals='{"apply":"1"}'
                 hx-target="#autoconfig-{{cssID .ModelID}}" hx-swap="innerHTML"
-                title="Save these settings as the profile &quot;Autoconfig&quot; and use them now. They take effect the next time this model loads.">Save and apply</button>
+                title="Saves these settings as the profile &quot;Autoconfig&quot; and uses them. They apply at the next load of this model.">Save and apply</button>
         {{- end}}
         <button type="button" class="outline secondary"
                 hx-post="/api/models/{{.ModelID}}/autoconfig/discard"
