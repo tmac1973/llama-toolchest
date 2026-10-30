@@ -27,6 +27,28 @@
         font-size: 0.85rem;
         margin: 0;
     }
+    /* A height chosen with the grip (web/static/log-resize.js) replaces
+       the fill; min-height still applies. */
+    .server-page .log-section.sized { flex: 0 0 auto; }
+    .log-grip {
+        flex-shrink: 0;
+        height: 8px;
+        margin: 0.25rem 0 -0.5rem;
+        cursor: ns-resize;
+        touch-action: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .log-grip::before {
+        content: "";
+        width: 40px;
+        height: 3px;
+        border-radius: 2px;
+        background: var(--pico-muted-color);
+        opacity: 0.45;
+    }
+    .log-grip:hover::before { opacity: 1; }
     .server-action-error {
         color: var(--pico-del-color);
         font-size: 0.8rem;
@@ -202,6 +224,8 @@
                 </div>
             </header>
             <pre id="service-logs"></pre>
+            <div class="log-grip" role="separator" aria-orientation="horizontal"
+                 title="Drag to change the log height. Double-click for the default size."></div>
         </article>
     </div>
 
