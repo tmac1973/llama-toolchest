@@ -842,6 +842,7 @@ func (s *Server) buildRouter() chi.Router {
 			r.Post("/{id}/profiles/apply", s.handleApplyProfile)
 			r.Post("/{id}/profiles/delete", s.handleDeleteProfile)
 			r.Post("/{id}/refresh-presets", s.handleRefreshPresets)
+			r.Post("/{id}/ngram-cache/clear", s.handleClearNgramCache)
 			r.Get("/{id}/vram-estimate", s.handleModelVRAMEstimate)
 			r.Get("/{id}/vram-corpus", s.handleVRAMCorpus)
 		})

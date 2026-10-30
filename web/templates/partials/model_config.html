@@ -337,7 +337,7 @@
                 <dd>Searches the generation history for matching token patterns and reuses what followed. Zero overhead, no extra VRAM. Works best when the model repeats patterns (code refactoring, structured output). No benefit for entirely novel text.</dd>
 
                 <dt><strong>N-gram Cache</strong></dt>
-                <dd>Maintains probability statistics about token sequences and uses them for drafting. Can load pre-computed statistics from a corpus. More sophisticated than Simple but requires more setup.</dd>
+                <dd>Keeps statistics about which tokens follow which short runs of tokens and uses them for drafting. With llama.cpp b11758 or newer, toolchest keeps what it learned in a file for each model, so it improves across loads instead of starting empty each time; benchmarks and Autotune start empty.</dd>
 
                 <dt><strong>N-gram Map-K</strong></dt>
                 <dd>Tracks n-gram patterns with a confidence threshold — only drafts when a pattern has been seen multiple times. More conservative than Simple (fewer drafts, but higher acceptance rate). Good when you want selective, high-confidence speculation.</dd>
@@ -414,6 +414,16 @@
                 <option value="{{.Name}}" {{if eq $.Config.SpecAssist .Name}}selected{{end}}>{{.Label}}</option>
                 {{end}}
             </select>
+            {{if .NgramCache.Show}}
+            <small title="N-gram Cache learns which tokens follow which short runs of tokens. Toolchest keeps what it learned in a file for this model, so it does not start empty after every load: llama-server reads the file when the model loads and writes it when the model is unloaded. Benchmarks and Autotune never use the file, so their results do not depend on it. A file that was cut short is deleted before a load, and the model learns again.">
+                {{if .NgramCache.Note}}{{.NgramCache.Note}}{{else}}<span id="ngram-cache-text">{{.NgramCache.Text}}</span>
+                {{if .NgramCache.Size}}<button type="button" class="outline secondary" style="padding: 0 0.4rem; margin-left: 0.5rem; font-size: 0.8em;"
+                        title="Delete what this model learned, so N-gram Cache starts empty at the next load. A loaded model still holds what it learned and writes it again when it is unloaded, so unload it first for a clean start."
+                        hx-post="/api/models/{{.ModelID}}/ngram-cache/clear"
+                        hx-target="#ngram-cache-text"
+                        hx-on::after-request="this.remove()">Clear learned n-grams</button>{{end}}{{end}}
+            </small>
+            {{end}}
         </label>
         {{if eq .Config.SpecType "draft"}}
         <label title="A smaller model of the same architecture proposes tokens that the main model verifies in parallel.">
@@ -578,7 +588,7 @@
     </div>
     {{end}}
     {{if eq .Config.SpecAssist "ngram-cache"}}
-    <small>N-gram Cache takes no settings.</small>
+    <small>N-gram Cache takes no settings. What it learns is kept between loads (see above).</small>
     {{end}}
     <small><strong>Effective <code>--spec-type</code>:</strong>
         {{if .EffectiveSpecType}}<code>{{.EffectiveSpecType}}</code>{{else}}speculative decoding is off — no <code>--spec-type</code> flag is passed{{end}}

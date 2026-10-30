@@ -90,6 +90,9 @@ func GeneratePresetINI(modelsDir string, models []*Model, configs map[string]*Mo
 			launch = EmbeddingLaunchConfig(launch, m)
 		}
 		writeConfigParams(&b, launch, isEmbed, t)
+		if path := ngramCacheParam(m.ID, launch, t); path != "" && !isEmbed {
+			b.WriteString(fmt.Sprintf("lookup-cache-dynamic = %s\n", path))
+		}
 		b.WriteString("\n")
 	}
 
@@ -402,6 +405,10 @@ func (r *Registry) writePreset(name string, overrides map[string]*ModelConfig, t
 		configs[id] = cfg
 	}
 
+	if name == PresetFileName {
+		t.NgramCacheDir = NgramCacheDir(r.dataDir)
+		prepareNgramCaches(t, models, configs)
+	}
 	content := GeneratePresetINI(r.modelsDir, models, configs, t)
 
 	presetPath := filepath.Join(r.dataDir, "config", name)
