@@ -171,6 +171,7 @@
     <ul>
         <li><strong>Run Autoconfigure first.</strong> Autotune keeps the context, memory and sampling settings, so it makes a badly set-up model faster, not correct.</li>
         <li><strong>Test load.</strong> The memory estimate adds all GPUs together, but llama.cpp does not fill them evenly. If the test load runs out of memory, Autoconfigure tries these, in order: fewer layers on the full GPU, a smaller prompt batch, a smaller context. These settings show <em>test load</em>.</li>
+        <li><strong>GPUs.</strong> On a machine with more than one GPU, select the GPUs that the model can use. Autoconfigure fits the model only on those GPUs. Clear a GPU to keep it for image, video or music models. Autotune then measures the model on the GPUs that the profile uses.</li>
         <li><strong>Helper model.</strong> Autoconfigure reads the model card with a small model of its own (install it on Settings). Without it, settings come only from what fits.</li>
         <li><strong>Noise.</strong> Autotune keeps the simpler setting unless the faster one wins by more than the run-to-run variation. Each stage is a normal benchmark job; you can read it on Benchmarks.</li>
     </ul>
@@ -330,7 +331,7 @@
     </ul>
 
     <h3 id="generation-sharing">Sharing a GPU</h3>
-    <p>Jobs and chat on one GPU slow each other (on one R9700: images 2.3× slower, songs 2.8× slower, chat from 45 to 11–20 tokens/s). So generation jobs take turns: one per GPU, up to 16 waiting; more get HTTP 429. Chat never waits. Benchmarks, Autotune and Autoconfigure also wait for a running job, then keep the GPU until they finish. Jobs on separate GPUs run at full speed if the LLM is not split onto those GPUs: set its GPU Assignment to keep it on its own card. Jobs from the own web page of a backend skip the queue.</p>
+    <p>Jobs and chat on one GPU slow each other (on one R9700: images 2.3× slower, songs 2.8× slower, chat from 45 to 11–20 tokens/s). So generation jobs take turns: one per GPU, up to 16 waiting; more get HTTP 429. Chat never waits. Benchmarks, Autotune and Autoconfigure also wait for a running job, then keep the GPU until they finish. Jobs on separate GPUs run at full speed if the LLM is not split onto those GPUs: set its GPU Assignment to keep it on its own card, or clear the generation GPU in Autoconfigure. Jobs from the own web page of a backend skip the queue.</p>
 
     <h3 id="generation-evict">Taking turns when both do not fit</h3>
     <p>By default, toolchest refuses an LLM that does not fit beside the reservations. With <em>Let LLMs and backends take a GPU from each other</em> on (Settings → Generation backends):</p>

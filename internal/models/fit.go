@@ -54,6 +54,10 @@ type GPUSpec struct {
 	// planned beside them; one that does not gets the whole cards
 	// (WholeCards, RoomFor).
 	EvictableMiB int
+	// LeftOut says a plan must not put the model on this card: someone
+	// chose other GPUs for it in Autoconfigure (OnlyGPUs), usually to
+	// keep the card for image and music backends.
+	LeftOut bool
 }
 
 // UsableMiB is what the card leaves for llama.cpp before the safety
@@ -87,6 +91,45 @@ type Hardware struct {
 	// Build is the llama.cpp build the plan is for. It decides which
 	// options a plan may use; the zero value is current llama.cpp.
 	Build Target
+}
+
+// OnlyGPUs is hw with every card but those in keep marked LeftOut, so a
+// plan uses only the chosen cards. An empty keep leaves hw as it is.
+func (hw Hardware) OnlyGPUs(keep []int) Hardware {
+	if len(keep) == 0 {
+		return hw
+	}
+	out := hw
+	out.GPUs = slices.Clone(hw.GPUs)
+	for i := range out.GPUs {
+		out.GPUs[i].LeftOut = !slices.Contains(keep, i)
+	}
+	return out
+}
+
+// leftOutGPUs returns the cards OnlyGPUs left out of a plan that would
+// otherwise use them, in index order.
+func leftOutGPUs(gpus []GPUSpec) []int {
+	all := spanAllOption(gpus, false)
+	if all == nil {
+		return nil
+	}
+	var out []int
+	for _, i := range all.GPUs {
+		if gpus[i].LeftOut {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+// gpusAre is "GPU 1 is" or "GPUs 1,2 are", to start a sentence about
+// the cards gpus.
+func gpusAre(gpus []int) string {
+	if len(gpus) > 1 {
+		return "GPUs " + joinInts(gpus) + " are"
+	}
+	return "GPU " + joinInts(gpus) + " is"
 }
 
 // FitResult is what PlanFit proposes.
@@ -361,17 +404,47 @@ func planFit(m *Model, base ModelConfig, hw Hardware, class ContextClass) FitRes
 
 // spanAllOption returns the placement option that spans every discrete
 // GPU (or the only GPU on an APU-only machine), or nil without GPUs.
-func spanAllOption(gpus []GPUSpec) *GPUOption {
+// With chosen set, the cards OnlyGPUs left out are not in it, and it is
+// nil when no card is left.
+func spanAllOption(gpus []GPUSpec, chosen bool) *GPUOption {
 	igpu := make([]bool, len(gpus))
 	for i, g := range gpus {
 		igpu[i] = g.IsIGPU
 	}
 	for _, o := range GPUAssignOptions(len(gpus), igpu) {
-		if o.IsSpanAll {
+		if !o.IsSpanAll {
+			continue
+		}
+		if !chosen {
+			return &o
+		}
+		keep := slices.DeleteFunc(slices.Clone(o.GPUs), func(i int) bool { return gpus[i].LeftOut })
+		switch len(keep) {
+		case 0:
+			return nil
+		case len(o.GPUs):
+			return &o
+		}
+		return optionFor(gpus, keep)
+	}
+	return nil
+}
+
+// optionFor is the placement on exactly the cards keep: the config
+// form's own option when it has one for these cards, so the form shows
+// the choice by name; otherwise the explicit set, which ResolveGPUAssign
+// reads the same way.
+func optionFor(gpus []GPUSpec, keep []int) *GPUOption {
+	igpu := make([]bool, len(gpus))
+	for i, g := range gpus {
+		igpu[i] = g.IsIGPU
+	}
+	for _, o := range GPUAssignOptions(len(gpus), igpu) {
+		if !o.IsTensor && !o.IsSpanAll && slices.Equal(o.GPUs, keep) {
 			return &o
 		}
 	}
-	return nil
+	return &GPUOption{Value: joinInts(keep), GPUs: keep}
 }
 
 // minCardRoomGiB is the least room a card must have left, after other
@@ -388,7 +461,7 @@ const minCardRoomGiB = 1.0
 // and refuse every load. When no card, or every card, has the room, the
 // span over all of them is kept: leaving cards out then changes nothing.
 func planPlacement(gpus []GPUSpec) (opt *GPUOption, leftOut []int) {
-	span := spanAllOption(gpus)
+	span := spanAllOption(gpus, true)
 	if span == nil {
 		return nil, nil
 	}
@@ -403,19 +476,7 @@ func planPlacement(gpus []GPUSpec) (opt *GPUOption, leftOut []int) {
 	if len(keep) == 0 || len(leftOut) == 0 {
 		return span, nil
 	}
-	igpu := make([]bool, len(gpus))
-	for i, g := range gpus {
-		igpu[i] = g.IsIGPU
-	}
-	// The config form's own option when it has one for these cards, so
-	// the form shows the choice by name; otherwise the explicit set,
-	// which ResolveGPUAssign reads the same way.
-	for _, o := range GPUAssignOptions(len(gpus), igpu) {
-		if !o.IsTensor && !o.IsSpanAll && slices.Equal(o.GPUs, keep) {
-			return &o, leftOut
-		}
-	}
-	return &GPUOption{Value: joinInts(keep), GPUs: keep}, leftOut
+	return optionFor(gpus, keep), leftOut
 }
 
 // planDraftCounts are the draft sizes (--spec-draft-n-max) PlanFit tries,
@@ -575,17 +636,22 @@ func finishFit(m *Model, base, cfg ModelConfig, b VRAMBreakdown, budget float64,
 			note("gpu_layers", "Every layer runs on the GPU.")
 		}
 	}
-	if opt, leftOut := planPlacement(hw.GPUs); len(leftOut) > 0 && opt != nil {
+	opt, leftOut := planPlacement(hw.GPUs)
+	chosenOut := leftOutGPUs(hw.GPUs)
+	if opt != nil && (len(leftOut) > 0 || len(chosenOut) > 0) {
 		where := "Puts the model on GPU " + joinInts(opt.GPUs)
 		if len(opt.GPUs) > 1 {
 			where = "Spreads the model over GPUs " + joinInts(opt.GPUs)
 		}
-		cards := "GPU " + joinInts(leftOut) + " is"
-		if len(leftOut) > 1 {
-			cards = "GPUs " + joinInts(leftOut) + " are"
+		text := where + "."
+		if len(chosenOut) > 0 {
+			text += fmt.Sprintf(" %s left out, as chosen in Autoconfigure.", gpusAre(chosenOut))
 		}
-		note("gpu_assign", fmt.Sprintf("%s. %s left out: after the memory reserved for image and music backends and what other programs use, less than %.0f GiB is free there.",
-			where, cards, minCardRoomGiB))
+		if len(leftOut) > 0 {
+			text += fmt.Sprintf(" %s left out: after the memory reserved for image and music backends and what other programs use, less than %.0f GiB is free there.",
+				gpusAre(leftOut), minCardRoomGiB)
+		}
+		note("gpu_assign", text)
 	} else if cfg.GPUAssign != base.GPUAssign {
 		note("gpu_assign", "Spreads the model over every dedicated GPU in this machine. An integrated GPU is left out when a dedicated one is present, because it shares system memory and is slower.")
 	}
@@ -656,11 +722,11 @@ func (r FitResult) Placement(m *Model) Placement {
 }
 
 // PlanCards returns the GPUs of the machine a plan is made for: the
-// dedicated ones, or the integrated GPU when it is the only one. PlanFit
-// spreads a model over these, less any card with no room left on it
-// (planPlacement).
+// dedicated ones, or the integrated GPU when it is the only one, less
+// the cards OnlyGPUs left out. PlanFit spreads a model over these, less
+// any card with no room left on it (planPlacement).
 func PlanCards(hw Hardware) []GPUSpec {
-	opt := spanAllOption(hw.GPUs)
+	opt := spanAllOption(hw.GPUs, true)
 	if opt == nil {
 		return nil
 	}

@@ -144,6 +144,60 @@ type autoconfigDialogData struct {
 	BusyReason  string
 	OtherLoaded []string
 	Classes     []contextClassOption
+	// GPUs are the cards the model may be fitted on, all checked at
+	// first; empty on a machine with one, where there is no choice.
+	GPUs []autoconfigGPUOption
+}
+
+type autoconfigGPUOption struct {
+	Index       int
+	Name        string
+	ReservedGiB float64 // memory reserved there for image and music backends
+	Checked     bool
+}
+
+// autoconfigGPUOptions lists the cards a plan spreads a model over, so
+// the dialog can leave some out. Nil with fewer than two.
+func autoconfigGPUOptions(hw models.Hardware) []autoconfigGPUOption {
+	cards := models.PlanCards(hw)
+	if len(cards) < 2 {
+		return nil
+	}
+	out := make([]autoconfigGPUOption, 0, len(cards))
+	for _, g := range cards {
+		out = append(out, autoconfigGPUOption{Index: g.Index, Name: g.Name,
+			ReservedGiB: float64(g.ReservedMiB) / 1024, Checked: true})
+	}
+	return out
+}
+
+// chosenGPUs reads the GPUs checked in the dialog (form: gpu). ok is
+// false when the dialog offered a choice and none was checked. chosen
+// is nil when there was no choice to make, or every card was checked.
+func chosenGPUs(r *http.Request, hw models.Hardware) (chosen []int, ok bool) {
+	if r.FormValue("gpu_choice") != "1" {
+		return nil, true
+	}
+	cards := models.PlanCards(hw)
+	for _, v := range r.Form["gpu"] {
+		i, err := strconv.Atoi(v)
+		if err != nil {
+			continue
+		}
+		for _, g := range cards {
+			if g.Index == i && !slices.Contains(chosen, i) {
+				chosen = append(chosen, i)
+			}
+		}
+	}
+	if len(chosen) == 0 {
+		return nil, false
+	}
+	if len(chosen) == len(cards) {
+		return nil, true
+	}
+	slices.Sort(chosen)
+	return chosen, true
 }
 
 type contextClassOption struct {
@@ -177,7 +231,8 @@ func (s *Server) handleAutoconfigDialog(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	d := autoconfigDialogData{ModelID: id, ModelName: m.PublicName(), Classes: contextClassOptions(m.ContextLength)}
+	d := autoconfigDialogData{ModelID: id, ModelName: m.PublicName(), Classes: contextClassOptions(m.ContextLength),
+		GPUs: autoconfigGPUOptions(s.hardware())}
 	helperRouter := ""
 	if h := s.helperModel(); h != nil {
 		d.Helper = h.PublicName()
@@ -195,7 +250,8 @@ func (s *Server) handleAutoconfigDialog(w http.ResponseWriter, r *http.Request) 
 	s.renderPartial(w, "autoconfig_dialog", d)
 }
 
-// handleAutoconfigStart starts a run (form: context_class).
+// handleAutoconfigStart starts a run (form: context_class, and the
+// GPUs to fit on as gpu, with gpu_choice=1 when the dialog offered them).
 func (s *Server) handleAutoconfigStart(w http.ResponseWriter, r *http.Request) {
 	id := s.registry.ResolveID(chi.URLParam(r, "id"))
 	if !parseForm(w, r) {
@@ -218,6 +274,13 @@ func (s *Server) handleAutoconfigStart(w http.ResponseWriter, r *http.Request) {
 		s.renderAutoconfigMessage(w, id, panelBanner{"error", "A benchmark is running and using the GPU. Start Autoconfigure when it finishes."})
 		return
 	}
+	hw := s.hardware()
+	chosen, ok := chosenGPUs(r, hw)
+	if !ok {
+		s.renderAutoconfigMessage(w, id, panelBanner{"error", "Choose at least one GPU for the model."})
+		return
+	}
+	hw = hw.OnlyGPUs(chosen)
 
 	s.autoconf.mu.Lock()
 	if cur := s.autoconf.run; cur != nil && !cur.done {
@@ -231,7 +294,7 @@ func (s *Server) handleAutoconfigStart(w http.ResponseWriter, r *http.Request) {
 
 	deps := autoconfig.Deps{
 		Registry: s.registry,
-		Hardware: s.hardware(),
+		Hardware: hw,
 		Fetcher:  s.presets,
 		HFBase:   s.hfSiteBase(),
 		Hub:      s.hfClient,

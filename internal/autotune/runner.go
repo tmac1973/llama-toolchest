@@ -24,10 +24,10 @@ type Deps struct {
 	Registry *models.Registry
 	// ActiveBuild is the llama.cpp build the stages run on.
 	ActiveBuild func() string
-	// Hardware reports how many GPUs the machine has and how many
-	// logical cores, which decide whether some settings are worth
-	// measuring at all.
-	Hardware func() (cards, cores int)
+	// Hardware reports how many GPUs a profile with config cfg puts the
+	// model on and how many logical cores the machine has, which decide
+	// whether some settings are worth measuring at all.
+	Hardware func(cfg models.ModelConfig) (cards, cores int)
 	// MoECache is the largest MoE cache, in MiB, that fits beside a
 	// profile on this machine with the active build (PlanInput.MoECacheMiB);
 	// nil or 0 skips the expert-cache stage.
@@ -435,7 +435,7 @@ func (r *Runner) planInput(rec *Autotune) (PlanInput, error) {
 	}
 	cards, cores := 1, 0
 	if r.deps.Hardware != nil {
-		cards, cores = r.deps.Hardware()
+		cards, cores = r.deps.Hardware(profile.Config)
 	}
 	in := PlanInput{
 		Model: m, Base: profile.Config, Cards: cards, Cores: cores,

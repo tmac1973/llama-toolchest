@@ -437,3 +437,50 @@ func TestRouterMemoryMarginMiB(t *testing.T) {
 		}
 	}
 }
+
+// Autoconfigure's GPU choice: a card left out (OnlyGPUs) gets none of
+// the model and none of the budget, and the whole-cards fallback never
+// takes back its reservation, so the image and music backends keep it.
+func TestPlanFitOnChosenGPUs(t *testing.T) {
+	hw := Hardware{LogicalCores: 16, RAMTotalMiB: 64 * 1024, GPUs: []GPUSpec{
+		{Index: 0, Name: "GPU", VRAMTotalMiB: 16384, ReservedMiB: 12288, EvictableMiB: 12288},
+		{Index: 1, Name: "GPU", VRAMTotalMiB: 16384},
+		{Index: 2, Name: "GPU", VRAMTotalMiB: 16384},
+	}}
+	base := DefaultConfig()
+	r := PlanFit(dense8B, base, hw.OnlyGPUs([]int{1, 2}), ContextLong)
+	if !r.Fits || r.Config.GPUAssign != "1-2" || r.Config.TensorSplit != "0,1,1" || r.Config.MainGPU != 1 {
+		t.Fatalf("placement = %q split %q main %d (fits %v), want GPUs 1-2",
+			r.Config.GPUAssign, r.Config.TensorSplit, r.Config.MainGPU, r.Fits)
+	}
+	if want := cardBudgetGiB(hw.GPUs[1]) + cardBudgetGiB(hw.GPUs[2]); r.BudgetGiB != want {
+		t.Errorf("budget = %.2f GiB, want the two chosen cards' %.2f", r.BudgetGiB, want)
+	}
+	said := false
+	for _, n := range r.Notes {
+		if n.Field == "gpu_assign" {
+			said = strings.Contains(n.Reason, "GPUs 1,2") && strings.Contains(n.Reason, "GPU 0 is left out, as chosen")
+		}
+		if n.Origin == "hardware fit" && strings.Contains(n.Reason, "use the whole GPUs") {
+			t.Errorf("the plan took back a reservation on a card that was left out: %s", n.Reason)
+		}
+	}
+	if !said {
+		t.Errorf("the placement note does not say which card was left out: %+v", r.Notes)
+	}
+	assertOneNotePerChange(t, base, r)
+
+	// A model too large for the chosen cards does not move onto GPU 0.
+	r = PlanFit(dense8B, base, hw.OnlyGPUs([]int{2}), ContextMax)
+	if r.Config.GPUAssign != "2" || r.Config.TensorSplit != "0,0,1" {
+		t.Errorf("one chosen card: placement = %q split %q, want GPU 2 only", r.Config.GPUAssign, r.Config.TensorSplit)
+	}
+
+	// Every card chosen is the same as no choice.
+	all := PlanFit(dense8B, base, hw.OnlyGPUs([]int{0, 1, 2}), ContextLong)
+	none := PlanFit(dense8B, base, hw, ContextLong)
+	if all.Config.GPUAssign != none.Config.GPUAssign || all.BudgetGiB != none.BudgetGiB {
+		t.Errorf("all cards chosen: %q %.2f GiB, no choice: %q %.2f GiB",
+			all.Config.GPUAssign, all.BudgetGiB, none.Config.GPUAssign, none.BudgetGiB)
+	}
+}

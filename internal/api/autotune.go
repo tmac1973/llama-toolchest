@@ -6,6 +6,7 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -110,7 +111,11 @@ func (s *Server) renderAutotuneDialog(w http.ResponseWriter, id string, banner *
 		d.Cells, d.Minutes, d.Skipped = s.autotuneEstimate(id, selectedProfile(d.Profiles), autotune.UseMixed, autotune.DepthThorough)
 	}
 	if m, err := s.registry.Get(id); err == nil && s.tensorSplitRefused(m.Arch) {
-		if cards, _ := s.autotuneHardware(); cards > 1 {
+		var cfg models.ModelConfig
+		if p, err := s.registry.GetProfile(id, selectedProfile(d.Profiles)); err == nil {
+			cfg = p.Config
+		}
+		if cards, _ := s.autotuneHardware(cfg); cards > 1 {
 			d.TensorSplitNote = fmt.Sprintf("Tensor split is not measured: the active llama.cpp build does not support it for this model's architecture (%s).", m.Arch)
 		}
 	}
@@ -148,7 +153,7 @@ func (s *Server) autotuneEstimate(id, profileName string, uc autotune.UseCase, d
 	if err != nil {
 		return 0, 0, nil
 	}
-	cards, cores := s.autotuneHardware()
+	cards, cores := s.autotuneHardware(profile.Config)
 	in := autotune.PlanInput{
 		Model: m, Base: profile.Config, Cards: cards, Cores: cores,
 		DraftCandidates: func(mode string) []models.DraftCandidate {
@@ -184,15 +189,27 @@ func (s *Server) autotuneMoECache(m *models.Model, base models.ModelConfig) int 
 	return models.MaxMoECacheMiB(m, base, s.hardware())
 }
 
-// autotuneHardware is the card count and CPU cores Autotune plans with:
-// discrete GPUs only, at least one. The dialog's estimate and the run use
-// the same numbers, so the estimate describes the run that starts.
-func (s *Server) autotuneHardware() (cards, cores int) {
+// autotuneHardware is the card count and CPU cores Autotune plans with
+// for a profile: the discrete GPUs the profile puts the model on, at
+// least one. A profile that Autoconfigure fitted on some GPUs only is
+// measured as split over those, not over every card in the machine. The
+// dialog's estimate and the run use the same numbers, so the estimate
+// describes the run that starts.
+func (s *Server) autotuneHardware(cfg models.ModelConfig) (cards, cores int) {
 	hw := s.hardware()
-	for _, g := range hw.GPUs {
-		if !g.IsIGPU {
-			cards++
+	gpus := models.AssignedModelGPUs(&cfg, len(hw.GPUs))
+	shares := strings.Split(cfg.TensorSplit, ",")
+	for _, i := range gpus {
+		if i < 0 || i >= len(hw.GPUs) || hw.GPUs[i].IsIGPU {
+			continue
 		}
+		// A custom split leaves a card out with a share of nothing.
+		if cfg.GPUAssign == "custom" && i < len(shares) {
+			if v, err := strconv.ParseFloat(strings.TrimSpace(shares[i]), 64); err == nil && v <= 0 {
+				continue
+			}
+		}
+		cards++
 	}
 	return max(1, cards), hw.LogicalCores
 }
@@ -414,12 +431,12 @@ func (s *Server) placementStageShown(id string, rec *autotune.Autotune) bool {
 	if st, ok := rec.Stage(autotune.StagePlacement); ok {
 		return st.JobID != ""
 	}
-	if cards, _ := s.autotuneHardware(); cards > 1 {
-		return true
-	}
 	p, err := s.registry.GetProfile(id, rec.BaseProfile)
 	if err != nil {
 		return false
+	}
+	if cards, _ := s.autotuneHardware(p.Config); cards > 1 {
+		return true
 	}
 	m, err := s.registry.Get(id)
 	partial := err == nil && m.NLayers > 0 && p.Config.GPULayers > 0 && p.Config.GPULayers < m.NLayers

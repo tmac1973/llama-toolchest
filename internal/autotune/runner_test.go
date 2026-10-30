@@ -238,7 +238,7 @@ func newFixture(t *testing.T, mtpLayers int) *tuneFixture {
 	f.runner = NewRunner(Deps{
 		Store: f.store, Runs: runs, Jobs: benchmark.NewJobQueue(runs, env), Registry: reg,
 		ActiveBuild: func() string { return "b1" },
-		Hardware:    func() (int, int) { return 1, 16 },
+		Hardware:    func(models.ModelConfig) (int, int) { return 1, 16 },
 		ReleaseGPUs: env.ReleaseGPUs,
 	})
 	return f

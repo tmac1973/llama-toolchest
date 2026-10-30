@@ -19,6 +19,18 @@
             </label>
             {{end}}
         </fieldset>
+        {{if .GPUs}}
+        <fieldset>
+            <input type="hidden" name="gpu_choice" value="1">
+            <legend title="Autoconfigure fits the model only on the GPUs you select. Clear a GPU to keep it for image, video or music models.">Which GPUs can the model use?</legend>
+            {{range .GPUs}}
+            <label>
+                <input type="checkbox" name="gpu" value="{{.Index}}"{{if .Checked}} checked{{end}}>
+                GPU {{.Index}}{{if .Name}} — {{.Name}}{{end}}{{if .ReservedGiB}} <small>({{printf "%.1f" .ReservedGiB}} GiB reserved for image, video and music)</small>{{end}}
+            </label>
+            {{end}}
+        </fieldset>
+        {{end}}
         {{if not .Helper}}
         <p><mark>&#9888; No helper model is installed, so the model's documentation will not be read. The settings will come from what fits on this machine only.</mark>
             <a href="/settings">Install a helper model in Settings.</a></p>
