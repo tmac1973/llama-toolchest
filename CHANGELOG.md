@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.46.1](https://github.com/tmac1973/llama-toolchest/compare/v2.46.0...v2.46.1) (2026-10-30)
+
+
+### Bug Fixes
+
+* **ui:** show the generation settings as soon as generation is turned on ([#464](https://github.com/tmac1973/llama-toolchest/issues/464)) ([9a4c491](https://github.com/tmac1973/llama-toolchest/commit/9a4c4916b7dcdd795affa4817235a9a5ec17930b))
+
 ## [2.46.0](https://github.com/tmac1973/llama-toolchest/compare/v2.45.0...v2.46.0) (2026-10-30)
 
 
