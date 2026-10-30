@@ -156,3 +156,16 @@ func TestUsageHourOutsideTheWindow(t *testing.T) {
 		t.Errorf("models = %+v, want the two recent requests summed", sum.Models)
 	}
 }
+
+// Usage in the hour the record began counts, though that hour started
+// before it: after a delete, the requests sent since must show.
+func TestUsageInTheFirstHourCounts(t *testing.T) {
+	s, c, _, _ := testStore(t)
+	c.set(base.Add(20 * time.Minute))
+	s.DeleteAll()
+	s.AddUsage("m", 3, 4, false)
+	sum := s.Summary(24*time.Hour, nil, nil)
+	if len(sum.Models) != 1 || sum.Models[0].Requests != 1 {
+		t.Errorf("models = %+v, want the request since the delete", sum.Models)
+	}
+}

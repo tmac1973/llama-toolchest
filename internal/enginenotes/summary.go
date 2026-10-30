@@ -160,10 +160,11 @@ func (s *Store) Summary(window time.Duration, open []OpenInstance, resolve Resol
 
 	for id, byHour := range s.data.Usage {
 		for key, u := range byHour {
-			// An hour counts when it starts in the period; usage is not
-			// split within an hour.
+			// An hour counts whole when any of it is in the period;
+			// usage is not split within an hour. Overlap, not the
+			// start: the hour a record began in starts before it.
 			hour, err := time.Parse(hourKey, key)
-			if err != nil || hour.Before(from) || hour.After(now) {
+			if err != nil || !hour.Add(time.Hour).After(from) || hour.After(now) {
 				continue
 			}
 			r := row(id, "")

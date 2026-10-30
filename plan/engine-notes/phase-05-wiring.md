@@ -59,3 +59,11 @@ Connect the parser and the store to the running toolchest: a second subscriber o
 ## Rollback
 
 Revert the commit. The watcher, the proxy hook and the endpoints go away; `engine-notes.json` stays on disk unused and is safe to delete. Phases 03 and 04 remain as unused code.
+
+## As built
+
+- `recordOutcome` uses the outcome's own time, so an event is dated by when its line arrived.
+- `noteRouterStart(job, build)` in `engine_notes.go` holds the router-start record and the job lookup; `startRouterWith` calls it after `setRunningBuild`.
+- The SSE capture now reports timings even when no chunk named a model. Live Performance still needs a model and skips such streams as before; usage counts them.
+- A usage hour now counts when any part of it is in the period, not only when it starts there. Before this, the hour in which the record began (the first hour after "delete all") was left out of every summary. Fixed in `internal/enginenotes/summary.go`, with a test.
+- The fake router in `proxy_test.go` has a `v1` handler field for tests that need `/v1` answers.

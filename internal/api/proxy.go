@@ -14,6 +14,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/models"
@@ -45,24 +46,47 @@ func (s *Server) newProxyHandler() http.Handler {
 			"llama-server router is not running")
 	}
 
-	// Capture timings from chat completion responses — both JSON and SSE streams.
+	// Capture timings from chat completion responses — both JSON and SSE
+	// streams — and count every model request's tokens in engine notes.
 	proxy.ModifyResponse = func(resp *http.Response) error {
 		if resp.StatusCode == http.StatusSwitchingProtocols {
 			acceptRealtimeProtocol(resp)
 			return nil
 		}
-		if resp.Request == nil || resp.StatusCode != http.StatusOK {
+		if resp.Request == nil {
 			return nil
 		}
-		if !strings.HasSuffix(resp.Request.URL.Path, "/chat/completions") {
+		usage := s.usageCounter(resp.Request)
+		if resp.StatusCode != http.StatusOK {
+			if usage != nil {
+				usage(0, 0, true)
+			}
 			return nil
+		}
+		path := resp.Request.URL.Path
+		chat := strings.HasSuffix(path, "/chat/completions")
+		if !chat && usage == nil {
+			return nil
+		}
+		if usage == nil {
+			usage = func(int, int, bool) {}
 		}
 
 		ct := resp.Header.Get("Content-Type")
 		if strings.Contains(ct, "text/event-stream") {
 			// Wrap the body so we can scan SSE chunks for the final
 			// timings event without blocking delivery to the client.
-			resp.Body = newSSETimingCapture(resp.Body, s.captureTimings)
+			resp.Body = newSSETimingCapture(resp.Body, func(model string, timings map[string]any) {
+				if chat && model != "" {
+					s.captureTimings(model, timings)
+				}
+				prompt, gen := timingTokens(timings)
+				usage(prompt, gen, false)
+			}, func(sawTimings bool) {
+				if !sawTimings {
+					usage(0, 0, false)
+				}
+			})
 			return nil
 		}
 
@@ -76,9 +100,25 @@ func (s *Server) newProxyHandler() http.Handler {
 		var result struct {
 			Model   string         `json:"model"`
 			Timings map[string]any `json:"timings"`
+			Usage   struct {
+				PromptTokens *int `json:"prompt_tokens"`
+				TotalTokens  int  `json:"total_tokens"`
+			} `json:"usage"`
 		}
-		if json.Unmarshal(body, &result) == nil && result.Timings != nil && result.Model != "" {
+		parsed := json.Unmarshal(body, &result) == nil
+		if chat && parsed && result.Timings != nil && result.Model != "" {
 			go s.captureTimings(result.Model, result.Timings)
+		}
+		switch {
+		case !parsed:
+			usage(0, 0, false)
+		case strings.HasSuffix(path, "/completions"):
+			prompt, gen := timingTokens(result.Timings)
+			usage(prompt, gen, false)
+		case result.Usage.PromptTokens != nil:
+			usage(*result.Usage.PromptTokens, 0, false)
+		default:
+			usage(result.Usage.TotalTokens, 0, false)
 		}
 		return nil
 	}
@@ -105,6 +145,9 @@ func (s *Server) newProxyHandler() http.Handler {
 					return
 				}
 				defer end()
+				if id := s.requestModelID(body); id != "" {
+					r = r.WithContext(withProxyModel(r.Context(), id))
+				}
 				if strings.HasSuffix(r.URL.Path, "/chat/completions") {
 					body = s.injectSamplingDefaults(body)
 				}
@@ -361,17 +404,21 @@ func writeProxyError(w http.ResponseWriter, status int, code, message string) {
 
 // sseTimingCapture wraps a streaming SSE response body, passing bytes
 // through to the client while scanning for the final chunk that carries
-// llama.cpp's `timings` field. When seen, captureFn is invoked once.
+// llama.cpp's `timings` field. When seen, capture is invoked once, with
+// the model the stream named ("" if none). onEnd is invoked once when
+// the stream ends or is closed, saying whether timings were seen.
 type sseTimingCapture struct {
 	orig     io.ReadCloser
 	capture  func(modelID string, timings map[string]any)
+	onEnd    func(sawTimings bool)
+	ended    sync.Once
 	buf      bytes.Buffer
 	model    string
 	captured bool
 }
 
-func newSSETimingCapture(orig io.ReadCloser, capture func(string, map[string]any)) *sseTimingCapture {
-	return &sseTimingCapture{orig: orig, capture: capture}
+func newSSETimingCapture(orig io.ReadCloser, capture func(string, map[string]any), onEnd func(bool)) *sseTimingCapture {
+	return &sseTimingCapture{orig: orig, capture: capture, onEnd: onEnd}
 }
 
 func (s *sseTimingCapture) Read(p []byte) (int, error) {
@@ -380,7 +427,16 @@ func (s *sseTimingCapture) Read(p []byte) (int, error) {
 		s.buf.Write(p[:n])
 		s.scan()
 	}
+	if err != nil {
+		s.end()
+	}
 	return n, err
+}
+
+func (s *sseTimingCapture) end() {
+	if s.onEnd != nil {
+		s.ended.Do(func() { s.onEnd(s.captured) })
+	}
 }
 
 func (s *sseTimingCapture) scan() {
@@ -411,7 +467,7 @@ func (s *sseTimingCapture) scan() {
 			if s.model == "" && chunk.Model != "" {
 				s.model = chunk.Model
 			}
-			if chunk.Timings != nil && s.model != "" {
+			if chunk.Timings != nil {
 				go s.capture(s.model, chunk.Timings)
 				s.captured = true
 				return
@@ -421,6 +477,7 @@ func (s *sseTimingCapture) scan() {
 }
 
 func (s *sseTimingCapture) Close() error {
+	s.end()
 	return s.orig.Close()
 }
 
