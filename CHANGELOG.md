@@ -1,5 +1,27 @@
 # Changelog
 
+## [2.47.0](https://github.com/tmac1973/llama-toolchest/compare/v2.46.4...v2.47.0) (2026-10-31)
+
+
+### Features
+
+* **api:** list images.jobs.edits in meta.api for edit-capable sets ([#483](https://github.com/tmac1973/llama-toolchest/issues/483)) ([5071359](https://github.com/tmac1973/llama-toolchest/commit/50713590286c5955c53a0592f40e902738070878)), closes [#482](https://github.com/tmac1973/llama-toolchest/issues/482)
+* **gen:** accept multipart edit jobs on /v1/images/jobs ([#480](https://github.com/tmac1973/llama-toolchest/issues/480)) ([1ae36f1](https://github.com/tmac1973/llama-toolchest/commit/1ae36f14d9b1d497cd8cfb1a813dfab4f332cd60)), closes [#347](https://github.com/tmac1973/llama-toolchest/issues/347)
+* **gen:** add ESRGAN upscaling with an upscaler set and /v1/images/upscale ([#485](https://github.com/tmac1973/llama-toolchest/issues/485)) ([9ba643d](https://github.com/tmac1973/llama-toolchest/commit/9ba643def7e6ffc3ec7b1af65bc2552506bcb8f5)), closes [#347](https://github.com/tmac1973/llama-toolchest/issues/347)
+* **gen:** advertise edit image limit, upscale factor and ACE stems; keep capabilities current ([#490](https://github.com/tmac1973/llama-toolchest/issues/490)) ([#491](https://github.com/tmac1973/llama-toolchest/issues/491)) ([1c66964](https://github.com/tmac1973/llama-toolchest/commit/1c669642d03e4f1e138de1f6922456e09435c3d0))
+* **generation:** add a Qwen-Image 2.1 Turbo Edit set ([#484](https://github.com/tmac1973/llama-toolchest/issues/484)) ([584bded](https://github.com/tmac1973/llama-toolchest/commit/584bdedd74f7d4c69c62869fcf6bc3a7fcd35537)), closes [#347](https://github.com/tmac1973/llama-toolchest/issues/347)
+* **gen:** let users choose a generation instance's port ([#487](https://github.com/tmac1973/llama-toolchest/issues/487)) ([39dcf85](https://github.com/tmac1973/llama-toolchest/commit/39dcf85b175e0346910753c568468fd5de7e2aef)), closes [#486](https://github.com/tmac1973/llama-toolchest/issues/486)
+* **gen:** refuse edits past max_edit_images and measure an edit at the limit ([#492](https://github.com/tmac1973/llama-toolchest/issues/492)) ([#493](https://github.com/tmac1973/llama-toolchest/issues/493)) ([ab961a4](https://github.com/tmac1973/llama-toolchest/commit/ab961a4dacc9d6b1e519297b8ccac01b0fb962b6))
+* **setup:** list the ROCm 10 base image releases and mark the current one ([#481](https://github.com/tmac1973/llama-toolchest/issues/481)) ([0f148c2](https://github.com/tmac1973/llama-toolchest/commit/0f148c24228e7de1163471a02173aa9766c8fe64))
+* **setup:** offer to install pnpm in host mode and report it in deps ([#477](https://github.com/tmac1973/llama-toolchest/issues/477)) ([68ea21b](https://github.com/tmac1973/llama-toolchest/commit/68ea21be71e35c2d686b441ebaae49c15968c457))
+
+
+### Bug Fixes
+
+* **gen:** clearer port conflict error and Edit tooltip ([#488](https://github.com/tmac1973/llama-toolchest/issues/488)) ([dbc717e](https://github.com/tmac1973/llama-toolchest/commit/dbc717ec5c183cfb3a7710964892ba928a7480e2))
+* **music:** report the length of the audio made, not the requested duration ([#479](https://github.com/tmac1973/llama-toolchest/issues/479)) ([1ab7f7d](https://github.com/tmac1973/llama-toolchest/commit/1ab7f7df8ff83a951d8db7f02cb5ad7d38a9cf23)), closes [#399](https://github.com/tmac1973/llama-toolchest/issues/399)
+* **setup:** find a compose install after setup.sh down ([#489](https://github.com/tmac1973/llama-toolchest/issues/489)) ([4d8b603](https://github.com/tmac1973/llama-toolchest/commit/4d8b603a50aa0f6138b55c71157b9f76e8f00137))
+
 ## [2.46.4](https://github.com/tmac1973/llama-toolchest/compare/v2.46.3...v2.46.4) (2026-10-31)
 
 
