@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.46.3](https://github.com/tmac1973/llama-toolchest/compare/v2.46.2...v2.46.3) (2026-10-31)
+
+
+### Bug Fixes
+
+* **builder:** clone into an empty llama.cpp directory on the first build ([#472](https://github.com/tmac1973/llama-toolchest/issues/472)) ([476a407](https://github.com/tmac1973/llama-toolchest/commit/476a407ad2b511736cf7db379b28913a1c3859ea)), closes [#469](https://github.com/tmac1973/llama-toolchest/issues/469)
+* **gen:** refresh other programs' memory before the fit check after a stop ([#473](https://github.com/tmac1973/llama-toolchest/issues/473)) ([f884476](https://github.com/tmac1973/llama-toolchest/commit/f884476b9baa154163b9fac5e1b98f7a42b4ecda))
+* **gen:** wait for the stopped backend's memory to fall before the fit check ([#470](https://github.com/tmac1973/llama-toolchest/issues/470)) ([469a0e4](https://github.com/tmac1973/llama-toolchest/commit/469a0e442515ffe1b9affa6350f61ec6701f3200))
+
 ## [2.46.2](https://github.com/tmac1973/llama-toolchest/compare/v2.46.1...v2.46.2) (2026-10-30)
 
 
