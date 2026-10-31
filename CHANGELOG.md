@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.46.4](https://github.com/tmac1973/llama-toolchest/compare/v2.46.3...v2.46.4) (2026-10-31)
+
+
+### Bug Fixes
+
+* **build:** keep pnpm and ccache state in the data dir when HOME is read-only ([#474](https://github.com/tmac1973/llama-toolchest/issues/474)) ([0ceb2bc](https://github.com/tmac1973/llama-toolchest/commit/0ceb2bcdae527c450f67ac85cb378ff2e56bff21)), closes [#457](https://github.com/tmac1973/llama-toolchest/issues/457)
+
 ## [2.46.3](https://github.com/tmac1973/llama-toolchest/compare/v2.46.2...v2.46.3) (2026-10-31)
 
 
