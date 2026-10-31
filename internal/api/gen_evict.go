@@ -539,6 +539,13 @@ func (s *Server) waitGPUFreed(gpu int, since time.Time, from, target, held int) 
 	if !gpuFreed(readings, from, target, held, gpuFreedGrace, gpuFreedTimeout) {
 		slog.Warn("the card did not show the memory free in time", "gpu", gpu, "used_mib", s.gpuUsedMiB(gpu), "expected_mib", target)
 	}
+	// The fit check reads other programs' memory from otherVRAM, which
+	// its own subscriber works out from the same samples, and may not
+	// have yet. Until then, the stopped backend's memory counts as other
+	// programs': it no longer counts as the backend's, and the old figure
+	// still holds it (compute2, 2026-10-31: the song was refused 1.5 s
+	// after ming-gpu1 stopped, with the card already showing it free).
+	s.updateOtherVRAM(s.monitor.Current())
 }
 
 // gpuFreed takes the card's used memory from readings, each sampled
