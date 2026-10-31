@@ -78,6 +78,9 @@ func (e *jobEnv) CheckBuildRunnable(ctx context.Context, buildID string) error {
 	if runtime.GOOS != "linux" {
 		return nil
 	}
+	if err := refuseForkJobBuild(e.s.builder, buildID); err != nil {
+		return err
+	}
 	var binary string
 	if b, ok := e.s.builder.Find(buildID); ok {
 		binary = b.BinaryPath
@@ -105,11 +108,27 @@ func (e *jobEnv) CheckBuildRunnable(ctx context.Context, buildID string) error {
 	return nil
 }
 
+// refuseForkJobBuild refuses a curated fork's build as a job's build: a
+// fork runs as its own instance, never as the router a job drives.
+func refuseForkJobBuild(b *builder.Builder, buildID string) error {
+	br, ok := b.Find(buildID)
+	if !ok {
+		return nil
+	}
+	if p, ok := builder.FindProject(br.ProjectID()); ok && p.IsFork() {
+		return fmt.Errorf("build %s is a fork build; fork builds run as fork instances and cannot run benchmark jobs", buildID)
+	}
+	return nil
+}
+
 // EnsureBuildActive switches the router to buildID if it isn't already,
 // waiting up to 2 minutes for /health to pass.
 func (e *jobEnv) EnsureBuildActive(ctx context.Context, buildID string, configFollows bool) error {
 	if buildID == "" {
 		return errors.New("empty build id")
+	}
+	if err := refuseForkJobBuild(e.s.builder, buildID); err != nil {
+		return err
 	}
 
 	// Find the build and verify it's a successful one we can run.

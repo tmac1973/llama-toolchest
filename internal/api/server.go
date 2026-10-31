@@ -23,6 +23,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/enginenotes"
 	"github.com/tmac1973/llama-toolchest/internal/evaluate"
 	"github.com/tmac1973/llama-toolchest/internal/filehash"
+	"github.com/tmac1973/llama-toolchest/internal/forks"
 	"github.com/tmac1973/llama-toolchest/internal/generation"
 	"github.com/tmac1973/llama-toolchest/internal/huggingface"
 	"github.com/tmac1973/llama-toolchest/internal/llmcall"
@@ -1022,8 +1023,9 @@ func (s *Server) handleBuildsPage(w http.ResponseWriter, r *http.Request) {
 		// page can say a build is stale but not what it is stale against.
 		BuildEnv  string
 		BaseImage string
-		// Projects fills the project picker; empty, and the picker
-		// hidden, while generation backends are off.
+		// Projects fills the project picker: llama.cpp, the generation
+		// backends while they are on, and the curated forks while forks
+		// are on. The picker is hidden when llama.cpp is the only one.
 		Projects []projectChoice
 	}{
 		pageData:  pageData{Title: "Builds", Nav: "builds"},
@@ -1031,17 +1033,40 @@ func (s *Server) handleBuildsPage(w http.ResponseWriter, r *http.Request) {
 		BuildEnv:  env,
 		BaseImage: base,
 	}
-	if cfg.GenerationEnabled {
-		for _, p := range builder.Projects() {
-			data.Projects = append(data.Projects, projectChoice{
-				ID:             p.ID,
-				Backends:       strings.Join(p.Backends, ","),
-				NotesURL:       p.ReleaseNotesURL,
-				LatestNotesURL: p.LatestNotesURL,
-			})
+	for _, p := range builder.Projects() {
+		if !projectShown(p, &cfg) {
+			continue
 		}
+		c := projectChoice{
+			ID:             p.ID,
+			Label:          p.ID,
+			Backends:       strings.Join(p.Backends, ","),
+			NotesURL:       p.ReleaseNotesURL,
+			LatestNotesURL: p.LatestNotesURL,
+		}
+		if f, ok := forks.Find(p.ID); ok && p.IsFork() {
+			c.Label = f.Name + " (fork)"
+			c.Notes = f.Notes
+		}
+		data.Projects = append(data.Projects, c)
+	}
+	if len(data.Projects) < 2 {
+		data.Projects = nil
 	}
 	s.render(w, "builds.html", data)
+}
+
+// projectShown reports whether the Builds page offers p: llama.cpp
+// always, generation backends while they are on, forks while forks are on.
+func projectShown(p builder.Project, cfg *config.Config) bool {
+	switch {
+	case p.ID == builder.ProjectLlamaCpp:
+		return true
+	case p.IsFork():
+		return cfg.ForksEnabled
+	default:
+		return cfg.GenerationEnabled
+	}
 }
 
 // projectChoice is one option in the Builds page's project picker.
@@ -1051,6 +1076,8 @@ type projectChoice struct {
 	// with; empty for all.
 	Backends                 string
 	NotesURL, LatestNotesURL string
+	// Label is the name shown, and Notes a fork's tooltip.
+	Label, Notes string
 }
 
 // buildEnvBanner reports the toolchain this container runs and the container

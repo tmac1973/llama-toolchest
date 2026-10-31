@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tmac1973/llama-toolchest/internal/builder"
+	"github.com/tmac1973/llama-toolchest/internal/forks"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
@@ -193,6 +194,10 @@ func (s *Server) handleListRefs(w http.ResponseWriter, r *http.Request) {
 
 	if isHTMX(r) {
 		respondHTML(w)
+		if f, ok := forks.Find(proj.ID); ok && proj.IsFork() {
+			s.renderPartial(w, "git_ref_options", gitRefOptionsData{Pinned: f.PinnedSHA})
+			return
+		}
 		if proj.ID != builder.ProjectLlamaCpp {
 			s.renderPartial(w, "git_ref_options", projectRefOptionsFor(refs, err))
 			return
@@ -209,6 +214,9 @@ type gitRefOptionsData struct {
 	Groups []gitRefGroup // only groups with at least one tag
 	// Error is why a refresh failed when nothing was cached either.
 	Error string
+	// Pinned is a curated fork's tested commit. When set, the picker
+	// offers only it (first, chosen) and the fork's latest commit.
+	Pinned string
 }
 
 type gitRefGroup struct {
@@ -354,6 +362,21 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 	if req.Project == "" {
 		req.Project = builder.ProjectLlamaCpp
 	}
+	if f, ok := forks.Find(req.Project); ok {
+		if !s.forksOn() {
+			http.NotFound(w, r)
+			return
+		}
+		// A fork builds its tested commit or its latest one, nothing
+		// else (plan/curated-forks).
+		if req.GitRef != "" && req.GitRef != "latest" && req.GitRef != f.PinnedSHA {
+			http.Error(w, fmt.Sprintf("%s builds only its pinned commit (%s) or its latest commit", f.Name, f.PinnedSHA[:7]), http.StatusBadRequest)
+			return
+		}
+		if req.GitRef == "" {
+			req.GitRef = f.PinnedSHA
+		}
+	}
 	ctx := builder.WithStartToken(context.Background(), req.StartToken)
 	result, err := s.builder.BuildProject(ctx, req.Project, req.Profile, req.GitRef, req.Tag, req.Force, optionOverrides, extraCMake, req.ROCmRoot)
 	if err != nil {
@@ -473,6 +496,9 @@ type buildRow struct {
 	// BuiltAgainstTitle explains the cell: why it is flagged, or why it is
 	// blank. Empty only when the build is stamped and matches.
 	BuiltAgainstTitle string
+	// Untested marks a curated fork's build of a commit other than the
+	// pinned one.
+	Untested bool
 }
 
 // notRecordedTitle is the tooltip for a build with no stamp. Worded as a
@@ -501,6 +527,9 @@ func (s *Server) buildRowFor(b *builder.BuildResult) buildRow {
 	row := buildRow{BuildResult: b, BuiltAgainstText: "—"}
 	if b == nil {
 		return row
+	}
+	if f, ok := forks.Find(b.ProjectID()); ok {
+		row.Untested = b.GitSHA != f.PinnedSHA
 	}
 	current := s.currentBuildEnvFor(buildBackend(b))
 	gone, perInstall := builder.InstallGone(b.BuiltAgainst, s.rocmInstalls())
@@ -709,6 +738,24 @@ func (s *Server) resolveBackendBuild(kind, id string) *builder.BuildResult {
 		}
 	}
 	if ranked := s.builder.SuccessfulBuildsRankedFor(project); len(ranked) > 0 {
+		return &ranked[0]
+	}
+	return nil
+}
+
+// resolveForkBuild returns the build a fork instance runs: the named
+// build when it is a successful build of the fork, otherwise the newest
+// successful one. Nil when there is none.
+func (s *Server) resolveForkBuild(forkID, id string) *builder.BuildResult {
+	if p, ok := builder.FindProject(forkID); !ok || !p.IsFork() {
+		return nil
+	}
+	if id != "" {
+		if b, ok := s.builder.Find(id); ok && b.Status == builder.BuildStatusSuccess && b.ProjectID() == forkID {
+			return b
+		}
+	}
+	if ranked := s.builder.SuccessfulBuildsRankedFor(forkID); len(ranked) > 0 {
 		return &ranked[0]
 	}
 	return nil

@@ -19,21 +19,21 @@
           hx-target="#build-output"
           hx-swap="innerHTML">
         {{if .Projects}}
-        {{/* Only with generation backends on. Each choice carries what the
-             page script needs: the profiles the project builds with and
-             its release-notes links. Radio buttons rather than a drop-down:
-             there are only three, and some browsers drew the drop-down's
-             list partly off the page. hx-include="#build-project" sends
-             the checked one. */}}
+        {{/* Only with generation backends or forks on. Each choice carries
+             what the page script needs: the profiles the project builds
+             with and its release-notes links. Radio buttons rather than a
+             drop-down: there are only a few, and some browsers drew the
+             drop-down's list partly off the page. hx-include="#build-project"
+             sends the checked one. */}}
         <fieldset id="build-project" class="project-choice"
-                  title="The source to build: llama.cpp (language models), stable-diffusion.cpp (images, sd-server) or acestep.cpp (music, ace-server).">
+                  title="The source to build: llama.cpp (language models), stable-diffusion.cpp (images, sd-server), acestep.cpp (music, ace-server) or a curated llama.cpp fork.">
             <legend>Project</legend>
             {{range $i, $p := .Projects}}
-            <label>
+            <label{{with $p.Notes}} title="{{.}}"{{end}}>
                 <input type="radio" name="project" value="{{$p.ID}}" {{if eq $i 0}}checked{{end}}
                        data-backends="{{$p.Backends}}" data-notes="{{$p.NotesURL}}" data-latest="{{$p.LatestNotesURL}}"
                        onchange="buildProjectChanged(this)">
-                {{$p.ID}}
+                {{$p.Label}}
             </label>
             {{end}}
         </fieldset>

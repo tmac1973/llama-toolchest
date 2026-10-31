@@ -138,6 +138,8 @@ bool llm_arch_supports_sm_tensor(const llm_arch & arch) {
 		{ID: "gone", GitSHA: "0123456789abcdef0123456789abcdef01234567", Status: BuildStatusSuccess},
 		{ID: "failed", GitSHA: sha, Status: BuildStatusFailed},
 		{ID: "recorded", GitSHA: sha, Status: BuildStatusSuccess, Archs: []string{"mamba"}},
+		// A fork's commit is not in the llama.cpp clone; it is left alone.
+		{ID: "avalon-fork", Project: "avalon", GitSHA: sha, Status: BuildStatusSuccess},
 	}}
 	b.BackfillArchs()
 
@@ -158,6 +160,10 @@ bool llm_arch_supports_sm_tensor(const llm_arch & arch) {
 	}
 	if !slices.Equal(got["recorded"], []string{"mamba"}) {
 		t.Errorf("a recorded list was replaced: %v", got["recorded"])
+	}
+
+	if br, ok := b.Find("avalon-fork"); !ok || br.Archs != nil {
+		t.Errorf("a fork build was read from the llama.cpp clone: %+v", br)
 	}
 
 	// And it was saved.
