@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -475,6 +476,19 @@ func (s *Server) runMusicJob(ctx context.Context, id string, inst generation.Ins
 	if err != nil {
 		fail("synthesizing", err)
 		return
+	}
+	// The song is as long as the LM's audio codes, which can end before or
+	// after the requested duration. Report the length of what was made,
+	// and the plan as planned_duration.
+	if secs, err := audioSeconds(audio); err == nil {
+		measured := maps.Clone(result)
+		if planned, ok := result["duration"]; ok {
+			measured["planned_duration"] = planned
+		}
+		measured["duration"] = secs
+		s.genMusic.update(id, func(j *musicJob) { j.Result = measured })
+	} else {
+		slog.Warn("music job: could not read the audio length", "job", id, "error", err)
 	}
 	setPhase(musicPhaseSaving)
 	if err := os.MkdirAll(s.musicDir(), 0o755); err != nil {

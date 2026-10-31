@@ -41,6 +41,8 @@ type fakeAce struct {
 	// hold keeps /lm jobs running until released; failLM fails them.
 	hold   chan struct{}
 	failLM bool
+	// audio is the synth result's audio; empty means "MP3DATA".
+	audio []byte
 }
 
 func newFakeAce(t *testing.T) *fakeAce {
@@ -100,7 +102,11 @@ func (f *fakeAce) serve(w http.ResponseWriter, r *http.Request) {
 		var buf bytes.Buffer
 		mw := multipart.NewWriter(&buf)
 		ap, _ := mw.CreatePart(textproto.MIMEHeader{"Content-Type": {"audio/mpeg"}})
-		ap.Write([]byte("MP3DATA"))
+		if f.audio != nil {
+			ap.Write(f.audio)
+		} else {
+			ap.Write([]byte("MP3DATA"))
+		}
 		lp, _ := mw.CreatePart(textproto.MIMEHeader{"Content-Type": {"application/octet-stream"}})
 		lp.Write([]byte("LATENT"))
 		mw.Close()
@@ -215,6 +221,40 @@ func TestMusicJobSucceeds(t *testing.T) {
 	}
 	if h := s.genQueue.History(0); len(h) != 1 || h[0].Kind != generation.KindAce {
 		t.Errorf("queue history %+v", h)
+	}
+}
+
+// A job reports the length of the audio made, which can differ from the
+// requested duration (issue #399), on both route sets.
+func TestMusicJobReportsTheAudioLength(t *testing.T) {
+	s, f := musicServer(t)
+	f.audio = testMP3(927)
+	id := createdID(t, postMusic(s, `{"model":"music","caption":"bright folk","duration":30}`))
+	j := waitMusic(t, s, id, musicSucceeded)
+	if j.Result["duration"] != 22.248 || j.Result["planned_duration"] != float64(30) {
+		t.Errorf("result = %v; want duration 22.248 and planned_duration 30", j.Result)
+	}
+
+	r := httptest.NewRequest("POST", "/", strings.NewReader(`{"task_id_list":["`+id+`"]}`))
+	rec := httptest.NewRecorder()
+	s.handleQueryResult(rec, r)
+	var out struct{ Data []struct{ Result string } }
+	json.Unmarshal(rec.Body.Bytes(), &out)
+	var items []struct{ Metas map[string]any }
+	json.Unmarshal([]byte(out.Data[0].Result), &items)
+	if items[0].Metas["duration"] != 22.248 {
+		t.Errorf("query_result metas = %v", items[0].Metas)
+	}
+}
+
+// When the audio cannot be read, the job still succeeds with the planned
+// duration.
+func TestMusicJobKeepsThePlanForUnreadableAudio(t *testing.T) {
+	s, _ := musicServer(t)
+	id := createdID(t, postMusic(s, `{"model":"music","caption":"bright folk","duration":30}`))
+	j := waitMusic(t, s, id, musicSucceeded)
+	if j.Result["duration"] != float64(30) || j.Result["planned_duration"] != nil {
+		t.Errorf("result = %v", j.Result)
 	}
 }
 
