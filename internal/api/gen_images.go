@@ -152,6 +152,17 @@ func (s *Server) editRefusal(inst generation.Instance) *requestError {
 // picks the sd-server instance for the request's model, waits its turn in
 // that GPU's queue, and forwards the request unchanged.
 func (s *Server) handleGenImages(w http.ResponseWriter, r *http.Request) {
+	var check func(generation.Instance) *requestError
+	if strings.HasSuffix(r.URL.Path, "/edits") {
+		check = s.editRefusal
+	}
+	s.serveGenSync(w, r, generation.KindSD, r.URL.Path, check)
+}
+
+// serveGenSync is a synchronous sd-server route: it picks the instance of
+// kind for the request's model, refuses the request if check (when not
+// nil) says so, waits for the GPU and forwards the body unchanged to path.
+func (s *Server) serveGenSync(w http.ResponseWriter, r *http.Request, kind generation.BackendKind, path string, check func(generation.Instance) *requestError) {
 	if !s.generationOn() || s.gen == nil {
 		writeNotEnabled(w, "image")
 		return
@@ -166,19 +177,16 @@ func (s *Server) handleGenImages(w http.ResponseWriter, r *http.Request) {
 		openAIError(w, http.StatusBadRequest, "invalid_request_error", "bad_request", err.Error())
 		return
 	}
-	inst, pe := s.pickInstance(model, generation.KindSD)
+	inst, pe := s.pickInstance(model, kind)
+	if pe == nil && check != nil {
+		pe = check(inst)
+	}
 	if pe != nil {
 		writeRequestError(w, pe)
 		return
 	}
-	if strings.HasSuffix(r.URL.Path, "/edits") {
-		if pe := s.editRefusal(inst); pe != nil {
-			writeRequestError(w, pe)
-			return
-		}
-	}
 
-	ticket, err := s.genQueue.Submit(inst.GPU, inst.ID, generation.KindSD)
+	ticket, err := s.genQueue.Submit(inst.GPU, inst.ID, kind)
 	if err != nil {
 		writeQueueError(w, err)
 		return
@@ -191,16 +199,16 @@ func (s *Server) handleGenImages(w http.ResponseWriter, r *http.Request) {
 		openAIError(w, http.StatusServiceUnavailable, "server_error", "backend_unavailable", err.Error())
 		return
 	}
-	s.forwardToInstance(w, r, inst, body)
+	s.forwardToInstance(w, r, inst, path, body)
 }
 
-// forwardToInstance sends a request to an instance and copies the answer
-// back. The upstream request is not tied to the client: if the client
+// forwardToInstance sends a request to an instance at path and copies the
+// answer back. The upstream request is not tied to the client: if the client
 // goes away mid-generation the backend still finishes (sd-server cannot be
 // cancelled on its OpenAI route), so the GPU's queue slot is held until
 // the GPU is really free.
-func (s *Server) forwardToInstance(w http.ResponseWriter, r *http.Request, inst generation.Instance, body []byte) {
-	resp, err := forwardImage(context.WithoutCancel(r.Context()), inst, r.URL.Path, r.Header.Get("Content-Type"), r.Header.Get("Accept"), body)
+func (s *Server) forwardToInstance(w http.ResponseWriter, r *http.Request, inst generation.Instance, path string, body []byte) {
+	resp, err := forwardImage(context.WithoutCancel(r.Context()), inst, path, r.Header.Get("Content-Type"), r.Header.Get("Accept"), body)
 	if err != nil {
 		openAIError(w, http.StatusBadGateway, "server_error", "backend_error", err.Error())
 		return
@@ -220,9 +228,9 @@ func (s *Server) forwardToInstance(w http.ResponseWriter, r *http.Request, inst 
 	}
 }
 
-// forwardImage sends an image request to an sd-server instance, at the
-// same path it came in on. The synchronous routes and image jobs share
-// it; the caller closes the response body.
+// forwardImage sends an image request to an sd-server instance at path.
+// The synchronous routes and image jobs share it; the caller closes the
+// response body.
 func forwardImage(ctx context.Context, inst generation.Instance, path, contentType, accept string, body []byte) (*http.Response, error) {
 	url := inst.BaseURL() + path
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))

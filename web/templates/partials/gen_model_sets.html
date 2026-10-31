@@ -86,9 +86,10 @@
                     <option value="sd">Image (stable-diffusion.cpp)</option>
                     <option value="video">Video (stable-diffusion.cpp)</option>
                     <option value="ace">Music (acestep.cpp)</option>
+                    <option value="upscale">Upscaler (stable-diffusion.cpp)</option>
                 </select>
             </label>
-            <label title="The sd-server recipe of the files. It sets which files are needed. Image recipes for image sets, video recipes for video sets. Not for music sets.">Recipe
+            <label title="The sd-server recipe of the files. It sets which files are needed. Image recipes for image sets, video recipes for video sets. Not for music or upscaler sets.">Recipe
                 <select name="recipe">
                     <optgroup label="Image">
                     {{- range .Recipes}}<option value="{{.}}">{{.}}</option>{{end}}
@@ -99,14 +100,14 @@
                 </select>
             </label>
         </div>
-        <label title="One file per line: slot = /absolute/path. The recipe sets which slots are needed. Image slots: diffusion_model, model, llm, llm_vision, tokenizer, vae, tae, clip_l, t5xxl. Video slots: diffusion_model, high_noise_diffusion_model, t5xxl, llm, clip_vision, embeddings_connectors, vae, tae, audio_vae. Music slots: lm, dit, embedding, vae (all needed).">Files
+        <label title="One file per line: slot = /absolute/path. The recipe sets which slots are needed. Image slots: diffusion_model, model, llm, llm_vision, tokenizer, vae, tae, clip_l, t5xxl. Video slots: diffusion_model, high_noise_diffusion_model, t5xxl, llm, clip_vision, embeddings_connectors, vae, tae, audio_vae. Music slots: lm, dit, embedding, vae (all needed). Upscaler slot: upscaler (an ESRGAN .pth or .safetensors file).">Files
             <textarea name="files" rows="4" placeholder="diffusion_model = /models/qwen-image-2.1-turbo-Q4_K_M.gguf&#10;llm = /models/Qwen3VL-8B-Instruct-Q4_K_M.gguf&#10;vae = /models/qwen_image_2.1_vae_bf16.safetensors"></textarea>
         </label>
         <div class="grid">
-            <label title="Size of the Measure test run. Empty: 1024 for image sets, 832×480 for video sets. Not for music sets.">Test width
+            <label title="Size of the Measure test run. Empty: 1024 for image sets, 832×480 for video sets. Not for music or upscaler sets.">Test width
                 <input type="number" name="width" min="64" step="8" placeholder="1024 / 832">
             </label>
-            <label title="Size of the Measure test run. Empty: 1024 for image sets, 832×480 for video sets. Not for music sets.">Test height
+            <label title="Size of the Measure test run. Empty: 1024 for image sets, 832×480 for video sets. Not for music or upscaler sets.">Test height
                 <input type="number" name="height" min="64" step="8" placeholder="1024 / 480">
             </label>
             <label title="Length of the Measure test video, in frames. sd-server rounds it down to 4n+1. Video sets only.">Test frames

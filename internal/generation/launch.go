@@ -134,9 +134,21 @@ func LaunchSpec(inst Instance, set ModelSet, build builder.BuildResult, host, da
 			args = append(args, "--max-vram", maxVRAMGiB(inst.ReservedMiB))
 		}
 		cfg.Name, cfg.HealthURL = "sd-server:"+inst.ID, base+"/v1/models"
+	case KindUpscale:
+		// sd-server starts without a diffusion model and offers every
+		// ESRGAN file in --hires-upscalers-dir on /sdcpp/v1/upscale. It
+		// loads the upscaler for each request, so it takes no --max-vram.
+		dir := filepath.Join(InstanceDir(dataDir, inst.ID), "upscalers")
+		if err := linkModelFiles(dir, set); err != nil {
+			return cfg, err
+		}
+		args = []string{"--listen-ip", host, "--listen-port", port, "--hires-upscalers-dir", dir}
+		args = append(args, set.RunArgs()...)
+		args = append(args, inst.ExtraArgs...)
+		cfg.Name, cfg.HealthURL = "sd-server:"+inst.ID, base+"/v1/models"
 	case KindAce:
 		modelsDir := filepath.Join(InstanceDir(dataDir, inst.ID), "models")
-		if err := linkAceModels(modelsDir, set); err != nil {
+		if err := linkModelFiles(modelsDir, set); err != nil {
 			return cfg, err
 		}
 		// No --keep-loaded: loading one part at a time peaked at about
@@ -172,10 +184,10 @@ func maxVRAMGiB(mib int) string {
 	return fmt.Sprintf("%d.%d", tenths/10, tenths%10)
 }
 
-// linkAceModels fills dir with links to an ACE-Step set's four files, and
-// nothing else: ace-server loads whatever GGUF files its --models directory
-// holds.
-func linkAceModels(dir string, set ModelSet) error {
+// linkModelFiles fills dir with links to a set's files, and nothing else:
+// ace-server loads whatever GGUF files its --models directory holds, and
+// sd-server offers every file in its --hires-upscalers-dir.
+func linkModelFiles(dir string, set ModelSet) error {
 	if err := os.RemoveAll(dir); err != nil {
 		return err
 	}

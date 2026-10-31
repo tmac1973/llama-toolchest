@@ -313,6 +313,10 @@ func TestV1ModelsMetaAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	addInstance(t, s, generation.Instance{ID: "klein", ModelSetID: "klein", Port: 8082, Enabled: true, ReservedMiB: 4096})
+	if err := s.gen.AddModelSet(generation.ModelSet{ID: "esrgan", Name: "esrgan", Kind: generation.KindUpscale}); err != nil {
+		t.Fatal(err)
+	}
+	addInstance(t, s, generation.Instance{ID: "esrgan", ModelSetID: "esrgan", Port: 8083, Enabled: true, ReservedMiB: 1024})
 	if err := s.registry.Add(&models.Model{ID: "chat", ModelID: "org/chat", Filename: "chat.gguf"}); err != nil {
 		t.Fatal(err)
 	}
@@ -326,9 +330,10 @@ func TestV1ModelsMetaAPI(t *testing.T) {
 	}
 	json.Unmarshal(rec.Body.Bytes(), &out)
 	want := map[string]string{
-		"ming":  "[images.sync images.jobs]",
-		"klein": "[images.sync images.jobs images.edits images.jobs.edits]",
-		"music": "[music.jobs music.ace_step]",
+		"ming":   "[images.sync images.jobs]",
+		"klein":  "[images.sync images.jobs images.edits images.jobs.edits]",
+		"music":  "[music.jobs music.ace_step]",
+		"esrgan": "[images.upscale]",
 	}
 	for _, m := range out.Data {
 		api, has := m.Meta["api"]
@@ -344,7 +349,7 @@ func TestV1ModelsMetaAPI(t *testing.T) {
 			t.Errorf("text entry %s has meta.api %v", m.ID, api)
 		}
 	}
-	if len(want) != 0 || len(out.Data) != 4 {
+	if len(want) != 0 || len(out.Data) != 5 {
 		t.Errorf("missing entries: %v (list %s)", want, rec.Body.String())
 	}
 }
@@ -358,15 +363,20 @@ func TestV1ModelsKindFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 	addInstance(t, s, generation.Instance{ID: "wan", ModelSetID: "wan", Port: 8082, Enabled: true, ReservedMiB: 4096})
+	if err := s.gen.AddModelSet(generation.ModelSet{ID: "esrgan", Name: "esrgan", Kind: generation.KindUpscale}); err != nil {
+		t.Fatal(err)
+	}
+	addInstance(t, s, generation.Instance{ID: "esrgan", ModelSetID: "esrgan", Port: 8083, Enabled: true, ReservedMiB: 1024})
 	if err := s.registry.Add(&models.Model{ID: "chat", ModelID: "org/chat", Filename: "chat.gguf"}); err != nil {
 		t.Fatal(err)
 	}
 	for kind, want := range map[string]string{
-		"":      "[ming music org-chat wan]",
-		"text":  "[org-chat]",
-		"image": "[ming]",
-		"video": "[wan]",
-		"music": "[music]",
+		"":        "[esrgan ming music org-chat wan]",
+		"text":    "[org-chat]",
+		"image":   "[ming]",
+		"video":   "[wan]",
+		"music":   "[music]",
+		"upscale": "[esrgan]",
 	} {
 		rec := httptest.NewRecorder()
 		s.handleV1Models(rec, httptest.NewRequest("GET", "/v1/models?kind="+kind, nil))

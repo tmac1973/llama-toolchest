@@ -17,7 +17,8 @@ info:
       which loads the model on the first request.
     - **Images** use the OpenAI routes `/v1/images/generations` and
       `/v1/images/edits`, which wait for the result, or image jobs, which
-      answer at once with a job ID.
+      answer at once with a job ID. `/v1/images/upscale` makes an image
+      larger with an upscaler set.
     - **Video** and **music** have no standard API, so they use jobs:
       create a job, check it until it has finished, then download the file.
     - **ACE-Step routes** (`/release_task`, `/query_result`, `/v1/audio`)
@@ -122,7 +123,7 @@ paths:
             is listed.
           schema:
             type: string
-            enum: [text, image, video, music]
+            enum: [text, image, video, music, upscale]
       responses:
         "200":
           description: The model list.
@@ -453,6 +454,103 @@ paths:
                 $ref: "#/components/schemas/ImagesResponse"
         "400":
           description: "`bad_request`, `model_required` or `edits_not_supported`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/GenNotFound"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "429":
+          $ref: "#/components/responses/QueueFull"
+        "500":
+          $ref: "#/components/responses/ServerError"
+        "502":
+          description: "`backend_error`: the request to sd-server failed."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/BackendUnavailable"
+
+  /v1/images/upscale:
+    post:
+      tags: [Images]
+      operationId: upscaleImage
+      summary: Upscale an image (waits)
+      description: |
+        Makes an image larger and sharper with an upscaler instance
+        (`meta.kind` `upscale`), such as the Real-ESRGAN x4plus set: four
+        times wider and higher per run. There is no prompt. The JSON body
+        goes to sd-server's `/sdcpp/v1/upscale` unchanged, and its answer
+        comes back unchanged. The result has no transparency.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                model:
+                  type: string
+                  description: An upscaler instance or set. Optional when only one upscaler instance can take the request. `GET /v1/models?kind=upscale` lists the choices.
+                image:
+                  type: string
+                  description: The image, base64-encoded or as a data URL.
+                upscaler:
+                  type: string
+                  description: Which of the instance's upscalers to use. Left out, its first one.
+                repeats:
+                  type: integer
+                  minimum: 1
+                  maximum: 4
+                  description: Run the upscaler this many times (default 1). The result may be at most 8192 pixels on each side.
+                output_format:
+                  type: string
+                  enum: [png, jpeg, webp]
+                output_compression:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+            example:
+              model: real-esrgan-x4plus
+              image: iVBORw0KGgo…
+      responses:
+        "200":
+          description: sd-server's answer, passed on unchanged.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  images:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        index:
+                          type: integer
+                        b64_json:
+                          type: string
+                  upscaler:
+                    type: string
+                  scale:
+                    type: integer
+                  repeats:
+                    type: integer
+                  width:
+                    type: integer
+                  height:
+                    type: integer
+                  output_format:
+                    type: string
+        "400":
+          description: "`bad_request` or `model_required`; or sd-server's own `{\"error\": …}` for an image it cannot read or a result over 8192 pixels."
           content:
             application/json:
               schema:
@@ -1430,13 +1528,13 @@ components:
       properties:
         kind:
           type: string
-          enum: [image, video, music]
+          enum: [image, video, music, upscale]
         model_set:
           type: string
           description: The model set's ID, which also works as `model`.
         recipe:
           type: string
-          description: The sd-server recipe; empty for music.
+          description: The sd-server recipe; empty for music and upscale.
         capabilities:
           type: array
           items:
@@ -1457,13 +1555,14 @@ components:
           type: array
           items:
             type: string
-            enum: [images.sync, images.jobs, images.edits, images.jobs.edits, video.jobs, video.sync, music.jobs, music.ace_step]
+            enum: [images.sync, images.jobs, images.edits, images.jobs.edits, images.upscale, video.jobs, video.sync, music.jobs, music.ace_step]
           description: |
             The routes that serve this instance: `images.sync`
             (`/v1/images/generations`), `images.jobs`, `images.edits`,
             `images.jobs.edits` (`/v1/images/jobs` takes a multipart edit
             form; listed with `images.edits`, and missing on versions that
-            took only JSON jobs), `video.jobs`, `video.sync`
+            took only JSON jobs), `images.upscale` (`/v1/images/upscale`,
+            upscaler instances only), `video.jobs`, `video.sync`
             (`/v1/videos/generations`), `music.jobs` and `music.ace_step`
             (the ACE-Step compatible routes). Versions before this field
             existed had only the synchronous image routes and music jobs.

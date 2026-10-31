@@ -132,10 +132,10 @@ func projects() []Project {
 func Projects() []Project { return projects() }
 
 // ProjectForKind returns the project that builds a generation backend
-// kind. Video sets ("video") run stable-diffusion.cpp's sd-server, so they
-// use its project.
+// kind. Video and upscaler sets ("video", "upscale") run
+// stable-diffusion.cpp's sd-server, so they use its project.
 func ProjectForKind(kind string) (Project, bool) {
-	if kind == "video" {
+	if kind == "video" || kind == "upscale" {
 		kind = "sd"
 	}
 	for _, p := range projects() {

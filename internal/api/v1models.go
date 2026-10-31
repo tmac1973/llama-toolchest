@@ -65,7 +65,7 @@ func (s *Server) openAIModel(m *models.Model, cfg *models.ModelConfig) map[strin
 }
 
 // v1ModelKinds are the meta.kind values /v1/models?kind= accepts.
-var v1ModelKinds = []string{"text", "image", "video", "music"}
+var v1ModelKinds = []string{"text", "image", "video", "music", "upscale"}
 
 // handleV1Models returns an OpenAI-compatible model list with meta extensions.
 // ?kind= keeps only the models of one meta.kind.
@@ -73,7 +73,7 @@ func (s *Server) handleV1Models(w http.ResponseWriter, r *http.Request) {
 	kind := r.URL.Query().Get("kind")
 	if kind != "" && !slices.Contains(v1ModelKinds, kind) {
 		writeOpenAIError(w, http.StatusBadRequest, "invalid_kind",
-			fmt.Sprintf("unknown kind %q: use text, image, video or music", kind))
+			fmt.Sprintf("unknown kind %q: use text, image, video, music or upscale", kind))
 		return
 	}
 
@@ -104,10 +104,10 @@ func (s *Server) handleV1Models(w http.ResponseWriter, r *http.Request) {
 }
 
 // genV1Models lists the generation instances that can take requests as
-// models, with meta.kind "image", "video" or "music": enabled, with a VRAM
-// reservation (pickInstance refuses any other). Clients that only chat
-// should skip kinds other than "text". Empty while generation backends
-// are off.
+// models, with meta.kind "image", "video", "music" or "upscale": enabled,
+// with a VRAM reservation (pickInstance refuses any other). Clients that
+// only chat should skip kinds other than "text". Empty while generation
+// backends are off.
 func (s *Server) genV1Models() []map[string]any {
 	if !s.generationOn() || s.gen == nil {
 		return nil
@@ -146,6 +146,8 @@ func (s *Server) genV1Model(inst generation.Instance) map[string]any {
 		api = []string{"music.jobs", "music.ace_step"}
 	case generation.KindVideo:
 		api = []string{"video.jobs", "video.sync"}
+	case generation.KindUpscale:
+		api = []string{"images.upscale"}
 	}
 	meta := map[string]any{
 		"kind":         kind,
@@ -259,6 +261,8 @@ func genKindLabel(k generation.BackendKind) string {
 		return "music"
 	case generation.KindVideo:
 		return "video"
+	case generation.KindUpscale:
+		return "upscale"
 	}
 	return "image"
 }

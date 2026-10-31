@@ -1,8 +1,12 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
+	"image"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -73,5 +77,34 @@ func TestMeasureEditsWhenTheSetCanEdit(t *testing.T) {
 		if len(tc.caps) > 0 && (editImg != "PNGDATA" || editSize != "1024x768") {
 			t.Errorf("edit got image %q at %q, want the generated image at 1024x768", editImg, editSize)
 		}
+	}
+}
+
+// An upscaler set is measured with one upscale of a 1024x1024 PNG.
+func TestMeasureUpscaler(t *testing.T) {
+	var paths []string
+	var size image.Point
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		var req struct {
+			Image string `json:"image"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		raw, _ := base64.StdEncoding.DecodeString(req.Image)
+		if cfg, err := png.DecodeConfig(bytes.NewReader(raw)); err == nil {
+			size = image.Pt(cfg.Width, cfg.Height)
+		}
+		w.Write([]byte(`{"images":[{"index":0,"b64_json":"eA=="}]}`))
+	}))
+	defer fake.Close()
+	u, _ := url.Parse(fake.URL)
+	port, _ := strconv.Atoi(u.Port())
+	s := &Server{}
+	set := generation.ModelSet{Kind: generation.KindUpscale}
+	if err := s.runMeasureGeneration(context.Background(), generation.Instance{ID: "x", Port: port}, set, generation.VideoSize{}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(paths, []string{"/sdcpp/v1/upscale"}) || size != image.Pt(1024, 1024) {
+		t.Errorf("requests %v with a %v image, want one upscale of a 1024x1024 PNG", paths, size)
 	}
 }

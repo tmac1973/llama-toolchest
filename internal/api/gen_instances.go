@@ -408,7 +408,8 @@ func (s *Server) genFormChoices(store *generation.Store) genFormData {
 			data.Sets = append(data.Sets, m)
 		}
 	}
-	// Video sets run on sd builds, so the sd list covers them too.
+	// Video and upscaler sets run on sd builds, so the sd list covers them
+	// too.
 	for _, kind := range []generation.BackendKind{generation.KindSD, generation.KindAce} {
 		data.Builds[kind] = s.genBuildsFor(kind)
 	}
@@ -430,7 +431,7 @@ func (s *Server) genFormChoicesFor(data genFormData, set generation.ModelSet) ge
 	data.ForSet = &set
 	data.Sets, data.Missing = []generation.ModelSet{set}, nil
 	kind := set.Kind
-	if kind == generation.KindVideo {
+	if kind == generation.KindVideo || kind == generation.KindUpscale {
 		kind = generation.KindSD
 	}
 	data.Builds = map[generation.BackendKind][]builder.BuildResult{kind: data.Builds[kind]}

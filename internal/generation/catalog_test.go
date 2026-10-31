@@ -76,6 +76,9 @@ func TestValidateComponents(t *testing.T) {
 	if err := ValidateComponents(KindSD, "ming-image", ok); err != nil {
 		t.Errorf("valid Ming-Image set: %v", err)
 	}
+	if err := ValidateComponents(KindUpscale, "", []Component{{Slot: UpscalerSlot}}); err != nil {
+		t.Errorf("valid upscaler set: %v", err)
+	}
 	for name, tc := range map[string]struct {
 		kind   BackendKind
 		recipe string
@@ -88,6 +91,8 @@ func TestValidateComponents(t *testing.T) {
 		"repeated slot":    {KindSD, "sdxl-checkpoint", []Component{{Slot: "model"}, {Slot: "model"}}, "given twice"},
 		"unknown recipe":   {KindSD, "dalle", nil, "unknown recipe"},
 		"ace incomplete":   {KindAce, "", []Component{{Slot: "lm"}, {Slot: "dit"}}, `needs a "embedding"`},
+		"upscaler empty":   {KindUpscale, "", nil, `needs a "upscaler"`},
+		"upscaler extra":   {KindUpscale, "", []Component{{Slot: UpscalerSlot}, {Slot: "vae"}}, `slot "vae" is not used by an upscaler set`},
 	} {
 		err := ValidateComponents(tc.kind, tc.recipe, tc.comps)
 		if err == nil || !strings.Contains(err.Error(), tc.want) {

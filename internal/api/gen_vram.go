@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"log/slog"
 	"mime/multipart"
 	"net/http"
@@ -1182,7 +1185,8 @@ func (s *Server) gpuUsedMiB(gpu int) int {
 }
 
 // runMeasureGeneration sends the instance one fixed generation directly:
-// an image at the set's test size, or a 60-second song. A set that can
+// an image at the set's test size, a 60-second song, or an upscale of a
+// 1024x1024 image. A set that can
 // edit then also edits the image it just made: an edit holds the
 // reference image as well, and on Qwen-Image-Edit 2511 it peaked at
 // about 21 GiB against 17.4 GiB for a plain image (R9700, 2026-10-25),
@@ -1191,6 +1195,16 @@ func (s *Server) runMeasureGeneration(ctx context.Context, inst generation.Insta
 	base := inst.BaseURL()
 	if set.Kind == generation.KindVideo {
 		return runMeasureVideo(ctx, base, set, size)
+	}
+	if set.Kind == generation.KindUpscale {
+		img, err := measureUpscaleImage()
+		if err != nil {
+			return err
+		}
+		_, _, err = postJSON(ctx, base+"/sdcpp/v1/upscale", map[string]any{
+			"image": base64.StdEncoding.EncodeToString(img),
+		})
+		return err
 	}
 	if set.Kind == generation.KindSD {
 		w, h := max(set.DefaultWidth, 64), max(set.DefaultHeight, 64)
@@ -1232,6 +1246,25 @@ func (s *Server) runMeasureGeneration(ctx context.Context, inst generation.Insta
 	req["output_format"] = "mp3"
 	_, _, err = runAceJob(ctx, base, "/synth", req, nil)
 	return err
+}
+
+// measureUpscaleImage is the 1024x1024 test image an upscaler instance is
+// measured with: a colour gradient, as the upscaler has no prompt to make
+// one from. sd-server tiles the image, so its content hardly changes the
+// peak.
+func measureUpscaleImage() ([]byte, error) {
+	const n = 1024
+	img := image.NewRGBA(image.Rect(0, 0, n, n))
+	for y := range n {
+		for x := range n {
+			img.Set(x, y, color.RGBA{uint8(x / 4), uint8(y / 4), uint8((x + y) / 8), 255})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return nil, fmt.Errorf("making the test image: %w", err)
+	}
+	return buf.Bytes(), nil
 }
 
 // measureTimeout caps a measured test run, from launching the backend to
