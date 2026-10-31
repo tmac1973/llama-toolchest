@@ -253,10 +253,10 @@ func TestSDKeepsRuntimeLibraryPath(t *testing.T) {
 	}
 }
 
-// Video sets run sd-server, so the video kind uses stable-diffusion.cpp's
-// builds.
+// Video and upscaler sets run sd-server, so those kinds use
+// stable-diffusion.cpp's builds.
 func TestProjectForKind(t *testing.T) {
-	for kind, want := range map[string]string{"video": ProjectSDCpp, "sd": ProjectSDCpp, "ace": ProjectAceStep} {
+	for kind, want := range map[string]string{"video": ProjectSDCpp, "upscale": ProjectSDCpp, "sd": ProjectSDCpp, "ace": ProjectAceStep} {
 		if p, ok := ProjectForKind(kind); !ok || p.ID != want {
 			t.Errorf("ProjectForKind(%q) = %s, %v; want %s", kind, p.ID, ok, want)
 		}

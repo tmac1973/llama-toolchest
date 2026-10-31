@@ -135,6 +135,35 @@ func TestLaunchSpecAceLinksItsFiles(t *testing.T) {
 	}
 }
 
+// An upscaler set runs sd-server with no model flags: its file is linked
+// into the folder sd-server scans for upscalers, and there is no
+// --max-vram, as sd-server loads the upscaler for each request.
+func TestLaunchSpecUpscaler(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "RealESRGAN_x4plus.safetensors")
+	if err := os.WriteFile(file, []byte("esrgan"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	set := ModelSet{ID: "esrgan", Kind: KindUpscale, Complete: true, Components: []Component{{Slot: UpscalerSlot, Path: file}}}
+	data := t.TempDir()
+
+	cfg, err := LaunchSpec(Instance{ID: "up", Port: 8085, ReservedMiB: 1024}, set,
+		builder.BuildResult{ID: "sd-b", Profile: "rocm", BinaryPath: "/b/sd-server"}, "0.0.0.0", data, LaunchOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(InstanceDir(data, "up"), "upscalers")
+	want := []string{"--listen-ip", "0.0.0.0", "--listen-port", "8085", "--hires-upscalers-dir", dir}
+	if !slices.Equal(cfg.Args, want) {
+		t.Errorf("args = %q, want %q", cfg.Args, want)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "RealESRGAN_x4plus.safetensors")); string(got) != "esrgan" {
+		t.Errorf("upscaler link reads %q", got)
+	}
+	if cfg.HealthURL != "http://127.0.0.1:8085/v1/models" {
+		t.Errorf("health = %q", cfg.HealthURL)
+	}
+}
+
 func TestLaunchSpecRefusals(t *testing.T) {
 	incomplete := mingSet()
 	incomplete.Complete = false

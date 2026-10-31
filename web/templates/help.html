@@ -328,6 +328,7 @@
             <tr><td>HunyuanVideo 1.5 720p (I2V CFG-distilled, I2V, T2V)</td><td>Video from text or a start image</td><td class="num">13–14.5 GiB</td><td title="Not tried on the A4000. It shares its code with the step-distilled set, which crashed there at the start of every video (CUDA).">Crashes (expected)</td><td>Short only: 33 frames, 1280×720</td><td>~37 min Short (I2V CFG-distilled), ~70 min (T2V)</td><td>The 720p decode needs 31.4 GB, so it is done in smaller pieces. 65 frames ran out of memory; 121 frames crashed in stable-diffusion.cpp</td></tr>
             <tr><td>ACE-Step 1.5 XL SFT</td><td>Music</td><td class="num">8.0 GiB</td><td>–</td><td></td><td></td><td></td></tr>
             <tr><td>ACE-Step 1.5 turbo</td><td>Music</td><td>–</td><td class="num">7.5 GiB</td><td></td><td>~13 s per 60 s song (A4000)</td><td></td></tr>
+            <tr><td>Real-ESRGAN x4plus</td><td>Upscales images 4×</td><td class="num">1.0 GiB</td><td>–</td><td>1024² test image</td><td>~13 s for 768² to 3072²</td><td>No prompt. The result has no transparency</td></tr>
         </tbody>
     </table>
     </div>
@@ -363,6 +364,7 @@
         <thead><tr><th>Kind</th><th>Wait for the result</th><th>Job (answers at once with an ID)</th><th>Download</th></tr></thead>
         <tbody>
             <tr><td>Image</td><td><code>POST /v1/images/generations</code>, <code>/v1/images/edits</code></td><td><code>POST /v1/images/jobs</code></td><td><code>…/jobs/{id}/image/0</code></td></tr>
+            <tr><td>Upscale</td><td><code>POST /v1/images/upscale</code></td><td>–</td><td>In the answer</td></tr>
             <tr><td>Video</td><td><code>POST /v1/videos/generations</code></td><td><code>POST /v1/videos/jobs</code></td><td><code>…/jobs/{id}/video</code></td></tr>
             <tr><td>Music</td><td>–</td><td><code>POST /v1/music/jobs</code>, or the ACE-Step routes <code>/release_task</code>, <code>/query_result</code>, <code>/v1/audio</code></td><td><code>…/jobs/{id}/audio</code></td></tr>
         </tbody>
@@ -372,6 +374,7 @@
         <li><strong>Jobs:</strong> <code>GET</code> a job until <code>status</code> is <code>succeeded</code>, <code>failed</code> or <code>cancelled</code>. <code>phase</code> shows progress (<code>starting</code>, <code>queued</code>, <code>generating</code> or <code>composing</code>/<code>synthesizing</code>, <code>saving</code>) and <code>queue_position</code> the jobs ahead. <code>GET /v1/{images,videos,music}/jobs?status=…</code> lists jobs.</li>
         <li><code>DELETE</code> cancels an unfinished job or deletes a finished one. A running image cannot stop; a running video can. Results stay 24 hours (videos: at most 50). Jobs survive a restart, but unfinished ones show <code>failed</code>.</li>
         <li><strong>Image:</strong> a job takes the JSON of <code>/v1/images/generations</code>, or the multipart form of <code>/v1/images/edits</code> for an edit. Edits need a set with the <code>edit</code> capability.</li>
+        <li><strong>Upscale:</strong> JSON with <code>image</code> (base64) and, if you like, <code>repeats</code> (1–4). It needs an upscaler set, such as Real-ESRGAN x4plus: each run makes the image 4 times wider and higher, up to 8192 pixels. The result has no transparency.</li>
         <li><strong>Video:</strong> JSON or multipart with <code>prompt</code>, <code>size</code>, <code>frames</code> or <code>seconds</code>, <code>fps</code>, <code>start_image</code>, <code>end_image</code>, <code>output_format</code> (<code>webm</code>, with sound for LTX-2.3, or <code>webp</code>), <code>extra</code>. Requests above the measured size are refused (<code>over_measured_size</code>).</li>
         <li><strong>Music:</strong> <code>caption</code>, <code>lyrics</code>, <code>duration</code>. To work on an existing song, set <code>task_type</code> (<code>cover</code>, <code>repaint</code>, <code>lego</code>, <code>extract</code>, <code>complete</code>) and post it as multipart with an <code>audio</code> part. <code>lego</code>, <code>extract</code> and <code>complete</code> need a base model.</li>
     </ul>
@@ -381,6 +384,8 @@
 curl $BASE/v1/images/jobs/3f9c…
 curl -o fox.png $BASE/v1/images/jobs/3f9c…/image/0
 curl $BASE/v1/images/jobs -F model=qwen-image-edit-2511 -F prompt="make the fox blue" -F "image[]=@fox.png"
+jq -n --rawfile img &lt;(base64 -w0 fox.png) '{model: "real-esrgan-x4plus", image: $img}' |
+  curl $BASE/v1/images/upscale -H "Content-Type: application/json" -d @- | jq -r '.images[0].b64_json' | base64 -d &gt; fox-4x.png
 
 curl $BASE/v1/videos/generations -F prompt="the waves start to roll" -F start_image=@photo.png</pre>
     <p><strong>Transparent backgrounds with Ming-Image</strong> need both: a prompt that starts with <code>RGBA, 4-channel, transparent background.</code>, and a fully transparent start image of the output size at strength 0.9, in an <code>&lt;sd_cpp_extra_args&gt;</code> block (84–89% of pixels came back clear):</p>

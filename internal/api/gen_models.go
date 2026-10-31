@@ -316,7 +316,7 @@ func (s *Server) handleGenCreateSet(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.FormValue("name"))
 	kind := generation.BackendKind(r.FormValue("kind"))
 	recipe := r.FormValue("recipe")
-	if kind == generation.KindAce {
+	if kind == generation.KindAce || kind == generation.KindUpscale {
 		recipe = ""
 	}
 	set := generation.ModelSet{

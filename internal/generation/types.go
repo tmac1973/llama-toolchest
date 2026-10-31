@@ -20,6 +20,10 @@ const (
 	KindVideo BackendKind = "video"
 	// KindAce is acestep.cpp's ace-server (music).
 	KindAce BackendKind = "ace"
+	// KindUpscale also runs sd-server, with no diffusion model: only an
+	// ESRGAN upscaler, for /v1/images/upscale. It needs about 1 GiB of
+	// VRAM, so it is a set of its own rather than part of an image set.
+	KindUpscale BackendKind = "upscale"
 )
 
 // Component is one file of a model set.
@@ -27,7 +31,7 @@ type Component struct {
 	// Slot is the role of the file. For sd it is an sd-server recipe slot
 	// such as "diffusion_model", "llm", "tokenizer" or "vae", or a LoRA
 	// slot ("lora", "high_noise_lora"; see LoraSlots); for ace it is
-	// "lm", "dit", "embedding" or "vae".
+	// "lm", "dit", "embedding" or "vae"; for upscale it is "upscaler".
 	Slot string `json:"slot"`
 	// Repo and File locate the file on Hugging Face. Both are empty for a
 	// custom set made from files already on disk.

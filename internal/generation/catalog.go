@@ -193,7 +193,8 @@ func hunyuanGGUF(repo, file string) Component {
 // Catalog returns the built-in model sets. File sizes were read from the
 // Hugging Face tree API on 2026-10-24 (2026-10-25 for Z-Image Turbo,
 // FLUX.3 Image Klein, Chroma1-HD, Chroma1-Flash and Qwen-Image-Edit 2511;
-// 2026-10-26 for Wan2.2 TI2V 5B; 2026-10-31 for Qwen3-VL's picture reader);
+// 2026-10-26 for Wan2.2 TI2V 5B; 2026-10-31 for Qwen3-VL's picture reader
+// and Real-ESRGAN);
 // launch settings for Qwen-Image 2.1 Turbo and ACE-Step XL SFT are the
 // ones measured on asmodean on 2026-10-24.
 func Catalog() []CatalogEntry {
@@ -636,6 +637,16 @@ func Catalog() []CatalogEntry {
 			Components: aceComponents("acestep-v15-xl-base-Q8_0.gguf", 5305828704),
 			License:    "MIT",
 			Notes:      "The set that can add, pull out or complete instruments in a song, 50 steps. Shares three files with the other ACE-Step sets.",
+		},
+		{
+			ID:   "real-esrgan-x4plus",
+			Name: "Real-ESRGAN x4plus",
+			Kind: KindUpscale,
+			Components: []Component{
+				{Slot: UpscalerSlot, Repo: "Comfy-Org/Real-ESRGAN", File: "RealESRGAN_x4plus.safetensors", Bytes: 66857836},
+			},
+			License: "BSD-3-Clause",
+			Notes:   "Makes an image 4 times larger and sharper, for /v1/images/upscale; no prompt. 768×768 to 3072×3072 in about 13 s on a Radeon AI PRO R9700, with about 1 GiB of VRAM. The result has no transparency.",
 		},
 	}
 }

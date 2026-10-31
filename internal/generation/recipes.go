@@ -188,6 +188,10 @@ func keys[V any](m map[string]V) []string {
 // AceSlots are the four files every ACE-Step set needs.
 var AceSlots = []string{"lm", "dit", "embedding", "vae"}
 
+// UpscalerSlot is the one slot of an upscaler set: an ESRGAN model file
+// (.pth or .safetensors).
+const UpscalerSlot = "upscaler"
+
 // RecipeCapabilities returns the capabilities a custom set gets from its
 // recipe and files: alpha output for Ming-Image, and editing for the
 // recipes whose sd.cpp docs describe it. Qwen-Image edits need the vision
@@ -238,6 +242,8 @@ func ValidateComponents(kind BackendKind, recipe string, comps []Component) erro
 		slots = r.Slots
 	case KindAce:
 		slots = RecipeSlotSet{Required: AceSlots}
+	case KindUpscale:
+		slots = RecipeSlotSet{Required: []string{UpscalerSlot}}
 	default:
 		return fmt.Errorf("unknown backend kind %q", kind)
 	}
@@ -266,6 +272,8 @@ func describeSet(kind BackendKind, recipe string) string {
 	switch kind {
 	case KindAce:
 		return "an ACE-Step set"
+	case KindUpscale:
+		return "an upscaler set"
 	case KindVideo:
 		return "video recipe " + recipe
 	}

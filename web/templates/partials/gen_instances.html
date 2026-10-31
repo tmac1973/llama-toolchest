@@ -27,7 +27,7 @@
             <td>{{.GPU}}{{with .GPUName}} <small>{{.}}</small>{{end}}</td>
             <td>{{.Port}}</td>
             <td>
-                {{- if .ReservedMiB}}<span title="{{if .MeasuredPeakMiB}}Measured peak {{printf "%.1f" .PeakGiB}} GiB on {{.MeasuredAt.Format "2006-01-02 15:04"}}{{if .MeasureEstimated}}, estimated from the use of the whole GPU{{end}}. {{end}}{{if ne .Kind "ace"}}sd-server stays within this amount.{{else}}ace-server has no limit. This is the measured peak plus a margin.{{end}}" style="cursor:help;">{{printf "%.1f" .ReservedGiB}} GiB</span>
+                {{- if .ReservedMiB}}<span title="{{if .MeasuredPeakMiB}}Measured peak {{printf "%.1f" .PeakGiB}} GiB on {{.MeasuredAt.Format "2006-01-02 15:04"}}{{if .MeasureEstimated}}, estimated from the use of the whole GPU{{end}}. {{end}}{{if eq .Kind "ace"}}ace-server has no limit. This is the measured peak plus a margin.{{else if eq .Kind "upscale"}}The upscaler has no limit. This is the measured peak plus a margin.{{else}}sd-server stays within this amount.{{end}}" style="cursor:help;">{{printf "%.1f" .ReservedGiB}} GiB</span>
                 {{- else}}<small title="Not measured yet. The instance cannot start until it has a reservation.">none</small>{{end}}
                 {{- if eq .Kind "video"}}
                 <small style="display:block;color:var(--pico-muted-color);" title="The largest video of this instance: frames × width × height, in any shape. Larger requests are refused. Measure at a larger size to allow more.">
