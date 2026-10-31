@@ -71,6 +71,31 @@ func TestCatalogAceSetsShareFiles(t *testing.T) {
 	}
 }
 
+// Qwen-Image 2.1 Turbo Edit is the Turbo set plus the picture reader, so
+// a Turbo user downloads only that file, and it is the one that edits.
+func TestCatalogQwenTurboEditSharesFiles(t *testing.T) {
+	turbo, _ := LookupCatalog("qwen-image-2.1-turbo")
+	edit, ok := LookupCatalog("qwen-image-2.1-turbo-edit")
+	if !ok {
+		t.Fatal("no qwen-image-2.1-turbo-edit in the catalog")
+	}
+	var extra []string
+	for _, c := range edit.Components {
+		if !slices.Contains(turbo.Components, c) {
+			extra = append(extra, c.Slot)
+		}
+	}
+	if !slices.Equal(extra, []string{"llm_vision"}) || len(edit.Components) != len(turbo.Components)+1 {
+		t.Errorf("the edit set adds %v to the Turbo set, want only llm_vision", extra)
+	}
+	if !slices.Equal(edit.Capabilities, []string{"edit"}) || len(turbo.Capabilities) != 0 {
+		t.Errorf("capabilities: edit set %v, Turbo %v", edit.Capabilities, turbo.Capabilities)
+	}
+	if !slices.Equal(edit.LaunchArgs, turbo.LaunchArgs) {
+		t.Errorf("launch args differ: %v and %v", edit.LaunchArgs, turbo.LaunchArgs)
+	}
+}
+
 func TestValidateComponents(t *testing.T) {
 	ok := []Component{{Slot: "diffusion_model"}, {Slot: "llm"}, {Slot: "tokenizer"}, {Slot: "vae"}}
 	if err := ValidateComponents(KindSD, "ming-image", ok); err != nil {
