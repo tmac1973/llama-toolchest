@@ -1457,14 +1457,16 @@ components:
           type: array
           items:
             type: string
-            enum: [images.sync, images.jobs, images.edits, video.jobs, video.sync, music.jobs, music.ace_step]
+            enum: [images.sync, images.jobs, images.edits, images.jobs.edits, video.jobs, video.sync, music.jobs, music.ace_step]
           description: |
             The routes that serve this instance: `images.sync`
             (`/v1/images/generations`), `images.jobs`, `images.edits`,
-            `video.jobs`, `video.sync` (`/v1/videos/generations`),
-            `music.jobs` and `music.ace_step` (the ACE-Step compatible
-            routes). Versions before this field existed had only the
-            synchronous image routes and music jobs.
+            `images.jobs.edits` (`/v1/images/jobs` takes a multipart edit
+            form; listed with `images.edits`, and missing on versions that
+            took only JSON jobs), `video.jobs`, `video.sync`
+            (`/v1/videos/generations`), `music.jobs` and `music.ace_step`
+            (the ACE-Step compatible routes). Versions before this field
+            existed had only the synchronous image routes and music jobs.
         tasks:
           type: array
           items:

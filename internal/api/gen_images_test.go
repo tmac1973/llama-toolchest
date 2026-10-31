@@ -327,7 +327,7 @@ func TestV1ModelsMetaAPI(t *testing.T) {
 	json.Unmarshal(rec.Body.Bytes(), &out)
 	want := map[string]string{
 		"ming":  "[images.sync images.jobs]",
-		"klein": "[images.sync images.jobs images.edits]",
+		"klein": "[images.sync images.jobs images.edits images.jobs.edits]",
 		"music": "[music.jobs music.ace_step]",
 	}
 	for _, m := range out.Data {
