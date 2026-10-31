@@ -129,14 +129,14 @@ func (s *Server) genV1Model(inst generation.Instance) map[string]any {
 	if err != nil {
 		return nil
 	}
-	caps := set.Capabilities
+	caps := set.CurrentCapabilities()
 	if caps == nil {
 		caps = []string{}
 	}
 	// api lists the route groups that serve this model, so a client can
 	// tell what this build supports without trying each route.
 	kind, api := genKindLabel(set.Kind), []string{"images.sync", "images.jobs"}
-	if slices.Contains(caps, "edit") {
+	if slices.Contains(caps, generation.CapEdit) {
 		// images.jobs.edits: /v1/images/jobs takes edits as multipart
 		// forms. Builds that refused them do not list it.
 		api = append(api, "images.edits", "images.jobs.edits")
@@ -157,11 +157,29 @@ func (s *Server) genV1Model(inst generation.Instance) map[string]any {
 		"gpu":          inst.GPU,
 		"reserved_mib": inst.ReservedMiB,
 		"state":        s.genMgr.Status(inst.ID).State,
-		"api":          api,
+		// measuring is true while a measured test run has the instance;
+		// requests are refused with backend_unavailable until it ends.
+		"measuring": s.genMgr.IsMeasuring(inst.ID),
+		"api":       api,
+	}
+	// max_edit_images is how many image[] parts one edit takes; left out
+	// when the model's limit is not known.
+	if n := set.MaxEditImages(); n > 0 {
+		meta["max_edit_images"] = n
+	}
+	// scale is how many times larger an upscaler makes an image; left out
+	// for a custom upscaler set.
+	if n := set.UpscaleScale(); n > 0 {
+		meta["scale"] = n
 	}
 	if set.Kind == generation.KindAce {
-		// tasks lists the music task_type values this model runs.
-		meta["tasks"] = aceTasks(set)
+		// tasks lists the music task_type values this model runs, and
+		// tracks the stems lego, extract and complete take.
+		tasks := aceTasks(set)
+		meta["tasks"] = tasks
+		if slices.Contains(tasks, taskLego) {
+			meta["tracks"] = musicTracks
+		}
 	}
 	if set.Kind == generation.KindVideo {
 		// video gives the defaults a request gets and the largest video it

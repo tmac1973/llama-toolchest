@@ -192,6 +192,21 @@ var AceSlots = []string{"lm", "dit", "embedding", "vae"}
 // (.pth or .safetensors).
 const UpscalerSlot = "upscaler"
 
+// CapEdit is an image set that can edit images.
+const CapEdit = "edit"
+
+// RecipeMaxEditImages is how many reference images one edit can take, by
+// recipe: the model makers' own limits. FLUX.3 Image Klein takes up to
+// 10, FLUX.2 klein 4B up to 4 (Black Forest Labs' FLUX.2 specifications)
+// and Qwen-Image-Edit 2511 1 to 3. The Qwen-Image 2.1 recipes are left
+// out: their limit for Turbo is not published. Measure tests an edit with
+// one reference, so many more can need more VRAM than the reservation.
+var RecipeMaxEditImages = map[string]int{
+	"flux3-klein":          10,
+	"flux2-klein-4b":       4,
+	"qwen-image-edit-2511": 3,
+}
+
 // RecipeCapabilities returns the capabilities a custom set gets from its
 // recipe and files: alpha output for Ming-Image, and editing for the
 // recipes whose sd.cpp docs describe it. Qwen-Image edits need the vision

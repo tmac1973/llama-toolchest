@@ -1,5 +1,11 @@
 package generation
 
+import (
+	"path/filepath"
+	"slices"
+	"strings"
+)
+
 // CatalogEntry is a known-good model set that downloads in one click.
 type CatalogEntry struct {
 	ID   string      `json:"id"`
@@ -35,6 +41,12 @@ type CatalogEntry struct {
 	// to: the VAE's scale factor times the diffusion model's down factor
 	// (sd.cpp master-1015, request.cpp). Zero when not known.
 	SizeMultiple int `json:"size_multiple,omitempty"`
+	// Scale is how many times larger an upscaler set makes an image.
+	// Upscaler sets only.
+	Scale int `json:"scale,omitempty"`
+	// StemTasks is true for an ACE-Step set with a base DiT, which can
+	// run lego, extract and complete. Music sets only.
+	StemTasks bool `json:"stem_tasks,omitempty"`
 }
 
 // TotalBytes is the download size of the whole set.
@@ -635,6 +647,7 @@ func Catalog() []CatalogEntry {
 			Name:       "ACE-Step 1.5 XL base",
 			Kind:       KindAce,
 			Components: aceComponents("acestep-v15-xl-base-Q8_0.gguf", 5305828704),
+			StemTasks:  true,
 			License:    "MIT",
 			Notes:      "The set that can add, pull out or complete instruments in a song, 50 steps. Shares three files with the other ACE-Step sets.",
 		},
@@ -645,6 +658,7 @@ func Catalog() []CatalogEntry {
 			Components: []Component{
 				{Slot: UpscalerSlot, Repo: "Comfy-Org/Real-ESRGAN", File: "RealESRGAN_x4plus.safetensors", Bytes: 66857836},
 			},
+			Scale:   4,
 			License: "BSD-3-Clause",
 			Notes:   "Makes an image 4 times larger and sharper, for /v1/images/upscale; no prompt. 768×768 to 3072×3072 in about 13 s on a Radeon AI PRO R9700, with about 1 GiB of VRAM. The result has no transparency.",
 		},
@@ -672,6 +686,77 @@ func (m ModelSet) MadeSize(width, height int) (int, int) {
 	}
 	up := func(n int) int { return (n + e.SizeMultiple - 1) / e.SizeMultiple * e.SizeMultiple }
 	return up(width), up(height)
+}
+
+// catalogEntry returns the catalog entry of a catalog set.
+func (m ModelSet) catalogEntry() (CatalogEntry, bool) {
+	if m.CatalogID == "" {
+		return CatalogEntry{}, false
+	}
+	return LookupCatalog(m.CatalogID)
+}
+
+// CurrentCapabilities returns what a set can do. A catalog set takes its
+// catalog entry's current list, as RunArgs takes its flags, so a fix to
+// the catalog also reaches sets downloaded before it. The set keeps the
+// list it was saved with when the entry has a slot the set lacks: its
+// files were copied at download, and an ability that needs the new file
+// would not work. A custom set keeps its own list.
+func (m ModelSet) CurrentCapabilities() []string {
+	e, ok := m.catalogEntry()
+	if !ok {
+		return m.Capabilities
+	}
+	for _, c := range e.Components {
+		if !slices.ContainsFunc(m.Components, func(own Component) bool { return own.Slot == c.Slot }) {
+			return m.Capabilities
+		}
+	}
+	return e.Capabilities
+}
+
+// MaxEditImages is how many reference images one edit can take: the
+// limit of the set's model (RecipeMaxEditImages), or 0 when the set
+// cannot edit or the limit is not known.
+func (m ModelSet) MaxEditImages() int {
+	if !slices.Contains(m.CurrentCapabilities(), CapEdit) {
+		return 0
+	}
+	return RecipeMaxEditImages[m.Recipe]
+}
+
+// UpscaleScale is how many times larger an upscaler set makes an image,
+// from the catalog; 0 for a custom set, whose factor is not known.
+func (m ModelSet) UpscaleScale() int {
+	if e, ok := m.catalogEntry(); ok {
+		return e.Scale
+	}
+	return 0
+}
+
+// HasStemTasks reports whether a music set can run lego, extract and
+// complete, which need a base DiT. A custom set says so itself
+// (StemTasks); a catalog set takes its catalog entry's current value.
+// A custom set saved before the field existed is guessed from its DiT's
+// file name: every ACE-Step base GGUF we know of says "base" in it, and
+// acestep.cpp itself can't tell SFT from base.
+func (m ModelSet) HasStemTasks() bool {
+	if m.StemTasks != nil {
+		return *m.StemTasks
+	}
+	if e, ok := m.catalogEntry(); ok {
+		return e.StemTasks
+	}
+	for _, c := range m.Components {
+		name := c.File
+		if c.Path != "" {
+			name = c.Path
+		}
+		if c.Slot == "dit" && strings.Contains(strings.ToLower(filepath.Base(name)), "base") {
+			return true
+		}
+	}
+	return false
 }
 
 // RunArgs returns the backend flags a set runs with. A catalog set takes

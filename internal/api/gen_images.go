@@ -141,7 +141,7 @@ const maxFormField = 1 << 20
 // cannot edit, or nil when it can.
 func (s *Server) editRefusal(inst generation.Instance) *requestError {
 	set, _ := s.gen.ModelSet(inst.ModelSetID)
-	if slices.Contains(set.Capabilities, "edit") {
+	if slices.Contains(set.CurrentCapabilities(), generation.CapEdit) {
 		return nil
 	}
 	return &requestError{http.StatusBadRequest, "edits_not_supported",

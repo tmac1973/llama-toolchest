@@ -378,6 +378,10 @@ func (s *Server) handleGenCreateSet(w http.ResponseWriter, r *http.Request) {
 	if kind == generation.KindSD || kind == generation.KindVideo {
 		set.Capabilities = generation.RecipeCapabilities(recipe, set.Components)
 	}
+	if kind == generation.KindAce {
+		stems := r.FormValue("stem_tasks") == "1"
+		set.StemTasks = &stems
+	}
 
 	s.genSetMu.Lock()
 	err = store.AddModelSet(set)

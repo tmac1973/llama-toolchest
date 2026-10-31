@@ -117,6 +117,9 @@
                 <input type="number" name="fps" min="1" max="240" placeholder="24">
             </label>
         </div>
+        <label title="Select this when the DiT is an ACE-Step base model. Only a base model can add, pull out or complete instruments (lego, extract, complete). Music sets only.">
+            <input type="checkbox" name="stem_tasks" value="1"> Base DiT (music sets)
+        </label>
         <label title="Extra backend flags, for example --sigmas qwen-image-2.1-turbo --cfg-scale 1. Toolchest sets the address, port, VRAM limit and model folder.">Extra launch arguments
             <input type="text" name="launch_args" placeholder="--steps 8 --cfg-scale 1">
         </label>

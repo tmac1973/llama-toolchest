@@ -309,17 +309,19 @@ func TestV1ModelsListsInstances(t *testing.T) {
 func TestV1ModelsMetaAPI(t *testing.T) {
 	s, _ := musicServer(t)
 	addInstance(t, s, generation.Instance{ID: "ming", Port: 8081, Enabled: true, ReservedMiB: 4096})
-	if err := s.gen.AddModelSet(generation.ModelSet{ID: "klein", Name: "klein", Kind: generation.KindSD, Capabilities: []string{"edit"}}); err != nil {
+	if err := s.gen.AddModelSet(generation.ModelSet{ID: "klein", Name: "klein", Kind: generation.KindSD, Recipe: "flux3-klein", Capabilities: []string{"edit"}}); err != nil {
 		t.Fatal(err)
 	}
 	addInstance(t, s, generation.Instance{ID: "klein", ModelSetID: "klein", Port: 8082, Enabled: true, ReservedMiB: 4096})
-	if err := s.gen.AddModelSet(generation.ModelSet{ID: "esrgan", Name: "esrgan", Kind: generation.KindUpscale}); err != nil {
+	if err := s.gen.AddModelSet(generation.ModelSet{ID: "esrgan", Name: "esrgan", Kind: generation.KindUpscale, CatalogID: "real-esrgan-x4plus",
+		Components: []generation.Component{{Slot: generation.UpscalerSlot}}}); err != nil {
 		t.Fatal(err)
 	}
 	addInstance(t, s, generation.Instance{ID: "esrgan", ModelSetID: "esrgan", Port: 8083, Enabled: true, ReservedMiB: 1024})
 	if err := s.registry.Add(&models.Model{ID: "chat", ModelID: "org/chat", Filename: "chat.gguf"}); err != nil {
 		t.Fatal(err)
 	}
+	s.genMgr.SetMeasuring("ming", true)
 	rec := httptest.NewRecorder()
 	s.handleV1Models(rec, httptest.NewRequest("GET", "/v1/models", nil))
 	var out struct {
@@ -329,6 +331,21 @@ func TestV1ModelsMetaAPI(t *testing.T) {
 		}
 	}
 	json.Unmarshal(rec.Body.Bytes(), &out)
+	// The fields only some kinds have, as fmt.Sprint shows them; "<nil>"
+	// is a field left out.
+	extra := map[string]map[string]string{
+		"ming":   {"max_edit_images": "<nil>", "scale": "<nil>", "tracks": "<nil>", "measuring": "true"},
+		"klein":  {"max_edit_images": "10", "scale": "<nil>", "tracks": "<nil>", "measuring": "false"},
+		"music":  {"max_edit_images": "<nil>", "tracks": fmt.Sprint(musicTracks), "measuring": "false"},
+		"esrgan": {"max_edit_images": "<nil>", "scale": "4", "measuring": "false"},
+	}
+	for _, m := range out.Data {
+		for field, w := range extra[m.ID] {
+			if got := fmt.Sprint(m.Meta[field]); got != w {
+				t.Errorf("%s: meta.%s = %s, want %s", m.ID, field, got, w)
+			}
+		}
+	}
 	want := map[string]string{
 		"ming":   "[images.sync images.jobs]",
 		"klein":  "[images.sync images.jobs images.edits images.jobs.edits]",

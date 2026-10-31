@@ -169,6 +169,34 @@ func TestSlug(t *testing.T) {
 	}
 }
 
+// A catalog set takes the catalog's current capabilities, unless the
+// catalog entry now has a file the set was downloaded without.
+func TestCurrentCapabilities(t *testing.T) {
+	e, _ := LookupCatalog("flux3-image-klein")
+	set := ModelSet{CatalogID: e.ID, Recipe: e.Recipe, Components: slices.Clone(e.Components), Capabilities: nil}
+	if got := set.CurrentCapabilities(); !slices.Equal(got, []string{CapEdit}) {
+		t.Errorf("stale catalog set: %v, want the catalog's [edit]", got)
+	}
+	if got := set.MaxEditImages(); got != 10 {
+		t.Errorf("MaxEditImages = %d, want 10", got)
+	}
+	set.Components = set.Components[:1]
+	if got := set.CurrentCapabilities(); got != nil {
+		t.Errorf("set missing a catalog file: %v, want its own nil", got)
+	}
+	custom := ModelSet{Recipe: "flux3-klein", Capabilities: []string{"alpha"}}
+	if got := custom.CurrentCapabilities(); !slices.Equal(got, []string{"alpha"}) {
+		t.Errorf("custom set: %v", got)
+	}
+	if got := custom.MaxEditImages(); got != 0 {
+		t.Errorf("MaxEditImages without edit = %d", got)
+	}
+	up := ModelSet{CatalogID: "real-esrgan-x4plus"}
+	if up.UpscaleScale() != 4 || (ModelSet{Kind: KindUpscale}).UpscaleScale() != 0 {
+		t.Error("UpscaleScale: want 4 for the catalog upscaler, 0 for a custom one")
+	}
+}
+
 func TestRecipeCapabilities(t *testing.T) {
 	if got := RecipeCapabilities("ming-image", nil); !slices.Equal(got, []string{"alpha"}) {
 		t.Errorf("ming-image = %v", got)
