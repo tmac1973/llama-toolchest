@@ -95,8 +95,11 @@ host install:
   music APIs go through the UI port and don't need it.
 - **The sd-server web UI.** Building stable-diffusion.cpp with its built-in
   web UI needs Node.js 20 or newer and `pnpm` on `PATH`. The package only
-  recommends `nodejs`; install pnpm with `npm install -g pnpm`. Without pnpm
-  the Builds page leaves the web UI option off, and the API still works.
+  recommends `nodejs`; install pnpm with `sudo npm install -g pnpm@9.15.4`
+  (the version the container images use). `./setup.sh install --host` offers
+  to run that for you when Node.js 20+ and npm are already there, and
+  `./setup.sh deps --host` reports both. Without pnpm the Builds page leaves
+  the web UI option off, and the API still works.
 
 ## Switching to script-managed install later
 

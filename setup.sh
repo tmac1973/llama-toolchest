@@ -2902,8 +2902,9 @@ Info:
   deps        Verify all packages needed to build and run, with copy-
               paste install commands for anything missing. --host
               checks the host package, llama.cpp build toolchain
-              (cmake/ninja/git/gcc), and per-backend GPU SDKs (cuda/
-              rocm/vulkan). Without --host, checks container runtime,
+              (cmake/ninja/git/gcc), per-backend GPU SDKs (cuda/
+              rocm/vulkan), and the optional node/pnpm for the sd-server
+              web UI. Without --host, checks container runtime,
               compose, and GPU integration (NVIDIA toolkit / SELinux).
               Exits non-zero if anything is missing.
   detect      Print detected GPU backend (cuda/rocm/cpu/vulkan/metal) and exit.

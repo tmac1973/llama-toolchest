@@ -1316,6 +1316,56 @@ test_migrate_legacy_config_name() (
     check_eq "config name: no volume, no container run" "volume inspect llama-toolchest-data" "$(cat "$calls")"
 )
 
+# pnpm for the sd-server web UI: which state the host is in, and when the
+# install step offers `npm install -g pnpm`. PATH holds only a fake bin
+# directory, so the real node, npm and pnpm on this machine don't count.
+test_pnpm() (
+    local bin="${TMP_ROOT}/pnpm-bin" tools="${TMP_ROOT}/pnpm-tools" t
+    CALLS="${TMP_ROOT}/pnpm-calls"
+    mkdir -p "$bin" "$tools"
+    for t in cat grep chmod rm; do ln -s "$(command -v "$t")" "${tools}/$t"; done
+    PATH="${bin}:${tools}"
+    # fake <name> [version] — put a stub on PATH that prints the version.
+    fake() { printf '#!/bin/sh\necho %s\n' "${2:-}" > "${bin}/$1"; chmod +x "${bin}/$1"; }
+    reset() { rm -f "${bin}"/*; : > "$CALLS"; ANSWER=yes; }
+    prompt_confirm() { echo "asked" >> "$CALLS"; [[ "$ANSWER" == yes ]]; }
+    run_sudo() { echo "sudo $*" >> "$CALLS"; }
+    DISTRO_FAMILY=debian
+
+    reset
+    check_false "host_node_major without node" host_node_major
+    check_eq "pnpm state: no node" "no-node" "$(host_pnpm_state)"
+    host_offer_pnpm >/dev/null
+    check_eq "no node: no offer" "" "$(cat "$CALLS")"
+
+    reset; fake node v18.19.1; fake npm 9.2.0
+    check_eq "host_node_major v18" "18" "$(host_node_major)"
+    check_eq "pnpm state: node 18 is too old" "old-node" "$(host_pnpm_state)"
+    host_offer_pnpm >/dev/null
+    check_eq "old node: no offer" "" "$(cat "$CALLS")"
+
+    reset; fake node v22.12.0
+    check_eq "pnpm state: no npm" "no-npm" "$(host_pnpm_state)"
+    check_eq "debian hint names the npm package" \
+        "sudo apt-get install -y npm" "$(host_pkg_install_hint npm)"
+
+    reset; fake node v22.12.0; fake npm 10.9.0
+    check_eq "pnpm state: ready for npm install" "missing" "$(host_pnpm_state)"
+    host_offer_pnpm >/dev/null
+    check_eq "node and npm: asks, then installs the pinned pnpm" \
+        "asked"$'\n'"sudo npm install -g pnpm@${HOST_PNPM_VERSION}" "$(cat "$CALLS")"
+    reset; fake node v22.12.0; fake npm 10.9.0; ANSWER=no
+    host_offer_pnpm >/dev/null
+    check_eq "answer no: nothing installed" "asked" "$(cat "$CALLS")"
+
+    reset; fake node v22.12.0; fake npm 10.9.0; fake pnpm 9.15.4
+    check_eq "pnpm state: already there" "ok" "$(host_pnpm_state)"
+    host_offer_pnpm >/dev/null
+    check_eq "pnpm there: no offer" "" "$(cat "$CALLS")"
+    check_true "deps report says pnpm OK" \
+        grep -q "pnpm    OK (9.15.4)" <<<"$(host_report_pnpm_dep)"
+)
+
 # ─── Run ─────────────────────────────────────────────────────────────────────
 
 test_scope_current_user
@@ -1353,6 +1403,7 @@ test_label_for_build_mount
 test_quick_needs_rebuild
 test_secure_custom_ports
 test_migrate_legacy_config_name
+test_pnpm
 
 passes="$(grep -c '^PASS$' "$RESULTS")"
 fails="$(grep -c '^FAIL$' "$RESULTS")"
