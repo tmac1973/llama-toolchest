@@ -917,6 +917,13 @@ func inspectRepo(srcDir string) repoState {
 		if _, err := os.Stat(srcDir); err != nil {
 			return repoMissing
 		}
+		// An empty directory holds nothing to lose, and git clones into
+		// one without complaint. Container images used to create
+		// /data/llama.cpp ahead of time, and a named volume keeps that
+		// empty directory from the first start on.
+		if entries, err := os.ReadDir(srcDir); err == nil && len(entries) == 0 {
+			return repoMissing
+		}
 		// Something is there but it isn't a clone. It didn't come from
 		// us, so we don't get to delete it.
 		return repoUnknown

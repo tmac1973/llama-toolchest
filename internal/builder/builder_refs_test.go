@@ -198,6 +198,12 @@ func TestInspectRepo(t *testing.T) {
 		t.Errorf("missing directory = %v, want repoMissing", got)
 	}
 
+	// An empty directory, as older container images created, is safe to
+	// clone into.
+	if got := inspectRepo(t.TempDir()); got != repoMissing {
+		t.Errorf("empty directory = %v, want repoMissing", got)
+	}
+
 	// What an interrupted clone leaves behind: initialized, remote
 	// configured, no commits.
 	halfDone := filepath.Join(t.TempDir(), "llama.cpp")
@@ -254,6 +260,33 @@ func TestEnsureRepoLeavesUnknownDirectoriesAlone(t *testing.T) {
 	}
 	if _, statErr := os.Stat(keep); statErr != nil {
 		t.Errorf("ensureRepo deleted a directory it did not create: %v", statErr)
+	}
+}
+
+// TestEnsureRepoClonesIntoEmptyDirectory: container images used to create
+// /data/llama.cpp ahead of time, and a named volume keeps that empty
+// directory. The first build must clone into it, not refuse (issue #469).
+func TestEnsureRepoClonesIntoEmptyDirectory(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	_, upstream := gitFixture(t)
+
+	orig := llamaCppRepo
+	llamaCppRepo = upstream
+	t.Cleanup(func() { llamaCppRepo = orig })
+
+	srcDir := filepath.Join(t.TempDir(), "llama.cpp")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	b := &Builder{}
+	if err := b.ensureRepo(context.Background(), llamaProject(), srcDir, make(chan string, 64)); err != nil {
+		t.Fatalf("ensureRepo: %v", err)
+	}
+	if got := inspectRepo(srcDir); got != repoUsable {
+		t.Errorf("ensureRepo left %v behind, want repoUsable", got)
 	}
 }
 
