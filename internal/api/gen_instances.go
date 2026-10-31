@@ -56,6 +56,10 @@ type genInstanceRow struct {
 	// MeasuredStale is true when the last measurement ran with other
 	// backend flags than the instance has now (see measuredStale).
 	MeasuredStale bool `json:"measured_stale,omitempty"`
+	// EditMeasureStale is true when the last measurement's test edit had
+	// fewer reference images than an edit may now have, so the
+	// reservation can be too small (see editMeasureStale).
+	EditMeasureStale bool `json:"edit_measure_stale,omitempty"`
 	// SuggestedMiB is the reservation the last measurement suggests; 0
 	// before any measurement.
 	SuggestedMiB int `json:"suggested_mib,omitempty"`
@@ -100,6 +104,13 @@ func measuredStale(inst generation.Instance, set generation.ModelSet) bool {
 		return set.CatalogID != "" && (set.Kind == generation.KindSD || set.Kind == generation.KindVideo)
 	}
 	return !slicesEqual(inst.MeasuredArgs, runArgs(set, inst))
+}
+
+// editMeasureStale reports whether an instance was measured with fewer
+// reference images than its set's edits may have. A measurement from
+// before MeasuredEditImages was recorded had one.
+func editMeasureStale(inst generation.Instance, set generation.ModelSet) bool {
+	return inst.MeasuredPeakMiB > 0 && set.MeasureEditImages() > max(inst.MeasuredEditImages, 1)
 }
 
 // LastVideoTime is how long the instance's last video took, for the row,
@@ -229,6 +240,7 @@ func (s *Server) genInstanceRows(store *generation.Store) []genInstanceRow {
 			row.MeasureNote, row.MeasureError, row.MeasureAt = o.Note, o.Err, o.At
 		}
 		row.MeasuredStale = measuredStale(inst, sets[inst.ModelSetID])
+		row.EditMeasureStale = editMeasureStale(inst, sets[inst.ModelSetID])
 		if inst.MeasuredPeakMiB > 0 {
 			row.SuggestedMiB = generation.SuggestReservation(inst.MeasuredPeakMiB)
 			if inst.MeasuredSuggestedMiB > 0 {

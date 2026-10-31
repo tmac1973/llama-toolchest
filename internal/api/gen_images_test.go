@@ -216,6 +216,94 @@ func TestImageEditsNeedTheCapability(t *testing.T) {
 	}
 }
 
+// editForm is a multipart edit with n image[] files, plus one image file
+// when legacy is set.
+func editForm(model string, n int, legacy bool) (string, []byte) {
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	mw.WriteField("model", model)
+	mw.WriteField("prompt", "make it blue")
+	for range n {
+		fw, _ := mw.CreateFormFile("image[]", "in.png")
+		fw.Write([]byte("PNGDATA"))
+	}
+	if legacy {
+		fw, _ := mw.CreateFormFile("image", "in.png")
+		fw.Write([]byte("PNGDATA"))
+	}
+	fw, _ := mw.CreateFormFile("mask", "mask.png")
+	fw.Write([]byte("MASK"))
+	mw.Close()
+	return mw.FormDataContentType(), buf.Bytes()
+}
+
+// The images are counted as sd-server counts them: the image[] files, or
+// the one image file when there are none.
+func TestReadEditFormCountsImages(t *testing.T) {
+	for _, tc := range []struct {
+		n      int
+		legacy bool
+		want   int
+	}{{0, false, 0}, {0, true, 1}, {3, false, 3}, {2, true, 2}} {
+		ct, body := editForm("m", tc.n, tc.legacy)
+		f, got, err := readEditForm(ct, body, "model")
+		if err != nil || got != tc.want || f["model"] != "m" {
+			t.Errorf("%d image[] and legacy %v: %d images, fields %v, err %v; want %d", tc.n, tc.legacy, got, f, err, tc.want)
+		}
+	}
+}
+
+// An edit with more images than the set's model takes is refused before
+// it is queued, on the synchronous route and as a job.
+func TestEditImageLimit(t *testing.T) {
+	s := vramServer(t)
+	fb := newFakeBackend(t, 0)
+	runFakeInstance(t, s, "ming", "ming-image", 0, fb)
+	set, _ := s.gen.ModelSet("ming-image")
+	set.CatalogID, set.Recipe, set.Capabilities = "", "qwen-image-edit-2511", []string{"edit"}
+	s.gen.UpdateModelSet(set)
+
+	sync := func(n int) *httptest.ResponseRecorder {
+		ct, body := editForm("ming", n, false)
+		r := httptest.NewRequest("POST", "/v1/images/edits", bytes.NewReader(body))
+		r.Header.Set("Content-Type", ct)
+		rec := httptest.NewRecorder()
+		s.handleGenImages(rec, r)
+		return rec
+	}
+	job := func(n int) *httptest.ResponseRecorder {
+		ct, body := editForm("ming", n, false)
+		r := httptest.NewRequest("POST", "/v1/images/jobs", bytes.NewReader(body))
+		r.Header.Set("Content-Type", ct)
+		rec := httptest.NewRecorder()
+		s.handleImageJobCreate(rec, r)
+		return rec
+	}
+	for name, send := range map[string]func(int) *httptest.ResponseRecorder{"sync": sync, "job": job} {
+		rec := send(4)
+		var e struct {
+			Error struct{ Code, Message string }
+		}
+		json.Unmarshal(rec.Body.Bytes(), &e)
+		if rec.Code != http.StatusBadRequest || e.Error.Code != "too_many_images" || !strings.Contains(e.Error.Message, "at most 3 images") {
+			t.Errorf("%s with 4 images: %d %s", name, rec.Code, rec.Body.String())
+		}
+	}
+	if rec := sync(3); rec.Code != http.StatusOK {
+		t.Errorf("sync with 3 images: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := job(3); rec.Code != http.StatusAccepted {
+		t.Errorf("job with 3 images: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// A model whose limit is not known takes any number.
+	set.Recipe = "qwen-image-21-turbo"
+	s.gen.UpdateModelSet(set)
+	if rec := sync(12); rec.Code != http.StatusOK {
+		t.Errorf("unknown limit, 12 images: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 // Requests for one GPU run one at a time, even when they arrive together.
 func TestImageRequestsOnOneGPUTakeTurns(t *testing.T) {
 	s := vramServer(t)

@@ -835,6 +835,7 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 	}
 	inst.MeasuredPeakMiB, inst.MeasuredAt, inst.MeasureEstimated = peak, time.Now(), !perProcess
 	inst.MeasuredArgs, inst.MeasuredRAMMiB = runArgs(set, inst), ramPeak
+	inst.MeasuredEditImages = set.MeasureEditImages()
 	// The room is worked out again now the backend has stopped: other
 	// programs on the card may have grown during a long test run.
 	if sdKind {
@@ -1213,18 +1214,22 @@ func (s *Server) runMeasureGeneration(ctx context.Context, inst generation.Insta
 			"prompt": "a lighthouse on a rocky coast at sunset, photo", "size": size, "n": 1,
 			"response_format": "b64_json",
 		})
-		if err != nil || !slices.Contains(set.CurrentCapabilities(), generation.CapEdit) {
+		refs := set.MeasureEditImages()
+		if err != nil || refs == 0 {
 			return err
 		}
 		img, err := firstImage(body)
 		if err != nil {
 			return fmt.Errorf("reading the test image: %w", err)
 		}
-		_, _, err = postImageEdit(ctx, base+"/v1/images/edits", img, map[string]string{
+		// As many references as the model takes: each adds to what it
+		// holds while it runs. Copies of one image weigh the same as
+		// different ones.
+		_, _, err = postImageEdit(ctx, base+"/v1/images/edits", slices.Repeat([][]byte{img}, refs), map[string]string{
 			"prompt": "make the sky stormy", "size": size, "n": "1", "response_format": "b64_json",
 		})
 		if err != nil {
-			return fmt.Errorf("the test edit failed: %w", err)
+			return fmt.Errorf("the test edit with %d reference image(s) failed: %w", refs, err)
 		}
 		return nil
 	}
@@ -1395,9 +1400,9 @@ func firstImage(body []byte) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(resp.Data[0].B64JSON)
 }
 
-// postImageEdit sends an OpenAI-style image edit: the fields, and img as
-// the reference image.
-func postImageEdit(ctx context.Context, url string, img []byte, fields map[string]string) ([]byte, string, error) {
+// postImageEdit sends an OpenAI-style image edit: the fields, and imgs as
+// the reference images.
+func postImageEdit(ctx context.Context, url string, imgs [][]byte, fields map[string]string) ([]byte, string, error) {
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	for k, v := range fields {
@@ -1405,15 +1410,17 @@ func postImageEdit(ctx context.Context, url string, img []byte, fields map[strin
 			return nil, "", err
 		}
 	}
-	part, err := mw.CreatePart(textproto.MIMEHeader{
-		"Content-Disposition": {`form-data; name="image[]"; filename="reference.png"`},
-		"Content-Type":        {"image/png"},
-	})
-	if err != nil {
-		return nil, "", err
-	}
-	if _, err := part.Write(img); err != nil {
-		return nil, "", err
+	for i, img := range imgs {
+		part, err := mw.CreatePart(textproto.MIMEHeader{
+			"Content-Disposition": {fmt.Sprintf(`form-data; name="image[]"; filename="reference%d.png"`, i+1)},
+			"Content-Type":        {"image/png"},
+		})
+		if err != nil {
+			return nil, "", err
+		}
+		if _, err := part.Write(img); err != nil {
+			return nil, "", err
+		}
 	}
 	if err := mw.Close(); err != nil {
 		return nil, "", err

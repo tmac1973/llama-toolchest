@@ -20,14 +20,15 @@ import (
 )
 
 // A set that can edit is measured with an image and then an edit of that
-// image, since an edit can need more memory; other image sets only make
-// the image.
+// image, since an edit can need more memory, with as many references as
+// the model takes; other image sets only make the image.
 func TestMeasureEditsWhenTheSetCanEdit(t *testing.T) {
 	var (
 		mu       sync.Mutex
 		paths    []string
 		editImg  string
 		editSize string
+		editRefs int
 	)
 	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
@@ -47,7 +48,7 @@ func TestMeasureEditsWhenTheSetCanEdit(t *testing.T) {
 				return
 			}
 			b, _ := io.ReadAll(f)
-			editImg, editSize = string(b), r.FormValue("size")
+			editImg, editSize, editRefs = string(b), r.FormValue("size"), len(r.MultipartForm.File["image[]"])
 			w.Write([]byte(`{"data":[{"b64_json":"eA=="}]}`))
 		default:
 			http.NotFound(w, r)
@@ -60,14 +61,17 @@ func TestMeasureEditsWhenTheSetCanEdit(t *testing.T) {
 	s := &Server{}
 
 	for _, tc := range []struct {
-		caps []string
-		want []string
+		recipe string
+		caps   []string
+		want   []string
+		refs   int
 	}{
-		{nil, []string{"/v1/images/generations"}},
-		{[]string{"edit"}, []string{"/v1/images/generations", "/v1/images/edits"}},
+		{"", nil, []string{"/v1/images/generations"}, 0},
+		{"", []string{"edit"}, []string{"/v1/images/generations", "/v1/images/edits"}, 1},
+		{"flux2-klein-4b", []string{"edit"}, []string{"/v1/images/generations", "/v1/images/edits"}, 4},
 	} {
-		paths, editImg, editSize = nil, "", ""
-		set := generation.ModelSet{Kind: generation.KindSD, Capabilities: tc.caps, DefaultWidth: 1024, DefaultHeight: 768}
+		paths, editImg, editSize, editRefs = nil, "", "", 0
+		set := generation.ModelSet{Kind: generation.KindSD, Recipe: tc.recipe, Capabilities: tc.caps, DefaultWidth: 1024, DefaultHeight: 768}
 		if err := s.runMeasureGeneration(context.Background(), inst, set, generation.VideoSize{}); err != nil {
 			t.Fatalf("caps %v: %v", tc.caps, err)
 		}
@@ -76,6 +80,9 @@ func TestMeasureEditsWhenTheSetCanEdit(t *testing.T) {
 		}
 		if len(tc.caps) > 0 && (editImg != "PNGDATA" || editSize != "1024x768") {
 			t.Errorf("edit got image %q at %q, want the generated image at 1024x768", editImg, editSize)
+		}
+		if editRefs != tc.refs {
+			t.Errorf("recipe %q: the test edit had %d references, want %d", tc.recipe, editRefs, tc.refs)
 		}
 	}
 }

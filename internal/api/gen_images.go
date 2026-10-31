@@ -112,21 +112,41 @@ func requestModel(contentType string, body []byte) (string, error) {
 // File parts and other fields are skipped; a field is read up to
 // maxFormField bytes.
 func readFormFields(contentType string, body []byte, names ...string) (map[string]string, error) {
+	out, _, err := readEditForm(contentType, body, names...)
+	return out, err
+}
+
+// readEditForm is readFormFields that also counts the images an edit
+// form sends, as sd-server counts them: every image[] file, or one image
+// file when there is no image[].
+func readEditForm(contentType string, body []byte, names ...string) (map[string]string, int, error) {
 	_, params, _ := mime.ParseMediaType(contentType)
 	mr := multipart.NewReader(bytes.NewReader(body), params["boundary"])
 	out := map[string]string{}
+	images, legacy := 0, false
 	for {
 		part, err := mr.NextPart()
 		if errors.Is(err, io.EOF) {
-			return out, nil
+			if images == 0 && legacy {
+				images = 1
+			}
+			return out, images, nil
 		}
 		if err != nil {
-			return out, fmt.Errorf("reading the form: %w", err)
+			return out, 0, fmt.Errorf("reading the form: %w", err)
+		}
+		if part.FileName() != "" {
+			switch part.FormName() {
+			case "image[]":
+				images++
+			case "image":
+				legacy = true
+			}
 		}
 		if name := part.FormName(); slices.Contains(names, name) && part.FileName() == "" {
 			v, err := io.ReadAll(io.LimitReader(part, maxFormField))
 			if err != nil {
-				return out, fmt.Errorf("reading the form: %w", err)
+				return out, 0, fmt.Errorf("reading the form: %w", err)
 			}
 			out[name] = strings.TrimSpace(string(v))
 		}
@@ -137,24 +157,39 @@ func readFormFields(contentType string, body []byte, names ...string) (map[strin
 // <sd_cpp_extra_args> block can be long, so this is generous.
 const maxFormField = 1 << 20
 
-// editRefusal is the error for an edit sent to an instance whose model set
-// cannot edit, or nil when it can.
-func (s *Server) editRefusal(inst generation.Instance) *requestError {
+// editRefusal is the error for an edit with images reference images sent
+// to an instance whose model set cannot edit, or takes fewer images
+// (ModelSet.MaxEditImages); nil when the set can take it. A set whose
+// limit is not known takes any number.
+func (s *Server) editRefusal(inst generation.Instance, images int) *requestError {
 	set, _ := s.gen.ModelSet(inst.ModelSetID)
-	if slices.Contains(set.CurrentCapabilities(), generation.CapEdit) {
-		return nil
+	if !slices.Contains(set.CurrentCapabilities(), generation.CapEdit) {
+		return &requestError{http.StatusBadRequest, "edits_not_supported",
+			fmt.Sprintf("model %s does not support image edits", inst.ID)}
 	}
-	return &requestError{http.StatusBadRequest, "edits_not_supported",
-		fmt.Sprintf("model %s does not support image edits", inst.ID)}
+	if limit := set.MaxEditImages(); limit > 0 && images > limit {
+		return &requestError{http.StatusBadRequest, "too_many_images",
+			fmt.Sprintf("model %s takes at most %d images per edit; this edit has %d", inst.ID, limit, images)}
+	}
+	return nil
 }
 
 // handleGenImages serves /v1/images/generations and /v1/images/edits: it
 // picks the sd-server instance for the request's model, waits its turn in
 // that GPU's queue, and forwards the request unchanged.
 func (s *Server) handleGenImages(w http.ResponseWriter, r *http.Request) {
-	var check func(generation.Instance) *requestError
+	var check func(generation.Instance, string, []byte) *requestError
 	if strings.HasSuffix(r.URL.Path, "/edits") {
-		check = s.editRefusal
+		check = func(inst generation.Instance, contentType string, body []byte) *requestError {
+			images := 0
+			if isMultipartType(contentType) {
+				var err error
+				if _, images, err = readEditForm(contentType, body); err != nil {
+					return &requestError{http.StatusBadRequest, "bad_request", err.Error()}
+				}
+			}
+			return s.editRefusal(inst, images)
+		}
 	}
 	s.serveGenSync(w, r, generation.KindSD, r.URL.Path, check)
 }
@@ -162,7 +197,8 @@ func (s *Server) handleGenImages(w http.ResponseWriter, r *http.Request) {
 // serveGenSync is a synchronous sd-server route: it picks the instance of
 // kind for the request's model, refuses the request if check (when not
 // nil) says so, waits for the GPU and forwards the body unchanged to path.
-func (s *Server) serveGenSync(w http.ResponseWriter, r *http.Request, kind generation.BackendKind, path string, check func(generation.Instance) *requestError) {
+// check gets the request's content type and body.
+func (s *Server) serveGenSync(w http.ResponseWriter, r *http.Request, kind generation.BackendKind, path string, check func(generation.Instance, string, []byte) *requestError) {
 	if !s.generationOn() || s.gen == nil {
 		writeNotEnabled(w, "image")
 		return
@@ -179,7 +215,7 @@ func (s *Server) serveGenSync(w http.ResponseWriter, r *http.Request, kind gener
 	}
 	inst, pe := s.pickInstance(model, kind)
 	if pe == nil && check != nil {
-		pe = check(inst)
+		pe = check(inst, r.Header.Get("Content-Type"), body)
 	}
 	if pe != nil {
 		writeRequestError(w, pe)

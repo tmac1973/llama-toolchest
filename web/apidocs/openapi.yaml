@@ -439,7 +439,9 @@ paths:
       summary: Edit an image (waits)
       description: |
         As `generations`, for sets whose `meta.capabilities` includes
-        `edit`; other sets give HTTP 400 `edits_not_supported`. The form
+        `edit`; other sets give HTTP 400 `edits_not_supported`. An edit
+        with more `image[]` files than the instance's
+        `meta.max_edit_images` gives HTTP 400 `too_many_images`. The form
         is sent to sd-server unchanged.
       requestBody:
         required: true
@@ -455,7 +457,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ImagesResponse"
         "400":
-          description: "`bad_request`, `model_required` or `edits_not_supported`."
+          description: "`bad_request`, `model_required`, `edits_not_supported` or `too_many_images`."
           content:
             application/json:
               schema:
@@ -587,7 +589,8 @@ paths:
         once with a job ID. The body is sent to sd-server unchanged when
         the job runs, to `/v1/images/generations` or `/v1/images/edits`;
         sd-server must answer with `b64_json` images. An edit needs a
-        model set with the `edit` capability. The job's `request` shows
+        model set with the `edit` capability, and no more `image[]` files
+        than `meta.max_edit_images`. The job's `request` shows
         only `model`, `prompt`, `size`, `n` and `edit`; an
         `<sd_cpp_extra_args>` block is left out.
       requestBody:
@@ -607,7 +610,7 @@ paths:
         "202":
           $ref: "#/components/responses/JobAccepted"
         "400":
-          description: "`bad_request`, `model_required` or `edits_not_supported`."
+          description: "`bad_request`, `model_required`, `edits_not_supported` or `too_many_images`."
           content:
             application/json:
               schema:
@@ -1564,10 +1567,11 @@ components:
         max_edit_images:
           type: integer
           description: |
-            Edit-capable image sets only. The most `image[]` parts one edit
-            takes, as the model's makers give it. Left out when the limit
-            is not known. The instance is measured with one reference
-            image, so an edit with many can need more VRAM than it has.
+            Edit-capable image sets only. The most `image[]` files one
+            edit takes, as the model's makers give it. An edit with more is
+            refused with `too_many_images`. Left out when the limit is not
+            known; then any number is passed on. Measure tests an edit with
+            this many images, so the reservation holds the largest edit.
         scale:
           type: integer
           description: |

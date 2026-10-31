@@ -51,6 +51,9 @@
                 {{- if .MeasuredStale}}
                 <small style="display:block;color:var(--pico-ins-color);cursor:help;" title="Measured with other backend settings than now. The reservation can be too large. Press Measure to check.">Measured with older settings; measure again, it may need less memory now</small>
                 {{- end}}
+                {{- if .EditMeasureStale}}
+                <small style="display:block;color:var(--pico-ins-color);cursor:help;" title="The last measurement tested an edit with fewer images than an edit can have. An edit with more images uses more memory. Press Measure to check.">Measured with fewer edit images; measure again, it may need more memory</small>
+                {{- end}}
                 {{- if and .SuggestedMiB (ne .SuggestedMiB .ReservedMiB)}}
                 <button type="button" class="outline" style="margin:0.2rem 0 0;padding:0.1rem 0.5rem;font-size:0.75rem;"
                         hx-put="/api/gen/instances/{{.ID}}/reservation" hx-vals='{"reserved_gib": "{{printf "%.1f" .SuggestedGiB}}"}' hx-target="#gen-instances"

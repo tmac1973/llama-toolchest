@@ -53,3 +53,28 @@ func TestInstanceRowStaleAndRAM(t *testing.T) {
 		}
 	}
 }
+
+// An instance whose test edit had fewer references than its set's edits
+// may have is out of date; one measured before the count was recorded had
+// one.
+func TestEditMeasureStale(t *testing.T) {
+	klein := generation.ModelSet{Kind: generation.KindSD, Recipe: "flux2-klein-4b", Capabilities: []string{"edit"}}
+	unknown := generation.ModelSet{Kind: generation.KindSD, Recipe: "qwen-image-21-turbo", Capabilities: []string{"edit"}}
+	for _, tc := range []struct {
+		name string
+		inst generation.Instance
+		set  generation.ModelSet
+		want bool
+	}{
+		{"never measured", generation.Instance{}, klein, false},
+		{"old measurement", generation.Instance{MeasuredPeakMiB: 8000}, klein, true},
+		{"measured at 2", generation.Instance{MeasuredPeakMiB: 8000, MeasuredEditImages: 2}, klein, true},
+		{"measured at the limit", generation.Instance{MeasuredPeakMiB: 8000, MeasuredEditImages: 4}, klein, false},
+		{"limit not known", generation.Instance{MeasuredPeakMiB: 8000}, unknown, false},
+		{"cannot edit", generation.Instance{MeasuredPeakMiB: 8000}, generation.ModelSet{Kind: generation.KindSD}, false},
+	} {
+		if got := editMeasureStale(tc.inst, tc.set); got != tc.want {
+			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

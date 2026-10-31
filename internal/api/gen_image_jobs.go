@@ -50,6 +50,8 @@ type imageJobRequest struct {
 	// Edit: the job came as a multipart form and goes to sd-server's
 	// /v1/images/edits.
 	Edit bool `json:"edit,omitempty"`
+	// images is how many reference images an edit sends.
+	images int
 }
 
 // extraArgsRE matches sd-server's <sd_cpp_extra_args> block in a prompt.
@@ -311,7 +313,7 @@ func (s *Server) handleImageJobCreate(w http.ResponseWriter, r *http.Request) {
 	req.Prompt = strings.TrimSpace(extraArgsRE.ReplaceAllString(req.Prompt, ""))
 	inst, pe := s.pickInstance(req.Model, generation.KindSD)
 	if pe == nil && req.Edit {
-		pe = s.editRefusal(inst)
+		pe = s.editRefusal(inst, req.images)
 	}
 	if pe != nil {
 		writeRequestError(w, pe)
@@ -340,11 +342,11 @@ func imageJobRequestOf(contentType string, body []byte) (imageJobRequest, error)
 		req.Edit = false
 		return req, nil
 	}
-	f, err := readFormFields(contentType, body, "model", "prompt", "size", "n")
+	f, images, err := readEditForm(contentType, body, "model", "prompt", "size", "n")
 	if err != nil {
 		return req, err
 	}
-	req.Model, req.Prompt, req.Size, req.Edit = f["model"], f["prompt"], f["size"], true
+	req.Model, req.Prompt, req.Size, req.Edit, req.images = f["model"], f["prompt"], f["size"], true, images
 	// sd-server checks n; here it is only shown back.
 	req.N, _ = strconv.Atoi(f["n"])
 	return req, nil

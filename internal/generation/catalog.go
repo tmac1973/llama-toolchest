@@ -725,6 +725,16 @@ func (m ModelSet) MaxEditImages() int {
 	return RecipeMaxEditImages[m.Recipe]
 }
 
+// MeasureEditImages is how many reference images Measure gives a set's
+// test edit: its limit, so the reservation holds the largest edit it
+// takes, or one when the limit is not known; 0 for a set that cannot edit.
+func (m ModelSet) MeasureEditImages() int {
+	if !slices.Contains(m.CurrentCapabilities(), CapEdit) {
+		return 0
+	}
+	return max(m.MaxEditImages(), 1)
+}
+
 // UpscaleScale is how many times larger an upscaler set makes an image,
 // from the catalog; 0 for a custom set, whose factor is not known.
 func (m ModelSet) UpscaleScale() int {
