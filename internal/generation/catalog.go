@@ -86,7 +86,15 @@ var (
 	// hunyuanVAE are shared by every HunyuanVideo 1.5 set.
 	hunyuanByT5 = Component{Slot: "t5xxl", Repo: hunyuanRepo, File: "split_files/text_encoders/byt5_small_glyphxl_fp16.safetensors", Bytes: 438643184}
 	hunyuanVAE  = Component{Slot: "vae", Repo: hunyuanRepo, File: "split_files/vae/hunyuanvideo15_vae_fp16.safetensors", Bytes: 2521292758}
+	// qwen21Turbo, qwen3VL8B and qwen21VAE are Qwen-Image 2.1 Turbo's
+	// files, shared by its image set and its edit set.
+	qwen21Turbo = Component{Slot: "diffusion_model", Repo: "unsloth/Qwen-Image-2.1-Turbo-GGUF", File: "qwen-image-2.1-turbo-Q4_K_M.gguf", Bytes: 4199565120}
+	qwen3VL8B   = Component{Slot: "llm", Repo: "Qwen/Qwen3-VL-8B-Instruct-GGUF", File: "Qwen3VL-8B-Instruct-Q4_K_M.gguf", Bytes: 5027784800}
+	qwen21VAE   = Component{Slot: "vae", Repo: "Comfy-Org/Qwen-Image-2.1", File: "vae/qwen_image_2.1_vae_bf16.safetensors", Bytes: 675509688}
 )
+
+// qwen21TurboArgs are the launch flags of both Qwen-Image 2.1 Turbo sets.
+var qwen21TurboArgs = []string{"--sigmas", "qwen-image-2.1-turbo", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling", "--backend", "te=cpu"}
 
 // hunyuanRepo is Comfy-Org's repackaged HunyuanVideo 1.5 files (once
 // named Comfy-Org/HunyuanVideo_1.5_repackaged, which now redirects here).
@@ -185,7 +193,7 @@ func hunyuanGGUF(repo, file string) Component {
 // Catalog returns the built-in model sets. File sizes were read from the
 // Hugging Face tree API on 2026-10-24 (2026-10-25 for Z-Image Turbo,
 // FLUX.3 Image Klein, Chroma1-HD, Chroma1-Flash and Qwen-Image-Edit 2511;
-// 2026-10-26 for Wan2.2 TI2V 5B);
+// 2026-10-26 for Wan2.2 TI2V 5B; 2026-10-31 for Qwen3-VL's picture reader);
 // launch settings for Qwen-Image 2.1 Turbo and ACE-Step XL SFT are the
 // ones measured on asmodean on 2026-10-24.
 func Catalog() []CatalogEntry {
@@ -213,20 +221,36 @@ func Catalog() []CatalogEntry {
 			DefaultHeight: 2048,
 		},
 		{
-			ID:     "qwen-image-2.1-turbo",
-			Name:   "Qwen-Image 2.1 Turbo (Q4)",
+			ID:         "qwen-image-2.1-turbo",
+			Name:       "Qwen-Image 2.1 Turbo (Q4)",
+			Kind:       KindSD,
+			Recipe:     "qwen-image-21-turbo",
+			Components: []Component{qwen21Turbo, qwen3VL8B, qwen21VAE},
+			LaunchArgs: qwen21TurboArgs,
+			// No "edit": Qwen-Image edits need the llm_vision weights,
+			// which this set leaves out. qwen-image-2.1-turbo-edit has
+			// them; an edit reserves about twice the VRAM.
+			License:       "Qwen-Image 2.1 licence",
+			Notes:         "8 steps. About 36 s per 1024×1024 image on a Radeon AI PRO R9700. Reserves about 6.5 GiB of VRAM with its text model on the CPU (11 GiB with it on the GPU). For edits, use Qwen-Image 2.1 Turbo Edit. Licence terms: https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo",
+			DefaultWidth:  1024,
+			DefaultHeight: 1024,
+		},
+		{
+			ID:     "qwen-image-2.1-turbo-edit",
+			Name:   "Qwen-Image 2.1 Turbo Edit (Q4)",
 			Kind:   KindSD,
 			Recipe: "qwen-image-21-turbo",
+			// The Turbo set plus Qwen3-VL's picture reader, which sd.cpp
+			// runs on the CPU with the text model.
 			Components: []Component{
-				{Slot: "diffusion_model", Repo: "unsloth/Qwen-Image-2.1-Turbo-GGUF", File: "qwen-image-2.1-turbo-Q4_K_M.gguf", Bytes: 4199565120},
-				{Slot: "llm", Repo: "Qwen/Qwen3-VL-8B-Instruct-GGUF", File: "Qwen3VL-8B-Instruct-Q4_K_M.gguf", Bytes: 5027784800},
-				{Slot: "vae", Repo: "Comfy-Org/Qwen-Image-2.1", File: "vae/qwen_image_2.1_vae_bf16.safetensors", Bytes: 675509688},
+				qwen21Turbo, qwen3VL8B,
+				{Slot: "llm_vision", Repo: "Qwen/Qwen3-VL-8B-Instruct-GGUF", File: "mmproj-Qwen3VL-8B-Instruct-F16.gguf", Bytes: 1159029824},
+				qwen21VAE,
 			},
-			LaunchArgs: []string{"--sigmas", "qwen-image-2.1-turbo", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling", "--backend", "te=cpu"},
-			// No "edit": Qwen-Image edits need the llm_vision weights,
-			// which this set leaves out.
+			LaunchArgs:    qwen21TurboArgs,
+			Capabilities:  []string{"edit"},
 			License:       "Qwen-Image 2.1 licence",
-			Notes:         "8 steps. About 36 s per 1024×1024 image on a Radeon AI PRO R9700. Reserves about 6.5 GiB of VRAM with its text model on the CPU (11 GiB with it on the GPU). Licence terms: https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo",
+			Notes:         "Qwen-Image 2.1 Turbo that also edits images from one or more reference images, 8 steps. On a Radeon AI PRO R9700: about 34 s per 1024×1024 image and 88 s per edit. Reserves about 13.5 GiB of VRAM with its text model and picture reader on the CPU, as an edit needs about twice the memory of an image. Shares all its files but the 1.2 GB picture reader with Qwen-Image 2.1 Turbo. Licence terms: https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo",
 			DefaultWidth:  1024,
 			DefaultHeight: 1024,
 		},
