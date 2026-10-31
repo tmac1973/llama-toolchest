@@ -1,10 +1,11 @@
 package api
 
 // Async image jobs: /v1/images/jobs takes the same JSON as
-// /v1/images/generations, queues it on the instance's GPU like the
-// synchronous route does, and answers at once with a job ID. Clients poll
-// the job for its status and phase, then download each image. The API
-// mirrors /v1/music/jobs.
+// /v1/images/generations, or the same multipart form as /v1/images/edits
+// for an edit, queues it on the instance's GPU like the synchronous routes
+// do, and answers at once with a job ID. Clients poll the job for its
+// status and phase, then download each image. The API mirrors
+// /v1/music/jobs.
 
 import (
 	"context"
@@ -39,12 +40,16 @@ const (
 
 // imageJobRequest is the part of an image job's request that the job
 // shows back to clients. The rest of the body (init_image, an
-// <sd_cpp_extra_args> block) can be megabytes and is never shown.
+// <sd_cpp_extra_args> block, an edit's images) can be megabytes and is
+// never shown.
 type imageJobRequest struct {
 	Model  string `json:"model,omitempty"`
 	Prompt string `json:"prompt"`
 	Size   string `json:"size,omitempty"`
 	N      int    `json:"n,omitempty"`
+	// Edit: the job came as a multipart form and goes to sd-server's
+	// /v1/images/edits.
+	Edit bool `json:"edit,omitempty"`
 }
 
 // extraArgsRE matches sd-server's <sd_cpp_extra_args> block in a prompt.
@@ -62,8 +67,9 @@ type imageJob struct {
 	Images  []imageJobImage `json:"images,omitempty"`
 
 	// Not shown to clients.
-	body  []byte // the request as sent, until it is forwarded
-	paths []string
+	body        []byte // the request as sent, until it is forwarded
+	contentType string // body's Content-Type, with a form's boundary
+	paths       []string
 }
 
 func (j imageJob) state() jobState { return j.jobState(j.paths) }
@@ -99,7 +105,7 @@ func (s *Server) imageDir() string {
 
 // submitImageJob queues an image request on the instance's GPU and runs
 // it in the background. It fails at once when the GPU's queue is full.
-func (s *Server) submitImageJob(inst generation.Instance, req imageJobRequest, body []byte) (*imageJob, error) {
+func (s *Server) submitImageJob(inst generation.Instance, req imageJobRequest, body []byte, contentType string) (*imageJob, error) {
 	ticket, err := s.genQueue.Submit(inst.GPU, inst.ID, generation.KindSD)
 	if err != nil {
 		return nil, err
@@ -110,7 +116,7 @@ func (s *Server) submitImageJob(inst generation.Instance, req imageJobRequest, b
 			ID: newGenJobID(), InstanceID: inst.ID, Status: jobQueued, Phase: imagePhaseQueued,
 			Submitted: ticket.Info().Submitted, cancel: cancel, ticket: ticket,
 		},
-		Request: req, body: body,
+		Request: req, body: body, contentType: contentType,
 	}
 	// A free GPU starts the job at once; say so in the first answer.
 	if started := ticket.Info().Started; !started.IsZero() {
@@ -165,6 +171,8 @@ func (s *Server) runImageJob(ctx context.Context, id string, inst generation.Ins
 	}
 
 	var body []byte
+	var contentType string
+	path := "/v1/images/generations"
 	cancelled := false
 	now := time.Now()
 	s.genImageJobs.update(id, func(j *imageJob) {
@@ -172,7 +180,10 @@ func (s *Server) runImageJob(ctx context.Context, id string, inst generation.Ins
 			cancelled = true
 			return
 		}
-		body = j.body
+		body, contentType = j.body, j.contentType
+		if j.Request.Edit {
+			path = "/v1/images/edits"
+		}
 	})
 	if cancelled {
 		finish(jobCancelled, "", nil, nil)
@@ -188,7 +199,7 @@ func (s *Server) runImageJob(ctx context.Context, id string, inst generation.Ins
 	}
 	// Not tied to ctx: once sd-server has the request it runs to the end,
 	// and the GPU stays booked until then.
-	images, err := generateImages(context.Background(), inst, body)
+	images, err := generateImages(context.Background(), inst, path, contentType, body)
 	if err != nil {
 		fail(err)
 		return
@@ -224,10 +235,10 @@ func (s *Server) runImageJob(ctx context.Context, id string, inst generation.Ins
 	finish(jobSucceeded, "", refs, paths)
 }
 
-// generateImages sends a generation request to sd-server and decodes the
-// images in its answer.
-func generateImages(ctx context.Context, inst generation.Instance, body []byte) ([][]byte, error) {
-	resp, err := forwardImage(ctx, inst, "/v1/images/generations", "application/json", "application/json", body)
+// generateImages sends a generation or edit request to sd-server at path
+// and decodes the images in its answer.
+func generateImages(ctx context.Context, inst generation.Instance, path, contentType string, body []byte) ([][]byte, error) {
+	resp, err := forwardImage(ctx, inst, path, contentType, "application/json", body)
 	if err != nil {
 		return nil, err
 	}
@@ -286,33 +297,57 @@ func (s *Server) handleImageJobCreate(w http.ResponseWriter, r *http.Request) {
 		writeNotEnabled(w, "image")
 		return
 	}
-	if isMultipartForm(r) {
-		openAIError(w, http.StatusBadRequest, "invalid_request_error", "bad_request", "image jobs take JSON")
-		return
-	}
 	body, rerr := readImageBody(r)
 	if rerr != nil {
 		writeRequestError(w, rerr)
 		return
 	}
-	var req imageJobRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		openAIError(w, http.StatusBadRequest, "invalid_request_error", "bad_request", "the body is not valid JSON: "+err.Error())
+	contentType := r.Header.Get("Content-Type")
+	req, err := imageJobRequestOf(contentType, body)
+	if err != nil {
+		openAIError(w, http.StatusBadRequest, "invalid_request_error", "bad_request", err.Error())
 		return
 	}
 	req.Prompt = strings.TrimSpace(extraArgsRE.ReplaceAllString(req.Prompt, ""))
 	inst, pe := s.pickInstance(req.Model, generation.KindSD)
+	if pe == nil && req.Edit {
+		pe = s.editRefusal(inst)
+	}
 	if pe != nil {
 		writeRequestError(w, pe)
 		return
 	}
-	job, err := s.submitImageJob(inst, req, body)
+	if !req.Edit {
+		contentType = "application/json"
+	}
+	job, err := s.submitImageJob(inst, req, body, contentType)
 	if err != nil {
 		writeQueueError(w, err)
 		return
 	}
 	view, _ := s.genImageJobs.view(job.ID)
 	writeJobAccepted(w, view.ID, view.Status, view.Phase, view.Position)
+}
+
+// imageJobRequestOf reads the shown part of an image job's request: a JSON
+// generation, or a multipart edit form.
+func imageJobRequestOf(contentType string, body []byte) (imageJobRequest, error) {
+	var req imageJobRequest
+	if !isMultipartType(contentType) {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return req, fmt.Errorf("the body is not valid JSON: %w", err)
+		}
+		req.Edit = false
+		return req, nil
+	}
+	f, err := readFormFields(contentType, body, "model", "prompt", "size", "n")
+	if err != nil {
+		return req, err
+	}
+	req.Model, req.Prompt, req.Size, req.Edit = f["model"], f["prompt"], f["size"], true
+	// sd-server checks n; here it is only shown back.
+	req.N, _ = strconv.Atoi(f["n"])
+	return req, nil
 }
 
 // imageJobRoutes is what the shared job routes need from image jobs.

@@ -33,7 +33,12 @@ func isJSONRequest(r *http.Request) bool {
 // isMultipartForm reports whether the request body is a multipart form
 // (multipart/form-data, with any parameters such as its boundary).
 func isMultipartForm(r *http.Request) bool {
-	mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	return isMultipartType(r.Header.Get("Content-Type"))
+}
+
+// isMultipartType reports whether a Content-Type is multipart/form-data.
+func isMultipartType(contentType string) bool {
+	mt, _, _ := mime.ParseMediaType(contentType)
 	return mt == "multipart/form-data"
 }
 

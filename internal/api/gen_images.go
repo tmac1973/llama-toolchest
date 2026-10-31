@@ -95,22 +95,9 @@ func (s *Server) pickInstance(model string, kind generation.BackendKind) (genera
 
 // requestModel finds the "model" field of a JSON or multipart body.
 func requestModel(contentType string, body []byte) (string, error) {
-	mediaType, params, _ := mime.ParseMediaType(contentType)
-	if mediaType == "multipart/form-data" {
-		mr := multipart.NewReader(bytes.NewReader(body), params["boundary"])
-		for {
-			part, err := mr.NextPart()
-			if errors.Is(err, io.EOF) {
-				return "", nil
-			}
-			if err != nil {
-				return "", fmt.Errorf("reading the form: %w", err)
-			}
-			if part.FormName() == "model" {
-				v, err := io.ReadAll(io.LimitReader(part, 1024))
-				return strings.TrimSpace(string(v)), err
-			}
-		}
+	if isMultipartType(contentType) {
+		f, err := readFormFields(contentType, body, "model")
+		return f["model"], err
 	}
 	var req struct {
 		Model string `json:"model"`
@@ -119,6 +106,46 @@ func requestModel(contentType string, body []byte) (string, error) {
 		return "", fmt.Errorf("the body is not valid JSON: %w", err)
 	}
 	return req.Model, nil
+}
+
+// readFormFields reads the named text fields of a multipart body, trimmed.
+// File parts and other fields are skipped; a field is read up to
+// maxFormField bytes.
+func readFormFields(contentType string, body []byte, names ...string) (map[string]string, error) {
+	_, params, _ := mime.ParseMediaType(contentType)
+	mr := multipart.NewReader(bytes.NewReader(body), params["boundary"])
+	out := map[string]string{}
+	for {
+		part, err := mr.NextPart()
+		if errors.Is(err, io.EOF) {
+			return out, nil
+		}
+		if err != nil {
+			return out, fmt.Errorf("reading the form: %w", err)
+		}
+		if name := part.FormName(); slices.Contains(names, name) && part.FileName() == "" {
+			v, err := io.ReadAll(io.LimitReader(part, maxFormField))
+			if err != nil {
+				return out, fmt.Errorf("reading the form: %w", err)
+			}
+			out[name] = strings.TrimSpace(string(v))
+		}
+	}
+}
+
+// maxFormField caps a text field read by readFormFields. A prompt with an
+// <sd_cpp_extra_args> block can be long, so this is generous.
+const maxFormField = 1 << 20
+
+// editRefusal is the error for an edit sent to an instance whose model set
+// cannot edit, or nil when it can.
+func (s *Server) editRefusal(inst generation.Instance) *requestError {
+	set, _ := s.gen.ModelSet(inst.ModelSetID)
+	if slices.Contains(set.Capabilities, "edit") {
+		return nil
+	}
+	return &requestError{http.StatusBadRequest, "edits_not_supported",
+		fmt.Sprintf("model %s does not support image edits", inst.ID)}
 }
 
 // handleGenImages serves /v1/images/generations and /v1/images/edits: it
@@ -145,10 +172,8 @@ func (s *Server) handleGenImages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.HasSuffix(r.URL.Path, "/edits") {
-		set, _ := s.gen.ModelSet(inst.ModelSetID)
-		if !slices.Contains(set.Capabilities, "edit") {
-			openAIError(w, http.StatusBadRequest, "invalid_request_error", "edits_not_supported",
-				fmt.Sprintf("model %s does not support image edits", inst.ID))
+		if pe := s.editRefusal(inst); pe != nil {
+			writeRequestError(w, pe)
 			return
 		}
 	}
