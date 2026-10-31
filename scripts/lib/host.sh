@@ -1838,6 +1838,10 @@ host_install() {
             ;;
     esac
 
+    # After the package step: the package recommends nodejs, so node may
+    # only be present from here on.
+    host_offer_pnpm
+
     # Config skeleton — only matters for user-scope; system installs that
     # want a /etc config can copy from the .yaml.example shipped in the package.
     if [[ "$(service_scope)" == "user" ]]; then
@@ -2101,6 +2105,9 @@ host_deps() {
     echo "  Benchmark integration (optional — for llama-benchy presets):"
     host_report_uv_dep
     echo ""
+    echo "  sd-server web UI (optional — for the Built-in web UI build option):"
+    host_report_pnpm_dep
+    echo ""
     if [[ $rc -eq 0 ]]; then
         ok "All host dependencies satisfied."
     else
@@ -2123,6 +2130,131 @@ host_report_uv_dep() {
         printf "    %-7s %s\n" "uv" "missing — llama-benchy benchmark presets won't run"
         echo "            curl -LsSf https://astral.sh/uv/install.sh | sh"
     fi
+}
+
+# pnpm builds the built-in web UI of stable-diffusion.cpp's sd-server.
+# Pinned to the same version the container images install, so host and
+# container builds behave the same.
+HOST_PNPM_VERSION="9.15.4"
+
+# Echo the major version of the node on PATH. Returns 1 when there is no
+# node or its version can't be read.
+host_node_major() {
+    command -v node >/dev/null 2>&1 || return 1
+    local v
+    v="$(node --version 2>/dev/null)"
+    v="${v#v}"
+    v="${v%%.*}"
+    [[ "$v" =~ ^[0-9]+$ ]] || return 1
+    echo "$v"
+}
+
+# Echo one word for what stands between this host and a pnpm install:
+#   ok        pnpm is on PATH
+#   no-node   no node on PATH
+#   old-node  node is older than 20, which the web UI build needs
+#   no-npm    node is there but npm is not (Debian packages it apart)
+#   missing   node and npm are there; `npm install -g pnpm` will work
+host_pnpm_state() {
+    if command -v pnpm >/dev/null 2>&1; then echo ok; return 0; fi
+    local major
+    if ! major="$(host_node_major)"; then echo no-node; return 0; fi
+    if (( major < 20 )); then echo old-node; return 0; fi
+    if ! command -v npm >/dev/null 2>&1; then echo no-npm; return 0; fi
+    echo missing
+}
+
+# Echo the command that installs the given distro packages, for hints.
+host_pkg_install_hint() {
+    case "$DISTRO_FAMILY" in
+        debian) echo "sudo apt-get install -y $*" ;;
+        fedora) echo "sudo dnf install -y $*" ;;
+        arch)   echo "sudo pacman -S --needed $*" ;;
+        *)      echo "install $* with your package manager" ;;
+    esac
+}
+
+# Install step: offer to install pnpm with npm when node and npm are
+# already there. Without pnpm the Builds page leaves the sd-server web UI
+# option off; the API still works, so nothing here fails the install. It
+# does not install Node.js itself: some distros still ship a node older
+# than 20, so the user picks the source.
+host_offer_pnpm() {
+    local state
+    state="$(host_pnpm_state)"
+    case "$state" in
+        ok)
+            return 0
+            ;;
+        no-node)
+            log "pnpm is not installed. The sd-server web UI build option needs Node.js 20 or newer and pnpm."
+            log "Install Node.js 20+ ($(host_pkg_install_hint nodejs npm)), then:"
+            echo "    sudo npm install -g pnpm@${HOST_PNPM_VERSION}"
+            echo ""
+            return 0
+            ;;
+        old-node)
+            log "pnpm is not installed, and Node.js $(host_node_major) is too old for the sd-server web UI (it needs 20 or newer)."
+            log "Install Node.js 20+, then:  sudo npm install -g pnpm@${HOST_PNPM_VERSION}"
+            echo ""
+            return 0
+            ;;
+        no-npm)
+            log "pnpm is not installed, and npm is missing. Install npm ($(host_pkg_install_hint npm)), then:"
+            echo "    sudo npm install -g pnpm@${HOST_PNPM_VERSION}"
+            echo ""
+            return 0
+            ;;
+    esac
+
+    log "pnpm is not installed. The Builds page needs it for the sd-server web UI option."
+    log "Run: sudo npm install -g pnpm@${HOST_PNPM_VERSION}"
+    if prompt_confirm "Install pnpm now? (optional — sd-server works without its web UI)"; then
+        if run_sudo npm install -g "pnpm@${HOST_PNPM_VERSION}"; then
+            # `sudo npm -g` installs under npm's global prefix (usually
+            # /usr/local/bin). A prefix off PATH, such as one under
+            # $HOME, leaves the service unable to find pnpm.
+            if command -v pnpm >/dev/null 2>&1; then
+                ok "pnpm installed ($(command -v pnpm))"
+            else
+                warn "npm finished, but pnpm is not on PATH. Check npm's global prefix (npm config get prefix)."
+            fi
+        else
+            warn "pnpm failed to install — the sd-server web UI option will stay off."
+        fi
+    fi
+    echo ""
+    return 0
+}
+
+# deps step: report Node.js and pnpm for the sd-server web UI. Reports OK
+# or a hint, never fails the deps check (the API works without them).
+host_report_pnpm_dep() {
+    local major
+    if major="$(host_node_major)"; then
+        if (( major >= 20 )); then
+            printf "    %-7s %s\n" "node" "OK ($(node --version 2>/dev/null))"
+        else
+            printf "    %-7s %s\n" "node" "too old ($(node --version 2>/dev/null)) — the web UI needs 20 or newer"
+        fi
+    else
+        printf "    %-7s %s\n" "node" "missing — the sd-server web UI option will stay off"
+        printf "            %s\n" "$(host_pkg_install_hint nodejs npm)"
+    fi
+    case "$(host_pnpm_state)" in
+        ok)
+            printf "    %-7s %s\n" "pnpm" "OK ($(pnpm --version 2>/dev/null))"
+            ;;
+        no-npm)
+            printf "    %-7s %s\n" "pnpm" "missing — needs npm first"
+            printf "            %s\n" "$(host_pkg_install_hint npm)"
+            printf "            sudo npm install -g pnpm@%s\n" "$HOST_PNPM_VERSION"
+            ;;
+        *)
+            printf "    %-7s %s\n" "pnpm" "missing — the sd-server web UI option will stay off"
+            printf "            sudo npm install -g pnpm@%s\n" "$HOST_PNPM_VERSION"
+            ;;
+    esac
 }
 
 host_status() {
