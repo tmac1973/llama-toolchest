@@ -215,6 +215,42 @@ func TestSetEnvDefault(t *testing.T) {
 	}
 }
 
+// With HOME read-only (packaged system unit), pnpm and ccache state must
+// land under the data dir, and values the operator set must stay. #457.
+func TestRedirectStateDirs(t *testing.T) {
+	env := []string{"HOME=/root", "CCACHE_DIR=/custom/ccache"}
+	env = redirectStateDirs(env, "/data/build-state")
+	want := map[string]string{
+		"XDG_DATA_HOME":  "/data/build-state/share",
+		"XDG_CACHE_HOME": "/data/build-state/cache",
+		"XDG_STATE_HOME": "/data/build-state/state",
+		"PNPM_HOME":      "/data/build-state/share/pnpm",
+		"CCACHE_DIR":     "/custom/ccache",
+		"HOME":           "/root",
+	}
+	for k, v := range want {
+		if got := envValue(env, k); got != v {
+			t.Errorf("%s = %q, want %q", k, got, v)
+		}
+	}
+}
+
+func TestDirWritable(t *testing.T) {
+	dir := t.TempDir()
+	if !dirWritable(dir) {
+		t.Errorf("temp dir reported not writable")
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Errorf("probe file left behind: %v", entries)
+	}
+	if dirWritable("") {
+		t.Errorf("empty HOME reported writable")
+	}
+	if dirWritable(filepath.Join(dir, "missing")) {
+		t.Errorf("missing dir reported writable")
+	}
+}
+
 // llama.cpp turns GGML_CUDA_GRAPHS on when it is not set, so the toggle
 // defaults to on and off has to be written out as OFF.
 func TestCUDAGraphsToggleWritesOff(t *testing.T) {

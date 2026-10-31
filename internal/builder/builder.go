@@ -659,6 +659,16 @@ func (b *Builder) runBuild(ctx context.Context, proj Project, prof BuildProfile,
 	// a compatible side-by-side g++ and hand it to cmake as the host
 	// compiler — without this, build fails on "unsupported GNU version".
 	buildEnv := os.Environ()
+	// The packaged system unit runs as root with ProtectHome=read-only, so
+	// tools that keep state under $HOME fail mid-build: pnpm (the sd-server
+	// web UI) cannot set up its pinned version, and ccache cannot write
+	// its cache. When HOME cannot be written, keep that state in the data
+	// dir instead. Issue #457.
+	if home := envValue(buildEnv, "HOME"); !dirWritable(home) {
+		stateDir := filepath.Join(b.dataDir, "build-state")
+		buildEnv = redirectStateDirs(buildEnv, stateDir)
+		sendLog(fmt.Sprintf("==> HOME (%s) is read-only; build tools keep their state in %s", home, stateDir))
+	}
 	// Arch-family distros install ROCm under /opt/rocm without adding it
 	// to PATH (Fedora/Debian symlink the tools into /usr/bin), so cmake's
 	// HIP compiler probe and rocm_agent_enumerator fail even with ROCm
@@ -1562,6 +1572,35 @@ func setEnvDefault(env []string, key, value string) []string {
 		}
 	}
 	return append(env, key+"="+value)
+}
+
+// redirectStateDirs returns env with the per-user state dirs of build
+// tools pointed under root, laid out as they would be under $HOME. Values
+// already in env win, as with setEnvDefault.
+func redirectStateDirs(env []string, root string) []string {
+	share := filepath.Join(root, "share")
+	cache := filepath.Join(root, "cache")
+	env = setEnvDefault(env, "XDG_DATA_HOME", share)
+	env = setEnvDefault(env, "XDG_CACHE_HOME", cache)
+	env = setEnvDefault(env, "XDG_STATE_HOME", filepath.Join(root, "state"))
+	env = setEnvDefault(env, "PNPM_HOME", filepath.Join(share, "pnpm"))
+	env = setEnvDefault(env, "CCACHE_DIR", filepath.Join(cache, "ccache"))
+	return env
+}
+
+// dirWritable reports whether a file can be created in dir, by creating
+// and removing a probe file.
+func dirWritable(dir string) bool {
+	if dir == "" {
+		return false
+	}
+	f, err := os.CreateTemp(dir, ".llama-toolchest-probe-*")
+	if err != nil {
+		return false
+	}
+	f.Close()
+	os.Remove(f.Name())
+	return true
 }
 
 // dirExists reports whether path exists and is a directory.
