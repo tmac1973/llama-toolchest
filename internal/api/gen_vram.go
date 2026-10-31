@@ -644,6 +644,15 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 	}
 	defer release()
 	wasRunning := s.genMgr.IsActive(id)
+	// The card's reading from before the stop, for the wait to see the
+	// backend's memory fall from. A backend that held almost nothing
+	// shows no drop, so none is waited for.
+	from := s.gpuUsedMiB(inst.GPU)
+	if pid := s.genMgr.PID(id); pid > 0 {
+		if mib, ok := s.genProcVRAM.read(pid); ok && mib <= gpuReleasedSlackMiB {
+			from = -1
+		}
+	}
 	stoppedAt := time.Now()
 	if wasRunning {
 		if err := s.genMgr.Stop(id); err != nil {
@@ -654,14 +663,14 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 		// before the backend let go of its memory counts that memory as
 		// another program's: Wan2.2 I2V A14B was measured with 16.5 GiB
 		// of a 28.5 GiB room that way (R9700, 2026-10-27).
-		waitGPUSettled(s.gpuReading(inst.GPU), stoppedAt, 20*time.Second, 500*time.Millisecond)
+		waitGPUSettled(s.gpuReading(inst.GPU), stoppedAt, from, 20*time.Second, 500*time.Millisecond)
 	} else {
 		// Another backend on the card may have stopped just before, and
 		// still be giving its memory back: a baseline read then counts
 		// that memory as other programs', and the peak comes out far too
 		// low (HunyuanVideo 1.5 T2V measured 5.9 GiB at 121 frames right
 		// after another HunyuanVideo instance stopped; R9700, 2026-10-29).
-		waitGPUSettled(s.gpuReading(inst.GPU), time.Now(), 20*time.Second, 500*time.Millisecond)
+		waitGPUSettled(s.gpuReading(inst.GPU), time.Now(), -1, 20*time.Second, 500*time.Millisecond)
 	}
 	baseline := s.gpuUsedMiB(inst.GPU)
 
@@ -1031,14 +1040,26 @@ func waitGPUReleased(used func() int, baseline int, limit, step time.Duration) b
 
 // waitGPUSettled waits, for at most limit, until two readings taken after
 // since are no more than gpuReleasedSlackMiB apart: the card has stopped
-// giving memory back. read returns a reading's time and used MiB.
-func waitGPUSettled(read func() (time.Time, int), since time.Time, limit, step time.Duration) bool {
+// giving memory back. read returns a reading's time and used MiB. When
+// from is not negative, it is the reading from before a stop, and the
+// two readings count only after one fell more than gpuReleasedSlackMiB
+// below from (or the first reading, when that is higher), or once
+// gpuFreedGrace has passed since since: just after a stop the driver may
+// not have given the memory back yet (see gpuFreedGrace).
+func waitGPUSettled(read func() (time.Time, int), since time.Time, from int, limit, step time.Duration) bool {
 	deadline := time.Now().Add(limit)
 	var last time.Time
+	dropped := from < 0
 	prev := -1
 	for {
 		if at, mib := read(); at.After(since) && at.After(last) {
-			if prev >= 0 && prev-mib <= gpuReleasedSlackMiB {
+			if prev < 0 {
+				from = max(from, mib)
+			}
+			if from-mib > gpuReleasedSlackMiB || at.Sub(since) >= gpuFreedGrace {
+				dropped = true
+			}
+			if dropped && prev >= 0 && prev-mib <= gpuReleasedSlackMiB {
 				return true
 			}
 			prev, last = mib, at

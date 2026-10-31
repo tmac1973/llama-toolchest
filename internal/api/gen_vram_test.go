@@ -318,15 +318,38 @@ func TestWaitGPUSettled(t *testing.T) {
 		i++
 		return r.at, r.mib
 	}
-	if !waitGPUSettled(read, stop, time.Second, time.Millisecond) {
+	if !waitGPUSettled(read, stop, 12500, time.Second, time.Millisecond) {
 		t.Error("the readings settled, but the wait gave up")
 	}
 	if i != 6 {
 		t.Errorf("read %d times, want 6 (stop at the first settled reading)", i)
 	}
 	old := func() (time.Time, int) { return stop.Add(-time.Second), 12500 }
-	if waitGPUSettled(old, stop, 20*time.Millisecond, time.Millisecond) {
+	if waitGPUSettled(old, stop, 12500, 20*time.Millisecond, time.Millisecond) {
 		t.Error("no reading came after the stop, but the wait reported success")
+	}
+
+	// Readings after the stop that have not fallen yet are not settled:
+	// the driver may not have given the memory back.
+	held := func() (time.Time, int) {
+		i++
+		return stop.Add(time.Duration(i) * time.Millisecond), 12500
+	}
+	if waitGPUSettled(held, stop, 12500, 20*time.Millisecond, time.Millisecond) {
+		t.Error("readings that never fell counted as settled")
+	}
+	// Past the grace period they are.
+	i = 0
+	late := func() (time.Time, int) {
+		i++
+		return stop.Add(gpuFreedGrace + time.Duration(i)*time.Millisecond), 12500
+	}
+	if !waitGPUSettled(late, stop, 12500, time.Second, time.Millisecond) {
+		t.Error("readings that held past the grace period did not count as settled")
+	}
+	// Without a reading from before the stop, no drop is waited for.
+	if !waitGPUSettled(held, stop, -1, time.Second, time.Millisecond) {
+		t.Error("with no drop expected, readings that held did not count as settled")
 	}
 }
 

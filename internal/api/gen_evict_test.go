@@ -204,14 +204,65 @@ func TestGPUFreed(t *testing.T) {
 		}
 		return ch
 	}
-	if !gpuFreed(feed(20000, 9000), 9000, time.Second) {
+	if !gpuFreed(feed(20000, 9000), 20000, 9000, 11000, time.Second, time.Second) {
 		t.Error("reaching the target did not end the wait")
 	}
-	if !gpuFreed(feed(20000, 18000, 17900), 9000, time.Second) {
+	if !gpuFreed(feed(20000, 18000, 17900), 20000, 9000, 11000, time.Second, time.Second) {
 		t.Error("a reading that stopped falling did not end the wait")
 	}
-	if gpuFreed(feed(20000, 15000), 9000, 30*time.Millisecond) {
+	if gpuFreed(feed(20000, 15000), 20000, 9000, 11000, time.Second, 30*time.Millisecond) {
 		t.Error("a reading still falling ended the wait")
+	}
+}
+
+// Just after a stop the driver may not have given the memory back yet, so
+// readings that have not fallen do not count as freed (compute2,
+// 2026-10-30: ming-gpu1 stopped and the check 104 ms later still saw its
+// 6.5 GiB).
+func TestGPUFreedWaitsForTheDrop(t *testing.T) {
+	readings := make(chan int)
+	done := make(chan bool)
+	go func() { done <- gpuFreed(readings, 6600, 0, 6400, time.Minute, time.Second) }()
+	for _, v := range []int{6600, 6600, 6600, 200} {
+		select {
+		case <-done:
+			t.Fatalf("the wait ended before the reading of %d MiB", v)
+		case readings <- v:
+		}
+	}
+	if !<-done {
+		t.Error("the drop to the target did not end the wait")
+	}
+
+	// A drop seen once lets later readings that no longer fall end it.
+	feed := func(vals ...int) <-chan int {
+		ch := make(chan int, len(vals))
+		for _, v := range vals {
+			ch <- v
+		}
+		return ch
+	}
+	if !gpuFreed(feed(6600, 6600, 4000, 3900), 6600, 0, 6400, time.Minute, time.Second) {
+		t.Error("readings that fell and then held did not end the wait")
+	}
+	// The reading from before the stop counts as the start: a first
+	// reading taken after the memory fell is already a drop.
+	if !gpuFreed(feed(4000, 3900), 6600, 0, 6400, time.Minute, time.Second) {
+		t.Error("readings already below the start did not end the wait")
+	}
+	// A backend that held almost nothing shows no drop.
+	if !gpuFreed(feed(6600, 6600), 6600, 0, 300, time.Minute, time.Second) {
+		t.Error("a backend that held almost nothing made the wait wait for a drop")
+	}
+	// After the grace period, readings that no longer fall end it.
+	slow := make(chan int)
+	go func() {
+		slow <- 6600
+		time.Sleep(20 * time.Millisecond)
+		slow <- 6600
+	}()
+	if !gpuFreed(slow, 6600, 0, 6400, 10*time.Millisecond, time.Second) {
+		t.Error("readings that held past the grace period did not end the wait")
 	}
 }
 

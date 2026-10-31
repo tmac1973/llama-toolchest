@@ -260,19 +260,20 @@ func (s *Server) stopGenUntil(gpu int, except, reason string, fits func() bool) 
 	type candidate struct {
 		inst  generation.Instance
 		share int
+		held  int // measured VRAM, or the reservation when unknown
 	}
 	var cands []candidate
 	for _, inst := range s.gen.Instances() {
 		if inst.GPU != gpu || inst.ID == except || inst.KeepRunning || !s.genMgr.IsActive(inst.ID) {
 			continue
 		}
-		share := inst.ReservedMiB
+		share, held := inst.ReservedMiB, inst.ReservedMiB
 		if pid := s.genMgr.PID(inst.ID); pid > 0 {
 			if mib, ok := s.genProcVRAM.read(pid); ok {
-				share = max(share, mib)
+				share, held = max(share, mib), mib
 			}
 		}
-		cands = append(cands, candidate{inst, share})
+		cands = append(cands, candidate{inst, share, held})
 	}
 	slices.SortStableFunc(cands, func(a, b candidate) int { return b.share - a.share })
 	stopped := 0
@@ -282,12 +283,13 @@ func (s *Server) stopGenUntil(gpu int, except, reason string, fits func() bool) 
 		}
 		inst, share := c.inst, c.share
 		before := s.gpuUsedMiB(gpu)
+		stoppedAt := time.Now()
 		if err := s.genMgr.Stop(inst.ID); err != nil {
 			slog.Warn("failed to stop generation backend to make room", "instance", inst.ID, "error", err)
 			continue
 		}
 		slog.Info("stopped generation backend to make room", "instance", inst.ID, "gpu", gpu, "for", reason)
-		s.waitGPUFreed(gpu, max(0, before-share))
+		s.waitGPUFreed(gpu, stoppedAt, before, max(0, before-share), c.held)
 		stopped++
 	}
 	return stopped
@@ -460,6 +462,7 @@ func (s *Server) unloadForGen(ctx context.Context, id string, inst generation.In
 	s.savePromptCache(ctx, m, routerName)
 	before := s.gpuUsedMiB(inst.GPU)
 	planned := s.loadedLLMMiB(models.RoomOf(s.idleHardware()), "", false)[inst.GPU]
+	unloadedAt := time.Now()
 	if err := s.process.UnloadModel(routerName); err != nil {
 		return err
 	}
@@ -480,7 +483,7 @@ func (s *Server) unloadForGen(ctx context.Context, id string, inst generation.In
 		}
 	}
 	after := s.loadedLLMMiB(models.RoomOf(s.idleHardware()), "", false)[inst.GPU]
-	s.waitGPUFreed(inst.GPU, max(0, before-(planned-after)))
+	s.waitGPUFreed(inst.GPU, unloadedAt, before, max(0, before-(planned-after)), planned-after)
 	return nil
 }
 
@@ -488,10 +491,20 @@ func (s *Server) unloadForGen(ctx context.Context, id string, inst generation.In
 // stop or an unload.
 const gpuFreedTimeout = 20 * time.Second
 
+// gpuFreedGrace is how long after a stop or an unload the card may show
+// no drop before readings that no longer fall count as freed anyway. The
+// driver can take a moment to give a process's memory back: on compute2
+// two readings just after ming-gpu1 stopped both still showed its 6.5 GiB,
+// and the music job that wanted the room was refused (RTX A4000,
+// 2026-10-30). The monitor samples every 3 s, so this covers two samples.
+const gpuFreedGrace = 5 * time.Second
+
 // waitGPUFreed waits for the card to show what a stopped backend or an
-// unloaded LLM held as free, reading the monitor's fresh samples (see
-// gpuFreed). Without GPU readings there is nothing to wait for.
-func (s *Server) waitGPUFreed(gpu, target int) {
+// unloaded LLM held as free, reading the monitor's samples taken after
+// since (see gpuFreed). from is the card's used memory from before the
+// stop, target what it should fall to, and held what the process held.
+// Without GPU readings there is nothing to wait for.
+func (s *Server) waitGPUFreed(gpu int, since time.Time, from, target, held int) {
 	if len(s.monitor.Current().GPU) == 0 {
 		return
 	}
@@ -504,6 +517,11 @@ func (s *Server) waitGPUFreed(gpu, target int) {
 		for {
 			select {
 			case m := <-ch:
+				// The first snapshot is the latest one, which may be
+				// from before the stop.
+				if !m.Timestamp.After(since) {
+					continue
+				}
 				for _, g := range m.GPU {
 					if g.Index == gpu {
 						select {
@@ -518,7 +536,7 @@ func (s *Server) waitGPUFreed(gpu, target int) {
 			}
 		}
 	}()
-	if !gpuFreed(readings, target, gpuFreedTimeout) {
+	if !gpuFreed(readings, from, target, held, gpuFreedGrace, gpuFreedTimeout) {
 		slog.Warn("the card did not show the memory free in time", "gpu", gpu, "used_mib", s.gpuUsedMiB(gpu), "expected_mib", target)
 	}
 }
@@ -528,17 +546,35 @@ func (s *Server) waitGPUFreed(gpu, target int) {
 // once a reading is within gpuReleasedSlackMiB of target, or once two
 // readings in a row show it no longer falling: the process held less
 // than planned (an idle backend holds far less than its reservation,
-// which is its peak). False when timeout passes first.
-func gpuFreed(readings <-chan int, target int, timeout time.Duration) bool {
+// which is its peak). The second rule counts only after the readings
+// fell more than gpuReleasedSlackMiB below from (or the first reading,
+// when that is higher): until then the driver may not have given the
+// memory back yet. It also counts when the process held no more than
+// gpuReleasedSlackMiB, so no drop will show, or once grace has passed.
+// False when timeout passes first.
+func gpuFreed(readings <-chan int, from, target, held int, grace, timeout time.Duration) bool {
 	deadline := time.After(timeout)
+	graceOver := time.After(grace)
+	dropped := held <= gpuReleasedSlackMiB
 	prev := -1
 	for {
 		select {
 		case used := <-readings:
-			if used <= target+gpuReleasedSlackMiB || (prev >= 0 && used >= prev-gpuReleasedSlackMiB) {
+			if used <= target+gpuReleasedSlackMiB {
+				return true
+			}
+			if prev < 0 {
+				from = max(from, used)
+			}
+			if from-used > gpuReleasedSlackMiB {
+				dropped = true
+			}
+			if dropped && prev >= 0 && used >= prev-gpuReleasedSlackMiB {
 				return true
 			}
 			prev = used
+		case <-graceOver:
+			dropped = true
 		case <-deadline:
 			return false
 		}
