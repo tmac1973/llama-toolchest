@@ -709,6 +709,17 @@ container_exists() {
     $CONTAINER_CMD container inspect "$name" >/dev/null 2>&1
 }
 
+# container_image_exists returns 0 if the llama-toolchest image is present.
+# `image exists` is podman-specific; on Docker we use inspect.
+container_image_exists() {
+    [[ -z "$CONTAINER_CMD" ]] && return 1
+    if [[ "$CONTAINER_CMD" == "docker" ]]; then
+        docker image inspect localhost/llama-toolchest:latest >/dev/null 2>&1
+    else
+        $CONTAINER_CMD image exists localhost/llama-toolchest:latest >/dev/null 2>&1
+    fi
+}
+
 # Returns 0 if the host port is bound by one of our own containers — i.e.,
 # a llamactl (pre-rename) or llama-toolchest container that the install
 # flow is going to stop and replace anyway. Lets prompt_ports treat such
@@ -2642,14 +2653,7 @@ container_uninstall() {
         actions+=("Stop and remove container 'llama-toolchest-caddy'")
     fi
 
-    # `image exists` is podman-specific; on Docker we use inspect.
-    local image_check
-    if [[ "$CONTAINER_CMD" == "docker" ]]; then
-        image_check="docker image inspect"
-    else
-        image_check="$CONTAINER_CMD image exists"
-    fi
-    if $image_check "$image_name" >/dev/null 2>&1; then
+    if container_image_exists; then
         has_image=true
         actions+=("Remove image '${image_name}'")
     fi
@@ -2887,6 +2891,13 @@ detect_install_mode() {
         detect_container_runtime 2>/dev/null || true
     fi
     if [[ -n "${CONTAINER_CMD:-}" ]] && container_exists llama-toolchest; then
+        has_container=true
+    elif [[ "$has_host" != true && -n "${CONTAINER_CMD:-}" ]] \
+        && { has_quadlet || container_image_exists; }; then
+        # `./setup.sh down` on a compose install removes the container, so
+        # the image (or the Quadlet unit) is what is left of the install.
+        # Only when there is no host install: moving to the host keeps the
+        # image, and that must not count as a second install.
         has_container=true
     fi
 

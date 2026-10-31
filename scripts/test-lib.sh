@@ -1146,6 +1146,26 @@ test_label_for_build_mount() (
     check_true "label: chcon failure is not fatal" label_for_build_mount dist/llama-toolchest-local
 )
 
+# up/down/logs find a container install after `down` removed the container,
+# but a leftover image does not hide a host install.
+test_detect_install_mode() (
+    load_setup_fns detect_install_mode
+    CONTAINER_CMD=podman
+    host_is_installed() { [[ "$HOST" == true ]]; }
+    container_exists() { [[ "$CONTAINER" == true ]]; }
+    container_image_exists() { [[ "$IMAGE" == true ]]; }
+    has_quadlet() { [[ "$QUADLET" == true ]]; }
+    mode() { HOST=$1 CONTAINER=$2 IMAGE=$3 QUADLET=$4 detect_install_mode; }
+
+    check_eq "detect: nothing" "none" "$(mode false false false false)"
+    check_eq "detect: running container" "container" "$(mode false true true false)"
+    check_eq "detect: compose after down (image only)" "container" "$(mode false false true false)"
+    check_eq "detect: Quadlet after down" "container" "$(mode false false false true)"
+    check_eq "detect: host" "host" "$(mode true false false false)"
+    check_eq "detect: host with leftover image" "host" "$(mode true false true false)"
+    check_eq "detect: host and container" "both" "$(mode true true true false)"
+)
+
 # setup.sh quick offers a full rebuild when the latest release raises the
 # image revision above the running image's, and stops when the local
 # Dockerfile is too old to build the new image.
@@ -1462,6 +1482,7 @@ test_gen_port_count
 test_gen_ports_secure
 test_label_for_build_mount
 test_quick_needs_rebuild
+test_detect_install_mode
 test_secure_custom_ports
 test_migrate_legacy_config_name
 test_pnpm
