@@ -23,6 +23,7 @@ var (
 	ErrIDTaken  = errors.New("ID already in use")
 	ErrInUse    = errors.New("in use by an instance")
 	ErrNoPort   = errors.New("no free port in the generation port range")
+	ErrPortUsed = errors.New("port already used by an instance")
 )
 
 type storeFile struct {
@@ -257,6 +258,23 @@ func (s *Store) AssignPort(start, count int) (int, error) {
 		}
 	}
 	return 0, fmt.Errorf("%d–%d: %w", start, start+count-1, ErrNoPort)
+}
+
+// CheckPort reports whether the instance id can use port: the port must be
+// in [start, start+count) and no other instance may use it. id is empty
+// for an instance that is not stored yet.
+func (s *Store) CheckPort(id string, port, start, count int) error {
+	if port < start || port >= start+count {
+		return fmt.Errorf("port %d is outside the generation port range %d–%d", port, start, start+count-1)
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, inst := range s.data.Instances {
+		if inst.Port == port && inst.ID != id {
+			return fmt.Errorf("%d: %w %s", port, ErrPortUsed, inst.ID)
+		}
+	}
+	return nil
 }
 
 func (s *Store) setIndexLocked(id string) int {

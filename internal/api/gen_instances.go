@@ -198,6 +198,10 @@ type genFormData struct {
 	EditGPU       int
 	EditArgs      string
 	EditAutoStart bool
+	EditPort      int
+	// PortStart and PortEnd are the generation port range, which a chosen
+	// port must be in.
+	PortStart, PortEnd int
 }
 
 type genGPUChoice struct {
@@ -394,6 +398,7 @@ func (s *Server) handleGenInstanceEditForm(w http.ResponseWriter, r *http.Reques
 	data.Editing, data.EditID, data.EditName = true, inst.ID, inst.Name
 	data.EditSet, data.EditBuild, data.EditGPU = inst.ModelSetID, inst.BuildID, inst.GPU
 	data.EditArgs, data.EditAutoStart = strings.Join(inst.ExtraArgs, " "), inst.AutoStart
+	data.EditPort = inst.Port
 	respondHTML(w)
 	s.renderPartial(w, "gen_instance_form", data)
 }
@@ -403,6 +408,9 @@ func (s *Server) handleGenInstanceEditForm(w http.ResponseWriter, r *http.Reques
 // GPUs.
 func (s *Server) genFormChoices(store *generation.Store) genFormData {
 	data := genFormData{Builds: map[generation.BackendKind][]builder.BuildResult{}}
+	cfg := s.cfgCopy()
+	start, count := cfg.GenPorts(s.inContainer())
+	data.PortStart, data.PortEnd = start, start+count-1
 	for _, m := range store.ModelSets() {
 		if m.Complete {
 			data.Sets = append(data.Sets, m)
@@ -561,14 +569,10 @@ func (s *Server) handleGenCreateInstance(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "the instance needs a name", http.StatusBadRequest)
 		return
 	}
-	cfg := s.cfgCopy()
-	start, count := cfg.GenPorts(s.inContainer())
-	port, err := store.AssignPort(start, count)
-	if err != nil {
-		http.Error(w, err.Error()+"; widen the range in Settings, or delete an instance", http.StatusConflict)
+	if code, err := s.genPortFromForm(r, store, &inst); err != nil {
+		http.Error(w, err.Error(), code)
 		return
 	}
-	inst.Port = port
 	if err := store.AddInstance(inst); err != nil {
 		code := http.StatusInternalServerError
 		if errors.Is(err, generation.ErrIDTaken) {
@@ -582,6 +586,44 @@ func (s *Server) handleGenCreateInstance(w http.ResponseWriter, r *http.Request)
 
 // freeInstanceName is the set's ID, or the set's ID with -2, -3 and so on
 // when that is taken.
+// genPortFromForm sets inst.Port from the form's port field. Empty keeps
+// the instance's port, or gives a new instance the lowest free port in the
+// generation port range. A chosen port must be in that range and not used
+// by another instance; the instance's own port is always kept, also when
+// the range changed so that it is now outside. On an error it returns the
+// HTTP status to send.
+func (s *Server) genPortFromForm(r *http.Request, store *generation.Store, inst *generation.Instance) (int, error) {
+	cfg := s.cfgCopy()
+	start, count := cfg.GenPorts(s.inContainer())
+	raw := strings.TrimSpace(r.FormValue("port"))
+	if raw == "" {
+		if inst.Port != 0 {
+			return 0, nil
+		}
+		port, err := store.AssignPort(start, count)
+		if err != nil {
+			return http.StatusConflict, fmt.Errorf("%w; widen the range in Settings, or delete an instance", err)
+		}
+		inst.Port = port
+		return 0, nil
+	}
+	port, err := strconv.Atoi(raw)
+	if err != nil {
+		return http.StatusBadRequest, fmt.Errorf("port %q is not a number", raw)
+	}
+	if port == inst.Port {
+		return 0, nil
+	}
+	if err := store.CheckPort(inst.ID, port, start, count); err != nil {
+		if errors.Is(err, generation.ErrPortUsed) {
+			return http.StatusConflict, err
+		}
+		return http.StatusBadRequest, err
+	}
+	inst.Port = port
+	return 0, nil
+}
+
 func (s *Server) freeInstanceName(store *generation.Store, base string) string {
 	name := base
 	for n := 2; ; n++ {
@@ -593,7 +635,7 @@ func (s *Server) freeInstanceName(store *generation.Store, base string) string {
 }
 
 // handleGenEditInstance changes a stopped instance's set, build, GPU,
-// auto-start or extra arguments.
+// port, auto-start or extra arguments.
 func (s *Server) handleGenEditInstance(w http.ResponseWriter, r *http.Request) {
 	store := s.genStore(w)
 	if store == nil {
@@ -609,6 +651,10 @@ func (s *Server) handleGenEditInstance(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.genInstanceFromForm(r, store, &inst); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if code, err := s.genPortFromForm(r, store, &inst); err != nil {
+		http.Error(w, err.Error(), code)
 		return
 	}
 	if err := store.UpdateInstance(inst); err != nil {
