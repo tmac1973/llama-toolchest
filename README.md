@@ -212,7 +212,7 @@ Container installs offer two ROCm versions. An AMD install asks which, defaultin
 
 **Why the experimental one exists.** `repo.radeon.com`'s `el9`, `el10`, `rhel9` and `rhel10` paths all stop at 7.2.4, as does the `amdgpu-install` route, so the Fedora image cannot reach anything newer. AMD now packages ROCm 10 in a separate repository (`stable.repo.amd.com`, used by [host installs](#rocm-on-a-host-install)); the container variant builds on AMD's own ROCm image instead, which also offers the 7.14.x line.
 
-Any tag from [rocm/dev-ubuntu-24.04](https://hub.docker.com/r/rocm/dev-ubuntu-24.04/tags) works, and a full image reference is accepted too. `10.1.0-full` and `7.14.1-full` are both known to build here. The tag is checked before anything is downloaded, so a typo fails in about a second rather than part-way through a 20 GB pull.
+When you choose Experimental, `setup.sh` asks Docker Hub for the `-full` releases of [rocm/dev-ubuntu-24.04](https://hub.docker.com/r/rocm/dev-ubuntu-24.04/tags) and lists them newest first, marking the one your current build is on. Pressing Enter keeps that one. You can also type any other tag or a full image reference, and if Docker Hub can't be reached it simply asks for a tag by name. `10.1.0-full` and `7.14.1-full` are both known to build here. The tag is checked before anything is downloaded, so a typo fails in about a second rather than part-way through a 20 GB pull.
 
 **What it requires.** ROCm 10 supports RDNA 1 and newer plus the CDNA cards — it does **not** need RDNA 4. The host kernel it needs depends on your card, not on ROCm, because the container carries no kernel components: RDNA 4 wants 6.12, RDNA 3 6.0, RDNA 2 5.9, RDNA 1 5.3. `setup.sh` checks your card against both lists and warns without blocking.
 

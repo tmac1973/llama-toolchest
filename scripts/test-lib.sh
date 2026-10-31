@@ -1366,6 +1366,67 @@ test_pnpm() (
         grep -q "pnpm    OK (9.15.4)" <<<"$(host_report_pnpm_dep)"
 )
 
+# The ROCm 10 image list: only the "-full" tags, in Docker Hub's push order,
+# and the release the current build is on marked in the prompt.
+test_rocm_base_tags() (
+    load_setup_fns list_rocm_base_tags installed_rocm_base_image \
+        prompt_rocm_base_tag rocm_base_image
+    ROCM_NEXT_IMAGE_REPO="docker.io/rocm/dev-ubuntu-24.04"
+    ROCM_NEXT_DEFAULT_TAG="10.1.0-full"
+    ROCM_NEXT_TAG_PATTERN='^[0-9]+\.[0-9]+\.[0-9]+-full$'
+    BOLD="" NC="" GREEN="" CYAN=""
+    SCRIPT_DIR="${TMP_ROOT}/rocmtags"
+    rm -rf "$SCRIPT_DIR"; mkdir -p "$SCRIPT_DIR"
+    need_cmd() { return 0; }
+    HUB_DOWN=false
+    registry_get() {
+        [[ "$HUB_DOWN" == false ]] || return 22
+        printf '{"next": null, "results": [%s]}' \
+            '{"name": "latest"},{"name": "10.1.0-full"},{"name": "7.14.1-full"},{"name": "10.0.0-full"},{"name": "7.2.4-complete"},{"name": "7.2.4"}'
+    }
+
+    check_eq "list_rocm_base_tags keeps -full tags in push order" \
+        "10.1.0-full"$'\n'"7.14.1-full"$'\n'"10.0.0-full" "$(list_rocm_base_tags)"
+    HUB_DOWN=true
+    check_false "list_rocm_base_tags fails when Docker Hub is down" list_rocm_base_tags
+    HUB_DOWN=false
+
+    check_eq "no .env: no current build" "" "$(installed_rocm_base_image)"
+    printf 'ROCM_VARIANT=stable\n' > "$SCRIPT_DIR/.env"
+    check_eq "stable install: no current image" "" "$(installed_rocm_base_image)"
+    printf 'ROCM_VARIANT=next\nROCM_BASE_IMAGE=docker.io/rocm/dev-ubuntu-24.04:7.14.1-full\n' > "$SCRIPT_DIR/.env"
+    check_eq "next install: image from .env" \
+        "docker.io/rocm/dev-ubuntu-24.04:7.14.1-full" "$(installed_rocm_base_image)"
+
+    local repo="docker.io/rocm/dev-ubuntu-24.04" out
+    pick() { ROCM_BASE_IMAGE=""; prompt_rocm_base_tag "$1" "${1##*:}" <<<"$2" >"$SCRIPT_DIR/out"; }
+
+    pick "${repo}:7.14.1-full" ""
+    check_eq "empty answer keeps the current image" "${repo}:7.14.1-full" "$ROCM_BASE_IMAGE"
+    out="$(cat "$SCRIPT_DIR/out")"
+    check_true "current build is marked" grep -q "2) 7.14.1-full (current build)" <<<"$out"
+    check_true "newest is marked" grep -q "1) 10.1.0-full ← newest (tested default)" <<<"$out"
+    pick "${repo}:7.14.1-full" "3"
+    check_eq "a number picks that tag" "${repo}:10.0.0-full" "$ROCM_BASE_IMAGE"
+    pick "${repo}:7.14.1-full" $'9\n1'
+    check_eq "out of range asks again" "${repo}:10.1.0-full" "$ROCM_BASE_IMAGE"
+    pick "${repo}:7.14.1-full" "7.14.0-full"
+    check_eq "a tag by name is taken as given" "7.14.0-full" "$ROCM_BASE_IMAGE"
+
+    printf 'ROCM_VARIANT=next\nROCM_BASE_IMAGE=docker.io/rocm/dev-ubuntu-26.04:10.1.0-full\n' > "$SCRIPT_DIR/.env"
+    pick "docker.io/rocm/dev-ubuntu-26.04:10.1.0-full" ""
+    check_eq "image outside the list is kept" \
+        "docker.io/rocm/dev-ubuntu-26.04:10.1.0-full" "$ROCM_BASE_IMAGE"
+    check_true "image outside the list is shown" \
+        grep -q "Current build: docker.io/rocm/dev-ubuntu-26.04:10.1.0-full" "$SCRIPT_DIR/out"
+
+    HUB_DOWN=true
+    pick "${repo}:10.1.0-full" ""
+    check_eq "Docker Hub down: empty answer keeps the image" "${repo}:10.1.0-full" "$ROCM_BASE_IMAGE"
+    pick "${repo}:10.1.0-full" "10.0.0-full"
+    check_eq "Docker Hub down: a typed tag is taken" "10.0.0-full" "$ROCM_BASE_IMAGE"
+)
+
 # ─── Run ─────────────────────────────────────────────────────────────────────
 
 test_scope_current_user
@@ -1404,6 +1465,7 @@ test_quick_needs_rebuild
 test_secure_custom_ports
 test_migrate_legacy_config_name
 test_pnpm
+test_rocm_base_tags
 
 passes="$(grep -c '^PASS$' "$RESULTS")"
 fails="$(grep -c '^FAIL$' "$RESULTS")"

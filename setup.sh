@@ -98,6 +98,11 @@ esac
 # what exists.
 readonly ROCM_NEXT_IMAGE_REPO="docker.io/rocm/dev-ubuntu-24.04"
 readonly ROCM_NEXT_DEFAULT_TAG="10.1.0-full"
+# The tags of AMD's repository that Dockerfile.rocm-next builds on: the
+# "-full" images, which carry the whole SDK (10.x and the 7.14.x line). The
+# older "-complete" and bare tags are the 7.2-and-before packaging and have no
+# use here — Dockerfile.rocm covers 7.2.
+readonly ROCM_NEXT_TAG_PATTERN='^[0-9]+\.[0-9]+\.[0-9]+-full$'
 # GPU targets ROCm 10.1.0 ships code for, read from the package list of
 # rocm/dev-ubuntu-24.04:10.1.0-full (amdrocm-core-sdk10.1-gfx*). RDNA 1 and
 # newer, plus the CDNA datacenter parts — ROCm 10 does NOT require RDNA 4.
@@ -1572,12 +1577,129 @@ prompt_rocm_variant() {
         1) ROCM_VARIANT="stable"; ROCM_BASE_IMAGE="" ;;
         2)
             ROCM_VARIANT="next"
-            local tag
-            read -rp "$(echo -e "  ${BOLD}Base image tag${NC} [${cur_shown}]: ")" tag
-            ROCM_BASE_IMAGE="${tag:-$cur_ref}"
+            prompt_rocm_base_tag "$cur_ref" "$cur_shown"
             ;;
         *) err "Invalid choice: $choice"; prompt_rocm_variant; return ;;
     esac
+}
+
+# registry_get fetches one registry API URL. Its own function so the tests can
+# stand in for the network.
+registry_get() {
+    curl -fsSL --max-time 15 "$@" 2>/dev/null
+}
+
+# list_rocm_base_tags prints up to twelve tags of ROCM_NEXT_IMAGE_REPO that
+# match ROCM_NEXT_TAG_PATTERN, newest first. Prints nothing, and fails, when
+# Docker Hub cannot be asked.
+#
+# Docker Hub sorts by when a tag was last pushed, which is the order AMD
+# released in. Sorting by version would put 10.0.0 above 7.14.1 even when the
+# 7.14 release is the newer push.
+list_rocm_base_tags() {
+    local path="${ROCM_NEXT_IMAGE_REPO#docker.io/}" page json names all=""
+    need_cmd curl || return 1
+    for page in 1 2 3; do
+        json="$(registry_get "https://hub.docker.com/v2/repositories/${path}/tags?page_size=100&page=${page}&ordering=last_updated")" || break
+        names="$({ grep -o '"name": *"[^"]*"' <<<"$json" || true; } | sed 's/.*"\([^"]*\)"$/\1/')"
+        [[ -n "$names" ]] || break
+        all+="${names}"$'\n'
+        [[ "$({ grep -E "$ROCM_NEXT_TAG_PATTERN" <<<"$all" || true; } | wc -l)" -ge 12 ]] && break
+        grep -q '"next": *"http' <<<"$json" || break
+    done
+    [[ -n "$all" ]] || return 1
+    { grep -E "$ROCM_NEXT_TAG_PATTERN" <<<"$all" || true; } | awk 'NF && !seen[$0]++' | head -12
+}
+
+# installed_rocm_base_image prints the base image the current build was made
+# on, read from .env. Nothing when the install is on the stable variant or
+# there is no install yet. Read from the file rather than ROCM_BASE_IMAGE,
+# which a --rocm-image flag or environment variable may already have changed.
+installed_rocm_base_image() {
+    local env_file="${SCRIPT_DIR}/.env" v
+    [[ -f "$env_file" ]] || return 0
+    v="$(grep '^ROCM_VARIANT=' "$env_file" 2>/dev/null | cut -d= -f2-)" || true
+    [[ "$v" == "next" ]] || return 0
+    v="$(grep '^ROCM_BASE_IMAGE=' "$env_file" 2>/dev/null | cut -d= -f2-)" || true
+    # An install from before ROCM_BASE_IMAGE was written used the default.
+    echo "${v:-${ROCM_NEXT_IMAGE_REPO}:${ROCM_NEXT_DEFAULT_TAG}}"
+}
+
+# prompt_rocm_base_tag CUR_REF CUR_SHOWN sets ROCM_BASE_IMAGE for the
+# experimental variant. It lists AMD's releases, newest first, and marks the
+# one the current build is on. An empty answer keeps CUR_REF. When Docker Hub
+# cannot be reached it falls back to asking for a tag by name.
+prompt_rocm_base_tag() {
+    local cur_ref="$1" cur_shown="$2" installed t
+    installed="$(installed_rocm_base_image)"
+    local -a tags=()
+    while IFS= read -r t; do
+        [[ -n "$t" ]] && tags+=("$t")
+    done < <(list_rocm_base_tags || true)
+
+    if [[ "${#tags[@]}" -eq 0 ]]; then
+        warn "Could not list the releases of ${ROCM_NEXT_IMAGE_REPO}. Type a tag by name."
+        log "Available tags: https://hub.docker.com/r/rocm/dev-ubuntu-24.04/tags"
+        read -rp "$(echo -e "  ${BOLD}Base image tag${NC} [${cur_shown}]: ")" t
+        ROCM_BASE_IMAGE="${t:-$cur_ref}"
+        return 0
+    fi
+
+    # The default is the number of the image an empty answer keeps, when it
+    # is in the list. Otherwise an empty answer still keeps it, by name.
+    local i default_n="" marker
+    for i in "${!tags[@]}"; do
+        if [[ "${ROCM_NEXT_IMAGE_REPO}:${tags[$i]}" == "$cur_ref" ]]; then
+            default_n=$((i + 1))
+        fi
+    done
+
+    echo ""
+    echo -e "  ${BOLD}Which release of ${ROCM_NEXT_IMAGE_REPO}?${NC}"
+    echo ""
+    for i in "${!tags[@]}"; do
+        t="${tags[$i]}"
+        marker=""
+        [[ $i -eq 0 ]] && marker+=" ${GREEN}← newest${NC}"
+        [[ "$t" == "$ROCM_NEXT_DEFAULT_TAG" ]] && marker+=" (tested default)"
+        [[ "${ROCM_NEXT_IMAGE_REPO}:${t}" == "$installed" ]] && marker+=" ${CYAN}(current build)${NC}"
+        printf "    %2d) %s%b\n" "$((i + 1))" "$t" "$marker"
+    done
+    # A current build on an image the list does not show — an older release,
+    # or another repository — still gets a line, so it is clear what is kept.
+    if [[ -n "$installed" && " ${tags[*]/#/${ROCM_NEXT_IMAGE_REPO}:} " != *" ${installed} "* ]]; then
+        echo ""
+        echo -e "    Current build: ${installed} ${CYAN}(not in the list)${NC}"
+    fi
+    echo ""
+    echo "  Type a number, or a tag or full image name that is not in the list."
+    echo ""
+
+    local choice
+    while :; do
+        read -rp "$(echo -e "  ${BOLD}Release${NC} [${default_n:-${cur_shown}}]: ")" choice || true
+        if [[ -z "$choice" ]]; then
+            ROCM_BASE_IMAGE="$cur_ref"
+            break
+        fi
+        if [[ "$choice" =~ ^[0-9]+$ ]]; then
+            if (( choice >= 1 && choice <= ${#tags[@]} )); then
+                ROCM_BASE_IMAGE="${ROCM_NEXT_IMAGE_REPO}:${tags[$((choice - 1))]}"
+                break
+            fi
+            echo "  Type a number between 1 and ${#tags[@]}, or a tag."
+            continue
+        fi
+        # A tag or a full reference typed by name. A typo is caught by
+        # validate_rocm_base_image before anything is pulled.
+        if [[ "$choice" =~ ^[A-Za-z0-9_][A-Za-z0-9._/:@-]*$ ]]; then
+            ROCM_BASE_IMAGE="$choice"
+            break
+        fi
+        echo "  That is not a tag name."
+    done
+    echo ""
+    echo -e "  → Building on ${BOLD}$(rocm_base_image)${NC}"
 }
 
 # validate_rocm_base_image fails before anything is built when the tag does not
