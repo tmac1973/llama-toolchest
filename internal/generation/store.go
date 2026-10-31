@@ -23,7 +23,7 @@ var (
 	ErrIDTaken  = errors.New("ID already in use")
 	ErrInUse    = errors.New("in use by an instance")
 	ErrNoPort   = errors.New("no free port in the generation port range")
-	ErrPortUsed = errors.New("port already used by an instance")
+	ErrPortUsed = errors.New("already used by another instance")
 )
 
 type storeFile struct {
@@ -271,7 +271,7 @@ func (s *Store) CheckPort(id string, port, start, count int) error {
 	defer s.mu.RUnlock()
 	for _, inst := range s.data.Instances {
 		if inst.Port == port && inst.ID != id {
-			return fmt.Errorf("%d: %w %s", port, ErrPortUsed, inst.ID)
+			return fmt.Errorf("port %d is %w (%s)", port, ErrPortUsed, inst.ID)
 		}
 	}
 	return nil
