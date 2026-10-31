@@ -137,7 +137,9 @@ func (s *Server) genV1Model(inst generation.Instance) map[string]any {
 	// tell what this build supports without trying each route.
 	kind, api := genKindLabel(set.Kind), []string{"images.sync", "images.jobs"}
 	if slices.Contains(caps, "edit") {
-		api = append(api, "images.edits")
+		// images.jobs.edits: /v1/images/jobs takes edits as multipart
+		// forms. Builds that refused them do not list it.
+		api = append(api, "images.edits", "images.jobs.edits")
 	}
 	switch set.Kind {
 	case generation.KindAce:
