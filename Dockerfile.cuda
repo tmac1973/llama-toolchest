@@ -125,7 +125,7 @@ RUN --mount=type=bind,target=/build_context \
         llama-toolchest --version; \
     fi
 
-RUN mkdir -p /data/config /data/builds /data/models /data/llama.cpp
+RUN mkdir -p /data/config /data/builds /data/models
 
 RUN cat > /data/config/llama-toolchest.yaml <<'EOF'
 listen_addr: ":3000"
