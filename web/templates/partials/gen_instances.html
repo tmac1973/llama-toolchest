@@ -109,7 +109,7 @@
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/enable" hx-target="#gen-instances" data-error-label="Not enabled">Enable</button>
                 {{- end}}
                 {{- if not (or (eq .Status.State "running") (eq .Status.State "starting") .Measuring)}}
-                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-get="/api/gen/instances/{{$id}}/form" hx-target="#gen-edit-form" hx-on::after-request="if (event.detail.successful) document.getElementById('gen-edit-dialog').showModal()" title="Change the model set, build, GPU, launch arguments or auto-start. Only while the instance is stopped." data-error-label="Cannot edit">Edit</button>
+                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-get="/api/gen/instances/{{$id}}/form" hx-target="#gen-edit-form" hx-on::after-request="if (event.detail.successful) document.getElementById('gen-edit-dialog').showModal()" title="Change the model set, build, GPU, port, launch arguments or auto-start. Only while the instance is stopped." data-error-label="Cannot edit">Edit</button>
                 {{- end}}
                 {{- if not (or (eq .Status.State "running") (eq .Status.State "starting"))}}
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-delete="/api/gen/instances/{{$id}}" hx-confirm="Delete instance {{.Name}}? Its model set stays." hx-target="#gen-instances" data-error-label="Not deleted">Delete</button>

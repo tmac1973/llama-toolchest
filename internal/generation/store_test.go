@@ -139,8 +139,8 @@ func TestCheckPort(t *testing.T) {
 	if err := s.CheckPort("x", 8082, 8081, 4); err != nil {
 		t.Errorf("the instance's own port: %v", err)
 	}
-	if err := s.CheckPort("y", 8082, 8081, 4); !errors.Is(err, ErrPortUsed) {
-		t.Errorf("port of another instance: %v, want ErrPortUsed", err)
+	if err := s.CheckPort("y", 8082, 8081, 4); !errors.Is(err, ErrPortUsed) || err.Error() != "port 8082 is already used by another instance (x)" {
+		t.Errorf("port of another instance: %v, want ErrPortUsed naming x", err)
 	}
 	for _, p := range []int{8080, 8085} {
 		if err := s.CheckPort("", p, 8081, 4); err == nil || errors.Is(err, ErrPortUsed) {
