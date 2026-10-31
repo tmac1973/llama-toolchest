@@ -601,6 +601,24 @@ func TestAceTasks(t *testing.T) {
 	if got := aceTasks(set("acestep-v15-xl-base-Q8_0.gguf")); !slices.Equal(got, musicTasks) {
 		t.Errorf("base tasks = %v", got)
 	}
+	// A custom set's own answer wins over its file name.
+	no, yes := false, true
+	base := set("acestep-v15-xl-base-Q8_0.gguf")
+	base.StemTasks = &no
+	if got := aceTasks(base); slices.Contains(got, taskLego) {
+		t.Errorf("base file with stem_tasks off: %v", got)
+	}
+	other := set("my-dit.gguf")
+	other.StemTasks = &yes
+	if got := aceTasks(other); !slices.Equal(got, musicTasks) {
+		t.Errorf("stem_tasks on: %v", got)
+	}
+	// A catalog set follows the catalog, whatever its file is called.
+	cat := set("renamed.gguf")
+	cat.CatalogID = "ace-step-xl-base"
+	if got := aceTasks(cat); !slices.Equal(got, musicTasks) {
+		t.Errorf("catalog base set: %v", got)
+	}
 	if !slices.Contains(musicTasks, taskLego) {
 		t.Error("aceTasks changed musicTasks")
 	}

@@ -93,6 +93,10 @@ func (m ModelSet) clone() ModelSet {
 	m.Components = slices.Clone(m.Components)
 	m.LaunchArgs = slices.Clone(m.LaunchArgs)
 	m.Capabilities = slices.Clone(m.Capabilities)
+	if m.StemTasks != nil {
+		v := *m.StemTasks
+		m.StemTasks = &v
+	}
 	return m
 }
 

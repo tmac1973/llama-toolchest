@@ -277,7 +277,7 @@ func buildVideoRequest(in videoInput, inst generation.Instance, set generation.M
 		return videoJobRequest{}, vidGenRequest{}, badRequest("bad_value", "width and height must be at least 64")
 	}
 
-	can := func(c string) bool { return slices.Contains(set.Capabilities, c) }
+	can := func(c string) bool { return slices.Contains(set.CurrentCapabilities(), c) }
 	switch {
 	case in.StartImage == "" && !can(generation.CapText):
 		return videoJobRequest{}, vidGenRequest{}, badRequest("start_image_required", "%s needs a start_image", set.Name)

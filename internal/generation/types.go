@@ -85,6 +85,10 @@ type ModelSet struct {
 	// VideoSizes are the sizes Measure offers a video set, smallest (the
 	// test size) first. See VideoPresets.
 	VideoSizes []VideoSize `json:"video_sizes,omitempty"`
+	// StemTasks says whether a custom music set has a base DiT, which can
+	// run lego, extract and complete; nil for a catalog set and for custom
+	// sets saved before it existed. See HasStemTasks.
+	StemTasks *bool `json:"stem_tasks,omitempty"`
 	// Complete is true once every component file is present.
 	Complete bool      `json:"complete"`
 	Created  time.Time `json:"created"`

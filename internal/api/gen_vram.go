@@ -1213,7 +1213,7 @@ func (s *Server) runMeasureGeneration(ctx context.Context, inst generation.Insta
 			"prompt": "a lighthouse on a rocky coast at sunset, photo", "size": size, "n": 1,
 			"response_format": "b64_json",
 		})
-		if err != nil || !slices.Contains(set.Capabilities, "edit") {
+		if err != nil || !slices.Contains(set.CurrentCapabilities(), generation.CapEdit) {
 			return err
 		}
 		img, err := firstImage(body)
@@ -1346,8 +1346,9 @@ func (s *Server) genRoomMiB(inst generation.Instance) (room int, ok bool) {
 // and frame rate, in the heaviest mode the set supports, with drawn
 // start and end pictures when it takes them.
 func runMeasureVideo(ctx context.Context, base string, set generation.ModelSet, size generation.VideoSize) error {
-	canStart := slices.Contains(set.Capabilities, generation.CapStartImage)
-	if !canStart && !slices.Contains(set.Capabilities, generation.CapText) {
+	caps := set.CurrentCapabilities()
+	canStart := slices.Contains(caps, generation.CapStartImage)
+	if !canStart && !slices.Contains(caps, generation.CapText) {
 		return errors.New("this set has no supported way to make a test video")
 	}
 	if size.Frames == 0 {
@@ -1371,7 +1372,7 @@ func runMeasureVideo(ctx context.Context, base string, set generation.ModelSet, 
 	if canStart {
 		req.InitImage = base64.StdEncoding.EncodeToString(measurePicture(w, h, false))
 	}
-	if slices.Contains(set.Capabilities, generation.CapEndImage) {
+	if slices.Contains(caps, generation.CapEndImage) {
 		req.EndImage = base64.StdEncoding.EncodeToString(measurePicture(w, h, true))
 	}
 	_, err := runVidGen(ctx, base, req, nil)

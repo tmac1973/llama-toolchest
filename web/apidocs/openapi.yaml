@@ -34,9 +34,10 @@ info:
     ## Which model to use
 
     `GET /v1/models` lists the LLMs and the generation instances that are
-    switched on. `meta.kind` is `text`, `image`, `video` or `music`, and
-    `meta.api` lists which routes serve a generation instance. Add
-    `?kind=image` (or `text`, `video`, `music`) to list only one kind. For
+    switched on. `meta.kind` is `text`, `image`, `video`, `music` or
+    `upscale`, and `meta.api` lists which routes serve a generation
+    instance. Add `?kind=image` (or `text`, `video`, `music`, `upscale`)
+    to list only one kind. For
     generation routes, `model` is an instance ID or its model set's ID. It
     may be left out when only one instance of that kind can take the job.
 
@@ -66,8 +67,8 @@ tags:
   - name: Models
     description: |
       Every model this server offers: the LLMs (chat) and the generation
-      models (image, video and music). Use these IDs as `model` in any
-      request.
+      models (image, video, music and upscale). Use these IDs as `model`
+      in any request.
   - name: LLM
     description: |
       Answered by llama-server through llama-toolchest's proxy. The request
@@ -101,11 +102,12 @@ paths:
     get:
       tags: [Models]
       operationId: listModels
-      summary: List models (LLM, image, video, music)
+      summary: List models (LLM, image, video, music, upscale)
       description: |
         Lists every model you can send as `model`: the LLMs for chat, and
-        the image, video and music generation models. Each entry's
-        `meta.kind` is `text`, `image`, `video` or `music`.
+        the image, video, music and upscaler generation models. Each
+        entry's `meta.kind` is `text`, `image`, `video`, `music` or
+        `upscale`.
 
         Only enabled models are listed. The LLMs come first, then the
         generation models (one entry per generation instance). LLMs used
@@ -1524,7 +1526,7 @@ components:
     GenerationMeta:
       type: object
       title: Generation instance
-      required: [kind, model_set, recipe, capabilities, gpu, reserved_mib, state, api]
+      required: [kind, model_set, recipe, capabilities, gpu, reserved_mib, state, measuring, api]
       properties:
         kind:
           type: string
@@ -1542,7 +1544,9 @@ components:
           description: |
             Image sets: `alpha` (can draw on a transparent background),
             `edit` (can edit images). Video sets: `text` (a prompt alone is
-            enough), `start_image`, `end_image`.
+            enough), `start_image`, `end_image`. A catalog set always shows
+            the current catalog's list, also when it was downloaded before
+            a change to it.
         gpu:
           type: integer
         reserved_mib:
@@ -1551,6 +1555,24 @@ components:
         state:
           type: string
           enum: [stopped, starting, running, failed]
+        measuring:
+          type: boolean
+          description: |
+            True while the instance is being measured. Requests to it are
+            refused with `backend_unavailable` until the measurement ends,
+            so pick another instance meanwhile.
+        max_edit_images:
+          type: integer
+          description: |
+            Edit-capable image sets only. The most `image[]` parts one edit
+            takes, as the model's makers give it. Left out when the limit
+            is not known. The instance is measured with one reference
+            image, so an edit with many can need more VRAM than it has.
+        scale:
+          type: integer
+          description: |
+            Upscale only. How many times wider and higher the result is
+            (4 for Real-ESRGAN x4plus). Left out for a custom upscaler set.
         api:
           type: array
           items:
@@ -1571,6 +1593,13 @@ components:
           items:
             $ref: "#/components/schemas/MusicTaskType"
           description: Music only. The `task_type` values this instance runs.
+        tracks:
+          type: array
+          items:
+            type: string
+          description: |
+            Music only, and only when `tasks` has `lego`, `extract` and
+            `complete`. The `track` names those tasks take.
         video:
           type: object
           description: Video only.

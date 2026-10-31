@@ -133,13 +133,10 @@ const musicUploadLimit = 128 << 20
 const musicJSONLimit = 1 << 20
 
 // aceTasks returns the tasks a music set can run: every one on a base DiT,
-// all but stemTasks on turbo or SFT. Every ACE-Step base GGUF we know of
-// says "base" in its name; acestep.cpp itself can't tell SFT from base.
+// all but stemTasks on turbo or SFT (see ModelSet.HasStemTasks).
 func aceTasks(set generation.ModelSet) []string {
-	for _, c := range set.Components {
-		if c.Slot == "dit" && strings.Contains(strings.ToLower(filepath.Base(firstNonEmpty(c.Path, c.File))), "base") {
-			return musicTasks
-		}
+	if set.HasStemTasks() {
+		return musicTasks
 	}
 	return slices.DeleteFunc(slices.Clone(musicTasks), func(t string) bool { return slices.Contains(stemTasks, t) })
 }
