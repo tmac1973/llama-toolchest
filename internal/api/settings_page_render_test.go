@@ -45,6 +45,7 @@ func TestSettingsPageRendersEnvSection(t *testing.T) {
 		EnvWarnings       []string
 		EffectiveEnv      []envLine
 		GenerationEnabled bool
+		ForksEnabled      bool
 		GenPortStart      int
 		GenPortEnd        int
 		GenPortCount      int

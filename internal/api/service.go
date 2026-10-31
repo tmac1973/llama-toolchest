@@ -465,7 +465,7 @@ func (s *Server) startRouterWith(opt routerOptions) error {
 		buildID = s.cfg.ActiveBuild
 	}
 	modelsMax := s.cfg.ModelsMax
-	routerMemory := s.cfg.RouterMemory && !s.cfg.GenerationEnabled
+	routerMemory := s.cfg.RouterMemory && !s.cfg.HoldsVRAMOutsideRouter()
 	port := s.cfg.LlamaPort
 	extraEnv := s.cfg.RuntimeEnvPairs()
 	s.cfgMu.Unlock()

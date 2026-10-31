@@ -311,6 +311,36 @@
     </details>
 </article>
 
+<article id="forks">
+    <header>llama.cpp forks</header>
+    <p>Lets llama-toolchest build and run curated forks of llama.cpp. Each
+       fork runs as its own llama-server, serves the model it is made for,
+       and uses one whole GPU. While this is off, nothing about them is
+       shown or run.</p>
+    <form hx-put="/api/settings"
+          hx-target="#forks-status"
+          hx-swap="innerHTML"
+          hx-trigger="change"
+          hx-on::before-request="history.replaceState(null, '', '#forks')">
+        <input type="hidden" name="forks_touched" value="1">
+        <label title="Run curated llama.cpp forks as separate servers. Each fork server uses one whole GPU. This turns off router memory.">
+            <input type="checkbox" role="switch" name="forks_enabled"
+                   {{if .ForksEnabled}}checked{{end}}>
+            llama.cpp forks (experimental)
+        </label>
+    </form>
+    <div id="forks-status"></div>
+    <script>
+    // The switch above reloads the page at #forks; go back to this card,
+    // as the generation card does.
+    if (location.hash === '#forks') {
+        window.addEventListener('load', function() {
+            document.getElementById('forks').scrollIntoView();
+        });
+    }
+    </script>
+</article>
+
 <article>
     <header>Server URL</header>
     <p>Base URL used for dashboard links (Chat UI, API endpoint). Defaults to

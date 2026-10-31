@@ -64,6 +64,11 @@ type Config struct {
 	// nothing about them is shown or run.
 	GenerationEnabled bool `yaml:"generation_enabled,omitempty"`
 
+	// ForksEnabled turns on curated llama.cpp forks, each run as its own
+	// llama-server on a whole GPU. Off by default; while off, nothing
+	// about them is shown or run.
+	ForksEnabled bool `yaml:"forks_enabled,omitempty"`
+
 	// GenEvict lets LLMs and generation backends take a GPU from each
 	// other when both do not fit: a chat request for an LLM that is not
 	// loaded stops idle backends in its way, and a job for a stopped
@@ -217,6 +222,13 @@ const (
 	DefaultGenPortCount = 8
 	MaxGenPortCount     = 64
 )
+
+// HoldsVRAMOutsideRouter reports whether a switched-on feature runs
+// servers that hold GPU memory the router cannot see: generation
+// backends or llama.cpp forks. Router memory stays off while it does.
+func (c *Config) HoldsVRAMOutsideRouter() bool {
+	return c.GenerationEnabled || c.ForksEnabled
+}
 
 // GenPorts returns the effective generation backend port range. In a
 // container the range starts at the default, and its size is the one

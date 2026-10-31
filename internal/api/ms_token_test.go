@@ -49,6 +49,7 @@ func renderSettings(t *testing.T, hasHF, hasMS bool) string {
 		EnvWarnings        []string
 		EffectiveEnv       []envLine
 		GenerationEnabled  bool
+		ForksEnabled       bool
 		GenEvict           bool
 		GenKeepPromptCache bool
 		GenPortStart       int
@@ -203,6 +204,7 @@ func TestSettingsPageDefaultSourceSelect(t *testing.T) {
 			EnvWarnings        []string
 			EffectiveEnv       []envLine
 			GenerationEnabled  bool
+			ForksEnabled       bool
 			GenEvict           bool
 			GenKeepPromptCache bool
 			GenPortStart       int
