@@ -266,6 +266,13 @@ func (s *Server) generationOn() bool {
 	return s.cfg != nil && s.cfg.GenerationEnabled
 }
 
+// forksOn reports whether llama.cpp forks are switched on in Settings.
+func (s *Server) forksOn() bool {
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+	return s.cfg != nil && s.cfg.ForksEnabled
+}
+
 // apiKey returns the API key for /v1, "" when none is set.
 func (s *Server) apiKey() string {
 	s.cfgMu.Lock()
@@ -1219,6 +1226,7 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		EffectiveEnv     []envLine
 
 		GenerationEnabled  bool
+		ForksEnabled       bool
 		GenEvict           bool
 		GenKeepPromptCache bool
 		GenPortStart       int
@@ -1251,6 +1259,7 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		EffectiveEnv:     effectiveEnvLines(cfg.EnvSet()),
 
 		GenerationEnabled:  cfg.GenerationEnabled,
+		ForksEnabled:       cfg.ForksEnabled,
 		GenEvict:           cfg.GenEvict,
 		GenKeepPromptCache: cfg.GenKeepPromptCache,
 		InContainer:        s.inContainer(),

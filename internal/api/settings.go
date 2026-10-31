@@ -29,6 +29,7 @@ type settingsResponse struct {
 	DataDir       string `json:"data_dir"`
 
 	GenerationEnabled  bool `json:"generation_enabled"`
+	ForksEnabled       bool `json:"forks_enabled"`
 	GenEvict           bool `json:"gen_evict"`
 	GenKeepPromptCache bool `json:"gen_keep_prompt_cache"`
 	GenPortStart       int  `json:"gen_port_start"`
@@ -67,6 +68,7 @@ func (s *Server) writeSettings(w http.ResponseWriter, r *http.Request, cfg *conf
 		DataDir:       cfg.DataDir,
 
 		GenerationEnabled:  cfg.GenerationEnabled,
+		ForksEnabled:       cfg.ForksEnabled,
 		RouterMemory:       cfg.RouterMemory,
 		GenEvict:           cfg.GenEvict,
 		GenKeepPromptCache: cfg.GenKeepPromptCache,
@@ -104,6 +106,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	// Switching generation backends off stops every running instance;
 	// switching them on starts the auto-start ones, as a start does.
 	wasGenerationEnabled := s.cfg.GenerationEnabled
+	wasForksEnabled := s.cfg.ForksEnabled
 	// routerOn is the router memory option as this request sets it, nil
 	// when it does not; applied once the rest is (applyRouterMemory).
 	var routerOn *bool
@@ -118,6 +121,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			DefaultModelSource *string `json:"default_model_source,omitempty"`
 
 			GenerationEnabled  *bool `json:"generation_enabled,omitempty"`
+			ForksEnabled       *bool `json:"forks_enabled,omitempty"`
 			GenEvict           *bool `json:"gen_evict,omitempty"`
 			GenKeepPromptCache *bool `json:"gen_keep_prompt_cache,omitempty"`
 			GenPortStart       *int  `json:"gen_port_start,omitempty"`
@@ -127,11 +131,14 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSONBody(w, r, &update) {
 			return
 		}
-		genOn := s.cfg.GenerationEnabled
+		genOn, forksOn := s.cfg.GenerationEnabled, s.cfg.ForksEnabled
 		if update.GenerationEnabled != nil {
 			genOn = *update.GenerationEnabled
 		}
-		if update.RouterMemory != nil && *update.RouterMemory && genOn {
+		if update.ForksEnabled != nil {
+			forksOn = *update.ForksEnabled
+		}
+		if update.RouterMemory != nil && *update.RouterMemory && (genOn || forksOn) {
 			http.Error(w, errRouterMemoryWithGeneration.Error(), http.StatusBadRequest)
 			return
 		}
@@ -146,6 +153,9 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if update.GenerationEnabled != nil {
 			s.cfg.GenerationEnabled = *update.GenerationEnabled
+		}
+		if update.ForksEnabled != nil {
+			s.cfg.ForksEnabled = *update.ForksEnabled
 		}
 		if update.GenEvict != nil {
 			s.cfg.GenEvict = *update.GenEvict
@@ -176,11 +186,14 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if r.Form.Has("router_memory_touched") {
 			on := r.FormValue("router_memory") == "on"
-			genOn := s.cfg.GenerationEnabled
+			genOn, forksOn := s.cfg.GenerationEnabled, s.cfg.ForksEnabled
 			if r.Form.Has("generation_touched") {
 				genOn = r.FormValue("generation_enabled") == "on"
 			}
-			if on && genOn {
+			if r.Form.Has("forks_touched") {
+				forksOn = r.FormValue("forks_enabled") == "on"
+			}
+			if on && (genOn || forksOn) {
 				respondHTML(w)
 				fmt.Fprintf(w, `<p><mark>Settings not saved: %s</mark></p>`, html.EscapeString(errRouterMemoryWithGeneration.Error()))
 				return
@@ -258,6 +271,9 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		if r.Form.Has("generation_touched") {
 			s.cfg.GenerationEnabled = r.FormValue("generation_enabled") == "on"
 		}
+		if r.Form.Has("forks_touched") {
+			s.cfg.ForksEnabled = r.FormValue("forks_enabled") == "on"
+		}
 		if r.Form.Has("gen_evict_touched") {
 			s.cfg.GenEvict = r.FormValue("gen_evict") == "on"
 		}
@@ -314,14 +330,16 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			s.autoStartGenInstances(false)
 		}()
 	}
+	s.forksSwitched(wasForksEnabled, s.cfg.ForksEnabled)
 
 	if isHTMX(r) {
-		if wasGenerationEnabled != s.cfg.GenerationEnabled {
+		if wasGenerationEnabled != s.cfg.GenerationEnabled || wasForksEnabled != s.cfg.ForksEnabled {
 			// The Settings page shows the generation settings (evict,
 			// prompt cache) only while generation is on, and draws them
 			// once, server-side. Reload it so they appear or go at once;
-			// the switch's form puts #generation in the address first, so
-			// the reload lands on that card.
+			// the switch's form puts its card's anchor in the address
+			// first, so the reload lands on that card. Fork sections on
+			// other pages are drawn the same way.
 			w.Header().Set("HX-Refresh", "true")
 		}
 		respondHTML(w)
@@ -348,6 +366,11 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 
 	s.writeSettings(w, r, s.cfg)
 }
+
+// forksSwitched follows the llama.cpp forks switch: off stops every fork
+// instance, on starts the auto-start ones. Fork instances arrive in a
+// later change; until then there is nothing to stop or start.
+func (s *Server) forksSwitched(was, now bool) {}
 
 func (s *Server) handleTestConnection(w http.ResponseWriter, r *http.Request) {
 	url := fmt.Sprintf("http://localhost:%d/v1/models", s.llamaPort())
