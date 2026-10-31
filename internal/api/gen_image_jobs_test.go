@@ -230,16 +230,8 @@ func TestImageJobRefusals(t *testing.T) {
 	fb := newFakeBackend(t, 0)
 	runFakeInstance(t, s, "ming", "ming-image", 0, fb)
 
-	var buf bytes.Buffer
-	mw := multipart.NewWriter(&buf)
-	mw.WriteField("model", "ming")
-	mw.Close()
-	r := httptest.NewRequest("POST", "/v1/images/jobs", &buf)
-	r.Header.Set("Content-Type", mw.FormDataContentType())
-	rec := httptest.NewRecorder()
-	s.handleImageJobCreate(rec, r)
-	if rec.Code != http.StatusBadRequest || !strings.Contains(errCode(t, rec), "image jobs take JSON") {
-		t.Errorf("multipart: %d %s", rec.Code, rec.Body.String())
+	if rec := postEditJob(s, "ming", "make it blue"); rec.Code != http.StatusBadRequest || !strings.Contains(errCode(t, rec), "does not support image edits") {
+		t.Errorf("edit without the capability: %d %s", rec.Code, rec.Body.String())
 	}
 	for body, want := range map[string]string{
 		`{"model":"nope","prompt":"x"}`: "model_not_found",
@@ -249,7 +241,7 @@ func TestImageJobRefusals(t *testing.T) {
 			t.Errorf("%s: %d %s, want %q", body, rec.Code, rec.Body.String(), want)
 		}
 	}
-	rec = httptest.NewRecorder()
+	rec := httptest.NewRecorder()
 	s.handleImageJobGet(rec, withID(httptest.NewRequest("GET", "/", nil), "0000000000000000"))
 	if rec.Code != http.StatusNotFound || !strings.Contains(errCode(t, rec), "job_not_found") {
 		t.Errorf("unknown job: %d %s", rec.Code, rec.Body.String())
@@ -257,6 +249,55 @@ func TestImageJobRefusals(t *testing.T) {
 	s.cfg.GenerationEnabled = false
 	if rec := postImageJob(s, `{"model":"ming","prompt":"x"}`); rec.Code != http.StatusNotFound {
 		t.Errorf("with generation off: %d", rec.Code)
+	}
+}
+
+// postEditJob posts a multipart edit job with one input image.
+func postEditJob(s *Server, model, prompt string) *httptest.ResponseRecorder {
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	mw.WriteField("model", model)
+	mw.WriteField("prompt", prompt)
+	mw.WriteField("n", "1")
+	fw, _ := mw.CreateFormFile("image[]", "in.png")
+	fw.Write([]byte("PNGDATA"))
+	mw.Close()
+	r := httptest.NewRequest("POST", "/v1/images/jobs", &buf)
+	r.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	s.handleImageJobCreate(rec, r)
+	return rec
+}
+
+// A multipart job is an edit: it goes to sd-server's /v1/images/edits with
+// the form unchanged, and its request shows the form's text fields.
+func TestImageEditJob(t *testing.T) {
+	s := vramServer(t)
+	fb := newFakeBackend(t, 0)
+	runFakeInstance(t, s, "ming", "ming-image", 0, fb)
+	set, _ := s.gen.ModelSet("ming-image")
+	set.Capabilities = []string{"edit"}
+	s.gen.UpdateModelSet(set)
+
+	rec := postEditJob(s, "ming", "make it blue <sd_cpp_extra_args>{\"strength\":0.5}</sd_cpp_extra_args>")
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("edit job: %d %s", rec.Code, rec.Body.String())
+	}
+	var accepted struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &accepted)
+	j := waitImageJob(t, s, accepted.ID, jobSucceeded)
+	want := imageJobRequest{Model: "ming", Prompt: "make it blue", N: 1, Edit: true}
+	if j.Request != want {
+		t.Errorf("request = %+v, want %+v", j.Request, want)
+	}
+	if len(fb.bodies) != 1 || !strings.HasPrefix(fb.bodies[0], "/v1/images/edits ") ||
+		!strings.Contains(fb.bodies[0], "PNGDATA") || !strings.Contains(fb.bodies[0], "strength") {
+		t.Errorf("the form was not forwarded unchanged to /v1/images/edits: %.120q", fb.bodies)
+	}
+	if rec := getImage(s, accepted.ID, "0"); rec.Code != http.StatusOK || rec.Body.String() != "img" {
+		t.Errorf("image: %d %q", rec.Code, rec.Body.String())
 	}
 }
 

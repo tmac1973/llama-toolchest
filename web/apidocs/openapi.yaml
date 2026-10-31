@@ -443,26 +443,7 @@ paths:
         content:
           multipart/form-data:
             schema:
-              type: object
-              required: [prompt]
-              properties:
-                model:
-                  type: string
-                  description: An image instance or set. Optional when only one image instance can take the job. `GET /v1/models?kind=image` lists the choices.
-                prompt:
-                  type: string
-                "image[]":
-                  type: string
-                  format: binary
-                  description: The image to edit.
-                size:
-                  type: string
-                  examples: [1024x1024]
-                n:
-                  type: integer
-                response_format:
-                  type: string
-                  examples: [b64_json]
+              $ref: "#/components/schemas/ImageEditForm"
       responses:
         "200":
           description: sd-server's answer, passed on unchanged.
@@ -501,12 +482,14 @@ paths:
       operationId: createImageJob
       summary: Create an image job
       description: |
-        Takes the same JSON as `/v1/images/generations` (not a multipart
-        form) and answers at once with a job ID. The body is sent to
-        sd-server unchanged when the job runs; sd-server must answer with
-        `b64_json` images. The job's `request` shows only `model`,
-        `prompt`, `size` and `n`; an `<sd_cpp_extra_args>` block is left
-        out.
+        Takes the same JSON as `/v1/images/generations`, or the same
+        multipart form as `/v1/images/edits` for an edit, and answers at
+        once with a job ID. The body is sent to sd-server unchanged when
+        the job runs, to `/v1/images/generations` or `/v1/images/edits`;
+        sd-server must answer with `b64_json` images. An edit needs a
+        model set with the `edit` capability. The job's `request` shows
+        only `model`, `prompt`, `size`, `n` and `edit`; an
+        `<sd_cpp_extra_args>` block is left out.
       requestBody:
         required: true
         content:
@@ -517,11 +500,18 @@ paths:
               model: ming-image
               prompt: a red fox
               size: 1024x1024
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/ImageEditForm"
       responses:
         "202":
           $ref: "#/components/responses/JobAccepted"
         "400":
-          $ref: "#/components/responses/BadRequest"
+          description: "`bad_request`, `model_required` or `edits_not_supported`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -1605,6 +1595,9 @@ components:
                   type: string
                 n:
                   type: integer
+                edit:
+                  type: boolean
+                  description: The job came as a multipart form and is an edit. Left out for a generation.
             images:
               type: array
               description: Only on `succeeded` jobs.
@@ -1614,6 +1607,28 @@ components:
                   url:
                     type: string
                     examples: [/v1/images/jobs/3f9c0a12b4d5e6f7/image/0]
+
+    ImageEditForm:
+      type: object
+      required: [prompt]
+      properties:
+        model:
+          type: string
+          description: An image instance or set. Optional when only one image instance can take the job. `GET /v1/models?kind=image` lists the choices.
+        prompt:
+          type: string
+        "image[]":
+          type: string
+          format: binary
+          description: The image to edit.
+        size:
+          type: string
+          examples: [1024x1024]
+        n:
+          type: integer
+        response_format:
+          type: string
+          examples: [b64_json]
 
     VideoRequest:
       type: object

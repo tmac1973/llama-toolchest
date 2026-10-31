@@ -370,6 +370,7 @@
     <ul>
         <li><strong>Jobs:</strong> <code>GET</code> a job until <code>status</code> is <code>succeeded</code>, <code>failed</code> or <code>cancelled</code>. <code>phase</code> shows progress (<code>starting</code>, <code>queued</code>, <code>generating</code> or <code>composing</code>/<code>synthesizing</code>, <code>saving</code>) and <code>queue_position</code> the jobs ahead. <code>GET /v1/{images,videos,music}/jobs?status=…</code> lists jobs.</li>
         <li><code>DELETE</code> cancels an unfinished job or deletes a finished one. A running image cannot stop; a running video can. Results stay 24 hours (videos: at most 50). Jobs survive a restart, but unfinished ones show <code>failed</code>.</li>
+        <li><strong>Image:</strong> a job takes the JSON of <code>/v1/images/generations</code>, or the multipart form of <code>/v1/images/edits</code> for an edit. Edits need a set with the <code>edit</code> capability.</li>
         <li><strong>Video:</strong> JSON or multipart with <code>prompt</code>, <code>size</code>, <code>frames</code> or <code>seconds</code>, <code>fps</code>, <code>start_image</code>, <code>end_image</code>, <code>output_format</code> (<code>webm</code>, with sound for LTX-2.3, or <code>webp</code>), <code>extra</code>. Requests above the measured size are refused (<code>over_measured_size</code>).</li>
         <li><strong>Music:</strong> <code>caption</code>, <code>lyrics</code>, <code>duration</code>. To work on an existing song, set <code>task_type</code> (<code>cover</code>, <code>repaint</code>, <code>lego</code>, <code>extract</code>, <code>complete</code>) and post it as multipart with an <code>audio</code> part. <code>lego</code>, <code>extract</code> and <code>complete</code> need a base model.</li>
     </ul>
@@ -378,6 +379,7 @@
 # {"id": "3f9c…", "status": "queued", "phase": "queued", "queue_position": 2}
 curl $BASE/v1/images/jobs/3f9c…
 curl -o fox.png $BASE/v1/images/jobs/3f9c…/image/0
+curl $BASE/v1/images/jobs -F model=qwen-image-edit-2511 -F prompt="make the fox blue" -F "image[]=@fox.png"
 
 curl $BASE/v1/videos/generations -F prompt="the waves start to roll" -F start_image=@photo.png</pre>
     <p><strong>Transparent backgrounds with Ming-Image</strong> need both: a prompt that starts with <code>RGBA, 4-channel, transparent background.</code>, and a fully transparent start image of the output size at strength 0.9, in an <code>&lt;sd_cpp_extra_args&gt;</code> block (84–89% of pixels came back clear):</p>
