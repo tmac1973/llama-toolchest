@@ -4,14 +4,14 @@
 
 ## Goal
 
-Create `internal/forks`, a package whose only toolchest imports are `internal/config` and `internal/process`. It must never import `internal/builder`, `internal/generation` (which imports the builder) or `internal/api`, because the builder imports it in Phase 03. Splitting the extra-arguments text is done in the API layer (Phase 05). It holds the curated fork list with Avalon as its only entry, the type for a fork's launch recipe and paired model files, and a store in `<data>/config/forks.json` for downloaded model sets and fork instances. Nothing uses it yet, so the phase ships with tests only.
+Create `internal/forks`, a package whose only toolchest import is `internal/atomicfile`. It must never import `internal/builder`, `internal/generation` (which imports the builder) or `internal/api`, because the builder imports it in Phase 03. Splitting the extra-arguments text is done in the API layer (Phase 05). It holds the curated fork list with Avalon as its only entry, the type for a fork's launch recipe and paired model files, and a store in `<data>/config/forks.json` for downloaded model sets and fork instances. Nothing uses it yet, so the phase ships with tests only.
 
 ## Files touched
 
 - `internal/forks/types.go` — new: `Fork`, `Recipe`, `Needs`, `ModelFile`, `ModelSet`, `Instance`.
 - `internal/forks/curated.go` — new: `Curated() []Fork` and `Find(id string) (Fork, bool)`, with the Avalon entry.
 - `internal/forks/store.go` — new: `Store` with load/save and model set and instance methods, modelled on `internal/generation/store.go`.
-- `internal/forks/launch.go` — new: `Args(f Fork, set ModelSet, inst Instance, modelsDir string) []string` and `Env(inst Instance, backend string) []string`.
+- `internal/forks/launch.go` — new: `Args(f Fork, set ModelSet, inst Instance) []string` and `Env(f Fork, inst Instance, backend string, device int) []string`; `device` is the GPU as the backend numbers it (`models.BackendDeviceIndex`, computed by the caller).
 - `internal/forks/needs.go` — new: `CheckNeeds(n Needs, host HostInfo) []string` that returns warning sentences.
 - `internal/forks/*_test.go` — new tests for each file.
 
@@ -35,8 +35,8 @@ Create `internal/forks`, a package whose only toolchest imports are `internal/co
 3. `store.go`: `Load(dataDir)`, `ModelSets()`, `ModelSet(forkID)`, `PutModelSet`, `DeleteModelSet`, `Instances()`, `Instance(id)`, `AddInstance`, `UpdateInstance`, `DeleteInstance`. One mutex, save on every change, same file layout rules as the generation store. `AddInstance` refuses an ID that is empty, has characters other than `[a-z0-9._-]`, or is already used.
 4. `launch.go`:
    - `Args` returns `--host 127.0.0.1 --port <port> -m <dir>/<ModelFileArg>`, then `-md <dir>/<DraftFileArg>` when set, then `Recipe.Args`, then `ExtraArgs`. The API layer (Phase 05) splits the form's text into `ExtraArgs` with `generation.ValidateExtraArgs`, the same call generation instances use.
-   - `Env` returns the GPU variable for the backend (`HIP_VISIBLE_DEVICES` for rocm, `CUDA_VISIBLE_DEVICES` for cuda) set to the instance's GPU, then `Recipe.Env`, then `ExtraEnv`. A later entry with the same name wins. `ExtraEnv` lines must be `NAME=value` with `NAME` matching `[A-Z_][A-Z0-9_]*`; others are refused when the instance is saved (validated in `store.go`).
-5. `needs.go`: `HostInfo{RAMGiB int; AVX2 bool; GPUArch string; Backend string; FreeDiskGiB int}`. `CheckNeeds` returns sentences such as "This host has 24 GiB of RAM. Avalon needs 32 GiB or more." One sentence per need that is not met. An empty list means all are met.
+   - `Env` returns the GPU variable for the backend (`HIP_VISIBLE_DEVICES` for rocm, `CUDA_VISIBLE_DEVICES` for cuda) set to `device`, then `Recipe.Env`, then `ExtraEnv`. A later entry with the same name wins. `ExtraEnv` lines must be `NAME=value` with `NAME` matching `[A-Z_][A-Z0-9_]*`; others are refused when the instance is saved (validated in `store.go`).
+5. `needs.go`: `HostInfo{RAMGiB int; AVX2Known, AVX2 bool; GPUArch, Backend string; FreeDiskGiB int}` (zero means unknown and gives no warning; callers leave `FreeDiskGiB` zero once the set is downloaded). `CheckNeeds` returns sentences such as "This host has 24 GiB of RAM. Avalon needs 32 GiB or more." One sentence per need that is not met. An empty list means all are met.
 
 ## Build gate
 
