@@ -190,8 +190,11 @@ func TestMeasureVideoUsesHeaviestMode(t *testing.T) {
 }
 
 func TestMeasureTimeout(t *testing.T) {
-	if measureTimeout(generation.KindVideo) != 2*time.Hour || measureTimeout(generation.KindSD) != 10*time.Minute || measureTimeout(generation.KindAce) != 10*time.Minute {
+	if measureTimeout(generation.KindVideo, 0) != 2*time.Hour || measureTimeout(generation.KindSD, 0) != 10*time.Minute || measureTimeout(generation.KindAce, 0) != 10*time.Minute {
 		t.Error("want 2 hours for video, 10 minutes for image and music")
+	}
+	if measureTimeout(generation.KindSD, 4) != 40*time.Minute {
+		t.Error("want 10 minutes per test edit image")
 	}
 }
 

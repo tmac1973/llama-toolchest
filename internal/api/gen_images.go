@@ -158,20 +158,24 @@ func readEditForm(contentType string, body []byte, names ...string) (map[string]
 const maxFormField = 1 << 20
 
 // editRefusal is the error for an edit with images reference images sent
-// to an instance whose model set cannot edit, or takes fewer images
-// (ModelSet.MaxEditImages); nil when the set can take it. A set whose
-// limit is not known takes any number.
+// to an instance whose model set cannot edit, or that takes fewer images
+// (generation.EditImageLimit); nil when it can take it. With no known
+// limit, any number is taken.
 func (s *Server) editRefusal(inst generation.Instance, images int) *requestError {
 	set, _ := s.gen.ModelSet(inst.ModelSetID)
 	if !slices.Contains(set.CurrentCapabilities(), generation.CapEdit) {
 		return &requestError{http.StatusBadRequest, "edits_not_supported",
 			fmt.Sprintf("model %s does not support image edits", inst.ID)}
 	}
-	if limit := set.MaxEditImages(); limit > 0 && images > limit {
-		return &requestError{http.StatusBadRequest, "too_many_images",
-			fmt.Sprintf("model %s takes at most %d images per edit; this edit has %d", inst.ID, limit, images)}
+	limit := generation.EditImageLimit(inst, set)
+	if limit == 0 || images <= limit {
+		return nil
 	}
-	return nil
+	msg := fmt.Sprintf("model %s takes at most %d images per edit; this edit has %d", inst.ID, limit, images)
+	if model := set.MaxEditImages(); model == 0 || limit < model {
+		msg = fmt.Sprintf("model %s was measured for at most %d images per edit; this edit has %d. Measure it again with more images on the toolchest's Server page", inst.ID, limit, images)
+	}
+	return &requestError{http.StatusBadRequest, "too_many_images", msg}
 }
 
 // handleGenImages serves /v1/images/generations and /v1/images/edits: it

@@ -296,11 +296,23 @@ func TestEditImageLimit(t *testing.T) {
 		t.Errorf("job with 3 images: %d %s", rec.Code, rec.Body.String())
 	}
 
-	// A model whose limit is not known takes any number.
+	// Measured with 2 images, it takes no more, and says why.
+	s.gen.EditInstance("ming", func(i *generation.Instance) { i.MeasuredEditImages = 2 })
+	if rec := sync(3); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "measured for at most 2 images") {
+		t.Errorf("measured with 2, 3 images: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// A model whose limit is not known takes any number until measured,
+	// then the measured count.
 	set.Recipe = "qwen-image-21-turbo"
 	s.gen.UpdateModelSet(set)
+	s.gen.EditInstance("ming", func(i *generation.Instance) { i.MeasuredEditImages = 0 })
 	if rec := sync(12); rec.Code != http.StatusOK {
 		t.Errorf("unknown limit, 12 images: %d %s", rec.Code, rec.Body.String())
+	}
+	s.gen.EditInstance("ming", func(i *generation.Instance) { i.MeasuredEditImages = 6 })
+	if rec := sync(7); rec.Code != http.StatusBadRequest {
+		t.Errorf("unknown limit measured with 6, 7 images: %d %s", rec.Code, rec.Body.String())
 	}
 }
 

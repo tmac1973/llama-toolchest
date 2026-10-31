@@ -163,8 +163,9 @@ type Instance struct {
 	MeasuredArgs   []string `json:"measured_args,omitempty"`
 	MeasuredRAMMiB int      `json:"measured_ram_mib,omitempty"`
 	// MeasuredEditImages is how many reference images the test edit of
-	// the last measurement had (edit sets only); 0 for measurements made
-	// before it was recorded, which all had one.
+	// the last measurement had (edit sets only), chosen in the Measure
+	// dialog; edits may have no more (EditImageLimit). 0 for measurements
+	// made before it was recorded, which all had one.
 	MeasuredEditImages int `json:"measured_edit_images,omitempty"`
 	// BudgetMiB is the GPU budget (sd-server's --max-vram) a video
 	// instance was measured inside, when the user chose one smaller than

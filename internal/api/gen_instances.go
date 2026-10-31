@@ -1,6 +1,7 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -57,9 +58,16 @@ type genInstanceRow struct {
 	// backend flags than the instance has now (see measuredStale).
 	MeasuredStale bool `json:"measured_stale,omitempty"`
 	// EditMeasureStale is true when the last measurement's test edit had
-	// fewer reference images than an edit may now have, so the
-	// reservation can be too small (see editMeasureStale).
+	// one image, but edits may have more, so the reservation can be too
+	// small (see editMeasureStale).
 	EditMeasureStale bool `json:"edit_measure_stale,omitempty"`
+	// EditImages is how many images one edit may have now
+	// (generation.EditImageLimit); EditImagesDefault and EditImagesMax
+	// are what the Measure dialog offers. All 0 for a set that cannot
+	// edit; EditImages and EditImagesMax are also 0 when no limit is known.
+	EditImages        int `json:"edit_images,omitempty"`
+	EditImagesDefault int `json:"edit_images_default,omitempty"`
+	EditImagesMax     int `json:"edit_images_max,omitempty"`
 	// SuggestedMiB is the reservation the last measurement suggests; 0
 	// before any measurement.
 	SuggestedMiB int `json:"suggested_mib,omitempty"`
@@ -106,11 +114,12 @@ func measuredStale(inst generation.Instance, set generation.ModelSet) bool {
 	return !slicesEqual(inst.MeasuredArgs, runArgs(set, inst))
 }
 
-// editMeasureStale reports whether an instance was measured with fewer
-// reference images than its set's edits may have. A measurement from
-// before MeasuredEditImages was recorded had one.
+// editMeasureStale reports whether an edit instance was measured before
+// the test edit's image count was recorded: it was measured with one
+// image, but edits are held only to the model's limit.
 func editMeasureStale(inst generation.Instance, set generation.ModelSet) bool {
-	return inst.MeasuredPeakMiB > 0 && set.MeasureEditImages() > max(inst.MeasuredEditImages, 1)
+	return inst.MeasuredPeakMiB > 0 && inst.MeasuredEditImages == 0 &&
+		set.DefaultMeasureEditImages() > 0 && set.MaxEditImages() != 1
 }
 
 // LastVideoTime is how long the instance's last video took, for the row,
@@ -241,6 +250,15 @@ func (s *Server) genInstanceRows(store *generation.Store) []genInstanceRow {
 		}
 		row.MeasuredStale = measuredStale(inst, sets[inst.ModelSetID])
 		row.EditMeasureStale = editMeasureStale(inst, sets[inst.ModelSetID])
+		if set := sets[inst.ModelSetID]; set.DefaultMeasureEditImages() > 0 {
+			row.EditImages = generation.EditImageLimit(inst, set)
+			row.EditImagesDefault = set.DefaultMeasureEditImages()
+			row.EditImagesMax = cmp.Or(set.MaxEditImages(), maxMeasureEditImages)
+			if inst.MeasuredEditImages > 0 {
+				// Measure again offers the count it was measured with.
+				row.EditImagesDefault = min(inst.MeasuredEditImages, row.EditImagesMax)
+			}
+		}
 		if inst.MeasuredPeakMiB > 0 {
 			row.SuggestedMiB = generation.SuggestReservation(inst.MeasuredPeakMiB)
 			if inst.MeasuredSuggestedMiB > 0 {

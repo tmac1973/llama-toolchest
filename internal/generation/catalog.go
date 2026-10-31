@@ -725,14 +725,38 @@ func (m ModelSet) MaxEditImages() int {
 	return RecipeMaxEditImages[m.Recipe]
 }
 
-// MeasureEditImages is how many reference images Measure gives a set's
-// test edit: its limit, so the reservation holds the largest edit it
-// takes, or one when the limit is not known; 0 for a set that cannot edit.
-func (m ModelSet) MeasureEditImages() int {
+// DefaultMeasureEditImages is how many reference images Measure offers a
+// set's test edit: its limit, but no more than 4, since each one makes the
+// edit slower and larger (FLUX.3 Image Klein with 10 at 1024x1024 still
+// ran after 10 minutes, at 18.5 GiB; R9700, 2026-10-31). 4 when the limit
+// is not known; 0 for a set that cannot edit.
+func (m ModelSet) DefaultMeasureEditImages() int {
 	if !slices.Contains(m.CurrentCapabilities(), CapEdit) {
 		return 0
 	}
-	return max(m.MaxEditImages(), 1)
+	if n := m.MaxEditImages(); n > 0 {
+		return min(n, 4)
+	}
+	return 4
+}
+
+// EditImageLimit is how many reference images one edit to inst may have:
+// the count it was measured with, as its reservation holds that edit,
+// and never more than the model takes (ModelSet.MaxEditImages). An
+// instance measured before the count was recorded takes the model's
+// limit. 0 means no limit is known, or the set cannot edit.
+func EditImageLimit(inst Instance, set ModelSet) int {
+	if !slices.Contains(set.CurrentCapabilities(), CapEdit) {
+		return 0
+	}
+	model, measured := set.MaxEditImages(), inst.MeasuredEditImages
+	switch {
+	case measured == 0:
+		return model
+	case model == 0:
+		return measured
+	}
+	return min(model, measured)
 }
 
 // UpscaleScale is how many times larger an upscaler set makes an image,

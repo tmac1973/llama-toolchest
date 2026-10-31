@@ -163,8 +163,8 @@ func (s *Server) genV1Model(inst generation.Instance) map[string]any {
 		"api":       api,
 	}
 	// max_edit_images is how many image[] parts one edit takes; left out
-	// when the model's limit is not known.
-	if n := set.MaxEditImages(); n > 0 {
+	// when no limit is known.
+	if n := generation.EditImageLimit(inst, set); n > 0 {
 		meta["max_edit_images"] = n
 	}
 	// scale is how many times larger an upscaler makes an image; left out

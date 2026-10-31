@@ -1568,10 +1568,13 @@ components:
           type: integer
           description: |
             Edit-capable image sets only. The most `image[]` files one
-            edit takes, as the model's makers give it. An edit with more is
-            refused with `too_many_images`. Left out when the limit is not
-            known; then any number is passed on. Measure tests an edit with
-            this many images, so the reservation holds the largest edit.
+            edit to this instance may have. An edit with more is refused
+            with `too_many_images`. It is the number of images the instance
+            was measured with (chosen when it is measured, so that its
+            reservation holds that edit), and never more than the model
+            takes. An instance measured before this count was recorded
+            gives the model's limit. Left out when no limit is known; then
+            any number is passed on.
         scale:
           type: integer
           description: |
