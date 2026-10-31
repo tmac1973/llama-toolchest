@@ -46,8 +46,9 @@ func avalon() Fork {
 			ModelFileArg: avalonModelFile,
 			DraftFileArg: avalonDraftFile,
 		},
-		ModelRepo: "freriadoc/Qwen3.8-Flash-Next-Avalon-GGUF",
-		ModelName: "Qwen3.8-Flash-Next Avalon IQ3_KS",
+		ModelRepo:     "freriadoc/Qwen3.8-Flash-Next-Avalon-GGUF",
+		ModelRevision: "372fe3a4e572c5ba75a90e579de0695633d083a8",
+		ModelName:     "Qwen3.8-Flash-Next Avalon IQ3_KS",
 		// Sizes from the Hugging Face tree API on 2026-10-31.
 		ModelFiles: []ModelFile{
 			{avalonModelFile, 693388160},

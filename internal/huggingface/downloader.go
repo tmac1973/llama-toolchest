@@ -56,6 +56,9 @@ type download struct {
 	// each must hear when it is done. Guarded by Downloader.mu.
 	destRoot string
 	onDone   []FileDoneFunc
+	// revision is the repository revision to download from (StartToAt);
+	// empty for the default branch.
+	revision string
 }
 
 func (dl *download) broadcast(status DownloadStatus) {
@@ -91,6 +94,9 @@ type CompletionFunc func(source, downloadID, modelID, filename string, sizeBytes
 type Provider struct {
 	// URL returns the download URL for one file in a repository.
 	URL func(modelID, filename string) string
+	// RevisionURL returns the URL for one file at a given revision (a
+	// commit SHA); nil when the source cannot name one.
+	RevisionURL func(modelID, revision, filename string) string
 	// Token is the bearer token for this source, empty for anonymous.
 	Token string
 }
@@ -126,8 +132,9 @@ func NewDownloader(dataDir, modelsDir, token string) *Downloader {
 		expected:  make(map[string]string),
 	}
 	d.providers[modelsource.SourceHuggingFace] = Provider{
-		URL:   func(modelID, filename string) string { return hfDownloadURL(modelID, filename) },
-		Token: token,
+		URL:         func(modelID, filename string) string { return hfDownloadURL(modelID, filename) },
+		RevisionURL: hfRevisionURL,
+		Token:       token,
 	}
 	return d
 }
@@ -169,6 +176,19 @@ func hfDownloadURL(modelID, filename string) string {
 	return (&Client{}).DownloadURL(modelID, filename)
 }
 
+func hfRevisionURL(modelID, revision, filename string) string {
+	return "https://huggingface.co/" + modelID + "/resolve/" + revision + "/" + filename
+}
+
+// fileURL is where a download of one file comes from: the source's
+// default branch, or the download's revision when it names one.
+func (p Provider) fileURL(modelID, revision, filename string) string {
+	if revision != "" && p.RevisionURL != nil {
+		return p.RevisionURL(modelID, revision, filename)
+	}
+	return p.URL(modelID, filename)
+}
+
 // SetHashStore makes the downloader record the SHA-256 of each file it
 // finishes.
 func (d *Downloader) SetHashStore(s *filehash.Store) {
@@ -195,7 +215,7 @@ func (d *Downloader) SetOnComplete(fn CompletionFunc) {
 // Start returns, before the download goroutine has done its own HEAD. Pass 0
 // when the size is unknown.
 func (d *Downloader) Start(ctx context.Context, source, modelID, filename string, expectedBytes int64) (string, error) {
-	return d.start(source, modelID, filename, expectedBytes, "", "", nil)
+	return d.start(source, modelID, "", filename, expectedBytes, "", "", nil)
 }
 
 // StartTo downloads one file into <destRoot>/<SafeModelID(modelID)>/<filename>
@@ -206,7 +226,16 @@ func (d *Downloader) Start(ctx context.Context, source, modelID, filename string
 // file is already downloading, StartTo returns that download's ID with an
 // error and adds onDone to it, so it is still called when the file is done.
 func (d *Downloader) StartTo(source, modelID, filename, destRoot string, expectedBytes int64, onDone FileDoneFunc) (string, error) {
-	return d.start(source, modelID, filename, expectedBytes, "gen--", destRoot, onDone)
+	return d.start(source, modelID, "", filename, expectedBytes, "gen--", destRoot, onDone)
+}
+
+// StartToAt is StartTo from one revision of the repository (a commit
+// SHA), so a pinned model set downloads the files it was tested with even
+// after the repository changes. Sources that cannot name a revision use
+// their default branch. A sharded GGUF named by any shard downloads all
+// its shards, as with Start.
+func (d *Downloader) StartToAt(source, modelID, revision, filename, destRoot string, expectedBytes int64, onDone FileDoneFunc) (string, error) {
+	return d.start(source, modelID, revision, filename, expectedBytes, "gen--", destRoot, onDone)
 }
 
 // FilePath is where StartTo puts a file.
@@ -226,7 +255,7 @@ func (d *Downloader) Status(downloadID string) (DownloadStatus, bool) {
 	return dl.last(), true
 }
 
-func (d *Downloader) start(source, modelID, filename string, expectedBytes int64, idPrefix, destRoot string, onDone FileDoneFunc) (string, error) {
+func (d *Downloader) start(source, modelID, revision, filename string, expectedBytes int64, idPrefix, destRoot string, onDone FileDoneFunc) (string, error) {
 	// Create a stable download ID — replace all slashes to keep it URL-safe
 	safeName := SafeModelID(modelID)
 	safeFilename := SafeFileID(filename)
@@ -265,6 +294,7 @@ func (d *Downloader) start(source, modelID, filename string, expectedBytes int64
 		done:     make(chan struct{}),
 		bc:       broadcast.New[DownloadStatus](1, 16),
 		destRoot: destRoot,
+		revision: revision,
 	}
 	if onDone != nil {
 		dl.onDone = []FileDoneFunc{onDone}
@@ -439,7 +469,7 @@ func (d *Downloader) run(ctx context.Context, source, downloadID, modelID, filen
 	// Get combined total size via HEAD requests for accurate progress
 	var combinedTotal int64
 	if len(filenames) > 1 {
-		combinedTotal = d.fetchCombinedSize(ctx, source, modelID, filenames)
+		combinedTotal = d.fetchCombinedSize(ctx, source, modelID, dl.revision, filenames)
 	}
 
 	// Download each file (single file or all shards sequentially)
@@ -496,12 +526,12 @@ func (d *Downloader) run(ctx context.Context, source, downloadID, modelID, filen
 }
 
 // fetchCombinedSize does HEAD requests to get the total size of all shard files.
-func (d *Downloader) fetchCombinedSize(ctx context.Context, source, modelID string, filenames []string) int64 {
+func (d *Downloader) fetchCombinedSize(ctx context.Context, source, modelID, revision string, filenames []string) int64 {
 	client := &http.Client{Timeout: 30 * time.Second}
 	p := d.provider(source)
 	var total int64
 	for _, fn := range filenames {
-		dlURL := p.URL(modelID, fn)
+		dlURL := p.fileURL(modelID, revision, fn)
 		req, err := http.NewRequestWithContext(ctx, "HEAD", dlURL, nil)
 		if err != nil {
 			continue
@@ -553,7 +583,7 @@ func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, model
 	}
 
 	p := d.provider(source)
-	req, err := http.NewRequestWithContext(ctx, "GET", p.URL(modelID, filename), nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", p.fileURL(modelID, dl.revision, filename), nil)
 	if err != nil {
 		return 0, err
 	}

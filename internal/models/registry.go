@@ -1172,7 +1172,7 @@ func (r *Registry) OrphanParts() []OrphanPart {
 	groups := make(map[string]*group)
 
 	filepath.Walk(walkRoot, func(path string, info os.FileInfo, err error) error {
-		if isGenModelsDir(walkRoot, path, info) {
+		if isAppModelsDir(walkRoot, path, info) {
 			return filepath.SkipDir
 		}
 		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".part") {
@@ -1245,10 +1245,20 @@ func (r *Registry) OrphanParts() []OrphanPart {
 // so ScanModels and OrphanParts skip it.
 const GenModelsDirName = "gen-models"
 
-// isGenModelsDir reports whether path is the generation models folder
-// directly under the walk root.
-func isGenModelsDir(walkRoot, path string, info os.FileInfo) bool {
-	return info != nil && info.IsDir() && path == filepath.Join(walkRoot, GenModelsDirName)
+// ForkModelsDirName is the folder under the models directory that holds
+// the curated llama.cpp forks' model sets. Their GGUFs only run on their
+// fork, so they are not models for the router, and ScanModels and
+// OrphanParts skip it too.
+const ForkModelsDirName = "fork-models"
+
+// isAppModelsDir reports whether path is one of the folders directly
+// under the walk root that hold models the router does not run: the
+// generation and fork model folders.
+func isAppModelsDir(walkRoot, path string, info os.FileInfo) bool {
+	if info == nil || !info.IsDir() {
+		return false
+	}
+	return path == filepath.Join(walkRoot, GenModelsDirName) || path == filepath.Join(walkRoot, ForkModelsDirName)
 }
 
 // ScanModels walks the models directory for GGUF files not already in the
@@ -1286,7 +1296,7 @@ func (r *Registry) ScanModels() int {
 	// Walk looking for .gguf files
 	var found []*Model
 	filepath.Walk(walkRoot, func(path string, info os.FileInfo, err error) error {
-		if isGenModelsDir(walkRoot, path, info) {
+		if isAppModelsDir(walkRoot, path, info) {
 			return filepath.SkipDir
 		}
 		if err != nil || info.IsDir() {

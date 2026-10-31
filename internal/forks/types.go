@@ -26,10 +26,15 @@ type Fork struct {
 	Recipe   Recipe
 	// ModelRepo is the Hugging Face repo of the paired model, ModelName
 	// its display name, and ModelFiles every file a fork instance needs.
-	ModelRepo  string
-	ModelName  string
-	ModelFiles []ModelFile
-	License    string
+	// ModelRevision is the repo commit the files are downloaded from: the
+	// model and the fork's code are tested as a pair, and the sizes in
+	// ModelFiles are that commit's, so a later upload cannot change the
+	// set under the pinned build. Move it with PinnedSHA, never alone.
+	ModelRepo     string
+	ModelRevision string
+	ModelName     string
+	ModelFiles    []ModelFile
+	License       string
 	// Notes is one or two sentences on what the fork is for, shown as a
 	// tooltip.
 	Notes string

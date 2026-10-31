@@ -29,16 +29,22 @@ func TestScanSkipsGenModelsDir(t *testing.T) {
 	gen := filepath.Join(modelsDir, GenModelsDirName)
 	write(filepath.Join(gen, "leejet--Z-Image-Turbo-GGUF", "z_image_turbo-Q8_0.gguf"), stub)
 	write(filepath.Join(gen, "silveroxides--Chroma-GGUF", "Chroma1-HD", "Chroma1-HD-Q8_0.gguf.part"), []byte("x"))
+	// The forks' model sets, likewise.
+	fork := filepath.Join(modelsDir, ForkModelsDirName)
+	write(filepath.Join(fork, "freriadoc--Qwen3.8-Flash-Next-Avalon-GGUF", "Qwen3.8-Flash-Next-Avalon-IQ3KS-00001-of-00033.gguf"), stub)
+	write(filepath.Join(fork, "freriadoc--Qwen3.8-Flash-Next-Avalon-GGUF", "MTP", "mtp.gguf.part"), []byte("x"))
 
 	if n := r.ScanModels(); n != 1 {
 		t.Errorf("ScanModels found %d models (%v), want only the LLM", n, modelIDs(r.List()))
 	}
 	for _, m := range r.List() {
-		if rel, _ := filepath.Rel(gen, m.FilePath); !strings.HasPrefix(rel, "..") {
-			t.Errorf("registered %s from gen-models: %s", m.ID, m.FilePath)
+		for _, dir := range []string{gen, fork} {
+			if rel, _ := filepath.Rel(dir, m.FilePath); !strings.HasPrefix(rel, "..") {
+				t.Errorf("registered %s from %s: %s", m.ID, filepath.Base(dir), m.FilePath)
+			}
 		}
 	}
 	if got := r.OrphanParts(); len(got) != 0 {
-		t.Errorf("OrphanParts = %+v, want none from gen-models", got)
+		t.Errorf("OrphanParts = %+v, want none from gen-models or fork-models", got)
 	}
 }

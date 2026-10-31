@@ -23,6 +23,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/enginenotes"
 	"github.com/tmac1973/llama-toolchest/internal/evaluate"
 	"github.com/tmac1973/llama-toolchest/internal/filehash"
+	"github.com/tmac1973/llama-toolchest/internal/forks"
 	"github.com/tmac1973/llama-toolchest/internal/generation"
 	"github.com/tmac1973/llama-toolchest/internal/huggingface"
 	"github.com/tmac1973/llama-toolchest/internal/llmcall"
@@ -97,7 +98,18 @@ type Server struct {
 	// download completions make from their own goroutines.
 	genSetMu     sync.Mutex
 	genDownloads genDownloads
-	genMove      genMove
+
+	// forks holds the curated forks' model sets and fork instances; nil
+	// when forks.json could not be read, with forksErr saying why.
+	forks    *forks.Store
+	forksErr error
+	// forkSetMu serializes read-modify-write updates of fork model sets,
+	// which download completions make from their own goroutines.
+	forkSetMu sync.Mutex
+	// forkDownloads holds each fork file group's download, keyed
+	// "<fork>|<first file>".
+	forkDownloads genDownloads
+	genMove       genMove
 	// genMgr runs the generation backend instances.
 	genMgr *generation.Manager
 	// genMeasure holds each instance's last measured-test-run error.
@@ -394,6 +406,9 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 	s.genQueue = generation.NewQueue()
 	if s.gen, s.genErr = generation.Load(cfg.DataDir); s.genErr != nil {
 		slog.Error("generation backends store not loaded", "error", s.genErr)
+	}
+	if s.forks, s.forksErr = forks.Load(cfg.DataDir); s.forksErr != nil {
+		slog.Error("llama.cpp forks store not loaded", "error", s.forksErr)
 	}
 	s.startGenMove()
 	// Subscribes to the router log for the life of the process. Started
@@ -898,6 +913,11 @@ func (s *Server) buildRouter() chi.Router {
 			r.Post("/sets", s.handleGenCreateSet)
 			r.Delete("/sets/{id}", s.handleGenDeleteSet)
 		})
+		r.Route("/forks/models", func(r chi.Router) {
+			r.Get("/", s.handleForkModels)
+			r.Post("/{fork}/download", s.handleForkModelDownload)
+			r.Delete("/{fork}", s.handleForkModelDelete)
+		})
 		r.Route("/hf", func(r chi.Router) {
 			r.Get("/search", s.handleHFSearch)
 			r.Get("/model", s.handleHFModel)
@@ -1085,14 +1105,17 @@ func (s *Server) handleModelsPage(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "models.html", modelsPageData{
 		pageData:          pageData{Title: "Models", Nav: "models"},
 		GenerationEnabled: cfg.GenerationEnabled,
+		ForksEnabled:      cfg.ForksEnabled,
 	})
 }
 
 // modelsPageData is what models.html renders.
 type modelsPageData struct {
 	pageData
-	// GenerationEnabled shows the Generation models section.
+	// GenerationEnabled shows the Generation models section, and
+	// ForksEnabled the Fork model sets section.
 	GenerationEnabled bool
+	ForksEnabled      bool
 }
 
 // benchmarksPageData is what benchmarks.html renders.
