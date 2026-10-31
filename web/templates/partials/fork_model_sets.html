@@ -1,0 +1,65 @@
+{{/* The Models page's Fork model sets section: one row per curated
+     fork, with the model it is made for. Data: forkModelsData
+     (fork_models.go). While any set is downloading, the hidden poller
+     re-fetches the section every 3 seconds. */}}
+{{define "fork_model_sets"}}
+{{- $downloading := false}}
+{{- range .Rows}}{{if .Downloading}}{{$downloading = true}}{{end}}{{end}}
+{{- if $downloading}}
+<div hidden hx-get="/api/forks/models" hx-trigger="every 3s" hx-target="#fork-model-sets" hx-swap="innerHTML"></div>
+{{- end}}
+<table role="grid">
+    <thead>
+        <tr><th>Model</th><th>Fork</th><th>Size</th><th title="The model files are downloaded from this commit of the model's repository. It is the version tested with the fork.">Version</th><th>Status</th><th></th></tr>
+    </thead>
+    <tbody>
+    {{- range .Rows}}
+        <tr>
+            <td><a href="https://huggingface.co/{{.Fork.ModelRepo}}/tree/{{.Fork.ModelRevision}}" target="_blank" rel="noopener"
+                   title="{{.Fork.License}}">{{.Fork.ModelName}}</a></td>
+            <td><span title="{{.Fork.Notes}}" style="cursor:help;">{{.Fork.Name}}</span></td>
+            <td>{{printf "%.1f" .SizeGB}} GB</td>
+            <td><code>{{slice .Fork.ModelRevision 0 7}}</code></td>
+            <td>
+                {{- if .Complete}}Ready
+                {{- else if .Downloading}}
+                <progress value="{{.Percent}}" max="100" style="margin:0;" title="{{printf "%.1f" .DoneGB}} of {{printf "%.1f" .SizeGB}} GB downloaded"></progress>
+                <small>{{.Percent}}%</small>
+                {{- else if .Started}}
+                <span title="{{with .FailedError}}The download failed: {{.}}{{else}}Some files are missing, for example after a restart during the download.{{end}}" style="cursor:help;">Incomplete{{if .FailedError}} (failed){{end}}</span>
+                {{- else}}Not downloaded
+                {{- end}}
+            </td>
+            <td>
+                <span style="display:flex;gap:0.5rem;">
+                {{- if and (not .Complete) (not .Downloading)}}
+                <button type="button" class="outline" style="margin:0;padding:0.1rem 0.5rem;font-size:0.8rem;"
+                        title="Download all files of this model set. Downloads continue after a restart."
+                        hx-post="/api/forks/models/{{.Fork.ID}}/download"
+                        hx-target="#fork-model-sets" hx-swap="innerHTML"
+                        data-error-label="Download not started">{{if .Started}}Resume{{else}}Download{{end}}</button>
+                {{- end}}
+                {{- if or .Complete .Started .Downloading}}
+                {{- if .Instances}}
+                <span title="A fork instance uses this model set. Delete the instance on the Server page first." style="display:inline-block;cursor:help;">
+                <button type="button" class="outline secondary" disabled style="margin:0;padding:0.1rem 0.5rem;font-size:0.8rem;pointer-events:none;">Delete</button>
+                </span>
+                {{- else}}
+                <button type="button" class="outline secondary" style="margin:0;padding:0.1rem 0.5rem;font-size:0.8rem;"
+                        title="Delete the downloaded files of this model set."
+                        hx-delete="/api/forks/models/{{.Fork.ID}}"
+                        hx-confirm="Delete {{.Fork.ModelName}} and its downloaded files ({{printf "%.1f" .SizeGB}} GB)?"
+                        hx-target="#fork-model-sets" hx-swap="innerHTML"
+                        data-error-label="Not deleted">Delete</button>
+                {{- end}}
+                {{- end}}
+                </span>
+            </td>
+        </tr>
+    {{- end}}
+    </tbody>
+</table>
+{{- if ge .FreeGB 0.0}}
+<p><small>{{printf "%.0f" .FreeGB}} GB free for downloads.</small></p>
+{{- end}}
+{{end}}

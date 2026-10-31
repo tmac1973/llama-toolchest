@@ -25,6 +25,9 @@ func TestCuratedForksAreComplete(t *testing.T) {
 		if len(f.Backends) == 0 || len(f.ModelFiles) == 0 || f.ModelRepo == "" {
 			t.Errorf("%s: needs backends, model files and a model repo", f.ID)
 		}
+		if !shaOK.MatchString(f.ModelRevision) {
+			t.Errorf("%s: model revision %q is not a full commit SHA", f.ID, f.ModelRevision)
+		}
 		paths := map[string]bool{}
 		for _, m := range f.ModelFiles {
 			if m.Bytes <= 0 || paths[m.Path] {

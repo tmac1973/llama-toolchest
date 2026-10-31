@@ -68,6 +68,16 @@
 </dialog>
 {{end}}
 
+{{if .ForksEnabled}}
+<hr>
+<div style="padding: 0 0.25rem 0.5rem 0;">
+    <h4 style="margin:0;" title="Models for the curated llama.cpp forks. Each one runs only on its fork, as a fork instance on the Server page.">Fork model sets</h4>
+</div>
+<div id="fork-model-sets" hx-get="/api/forks/models" hx-trigger="load" hx-swap="innerHTML">
+    Loading...
+</div>
+{{end}}
+
 <template id="restart-icon-template">{{template "restart_icon"}}</template>
 
 {{/* One confirm dialog for every restart shortcut on this page: the
