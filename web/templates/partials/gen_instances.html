@@ -169,6 +169,9 @@
                 {{- range .GPUs}}<option value="{{.Index}}"{{if and $.Editing (eq .Index $.EditGPU)}} selected{{end}}>{{.Index}}: {{.Name}}</option>{{else}}<option value="0">0</option>{{end}}
             </select>
         </label>
+        <label title="The port that API clients connect to. It must be in the generation port range ({{.PortStart}}–{{.PortEnd}}). Empty: the lowest free port.">Port
+            <input type="number" name="port" placeholder="automatic"{{if .Editing}} value="{{.EditPort}}"{{end}}>
+        </label>
     </div>
     <label title="Extra backend flags, after the model set flags. Toolchest sets the address, port, VRAM limit and model folder.">Extra launch arguments
         <input type="text" name="extra_args" placeholder="e.g. --offload-to-cpu"{{if .Editing}} value="{{.EditArgs}}"{{end}}>

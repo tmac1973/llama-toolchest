@@ -100,6 +100,65 @@ func TestGenCreateInstanceRefusals(t *testing.T) {
 	}
 }
 
+// A user can choose an instance's port in the generation port range, so
+// clients keep working when an instance is made again.
+func TestGenInstancePort(t *testing.T) {
+	s := instanceServer(t)
+	create := func(port string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		s.handleGenCreateInstance(rec, instanceReq("POST", "/", "", "", url.Values{"model_set": {"ming-image"}, "gpu": {"0"}, "port": {port}}))
+		return rec
+	}
+	if rec := create("8084"); rec.Code != http.StatusOK {
+		t.Fatalf("create on 8084: %d %s", rec.Code, rec.Body.String())
+	}
+	if inst, _ := s.gen.Instance("ming-image"); inst.Port != 8084 {
+		t.Errorf("port = %d, want the chosen 8084", inst.Port)
+	}
+	for port, want := range map[string]int{
+		"8084": http.StatusConflict,   // used by ming-image
+		"9000": http.StatusBadRequest, // outside 8081–8088
+		"abc":  http.StatusBadRequest,
+	} {
+		if rec := create(port); rec.Code != want {
+			t.Errorf("create on %s: %d, want %d", port, rec.Code, want)
+		}
+	}
+	// Empty still picks the lowest free port.
+	if rec := create(""); rec.Code != http.StatusOK {
+		t.Fatalf("create with no port: %d %s", rec.Code, rec.Body.String())
+	}
+	if inst, _ := s.gen.Instance("ming-image-2"); inst.Port != 8081 {
+		t.Errorf("automatic port = %d, want 8081", inst.Port)
+	}
+
+	edit := func(port string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		s.handleGenEditInstance(rec, instanceReq("PUT", "/", "ming-image-2", "", url.Values{"model_set": {"ming-image"}, "gpu": {"0"}, "port": {port}}))
+		return rec
+	}
+	if rec := edit("8084"); rec.Code != http.StatusConflict {
+		t.Errorf("edit onto a used port: %d, want 409", rec.Code)
+	}
+	if rec := edit("8085"); rec.Code != http.StatusOK {
+		t.Fatalf("edit to 8085: %d %s", rec.Code, rec.Body.String())
+	}
+	if inst, _ := s.gen.Instance("ming-image-2"); inst.Port != 8085 {
+		t.Errorf("port after edit = %d, want 8085", inst.Port)
+	}
+
+	// An instance keeps its own port after the range moves away from it.
+	s.cfg.GenPortStart = 9000
+	for _, port := range []string{"8085", ""} {
+		if rec := edit(port); rec.Code != http.StatusOK {
+			t.Errorf("edit keeping port %q outside the new range: %d %s", port, rec.Code, rec.Body.String())
+		}
+	}
+	if inst, _ := s.gen.Instance("ming-image-2"); inst.Port != 8085 {
+		t.Errorf("port after edits = %d, want 8085 kept", inst.Port)
+	}
+}
+
 // Editing how an instance runs clears its VRAM measurement.
 func TestGenEditInstanceClearsMeasurement(t *testing.T) {
 	s := instanceServer(t)

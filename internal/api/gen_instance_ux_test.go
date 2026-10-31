@@ -132,6 +132,7 @@ func TestGenInstanceEditForm(t *testing.T) {
 		`<option value="sd-master-1-abc-vulkan" selected>`,
 		`value="--backend te=cpu"`,
 		`name="auto_start" checked`,
+		`name="port" placeholder="automatic" value="8081"`,
 		"Save changes",
 	} {
 		if !strings.Contains(out, want) {
