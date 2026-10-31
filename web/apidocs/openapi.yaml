@@ -1777,7 +1777,9 @@ components:
           type: string
         duration:
           type: number
-          description: Length in seconds.
+          description: |
+            Target length in seconds. ACE-Step can make a song shorter or
+            longer than this; `result.duration` is the real length.
         bpm:
           type: integer
         keyscale:
@@ -1861,7 +1863,10 @@ components:
               description: |
                 What was composed, once composing is done: some of
                 `caption`, `lyrics`, `bpm`, `duration`, `keyscale`,
-                `timesignature`, `vocal_language` and `seed`.
+                `timesignature`, `vocal_language` and `seed`. Until the
+                audio is made, `duration` is the planned length. After
+                that it is the length of the audio file in seconds, and
+                `planned_duration` keeps the plan.
             audio_url:
               type: string
               description: Only on `succeeded` jobs.
