@@ -163,7 +163,9 @@ func (b *Builder) BackfillArchs() {
 	b.mu.Lock()
 	var todo []BuildResult
 	for _, br := range b.builds {
-		if br.Status == BuildStatusSuccess && br.GitSHA != "" && (len(br.Archs) == 0 || len(br.NoTensorSplitArchs) == 0) {
+		// Only llama.cpp builds: the lists are read from the llama.cpp
+		// clone, which does not have a fork's or a backend's commits.
+		if br.ProjectID() == ProjectLlamaCpp && br.Status == BuildStatusSuccess && br.GitSHA != "" && (len(br.Archs) == 0 || len(br.NoTensorSplitArchs) == 0) {
 			todo = append(todo, br)
 		}
 	}

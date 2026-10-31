@@ -8,14 +8,21 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/tmac1973/llama-toolchest/internal/forks"
 )
 
-// Project IDs.
+// Project IDs. Each curated fork is a project too, with the fork's ID
+// (internal/forks).
 const (
 	ProjectLlamaCpp = "llama.cpp"
 	ProjectSDCpp    = "stable-diffusion.cpp"
 	ProjectAceStep  = "acestep.cpp"
 )
+
+// ForkKind is the Kind of a curated fork's project. Its builds run as
+// fork instances, never as the router's build or a generation backend.
+const ForkKind = "fork"
 
 // BinarySpec names a program a build installs and where to find it in the
 // cmake build directory.
@@ -125,8 +132,37 @@ func projects() []Project {
 		latestRef:       defaultBranchRef,
 		listRefs:        func(context.Context, string) ([]string, error) { return nil, nil },
 	}
-	return []Project{llama, sd, ace}
+	out := []Project{llama, sd, ace}
+	for _, f := range forks.Curated() {
+		out = append(out, forkProject(llama, f))
+	}
+	return out
 }
+
+// forkProject is a curated fork's project: built like llama.cpp, from the
+// fork's repo. Its ref picker offers the pinned commit, and "latest" is
+// the fork's default branch.
+func forkProject(llama Project, f forks.Fork) Project {
+	pinned := f.PinnedSHA
+	return Project{
+		ID:              f.ID,
+		Kind:            ForkKind,
+		Repo:            f.Repo,
+		CloneDir:        f.ID,
+		IDPrefix:        f.ID + "-",
+		BaseCMakeArgs:   slices.Clone(llama.BaseCMakeArgs),
+		Backends:        slices.Clone(f.Backends),
+		Required:        llama.Required,
+		Optional:        []BinarySpec{llama.Optional[0]}, // llama-bench; nothing runs perplexity on a fork
+		ReleaseNotesURL: f.Repo + "/commit/{ref}",
+		LatestNotesURL:  f.Repo + "/commits",
+		latestRef:       defaultBranchRef,
+		listRefs:        func(context.Context, string) ([]string, error) { return []string{pinned}, nil },
+	}
+}
+
+// IsFork reports whether the project is a curated fork.
+func (p Project) IsFork() bool { return p.Kind == ForkKind }
 
 // Projects returns every project the builder knows, llama.cpp first.
 func Projects() []Project { return projects() }
@@ -139,7 +175,7 @@ func ProjectForKind(kind string) (Project, bool) {
 		kind = "sd"
 	}
 	for _, p := range projects() {
-		if p.Kind != "" && p.Kind == kind {
+		if p.Kind != "" && p.Kind != ForkKind && p.Kind == kind {
 			return p, true
 		}
 	}
@@ -187,7 +223,11 @@ func (r BuildResult) ProjectID() string {
 // "origin/master", which is what "latest" means for a project without
 // tags) gets the commit's short SHA, so each new commit on the branch gets
 // its own ID instead of a rebuild prompt. Slashes are not valid in an ID.
+// A full commit SHA (a fork's pinned commit) is cut to its short form.
 func buildIDRef(ref, sha string) string {
+	if fullSHARE.MatchString(ref) {
+		return ref[:7]
+	}
 	if branch, ok := strings.CutPrefix(ref, "origin/"); ok {
 		if len(sha) > 7 {
 			sha = sha[:7]
@@ -278,6 +318,9 @@ func llamaListRefs(ctx context.Context, srcDir string) ([]string, error) {
 // and cannot be ordered, so they are left out.
 var sdTagRE = regexp.MustCompile(`^master-([0-9]+)-[0-9a-f]+$`)
 
+// fullSHARE matches a full commit SHA given as a ref.
+var fullSHARE = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
 func sdListRefs(ctx context.Context, srcDir string) ([]string, error) {
 	out, err := exec.CommandContext(ctx, "git", "-C", srcDir, "tag", "-l", "master-*").Output()
 	if err != nil {
@@ -353,7 +396,8 @@ var llamaOnlyOptions = []string{
 // llamaOnlyOptions), plus each project's extras.
 func ProjectOptions(project, profile string) []BuildOption {
 	opts := ProfileOptions(profile)
-	if project == "" || project == ProjectLlamaCpp {
+	// A curated fork is llama.cpp underneath and takes all its options.
+	if p, ok := FindProject(project); ok && (p.ID == ProjectLlamaCpp || p.IsFork()) {
 		return opts
 	}
 	opts = slices.DeleteFunc(opts, func(o BuildOption) bool {

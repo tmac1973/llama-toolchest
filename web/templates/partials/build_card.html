@@ -1,6 +1,6 @@
 {{define "build_card"}}
 <tr>
-    <td><kbd>{{.ID}}</kbd></td>
+    <td><kbd>{{.ID}}</kbd>{{if .Untested}} <mark title="This build is not the tested commit. It can fail to start or give wrong output.">untested</mark>{{end}}</td>
     <td><code>{{slice .GitSHA 0 7}}</code></td>
     <td>{{.Status}}</td>
     {{/* Built against: the GPU toolchain this build was compiled against.
