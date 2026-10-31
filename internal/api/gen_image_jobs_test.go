@@ -288,7 +288,7 @@ func TestImageEditJob(t *testing.T) {
 	}
 	json.Unmarshal(rec.Body.Bytes(), &accepted)
 	j := waitImageJob(t, s, accepted.ID, jobSucceeded)
-	want := imageJobRequest{Model: "ming", Prompt: "make it blue", N: 1, Edit: true}
+	want := imageJobRequest{Model: "ming", Prompt: "make it blue", N: 1, Edit: true, images: 1}
 	if j.Request != want {
 		t.Errorf("request = %+v, want %+v", j.Request, want)
 	}

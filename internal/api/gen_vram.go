@@ -566,13 +566,18 @@ func (s *Server) handleGenMeasure(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	editImages, err := measureEditImages(r, set)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	s.genMgr.SetMeasuring(inst.ID, true)
 	s.genMeasure.clear(inst.ID)
 	before, wasRunning := inst.ReservedMiB, s.genMgr.IsActive(inst.ID)
 	startAfter := r.FormValue("start") == "1"
 	go func() {
 		defer s.genMgr.SetMeasuring(inst.ID, false)
-		if err := s.measureInstance(inst.ID, startAfter, size, budget); err != nil {
+		if err := s.measureInstance(inst.ID, startAfter, size, budget, editImages); err != nil {
 			slog.Warn("failed to measure a generation instance", "instance", inst.ID, "error", err)
 			s.genMeasure.set(inst.ID, measureOutcome{Err: err.Error(), At: time.Now()})
 			return
@@ -629,7 +634,7 @@ func (s *Server) canMeasure(inst generation.Instance) error {
 // budget (MiB, 0 for the whole room) is measured inside it, and runs
 // inside it afterwards. With eviction on, room is made on the GPU first
 // (makeRoomForMeasure).
-func (s *Server) measureInstance(id string, startAfter bool, size generation.VideoSize, budget int) error {
+func (s *Server) measureInstance(id string, startAfter bool, size generation.VideoSize, budget, editImages int) error {
 	inst, err := s.gen.Instance(id)
 	if err != nil {
 		return err
@@ -707,7 +712,7 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 	if err := s.launchGenInstance(inst, set, opts); err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), measureTimeout(set.Kind))
+	ctx, cancel := context.WithTimeout(context.Background(), measureTimeout(set.Kind, editImages))
 	defer cancel()
 	if err := s.genMgr.WaitRunning(ctx, id); err != nil {
 		return fmt.Errorf("the instance did not start: %w", err)
@@ -787,7 +792,7 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 			}
 		}
 	}()
-	runErr := s.runMeasureGeneration(ctx, inst, set, size)
+	runErr := s.runMeasureGeneration(ctx, inst, set, size, editImages)
 	// Read before the Stop below, which leaves every backend stopped: a
 	// stopped one now was stopped by the user, not by a crash.
 	userStopped := s.genMgr.Status(id).State == process.StateStopped
@@ -835,6 +840,7 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 	}
 	inst.MeasuredPeakMiB, inst.MeasuredAt, inst.MeasureEstimated = peak, time.Now(), !perProcess
 	inst.MeasuredArgs, inst.MeasuredRAMMiB = runArgs(set, inst), ramPeak
+	inst.MeasuredEditImages = editImages
 	// The room is worked out again now the backend has stopped: other
 	// programs on the card may have grown during a long test run.
 	if sdKind {
@@ -1191,7 +1197,7 @@ func (s *Server) gpuUsedMiB(gpu int) int {
 // reference image as well, and on Qwen-Image-Edit 2511 it peaked at
 // about 21 GiB against 17.4 GiB for a plain image (R9700, 2026-10-25),
 // so the reservation must cover the edit.
-func (s *Server) runMeasureGeneration(ctx context.Context, inst generation.Instance, set generation.ModelSet, size generation.VideoSize) error {
+func (s *Server) runMeasureGeneration(ctx context.Context, inst generation.Instance, set generation.ModelSet, size generation.VideoSize, editImages int) error {
 	base := inst.BaseURL()
 	if set.Kind == generation.KindVideo {
 		return runMeasureVideo(ctx, base, set, size)
@@ -1213,18 +1219,22 @@ func (s *Server) runMeasureGeneration(ctx context.Context, inst generation.Insta
 			"prompt": "a lighthouse on a rocky coast at sunset, photo", "size": size, "n": 1,
 			"response_format": "b64_json",
 		})
-		if err != nil || !slices.Contains(set.CurrentCapabilities(), generation.CapEdit) {
+		refs := editImages
+		if err != nil || refs == 0 {
 			return err
 		}
 		img, err := firstImage(body)
 		if err != nil {
 			return fmt.Errorf("reading the test image: %w", err)
 		}
-		_, _, err = postImageEdit(ctx, base+"/v1/images/edits", img, map[string]string{
+		// The number of references chosen for the measurement: each adds
+		// to what the model holds while it runs. Copies of one image
+		// weigh the same as different ones.
+		_, _, err = postImageEdit(ctx, base+"/v1/images/edits", slices.Repeat([][]byte{img}, refs), map[string]string{
 			"prompt": "make the sky stormy", "size": size, "n": "1", "response_format": "b64_json",
 		})
 		if err != nil {
-			return fmt.Errorf("the test edit failed: %w", err)
+			return fmt.Errorf("the test edit with %d reference image(s) failed: %w", refs, err)
 		}
 		return nil
 	}
@@ -1271,11 +1281,36 @@ func measureUpscaleImage() ([]byte, error) {
 // the end of its test generation. A video set may be measured at its
 // largest size: that took 21 minutes on an R9700, and a slower card held
 // to a smaller budget can take several times as long.
-func measureTimeout(kind generation.BackendKind) time.Duration {
+func measureTimeout(kind generation.BackendKind, editImages int) time.Duration {
 	if kind == generation.KindVideo {
 		return 2 * time.Hour
 	}
-	return 10 * time.Minute
+	// Each reference image makes the test edit slower.
+	return 10 * time.Minute * time.Duration(max(editImages, 1))
+}
+
+// maxMeasureEditImages caps the test edit of a set whose model limit is
+// not known.
+const maxMeasureEditImages = 16
+
+// measureEditImages reads how many reference images the test edit has,
+// from the form's edit_images: the set's default when empty, and from 1 to
+// the model's limit. 0 for a set that cannot edit.
+func measureEditImages(r *http.Request, set generation.ModelSet) (int, error) {
+	def := set.DefaultMeasureEditImages()
+	text := strings.TrimSpace(r.FormValue("edit_images"))
+	if def == 0 || text == "" {
+		return def, nil
+	}
+	limit := set.MaxEditImages()
+	if limit == 0 {
+		limit = maxMeasureEditImages
+	}
+	n, err := strconv.Atoi(text)
+	if err != nil || n < 1 || n > limit {
+		return 0, fmt.Errorf("edit images must be a whole number from 1 to %d", limit)
+	}
+	return n, nil
 }
 
 // measureBudget reads the budget a video instance is to be measured
@@ -1395,9 +1430,9 @@ func firstImage(body []byte) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(resp.Data[0].B64JSON)
 }
 
-// postImageEdit sends an OpenAI-style image edit: the fields, and img as
-// the reference image.
-func postImageEdit(ctx context.Context, url string, img []byte, fields map[string]string) ([]byte, string, error) {
+// postImageEdit sends an OpenAI-style image edit: the fields, and imgs as
+// the reference images.
+func postImageEdit(ctx context.Context, url string, imgs [][]byte, fields map[string]string) ([]byte, string, error) {
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	for k, v := range fields {
@@ -1405,15 +1440,17 @@ func postImageEdit(ctx context.Context, url string, img []byte, fields map[strin
 			return nil, "", err
 		}
 	}
-	part, err := mw.CreatePart(textproto.MIMEHeader{
-		"Content-Disposition": {`form-data; name="image[]"; filename="reference.png"`},
-		"Content-Type":        {"image/png"},
-	})
-	if err != nil {
-		return nil, "", err
-	}
-	if _, err := part.Write(img); err != nil {
-		return nil, "", err
+	for i, img := range imgs {
+		part, err := mw.CreatePart(textproto.MIMEHeader{
+			"Content-Disposition": {fmt.Sprintf(`form-data; name="image[]"; filename="reference%d.png"`, i+1)},
+			"Content-Type":        {"image/png"},
+		})
+		if err != nil {
+			return nil, "", err
+		}
+		if _, err := part.Write(img); err != nil {
+			return nil, "", err
+		}
 	}
 	if err := mw.Close(); err != nil {
 		return nil, "", err

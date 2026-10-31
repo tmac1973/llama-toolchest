@@ -180,6 +180,14 @@ func TestCurrentCapabilities(t *testing.T) {
 	if got := set.MaxEditImages(); got != 10 {
 		t.Errorf("MaxEditImages = %d, want 10", got)
 	}
+	if got := set.DefaultMeasureEditImages(); got != 4 {
+		t.Errorf("DefaultMeasureEditImages = %d, want 4", got)
+	}
+	for measured, want := range map[int]int{0: 10, 3: 3, 10: 10, 12: 10} {
+		if got := EditImageLimit(Instance{MeasuredEditImages: measured}, set); got != want {
+			t.Errorf("EditImageLimit measured with %d = %d, want %d", measured, got, want)
+		}
+	}
 	set.Components = set.Components[:1]
 	if got := set.CurrentCapabilities(); got != nil {
 		t.Errorf("set missing a catalog file: %v, want its own nil", got)

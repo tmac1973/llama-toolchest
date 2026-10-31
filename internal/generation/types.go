@@ -162,6 +162,11 @@ type Instance struct {
 	// it: a text encoder on the CPU, and any weights sd.cpp kept in RAM.
 	MeasuredArgs   []string `json:"measured_args,omitempty"`
 	MeasuredRAMMiB int      `json:"measured_ram_mib,omitempty"`
+	// MeasuredEditImages is how many reference images the test edit of
+	// the last measurement had (edit sets only), chosen in the Measure
+	// dialog; edits may have no more (EditImageLimit). 0 for measurements
+	// made before it was recorded, which all had one.
+	MeasuredEditImages int `json:"measured_edit_images,omitempty"`
 	// BudgetMiB is the GPU budget (sd-server's --max-vram) a video
 	// instance was measured inside, when the user chose one smaller than
 	// the room on the card; 0 means the whole room. sd-server runs with it,

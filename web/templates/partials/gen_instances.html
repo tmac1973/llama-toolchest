@@ -51,6 +51,11 @@
                 {{- if .MeasuredStale}}
                 <small style="display:block;color:var(--pico-ins-color);cursor:help;" title="Measured with other backend settings than now. The reservation can be too large. Press Measure to check.">Measured with older settings; measure again, it may need less memory now</small>
                 {{- end}}
+                {{- if .EditMeasureStale}}
+                <small style="display:block;color:var(--pico-ins-color);cursor:help;" title="The last measurement tested an edit with 1 image. An edit with more images uses more memory. Press Measure and choose how many images an edit can have.">Measured with 1 edit image; measure again, it may need more memory</small>
+                {{- else if and .EditImages .MeasuredPeakMiB}}
+                <small style="display:block;color:var(--pico-muted-color);cursor:help;" title="An edit with more images is refused. To allow more, press Measure and choose a larger number.">edits: up to {{.EditImages}} image{{if ne .EditImages 1}}s{{end}}</small>
+                {{- end}}
                 {{- if and .SuggestedMiB (ne .SuggestedMiB .ReservedMiB)}}
                 <button type="button" class="outline" style="margin:0.2rem 0 0;padding:0.1rem 0.5rem;font-size:0.75rem;"
                         hx-put="/api/gen/instances/{{.ID}}/reservation" hx-vals='{"reserved_gib": "{{printf "%.1f" .SuggestedGiB}}"}' hx-target="#gen-instances"
@@ -85,6 +90,8 @@
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/restart" hx-target="#gen-instances" data-error-label="Not restarted">Restart</button>
                 {{- else if and .Enabled (not .ReservedMiB) (not .Measuring) (eq .Kind "video")}}
                     <button type="button" class="outline" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" data-id="{{$id}}" data-name="{{.Name}}" data-gpu="{{.GPU}}" data-video="{{.VideoJSON}}" data-start="1" onclick="openGenMeasureVideo(this)" title="No VRAM reservation yet. Toolchest measures first, at a video size you choose. It asks before it starts.">Start</button>
+                {{- else if and .Enabled (not .ReservedMiB) (not .Measuring) .EditImagesDefault}}
+                    <button type="button" class="outline" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" data-id="{{$id}}" data-name="{{.Name}}" data-gpu="{{.GPU}}" data-edit-default="{{.EditImagesDefault}}" data-edit-max="{{.EditImagesMax}}" data-start="1" onclick="openGenMeasureEdit(this)" title="No VRAM reservation yet. Toolchest measures first, with the number of edit images you choose. It asks before it starts.">Start</button>
                 {{- else if and .Enabled (not .ReservedMiB) (not .Measuring)}}
                     <button type="button" class="outline" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" onclick="openGenMeasureStart('{{$id}}', '{{.Name}}', '{{.GPU}}')" title="No VRAM reservation yet. Toolchest measures first. It asks before it starts.">Start</button>
                 {{- else if .Enabled}}
@@ -93,6 +100,8 @@
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" onclick="openGenLog('{{$id}}', '{{.Name}}')">Logs</button>
                 {{- if and (not .Measuring) (eq .Kind "video")}}
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" data-id="{{$id}}" data-name="{{.Name}}" data-gpu="{{.GPU}}" data-video="{{.VideoJSON}}" onclick="openGenMeasureVideo(this)" title="Makes one test video at a size you choose, alone on this GPU, and reserves its peak VRAM. Videos up to that size are then allowed.">Measure</button>
+                {{- else if and (not .Measuring) .EditImagesDefault}}
+                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" data-id="{{$id}}" data-name="{{.Name}}" data-gpu="{{.GPU}}" data-edit-default="{{.EditImagesDefault}}" data-edit-max="{{.EditImagesMax}}" onclick="openGenMeasureEdit(this)" title="Makes one test image and one test edit alone on this GPU, and reserves the peak VRAM. You choose how many images the edit has. Edits with more are then refused.">Measure</button>
                 {{- else if not .Measuring}}
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/measure" hx-target="#gen-instances" title="Runs one test generation alone on this GPU and records the peak VRAM. Takes from under a minute to several minutes." data-error-label="Not measured">Measure</button>
                 {{- end}}
