@@ -378,3 +378,41 @@ func TestGenCatalogRowStatus(t *testing.T) {
 		t.Errorf("complete: installed=%v incomplete=%v", r.Installed, r.Incomplete)
 	}
 }
+
+// Every catalog set says what it takes: image and music sets always show
+// text, video sets only when they can work from a prompt, and the
+// upscaler shows image instead. The card shows the plain labels.
+func TestGenCatalogTags(t *testing.T) {
+	s := genServer(t)
+	labels := map[string][]string{}
+	for _, r := range s.genModelsView(s.gen).Catalog {
+		for _, tag := range r.Tags {
+			labels[r.ID] = append(labels[r.ID], tag.Label)
+		}
+		if len(r.Tags) == 0 {
+			t.Errorf("%s has no tags", r.ID)
+		}
+	}
+	for id, want := range map[string][]string{
+		"z-image-turbo":      {"text"},
+		"flux2-klein-4b":     {"text", "edit"},
+		"ming-image":         {"text", "alpha"},
+		"ace-step-turbo":     {"text"},
+		"real-esrgan-x4plus": {"image"},
+		"wan22-i2v-a14b":     {"start image", "end image"},
+		"ltx23-distilled":    {"text", "start image", "end image"},
+		"hunyuan15-t2v-480p": {"text"},
+		"hunyuan15-i2v-480p": {"start image"},
+	} {
+		if !slices.Equal(labels[id], want) {
+			t.Errorf("%s tags = %v, want %v", id, labels[id], want)
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	s.handleGenCatalog(rec, htmxReq("GET", "/api/gen/models/catalog", nil))
+	body := rec.Body.String()
+	if !strings.Contains(body, `<kbd title="Makes an image from a prompt.">text</kbd>`) || strings.Contains(body, "start_image") {
+		t.Errorf("catalog card tags are wrong:\n%.2000s", body)
+	}
+}
