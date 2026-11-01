@@ -363,8 +363,18 @@ func (s *Server) gpuOccupants(gpu int, skipFork string) []string {
 		}
 	}
 	if s.generationOn() && s.gen != nil && s.genMgr != nil {
+		// A stopped instance holds its GPU only when its reservation
+		// counts while stopped: always with auto-evict off, and with it on
+		// only when the instance is locked (kept running). With auto-evict
+		// on, an unlocked one reserves only while it runs, and the fork's
+		// whole-GPU reservation then keeps it from starting.
+		evict := s.genEvictOn()
 		for _, inst := range s.gen.Instances() {
-			if inst.GPU == gpu && (inst.Enabled || s.genMgr.IsActive(inst.ID)) {
+			if inst.GPU != gpu {
+				continue
+			}
+			holds := inst.Enabled && (!evict || inst.KeepRunning)
+			if holds || s.genMgr.IsActive(inst.ID) {
 				out = append(out, inst.Name+" (generation)")
 			}
 		}

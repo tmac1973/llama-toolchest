@@ -322,3 +322,32 @@ func TestForkInstanceListJSON(t *testing.T) {
 		t.Errorf("list = %s", rec.Body)
 	}
 }
+
+// With auto-evict on, a stopped generation instance holds its GPU only
+// when it is locked; with it off, every enabled one does.
+func TestForkBusyCheckFollowsAutoEvict(t *testing.T) {
+	s, _ := forkInstanceServer(t)
+	s.cfg.GenerationEnabled = true
+	gen, err := generation.Load(s.cfg.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.gen = gen
+	gen.AddModelSet(generation.ModelSet{ID: "set", Name: "Set", Kind: generation.KindSD, Complete: true})
+	gen.AddInstance(generation.Instance{ID: "free", Name: "free", ModelSetID: "set", GPU: 1, Port: 8081, Enabled: true})
+	gen.AddInstance(generation.Instance{ID: "locked", Name: "locked", ModelSetID: "set", GPU: 1, Port: 8082, Enabled: true, KeepRunning: true})
+	gen.AddInstance(generation.Instance{ID: "off", Name: "off", ModelSetID: "set", GPU: 1, Port: 8083})
+
+	s.cfg.GenEvict = false
+	if got := strings.Join(s.gpuOccupants(1, ""), ", "); got != "free (generation), locked (generation)" {
+		t.Errorf("auto-evict off: %q", got)
+	}
+	s.cfg.GenEvict = true
+	if got := strings.Join(s.gpuOccupants(1, ""), ", "); got != "locked (generation)" {
+		t.Errorf("auto-evict on: %q", got)
+	}
+	gen.EditInstance("locked", func(inst *generation.Instance) { inst.KeepRunning = false })
+	if got := s.gpuOccupants(1, ""); len(got) != 0 {
+		t.Errorf("auto-evict on, nothing locked: %v", got)
+	}
+}
