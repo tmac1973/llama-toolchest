@@ -1,0 +1,125 @@
+{{/* The Server page's fork instances. Data: []forkRow,
+     forkFormData and the fork_needs warnings (fork_instances_ui.go). */}}
+{{define "fork_instances_table"}}
+{{- if not .}}
+<p><small>No fork instances yet. Press Add instance to run a fork's model on one GPU.</small></p>
+{{- else}}
+<table role="grid">
+    <thead>
+        <tr>
+            <th title="The model name clients use in API requests.">Instance</th>
+            <th>Fork</th>
+            <th title="The build that runs it: the chosen one, or the newest successful build of the fork.">Build</th>
+            <th title="The fork server uses this whole GPU while it runs.">GPU</th>
+            <th>Port</th>
+            <th>State</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+    {{- range .}}
+        <tr>
+            <td>{{.ID}}{{if .AutoStart}} <small title="Starts when llama-toolchest starts.">auto-start</small>{{end}}</td>
+            <td>{{.ForkName}}{{if not .SetReady}} <small style="display:block;color:var(--pico-del-color);" title="Download it on the Models page, under Fork model sets.">model not downloaded</small>{{end}}</td>
+            <td>{{with .BuildLabel}}<kbd>{{.}}</kbd>{{else}}<small title="Build it on the Builds page.">no build</small>{{end}}{{if .Untested}} <mark title="This build is not the tested commit. It can fail to start or give wrong output.">untested</mark>{{end}}</td>
+            <td>{{.GPU}}{{with .GPUName}} <small>{{.}}</small>{{end}}</td>
+            <td>{{.Port}}</td>
+            <td{{with .Status.Error}} title="{{.}}" style="cursor:help;"{{end}}>
+                {{- if eq .Status.State "starting"}}<span aria-busy="true" title="Loading the model. A large model can take several minutes.">starting…</span>
+                {{- else}}{{.Status.State}}{{if eq .Status.State "running"}} <small>{{.Status.Uptime}}</small>{{end}}{{end}}
+                {{- range .Warnings}}<small style="display:block;color:var(--pico-ins-color);">{{.}}</small>{{end}}
+            </td>
+            <td>
+                <span style="display:flex;gap:0.4rem;flex-wrap:wrap;">
+                {{- $id := .ID}}
+                {{- if .Active}}
+                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/forks/instances/{{$id}}/stop" hx-target="#fork-instances" data-error-label="Not stopped">Stop</button>
+                {{- else}}
+                    <button type="button" class="outline" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/forks/instances/{{$id}}/start" hx-target="#fork-instances" title="Start the fork server. It uses the whole GPU, so the GPU must be empty." data-error-label="Not started">Start</button>
+                {{- end}}
+                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" data-id="{{$id}}" onclick="openForkLog(this.dataset.id)">Logs</button>
+                {{- if not .Active}}
+                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-get="/api/forks/instances/form?id={{$id}}" hx-target="#fork-form" hx-swap="innerHTML"
+                            hx-on::after-request="if (event.detail.successful) { document.getElementById('fork-form-title').textContent = 'Edit fork instance'; document.getElementById('fork-form-dialog').showModal(); }"
+                            data-error-label="Form not loaded">Edit</button>
+                    <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-delete="/api/forks/instances/{{$id}}" hx-confirm="Delete fork instance {{$id}}? Its model files are kept." hx-target="#fork-instances" data-error-label="Not deleted">Delete</button>
+                {{- end}}
+                </span>
+            </td>
+        </tr>
+    {{- end}}
+    </tbody>
+</table>
+{{- end}}
+{{end}}
+
+{{define "fork_instance_form"}}
+{{- /* Adds an instance, or with .Editing changes a stopped one. The
+     dialog closes when the request succeeds; the forkInstancesChanged
+     event refreshes the card. */}}
+<form {{if .Editing}}hx-put="/api/forks/instances/{{.Inst.ID}}" data-error-label="Instance not changed"{{else}}hx-post="/api/forks/instances" data-error-label="Instance not added"{{end}} hx-swap="none"
+      hx-on::after-request="if (event.detail.successful) this.closest('dialog')?.close()">
+    <div class="grid">
+        <label title="The model name clients use in API requests. Lowercase letters, digits, '.', '_' and '-'.{{if .Editing}} It cannot change; to rename, add a new instance and delete this one.{{end}}">Name
+            {{- if .Editing}}
+            <input type="text" value="{{.Inst.ID}}" disabled>
+            {{- else}}
+            <input type="text" name="id" required pattern="[a-z0-9._-]+" placeholder="e.g. qwen-flash-next">
+            {{- end}}
+        </label>
+        <label title="The curated fork to run.">Fork
+            <select name="fork" id="fork-form-fork" onchange="forkFormChanged()">
+                {{- range .Forks}}<option value="{{.ID}}"{{if and $.Editing (eq .ID $.Inst.ForkID)}} selected{{end}}>{{.Name}}</option>{{end}}
+            </select>
+        </label>
+    </div>
+    {{- range .Forks}}
+    <div class="fork-form-about" data-fork="{{.ID}}">
+        <p><small>{{.Notes}} Model: {{.ModelName}}{{if .SetReady}} (downloaded){{end}}. License: {{.License}}.</small></p>
+        {{- if not .SetReady}}
+        <p><small><mark>The model is not downloaded yet.</mark> Download it on the <a href="/models">Models</a> page, under Fork model sets. You can save the instance now and start it later.</small></p>
+        {{- end}}
+        {{- if not .Builds}}
+        <p><small><mark>No {{.Name}} build yet.</mark> Build it on the <a href="/builds">Builds</a> page. You can save the instance now and start it later.</small></p>
+        {{- end}}
+    </div>
+    {{- end}}
+    <div class="grid">
+        <label title="The build that runs it. Newest: the newest successful build of the fork. The list shows only builds for the GPUs of this machine.">Build
+            <select name="build" id="fork-form-build" onchange="forkNeedsRefresh()">
+                <option value="">Newest</option>
+                {{- range .Forks}}{{$fork := .ID}}{{range .Builds}}<option value="{{.ID}}" data-fork="{{$fork}}"{{if and $.Editing (eq .ID $.Inst.BuildID)}} selected{{end}}>{{.ID}}{{if .Untested}} (untested){{end}}</option>{{end}}{{end}}
+            </select>
+        </label>
+        <label title="The fork server uses this whole GPU. Router models and generation instances cannot use it while the fork server runs.">GPU
+            <select name="gpu" id="fork-form-gpu" onchange="forkNeedsRefresh()">
+                {{- range .GPUs}}<option value="{{.Index}}"{{if and $.Editing (eq .Index $.Inst.GPU)}} selected{{end}}>{{.Index}}: {{.Name}}</option>{{else}}<option value="0">0</option>{{end}}
+            </select>
+        </label>
+        <label title="The port of the fork server. It must be in the generation port range ({{.PortStart}}–{{.PortEnd}}). Empty: the lowest free port.">Port
+            <input type="number" name="port" placeholder="automatic"{{if .Editing}} value="{{.Inst.Port}}"{{end}}>
+        </label>
+    </div>
+    <label title="More llama-server options. They are added after the fork's own options.">Extra arguments
+        <input type="text" name="extra_args" placeholder="e.g. -c 65536" value="{{.ExtraArgs}}">
+    </label>
+    <label title="Environment variables for this fork server only. One NAME=value per line.">Extra environment
+        <textarea name="extra_env" rows="2" placeholder="e.g. GGML_CUDA_MOE_PIN=0">{{.ExtraEnv}}</textarea>
+    </label>
+    <label>
+        <input type="checkbox" role="switch" name="auto_start"{{if and .Editing .Inst.AutoStart}} checked{{end}}>
+        Start this instance when llama-toolchest starts
+    </label>
+    <div id="fork-needs"></div>
+    <button type="submit">{{if .Editing}}Save changes{{else}}Add instance{{end}}</button>
+</form>
+{{end}}
+
+{{define "fork_needs"}}
+{{- if .}}
+<article style="padding:0.5rem 0.75rem;margin:0 0 0.75rem;border-left:3px solid var(--pico-ins-color);">
+    <small>This machine may be too small for this fork. You can still start it.</small>
+    <ul style="margin:0.25rem 0 0;">{{range .}}<li><small>{{.}}</small></li>{{end}}</ul>
+</article>
+{{- end}}
+{{end}}

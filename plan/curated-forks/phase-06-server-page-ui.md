@@ -53,3 +53,10 @@ With the setting on, the Server page has a "Fork instances" card below the gener
 ## Rollback
 
 Revert the commit. The API from Phase 05 stays and still works from `curl`.
+
+## As built (2026-11-01)
+
+- The card refreshes every 5 seconds, like the generation card, not only while an instance starts.
+- Start and Stop answer the refreshed table; the start's hardware warnings show under the state until the instance stops.
+- "The GPU banner" in step 6 is the GPU map on the Server page: a running fork instance shows there as "<instance> (fork, whole GPU)", striped as reserved. The generation banner (jobs next to loaded LLMs) is unchanged.
+- The needs box also takes the chosen build, to know the backend.

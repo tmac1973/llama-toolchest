@@ -120,6 +120,11 @@ type Server struct {
 	genMgr *generation.Manager
 	// forkMgr runs the fork instances.
 	forkMgr *forks.Manager
+	// forkNotes holds each fork instance's warnings from its last start.
+	forkNotes forkStartNotes
+	// testForkHostInfo replaces this host's RAM, CPU and GPU details in
+	// the fork needs checks. Nil in production; tests set it.
+	testForkHostInfo *forks.HostInfo
 	// genMeasure holds each instance's last measured-test-run error.
 	genMeasure genMeasureState
 	// genProcVRAM caches per-process VRAM readings briefly.
@@ -927,8 +932,10 @@ func (s *Server) buildRouter() chi.Router {
 			r.Post("/sets", s.handleGenCreateSet)
 			r.Delete("/sets/{id}", s.handleGenDeleteSet)
 		})
+		r.Get("/forks/needs", s.handleForkNeeds)
 		r.Route("/forks/instances", func(r chi.Router) {
 			r.Get("/", s.handleForkInstances)
+			r.Get("/form", s.handleForkInstanceForm)
 			r.Post("/", s.handleForkAddInstance)
 			r.Put("/{id}", s.handleForkEditInstance)
 			r.Delete("/{id}", s.handleForkDeleteInstance)
@@ -1221,12 +1228,15 @@ func (s *Server) handleServerPage(w http.ResponseWriter, r *http.Request) {
 		BuildChoices []serverBuildChoice
 		AutoMismatch bool
 		PickerHint   string
-		// GenerationEnabled shows the Generation backends section.
+		// GenerationEnabled shows the Generation backends section, and
+		// ForksEnabled the Fork instances section.
 		GenerationEnabled bool
+		ForksEnabled      bool
 		// RouterMemory is the router memory switch (router_memory.go).
 		RouterMemory routerMemoryView
 	}{
 		GenerationEnabled: cfg.GenerationEnabled,
+		ForksEnabled:      cfg.ForksEnabled,
 		pageData:          pageData{Title: "Server", Nav: "server"},
 		ActiveBuild:       cfg.ActiveBuild,
 		ModelsMax:         cfg.ModelsMax,

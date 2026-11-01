@@ -41,7 +41,12 @@ func (s *Server) handleForkInstances(w http.ResponseWriter, r *http.Request) {
 	if store == nil {
 		return
 	}
-	respondJSON(w, s.forkInstanceViews(store))
+	if !isHTMX(r) {
+		respondJSON(w, s.forkInstanceViews(store))
+		return
+	}
+	respondHTML(w)
+	s.renderPartial(w, "fork_instances_table", s.forkRows(store))
 }
 
 // forkInstanceFromForm reads an instance's fields from the form into
@@ -284,18 +289,23 @@ func (s *Server) handleForkInstanceAction(w http.ResponseWriter, r *http.Request
 			return
 		}
 		res.Warnings = warnings
+		s.forkNotes.set(inst.ID, warnings)
 	case "stop":
 		if err := s.forkMgr.Stop(inst.ID); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.forkNotes.set(inst.ID, nil)
 	default:
 		http.Error(w, "unknown action", http.StatusNotFound)
 		return
 	}
 	res.State = string(s.forkMgr.Status(inst.ID).State)
 	if isHTMX(r) {
-		w.Header().Set("HX-Trigger", "forkInstancesChanged")
+		// The card's table, with the start's warnings under the state.
+		respondHTML(w)
+		s.renderPartial(w, "fork_instances_table", s.forkRows(store))
+		return
 	}
 	respondJSON(w, res)
 }
@@ -373,6 +383,11 @@ func (s *Server) gpuOccupants(gpu int, skipFork string) []string {
 // GPU's architecture. Disk space is left out: it only matters for the
 // download, which is done by the time an instance starts.
 func (s *Server) forkHostInfo(gpu int, backend string) forks.HostInfo {
+	if s.testForkHostInfo != nil {
+		info := *s.testForkHostInfo
+		info.Backend = backend
+		return info
+	}
 	info := forks.HostInfo{Backend: backend}
 	if s.monitor != nil {
 		m := s.monitor.Current()
@@ -496,9 +511,10 @@ func (s *Server) autoStartForkInstances(afterRouter bool) {
 		if !inst.AutoStart {
 			continue
 		}
-		if _, err := s.startForkInstance(inst.ID); err != nil {
+		if warnings, err := s.startForkInstance(inst.ID); err != nil {
 			slog.Warn("failed to auto-start a fork instance", "instance", inst.ID, "error", err)
 		} else {
+			s.forkNotes.set(inst.ID, warnings)
 			slog.Info("auto-started fork instance", "instance", inst.ID)
 		}
 	}
