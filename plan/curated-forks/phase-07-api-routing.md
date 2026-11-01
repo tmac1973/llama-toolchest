@@ -48,3 +48,9 @@ A POST to the toolchest's OpenAI-compatible API whose JSON `model` is a fork ins
 ## Rollback
 
 Revert the commit. Fork instances keep running and answer on their own ports; only routing through the toolchest port goes away.
+
+## As built (2026-11-01)
+
+- A fork instance's `/v1/models` entry has `meta.kind` `text` (not `llm-fork`), so a client that lists `?kind=text` for chat models finds it; `meta.fork` and `meta.state` tell it apart. LLMs now carry `meta.kind` while generation or forks are on.
+- Error codes: `model_not_running` for a stopped instance, `model_loading` (with `Retry-After: 30`) while it loads.
+- `web/apidocs/openapi.yaml` documents the fork entries (`ForkMeta`, `owned_by` `fork:<id>`).

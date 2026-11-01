@@ -33,10 +33,12 @@ info:
 
     ## Which model to use
 
-    `GET /v1/models` lists the LLMs and the generation instances that are
-    switched on. `meta.kind` is `text`, `image`, `video`, `music` or
-    `upscale`, and `meta.api` lists which routes serve a generation
-    instance. Add `?kind=image` (or `text`, `video`, `music`, `upscale`)
+    `GET /v1/models` lists the LLMs, the generation instances that are
+    switched on, and the llama.cpp fork instances that are running.
+    `meta.kind` is `text`, `image`, `video`, `music` or `upscale`, and
+    `meta.api` lists which routes serve a generation instance. A fork
+    instance is a `text` model with `meta.fork` set; send its ID as
+    `model` to the chat and completion routes. Add `?kind=image` (or `text`, `video`, `music`, `upscale`)
     to list only one kind. For
     generation routes, `model` is an instance ID or its model set's ID. It
     may be left out when only one instance of that kind can take the job.
@@ -110,7 +112,10 @@ paths:
         `upscale`.
 
         Only enabled models are listed. The LLMs come first, then the
-        generation models (one entry per generation instance). LLMs used
+        generation models (one entry per generation instance), then the
+        llama.cpp fork instances that are running or loading (`meta.kind`
+        `text`, `meta.fork` set). A request for a fork instance that is
+        still loading gets HTTP 503 with a `Retry-After` header. LLMs used
         as helpers or as draft models are not listed. Use `kind` to list
         only the models one route can use, for example `?kind=image` for
         `/v1/images/generations`.
@@ -120,8 +125,9 @@ paths:
           required: false
           description: |
             List only the models whose `meta.kind` is this value. `text`
-            lists the LLMs, also while generation is switched off (their
-            `meta.kind` is only set while it is on). Left out, every model
+            lists the LLMs and fork instances, also while generation and
+            forks are switched off (an LLM's `meta.kind` is only set while
+            one of them is on). Left out, every model
             is listed.
           schema:
             type: string
@@ -1432,14 +1438,15 @@ components:
       properties:
         id:
           type: string
-          description: The name to use as `model`. For an LLM, its public name; for a generation instance, its instance ID.
+          description: The name to use as `model`. For an LLM, its public name; for a generation or fork instance, its instance ID.
         object:
           const: model
         created:
           type: integer
-          description: Unix time the LLM was downloaded, or the model set was added.
+          description: Unix time the LLM was downloaded, the model set was added, or the fork instance started.
         owned_by:
-          const: llama-toolchest
+          type: string
+          description: "`llama-toolchest`, or `fork:<fork ID>` for a fork instance."
         aliases:
           type: array
           items:
@@ -1449,6 +1456,22 @@ components:
           oneOf:
             - $ref: "#/components/schemas/LLMMeta"
             - $ref: "#/components/schemas/GenerationMeta"
+            - $ref: "#/components/schemas/ForkMeta"
+
+    ForkMeta:
+      type: object
+      title: Fork instance
+      required: [kind, fork, state]
+      properties:
+        kind:
+          const: text
+        fork:
+          type: string
+          description: The curated fork the instance runs, for example `avalon`.
+        state:
+          type: string
+          enum: [running, loading]
+          description: "`loading` while the fork server reads its model. Requests then get HTTP 503 with `Retry-After`."
 
     LLMMeta:
       type: object
@@ -1457,7 +1480,7 @@ components:
       properties:
         kind:
           const: text
-          description: Only present when generation is switched on.
+          description: Only present when generation or forks are switched on.
         arch:
           type: string
         quant:

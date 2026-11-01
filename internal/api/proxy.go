@@ -139,6 +139,13 @@ func (s *Server) newProxyHandler() http.Handler {
 		case isJSONContentType(r.Header.Get("Content-Type")):
 			body, err := io.ReadAll(r.Body)
 			r.Body.Close()
+			// A fork instance's name goes to that instance, never to the
+			// router: none of the router's loading, counting or sampling
+			// defaults apply to it.
+			if inst, ok := s.forkForModel(bodyModel(body)); err == nil && ok {
+				s.serveFork(w, r, inst, body)
+				return
+			}
 			if err == nil {
 				end, ok := s.loadForProxy(w, r, body)
 				if !ok {
