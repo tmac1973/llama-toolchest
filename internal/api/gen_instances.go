@@ -630,12 +630,15 @@ func (s *Server) genPortFromForm(r *http.Request, store *generation.Store, inst 
 		if inst.Port != 0 {
 			return 0, nil
 		}
-		port, err := store.AssignPort(start, count)
-		if err != nil {
-			return http.StatusConflict, fmt.Errorf("%w; widen the range in Settings, or delete an instance", err)
+		// Fork instances take their ports from the same range.
+		used := s.instancePorts(inst.ID, "")
+		for p := start; p < start+count; p++ {
+			if _, ok := used[p]; !ok {
+				inst.Port = p
+				return 0, nil
+			}
 		}
-		inst.Port = port
-		return 0, nil
+		return http.StatusConflict, fmt.Errorf("%d–%d: %w; widen the range in Settings, or delete an instance", start, start+count-1, generation.ErrNoPort)
 	}
 	port, err := strconv.Atoi(raw)
 	if err != nil {
@@ -649,6 +652,9 @@ func (s *Server) genPortFromForm(r *http.Request, store *generation.Store, inst 
 			return http.StatusConflict, err
 		}
 		return http.StatusBadRequest, err
+	}
+	if who, ok := s.instancePorts(inst.ID, "")[port]; ok {
+		return http.StatusConflict, fmt.Errorf("port %d is %w (%s)", port, generation.ErrPortUsed, who)
 	}
 	inst.Port = port
 	return 0, nil

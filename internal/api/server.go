@@ -74,6 +74,12 @@ type Server struct {
 	// switched on in Settings. Nil in production; tests set it to see the
 	// start without launching a backend.
 	genAutoStartFn func()
+	// forkAutoStartFn replaces autoStartForkInstances when forks are
+	// switched on in Settings. Nil in production; tests set it.
+	forkAutoStartFn func()
+	// forkSwitchMu does for the forks switch what genSwitchMu does for
+	// generation.
+	forkSwitchMu sync.Mutex
 	// genSwitchMu runs the stop after generation is switched off and the
 	// start after it is switched on one at a time, so switching it off
 	// and on again quickly cannot stop an instance the second one started.
@@ -112,6 +118,8 @@ type Server struct {
 	genMove       genMove
 	// genMgr runs the generation backend instances.
 	genMgr *generation.Manager
+	// forkMgr runs the fork instances.
+	forkMgr *forks.Manager
 	// genMeasure holds each instance's last measured-test-run error.
 	genMeasure genMeasureState
 	// genProcVRAM caches per-process VRAM readings briefly.
@@ -364,6 +372,7 @@ func (s *Server) Shutdown() {
 	s.genImageJobs.close()
 	s.genVideoJobs.close()
 	s.genMgr.StopAll()
+	s.forkMgr.StopAll()
 	if err := s.process.Stop(); err != nil {
 		// "router not running" is the expected case when nothing was started.
 		slog.Warn("failed to stop the router during shutdown", "error", err)
@@ -402,6 +411,7 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 	}
 	s.downloader.SetHashStore(s.hashes)
 	s.genMgr = generation.NewManager()
+	s.forkMgr = forks.NewManager()
 	s.genVideoJobs.max = videoJobMax
 	s.genQueue = generation.NewQueue()
 	if s.gen, s.genErr = generation.Load(cfg.DataDir); s.genErr != nil {
@@ -505,9 +515,13 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 				slog.Info("auto-started inference server")
 			}
 			s.autoStartGenInstances(true)
+			s.autoStartForkInstances(true)
 		}()
 	} else {
-		go s.autoStartGenInstances(false)
+		go func() {
+			s.autoStartGenInstances(false)
+			s.autoStartForkInstances(false)
+		}()
 	}
 
 	return s
@@ -912,6 +926,14 @@ func (s *Server) buildRouter() chi.Router {
 			r.Post("/catalog/{id}/download", s.handleGenCatalogDownload)
 			r.Post("/sets", s.handleGenCreateSet)
 			r.Delete("/sets/{id}", s.handleGenDeleteSet)
+		})
+		r.Route("/forks/instances", func(r chi.Router) {
+			r.Get("/", s.handleForkInstances)
+			r.Post("/", s.handleForkAddInstance)
+			r.Put("/{id}", s.handleForkEditInstance)
+			r.Delete("/{id}", s.handleForkDeleteInstance)
+			r.Post("/{id}/{action}", s.handleForkInstanceAction)
+			r.Get("/{id}/logs", s.handleForkInstanceLogs)
 		})
 		r.Route("/forks/models", func(r chi.Router) {
 			r.Get("/", s.handleForkModels)
