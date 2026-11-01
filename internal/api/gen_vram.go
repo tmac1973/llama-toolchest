@@ -41,9 +41,9 @@ type genVRAM struct {
 	Evictable int
 }
 
-// genVRAMByGPU sums the generation backends' memory per GPU index,
-// leaving out exclude (an instance being checked against the others).
-// Empty while generation backends are off.
+// genVRAMByGPU sums the memory of the generation backends and the fork
+// instances per GPU index, leaving out exclude (an instance being checked
+// against the others). Empty while both are off.
 func (s *Server) genVRAMByGPU(exclude string) map[int]*genVRAM {
 	return s.genVRAM(exclude, false)
 }
@@ -52,8 +52,12 @@ func (s *Server) genVRAMByGPU(exclude string) map[int]*genVRAM {
 // running when activeOnly is set, except those kept running and those
 // whose job has the GPU (genJobHasGPU): a job may be starting its backend,
 // which is not running yet, and an LLM load must not take the room first.
+//
+// A fork instance that is starting or running reserves its whole GPU
+// (forkVRAM), and is never stopped to make room.
 func (s *Server) genVRAM(exclude string, activeOnly bool) map[int]*genVRAM {
 	out := map[int]*genVRAM{}
+	s.forkVRAM(out, exclude)
 	if !s.generationOn() || s.gen == nil || s.genMgr == nil {
 		return out
 	}
@@ -267,10 +271,10 @@ func (s *Server) checkConfigFitsReservations(m *models.Model, cfg *models.ModelC
 	return s.reservationFitError(hw, need, false)
 }
 
-// genReservationsApply reports whether any generation reservation can
-// limit LLM loads.
+// genReservationsApply reports whether any reservation, of a generation
+// backend or a fork instance, can limit LLM loads.
 func (s *Server) genReservationsApply() bool {
-	return s.generationOn() && s.gen != nil && len(s.genFitVRAMByGPU("")) > 0
+	return len(s.genFitVRAMByGPU("")) > 0
 }
 
 // reservationFitError is a *genLLMFitError for the first GPU where need

@@ -13,6 +13,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/builder"
 	"github.com/tmac1973/llama-toolchest/internal/config"
 	"github.com/tmac1973/llama-toolchest/internal/filehash"
+	"github.com/tmac1973/llama-toolchest/internal/forks"
 	"github.com/tmac1973/llama-toolchest/internal/generation"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/monitor"
@@ -58,6 +59,7 @@ func newTestServer(t *testing.T) *Server {
 		rocmInstallsFn: func() []builder.ROCmInstall { return nil },
 		inContainerFn:  func() bool { return false },
 		genMgr:         generation.NewManager(),
+		forkMgr:        forks.NewManager(),
 		genQueue:       generation.NewQueue(),
 	}
 	s.pages = s.parseTemplates()

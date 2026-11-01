@@ -59,3 +59,10 @@ Add the backend for fork instances: create, edit and delete them, start and stop
 ## Rollback
 
 Revert the commit. `forks.json` keeps the instance entries, which nothing reads. The `genVRAM` change is reverted with it, which brings back the generation-only sum.
+
+## As built (2026-10-31)
+
+- `reservationFitError` keeps its wording ("reserved for generation backends on GPU N"): `reservedOnGPURE` in `autoconfig.go` parses it. A fork reservation still shows in the message by name, as "<instance> (fork, whole GPU)".
+- `genReservationsApply` is now true whenever any reservation exists (generation or fork); `reservationNote` shows while either feature is on.
+- The instance list (`GET /api/forks/instances`) answers JSON only; Phase 06 adds the HTML card. Start and stop are `POST /api/forks/instances/{id}/{start|stop}` and answer `{"warnings": [...], "state": ...}`.
+- Generation instances now also avoid ports held by fork instances (`instancePorts`).

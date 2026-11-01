@@ -367,11 +367,6 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	s.writeSettings(w, r, s.cfg)
 }
 
-// forksSwitched follows the llama.cpp forks switch: off stops every fork
-// instance, on starts the auto-start ones. Fork instances arrive in a
-// later change; until then there is nothing to stop or start.
-func (s *Server) forksSwitched(was, now bool) {}
-
 func (s *Server) handleTestConnection(w http.ResponseWriter, r *http.Request) {
 	url := fmt.Sprintf("http://localhost:%d/v1/models", s.llamaPort())
 

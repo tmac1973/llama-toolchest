@@ -68,7 +68,7 @@ func (s *Server) repoMeta(ctx context.Context, source, repo string, f modelsourc
 // much that is on each GPU a model would use. Empty when generation is
 // off, where there is nothing to reserve.
 func (s *Server) reservationNote(hw models.Hardware) string {
-	if !s.generationOn() {
+	if !s.generationOn() && !s.forksOn() {
 		return ""
 	}
 	var parts []string
