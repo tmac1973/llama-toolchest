@@ -85,6 +85,10 @@ type ModelSet struct {
 	// VideoSizes are the sizes Measure offers a video set, smallest (the
 	// test size) first. See VideoPresets.
 	VideoSizes []VideoSize `json:"video_sizes,omitempty"`
+	// Scale is how many times larger a custom upscaler set makes an image;
+	// 0 when not known (custom sets saved before it existed). Catalog sets
+	// take their entry's value. See UpscaleScale.
+	Scale int `json:"scale,omitempty"`
 	// StemTasks says whether a custom music set has a base DiT, which can
 	// run lego, extract and complete; nil for a catalog set and for custom
 	// sets saved before it existed. See HasStemTasks.

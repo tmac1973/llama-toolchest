@@ -109,6 +109,106 @@ func TestGenCreateVideoSet(t *testing.T) {
 	}
 }
 
+// A custom video set can have a ceiling, and /v1/models shows it with the
+// recipe's size multiple, as for a catalog set.
+func TestGenCreateVideoSetCeiling(t *testing.T) {
+	s := genServer(t)
+	dir := t.TempDir()
+	var lines []string
+	for slot, name := range map[string]string{"diffusion_model": "ti2v.gguf", "t5xxl": "umt5.gguf", "vae": "vae.safetensors"} {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		lines = append(lines, slot+" = "+p)
+	}
+	post := func(name string, extra url.Values) *httptest.ResponseRecorder {
+		form := url.Values{"name": {name}, "kind": {"video"}, "recipe": {"wan22-ti2v-5b"}, "files": {strings.Join(lines, "\n")}}
+		for k, v := range extra {
+			form[k] = v
+		}
+		rec := httptest.NewRecorder()
+		s.handleGenCreateSet(rec, htmxReq("POST", "/", form))
+		return rec
+	}
+
+	if rec := post("capped", url.Values{"max_frames": {"81"}, "max_width": {"1280"}, "max_height": {"704"}}); rec.Code != http.StatusOK {
+		t.Fatalf("HTTP %d: %s", rec.Code, rec.Body)
+	}
+	addInstance(t, s, generation.Instance{ID: "capped", ModelSetID: "capped", Port: 8090, Enabled: true, ReservedMiB: 20480})
+	rec := serve(s, httptest.NewRequest("GET", "/v1/models/capped", nil))
+	var got struct {
+		Meta struct {
+			Video map[string]any `json:"video"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	v := got.Meta.Video
+	if v["max_frames"] != 81.0 || v["max_size"] != "1280x704" || v["size_multiple"] != 32.0 {
+		t.Errorf("meta.video = %v, want max_frames 81, max_size 1280x704, size_multiple 32", v)
+	}
+
+	for name, extra := range map[string]url.Values{
+		"half a size":   {"max_width": {"1280"}},
+		"not 8":         {"max_width": {"1281"}, "max_height": {"704"}},
+		"short ceiling": {"max_frames": {"17"}},
+		"small ceiling": {"max_width": {"640"}, "max_height": {"360"}},
+	} {
+		if rec := post("bad "+name, extra); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: HTTP %d %s, want 400", name, rec.Code, rec.Body)
+		}
+	}
+	// A portrait test size fits a landscape ceiling.
+	if rec := post("portrait", url.Values{"width": {"480"}, "height": {"832"}, "max_width": {"1280"}, "max_height": {"704"}}); rec.Code != http.StatusOK {
+		t.Errorf("portrait test size: HTTP %d %s", rec.Code, rec.Body)
+	}
+}
+
+// A custom upscaler set keeps its upscale factor (4 when not given), and
+// /v1/models shows it.
+func TestGenCreateUpscalerSetScale(t *testing.T) {
+	s := genServer(t)
+	file := filepath.Join(t.TempDir(), "x2.pth")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct {
+		scale string
+		code  int
+		want  float64
+	}{
+		"x2":      {"2", http.StatusOK, 2},
+		"default": {"", http.StatusOK, 4},
+		"too big": {"9", http.StatusBadRequest, 0},
+	} {
+		form := url.Values{"name": {name}, "kind": {"upscale"}, "files": {"upscaler = " + file}, "scale": {tc.scale}}
+		rec := httptest.NewRecorder()
+		s.handleGenCreateSet(rec, htmxReq("POST", "/", form))
+		if rec.Code != tc.code {
+			t.Errorf("%s: HTTP %d %s, want %d", name, rec.Code, rec.Body, tc.code)
+			continue
+		}
+		if tc.code != http.StatusOK {
+			continue
+		}
+		id := generation.Slug(name)
+		addInstance(t, s, generation.Instance{ID: id, ModelSetID: id, Port: 8090 + len(name), Enabled: true, ReservedMiB: 1024})
+		var got struct {
+			Meta struct {
+				Scale float64 `json:"scale"`
+			} `json:"meta"`
+		}
+		if err := json.Unmarshal(serve(s, httptest.NewRequest("GET", "/v1/models/"+id, nil)).Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Meta.Scale != tc.want {
+			t.Errorf("%s: meta.scale = %v, want %v", name, got.Meta.Scale, tc.want)
+		}
+	}
+}
+
 // A catalog download copies the video fields into the set.
 func TestGenCatalogDownloadVideoFields(t *testing.T) {
 	s := genServer(t)

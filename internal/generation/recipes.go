@@ -57,26 +57,107 @@ type VideoRecipe struct {
 	// CapStartImage, end_image CapEndImage), plus CapText when the model
 	// can work from a prompt alone.
 	Caps []string
+	// SizeMultiple is what sd-server rounds a video's width and height up
+	// to: the recipe's size_multiple.
+	SizeMultiple int
 }
 
 // VideoRecipes holds the video recipes a set may use, copied from
 // stable-diffusion.cpp examples/server/recipes/*.json at
-// master-1000-95ff762 (2026-10-24). wan21-vace and wan22-s2v are left
-// out: they need control videos or audio, which toolchest does not send.
+// master-1000-95ff762 (2026-10-24); size multiples read at master-1015-e41fbcf
+// (2026-11-01). wan21-vace and wan22-s2v are left out: they need control
+// videos or audio, which toolchest does not send.
 var VideoRecipes = map[string]VideoRecipe{
-	"wan22-ti2v-5b":        {wanSlots(), []string{CapText, CapStartImage}},
-	"wan22-i2v":            {wanMoESlots(), []string{CapStartImage, CapEndImage}},
-	"wan22-t2v":            {wanMoESlots(), []string{CapText}},
-	"wan21-t2v":            {wanSlots(), []string{CapText}},
-	"wan21-i2v":            {RecipeSlotSet{Required: []string{"diffusion_model", "t5xxl"}, Optional: []string{"vae", "tae", "clip_vision"}, OneOf: []string{"vae", "tae"}}, []string{CapStartImage}},
-	"wan21-flf2v":          {RecipeSlotSet{Required: []string{"diffusion_model", "t5xxl", "clip_vision"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}}, []string{CapStartImage, CapEndImage}},
-	"ltx23-distilled":      {ltxSlots(), []string{CapText, CapStartImage, CapEndImage}},
-	"ltx23-dev":            {ltxSlots(), []string{CapText, CapStartImage, CapEndImage}},
-	"ltx25-dev":            {RecipeSlotSet{Required: []string{"diffusion_model", "llm"}, Optional: []string{"vae", "tae", "audio_vae"}, OneOf: []string{"vae", "tae"}}, []string{CapText, CapStartImage, CapEndImage}},
-	"hunyuan-video-15-t2v": {hunyuanSlots(), []string{CapText}},
-	"hunyuan-video-15-i2v": {hunyuanSlots(), []string{CapStartImage}},
-	"lingbot-video-dense":  {llmVideoSlots(), []string{CapText, CapStartImage}},
-	"lingbot-video-moe":    {llmVideoSlots(), []string{CapText, CapStartImage}},
+	"wan22-ti2v-5b":        {wanSlots(), []string{CapText, CapStartImage}, 32},
+	"wan22-i2v":            {wanMoESlots(), []string{CapStartImage, CapEndImage}, 16},
+	"wan22-t2v":            {wanMoESlots(), []string{CapText}, 16},
+	"wan21-t2v":            {wanSlots(), []string{CapText}, 16},
+	"wan21-i2v":            {RecipeSlotSet{Required: []string{"diffusion_model", "t5xxl"}, Optional: []string{"vae", "tae", "clip_vision"}, OneOf: []string{"vae", "tae"}}, []string{CapStartImage}, 16},
+	"wan21-flf2v":          {RecipeSlotSet{Required: []string{"diffusion_model", "t5xxl", "clip_vision"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}}, []string{CapStartImage, CapEndImage}, 16},
+	"ltx23-distilled":      {ltxSlots(), []string{CapText, CapStartImage, CapEndImage}, 32},
+	"ltx23-dev":            {ltxSlots(), []string{CapText, CapStartImage, CapEndImage}, 32},
+	"ltx25-dev":            {RecipeSlotSet{Required: []string{"diffusion_model", "llm"}, Optional: []string{"vae", "tae", "audio_vae"}, OneOf: []string{"vae", "tae"}}, []string{CapText, CapStartImage, CapEndImage}, 32},
+	"hunyuan-video-15-t2v": {hunyuanSlots(), []string{CapText}, 16},
+	"hunyuan-video-15-i2v": {hunyuanSlots(), []string{CapStartImage}, 16},
+	"lingbot-video-dense":  {llmVideoSlots(), []string{CapText, CapStartImage}, 16},
+	"lingbot-video-moe":    {llmVideoSlots(), []string{CapText, CapStartImage}, 16},
+}
+
+// RecipeSizeMultiple returns a video recipe's size multiple, or 0 for an
+// image recipe or an unknown one.
+func RecipeSizeMultiple(recipe string) int {
+	return VideoRecipes[recipe].SizeMultiple
+}
+
+// SlotLabels names each slot for people, for any recipe. RecipeSlotLabels
+// gives a recipe's own names where upstream has them. See SlotLabel.
+var SlotLabels = map[string]string{
+	"model":                      "Checkpoint (one file)",
+	"diffusion_model":            "Diffusion model",
+	"high_noise_diffusion_model": "High-noise expert",
+	"llm":                        "Text model",
+	"llm_vision":                 "Vision projector (for edits)",
+	"clip_l":                     "CLIP-L text encoder",
+	"t5xxl":                      "T5-XXL text encoder",
+	"clip_vision":                "CLIP vision encoder",
+	"tokenizer":                  "Tokenizer (tokenizer.json)",
+	"embeddings_connectors":      "Embeddings connectors",
+	"vae":                        "VAE",
+	"tae":                        "Tiny autoencoder (TAE)",
+	"audio_vae":                  "Audio VAE",
+	"lora":                       "LoRA",
+	"high_noise_lora":            "High-noise LoRA",
+	"lm":                         "Language model (5 Hz LM)",
+	"dit":                        "DiT (music model)",
+	"embedding":                  "Text embedding model",
+	UpscalerSlot:                 "ESRGAN upscaler",
+}
+
+// RecipeSlotLabels are the slot names upstream's recipe files give, from
+// stable-diffusion.cpp examples/server/recipes/*.json at
+// master-1015-e41fbcf (2026-11-01), written in toolchest's words.
+var RecipeSlotLabels = map[string]map[string]string{
+	"ming-image":           {"llm": "Ling Mini 2.0 text model", "tokenizer": "Ling tokenizer (tokenizer.json)"},
+	"qwen-image-21-turbo":  qwenImage21Labels,
+	"qwen-image-21":        qwenImage21Labels,
+	"flux2-klein-4b":       {"llm": "Qwen3 4B text model"},
+	"z-image-turbo":        {"llm": "Qwen3 4B text model"},
+	"z-image":              {"llm": "Qwen3 4B text model"},
+	"flux3-klein":          {"llm": "Qwen3-VL 4B text model"},
+	"qwen-image-edit-2511": {"llm": "Qwen2.5-VL 7B text model", "llm_vision": "Qwen2.5-VL 7B vision projector (for edits)", "vae": "Qwen-Image VAE"},
+	"sdxl-checkpoint":      {"vae": "VAE override"},
+	"wan22-ti2v-5b":        {"t5xxl": "UMT5-XXL text encoder", "vae": "Wan2.2 VAE"},
+	"wan22-i2v":            wanMoELabels,
+	"wan22-t2v":            wanMoELabels,
+	"wan21-t2v":            {"t5xxl": "UMT5-XXL text encoder", "vae": "Wan2.1 VAE"},
+	"wan21-i2v":            {"t5xxl": "UMT5-XXL text encoder", "vae": "Wan2.1 VAE", "clip_vision": "CLIP Vision H"},
+	"wan21-flf2v":          {"t5xxl": "UMT5-XXL text encoder", "vae": "Wan2.1 VAE", "clip_vision": "CLIP Vision H"},
+	"ltx23-distilled":      ltx23Labels,
+	"ltx23-dev":            ltx23Labels,
+	"ltx25-dev":            {"llm": "LTX-2.5 Gemma 4 12B text model (with projection)", "vae": "LTX-2.5 video VAE", "audio_vae": "LTX-2.5 audio VAE"},
+	"hunyuan-video-15-t2v": hunyuanLabels,
+	"hunyuan-video-15-i2v": hunyuanLabels,
+	"lingbot-video-dense":  {"llm": "Qwen3-VL 4B text model", "vae": "Wan2.1 VAE"},
+	"lingbot-video-moe":    {"llm": "Qwen3-VL 4B text model", "vae": "Wan2.1 VAE"},
+}
+
+var (
+	qwenImage21Labels = map[string]string{"llm": "Qwen3-VL 8B text model", "llm_vision": "Qwen3-VL 8B vision projector (for edits)", "vae": "Qwen-Image 2.1 VAE", "tae": "TAEQI2.1"}
+	wanMoELabels      = map[string]string{"diffusion_model": "Low-noise expert", "t5xxl": "UMT5-XXL text encoder", "vae": "Wan2.1 VAE"}
+	ltx23Labels       = map[string]string{"llm": "Gemma 3 12B text model", "vae": "LTX-2.3 video VAE", "audio_vae": "LTX-2.3 audio VAE"}
+	hunyuanLabels     = map[string]string{"llm": "Qwen2.5-VL 7B text model", "t5xxl": "ByT5 Small GlyphXL (for text in the video)", "vae": "HunyuanVideo 1.5 VAE", "tae": "TAEHV 1.5"}
+)
+
+// SlotLabel returns a slot's name for people: the recipe's own label, else
+// the shared one, else the slot ID itself.
+func SlotLabel(recipe, slot string) string {
+	if l := RecipeSlotLabels[recipe][slot]; l != "" {
+		return l
+	}
+	if l := SlotLabels[slot]; l != "" {
+		return l
+	}
+	return slot
 }
 
 func wanSlots() RecipeSlotSet {
