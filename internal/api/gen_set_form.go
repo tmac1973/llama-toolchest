@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/tmac1973/llama-toolchest/internal/generation"
 	"github.com/tmac1973/llama-toolchest/internal/huggingface"
 )
@@ -57,6 +58,8 @@ type genSetForm struct {
 	// CopiedFrom names the set or catalog entry the form was filled from;
 	// empty for a new set.
 	CopiedFrom string
+	// EditID is the custom set the form edits; empty when it adds one.
+	EditID string
 	// VideoSizes (JSON) and License are copied from the source and sent
 	// back unchanged in hidden fields.
 	VideoSizes, License string
@@ -87,6 +90,7 @@ func (s *Server) genSetFormFrom(get func(string) string) genSetForm {
 		Tab:        get("tab"),
 		VideoSizes: get("video_sizes"),
 		License:    get("license"),
+		EditID:     get("edit_id"),
 	}
 	if f.Tab != "catalog" {
 		f.Tab = "models"
@@ -124,31 +128,31 @@ func (s *Server) genSetFormFrom(get func(string) string) genSetForm {
 
 // handleGenSetForm serves the custom set form (the dialog body). With
 // copy=<set id> or copy_catalog=<entry id> it is filled in from that set
-// or catalog entry.
+// or catalog entry; with edit=<set id> it edits that custom set.
 func (s *Server) handleGenSetForm(w http.ResponseWriter, r *http.Request) {
 	store := s.genStore(w)
 	if store == nil {
 		return
 	}
 	f := s.genSetFormFromRequest(r)
-	if r.FormValue("copy") != "" || r.FormValue("copy_catalog") != "" {
-		var code int
-		var err error
-		if f, code, err = s.genSetCopyForm(r, store); err != nil {
-			http.Error(w, err.Error(), code)
-			return
-		}
+	var code int
+	var err error
+	switch {
+	case r.FormValue("edit") != "":
+		f, code, err = s.genSetEditForm(r, store)
+	case r.FormValue("copy") != "" || r.FormValue("copy_catalog") != "":
+		f, code, err = s.genSetCopyForm(r, store)
+	}
+	if err != nil {
+		http.Error(w, err.Error(), code)
+		return
 	}
 	respondHTML(w)
 	s.renderPartial(w, "gen_set_form", f)
 }
 
 // genSetCopyForm fills the custom set form from the set (copy) or catalog
-// entry (copy_catalog) the request names. A catalog set, and a catalog
-// entry, give the entry's current flags, sizes, limits and licence, as a
-// catalog set runs with those. Each file that is on this machine fills its
-// slot; one that is not leaves the slot empty, with the catalog file's
-// name as the hint.
+// entry (copy_catalog) the request names, with a free name for the copy.
 func (s *Server) genSetCopyForm(r *http.Request, store *generation.Store) (genSetForm, int, error) {
 	copyID, catalogID := r.FormValue("copy"), r.FormValue("copy_catalog")
 	if copyID != "" && catalogID != "" {
@@ -177,6 +181,52 @@ func (s *Server) genSetCopyForm(r *http.Request, store *generation.Store) (genSe
 		set = generation.ModelSet{Name: entry.Name, Kind: entry.Kind, Recipe: entry.Recipe, Components: entry.Components}
 	}
 
+	f, err := s.genSetFilledForm(set, entry, fromCatalog, s.freeSetName(store, set.Name+" custom"), r.FormValue("tab"))
+	if err != nil {
+		return genSetForm{}, http.StatusInternalServerError, err
+	}
+	f.CopiedFrom = set.Name
+	return f, 0, nil
+}
+
+// genSetEditForm fills the custom set form with a custom set's own values,
+// to edit it (edit=<set id>). Catalog sets cannot be edited.
+func (s *Server) genSetEditForm(r *http.Request, store *generation.Store) (genSetForm, int, error) {
+	set, code, err := editableSet(store, r.FormValue("edit"))
+	if err != nil {
+		return genSetForm{}, code, err
+	}
+	f, err := s.genSetFilledForm(set, generation.CatalogEntry{}, false, set.Name, "models")
+	if err != nil {
+		return genSetForm{}, http.StatusInternalServerError, err
+	}
+	f.EditID = set.ID
+	return f, 0, nil
+}
+
+// editableSet returns the custom set with the ID, or an error and its HTTP
+// status: not found, or a catalog set, which follows its catalog entry and
+// is copied, not edited.
+func editableSet(store *generation.Store, id string) (generation.ModelSet, int, error) {
+	set, err := store.ModelSet(id)
+	if errors.Is(err, generation.ErrNotFound) {
+		return set, http.StatusNotFound, err
+	}
+	if err != nil {
+		return set, http.StatusInternalServerError, err
+	}
+	if set.CatalogID != "" {
+		return set, http.StatusBadRequest, errors.New("catalog sets cannot be edited. Copy the set to change it")
+	}
+	return set, 0, nil
+}
+
+// genSetFilledForm is the custom set form filled from set: from entry for
+// a catalog set or entry (fromCatalog), as a catalog set runs with its
+// entry's current values, otherwise from the set's own. Each file that is
+// on this machine fills its slot; one that is not leaves the slot empty,
+// with the catalog file's name as the hint.
+func (s *Server) genSetFilledForm(set generation.ModelSet, entry generation.CatalogEntry, fromCatalog bool, name, tab string) (genSetForm, error) {
 	// The source's values: the catalog entry's for a catalog set or entry,
 	// otherwise the custom set's own.
 	src := set
@@ -192,11 +242,11 @@ func (s *Server) genSetCopyForm(r *http.Request, store *generation.Store) (genSe
 	}
 
 	vals := url.Values{
-		"name":        {s.freeSetName(store, set.Name+" custom")},
+		"name":        {name},
 		"kind":        {string(set.Kind)},
 		"recipe":      {set.Recipe},
 		"launch_args": {generation.JoinArgs(src.LaunchArgs)},
-		"tab":         {r.FormValue("tab")},
+		"tab":         {tab},
 		"license":     {src.License},
 	}
 	for k, n := range map[string]int{"width": src.DefaultWidth, "height": src.DefaultHeight, "frames": src.DefaultFrames, "fps": src.DefaultFPS,
@@ -211,7 +261,7 @@ func (s *Server) genSetCopyForm(r *http.Request, store *generation.Store) (genSe
 	if set.Kind == generation.KindVideo && len(src.VideoSizes) > 0 {
 		b, err := json.Marshal(src.VideoSizes)
 		if err != nil {
-			return genSetForm{}, http.StatusInternalServerError, err
+			return genSetForm{}, err
 		}
 		vals.Set("video_sizes", string(b))
 	}
@@ -231,13 +281,12 @@ func (s *Server) genSetCopyForm(r *http.Request, store *generation.Store) (genSe
 	}
 
 	f := s.genSetFormFrom(vals.Get)
-	f.CopiedFrom = set.Name
 	for i, field := range f.Slots {
 		if h := hints[field.Slot]; h != "" {
 			f.Slots[i].Hint = h
 		}
 	}
-	return f, 0, nil
+	return f, nil
 }
 
 // freeSetName is base, or base with " 2", " 3" and so on, whose ID no set
@@ -301,8 +350,8 @@ func (s *Server) handleGenModelFiles(w http.ResponseWriter, r *http.Request) {
 // video ceiling and upscale factor make sense. The files come from the
 // slot_<slot> fields, or, for scripts written before them, from the files
 // field's "slot = /path" lines. On an error it also returns the HTTP
-// status to send.
-func (s *Server) setFromForm(r *http.Request) (generation.ModelSet, int, error) {
+// status to send. existing is the set an edit changes, or nil for an add.
+func (s *Server) setFromForm(r *http.Request, existing *generation.ModelSet) (generation.ModelSet, int, error) {
 	bad := func(err error) (generation.ModelSet, int, error) {
 		return generation.ModelSet{}, http.StatusBadRequest, err
 	}
@@ -314,6 +363,12 @@ func (s *Server) setFromForm(r *http.Request) (generation.ModelSet, int, error) 
 	}
 	set := generation.ModelSet{
 		ID: generation.Slug(name), Name: name, Kind: kind, Recipe: recipe, Created: time.Now(), Complete: true,
+	}
+	// An edit keeps the set's identity: its ID is what API clients use, and
+	// another backend or recipe would be another set.
+	if existing != nil {
+		name, kind, recipe = existing.Name, existing.Kind, existing.Recipe
+		set.ID, set.Name, set.Kind, set.Recipe, set.Created = existing.ID, name, kind, recipe, existing.Created
 	}
 	if set.ID == "" {
 		return bad(errors.New("the set needs a name"))
@@ -379,6 +434,51 @@ func (s *Server) setFromForm(r *http.Request) (generation.ModelSet, int, error) 
 	}
 	set.License = strings.TrimSpace(r.FormValue("license"))
 	return set, 0, nil
+}
+
+// handleGenUpdateSet saves an edit of a custom set: its files, flags,
+// sizes, limits, upscale factor and base DiT. The name, ID, backend and
+// recipe stay. It is refused while an instance of the set runs or
+// measures; afterwards the instances show their measurement as out of date
+// when the files or flags changed, and keep their reservations.
+func (s *Server) handleGenUpdateSet(w http.ResponseWriter, r *http.Request) {
+	store := s.genStore(w)
+	if store == nil {
+		return
+	}
+	if !parseForm(w, r) {
+		return
+	}
+	code, err := s.updateSet(r, store)
+	if err != nil {
+		http.Error(w, err.Error(), code)
+		return
+	}
+	s.handleGenModels(w, r)
+}
+
+// updateSet does handleGenUpdateSet's checks and save under genSetMu. On
+// an error it also returns the HTTP status to send.
+func (s *Server) updateSet(r *http.Request, store *generation.Store) (int, error) {
+	s.genSetMu.Lock()
+	defer s.genSetMu.Unlock()
+	existing, code, err := editableSet(store, chi.URLParam(r, "id"))
+	if err != nil {
+		return code, err
+	}
+	for _, inst := range store.Instances() {
+		if inst.ModelSetID == existing.ID && (s.genMgr.IsActive(inst.ID) || s.genMgr.IsMeasuring(inst.ID)) {
+			return http.StatusConflict, fmt.Errorf("stop %s first: a set cannot change while its instance runs", inst.Name)
+		}
+	}
+	set, code, err := s.setFromForm(r, &existing)
+	if err != nil {
+		return code, err
+	}
+	if err := store.UpdateModelSet(set); err != nil {
+		return http.StatusInternalServerError, err
+	}
+	return 0, nil
 }
 
 // formVideoSizes reads the Measure sizes a copied video set keeps (the

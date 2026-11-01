@@ -427,7 +427,7 @@ func (s *Server) handleGenCreateSet(w http.ResponseWriter, r *http.Request) {
 	if !parseForm(w, r) {
 		return
 	}
-	set, code, err := s.setFromForm(r)
+	set, code, err := s.setFromForm(r, nil)
 	if err != nil {
 		http.Error(w, err.Error(), code)
 		return

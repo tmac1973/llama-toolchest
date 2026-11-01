@@ -166,6 +166,10 @@ type Instance struct {
 	// it: a text encoder on the CPU, and any weights sd.cpp kept in RAM.
 	MeasuredArgs   []string `json:"measured_args,omitempty"`
 	MeasuredRAMMiB int      `json:"measured_ram_mib,omitempty"`
+	// MeasuredFiles are the set's files when it was last measured
+	// (FilesKey). An edit of a custom set that changes them makes the
+	// measurement out of date. Nil for measurements made before it existed.
+	MeasuredFiles []string `json:"measured_files,omitempty"`
 	// MeasuredEditImages is how many reference images the test edit of
 	// the last measurement had (edit sets only), chosen in the Measure
 	// dialog; edits may have no more (EditImageLimit). 0 for measurements

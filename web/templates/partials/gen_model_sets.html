@@ -68,7 +68,14 @@
                             data-error-label="Form not loaded">New instance</button>
                     {{- end}}
                 </td>
-                <td>
+                <td style="white-space:nowrap;">
+                    {{- if not .CatalogID}}
+                    <button type="button" class="outline secondary" style="margin:0 0.4rem 0 0;padding:0.1rem 0.5rem;font-size:0.8rem;"
+                            title="Change this set's files and settings. Stop its instance first."
+                            hx-get="/api/gen/models/sets/form?edit={{.ID}}" hx-target="#gen-set-form-body-models" hx-swap="innerHTML"
+                            hx-on::after-request="if (event.detail.successful) { document.getElementById('gen-set-form-dialog-models').showModal(); }"
+                            data-error-label="Form not loaded">Edit</button>
+                    {{- end}}
                     <button type="button" class="outline secondary" style="margin:0;padding:0.1rem 0.5rem;font-size:0.8rem;"
                             hx-delete="/api/gen/models/sets/{{.ID}}"
                             hx-confirm="{{if .CatalogID}}Delete {{.Name}} and its downloaded files? Files another set also uses are kept.{{else}}Remove {{.Name}} from the list? Your files are not deleted.{{end}}"

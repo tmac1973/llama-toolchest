@@ -844,6 +844,7 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 	}
 	inst.MeasuredPeakMiB, inst.MeasuredAt, inst.MeasureEstimated = peak, time.Now(), !perProcess
 	inst.MeasuredArgs, inst.MeasuredRAMMiB = runArgs(set, inst), ramPeak
+	inst.MeasuredFiles = generation.FilesKey(set)
 	inst.MeasuredEditImages = editImages
 	// The room is worked out again now the backend has stopped: other
 	// programs on the card may have grown during a long test run.
