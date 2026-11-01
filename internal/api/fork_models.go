@@ -251,11 +251,16 @@ func (s *Server) handleForkModelDownload(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	for _, g := range todo {
-		// The downloader keeps any finished file it finds, whatever its
-		// size, so a file of the wrong size (cut short, or from another
-		// revision) would stop the set from ever completing. Remove it so
-		// it is fetched again; a .part file is kept and resumed.
+		// The downloader fetches a single file of the wrong size again by
+		// itself, but it only knows the total size of a shard group, so
+		// it keeps any finished shard it finds. A shard of the wrong size
+		// (cut short, or from another revision) would stop the set from
+		// ever completing. Remove it so it is fetched again; a .part file
+		// is kept and resumed.
 		for _, m := range g.Files {
+			if len(g.Files) == 1 {
+				break
+			}
 			path := filepath.Join(dir, filepath.FromSlash(m.Path))
 			if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() && info.Size() != m.Bytes {
 				slog.Warn("fork model file has the wrong size; downloading it again",
