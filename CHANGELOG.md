@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.48.0](https://github.com/tmac1973/llama-toolchest/compare/v2.47.0...v2.48.0) (2026-11-01)
+
+
+### Features
+
+* **gen:** show what every catalogue set takes as tags ([#510](https://github.com/tmac1973/llama-toolchest/issues/510)) ([#512](https://github.com/tmac1973/llama-toolchest/issues/512)) ([1270f06](https://github.com/tmac1973/llama-toolchest/commit/1270f061468cf1c5f240743e4dc1f7d911287d37))
+
+
+### Bug Fixes
+
+* **forks:** list running fork instances in /api/service/loaded-models ([#511](https://github.com/tmac1973/llama-toolchest/issues/511)) ([2f03d52](https://github.com/tmac1973/llama-toolchest/commit/2f03d527fbaf18e327a269383bf242adf4145761))
+
 ## [2.47.0](https://github.com/tmac1973/llama-toolchest/compare/v2.46.4...v2.47.0) (2026-11-01)
 
 
