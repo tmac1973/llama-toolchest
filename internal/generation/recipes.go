@@ -1,8 +1,11 @@
 package generation
 
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -377,13 +380,21 @@ func describeSet(kind BackendKind, recipe string) string {
 }
 
 // CheckFiles checks that every component path is an absolute path to an
-// existing regular file.
-func CheckFiles(comps []Component) error {
+// existing regular file. A missing file's error names the models folder,
+// and in a container also says that host folders are not visible.
+func CheckFiles(comps []Component, modelsDir string, inContainer bool) error {
 	for _, c := range comps {
 		if !strings.HasPrefix(c.Path, "/") {
 			return fmt.Errorf("%s: %q is not an absolute path", c.Slot, c.Path)
 		}
 		info, err := os.Stat(c.Path)
+		if errors.Is(err, os.ErrNotExist) {
+			msg := fmt.Sprintf("%s: %s does not exist. The models folder is %s.", c.Slot, c.Path, modelsDir)
+			if inContainer {
+				msg += " Toolchest runs in a container and cannot see host folders. Put the file under the models folder, or mount its folder there."
+			}
+			return errors.New(msg)
+		}
 		if err != nil {
 			return fmt.Errorf("%s: %w", c.Slot, err)
 		}
@@ -392,6 +403,54 @@ func CheckFiles(comps []Component) error {
 		}
 	}
 	return nil
+}
+
+// CheckFileFormat reads the start of a file and refuses one that cannot
+// be what its slot needs: the tokenizer slot takes a JSON file, every
+// other slot a GGUF, safetensors or PyTorch model file. It does not check
+// that the model is the right one for the slot.
+func CheckFileFormat(slot, path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("%s: %w", slot, err)
+	}
+	defer f.Close()
+	head := make([]byte, 16)
+	n, _ := io.ReadFull(f, head)
+	head = head[:n]
+	info, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("%s: %w", slot, err)
+	}
+	if slot == "tokenizer" {
+		if trimmed := bytes.TrimLeft(head, " \t\r\n"); len(trimmed) > 0 && trimmed[0] == '{' {
+			return nil
+		}
+		return fmt.Errorf("%s: %s is not a tokenizer JSON file", slot, path)
+	}
+	if isModelFile(head, info.Size()) {
+		return nil
+	}
+	return fmt.Errorf("%s: %s is not a model file (GGUF, safetensors or PyTorch)", slot, path)
+}
+
+// isModelFile reports whether a file's first bytes are those of a GGUF,
+// safetensors or PyTorch file. A safetensors file starts with the length
+// of its JSON header (little-endian), then the header's "{". A PyTorch
+// file is a zip archive, or an older pickle.
+func isModelFile(head []byte, size int64) bool {
+	switch {
+	case bytes.HasPrefix(head, []byte("GGUF")):
+		return true
+	case bytes.HasPrefix(head, []byte("PK\x03\x04")):
+		return true
+	case len(head) > 0 && head[0] == 0x80:
+		return true
+	case len(head) > 8 && head[8] == '{':
+		n := binary.LittleEndian.Uint64(head[:8])
+		return n >= 2 && n < uint64(size)
+	}
+	return false
 }
 
 // deniedArgs are flags toolchest sets itself; letting a set or instance

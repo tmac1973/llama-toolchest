@@ -23,6 +23,10 @@ import (
 // genServer returns a test server with generation backends on, an empty
 // store, and a downloader whose Hugging Face files come from a fake server
 // that answers every file with "<repo>/<file>".
+// fakeGGUF is the start of a GGUF file: enough for the custom set form's
+// file format check.
+var fakeGGUF = []byte("GGUF\x03\x00\x00\x00")
+
 func genServer(t *testing.T) *Server {
 	t.Helper()
 	s := newTestServer(t)
@@ -279,7 +283,7 @@ func TestGenCustomSet(t *testing.T) {
 	var lines []string
 	for _, slot := range []string{"diffusion_model", "llm", "vae"} {
 		p := filepath.Join(dir, slot+".gguf")
-		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+		if err := os.WriteFile(p, fakeGGUF, 0o644); err != nil {
 			t.Fatal(err)
 		}
 		lines = append(lines, slot+" = "+p)

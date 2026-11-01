@@ -102,7 +102,7 @@ func (d *SetDetails) fill(set ModelSet, entry CatalogEntry) error {
 		d.Program = "ace-server"
 	}
 
-	slots := kindSlots(set.Kind, set.Recipe)
+	slots := KindSlots(set.Kind, set.Recipe)
 	order := slots.Slots()
 	comps := slices.Clone(set.Components)
 	slices.SortStableFunc(comps, func(a, b Component) int {
@@ -145,8 +145,10 @@ func (d *SetDetails) fill(set ModelSet, entry CatalogEntry) error {
 	return nil
 }
 
-// kindSlots returns the slots a set of a kind and recipe takes.
-func kindSlots(kind BackendKind, recipe string) RecipeSlotSet {
+// KindSlots returns the slots a set of a kind and recipe takes: the
+// recipe's for image and video sets, the fixed ones for music and
+// upscaler sets.
+func KindSlots(kind BackendKind, recipe string) RecipeSlotSet {
 	switch kind {
 	case KindVideo:
 		return VideoRecipes[recipe].Slots

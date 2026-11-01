@@ -82,71 +82,8 @@
     {{- end}}
 </article>
 
-<details>
-    <summary>Add a custom set from files on disk</summary>
-    <form hx-post="/api/gen/models/sets" hx-target="#gen-model-sets" hx-swap="innerHTML"
-          data-error-label="Set not added">
-        <div class="grid">
-            <label title="Shown in the UI. The set ID for API clients comes from it.">Name
-                <input type="text" name="name" required placeholder="e.g. qwen-turbo-local">
-            </label>
-            <label>Backend
-                <select name="kind">
-                    <option value="sd">Image (stable-diffusion.cpp)</option>
-                    <option value="video">Video (stable-diffusion.cpp)</option>
-                    <option value="ace">Music (acestep.cpp)</option>
-                    <option value="upscale">Upscaler (stable-diffusion.cpp)</option>
-                </select>
-            </label>
-            <label title="The sd-server recipe of the files. It sets which files are needed. Image recipes for image sets, video recipes for video sets. Not for music or upscaler sets.">Recipe
-                <select name="recipe">
-                    <optgroup label="Image">
-                    {{- range .Recipes}}<option value="{{.}}">{{.}}</option>{{end}}
-                    </optgroup>
-                    <optgroup label="Video">
-                    {{- range .VideoRecipes}}<option value="{{.}}">{{.}}</option>{{end}}
-                    </optgroup>
-                </select>
-            </label>
-        </div>
-        <label title="One file per line: slot = /absolute/path. The recipe sets which slots are needed. Image slots: diffusion_model, model, llm, llm_vision, tokenizer, vae, tae, clip_l, t5xxl. Video slots: diffusion_model, high_noise_diffusion_model, t5xxl, llm, clip_vision, embeddings_connectors, vae, tae, audio_vae. Music slots: lm, dit, embedding, vae (all needed). Upscaler slot: upscaler (an ESRGAN .pth or .safetensors file).">Files
-            <textarea name="files" rows="4" placeholder="diffusion_model = /models/qwen-image-2.1-turbo-Q4_K_M.gguf&#10;llm = /models/Qwen3VL-8B-Instruct-Q4_K_M.gguf&#10;vae = /models/qwen_image_2.1_vae_bf16.safetensors"></textarea>
-        </label>
-        <div class="grid">
-            <label title="Size of the Measure test run. Empty: 1024 for image sets, 832×480 for video sets. Not for music or upscaler sets.">Test width
-                <input type="number" name="width" min="64" step="8" placeholder="1024 / 832">
-            </label>
-            <label title="Size of the Measure test run. Empty: 1024 for image sets, 832×480 for video sets. Not for music or upscaler sets.">Test height
-                <input type="number" name="height" min="64" step="8" placeholder="1024 / 480">
-            </label>
-            <label title="Length of the Measure test video, in frames. sd-server rounds it down to 4n+1. Video sets only.">Test frames
-                <input type="number" name="frames" min="1" placeholder="33">
-            </label>
-            <label title="Frames per second of the test video, and of requests without fps. Video sets only.">Frame rate
-                <input type="number" name="fps" min="1" max="240" placeholder="24">
-            </label>
-        </div>
-        <div class="grid">
-            <label title="The longest video a request may ask for, in frames. Empty: no limit. Video sets only.">Max frames
-                <input type="number" name="max_frames" min="1" placeholder="none">
-            </label>
-            <label title="The widest video a request may ask for. Give both max width and max height, or neither. Video sets only.">Max width
-                <input type="number" name="max_width" min="64" step="8" placeholder="none">
-            </label>
-            <label title="The tallest video a request may ask for. Give both max width and max height, or neither. Video sets only.">Max height
-                <input type="number" name="max_height" min="64" step="8" placeholder="none">
-            </label>
-            <label title="How many times larger the upscaler makes an image. Most ESRGAN models make it 4 times larger. Upscaler sets only.">Upscale factor
-                <input type="number" name="scale" min="1" max="8" placeholder="4">
-            </label>
-        </div>
-        <label title="Select this when the DiT is an ACE-Step base model. Only a base model can add, pull out or complete instruments (lego, extract, complete). Music sets only.">
-            <input type="checkbox" name="stem_tasks" value="1"> Base DiT (music sets)
-        </label>
-        <label title="Extra backend flags, for example --sigmas qwen-image-2.1-turbo --cfg-scale 1. Toolchest sets the address, port, VRAM limit and model folder.">Extra launch arguments
-            <input type="text" name="launch_args" placeholder="--steps 8 --cfg-scale 1">
-        </label>
-        <button type="submit">Add set</button>
-    </form>
-</details>
+<p><button type="button" class="outline" hx-get="/api/gen/models/sets/form" hx-target="#gen-set-form-body-models" hx-swap="innerHTML"
+            hx-on::after-request="if (event.detail.successful) { document.getElementById('gen-set-form-dialog-models').showModal(); }"
+            data-error-label="Form not loaded"
+            title="Make a set from model files you already have, for example from ComfyUI.">Add a custom set</button></p>
 {{end}}
