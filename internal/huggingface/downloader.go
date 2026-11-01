@@ -128,6 +128,10 @@ type Downloader struct {
 	// it. A download that does not match is discarded rather than put in
 	// place. Set by ExpectSHA256; only updates use it.
 	expected map[string]string
+	// sizes maps a file's final path to its size, for files the caller
+	// knows one by one. Set by ExpectSize; it is what lets the shards of
+	// a split model be checked, since a download only gets their total.
+	sizes map[string]int64
 }
 
 func NewDownloader(dataDir, modelsDir, token string) *Downloader {
@@ -137,6 +141,7 @@ func NewDownloader(dataDir, modelsDir, token string) *Downloader {
 		active:    make(map[string]*download),
 		providers: make(map[string]Provider),
 		expected:  make(map[string]string),
+		sizes:     make(map[string]int64),
 	}
 	d.providers[modelsource.SourceHuggingFace] = Provider{
 		URL:         func(modelID, filename string) string { return hfDownloadURL(modelID, filename) },
@@ -209,6 +214,38 @@ func (d *Downloader) ExpectSHA256(finalPath, sha string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.expected[finalPath] = sha
+}
+
+// ExpectSize sets the size the next download of the file at finalPath
+// must have, in the same way as the size given to Start for a single
+// file: a finished file of another size is downloaded again, and a
+// download of another size is discarded. Use it for the shards of a
+// split model, whose own sizes Start does not get.
+func (d *Downloader) ExpectSize(finalPath string, size int64) {
+	if size <= 0 {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.sizes[finalPath] = size
+}
+
+// expectedSize returns the size set by ExpectSize for a file, or
+// fallback when there is none.
+func (d *Downloader) expectedSize(finalPath string, fallback int64) int64 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if size, ok := d.sizes[finalPath]; ok {
+		return size
+	}
+	return fallback
+}
+
+// forgetSize removes the size set by ExpectSize once a file is done.
+func (d *Downloader) forgetSize(finalPath string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.sizes, finalPath)
 }
 
 // SetOnComplete registers a callback invoked when a download finishes.
@@ -482,7 +519,8 @@ func (d *Downloader) run(ctx context.Context, source, downloadID, modelID, filen
 
 	// The caller's size is the file's own size only when there is one
 	// file. For shards it is the total of all of them, which says nothing
-	// about any one shard, so shards are not checked.
+	// about any one shard, so shards are checked only against sizes set
+	// by ExpectSize.
 	var wantSize int64
 	if len(filenames) == 1 {
 		wantSize = dl.expectedBytes
@@ -568,7 +606,8 @@ func (d *Downloader) fetchCombinedSize(ctx context.Context, source, modelID, rev
 }
 
 // downloadFile downloads a single file, reporting progress with a base offset for multi-shard tracking.
-// wantSize is the file's size when the caller knows it, otherwise 0.
+// wantSize is the file's size when the caller knows it, otherwise 0; a
+// size set by ExpectSize takes its place.
 // Returns the number of bytes downloaded for this file.
 func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, modelID, filename, label, modelDir string,
 	baseDownloaded, combinedTotal, wantSize int64, dl *download) (int64, error) {
@@ -579,6 +618,7 @@ func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, model
 
 	partPath := filepath.Join(modelDir, filename+".part")
 	finalPath := filepath.Join(modelDir, filename)
+	wantSize = d.expectedSize(finalPath, wantSize)
 
 	// Ensure subdirectories exist (for files like "Q8_0/model.gguf")
 	if err := os.MkdirAll(filepath.Dir(finalPath), 0o755); err != nil {
@@ -605,6 +645,7 @@ func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, model
 	// resume it as an update.
 	if info, err := os.Stat(finalPath); err == nil && partErr != nil {
 		if wantSize <= 0 || info.Size() == wantSize {
+			d.forgetSize(finalPath)
 			return info.Size(), nil
 		}
 		slog.Info("downloading a file again: its size on disk is not the expected size",
@@ -762,6 +803,7 @@ func (d *Downloader) finishPart(partPath, finalPath, filename, sha string, size,
 	d.mu.Lock()
 	want, checked := d.expected[finalPath]
 	delete(d.expected, finalPath)
+	delete(d.sizes, finalPath)
 	d.mu.Unlock()
 	if checked && want != sha {
 		os.Remove(partPath)

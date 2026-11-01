@@ -217,6 +217,9 @@ func (s *Server) startModelUpdate(m *models.Model, changed []updateFile) error {
 		if f.SHA256 != "" {
 			s.downloader.ExpectSHA256(f.Local, f.SHA256)
 		}
+		// The model's shards go in one download, which only gets their
+		// total size, so each shard's own size is set here.
+		s.downloader.ExpectSize(f.Local, f.Size)
 	}
 
 	// The model's shards go in one download, which works through every
