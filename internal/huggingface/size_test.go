@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -121,7 +123,8 @@ func TestStartToReplacesWrongSizedFile(t *testing.T) {
 }
 
 // For shards the caller's size is the total of all of them, so no shard
-// is checked against it: finished shards are kept as they are.
+// is checked against it: with no ExpectSize, finished shards are kept as
+// they are.
 func TestShardsAreNotCheckedAgainstCombinedSize(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
@@ -177,5 +180,46 @@ func TestStartToAtReplacesWrongSizedFile(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(path); string(got) != "new contents" {
 		t.Errorf("file = %q, want the new contents", got)
+	}
+}
+
+// With each shard's size set by ExpectSize, a shard of the wrong size is
+// downloaded again and a good one is kept. The sizes are forgotten once
+// the files are done.
+func TestExpectSizeChecksEachShard(t *testing.T) {
+	var gets sync.Map
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			n, _ := gets.LoadOrStore(r.URL.Path, new(atomic.Int32))
+			n.(*atomic.Int32).Add(1)
+		}
+		io.WriteString(w, "shard two")
+	}))
+	defer srv.Close()
+	root := t.TempDir()
+	d := NewDownloader(root, root, "")
+	d.RegisterProvider("fake", Provider{URL: func(_, file string) string { return srv.URL + "/" + file }})
+	one := FilePath(root, "org/m", "m-00001-of-00002.gguf")
+	two := FilePath(root, "org/m", "m-00002-of-00002.gguf")
+	os.MkdirAll(filepath.Dir(one), 0o755)
+	os.WriteFile(one, []byte("shard one"), 0o644)
+	os.WriteFile(two, []byte("short"), 0o644)
+	d.ExpectSize(one, int64(len("shard one")))
+	d.ExpectSize(two, int64(len("shard two")))
+
+	want := int64(len("shard one") + len("shard two"))
+	if size := startAndWait(t, d, "m-00001-of-00002.gguf", root, want); size != want {
+		t.Errorf("callback size = %d, want %d", size, want)
+	}
+	if got, _ := os.ReadFile(two); string(got) != "shard two" {
+		t.Errorf("second shard = %q, want it downloaded again", got)
+	}
+	if _, ok := gets.Load("/m-00001-of-00002.gguf"); ok {
+		t.Error("a shard of the right size was downloaded again")
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.sizes) != 0 {
+		t.Errorf("sizes left after the download: %v", d.sizes)
 	}
 }
