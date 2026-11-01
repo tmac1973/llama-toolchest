@@ -90,7 +90,7 @@ func TestFileListCarriesSourceIntoDownload(t *testing.T) {
 // initial position comes from the configured default — the whole point
 // of the setting.
 func TestBrowsePageRadioFollowsConfiguredDefault(t *testing.T) {
-	base := testTemplates(t, "templates/layout.html", "templates/models_browse.html", "templates/partials/recommend_feed.html")
+	base := testTemplates(t, "templates/layout.html", "templates/models_browse.html", "templates/partials/recommend_feed.html", "templates/partials/gen_set_form.html")
 	render := func(def string) string {
 		var buf bytes.Buffer
 		data := struct {
@@ -266,7 +266,7 @@ func TestApplyProbe(t *testing.T) {
 // Every kind of model is downloaded from the browse page: one button per
 // card, and the generation catalog only while generation is on.
 func TestBrowsePageDownloadButtons(t *testing.T) {
-	base := testTemplates(t, "templates/layout.html", "templates/models_browse.html", "templates/partials/recommend_feed.html")
+	base := testTemplates(t, "templates/layout.html", "templates/models_browse.html", "templates/partials/recommend_feed.html", "templates/partials/gen_set_form.html")
 	render := func(gen bool) string {
 		var buf bytes.Buffer
 		data := struct {

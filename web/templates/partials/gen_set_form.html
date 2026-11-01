@@ -1,11 +1,42 @@
-{{/* The custom set form, in the "Add a custom set" dialog (models.html).
+{{/* The custom set form, in the "Add a custom set" dialog
+     (gen_set_form_dialog, on the Models and Download Models tabs).
      gen_set_form is the whole form; gen_set_form_fields is the part the
      server draws again when the backend or recipe changes, with the
      values typed so far kept. Data: genSetForm (gen_set_form.go). */}}
+
+{{/* The dialog itself, for one tab: "models" or "catalog". It lives in the
+     page, not in a partial htmx redraws, so it is not replaced while
+     open. */}}
+{{define "gen_set_form_dialog"}}
+<dialog id="gen-set-form-dialog-{{.}}" style="max-width:760px;width:95vw;">
+    <article>
+        <header>
+            <button type="button" aria-label="Close" rel="prev" onclick="this.closest('dialog').close();"></button>
+            Add a custom set
+        </header>
+        <p><small>A set made from model files already on this machine. Toolchest never deletes them.</small></p>
+        <div id="gen-set-form-body-{{.}}"></div>
+    </article>
+</dialog>
+{{end}}
+
 {{define "gen_set_form"}}
+{{- if eq .Tab "catalog"}}
+{{/* On the Download Models tab a save answers with a note in the dialog,
+     as the set list is on the Models tab. */}}
+<form hx-post="/api/gen/models/sets?view=catalog" hx-target="#gen-set-form-body-catalog" hx-swap="innerHTML"
+      data-error-label="Set not added">
+{{- else}}
 <form hx-post="/api/gen/models/sets" hx-target="#gen-model-sets" hx-swap="innerHTML"
       data-error-label="Set not added"
       hx-on::after-request="if (event.detail.successful && event.detail.elt === this) { this.closest('dialog').close(); }">
+{{- end}}
+    <input type="hidden" name="tab" value="{{.Tab}}">
+    {{- with .CopiedFrom}}
+    <p><small>Copied from <strong>{{.}}</strong>. Change the files or settings, then save.</small></p>
+    {{- end}}
+    {{- if .VideoSizes}}<input type="hidden" name="video_sizes" value="{{.VideoSizes}}">{{end}}
+    {{- if .License}}<input type="hidden" name="license" value="{{.License}}">{{end}}
     <label title="Shown in the UI. The set ID for API clients comes from it.">Name
         <input type="text" name="name" required value="{{.Name}}" placeholder="e.g. qwen-turbo-local">
     </label>
@@ -98,4 +129,12 @@
     <input type="checkbox" name="stem_tasks" value="1"{{if .StemTasks}} checked{{end}}> Base DiT
 </label>
 {{- end}}
+{{end}}
+
+{{/* What the Download Models tab's form dialog shows after a save. Data:
+     the new set's name. */}}
+{{define "gen_set_saved"}}
+<p><strong>{{.}}</strong> is added.</p>
+<p><small>Make an instance for it on the <a href="/models">Models</a> tab, under Generation models.</small></p>
+<button type="button" class="secondary" onclick="this.closest('dialog').close();">Close</button>
 {{end}}
