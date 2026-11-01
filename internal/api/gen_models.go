@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -491,6 +492,7 @@ func (s *Server) handleGenDeleteSet(w http.ResponseWriter, r *http.Request) {
 
 	if set.CatalogID != "" {
 		root := generation.ModelsDir(s.cfg)
+		shared := newSharedFiles(others, root)
 		for _, c := range set.Components {
 			// The path the file was recorded at, which may be outside
 			// root (a file that could not be moved there).
@@ -498,12 +500,7 @@ func (s *Server) handleGenDeleteSet(w http.ResponseWriter, r *http.Request) {
 			if path == "" {
 				path = huggingface.FilePath(root, c.Repo, c.File)
 			}
-			shared := slices.ContainsFunc(others, func(m generation.ModelSet) bool {
-				return slices.ContainsFunc(m.Components, func(o generation.Component) bool {
-					return o.Path == path || huggingface.FilePath(root, o.Repo, o.File) == path
-				})
-			})
-			if shared {
+			if shared.has(path) {
 				continue
 			}
 			for _, p := range []string{path, path + ".part"} {
@@ -514,6 +511,48 @@ func (s *Server) handleGenDeleteSet(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.handleGenModels(w, r)
+}
+
+// sharedFiles holds the files of the sets that stay, so a deleted catalog
+// set keeps them. A file matches by its cleaned path, or by being the same
+// file on disk: a custom set may reach a catalog file through a link or a
+// path with "..".
+type sharedFiles struct {
+	paths map[string]bool
+	infos []os.FileInfo
+}
+
+func newSharedFiles(sets []generation.ModelSet, root string) sharedFiles {
+	sf := sharedFiles{paths: map[string]bool{}}
+	for _, m := range sets {
+		for _, c := range m.Components {
+			paths := []string{c.Path}
+			if c.Repo != "" {
+				paths = append(paths, huggingface.FilePath(root, c.Repo, c.File))
+			}
+			for _, p := range paths {
+				if p == "" {
+					continue
+				}
+				sf.paths[filepath.Clean(p)] = true
+				if info, err := os.Stat(p); err == nil {
+					sf.infos = append(sf.infos, info)
+				}
+			}
+		}
+	}
+	return sf
+}
+
+func (sf sharedFiles) has(path string) bool {
+	if sf.paths[filepath.Clean(path)] {
+		return true
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return slices.ContainsFunc(sf.infos, func(o os.FileInfo) bool { return os.SameFile(info, o) })
 }
 
 func formInt(r *http.Request, name string, def int) int {
