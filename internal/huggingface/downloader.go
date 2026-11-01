@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -609,6 +611,19 @@ func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, model
 			"path", finalPath, "size", info.Size(), "expected", wantSize)
 	}
 
+	// A .part of the expected size already holds the whole file: an
+	// earlier download finished, but the rename did not happen. Asking
+	// for the bytes after its end would only get an error. A .part larger
+	// than the expected size cannot be the file, so it is started again.
+	if wantSize > 0 && existingSize == wantSize {
+		return d.finishWholePart(partPath, finalPath, filename, existingSize, wantSize)
+	}
+	if wantSize > 0 && existingSize > wantSize {
+		slog.Info("partial download is larger than the expected size; starting it again",
+			"path", partPath, "size", existingSize, "expected", wantSize)
+		existingSize = 0
+	}
+
 	p := d.provider(source)
 	req, err := http.NewRequestWithContext(ctx, "GET", p.fileURL(modelID, dl.revision, filename), nil)
 	if err != nil {
@@ -628,6 +643,21 @@ func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, model
 		return 0, err
 	}
 	defer resp.Body.Close()
+
+	// With no expected size, a complete .part shows up here instead: the
+	// host refuses the range with 416. If the file's size is the size of
+	// the .part, the .part is the whole file. Hugging Face gives that
+	// size in the 416 answer for small files, but its CDN does not for
+	// large ones, so then a HEAD request asks for it.
+	if resp.StatusCode == http.StatusRequestedRangeNotSatisfiable && existingSize > 0 {
+		total, ok := unsatisfiedRangeTotal(resp)
+		if !ok {
+			total, ok = d.headSize(ctx, p, req.URL.String())
+		}
+		if ok && total == existingSize {
+			return d.finishWholePart(partPath, finalPath, filename, existingSize, wantSize)
+		}
+	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
 		return 0, fmt.Errorf("download server returned HTTP %d", resp.StatusCode)
@@ -722,29 +752,78 @@ func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, model
 	}
 
 	f.Close()
-	sha := hex.EncodeToString(hasher.Sum(nil))
+	return downloaded, d.finishPart(partPath, finalPath, filename, hex.EncodeToString(hasher.Sum(nil)), downloaded, wantSize)
+}
+
+// finishPart checks a complete .part file against the expected hash and
+// size, and puts it in place of the final file. A .part that fails a
+// check is removed.
+func (d *Downloader) finishPart(partPath, finalPath, filename, sha string, size, wantSize int64) error {
 	d.mu.Lock()
 	want, checked := d.expected[finalPath]
 	delete(d.expected, finalPath)
 	d.mu.Unlock()
 	if checked && want != sha {
 		os.Remove(partPath)
-		return downloaded, fmt.Errorf("%s does not match the repository's checksum; the old file was kept", filename)
+		return fmt.Errorf("%s does not match the repository's checksum; the old file was kept", filename)
 	}
-	if wantSize > 0 && downloaded != wantSize {
+	if wantSize > 0 && size != wantSize {
 		os.Remove(partPath)
-		return downloaded, fmt.Errorf("%s is %d bytes, but %d bytes were expected; the download was discarded", filename, downloaded, wantSize)
+		return fmt.Errorf("%s is %d bytes, but %d bytes were expected; the download was discarded", filename, size, wantSize)
 	}
 	if err := os.Rename(partPath, finalPath); err != nil {
-		return downloaded, err
+		return err
 	}
 	if d.hashes != nil {
 		if err := d.hashes.Record(finalPath, sha); err != nil {
 			slog.Warn("file hash not saved", "path", finalPath, "error", err)
 		}
 	}
+	return nil
+}
 
-	return downloaded, nil
+// finishWholePart puts in place a .part that already holds the whole
+// file, for example when the rename after a complete download failed.
+// It hashes the file and runs the same checks as a download.
+func (d *Downloader) finishWholePart(partPath, finalPath, filename string, size, wantSize int64) (int64, error) {
+	slog.Info("partial download is already complete; checking it", "path", partPath, "size", size)
+	hasher := sha256.New()
+	if err := hashPrefix(hasher, partPath, size); err != nil {
+		return 0, err
+	}
+	return size, d.finishPart(partPath, finalPath, filename, hex.EncodeToString(hasher.Sum(nil)), size, wantSize)
+}
+
+// headSize returns a file's size from a HEAD request. Only a 200 answer
+// counts: the length of an error page is not the file's size.
+func (d *Downloader) headSize(ctx context.Context, p Provider, url string) (int64, bool) {
+	req, err := http.NewRequestWithContext(ctx, "HEAD", url, nil)
+	if err != nil {
+		return 0, false
+	}
+	if p.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+p.Token)
+	}
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		return 0, false
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || resp.ContentLength <= 0 {
+		return 0, false
+	}
+	return resp.ContentLength, true
+}
+
+// unsatisfiedRangeTotal returns the file size a 416 answer gives in its
+// "Content-Range: bytes */N" header.
+func unsatisfiedRangeTotal(resp *http.Response) (int64, bool) {
+	rest, ok := strings.CutPrefix(resp.Header.Get("Content-Range"), "bytes */")
+	if !ok {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(rest, 10, 64)
+	return n, err == nil
 }
 
 // hashPrefix adds the first n bytes of the file at path to h.
