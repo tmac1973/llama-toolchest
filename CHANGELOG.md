@@ -1,5 +1,43 @@
 # Changelog
 
+## [2.47.0](https://github.com/tmac1973/llama-toolchest/compare/v2.46.4...v2.47.0) (2026-11-01)
+
+
+### Features
+
+* **api:** list images.jobs.edits in meta.api for edit-capable sets ([#483](https://github.com/tmac1973/llama-toolchest/issues/483)) ([5071359](https://github.com/tmac1973/llama-toolchest/commit/50713590286c5955c53a0592f40e902738070878)), closes [#482](https://github.com/tmac1973/llama-toolchest/issues/482)
+* **forks:** add the curated forks package with Avalon ([#498](https://github.com/tmac1973/llama-toolchest/issues/498)) ([7fad858](https://github.com/tmac1973/llama-toolchest/commit/7fad85856e7a6072b7dcfab71ab5b7c0faacad07))
+* **forks:** add the llama.cpp forks opt-in setting ([#497](https://github.com/tmac1973/llama-toolchest/issues/497)) ([55f5f22](https://github.com/tmac1973/llama-toolchest/commit/55f5f22b9d471b37869795520e139e07110b98bc))
+* **forks:** build curated forks from the Builds page ([#499](https://github.com/tmac1973/llama-toolchest/issues/499)) ([3f0a4cc](https://github.com/tmac1973/llama-toolchest/commit/3f0a4cc6f5aad88063922e0a2573e88d25da3deb))
+* **forks:** download a fork's model set from the Models page ([#500](https://github.com/tmac1973/llama-toolchest/issues/500)) ([b4aedf7](https://github.com/tmac1973/llama-toolchest/commit/b4aedf776661a93a2024b61bda10b6a84659f4aa))
+* **forks:** manage fork instances on the Server page ([#506](https://github.com/tmac1973/llama-toolchest/issues/506)) ([a9afce1](https://github.com/tmac1973/llama-toolchest/commit/a9afce1d4f05368cc54526313a50195802587b50))
+* **forks:** route API requests to running fork instances ([#507](https://github.com/tmac1973/llama-toolchest/issues/507)) ([5e7613b](https://github.com/tmac1973/llama-toolchest/commit/5e7613b3c4ec991bb32c8b4729508d6342cfd66b))
+* **forks:** run fork instances on a reserved GPU ([#502](https://github.com/tmac1973/llama-toolchest/issues/502)) ([e3113b7](https://github.com/tmac1973/llama-toolchest/commit/e3113b7c30342d944159990ccf54390194776189))
+* **gen:** accept multipart edit jobs on /v1/images/jobs ([#480](https://github.com/tmac1973/llama-toolchest/issues/480)) ([1ae36f1](https://github.com/tmac1973/llama-toolchest/commit/1ae36f14d9b1d497cd8cfb1a813dfab4f332cd60)), closes [#347](https://github.com/tmac1973/llama-toolchest/issues/347)
+* **gen:** add ESRGAN upscaling with an upscaler set and /v1/images/upscale ([#485](https://github.com/tmac1973/llama-toolchest/issues/485)) ([9ba643d](https://github.com/tmac1973/llama-toolchest/commit/9ba643def7e6ffc3ec7b1af65bc2552506bcb8f5)), closes [#347](https://github.com/tmac1973/llama-toolchest/issues/347)
+* **gen:** advertise edit image limit, upscale factor and ACE stems; keep capabilities current ([#490](https://github.com/tmac1973/llama-toolchest/issues/490)) ([#491](https://github.com/tmac1973/llama-toolchest/issues/491)) ([1c66964](https://github.com/tmac1973/llama-toolchest/commit/1c669642d03e4f1e138de1f6922456e09435c3d0))
+* **generation:** add a Qwen-Image 2.1 Turbo Edit set ([#484](https://github.com/tmac1973/llama-toolchest/issues/484)) ([584bded](https://github.com/tmac1973/llama-toolchest/commit/584bdedd74f7d4c69c62869fcf6bc3a7fcd35537)), closes [#347](https://github.com/tmac1973/llama-toolchest/issues/347)
+* **gen:** let users choose a generation instance's port ([#487](https://github.com/tmac1973/llama-toolchest/issues/487)) ([39dcf85](https://github.com/tmac1973/llama-toolchest/commit/39dcf85b175e0346910753c568468fd5de7e2aef)), closes [#486](https://github.com/tmac1973/llama-toolchest/issues/486)
+* **gen:** refuse edits past max_edit_images and measure an edit at the limit ([#492](https://github.com/tmac1973/llama-toolchest/issues/492)) ([#493](https://github.com/tmac1973/llama-toolchest/issues/493)) ([ab961a4](https://github.com/tmac1973/llama-toolchest/commit/ab961a4dacc9d6b1e519297b8ccac01b0fb962b6))
+* **setup:** list the ROCm 10 base image releases and mark the current one ([#481](https://github.com/tmac1973/llama-toolchest/issues/481)) ([0f148c2](https://github.com/tmac1973/llama-toolchest/commit/0f148c24228e7de1163471a02173aa9766c8fe64))
+* **setup:** offer to install pnpm in host mode and report it in deps ([#477](https://github.com/tmac1973/llama-toolchest/issues/477)) ([68ea21b](https://github.com/tmac1973/llama-toolchest/commit/68ea21be71e35c2d686b441ebaae49c15968c457))
+
+
+### Bug Fixes
+
+* **downloader:** check each shard against its own size ([#505](https://github.com/tmac1973/llama-toolchest/issues/505)) ([3f5329b](https://github.com/tmac1973/llama-toolchest/commit/3f5329bd3c8fb3f43490fb9ba494b15f9da9118f))
+* **downloader:** download again a finished file of the wrong size ([#501](https://github.com/tmac1973/llama-toolchest/issues/501)) ([1b724d8](https://github.com/tmac1973/llama-toolchest/commit/1b724d8aa29c3b98f2ec7c10cada5214b35c65fc))
+* **downloader:** put a complete .part in place instead of failing with 416 ([#504](https://github.com/tmac1973/llama-toolchest/issues/504)) ([0cc3850](https://github.com/tmac1973/llama-toolchest/commit/0cc3850f59578790d919415535a2e9c15073d833))
+* **forks:** let a fork start beside stopped generation instances that auto-evict frees ([#509](https://github.com/tmac1973/llama-toolchest/issues/509)) ([c472f57](https://github.com/tmac1973/llama-toolchest/commit/c472f5707ebf380547b34bb1742c9302f5cca26b))
+* **gen:** clearer port conflict error and Edit tooltip ([#488](https://github.com/tmac1973/llama-toolchest/issues/488)) ([dbc717e](https://github.com/tmac1973/llama-toolchest/commit/dbc717ec5c183cfb3a7710964892ba928a7480e2))
+* **music:** report the length of the audio made, not the requested duration ([#479](https://github.com/tmac1973/llama-toolchest/issues/479)) ([1ab7f7d](https://github.com/tmac1973/llama-toolchest/commit/1ab7f7df8ff83a951d8db7f02cb5ad7d38a9cf23)), closes [#399](https://github.com/tmac1973/llama-toolchest/issues/399)
+* **setup:** find a compose install after setup.sh down ([#489](https://github.com/tmac1973/llama-toolchest/issues/489)) ([4d8b603](https://github.com/tmac1973/llama-toolchest/commit/4d8b603a50aa0f6138b55c71157b9f76e8f00137))
+
+
+### Refactors
+
+* **forks:** leave single-file size checks to the downloader ([#503](https://github.com/tmac1973/llama-toolchest/issues/503)) ([073b83e](https://github.com/tmac1973/llama-toolchest/commit/073b83e9a89736260bae34ef0c4b917904aeb83d))
+
 ## [2.46.4](https://github.com/tmac1973/llama-toolchest/compare/v2.46.3...v2.46.4) (2026-10-31)
 
 
