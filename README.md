@@ -26,6 +26,7 @@ A web-based management interface for [llama.cpp](https://github.com/ggerganov/ll
 - **Coding agent configs** — Ready-made config files for opencode, Kilo Code, pi, Goose and Crush, listing the models the server is serving with each one's context and capabilities (Server tab → API Endpoint → *Agent Configs*). See [Coding agents](#coding-agents).
 - **Built-in chat UI** — llama.cpp's native chat interface with a model-selector dropdown.
 - **Agent CLI** — Lightweight terminal chat client (`cmd/agent`) with optional filesystem tool use.
+- **Image, video and music generation** — Run stable-diffusion.cpp and acestep.cpp next to llama.cpp, with one-click model sets from a tested catalog, VRAM reservations measured on your own card, and OpenAI-style image, video and music endpoints. Every set has a *Details* view that shows its files, each setting with the reason for it, and the exact command it runs. You can copy any set into a custom set to use your own files, quants or fine-tunes, and edit it later. The in-app Help page covers setup in its *Image, video and music generation* section.
 - **Curated llama.cpp forks (experimental)** — Build and run hand-picked forks of llama.cpp for the one model each is tuned for, next to the normal router. The first is [Avalon](https://github.com/freriadoc/Avalon), which runs Qwen3.8-Flash-Next on a single RDNA3 card. See [llama.cpp forks](#llamacpp-forks-experimental).
 
 ## Installation
