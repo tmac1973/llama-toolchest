@@ -32,7 +32,14 @@
                 <td>{{kindTitle .Kind}}</td>
                 <td>{{printf "%.1f" .SizeGB}} GB</td>
                 <td><small>{{.License}}</small></td>
-                <td>
+                <td style="white-space:nowrap;">
+                    <button type="button" class="outline secondary" style="margin:0 0.4rem 0 0;padding:0.1rem 0.5rem;font-size:0.8rem;"
+                            title="Shows the files, settings and command this set runs with."
+                            hx-get="/api/gen/models/catalog/{{.ID}}/details?tab=catalog"
+                            hx-target="#gen-catalog-details-body" hx-swap="innerHTML"
+                            data-set-name="{{.Name}}"
+                            hx-on::after-request="if (event.detail.successful) { document.getElementById('gen-catalog-details-name').textContent = this.dataset.setName; document.getElementById('gen-catalog-details-dialog').showModal(); }"
+                            data-error-label="Details not loaded">Details</button>
                     {{- if .Installed}}<small title="The set is ready. See Generation models on the Models tab.">On this machine</small>
                     {{- else if .Downloading}}<small title="The downloads list at the top of this page shows the progress.">Downloading {{.Percent}}%</small>
                     {{- else}}

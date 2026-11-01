@@ -1,0 +1,61 @@
+{{/* The body of the "How this set runs" dialog, for a set on this machine
+     (Models tab) or a catalog entry (Download Models tab). The dialogs
+     themselves are in models.html and models_browse.html. Data:
+     genDetailsView (gen_models.go), from generation.SetDetails. */}}
+{{define "gen_set_details"}}
+<style>
+    .gen-details-list { list-style: none; padding: 0; margin: 0 0 1rem 0; }
+    .gen-details-list li { list-style: none; padding: 0.4rem 0; border-bottom: 1px solid var(--pico-muted-border-color); overflow-wrap: anywhere; }
+    .gen-details-list li:last-child { border-bottom: none; }
+</style>
+<p><small>Runs with <code>{{.Program}}</code>
+{{- with .Recipe}}, recipe <code title="The stable-diffusion.cpp recipe. It sets which files the set needs.">{{.}}</code>{{end}}.
+{{if .Custom}}Custom set, made from your own files.{{else}}Catalog set.{{end}}</small></p>
+
+<h6 style="margin-bottom:0.25rem;">Files</h6>
+<ul class="gen-details-list">
+{{- range .Slots}}
+    <li>
+        <span title="Slot {{.Slot}}{{if .Required}}. Required.{{else}}. Optional.{{end}}" style="cursor:help;">{{.Label}}</span>
+        {{- if .Bytes}} <small style="color:var(--pico-muted-color);">{{sizeText .Bytes}}</small>{{end}}<br>
+        {{- if .Present}}<small><code>{{.Path}}</code></small>
+        {{- else}}<small title="{{with .Repo}}From Hugging Face: {{.}}{{end}}">Not downloaded yet. It will be saved to <code>{{.Path}}</code></small>
+        {{- end}}
+    </li>
+{{- end}}
+</ul>
+
+<h6 style="margin-bottom:0.25rem;">Settings</h6>
+{{- if .Flags}}
+<ul class="gen-details-list">
+{{- range .Flags}}
+    <li><code>{{.Flag}}{{with .Value}} {{.}}{{end}}</code><br>
+        <small>{{if .Reason}}{{.Reason}}{{else}}<span title="No reason recorded for this flag.">No reason recorded.</span>{{end}}</small></li>
+{{- end}}
+</ul>
+{{- else}}
+<p><small>No settings of its own. The backend uses its defaults.</small></p>
+{{- end}}
+
+<h6 style="margin-bottom:0.25rem;">Added by toolchest</h6>
+<p><small>Toolchest adds these flags for each instance. Values in &lt;angle brackets&gt; are set when the instance starts.</small></p>
+<ul class="gen-details-list">
+{{- range .FixedFlags}}
+    <li><code>{{.Flag}} {{.Value}}</code><br>
+        <small>{{.Reason}}</small></li>
+{{- end}}
+</ul>
+
+<h6 style="margin-bottom:0.25rem;">Command</h6>
+<pre style="white-space:pre-wrap;word-break:break-all;margin-bottom:0.25rem;"><code>{{.Command}}</code></pre>
+<p><button type="button" class="outline secondary" style="padding:0.1rem 0.6rem;font-size:0.8rem;"
+        data-copy="{{.Command}}" title="Copies the command. Replace the values in angle brackets before you run it."
+        onclick="var b=this; copyToClipboard(b.dataset.copy).then(function(){ b.textContent='Copied'; setTimeout(function(){ b.textContent='Copy command'; }, 1200); }).catch(function(){});">Copy command</button>
+<small>An instance can add its own extra arguments on the Server page.</small></p>
+
+{{- if or .Notes .License}}
+<h6 style="margin-bottom:0.25rem;">About this set</h6>
+{{- with .Notes}}<p><small>{{.}}</small></p>{{end}}
+{{- with .License}}<p><small>Licence: {{.}}</small></p>{{end}}
+{{- end}}
+{{end}}

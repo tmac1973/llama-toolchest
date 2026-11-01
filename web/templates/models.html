@@ -66,6 +66,15 @@
         <div id="gen-new-instance-form"></div>
     </article>
 </dialog>
+<dialog id="gen-set-details-dialog" style="max-width:900px;width:95vw;">
+    <article>
+        <header>
+            <button type="button" aria-label="Close" rel="prev" onclick="this.closest('dialog').close();"></button>
+            How <span id="gen-set-details-name"></span> runs
+        </header>
+        <div id="gen-set-details-body"></div>
+    </article>
+</dialog>
 {{end}}
 
 {{if .ForksEnabled}}

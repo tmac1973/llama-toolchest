@@ -61,6 +61,15 @@
 <div id="embedding-presets"></div>
 {{- if .GenerationEnabled}}
 <div id="gen-catalog"></div>
+<dialog id="gen-catalog-details-dialog" style="max-width:900px;width:95vw;">
+    <article>
+        <header>
+            <button type="button" aria-label="Close" rel="prev" onclick="this.closest('dialog').close();"></button>
+            How <span id="gen-catalog-details-name"></span> runs
+        </header>
+        <div id="gen-catalog-details-body"></div>
+    </article>
+</dialog>
 {{- end}}
 
 <form hx-get="/api/hf/search"
