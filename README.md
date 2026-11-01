@@ -26,6 +26,7 @@ A web-based management interface for [llama.cpp](https://github.com/ggerganov/ll
 - **Coding agent configs** — Ready-made config files for opencode, Kilo Code, pi, Goose and Crush, listing the models the server is serving with each one's context and capabilities (Server tab → API Endpoint → *Agent Configs*). See [Coding agents](#coding-agents).
 - **Built-in chat UI** — llama.cpp's native chat interface with a model-selector dropdown.
 - **Agent CLI** — Lightweight terminal chat client (`cmd/agent`) with optional filesystem tool use.
+- **Curated llama.cpp forks (experimental)** — Build and run hand-picked forks of llama.cpp for the one model each is tuned for, next to the normal router. The first is [Avalon](https://github.com/freriadoc/Avalon), which runs Qwen3.8-Flash-Next on a single RDNA3 card. See [llama.cpp forks](#llamacpp-forks-experimental).
 
 ## Installation
 
@@ -280,6 +281,28 @@ Two modes:
 GPU selection: pick "All GPUs" (tensor mode), specific GPUs ("GPU 0", "GPUs 0–1"), or a custom tensor-split string like `1,1,0,0`.
 
 **Tensor parallelism on CUDA — NCCL.** llama.cpp's `-sm tensor` path uses NCCL for the AllReduce that fires after attention and the FFN in every transformer block. NCCL is the optimized GPU-to-GPU collective communications library; without it the build silently falls back to a slower generic path. The CUDA container image installs `libnccl-dev` automatically, and `setup.sh install --cuda` does the same on host installs. On ROCm the counterpart is RCCL, off by default upstream — enable the **RCCL Collectives** build toggle (the ROCm image ships `rccl-devel`; host installs offer it as an optional extra, since it only matters for multi-GPU); without it the log shows `falling back to meta-backend butterfly` and every token pays for the slow path. At runtime, pair tensor parallelism with **Flash Attention on** and **KV cache at `f16`** (no quant) — those are hard constraints in the current implementation. Note that the per-tensor split requires the model's attention head count to divide cleanly by the number of GPUs, so 3-way splits crash on many architectures (most pick power-of-2 head counts). 2 or 4 GPUs split far more reliably.
+
+## llama.cpp forks (experimental)
+
+Some llama.cpp forks are much faster than upstream for one particular model. Llama Toolchest can build a short, curated list of them and run each as a **fork instance**: its own `llama-server`, serving the model the fork was made for, on one whole GPU, next to the normal router and any generation backends. The list lives in the source (`internal/forks`), with each fork pinned to a commit that has been tested, and the model files pinned to a revision of their Hugging Face repo.
+
+Right now there is one fork, [Avalon](https://github.com/freriadoc/Avalon). It runs Qwen3.8-Flash-Next (a 125B MoE, about 90 GiB) on one RDNA3 GPU, keeping the dense weights, the KV cache and a cache of the busiest experts in VRAM and the rest of the experts in system RAM. Its author reports around 90 tokens/s on an RX 7900 XT. It wants 32 GB or more of RAM, a CPU with AVX2, and about 98 GB of disk for the model.
+
+To use it:
+
+1. Turn on **llama.cpp forks (experimental)** in Settings. This also turns off "let the router keep several models loaded", for the same reason generation backends do.
+2. On **Builds**, pick the Avalon project and build the pinned commit for your GPU (ROCm or CUDA). "Latest commit" is there too, marked untested.
+3. On **Models**, under *Fork model sets*, download the model. Downloads resume after a restart.
+4. On **Server**, under *llama.cpp forks*, add an instance: pick the GPU, and optionally extra arguments or environment variables. The dialog warns if the machine looks too small; you can still start it.
+5. Start it, then send requests to the normal API address with the instance name as `model`.
+
+A few things to know:
+
+- A fork instance takes its **whole GPU** while it runs. A start is refused if anything else is on that GPU, and the router can't load a model there while the fork runs. If you serve other models at the same time, keep them on the other cards with each model's GPU setting.
+- Fork instances are not covered by Autotune, Autoconfigure or benchmarks; those drive the router. The fork's own options come from its recipe, which follows the fork author's recommended command.
+- While a fork instance is loading (Avalon can take several minutes), requests for it get HTTP 503 with `Retry-After`. A stopped one gets 503 with a note to start it.
+- The fork server's own GET endpoints (`/props`, `/slots`) aren't routed through the toolchest port; call the instance's port directly.
+- Avalon is young and moving fast. Two known workarounds go in the instance's *Extra environment*: `GGML_CUDA_MOE_PIN=0` when the machine has less RAM than the model (the load can hang otherwise), and `GGML_CUDA_MOE_CACHE_MODE=off` on gfx1201 cards such as the Radeon AI PRO R9700, where the expert cache can hang on the first request.
 
 ## Architecture
 

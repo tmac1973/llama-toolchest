@@ -44,3 +44,8 @@ Write the user docs, confirm the pinned Avalon commit on asmodean (or move the p
 ## Rollback
 
 Revert the commit. Docs only, plus at most a pin change; the previous pin is in git history.
+
+## As decided (2026-11-01)
+
+- Step 4 (the CUDA check on compute2) is left out for now, at the user's request: compute2 is not to be used for this test. The real tests run on asmodean only, then on the friend's RX 7900 XTX.
+- The docs went in first, in their own PR, before the asmodean run.

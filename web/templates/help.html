@@ -84,6 +84,7 @@
         <a href="#search-hf">Download Models</a>
         <a href="#benchmarks">Benchmarks</a>
         <a href="#generation">Image, video and music</a>
+        <a href="#forks">llama.cpp forks</a>
         <a href="#settings">Settings</a>
         <a href="#api">Using the API</a>
         <a href="#troubleshooting">Troubleshooting</a>
@@ -392,6 +393,27 @@ curl $BASE/v1/videos/generations -F prompt="the waves start to roll" -F start_im
     <pre>{"model": "ming-image", "size": "1024x1024", "response_format": "b64_json",
  "prompt": "&lt;sd_cpp_extra_args&gt;{\"init_image\": \"iVBORw0KGgo…\", \"strength\": 0.9}&lt;/sd_cpp_extra_args&gt;RGBA, 4-channel, transparent background. a red fox sticker"}</pre>
     <p><em>Open web UI →</em> on the Server page opens the own web page of each backend (port 8081 and up). In a container, toolchest publishes those ports only if you chose that in <code>setup.sh</code>.</p>
+
+    <h2 id="forks">llama.cpp forks (experimental)</h2>
+    <p>Some forks of llama.cpp are much faster for one model. llama-toolchest can build a short list of tested forks. Each one runs as a <em>fork instance</em>: its own llama-server, for the model the fork is made for, on one whole GPU. It runs next to the router and the generation backends. Now the list has one fork, <strong>Avalon</strong>. It runs Qwen3.8-Flash-Next on one RDNA3 GPU, with most experts in system RAM.</p>
+    <ol>
+        <li><strong>Turn on</strong> <em>llama.cpp forks (experimental)</em> in <a href="/settings">Settings</a>. This also turns off router memory.</li>
+        <li><strong>Build</strong> the fork on <a href="/builds">Builds</a>. <em>Pinned (tested)</em> is the commit we tested. <em>Latest commit</em> is not tested.</li>
+        <li><strong>Download its model</strong> on <a href="/models">Models</a>, under <em>Fork model sets</em>. Avalon's model is about 90 GiB.</li>
+        <li><strong>Add an instance</strong> on <a href="/server">Server</a>, under <em>llama.cpp forks</em>. Choose the GPU. The dialog warns when the machine has too little RAM, no AVX2, or another GPU type. You can still start it.</li>
+        <li><strong>Start it</strong>. Then send API requests with the instance name as <code>model</code>.</li>
+    </ol>
+    <ul>
+        <li>A fork instance uses its <strong>whole GPU</strong>. It does not start while a router model or a generation instance is on that GPU, and the router cannot load a model there while it runs.</li>
+        <li>Autotune, Autoconfigure and benchmarks do not cover fork instances.</li>
+        <li>While the instance loads, requests get HTTP 503 with <code>Retry-After</code>. A large model can take several minutes.</li>
+        <li><code>/props</code> and <code>/slots</code> of a fork instance are on its own port, not on the toolchest port.</li>
+    </ul>
+    <p>Known Avalon problems. Put the line in the instance's <em>Extra environment</em>:</p>
+    <ul>
+        <li><code>GGML_CUDA_MOE_PIN=0</code>: the machine has less RAM than the model. Without it, the load can stop and not finish.</li>
+        <li><code>GGML_CUDA_MOE_CACHE_MODE=off</code>: gfx1201 GPUs, for example the Radeon AI PRO R9700. Without it, the first request can stop and not finish.</li>
+    </ul>
 
     <h2 id="settings">Settings</h2>
     <dl>
