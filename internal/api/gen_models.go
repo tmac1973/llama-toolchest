@@ -384,9 +384,22 @@ func (s *Server) handleGenCreateSet(w http.ResponseWriter, r *http.Request) {
 	case generation.KindSD:
 		set.DefaultWidth, set.DefaultHeight = formInt(r, "width", 1024), formInt(r, "height", 1024)
 	case generation.KindVideo:
-		// A custom video set has no ceiling: its Max fields stay zero.
+		// The ceiling is optional: without it, Max fields stay zero and
+		// only the measured size holds requests back.
 		set.DefaultWidth, set.DefaultHeight = formInt(r, "width", 832), formInt(r, "height", 480)
 		set.DefaultFrames, set.DefaultFPS = formInt(r, "frames", 33), formInt(r, "fps", 24)
+		set.MaxFrames = formInt(r, "max_frames", 0)
+		set.MaxWidth, set.MaxHeight = formInt(r, "max_width", 0), formInt(r, "max_height", 0)
+		if err := checkVideoCeiling(set); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	case generation.KindUpscale:
+		set.Scale = formInt(r, "scale", 4)
+		if set.Scale > 8 {
+			http.Error(w, "the upscale factor must be between 1 and 8", http.StatusBadRequest)
+			return
+		}
 	}
 	// The files field holds one "slot = /absolute/path" line per file;
 	// blank lines are skipped.
@@ -511,6 +524,28 @@ func (s *Server) handleGenDeleteSet(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.handleGenModels(w, r)
+}
+
+// checkVideoCeiling refuses a custom video set's largest size when it is
+// half given, not a multiple of 8, or smaller than the set's test video.
+// Width and height are compared as long and short sides, as
+// videoMeasureSize does, so a portrait test fits a landscape ceiling.
+func checkVideoCeiling(set generation.ModelSet) error {
+	if (set.MaxWidth > 0) != (set.MaxHeight > 0) {
+		return errors.New("give both a max width and a max height, or neither")
+	}
+	if set.MaxWidth%8 != 0 || set.MaxHeight%8 != 0 {
+		return errors.New("max width and max height must be multiples of 8")
+	}
+	if set.MaxFrames > 0 && set.DefaultFrames > set.MaxFrames {
+		return fmt.Errorf("the test video (%d frames) is longer than the max frames (%d)", set.DefaultFrames, set.MaxFrames)
+	}
+	long, short := max(set.DefaultWidth, set.DefaultHeight), min(set.DefaultWidth, set.DefaultHeight)
+	maxLong, maxShort := max(set.MaxWidth, set.MaxHeight), min(set.MaxWidth, set.MaxHeight)
+	if maxShort > 0 && (long > maxLong || short > maxShort) {
+		return fmt.Errorf("the test size %dx%d is larger than the max size %dx%d", set.DefaultWidth, set.DefaultHeight, set.MaxWidth, set.MaxHeight)
+	}
+	return nil
 }
 
 // sharedFiles holds the files of the sets that stay, so a deleted catalog

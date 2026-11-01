@@ -19,6 +19,9 @@ type CatalogEntry struct {
 	License      string      `json:"license"`
 	// Notes is shown as a tooltip on the entry.
 	Notes string `json:"notes,omitempty"`
+	// FlagNotes are reasons for LaunchArgs that only hold for this set,
+	// keyed like FlagReasons ("flag" or "flag value"). See FlagReason.
+	FlagNotes map[string]string `json:"flag_notes,omitempty"`
 	// DefaultWidth and DefaultHeight are the image or video size the
 	// measured test run uses; zero for ace.
 	DefaultWidth  int `json:"default_width,omitempty"`
@@ -139,6 +142,11 @@ func hunyuanEntry(id, name, recipe string, model Component, hd bool, steps, cfg,
 		Components: []Component{model, qwen25VL, hunyuanByT5, hunyuanVAE},
 		LaunchArgs: []string{"--steps", steps, "--cfg-scale", cfg, "--flow-shift", shift, "--sampling-method", "euler",
 			"--diffusion-fa", "--backend", "te=cpu"},
+		FlagNotes: map[string]string{
+			"--steps":      "Tencent's setting for this version of HunyuanVideo 1.5 (the model card's table).",
+			"--cfg-scale":  "Tencent's setting for this version. CFG-distilled and step-distilled versions run at 1: one pass per step.",
+			"--flow-shift": "Tencent's setting for this version of HunyuanVideo 1.5 (the model card's table).",
+		},
 		Capabilities:  caps,
 		License:       hunyuanLicense,
 		Notes:         notes + " " + hunyuanNVIDIA + " Shares its text models and VAE with the other HunyuanVideo 1.5 sets, and Qwen2.5-VL with Qwen-Image-Edit 2511. Licence: Tencent Hunyuan Community License, not valid in the EU, the UK or South Korea; terms at https://huggingface.co/tencent/HunyuanVideo-1.5.",
@@ -226,7 +234,10 @@ func Catalog() []CatalogEntry {
 			// Haruspex does. Measured on a Radeon AI PRO R9700 on
 			// 2026-10-25: peak 9.4 GiB instead of 18.6 GiB, and the same
 			// 20.7 s per transparent 1024x1024 image.
-			LaunchArgs:    []string{"--steps", "12", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling", "--backend", "te=cpu"},
+			LaunchArgs: []string{"--steps", "12", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling", "--backend", "te=cpu"},
+			FlagNotes: map[string]string{
+				"--backend te=cpu": "Runs the 10 GB text model on the CPU, as Haruspex does. On a Radeon AI PRO R9700 the peak went from 18.6 to 9.4 GiB, and each transparent image still took 20.7 s.",
+			},
 			Capabilities:  []string{"alpha"},
 			License:       "MIT",
 			Notes:         "Used by Haruspex. Makes PNG images with transparent backgrounds: the prompt must start with \"RGBA, 4-channel, transparent background.\", and the image must start from a fully transparent canvas at strength 0.9 (init_image and strength in the <sd_cpp_extra_args> block). Without both, images are opaque. Its 10 GB text model runs on the CPU, so it needs about 10.5 GiB of VRAM and fits a 16 GB card.",
@@ -333,6 +344,10 @@ func Catalog() []CatalogEntry {
 			// give none.
 			LaunchArgs: []string{"--steps", "40", "--cfg-scale", "4", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling",
 				"--negative-prompt", "low quality, ugly, unfinished, out of focus, deformed, disfigured, blurry, smudged, restricted palette, flat colors", "--backend", "te=cpu"},
+			FlagNotes: map[string]string{
+				"--steps":           "With 20 steps some grainy noise was left in the images; 40 removed it.",
+				"--negative-prompt": "Without a negative prompt, Chroma's images were covered in grainy noise. A request can give its own.",
+			},
 			License:       "Apache-2.0",
 			Notes:         "40 steps. About 3.5 minutes per 1024×1024 image on a Radeon AI PRO R9700. Reserves about 12 GiB of VRAM with its text model on the CPU. Based on FLUX.1-schnell. Has a default negative prompt (about 10 s more per image); a request can give its own. Shares its text model and VAE with Chroma1-Flash, and its VAE with Z-Image Turbo.",
 			DefaultWidth:  1024,
@@ -351,7 +366,11 @@ func Catalog() []CatalogEntry {
 			// Flash has guidance trained in, so it runs at CFG 1: one pass
 			// per step, and negative prompts do nothing. On 2026-10-25, 8
 			// Euler steps garbled text in the image; 16 did not.
-			LaunchArgs:    []string{"--steps", "16", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling", "--backend", "te=cpu"},
+			LaunchArgs: []string{"--steps", "16", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling", "--backend", "te=cpu"},
+			FlagNotes: map[string]string{
+				"--steps":       "8 steps garbled the text in images; 16 did not.",
+				"--cfg-scale 1": "Flash has guidance trained in, so it runs at CFG 1: one pass per step. Negative prompts do nothing.",
+			},
 			License:       "Apache-2.0",
 			Notes:         "Faster Chroma1-HD: 16 steps. About 46 s per 1024×1024 image on a Radeon AI PRO R9700 (Chroma1-HD: about 3.5 minutes). Reserves about 12 GiB of VRAM with its text model on the CPU. Ignores negative prompts. Shares its text model and VAE with Chroma1-HD.",
 			DefaultWidth:  1024,
@@ -406,7 +425,10 @@ func Catalog() []CatalogEntry {
 			// on 2026-10-26. Without it the decode works but needs more
 			// memory: the whole card peaked at about 25 GiB for the test
 			// video.
-			LaunchArgs:   []string{"--steps", "20", "--cfg-scale", "5", "--flow-shift", "5", "--sampling-method", "euler", "--diffusion-fa", "--backend", "te=cpu"},
+			LaunchArgs: []string{"--steps", "20", "--cfg-scale", "5", "--flow-shift", "5", "--sampling-method", "euler", "--diffusion-fa", "--backend", "te=cpu"},
+			FlagNotes: map[string]string{
+				"--backend te=cpu": "Runs the text model on the CPU. This saved about 6 GiB on this set.",
+			},
 			Capabilities: []string{CapText, CapStartImage},
 			License:      "Apache-2.0",
 			Notes:        "Text-to-video and image-to-video in one small model, 20 steps. On a Radeon AI PRO R9700 (32 GB): about 70 s for Short (33 frames, 832×480), with a 20 GiB reservation and the text model on the CPU. Medium and Full fit only in a 14 GiB budget, decoded in parts: about 14 minutes for a 3.4 s Medium video. On a 16 GB RTX A4000: Short reserves 13.8 GiB, all the card can give (about 110 s per video). Medium crashed there in the CUDA code of stable-diffusion.cpp, with and without a 10 GiB budget.",
@@ -454,6 +476,11 @@ func Catalog() []CatalogEntry {
 			LaunchArgs: []string{"--steps", "20", "--cfg-scale", "3.5", "--flow-shift", "5", "--moe-boundary", "0.9",
 				"--high-noise-cfg-scale", "3.5", "--high-noise-sampling-method", "euler",
 				"--sampling-method", "euler", "--diffusion-fa", "--temporal-tiling", "--backend", "te=cpu"},
+			FlagNotes: map[string]string{
+				"--flow-shift":      "sd-server has no separate flow shift for the high-noise expert, so this value covers both experts.",
+				"--temporal-tiling": "With --vae-tiling, the Wan2.1 VAE hung while it read the start image on ROCm. Without tiling, the decode needed 32.3 GB for a Short video; with this flag, 27.9 GB.",
+				"--backend te=cpu":  "Runs the text model on the CPU. This saved only about 1 GiB here, because stable-diffusion.cpp already takes the text model off the GPU before it samples.",
+			},
 			// --temporal-tiling, not --vae-tiling: with --vae-tiling the
 			// Wan2.1 VAE hung encoding the start picture on a Radeon AI PRO
 			// R9700 (sd.cpp master-1015, 2026-10-26). Without any tiling the
@@ -511,6 +538,14 @@ func Catalog() []CatalogEntry {
 			LaunchArgs: []string{"--steps", "4", "--high-noise-steps", "4", "--cfg-scale", "1", "--high-noise-cfg-scale", "1",
 				"--flow-shift", "5", "--sampling-method", "euler", "--high-noise-sampling-method", "euler",
 				"--diffusion-fa", "--temporal-tiling", "--backend", "te=cpu"},
+			FlagNotes: map[string]string{
+				"--steps":                "4 steps on each expert. Lightning's own workflow uses 2 + 2: faster (110 s) but softer, with smeared faces in the last frames. 4 + 4 (200 s) was about as sharp as the 20-step set.",
+				"--high-noise-steps":     "4 steps on the high-noise expert, before the low-noise expert takes over. --moe-boundary is not needed.",
+				"--cfg-scale 1":          "The Lightning LoRAs are made for CFG 1: one pass per step.",
+				"--high-noise-cfg-scale": "The Lightning LoRAs are made for CFG 1: one pass per step.",
+				"--temporal-tiling":      "With --vae-tiling, the Wan2.1 VAE hung while it read the start image on ROCm. This flag tiles only the decode.",
+				"--backend te=cpu":       "Runs the text model on the CPU. This saved only about 1 GiB here, because stable-diffusion.cpp already takes the text model off the GPU before it samples.",
+			},
 			Capabilities:  []string{CapStartImage, CapEndImage},
 			License:       "Apache-2.0",
 			Notes:         "Wan2.2 I2V A14B with the Lightning 4-step LoRAs: image-to-video and start-and-end videos; needs a start image. 4 steps per expert: about 3 minutes 20 seconds for a 2-second 832×480 video on a Radeon AI PRO R9700 (about 27 minutes with 20 steps), with a little less detail. Up to 5 seconds at 1280×720. Shares its experts, text model and VAE with Wan2.2 I2V A14B.",
@@ -557,7 +592,11 @@ func Catalog() []CatalogEntry {
 			// 1280×736 peaked at 29.6 GiB under a 28.4 GiB limit, against
 			// 30.9 GiB untiled, so Full fits a 32 GB card; the decode took
 			// 38 s against 28 s, with no seams between the tiles.
-			LaunchArgs:   []string{"--steps", "8", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--temporal-tiling", "--backend", "te=cpu"},
+			LaunchArgs: []string{"--steps", "8", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--temporal-tiling", "--backend", "te=cpu"},
+			FlagNotes: map[string]string{
+				"--temporal-tiling": "The tiled LTX video decode (--vae-tiling) stopped making progress on ROCm. Tiled only in time, a Full video (121 frames at 1280×736) peaked at 29.6 GiB against 30.9 GiB untiled, so it fits a 32 GB card.",
+				"--backend te=cpu":  "Runs the 12B Gemma text model on the CPU. This saved about 3 GiB at Full, enough for Full to fit a 32 GB card.",
+			},
 			Capabilities: []string{CapText, CapStartImage, CapEndImage},
 			License:      "LTX-2 Community Licence (free under US$10M yearly revenue); text model: Gemma Terms of Use",
 			Notes:        "Text-to-video, image-to-video and start-and-end videos with sound, 8 steps. WebM has a sound track; animated WebP is silent. Up to 5 seconds at 1280×720 (sd-server makes it 1280×736). On a Radeon AI PRO R9700 (32 GB): about 35 s for Short (33 frames, 768×512); about 4.5 minutes for 5 s at 1280×720 (reservation 27.7 GiB, measured at Full, text model on the CPU); about 11 minutes with a start and an end image. On a 16 GB RTX A4000 with the text model on the CPU: Medium and Full fit in 13.8 GiB, all the card can give, with the rest in system RAM; stable-diffusion.cpp still crashed there now and then (\"CONCAT failed\"). Licence: free unless the organisation makes US$10 million a year or more; terms at https://huggingface.co/Lightricks/LTX-2.3. Its Gemma 3 text model is under the Gemma Terms of Use.",
@@ -676,16 +715,25 @@ func LookupCatalog(id string) (CatalogEntry, bool) {
 }
 
 // MadeSize is the size sd-server makes for a requested width and height:
-// each rounded up to the catalog entry's SizeMultiple. It is the catalog's
-// current value, so sets downloaded before it was added have it too; a
-// custom set, with no catalog entry, keeps the size asked for.
+// each rounded up to the set's SizeMultiple. A set whose multiple is not
+// known keeps the size asked for.
 func (m ModelSet) MadeSize(width, height int) (int, int) {
-	e, ok := LookupCatalog(m.CatalogID)
-	if m.CatalogID == "" || !ok || e.SizeMultiple <= 1 {
+	k := m.SizeMultiple()
+	if k <= 1 {
 		return width, height
 	}
-	up := func(n int) int { return (n + e.SizeMultiple - 1) / e.SizeMultiple * e.SizeMultiple }
+	up := func(n int) int { return (n + k - 1) / k * k }
 	return up(width), up(height)
+}
+
+// SizeMultiple is what sd-server rounds a video set's width and height up
+// to: the catalog entry's current value, else the recipe's (so custom sets
+// have it too), else 0 when it is not known.
+func (m ModelSet) SizeMultiple() int {
+	if e, ok := m.catalogEntry(); ok && e.SizeMultiple > 0 {
+		return e.SizeMultiple
+	}
+	return RecipeSizeMultiple(m.Recipe)
 }
 
 // catalogEntry returns the catalog entry of a catalog set.
@@ -759,13 +807,13 @@ func EditImageLimit(inst Instance, set ModelSet) int {
 	return min(model, measured)
 }
 
-// UpscaleScale is how many times larger an upscaler set makes an image,
-// from the catalog; 0 for a custom set, whose factor is not known.
+// UpscaleScale is how many times larger an upscaler set makes an image:
+// the catalog's value, or a custom set's own Scale; 0 when not known.
 func (m ModelSet) UpscaleScale() int {
 	if e, ok := m.catalogEntry(); ok {
 		return e.Scale
 	}
-	return 0
+	return m.Scale
 }
 
 // HasStemTasks reports whether a music set can run lego, extract and

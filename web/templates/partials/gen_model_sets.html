@@ -117,6 +117,20 @@
                 <input type="number" name="fps" min="1" max="240" placeholder="24">
             </label>
         </div>
+        <div class="grid">
+            <label title="The longest video a request may ask for, in frames. Empty: no limit. Video sets only.">Max frames
+                <input type="number" name="max_frames" min="1" placeholder="none">
+            </label>
+            <label title="The widest video a request may ask for. Give both max width and max height, or neither. Video sets only.">Max width
+                <input type="number" name="max_width" min="64" step="8" placeholder="none">
+            </label>
+            <label title="The tallest video a request may ask for. Give both max width and max height, or neither. Video sets only.">Max height
+                <input type="number" name="max_height" min="64" step="8" placeholder="none">
+            </label>
+            <label title="How many times larger the upscaler makes an image. Most ESRGAN models make it 4 times larger. Upscaler sets only.">Upscale factor
+                <input type="number" name="scale" min="1" max="8" placeholder="4">
+            </label>
+        </div>
         <label title="Select this when the DiT is an ACE-Step base model. Only a base model can add, pull out or complete instruments (lego, extract, complete). Music sets only.">
             <input type="checkbox" name="stem_tasks" value="1"> Base DiT (music sets)
         </label>

@@ -395,8 +395,9 @@ func TestV1ModelsVideoMeta(t *testing.T) {
 	if v["default_size"] != "832x480" || v["default_frames"] != float64(33) || v["max_frames"] != float64(121) || v["max_size"] != "1280x704" {
 		t.Errorf("meta.video = %v", v)
 	}
-	if _, ok := v["size_multiple"]; ok {
-		t.Errorf("a custom set has no known size multiple, got %v", v["size_multiple"])
+	// A custom set takes the size multiple of its recipe (wan22-ti2v-5b).
+	if v["size_multiple"] != float64(32) {
+		t.Errorf("a custom set's size_multiple = %v, want its recipe's 32", v["size_multiple"])
 	}
 }
 
