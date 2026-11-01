@@ -45,9 +45,9 @@ func (s *Server) openAIModel(m *models.Model, cfg *models.ModelConfig) map[strin
 		meta["context_per_request"] = layout.PerConversation
 	}
 
-	// Only while generation backends are on, so the list is unchanged for
-	// everyone else.
-	if s.generationOn() {
+	// Only while generation backends or forks are on, so the list is
+	// unchanged for everyone else.
+	if s.generationOn() || s.forksOn() {
 		meta["kind"] = "text"
 	}
 
@@ -91,7 +91,7 @@ func (s *Server) handleV1Models(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	for _, obj := range s.genV1Models() {
+	for _, obj := range append(s.genV1Models(), s.forkV1Models()...) {
 		if kind == "" || obj["meta"].(map[string]any)["kind"] == kind {
 			data = append(data, obj)
 		}
@@ -221,6 +221,12 @@ func (s *Server) handleV1Model(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "model")
 
 	m, cfg := s.findModelByAny(id)
+	if inst, ok := s.forkForModel(id); m == nil && ok {
+		if obj := s.forkV1Model(inst); obj != nil {
+			respondJSON(w, obj)
+			return
+		}
+	}
 	if m == nil && s.generationOn() && s.gen != nil {
 		if inst, err := s.gen.Instance(id); err == nil && inst.Enabled && inst.ReservedMiB > 0 {
 			if obj := s.genV1Model(inst); obj != nil {
