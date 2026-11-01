@@ -45,7 +45,7 @@ func TestPartBesideFinishedFileReplacesIt(t *testing.T) {
 	dl := &download{bc: broadcast.New[DownloadStatus](1, 16)}
 	final := filepath.Join(dir, "m.gguf")
 
-	if _, err := d.downloadFile(context.Background(), "fake", "id", "org/m", "m.gguf", "m.gguf", dir, 0, 0, dl); err != nil {
+	if _, err := d.downloadFile(context.Background(), "fake", "id", "org/m", "m.gguf", "m.gguf", dir, 0, 0, 0, dl); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(final); string(got) != "old" {
@@ -54,7 +54,7 @@ func TestPartBesideFinishedFileReplacesIt(t *testing.T) {
 
 	os.WriteFile(final+".part", nil, 0o644)
 	d.ExpectSHA256(final, sha("new contents"))
-	if _, err := d.downloadFile(context.Background(), "fake", "id", "org/m", "m.gguf", "m.gguf", dir, 0, 0, dl); err != nil {
+	if _, err := d.downloadFile(context.Background(), "fake", "id", "org/m", "m.gguf", "m.gguf", dir, 0, 0, 0, dl); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(final); string(got) != "new contents" {
@@ -77,7 +77,7 @@ func TestUpdateWithWrongHashKeepsOldFile(t *testing.T) {
 	os.WriteFile(final+".part", nil, 0o644)
 	d.ExpectSHA256(final, sha("new contents"))
 
-	if _, err := d.downloadFile(context.Background(), "fake", "id", "org/m", "m.gguf", "m.gguf", dir, 0, 0, dl); err == nil {
+	if _, err := d.downloadFile(context.Background(), "fake", "id", "org/m", "m.gguf", "m.gguf", dir, 0, 0, 0, dl); err == nil {
 		t.Fatal("downloadFile accepted a file with the wrong hash")
 	}
 	if got, _ := os.ReadFile(final); string(got) != "old" {
@@ -105,7 +105,7 @@ func TestResumedDownloadHashCoversWholeFile(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "m.gguf.part"), []byte(whole[:4]), 0o644)
 	dl := &download{bc: broadcast.New[DownloadStatus](1, 16)}
 
-	if _, err := d.downloadFile(context.Background(), "fake", "id", "org/m", "m.gguf", "m.gguf", dir, 0, 0, dl); err != nil {
+	if _, err := d.downloadFile(context.Background(), "fake", "id", "org/m", "m.gguf", "m.gguf", dir, 0, 0, 0, dl); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := store.Lookup(filepath.Join(dir, "m.gguf")); got != sha(whole) {

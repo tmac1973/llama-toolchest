@@ -8,8 +8,10 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tmac1973/llama-toolchest/internal/generation"
@@ -39,6 +41,27 @@ func genServer(t *testing.T) *Server {
 		URL: func(repo, file string) string { return fake.URL + "/" + repo + "/" + file },
 	})
 	return s
+}
+
+// addFakeSizedSet adds a catalog set to the store as a download would,
+// but with each file's size set to the size of what genServer's fake
+// serves for it, so the downloaded files pass the size check.
+func addFakeSizedSet(t *testing.T, s *Server, id string) {
+	t.Helper()
+	entry, ok := generation.LookupCatalog(id)
+	if !ok {
+		t.Fatalf("no catalog set %s", id)
+	}
+	set := generation.ModelSet{
+		ID: entry.ID, Name: entry.Name, Kind: entry.Kind, CatalogID: entry.ID, Recipe: entry.Recipe,
+		Components: slices.Clone(entry.Components), Created: time.Now(),
+	}
+	for i, c := range set.Components {
+		set.Components[i].Bytes = int64(len(c.Repo + "/" + c.File))
+	}
+	if err := s.gen.AddModelSet(set); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // withID adds a chi URL parameter to a request.
@@ -77,8 +100,7 @@ func TestGenModelRoutesHiddenWhileOff(t *testing.T) {
 // own inside the LLM models dir), then marks the set complete.
 func TestGenCatalogDownloadCompletes(t *testing.T) {
 	s := genServer(t)
-	// The fake serves short bodies, so the expected sizes are not checked
-	// here; take the catalog entry as it is.
+	addFakeSizedSet(t, s, "flux2-klein-4b")
 	rec := httptest.NewRecorder()
 	s.handleGenCatalogDownload(rec, withID(htmxReq("POST", "/", nil), "flux2-klein-4b"))
 	if rec.Code != http.StatusOK {
@@ -110,6 +132,55 @@ func TestGenCatalogDownloadCompletes(t *testing.T) {
 	s.handleGenCatalogDownload(again, withID(htmxReq("POST", "/", nil), "flux2-klein-4b"))
 	if again.Code != http.StatusConflict {
 		t.Errorf("downloading a complete set again = %d, want 409", again.Code)
+	}
+}
+
+// A file already on disk with the wrong size is downloaded again, not
+// taken as it is.
+func TestGenCatalogDownloadReplacesWrongSizedFile(t *testing.T) {
+	s := genServer(t)
+	addFakeSizedSet(t, s, "flux2-klein-4b")
+	set, _ := s.gen.ModelSet("flux2-klein-4b")
+	c := set.Components[0]
+	path := huggingface.FilePath(generation.ModelsDir(s.cfg), c.Repo, c.File)
+	os.MkdirAll(filepath.Dir(path), 0o755)
+	os.WriteFile(path, []byte("wrong"), 0o644)
+
+	rec := httptest.NewRecorder()
+	s.handleGenCatalogDownload(rec, withID(htmxReq("POST", "/", nil), "flux2-klein-4b"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("download: %d %s", rec.Code, rec.Body.String())
+	}
+	testutil.EventuallyMsg(t, func() bool {
+		set, _ = s.gen.ModelSet("flux2-klein-4b")
+		return set.Complete
+	}, func() string { return fmt.Sprintf("set never completed: %+v", set) })
+	if got, _ := os.ReadFile(path); string(got) != c.Repo+"/"+c.File {
+		t.Errorf("%s holds %q, want the downloaded file", c.Slot, got)
+	}
+}
+
+// A finished file whose size is not the set's size for it is not
+// recorded: the set keeps its size and stays incomplete.
+func TestGenFileDoneRefusesWrongSize(t *testing.T) {
+	s := genServer(t)
+	addFakeSizedSet(t, s, "flux2-klein-4b")
+	set, _ := s.gen.ModelSet("flux2-klein-4b")
+	for _, c := range set.Components {
+		s.genFileDone(set.ID, c.Slot, "/x/"+c.File, c.Bytes)
+	}
+	if set, _ = s.gen.ModelSet("flux2-klein-4b"); !set.Complete {
+		t.Fatal("files of the right size did not complete the set")
+	}
+
+	c := set.Components[0]
+	s.genFileDone(set.ID, c.Slot, "/x/"+c.File, c.Bytes+1)
+	set, _ = s.gen.ModelSet("flux2-klein-4b")
+	if set.Complete {
+		t.Error("a file of the wrong size left the set complete")
+	}
+	if got := set.Components[0]; got.Bytes != c.Bytes || got.Path != "" {
+		t.Errorf("component = %+v, want size %d kept and no path", got, c.Bytes)
 	}
 }
 
@@ -254,6 +325,7 @@ func TestGenCatalogCardIsSeparateFromSets(t *testing.T) {
 		t.Error("the Models tab section still carries the catalog")
 	}
 
+	addFakeSizedSet(t, s, "flux2-klein-4b")
 	dl := httptest.NewRecorder()
 	s.handleGenCatalogDownload(dl, withID(htmxReq("POST", "/?view=catalog", nil), "flux2-klein-4b"))
 	if dl.Code != http.StatusOK {
