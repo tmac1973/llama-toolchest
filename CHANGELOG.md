@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.49.0](https://github.com/tmac1973/llama-toolchest/compare/v2.48.0...v2.49.0) (2026-11-01)
+
+
+### Features
+
+* **gen:** add flag reasons, slot labels and custom set limits ([#519](https://github.com/tmac1973/llama-toolchest/issues/519)) ([1fa60df](https://github.com/tmac1973/llama-toolchest/commit/1fa60df8586f79fd35a5dfde9f957c128db7e8ce))
+* **gen:** copy any generation set into a custom set ([#524](https://github.com/tmac1973/llama-toolchest/issues/524)) ([5340d12](https://github.com/tmac1973/llama-toolchest/commit/5340d12474ce6200eeecb4fb22194a26b0c291fe))
+* **gen:** custom set form with a field per slot, file suggestions and file checks ([#523](https://github.com/tmac1973/llama-toolchest/issues/523)) ([9165a9e](https://github.com/tmac1973/llama-toolchest/commit/9165a9e550dc9951975fa5e261a28bfb700c56ab))
+* **gen:** describe how a set runs, from the same code that launches it ([#521](https://github.com/tmac1973/llama-toolchest/issues/521)) ([cd62904](https://github.com/tmac1973/llama-toolchest/commit/cd62904470a0af94d9c1113ea6fcd5887590aaa4))
+* **gen:** edit a custom set's files and settings ([#525](https://github.com/tmac1973/llama-toolchest/issues/525)) ([b11ae00](https://github.com/tmac1973/llama-toolchest/commit/b11ae008f541923da6e37713f1941ebe1472a42b))
+* **gen:** show how each generation set runs in a Details dialog ([#522](https://github.com/tmac1973/llama-toolchest/issues/522)) ([b96febb](https://github.com/tmac1973/llama-toolchest/commit/b96febb2a0af8c84f9a9e48c3782cd2d68e10d7a))
+
+
+### Bug Fixes
+
+* **gen:** show the backend's last error line on a failed start, and keep files another set uses by any path ([#517](https://github.com/tmac1973/llama-toolchest/issues/517)) ([baa1db4](https://github.com/tmac1973/llama-toolchest/commit/baa1db47282df0b61932a1272097d3376b2f319b))
+* **ui:** open the API reference in a new tab ([#520](https://github.com/tmac1973/llama-toolchest/issues/520)) ([9843255](https://github.com/tmac1973/llama-toolchest/commit/98432556885b8c2cfaca2b32614f0ab6754081ef))
+
 ## [2.48.0](https://github.com/tmac1973/llama-toolchest/compare/v2.47.0...v2.48.0) (2026-11-01)
 
 
