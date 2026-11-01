@@ -129,3 +129,14 @@ func TestGenDetailsRoutesAndButtons(t *testing.T) {
 		}
 	}
 }
+
+// A set with no flags of its own gives an empty list in the JSON, not
+// null (found in the 2026-11-01 field test with ACE-Step turbo).
+func TestGenDetailsEmptyFlagsJSON(t *testing.T) {
+	s := genServer(t)
+	rec := httptest.NewRecorder()
+	s.handleGenCatalogDetails(rec, withID(httptest.NewRequest("GET", "/", nil), "ace-step-turbo"))
+	if !strings.Contains(rec.Body.String(), `"flags":[]`) {
+		t.Errorf("flags not an empty list: %s", rec.Body)
+	}
+}

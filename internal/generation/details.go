@@ -97,6 +97,9 @@ func DetailsForCatalog(e CatalogEntry, modelsDir string) (SetDetails, error) {
 
 // fill adds the slots, flags and command. set has a path for every file.
 func (d *SetDetails) fill(set ModelSet, entry CatalogEntry) error {
+	// Empty lists, not nil: the JSON gives [] for a set with no flags of
+	// its own (ACE-Step), not null.
+	d.Slots, d.Flags, d.FixedFlags = []SlotDetail{}, []FlagDetail{}, []FlagDetail{}
 	d.Program = "sd-server"
 	if set.Kind == KindAce {
 		d.Program = "ace-server"
