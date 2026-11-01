@@ -131,11 +131,11 @@ func TestCheckFiles(t *testing.T) {
 	if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := CheckFiles([]Component{{Slot: "model", Path: f}}); err != nil {
+	if err := CheckFiles([]Component{{Slot: "model", Path: f}}, "/models", false); err != nil {
 		t.Errorf("existing file: %v", err)
 	}
 	for _, p := range []string{"relative/m.gguf", f + ".missing", filepath.Dir(f)} {
-		if err := CheckFiles([]Component{{Slot: "model", Path: p}}); err == nil {
+		if err := CheckFiles([]Component{{Slot: "model", Path: p}}, "/models", false); err == nil {
 			t.Errorf("%q accepted", p)
 		}
 	}

@@ -1,0 +1,101 @@
+{{/* The custom set form, in the "Add a custom set" dialog (models.html).
+     gen_set_form is the whole form; gen_set_form_fields is the part the
+     server draws again when the backend or recipe changes, with the
+     values typed so far kept. Data: genSetForm (gen_set_form.go). */}}
+{{define "gen_set_form"}}
+<form hx-post="/api/gen/models/sets" hx-target="#gen-model-sets" hx-swap="innerHTML"
+      data-error-label="Set not added"
+      hx-on::after-request="if (event.detail.successful && event.detail.elt === this) { this.closest('dialog').close(); }">
+    <label title="Shown in the UI. The set ID for API clients comes from it.">Name
+        <input type="text" name="name" required value="{{.Name}}" placeholder="e.g. qwen-turbo-local">
+    </label>
+    <div id="gen-set-form-fields">
+        {{template "gen_set_form_fields" .}}
+    </div>
+    <label title="Extra backend flags, for example --steps 8 --cfg-scale 1. Toolchest sets the address, port, VRAM limit and model folders. Press Details on a catalog set to see the flags it uses and why.">Extra launch arguments
+        <input type="text" name="launch_args" value="{{.LaunchArgs}}" placeholder="--steps 8 --cfg-scale 1">
+    </label>
+    {{/* The file suggestions, loaded once when the form opens. hx-target
+         is set here, or the form's #gen-model-sets would be inherited. */}}
+    <div hx-get="/api/gen/models/files" hx-trigger="load" hx-target="this" hx-swap="innerHTML" data-error-label="File suggestions not loaded"></div>
+    <div class="grid">
+        <button type="button" class="secondary" onclick="this.closest('dialog').close();">Cancel</button>
+        <button type="submit">Add set</button>
+    </div>
+</form>
+{{end}}
+
+{{define "gen_set_form_fields"}}
+<div class="grid">
+    <label>Backend
+        <select name="kind" hx-get="/api/gen/models/sets/form/fields" hx-include="closest form"
+                hx-target="#gen-set-form-fields" hx-swap="innerHTML" data-error-label="Form not updated">
+            <option value="sd"{{if eq .Kind "sd"}} selected{{end}}>Image (stable-diffusion.cpp)</option>
+            <option value="video"{{if eq .Kind "video"}} selected{{end}}>Video (stable-diffusion.cpp)</option>
+            <option value="ace"{{if eq .Kind "ace"}} selected{{end}}>Music (acestep.cpp)</option>
+            <option value="upscale"{{if eq .Kind "upscale"}} selected{{end}}>Upscaler (stable-diffusion.cpp)</option>
+        </select>
+    </label>
+    {{- if .Recipes}}
+    <label title="The stable-diffusion.cpp recipe of the files. It sets which files the set needs.">Recipe
+        <select name="recipe" hx-get="/api/gen/models/sets/form/fields" hx-include="closest form"
+                hx-target="#gen-set-form-fields" hx-swap="innerHTML" data-error-label="Form not updated">
+            {{- $r := .Recipe}}
+            {{- range .Recipes}}<option value="{{.}}"{{if eq . $r}} selected{{end}}>{{.}}</option>{{end}}
+        </select>
+    </label>
+    {{- end}}
+</div>
+
+<fieldset>
+    <legend><small>Files</small></legend>
+    {{- range .Slots}}
+    <label title="Slot {{.Slot}}.{{if .OneOf}} Give at least one of: {{.OneOf}}.{{end}}">{{.Label}}{{if .Required}} <small>(required)</small>{{else if .OneOf}} <small>(one of: {{.OneOf}})</small>{{else}} <small>(optional)</small>{{end}}
+        <input type="text" name="slot_{{.Slot}}" value="{{.Value}}" list="{{.List}}" placeholder="{{.Hint}}" autocomplete="off">
+    </label>
+    {{- end}}
+    <small>Type part of a file name to see matching files in the models folder (<code>{{.ModelsDir}}</code>). Files elsewhere must be under that folder. In a container, mount their folder under it.</small>
+</fieldset>
+
+{{- if or (eq .Kind "sd") (eq .Kind "video")}}
+<div class="grid">
+    <label title="Size of the Measure test run.">Test width
+        <input type="number" name="width" min="64" step="8" value="{{.Width}}" placeholder="{{if eq .Kind "video"}}832{{else}}1024{{end}}">
+    </label>
+    <label title="Size of the Measure test run.">Test height
+        <input type="number" name="height" min="64" step="8" value="{{.Height}}" placeholder="{{if eq .Kind "video"}}480{{else}}1024{{end}}">
+    </label>
+    {{- if eq .Kind "video"}}
+    <label title="Length of the Measure test video, in frames. sd-server rounds it down to 4n+1.">Test frames
+        <input type="number" name="frames" min="1" value="{{.Frames}}" placeholder="33">
+    </label>
+    <label title="Frames per second of the test video, and of requests without fps.">Frame rate
+        <input type="number" name="fps" min="1" max="240" value="{{.FPS}}" placeholder="24">
+    </label>
+    {{- end}}
+</div>
+{{- end}}
+{{- if eq .Kind "video"}}
+<div class="grid">
+    <label title="The longest video a request may ask for, in frames. Empty: no limit.">Max frames
+        <input type="number" name="max_frames" min="1" value="{{.MaxFrames}}" placeholder="none">
+    </label>
+    <label title="The widest video a request may ask for. Give both max width and max height, or neither.">Max width
+        <input type="number" name="max_width" min="64" step="8" value="{{.MaxWidth}}" placeholder="none">
+    </label>
+    <label title="The tallest video a request may ask for. Give both max width and max height, or neither.">Max height
+        <input type="number" name="max_height" min="64" step="8" value="{{.MaxHeight}}" placeholder="none">
+    </label>
+</div>
+{{- end}}
+{{- if eq .Kind "upscale"}}
+<label title="How many times larger the upscaler makes an image. Most ESRGAN models make it 4 times larger.">Upscale factor
+    <input type="number" name="scale" min="1" max="8" value="{{.Scale}}" placeholder="4">
+</label>
+{{- end}}
+{{- if eq .Kind "ace"}}
+<label title="Select this when the DiT is an ACE-Step base model. Only a base model can add, pull out or complete instruments (lego, extract, complete).">
+    <input type="checkbox" name="stem_tasks" value="1"{{if .StemTasks}} checked{{end}}> Base DiT
+</label>
+{{- end}}
+{{end}}

@@ -6,6 +6,9 @@
 // a router action refused while a benchmark job runs. Every such response
 // now shows its message in one notice at the top of the page.
 //
+// A request from inside an open dialog shows the notice in that dialog,
+// as a modal dialog hides the page behind it.
+//
 // The notice stays until it is closed, or until the action that failed
 // is tried again and works. Background polling (hx-trigger "every …") is
 // left out, so a page polling a restarting server does not flash errors;
@@ -58,10 +61,23 @@
         return notice;
     }
 
+    // placeNotice puts the notice where the user can see it: inside the
+    // open dialog the failed element is in, under the dialog's header, as a
+    // modal dialog covers the rest of the page; otherwise at the top of
+    // the page.
+    function placeNotice(n, from) {
+        var dialog = from && from.closest ? from.closest('dialog[open]') : null;
+        var host = dialog ? (dialog.querySelector('article') || dialog) : (document.querySelector('main') || document.body);
+        var header = dialog ? host.querySelector('header') : null;
+        var before = header ? header.nextSibling : host.firstChild;
+        if (before !== n) host.insertBefore(n, before);
+    }
+
     // showError puts message in the notice. from is the element whose
     // request failed, so a later success of the same element clears it.
     function showError(message, from) {
         var n = ensureNotice();
+        placeNotice(n, from);
         n.querySelector('.error-notice-text').textContent = message;
         n.hidden = false;
         source = from || null;

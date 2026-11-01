@@ -427,87 +427,10 @@ func (s *Server) handleGenCreateSet(w http.ResponseWriter, r *http.Request) {
 	if !parseForm(w, r) {
 		return
 	}
-	name := strings.TrimSpace(r.FormValue("name"))
-	kind := generation.BackendKind(r.FormValue("kind"))
-	recipe := r.FormValue("recipe")
-	if kind == generation.KindAce || kind == generation.KindUpscale {
-		recipe = ""
-	}
-	set := generation.ModelSet{
-		ID: generation.Slug(name), Name: name, Kind: kind, Recipe: recipe, Created: time.Now(), Complete: true,
-	}
-	if set.ID == "" {
-		http.Error(w, "the set needs a name", http.StatusBadRequest)
-		return
-	}
-	switch kind {
-	case generation.KindSD:
-		set.DefaultWidth, set.DefaultHeight = formInt(r, "width", 1024), formInt(r, "height", 1024)
-	case generation.KindVideo:
-		// The ceiling is optional: without it, Max fields stay zero and
-		// only the measured size holds requests back.
-		set.DefaultWidth, set.DefaultHeight = formInt(r, "width", 832), formInt(r, "height", 480)
-		set.DefaultFrames, set.DefaultFPS = formInt(r, "frames", 33), formInt(r, "fps", 24)
-		set.MaxFrames = formInt(r, "max_frames", 0)
-		set.MaxWidth, set.MaxHeight = formInt(r, "max_width", 0), formInt(r, "max_height", 0)
-		if err := checkVideoCeiling(set); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-	case generation.KindUpscale:
-		set.Scale = formInt(r, "scale", 4)
-		if set.Scale > 8 {
-			http.Error(w, "the upscale factor must be between 1 and 8", http.StatusBadRequest)
-			return
-		}
-	}
-	// The files field holds one "slot = /absolute/path" line per file;
-	// blank lines are skipped.
-	for _, line := range strings.Split(r.FormValue("files"), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		slot, path, ok := strings.Cut(line, "=")
-		if !ok {
-			http.Error(w, fmt.Sprintf("%q: write each file as slot = /path/to/file", line), http.StatusBadRequest)
-			return
-		}
-		c := generation.Component{Slot: strings.TrimSpace(slot), Path: strings.TrimSpace(path)}
-		if info, err := os.Stat(c.Path); err == nil {
-			c.Bytes = info.Size()
-		}
-		set.Components = append(set.Components, c)
-	}
-	slices.SortFunc(set.Components, func(a, b generation.Component) int { return strings.Compare(a.Slot, b.Slot) })
-	if err := generation.ValidateComponents(kind, recipe, set.Components); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if err := generation.CheckFiles(set.Components); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if _, err := generation.LoraDir(set); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	args, err := generation.ValidateExtraArgs(r.FormValue("launch_args"))
+	set, code, err := s.setFromForm(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, err.Error(), code)
 		return
-	}
-	if err := generation.CheckLoraArgs(set, args); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	set.LaunchArgs = args
-	if kind == generation.KindSD || kind == generation.KindVideo {
-		set.Capabilities = generation.RecipeCapabilities(recipe, set.Components)
-	}
-	if kind == generation.KindAce {
-		stems := r.FormValue("stem_tasks") == "1"
-		set.StemTasks = &stems
 	}
 
 	s.genSetMu.Lock()

@@ -72,7 +72,7 @@ func TestGenCreateVideoSet(t *testing.T) {
 	var lines []string
 	for slot, name := range map[string]string{"diffusion_model": "ti2v.gguf", "t5xxl": "umt5.gguf", "vae": "vae.safetensors"} {
 		p := filepath.Join(dir, name)
-		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+		if err := os.WriteFile(p, fakeGGUF, 0o644); err != nil {
 			t.Fatal(err)
 		}
 		lines = append(lines, slot+" = "+p)
@@ -117,7 +117,7 @@ func TestGenCreateVideoSetCeiling(t *testing.T) {
 	var lines []string
 	for slot, name := range map[string]string{"diffusion_model": "ti2v.gguf", "t5xxl": "umt5.gguf", "vae": "vae.safetensors"} {
 		p := filepath.Join(dir, name)
-		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+		if err := os.WriteFile(p, fakeGGUF, 0o644); err != nil {
 			t.Fatal(err)
 		}
 		lines = append(lines, slot+" = "+p)
@@ -171,7 +171,7 @@ func TestGenCreateVideoSetCeiling(t *testing.T) {
 func TestGenCreateUpscalerSetScale(t *testing.T) {
 	s := genServer(t)
 	file := filepath.Join(t.TempDir(), "x2.pth")
-	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+	if err := os.WriteFile(file, fakeGGUF, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	for name, tc := range map[string]struct {
