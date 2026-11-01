@@ -331,7 +331,99 @@
         <p><small>To add an instance, use the New instance button next to a model set on the <a href="/models">Models</a> page, under Generation models.</small></p>
     </article>
     {{end}}
+
+    {{if .ForksEnabled}}
+    <article>
+        <header style="display:flex;justify-content:space-between;align-items:center;">
+            <span title="Curated llama.cpp forks, each run as its own llama-server for the model it is made for. A fork instance uses one whole GPU.">llama.cpp forks</span>
+            <button type="button" class="outline" style="margin:0;padding:0.15rem 0.6rem;font-size:0.8rem;"
+                    hx-get="/api/forks/instances/form" hx-target="#fork-form" hx-swap="innerHTML"
+                    hx-on::after-request="if (event.detail.successful) { document.getElementById('fork-form-title').textContent = 'Add fork instance'; document.getElementById('fork-form-dialog').showModal(); }"
+                    data-error-label="Form not loaded">Add instance</button>
+        </header>
+        <div id="fork-instances" hx-get="/api/forks/instances"
+             hx-trigger="load, every 5s, forkInstancesChanged from:body" hx-swap="innerHTML">Loading…</div>
+        <p><small>Clients reach a fork instance through the normal API address, with the instance name as the model. Autotune, Autoconfigure and benchmarks do not cover fork instances.</small></p>
+    </article>
+    {{end}}
 </div>
+
+{{if .ForksEnabled}}
+<dialog id="fork-form-dialog" style="max-width:760px;width:95vw;">
+    <article>
+        <header>
+            <button type="button" aria-label="Close" rel="prev" onclick="this.closest('dialog').close();"></button>
+            <span id="fork-form-title">Add fork instance</span>
+        </header>
+        <div id="fork-form"></div>
+    </article>
+</dialog>
+<dialog id="fork-log-dialog" style="max-width:960px;width:95vw;">
+    <article>
+        <header>
+            <button type="button" aria-label="Close" rel="prev" onclick="this.closest('dialog').close();"></button>
+            <span id="fork-log-title">Instance log</span>
+        </header>
+        <pre id="fork-log" style="max-height:60vh;overflow:auto;font-size:0.8rem;"></pre>
+    </article>
+</dialog>
+<script>
+// The form shows the chosen fork's notes and only its builds, then asks
+// the server what this machine lacks for it on the chosen GPU.
+function forkFormChanged() {
+    var sel = document.getElementById('fork-form-fork');
+    if (!sel) return;
+    document.querySelectorAll('#fork-form .fork-form-about').forEach(function(d) {
+        d.hidden = d.dataset.fork !== sel.value;
+    });
+    var build = document.getElementById('fork-form-build');
+    for (var i = 0; i < build.options.length; i++) {
+        var o = build.options[i];
+        o.hidden = !!o.dataset.fork && o.dataset.fork !== sel.value;
+        if (o.hidden && o.selected) build.value = '';
+    }
+    forkNeedsRefresh();
+}
+function forkNeedsRefresh() {
+    var fork = document.getElementById('fork-form-fork');
+    if (!fork) return;
+    htmx.ajax('GET', '/api/forks/needs?' + new URLSearchParams({
+        fork: fork.value,
+        gpu: document.getElementById('fork-form-gpu').value,
+        build: document.getElementById('fork-form-build').value,
+    }), {target: '#fork-needs', swap: 'innerHTML'});
+}
+document.getElementById('fork-form').addEventListener('htmx:afterSwap', function(e) {
+    if (e.target.id === 'fork-form') forkFormChanged();
+});
+// Streams one fork instance's log into the dialog while it is open, as
+// openGenLog does for generation instances.
+var forkLogSSE = null;
+function openForkLog(id) {
+    var dlg = document.getElementById('fork-log-dialog');
+    var pre = document.getElementById('fork-log');
+    document.getElementById('fork-log-title').textContent = id + ' log';
+    pre.textContent = '';
+    if (forkLogSSE) forkLogSSE.close();
+    forkLogSSE = new LiveStream('/api/forks/instances/' + encodeURIComponent(id) + '/logs');
+    forkLogSSE.onopen = function() { pre.textContent = ''; };
+    forkLogSSE.onmessage = function(e) {
+        pre.textContent += e.data;
+        pre.scrollTop = pre.scrollHeight;
+    };
+    // The log stream answers 404 for an instance that never ran; say so
+    // rather than leave the dialog empty.
+    forkLogSSE.onerror = function() {
+        this.close();
+        if (!pre.textContent) pre.textContent = 'This instance has not run yet. Start it to see its log.';
+    };
+    dlg.showModal();
+}
+document.getElementById('fork-log-dialog').addEventListener('close', function() {
+    if (forkLogSSE) { forkLogSSE.close(); forkLogSSE = null; }
+});
+</script>
+{{end}}
 
 {{if .GenerationEnabled}}
 <dialog id="gen-edit-dialog" style="max-width:760px;width:95vw;">

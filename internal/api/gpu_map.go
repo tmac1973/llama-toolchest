@@ -102,5 +102,6 @@ func (s *Server) gpuMapAllocations(numGPUs int) []models.GPUAllocation {
 		room = models.CardRoom{Shared: make([]int, numGPUs)}
 	}
 	allocations := models.ComputeAllocationsOn(allModels, allConfigs, room)
-	return append(allocations, s.genReservationAllocations(len(allocations))...)
+	allocations = append(allocations, s.genReservationAllocations(len(allocations))...)
+	return append(allocations, s.forkReservationAllocations(len(allocations))...)
 }
