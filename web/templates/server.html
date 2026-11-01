@@ -411,7 +411,12 @@ function openForkLog(id) {
         pre.textContent += e.data;
         pre.scrollTop = pre.scrollHeight;
     };
-    forkLogSSE.onerror = function() { this.close(); };
+    // The log stream answers 404 for an instance that never ran; say so
+    // rather than leave the dialog empty.
+    forkLogSSE.onerror = function() {
+        this.close();
+        if (!pre.textContent) pre.textContent = 'This instance has not run yet. Start it to see its log.';
+    };
     dlg.showModal();
 }
 document.getElementById('fork-log-dialog').addEventListener('close', function() {
