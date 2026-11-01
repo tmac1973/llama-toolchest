@@ -930,9 +930,11 @@ func (s *Server) buildRouter() chi.Router {
 		r.Route("/gen/models", func(r chi.Router) {
 			r.Get("/", s.handleGenModels)
 			r.Get("/catalog", s.handleGenCatalog)
+			r.Get("/catalog/{id}/details", s.handleGenCatalogDetails)
 			r.Post("/catalog/{id}/download", s.handleGenCatalogDownload)
 			r.Post("/sets", s.handleGenCreateSet)
 			r.Delete("/sets/{id}", s.handleGenDeleteSet)
+			r.Get("/sets/{id}/details", s.handleGenSetDetails)
 		})
 		r.Get("/forks/needs", s.handleForkNeeds)
 		r.Route("/forks/instances", func(r chi.Router) {

@@ -241,6 +241,66 @@ func (s *Server) handleGenCatalog(w http.ResponseWriter, r *http.Request) {
 	s.renderPartial(w, "gen_catalog", data)
 }
 
+// genDetailsView is what the gen_set_details partial renders. Tab is the
+// tab whose dialog shows it ("models" or "catalog"), so its buttons open
+// that tab's dialogs.
+type genDetailsView struct {
+	generation.SetDetails
+	Tab string
+}
+
+// handleGenSetDetails describes how a set on this machine runs: the
+// Details dialog for htmx, the same data as JSON otherwise.
+func (s *Server) handleGenSetDetails(w http.ResponseWriter, r *http.Request) {
+	store := s.genStore(w)
+	if store == nil {
+		return
+	}
+	set, err := store.ModelSet(chi.URLParam(r, "id"))
+	if errors.Is(err, generation.ErrNotFound) {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	d, err := generation.DetailsForSet(set, generation.ModelsDir(s.cfg))
+	s.respondGenDetails(w, r, d, err, "models")
+}
+
+// handleGenCatalogDetails is handleGenSetDetails for a catalog entry,
+// downloaded or not.
+func (s *Server) handleGenCatalogDetails(w http.ResponseWriter, r *http.Request) {
+	if s.genStore(w) == nil {
+		return
+	}
+	entry, ok := generation.LookupCatalog(chi.URLParam(r, "id"))
+	if !ok {
+		http.Error(w, "unknown catalog set", http.StatusNotFound)
+		return
+	}
+	d, err := generation.DetailsForCatalog(entry, generation.ModelsDir(s.cfg))
+	s.respondGenDetails(w, r, d, err, "catalog")
+}
+
+func (s *Server) respondGenDetails(w http.ResponseWriter, r *http.Request, d generation.SetDetails, err error, defaultTab string) {
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !isHTMX(r) {
+		respondJSON(w, d)
+		return
+	}
+	tab := r.URL.Query().Get("tab")
+	if tab != "models" && tab != "catalog" {
+		tab = defaultTab
+	}
+	respondHTML(w)
+	s.renderPartial(w, "gen_set_details", genDetailsView{SetDetails: d, Tab: tab})
+}
+
 // handleGenCatalogDownload starts, or resumes, downloading a catalog set.
 // It answers with the section the button is in: the catalog card for
 // view=catalog (Download Models tab), otherwise the Models tab's sets.
