@@ -190,6 +190,8 @@ func TestForkModelResumeKeepsGoodFiles(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "rank.bin"), []byte("xxx"), 0o644)
 	os.MkdirAll(filepath.Join(dir, "MTP"), 0o755)
 	os.WriteFile(filepath.Join(dir, "MTP", "draft.gguf"), []byte("xx"), 0o644)
+	os.WriteFile(filepath.Join(dir, "m-00001-of-00003.gguf"), bytes.Repeat([]byte("x"), 10), 0o644)
+	os.WriteFile(filepath.Join(dir, "m-00002-of-00003.gguf"), []byte("x"), 0o644)
 
 	rec := httptest.NewRecorder()
 	s.handleForkModelDownload(rec, withFork(htmxReq("POST", "/", nil), "avalon"))
@@ -207,6 +209,12 @@ func TestForkModelResumeKeepsGoodFiles(t *testing.T) {
 	}
 	if fake.gets["MTP/draft.gguf"] != 1 {
 		t.Errorf("the wrong-sized file was fetched %d times, want once", fake.gets["MTP/draft.gguf"])
+	}
+	if fake.gets["m-00001-of-00003.gguf"] != 0 {
+		t.Error("a shard already in place was fetched again")
+	}
+	if fake.gets["m-00002-of-00003.gguf"] != 1 {
+		t.Errorf("the wrong-sized shard was fetched %d times, want once", fake.gets["m-00002-of-00003.gguf"])
 	}
 }
 
