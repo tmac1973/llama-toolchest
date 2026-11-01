@@ -261,36 +261,42 @@ func (s *Server) renderLoadedModelsJSON(w http.ResponseWriter) {
 		Models        []loadedModel `json:"models"`
 	}{SchemaVersion: CapabilitiesSchemaVersion, Models: []loadedModel{}}
 
-	if !s.process.IsRunning() {
-		respondJSON(w, out)
-		return
-	}
-	out.Running = true
-
-	routerModels, err := s.process.ListModels()
-	if err != nil {
-		slog.Debug("failed to list router models", "error", err)
-		respondJSON(w, out)
-		return
-	}
-
-	for _, rm := range routerModels {
-		entry := loadedModel{
-			ID:      rm.ID,
-			Status:  rm.Status.Value,
-			Aliases: rm.Aliases,
+	if s.process.IsRunning() {
+		out.Running = true
+		routerModels, err := s.process.ListModels()
+		if err != nil {
+			slog.Debug("failed to list router models", "error", err)
 		}
-		// Find the registry model behind this router entry so we can surface
-		// its canonical IDs and capability block. Folding capabilities in
-		// here lets a client auto-configure from this single request instead
-		// of fanning out to /info per model.
-		reg, cfg := s.resolveRouterModel(rm)
-		if reg != nil {
-			entry.RegistryID = reg.ID
-			entry.PublicName = reg.PublicName()
-			entry.Capabilities = s.buildCapabilities(reg, cfg)
+		for _, rm := range routerModels {
+			entry := loadedModel{
+				ID:      rm.ID,
+				Status:  rm.Status.Value,
+				Aliases: rm.Aliases,
+			}
+			// Find the registry model behind this router entry so we can surface
+			// its canonical IDs and capability block. Folding capabilities in
+			// here lets a client auto-configure from this single request instead
+			// of fanning out to /info per model.
+			reg, cfg := s.resolveRouterModel(rm)
+			if reg != nil {
+				entry.RegistryID = reg.ID
+				entry.PublicName = reg.PublicName()
+				entry.Capabilities = s.buildCapabilities(reg, cfg)
+			}
+			out.Models = append(out.Models, entry)
 		}
-		out.Models = append(out.Models, entry)
+	}
+
+	// Fork instances run beside the router, often while it is stopped,
+	// and /v1/chat/completions serves them, so they are listed too.
+	// Running is true while the router or any fork instance runs.
+	if s.forksOn() && s.forks != nil {
+		for _, inst := range s.forks.Instances() {
+			if status, caps, ok := s.forkLoadedModel(inst); ok {
+				out.Models = append(out.Models, loadedModel{ID: inst.ID, Status: status, PublicName: inst.ID, Capabilities: caps})
+				out.Running = true
+			}
+		}
 	}
 
 	respondJSON(w, out)

@@ -159,3 +159,54 @@ func (s *Server) forkV1Model(inst forks.Instance) map[string]any {
 		},
 	}
 }
+
+// forkLoadedModel is a running or loading fork instance as an
+// /api/service/loaded-models entry, so a client that reads only that
+// list (Haruspex does) sees the fork as a model it can use; ok is false
+// while it is stopped. A running instance's capabilities come from its
+// own /props.
+func (s *Server) forkLoadedModel(inst forks.Instance) (status string, caps map[string]any, ok bool) {
+	switch s.forkMgr.Status(inst.ID).State {
+	case process.StateRunning:
+		return "loaded", forkPropsCapabilities(inst.Port), true
+	case process.StateStarting:
+		return "loading", nil, true
+	}
+	return "", nil, false
+}
+
+// forkPropsCapabilities reads the context layout and vision support from
+// a fork's llama-server /props, in the shape of buildCapabilities. It is
+// nil when /props does not answer in time or cannot be read; the client
+// then uses its own defaults.
+func forkPropsCapabilities(port int) map[string]any {
+	client := http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/props", port))
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	var props struct {
+		Settings struct {
+			NCtx int `json:"n_ctx"`
+		} `json:"default_generation_settings"`
+		TotalSlots int `json:"total_slots"`
+		Modalities struct {
+			Vision bool `json:"vision"`
+		} `json:"modalities"`
+	}
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&props) != nil || props.Settings.NCtx <= 0 {
+		return nil
+	}
+	slots := max(props.TotalSlots, 1)
+	return map[string]any{
+		"schema_version": CapabilitiesSchemaVersion,
+		// n_ctx in default_generation_settings is one slot's context.
+		"context_size":        props.Settings.NCtx * slots,
+		"parallel":            slots,
+		"context_shared":      false,
+		"context_per_request": props.Settings.NCtx,
+		"vision":              props.Modalities.Vision,
+		"chat":                true,
+	}
+}
