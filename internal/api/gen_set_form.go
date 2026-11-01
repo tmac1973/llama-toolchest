@@ -1,16 +1,21 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
 	"net/http"
+	"net/url"
 	"os"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/generation"
+	"github.com/tmac1973/llama-toolchest/internal/huggingface"
 )
 
 // maxSuggestedFiles caps the file list the custom set form suggests.
@@ -45,6 +50,16 @@ type genSetForm struct {
 	Scale                          string
 	StemTasks                      bool
 	ModelsDir                      string
+	// Tab is the tab the form's dialog is on: "models", or "catalog"
+	// (Download Models), where a save answers with a note, not the set
+	// list.
+	Tab string
+	// CopiedFrom names the set or catalog entry the form was filled from;
+	// empty for a new set.
+	CopiedFrom string
+	// VideoSizes (JSON) and License are copied from the source and sent
+	// back unchanged in hidden fields.
+	VideoSizes, License string
 }
 
 // genSetFormFromRequest reads the custom set form's values from a request,
@@ -52,17 +67,29 @@ type genSetForm struct {
 // the user typed kept. A missing or unknown kind is an image set; a recipe
 // that does not fit the kind becomes the kind's first.
 func (s *Server) genSetFormFromRequest(r *http.Request) genSetForm {
+	return s.genSetFormFrom(r.FormValue)
+}
+
+// genSetFormFrom is genSetFormFromRequest for values from anywhere: get
+// returns a form field's value.
+func (s *Server) genSetFormFrom(get func(string) string) genSetForm {
 	f := genSetForm{
-		Name:       r.FormValue("name"),
-		Kind:       generation.BackendKind(r.FormValue("kind")),
-		Recipe:     r.FormValue("recipe"),
-		LaunchArgs: r.FormValue("launch_args"),
-		Width:      r.FormValue("width"), Height: r.FormValue("height"),
-		Frames: r.FormValue("frames"), FPS: r.FormValue("fps"),
-		MaxFrames: r.FormValue("max_frames"), MaxWidth: r.FormValue("max_width"), MaxHeight: r.FormValue("max_height"),
-		Scale:     r.FormValue("scale"),
-		StemTasks: r.FormValue("stem_tasks") == "1",
-		ModelsDir: s.cfg.ModelsPath(),
+		Name:       get("name"),
+		Kind:       generation.BackendKind(get("kind")),
+		Recipe:     get("recipe"),
+		LaunchArgs: get("launch_args"),
+		Width:      get("width"), Height: get("height"),
+		Frames: get("frames"), FPS: get("fps"),
+		MaxFrames: get("max_frames"), MaxWidth: get("max_width"), MaxHeight: get("max_height"),
+		Scale:      get("scale"),
+		StemTasks:  get("stem_tasks") == "1",
+		ModelsDir:  s.cfg.ModelsPath(),
+		Tab:        get("tab"),
+		VideoSizes: get("video_sizes"),
+		License:    get("license"),
+	}
+	if f.Tab != "catalog" {
+		f.Tab = "models"
 	}
 	switch f.Kind {
 	case generation.KindSD:
@@ -82,7 +109,7 @@ func (s *Server) genSetFormFromRequest(r *http.Request) genSetForm {
 	slots := generation.KindSlots(f.Kind, f.Recipe)
 	for _, slot := range slots.Slots() {
 		field := genSetSlotField{Slot: slot, Label: generation.SlotLabel(f.Recipe, slot),
-			Required: slices.Contains(slots.Required, slot), Value: strings.TrimSpace(r.FormValue("slot_" + slot)),
+			Required: slices.Contains(slots.Required, slot), Value: strings.TrimSpace(get("slot_" + slot)),
 			Hint: "/path/to/file", List: "gen-model-file-list"}
 		if slices.Contains(slots.OneOf, slot) {
 			field.OneOf = strings.Join(slots.OneOf, ", ")
@@ -95,13 +122,139 @@ func (s *Server) genSetFormFromRequest(r *http.Request) genSetForm {
 	return f
 }
 
-// handleGenSetForm serves the custom set form (the dialog body).
+// handleGenSetForm serves the custom set form (the dialog body). With
+// copy=<set id> or copy_catalog=<entry id> it is filled in from that set
+// or catalog entry.
 func (s *Server) handleGenSetForm(w http.ResponseWriter, r *http.Request) {
-	if s.genStore(w) == nil {
+	store := s.genStore(w)
+	if store == nil {
 		return
 	}
+	f := s.genSetFormFromRequest(r)
+	if r.FormValue("copy") != "" || r.FormValue("copy_catalog") != "" {
+		var code int
+		var err error
+		if f, code, err = s.genSetCopyForm(r, store); err != nil {
+			http.Error(w, err.Error(), code)
+			return
+		}
+	}
 	respondHTML(w)
-	s.renderPartial(w, "gen_set_form", s.genSetFormFromRequest(r))
+	s.renderPartial(w, "gen_set_form", f)
+}
+
+// genSetCopyForm fills the custom set form from the set (copy) or catalog
+// entry (copy_catalog) the request names. A catalog set, and a catalog
+// entry, give the entry's current flags, sizes, limits and licence, as a
+// catalog set runs with those. Each file that is on this machine fills its
+// slot; one that is not leaves the slot empty, with the catalog file's
+// name as the hint.
+func (s *Server) genSetCopyForm(r *http.Request, store *generation.Store) (genSetForm, int, error) {
+	copyID, catalogID := r.FormValue("copy"), r.FormValue("copy_catalog")
+	if copyID != "" && catalogID != "" {
+		return genSetForm{}, http.StatusBadRequest, errors.New("copy a set or a catalog entry, not both")
+	}
+	var set generation.ModelSet
+	entry, fromCatalog := generation.CatalogEntry{}, false
+	if copyID != "" {
+		var err error
+		if set, err = store.ModelSet(copyID); err != nil {
+			code := http.StatusInternalServerError
+			if errors.Is(err, generation.ErrNotFound) {
+				code = http.StatusNotFound
+			}
+			return genSetForm{}, code, err
+		}
+		if set.CatalogID != "" {
+			entry, fromCatalog = generation.LookupCatalog(set.CatalogID)
+		}
+	} else {
+		var ok bool
+		if entry, ok = generation.LookupCatalog(catalogID); !ok {
+			return genSetForm{}, http.StatusNotFound, errors.New("unknown catalog set")
+		}
+		fromCatalog = true
+		set = generation.ModelSet{Name: entry.Name, Kind: entry.Kind, Recipe: entry.Recipe, Components: entry.Components}
+	}
+
+	// The source's values: the catalog entry's for a catalog set or entry,
+	// otherwise the custom set's own.
+	src := set
+	src.LaunchArgs = set.RunArgs()
+	src.Scale, src.VideoSizes = set.UpscaleScale(), set.VideoSizes
+	stems := set.Kind == generation.KindAce && set.HasStemTasks()
+	if fromCatalog {
+		src.LaunchArgs = entry.LaunchArgs
+		src.DefaultWidth, src.DefaultHeight, src.DefaultFrames, src.DefaultFPS = entry.DefaultWidth, entry.DefaultHeight, entry.DefaultFrames, entry.DefaultFPS
+		src.MaxFrames, src.MaxWidth, src.MaxHeight = entry.MaxFrames, entry.MaxWidth, entry.MaxHeight
+		src.Scale, src.VideoSizes, src.License = entry.Scale, entry.VideoSizes, entry.License
+		stems = entry.StemTasks
+	}
+
+	vals := url.Values{
+		"name":        {s.freeSetName(store, set.Name+" custom")},
+		"kind":        {string(set.Kind)},
+		"recipe":      {set.Recipe},
+		"launch_args": {generation.JoinArgs(src.LaunchArgs)},
+		"tab":         {r.FormValue("tab")},
+		"license":     {src.License},
+	}
+	for k, n := range map[string]int{"width": src.DefaultWidth, "height": src.DefaultHeight, "frames": src.DefaultFrames, "fps": src.DefaultFPS,
+		"max_frames": src.MaxFrames, "max_width": src.MaxWidth, "max_height": src.MaxHeight, "scale": src.Scale} {
+		if n > 0 {
+			vals.Set(k, strconv.Itoa(n))
+		}
+	}
+	if stems {
+		vals.Set("stem_tasks", "1")
+	}
+	if set.Kind == generation.KindVideo && len(src.VideoSizes) > 0 {
+		b, err := json.Marshal(src.VideoSizes)
+		if err != nil {
+			return genSetForm{}, http.StatusInternalServerError, err
+		}
+		vals.Set("video_sizes", string(b))
+	}
+	hints := map[string]string{}
+	for _, c := range set.Components {
+		path := c.Path
+		if path == "" && c.Repo != "" {
+			if p := huggingface.FilePath(generation.ModelsDir(s.cfg), c.Repo, c.File); fileExists(p) {
+				path = p
+			} else {
+				hints[c.Slot] = filepath.Base(c.File)
+			}
+		}
+		if path != "" {
+			vals.Set("slot_"+c.Slot, path)
+		}
+	}
+
+	f := s.genSetFormFrom(vals.Get)
+	f.CopiedFrom = set.Name
+	for i, field := range f.Slots {
+		if h := hints[field.Slot]; h != "" {
+			f.Slots[i].Hint = h
+		}
+	}
+	return f, 0, nil
+}
+
+// freeSetName is base, or base with " 2", " 3" and so on, whose ID no set
+// has yet.
+func (s *Server) freeSetName(store *generation.Store, base string) string {
+	name := base
+	for n := 2; ; n++ {
+		if _, err := store.ModelSet(generation.Slug(name)); errors.Is(err, generation.ErrNotFound) {
+			return name
+		}
+		name = fmt.Sprintf("%s %d", base, n)
+	}
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
 }
 
 // handleGenSetFormFields serves the part of the custom set form that
@@ -178,6 +331,11 @@ func (s *Server) setFromForm(r *http.Request) (generation.ModelSet, int, error) 
 		if err := checkVideoCeiling(set); err != nil {
 			return bad(err)
 		}
+		sizes, err := formVideoSizes(r, set)
+		if err != nil {
+			return bad(err)
+		}
+		set.VideoSizes = sizes
 	case generation.KindUpscale:
 		set.Scale = formInt(r, "scale", 4)
 		if set.Scale > 8 {
@@ -219,7 +377,39 @@ func (s *Server) setFromForm(r *http.Request) (generation.ModelSet, int, error) 
 		stems := r.FormValue("stem_tasks") == "1"
 		set.StemTasks = &stems
 	}
+	set.License = strings.TrimSpace(r.FormValue("license"))
 	return set, 0, nil
+}
+
+// formVideoSizes reads the Measure sizes a copied video set keeps (the
+// video_sizes field, JSON). The first is the test size, so it takes the
+// form's test size, which the user may have changed; none may be larger
+// than the set's ceiling. No field gives none: Measure then offers only
+// the test size.
+func formVideoSizes(r *http.Request, set generation.ModelSet) ([]generation.VideoSize, error) {
+	raw := strings.TrimSpace(r.FormValue("video_sizes"))
+	if raw == "" {
+		return nil, nil
+	}
+	var sizes []generation.VideoSize
+	if err := json.Unmarshal([]byte(raw), &sizes); err != nil {
+		return nil, fmt.Errorf("video_sizes: %w", err)
+	}
+	if len(sizes) == 0 {
+		return nil, nil
+	}
+	sizes[0].Frames, sizes[0].Width, sizes[0].Height = set.DefaultFrames, set.DefaultWidth, set.DefaultHeight
+	for _, v := range sizes {
+		check := set
+		check.DefaultFrames, check.DefaultWidth, check.DefaultHeight = v.Frames, v.Width, v.Height
+		if v.Frames <= 0 || v.Width <= 0 || v.Height <= 0 {
+			return nil, fmt.Errorf("video size %q has no frames or size", v.Label)
+		}
+		if err := checkVideoCeiling(check); err != nil {
+			return nil, fmt.Errorf("video size %s: %w", v.Label, err)
+		}
+	}
+	return sizes, nil
 }
 
 // formComponents reads a set's files from the form: one slot_<slot> field

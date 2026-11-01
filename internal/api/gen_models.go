@@ -444,6 +444,12 @@ func (s *Server) handleGenCreateSet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// The Download Models tab has no set list to redraw: it gets a note.
+	if r.URL.Query().Get("view") == "catalog" {
+		respondHTML(w)
+		s.renderPartial(w, "gen_set_saved", set.Name)
+		return
+	}
 	s.handleGenModels(w, r)
 }
 

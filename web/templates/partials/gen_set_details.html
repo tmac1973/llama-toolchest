@@ -53,6 +53,15 @@
         onclick="var b=this; copyToClipboard(b.dataset.copy).then(function(){ b.textContent='Copied'; setTimeout(function(){ b.textContent='Copy command'; }, 1200); }).catch(function(){});">Copy command</button>
 <small>An instance can add its own extra arguments on the Server page.</small></p>
 
+{{- $details := "gen-set-details-dialog"}}{{if eq .Tab "catalog"}}{{$details = "gen-catalog-details-dialog"}}{{end}}
+<p><button type="button" class="outline" style="padding:0.2rem 0.7rem;font-size:0.85rem;"
+        title="Opens the custom set form with these files and settings filled in. You can change them before you save."
+        hx-get="/api/gen/models/sets/form?{{if eq .Tab "catalog"}}copy_catalog{{else}}copy{{end}}={{.ID}}&amp;tab={{.Tab}}"
+        hx-target="#gen-set-form-body-{{.Tab}}" hx-swap="innerHTML"
+        hx-on::after-request="if (event.detail.successful) { document.getElementById('{{$details}}').close(); document.getElementById('gen-set-form-dialog-{{.Tab}}').showModal(); }"
+        data-error-label="Form not loaded">Copy as custom set</button>
+<small>Use your own files or settings, starting from this set.</small></p>
+
 {{- if or .Notes .License}}
 <h6 style="margin-bottom:0.25rem;">About this set</h6>
 {{- with .Notes}}<p><small>{{.}}</small></p>{{end}}
