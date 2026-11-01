@@ -28,7 +28,7 @@
         <tbody>
         {{- range .Catalog}}
             <tr>
-                <td title="{{.Notes}}" style="cursor:help;">{{.Name}}{{range .Capabilities}} <kbd title="{{if eq . "alpha"}}Outputs an alpha channel (transparent backgrounds).{{else if eq . "edit"}}Can edit an image you send.{{else if eq . "text"}}Makes video from a prompt alone.{{else if eq . "start_image"}}Can start from an image you give.{{else if eq . "end_image"}}Can end on an image you give.{{end}}">{{.}}</kbd>{{end}}</td>
+                <td title="{{.Notes}}" style="cursor:help;">{{.Name}}{{range .Tags}} <kbd title="{{.Title}}">{{.Label}}</kbd>{{end}}</td>
                 <td>{{kindTitle .Kind}}</td>
                 <td>{{printf "%.1f" .SizeGB}} GB</td>
                 <td><small>{{.License}}</small></td>

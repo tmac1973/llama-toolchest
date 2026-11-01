@@ -88,6 +88,50 @@ type genCatalogRow struct {
 	Downloading bool `json:"downloading"`
 	Incomplete  bool `json:"incomplete"`
 	Percent     int  `json:"percent"`
+	// Tags are the badges next to the set's name (catalogTags).
+	Tags []genTag `json:"tags"`
+}
+
+// genTag is one badge in the catalog: a short label and its tooltip.
+type genTag struct {
+	Label string `json:"label"`
+	Title string `json:"title"`
+}
+
+// catalogTags lists what a catalog set takes and gives, for display only:
+// the inputs first, then the extras. Every image and music set takes a
+// prompt, but only video sets store CapText (it drives job refusals and
+// Measure), so the text tag comes from the kind here. The upscaler takes
+// an image and no prompt.
+func catalogTags(kind generation.BackendKind, caps []string) []genTag {
+	var tags []genTag
+	add := func(label, title string) { tags = append(tags, genTag{label, title}) }
+	has := func(c string) bool { return slices.Contains(caps, c) }
+	switch kind {
+	case generation.KindSD:
+		add("text", "Makes an image from a prompt.")
+	case generation.KindAce:
+		add("text", "Makes music from a prompt and optional lyrics.")
+	case generation.KindVideo:
+		if has(generation.CapText) {
+			add("text", "Makes video from a prompt alone.")
+		}
+	case generation.KindUpscale:
+		add("image", "Makes an image you send larger. It takes no prompt.")
+	}
+	if has(generation.CapStartImage) {
+		add("start image", "Can start from an image you give.")
+	}
+	if has(generation.CapEndImage) {
+		add("end image", "Can end on an image you give.")
+	}
+	if has(generation.CapEdit) {
+		add("edit", "Can edit an image you send.")
+	}
+	if has("alpha") {
+		add("alpha", "Outputs an alpha channel (transparent backgrounds).")
+	}
+	return tags
 }
 
 type genSetRow struct {
@@ -121,7 +165,7 @@ func (s *Server) genModelsView(store *generation.Store) genModelsData {
 		data.Sets = append(data.Sets, row)
 	}
 	for _, e := range generation.Catalog() {
-		row := genCatalogRow{CatalogEntry: e, SizeGB: float64(e.TotalBytes()) / 1e9}
+		row := genCatalogRow{CatalogEntry: e, SizeGB: float64(e.TotalBytes()) / 1e9, Tags: catalogTags(e.Kind, e.Capabilities)}
 		if i := slices.IndexFunc(data.Sets, func(m genSetRow) bool { return m.ID == e.ID }); i >= 0 {
 			set := data.Sets[i]
 			row.Installed, row.Downloading, row.Percent = set.Complete, set.Downloading, set.Percent
