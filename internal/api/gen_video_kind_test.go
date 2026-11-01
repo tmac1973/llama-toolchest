@@ -124,10 +124,13 @@ func TestGenCatalogDownloadVideoFields(t *testing.T) {
 	if set.Kind != generation.KindVideo || set.DefaultFrames != 33 || set.DefaultFPS != 24 || set.MaxFrames != 121 || set.MaxWidth != 1280 || set.MaxHeight != 704 {
 		t.Errorf("set = %+v, want the catalog's video fields", set)
 	}
-	// Let the download finish before the test ends, as in
-	// TestGenCatalogCardIsSeparateFromSets.
+	// Let the downloads end before the test ends, as in
+	// TestGenCatalogCardIsSeparateFromSets. The fake's files are not the
+	// catalog's sizes, so they fail and the set stays incomplete.
 	testutil.Eventually(t, func() bool {
-		set, _ := s.gen.ModelSet("wan22-ti2v-5b")
-		return set.Complete
-	}, "the catalog download never finished")
+		return len(s.downloader.ListActive()) == 0
+	}, "the catalog downloads never ended")
+	if set, _ := s.gen.ModelSet("wan22-ti2v-5b"); set.Complete {
+		t.Error("files of the wrong size completed the set")
+	}
 }

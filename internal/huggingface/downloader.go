@@ -59,6 +59,11 @@ type download struct {
 	// revision is the repository revision to download from (StartToAt);
 	// empty for the default branch.
 	revision string
+
+	// expectedBytes is the size the caller gave to Start, StartTo or
+	// StartToAt. For a sharded download it is the size of all shards
+	// together.
+	expectedBytes int64
 }
 
 func (dl *download) broadcast(status DownloadStatus) {
@@ -290,11 +295,12 @@ func (d *Downloader) start(source, modelID, revision, filename string, expectedB
 
 	dlCtx, cancel := context.WithCancel(context.Background())
 	dl := &download{
-		cancel:   cancel,
-		done:     make(chan struct{}),
-		bc:       broadcast.New[DownloadStatus](1, 16),
-		destRoot: destRoot,
-		revision: revision,
+		cancel:        cancel,
+		done:          make(chan struct{}),
+		bc:            broadcast.New[DownloadStatus](1, 16),
+		destRoot:      destRoot,
+		revision:      revision,
+		expectedBytes: expectedBytes,
 	}
 	if onDone != nil {
 		dl.onDone = []FileDoneFunc{onDone}
@@ -472,6 +478,14 @@ func (d *Downloader) run(ctx context.Context, source, downloadID, modelID, filen
 		combinedTotal = d.fetchCombinedSize(ctx, source, modelID, dl.revision, filenames)
 	}
 
+	// The caller's size is the file's own size only when there is one
+	// file. For shards it is the total of all of them, which says nothing
+	// about any one shard, so shards are not checked.
+	var wantSize int64
+	if len(filenames) == 1 {
+		wantSize = dl.expectedBytes
+	}
+
 	// Download each file (single file or all shards sequentially)
 	var totalDownloaded int64
 	for i, fn := range filenames {
@@ -487,7 +501,7 @@ func (d *Downloader) run(ctx context.Context, source, downloadID, modelID, filen
 			label = fmt.Sprintf("%s [%d/%d]", fn, i+1, len(filenames))
 		}
 
-		downloaded, err := d.downloadFile(ctx, source, downloadID, modelID, fn, label, modelDir, totalDownloaded, combinedTotal, dl)
+		downloaded, err := d.downloadFile(ctx, source, downloadID, modelID, fn, label, modelDir, totalDownloaded, combinedTotal, wantSize, dl)
 		if err != nil {
 			// A mid-file cancellation surfaces as ctx.Err() from downloadFile —
 			// report it as "cancelled" like the between-files check above, not
@@ -552,9 +566,10 @@ func (d *Downloader) fetchCombinedSize(ctx context.Context, source, modelID, rev
 }
 
 // downloadFile downloads a single file, reporting progress with a base offset for multi-shard tracking.
+// wantSize is the file's size when the caller knows it, otherwise 0.
 // Returns the number of bytes downloaded for this file.
 func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, modelID, filename, label, modelDir string,
-	baseDownloaded, combinedTotal int64, dl *download) (int64, error) {
+	baseDownloaded, combinedTotal, wantSize int64, dl *download) (int64, error) {
 
 	sendProgress := func(status DownloadStatus) {
 		dl.broadcast(status)
@@ -578,8 +593,20 @@ func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, model
 	// Skip if already downloaded. A .part file beside a finished one is
 	// an update of it (see the Models tab's Update): the new version is
 	// downloaded into the .part and replaces the old file when complete.
+	//
+	// A finished file whose size is not the size the caller expects (one
+	// copied in by hand, or from an older version of the repository) is
+	// downloaded again in the same way. The old file is not removed
+	// first: it stays in place until the new one is complete and checked,
+	// so a failed or cancelled download leaves the user with what they
+	// had. The .part left by such a download makes the next attempt
+	// resume it as an update.
 	if info, err := os.Stat(finalPath); err == nil && partErr != nil {
-		return info.Size(), nil
+		if wantSize <= 0 || info.Size() == wantSize {
+			return info.Size(), nil
+		}
+		slog.Info("downloading a file again: its size on disk is not the expected size",
+			"path", finalPath, "size", info.Size(), "expected", wantSize)
 	}
 
 	p := d.provider(source)
@@ -703,6 +730,10 @@ func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, model
 	if checked && want != sha {
 		os.Remove(partPath)
 		return downloaded, fmt.Errorf("%s does not match the repository's checksum; the old file was kept", filename)
+	}
+	if wantSize > 0 && downloaded != wantSize {
+		os.Remove(partPath)
+		return downloaded, fmt.Errorf("%s is %d bytes, but %d bytes were expected; the download was discarded", filename, downloaded, wantSize)
 	}
 	if err := os.Rename(partPath, finalPath); err != nil {
 		return downloaded, err

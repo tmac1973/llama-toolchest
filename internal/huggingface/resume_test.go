@@ -36,7 +36,7 @@ func TestResumeAcceptsRangedBodyLabelled200(t *testing.T) {
 	}
 	dl := &download{bc: broadcast.New[DownloadStatus](1, 16)}
 
-	if _, err := d.downloadFile(context.Background(), "quirky", "id", "org/m", "m.gguf", "m.gguf", dir, 0, 0, dl); err != nil {
+	if _, err := d.downloadFile(context.Background(), "quirky", "id", "org/m", "m.gguf", "m.gguf", dir, 0, 0, 0, dl); err != nil {
 		t.Fatalf("downloadFile: %v", err)
 	}
 	got, err := os.ReadFile(filepath.Join(dir, "m.gguf"))

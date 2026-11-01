@@ -276,7 +276,9 @@ func (s *Server) handleGenCatalogDownload(w http.ResponseWriter, r *http.Request
 }
 
 // genFileDone records a downloaded file in its set, and marks the set
-// complete once every file is present.
+// complete once every file is present. A file whose size is not the
+// size the set gives for it is not recorded, so the set stays
+// incomplete rather than loading a wrong file.
 func (s *Server) genFileDone(setID, slot, path string, size int64) {
 	s.genSetMu.Lock()
 	defer s.genSetMu.Unlock()
@@ -287,10 +289,17 @@ func (s *Server) genFileDone(setID, slot, path string, size int64) {
 	}
 	complete := true
 	for i := range set.Components {
-		if set.Components[i].Slot == slot {
-			set.Components[i].Path, set.Components[i].Bytes = path, size
+		c := &set.Components[i]
+		if c.Slot == slot {
+			if c.Bytes > 0 && size != c.Bytes {
+				slog.Warn("generation model file has the wrong size; not recorded",
+					"set", setID, "slot", slot, "path", path, "size", size, "expected", c.Bytes)
+				c.Path = ""
+			} else {
+				c.Path, c.Bytes = path, size
+			}
 		}
-		if set.Components[i].Path == "" {
+		if c.Path == "" {
 			complete = false
 		}
 	}
