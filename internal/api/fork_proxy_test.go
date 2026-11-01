@@ -17,8 +17,8 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/forks"
 )
 
-// fakeFork stands in for a fork's llama-server: /health answers 200, and
-// every other request is recorded and answered with a short stream.
+// fakeFork stands in for a fork's llama-server: /health answers 200,
+// /props gives one 256K slot, and every other request is recorded and answered with a short stream.
 type fakeFork struct {
 	srv  *httptest.Server
 	port int
@@ -35,7 +35,11 @@ func newFakeFork(t *testing.T) *fakeFork {
 	t.Helper()
 	f := &fakeFork{}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/health" {
+		switch r.URL.Path {
+		case "/health":
+			return
+		case "/props":
+			fmt.Fprint(w, `{"default_generation_settings":{"n_ctx":262144},"total_slots":1,"modalities":{"vision":false}}`)
 			return
 		}
 		var body map[string]any
@@ -208,5 +212,40 @@ func TestV1ModelsListsRunningForks(t *testing.T) {
 	s.cfg.ForksEnabled = false
 	if got := list(""); len(got) != 0 {
 		t.Errorf("forks off: %v", ids(got))
+	}
+}
+
+// Haruspex finds a toolchest's models in /api/service/loaded-models, so a
+// running fork is listed there, with its context from /props, even while
+// the router is stopped. A stopped instance is not listed.
+func TestLoadedModelsListsRunningForks(t *testing.T) {
+	s, _ := runningFork(t)
+	s.forks.AddInstance(forks.Instance{ID: "stopped", ForkID: "avalon", GPU: 0, Port: 1})
+	rec := httptest.NewRecorder()
+	s.handleLoadedModels(rec, httptest.NewRequest("GET", "/api/service/loaded-models", nil))
+	var out struct {
+		Running bool `json:"running"`
+		Models  []struct {
+			ID           string         `json:"id"`
+			Status       string         `json:"status"`
+			PublicName   string         `json:"public_name"`
+			Capabilities map[string]any `json:"capabilities"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if s.process.IsRunning() {
+		t.Fatal("the router runs in this test")
+	}
+	if !out.Running || len(out.Models) != 1 {
+		t.Fatalf("loaded-models = %s", rec.Body)
+	}
+	m := out.Models[0]
+	if m.ID != "qwen-next" || m.Status != "loaded" || m.PublicName != "qwen-next" {
+		t.Errorf("entry = %+v", m)
+	}
+	if m.Capabilities["context_per_request"] != float64(262144) || m.Capabilities["parallel"] != float64(1) {
+		t.Errorf("capabilities = %v", m.Capabilities)
 	}
 }
