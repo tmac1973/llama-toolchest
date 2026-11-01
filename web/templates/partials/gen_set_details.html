@@ -60,6 +60,13 @@
         hx-target="#gen-set-form-body-{{.Tab}}" hx-swap="innerHTML"
         hx-on::after-request="if (event.detail.successful) { document.getElementById('{{$details}}').close(); document.getElementById('gen-set-form-dialog-{{.Tab}}').showModal(); }"
         data-error-label="Form not loaded">Copy as custom set</button>
+{{- if .Custom}}
+<button type="button" class="outline secondary" style="padding:0.2rem 0.7rem;font-size:0.85rem;"
+        title="Change this set's files and settings. Stop its instance first."
+        hx-get="/api/gen/models/sets/form?edit={{.ID}}" hx-target="#gen-set-form-body-models" hx-swap="innerHTML"
+        hx-on::after-request="if (event.detail.successful) { document.getElementById('gen-set-details-dialog').close(); document.getElementById('gen-set-form-dialog-models').showModal(); }"
+        data-error-label="Form not loaded">Edit</button>
+{{- end}}
 <small>Use your own files or settings, starting from this set.</small></p>
 
 {{- if or .Notes .License}}

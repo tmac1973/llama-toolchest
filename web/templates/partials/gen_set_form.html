@@ -1,4 +1,4 @@
-{{/* The custom set form, in the "Add a custom set" dialog
+{{/* The custom set form, in the "Custom set" dialog
      (gen_set_form_dialog, on the Models and Download Models tabs).
      gen_set_form is the whole form; gen_set_form_fields is the part the
      server draws again when the backend or recipe changes, with the
@@ -12,7 +12,7 @@
     <article>
         <header>
             <button type="button" aria-label="Close" rel="prev" onclick="this.closest('dialog').close();"></button>
-            Add a custom set
+            Custom set
         </header>
         <p><small>A set made from model files already on this machine. Toolchest never deletes them.</small></p>
         <div id="gen-set-form-body-{{.}}"></div>
@@ -21,7 +21,14 @@
 {{end}}
 
 {{define "gen_set_form"}}
-{{- if eq .Tab "catalog"}}
+{{- if .EditID}}
+{{/* An edit saves with PUT; the name, backend and recipe stay. */}}
+<form hx-put="/api/gen/models/sets/{{.EditID}}" hx-target="#gen-model-sets" hx-swap="innerHTML"
+      data-error-label="Set not saved"
+      hx-on::after-request="if (event.detail.successful && event.detail.elt === this) { this.closest('dialog').close(); }">
+    <input type="hidden" name="edit_id" value="{{.EditID}}">
+    <p><small>Editing <strong>{{.Name}}</strong>. Its name, backend and recipe stay. After a change to its files or flags, measure its instance again.</small></p>
+{{- else if eq .Tab "catalog"}}
 {{/* On the Download Models tab a save answers with a note in the dialog,
      as the set list is on the Models tab. */}}
 <form hx-post="/api/gen/models/sets?view=catalog" hx-target="#gen-set-form-body-catalog" hx-swap="innerHTML"
@@ -37,8 +44,8 @@
     {{- end}}
     {{- if .VideoSizes}}<input type="hidden" name="video_sizes" value="{{.VideoSizes}}">{{end}}
     {{- if .License}}<input type="hidden" name="license" value="{{.License}}">{{end}}
-    <label title="Shown in the UI. The set ID for API clients comes from it.">Name
-        <input type="text" name="name" required value="{{.Name}}" placeholder="e.g. qwen-turbo-local">
+    <label title="{{if .EditID}}The name cannot change: API clients use the set ID made from it.{{else}}Shown in the UI. The set ID for API clients comes from it.{{end}}">Name
+        <input type="text" name="name" required value="{{.Name}}" placeholder="e.g. qwen-turbo-local"{{if .EditID}} readonly{{end}}>
     </label>
     <div id="gen-set-form-fields">
         {{template "gen_set_form_fields" .}}
@@ -51,16 +58,17 @@
     <div hx-get="/api/gen/models/files" hx-trigger="load" hx-target="this" hx-swap="innerHTML" data-error-label="File suggestions not loaded"></div>
     <div class="grid">
         <button type="button" class="secondary" onclick="this.closest('dialog').close();">Cancel</button>
-        <button type="submit">Add set</button>
+        <button type="submit">{{if .EditID}}Save changes{{else}}Add set{{end}}</button>
     </div>
 </form>
 {{end}}
 
 {{define "gen_set_form_fields"}}
 <div class="grid">
-    <label>Backend
+    <label{{if .EditID}} title="An edit keeps the backend. To use another, copy the set."{{end}}>Backend
+        {{- if .EditID}}<input type="hidden" name="kind" value="{{.Kind}}">{{end}}
         <select name="kind" hx-get="/api/gen/models/sets/form/fields" hx-include="closest form"
-                hx-target="#gen-set-form-fields" hx-swap="innerHTML" data-error-label="Form not updated">
+                hx-target="#gen-set-form-fields" hx-swap="innerHTML" data-error-label="Form not updated"{{if .EditID}} disabled{{end}}>
             <option value="sd"{{if eq .Kind "sd"}} selected{{end}}>Image (stable-diffusion.cpp)</option>
             <option value="video"{{if eq .Kind "video"}} selected{{end}}>Video (stable-diffusion.cpp)</option>
             <option value="ace"{{if eq .Kind "ace"}} selected{{end}}>Music (acestep.cpp)</option>
@@ -68,9 +76,10 @@
         </select>
     </label>
     {{- if .Recipes}}
-    <label title="The stable-diffusion.cpp recipe of the files. It sets which files the set needs.">Recipe
+    <label title="The stable-diffusion.cpp recipe of the files. It sets which files the set needs.{{if .EditID}} An edit keeps the recipe. To use another, copy the set.{{end}}">Recipe
+        {{- if .EditID}}<input type="hidden" name="recipe" value="{{.Recipe}}">{{end}}
         <select name="recipe" hx-get="/api/gen/models/sets/form/fields" hx-include="closest form"
-                hx-target="#gen-set-form-fields" hx-swap="innerHTML" data-error-label="Form not updated">
+                hx-target="#gen-set-form-fields" hx-swap="innerHTML" data-error-label="Form not updated"{{if .EditID}} disabled{{end}}>
             {{- $r := .Recipe}}
             {{- range .Recipes}}<option value="{{.}}"{{if eq . $r}} selected{{end}}>{{.}}</option>{{end}}
         </select>

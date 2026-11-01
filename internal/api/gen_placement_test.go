@@ -47,7 +47,7 @@ func TestInstanceRowStaleAndRAM(t *testing.T) {
 	if err := s.pages["server.html"].ExecuteTemplate(&buf, "gen_instances_table", genInstancesData{Rows: s.genInstanceRows(s.gen)}); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Measured with older settings; measure again, it may need less memory now", "uses 7.5 GiB of system RAM"} {
+	for _, want := range []string{"Measured with other files or settings; measure again", "uses 7.5 GiB of system RAM"} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("row lacks %q", want)
 		}

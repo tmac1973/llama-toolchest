@@ -100,13 +100,21 @@ func (r genInstanceRow) BudgetGiB() float64 { return float64(r.BudgetMiB) / 1024
 func (r genInstanceRow) RAMGiB() float64 { return float64(r.MeasuredRAMMiB) / 1024 }
 
 // measuredStale says an instance's last measurement ran with other backend
-// flags than it has now, so its reservation may no longer fit what it
-// needs: a catalog set's flags changed after it was measured. An sd-server
-// catalog instance measured before measurements kept their flags counts as
-// stale too: the catalog moved its text encoders to the CPU since.
+// flags or files than it has now, so its reservation may no longer fit
+// what it needs: a catalog set's flags changed after it was measured, or a
+// custom set was edited.
+//
+// A measurement that recorded its files (MeasuredFiles) also recorded its
+// flags, and no flags are stored as nil: an upscaler or music set has
+// none. Older measurements recorded neither or only the flags. Of those, an
+// sd-server catalog instance measured before flags were recorded counts as
+// stale: the catalog moved its text encoders to the CPU since.
 func measuredStale(inst generation.Instance, set generation.ModelSet) bool {
 	if inst.MeasuredPeakMiB == 0 {
 		return false
+	}
+	if inst.MeasuredFiles != nil {
+		return !slicesEqual(inst.MeasuredFiles, generation.FilesKey(set)) || !slicesEqual(inst.MeasuredArgs, runArgs(set, inst))
 	}
 	if inst.MeasuredArgs == nil {
 		return set.CatalogID != "" && (set.Kind == generation.KindSD || set.Kind == generation.KindVideo)
@@ -552,7 +560,7 @@ func (s *Server) genInstanceFromForm(r *http.Request, store *generation.Store, i
 		inst.ReservedMiB, inst.MeasuredPeakMiB, inst.MeasuredAt, inst.MeasureEstimated = 0, 0, time.Time{}, false
 		inst.MeasuredSuggestedMiB, inst.MeasuredFrames, inst.MeasuredWidth, inst.MeasuredHeight = 0, 0, 0, 0
 		inst.MeasuredDecodeFallback, inst.LastVideo = false, generation.LastVideo{}
-		inst.MeasuredArgs, inst.MeasuredRAMMiB = nil, 0
+		inst.MeasuredArgs, inst.MeasuredRAMMiB, inst.MeasuredFiles = nil, 0, nil
 		inst.BudgetMiB, inst.MeasurePoints = 0, nil
 		s.genMeasure.clear(inst.ID)
 	}
