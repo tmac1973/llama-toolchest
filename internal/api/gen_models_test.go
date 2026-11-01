@@ -223,6 +223,56 @@ func TestGenDeleteKeepsSharedFiles(t *testing.T) {
 	}
 }
 
+// Deleting a catalog set keeps a file that a custom set reaches by another
+// path: a link in another folder, or a path with "..".
+func TestGenDeleteKeepsFileOfCustomSetByAnyPath(t *testing.T) {
+	for name, customPath := range map[string]func(t *testing.T, file string) string{
+		"link": func(t *testing.T, file string) string {
+			link := filepath.Join(t.TempDir(), "mine.safetensors")
+			if err := os.Symlink(file, link); err != nil {
+				t.Fatal(err)
+			}
+			return link
+		},
+		"dot dot": func(t *testing.T, file string) string {
+			// Joined by hand: filepath.Join would clean the ".." away.
+			dir := filepath.Dir(file)
+			return dir + "/../" + filepath.Base(dir) + "/" + filepath.Base(file)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := genServer(t)
+			root := generation.ModelsDir(s.cfg)
+			e, _ := generation.LookupCatalog("real-esrgan-x4plus")
+			c := e.Components[0]
+			c.Path = huggingface.FilePath(root, c.Repo, c.File)
+			if err := os.MkdirAll(filepath.Dir(c.Path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(c.Path, []byte("x"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			catalogSet := generation.ModelSet{ID: e.ID, Name: e.Name, Kind: e.Kind, CatalogID: e.ID, Complete: true, Components: []generation.Component{c}}
+			custom := generation.ModelSet{ID: "mine", Name: "mine", Kind: e.Kind, Complete: true,
+				Components: []generation.Component{{Slot: c.Slot, Path: customPath(t, c.Path)}}}
+			for _, set := range []generation.ModelSet{catalogSet, custom} {
+				if err := s.gen.AddModelSet(set); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			rec := httptest.NewRecorder()
+			s.handleGenDeleteSet(rec, withID(htmxReq("DELETE", "/", nil), e.ID))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
+			}
+			if _, err := os.Stat(c.Path); err != nil {
+				t.Errorf("the custom set's file was deleted (custom path %s): %v", custom.Components[0].Path, err)
+			}
+		})
+	}
+}
+
 func TestGenCustomSet(t *testing.T) {
 	s := genServer(t)
 	dir := t.TempDir()

@@ -121,10 +121,15 @@ func (m *Manager) PID(id string) int {
 }
 
 // WaitRunning waits until the instance passes its health check, stops, or
-// ctx ends.
+// ctx ends. When the backend failed, the error ends with the last error
+// line of its log, so the user sees why without opening the log.
 func (m *Manager) WaitRunning(ctx context.Context, id string) error {
 	if s := m.existing(id); s != nil {
-		return s.WaitRunning(ctx)
+		err := s.WaitRunning(ctx)
+		if err != nil && s.GetStatus().State == process.StateFailed {
+			return withLastLogLine(err, s.RecentLogs())
+		}
+		return err
 	}
 	return nil
 }
