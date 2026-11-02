@@ -709,6 +709,12 @@
                    placeholder="Default (1.0)">
         </label>
     </div>
+
+    <label title="Added to chat requests that have no system message. A request with its own system message keeps it. Use this when the model card gives a system prompt.">
+        System Prompt
+        <textarea name="system_prompt" rows="3"
+                  placeholder="None. Requests go to the model unchanged.">{{.Config.SystemPrompt}}</textarea>
+    </label>
     {{end}}
 
     <label title="More llama-server command-line flags. See the llama.cpp documentation.">

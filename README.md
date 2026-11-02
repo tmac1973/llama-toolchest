@@ -13,7 +13,7 @@ A web-based management interface for [llama.cpp](https://github.com/ggerganov/ll
 - **Build management** — Compile llama.cpp with CUDA / ROCm / Vulkan / CPU backends. Toggleable build options, real-time SSE log streaming.
 - **Model management** — Download GGUF models from HuggingFace, scan existing files, configure per-model parameters.
 - **Multi-model loading** — Run multiple models simultaneously via llama.cpp's router. Per-model isolated subprocess, LRU eviction at the VRAM limit.
-- **Per-model config** — Context size, KV cache quant, GPU layers, tensor split, flash attention, sampling, aliases, and speculative-decoding draft model.
+- **Per-model config** — Context size, KV cache quant, GPU layers, tensor split, flash attention, sampling, a default system prompt, aliases, and speculative-decoding draft model.
 - **Sampling presets** — Fetched automatically at download time from the GGUF file's embedded defaults (`general.sampling.*`), the Unsloth docs (thinking / non-thinking / coding variants), and the base model's `generation_config.json`, and offered as one-click presets in the config UI.
 - **Vision / multimodal** — Auto-detect and pair `mmproj` files. Send images via the OpenAI chat API (requires OpenSSL build).
 - **Embedding models** — Curated one-click downloads (nomic-embed, bge, mxbai-embed, snowflake-arctic-embed) with automatic `--embeddings` injection.
@@ -371,6 +371,8 @@ All scripts include an interactive model picker; pass a model name to skip selec
 ### OpenAI-compatible (`/v1/*`)
 
 All requests are forwarded to llama.cpp's router. Per-model sampling defaults are injected for requests that don't specify them; user-defined model aliases work in the `model` field. Sampling precedence is: request parameters > per-model config > GGUF-embedded defaults (`general.sampling.*`, applied by llama-server itself) > llama.cpp built-ins.
+
+A model can also have a saved **system prompt**, for fine-tunes whose model card asks for a fixed one. llama-server has no option for this, so the proxy adds it: as the first `system` message on `/v1/chat/completions`, as `system` on `/v1/messages`, and as `instructions` on `/v1/responses`. A request that already has a system (or developer) message keeps its own, and raw `/completion` prompts are never changed.
 
 - `GET /v1/models` — list available models
 - `GET /v1/models/{model}` — single model info

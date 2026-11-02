@@ -212,6 +212,7 @@
         <dt>Speculative Decoding</dt><dd>Predicts several tokens per step, with no change to the answer. A draft model gives the biggest gain; n-gram modes need no extra model. The <strong>?</strong> button explains each mode.</dd>
         <dt>N-gram Cache file</dt><dd>With llama.cpp b11758 or newer, toolchest keeps what N-gram Cache learns in <code>/data/cache/ngram/&lt;model id&gt;.bin</code>. llama-server reads the file at load and writes it at unload. Benchmarks and Autotune do not use it. A broken file makes llama-server stop at load, so toolchest deletes a broken file before a load. <em>Clear learned n-grams</em> deletes the file; a loaded model writes it again at unload.</dd>
         <dt>Sampling</dt><dd>Applies per request, with no restart. The <em>Preset</em> list shows defaults from the GGUF, the Unsloth docs and the <code>generation_config.json</code> of the base model. Empty fields still use the GGUF defaults. <em>&#8635; Refresh presets</em> looks again.</dd>
+        <dt>System Prompt</dt><dd>Some fine-tuned models need a fixed system prompt. The model card then shows it. Paste it here. The server adds it to each chat request that has no system message. A request with its own system message keeps it. Applies per request, with no restart.</dd>
         <dt>Extra Flags</dt><dd>Any other llama-server flags, added as written.</dd>
     </dl>
     <div class="callout">Most changes need a <strong>server restart</strong>: press <em>Restart required</em> in the panel. Sampling changes do not.</div>

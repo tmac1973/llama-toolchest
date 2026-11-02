@@ -158,6 +158,7 @@ func (s *Server) newProxyHandler() http.Handler {
 				if strings.HasSuffix(r.URL.Path, "/chat/completions") {
 					body = s.injectSamplingDefaults(body)
 				}
+				body = s.injectSystemPrompt(r.URL.Path, body)
 				r.Body = io.NopCloser(bytes.NewReader(body))
 				r.ContentLength = int64(len(body))
 			}
@@ -526,4 +527,82 @@ func (s *Server) injectSamplingDefaults(body []byte) []byte {
 		return body
 	}
 	return modified
+}
+
+// injectSystemPrompt adds the model's saved system prompt to a request
+// that has no system message of its own. A client that sends one keeps
+// it: the saved prompt is a default, like the sampling settings. Each API
+// carries the system message in its own place:
+//
+//   - /chat/completions: a "system" (or "developer") entry in messages
+//   - /messages (Anthropic): the top-level "system" field
+//   - /responses: the top-level "instructions" field, or a "system" or
+//     "developer" entry in an input list
+//
+// Other paths, such as a raw /completion prompt, have no roles, so they
+// go upstream unchanged.
+func (s *Server) injectSystemPrompt(path string, body []byte) []byte {
+	var add func(req map[string]any, prompt string) bool
+	switch {
+	case strings.HasSuffix(path, "/chat/completions"):
+		add = func(req map[string]any, prompt string) bool {
+			msgs, ok := req["messages"].([]any)
+			if !ok || hasSystemMessage(msgs) {
+				return false
+			}
+			req["messages"] = append([]any{map[string]any{"role": "system", "content": prompt}}, msgs...)
+			return true
+		}
+	case strings.HasSuffix(path, "/messages"):
+		add = func(req map[string]any, prompt string) bool {
+			if _, ok := req["system"]; ok {
+				return false
+			}
+			req["system"] = prompt
+			return true
+		}
+	case strings.HasSuffix(path, "/responses"):
+		add = func(req map[string]any, prompt string) bool {
+			if _, ok := req["instructions"]; ok {
+				return false
+			}
+			if input, ok := req["input"].([]any); ok && hasSystemMessage(input) {
+				return false
+			}
+			req["instructions"] = prompt
+			return true
+		}
+	default:
+		return body
+	}
+
+	_, cfg := s.modelFromBody(body)
+	if cfg == nil || cfg.SystemPrompt == "" {
+		return body
+	}
+	var req map[string]any
+	if json.Unmarshal(body, &req) != nil {
+		return body
+	}
+	if !add(req, cfg.SystemPrompt) {
+		return body
+	}
+	modified, err := json.Marshal(req)
+	if err != nil {
+		return body
+	}
+	return modified
+}
+
+// hasSystemMessage reports whether a message list already has a system
+// or developer entry.
+func hasSystemMessage(msgs []any) bool {
+	for _, m := range msgs {
+		if msg, ok := m.(map[string]any); ok {
+			if role, _ := msg["role"].(string); role == "system" || role == "developer" {
+				return true
+			}
+		}
+	}
+	return false
 }

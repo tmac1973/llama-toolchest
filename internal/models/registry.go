@@ -339,6 +339,13 @@ type ModelConfig struct {
 	MinP            *float64 `json:"min_p,omitempty"`
 	PresencePenalty *float64 `json:"presence_penalty,omitempty"`
 	RepeatPenalty   *float64 `json:"repeat_penalty,omitempty"`
+
+	// SystemPrompt is the system message the proxy adds to a chat request
+	// that does not send one of its own. Some fine-tunes are trained with
+	// a fixed system prompt and work badly without it. llama-server has
+	// no option for this: its -sys flag is for llama-cli only. "" adds
+	// nothing.
+	SystemPrompt string `json:"system_prompt,omitempty"`
 }
 
 // DefaultBatchSize and DefaultUBatchSize mirror llama.cpp's own defaults,
