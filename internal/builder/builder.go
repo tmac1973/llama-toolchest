@@ -96,6 +96,14 @@ type BuildResult struct {
 	// Project is the source tree built (see Project); empty on builds
 	// from before projects existed, which were all llama.cpp.
 	Project string `json:"project,omitempty"`
+	// PatchSet is the curated patch set (internal/patchsets) applied to
+	// the source, PatchRelease its release tag and PatchBase the upstream
+	// commit the patches applied to. GitSHA is then the patched HEAD, and
+	// CommitCount the base's count, so the build ranks and gets launch
+	// options as upstream at its base. All empty on an unpatched build.
+	PatchSet     string `json:"patch_set,omitempty"`
+	PatchRelease string `json:"patch_release,omitempty"`
+	PatchBase    string `json:"patch_base,omitempty"`
 	// HasWebUI is true when the build's server program carries its own
 	// web page (sd-server built with its frontend, ace-server always).
 	HasWebUI bool `json:"has_web_ui,omitempty"`
