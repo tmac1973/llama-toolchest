@@ -122,6 +122,65 @@ func TestFailedRunRecordsWhatTheServerReported(t *testing.T) {
 	}
 }
 
+// A warm-up request for a model that ran out of memory while loading is
+// not sent again: each one makes the router load the model again with the
+// same settings, and that load runs out of memory again.
+func TestWarmupIsNotRetriedAfterOutOfMemory(t *testing.T) {
+	completions := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/models", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`[]`))
+	})
+	mux.HandleFunc("/models/load", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"success":true}`))
+	})
+	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
+		completions++
+		http.Error(w, `{"error":{"message":"model name=big failed to load"}}`, http.StatusInternalServerError)
+	})
+	router := httptest.NewServer(mux)
+	defer router.Close()
+
+	before := []string{"0.00.200.000 I srv  router listening"}
+	calls := 0
+	serverLog := func() []string {
+		calls++
+		if calls == 1 {
+			return before
+		}
+		return append(append([]string{}, before...), oomLog...)
+	}
+
+	store := NewStore(t.TempDir(), nil)
+	run := BenchmarkRun{ID: "run-1", ModelID: "big", Status: StatusRunning}
+	store.Save(run)
+	NewRunner(store).Run(context.Background(), RunConfig{
+		Run:        run,
+		Preset:     GetPreset("internal-quick"),
+		RouterURL:  router.URL,
+		RouterName: "big",
+		ServerLog:  serverLog,
+	}, nil)
+
+	if completions != 1 {
+		t.Errorf("warm-up requests = %d, want 1", completions)
+	}
+	got, err := store.Get("run-1")
+	if err != nil {
+		t.Fatalf("read back run: %v", err)
+	}
+	if got.Status != StatusFailed {
+		t.Fatalf("status = %s, want failed", got.Status)
+	}
+	if !strings.HasPrefix(got.Error, "warmup failed: HTTP 500") {
+		t.Errorf("error = %q, want it to start with the warm-up error", got.Error)
+	}
+	if !strings.Contains(got.Error, "cudaMalloc failed: out of memory") {
+		t.Errorf("error = %q, want it to quote the cause from the server log", got.Error)
+	}
+}
+
 // What llama-server printed when a model loaded and then ran out of
 // memory on its first request, taken from the machine this is from. The
 // log held began in the middle of an earlier warm-up attempt, so the

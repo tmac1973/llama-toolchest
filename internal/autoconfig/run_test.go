@@ -526,3 +526,58 @@ func TestRunPlansBuiltInMTPWithItsDraftDefaults(t *testing.T) {
 		t.Errorf("proposal estimated at %.2f GiB, over the %.2f GiB budget", est, res.Fit.BudgetGiB)
 	}
 }
+
+// A draft model the card turns on is planned for: its file and its
+// context take GPU memory, so the proposal must fit with it, not only
+// without it. It used to be added after the plan, and the test load of
+// a proposal over budget ran out of memory.
+func TestRunPlansTheCardsDraftModel(t *testing.T) {
+	const answer = `{"temperature": null, "top_p": null, "top_k": null, "min_p": null, "presence_penalty": null,
+		"repeat_penalty": null, "sampling_quote": "", "thinking": null, "thinking_quote": "",
+		"draft_method": "draft-dspark", "draft_repo": null, "assist_mode": null, "speculative_quote": "a DSpark draft model",
+		"recommended_context": null, "context_quote": "", "other_notes": []}`
+	reg := runRegistryWithMTP(t, 0)
+	// A real file, sparse, so the estimate counts its size.
+	headPath := filepath.Join(t.TempDir(), "dspark-Test-9B-Q8_0.gguf")
+	if f, err := os.Create(headPath); err != nil {
+		t.Fatal(err)
+	} else {
+		f.Truncate(6 << 30)
+		f.Close()
+	}
+	if err := reg.Add(&models.Model{ID: "head", Filename: "dspark-Test-9B-Q8_0.gguf", FilePath: headPath,
+		Arch: "dflash", DraftHead: "dspark", SizeBytes: 6 << 30}); err != nil {
+		t.Fatal(err)
+	}
+	deps := func(llm *llmcall.Client) Deps {
+		return Deps{
+			Registry: reg, Hardware: gpu24(), HFBase: "https://hf.test",
+			Fetcher: &fakeFetcher{pages: map[string]string{
+				"https://hf.test/testorg/Test-9B-GGUF/raw/main/README.md": readTestdata(t, "unsloth_card.md"),
+			}},
+			LLM: llm, HelperID: "helper",
+		}
+	}
+	noDraft, err := Run(context.Background(), Deps{Registry: reg, Hardware: gpu24()}, runModelID, models.ContextMax)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := Run(context.Background(), deps(helperServer(t, answer)), runModelID, models.ContextMax)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Proposed.SpecType != "draft-dspark" || res.Proposed.DraftModelPath != headPath {
+		t.Fatalf("proposal = %q / %q, want the installed DSpark head", res.Proposed.SpecType, res.Proposed.DraftModelPath)
+	}
+	m, _ := reg.Get(runModelID)
+	est := models.VRAMEstimateForConfigOn(m, &res.Proposed, 1)
+	if est > res.Fit.BudgetGiB {
+		t.Errorf("proposal with the draft model is estimated at %.1f GiB, over the %.1f GiB budget", est, res.Fit.BudgetGiB)
+	}
+	if res.Fit.Config.DraftModelPath != headPath {
+		t.Errorf("the fit was planned without the draft model: %q", res.Fit.Config.DraftModelPath)
+	}
+	if res.Proposed.ContextSize >= noDraft.Proposed.ContextSize && res.Proposed.KVCacheQuant == noDraft.Proposed.KVCacheQuant {
+		t.Errorf("context %d (%s) is what fits without the draft model too", res.Proposed.ContextSize, res.Proposed.KVCacheQuant)
+	}
+}
