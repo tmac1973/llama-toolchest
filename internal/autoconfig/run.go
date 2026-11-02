@@ -3,6 +3,7 @@ package autoconfig
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/tmac1973/llama-toolchest/internal/llmcall"
 	"github.com/tmac1973/llama-toolchest/internal/models"
@@ -214,6 +215,31 @@ func Run(ctx context.Context, d Deps, id string, class models.ContextClass) (*Re
 		}
 		ApplyProposal(&res.Proposed, p)
 		addNote(models.ProfileNote{Field: p.Field, Reason: p.Reason, Origin: p.Origin})
+	}
+	// A draft model the card turned on is GPU memory the fit did not plan
+	// for: the drafter's weights and its own context. Without a new plan
+	// the proposal is over budget and its test load runs out of memory.
+	// The plan is made again with the drafter, from the same starting
+	// point, and the advice applied on top of it as before.
+	if res.Proposed.SpecType != fitBase.SpecType || res.Proposed.DraftModelPath != fitBase.DraftModelPath {
+		planBase := fitBase
+		if planBase.SpecType != res.Proposed.SpecType {
+			planBase.SpecType = res.Proposed.SpecType
+			planBase.ApplyDraftDefaults()
+		}
+		planBase.DraftModelPath = res.Proposed.DraftModelPath
+		fit = models.PlanFit(m, planBase, d.Hardware, class)
+		res.Fit = fit
+		res.Proposed = fit.Config
+		for _, p := range checked.Proposals {
+			ApplyProposal(&res.Proposed, p)
+		}
+		for f, ns := range notes {
+			notes[f] = slices.DeleteFunc(ns, func(n models.ProfileNote) bool { return n.Origin == "hardware fit" })
+		}
+		for _, n := range fit.Notes {
+			addNote(n)
+		}
 	}
 	for _, n := range checked.Notes {
 		addNote(n)
