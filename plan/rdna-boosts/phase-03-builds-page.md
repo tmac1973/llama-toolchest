@@ -33,7 +33,8 @@ The Builds page offers "llama.cpp + RDNA boosts" in its project picker, with ROC
 3. **Build POST.** When `req.Project` starts with `patchset:`, look up the patch set (404 if unknown). Accept only the pinned tag or `latest` as the ref. Then call the builder with project llama.cpp and a `PatchSpec`. Keep the existing ROCm profile and option handling. The ROCm install picker and the option checkboxes apply as for llama.cpp.
 4. **Build card.** For a build with `PatchSet` set, show a badge "<Name> r<N>". Its tooltip is the release tag and "Base: <short base> (b<CommitCount>)". When `PatchRelease` is not the patch set's pinned tag, also show the "untested" badge that fork builds use, with the same tooltip text.
 5. **Build details.** In `build_info.html`, show "Patch set", "Release" (linked to the release page) and "Upstream base" rows for patched builds.
-6. **Text.** All new labels and tooltips follow the writing rules. The picker tooltip: "Upstream llama.cpp with the RDNA boosts patches. Faster on AMD RDNA GPUs. ROCm only."
+6. **Picker layout.** Keep the radio buttons for now. With five choices (llama.cpp, RDNA boosts, two generation projects, Avalon) the row is full. A later change must replace the radios before more build sources are added (e.g. a grouped drop-down: llama.cpp variants, generation backends, forks). That change is not part of this plan.
+7. **Text.** All new labels and tooltips follow the writing rules. The picker tooltip: "Upstream llama.cpp with the RDNA boosts patches. Faster on AMD RDNA GPUs. ROCm only."
 
 ## Build gate
 
