@@ -164,3 +164,63 @@ func TestJobEnvBuildBackend(t *testing.T) {
 		}
 	}
 }
+
+// A model turned on while the router runs is not in the running router's
+// preset, which it reads only at startup. A job on the build the router
+// already serves must restart it rather than take the no-restart fast
+// path, or every cell on that model fails with the router's 404.
+func TestEnsureBuildActiveRestartsForModelEnabledSinceStart(t *testing.T) {
+	s, proc := evalStopServer(t)
+	const id = "m1"
+	if err := s.registry.Add(&models.Model{
+		ID: id, ModelID: "org/M-GGUF", Quant: "Q4_K_M", Filename: "m.gguf",
+		FilePath: filepath.Join(t.TempDir(), "m.gguf"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := models.DefaultConfig()
+	cfg.Enabled = false
+	if err := s.registry.SetConfig(id, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.startRouter(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	waitRouterRunning(t, proc)
+	build := s.runningBuild()
+
+	// Nothing changed since the start: the fast path keeps the router.
+	env := newJobEnv(s)
+	if err := env.EnsureBuildActive(context.Background(), build, false); err != nil {
+		t.Fatalf("ensure (unchanged): %v", err)
+	}
+	if env.routerOwnedByJob() {
+		t.Error("the job took over the router although nothing changed since it started")
+	}
+
+	// Turn the model on, as PUT /api/models/{id}/enable does.
+	cfg.Enabled = true
+	if err := s.registry.SetConfig(id, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.enabledSinceStart(); !reflect.DeepEqual(got, []string{id}) {
+		t.Fatalf("enabledSinceStart = %v, want [%s]", got, id)
+	}
+
+	env = newJobEnv(s)
+	if err := env.EnsureBuildActive(context.Background(), build, false); err != nil {
+		t.Fatalf("ensure (enabled since start): %v", err)
+	}
+	if !env.routerOwnedByJob() {
+		t.Error("the router was not restarted for a model turned on since it started")
+	}
+	if live, ok := s.runningConfigFor(id); !ok || !live.Enabled {
+		t.Errorf("the running router does not have the model turned on: %+v", live)
+	}
+	if !strings.Contains(readPreset(t, s, models.PresetFileName), "m.gguf") {
+		t.Error("preset.ini does not list the model turned on since the start")
+	}
+	if got := s.enabledSinceStart(); len(got) != 0 {
+		t.Errorf("enabledSinceStart after the restart = %v, want none", got)
+	}
+}

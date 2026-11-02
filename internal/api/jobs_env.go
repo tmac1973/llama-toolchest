@@ -154,7 +154,13 @@ func (e *jobEnv) EnsureBuildActive(ctx context.Context, buildID string, configFo
 	// on the build you already have running. Comparing against jobBuildID
 	// instead meant the first cell of every job killed a healthy router,
 	// unloading models and dropping open sessions for nothing.
-	if e.s.process.IsRunning() && e.s.runningBuild() == buildID && !hasConfigs {
+	//
+	// Not when a model was turned on after the router started, though: it
+	// is missing from the running preset, so every cell on it would fail
+	// with the router's 404. The Models page asks the user to restart for
+	// this; a job has to do it itself.
+	enabled := e.s.enabledSinceStart()
+	if e.s.process.IsRunning() && e.s.runningBuild() == buildID && !hasConfigs && len(enabled) == 0 {
 		slog.Info("router already on the requested build; not restarting", "build", buildID)
 		// Nothing was taken over, so ownership stays clear and cleanup
 		// has nothing to restore. Claiming it here reinstated at job end
@@ -174,7 +180,7 @@ func (e *jobEnv) EnsureBuildActive(ctx context.Context, buildID string, configFo
 	}
 
 	slog.Info("switching router to benchmark build",
-		"build", buildID, "was", e.s.runningBuild())
+		"build", buildID, "was", e.s.runningBuild(), "enabled_since_start", enabled)
 
 	e.mu.Lock()
 	e.ownsRouter = true
