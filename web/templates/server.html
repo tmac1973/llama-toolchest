@@ -226,7 +226,7 @@
                                         {{if eq .ID $.ActiveBuild}}selected{{end}}
                                         {{if .Disabled}}disabled{{end}}
                                         {{with .BuiltAgainstTitle}}title="{{.}}"{{end}}>
-                                    {{if .Mismatch}}&#9888; {{end}}{{.ID}} ({{.Profile}}){{if .Mismatch}} — cannot run in this image{{end}}
+                                    {{if .Mismatch}}&#9888; {{end}}{{.ID}} ({{.Profile}}){{with .PatchLabel}} · {{.}}{{end}}{{if .Mismatch}} — cannot run in this image{{end}}
                                 </option>
                                 {{end}}
                             </select>

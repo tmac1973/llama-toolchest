@@ -101,6 +101,7 @@ func TestProfileOptionsPreviewPerProject(t *testing.T) {
 }
 
 func TestBuildsPageProjectPickerOnlyWhenEnabled(t *testing.T) {
+	noROCm(t)
 	s := newTestServer(t)
 	render := func() string {
 		rec := httptest.NewRecorder()
@@ -117,4 +118,19 @@ func TestBuildsPageProjectPickerOnlyWhenEnabled(t *testing.T) {
 			t.Errorf("project picker lacks %s", want)
 		}
 	}
+}
+
+// noROCm makes the Builds page see a machine with the CPU backend only,
+// so no patch set is offered.
+func noROCm(t *testing.T) {
+	t.Helper()
+	withBackends(t, builder.Backend{Name: "cpu", Available: true})
+}
+
+// withBackends makes the Builds page see these build backends.
+func withBackends(t *testing.T, backends ...builder.Backend) {
+	t.Helper()
+	orig := buildsPageBackends
+	buildsPageBackends = func() []builder.Backend { return backends }
+	t.Cleanup(func() { buildsPageBackends = orig })
 }

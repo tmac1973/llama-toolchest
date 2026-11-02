@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -32,6 +33,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/modelscope"
 	"github.com/tmac1973/llama-toolchest/internal/modelsource"
 	"github.com/tmac1973/llama-toolchest/internal/monitor"
+	"github.com/tmac1973/llama-toolchest/internal/patchsets"
 	"github.com/tmac1973/llama-toolchest/internal/presets"
 	"github.com/tmac1973/llama-toolchest/internal/process"
 	"github.com/tmac1973/llama-toolchest/internal/recommend"
@@ -1129,13 +1131,14 @@ func (s *Server) handleBuildsPage(w http.ResponseWriter, r *http.Request) {
 		// page can say a build is stale but not what it is stale against.
 		BuildEnv  string
 		BaseImage string
-		// Projects fills the project picker: llama.cpp, the generation
-		// backends while they are on, and the curated forks while forks
-		// are on. The picker is hidden when llama.cpp is the only one.
+		// Projects fills the project picker: llama.cpp, the curated patch
+		// sets this machine can build, the generation backends while they
+		// are on, and the curated forks while forks are on. The picker is
+		// hidden when llama.cpp is the only one.
 		Projects []projectChoice
 	}{
 		pageData:  pageData{Title: "Builds", Nav: "builds"},
-		Backends:  builder.DetectBackends(),
+		Backends:  buildsPageBackends(),
 		BuildEnv:  env,
 		BaseImage: base,
 	}
@@ -1155,6 +1158,9 @@ func (s *Server) handleBuildsPage(w http.ResponseWriter, r *http.Request) {
 			c.Notes = f.Notes
 		}
 		data.Projects = append(data.Projects, c)
+		if p.ID == builder.ProjectLlamaCpp {
+			data.Projects = append(data.Projects, patchSetChoices(data.Backends)...)
+		}
 	}
 	if len(data.Projects) < 2 {
 		data.Projects = nil
@@ -1182,8 +1188,40 @@ type projectChoice struct {
 	// with; empty for all.
 	Backends                 string
 	NotesURL, LatestNotesURL string
-	// Label is the name shown, and Notes a fork's tooltip.
+	// Label is the name shown, and Notes a fork's or patch set's tooltip.
 	Label, Notes string
+	// PatchNote is the line shown under the ref picker for a patch set;
+	// empty for a project.
+	PatchNote string
+}
+
+// buildsPageBackends detects the build backends for the Builds page. A
+// var so tests do not depend on the GPUs of the machine they run on.
+var buildsPageBackends = builder.DetectBackends
+
+// patchSetChoices are the project picker's entries for the curated patch
+// sets, shown after llama.cpp: each builds llama.cpp with the set applied.
+// A set none of whose backends this machine has (no ROCm) is left out.
+func patchSetChoices(backends []builder.Backend) []projectChoice {
+	var out []projectChoice
+	for _, ps := range patchsets.Curated() {
+		if !slices.ContainsFunc(backends, func(b builder.Backend) bool {
+			return b.Available && slices.Contains(ps.Backends, b.Name)
+		}) {
+			continue
+		}
+		out = append(out, projectChoice{
+			ID:             patchSetChoicePrefix + ps.ID,
+			Label:          "llama.cpp + " + ps.Name,
+			Backends:       strings.Join(ps.Backends, ","),
+			NotesURL:       ps.Repo + "/releases/tag/{ref}",
+			LatestNotesURL: ps.Repo + "/releases/latest",
+			Notes:          ps.Notes,
+			PatchNote: fmt.Sprintf("Upstream llama.cpp at %s with %d patches. The build fails if the patched source does not match the release.",
+				ps.Pinned.Base[:9], ps.Pinned.NBlocks),
+		})
+	}
+	return out
 }
 
 // buildEnvBanner reports the toolchain this container runs and the container

@@ -97,7 +97,7 @@
         {{range .Builds}}
         <label>
             <input type="checkbox" name="build" value="{{.ID}}" onchange="updateMatrixCount()">
-            <span><kbd>{{.ID}}</kbd> <small style="color:var(--pico-muted-color);">({{.Profile}}{{if .GitRef}}, ref {{.GitRef}}{{end}}{{if .Tag}}, tag {{.Tag}}{{end}})</small></span>
+            <span><kbd>{{.ID}}</kbd> <small style="color:var(--pico-muted-color);">({{.Profile}}{{if .GitRef}}, ref {{.GitRef}}{{end}}{{if .Tag}}, tag {{.Tag}}{{end}}{{with .PatchLabel}}, {{.}}{{end}})</small></span>
         </label>
         {{end}}
     </fieldset>
