@@ -1089,6 +1089,9 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		cfg.MinP = parseOptionalFloat(r.FormValue("min_p"))
 		cfg.PresencePenalty = parseOptionalFloat(r.FormValue("presence_penalty"))
 		cfg.RepeatPenalty = parseOptionalFloat(r.FormValue("repeat_penalty"))
+		if r.Form.Has("system_prompt") {
+			cfg.SystemPrompt = strings.TrimSpace(r.FormValue("system_prompt"))
+		}
 
 		if r.Form.Has("mmproj_path") {
 			cfg.MmprojPath = r.FormValue("mmproj_path")
