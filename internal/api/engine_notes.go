@@ -64,6 +64,9 @@ func (s *Server) recordOutcome(o enginenotes.Outcome) {
 	if job := s.jobTag(); job != nil {
 		e.JobID, e.JobName = job.ID, job.Name
 	}
+	if o.Kind == enginenotes.KindUnload {
+		e.UnloadReason = s.takeUnloadReason(o.RouterName, o.Time)
+	}
 	s.notes.Record(e)
 
 	switch o.Kind {
@@ -81,6 +84,51 @@ func (s *Server) recordOutcome(o enginenotes.Outcome) {
 	case enginenotes.KindRouterExit:
 		slog.Warn("llama-server router exited on its own", "error", o.RouterError)
 	}
+}
+
+// unloadReasonTTL is how long a reason noted for an unload waits for the
+// router log to report it. An older one is from an unload that never
+// reported, and is dropped.
+const unloadReasonTTL = 2 * time.Minute
+
+// pendingUnload is a reason noted for an unload, and when.
+type pendingUnload struct {
+	reason string
+	at     time.Time
+}
+
+// noteUnloadReason keeps why toolchest is about to unload routerName, so
+// the unload event the router log reports next carries it.
+func (s *Server) noteUnloadReason(routerName, reason string) {
+	now := time.Now()
+	s.pendingUnloadsMu.Lock()
+	defer s.pendingUnloadsMu.Unlock()
+	if s.pendingUnloads == nil {
+		s.pendingUnloads = map[string]pendingUnload{}
+	}
+	for name, p := range s.pendingUnloads {
+		if now.Sub(p.at) > unloadReasonTTL {
+			delete(s.pendingUnloads, name)
+		}
+	}
+	s.pendingUnloads[routerName] = pendingUnload{reason: reason, at: now}
+}
+
+// takeUnloadReason returns and forgets the reason noted for routerName's
+// unload, reported at time at; empty when none was noted, or it is older
+// than unloadReasonTTL.
+func (s *Server) takeUnloadReason(routerName string, at time.Time) string {
+	s.pendingUnloadsMu.Lock()
+	defer s.pendingUnloadsMu.Unlock()
+	p, ok := s.pendingUnloads[routerName]
+	if !ok {
+		return ""
+	}
+	delete(s.pendingUnloads, routerName)
+	if at.Sub(p.at) > unloadReasonTTL {
+		return ""
+	}
+	return p.reason
 }
 
 // describeInstance names the model the router calls routerName and the

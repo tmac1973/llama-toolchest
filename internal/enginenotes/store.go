@@ -66,6 +66,9 @@ type Event struct {
 
 	// StartReason is "user" or "job", on a router start.
 	StartReason string `json:"start_reason,omitempty"`
+	// UnloadReason is why toolchest unloaded the model, on an unload it
+	// asked for to make room ("room for ..."). Empty for other unloads.
+	UnloadReason string `json:"unload_reason,omitempty"`
 	// JobID and JobName name the benchmark or Autoconfigure job that
 	// held the router, if one did.
 	JobID   string `json:"job_id,omitempty"`

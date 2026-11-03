@@ -115,6 +115,7 @@ type notesPeriodButton struct {
 type notesModelView struct {
 	Name                                 string
 	Loads, FailedLoads, Crashes, Unloads int
+	UnloadsForRoom                       int
 	Loaded, AvgLoad                      string
 	Requests, FailedRequests             string
 	PromptTokens, GenTokens              string
@@ -156,7 +157,8 @@ func newNotesBodyView(period string, sum enginenotes.Summary) notesBodyView {
 	for _, m := range sum.Models {
 		row := notesModelView{
 			Name: m.Name, Loads: m.Loads, FailedLoads: m.FailedLoads, Crashes: m.Crashes, Unloads: m.Unloads,
-			Loaded: "—", AvgLoad: "—",
+			UnloadsForRoom: m.UnloadsForRoom,
+			Loaded:         "—", AvgLoad: "—",
 			Requests:       models.GroupDigits(m.Requests),
 			FailedRequests: models.GroupDigits(m.FailedRequests),
 			PromptTokens:   models.GroupDigits(m.PromptTokens),

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"io"
 	"net"
 	"net/http"
@@ -8,12 +9,14 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/benchmark"
 	"github.com/tmac1973/llama-toolchest/internal/enginenotes"
+	"github.com/tmac1973/llama-toolchest/internal/generation"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/process"
 	"github.com/tmac1973/llama-toolchest/internal/testutil"
@@ -293,5 +296,47 @@ func TestEngineNotesEndpoints(t *testing.T) {
 	}
 	if got := allNotes(s).Totals.Crashes; got != 1 {
 		t.Errorf("crashes left = %d, want the recent one", got)
+	}
+}
+
+// An unload toolchest asked for carries its reason into the saved event;
+// the next unload of the same model, and one whose reason is too old,
+// carry none.
+func TestUnloadReasonReachesTheEvent(t *testing.T) {
+	s := newTestServer(t)
+	openTestNotes(t, s)
+	now := time.Now()
+	unload := enginenotes.Outcome{Kind: enginenotes.KindUnload, RouterName: "qwen", Time: now}
+
+	s.noteUnloadReason("qwen", "room for flux")
+	s.recordOutcome(unload)
+	s.recordOutcome(unload)
+	s.noteUnloadReason("qwen", "room for ace")
+	s.pendingUnloads["qwen"] = pendingUnload{reason: "room for ace", at: now.Add(-unloadReasonTTL - time.Second)}
+	s.recordOutcome(unload)
+
+	sum := allNotes(s)
+	if sum.Totals.Unloads != 3 || sum.Totals.UnloadsForRoom != 1 {
+		t.Fatalf("unloads = %d, for room = %d; want 3 and 1", sum.Totals.Unloads, sum.Totals.UnloadsForRoom)
+	}
+	if got := sum.Models[0].UnloadsForRoom; got != 1 {
+		t.Errorf("model unloads for room = %d, want 1", got)
+	}
+}
+
+// An unload for a generation backend notes the backend as its reason.
+func TestUnloadForGenNotesItsReason(t *testing.T) {
+	s, f, m := startFakeRouter(t)
+	routerName := s.registry.RouterName(m.ID)
+	f.reset(map[string]string{routerName: "loaded"}, nil)
+
+	if err := s.unloadForGen(context.Background(), m.ID, generation.Instance{ID: "flux", Name: "FLUX", GPU: 0}); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.unloadCalls(); !slices.Equal(got, []string{routerName}) {
+		t.Fatalf("unloads = %v, want %s", got, routerName)
+	}
+	if got := s.takeUnloadReason(routerName, time.Now()); got != "room for FLUX" {
+		t.Errorf("reason = %q, want room for FLUX", got)
 	}
 }

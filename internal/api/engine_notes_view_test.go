@@ -104,9 +104,9 @@ func TestNotesBodyRenders(t *testing.T) {
 	crash.Tail = []string{"last line written"}
 	sum := enginenotes.Summary{
 		CountingSince: viewNow.Add(-48 * time.Hour), From: viewNow.Add(-24 * time.Hour), To: viewNow,
-		Totals: enginenotes.Totals{Loads: 3, Crashes: 1, FailuresInJobs: 1},
+		Totals: enginenotes.Totals{Loads: 3, Crashes: 1, FailuresInJobs: 1, Unloads: 4, UnloadsForRoom: 7},
 		Models: []enginenotes.ModelRow{{
-			ModelID: "q", Name: "Qwen", Loads: 3, Crashes: 1, LoadedSeconds: 3*3600 + 12*60,
+			ModelID: "q", Name: "Qwen", Loads: 3, Crashes: 1, Unloads: 4, UnloadsForRoom: 6, LoadedSeconds: 3*3600 + 12*60,
 			AvgLoadSeconds: 35, LastUsed: viewNow.Add(-time.Hour), Requests: 1200, PromptTokens: 1234567, GenTokens: 89,
 		}},
 		Failures: []enginenotes.Event{crash},
@@ -120,6 +120,7 @@ func TestNotesBodyRenders(t *testing.T) {
 		"CUDA error: an illegal memory access", "last line written", "Build b9000 · gpu:1 · during job “night run”",
 		"exit status 1", `<time datetime="2026-10-30T14:00:00Z">14:00 UTC</time>`,
 		`name="period" value="7d"`,
+		"<dt>To make room</dt><dd>7</dd>", "<td>6</td>",
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("body is missing %q", want)
