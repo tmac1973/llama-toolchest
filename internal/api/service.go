@@ -352,7 +352,32 @@ func (s *Server) handleActivateModel(w http.ResponseWriter, r *http.Request) {
 	// backends. With eviction on, the backends in the way are stopped, and
 	// their GPUs kept until the load is done.
 	release := func() {}
-	if m, err := s.registry.Get(id); err == nil && m != nil {
+	m, _ := s.registry.Get(id)
+	if m != nil && s.toolchestMemory() && s.process.IsRunning() {
+		// Unloads the idle LLMs in the way first, then backends, and
+		// sends the load itself.
+		release, err := s.loadLLMWithRoom(r.Context(), m, s.registry.RouterName(id))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInsufficientStorage)
+			return
+		}
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), autoLoadTimeout)
+			defer cancel()
+			if s.waitForModelLoaded(ctx, s.registry.RouterName(id), m) == nil {
+				s.restorePromptCache(ctx, m, s.registry.RouterName(id))
+			}
+			release()
+		}()
+		if isHTMX(r) {
+			s.handleListModels(w, r)
+			return
+		}
+		respondJSON(w, map[string]string{"status": "loading", "model": id})
+		return
+	}
+	if m != nil {
+		var err error
 		if release, err = s.makeRoomForLLM(r.Context(), m); err != nil {
 			http.Error(w, err.Error(), http.StatusInsufficientStorage)
 			return

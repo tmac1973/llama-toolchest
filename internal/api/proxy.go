@@ -239,8 +239,9 @@ func multipartModel(r *http.Request, limit int64) string {
 }
 
 // loadAttempts caps how many times a request loads its model again
-// after an unload for a generation backend got in between the load and
-// the request being counted.
+// after an unload for a generation backend, or in toolchest memory mode
+// for another LLM, got in between the load and the request being
+// counted.
 const loadAttempts = 4
 
 // loadAndCountRequest makes sure the model a request names is loaded,
@@ -264,7 +265,18 @@ func (s *Server) loadAndCountRequest(ctx context.Context, body []byte) (end func
 		if err != nil {
 			return noop, err
 		}
-		if attempt+1 >= loadAttempts || s.modelLoaded(id) {
+		loaded := s.modelLoaded(id)
+		if !loaded && attempt+1 >= loadAttempts && s.toolchestMemory() {
+			// The router would load it again on this request, with no
+			// room check: --models-max 0 leaves that to toolchest.
+			end()
+			name := id
+			if m, _ := s.registry.Get(id); m != nil {
+				name = m.PublicName()
+			}
+			return noop, fmt.Errorf("%s was unloaded %d times before the request could start; try again", name, loadAttempts)
+		}
+		if attempt+1 >= loadAttempts || loaded {
 			// After an eviction unloaded it: the conversations' prompt
 			// caches, before this request goes on. Restored once counted:
 			// a restore is a request to the model, and one reaching the
@@ -336,7 +348,16 @@ func (s *Server) ensureModelLoadedForRequest(ctx context.Context, body []byte) e
 		// then there's nothing /models/load can do for us.
 		return fmt.Errorf("model %q is not in the router preset; restart the router to pick it up", regModel.PublicName())
 	}
-	if state != "loading" {
+	if state != "loading" && s.toolchestMemory() {
+		// Unloads the idle LLMs in the way, least recently used first,
+		// then stops generation backends only if that is not enough.
+		release, err := s.loadLLMWithRoom(ctx, regModel, routerName)
+		if err != nil {
+			return err
+		}
+		defer release()
+		slog.Info("auto-loading model for inference request", "model", regModel.PublicName(), "router_name", routerName)
+	} else if state != "loading" {
 		// With eviction on this stops the generation backends in the way,
 		// and keeps their GPUs until the load is done.
 		release, err := s.makeRoomForLLM(ctx, regModel)
