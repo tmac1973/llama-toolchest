@@ -706,6 +706,20 @@ func registryErrorStatus(err error, fallback int) int {
 	return fallback
 }
 
+// rerankHeadWarning is shown on a reranker whose file has no
+// classification head, on its config page and as the title of its badge
+// in the model list, so the two always say the same thing.
+const rerankHeadWarning = "This file has no classification head, so its rerank scores are meaningless. Use a reranker conversion made with a recent llama.cpp."
+
+// rerankHeadWarningFor is rerankHeadWarning for a model that needs it, and
+// "" otherwise (or for no model).
+func rerankHeadWarningFor(m *models.Model) string {
+	if m != nil && m.RerankHeadMissing() {
+		return rerankHeadWarning
+	}
+	return ""
+}
+
 // modelConfigPanelData is what the model_config partial renders. It is a
 // named type so the render tests build the same shape the handler does.
 type modelConfigPanelData struct {
@@ -726,6 +740,7 @@ type modelConfigPanelData struct {
 	EffectiveSpecType string
 	GPUOptions        []models.GPUOption
 	GPUAssignWarning  string
+	RerankHeadWarning string // see models.Model.RerankHeadMissing
 	NumGPUs           int
 	// EffectiveSplit is the split balanced by each card's room that the
 	// launch flags carry (models.BalancedSplit). The saved GPU assignment
@@ -927,6 +942,7 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 		EffectiveSpecType:   cfg.EffectiveSpecType(),
 		GPUOptions:          gpuOptions,
 		GPUAssignWarning:    s.gpuAssignWarning(cfg, model, metrics.GPU),
+		RerankHeadWarning:   rerankHeadWarningFor(model),
 		NumGPUs:             numGPUs,
 		SamplingPresets:     samplingPresets,
 		SamplingPresetsJSON: samplingPresetsJSON,

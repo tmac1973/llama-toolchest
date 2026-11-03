@@ -339,8 +339,8 @@ func TestMdlListRerankModels(t *testing.T) {
 		}
 	}
 
-	// /v1/models still offers it to clients, as neither a chat nor an
-	// embedding model.
+	// /v1/models still offers it to clients, as a reranker: neither a
+	// chat nor an embedding model.
 	rec := httptest.NewRecorder()
 	s.handleV1Models(rec, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
 	var out struct {
@@ -358,8 +358,8 @@ func TestMdlListRerankModels(t *testing.T) {
 			continue
 		}
 		found = true
-		if slices.Contains(m.Meta.Capabilities, "chat") || slices.Contains(m.Meta.Capabilities, "embedding") {
-			t.Errorf("/v1/models capabilities for the reranker = %v", m.Meta.Capabilities)
+		if !slices.Equal(m.Meta.Capabilities, []string{"rerank"}) {
+			t.Errorf("/v1/models capabilities for the reranker = %v, want [rerank]", m.Meta.Capabilities)
 		}
 	}
 	if !found {

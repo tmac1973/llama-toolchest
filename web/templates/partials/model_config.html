@@ -22,6 +22,10 @@
     </p>
     {{end}}
 
+    {{if .RerankHeadWarning}}
+    <p role="alert" style="margin:0.5rem 0;"><mark>&#9888; {{.RerankHeadWarning}}</mark></p>
+    {{end}}
+
     {{template "profile_bar" .}}
     {{template "model_config_form" .}}
 </div>

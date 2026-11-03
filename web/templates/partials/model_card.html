@@ -34,7 +34,8 @@
             {{if .HasVision}} <mark style="padding:0 0.3rem;font-size:0.75rem;" title="Reads images: send them in chat messages.">vision</mark>{{end}}
             {{if .HasAudio}} <mark style="padding:0 0.3rem;font-size:0.75rem;" title="Understands speech: audio in chat, /v1/audio/transcriptions, or live with /v1/realtime (llama.cpp v0.8.0 or newer).">audio</mark>{{end}}
             {{if .Speaks}} <mark style="padding:0 0.3rem;font-size:0.75rem;" title="Makes speech: POST /tts{{if .HasAudio}} or /v1/realtime{{end}} (llama.cpp v0.8.0 or newer).{{if not .HasChatTemplate}} It only speaks, and does not answer chat requests.{{end}}">speech</mark>{{end}}
-            {{if .SupportsTools}} <mark style="padding:0 0.3rem;font-size:0.75rem;">tools</mark>{{end}}
+            {{if .CallsTools}} <mark style="padding:0 0.3rem;font-size:0.75rem;">tools</mark>{{end}}
+            {{if .RerankHeadWarning}} <mark style="padding:0 0.3rem;font-size:0.75rem;" title="{{.RerankHeadWarning}}">check file</mark>{{end}}
             {{if .GPULabel}} <mark style="padding:0 0.3rem;font-size:0.75rem;background:var(--pico-muted-border-color);color:var(--pico-color);">{{.GPULabel}}</mark>{{end}}
             {{if .IsOrphan}} <del>missing</del>{{end}}
             {{if .IsIncomplete}} <mark style="padding:0 0.3rem;font-size:0.75rem;background:var(--pico-del-color);color:var(--pico-card-background-color);">incomplete</mark>{{end}}

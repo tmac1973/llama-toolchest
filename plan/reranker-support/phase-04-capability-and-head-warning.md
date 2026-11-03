@@ -34,7 +34,7 @@ have `cls.weight`, `cls.bias` and `cls.output.*`, and it ranks correctly.
 - `internal/api/service.go` — the `rerankHeadWarning` constant, and a
   `RerankHeadWarning string` field in `modelConfigPanelData`.
 - `web/templates/partials/model_config.html` — render `RerankHeadWarning`
-  beside `GPUAssignWarning`.
+  under the panel header.
 - `internal/api/models.go` — a `RerankHeadWarning string` field on
   `modelCardView`, set where `HasVision`/`Speaks` are set (~line 470).
 - `web/templates/partials/model_card.html` — the `check file` badge.
@@ -90,8 +90,18 @@ have `cls.weight`, `cls.bias` and `cls.output.*`, and it ranks correctly.
    `model.RerankHeadMissing()`. The config page and the list badge both read
    this constant, so they always say the same thing. Phase 06 appends a
    pointer to the Download Models card.
-8. Render the warning in `model_config.html` beside `GPUAssignWarning`, with
-   its markup: `<small><mark>&#9888; {{.RerankHeadWarning}}</mark></small>`.
+8. Render the warning in `model_config.html` under the panel header, in the
+   `ReadOnlyReason` alert's markup:
+   `<p role="alert" style="margin:0.5rem 0;"><mark>&#9888; {{.RerankHeadWarning}}</mark></p>`.
+   (Beside `GPUAssignWarning` was the first choice, but that block renders
+   only when the machine has GPUs, so a CPU-only machine would never show
+   it.)
+10. A reranker is never offered for tools. Qwen3-Reranker keeps Qwen3's
+   chat template, which handles tools, so `SupportsTools` is set. Add
+   `Model.CallsTools()` (`SupportsTools && Kind() != KindRerank`) and use it
+   for the `tools` capability (`Capabilities()`, `buildCapabilities`) and
+   the card's `tools` badge (a `CallsTools` field on `modelCardView`).
+   `Capabilities()` returns only `["rerank"]` for a reranker.
 9. In the `modelCardView` literal, set `RerankHeadWarning` to
    `rerankHeadWarning` when `m.RerankHeadMissing()`, and leave it empty
    otherwise. In `model_card.html`, add the badge after the `tools` mark, in

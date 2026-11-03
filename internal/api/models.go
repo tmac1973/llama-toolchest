@@ -481,23 +481,25 @@ func (s *Server) renderModelCard(w http.ResponseWriter, m *models.Model, routerK
 	}, " "))
 
 	data := modelCardView{
-		Model:          *m,
-		IsActive:       state == "loaded" || state == "loading",
-		IsEnabled:      enabled,
-		PendingEnable:  pendingEnable,
-		PendingDisable: pendingDisable,
-		NeedsReload:    configChanged,
-		HasVision:      m.HasVision(cfg),
-		HasAudio:       m.UnderstandsAudio(cfg),
-		Speaks:         m.Speaks(cfg),
-		GPULabel:       gpuLabel,
-		ServiceState:   state,
-		VRAMGB:         vramGB,
-		IsOrphan:       isOrphan,
-		IsIncomplete:   isIncomplete,
-		ResumeFilename: m.Filename,
-		SearchText:     searchText,
-		CanAutoconfig:  m.Kind() == models.KindChat && !isOrphan && !isIncomplete,
+		Model:             *m,
+		IsActive:          state == "loaded" || state == "loading",
+		IsEnabled:         enabled,
+		PendingEnable:     pendingEnable,
+		PendingDisable:    pendingDisable,
+		NeedsReload:       configChanged,
+		HasVision:         m.HasVision(cfg),
+		CallsTools:        m.CallsTools(),
+		HasAudio:          m.UnderstandsAudio(cfg),
+		Speaks:            m.Speaks(cfg),
+		GPULabel:          gpuLabel,
+		ServiceState:      state,
+		VRAMGB:            vramGB,
+		IsOrphan:          isOrphan,
+		IsIncomplete:      isIncomplete,
+		ResumeFilename:    m.Filename,
+		SearchText:        searchText,
+		CanAutoconfig:     m.Kind() == models.KindChat && !isOrphan && !isIncomplete,
+		RerankHeadWarning: rerankHeadWarningFor(m),
 	}
 	_, data.CanUpdate = s.updateTargets(m)
 	// nil in the render tests, which build a server without the store.
@@ -521,6 +523,7 @@ type modelCardView struct {
 	PendingDisable bool
 	NeedsReload    bool
 	HasVision      bool
+	CallsTools     bool // see models.Model.CallsTools
 	HasAudio       bool // understands speech
 	Speaks         bool // makes speech
 	GPULabel       string
@@ -531,6 +534,8 @@ type modelCardView struct {
 	ResumeFilename string
 	SearchText     string
 	CanAutoconfig  bool
+	// RerankHeadWarning titles the "check file" badge (see rerankHeadWarning).
+	RerankHeadWarning string
 	// CanUpdate is set for a model downloaded from a repository, which
 	// the Update button can check against it.
 	CanUpdate bool
@@ -540,8 +545,8 @@ type modelCardView struct {
 	Autotune autotune.CardState
 }
 
-// renderModelList renders the shared model list used by both chat and embedding
-// sections as a flat list of cards, sorted by base name then quant. When
+// renderModelList renders the shared model list used by the chat, embedding
+// and reranking sections as a flat list of cards, sorted by base name then quant. When
 // withFilter is true, a filter input is emitted above the list.
 func (s *Server) renderModelList(w http.ResponseWriter, r *http.Request, modelList []*models.Model, pending []models.PendingConfig, withFilter bool) {
 	routerKnown := s.routerKnownStates()

@@ -160,6 +160,12 @@ type Model struct {
 	// version 8; Kind then falls back to the name.
 	Embedding   bool `json:"embedding,omitempty"`
 	PoolingType int  `json:"pooling_type,omitempty"`
+	// HasClassifierHead records a classification head (cls.weight or
+	// cls.output.weight) in the file's tensor table, and ClassifierChecked
+	// that the whole table was read, so a record parsed before version 10,
+	// or from the header alone, is not taken for a file without one.
+	HasClassifierHead bool `json:"has_classifier_head,omitempty"`
+	ClassifierChecked bool `json:"classifier_checked,omitempty"`
 
 	// Reasoning / thinking mode detected from the chat template at parse time.
 	// ReasoningChecked distinguishes a genuine "no reasoning" from a record
@@ -984,7 +990,9 @@ func (r *Registry) ListNeedingPresetFetch() []string {
 //	    and the encoder architectures) rather than only by name.
 //	9 — whether the file has a chat template (HasChatTemplate), so a
 //	    text-to-speech model that cannot chat is told apart.
-const GGUFMetaVersion = 9
+//	10 — whether the file has a classification head (HasClassifierHead),
+//	    so a reranker that would return meaningless scores is flagged.
+const GGUFMetaVersion = 10
 
 // BackfillGGUFMeta re-reads GGUF metadata for records written by an older
 // parser, in one pass at startup.
@@ -1497,20 +1505,38 @@ func KindFromName(name string) ModelKind {
 	return KindChat
 }
 
-// Capabilities returns the capability list for a model: "chat" or
-// "embedding" (neither for a model that only speaks), plus "tools",
+// RerankHeadMissing reports whether m is a reranker whose file has no
+// classification head. llama-server still serves it with --reranking, but
+// scores it with the raw hidden state, so its scores mean nothing.
+func (m *Model) RerankHeadMissing() bool {
+	return m.Kind() == KindRerank && m.ClassifierChecked && !m.HasClassifierHead
+}
+
+// CallsTools reports whether the model is offered for tool calls: its chat
+// template handles them, and it is not a reranker, which keeps the
+// template of the chat model it was trained from but only scores pairs.
+func (m *Model) CallsTools() bool {
+	return m.SupportsTools && m.Kind() != KindRerank
+}
+
+// Capabilities returns the capability list for a model: "chat",
+// "embedding" or "rerank" (none for a model that only speaks), plus "tools",
 // "vision", "audio" and "speech" when supported (see projector.go).
 func (m *Model) Capabilities(cfg *ModelConfig) []string {
 	var caps []string
 	switch m.Kind() {
 	case KindEmbedding:
 		caps = append(caps, "embedding")
+	case KindRerank:
+		// Nothing else: a reranker on a chat architecture (Qwen3) carries
+		// its chat template, tools and all, but only scores pairs.
+		return []string{"rerank"}
 	case KindChat:
 		if m.CanChat(cfg) {
 			caps = append(caps, "chat")
 		}
 	}
-	if m.SupportsTools {
+	if m.CallsTools() {
 		caps = append(caps, "tools")
 	}
 	if m.HasVision(cfg) {
