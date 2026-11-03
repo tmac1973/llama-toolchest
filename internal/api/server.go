@@ -1395,8 +1395,11 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 // dashboardCardsData feeds the dashboard_cards partial.
 type dashboardCardsData struct {
 	// Available is every chat model the running router serves; empty
-	// when the router is stopped or serves none.
+	// when the router is stopped or serves none. Embedding and Reranking
+	// are the same for those kinds, shown in their own sections.
 	Available  []availableModelRow
+	Embedding  []availableModelRow
+	Reranking  []availableModelRow
 	BuildCount int
 	ModelCount int
 	APIURL     string
@@ -1447,23 +1450,33 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		data.ChatURL = fmt.Sprintf("%s://%s:%d", u.Scheme, u.Hostname(), cfg.ChatPort())
 	}
 
-	for _, sm := range s.servedChatModels() {
+	data.Available = s.availableModelRows(models.KindChat)
+	data.Embedding = s.availableModelRows(models.KindEmbedding)
+	data.Reranking = s.availableModelRows(models.KindRerank)
+
+	respondHTML(w)
+	s.renderPartial(w, "dashboard_cards", data)
+}
+
+// availableModelRows is one Available Models row for each served model
+// of the kind.
+func (s *Server) availableModelRows(kind models.ModelKind) []availableModelRow {
+	var rows []availableModelRow
+	for _, sm := range s.servedModels(kind) {
 		// What this model actually took the last time it loaded,
 		// against what it is estimated to take. Per model, because
 		// the answer depends on the configuration each one runs.
-		data.Available = append(data.Available, availableModelRow{
+		rows = append(rows, availableModelRow{
 			ID:         sm.Model.ID,
 			PublicName: sm.Model.PublicName(),
 			Tooltip:    s.memoryTooltip(sm.Model, sm.Config, sm.State),
 			State:      sm.State,
 		})
 	}
-
-	respondHTML(w)
-	s.renderPartial(w, "dashboard_cards", data)
+	return rows
 }
 
-// servedModel is a chat model the running router serves.
+// servedModel is a model the running router serves.
 type servedModel struct {
 	Model  *models.Model
 	Config *models.ModelConfig // nil when the model has none
@@ -1481,6 +1494,12 @@ type servedModel struct {
 // or off in the Models tab doesn't change this list until the router is
 // restarted, matching what the server can genuinely serve.
 func (s *Server) servedChatModels() []servedModel {
+	return s.servedModels(models.KindChat)
+}
+
+// servedModels is servedChatModels for any kind of model. Only chat
+// models leave out the text-to-speech-only ones.
+func (s *Server) servedModels(kind models.ModelKind) []servedModel {
 	if s.process.GetStatus().State != process.StateRunning {
 		return nil
 	}
@@ -1493,7 +1512,7 @@ func (s *Server) servedChatModels() []servedModel {
 	routerStates := s.routerKnownStates()
 	var out []servedModel
 	for _, m := range s.registry.List() {
-		if m.Kind() != models.KindChat {
+		if m.Kind() != kind {
 			continue
 		}
 		routerName := s.registry.RouterName(m.ID)
@@ -1508,7 +1527,7 @@ func (s *Server) servedChatModels() []servedModel {
 		if err != nil {
 			cfg = nil
 		}
-		if !m.CanChat(cfg) {
+		if kind == models.KindChat && !m.CanChat(cfg) {
 			continue // text-to-speech only
 		}
 		out = append(out, servedModel{Model: m, Config: cfg, State: state})
