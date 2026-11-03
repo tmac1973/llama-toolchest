@@ -26,7 +26,7 @@ needs no change.
   change.
 - `web/templates/help.html` — a "Reranking models" entry: what a reranker
   is for, that it is served at `/v1/rerank`, a curl example, and the
-  missing-pooling warning.
+  missing-head warning.
 - `scripts/test-rerank.sh` — a new script modelled on
   `scripts/test-embeddings.sh`.
 - `README.md` — add reranking to the list of served endpoints/model kinds.

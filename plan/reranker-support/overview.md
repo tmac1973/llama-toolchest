@@ -33,7 +33,9 @@ RAG pipeline against toolchest cannot use it for the reranking step.
   lists, sampling presets, reasoning levels, chat-only config fields.
 - Report a `"rerank"` capability for them in `/v1/models` and the model API.
 - Give rerankers their own "Reranking models" section on the Models page.
-- Warn on a model named like a reranker whose file has no rank pooling key.
+- Warn on a reranker whose file has no classification head (no `cls.weight`
+  or `cls.output.weight` tensor). llama.cpp scores such a file with its raw
+  hidden state.
 - Offer a curated "Get reranking models" download card with known-good
   conversions.
 - Document `/v1/rerank` in the API docs and help page.
@@ -90,8 +92,9 @@ against toolchest:
   ranked scores from both models on a real build.
 - Embedding models produce the same preset, flags and lists as before
   (existing tests pass unchanged).
-- A file named like a reranker without rank pooling is served as a reranker
-  and shows the warning.
+- A reranker file without a classification head shows the warning. The
+  gpustack bge-reranker-v2-m3 file, which has a head but no rank pooling key,
+  does not.
 - The curated card lists the presets and downloads them, and they serve
   correctly.
 - `go build ./...`, `go vet ./...`, `go test ./...` and `make js-test` pass.
@@ -105,7 +108,12 @@ against toolchest:
 - **Client configs (agentconfig)** → Non-goal. The docs show how to point a
   client at `/v1/rerank`.
 - **File named like a reranker but no rank pooling key** → Serve it as a
-  reranker and show a warning on the model.
+  reranker, the name decides.
+- **What the warning checks** (revised after the phase 03 real-build check)
+  → A missing classification head, not a missing pooling key. The gpustack
+  bge file has no pooling key but has a head and ranks correctly. Without a
+  head, llama.cpp returns meaningless scores and no error. Detection stays
+  pooling key or name.
 - **Code shape** → A `Model.Kind()` enum (chat / embedding / rerank), brought
   in by a refactor-only phase before any reranker behaviour.
 - **In-UI test form** → No. API docs and the help page show the endpoint.

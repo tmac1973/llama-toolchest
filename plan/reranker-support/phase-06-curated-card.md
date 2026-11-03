@@ -7,9 +7,9 @@ reranker
 Offer a curated list of reranker GGUFs on the Download Models tab, the same
 way the embedding card does, and link to it from the "Reranking Models"
 section. Every entry is checked on HuggingFace before it is added: the file
-name, size, context, and that the header has `{arch}.pooling_type = 4`. The
-card offers only conversions that serve correctly without the
-missing-pooling warning.
+name, size, context, and that the file has a classification head. The card
+offers only conversions that serve correctly without the missing-head
+warning.
 
 ## Files touched
 - `internal/models/rerankers.go` (new) — `RerankModelPreset` and
@@ -28,25 +28,26 @@ missing-pooling warning.
 - `web/templates/models.html` — a "Get reranking models" button in the
   Reranking Models header, linking to `/models/browse?open=rerank`.
 - `internal/api/rerank_presets_test.go` (new) — card and download tests.
-- `internal/api/service.go` — the `rerankPoolingWarning` constant from
+- `internal/api/service.go` — the `rerankHeadWarning` constant from
   phase 04 gets the pointer to the new card.
 
 ## Steps
 1. Before writing code, check each candidate on HuggingFace. For each
    repo, choose the file by this rule: the Q8_0 GGUF, else the largest
    quantisation below Q8_0, else the only GGUF in the repo. Download it,
-   and read its header with llama.cpp's `gguf-py` dump script
-   (`python -I gguf-py/gguf/scripts/gguf_dump.py --no-tensors <file>`) for
-   the architecture, `pooling_type`, context length and size. Check the
+   and read it with toolchest's own `ParseGGUFMeta` (from a throwaway test,
+   as in the phase 03 check) for the architecture, `HasClassifierHead`
+   (phase 04), context length and size. Check the
    repos in the order listed. The first repo that passes is the one used,
    and later repos are not checked. Candidates:
-   - bge-reranker-v2-m3: `ggml-org/bge-reranker-v2-m3-GGUF`, then
-     `gpustack/bge-reranker-v2-m3-GGUF`.
+   - bge-reranker-v2-m3: `gpustack/bge-reranker-v2-m3-GGUF`. The phase 03
+     check already found its Q8_0 file has a head and ranks correctly.
+     There is no `ggml-org` repo for it (the HF API refuses that name).
    - Qwen3-Reranker-0.6B and Qwen3-Reranker-4B: `ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF`
      and `ggml-org/Qwen3-Reranker-4B-Q8_0-GGUF`, then the official
      `Qwen/Qwen3-Reranker-0.6B-GGUF` and `Qwen/Qwen3-Reranker-4B-GGUF`.
    - jina-reranker-v2-base-multilingual: `gpustack/jina-reranker-v2-base-multilingual-GGUF`.
-   An entry goes in only if its file has `pooling_type = 4` and it serves a
+   An entry goes in only if its file has a classification head and it serves a
    correct ranking with `scripts/test-rerank.sh`. If no repo for a
    candidate passes, leave it out and record why in the doc comment above
    `CuratedRerankModels()`, as the embedding list records its omissions
@@ -67,7 +68,7 @@ missing-pooling warning.
 4. Write the card template, the browse-tab wiring and the Models page
    button.
 5. In `service.go`, append ` The Download Models tab has known-good
-   reranking models.` to the `rerankPoolingWarning` constant. The config
+   reranking models.` to the `rerankHeadWarning` constant. The config
    page and the list badge both pick it up. Update their render tests.
 
 ## Build gate
