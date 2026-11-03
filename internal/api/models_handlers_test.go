@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/testutil"
+	"github.com/tmac1973/llama-toolchest/web"
 )
 
 // mdlModelsDir is the models folder of a newTestServer registry.
@@ -293,8 +294,9 @@ func TestMdlFilterPending(t *testing.T) {
 	}
 }
 
-// The reranking models section lists only rerankers, in JSON and on the
-// page, and has no heading at all while there are none.
+// The reranking models list holds only rerankers, in JSON and on the
+// page, and is empty while there are none (the section's heading is on
+// the page; see TestModelsPageRerankSection).
 func TestMdlListRerankModels(t *testing.T) {
 	s := newTestServer(t)
 	list := func(htmx bool) string {
@@ -318,8 +320,8 @@ func TestMdlListRerankModels(t *testing.T) {
 	rr := mdlAddFileModel(t, s, "BAAI/bge-reranker-v2-m3-GGUF", "bge-reranker-v2-m3-Q8_0.gguf")
 
 	body := list(true)
-	if !strings.Contains(body, "Reranking Models") || !strings.Contains(body, rr.ID) {
-		t.Errorf("section does not list %s under its heading:\n%s", rr.ID, body)
+	if !strings.Contains(body, rr.ID) {
+		t.Errorf("section does not list %s:\n%s", rr.ID, body)
 	}
 	for _, other := range []*models.Model{chat, emb} {
 		if strings.Contains(body, other.ID) {
@@ -399,5 +401,22 @@ func TestMdlRouterStateFor(t *testing.T) {
 	}
 	if _, found := routerStateFor(nil, "section"); found {
 		t.Error("a nil map (router down) reported a state")
+	}
+}
+
+// The Reranking Models section, with its "Get reranking models" button,
+// is part of the page rather than of the list, so it shows before any
+// reranker is downloaded, as the Embedding Models section does.
+func TestModelsPageRerankSection(t *testing.T) {
+	b, err := web.Templates.ReadFile("templates/models.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(b)
+	heading := strings.Index(page, ">Reranking Models</h4>")
+	button := strings.Index(page, `href="/models/browse?open=rerank"`)
+	list := strings.Index(page, `<div id="rerank-list"`)
+	if heading < 0 || button < 0 || list < 0 || !(heading < button && button < list) {
+		t.Errorf("models.html lacks the Reranking Models heading and button above the list (at %d, %d, %d)", heading, button, list)
 	}
 }

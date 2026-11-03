@@ -13,31 +13,18 @@ import (
 )
 
 func (s *Server) handleListEmbeddingModels(w http.ResponseWriter, r *http.Request) {
-	s.listModelsOfKind(w, r, models.KindEmbedding, "")
+	s.listModelsOfKind(w, r, models.KindEmbedding)
 }
 
-// rerankListHeading heads the reranking models section. It is part of the
-// list's HTML rather than the page, so the section has no heading when it
-// has nothing in it.
-const rerankListHeading = `<hr>
-<div style="display:flex;justify-content:space-between;align-items:center;padding:0 0.25rem 0.5rem 0;">
-    <h4 style="margin:0;" title="Models that score how well each document answers a query, at /v1/rerank.">Reranking Models</h4>
-    <a href="/models/browse?open=rerank" role="button" class="outline"
-       style="margin: 0; padding: 0.2rem 0.6rem; font-size: 0.8rem;"
-       title="Opens the Download Models tab with the list of reranking models.">
-        Get reranking models
-    </a>
-</div>
-`
-
 func (s *Server) handleListRerankModels(w http.ResponseWriter, r *http.Request) {
-	s.listModelsOfKind(w, r, models.KindRerank, rerankListHeading)
+	s.listModelsOfKind(w, r, models.KindRerank)
 }
 
 // listModelsOfKind answers a list request for the embedding or reranking
-// models section: JSON, or for htmx the section's cards after heading,
-// and nothing at all when there are no models or pending configs of kind.
-func (s *Server) listModelsOfKind(w http.ResponseWriter, r *http.Request, kind models.ModelKind, heading string) {
+// models section: JSON, or for htmx the section's cards, and nothing at
+// all when there are no models or pending configs of kind. The section's
+// heading and its download button are on the page, so they show either way.
+func (s *Server) listModelsOfKind(w http.ResponseWriter, r *http.Request, kind models.ModelKind) {
 	list := filterModels(s.registry.ListServing(), kind)
 	pending := filterPending(s.registry.PendingConfigs(), kind)
 
@@ -46,7 +33,6 @@ func (s *Server) listModelsOfKind(w http.ResponseWriter, r *http.Request, kind m
 		if len(list) == 0 && len(pending) == 0 {
 			return
 		}
-		w.Write([]byte(heading))
 		s.renderModelList(w, r, list, pending, false)
 		return
 	}
