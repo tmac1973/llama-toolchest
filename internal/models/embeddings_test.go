@@ -206,6 +206,64 @@ func TestVRAMEmbeddingUsesLaunchConfig(t *testing.T) {
 	}
 }
 
+// A reranker reads each query and document pair in one micro-batch, so
+// it gets the same context and micro-batch as an embedding model, with
+// reranking on in place of embeddings, and none of the chat options its
+// config carries. The context is capped at the model's own (bge's 8192),
+// and a long default context (Qwen3's 40960) is held at
+// EmbeddingDefaultContext.
+func TestPresetReranker(t *testing.T) {
+	bge := &Model{ID: "bge", ModelID: "gpustack/bge-reranker-v2-m3-GGUF", Filename: "bge.gguf", FilePath: "/models/bge.gguf",
+		Arch: "bert", ContextLength: 8192, PoolingType: PoolingRank}
+	qwen := &Model{ID: "qwen", ModelID: "ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF", Filename: "qwen.gguf", FilePath: "/models/qwen.gguf",
+		Arch: "qwen3", ContextLength: 40960, PoolingType: PoolingRank}
+	chatOpts := func() *ModelConfig {
+		return &ModelConfig{Enabled: true, GPULayers: 999, FlashAttention: true, Jinja: true, KVCacheQuant: "q8_0",
+			SpecType: "ngram-cache"}
+	}
+	cfgs := map[string]*ModelConfig{"bge": chatOpts(), "qwen": chatOpts()}
+	cfgs["bge"].ContextSize = 32768 // above the model's own
+	ini := GeneratePresetINI("/models", []*Model{bge, qwen}, cfgs, Target{})
+	if n := strings.Count(ini, "reranking = true"); n != 2 {
+		t.Fatalf("%d sections with reranking on, want 2:\n%s", n, ini)
+	}
+	for _, sec := range strings.Split(ini, "\n\n")[1:] {
+		if strings.TrimSpace(sec) == "" {
+			continue
+		}
+		for _, want := range []string{"reranking = true", "ctx-size = 8192", "ubatch-size = 8192", "batch-size = 8192"} {
+			if !strings.Contains(sec, want) {
+				t.Errorf("want %q in section:\n%s", want, sec)
+			}
+		}
+		for _, bad := range []string{"embeddings", "flash-attn", "jinja", "cache-type-k", "lookup-cache-dynamic"} {
+			if strings.Contains(sec, bad) {
+				t.Errorf("%q in a reranker's section:\n%s", bad, sec)
+			}
+		}
+	}
+
+	flags := cfgs["bge"].EffectiveFlagsFor(KindRerank, Target{})
+	if !strings.Contains(flags, "--reranking") || strings.Contains(flags, "--embeddings") {
+		t.Errorf("reranker flags = %q, want --reranking and not --embeddings", flags)
+	}
+	if flags := cfgs["bge"].EffectiveFlagsFor(KindEmbedding, Target{}); strings.Contains(flags, "--reranking") {
+		t.Errorf("embedding flags = %q, want no --reranking", flags)
+	}
+}
+
+// The estimate for a reranker follows its launch config, as an embedding
+// model's does.
+func TestVRAMRerankerUsesLaunchConfig(t *testing.T) {
+	m := &Model{ID: "r", ModelID: "org/bge-reranker-v2-m3-GGUF", Arch: "bert", PoolingType: PoolingRank,
+		NLayers: 24, NEmbd: 1024, NHead: 16, NKVHead: 16, ContextLength: 8192, SizeBytes: 600 << 20}
+	saved := VRAMBreakdownForConfigOn(m, &ModelConfig{ContextSize: 32768, GPULayers: 999}, 1)
+	launched := VRAMBreakdownForConfigOn(m, &ModelConfig{ContextSize: 8192, UBatchSize: 8192, BatchSize: 8192, GPULayers: 999}, 1)
+	if saved != launched {
+		t.Errorf("estimate for the saved config %+v, for the launch config %+v; want the same", saved, launched)
+	}
+}
+
 // Three A4000-sized cards, the way compute2 has them.
 func threeCards() Hardware {
 	return Hardware{GPUs: []GPUSpec{

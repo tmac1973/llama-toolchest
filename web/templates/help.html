@@ -200,8 +200,8 @@
     <h3>Key settings</h3>
     <dl>
         <dt>GPU Layers</dt><dd>Layers on the GPU; 999 means all.</dd>
-        <dt>Context Size</dt><dd>Larger needs more memory for the KV cache. For an embedding model, Context Size is the longest input of one request. Most embedding models read an input in one micro-batch, so toolchest raises the micro-batch to the same size. VRAM use grows fast: about 1&nbsp;GiB at 8K and 7&nbsp;GiB at 32K for EmbeddingGemma 2. The default is 8192, or the model's limit if it is lower.</dd>
-        <dt>Embedding models and GPUs</dt><dd>At download, toolchest puts an embedding model on the one GPU with the most room, if it fits. Spread over several GPUs, each GPU needs its own working memory for the model. That can be many times the model's size.</dd>
+        <dt>Context Size</dt><dd>Larger needs more memory for the KV cache. For an embedding model, Context Size is the longest input of one request; for a reranking model, the longest query plus document. Most embedding models, and all reranking models, read an input in one micro-batch, so toolchest raises the micro-batch to the same size. VRAM use grows fast: about 1&nbsp;GiB at 8K and 7&nbsp;GiB at 32K for EmbeddingGemma 2. The default is 8192, or the model's limit if it is lower.</dd>
+        <dt>Embedding models and GPUs</dt><dd>At download, toolchest puts an embedding or reranking model on the one GPU with the most room, if it fits. Spread over several GPUs, each GPU needs its own working memory for the model. That can be many times the model's size.</dd>
         <dt>Parallel Conversations and Shared Context</dt><dd>With Shared Context on, all conversations use one context pool. A long conversation can use more than its part. If the pool fills, llama.cpp clears waiting conversations, and they read their prompt again. If that is not enough, a request fails. A per-conversation limit stops one conversation from taking the whole pool.</dd>
         <dt>Flash Attention</dt><dd>Usually on: faster, less memory.</dd>
         <dt>KV Cache Quant</dt><dd><code>q8_0</code> about halves KV memory at almost no quality cost; <code>q4_0</code> saves more, with some loss.</dd>

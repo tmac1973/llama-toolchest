@@ -795,8 +795,8 @@ type modelConfigPanelData struct {
 	StatusOOB bool
 
 	// DefaultContext is the context "Model Default" gives, when it is not
-	// MaxContext: an embedding model that reads each input in one
-	// micro-batch (see models.EmbeddingLaunchConfig). Zero otherwise.
+	// MaxContext: an embedding or reranking model that reads each input in
+	// one micro-batch (see models.EmbeddingLaunchConfig). Zero otherwise.
 	DefaultContext int
 }
 

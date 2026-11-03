@@ -452,8 +452,12 @@ func (c *ModelConfig) SamplingOverrides() map[string]any {
 func (c *ModelConfig) EffectiveFlagsFor(kind ModelKind, t Target) string {
 	var parts []string
 	parts = append(parts, "--n-gpu-layers", strconv.Itoa(c.GPULayers))
-	if kind == KindEmbedding {
+	switch kind {
+	case KindEmbedding:
 		parts = append(parts, "--embeddings")
+	case KindRerank:
+		// Turns embeddings on as well, with rank pooling.
+		parts = append(parts, "--reranking")
 	}
 	if c.ContextSize > 0 {
 		parts = append(parts, "--ctx-size", strconv.Itoa(c.ContextSize))

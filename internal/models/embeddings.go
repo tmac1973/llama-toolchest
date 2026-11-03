@@ -50,7 +50,9 @@ func (meta *GGUFMeta) IsEmbedding() bool {
 const EmbeddingDefaultContext = 8192
 
 // EmbeddingLaunchConfig returns cfg as llama-server must get it for the
-// embedding model m, or cfg itself when nothing changes.
+// embedding or reranking model m, or cfg itself when nothing changes.
+// A reranker pools too: it reads each query and document pair as one
+// input, so all of the below holds for it.
 //
 // The context is capped at the model's trained context: an encoder has
 // no position past it. And unless the model pools from the last token,
@@ -87,8 +89,8 @@ func EmbeddingLaunchConfig(cfg *ModelConfig, m *Model) *ModelConfig {
 	return &out
 }
 
-// EmbeddingGPU returns the one GPU an embedding model is placed on by
-// default: the discrete GPU with the most room (cardBudgetGiB: after other
+// EmbeddingGPU returns the one GPU an embedding or reranking model is
+// placed on by default: the discrete GPU with the most room (cardBudgetGiB: after other
 // programs, generation reservations and the safety margin), when the
 // model's estimate at cfg fits there. ok is false when the machine has
 // fewer than two discrete GPUs, where one GPU is what "all" gives anyway,

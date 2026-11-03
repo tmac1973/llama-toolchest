@@ -155,8 +155,15 @@ func writeConfigParams(b *strings.Builder, cfg *ModelConfig, kind ModelKind, t T
 	for _, p := range gpuPlacementParams(cfg, t.Backend) {
 		b.WriteString(fmt.Sprintf("%s = %s\n", p.Name, p.Value))
 	}
-	if kind == KindEmbedding {
+	// The router takes an option's long name without the dashes. Only
+	// with --reranking, which turns on embeddings and rank pooling
+	// together, does llama-server answer /rerank; it is older than every
+	// build toolchest supports, so it needs no version gate.
+	switch kind {
+	case KindEmbedding:
 		b.WriteString("embeddings = true\n")
+	case KindRerank:
+		b.WriteString("reranking = true\n")
 	}
 	if kind == KindChat {
 		// Emitted in both directions. Writing nothing for "off" left
