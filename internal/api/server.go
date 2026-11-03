@@ -234,6 +234,11 @@ type Server struct {
 	notes     *enginenotes.Store
 	notesOpen atomic.Pointer[[]enginenotes.OpenInstance]
 	notesJob  atomic.Pointer[jobRef]
+	// pendingUnloads keeps why toolchest asked the router to unload a
+	// model, by router name, until the log reports the unload
+	// (noteUnloadReason).
+	pendingUnloadsMu sync.Mutex
+	pendingUnloads   map[string]pendingUnload
 }
 
 // jobEnv returns the benchmark job environment, if wired.

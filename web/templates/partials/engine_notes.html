@@ -40,6 +40,7 @@
     <div title="A loaded model stopped with an error, and nobody asked it to stop."><dt>Crashes</dt><dd>{{.Crashes}}</dd></div>
     <div title="Crashes and failed loads while a job held the router."><dt>Failures in jobs</dt><dd>{{.FailuresInJobs}}</dd></div>
     <div title="A model stopped as asked: an unload, an eviction or a router stop."><dt>Unloads</dt><dd>{{.Unloads}}</dd></div>
+    <div title="Unloads that toolchest made to free VRAM for another model or a generation backend."><dt>To make room</dt><dd>{{.UnloadsForRoom}}</dd></div>
   </dl>
   {{- end}}
 
@@ -53,6 +54,7 @@
       <th title="Loads that stopped before they finished.">Failed</th>
       <th title="Stops with an error that nobody asked for.">Crashes</th>
       <th title="Stops that were asked for.">Unloads</th>
+      <th title="Unloads that toolchest made to free VRAM for another model or a generation backend.">To make room</th>
       <th title="Total time loaded in this period. A model that is loaded now counts up to now.">Time loaded</th>
       <th title="Average time from start to loaded.">Avg load</th>
       <th title="Requests to the model through toolchest. Job requests are not counted.">Requests</th>
@@ -69,6 +71,7 @@
         <td>{{.FailedLoads}}</td>
         <td>{{if .Crashes}}<strong>{{.Crashes}}</strong>{{else}}0{{end}}</td>
         <td>{{.Unloads}}</td>
+        <td>{{.UnloadsForRoom}}</td>
         <td>{{.Loaded}}</td>
         <td>{{.AvgLoad}}</td>
         <td>{{.Requests}}</td>

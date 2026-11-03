@@ -526,6 +526,7 @@ func (s *Server) unloadForGen(ctx context.Context, id string, inst generation.In
 	before := s.gpuUsedMiB(inst.GPU)
 	planned := s.loadedLLMMiB(models.RoomOf(s.idleHardware()), "", false)[inst.GPU]
 	unloadedAt := time.Now()
+	s.noteUnloadReason(routerName, "room for "+inst.Name)
 	if err := s.process.UnloadModel(routerName); err != nil {
 		return err
 	}

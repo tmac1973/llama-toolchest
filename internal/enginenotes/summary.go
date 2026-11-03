@@ -30,6 +30,9 @@ type Totals struct {
 	FailedLoads      int `json:"failed_loads"`
 	Crashes          int `json:"crashes"`
 	Unloads          int `json:"unloads"`
+	// UnloadsForRoom is how many of the unloads toolchest made to free
+	// memory for another model or a generation backend.
+	UnloadsForRoom int `json:"unloads_for_room"`
 	// FailuresInJobs is how many of the crashes and failed loads happened
 	// while a job held the router.
 	FailuresInJobs int `json:"failures_in_jobs"`
@@ -43,6 +46,8 @@ type ModelRow struct {
 	FailedLoads int    `json:"failed_loads"`
 	Crashes     int    `json:"crashes"`
 	Unloads     int    `json:"unloads"`
+	// UnloadsForRoom is as in Totals, for this model.
+	UnloadsForRoom int `json:"unloads_for_room"`
 	// LoadedSeconds is time loaded: loads that ended in the period count
 	// whole, and a model loaded now counts from when it loaded or from
 	// the start of the period, whichever is later.
@@ -134,6 +139,10 @@ func (s *Store) Summary(window time.Duration, open []OpenInstance, resolve Resol
 		case KindUnload:
 			t.Unloads++
 			r.Unloads++
+			if e.UnloadReason != "" {
+				t.UnloadsForRoom++
+				r.UnloadsForRoom++
+			}
 		}
 		r.LoadedSeconds += e.LoadedSeconds
 		if e.IsFailure() {

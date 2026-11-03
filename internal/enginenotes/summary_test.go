@@ -66,6 +66,7 @@ func TestModelRows(t *testing.T) {
 	s.Record(Event{Kind: KindCrash, ModelID: "a", ModelName: "Alpha", LoadedSeconds: 600, JobID: "j"})
 	s.Record(Event{Kind: KindLoadFailed, ModelID: "b", ModelName: "Beta"})
 	s.Record(Event{Kind: KindUnload, ModelID: "a", ModelName: "Alpha", LoadedSeconds: 60})
+	s.Record(Event{Kind: KindUnload, ModelID: "a", ModelName: "Alpha", UnloadReason: "room for Beta"})
 	s.Record(Event{Kind: KindRouterStart, StartReason: "job"})
 	s.Record(Event{Kind: KindRouterStart, StartReason: "user"})
 	s.Record(Event{Kind: KindRouterStop})
@@ -77,7 +78,7 @@ func TestModelRows(t *testing.T) {
 	sum := s.Summary(24*time.Hour, open, names)
 
 	want := Totals{RouterStartsUser: 1, RouterStartsJob: 1, RouterStops: 1, RouterExits: 1,
-		Loads: 2, FailedLoads: 1, Crashes: 1, Unloads: 1, FailuresInJobs: 1}
+		Loads: 2, FailedLoads: 1, Crashes: 1, Unloads: 2, UnloadsForRoom: 1, FailuresInJobs: 1}
 	if sum.Totals != want {
 		t.Errorf("totals = %+v\nwant %+v", sum.Totals, want)
 	}
@@ -88,7 +89,7 @@ func TestModelRows(t *testing.T) {
 	if a.Name != "Alpha" || b.Name != "Beta" || cc.Name != "Name of c" {
 		t.Fatalf("model order = %s, %s, %s", a.Name, b.Name, cc.Name)
 	}
-	if a.Loads != 2 || a.Crashes != 1 || a.Unloads != 1 || a.AvgLoadSeconds != 15 || a.LoadedSeconds != 660 {
+	if a.Loads != 2 || a.Crashes != 1 || a.Unloads != 2 || a.UnloadsForRoom != 1 || a.AvgLoadSeconds != 15 || a.LoadedSeconds != 660 {
 		t.Errorf("Alpha = %+v", a)
 	}
 	if a.Requests != 2 || a.FailedRequests != 1 || a.PromptTokens != 50 || a.GenTokens != 5 {

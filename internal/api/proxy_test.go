@@ -264,7 +264,8 @@ func (r *chunkReader) Read(p []byte) (int, error) {
 
 // fakeRouter is a llama-server router API the test controls: GET
 // /models lists the models in status, POST /models/load records the name
-// and marks it loading. onList, when set, runs on each list (with the
+// and marks it loading, and POST /models/unload records the name and
+// marks it unloaded. onList, when set, runs on each list (with the
 // lock held and the 1-based call count) so a test can move a model from
 // loading to loaded, or make it disappear.
 type fakeRouter struct {
@@ -272,6 +273,7 @@ type fakeRouter struct {
 	status  map[string]string
 	aliases map[string][]string
 	loads   []string
+	unloads []string
 	lists   int
 	onList  func(f *fakeRouter, n int)
 	// slots is what GET /slots answers; slotCalls records each slot
@@ -303,7 +305,7 @@ type fakeRouter struct {
 func (f *fakeRouter) reset(status map[string]string, onList func(*fakeRouter, int)) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.status, f.aliases, f.loads, f.lists, f.onList = status, nil, nil, 0, onList
+	f.status, f.aliases, f.loads, f.unloads, f.lists, f.onList = status, nil, nil, nil, 0, onList
 	f.ttsBodies, f.rerankPaths = nil, nil
 }
 
@@ -323,6 +325,12 @@ func (f *fakeRouter) loadCalls() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.loads...)
+}
+
+func (f *fakeRouter) unloadCalls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.unloads...)
 }
 
 func (f *fakeRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -394,6 +402,14 @@ func (f *fakeRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		json.NewDecoder(r.Body).Decode(&req)
 		f.loads = append(f.loads, req.Model)
 		f.status[req.Model] = "loading"
+		io.WriteString(w, `{"success":true}`)
+	case r.URL.Path == "/models/unload" && r.Method == http.MethodPost:
+		var req struct {
+			Model string `json:"model"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		f.unloads = append(f.unloads, req.Model)
+		f.status[req.Model] = "unloaded"
 		io.WriteString(w, `{"success":true}`)
 	default:
 		w.WriteHeader(http.StatusNotFound)
