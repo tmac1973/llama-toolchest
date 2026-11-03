@@ -90,7 +90,7 @@ type fakeEnv struct {
 	owners, gpusReleased []string
 }
 
-func (f *fakeEnv) ClaimGPUs(_ context.Context, _ string, _ ConfigSnapshot, _ *models.ModelConfig, _, owner string) (func(), error) {
+func (f *fakeEnv) ClaimGPUs(_ context.Context, _ string, _ ConfigSnapshot, _ *models.ModelConfig, _, owner string, _ bool) (func(), error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.claimErr != nil {

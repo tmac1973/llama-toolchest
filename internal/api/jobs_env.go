@@ -302,7 +302,12 @@ func (e *jobEnv) ApplyEphemeralConfig(ctx context.Context, modelID string, cfg b
 // first, and new ones wait. The GPUs then stay kept for owner until
 // ReleaseGPUs, so waiting jobs do not start between cells. All of this
 // only applies while generation backends are on.
-func (e *jobEnv) ClaimGPUs(ctx context.Context, modelID string, cfg benchmark.ConfigSnapshot, base *models.ModelConfig, who, owner string) (func(), error) {
+//
+// With makeRoom and auto-evict on, settings that do not fit are not
+// refused: once the GPUs are held, the backends in the way are stopped,
+// as makeRoomForLLM stops them for a chat, and only settings that still
+// do not fit are refused.
+func (e *jobEnv) ClaimGPUs(ctx context.Context, modelID string, cfg benchmark.ConfigSnapshot, base *models.ModelConfig, who, owner string, makeRoom bool) (func(), error) {
 	s := e.s
 	if !s.generationOn() || s.gen == nil || s.genQueue == nil {
 		return func() {}, nil
@@ -323,8 +328,11 @@ func (e *jobEnv) ClaimGPUs(ctx context.Context, modelID string, cfg benchmark.Co
 	if err != nil {
 		return nil, err
 	}
-	if err := s.checkConfigFitsReservations(m, &merged); err != nil {
-		return nil, err
+	makeRoom = makeRoom && s.genEvictOn()
+	if !makeRoom {
+		if err := s.checkConfigFitsReservations(m, &merged); err != nil {
+			return nil, err
+		}
 	}
 	gpus := models.AssignedModelGPUs(&merged, numGPUs)
 	if len(gpus) == 0 {
@@ -336,6 +344,12 @@ func (e *jobEnv) ClaimGPUs(ctx context.Context, modelID string, cfg benchmark.Co
 	release, err := s.genQueue.Hold(ctx, gpus, who)
 	if err != nil {
 		return nil, err
+	}
+	if makeRoom {
+		if err := s.makeRoomForConfig(m, &merged, gpus, who); err != nil {
+			release()
+			return nil, err
+		}
 	}
 	e.keepGPUs(owner, gpus, who)
 	return release, nil

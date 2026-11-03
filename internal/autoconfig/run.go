@@ -27,6 +27,11 @@ type Deps struct {
 	// proposal unchecked: an estimate, as it was before there was a
 	// check.
 	Verify VerifyFunc
+	// WholeGPUs says Hardware is the whole GPUs (models.WholeCards): the
+	// user asked for a plan that leaves the image and music backends'
+	// reservations out, for auto-evict to stop them. The layer split is
+	// then written out so that every load keeps it (pinWholeSplit).
+	WholeGPUs bool
 }
 
 // Result is a proposed starting profile and everything the review screen
@@ -243,6 +248,14 @@ func Run(ctx context.Context, d Deps, id string, class models.ContextClass) (*Re
 	}
 	for _, n := range checked.Notes {
 		addNote(n)
+	}
+	if d.WholeGPUs {
+		addNote(wholeGPUsNote(keptReservedGiB(d.Hardware)))
+		if cfg, n, ok := pinWholeSplit(m, res.Proposed, d.Hardware); ok {
+			res.Proposed = cfg
+			res.Fit.Config = cfg
+			addNote(n)
+		}
 	}
 	// MTP was turned on above, and the card's own method then replaced
 	// it. The note that said why MTP is on now describes a setting that

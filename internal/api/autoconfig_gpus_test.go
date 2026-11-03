@@ -106,3 +106,21 @@ func TestAutotuneHardwareCountsTheProfileGPUs(t *testing.T) {
 		}
 	}
 }
+
+// The dialog offers to plan on the whole GPUs only when auto-evict may
+// take some reservation back (models.GPUSpec.EvictableMiB).
+func TestAutoconfigDialogOffersTheWholeGPUs(t *testing.T) {
+	s := newHelperServer(t)
+	hw := threeCards()
+	s.testHardware = &hw
+	if out := s.doAutoconfig(t, "GET", "/api/models/"+profTestID+"/autoconfig", nil); strings.Contains(out, `name="whole_gpus"`) {
+		t.Error("offered with nothing evictable")
+	}
+	hw.GPUs[0].EvictableMiB = 6144
+	out := s.doAutoconfig(t, "GET", "/api/models/"+profTestID+"/autoconfig", nil)
+	for _, want := range []string{`name="whole_gpus" value="1"`, "Use the whole GPUs, split evenly", "(6.0 GiB reserved)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("dialog missing %q", want)
+		}
+	}
+}

@@ -66,7 +66,7 @@ func (e *fakeEnv) ApplyEphemeralConfig(_ context.Context, _ string, cfg benchmar
 	return nil
 }
 
-func (e *fakeEnv) ClaimGPUs(context.Context, string, benchmark.ConfigSnapshot, *models.ModelConfig, string, string) (func(), error) {
+func (e *fakeEnv) ClaimGPUs(context.Context, string, benchmark.ConfigSnapshot, *models.ModelConfig, string, string, bool) (func(), error) {
 	return func() {}, nil
 }
 

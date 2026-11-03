@@ -70,6 +70,11 @@ type BenchmarkJob struct {
 	// submitted it, and name the stage it measures.
 	AutotuneID    string `json:"autotune_id,omitempty"`
 	AutotuneStage string `json:"autotune_stage,omitempty"`
+	// MakeRoom has each cell stop the image and music backends in its
+	// way, with auto-evict on, as loading the model for a chat would,
+	// rather than be refused for them. Autoconfigure's test load sets
+	// it: its plan counts on that room.
+	MakeRoom bool `json:"make_room,omitempty"`
 
 	// Sweeps expand the matrix: every combination of every axis becomes
 	// its own cell. Overrides still apply to all of them, so a fixed
