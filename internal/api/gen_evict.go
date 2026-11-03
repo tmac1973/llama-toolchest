@@ -52,11 +52,13 @@ func (s *Server) genFitVRAMByGPU(exclude string) map[int]*genVRAM {
 
 // llmUse counts the requests in progress for each LLM (by registry ID),
 // so an unload for a backend waits for them, and holds new ones back
-// while the model is being unloaded.
+// while the model is being unloaded. It also keeps when each LLM was last
+// used, so the least recently used one can be unloaded first.
 type llmUse struct {
 	mu       sync.Mutex
 	n        map[string]int
 	evicting map[string]bool
+	lastUsed map[string]time.Time
 	// changed is closed and replaced whenever a count or an eviction
 	// ends, waking the waiters.
 	changed chan struct{}
@@ -65,6 +67,7 @@ type llmUse struct {
 func (u *llmUse) initLocked() {
 	if u.n == nil {
 		u.n, u.evicting, u.changed = map[string]int{}, map[string]bool{}, make(chan struct{})
+		u.lastUsed = map[string]time.Time{}
 	}
 }
 
@@ -99,11 +102,15 @@ func (u *llmUse) begin(ctx context.Context, id string) (end func(), err error) {
 		return nil, err
 	}
 	u.n[id]++
+	u.lastUsed[id] = time.Now()
 	var once sync.Once
 	return func() {
 		once.Do(func() {
 			u.mu.Lock()
 			defer u.mu.Unlock()
+			// Used until its reply ends, so a long chat is not the
+			// least recently used model while it streams.
+			u.lastUsed[id] = time.Now()
 			if u.n[id]--; u.n[id] <= 0 {
 				delete(u.n, id)
 			}
@@ -121,6 +128,25 @@ func (u *llmUse) evict(ctx context.Context, id string) (done func(), err error) 
 	if err := u.waitLocked(ctx, func() bool { return u.n[id] == 0 && !u.evicting[id] }); err != nil {
 		return nil, err
 	}
+	return u.markEvictingLocked(id), nil
+}
+
+// tryEvict is evict without the wait: it holds new requests for model id
+// back until done is called, but only when no request uses it now and no
+// other unload of it is under way. Otherwise ok is false at once.
+func (u *llmUse) tryEvict(id string) (done func(), ok bool) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.initLocked()
+	if u.n[id] > 0 || u.evicting[id] {
+		return nil, false
+	}
+	return u.markEvictingLocked(id), true
+}
+
+// markEvictingLocked marks model id as being unloaded, with u.mu held,
+// and returns the func that ends it.
+func (u *llmUse) markEvictingLocked(id string) (done func()) {
 	u.evicting[id] = true
 	var once sync.Once
 	return func() {
@@ -130,7 +156,31 @@ func (u *llmUse) evict(ctx context.Context, id string) (done func(), err error) 
 			delete(u.evicting, id)
 			u.notifyLocked()
 		})
-	}, nil
+	}
+}
+
+// touch counts model id as used now, as a load does: a model loaded and
+// not yet asked anything is then not the first to be unloaded.
+func (u *llmUse) touch(id string) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.initLocked()
+	u.lastUsed[id] = time.Now()
+}
+
+// lastUse is when model id was last used; zero when never.
+func (u *llmUse) lastUse(id string) time.Time {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.lastUsed[id]
+}
+
+// busy reports whether a request uses model id now, or an unload of it
+// is under way.
+func (u *llmUse) busy(id string) bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.n[id] > 0 || u.evicting[id]
 }
 
 // requestModelID is the registry ID of the model a proxied request body
