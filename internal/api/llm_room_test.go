@@ -165,6 +165,30 @@ func TestLoadWithRoomFitsBeside(t *testing.T) {
 	}
 }
 
+// With models loaded, hardware counts what they hold beyond their buffer
+// report as other programs' memory; their plans count it as well. The
+// room is taken from the reading with nothing of ours loaded, so a model
+// that fits by plan loads beside them with nothing unloaded.
+func TestLoadWithRoomCountsLoadedOnce(t *testing.T) {
+	s, f := roomServer(t)
+	s.testHardware.GPUs[0].OtherUsedMiB = 1300 + 2048
+	s.otherVRAM.idleOther = []int{1300}
+	addRoomModel(t, s, "chat", 16)
+	embed := addRoomModel(t, s, "embed", 8)
+	loaded(t, s, f, "chat")
+	// 18,227 + 9,216 MiB: under the 28,818 MiB budget, over the 26,900
+	// the 2 GiB counted twice would leave.
+	if err := s.neverFitsError(embed); err != nil {
+		t.Errorf("neverFitsError: %v", err)
+	}
+	if err := loadWithRoom(t, s, embed); err != nil {
+		t.Fatal(err)
+	}
+	if u := f.unloadCalls(); len(u) != 0 {
+		t.Errorf("unloaded %v for a model that fits by plan", u)
+	}
+}
+
 // When it does not fit, the least recently used idle model goes, with
 // its reason noted; a busy model stays even when it is older.
 func TestLoadWithRoomUnloadsLRU(t *testing.T) {

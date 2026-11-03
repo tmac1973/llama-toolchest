@@ -194,11 +194,10 @@ func TestLLMLoadRespectsReservations(t *testing.T) {
 	}
 }
 
-// A load that replaces the loaded model, and a benchmark cell, are
-// planned on the cards as they were with nothing of ours loaded: what the
-// loaded model holds beyond its buffer report reads as other programs'
-// memory until it is unloaded. A load beside it is planned on the cards
-// as they are.
+// Loads and benchmark cells are planned on the cards as they were with
+// nothing of ours loaded: what a loaded model holds beyond its buffer
+// report reads as other programs' memory until it is unloaded, and the
+// loaded models' plans already count it.
 func TestReplacingLoadsUseIdleRoom(t *testing.T) {
 	s := vramServer(t)
 	// 2 GiB of the loaded model's memory counted as other programs'.
@@ -226,8 +225,14 @@ func TestReplacingLoadsUseIdleRoom(t *testing.T) {
 		t.Errorf("load replacing the loaded model: %v", err)
 	}
 	s.cfg.ModelsMax = 2
-	if err := s.checkLLMFitsReservations(m); !errors.As(err, &fitErr) {
-		t.Errorf("load beside the loaded model: %v, want refused", err)
+	if err := s.checkLLMFitsReservations(m); err != nil {
+		t.Errorf("load beside the loaded model: %v", err)
+	}
+	// genFitCheck sees the same card: beside qwen's 11.5 GiB it leaves
+	// ace 16.6 GiB, which the 2 GiB counted twice would bring to 14.8.
+	ace, _ := s.gen.Instance("ace")
+	if err := s.genFitCheck(ace, 16000); err != nil {
+		t.Errorf("gen fit check with the idle reading: %v", err)
 	}
 
 	if got := s.idleHardware().GPUs[0]; got.OtherUsedMiB != 1300 || got.ReservedMiB != 11776+8192 {

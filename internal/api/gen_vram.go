@@ -182,11 +182,12 @@ func addLLMMiB(out map[int]int, m *models.Model, cfg *models.ModelConfig, room m
 // genFitCheck checks that an instance reserving reserveMiB on its GPU fits
 // next to the loaded LLMs and the other instances' reservations, within
 // the planner's budget for the card. The error names what uses the card.
+// The card is idleHardware's (see plannedLLMHardware).
 func (s *Server) genFitCheck(inst generation.Instance, reserveMiB int) error {
 	if reserveMiB <= 0 {
 		return nil
 	}
-	hw := s.hardware()
+	hw := s.plannedLLMHardware()
 	var card *models.GPUSpec
 	for i := range hw.GPUs {
 		if hw.GPUs[i].Index == inst.GPU {
@@ -232,9 +233,9 @@ func (e *genLLMFitError) Error() string { return e.msg }
 // fit next to the generation backends' reservations on a GPU it uses.
 // Used for loads on request and the Models page's Load button.
 //
-// With --models-max 1 the load replaces the loaded model, so the cards
-// are taken as they were with nothing of ours loaded: the loaded model's
-// own unreported memory is freed with it.
+// The cards are taken as they were with nothing of ours loaded
+// (plannedLLMHardware); with --models-max 1 the load replaces the loaded
+// model, so its plan is left out of the need.
 func (s *Server) checkLLMFitsReservations(m *models.Model) error {
 	hw, need, replacing := s.llmReservationNeed(m)
 	return s.reservationFitError(hw, need, !replacing)
@@ -251,12 +252,8 @@ func (s *Server) llmReservationNeed(m *models.Model) (hw models.Hardware, need m
 	// In toolchest memory mode the router runs with --models-max 0 and
 	// replaces nothing on its own; loadLLMWithRoom unloads what has to go.
 	replacing = s.cfgCopy().ModelsMax == 1 && !s.toolchestMemory()
-	idle := s.idleHardware()
-	hw = idle
-	if !replacing {
-		hw = s.hardware()
-	}
-	return hw, s.loadedLLMMiB(models.RoomOf(idle), m.ID, replacing), replacing
+	hw = s.plannedLLMHardware()
+	return hw, s.loadedLLMMiB(models.RoomOf(hw), m.ID, replacing), replacing
 }
 
 // checkConfigFitsReservations is checkLLMFitsReservations for a benchmark
@@ -1376,7 +1373,7 @@ func videoMeasureSize(r *http.Request, set generation.ModelSet) (generation.Vide
 // instances' reservations, as genFitCheck counts them. ok is false
 // without GPU telemetry.
 func (s *Server) genRoomMiB(inst generation.Instance) (room int, ok bool) {
-	hw := s.hardware()
+	hw := s.plannedLLMHardware()
 	for i := range hw.GPUs {
 		if hw.GPUs[i].Index != inst.GPU {
 			continue

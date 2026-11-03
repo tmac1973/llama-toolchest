@@ -117,6 +117,17 @@ func (s *Server) idleHardware() models.Hardware {
 	return hw
 }
 
+// plannedLLMHardware is the cards for a check that counts the loaded
+// LLMs by their plans (loadedLLMMiB): idleHardware, not hardware. With
+// models loaded, hardware counts what llama.cpp holds beyond its buffer
+// report (its context, a few hundred MiB a model) as other programs'
+// memory, and the plans count it again. On three 16 GB cards with three
+// models on one, that took 1.8 GiB off the card: a model that fits was
+// refused, and loads and image jobs unloaded a model more than needed.
+func (s *Server) plannedLLMHardware() models.Hardware {
+	return s.idleHardware()
+}
+
 // otherLoadedModels lists models the router has loaded, other than skip,
 // which loading the helper may unload.
 func (s *Server) otherLoadedModels(skipRouterName string) []string {
