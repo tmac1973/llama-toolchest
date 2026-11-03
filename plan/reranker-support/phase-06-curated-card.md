@@ -43,9 +43,15 @@ warning.
    - bge-reranker-v2-m3: `gpustack/bge-reranker-v2-m3-GGUF`. The phase 03
      check already found its Q8_0 file has a head and ranks correctly.
      There is no `ggml-org` repo for it (the HF API refuses that name).
-   - Qwen3-Reranker-0.6B and Qwen3-Reranker-4B: `ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF`
-     and `ggml-org/Qwen3-Reranker-4B-Q8_0-GGUF`, then the official
-     `Qwen/Qwen3-Reranker-0.6B-GGUF` and `Qwen/Qwen3-Reranker-4B-GGUF`.
+   - Qwen3-Reranker-0.6B: `ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF`.
+   - Qwen3-Reranker-4B: neither `ggml-org` nor `Qwen` publishes a GGUF of
+     it (nor Qwen one of the 0.6B). The community repos with the most
+     downloads were checked by reading the first 16 MB of each Q8_0 file
+     for its tensor table: `Voodisss/Qwen3-Reranker-4B-GGUF-llama_cpp` and
+     `gorse-io/Qwen3-Reranker-4B-GGUF` have the head, while
+     `mradermacher/Qwen3-Reranker-4B-GGUF` and
+     `dean2155/Qwen3-Reranker-4B-Q8_0-GGUF` (June 2025) do not. Voodisss,
+     the most downloaded with a head, is the one used.
    - jina-reranker-v2-base-multilingual: `gpustack/jina-reranker-v2-base-multilingual-GGUF`.
    An entry goes in only if its file has a classification head and it serves a
    correct ranking with `scripts/test-rerank.sh`. If no repo for a

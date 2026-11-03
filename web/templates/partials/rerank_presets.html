@@ -1,0 +1,54 @@
+{{/* "Get reranking models" on the Download Models tab. The reranking
+     models on this machine are on the Models tab. */}}
+{{define "rerank_presets"}}
+<article class="dl-card">
+<header class="rec-head">
+    <div>
+        <strong>Reranking models</strong><br>
+        <small class="rec-muted">Models that score how well each document answers a query, for the reranking step of a RAG pipeline, at <code>/v1/rerank</code>. Each one was checked for a classification head and a correct ranking. The small ones run beside a chat model; Qwen3-Reranker-4B ranks better but needs a GPU with room.</small>
+    </div>
+    <div class="rec-actions">
+        <button type="button" class="outline secondary" onclick="toggleDownloadCard('rerank', false)"
+                title="Hide the list. The reranking models you downloaded are on the Models tab.">Hide</button>
+    </div>
+</header>
+<table role="grid">
+    <thead>
+        <tr>
+            <th>Model</th>
+            <th title="Longest query plus document that the model was trained on, in tokens. The limit used is Context Size (default 8192, or this value if smaller). Longer pairs are refused.">Context</th>
+            <th title="License of the weights. Apache-2.0 allows any use. CC-BY-NC-4.0 allows non-commercial use only.">Licence</th>
+            <th title="The download size of the file.">Size</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Presets}}
+        <tr>
+            <td>
+                <strong>{{.Name}}</strong>
+                <br><small style="opacity: 0.7;">{{.Desc}}</small>
+            </td>
+            <td>{{.Context}}</td>
+            <td>{{.License}}</td>
+            <td>{{.SizeLabel}}</td>
+            <td>
+                {{if index $.Downloaded .Repo}}
+                    <small><ins>Downloaded</ins></small>
+                {{else}}
+                    <button type="button"
+                            hx-post="/api/models/rerank-presets/download"
+                            hx-vals='{{hxVals "repo" .Repo "filename" .Filename}}'
+                            hx-target="closest tr"
+                            hx-swap="afterend"
+                            style="margin:0;padding:0.2rem 0.6rem;font-size:0.8rem;">
+                        Download
+                    </button>
+                {{end}}
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+</article>
+{{end}}

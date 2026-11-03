@@ -3,7 +3,7 @@
     .dl-buttons { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
     .dl-buttons button { width: auto; margin: 0; }
     .dl-buttons button[aria-expanded="true"] { box-shadow: inset 0 -3px 0 var(--pico-primary); }
-    #recommend-feed:not(:empty), #embedding-presets:not(:empty), #gen-catalog:not(:empty) { margin-bottom: 1.25rem; }
+    #recommend-feed:not(:empty), #embedding-presets:not(:empty), #rerank-presets:not(:empty), #gen-catalog:not(:empty) { margin-bottom: 1.25rem; }
     .rec-feed, .dl-card { padding: 1rem; margin: 0; }
     .rec-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; flex-wrap: wrap; padding: 0 0 0.75rem; margin-bottom: 0.75rem; }
     .rec-actions { display: flex; gap: 0.4rem; }
@@ -32,7 +32,7 @@
 </div>
 
 {{/* Each button opens its card below and closes it again. The Models
-     tab links here with ?open=embedding or ?open=generation, which opens
+     tab links here with ?open=embedding, ?open=rerank or ?open=generation, which opens
      that card when the page loads. */}}
 <div class="dl-buttons">
     <button type="button" class="secondary" id="dl-btn-recommended" aria-expanded="false"
@@ -47,6 +47,12 @@
             title="Embedding models that work well with llama-server, for search and retrieval.">
         Get embedding models
     </button>
+    <button type="button" class="secondary" id="dl-btn-rerank" aria-expanded="false"
+            onclick="toggleDownloadCard('rerank')"
+            data-error-label="Reranking models not loaded"
+            title="Reranking models checked with llama-server, for the reranking step of a RAG pipeline.">
+        Get reranking models
+    </button>
     {{- if .GenerationEnabled}}
     <button type="button" class="secondary" id="dl-btn-generation" aria-expanded="false"
             onclick="toggleDownloadCard('generation')"
@@ -59,6 +65,7 @@
 
 <div id="recommend-feed"></div>
 <div id="embedding-presets"></div>
+<div id="rerank-presets"></div>
 {{- if .GenerationEnabled}}
 <div id="gen-catalog"></div>
 {{template "gen_set_form_dialog" "catalog"}}
@@ -103,6 +110,7 @@
     var cards = {
         recommended: { target: 'recommend-feed', url: '/api/hf/recommend?intent=quality&ctx=32k' },
         embedding: { target: 'embedding-presets', url: '/api/models/embedding-presets' },
+        rerank: { target: 'rerank-presets', url: '/api/models/rerank-presets' },
         generation: { target: 'gen-catalog', url: '/api/gen/models/catalog' },
     };
 

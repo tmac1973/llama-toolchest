@@ -709,7 +709,7 @@ func registryErrorStatus(err error, fallback int) int {
 // rerankHeadWarning is shown on a reranker whose file has no
 // classification head, on its config page and as the title of its badge
 // in the model list, so the two always say the same thing.
-const rerankHeadWarning = "This file has no classification head, so its rerank scores are meaningless. Use a reranker conversion made with a recent llama.cpp."
+const rerankHeadWarning = "This file has no classification head, so its rerank scores are meaningless. Use a reranker conversion made with a recent llama.cpp. The Download Models tab has known-good reranking models."
 
 // rerankHeadWarningFor is rerankHeadWarning for a model that needs it, and
 // "" otherwise (or for no model).

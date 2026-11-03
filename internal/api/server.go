@@ -880,6 +880,8 @@ func (s *Server) buildRouter() chi.Router {
 			r.Post("/scan", s.handleScanModels)
 			r.Get("/embedding-presets", s.handleEmbeddingPresets)
 			r.Post("/embedding-presets/download", s.handleDownloadEmbeddingPreset)
+			r.Get("/rerank-presets", s.handleRerankPresets)
+			r.Post("/rerank-presets/download", s.handleDownloadRerankPreset)
 			r.Get("/{id}", s.handleGetModel)
 			r.Get("/{id}/info", s.handleModelInfo)
 			r.Delete("/{id}", s.handleDeleteModel)

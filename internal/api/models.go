@@ -22,6 +22,11 @@ func (s *Server) handleListEmbeddingModels(w http.ResponseWriter, r *http.Reques
 const rerankListHeading = `<hr>
 <div style="display:flex;justify-content:space-between;align-items:center;padding:0 0.25rem 0.5rem 0;">
     <h4 style="margin:0;" title="Models that score how well each document answers a query, at /v1/rerank.">Reranking Models</h4>
+    <a href="/models/browse?open=rerank" role="button" class="outline"
+       style="margin: 0; padding: 0.2rem 0.6rem; font-size: 0.8rem;"
+       title="Opens the Download Models tab with the list of reranking models.">
+        Get reranking models
+    </a>
 </div>
 `
 
@@ -169,27 +174,62 @@ func withPublicNames(list []*models.Model) []map[string]any {
 
 func (s *Server) handleEmbeddingPresets(w http.ResponseWriter, r *http.Request) {
 	presets := models.CuratedEmbeddingModels()
-
-	// Mark which ones are already downloaded
-	allModels := s.registry.List()
-	downloaded := make(map[string]bool)
-	for _, m := range allModels {
-		downloaded[m.ModelID] = true
-	}
-
 	if isHTMX(r) {
 		respondHTML(w)
 		s.renderPartial(w, "embedding_presets", struct {
 			Presets    []models.EmbeddingModelPreset
 			Downloaded map[string]bool
-		}{Presets: presets, Downloaded: downloaded})
+		}{Presets: presets, Downloaded: s.downloadedRepos()})
 		return
 	}
-
 	respondJSON(w, presets)
 }
 
+func (s *Server) handleRerankPresets(w http.ResponseWriter, r *http.Request) {
+	presets := models.CuratedRerankModels()
+	if isHTMX(r) {
+		respondHTML(w)
+		s.renderPartial(w, "rerank_presets", struct {
+			Presets    []models.RerankModelPreset
+			Downloaded map[string]bool
+		}{Presets: presets, Downloaded: s.downloadedRepos()})
+		return
+	}
+	respondJSON(w, presets)
+}
+
+// downloadedRepos are the repos of every registered model, so a curated
+// card can mark the ones already downloaded.
+func (s *Server) downloadedRepos() map[string]bool {
+	downloaded := make(map[string]bool)
+	for _, m := range s.registry.List() {
+		downloaded[m.ModelID] = true
+	}
+	return downloaded
+}
+
 func (s *Server) handleDownloadEmbeddingPreset(w http.ResponseWriter, r *http.Request) {
+	s.downloadPreset(w, r, nil)
+}
+
+// handleDownloadRerankPreset downloads one of the curated rerankers, and
+// only those: each was checked for a classification head and a correct
+// ranking (see models.CuratedRerankModels).
+func (s *Server) handleDownloadRerankPreset(w http.ResponseWriter, r *http.Request) {
+	s.downloadPreset(w, r, func(repo, filename string) bool {
+		for _, p := range models.CuratedRerankModels() {
+			if p.Repo == repo && p.Filename == filename {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+// downloadPreset starts the download of a curated card's file, named by
+// the form's repo and filename. curated, when set, refuses any file it
+// does not know.
+func (s *Server) downloadPreset(w http.ResponseWriter, r *http.Request, curated func(repo, filename string) bool) {
 	if !parseForm(w, r) {
 		return
 	}
@@ -200,8 +240,12 @@ func (s *Server) handleDownloadEmbeddingPreset(w http.ResponseWriter, r *http.Re
 		http.Error(w, "missing repo or filename", http.StatusBadRequest)
 		return
 	}
+	if curated != nil && !curated(repo, filename) {
+		http.Error(w, "not a curated model", http.StatusBadRequest)
+		return
+	}
 
-	// Curated embedding presets are HuggingFace repos by construction.
+	// Curated presets are HuggingFace repos by construction.
 	downloadID, err := s.downloader.Start(r.Context(), modelsource.SourceHuggingFace, repo, filename, 0)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

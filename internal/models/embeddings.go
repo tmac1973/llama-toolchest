@@ -143,11 +143,15 @@ type EmbeddingModelPreset struct {
 }
 
 // SizeLabel is the download size for the card: MB below 1 GB, GB above.
-func (p EmbeddingModelPreset) SizeLabel() string {
-	if p.SizeMB >= 1000 {
-		return fmt.Sprintf("%.1f GB", float64(p.SizeMB)/1000)
+func (p EmbeddingModelPreset) SizeLabel() string { return sizeLabelMB(p.SizeMB) }
+
+// sizeLabelMB is a curated download's size for its card: MB below 1 GB,
+// GB above.
+func sizeLabelMB(mb int) string {
+	if mb >= 1000 {
+		return fmt.Sprintf("%.1f GB", float64(mb)/1000)
 	}
-	return fmt.Sprintf("%d MB", p.SizeMB)
+	return fmt.Sprintf("%d MB", mb)
 }
 
 // CuratedEmbeddingModels returns the embedding models offered on the
