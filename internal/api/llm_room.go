@@ -137,7 +137,8 @@ func (s *Server) unloadForLLM(ctx context.Context, idle idleLLM, forName string)
 // llmPlannedNeed is the cards and the planned LLM memory per GPU with m
 // loaded beside the LLMs the router has loaded or is loading.
 func (s *Server) llmPlannedNeed(m *models.Model) (models.Hardware, map[int]int) {
-	return s.hardware(), s.loadedLLMMiB(models.RoomOf(s.idleHardware()), m.ID, false)
+	hw := s.plannedLLMHardware()
+	return hw, s.loadedLLMMiB(models.RoomOf(hw), m.ID, false)
 }
 
 // llmShortGPUs lists the GPUs where need is more than the planner lets
@@ -349,7 +350,7 @@ func (s *Server) neverFitsError(m *models.Model) error {
 	}
 	byGPU := s.genFitVRAMByGPU("")
 	evict := s.genEvictOn()
-	for _, g := range s.hardware().GPUs {
+	for _, g := range s.plannedLLMHardware().GPUs {
 		if plan[g.Index] <= 0 {
 			continue
 		}
