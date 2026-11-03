@@ -83,7 +83,7 @@ func TestSharedContextOptions(t *testing.T) {
 					t.Errorf("did not want %q in preset:\n%s", key, ini)
 				}
 			}
-			flags := cfg.EffectiveFlagsFor(false, tt.t)
+			flags := cfg.EffectiveFlagsFor(KindChat, tt.t)
 			if tt.flags != "" && !strings.Contains(flags, tt.flags) {
 				t.Errorf("want %q in flags: %s", tt.flags, flags)
 			}

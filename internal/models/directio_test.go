@@ -36,7 +36,7 @@ func TestDirectIOEmitsTheBuildsLoadOption(t *testing.T) {
 			if tt.ini != "direct-io = true" && strings.Contains(ini, "direct-io") {
 				t.Errorf("preset still carries direct-io:\n%s", ini)
 			}
-			flags := cfg.EffectiveFlagsFor(false, target)
+			flags := cfg.EffectiveFlagsFor(KindChat, target)
 			if !strings.Contains(flags, tt.flags) {
 				t.Errorf("want %q in flags: %s", tt.flags, flags)
 			}

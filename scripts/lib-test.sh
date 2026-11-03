@@ -25,7 +25,7 @@ MGMT_URL="http://${_HOST}:${_PORT}"
 
 # pick_model [filter]
 # Shows numbered list of available models, lets user pick one.
-# Optional filter: "chat", "embedding", or "" for all.
+# Optional filter: "chat", "embedding", "rerank", or "" for all.
 # Sets MODEL variable. Exits if user cancels.
 pick_model() {
     local filter="${1:-}"
@@ -44,12 +44,14 @@ pick_model() {
         .id as $id |
         (.meta.capabilities // []) as $caps |
         (if ($caps | index("embedding")) then true else false end) as $is_emb |
+        (if ($caps | index("rerank")) then true else false end) as $is_rerank |
         # Apply filter
-        if $filter == "chat" and $is_emb then empty
+        if $filter == "chat" and ($is_emb or $is_rerank) then empty
         elif $filter == "embedding" and ($is_emb | not) then empty
+        elif $filter == "rerank" and ($is_rerank | not) then empty
         else
             $id + "|" + $id +
-            (if $is_emb then " (embedding)" else "" end)
+            (if $is_emb then " (embedding)" elif $is_rerank then " (rerank)" else "" end)
         end
     ' 2>/dev/null)
 

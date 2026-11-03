@@ -157,9 +157,15 @@ type Model struct {
 	// Embedding records that the GGUF file describes an embedding model
 	// (see GGUFMeta.IsEmbedding), and PoolingType is the file's
 	// {arch}.pooling_type. Both are zero on records read before parser
-	// version 8; IsEmbedding then falls back to the name.
+	// version 8; Kind then falls back to the name.
 	Embedding   bool `json:"embedding,omitempty"`
 	PoolingType int  `json:"pooling_type,omitempty"`
+	// HasClassifierHead records a classification head (cls.weight or
+	// cls.output.weight) in the file's tensor table, and ClassifierChecked
+	// that the whole table was read, so a record parsed before version 10,
+	// or from the header alone, is not taken for a file without one.
+	HasClassifierHead bool `json:"has_classifier_head,omitempty"`
+	ClassifierChecked bool `json:"classifier_checked,omitempty"`
 
 	// Reasoning / thinking mode detected from the chat template at parse time.
 	// ReasoningChecked distinguishes a genuine "no reasoning" from a record
@@ -443,16 +449,21 @@ func (c *ModelConfig) SamplingOverrides() map[string]any {
 
 // EffectiveFlags returns the full set of llama-server flags (excluding
 // binary, model path, host, and port) that will be used at launch.
-// EffectiveFlagsFor returns the flags that will be used at launch, filtering
-// out chat-specific flags for embedding models. t is the active build: its
+// EffectiveFlagsFor returns the flags that will be used at launch for a
+// model of kind, leaving chat-specific flags out for any other kind. t is
+// the active build: its
 // backend ("rocm", "cuda", ...) renders GPU restrictions as a --device
 // list ("" falls back to the padded tensor-split), and its version picks
 // the spelling of options llama.cpp has renamed or removed.
-func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool, t Target) string {
+func (c *ModelConfig) EffectiveFlagsFor(kind ModelKind, t Target) string {
 	var parts []string
 	parts = append(parts, "--n-gpu-layers", strconv.Itoa(c.GPULayers))
-	if isEmbedding {
+	switch kind {
+	case KindEmbedding:
 		parts = append(parts, "--embeddings")
+	case KindRerank:
+		// Turns embeddings on as well, with rank pooling.
+		parts = append(parts, "--reranking")
 	}
 	if c.ContextSize > 0 {
 		parts = append(parts, "--ctx-size", strconv.Itoa(c.ContextSize))
@@ -489,7 +500,7 @@ func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool, t Target) string {
 	if c.SplitMode == "tensor" {
 		parts = append(parts, "--fit", "off")
 	}
-	if !isEmbedding {
+	if kind == KindChat {
 		if c.FlashAttention {
 			parts = append(parts, "--flash-attn", "on")
 		}
@@ -527,7 +538,7 @@ func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool, t Target) string {
 
 // EffectiveFlags returns the flags for a chat model (backward compat).
 func (c *ModelConfig) EffectiveFlags() string {
-	return c.EffectiveFlagsFor(false, Target{})
+	return c.EffectiveFlagsFor(KindChat, Target{})
 }
 
 // RegistrySchemaVersion is the models.json layout this build writes.
@@ -979,7 +990,9 @@ func (r *Registry) ListNeedingPresetFetch() []string {
 //	    and the encoder architectures) rather than only by name.
 //	9 — whether the file has a chat template (HasChatTemplate), so a
 //	    text-to-speech model that cannot chat is told apart.
-const GGUFMetaVersion = 9
+//	10 — whether the file has a classification head (HasClassifierHead),
+//	    so a reranker that would return meaningless scores is flagged.
+const GGUFMetaVersion = 10
 
 // BackfillGGUFMeta re-reads GGUF metadata for records written by an older
 // parser, in one pass at startup.
@@ -1427,9 +1440,20 @@ var embeddingPattern = regexp.MustCompile(`(?i)(embedding|[-/]embed[-/]|[-/]embe
 // IsEmbeddingModel returns true if the model name/ID suggests it's an
 // embedding model. It is the only test for a download that has no file
 // yet; a downloaded model is also recognized from its file (see
-// Model.IsEmbedding).
+// Model.Kind).
 func IsEmbeddingModel(name string) bool {
 	return embeddingPattern.MatchString(name)
+}
+
+var rerankPattern = regexp.MustCompile(`(?i)(rerank|cross-encoder)`)
+
+// IsRerankModel reports whether the model name/ID suggests a reranking
+// model. Like IsEmbeddingModel, it is the only test for a download that
+// has no file yet, and the fallback for records read before the pooling
+// type was recorded; a downloaded model is also recognized from its file
+// (see Model.Kind).
+func IsRerankModel(name string) bool {
+	return rerankPattern.MatchString(name)
 }
 
 // IsDraftHead reports whether the file is a converted speculative-decoding
@@ -1440,25 +1464,79 @@ func IsEmbeddingModel(name string) bool {
 // where the draft pickers find it.
 func (m *Model) IsDraftHead() bool { return m.DraftHead != "" }
 
-// IsEmbedding reports whether the model is an embedding model: its file
-// says so, or its name looks like one. The name is checked as well because
-// records read before parser version 8 have no Embedding flag, and because
-// legacy records may have only one of the HF repo ID and the registry ID.
-func (m *Model) IsEmbedding() bool {
-	return m.Embedding || IsEmbeddingModel(m.ModelID) || IsEmbeddingModel(m.ID)
+// ModelKind is what a model is served for: chat (and the other generative
+// uses, such as speech), embeddings, or reranking.
+type ModelKind int
+
+const (
+	KindChat ModelKind = iota
+	KindEmbedding
+	KindRerank
+)
+
+// Kind reports what the model is served for. A model is a reranker or an
+// embedding model when its file says so, or when its name looks like one.
+// The name is checked as well because records read before parser version
+// 8 have no Embedding flag or pooling type, and because legacy records
+// may have only one of the HF repo ID and the registry ID.
+//
+// Rerankers are checked first: bge rerankers also match the embedding
+// name pattern, and a reranker built on a chat architecture (Qwen3) has
+// nothing else to tell it apart.
+func (m *Model) Kind() ModelKind {
+	switch {
+	case m.PoolingType == PoolingRank || IsRerankModel(m.ModelID) || IsRerankModel(m.ID):
+		return KindRerank
+	case m.Embedding || IsEmbeddingModel(m.ModelID) || IsEmbeddingModel(m.ID):
+		return KindEmbedding
+	}
+	return KindChat
 }
 
-// Capabilities returns the capability list for a model: "chat" or
-// "embedding" (neither for a model that only speaks), plus "tools",
+// KindFromName is Kind for a download that has no file yet: the name is
+// all there is to go by.
+func KindFromName(name string) ModelKind {
+	switch {
+	case IsRerankModel(name):
+		return KindRerank
+	case IsEmbeddingModel(name):
+		return KindEmbedding
+	}
+	return KindChat
+}
+
+// RerankHeadMissing reports whether m is a reranker whose file has no
+// classification head. llama-server still serves it with --reranking, but
+// scores it with the raw hidden state, so its scores mean nothing.
+func (m *Model) RerankHeadMissing() bool {
+	return m.Kind() == KindRerank && m.ClassifierChecked && !m.HasClassifierHead
+}
+
+// CallsTools reports whether the model is offered for tool calls: its chat
+// template handles them, and it is not a reranker, which keeps the
+// template of the chat model it was trained from but only scores pairs.
+func (m *Model) CallsTools() bool {
+	return m.SupportsTools && m.Kind() != KindRerank
+}
+
+// Capabilities returns the capability list for a model: "chat",
+// "embedding" or "rerank" (none for a model that only speaks), plus "tools",
 // "vision", "audio" and "speech" when supported (see projector.go).
 func (m *Model) Capabilities(cfg *ModelConfig) []string {
 	var caps []string
-	if m.IsEmbedding() {
+	switch m.Kind() {
+	case KindEmbedding:
 		caps = append(caps, "embedding")
-	} else if m.CanChat(cfg) {
-		caps = append(caps, "chat")
+	case KindRerank:
+		// Nothing else: a reranker on a chat architecture (Qwen3) carries
+		// its chat template, tools and all, but only scores pairs.
+		return []string{"rerank"}
+	case KindChat:
+		if m.CanChat(cfg) {
+			caps = append(caps, "chat")
+		}
 	}
-	if m.SupportsTools {
+	if m.CallsTools() {
 		caps = append(caps, "tools")
 	}
 	if m.HasVision(cfg) {
@@ -1767,8 +1845,8 @@ func (r *Registry) FindDraftCandidates(id, mode string) []DraftCandidate {
 				continue
 			}
 		}
-		// Skip embedding models
-		if m.IsEmbedding() {
+		// Skip models that are not chat models
+		if m.Kind() != KindChat {
 			continue
 		}
 		// Skip MTP drafter heads. They match on architecture and are far

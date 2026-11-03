@@ -706,6 +706,20 @@ func registryErrorStatus(err error, fallback int) int {
 	return fallback
 }
 
+// rerankHeadWarning is shown on a reranker whose file has no
+// classification head, on its config page and as the title of its badge
+// in the model list, so the two always say the same thing.
+const rerankHeadWarning = "This file has no classification head, so its rerank scores are meaningless. Use a reranker conversion made with a recent llama.cpp. The Download Models tab has known-good reranking models."
+
+// rerankHeadWarningFor is rerankHeadWarning for a model that needs it, and
+// "" otherwise (or for no model).
+func rerankHeadWarningFor(m *models.Model) string {
+	if m != nil && m.RerankHeadMissing() {
+		return rerankHeadWarning
+	}
+	return ""
+}
+
 // modelConfigPanelData is what the model_config partial renders. It is a
 // named type so the render tests build the same shape the handler does.
 type modelConfigPanelData struct {
@@ -717,6 +731,7 @@ type modelConfigPanelData struct {
 	HasMTP            bool
 	HasBuiltinVision  bool
 	IsEmbedding       bool
+	IsEncoder         bool // not a chat model: chat-only fields are hidden
 	DraftCandidates   []models.DraftCandidate
 	DraftModes        []models.SpecMode
 	AssistModes       []models.SpecMode
@@ -725,6 +740,7 @@ type modelConfigPanelData struct {
 	EffectiveSpecType string
 	GPUOptions        []models.GPUOption
 	GPUAssignWarning  string
+	RerankHeadWarning string // see models.Model.RerankHeadMissing
 	NumGPUs           int
 	// EffectiveSplit is the split balanced by each card's room that the
 	// launch flags carry (models.BalancedSplit). The saved GPU assignment
@@ -794,8 +810,8 @@ type modelConfigPanelData struct {
 	StatusOOB bool
 
 	// DefaultContext is the context "Model Default" gives, when it is not
-	// MaxContext: an embedding model that reads each input in one
-	// micro-batch (see models.EmbeddingLaunchConfig). Zero otherwise.
+	// MaxContext: an embedding or reranking model that reads each input in
+	// one micro-batch (see models.EmbeddingLaunchConfig). Zero otherwise.
 	DefaultContext int
 }
 
@@ -842,14 +858,14 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 	maxContext := 0
 	detectedMMProj := ""
 	detectedMTP := ""
-	isEmbedding := false
+	kind := models.KindChat
 	var draftCandidates []models.DraftCandidate
 	if model != nil {
 		maxContext = model.ContextLength
 		detectedMMProj = models.FindMMProj(model.FilePath)
 		detectedMTP = models.FindMTP(model.FilePath)
-		isEmbedding = model.IsEmbedding()
-		if !isEmbedding {
+		kind = model.Kind()
+		if kind == models.KindChat {
 			draftCandidates = s.registry.FindDraftCandidates(id, cfg.SpecType)
 		}
 	}
@@ -893,7 +909,7 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 	var samplingPresets []models.SamplingPreset
 	var samplingPresetsJSON string
 	var hasEmbeddedDefault bool
-	if model != nil && !isEmbedding {
+	if model != nil && kind == models.KindChat {
 		samplingPresets = model.EffectiveSamplingPresets()
 		if len(samplingPresets) > 0 {
 			if b, err := json.Marshal(samplingPresets); err == nil {
@@ -911,12 +927,13 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 	data := modelConfigPanelData{
 		ModelID:             id,
 		Config:              cfg,
-		EffectiveFlags:      effectiveFlags(cfg, model, isEmbedding, s.activeTarget()),
+		EffectiveFlags:      effectiveFlags(cfg, model, kind, s.activeTarget()),
 		MaxContext:          maxContext,
 		HasMMProj:           cfg.MmprojPath != "" || detectedMMProj != "",
 		HasMTP:              cfg.MtpPath != "" || detectedMTP != "",
 		HasBuiltinVision:    hasBuiltinVision,
-		IsEmbedding:         isEmbedding,
+		IsEmbedding:         kind == models.KindEmbedding,
+		IsEncoder:           kind != models.KindChat,
 		DraftCandidates:     draftCandidates,
 		DraftModes:          models.DraftModes(),
 		AssistModes:         models.AssistModes(),
@@ -925,6 +942,7 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 		EffectiveSpecType:   cfg.EffectiveSpecType(),
 		GPUOptions:          gpuOptions,
 		GPUAssignWarning:    s.gpuAssignWarning(cfg, model, metrics.GPU),
+		RerankHeadWarning:   rerankHeadWarningFor(model),
 		NumGPUs:             numGPUs,
 		SamplingPresets:     samplingPresets,
 		SamplingPresetsJSON: samplingPresetsJSON,
@@ -937,7 +955,7 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 		ReadOnlyReason: s.registry.ReadOnlyReason(),
 		NeedsRestart:   s.isDirty(id) && s.process != nil && s.process.IsRunning(),
 	}
-	if isEmbedding && model != nil {
+	if kind != models.KindChat && model != nil {
 		def := *cfg
 		def.ContextSize = 0
 		if c := models.EmbeddingLaunchConfig(&def, model).ContextSize; c != maxContext {
@@ -960,7 +978,7 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 			data.CPURAMLabel = fmt.Sprintf("About %.1f GiB of the model's weights stay in system memory with these settings.", gib)
 		}
 	}
-	if model != nil && !isEmbedding {
+	if model != nil && kind == models.KindChat {
 		data.ContextLayoutText, data.ContextLayoutWarning = contextLayoutText(cfg, model.ContextLength, s.activeTarget())
 	}
 	if t := s.activeTarget(); models.IsDraftMode(cfg.SpecType) {
@@ -1297,10 +1315,10 @@ func pleSizeLabel(m *models.Model) string {
 // effectiveFlags are the flags the preset gives the model, including a
 // split balanced by size when experts are kept in system memory, and an
 // embedding model's context and micro-batch (see EmbeddingLaunchConfig).
-func effectiveFlags(cfg *models.ModelConfig, m *models.Model, isEmbedding bool, t models.Target) string {
+func effectiveFlags(cfg *models.ModelConfig, m *models.Model, kind models.ModelKind, t models.Target) string {
 	launch := models.MoESplitConfig(cfg, m, t.Room().For(m, cfg))
-	if isEmbedding && m != nil {
+	if kind != models.KindChat && m != nil {
 		launch = models.EmbeddingLaunchConfig(launch, m)
 	}
-	return launch.EffectiveFlagsFor(isEmbedding, t)
+	return launch.EffectiveFlagsFor(kind, t)
 }

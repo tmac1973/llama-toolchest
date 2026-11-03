@@ -431,13 +431,13 @@ func TestSvcEffectiveFlags(t *testing.T) {
 	m := &models.Model{ID: "m", ModelID: "org/M-GGUF", NLayers: 32, SizeBytes: 8 << 30}
 
 	one := models.Target{GPUMiB: []int{24576}}
-	chat := effectiveFlags(cfg, m, false, one)
+	chat := effectiveFlags(cfg, m, models.KindChat, one)
 	if !strings.Contains(chat, "--ctx-size 8192") || strings.Contains(chat, "--embeddings") {
 		t.Errorf("chat flags = %q, want --ctx-size 8192 and no --embeddings", chat)
 	}
 	enc := &models.Model{ID: "e", ModelID: "org/E-GGUF", NLayers: 12, SizeBytes: 300 << 20,
 		ContextLength: 2048, PoolingType: models.PoolingMean, Embedding: true}
-	emb := effectiveFlags(cfg, enc, true, one)
+	emb := effectiveFlags(cfg, enc, models.KindEmbedding, one)
 	if !strings.Contains(emb, "--embeddings") || !strings.Contains(emb, "--ctx-size 2048") ||
 		!strings.Contains(emb, "--ubatch-size 2048") {
 		t.Errorf("embedding flags = %q, want --embeddings, --ctx-size 2048 and --ubatch-size 2048", emb)
@@ -447,11 +447,11 @@ func TestSvcEffectiveFlags(t *testing.T) {
 	}
 
 	unequal := models.Target{GPUMiB: []int{24576, 8192}}
-	split := effectiveFlags(cfg, m, false, unequal)
+	split := effectiveFlags(cfg, m, models.KindChat, unequal)
 	if !strings.Contains(split, "--tensor-split") {
 		t.Errorf("flags on unequal GPUs = %q, want a size-balanced --tensor-split", split)
 	}
-	if strings.Contains(cfg.EffectiveFlagsFor(false, unequal), "--tensor-split") {
+	if strings.Contains(cfg.EffectiveFlagsFor(models.KindChat, unequal), "--tensor-split") {
 		t.Error("the saved config itself has a tensor split; the test does not show the balancing")
 	}
 	if cfg.TensorSplit != "" {

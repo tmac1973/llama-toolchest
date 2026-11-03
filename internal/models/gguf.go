@@ -144,6 +144,11 @@ type GGUFMeta struct {
 	// llama.cpp then keeps a copy of that table on the GPU for the output
 	// layer (see Model.OutputTied).
 	HasOutputTensor bool `json:"has_output_tensor,omitempty"`
+	// HasClassifierHead records a classification head (cls.weight or
+	// cls.output.weight) in the tensor table. A reranker needs one: rank
+	// pooling applies the head tensors the file has, and with neither
+	// returns the raw hidden state as the score (see Model.RerankHeadMissing).
+	HasClassifierHead bool `json:"has_classifier_head,omitempty"`
 	// HasMarkovHead records the markov_w1.weight tensor, and LiliCorr the
 	// lilicorr.candidate_topk key. Both only mean something on a "dflash"
 	// file: they are how llama.cpp tells its three kinds of DFlash head
@@ -230,6 +235,10 @@ func (meta *GGUFMeta) ApplyTo(m *Model) {
 	// Known from the tensor table only; a metadata-only read leaves it to
 	// the architecture (see Model.EmbeddingsTied).
 	m.OutputTied = !meta.MetaOnly && meta.TokenEmbdBytes > 0 && !meta.HasOutputTensor
+	// NextNChecked is set only when the whole tensor table, every shard,
+	// was read, so a missing head is known rather than unread.
+	m.HasClassifierHead = meta.HasClassifierHead
+	m.ClassifierChecked = meta.NextNChecked
 	if meta.BaseModelRepo != "" {
 		m.BaseModelRepo = meta.BaseModelRepo
 	}
@@ -293,6 +302,7 @@ func ParseGGUFMeta(path string) (*GGUFMeta, error) {
 			meta.TokenEmbdBytes = sh.TokenEmbdBytes
 		}
 		meta.HasOutputTensor = meta.HasOutputTensor || sh.HasOutput
+		meta.HasClassifierHead = meta.HasClassifierHead || sh.HasClassifier
 		meta.HasNextNTensors = meta.HasNextNTensors || sh.HasNextN
 		meta.NextNChecked = meta.NextNChecked && sh.complete
 		// Expert tensors are spread over every shard, so they are summed
@@ -710,6 +720,7 @@ keys:
 	meta.PLEBytes, meta.TokenEmbdBytes = scan.PLEBytes, scan.TokenEmbdBytes
 	meta.HasBlockTensors, meta.HasTrunkBlock0 = scan.HasBlockTensors, scan.HasTrunkBlock0
 	meta.HasOutputTensor = scan.HasOutput
+	meta.HasClassifierHead = scan.HasClassifier
 	meta.HasMarkovHead = scan.HasMarkovHead
 	meta.HasNextNTensors, meta.NextNChecked = scan.HasNextN, scan.complete
 	meta.ExpertBytes = scan.ExpertBytes
@@ -1144,6 +1155,12 @@ const tokenEmbdTensorName = "token_embd.weight"
 // the input embedding for it (tied embeddings).
 const outputTensorName = "output.weight"
 
+// classifierTensorNames are the classification head tensors llama.cpp's
+// rank pooling applies: cls is the hidden projection, cls.output the
+// projection to the score. A bge reranker has both, a Qwen3 reranker only
+// cls.output.
+var classifierTensorNames = map[string]bool{"cls.weight": true, "cls.output.weight": true}
+
 // markovHeadTensorName is the Markov head that makes a DFlash file a
 // DSpark head; llama.cpp checks for the same tensor.
 const markovHeadTensorName = "markov_w1.weight"
@@ -1172,6 +1189,7 @@ type tensorScan struct {
 	HasBlockTensors bool
 	HasTrunkBlock0  bool
 	HasOutput       bool // an output.weight tensor; see GGUFMeta.HasOutputTensor
+	HasClassifier   bool // a classification head tensor; see GGUFMeta.HasClassifierHead
 	HasMarkovHead   bool // a markov_w1.weight tensor; see GGUFMeta.HasMarkovHead
 	HasNextN        bool // an MTP projection tensor; see GGUFMeta.HasNextNTensors
 	// ExpertBytes sums the expert tensors; expertLayerSet holds the layer
@@ -1287,6 +1305,9 @@ func scanTensorBlock(f io.ReadSeeker, tensorCount uint64, alignment int64) tenso
 		}
 		if name == outputTensorName {
 			scan.HasOutput = true
+		}
+		if classifierTensorNames[name] {
+			scan.HasClassifier = true
 		}
 		if name == markovHeadTensorName {
 			scan.HasMarkovHead = true
@@ -1435,6 +1456,7 @@ func scanShardsForTensors(path string) (tensorScan, bool) {
 			out.TokenEmbdBytes = meta.TokenEmbdBytes
 		}
 		out.HasOutput = out.HasOutput || meta.HasOutputTensor
+		out.HasClassifier = out.HasClassifier || meta.HasClassifierHead
 		out.ExpertBytes += meta.ExpertBytes
 		for l := meta.ExpertLayerFirst; l < meta.ExpertLayerFirst+meta.ExpertLayers; l++ {
 			if out.expertLayerSet == nil {

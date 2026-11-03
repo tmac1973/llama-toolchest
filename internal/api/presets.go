@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
 // enrichModelPresets runs the network preset source chain for one model and
@@ -21,8 +23,8 @@ func (s *Server) enrichModelPresets(id string) {
 	if err != nil {
 		return
 	}
-	if m.IsEmbedding() {
-		// Sampling presets are meaningless for embedding models — just stamp
+	if m.Kind() != models.KindChat {
+		// Sampling presets are meaningless for non-chat models — just stamp
 		// the attempt so backfill doesn't reconsider them every boot.
 		s.registry.SetSamplingPresets(id, m.SamplingPresets, time.Now())
 		return

@@ -441,3 +441,71 @@ func TestGettersReturnCopies(t *testing.T) {
 		t.Errorf("model changed through a returned copy: %+v", gm)
 	}
 }
+
+// A model's kind comes from its file when the parser recorded one, and
+// from its name otherwise, for downloads and for older records.
+func TestModelKind(t *testing.T) {
+	tests := []struct {
+		name string
+		m    Model
+		want ModelKind
+	}{
+		{"file says embedding", Model{ID: "org--some-model", ModelID: "org/some-model", Embedding: true}, KindEmbedding},
+		{"name only", Model{ID: "Qwen--Qwen3-Embedding-0.6B-GGUF", ModelID: "Qwen/Qwen3-Embedding-0.6B-GGUF"}, KindEmbedding},
+		{"registry ID only", Model{ID: "nomic-embed-text-v1.5"}, KindEmbedding},
+		{"chat model", Model{ID: "Qwen--Qwen3-8B-GGUF", ModelID: "Qwen/Qwen3-8B-GGUF"}, KindChat},
+		// A reranker on a chat architecture: only the file tells it apart.
+		{"file says rerank", Model{ID: "org--some-model", ModelID: "org/some-model", Arch: "qwen3", PoolingType: PoolingRank}, KindRerank},
+		// Also matches the embedding name pattern (bge-), but is a reranker.
+		{"bge reranker by name", Model{ID: "BAAI--bge-reranker-v2-m3", ModelID: "BAAI/bge-reranker-v2-m3"}, KindRerank},
+		{"qwen reranker by name", Model{ID: "Qwen--Qwen3-Reranker-0.6B", ModelID: "Qwen/Qwen3-Reranker-0.6B"}, KindRerank},
+		{"cross-encoder by name", Model{ID: "cross-encoder-ms-marco-MiniLM-L6-v2"}, KindRerank},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.m.Kind(); got != tt.want {
+				t.Errorf("Kind() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+	for _, name := range []string{"Qwen/Qwen3-Embedding-0.6B-GGUF", "BAAI/bge-m3", "Qwen/Qwen3-8B-GGUF",
+		"nomic-ai/nomic-embed-text-v1.5-GGUF", "BAAI/bge-reranker-v2-m3", "Qwen/Qwen3-Reranker-4B"} {
+		want := KindChat
+		switch {
+		case IsRerankModel(name):
+			want = KindRerank
+		case IsEmbeddingModel(name):
+			want = KindEmbedding
+		}
+		if got := KindFromName(name); got != want {
+			t.Errorf("KindFromName(%q) = %d, want %d", name, got, want)
+		}
+	}
+	if got := KindFromName("BAAI/bge-reranker-v2-m3"); got != KindRerank {
+		t.Errorf("KindFromName(bge-reranker) = %d, want KindRerank", got)
+	}
+}
+
+// A reranker is the right architecture and size to look like a draft
+// model for a chat model of the same family, but cannot draft.
+func TestFindDraftCandidatesSkipsReranker(t *testing.T) {
+	r := &Registry{
+		dataDir:   t.TempDir(),
+		modelsDir: t.TempDir(),
+		data: registryData{
+			Models: map[string]*Model{
+				"target":     {ID: "target", Arch: "qwen3", SizeBytes: 16 << 30},
+				"reranker":   {ID: "reranker", Arch: "qwen3", SizeBytes: 1 << 30, PoolingType: PoolingRank},
+				"real-draft": {ID: "real-draft", Arch: "qwen3", SizeBytes: 1 << 30},
+			},
+			Configs: map[string]*ModelConfig{},
+		},
+	}
+	var got []string
+	for _, c := range r.FindDraftCandidates("target", "draft") {
+		got = append(got, c.ID)
+	}
+	if len(got) != 1 || got[0] != "real-draft" {
+		t.Errorf("FindDraftCandidates = %v, want [real-draft] only", got)
+	}
+}

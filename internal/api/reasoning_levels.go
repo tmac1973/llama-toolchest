@@ -49,7 +49,7 @@ func (r *reasoningLevelsReads) done(id string) {
 // active build. It costs nothing when there is nothing to read, so callers
 // that see the model loaded can call it every time.
 func (s *Server) noteModelLoaded(m *models.Model) {
-	if m == nil || m.IsEmbedding() || !m.CanChat(nil) {
+	if m == nil || m.Kind() != models.KindChat || !m.CanChat(nil) {
 		return
 	}
 	b := s.resolveActiveBuild()

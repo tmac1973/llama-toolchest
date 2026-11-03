@@ -138,7 +138,7 @@ func TestDraftContextSizeOnlyForBuildsThatHaveIt(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			target := Target{Version: tt.version}
-			flags := cfg.EffectiveFlagsFor(false, target)
+			flags := cfg.EffectiveFlagsFor(KindChat, target)
 			ini := GeneratePresetINI("/models", []*Model{m}, map[string]*ModelConfig{"m": cfg}, target)
 			if got := strings.Contains(flags, "--ctx-size-draft 4096"); got != tt.want {
 				t.Errorf("--ctx-size-draft in flags = %v, want %v: %s", got, tt.want, flags)
@@ -160,7 +160,7 @@ func TestSpecMTPPresetINI(t *testing.T) {
 		DraftMax:    6,
 	}
 	var b strings.Builder
-	writeConfigParams(&b, cfg, false, Target{})
+	writeConfigParams(&b, cfg, KindChat, Target{})
 	out := b.String()
 	for _, want := range []string{"spec-type = draft-mtp", "spec-draft-n-max = 6"} {
 		if !strings.Contains(out, want) {
@@ -224,7 +224,7 @@ func TestSpecCombinedPresetINISingleSpecTypeLine(t *testing.T) {
 		AssistNMax:  64,
 	}
 	var b strings.Builder
-	writeConfigParams(&b, cfg, false, Target{})
+	writeConfigParams(&b, cfg, KindChat, Target{})
 
 	var specLines []string
 	for _, line := range strings.Split(b.String(), "\n") {
@@ -472,7 +472,7 @@ func TestDraftSamplingAndUBatchFlags(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			target := Target{Version: tt.version}
-			flags := cfg.EffectiveFlagsFor(false, target)
+			flags := cfg.EffectiveFlagsFor(KindChat, target)
 			ini := GeneratePresetINI("/models", []*Model{m}, map[string]*ModelConfig{"m": cfg}, target)
 			if got := strings.Contains(flags, "--spec-draft-sampling probabilistic"); got != tt.wantSample {
 				t.Errorf("sampling in flags = %v, want %v: %s", got, tt.wantSample, flags)
@@ -488,7 +488,7 @@ func TestDraftSamplingAndUBatchFlags(t *testing.T) {
 
 	head := *cfg
 	head.SpecType, head.DraftModelPath = "draft-dflash", "/models/head.gguf"
-	flags := head.EffectiveFlagsFor(false, Target{})
+	flags := head.EffectiveFlagsFor(KindChat, Target{})
 	if strings.Contains(flags, "--spec-draft-sampling") {
 		t.Errorf("a DFlash head was given a sampling mode llama.cpp ignores for it: %s", flags)
 	}

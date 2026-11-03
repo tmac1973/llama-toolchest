@@ -286,6 +286,75 @@ paths:
         "507":
           $ref: "#/components/responses/InsufficientVRAM"
 
+  /v1/rerank:
+    x-proxied: true
+    post:
+      tags: [LLM]
+      operationId: createRerank
+      summary: Rerank documents
+      description: |
+        Sent to llama-server. Scores how well each document answers the
+        query, for the reranking step of a RAG pipeline. Use a model whose
+        `meta.capabilities` includes `rerank`. The model is loaded first
+        when needed. The same request also works at the root, `/rerank`.
+        llama-server takes the Jina format below, and the TEI format
+        (`texts` in place of `documents`); see the
+        [llama.cpp server documentation](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RerankRequest"
+            example:
+              model: bge-reranker-v2-m3
+              query: Which animal eats bamboo?
+              documents:
+                - The stock market fell on Tuesday.
+                - The giant panda feeds almost entirely on bamboo.
+      responses:
+        "200":
+          description: One score per document, highest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RerankResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ProxyUnavailable"
+        "507":
+          $ref: "#/components/responses/InsufficientVRAM"
+
+  /rerank:
+    post:
+      tags: [LLM]
+      operationId: createRerankRoot
+      summary: Rerank documents (root path)
+      description: |
+        llama-server's rerank route at the server root, as llama-server has
+        it, for clients that call it there. The same as `/v1/rerank`, with
+        the same API key.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RerankRequest"
+      responses:
+        "200":
+          description: One score per document, highest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RerankResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ProxyUnavailable"
+        "507":
+          $ref: "#/components/responses/InsufficientVRAM"
+
   /tts:
     post:
       tags: [Speech]
@@ -1431,6 +1500,45 @@ components:
         model:
           type: string
           description: An LLM's public name, registry ID, router name or alias. `GET /v1/models?kind=text` lists the choices.
+
+    RerankRequest:
+      allOf:
+        - $ref: "#/components/schemas/ProxiedRequest"
+        - type: object
+          required: [query, documents]
+          properties:
+            query:
+              type: string
+            documents:
+              type: array
+              items:
+                type: string
+              description: The texts to score against the query.
+            top_n:
+              type: integer
+              description: Return only this many results, the highest scores.
+
+    RerankResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+                description: The document's position in the request.
+              relevance_score:
+                type: number
+                description: Higher is more relevant. The scale depends on the model.
+        usage:
+          type: object
+          properties:
+            prompt_tokens:
+              type: integer
+            total_tokens:
+              type: integer
 
     Model:
       type: object

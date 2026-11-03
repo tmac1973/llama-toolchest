@@ -13,19 +13,45 @@ import (
 )
 
 func (s *Server) handleListEmbeddingModels(w http.ResponseWriter, r *http.Request) {
-	embeddingModels := filterModels(s.registry.ListServing(), true)
-	pending := filterPending(s.registry.PendingConfigs(), true)
+	s.listModelsOfKind(w, r, models.KindEmbedding, "")
+}
+
+// rerankListHeading heads the reranking models section. It is part of the
+// list's HTML rather than the page, so the section has no heading when it
+// has nothing in it.
+const rerankListHeading = `<hr>
+<div style="display:flex;justify-content:space-between;align-items:center;padding:0 0.25rem 0.5rem 0;">
+    <h4 style="margin:0;" title="Models that score how well each document answers a query, at /v1/rerank.">Reranking Models</h4>
+    <a href="/models/browse?open=rerank" role="button" class="outline"
+       style="margin: 0; padding: 0.2rem 0.6rem; font-size: 0.8rem;"
+       title="Opens the Download Models tab with the list of reranking models.">
+        Get reranking models
+    </a>
+</div>
+`
+
+func (s *Server) handleListRerankModels(w http.ResponseWriter, r *http.Request) {
+	s.listModelsOfKind(w, r, models.KindRerank, rerankListHeading)
+}
+
+// listModelsOfKind answers a list request for the embedding or reranking
+// models section: JSON, or for htmx the section's cards after heading,
+// and nothing at all when there are no models or pending configs of kind.
+func (s *Server) listModelsOfKind(w http.ResponseWriter, r *http.Request, kind models.ModelKind, heading string) {
+	list := filterModels(s.registry.ListServing(), kind)
+	pending := filterPending(s.registry.PendingConfigs(), kind)
 
 	if isHTMX(r) {
 		respondHTML(w)
-		if len(embeddingModels) == 0 && len(pending) == 0 {
+		if len(list) == 0 && len(pending) == 0 {
 			return
 		}
-		s.renderModelList(w, r, embeddingModels, pending, false)
+		w.Write([]byte(heading))
+		s.renderModelList(w, r, list, pending, false)
 		return
 	}
 
-	respondJSON(w, withPublicNames(embeddingModels))
+	respondJSON(w, withPublicNames(list))
 }
 
 // handleListHelperModels renders the helper models section: the models
@@ -65,9 +91,9 @@ func (s *Server) handleRemoveHelperFromList(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
-	// Filter out embedding models — they have their own section
-	modelList := filterModels(s.registry.ListServing(), false)
-	pending := filterPending(s.registry.PendingConfigs(), false)
+	// Only chat models: embedding and reranking models have their own sections
+	modelList := filterModels(s.registry.ListServing(), models.KindChat)
+	pending := filterPending(s.registry.PendingConfigs(), models.KindChat)
 
 	if isHTMX(r) {
 		respondHTML(w)
@@ -89,22 +115,21 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 // filterPending splits pending backup configs by model kind using the
 // same name predicate the real lists use, so a pending embedding model
 // ghosts next to its installed siblings.
-func filterPending(all []models.PendingConfig, embedding bool) []models.PendingConfig {
+func filterPending(all []models.PendingConfig, kind models.ModelKind) []models.PendingConfig {
 	var out []models.PendingConfig
 	for _, p := range all {
-		if models.IsEmbeddingModel(p.ModelID) == embedding {
+		if models.KindFromName(p.ModelID) == kind {
 			out = append(out, p)
 		}
 	}
 	return out
 }
 
-// filterModels splits the registry list by model kind: embedding=true keeps
-// only embedding models, embedding=false keeps only chat models.
-func filterModels(all []*models.Model, embedding bool) []*models.Model {
+// filterModels keeps the models of one kind from the registry list.
+func filterModels(all []*models.Model, kind models.ModelKind) []*models.Model {
 	var out []*models.Model
 	for _, m := range all {
-		if m.IsEmbedding() == embedding {
+		if m.Kind() == kind {
 			out = append(out, m)
 		}
 	}
@@ -149,27 +174,62 @@ func withPublicNames(list []*models.Model) []map[string]any {
 
 func (s *Server) handleEmbeddingPresets(w http.ResponseWriter, r *http.Request) {
 	presets := models.CuratedEmbeddingModels()
-
-	// Mark which ones are already downloaded
-	allModels := s.registry.List()
-	downloaded := make(map[string]bool)
-	for _, m := range allModels {
-		downloaded[m.ModelID] = true
-	}
-
 	if isHTMX(r) {
 		respondHTML(w)
 		s.renderPartial(w, "embedding_presets", struct {
 			Presets    []models.EmbeddingModelPreset
 			Downloaded map[string]bool
-		}{Presets: presets, Downloaded: downloaded})
+		}{Presets: presets, Downloaded: s.downloadedRepos()})
 		return
 	}
-
 	respondJSON(w, presets)
 }
 
+func (s *Server) handleRerankPresets(w http.ResponseWriter, r *http.Request) {
+	presets := models.CuratedRerankModels()
+	if isHTMX(r) {
+		respondHTML(w)
+		s.renderPartial(w, "rerank_presets", struct {
+			Presets    []models.RerankModelPreset
+			Downloaded map[string]bool
+		}{Presets: presets, Downloaded: s.downloadedRepos()})
+		return
+	}
+	respondJSON(w, presets)
+}
+
+// downloadedRepos are the repos of every registered model, so a curated
+// card can mark the ones already downloaded.
+func (s *Server) downloadedRepos() map[string]bool {
+	downloaded := make(map[string]bool)
+	for _, m := range s.registry.List() {
+		downloaded[m.ModelID] = true
+	}
+	return downloaded
+}
+
 func (s *Server) handleDownloadEmbeddingPreset(w http.ResponseWriter, r *http.Request) {
+	s.downloadPreset(w, r, nil)
+}
+
+// handleDownloadRerankPreset downloads one of the curated rerankers, and
+// only those: each was checked for a classification head and a correct
+// ranking (see models.CuratedRerankModels).
+func (s *Server) handleDownloadRerankPreset(w http.ResponseWriter, r *http.Request) {
+	s.downloadPreset(w, r, func(repo, filename string) bool {
+		for _, p := range models.CuratedRerankModels() {
+			if p.Repo == repo && p.Filename == filename {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+// downloadPreset starts the download of a curated card's file, named by
+// the form's repo and filename. curated, when set, refuses any file it
+// does not know.
+func (s *Server) downloadPreset(w http.ResponseWriter, r *http.Request, curated func(repo, filename string) bool) {
 	if !parseForm(w, r) {
 		return
 	}
@@ -180,8 +240,12 @@ func (s *Server) handleDownloadEmbeddingPreset(w http.ResponseWriter, r *http.Re
 		http.Error(w, "missing repo or filename", http.StatusBadRequest)
 		return
 	}
+	if curated != nil && !curated(repo, filename) {
+		http.Error(w, "not a curated model", http.StatusBadRequest)
+		return
+	}
 
-	// Curated embedding presets are HuggingFace repos by construction.
+	// Curated presets are HuggingFace repos by construction.
 	downloadID, err := s.downloader.Start(r.Context(), modelsource.SourceHuggingFace, repo, filename, 0)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -461,23 +525,25 @@ func (s *Server) renderModelCard(w http.ResponseWriter, m *models.Model, routerK
 	}, " "))
 
 	data := modelCardView{
-		Model:          *m,
-		IsActive:       state == "loaded" || state == "loading",
-		IsEnabled:      enabled,
-		PendingEnable:  pendingEnable,
-		PendingDisable: pendingDisable,
-		NeedsReload:    configChanged,
-		HasVision:      m.HasVision(cfg),
-		HasAudio:       m.UnderstandsAudio(cfg),
-		Speaks:         m.Speaks(cfg),
-		GPULabel:       gpuLabel,
-		ServiceState:   state,
-		VRAMGB:         vramGB,
-		IsOrphan:       isOrphan,
-		IsIncomplete:   isIncomplete,
-		ResumeFilename: m.Filename,
-		SearchText:     searchText,
-		CanAutoconfig:  !m.IsEmbedding() && !isOrphan && !isIncomplete,
+		Model:             *m,
+		IsActive:          state == "loaded" || state == "loading",
+		IsEnabled:         enabled,
+		PendingEnable:     pendingEnable,
+		PendingDisable:    pendingDisable,
+		NeedsReload:       configChanged,
+		HasVision:         m.HasVision(cfg),
+		CallsTools:        m.CallsTools(),
+		HasAudio:          m.UnderstandsAudio(cfg),
+		Speaks:            m.Speaks(cfg),
+		GPULabel:          gpuLabel,
+		ServiceState:      state,
+		VRAMGB:            vramGB,
+		IsOrphan:          isOrphan,
+		IsIncomplete:      isIncomplete,
+		ResumeFilename:    m.Filename,
+		SearchText:        searchText,
+		CanAutoconfig:     m.Kind() == models.KindChat && !isOrphan && !isIncomplete,
+		RerankHeadWarning: rerankHeadWarningFor(m),
 	}
 	_, data.CanUpdate = s.updateTargets(m)
 	// nil in the render tests, which build a server without the store.
@@ -501,6 +567,7 @@ type modelCardView struct {
 	PendingDisable bool
 	NeedsReload    bool
 	HasVision      bool
+	CallsTools     bool // see models.Model.CallsTools
 	HasAudio       bool // understands speech
 	Speaks         bool // makes speech
 	GPULabel       string
@@ -511,6 +578,8 @@ type modelCardView struct {
 	ResumeFilename string
 	SearchText     string
 	CanAutoconfig  bool
+	// RerankHeadWarning titles the "check file" badge (see rerankHeadWarning).
+	RerankHeadWarning string
 	// CanUpdate is set for a model downloaded from a repository, which
 	// the Update button can check against it.
 	CanUpdate bool
@@ -520,8 +589,8 @@ type modelCardView struct {
 	Autotune autotune.CardState
 }
 
-// renderModelList renders the shared model list used by both chat and embedding
-// sections as a flat list of cards, sorted by base name then quant. When
+// renderModelList renders the shared model list used by the chat, embedding
+// and reranking sections as a flat list of cards, sorted by base name then quant. When
 // withFilter is true, a filter input is emitted above the list.
 func (s *Server) renderModelList(w http.ResponseWriter, r *http.Request, modelList []*models.Model, pending []models.PendingConfig, withFilter bool) {
 	routerKnown := s.routerKnownStates()

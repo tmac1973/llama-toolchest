@@ -22,6 +22,10 @@
     </p>
     {{end}}
 
+    {{if .RerankHeadWarning}}
+    <p role="alert" style="margin:0.5rem 0;"><mark>&#9888; {{.RerankHeadWarning}}</mark></p>
+    {{end}}
+
     {{template "profile_bar" .}}
     {{template "model_config_form" .}}
 </div>
@@ -91,7 +95,7 @@
         {{$mc := .MaxContext}}
         {{$dc := or .DefaultContext .MaxContext}}
         {{$isCustom := and (ne $cs 0) (ne $cs 2048) (ne $cs 4096) (ne $cs 8192) (ne $cs 16384) (ne $cs 32768) (ne $cs 65536) (ne $cs 131072) (ne $cs 262144)}}
-        <label title="{{if .IsEmbedding}}The longest input of one embedding request, in tokens. Longer inputs are refused. VRAM use grows fast with this value.{{else}}Maximum context, in tokens. More context uses more VRAM.{{end}}{{if gt $mc 0}} Model maximum: {{$mc}}.{{end}}">
+        <label title="{{if .IsEmbedding}}The longest input of one embedding request, in tokens. Longer inputs are refused. VRAM use grows fast with this value.{{else if .IsEncoder}}The longest query plus document of one rerank pair, in tokens. Longer pairs are refused. VRAM use grows fast with this value.{{else}}Maximum context, in tokens. More context uses more VRAM.{{end}}{{if gt $mc 0}} Model maximum: {{$mc}}.{{end}}">
             Context Size{{if gt $mc 0}} <small>(max {{$mc}})</small>{{end}}
             <div class="ctx-size-picker">
                 <select {{if not $isCustom}}name="context_size"{{end}}
@@ -128,7 +132,7 @@
 
     <div class="grid">
         {{if gt .NumGPUs 0}}
-        <label title="How the model uses the GPUs. Tensor Parallelism splits each tensor over the GPUs: experimental, needs a fast GPU link.{{if .IsEmbedding}} Embedding models use one GPU when they fit.{{end}}">
+        <label title="How the model uses the GPUs. Tensor Parallelism splits each tensor over the GPUs: experimental, needs a fast GPU link.{{if .IsEncoder}} Embedding and reranking models use one GPU when they fit.{{end}}">
             GPU Assignment
             <select name="gpu_assign"
                     onchange="var c=this.closest('form').querySelector('.tensor-split-custom'); if(this.value==='custom'){c.style.display='';c.querySelector('input').name='tensor_split';}else{c.style.display='none';c.querySelector('input').removeAttribute('name');}">
@@ -183,7 +187,7 @@
     {{end}}
 
 
-    {{if not .IsEmbedding}}
+    {{if not .IsEncoder}}
     <div class="grid">
         <label title="Faster inference and less VRAM. Recommended for most models. Turn it off if the model gives errors.">
             Flash Attention

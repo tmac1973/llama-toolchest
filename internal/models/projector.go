@@ -95,7 +95,7 @@ func (m *Model) Speaks(cfg *ModelConfig) bool {
 // text-to-speech only. llama.cpp uses the same rule
 // (mtmd_helper_get_capabilities).
 func (m *Model) CanChat(cfg *ModelConfig) bool {
-	return !m.IsEmbedding() && (!m.Speaks(cfg) || m.HasChatTemplate)
+	return m.Kind() == KindChat && (!m.Speaks(cfg) || m.HasChatTemplate)
 }
 
 // UnderstandsAudio reports whether the model understands speech: it reads

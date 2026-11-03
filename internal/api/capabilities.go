@@ -30,8 +30,9 @@ func (s *Server) buildCapabilities(m *models.Model, cfg *models.ModelConfig) map
 
 		// modalities / tools
 		"vision":    m.HasVision(cfg),
-		"tools":     m.SupportsTools,
-		"embedding": m.IsEmbedding(),
+		"tools":     m.CallsTools(),
+		"embedding": m.Kind() == models.KindEmbedding,
+		"rerank":    m.Kind() == models.KindRerank,
 		// audio: understands speech (transcription, voice chat); speech:
 		// makes speech (/tts, /v1/realtime). architecture lists both
 		// sides as llama-server does.

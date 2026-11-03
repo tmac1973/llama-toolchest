@@ -10,7 +10,7 @@ import (
 func TestPresetWritesTheMoECache(t *testing.T) {
 	write := func(cfg *ModelConfig, tgt Target) string {
 		var b strings.Builder
-		writeConfigParams(&b, cfg, false, tgt)
+		writeConfigParams(&b, cfg, KindChat, tgt)
 		return b.String()
 	}
 	cfg := &ModelConfig{GPULayers: 999, CPUMoE: 20, MoECacheMiB: 4096}

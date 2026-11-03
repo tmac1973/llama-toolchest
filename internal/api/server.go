@@ -896,11 +896,14 @@ func (s *Server) buildRouter() chi.Router {
 		r.Route("/models", func(r chi.Router) {
 			r.Get("/", s.handleListModels)
 			r.Get("/embeddings", s.handleListEmbeddingModels)
+			r.Get("/rerankers", s.handleListRerankModels)
 			r.Get("/helpers", s.handleListHelperModels)
 			r.Post("/helpers/remove", s.handleRemoveHelperFromList)
 			r.Post("/scan", s.handleScanModels)
 			r.Get("/embedding-presets", s.handleEmbeddingPresets)
 			r.Post("/embedding-presets/download", s.handleDownloadEmbeddingPreset)
+			r.Get("/rerank-presets", s.handleRerankPresets)
+			r.Post("/rerank-presets/download", s.handleDownloadRerankPreset)
 			r.Get("/{id}", s.handleGetModel)
 			r.Get("/{id}/info", s.handleModelInfo)
 			r.Delete("/{id}", s.handleDeleteModel)
@@ -1031,6 +1034,10 @@ func (s *Server) buildRouter() chi.Router {
 	// has it. Proxied like /v1, with the same API key.
 	llamaProxy := s.newProxyHandler()
 	r.With(s.apiKeyAuth).Post("/tts", llamaProxy.ServeHTTP)
+	// llama-server's rerank route, at the root as llama-server has it (the
+	// Jina and TEI clients call it there). Proxied like /v1, with the
+	// same API key.
+	r.With(s.apiKeyAuth).Post("/rerank", llamaProxy.ServeHTTP)
 
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(s.apiKeyAuth)
@@ -1482,7 +1489,7 @@ func (s *Server) servedChatModels() []servedModel {
 	routerStates := s.routerKnownStates()
 	var out []servedModel
 	for _, m := range s.registry.List() {
-		if m.IsEmbedding() {
+		if m.Kind() != models.KindChat {
 			continue
 		}
 		routerName := s.registry.RouterName(m.ID)

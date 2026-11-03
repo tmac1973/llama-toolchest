@@ -91,7 +91,9 @@ func TestPlaceEmbeddingModel(t *testing.T) {
 		NHead: 32, NKVHead: 8, ContextLength: 32768, SizeBytes: 5 << 30}
 	helper := emb("helper")
 	helper.HelperRole = true
-	for _, m := range []*models.Model{emb("e"), emb("chosen"), chat, helper} {
+	rerank := emb("rerank")
+	rerank.Embedding, rerank.PoolingType = false, models.PoolingRank
+	for _, m := range []*models.Model{emb("e"), emb("chosen"), chat, helper, rerank} {
 		if err := s.registry.Add(m); err != nil {
 			t.Fatal(err)
 		}
@@ -102,10 +104,10 @@ func TestPlaceEmbeddingModel(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, id := range []string{"e", "chosen", "chat", "helper"} {
+	for _, id := range []string{"e", "chosen", "chat", "helper", "rerank"} {
 		s.placeEmbeddingModel(id, hw)
 	}
-	want := map[string]string{"e": "1", "chosen": "all", "chat": "", "helper": ""}
+	want := map[string]string{"e": "1", "chosen": "all", "chat": "", "helper": "", "rerank": "1"}
 	for id, w := range want {
 		if cfg, _ := s.registry.GetConfig(id); cfg.GPUAssign != w {
 			t.Errorf("%s: GPU assignment %q, want %q", id, cfg.GPUAssign, w)

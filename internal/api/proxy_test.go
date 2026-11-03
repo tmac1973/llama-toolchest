@@ -284,8 +284,10 @@ type fakeRouter struct {
 	// slotLists counts GET /slots: on a real router, one for a model that
 	// is not loaded loads it.
 	slotLists int
-	// ttsBodies records the body of each POST /tts.
-	ttsBodies [][]byte
+	// ttsBodies records the body of each POST /tts, and rerankPaths the
+	// path of each POST /rerank or /v1/rerank.
+	ttsBodies   [][]byte
+	rerankPaths []string
 	// realtimeProtocols records the Sec-WebSocket-Protocol header of
 	// each realtime session.
 	realtimeProtocols []string
@@ -302,7 +304,13 @@ func (f *fakeRouter) reset(status map[string]string, onList func(*fakeRouter, in
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.status, f.aliases, f.loads, f.lists, f.onList = status, nil, nil, 0, onList
-	f.ttsBodies = nil
+	f.ttsBodies, f.rerankPaths = nil, nil
+}
+
+func (f *fakeRouter) rerankCalls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.rerankPaths...)
 }
 
 func (f *fakeRouter) ttsCalls() [][]byte {
@@ -375,6 +383,10 @@ func (f *fakeRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.ttsBodies = append(f.ttsBodies, body)
 		w.Header().Set("Content-Type", "audio/wav")
 		io.WriteString(w, "RIFF")
+	case (r.URL.Path == "/rerank" || r.URL.Path == "/v1/rerank") && r.Method == http.MethodPost:
+		f.rerankPaths = append(f.rerankPaths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"results":[{"index":1,"relevance_score":0.9},{"index":0,"relevance_score":0.1}],"usage":{"prompt_tokens":12,"total_tokens":12}}`)
 	case r.URL.Path == "/models/load" && r.Method == http.MethodPost:
 		var req struct {
 			Model string `json:"model"`
