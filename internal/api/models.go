@@ -13,19 +13,40 @@ import (
 )
 
 func (s *Server) handleListEmbeddingModels(w http.ResponseWriter, r *http.Request) {
-	embeddingModels := filterModels(s.registry.ListServing(), models.KindEmbedding)
-	pending := filterPending(s.registry.PendingConfigs(), models.KindEmbedding)
+	s.listModelsOfKind(w, r, models.KindEmbedding, "")
+}
+
+// rerankListHeading heads the reranking models section. It is part of the
+// list's HTML rather than the page, so the section has no heading when it
+// has nothing in it.
+const rerankListHeading = `<hr>
+<div style="display:flex;justify-content:space-between;align-items:center;padding:0 0.25rem 0.5rem 0;">
+    <h4 style="margin:0;" title="Models that score how well each document answers a query, at /v1/rerank.">Reranking Models</h4>
+</div>
+`
+
+func (s *Server) handleListRerankModels(w http.ResponseWriter, r *http.Request) {
+	s.listModelsOfKind(w, r, models.KindRerank, rerankListHeading)
+}
+
+// listModelsOfKind answers a list request for the embedding or reranking
+// models section: JSON, or for htmx the section's cards after heading,
+// and nothing at all when there are no models or pending configs of kind.
+func (s *Server) listModelsOfKind(w http.ResponseWriter, r *http.Request, kind models.ModelKind, heading string) {
+	list := filterModels(s.registry.ListServing(), kind)
+	pending := filterPending(s.registry.PendingConfigs(), kind)
 
 	if isHTMX(r) {
 		respondHTML(w)
-		if len(embeddingModels) == 0 && len(pending) == 0 {
+		if len(list) == 0 && len(pending) == 0 {
 			return
 		}
-		s.renderModelList(w, r, embeddingModels, pending, false)
+		w.Write([]byte(heading))
+		s.renderModelList(w, r, list, pending, false)
 		return
 	}
 
-	respondJSON(w, withPublicNames(embeddingModels))
+	respondJSON(w, withPublicNames(list))
 }
 
 // handleListHelperModels renders the helper models section: the models
@@ -65,7 +86,7 @@ func (s *Server) handleRemoveHelperFromList(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
-	// Filter out embedding models — they have their own section
+	// Only chat models: embedding and reranking models have their own sections
 	modelList := filterModels(s.registry.ListServing(), models.KindChat)
 	pending := filterPending(s.registry.PendingConfigs(), models.KindChat)
 

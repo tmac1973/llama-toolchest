@@ -874,6 +874,7 @@ func (s *Server) buildRouter() chi.Router {
 		r.Route("/models", func(r chi.Router) {
 			r.Get("/", s.handleListModels)
 			r.Get("/embeddings", s.handleListEmbeddingModels)
+			r.Get("/rerankers", s.handleListRerankModels)
 			r.Get("/helpers", s.handleListHelperModels)
 			r.Post("/helpers/remove", s.handleRemoveHelperFromList)
 			r.Post("/scan", s.handleScanModels)

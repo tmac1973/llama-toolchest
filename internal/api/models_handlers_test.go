@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -244,16 +245,20 @@ func TestMdlScanModelsFromPageRendersList(t *testing.T) {
 	}
 }
 
-// filterModels splits the list by kind and keeps the order: chat models
-// and embedding models are shown in separate sections, and a model must
-// never appear in both or in neither.
+// filterModels splits the list by kind and keeps the order: chat,
+// embedding and reranking models are shown in separate sections, and a
+// model must never appear in two of them or in none.
 func TestMdlFilterModels(t *testing.T) {
 	chatA := &models.Model{ID: "a", ModelID: "org/Llama-GGUF"}
 	emb := &models.Model{ID: "e", ModelID: "nomic-ai/nomic-embed-text-v1.5-GGUF"}
 	chatB := &models.Model{ID: "b", ModelID: "org/Qwen-GGUF"}
 	// Detected from the registry ID when the repo name says nothing.
 	embByID := &models.Model{ID: "bge-small", ModelID: "org/small"}
-	all := []*models.Model{chatA, emb, chatB, embByID}
+	// Matches the embedding name pattern too.
+	bgeRerank := &models.Model{ID: "BAAI--bge-reranker-v2-m3", ModelID: "BAAI/bge-reranker-v2-m3"}
+	// A qwen3 model: only the file's pooling type says it is a reranker.
+	qwenRerank := &models.Model{ID: "q", ModelID: "org/q-GGUF", Arch: "qwen3", PoolingType: models.PoolingRank}
+	all := []*models.Model{chatA, emb, bgeRerank, chatB, embByID, qwenRerank}
 
 	if got := filterModels(all, models.KindChat); !reflect.DeepEqual(got, []*models.Model{chatA, chatB}) {
 		t.Errorf("chat models = %v, want a and b in order", mdlIDs(got))
@@ -261,8 +266,104 @@ func TestMdlFilterModels(t *testing.T) {
 	if got := filterModels(all, models.KindEmbedding); !reflect.DeepEqual(got, []*models.Model{emb, embByID}) {
 		t.Errorf("embedding models = %v, want e and bge-small in order", mdlIDs(got))
 	}
+	if got := filterModels(all, models.KindRerank); !reflect.DeepEqual(got, []*models.Model{bgeRerank, qwenRerank}) {
+		t.Errorf("reranking models = %v, want the bge reranker and q in order", mdlIDs(got))
+	}
 	if got := filterModels(nil, models.KindChat); len(got) != 0 {
 		t.Errorf("filterModels(nil) = %v, want empty", mdlIDs(got))
+	}
+}
+
+// A pending config ghosts in the section its name puts it in.
+func TestMdlFilterPending(t *testing.T) {
+	all := []models.PendingConfig{
+		{ModelID: "org/Llama-GGUF"},
+		{ModelID: "BAAI/bge-reranker-v2-m3"},
+		{ModelID: "nomic-ai/nomic-embed-text-v1.5-GGUF"},
+	}
+	for kind, want := range map[models.ModelKind]string{
+		models.KindChat:      "org/Llama-GGUF",
+		models.KindEmbedding: "nomic-ai/nomic-embed-text-v1.5-GGUF",
+		models.KindRerank:    "BAAI/bge-reranker-v2-m3",
+	} {
+		got := filterPending(all, kind)
+		if len(got) != 1 || got[0].ModelID != want {
+			t.Errorf("filterPending(kind %d) = %v, want only %s", kind, got, want)
+		}
+	}
+}
+
+// The reranking models section lists only rerankers, in JSON and on the
+// page, and has no heading at all while there are none.
+func TestMdlListRerankModels(t *testing.T) {
+	s := newTestServer(t)
+	list := func(htmx bool) string {
+		rec := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/api/models/rerankers", nil)
+		if htmx {
+			r.Header.Set("HX-Request", "true")
+		}
+		s.handleListRerankModels(rec, r)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status %d: %s", rec.Code, rec.Body)
+		}
+		return rec.Body.String()
+	}
+	if body := list(true); body != "" {
+		t.Errorf("section without rerankers = %q, want nothing", body)
+	}
+
+	chat := mdlAddFileModel(t, s, "org/Chat-GGUF", "Chat-Q4_K_M.gguf")
+	emb := mdlAddFileModel(t, s, "nomic-ai/nomic-embed-text-v1.5-GGUF", "nomic-embed-text-v1.5.Q8_0.gguf")
+	rr := mdlAddFileModel(t, s, "BAAI/bge-reranker-v2-m3-GGUF", "bge-reranker-v2-m3-Q8_0.gguf")
+
+	body := list(true)
+	if !strings.Contains(body, "Reranking Models") || !strings.Contains(body, rr.ID) {
+		t.Errorf("section does not list %s under its heading:\n%s", rr.ID, body)
+	}
+	for _, other := range []*models.Model{chat, emb} {
+		if strings.Contains(body, other.ID) {
+			t.Errorf("reranking section lists %s", other.ID)
+		}
+	}
+	if body := list(false); !strings.Contains(body, rr.ID) || strings.Contains(body, chat.ID) || strings.Contains(body, emb.ID) {
+		t.Errorf("JSON list = %s, want only %s", body, rr.ID)
+	}
+
+	// The chat and embedding lists leave it out.
+	for name, h := range map[string]http.HandlerFunc{"/api/models": s.handleListModels, "/api/models/embeddings": s.handleListEmbeddingModels} {
+		rec := httptest.NewRecorder()
+		h(rec, httptest.NewRequest(http.MethodGet, name, nil))
+		if strings.Contains(rec.Body.String(), rr.ID) {
+			t.Errorf("%s lists the reranker", name)
+		}
+	}
+
+	// /v1/models still offers it to clients, as neither a chat nor an
+	// embedding model.
+	rec := httptest.NewRecorder()
+	s.handleV1Models(rec, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
+	var out struct {
+		Data []struct {
+			ID   string
+			Meta struct{ Capabilities []string }
+		}
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, m := range out.Data {
+		if !strings.Contains(m.ID, "bge-reranker") {
+			continue
+		}
+		found = true
+		if slices.Contains(m.Meta.Capabilities, "chat") || slices.Contains(m.Meta.Capabilities, "embedding") {
+			t.Errorf("/v1/models capabilities for the reranker = %v", m.Meta.Capabilities)
+		}
+	}
+	if !found {
+		t.Errorf("/v1/models does not list the reranker: %s", rec.Body)
 	}
 }
 

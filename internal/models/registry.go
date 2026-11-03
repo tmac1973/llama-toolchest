@@ -1433,6 +1433,17 @@ func IsEmbeddingModel(name string) bool {
 	return embeddingPattern.MatchString(name)
 }
 
+var rerankPattern = regexp.MustCompile(`(?i)(rerank|cross-encoder)`)
+
+// IsRerankModel reports whether the model name/ID suggests a reranking
+// model. Like IsEmbeddingModel, it is the only test for a download that
+// has no file yet, and the fallback for records read before the pooling
+// type was recorded; a downloaded model is also recognized from its file
+// (see Model.Kind).
+func IsRerankModel(name string) bool {
+	return rerankPattern.MatchString(name)
+}
+
 // IsDraftHead reports whether the file is a converted speculative-decoding
 // head (EAGLE-3, DFlash, DSpark, LiliCorr). A head drafts for another
 // model through --model-draft and cannot be loaded or chatted with on its
@@ -1442,21 +1453,29 @@ func IsEmbeddingModel(name string) bool {
 func (m *Model) IsDraftHead() bool { return m.DraftHead != "" }
 
 // ModelKind is what a model is served for: chat (and the other generative
-// uses, such as speech), or embeddings.
+// uses, such as speech), embeddings, or reranking.
 type ModelKind int
 
 const (
 	KindChat ModelKind = iota
 	KindEmbedding
+	KindRerank
 )
 
-// Kind reports what the model is served for. An embedding model is one
-// whose file says so, or whose name looks like one. The name is checked
-// as well because records read before parser version 8 have no Embedding
-// flag, and because legacy records may have only one of the HF repo ID
-// and the registry ID.
+// Kind reports what the model is served for. A model is a reranker or an
+// embedding model when its file says so, or when its name looks like one.
+// The name is checked as well because records read before parser version
+// 8 have no Embedding flag or pooling type, and because legacy records
+// may have only one of the HF repo ID and the registry ID.
+//
+// Rerankers are checked first: bge rerankers also match the embedding
+// name pattern, and a reranker built on a chat architecture (Qwen3) has
+// nothing else to tell it apart.
 func (m *Model) Kind() ModelKind {
-	if m.Embedding || IsEmbeddingModel(m.ModelID) || IsEmbeddingModel(m.ID) {
+	switch {
+	case m.PoolingType == PoolingRank || IsRerankModel(m.ModelID) || IsRerankModel(m.ID):
+		return KindRerank
+	case m.Embedding || IsEmbeddingModel(m.ModelID) || IsEmbeddingModel(m.ID):
 		return KindEmbedding
 	}
 	return KindChat
@@ -1465,7 +1484,10 @@ func (m *Model) Kind() ModelKind {
 // KindFromName is Kind for a download that has no file yet: the name is
 // all there is to go by.
 func KindFromName(name string) ModelKind {
-	if IsEmbeddingModel(name) {
+	switch {
+	case IsRerankModel(name):
+		return KindRerank
+	case IsEmbeddingModel(name):
 		return KindEmbedding
 	}
 	return KindChat
