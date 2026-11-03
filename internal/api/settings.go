@@ -131,17 +131,6 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSONBody(w, r, &update) {
 			return
 		}
-		genOn, forksOn := s.cfg.GenerationEnabled, s.cfg.ForksEnabled
-		if update.GenerationEnabled != nil {
-			genOn = *update.GenerationEnabled
-		}
-		if update.ForksEnabled != nil {
-			forksOn = *update.ForksEnabled
-		}
-		if update.RouterMemory != nil && *update.RouterMemory && (genOn || forksOn) {
-			http.Error(w, errRouterMemoryWithGeneration.Error(), http.StatusBadRequest)
-			return
-		}
 		routerOn = update.RouterMemory
 		// Checked before anything is changed, so a rejected range leaves
 		// the other fields in this request unsaved too.
@@ -186,18 +175,6 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if r.Form.Has("router_memory_touched") {
 			on := r.FormValue("router_memory") == "on"
-			genOn, forksOn := s.cfg.GenerationEnabled, s.cfg.ForksEnabled
-			if r.Form.Has("generation_touched") {
-				genOn = r.FormValue("generation_enabled") == "on"
-			}
-			if r.Form.Has("forks_touched") {
-				forksOn = r.FormValue("forks_enabled") == "on"
-			}
-			if on && (genOn || forksOn) {
-				respondHTML(w)
-				fmt.Fprintf(w, `<p><mark>Settings not saved: %s</mark></p>`, html.EscapeString(errRouterMemoryWithGeneration.Error()))
-				return
-			}
 			routerOn = &on
 		}
 		if r.Form.Has("gen_port_start") || r.Form.Has("gen_port_count") {

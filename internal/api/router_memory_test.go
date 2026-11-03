@@ -13,20 +13,26 @@ import (
 
 func TestRouterLimits(t *testing.T) {
 	cases := []struct {
-		name                  string
-		max                   int
-		on, job, hasOption    bool
-		wantMax, wantMarginMB int
+		name                     string
+		max                      int
+		on, outside, job, hasOpt bool
+		wantMax, wantMarginMB    int
+		wantMode                 memoryMode
 	}{
-		{"off", 1, false, false, true, 1, 0},
-		{"on for serving", 0, true, false, true, 0, 1311},
-		{"on, benchmark", 0, true, true, true, 1, 0},
-		{"on, build too old", 0, true, false, false, 0, 0},
+		{"off", 1, false, false, false, true, 1, 0, memoryCount},
+		{"off, generation on", 1, false, true, false, true, 1, 0, memoryCount},
+		{"on for serving", 0, true, false, false, true, 0, 1311, memoryRouter},
+		{"on, max kept", 3, true, false, false, true, 3, 1311, memoryRouter},
+		{"on, benchmark", 0, true, false, true, true, 1, 0, memoryCount},
+		{"on, benchmark, generation on", 0, true, true, true, true, 1, 0, memoryCount},
+		{"on, build too old", 0, true, false, false, false, 0, 0, memoryCount},
+		{"on, generation on", 3, true, true, false, true, 0, 0, memoryToolchest},
+		{"on, generation on, build too old", 3, true, true, false, false, 0, 0, memoryToolchest},
 	}
 	for _, c := range cases {
-		gotMax, gotMargin := routerLimits(c.max, c.on, c.job, c.hasOption, 1311)
-		if gotMax != c.wantMax || gotMargin != c.wantMarginMB {
-			t.Errorf("%s: max %d margin %d, want %d %d", c.name, gotMax, gotMargin, c.wantMax, c.wantMarginMB)
+		gotMax, gotMargin, gotMode := routerLimits(c.max, c.on, c.outside, c.job, c.hasOpt, 1311)
+		if gotMax != c.wantMax || gotMargin != c.wantMarginMB || gotMode != c.wantMode {
+			t.Errorf("%s: max %d margin %d mode %s, want %d %d %s", c.name, gotMax, gotMargin, gotMode, c.wantMax, c.wantMarginMB, c.wantMode)
 		}
 	}
 }
@@ -42,9 +48,9 @@ func putSettings(t *testing.T, s *Server, form url.Values) string {
 	return rec.Body.String()
 }
 
-// The router option and generation backends exclude each other: it cannot
-// be turned on while they are on, and turning them on turns it off.
-// Turning it on with Max Loaded at 1 lifts the count limit.
+// Turning the option on with Max Loaded at 1 lifts the count limit. It
+// stays on when generation backends are turned on, and can be turned on
+// while they are: toolchest decides then.
 func TestRouterMemorySetting(t *testing.T) {
 	s := newSettingsServer(t, &config.Config{ModelsMax: 1})
 
@@ -59,46 +65,94 @@ func TestRouterMemorySetting(t *testing.T) {
 	}
 
 	putSettings(t, s, url.Values{"generation_touched": {"1"}, "generation_enabled": {"on"}})
-	if !s.cfg.GenerationEnabled || s.cfg.RouterMemory {
-		t.Fatalf("generation on: router %v, want off", s.cfg.RouterMemory)
+	if !s.cfg.GenerationEnabled || !s.cfg.RouterMemory {
+		t.Fatalf("generation on: router %v, want still on", s.cfg.RouterMemory)
 	}
 
-	body := putSettings(t, s, url.Values{"router_memory_touched": {"1"}, "router_memory": {"on"}, "models_max": {"5"}})
-	if s.cfg.RouterMemory || s.cfg.ModelsMax != 3 || !strings.Contains(body, "Settings not saved") {
-		t.Errorf("on with generation: router %v, max %d, answer %q; want refused and nothing changed", s.cfg.RouterMemory, s.cfg.ModelsMax, body)
+	putSettings(t, s, url.Values{"router_memory_touched": {"1"}, "models_max": {"3"}})
+	if s.cfg.RouterMemory {
+		t.Fatal("not turned off")
+	}
+	body := putSettings(t, s, url.Values{"router_memory_touched": {"1"}, "router_memory": {"on"}, "models_max": {"1"}})
+	if !s.cfg.RouterMemory || s.cfg.ModelsMax != 0 || strings.Contains(body, "Settings not saved") {
+		t.Errorf("on with generation: router %v, max %d, answer %q; want on and 0", s.cfg.RouterMemory, s.cfg.ModelsMax, body)
 	}
 
-	// JSON clients get a 400.
-	req := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{"router_memory":true}`))
+	req := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{"router_memory":false}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	s.handleUpdateSettings(rec, req)
-	if rec.Code != http.StatusBadRequest || s.cfg.RouterMemory {
-		t.Errorf("JSON with generation on: %d, router %v", rec.Code, s.cfg.RouterMemory)
-	}
-	// Both in one request: generation off and the router on is allowed.
-	req = httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{"generation_enabled":false,"router_memory":true}`))
+	req = httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{"router_memory":true}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	s.handleUpdateSettings(rec, req)
 	var got map[string]any
 	json.Unmarshal(rec.Body.Bytes(), &got)
-	if rec.Code != http.StatusOK || !s.cfg.RouterMemory || s.cfg.GenerationEnabled {
-		t.Errorf("generation off and router on: %d %s", rec.Code, rec.Body)
+	if rec.Code != http.StatusOK || !s.cfg.RouterMemory {
+		t.Errorf("JSON with generation on: %d %s", rec.Code, rec.Body)
 	}
 }
 
-// The Server page greys the switch out while generation backends are on,
-// and shows the margin while it is on.
+// The Server page says who decides, shows the router's margin only when
+// the router decides, and asks for a restart when the running router was
+// started in another mode.
 func TestRouterMemoryServerPage(t *testing.T) {
 	s := newTestServer(t)
+	s.cfg.RouterMemory = true
+	if v := s.routerMemoryInfo(); v.Toolchest || !v.On || v.Restart {
+		t.Errorf("generation off, router stopped: %+v", v)
+	}
 	s.cfg.GenerationEnabled = true
-	if v := s.routerMemoryInfo(); v.Blocked == "" {
-		t.Error("not blocked with generation on")
+	if v := s.routerMemoryInfo(); !v.Toolchest || v.Margin != "" || v.Note != "" {
+		t.Errorf("generation on: %+v; want toolchest, no margin or note", v)
+	}
+}
+
+// With generation on and the option on, the router starts in toolchest
+// mode: no count limit and no margin of its own. A stop puts the mode
+// back to count; with generation off the router decides again.
+func TestStartRouterMemoryModes(t *testing.T) {
+	s, proc := evalStopServer(t)
+	s.builder = testBuilder(t, testBuild("b1", fakeLlamaServerDir(t)))
+	s.cfg.RouterMemory, s.cfg.GenerationEnabled, s.cfg.ModelsMax = true, true, 3
+	if err := s.startRouterWith(routerOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	waitRouterRunning(t, proc)
+	if !s.toolchestMemory() {
+		t.Errorf("mode = %s, want toolchest", memoryMode(s.memoryMode.Load()))
+	}
+	if v := s.routerMemoryInfo(); v.Restart {
+		t.Error("asks for a restart in the mode it runs in")
 	}
 	s.cfg.GenerationEnabled = false
-	s.cfg.RouterMemory = true
-	if v := s.routerMemoryInfo(); v.Blocked != "" || !v.On {
-		t.Errorf("generation off: %+v", v)
+	if v := s.routerMemoryInfo(); !v.Restart {
+		t.Error("no restart asked for after generation was turned off")
+	}
+	if err := proc.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	s.cfg.RouterMemory = false
+	if err := s.startRouterWith(routerOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	waitRouterRunning(t, proc)
+	if mode := memoryMode(s.memoryMode.Load()); mode != memoryCount {
+		t.Errorf("option off: mode = %s, want count", mode)
+	}
+}
+
+// The switch is labelled for both modes and says who decides.
+func TestRouterMemorySwitchRenders(t *testing.T) {
+	s := newTestServer(t)
+	s.cfg.RouterMemory, s.cfg.GenerationEnabled = true, true
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/server", nil)
+	s.handleServerPage(rec, req)
+	body := rec.Body.String()
+	for _, want := range []string{"Keep several models loaded", "Toolchest decides, because generation backends or forks are on.", "Toolchest decides, with the fit margin of each GPU."} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Server page is missing %q", want)
+		}
 	}
 }

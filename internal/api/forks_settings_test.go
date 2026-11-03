@@ -58,53 +58,39 @@ func TestForksSwitchJSON(t *testing.T) {
 	}
 }
 
-// Forks hold GPUs the router cannot see, as generation backends do, so
-// router memory is off while they are on and cannot be turned on.
-func TestForksTurnRouterMemoryOff(t *testing.T) {
+// Forks hold GPUs the router cannot see, as generation backends do. The
+// option stays on with forks on, can be turned on then, and a restore
+// keeps it: toolchest decides what to unload from the next start.
+func TestForksKeepRouterMemoryOn(t *testing.T) {
 	s := newSettingsServer(t, &config.Config{ModelsMax: 1})
 	putSettings(t, s, url.Values{"router_memory_touched": {"1"}, "router_memory": {"on"}})
-	if !s.cfg.RouterMemory {
-		t.Fatal("router memory not on")
-	}
-
 	putSettings(t, s, url.Values{"forks_touched": {"1"}, "forks_enabled": {"on"}})
-	if !s.cfg.ForksEnabled || s.cfg.RouterMemory {
-		t.Fatalf("forks on: router %v, want off", s.cfg.RouterMemory)
+	if !s.cfg.ForksEnabled || !s.cfg.RouterMemory {
+		t.Fatalf("forks on: forks %v, router %v; want both on", s.cfg.ForksEnabled, s.cfg.RouterMemory)
 	}
-	if v := s.routerMemoryInfo(); v.Blocked == "" {
-		t.Error("Server page switch not blocked with forks on")
-	}
-
-	body := putSettings(t, s, url.Values{"router_memory_touched": {"1"}, "router_memory": {"on"}})
-	if s.cfg.RouterMemory || !strings.Contains(body, "Settings not saved") {
-		t.Errorf("on with forks: router %v, answer %q; want refused", s.cfg.RouterMemory, body)
+	if v := s.routerMemoryInfo(); !v.Toolchest {
+		t.Error("Server page does not say toolchest decides with forks on")
 	}
 
+	putSettings(t, s, url.Values{"router_memory_touched": {"1"}})
+	if s.cfg.RouterMemory {
+		t.Fatal("not turned off")
+	}
 	req := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{"router_memory":true}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	s.handleUpdateSettings(rec, req)
-	if rec.Code != http.StatusBadRequest || s.cfg.RouterMemory {
-		t.Errorf("JSON with forks on: %d, router %v", rec.Code, s.cfg.RouterMemory)
+	if rec.Code != http.StatusOK || !s.cfg.RouterMemory {
+		t.Errorf("JSON with forks on: %d, router %v; want on", rec.Code, s.cfg.RouterMemory)
 	}
 
-	// A restore does not turn it back on either.
+	s.cfg.RouterMemory = false
 	on := true
-	changed, err := s.restoreDeps().ApplySettings(backup.Settings{RouterMemory: &on})
-	if err != nil {
+	if _, err := s.restoreDeps().ApplySettings(backup.Settings{RouterMemory: &on}); err != nil {
 		t.Fatal(err)
 	}
-	if s.cfg.RouterMemory {
-		t.Errorf("restore turned router memory on with forks on (changed %v)", changed)
-	}
-
-	// Forks off, in the same request as the router: allowed.
-	req = httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{"forks_enabled":false,"router_memory":true}`))
-	req.Header.Set("Content-Type", "application/json")
-	rec = httptest.NewRecorder()
-	s.handleUpdateSettings(rec, req)
-	if rec.Code != http.StatusOK || !s.cfg.RouterMemory || s.cfg.ForksEnabled {
-		t.Errorf("forks off and router on: %d %s", rec.Code, rec.Body)
+	if !s.cfg.RouterMemory {
+		t.Error("restore did not turn the option on with forks on")
 	}
 }
 

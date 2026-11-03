@@ -238,15 +238,19 @@
                         </label>
                     </div>
                     <input type="hidden" name="router_memory_touched" value="1">
-                    <label title="{{if .RouterMemory.Blocked}}{{.RouterMemory.Blocked}}{{else}}Lets llama-server keep several models loaded and unload idle ones when VRAM runs short. Applies at the next server start.{{if .RouterMemory.Note}} {{.RouterMemory.Note}}{{end}}{{end}}">
+                    <label title="{{if .RouterMemory.Toolchest}}Keeps several models loaded while they fit in VRAM. Toolchest decides, because generation backends or forks are on. When a model does not fit, it unloads the idle models used least recently. Applies at the next server start.{{else}}Keeps several models loaded while they fit in VRAM. The llama-server router decides. When a model does not fit, it unloads the idle models used least recently. Applies at the next server start.{{if .RouterMemory.Note}} {{.RouterMemory.Note}}{{end}}{{end}}">
                         <input type="checkbox" role="switch" name="router_memory"
                                onchange="if (this.checked && this.form.models_max && this.form.models_max.value === '1') this.form.models_max.value = '0'"
-                               {{if .RouterMemory.On}}checked{{end}}
-                               {{if .RouterMemory.Blocked}}disabled{{end}}>
-                        Let the router keep several models loaded
+                               {{if .RouterMemory.On}}checked{{end}}>
+                        Keep several models loaded
                     </label>
-                    {{if and .RouterMemory.On .RouterMemory.Margin}}
+                    {{if .RouterMemory.On}}{{if .RouterMemory.Toolchest}}
+                    <small title="Toolchest fit margin of each GPU: 1 GiB or 8%, the larger value.">Toolchest decides, with the fit margin of each GPU.</small>
+                    {{else if .RouterMemory.Margin}}
                     <small title="Toolchest fit margin of the largest GPU: 1 GiB or 8%, the larger value. The router uses one value for all GPUs.">Effective margin: {{.RouterMemory.Margin}}.{{if .RouterMemory.Note}} {{.RouterMemory.Note}}{{end}}</small>
+                    {{end}}{{end}}
+                    {{if .RouterMemory.Restart}}
+                    <small><mark>Restart the server to apply.</mark></small>
                     {{end}}
                 </form>
                 <div id="build-save-status"></div>

@@ -22,6 +22,17 @@ const (
 	memoryToolchest                   // toolchest decides (generation backends or forks on)
 )
 
+// String names the mode for the log: count, router or toolchest.
+func (m memoryMode) String() string {
+	switch m {
+	case memoryRouter:
+		return "router"
+	case memoryToolchest:
+		return "toolchest"
+	}
+	return "count"
+}
+
 // toolchestMemory reports whether the running router leaves it to
 // toolchest to unload LLMs by memory (loadLLMWithRoom).
 func (s *Server) toolchestMemory() bool {

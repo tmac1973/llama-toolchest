@@ -190,6 +190,7 @@ func (s *Server) handleServiceStop(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	s.memoryMode.Store(int32(memoryCount))
 	// Nothing is live anymore — drop the snapshot so /info falls back to
 	// reporting just the configured value.
 	s.setRunningConfigs(make(map[string]*models.ModelConfig))
@@ -496,7 +497,8 @@ func (s *Server) startRouterWith(opt routerOptions) error {
 		buildID = s.cfg.ActiveBuild
 	}
 	modelsMax := s.cfg.ModelsMax
-	routerMemory := s.cfg.RouterMemory && !s.cfg.HoldsVRAMOutsideRouter()
+	routerMemory := s.cfg.RouterMemory
+	holdsVRAMOutside := s.cfg.HoldsVRAMOutsideRouter()
 	port := s.cfg.LlamaPort
 	extraEnv := s.cfg.RuntimeEnvPairs()
 	s.cfgMu.Unlock()
@@ -536,8 +538,12 @@ func (s *Server) startRouterWith(opt routerOptions) error {
 	}
 	sort.Strings(overridden)
 
+	modelsMax, marginMiB, mode := routerLimits(modelsMax, routerMemory, holdsVRAMOutside, opt.job,
+		s.targetFor(build).RouterMemoryOption(), s.routerMemoryMarginMiB())
+
 	slog.Info("starting router",
 		"build", build.ID,
+		"memory", mode.String(),
 		"preset", presetPath,
 		"for_benchmark", opt.overrides != nil,
 		"substitute_configs", overridden,
@@ -551,9 +557,6 @@ func (s *Server) startRouterWith(opt routerOptions) error {
 	// that is about to be cleared.
 	s.memory.Reset()
 
-	modelsMax, marginMiB := routerLimits(modelsMax, routerMemory, opt.job,
-		s.targetFor(build).RouterMemoryOption(), s.routerMemoryMarginMiB())
-
 	if err := s.process.Start(process.RouterConfig{
 		BinaryPath:            build.BinaryPath,
 		PresetPath:            presetPath,
@@ -564,6 +567,7 @@ func (s *Server) startRouterWith(opt routerOptions) error {
 	}); err != nil {
 		return err
 	}
+	s.memoryMode.Store(int32(mode))
 
 	// Record which build is actually serving, so callers can tell the
 	// user's saved selection from what a job temporarily launched.

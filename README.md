@@ -162,9 +162,9 @@ api_key: ""                 # Bearer token for /v1 proxy (empty = no auth)
 log_level: "info"
 active_build: ""            # Active llama.cpp build ID
 models_max: 1               # Max simultaneously loaded models (0 = unlimited)
-router_memory: false        # Let the router keep several models loaded and unload the least
-                            # recently used ones by GPU memory (llama.cpp b11930+); only while
-                            # generation backends are off
+router_memory: false        # Keep several models loaded and unload the least recently used
+                            # idle ones by GPU memory: the router decides (llama.cpp b11930+),
+                            # or toolchest with generation backends or forks on
 auto_start: false           # Start the inference router on container startup
 ```
 
@@ -291,7 +291,7 @@ Right now there is one fork, [Avalon](https://github.com/freriadoc/Avalon). It r
 
 To use it:
 
-1. Turn on **llama.cpp forks (experimental)** in Settings. This also turns off "let the router keep several models loaded", for the same reason generation backends do.
+1. Turn on **llama.cpp forks (experimental)** in Settings. With "Keep several models loaded" on, toolchest then decides what to unload instead of the router, as it does with generation backends.
 2. On **Builds**, pick the Avalon project and build the pinned commit for your GPU (ROCm or CUDA). "Latest commit" is there too, marked untested.
 3. On **Models**, under *Fork model sets*, download the model. Downloads resume after a restart.
 4. On **Server**, under *llama.cpp forks*, add an instance: pick the GPU, and optionally extra arguments or environment variables. The dialog warns if the machine looks too small; you can still start it.

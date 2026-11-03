@@ -109,8 +109,13 @@
         <dd>The model is in VRAM and ready. The router loads it on the first request, or when you press <span class="inline-icon"><svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor" aria-hidden="true"><path d="M4 3l9 5-9 5z"/></svg></span> in the Server tab's Available Models card.</dd>
         <dt>Max Loaded</dt>
         <dd>How many models can be loaded at once. When it is reached, the least recently used one is unloaded. <code>0</code> means no limit.</dd>
-        <dt>Let the router keep several models loaded</dt>
-        <dd>The llama-server router decides by VRAM, not by count. It keeps several models loaded, for example small embedding or speech models beside a large chat model. When a new model does not fit, the router unloads the least recently used idle models. It keeps a margin free on each GPU; the Server tab shows it. It never unloads a model that answers a request. A small model can unload a big one: if the big model leaves too little room on a GPU that the small model uses, a request for the small model unloads the big one. To keep both loaded, give the big model a smaller context. Needs llama.cpp b11930 or newer. Available only while generation backends are off, because the router cannot see their VRAM reservations. Benchmarks and Autotune still load one model at a time.</dd>
+        <dt>Keep several models loaded</dt>
+        <dd>Models stay loaded while they fit in VRAM, not by count. For example, small embedding or reranking models stay beside a large chat model. When a new model does not fit, the idle models used least recently are unloaded. A model that answers a request is never unloaded. Max Loaded still sets an upper limit. Who decides:
+            <ul>
+                <li>Generation backends and forks off: the llama-server router. It keeps one margin free on each GPU; the Server tab shows it. Needs llama.cpp b11930 or newer.</li>
+                <li>Generation backends or forks on: toolchest, because the router cannot see their VRAM reservations. It keeps the fit margin free on each GPU, and works with any build. It unloads idle models first. With eviction on, it stops backends only when that is not enough.</li>
+            </ul>
+            A change applies at the next server start. A small model can unload a big one: if the big model leaves too little room on a GPU that the small model uses, a request for the small model unloads the big one. To keep both loaded, give the big model a smaller context. Benchmarks and Autotune still load one model at a time.</dd>
         <dt>Public name and aliases</dt>
         <dd>The <code>id</code> in <code>/v1/models</code> is a short name from the repo and quant (e.g. <code>unsloth-Qwen3.5-4B.Q4_K_M</code>). The long registry ID and any aliases you add in <em>Configure → Aliases</em> work too.</dd>
     </dl>
@@ -408,7 +413,7 @@ curl $BASE/v1/videos/generations -F prompt="the waves start to roll" -F start_im
     <h2 id="forks">llama.cpp forks (experimental)</h2>
     <p>Some forks of llama.cpp are much faster for one model. llama-toolchest can build a short list of tested forks. Each one runs as a <em>fork instance</em>: its own llama-server, for the model the fork is made for, on one whole GPU. It runs next to the router and the generation backends. Now the list has one fork, <strong>Avalon</strong>. It runs Qwen3.8-Flash-Next on one RDNA3 GPU, with most experts in system RAM.</p>
     <ol>
-        <li><strong>Turn on</strong> <em>llama.cpp forks (experimental)</em> in <a href="/settings">Settings</a>. This also turns off router memory.</li>
+        <li><strong>Turn on</strong> <em>llama.cpp forks (experimental)</em> in <a href="/settings">Settings</a>. With <em>Keep several models loaded</em> on, toolchest then decides what to unload.</li>
         <li><strong>Build</strong> the fork on <a href="/builds">Builds</a>. <em>Pinned (tested)</em> is the commit we tested. <em>Latest commit</em> is not tested.</li>
         <li><strong>Download its model</strong> on <a href="/models">Models</a>, under <em>Fork model sets</em>. Avalon's model is about 90 GiB.</li>
         <li><strong>Add an instance</strong> on <a href="/server">Server</a>, under <em>llama.cpp forks</em>. Choose the GPU. The dialog warns when the machine has too little RAM, no AVX2, or another GPU type. You can still start it.</li>
