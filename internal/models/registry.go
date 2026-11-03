@@ -160,6 +160,9 @@ type Model struct {
 	// version 8; Kind then falls back to the name.
 	Embedding   bool `json:"embedding,omitempty"`
 	PoolingType int  `json:"pooling_type,omitempty"`
+	// NonCausal is GGUFMeta.NonCausal: no KV cache, and attention over
+	// the whole input. False on records read before parser version 11.
+	NonCausal bool `json:"non_causal,omitempty"`
 	// HasClassifierHead records a classification head (cls.weight or
 	// cls.output.weight) in the file's tensor table, and ClassifierChecked
 	// that the whole table was read, so a record parsed before version 10,
@@ -992,7 +995,10 @@ func (r *Registry) ListNeedingPresetFetch() []string {
 //	    text-to-speech model that cannot chat is told apart.
 //	10 — whether the file has a classification head (HasClassifierHead),
 //	    so a reranker that would return meaningless scores is flagged.
-const GGUFMetaVersion = 10
+//	11 — whether attention is non-causal (NonCausal), so the VRAM
+//	    estimate of an embedding model leaves out the KV cache llama.cpp
+//	    does not allocate for it.
+const GGUFMetaVersion = 11
 
 // BackfillGGUFMeta re-reads GGUF metadata for records written by an older
 // parser, in one pass at startup.

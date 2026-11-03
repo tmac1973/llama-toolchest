@@ -352,3 +352,42 @@ func TestRegistryPlaceOnGPU(t *testing.T) {
 		t.Errorf("chosen assignment is now %q", cfg.GPUAssign)
 	}
 }
+
+// attention.causal = false marks a model non-causal; without the key, an
+// encoder architecture is non-causal and any other architecture causal.
+func TestParseGGUFNonCausal(t *testing.T) {
+	for _, c := range []struct {
+		arch   string
+		causal *uint8
+		want   bool
+	}{
+		{"gemma-embedding2", ptrU8(0), true},
+		{"qwen3", ptrU8(1), false},
+		{"qwen3", nil, false},
+		{"bert", nil, true},
+		{"bert", ptrU8(1), false},
+	} {
+		kvs := []testKV{{"general.architecture", ggufTypeString, c.arch}}
+		if c.causal != nil {
+			kvs = append(kvs, testKV{c.arch + ".attention.causal", ggufTypeBool, *c.causal})
+		}
+		kvs = append(kvs, testKV{c.arch + ".block_count", ggufTypeUint32, uint32(12)})
+		meta, err := ParseGGUFMeta(writeTestGGUF(t, kvs))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if meta.NonCausal != c.want {
+			t.Errorf("%s causal=%v: NonCausal = %v, want %v", c.arch, c.causal, meta.NonCausal, c.want)
+		}
+		if meta.NLayers != 12 {
+			t.Errorf("%s: parser misaligned after attention.causal", c.arch)
+		}
+		m := &Model{}
+		meta.ApplyTo(m)
+		if m.NonCausal != c.want {
+			t.Errorf("%s: ApplyTo lost NonCausal", c.arch)
+		}
+	}
+}
+
+func ptrU8(v uint8) *uint8 { return &v }

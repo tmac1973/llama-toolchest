@@ -41,6 +41,10 @@ type GGUFMeta struct {
 	// Converted embedding and reranking models carry it; chat models do
 	// not.
 	PoolingType int `json:"pooling_type,omitempty"`
+	// NonCausal is set when every token attends to every other: the file
+	// says {arch}.attention.causal = false, or, without the key, it is an
+	// encoder architecture. llama.cpp then keeps no KV cache for it.
+	NonCausal bool `json:"non_causal,omitempty"`
 
 	// Reasoning / thinking mode detected from the chat template (see
 	// detectReasoning). Reasoning is the assembled capability; ReasoningChecked
@@ -204,6 +208,7 @@ func (meta *GGUFMeta) ApplyTo(m *Model) {
 	m.HasBuiltinVision = meta.HasVision
 	m.HasChatTemplate = meta.HasChatTemplate
 	m.PoolingType = meta.PoolingType
+	m.NonCausal = meta.NonCausal
 	m.Embedding = meta.IsEmbedding()
 	m.Reasoning = meta.Reasoning
 	m.ReasoningChecked = meta.ReasoningChecked
@@ -388,6 +393,7 @@ func parseGGUFMeta(f io.ReadSeeker, metaOnly bool) (*GGUFMeta, error) {
 		valLenSWA     int   // attention.value_length_swa
 		slidingWindow int   // attention.sliding_window size
 		swaPattern    []bool
+		causal        *int // attention.causal, nil when the file does not say
 		// Hybrid models interleave recurrent (linear-attention) layers,
 		// which hold no KV cache at all. Either key identifies them; the
 		// explicit array wins when both are present, matching llama.cpp.
@@ -605,6 +611,11 @@ keys:
 				meta.PoolingType = v
 				continue
 			}
+		case arch != "" && key == arch+".attention.causal":
+			if v, ok := readGGUFScalarInt(f, valueType); ok {
+				causal = &v
+				continue
+			}
 
 		case arch != "" && key == arch+".attention.key_length":
 			if v, ok := readGGUFScalarInt(f, valueType); ok {
@@ -700,6 +711,13 @@ keys:
 	}
 
 	keysComplete := i == kvCount
+
+	// Encoder architectures are bidirectional; llama.cpp defaults them so
+	// when the key is missing.
+	meta.NonCausal = IsEncoderArch(meta.Architecture)
+	if causal != nil {
+		meta.NonCausal = *causal == 0
+	}
 
 	computeKVScaling(meta, headCountKV, kvHeadCounts, keyLen, valLen, keyLenSWA, valLenSWA, slidingWindow, swaPattern,
 		fullAttnInterval, recurrentLayers)
