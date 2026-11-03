@@ -165,6 +165,11 @@ func fitMarginGiB(totalGiB float64) float64 {
 	return math.Max(1, totalGiB*0.08)
 }
 
+// FitMarginMiB is fitMarginGiB for a card of totalMiB, in MiB.
+func FitMarginMiB(totalMiB int) int {
+	return int(math.Ceil(fitMarginGiB(float64(totalMiB)/1024) * 1024))
+}
+
 // RouterMemoryMarginMiB is the margin the router keeps free on each GPU
 // when it manages memory (--models-memory-margin): toolchest's own fit
 // margin for the largest GPU, since the router takes one number for all

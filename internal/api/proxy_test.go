@@ -274,8 +274,10 @@ type fakeRouter struct {
 	aliases map[string][]string
 	loads   []string
 	unloads []string
-	lists   int
-	onList  func(f *fakeRouter, n int)
+	// unloadFails makes POST /models/unload answer an error.
+	unloadFails bool
+	lists       int
+	onList      func(f *fakeRouter, n int)
 	// slots is what GET /slots answers; slotCalls records each slot
 	// action as "save 0 file.bin model".
 	slots     []routerclient.Slot
@@ -404,6 +406,11 @@ func (f *fakeRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.status[req.Model] = "loading"
 		io.WriteString(w, `{"success":true}`)
 	case r.URL.Path == "/models/unload" && r.Method == http.MethodPost:
+		if f.unloadFails {
+			w.WriteHeader(http.StatusInternalServerError)
+			io.WriteString(w, `{"error":"unload failed"}`)
+			return
+		}
 		var req struct {
 			Model string `json:"model"`
 		}

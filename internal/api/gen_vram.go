@@ -248,7 +248,9 @@ func (s *Server) llmReservationNeed(m *models.Model) (hw models.Hardware, need m
 	if !s.genReservationsApply() {
 		return models.Hardware{}, nil, false
 	}
-	replacing = s.cfgCopy().ModelsMax == 1
+	// In toolchest memory mode the router runs with --models-max 0 and
+	// replaces nothing on its own; loadLLMWithRoom unloads what has to go.
+	replacing = s.cfgCopy().ModelsMax == 1 && !s.toolchestMemory()
 	idle := s.idleHardware()
 	hw = idle
 	if !replacing {

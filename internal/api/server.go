@@ -171,6 +171,17 @@ type Server struct {
 	// testHardware replaces the system monitor's machine in hardware(),
 	// for tests that plan against a known one. Nil in production.
 	testHardware *models.Hardware
+	// testGPUReadings replaces the system monitor's GPU readings in
+	// gpuReadings, for tests of the real free-memory check. Nil in
+	// production.
+	testGPUReadings func() []monitor.GPUInfo
+
+	// memoryMode is how the running router shares GPU memory between
+	// LLMs, fixed at its start (llm_room.go). llmLoadMu keeps loads in
+	// toolchest memory mode apart: one at a time, from the first room
+	// check until the router lists the model as loading.
+	memoryMode atomic.Int32
+	llmLoadMu  sync.Mutex
 
 	// detailCache holds a repository's file list for long enough to serve
 	// one page: the listing and the deferred request that fills in its

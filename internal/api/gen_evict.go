@@ -24,6 +24,10 @@ import (
 // stops only as many backends as it needs, largest first, and never one
 // marked keep-running (Instance.KeepRunning), whose reservation always
 // counts.
+//
+// In toolchest memory mode (llm_room.go) a load runs loadLLMWithRoom
+// first: it unloads idle LLMs, least recently used first, and comes here
+// to stop backends only when that is not enough.
 
 // genStartTimeout caps how long a job waits for its backend to start.
 // Loading an image model set from disk can take a minute or two.
@@ -514,23 +518,38 @@ func (s *Server) unloadForGen(ctx context.Context, id string, inst generation.In
 		return err
 	}
 	defer done()
-	routerName := s.registry.RouterName(id)
+	unloaded, err := s.unloadLLMEvicting(ctx, m, "room for "+inst.Name, []int{inst.GPU})
+	if unloaded {
+		slog.Info("unloaded LLM to make room for a generation backend", "model", m.PublicName(), "instance", inst.ID)
+	}
+	return err
+}
+
+// unloadLLMEvicting unloads m, which the caller holds in llmUse (evict or
+// tryEvict), so no request uses it: it saves the prompt cache, notes
+// reason for Engine notes, asks the router, waits until the router no
+// longer lists it as loaded, and then until each of gpus shows the memory
+// free. unloaded is false when the model was not loaded to begin with.
+func (s *Server) unloadLLMEvicting(ctx context.Context, m *models.Model, reason string, gpus []int) (unloaded bool, err error) {
+	routerName := s.registry.RouterName(m.ID)
 	// Another job's unload may have taken it out while this one waited
 	// its turn. Then there is nothing to save or unload, and asking the
 	// router for the model's slots would load it again.
 	if state, _ := s.lookupRouterState(routerName, m); state != "loaded" && state != "loading" {
-		return nil
+		return false, nil
 	}
 	// Its requests are done and new ones wait, so the slots are idle.
 	s.savePromptCache(ctx, m, routerName)
-	before := s.gpuUsedMiB(inst.GPU)
-	planned := s.loadedLLMMiB(models.RoomOf(s.idleHardware()), "", false)[inst.GPU]
-	unloadedAt := time.Now()
-	s.noteUnloadReason(routerName, "room for "+inst.Name)
-	if err := s.process.UnloadModel(routerName); err != nil {
-		return err
+	room := models.RoomOf(s.idleHardware())
+	before, planned := map[int]int{}, s.loadedLLMMiB(room, "", false)
+	for _, g := range gpus {
+		before[g] = s.gpuUsedMiB(g)
 	}
-	slog.Info("unloaded LLM to make room for a generation backend", "model", m.PublicName(), "instance", inst.ID)
+	unloadedAt := time.Now()
+	s.noteUnloadReason(routerName, reason)
+	if err := s.process.UnloadModel(routerName); err != nil {
+		return false, err
+	}
 	deadline := time.Now().Add(llmUnloadTimeout)
 	for {
 		state, _ := s.lookupRouterState(routerName, m)
@@ -538,17 +557,20 @@ func (s *Server) unloadForGen(ctx context.Context, id string, inst generation.In
 			break
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("model %s was still loaded %s after the unload", m.PublicName(), llmUnloadTimeout)
+			return true, fmt.Errorf("model %s was still loaded %s after the unload", m.PublicName(), llmUnloadTimeout)
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return true, ctx.Err()
 		case <-time.After(autoLoadPollInterval):
 		}
 	}
-	after := s.loadedLLMMiB(models.RoomOf(s.idleHardware()), "", false)[inst.GPU]
-	s.waitGPUFreed(inst.GPU, unloadedAt, before, max(0, before-(planned-after)), planned-after)
-	return nil
+	after := s.loadedLLMMiB(room, "", false)
+	for _, g := range gpus {
+		freed := planned[g] - after[g]
+		s.waitGPUFreed(g, unloadedAt, before[g], max(0, before[g]-freed), freed)
+	}
+	return true, nil
 }
 
 // gpuFreedTimeout caps the wait for the card to show memory free after a
