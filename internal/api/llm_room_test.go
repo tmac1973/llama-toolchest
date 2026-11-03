@@ -416,6 +416,66 @@ func TestLoadWithRoomEvictOffRefuses(t *testing.T) {
 	if len(f.loadCalls()) != 0 {
 		t.Error("the model was loaded")
 	}
+	// The reservation alone leaves no room, so a stays loaded.
+	if u := f.unloadCalls(); len(u) != 0 {
+		t.Errorf("unloaded %v for a load that could never fit", u)
+	}
+	if strings.Contains(err.Error(), "unload a model first") {
+		t.Errorf("err = %v, suggests an unload with nothing left to unload", err)
+	}
+}
+
+// A load that cannot fit beside a busy model, even with every idle model
+// gone, unloads nothing: the idle one stays (the asmodean field test,
+// step 5, unloaded the reranker for nothing).
+func TestLoadWithRoomBusyBlocksUnloadsNothing(t *testing.T) {
+	s, f := roomServer(t)
+	addRoomModel(t, s, "a", 12)
+	addRoomModel(t, s, "b", 8)
+	big := addRoomModel(t, s, "big", 18)
+	loaded(t, s, f, "b", "a")
+	end, err := s.llmUse.begin(context.Background(), "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer end()
+	a, _ := s.registry.Get("a")
+	err = loadWithRoom(t, s, big)
+	if err == nil || !strings.Contains(err.Error(), "even with every idle model unloaded") ||
+		!strings.Contains(err.Error(), "answering a request or loading: "+a.PublicName()) {
+		t.Fatalf("err = %v, want the never-fits refusal naming a", err)
+	}
+	if u := f.unloadCalls(); len(u) != 0 {
+		t.Errorf("unloaded %v for a load that could never fit", u)
+	}
+}
+
+// A backend kept running counts with eviction on too: it is never
+// stopped, so a load that needs its room is refused with nothing
+// unloaded.
+func TestLoadWithRoomKeptRunningBackend(t *testing.T) {
+	s, f := roomServer(t)
+	withGen(t, s)
+	s.cfg.GenEvict = true
+	runningBackend(t, s, 10000)
+	inst, _ := s.gen.Instance("ming")
+	inst.KeepRunning = true
+	if err := s.gen.UpdateInstance(inst); err != nil {
+		t.Fatal(err)
+	}
+	addRoomModel(t, s, "a", 8)
+	big := addRoomModel(t, s, "big", 18)
+	loaded(t, s, f, "a")
+	err := loadWithRoom(t, s, big)
+	if err == nil || !strings.Contains(err.Error(), "kept running") {
+		t.Fatalf("err = %v, want the refusal naming the kept-running backend", err)
+	}
+	if u := f.unloadCalls(); len(u) != 0 {
+		t.Errorf("unloaded %v for a load that could never fit", u)
+	}
+	if !s.genMgr.IsActive("ming") {
+		t.Error("a kept-running backend was stopped")
+	}
 }
 
 // With eviction on and the backend stopped, no reservation counts, but a
