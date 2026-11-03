@@ -71,7 +71,7 @@ func TestResolveForkBuild(t *testing.T) {
 func TestJobsRefuseForkBuilds(t *testing.T) {
 	s := forkBuildsServer(t)
 	e := newJobEnv(s)
-	if err := e.EnsureBuildActive(t.Context(), "avalon-pinned-rocm", false); err == nil || !strings.Contains(err.Error(), "fork") {
+	if err := e.EnsureBuildActive(t.Context(), "avalon-pinned-rocm", nil, false); err == nil || !strings.Contains(err.Error(), "fork") {
 		t.Errorf("EnsureBuildActive(fork build) = %v", err)
 	}
 	if err := e.CheckBuildRunnable(t.Context(), "avalon-pinned-rocm"); err == nil || !strings.Contains(err.Error(), "fork") {
