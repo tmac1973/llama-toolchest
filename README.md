@@ -22,7 +22,7 @@ A web-based management interface for [llama.cpp](https://github.com/ggerganov/ll
 - **VRAM estimation** — Architecture-aware estimates from GGUF metadata, accounting for KV cache size and quantization.
 - **Measured memory** — What llama.cpp really allocated on the last load — weights, KV cache and working buffers, per GPU — read from its own buffer report and shown beside the estimate in the Available Models tooltip. Needs *Model loading detail* 4 in Settings.
 - **Benchmarks** — Batch jobs sweeping models × builds × presets × any model parameter, with results compared across runs and exported to CSV/JSON. Each cell also records the memory its load actually used, so a sweep shows what a setting costs in VRAM as well as what it buys in speed — as a column, a visualization metric, and export columns.
-- **OpenAI-compatible API** — Chat completions (streaming, tool calling, JSON schema), completions, embeddings, model listing. Optional Bearer auth.
+- **OpenAI-compatible API** — Chat completions (streaming, tool calling, JSON schema), completions, embeddings, reranking, model listing. Optional Bearer auth.
 - **Coding agent configs** — Ready-made config files for opencode, Kilo Code, pi, Goose and Crush, listing the models the server is serving with each one's context and capabilities (Server tab → API Endpoint → *Agent Configs*). See [Coding agents](#coding-agents).
 - **Built-in chat UI** — llama.cpp's native chat interface with a model-selector dropdown.
 - **Agent CLI** — Lightweight terminal chat client (`cmd/agent`) with optional filesystem tool use.
@@ -323,7 +323,7 @@ internal/
   monitor/           GPU/CPU/memory metrics (ROCm + NVIDIA)
   process/           llama-server router lifecycle
 web/                 Templates + static assets (htmx, Pico CSS)
-scripts/             API smoke tests (test-api, test-embeddings, test-tools, etc.)
+scripts/             API smoke tests (test-api, test-embeddings, test-rerank, test-tools, etc.)
 ```
 
 Container files: `Dockerfile.{cuda,rocm,cpu}`, `docker-compose.{cuda,rocm,cpu}.yml`, plus `setup.sh`.
@@ -360,6 +360,7 @@ All scripts include an interactive model picker; pass a model name to skip selec
 ```bash
 ./scripts/test-api.sh           # API smoke test
 ./scripts/test-embeddings.sh    # embedding dimensions + cosine similarity
+./scripts/test-rerank.sh        # reranker ranks the relevant document first
 ./scripts/test-info.sh          # /api/models/{id}/info + /api/ps
 ./scripts/test-structured.sh    # JSON schema + json_object output
 ./scripts/test-tools.sh         # tool / function calling
@@ -379,6 +380,7 @@ A model can also have a saved **system prompt**, for fine-tunes whose model card
 - `POST /v1/chat/completions` — streaming, tool calling, JSON schema / `json_object`
 - `POST /v1/completions` — text completion
 - `POST /v1/embeddings` — vector embeddings (auto-configured for `--embeddings` builds)
+- `POST /v1/rerank` — score documents against a query with a reranking model (started with `--reranking`); also at the root, `POST /rerank`
 - `GET /v1/realtime` — realtime voice sessions over WebSocket (OpenAI realtime protocol; llama.cpp v0.8.0 or newer). The model is loaded first, and generation jobs wait for an open session instead of unloading its model. Browser clients may send the API key as the `openai-insecure-api-key.<key>` subprotocol.
 - `POST /tts` — text to speech with a TTS model (llama.cpp v0.8.0 or newer); JSON, or multipart with a `speaker_ref` file. At the root, as llama-server has it.
 
@@ -388,7 +390,7 @@ curl http://localhost:3000/v1/chat/completions \
   -d '{"model": "qwen35", "messages": [{"role": "user", "content": "Hello!"}]}'
 ```
 
-When `api_key` is set, all `/v1/*` and `/tts` requests require `Authorization: Bearer <key>`. The management UI is unaffected.
+When `api_key` is set, all `/v1/*`, `/tts` and `/rerank` requests require `Authorization: Bearer <key>`. The management UI is unaffected.
 
 ### Coding agents
 

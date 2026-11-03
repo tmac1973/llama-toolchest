@@ -20,8 +20,9 @@ needs no change.
   `query`, `documents`, optional `top_n`) and response (`results[]` with
   `index` and `relevance_score`, `usage`). Also a root `/rerank` path that
   refers to the same request and response schemas, as `/tts` has its own
-  root entry. `TestOpenAPISpecMatchesRouter` walks every public route, so
-  the root route fails that test without this entry. The Scalar page at
+  root entry. `TestOpenAPISpecMatchesRouter` checks only the root paths
+  `publicRoute` (`internal/api/apidocs_test.go`) names, so `/rerank` is
+  added to that list, and the test then requires the entry. The Scalar page at
   `/docs/api` renders the spec as is, so `internal/api/apidocs.go` doesn't
   change.
 - `web/templates/help.html` — a "Reranking models" entry: what a reranker
@@ -29,6 +30,8 @@ needs no change.
   missing-head warning.
 - `scripts/test-rerank.sh` — a new script modelled on
   `scripts/test-embeddings.sh`.
+- `scripts/lib-test.sh` — `pick_model rerank` lists models with the
+  `rerank` capability, and `pick_model chat` no longer offers them.
 - `README.md` — add reranking to the list of served endpoints/model kinds.
 
 ## Steps

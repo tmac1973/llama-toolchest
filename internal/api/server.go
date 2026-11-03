@@ -1010,6 +1010,10 @@ func (s *Server) buildRouter() chi.Router {
 	// has it. Proxied like /v1, with the same API key.
 	llamaProxy := s.newProxyHandler()
 	r.With(s.apiKeyAuth).Post("/tts", llamaProxy.ServeHTTP)
+	// llama-server's rerank route, at the root as llama-server has it (the
+	// Jina and TEI clients call it there). Proxied like /v1, with the
+	// same API key.
+	r.With(s.apiKeyAuth).Post("/rerank", llamaProxy.ServeHTTP)
 
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(s.apiKeyAuth)
