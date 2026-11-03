@@ -51,6 +51,9 @@ type Server struct {
 	llm *llmcall.Client
 	// autoconf tracks the one autoconfigure run allowed at a time.
 	autoconf autoconfigState
+	// releaseCheck finds whether a newer toolchest release is out, for
+	// the sidebar's update badge.
+	releaseCheck releaseChecker
 	// tuner runs autotune; tuneStore keeps its records.
 	tuner     *autotune.Runner
 	tuneStore *autotune.Store
@@ -842,6 +845,7 @@ func (s *Server) buildRouter() chi.Router {
 
 	// API routes
 	r.Route("/api", func(r chi.Router) {
+		r.Get("/release-check", s.handleReleaseCheck)
 		r.Route("/builds", func(r chi.Router) {
 			r.Get("/", s.handleListBuilds)
 			r.Post("/", s.handleTriggerBuild)

@@ -116,6 +116,19 @@
             color: var(--pico-primary-hover);
         }
         #monitor-bar { flex-shrink: 0; }
+        /* "New version available": filled in by /api/release-check, empty
+           when this build is the newest release. */
+        nav.sidebar a.update-badge {
+            display: inline-block;
+            margin-top: 6px;
+            padding: 2px 9px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+            background: var(--accent-soft, var(--pico-primary-background));
+            color: var(--pico-primary-hover);
+        }
+        nav.sidebar a.update-badge:hover { text-decoration: underline; }
         /* The sidebar's map of what is on each GPU now: LLMs solid, an LLM
            still loading faded and pulsing (its planned size shows before
            the card holds it), running generation backends striped (as on
@@ -801,6 +814,10 @@
                 <hgroup>
                     <h3>Llama Toolchest</h3>
                     <p>Inference Manager <small style="opacity:0.6;">{{ version }}</small></p>
+                    <div id="update-badge"
+                         hx-get="/api/release-check"
+                         hx-trigger="load, every 3600s"
+                         hx-swap="innerHTML"></div>
                 </hgroup>
             </div>
             <ul>
