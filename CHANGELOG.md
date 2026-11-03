@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.50.0](https://github.com/tmac1973/llama-toolchest/compare/v2.49.0...v2.50.0) (2026-11-03)
+
+
+### Features
+
+* **autoconfig:** option to plan on the whole GPUs with an even split ([#534](https://github.com/tmac1973/llama-toolchest/issues/534)) ([8c541e8](https://github.com/tmac1973/llama-toolchest/commit/8c541e88e2408175e822981a1d8d9548983106ad))
+* **models:** per-model default system prompt added by the proxy ([#529](https://github.com/tmac1973/llama-toolchest/issues/529)) ([263612e](https://github.com/tmac1973/llama-toolchest/commit/263612e3006a9e43131794c2cc821f6dc930a740))
+* **models:** reranking model support ([#535](https://github.com/tmac1973/llama-toolchest/issues/535)) ([be704d0](https://github.com/tmac1973/llama-toolchest/commit/be704d0642471674e9da1b380a4633b9cdf7a771))
+* **ui:** sidebar badge when a newer toolchest release is out ([#536](https://github.com/tmac1973/llama-toolchest/issues/536)) ([7c24f54](https://github.com/tmac1973/llama-toolchest/commit/7c24f548b5d2491b2f2e74aa6bd8b144d7c11d1f))
+
+
+### Bug Fixes
+
+* **autoconfig:** plan the fit with the card's draft model; stop warmup retries on out-of-memory ([#531](https://github.com/tmac1973/llama-toolchest/issues/531)) ([b727c77](https://github.com/tmac1973/llama-toolchest/commit/b727c770445dea18ebb0ce48d3bf8cbae3add31e))
+* **benchmark:** restart the router for models turned on since it started ([#533](https://github.com/tmac1973/llama-toolchest/issues/533)) ([c309ad8](https://github.com/tmac1973/llama-toolchest/commit/c309ad830a917df5f9b5046b2bf1af6ecf26e0d7))
+* **ui:** show the Reranking Models section before any reranker is downloaded ([#537](https://github.com/tmac1973/llama-toolchest/issues/537)) ([e9a249e](https://github.com/tmac1973/llama-toolchest/commit/e9a249ed87cc99e17f7f8e9b3c8cd1f25f56bf43))
+
 ## [2.49.0](https://github.com/tmac1973/llama-toolchest/compare/v2.48.0...v2.49.0) (2026-11-01)
 
 
