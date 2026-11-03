@@ -29,7 +29,7 @@ func TestReasoningPreserveIsWrittenForBuildsThatHaveIt(t *testing.T) {
 			cfg := &ModelConfig{Enabled: true, ReasoningPreserve: tt.mode}
 			target := Target{Backend: "rocm", Version: tt.version}
 			ini := GeneratePresetINI("/models", []*Model{m}, map[string]*ModelConfig{"m": cfg}, target)
-			flags := cfg.EffectiveFlagsFor(false, target)
+			flags := cfg.EffectiveFlagsFor(KindChat, target)
 			if tt.ini == "" {
 				if strings.Contains(ini, "reasoning-preserve") || strings.Contains(flags, "reasoning-preserve") {
 					t.Errorf("want no reasoning-preserve:\n%s\n%s", ini, flags)

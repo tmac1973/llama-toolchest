@@ -14,7 +14,7 @@ import (
 // across restarts, and is what the GPU map and the room checks read.
 func (s *Server) placeEmbeddingModel(id string, hw models.Hardware) {
 	m, err := s.registry.Get(id)
-	if err != nil || !m.IsEmbedding() || m.HelperRole {
+	if err != nil || m.Kind() == models.KindChat || m.HelperRole {
 		return
 	}
 	cfg, err := s.registry.GetConfig(id)

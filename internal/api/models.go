@@ -13,8 +13,8 @@ import (
 )
 
 func (s *Server) handleListEmbeddingModels(w http.ResponseWriter, r *http.Request) {
-	embeddingModels := filterModels(s.registry.ListServing(), true)
-	pending := filterPending(s.registry.PendingConfigs(), true)
+	embeddingModels := filterModels(s.registry.ListServing(), models.KindEmbedding)
+	pending := filterPending(s.registry.PendingConfigs(), models.KindEmbedding)
 
 	if isHTMX(r) {
 		respondHTML(w)
@@ -66,8 +66,8 @@ func (s *Server) handleRemoveHelperFromList(w http.ResponseWriter, r *http.Reque
 
 func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 	// Filter out embedding models — they have their own section
-	modelList := filterModels(s.registry.ListServing(), false)
-	pending := filterPending(s.registry.PendingConfigs(), false)
+	modelList := filterModels(s.registry.ListServing(), models.KindChat)
+	pending := filterPending(s.registry.PendingConfigs(), models.KindChat)
 
 	if isHTMX(r) {
 		respondHTML(w)
@@ -89,22 +89,21 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 // filterPending splits pending backup configs by model kind using the
 // same name predicate the real lists use, so a pending embedding model
 // ghosts next to its installed siblings.
-func filterPending(all []models.PendingConfig, embedding bool) []models.PendingConfig {
+func filterPending(all []models.PendingConfig, kind models.ModelKind) []models.PendingConfig {
 	var out []models.PendingConfig
 	for _, p := range all {
-		if models.IsEmbeddingModel(p.ModelID) == embedding {
+		if models.KindFromName(p.ModelID) == kind {
 			out = append(out, p)
 		}
 	}
 	return out
 }
 
-// filterModels splits the registry list by model kind: embedding=true keeps
-// only embedding models, embedding=false keeps only chat models.
-func filterModels(all []*models.Model, embedding bool) []*models.Model {
+// filterModels keeps the models of one kind from the registry list.
+func filterModels(all []*models.Model, kind models.ModelKind) []*models.Model {
 	var out []*models.Model
 	for _, m := range all {
-		if m.IsEmbedding() == embedding {
+		if m.Kind() == kind {
 			out = append(out, m)
 		}
 	}
@@ -477,7 +476,7 @@ func (s *Server) renderModelCard(w http.ResponseWriter, m *models.Model, routerK
 		IsIncomplete:   isIncomplete,
 		ResumeFilename: m.Filename,
 		SearchText:     searchText,
-		CanAutoconfig:  !m.IsEmbedding() && !isOrphan && !isIncomplete,
+		CanAutoconfig:  m.Kind() == models.KindChat && !isOrphan && !isIncomplete,
 	}
 	_, data.CanUpdate = s.updateTargets(m)
 	// nil in the render tests, which build a server without the store.

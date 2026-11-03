@@ -31,8 +31,8 @@ func TestParseGGUFPoolingType(t *testing.T) {
 	if !m.Embedding || m.PoolingType != PoolingLast {
 		t.Errorf("after ApplyTo: Embedding %v, PoolingType %d; want true, %d", m.Embedding, m.PoolingType, PoolingLast)
 	}
-	if !m.IsEmbedding() {
-		t.Error("a model whose file says it is an embedding model is not one by IsEmbedding")
+	if m.Kind() != KindEmbedding {
+		t.Error("a model whose file says it is an embedding model is not one by Kind")
 	}
 }
 

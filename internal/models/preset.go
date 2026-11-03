@@ -82,15 +82,15 @@ func GeneratePresetINI(modelsDir string, models []*Model, configs map[string]*Mo
 		}
 		b.WriteString(fmt.Sprintf("alias = %s\n", strings.Join(aliasList, ",")))
 
-		isEmbed := m.IsEmbedding()
+		kind := m.Kind()
 		// Expert offload over several GPUs: a split balanced by size, not
 		// llama.cpp's split by layer count (see MoESplitConfig).
 		launch := MoESplitConfig(cfg, m, t.Room().For(m, cfg))
-		if isEmbed {
+		if kind != KindChat {
 			launch = EmbeddingLaunchConfig(launch, m)
 		}
-		writeConfigParams(&b, launch, isEmbed, t)
-		if path := ngramCacheParam(m.ID, launch, t); path != "" && !isEmbed {
+		writeConfigParams(&b, launch, kind, t)
+		if path := ngramCacheParam(m.ID, launch, t); path != "" && kind == KindChat {
 			b.WriteString(fmt.Sprintf("lookup-cache-dynamic = %s\n", path))
 		}
 		b.WriteString("\n")
@@ -115,7 +115,7 @@ func autoDiscoveryName(modelsDir, filePath string) string {
 	return parts[0]
 }
 
-func writeConfigParams(b *strings.Builder, cfg *ModelConfig, isEmbedding bool, t Target) {
+func writeConfigParams(b *strings.Builder, cfg *ModelConfig, kind ModelKind, t Target) {
 	if cfg.ContextSize > 0 {
 		b.WriteString(fmt.Sprintf("ctx-size = %d\n", cfg.ContextSize))
 	}
@@ -155,10 +155,10 @@ func writeConfigParams(b *strings.Builder, cfg *ModelConfig, isEmbedding bool, t
 	for _, p := range gpuPlacementParams(cfg, t.Backend) {
 		b.WriteString(fmt.Sprintf("%s = %s\n", p.Name, p.Value))
 	}
-	if isEmbedding {
+	if kind == KindEmbedding {
 		b.WriteString("embeddings = true\n")
 	}
-	if !isEmbedding {
+	if kind == KindChat {
 		// Emitted in both directions. Writing nothing for "off" left
 		// llama.cpp on its own default, which is auto — flash attention
 		// enabled wherever the backend supports it. The toggle therefore

@@ -157,7 +157,7 @@ type Model struct {
 	// Embedding records that the GGUF file describes an embedding model
 	// (see GGUFMeta.IsEmbedding), and PoolingType is the file's
 	// {arch}.pooling_type. Both are zero on records read before parser
-	// version 8; IsEmbedding then falls back to the name.
+	// version 8; Kind then falls back to the name.
 	Embedding   bool `json:"embedding,omitempty"`
 	PoolingType int  `json:"pooling_type,omitempty"`
 
@@ -443,15 +443,16 @@ func (c *ModelConfig) SamplingOverrides() map[string]any {
 
 // EffectiveFlags returns the full set of llama-server flags (excluding
 // binary, model path, host, and port) that will be used at launch.
-// EffectiveFlagsFor returns the flags that will be used at launch, filtering
-// out chat-specific flags for embedding models. t is the active build: its
+// EffectiveFlagsFor returns the flags that will be used at launch for a
+// model of kind, leaving chat-specific flags out for any other kind. t is
+// the active build: its
 // backend ("rocm", "cuda", ...) renders GPU restrictions as a --device
 // list ("" falls back to the padded tensor-split), and its version picks
 // the spelling of options llama.cpp has renamed or removed.
-func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool, t Target) string {
+func (c *ModelConfig) EffectiveFlagsFor(kind ModelKind, t Target) string {
 	var parts []string
 	parts = append(parts, "--n-gpu-layers", strconv.Itoa(c.GPULayers))
-	if isEmbedding {
+	if kind == KindEmbedding {
 		parts = append(parts, "--embeddings")
 	}
 	if c.ContextSize > 0 {
@@ -489,7 +490,7 @@ func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool, t Target) string {
 	if c.SplitMode == "tensor" {
 		parts = append(parts, "--fit", "off")
 	}
-	if !isEmbedding {
+	if kind == KindChat {
 		if c.FlashAttention {
 			parts = append(parts, "--flash-attn", "on")
 		}
@@ -527,7 +528,7 @@ func (c *ModelConfig) EffectiveFlagsFor(isEmbedding bool, t Target) string {
 
 // EffectiveFlags returns the flags for a chat model (backward compat).
 func (c *ModelConfig) EffectiveFlags() string {
-	return c.EffectiveFlagsFor(false, Target{})
+	return c.EffectiveFlagsFor(KindChat, Target{})
 }
 
 // RegistrySchemaVersion is the models.json layout this build writes.
@@ -1427,7 +1428,7 @@ var embeddingPattern = regexp.MustCompile(`(?i)(embedding|[-/]embed[-/]|[-/]embe
 // IsEmbeddingModel returns true if the model name/ID suggests it's an
 // embedding model. It is the only test for a download that has no file
 // yet; a downloaded model is also recognized from its file (see
-// Model.IsEmbedding).
+// Model.Kind).
 func IsEmbeddingModel(name string) bool {
 	return embeddingPattern.MatchString(name)
 }
@@ -1440,12 +1441,34 @@ func IsEmbeddingModel(name string) bool {
 // where the draft pickers find it.
 func (m *Model) IsDraftHead() bool { return m.DraftHead != "" }
 
-// IsEmbedding reports whether the model is an embedding model: its file
-// says so, or its name looks like one. The name is checked as well because
-// records read before parser version 8 have no Embedding flag, and because
-// legacy records may have only one of the HF repo ID and the registry ID.
-func (m *Model) IsEmbedding() bool {
-	return m.Embedding || IsEmbeddingModel(m.ModelID) || IsEmbeddingModel(m.ID)
+// ModelKind is what a model is served for: chat (and the other generative
+// uses, such as speech), or embeddings.
+type ModelKind int
+
+const (
+	KindChat ModelKind = iota
+	KindEmbedding
+)
+
+// Kind reports what the model is served for. An embedding model is one
+// whose file says so, or whose name looks like one. The name is checked
+// as well because records read before parser version 8 have no Embedding
+// flag, and because legacy records may have only one of the HF repo ID
+// and the registry ID.
+func (m *Model) Kind() ModelKind {
+	if m.Embedding || IsEmbeddingModel(m.ModelID) || IsEmbeddingModel(m.ID) {
+		return KindEmbedding
+	}
+	return KindChat
+}
+
+// KindFromName is Kind for a download that has no file yet: the name is
+// all there is to go by.
+func KindFromName(name string) ModelKind {
+	if IsEmbeddingModel(name) {
+		return KindEmbedding
+	}
+	return KindChat
 }
 
 // Capabilities returns the capability list for a model: "chat" or
@@ -1453,10 +1476,13 @@ func (m *Model) IsEmbedding() bool {
 // "vision", "audio" and "speech" when supported (see projector.go).
 func (m *Model) Capabilities(cfg *ModelConfig) []string {
 	var caps []string
-	if m.IsEmbedding() {
+	switch m.Kind() {
+	case KindEmbedding:
 		caps = append(caps, "embedding")
-	} else if m.CanChat(cfg) {
-		caps = append(caps, "chat")
+	case KindChat:
+		if m.CanChat(cfg) {
+			caps = append(caps, "chat")
+		}
 	}
 	if m.SupportsTools {
 		caps = append(caps, "tools")
@@ -1767,8 +1793,8 @@ func (r *Registry) FindDraftCandidates(id, mode string) []DraftCandidate {
 				continue
 			}
 		}
-		// Skip embedding models
-		if m.IsEmbedding() {
+		// Skip models that are not chat models
+		if m.Kind() != KindChat {
 			continue
 		}
 		// Skip MTP drafter heads. They match on architecture and are far

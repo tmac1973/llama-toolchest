@@ -1460,7 +1460,7 @@ func (s *Server) servedChatModels() []servedModel {
 	routerStates := s.routerKnownStates()
 	var out []servedModel
 	for _, m := range s.registry.List() {
-		if m.IsEmbedding() {
+		if m.Kind() != models.KindChat {
 			continue
 		}
 		routerName := s.registry.RouterName(m.ID)

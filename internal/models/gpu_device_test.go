@@ -102,7 +102,7 @@ func TestPresetFallsBackToPaddedSplitWithoutBackend(t *testing.T) {
 func TestFlagPreviewAgreesOnDeviceList(t *testing.T) {
 	cfg := &ModelConfig{Enabled: true, ContextSize: 8192, GPULayers: 999, Threads: 8,
 		GPUAssign: "tensor-2", TensorSplit: "1,1,0,0", SplitMode: "tensor"}
-	flags := cfg.EffectiveFlagsFor(false, Target{Backend: "rocm"})
+	flags := cfg.EffectiveFlagsFor(KindChat, Target{Backend: "rocm"})
 
 	for _, want := range []string{"--device ROCm0,ROCm1", "--tensor-split 1,1", "--split-mode tensor", "--fit off"} {
 		if !strings.Contains(flags, want) {
@@ -168,7 +168,7 @@ func TestGPUPlacementFlagsDeviceList(t *testing.T) {
 	}
 	// Cross-check against the llama-server arg builder: every pair the
 	// wrapper emits must appear in EffectiveFlagsFor verbatim.
-	flags := cfg.EffectiveFlagsFor(false, Target{Backend: "rocm"})
+	flags := cfg.EffectiveFlagsFor(KindChat, Target{Backend: "rocm"})
 	for i := 0; i+1 < len(got); i += 2 {
 		if !strings.Contains(flags, got[i]+" "+got[i+1]) {
 			t.Errorf("wrapper emits %q %q but EffectiveFlagsFor lacks it: %s", got[i], got[i+1], flags)

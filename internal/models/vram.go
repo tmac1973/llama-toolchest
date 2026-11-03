@@ -407,7 +407,7 @@ func vramBreakdownWith(co *vramCoefficients, m *Model, cfg *ModelConfig, cards i
 		cards = 1
 	}
 	// Estimate what llama-server is given, not what the form saved.
-	if m.IsEmbedding() {
+	if m.Kind() != KindChat {
 		cfg = EmbeddingLaunchConfig(cfg, m)
 	}
 	ctx := cfg.ContextSize

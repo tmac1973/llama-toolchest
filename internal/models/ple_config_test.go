@@ -34,7 +34,7 @@ func TestPLEModeEmitsTheBuildsLazyReadOption(t *testing.T) {
 			cfg := &ModelConfig{Enabled: true, PLEMode: tt.mode}
 			target := Target{Backend: "rocm", Version: tt.version}
 			ini := GeneratePresetINI("/models", []*Model{m}, map[string]*ModelConfig{"m": cfg}, target)
-			flags := cfg.EffectiveFlagsFor(false, target)
+			flags := cfg.EffectiveFlagsFor(KindChat, target)
 			if tt.want == "" {
 				for _, key := range []string{"lazy-mode", "tensor-read-lazy"} {
 					if strings.Contains(ini, key) || strings.Contains(flags, key) {

@@ -63,7 +63,7 @@ func TestValidateBatchSizesExplainsDefaultCase(t *testing.T) {
 // and their command lines are unchanged.
 func TestBatchFlagsOmittedWhenUnset(t *testing.T) {
 	c := ModelConfig{GPULayers: 999, ContextSize: 8192, Threads: 8}
-	flags := c.EffectiveFlagsFor(false, Target{})
+	flags := c.EffectiveFlagsFor(KindChat, Target{})
 	if strings.Contains(flags, "batch-size") {
 		t.Errorf("unset batch sizes should emit no flags, got: %s", flags)
 	}
@@ -72,7 +72,7 @@ func TestBatchFlagsOmittedWhenUnset(t *testing.T) {
 func TestBatchFlagsEmittedWhenSet(t *testing.T) {
 	c := ModelConfig{GPULayers: 999, ContextSize: 8192, Threads: 8,
 		BatchSize: 4096, UBatchSize: 1024}
-	flags := c.EffectiveFlagsFor(false, Target{})
+	flags := c.EffectiveFlagsFor(KindChat, Target{})
 	if !strings.Contains(flags, "--batch-size 4096") {
 		t.Errorf("missing --batch-size, got: %s", flags)
 	}
@@ -134,7 +134,7 @@ func TestPresetAndFlagPreviewAgreeOnZero(t *testing.T) {
 	cfg := &ModelConfig{Enabled: true, ContextSize: 4096, GPULayers: 0, Threads: 8}
 	mods := []*Model{{ID: "a", ModelID: "u/A", Quant: "Q8_0", FilePath: "/m/a.gguf"}}
 	ini := GeneratePresetINI("/m", mods, map[string]*ModelConfig{"a": cfg}, Target{})
-	flags := cfg.EffectiveFlagsFor(false, Target{})
+	flags := cfg.EffectiveFlagsFor(KindChat, Target{})
 
 	iniHasZero := strings.Contains(ini, "gpu-layers = 0")
 	flagsHaveZero := strings.Contains(flags, "--n-gpu-layers 0")

@@ -441,3 +441,34 @@ func TestGettersReturnCopies(t *testing.T) {
 		t.Errorf("model changed through a returned copy: %+v", gm)
 	}
 }
+
+// A model's kind comes from its file when the parser recorded one, and
+// from its name otherwise, for downloads and for older records.
+func TestModelKind(t *testing.T) {
+	tests := []struct {
+		name string
+		m    Model
+		want ModelKind
+	}{
+		{"file says embedding", Model{ID: "org--some-model", ModelID: "org/some-model", Embedding: true}, KindEmbedding},
+		{"name only", Model{ID: "Qwen--Qwen3-Embedding-0.6B-GGUF", ModelID: "Qwen/Qwen3-Embedding-0.6B-GGUF"}, KindEmbedding},
+		{"registry ID only", Model{ID: "nomic-embed-text-v1.5"}, KindEmbedding},
+		{"chat model", Model{ID: "Qwen--Qwen3-8B-GGUF", ModelID: "Qwen/Qwen3-8B-GGUF"}, KindChat},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.m.Kind(); got != tt.want {
+				t.Errorf("Kind() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+	for _, name := range []string{"Qwen/Qwen3-Embedding-0.6B-GGUF", "BAAI/bge-m3", "Qwen/Qwen3-8B-GGUF", "nomic-ai/nomic-embed-text-v1.5-GGUF"} {
+		want := KindChat
+		if IsEmbeddingModel(name) {
+			want = KindEmbedding
+		}
+		if got := KindFromName(name); got != want {
+			t.Errorf("KindFromName(%q) = %d, want %d", name, got, want)
+		}
+	}
+}

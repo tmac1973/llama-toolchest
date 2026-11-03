@@ -255,13 +255,13 @@ func TestMdlFilterModels(t *testing.T) {
 	embByID := &models.Model{ID: "bge-small", ModelID: "org/small"}
 	all := []*models.Model{chatA, emb, chatB, embByID}
 
-	if got := filterModels(all, false); !reflect.DeepEqual(got, []*models.Model{chatA, chatB}) {
+	if got := filterModels(all, models.KindChat); !reflect.DeepEqual(got, []*models.Model{chatA, chatB}) {
 		t.Errorf("chat models = %v, want a and b in order", mdlIDs(got))
 	}
-	if got := filterModels(all, true); !reflect.DeepEqual(got, []*models.Model{emb, embByID}) {
+	if got := filterModels(all, models.KindEmbedding); !reflect.DeepEqual(got, []*models.Model{emb, embByID}) {
 		t.Errorf("embedding models = %v, want e and bge-small in order", mdlIDs(got))
 	}
-	if got := filterModels(nil, false); len(got) != 0 {
+	if got := filterModels(nil, models.KindChat); len(got) != 0 {
 		t.Errorf("filterModels(nil) = %v, want empty", mdlIDs(got))
 	}
 }

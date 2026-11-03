@@ -717,6 +717,7 @@ type modelConfigPanelData struct {
 	HasMTP            bool
 	HasBuiltinVision  bool
 	IsEmbedding       bool
+	IsEncoder         bool // not a chat model: chat-only fields are hidden
 	DraftCandidates   []models.DraftCandidate
 	DraftModes        []models.SpecMode
 	AssistModes       []models.SpecMode
@@ -842,14 +843,14 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 	maxContext := 0
 	detectedMMProj := ""
 	detectedMTP := ""
-	isEmbedding := false
+	kind := models.KindChat
 	var draftCandidates []models.DraftCandidate
 	if model != nil {
 		maxContext = model.ContextLength
 		detectedMMProj = models.FindMMProj(model.FilePath)
 		detectedMTP = models.FindMTP(model.FilePath)
-		isEmbedding = model.IsEmbedding()
-		if !isEmbedding {
+		kind = model.Kind()
+		if kind == models.KindChat {
 			draftCandidates = s.registry.FindDraftCandidates(id, cfg.SpecType)
 		}
 	}
@@ -893,7 +894,7 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 	var samplingPresets []models.SamplingPreset
 	var samplingPresetsJSON string
 	var hasEmbeddedDefault bool
-	if model != nil && !isEmbedding {
+	if model != nil && kind == models.KindChat {
 		samplingPresets = model.EffectiveSamplingPresets()
 		if len(samplingPresets) > 0 {
 			if b, err := json.Marshal(samplingPresets); err == nil {
@@ -911,12 +912,13 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 	data := modelConfigPanelData{
 		ModelID:             id,
 		Config:              cfg,
-		EffectiveFlags:      effectiveFlags(cfg, model, isEmbedding, s.activeTarget()),
+		EffectiveFlags:      effectiveFlags(cfg, model, kind, s.activeTarget()),
 		MaxContext:          maxContext,
 		HasMMProj:           cfg.MmprojPath != "" || detectedMMProj != "",
 		HasMTP:              cfg.MtpPath != "" || detectedMTP != "",
 		HasBuiltinVision:    hasBuiltinVision,
-		IsEmbedding:         isEmbedding,
+		IsEmbedding:         kind == models.KindEmbedding,
+		IsEncoder:           kind != models.KindChat,
 		DraftCandidates:     draftCandidates,
 		DraftModes:          models.DraftModes(),
 		AssistModes:         models.AssistModes(),
@@ -937,7 +939,7 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 		ReadOnlyReason: s.registry.ReadOnlyReason(),
 		NeedsRestart:   s.isDirty(id) && s.process != nil && s.process.IsRunning(),
 	}
-	if isEmbedding && model != nil {
+	if kind != models.KindChat && model != nil {
 		def := *cfg
 		def.ContextSize = 0
 		if c := models.EmbeddingLaunchConfig(&def, model).ContextSize; c != maxContext {
@@ -960,7 +962,7 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 			data.CPURAMLabel = fmt.Sprintf("About %.1f GiB of the model's weights stay in system memory with these settings.", gib)
 		}
 	}
-	if model != nil && !isEmbedding {
+	if model != nil && kind == models.KindChat {
 		data.ContextLayoutText, data.ContextLayoutWarning = contextLayoutText(cfg, model.ContextLength, s.activeTarget())
 	}
 	if t := s.activeTarget(); models.IsDraftMode(cfg.SpecType) {
@@ -1297,10 +1299,10 @@ func pleSizeLabel(m *models.Model) string {
 // effectiveFlags are the flags the preset gives the model, including a
 // split balanced by size when experts are kept in system memory, and an
 // embedding model's context and micro-batch (see EmbeddingLaunchConfig).
-func effectiveFlags(cfg *models.ModelConfig, m *models.Model, isEmbedding bool, t models.Target) string {
+func effectiveFlags(cfg *models.ModelConfig, m *models.Model, kind models.ModelKind, t models.Target) string {
 	launch := models.MoESplitConfig(cfg, m, t.Room().For(m, cfg))
-	if isEmbedding && m != nil {
+	if kind != models.KindChat && m != nil {
 		launch = models.EmbeddingLaunchConfig(launch, m)
 	}
-	return launch.EffectiveFlagsFor(isEmbedding, t)
+	return launch.EffectiveFlagsFor(kind, t)
 }
