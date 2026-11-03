@@ -31,6 +31,15 @@
             {{end}}
         </fieldset>
         {{end}}
+        {{if .EvictableGiB}}
+        <fieldset>
+            <label title="Without this, Autoconfigure fits the model beside the {{printf "%.1f" .EvictableGiB}} GiB reserved for image, video and music models, and GPUs with those models on them get fewer layers. With it, the model is planned on the whole GPUs with its layers split evenly, and loading it stops those models (auto-evict). Each starts again for its next job. Models set to keep running are never stopped and still count.">
+                <input type="checkbox" name="whole_gpus" value="1">
+                Use the whole GPUs, split evenly
+                <small>Loading the model stops the image, video and music models in its way ({{printf "%.1f" .EvictableGiB}} GiB reserved).</small>
+            </label>
+        </fieldset>
+        {{end}}
         {{if not .Helper}}
         <p><mark>&#9888; No helper model is installed, so the model's documentation will not be read. The settings will come from what fits on this machine only.</mark>
             <a href="/settings">Install a helper model in Settings.</a></p>

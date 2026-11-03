@@ -265,10 +265,18 @@ func (s *Server) checkConfigFitsReservations(m *models.Model, cfg *models.ModelC
 	if !s.genReservationsApply() {
 		return nil
 	}
+	hw, need := s.configReservationNeed(m, cfg)
+	return s.reservationFitError(hw, need, false)
+}
+
+// configReservationNeed is what checkConfigFitsReservations checks: the
+// cards as they are with nothing of ours loaded, and m's planned memory
+// per GPU under cfg.
+func (s *Server) configReservationNeed(m *models.Model, cfg *models.ModelConfig) (models.Hardware, map[int]int) {
 	hw := s.idleHardware()
 	need := map[int]int{}
 	addLLMMiB(need, m, cfg, models.RoomOf(hw))
-	return s.reservationFitError(hw, need, false)
+	return hw, need
 }
 
 // genReservationsApply reports whether any reservation, of a generation

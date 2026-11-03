@@ -147,6 +147,10 @@ type autoconfigDialogData struct {
 	// GPUs are the cards the model may be fitted on, all checked at
 	// first; empty on a machine with one, where there is no choice.
 	GPUs []autoconfigGPUOption
+	// EvictableGiB is what image and music backends reserve that a
+	// loading model may take back, with auto-evict on. Above zero, the
+	// dialog offers to plan on the whole GPUs (form: whole_gpus).
+	EvictableGiB float64
 }
 
 type autoconfigGPUOption struct {
@@ -169,6 +173,17 @@ func autoconfigGPUOptions(hw models.Hardware) []autoconfigGPUOption {
 			ReservedGiB: float64(g.ReservedMiB) / 1024, Checked: true})
 	}
 	return out
+}
+
+// evictableGiB is what a loading model may take back from the image and
+// music backends on the cards a plan spreads it over: nothing with
+// auto-evict off (models.GPUSpec.EvictableMiB is then unset).
+func evictableGiB(hw models.Hardware) float64 {
+	var n int
+	for _, g := range models.PlanCards(hw) {
+		n += min(g.EvictableMiB, g.ReservedMiB)
+	}
+	return float64(n) / 1024
 }
 
 // chosenGPUs reads the GPUs checked in the dialog (form: gpu). ok is
@@ -231,8 +246,9 @@ func (s *Server) handleAutoconfigDialog(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
+	hw := s.hardware()
 	d := autoconfigDialogData{ModelID: id, ModelName: m.PublicName(), Classes: contextClassOptions(m.ContextLength),
-		GPUs: autoconfigGPUOptions(s.hardware())}
+		GPUs: autoconfigGPUOptions(hw), EvictableGiB: evictableGiB(hw)}
 	helperRouter := ""
 	if h := s.helperModel(); h != nil {
 		d.Helper = h.PublicName()
@@ -250,8 +266,10 @@ func (s *Server) handleAutoconfigDialog(w http.ResponseWriter, r *http.Request) 
 	s.renderPartial(w, "autoconfig_dialog", d)
 }
 
-// handleAutoconfigStart starts a run (form: context_class, and the
-// GPUs to fit on as gpu, with gpu_choice=1 when the dialog offered them).
+// handleAutoconfigStart starts a run (form: context_class, the GPUs to
+// fit on as gpu, with gpu_choice=1 when the dialog offered them, and
+// whole_gpus=1 to plan on the whole GPUs, for auto-evict to stop the
+// image and music backends in the way).
 func (s *Server) handleAutoconfigStart(w http.ResponseWriter, r *http.Request) {
 	id := s.registry.ResolveID(chi.URLParam(r, "id"))
 	if !parseForm(w, r) {
@@ -281,6 +299,13 @@ func (s *Server) handleAutoconfigStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hw = hw.OnlyGPUs(chosen)
+	// Only the reservations auto-evict may take back are left out:
+	// backends kept running are never stopped, so a plan must still fit
+	// beside them.
+	whole := false
+	if r.FormValue("whole_gpus") == "1" {
+		hw, whole = models.WholeCards(hw)
+	}
 
 	s.autoconf.mu.Lock()
 	if cur := s.autoconf.run; cur != nil && !cur.done {
@@ -304,7 +329,8 @@ func (s *Server) handleAutoconfigStart(w http.ResponseWriter, r *http.Request) {
 			run.progress = p
 			s.autoconf.mu.Unlock()
 		},
-		Verify: s.checkProposedConfig,
+		Verify:    s.checkProposedConfig,
+		WholeGPUs: whole,
 	}
 	helper := s.helperModel()
 	if helper != nil {
@@ -378,7 +404,11 @@ func (s *Server) checkProposedConfig(ctx context.Context, modelID string, cfg mo
 		BuildIDs:    []string{build.ID},
 		Presets:     []string{autoconfigCheckPreset},
 		BaseProfile: &benchmark.BaseProfile{Name: autoconfigCheckProfile, Config: cfg},
-		Cells:       benchmark.ExpandCells([]string{modelID}, []string{build.ID}, []string{autoconfigCheckPreset}),
+		// The plan counts on the room auto-evict makes: a test load
+		// refused for a backend that a chat would have stopped reads as
+		// running out of memory on that card, and moves layers off it.
+		MakeRoom: true,
+		Cells:    benchmark.ExpandCells([]string{modelID}, []string{build.ID}, []string{autoconfigCheckPreset}),
 	}
 	if err := s.jobs.Submit(job); err != nil {
 		if errors.Is(err, benchmark.ErrJobAlreadyRunning) {

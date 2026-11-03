@@ -74,8 +74,9 @@ type JobEnv interface {
 	// anyone waiting. release gives the GPUs back to other measurements,
 	// but the GPUs stay kept for owner (JobGPUOwner) until ReleaseGPUs:
 	// an image or music job waiting for them would otherwise start in the
-	// gap before the next cell.
-	ClaimGPUs(ctx context.Context, modelID string, cfg ConfigSnapshot, base *models.ModelConfig, who, owner string) (release func(), err error)
+	// gap before the next cell. makeRoom stops the backends in the way
+	// instead, with auto-evict on (BenchmarkJob.MakeRoom).
+	ClaimGPUs(ctx context.Context, modelID string, cfg ConfigSnapshot, base *models.ModelConfig, who, owner string, makeRoom bool) (release func(), err error)
 
 	// ReleaseGPUs ends what ClaimGPUs kept for owner, so image and music
 	// jobs waiting for those GPUs start. A no-op when nothing is kept.
@@ -603,7 +604,7 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 	// Before the router restarts with these settings: they must fit beside
 	// the memory reserved on their GPUs, and nothing else may run on those
 	// GPUs while they are measured.
-	release, err := q.env.ClaimGPUs(ctx, cell.ModelID, cfg, baseConfig, job.Name, JobGPUOwner(job))
+	release, err := q.env.ClaimGPUs(ctx, cell.ModelID, cfg, baseConfig, job.Name, JobGPUOwner(job), job.MakeRoom)
 	if err != nil {
 		return err
 	}
@@ -743,7 +744,7 @@ func (q *JobQueue) runCapabilityCell(ctx context.Context, job *BenchmarkJob, cel
 		baseConfig = &cfgCopy
 	}
 	cfg := markProfileEdited(EvalConfigSnapshot(baseSnap, cellOv), baseSnap)
-	release, err := q.env.ClaimGPUs(ctx, cell.ModelID, cfg, baseConfig, job.Name, JobGPUOwner(job))
+	release, err := q.env.ClaimGPUs(ctx, cell.ModelID, cfg, baseConfig, job.Name, JobGPUOwner(job), job.MakeRoom)
 	if err != nil {
 		return err
 	}

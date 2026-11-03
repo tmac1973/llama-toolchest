@@ -201,6 +201,19 @@ func (s *Server) makeRoomForLLM(ctx context.Context, m *models.Model) (release f
 	return release, nil
 }
 
+// makeRoomForConfig is makeRoomForLLM for a benchmark cell, m under cfg
+// alone, whose job holds gpus already: it stops backends on them until
+// the cell fits, and refuses it only when it still does not.
+func (s *Server) makeRoomForConfig(m *models.Model, cfg *models.ModelConfig, gpus []int, reason string) error {
+	for _, gpu := range gpus {
+		s.stopGenUntil(gpu, "", reason, func() bool {
+			hw, need := s.configReservationNeed(m, cfg)
+			return !slices.Contains(s.reservationShortGPUs(hw, need), gpu)
+		})
+	}
+	return s.checkConfigFitsReservations(m, cfg)
+}
+
 // measuringOn returns m's planned GPU memory per GPU (as a load
 // replacing the loaded models) when an instance is being measured on one
 // of those GPUs, and nil otherwise. Only with generation backends set up
