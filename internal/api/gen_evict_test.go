@@ -525,3 +525,30 @@ func TestMakeRoomForLLMWaitsForAMeasurement(t *testing.T) {
 		t.Fatal("the load did not go ahead after the measurement")
 	}
 }
+
+// A request counts as a use when it begins and again when it ends, and
+// touch counts one without a request.
+func TestLLMUseLastUse(t *testing.T) {
+	var u llmUse
+	if !u.lastUse("qwen").IsZero() {
+		t.Fatal("a model never used has a last use")
+	}
+	end, err := u.begin(context.Background(), "qwen")
+	if err != nil {
+		t.Fatal(err)
+	}
+	began := u.lastUse("qwen")
+	if began.IsZero() {
+		t.Fatal("begin did not count a use")
+	}
+	time.Sleep(2 * time.Millisecond)
+	end()
+	if !u.lastUse("qwen").After(began) {
+		t.Error("end did not count a use")
+	}
+	time.Sleep(2 * time.Millisecond)
+	u.touch("gemma")
+	if !u.lastUse("gemma").After(u.lastUse("qwen")) {
+		t.Error("touch did not count a use")
+	}
+}
