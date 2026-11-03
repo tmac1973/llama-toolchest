@@ -425,8 +425,12 @@ func vramBreakdownWith(co *vramCoefficients, m *Model, cfg *ModelConfig, cards i
 	// A model with tied embeddings is the exception for the second: its
 	// output layer reuses the input table, and llama.cpp keeps a copy of
 	// it on the GPU for that (gemma-4: 0.4-0.7 GiB more than estimated).
+	//
+	// An encoder architecture has no output layer at all, so its table
+	// stays mapped whatever its family (EmbeddingGemma 2: 136 MiB mapped,
+	// 144 MiB on the GPU).
 	resident := m.SizeBytes - m.PLEBytes
-	if !m.EmbeddingsTied() {
+	if !m.EmbeddingsTied() || IsEncoderArch(m.Arch) {
 		resident -= m.TokenEmbdBytes
 	}
 	if resident < 0 {
@@ -446,7 +450,11 @@ func vramBreakdownWith(co *vramCoefficients, m *Model, cfg *ModelConfig, cards i
 	b.CPURAM = BytesToGiB(onCPU)
 
 	ub := cfg.EffectiveUBatchSize()
-	b.KVCache = m.kvCacheGiBFor(ctx, cfg.KVCacheQuant, swaCells(m, cfg, ctx, ub))
+	// A non-causal model keeps no KV cache: llama.cpp reports none for
+	// EmbeddingGemma 2 at any context.
+	if !m.NonCausal {
+		b.KVCache = m.kvCacheGiBFor(ctx, cfg.KVCacheQuant, swaCells(m, cfg, ctx, ub))
+	}
 	// llama.cpp keeps each layer's KV cache on the device that runs the
 	// layer, so layers left on the CPU take their share of it to system
 	// memory. Same "zero is not set" rule as the weights.
@@ -460,6 +468,8 @@ func vramBreakdownWith(co *vramCoefficients, m *Model, cfg *ModelConfig, cards i
 	layerSplit := isLayerSplit(cfg, cards)
 	perCard := co.single.at(ub, ctx)
 	switch {
+	case m.Kind() != KindChat:
+		perCard = encoderComputeGiB(co, m, ub, ctx)
 	case layerSplit:
 		perCard = co.layer.at(ub, ctx)
 	case cards >= 2:
@@ -528,6 +538,59 @@ func vramBreakdownWith(co *vramCoefficients, m *Model, cfg *ModelConfig, cards i
 	b.Aux = AuxFilesVRAMGB(cfg)
 	b.Overhead = co.overheadFirst + float64(cards-1)*co.overheadExtra
 	return b
+}
+
+// encoderTokenScratch is the graph scratch per micro-batch token of an
+// embedding or reranking model, in bytes per unit of n_embd, by
+// architecture. Measured with llama.cpp's own buffer report on ROCm
+// (asmodean, 2026-11-03, b11887 and a fork at r206; the two agree):
+// Qwen3-Reranker-0.6B 52 KiB per token at n_embd 1024, EmbeddingGemma 2
+// 104 KiB at n_embd 512. It scales with the width, so Qwen3-Embedding-8B
+// (n_embd 4096) is planned at four times the 0.6B. Other architectures
+// get encoderTokenScratchDefault, the larger of the two.
+var encoderTokenScratch = map[string]float64{
+	"qwen3":            52,
+	"gemma-embedding":  208,
+	"gemma-embedding2": 208,
+}
+
+const (
+	encoderTokenScratchDefault = 208
+	// encoderTokenScratchNoWidthKiB stands in, per token, for a record
+	// without n_embd.
+	encoderTokenScratchNoWidthKiB = 128
+)
+
+// encoderComputeGiB is the graph scratch of an embedding or reranking
+// model on one device. The chat fit does not carry over: most of a chat
+// model's per-token scratch is its output logits, which an encoder does
+// not have, and at the micro-batch an encoder runs with (the whole
+// context) the chat fit is five times too high (Qwen3-Reranker-0.6B at
+// 32768: 8.1 GiB planned, 1.7 or 3.6 GiB used).
+//
+// What it has instead is the attention mask: one f16 value per micro-batch
+// token and context position, for each kind of attention layer (two on a
+// model with sliding-window layers). Measured on upstream llama.cpp:
+// Qwen3-Reranker 52 KiB per token plus 2 bytes per pair at 2K to 32K,
+// EmbeddingGemma 2 104 KiB plus 4 bytes per pair at 1K to 16K, on ROCm
+// and on CUDA (7.3 GiB at 32768 on an A4000). A build that derives the
+// mask inside the attention kernel needs less (the r206 fork: no mask
+// for the reranker), so the estimate is high there.
+func encoderComputeGiB(co *vramCoefficients, m *Model, ub, ctx int) float64 {
+	perTok := encoderTokenScratchNoWidthKiB * 1024.0
+	if m.NEmbd > 0 {
+		c, ok := encoderTokenScratch[m.Arch]
+		if !ok {
+			c = encoderTokenScratchDefault
+		}
+		perTok = c * float64(m.NEmbd)
+	}
+	masks := 1.0
+	if m.SlidingWindow > 0 {
+		masks = 2
+	}
+	u, x := float64(ub), float64(ctx)
+	return co.single.base + perTok*u/(1<<30) + masks*2*u*x/(1<<30)
 }
 
 // specDraftLayers is how many layers of KV cache the draft context holds
