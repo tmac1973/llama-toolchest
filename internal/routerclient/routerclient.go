@@ -24,6 +24,10 @@ type ModelStatus struct {
 	Aliases []string `json:"aliases"`
 	Status  struct {
 		Value string `json:"value"` // "loaded", "loading", "unloaded"
+		// Failed is set with "unloaded" when the model's llama-server
+		// exited with an error, ExitCode its exit status.
+		Failed   bool `json:"failed"`
+		ExitCode int  `json:"exit_code"`
 	} `json:"status"`
 }
 

@@ -360,6 +360,11 @@ func (f *fakeRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			var ms process.ModelStatus
 			ms.ID, ms.Model, ms.Aliases = name, name, f.aliases[name]
 			ms.Status.Value = st
+			if st == "failed" {
+				// What the router reports for a load whose
+				// llama-server exited with an error.
+				ms.Status.Value, ms.Status.Failed, ms.Status.ExitCode = "unloaded", true, 1
+			}
 			data = append(data, ms)
 		}
 		json.NewEncoder(w).Encode(map[string]any{"data": data, "object": "list"})
@@ -535,6 +540,24 @@ func TestEnsureModelLoadedForRequest(t *testing.T) {
 		err := s.ensureModelLoadedForRequest(context.Background(), reqFor(m.ID))
 		if err == nil || !strings.Contains(err.Error(), "disappeared") {
 			t.Fatalf("err = %v, want the disappeared message", err)
+		}
+	})
+
+	// A load that fails (out of memory, say) used to keep the request
+	// waiting the whole 90 seconds.
+	t.Run("a failed load ends the wait at once", func(t *testing.T) {
+		f.reset(map[string]string{m.ID: "unloaded"}, func(f *fakeRouter, n int) {
+			if f.status[m.ID] == "loading" && n >= 3 {
+				f.status[m.ID] = "failed"
+			}
+		})
+		start := time.Now()
+		err := s.ensureModelLoadedForRequest(context.Background(), reqFor(m.ID))
+		if err == nil || !strings.Contains(err.Error(), "failed to load") {
+			t.Fatalf("err = %v, want the failed-to-load message", err)
+		}
+		if d := time.Since(start); d > 10*time.Second {
+			t.Errorf("the wait took %s after the load failed", d)
 		}
 	})
 

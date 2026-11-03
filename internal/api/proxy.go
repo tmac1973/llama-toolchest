@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/models"
+	"github.com/tmac1973/llama-toolchest/internal/process"
 )
 
 // autoLoadTimeout caps how long an auto-load triggered by /v1/chat/completions
@@ -383,37 +384,50 @@ func (s *Server) ensureModelLoadedForRequest(ctx context.Context, body []byte) e
 // the model under its primary ID, public name, or any alias, so we check
 // all three before declaring it unknown.
 func (s *Server) lookupRouterState(routerName string, m *models.Model) (string, bool) {
+	st, ok := s.lookupRouterStatus(routerName, m)
+	return st.Status.Value, ok
+}
+
+// lookupRouterStatus is lookupRouterState with the router's whole entry
+// for the model, which also says whether its last load failed.
+func (s *Server) lookupRouterStatus(routerName string, m *models.Model) (process.ModelStatus, bool) {
 	if !s.process.IsRunning() {
-		return "", false
+		return process.ModelStatus{}, false
 	}
 	loaded, err := s.process.ListModels()
 	if err != nil {
-		return "", false
+		return process.ModelStatus{}, false
 	}
 	for _, lm := range loaded {
 		if lm.ID == routerName || lm.Model == routerName {
-			return lm.Status.Value, true
+			return lm, true
 		}
 		for _, a := range lm.Aliases {
 			if a == routerName || a == m.ID || a == m.PublicName() {
-				return lm.Status.Value, true
+				return lm, true
 			}
 		}
 	}
-	return "", false
+	return process.ModelStatus{}, false
 }
 
 // waitForModelLoaded polls the router until the named model reports
-// "loaded", the request context is cancelled, or autoLoadTimeout elapses.
+// "loaded", its load fails, the request context is cancelled, or
+// autoLoadTimeout elapses. The router marks the model "loading" before
+// it answers the load request, so a failed status seen here is this
+// load's: before, a load that failed (out of memory, say) kept the
+// request waiting the whole 90 seconds.
 func (s *Server) waitForModelLoaded(ctx context.Context, routerName string, m *models.Model) error {
 	deadline := time.Now().Add(autoLoadTimeout)
 	for {
-		state, _ := s.lookupRouterState(routerName, m)
-		switch state {
-		case "loaded":
+		st, _ := s.lookupRouterStatus(routerName, m)
+		switch {
+		case st.Status.Value == "loaded":
 			return nil
-		case "":
+		case st.Status.Value == "":
 			return fmt.Errorf("model %q disappeared from router during load", m.PublicName())
+		case st.Status.Failed:
+			return fmt.Errorf("model %q failed to load (llama-server exit status %d); see the service log for the reason", m.PublicName(), st.Status.ExitCode)
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("timed out after %s waiting for model %q to load", autoLoadTimeout, m.PublicName())
