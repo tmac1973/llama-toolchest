@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -281,7 +282,8 @@ func (s *Server) makeRoomByUnloading(ctx context.Context, m *models.Model) ([]in
 // backends, as before toolchest memory mode.
 func (s *Server) plannedFitError(m *models.Model, short []int) error {
 	hw, need := s.llmPlannedNeed(m)
-	if err := s.reservationFitError(hw, need, true); err != nil {
+	// Not "unload a model first": every idle one is gone already.
+	if err := s.reservationFitError(hw, need, false); err != nil {
 		return err
 	}
 	g := slices.Min(short)
@@ -306,6 +308,87 @@ func (s *Server) plannedFitError(m *models.Model, short []int) error {
 	return &genLLMFitError{msg: fmt.Sprintf("%s does not fit on GPU %d", m.PublicName(), g)}
 }
 
+// neverFitsError reports whether m cannot fit even once everything that
+// may go is gone: every idle LLM, and with eviction on every backend not
+// kept running. What stays is the LLMs that answer a request or are
+// loading, the reservations that cannot be freed (eviction off, kept
+// running, fork instances) and m itself. Checked before anything is
+// unloaded, so a load that can never fit unloads nothing. Nil when it can.
+func (s *Server) neverFitsError(m *models.Model) error {
+	cfg, err := s.registry.GetConfig(m.ID)
+	if err != nil || cfg == nil {
+		return nil
+	}
+	room := models.RoomOf(s.idleHardware())
+	stay := map[int]int{}
+	addLLMMiB(stay, m, cfg, room)
+	plan := maps.Clone(stay)
+	busy := map[int][]string{}
+	if s.process.IsRunning() {
+		if list, err := s.process.ListModels(); err == nil {
+			for _, rm := range list {
+				st := rm.Status.Value
+				if st != "loaded" && st != "loading" {
+					continue
+				}
+				reg, rcfg := s.resolveRouterModel(rm)
+				if reg == nil || rcfg == nil || reg.ID == m.ID {
+					continue
+				}
+				if st == "loaded" && !s.llmUse.busy(reg.ID) {
+					continue // idle: it would be unloaded
+				}
+				own := map[int]int{}
+				addLLMMiB(own, reg, rcfg, room)
+				for g, mib := range own {
+					stay[g] += mib
+					busy[g] = append(busy[g], reg.PublicName())
+				}
+			}
+		}
+	}
+	byGPU := s.genFitVRAMByGPU("")
+	evict := s.genEvictOn()
+	for _, g := range s.hardware().GPUs {
+		if plan[g.Index] <= 0 {
+			continue
+		}
+		g.ReservedMiB = 0
+		var kept []string
+		if v := byGPU[g.Index]; v != nil {
+			g.ReservedMiB = v.Reserved
+			if evict {
+				g.ReservedMiB = v.Reserved - v.Evictable
+			}
+			if g.ReservedMiB > 0 {
+				kept = v.Names
+			}
+		}
+		budget := models.CardBudgetMiB(g)
+		if stay[g.Index] <= budget {
+			continue
+		}
+		var why []string
+		if len(busy[g.Index]) > 0 {
+			why = append(why, "answering a request or loading: "+strings.Join(busy[g.Index], ", "))
+		}
+		if g.ReservedMiB > 0 {
+			what := "reserved for generation backends"
+			if evict {
+				what = "reserved for generation backends that are kept running or are forks"
+			}
+			why = append(why, fmt.Sprintf("%s %s (%s)", mibText(g.ReservedMiB), what, strings.Join(kept, ", ")))
+		}
+		msg := fmt.Sprintf("%s does not fit: GPU %d has %s for models and needs %s, even with every idle model unloaded",
+			m.PublicName(), g.Index, mibText(max(0, budget-(stay[g.Index]-plan[g.Index]))), mibText(plan[g.Index]))
+		if len(why) > 0 {
+			msg += "; " + strings.Join(why, "; ")
+		}
+		return &genLLMFitError{msg: msg}
+	}
+	return nil
+}
+
 // loadLLMWithRoom loads m in toolchest memory mode: it unloads idle LLMs,
 // least recently used first, until m fits under Max Loaded and in VRAM;
 // then, with eviction on, it stops generation backends; then it checks
@@ -327,6 +410,9 @@ func (s *Server) loadLLMWithRoom(ctx context.Context, m *models.Model, routerNam
 		}
 	}()
 
+	if err := s.neverFitsError(m); err != nil {
+		return fail(err)
+	}
 	short, err := s.makeRoomByUnloading(ctx, m)
 	if err != nil {
 		return fail(err)
