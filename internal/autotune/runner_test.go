@@ -43,7 +43,7 @@ type fakeEnv struct {
 }
 
 func (e *fakeEnv) CheckBuildRunnable(context.Context, string) error { return nil }
-func (e *fakeEnv) EnsureBuildActive(context.Context, string, bool) error {
+func (e *fakeEnv) EnsureBuildActive(context.Context, string, []string, bool) error {
 	return nil
 }
 

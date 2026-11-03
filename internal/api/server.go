@@ -345,6 +345,28 @@ func (s *Server) runningConfigFor(id string) (*models.ModelConfig, bool) {
 	return cfg, ok
 }
 
+// enabledSinceStart returns those of ids that are turned on now but were
+// not in the running router's preset: off, or not registered, when it
+// last started. The router reads its preset only at startup, so it answers
+// 404 for these until it restarts — the Models page's PendingEnable
+// restart icon, for a job's models.
+func (s *Server) enabledSinceStart(ids []string) []string {
+	s.stateMu.RLock()
+	running := s.runningConfigs
+	s.stateMu.RUnlock()
+	var out []string
+	for _, id := range ids {
+		cfg, err := s.registry.GetConfig(id)
+		if err != nil || !cfg.Enabled {
+			continue
+		}
+		if was, ok := running[id]; !ok || !was.Enabled {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 // markDirty / isDirty / clearDirty guard the pending-reload set.
 func (s *Server) markDirty(id string) {
 	s.stateMu.Lock()

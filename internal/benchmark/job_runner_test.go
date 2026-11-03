@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -71,6 +72,8 @@ type fakeEnv struct {
 	klBaseBlock chan struct{}
 	stops       int
 	evalCalls   []evaluate.Spec
+	// buildModels holds the modelIDs of each EnsureBuildActive call.
+	buildModels [][]string
 
 	// dataDir hosts the KL logits cache (EnsureKLBase) and dataset files.
 	dataDir string
@@ -109,10 +112,11 @@ func (f *fakeEnv) ReleaseGPUs(owner string) {
 }
 
 func (f *fakeEnv) CheckBuildRunnable(context.Context, string) error { return nil }
-func (f *fakeEnv) EnsureBuildActive(_ context.Context, id string, configFollows bool) error {
+func (f *fakeEnv) EnsureBuildActive(_ context.Context, id string, modelIDs []string, configFollows bool) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.buildSwitches = append(f.buildSwitches, id)
+	f.buildModels = append(f.buildModels, modelIDs)
 	// Mirrors the real implementation: when a config apply follows, the
 	// restart is deferred to it rather than doubled.
 	if !configFollows {
@@ -992,5 +996,39 @@ func TestBuildSwitchWithoutConfigStillRestarts(t *testing.T) {
 	env.mu.Unlock()
 	if restarts != 2 {
 		t.Errorf("EnsureBuildActive restarted %d times, want one per build", restarts)
+	}
+}
+
+// EnsureBuildActive runs once per build, so it is told every model the
+// job still measures there — not just the first cell's — and none it has
+// already completed. A model turned on since the router started is only
+// caught if it is in that list.
+func TestBuildSwitchListsTheModelsStillToMeasure(t *testing.T) {
+	router := newFakeRouter(t)
+	env := &fakeEnv{routerURL: router.URL, saved: ConfigSnapshot{GPULayers: 999}}
+
+	job := BenchmarkJob{
+		ID: "job-models", Name: "models", Kind: JobKindBatch,
+		ModelIDs: []string{"a", "b", "c"}, BuildIDs: []string{"b1", "b2"},
+		Presets: []string{"internal-quick"},
+	}
+	job.Cells = ExpandCells(job.ModelIDs, job.BuildIDs, job.Presets)
+	// "a" on b1 already passed in an earlier attempt (retry-failed).
+	for i := range job.Cells {
+		if job.Cells[i].BuildID == "b1" && job.Cells[i].ModelID == "a" {
+			job.Cells[i].Status = CellStatusCompleted
+		}
+	}
+
+	if done, _ := runJob(t, job, env); done.Status != JobStatusCompleted {
+		t.Fatalf("job status = %s, want completed", done.Status)
+	}
+
+	env.mu.Lock()
+	got := env.buildModels
+	env.mu.Unlock()
+	want := [][]string{{"b", "c"}, {"a", "b", "c"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("EnsureBuildActive models = %v, want %v", got, want)
 	}
 }

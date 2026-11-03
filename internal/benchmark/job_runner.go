@@ -41,7 +41,11 @@ type JobEnv interface {
 	// restart so the pair costs one reload instead of two — the first of
 	// which would otherwise serve the previous cell's config on the new
 	// build for no purpose.
-	EnsureBuildActive(ctx context.Context, buildID string, configFollows bool) error
+	//
+	// modelIDs are the models the job still has to measure on this build.
+	// A router already on buildID is restarted anyway when one of them was
+	// turned on after it started, since its preset does not list it yet.
+	EnsureBuildActive(ctx context.Context, buildID string, modelIDs []string, configFollows bool) error
 
 	// ResolveModel returns everything the cell needs about a model from
 	// the registry (HF repo id for tokenizer, router-served name, saved
@@ -500,6 +504,24 @@ type appliedConfig struct {
 	cfg     ConfigSnapshot
 }
 
+// modelsToMeasureOn lists, once each and in cell order, the models of
+// the performance cells on buildID that have not completed yet: the ones
+// the router has to serve for the rest of the job on that build.
+// EnsureBuildActive runs only when the build changes, so it needs them
+// all, not just the current cell's.
+func (job *BenchmarkJob) modelsToMeasureOn(buildID string) []string {
+	var out []string
+	for _, c := range job.Cells {
+		if c.BuildID != buildID || c.Status == CellStatusCompleted ||
+			GetPreset(c.Preset).EffectiveSource() == PresetSourceCapability ||
+			slices.Contains(out, c.ModelID) {
+			continue
+		}
+		out = append(out, c.ModelID)
+	}
+	return out
+}
+
 func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell, prevBuildID *string, lastApplied *appliedConfig) error {
 	// Logged before anything can fail, so a failure is always preceded by
 	// the cell it belongs to.
@@ -537,7 +559,7 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 		}
 	}
 	if !isCapability && cell.BuildID != *prevBuildID {
-		if err := q.env.EnsureBuildActive(ctx, cell.BuildID, cellOv != nil || bp != nil); err != nil {
+		if err := q.env.EnsureBuildActive(ctx, cell.BuildID, job.modelsToMeasureOn(cell.BuildID), cellOv != nil || bp != nil); err != nil {
 			return fmt.Errorf("activate build %s: %w", cell.BuildID, err)
 		}
 		*prevBuildID = cell.BuildID
