@@ -8,16 +8,16 @@
 <article>
     <header>Available Models</header>
     <div class="available-models-scroll">
-        {{- range .Available -}}
-        <div class="available-model-row" title="{{.Tooltip}}">
-            {{- if .State -}}
-            <span class="action-icon-placeholder">&nbsp;</span>
-            {{- else -}}
-            <button type="button" class="action-icon" title="Load into VRAM" hx-put="/api/models/{{.ID}}/activate" hx-swap="none" data-error-label="Load failed" hx-on::after-request="htmx.trigger('#dashboard-cards', 'load')">{{template "icon_play"}}</button>
-            {{- end -}}
-            {{template "copy_button" .CopyButton}}<code>{{.PublicName}}</code>
-            {{- if .State}} <mark style="padding:0 0.3rem;font-size:0.65rem;">{{.State}}</mark>{{end -}}
-        </div>
+        {{- if or .Available .Embedding .Reranking -}}
+        {{- range .Available}}{{template "available_model_row" .}}{{end -}}
+        {{- with .Embedding -}}
+        <div class="available-models-kind" title="Models that turn text into vectors, at /v1/embeddings.">Embedding</div>
+        {{- range .}}{{template "available_model_row" .}}{{end -}}
+        {{- end -}}
+        {{- with .Reranking -}}
+        <div class="available-models-kind" title="Models that score how well each document answers a query, at /v1/rerank.">Reranking</div>
+        {{- range .}}{{template "available_model_row" .}}{{end -}}
+        {{- end -}}
         {{- else -}}
         <p>None</p>
         {{- end -}}
@@ -41,6 +41,20 @@
     <p><a href="/settings">Settings →</a></p>
 </article>
 {{end}}
+
+{{/* available_model_row is one model in the Available Models card.
+     Data: availableModelRow (server.go). */}}
+{{define "available_model_row" -}}
+<div class="available-model-row" title="{{.Tooltip}}">
+    {{- if .State -}}
+    <span class="action-icon-placeholder">&nbsp;</span>
+    {{- else -}}
+    <button type="button" class="action-icon" title="Load into VRAM" hx-put="/api/models/{{.ID}}/activate" hx-swap="none" data-error-label="Load failed" hx-on::after-request="htmx.trigger('#dashboard-cards', 'load')">{{template "icon_play"}}</button>
+    {{- end -}}
+    {{template "copy_button" .CopyButton}}<code>{{.PublicName}}</code>
+    {{- if .State}} <mark style="padding:0 0.3rem;font-size:0.65rem;">{{.State}}</mark>{{end -}}
+</div>
+{{- end}}
 
 {{/* copy_button copies .Copy to the clipboard and flashes a check mark
      (copyFromButton in server.html). data-icon and data-icon-check hold

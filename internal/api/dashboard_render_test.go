@@ -93,6 +93,45 @@ func TestDashboardCardsRows(t *testing.T) {
 	}
 }
 
+// Embedding and reranking models follow the chat models, each under its
+// own heading, and a heading appears only when its section has a model.
+func TestDashboardCardsKindSections(t *testing.T) {
+	out := renderDashboardCards(t, dashboardCardsData{
+		APIURL:    "/v1",
+		Reranking: []availableModelRow{{ID: "r", PublicName: "rerank-model"}},
+	})
+	if strings.Contains(out, "<p>None</p>") {
+		t.Error("a served reranker should not read None")
+	}
+	if strings.Contains(out, ">Embedding</div>") {
+		t.Error("Embedding heading shown with no embedding model")
+	}
+
+	out = renderDashboardCards(t, dashboardCardsData{
+		APIURL:    "/v1",
+		Available: []availableModelRow{{ID: "c", PublicName: "chat-model"}},
+		Embedding: []availableModelRow{{ID: "e", PublicName: "embed-model", State: "loaded"}},
+		Reranking: []availableModelRow{{ID: "r", PublicName: "rerank-model"}},
+	})
+	var last int
+	for _, want := range []string{
+		"<code>chat-model</code>",
+		">Embedding</div>",
+		"<code>embed-model</code>",
+		">Reranking</div>",
+		"<code>rerank-model</code>",
+	} {
+		i := strings.Index(out, want)
+		if i < last {
+			t.Fatalf("%q missing or out of order in:\n%s", want, out)
+		}
+		last = i
+	}
+	if !strings.Contains(out, `hx-put="/api/models/r/activate"`) {
+		t.Error("an idle reranker should offer the load button")
+	}
+}
+
 // The cards are re-rendered every few seconds; the Available Models list
 // keeps its scroll position across that instead of jumping to the top.
 func TestServerPageKeepsAvailableModelsScroll(t *testing.T) {
