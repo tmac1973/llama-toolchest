@@ -3250,6 +3250,13 @@ main() {
                         ;;
                 esac
                 ;;
+            status)
+                # Only a host install changes what status shows: without
+                # one it reports the container plan, as before, which is
+                # also what a fresh machine needs to see. Without this,
+                # status on a host install showed "Build container image".
+                [[ "$(detect_install_mode)" == "host" ]] && INSTALL_MODE="host"
+                ;;
         esac
     fi
 
