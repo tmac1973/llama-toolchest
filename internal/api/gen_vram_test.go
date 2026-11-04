@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"github.com/tmac1973/llama-toolchest/internal/config"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -397,7 +398,7 @@ func TestSetReservationWithEviction(t *testing.T) {
 	if code := set(); code != http.StatusConflict {
 		t.Errorf("eviction off: %d, want refused beside the other reservation", code)
 	}
-	s.cfg.GenEvict = true
+	s.cfg.GenEvict, s.cfg.Eviction = true, config.EvictionToolchest
 	if code := set(); code != http.StatusOK {
 		t.Errorf("eviction on: %d, want set", code)
 	}

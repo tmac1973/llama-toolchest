@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/tmac1973/llama-toolchest/internal/config"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -258,7 +259,7 @@ func TestForkInstanceRunsAndReservesItsGPU(t *testing.T) {
 		t.Error("a generation instance fits on the fork's GPU")
 	}
 	// Auto-evict never takes it back.
-	s.cfg.GenEvict = true
+	s.cfg.GenEvict, s.cfg.Eviction = true, config.EvictionToolchest
 	if v := s.genVRAM("", true)[1]; v == nil || v.Evictable != 0 || v.Reserved < 24560 {
 		t.Errorf("fork reservation = %+v", v)
 	}
@@ -342,7 +343,7 @@ func TestForkBusyCheckFollowsAutoEvict(t *testing.T) {
 	if got := strings.Join(s.gpuOccupants(1, ""), ", "); got != "free (generation), locked (generation)" {
 		t.Errorf("auto-evict off: %q", got)
 	}
-	s.cfg.GenEvict = true
+	s.cfg.GenEvict, s.cfg.Eviction = true, config.EvictionToolchest
 	if got := strings.Join(s.gpuOccupants(1, ""), ", "); got != "locked (generation)" {
 		t.Errorf("auto-evict on: %q", got)
 	}

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/backup"
+	"github.com/tmac1973/llama-toolchest/internal/config"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/modelsource"
 )
@@ -124,9 +125,15 @@ func (s *Server) restoreDeps() backup.Deps {
 				s.cfg.ModelsMax = *in.ModelsMax
 				changed = append(changed, "models_max")
 			}
-			if in.RouterMemory != nil && s.cfg.RouterMemory != *in.RouterMemory {
-				s.cfg.RouterMemory = *in.RouterMemory
-				changed = append(changed, "router_memory")
+			// A backup from before the eviction setting has router_memory.
+			eviction := in.Eviction
+			if eviction == nil && in.RouterMemory != nil {
+				e := routerMemoryEviction(*in.RouterMemory)
+				eviction = &e
+			}
+			if eviction != nil && config.ValidEviction(*eviction) && s.cfg.Eviction != *eviction {
+				s.cfg.Eviction = *eviction
+				changed = append(changed, "eviction")
 			}
 			if in.AutoStart != nil && s.cfg.AutoStart != *in.AutoStart {
 				s.cfg.AutoStart = *in.AutoStart

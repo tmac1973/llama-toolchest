@@ -12,7 +12,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
-// Eviction (Settings → Generation backends, config.GenEvict): when an LLM
+// Taking turns (Settings → Eviction, config.GenEvictOn): when an LLM
 // and a generation backend do not both fit on a GPU, the newest request
 // gets the card. A chat request for an LLM that is not loaded stops the
 // backends in its way (makeRoomForLLM), and a job for a stopped backend
@@ -37,14 +37,13 @@ const genStartTimeout = 5 * time.Minute
 // still reports the model as loaded.
 const llmUnloadTimeout = time.Minute
 
-// genEvictOn reports whether LLMs and backends may take a GPU from each
-// other.
+// genEvictOn reports whether LLMs and backends take turns on a GPU.
 func (s *Server) genEvictOn() bool {
 	if s.gen == nil || s.genMgr == nil {
 		return false
 	}
 	cfg := s.cfgCopy()
-	return cfg.GenerationEnabled && cfg.GenEvict
+	return cfg.GenEvictOn()
 }
 
 // genFitVRAMByGPU is genVRAMByGPU as the fit checks count it: with

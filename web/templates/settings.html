@@ -208,6 +208,43 @@
     <div id="auto-start-status"></div>
 </article>
 
+<style>
+    #eviction fieldset label { margin-bottom: 0.6rem; }
+    #eviction .eviction-turns { margin: 0 0 0.75rem 1.6rem; }
+    #eviction .eviction-sub { margin-left: 1.6rem; }
+    #eviction .eviction-max input { max-width: 8rem; display: block; }
+    #eviction .eviction-restart { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+    #eviction .eviction-restart button { width: auto; margin: 0; }
+</style>
+{{template "eviction_card" .Eviction}}
+<script>
+// The Eviction card's Restart button: shows a refused restart in the
+// card, and fetches the card again so the restart notice goes away.
+function onEvictionRestart(e) {
+    var box = document.getElementById('eviction-status');
+    if (box) {
+        box.innerHTML = '';
+        if (!e.detail.successful) {
+            var msg = (e.detail.xhr && e.detail.xhr.responseText) || 'Restart failed';
+            var p = document.createElement('p');
+            var m = document.createElement('mark');
+            m.textContent = 'Restart failed: ' + msg.trim();
+            p.appendChild(m);
+            box.appendChild(p);
+            return;
+        }
+    }
+    htmx.trigger(document.body, 'settingsSaved');
+}
+// The Server page links here; go to the card once the page is drawn,
+// as the generation card does.
+if (location.hash === '#eviction') {
+    window.addEventListener('load', function() {
+        document.getElementById('eviction').scrollIntoView();
+    });
+}
+</script>
+
 <article id="generation">
     <header>Generation backends</header>
     <p>Lets llama-toolchest also run image generation
@@ -219,7 +256,7 @@
           hx-trigger="change"
           hx-on::before-request="history.replaceState(null, '', '#generation')">
         <input type="hidden" name="generation_touched" value="1">
-        <label title="With &quot;Keep several models loaded&quot; on, toolchest decides what to unload. Applies at the next server start.">
+        <label title="With eviction set to llama.cpp, llama-toolchest decides what to unload while this is on. Applies at the next server start.">
             <input type="checkbox" role="switch" name="generation_enabled"
                    {{if .GenerationEnabled}}checked{{end}}>
             Enable image and music generation backends
@@ -237,39 +274,8 @@
     }
     </script>
     {{if .GenerationEnabled}}
-    <form hx-put="/api/settings"
-          hx-target="#gen-evict-status"
-          hx-swap="innerHTML"
-          hx-trigger="change">
-        <input type="hidden" name="gen_evict_touched" value="1">
-        <label title="Off: reservations always count, and an LLM that does not fit is refused. On: LLMs and idle backends stop each other to fit. Locked backends never stop.">
-            <input type="checkbox" role="switch" name="gen_evict"
-                   {{if .GenEvict}}checked{{end}}>
-            Let LLMs and backends take a GPU from each other
-        </label>
-    </form>
-    <p><small>When an LLM and a backend do not both fit on a GPU, the newest
-       request gets it: idle backends are stopped for a chat request (only
-       as many as needed, and never one locked on the Server page), and
-       idle LLMs are unloaded for an image or music job. A stopped backend
-       starts again by itself when its next job arrives. Running jobs and
-       chat replies always finish first. Each switch reloads a model, so
-       expect a wait of seconds to a minute.</small></p>
-    <div id="gen-evict-status"></div>
-    <form hx-put="/api/settings"
-          hx-target="#gen-prompt-cache-status"
-          hx-swap="innerHTML"
-          hx-trigger="change">
-        <input type="hidden" name="gen_keep_prompt_cache_touched" value="1">
-        <label title="Before an eviction unload, saves the prompt cache of each conversation to disk. At reload, restores it, so the next reply reads only the new message.">
-            <input type="checkbox" role="switch" name="gen_keep_prompt_cache"
-                   {{if .GenKeepPromptCache}}checked{{end}}>
-            Keep the LLM's prompt cache when it is unloaded for a backend
-        </label>
-    </form>
-    <p><small>Only with the switch above on. Takes effect the next time the
-       router starts (Server page → Restart).</small></p>
-    <div id="gen-prompt-cache-status"></div>
+    <p><small>How LLMs and backends share a GPU is set in
+       <a href="#eviction">Eviction</a>.</small></p>
     {{end}}
     {{if and .GenerationEnabled (not .GenPortsPublished)}}
     <p><small>Web UI ports are not published, so the backends' own web pages
@@ -323,7 +329,7 @@
           hx-trigger="change"
           hx-on::before-request="history.replaceState(null, '', '#forks')">
         <input type="hidden" name="forks_touched" value="1">
-        <label title="Run curated llama.cpp forks as separate servers. Each fork server uses one whole GPU. With &quot;Keep several models loaded&quot; on, toolchest decides what to unload. Applies at the next server start.">
+        <label title="Run curated llama.cpp forks as separate servers. Each fork server uses one whole GPU. With eviction set to llama.cpp, llama-toolchest decides what to unload while this is on. Applies at the next server start.">
             <input type="checkbox" role="switch" name="forks_enabled"
                    {{if .ForksEnabled}}checked{{end}}>
             llama.cpp forks (experimental)

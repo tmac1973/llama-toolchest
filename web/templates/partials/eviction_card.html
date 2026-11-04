@@ -1,0 +1,100 @@
+{{/* Settings → Eviction (evictionView, eviction.go). The card fetches
+     itself again after every settings save (settingsSaved), because the
+     generation and forks switches change it too. */}}
+{{define "eviction_card"}}
+<article id="eviction"
+         hx-get="/api/settings/eviction"
+         hx-trigger="settingsSaved from:body"
+         hx-swap="outerHTML">
+    <header>Eviction</header>
+    <p><small>Which models unload when a new model needs room on a GPU. A
+       model that answers a request never unloads. Changes apply at the
+       next server start.</small></p>
+    <form hx-put="/api/settings"
+          hx-target="#eviction-status"
+          hx-swap="innerHTML"
+          hx-trigger="change">
+        <fieldset>
+            <label>
+                <input type="radio" name="eviction" value="off"
+                       {{if eq .Checked "off"}}checked{{end}}>
+                Off
+                <br><small>Keeps up to <em>Max loaded models</em>. At the
+                limit, the model used least recently unloads. VRAM is not
+                checked.</small>
+            </label>
+            <label {{with .LlamaCppBlocked}}title="{{.}}: the llama-server router cannot see the VRAM they use."{{end}}>
+                <input type="radio" name="eviction" value="llamacpp"
+                       {{if eq .Checked "llamacpp"}}checked{{end}}
+                       {{if .LlamaCppBlocked}}disabled{{end}}>
+                llama.cpp
+                <br><small>The llama-server router unloads idle LLMs, least
+                recently used first, until the new one fits in VRAM.{{with .Margin}}
+                It keeps {{.}} free on each GPU.{{end}}</small>
+                {{with .LlamaCppBlocked}}<br><small><mark>{{.}}</mark></small>{{end}}
+                {{with .Note}}<br><small><mark>{{.}}</mark></small>{{end}}
+            </label>
+            <label>
+                <input type="radio" name="eviction" value="toolchest"
+                       {{if eq .Checked "toolchest"}}checked{{end}}>
+                llama-toolchest
+                <br><small>Toolchest unloads idle LLMs, least recently used
+                first, until the new one fits. It keeps the fit margin (1 GiB
+                or 8%) and the reservations of generation backends
+                free.</small>
+                {{if .GaveWay}}<br><small>You chose llama.cpp. llama-toolchest
+                decides while generation backends or forks are on.</small>{{end}}
+            </label>
+        </fieldset>
+    </form>
+    {{/* A second form, so that a change here does not send the checked
+         radio: while llama.cpp gives way, that is llama-toolchest, and it
+         would replace the saved choice. */}}
+    <form hx-put="/api/settings"
+          hx-target="#eviction-status"
+          hx-swap="innerHTML"
+          hx-trigger="change">
+        {{if and .GenerationEnabled (eq .Checked "toolchest")}}
+        <div class="eviction-turns">
+            <input type="hidden" name="gen_evict_touched" value="1">
+            <label title="Off: the reservations always count, and an LLM that does not fit is refused. On: LLMs and idle backends stop each other to fit. Locked backends never stop.">
+                <input type="checkbox" role="switch" name="gen_evict"
+                       {{if .GenEvict}}checked{{end}}>
+                LLMs and backends can take turns on a GPU
+                <br><small>When both do not fit, the newest request gets the
+                GPU. A chat request stops idle backends. A job unloads idle
+                LLMs and loads them again after the job. Locked instances
+                never stop. Each turn reloads a model, so expect a wait of
+                seconds to a minute.</small>
+            </label>
+            {{if .GenEvict}}
+            <input type="hidden" name="gen_keep_prompt_cache_touched" value="1">
+            <label class="eviction-sub" title="Before an unload for a job, saves the prompt cache of each conversation to disk. At reload, restores it, so the next reply reads only the new message.">
+                <input type="checkbox" role="switch" name="gen_keep_prompt_cache"
+                       {{if .GenKeepPromptCache}}checked{{end}}>
+                Keep the LLM's prompt cache when it unloads for a job
+            </label>
+            {{end}}
+        </div>
+        {{end}}
+
+        <label class="eviction-max" title="The most LLMs loaded at once, in every mode. 0: no limit. With eviction off, 1 means one model at a time.">
+            Max loaded models
+            <input type="number" name="models_max" value="{{.ModelsMax}}" min="0">
+        </label>
+    </form>
+    <div id="eviction-status"></div>
+    <div class="eviction-restart">
+        {{if .Restart}}<small><mark>Restart the server to apply.</mark></small>{{end}}
+        {{if .Running}}
+        <button type="button" class="outline"
+                hx-post="/api/service/restart"
+                hx-swap="none"
+                hx-disabled-elt="this"
+                hx-on::after-request="onEvictionRestart(event)">
+            Restart server
+        </button>
+        {{end}}
+    </div>
+</article>
+{{end}}

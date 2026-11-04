@@ -58,39 +58,39 @@ func TestForksSwitchJSON(t *testing.T) {
 	}
 }
 
-// Forks hold GPUs the router cannot see, as generation backends do. The
-// option stays on with forks on, can be turned on then, and a restore
+// Forks hold GPUs the router cannot see, as generation backends do.
+// llama.cpp stays chosen with forks on, can be chosen then, and a restore
 // keeps it: toolchest decides what to unload from the next start.
-func TestForksKeepRouterMemoryOn(t *testing.T) {
-	s := newSettingsServer(t, &config.Config{ModelsMax: 1})
-	putSettings(t, s, url.Values{"router_memory_touched": {"1"}, "router_memory": {"on"}})
+func TestForksKeepLlamaCppEviction(t *testing.T) {
+	s := newSettingsServer(t, &config.Config{ModelsMax: 1, Eviction: config.EvictionOff})
+	putSettings(t, s, url.Values{"eviction": {"llamacpp"}})
 	putSettings(t, s, url.Values{"forks_touched": {"1"}, "forks_enabled": {"on"}})
-	if !s.cfg.ForksEnabled || !s.cfg.RouterMemory {
-		t.Fatalf("forks on: forks %v, router %v; want both on", s.cfg.ForksEnabled, s.cfg.RouterMemory)
+	if !s.cfg.ForksEnabled || s.cfg.Eviction != config.EvictionLlamaCpp {
+		t.Fatalf("forks on: forks %v, eviction %q; want on and llamacpp", s.cfg.ForksEnabled, s.cfg.Eviction)
 	}
-	if v := s.routerMemoryInfo(); !v.Toolchest {
-		t.Error("Server page does not say toolchest decides with forks on")
-	}
-
-	putSettings(t, s, url.Values{"router_memory_touched": {"1"}})
-	if s.cfg.RouterMemory {
-		t.Fatal("not turned off")
-	}
-	req := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{"router_memory":true}`))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	s.handleUpdateSettings(rec, req)
-	if rec.Code != http.StatusOK || !s.cfg.RouterMemory {
-		t.Errorf("JSON with forks on: %d, router %v; want on", rec.Code, s.cfg.RouterMemory)
+	if v := s.evictionInfo(); v.Checked != config.EvictionToolchest || v.LlamaCppBlocked != "Not with llama.cpp forks on" {
+		t.Errorf("forks on: %+v; want toolchest in effect", v)
 	}
 
-	s.cfg.RouterMemory = false
+	putSettings(t, s, url.Values{"eviction": {"off"}})
+	if rec := putSettingsJSON(t, s, `{"eviction":"llamacpp"}`); rec.Code != http.StatusOK || s.cfg.Eviction != config.EvictionLlamaCpp {
+		t.Errorf("JSON with forks on: %d, eviction %q; want llamacpp", rec.Code, s.cfg.Eviction)
+	}
+
+	s.cfg.Eviction = config.EvictionOff
 	on := true
 	if _, err := s.restoreDeps().ApplySettings(backup.Settings{RouterMemory: &on}); err != nil {
 		t.Fatal(err)
 	}
-	if !s.cfg.RouterMemory {
-		t.Error("restore did not turn the option on with forks on")
+	if s.cfg.Eviction != config.EvictionLlamaCpp {
+		t.Errorf("restore of an old backup: eviction %q, want llamacpp", s.cfg.Eviction)
+	}
+	tc := config.EvictionToolchest
+	if _, err := s.restoreDeps().ApplySettings(backup.Settings{Eviction: &tc, RouterMemory: &on}); err != nil {
+		t.Fatal(err)
+	}
+	if s.cfg.Eviction != config.EvictionToolchest {
+		t.Errorf("restore: eviction %q, want toolchest (eviction wins)", s.cfg.Eviction)
 	}
 }
 

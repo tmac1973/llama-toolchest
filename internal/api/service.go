@@ -497,8 +497,7 @@ func (s *Server) startRouterWith(opt routerOptions) error {
 		buildID = s.cfg.ActiveBuild
 	}
 	modelsMax := s.cfg.ModelsMax
-	routerMemory := s.cfg.RouterMemory
-	holdsVRAMOutside := s.cfg.HoldsVRAMOutsideRouter()
+	eviction := s.cfg.EffectiveEviction()
 	port := s.cfg.LlamaPort
 	extraEnv := s.cfg.RuntimeEnvPairs()
 	s.cfgMu.Unlock()
@@ -538,7 +537,7 @@ func (s *Server) startRouterWith(opt routerOptions) error {
 	}
 	sort.Strings(overridden)
 
-	modelsMax, marginMiB, mode := routerLimits(modelsMax, routerMemory, holdsVRAMOutside, opt.job,
+	modelsMax, marginMiB, mode := routerLimits(modelsMax, eviction, opt.job,
 		s.targetFor(build).RouterMemoryOption(), s.routerMemoryMarginMiB())
 
 	slog.Info("starting router",

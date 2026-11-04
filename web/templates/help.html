@@ -76,6 +76,7 @@
     <nav class="help-toc">
         <a href="#quickstart">Quickstart</a>
         <a href="#concepts">Core concepts</a>
+        <a href="#eviction">Eviction</a>
         <a href="#server">Server tab</a>
         <a href="#builds">Builds</a>
         <a href="#models">Models</a>
@@ -107,23 +108,38 @@
         <dd>The server offers the model in <code>/v1/models</code> and can load it on request. Uses no VRAM. Enable as many as you like.</dd>
         <dt>Loaded</dt>
         <dd>The model is in VRAM and ready. The router loads it on the first request, or when you press <span class="inline-icon"><svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor" aria-hidden="true"><path d="M4 3l9 5-9 5z"/></svg></span> in the Server tab's Available Models card.</dd>
-        <dt>Max Loaded</dt>
-        <dd>How many models can be loaded at once. When it is reached, the least recently used one is unloaded. <code>0</code> means no limit.</dd>
-        <dt>Keep several models loaded</dt>
-        <dd>Models stay loaded while they fit in VRAM, not by count. For example, small embedding or reranking models stay beside a large chat model. When a new model does not fit, the idle models used least recently are unloaded. A model that answers a request is never unloaded. Max Loaded still sets an upper limit. Who decides:
-            <ul>
-                <li>Generation backends and forks off: the llama-server router. It keeps one margin free on each GPU; the Server tab shows it. Needs llama.cpp b11930 or newer.</li>
-                <li>Generation backends or forks on: toolchest, because the router cannot see their VRAM reservations. It keeps the fit margin free on each GPU, and works with any build. It unloads idle models first. With eviction on, it stops backends only when that is not enough.</li>
-            </ul>
-            A change applies at the next server start. A small model can unload a big one: if the big model leaves too little room on a GPU that the small model uses, a request for the small model unloads the big one. To keep both loaded, give the big model a smaller context. Benchmarks and Autotune still load one model at a time.</dd>
+        <dt>Max loaded models</dt>
+        <dd>How many models can be loaded at once (Settings → Eviction). <code>0</code> means no limit. See <a href="#eviction">Eviction</a> for what unloads when a new model needs room.</dd>
         <dt>Public name and aliases</dt>
         <dd>The <code>id</code> in <code>/v1/models</code> is a short name from the repo and quant (e.g. <code>unsloth-Qwen3.5-4B.Q4_K_M</code>). The long registry ID and any aliases you add in <em>Configure → Aliases</em> work too.</dd>
     </dl>
 
+    <h2 id="eviction">Eviction</h2>
+    <p>Eviction is how toolchest makes room on a GPU. It unloads an LLM, or stops a generation backend, so that a new one can load. Set it in <a href="/settings#eviction">Settings → Eviction</a>. The Server tab shows the mode in effect. A change applies at the next server start; the card has a <em>Restart server</em> button for this.</p>
+    <div class="help-wide"><table>
+        <tr><th>Mode</th><th>Who decides</th><th>What unloads</th></tr>
+        <tr><td><strong>Off</strong></td><td>The llama-server router, by count</td><td>It keeps up to <em>Max loaded models</em>. At the limit, the model used least recently unloads. VRAM is not checked, so a model that does not fit fails to load. <code>1</code> means one model at a time.</td></tr>
+        <tr><td><strong>llama.cpp</strong></td><td>The llama-server router, by VRAM</td><td>Idle models unload, least recently used first, until the new model fits. The router keeps one margin free on each GPU; the card shows it. Needs llama.cpp b11930 or newer; an older build unloads by count.</td></tr>
+        <tr><td><strong>llama-toolchest</strong></td><td>Toolchest, by VRAM</td><td>Idle models unload, least recently used first, but only on the GPUs that are short. Toolchest keeps the fit margin (1 GiB or 8%) and the generation reservations free. Works with any build.</td></tr>
+    </table></div>
+    <ul>
+        <li><strong>In every mode:</strong> a model that answers a request never unloads. <em>Max loaded models</em> is always an upper limit. Benchmarks, Autotune and Autoconfigure load one model at a time.</li>
+        <li><strong>Small models stay:</strong> with llama.cpp or llama-toolchest, embedding and reranking models stay loaded beside a chat model while they fit. A small model can unload a big one: if the big model leaves too little room on a GPU that the small model uses, a request for the small model unloads the big one. To keep both, give the big model a smaller context.</li>
+        <li><strong>llama.cpp gives way to llama-toolchest</strong> while generation backends or llama.cpp forks are on. The router cannot see the VRAM that they use. The card then shows llama.cpp as not available, and toolchest decides. Your choice is kept, and llama.cpp decides again when backends and forks are off.</li>
+        <li><strong>Split Mode tensor:</strong> the router cannot see the memory of a model with Split Mode <code>tensor</code>, so with llama.cpp such a load can fail out of memory. Use llama-toolchest, or Split Mode <code>layer</code>.</li>
+    </ul>
+    <h3>LLMs and generation backends</h3>
+    <p>With generation backends on and llama-toolchest in effect, the card has one more switch, <em>LLMs and backends can take turns on a GPU</em>:</p>
+    <ul>
+        <li><strong>Off (default):</strong> each measured instance keeps its reservation free, also while it is stopped. An LLM that does not fit beside the reservations is refused (HTTP 507).</li>
+        <li><strong>On:</strong> the newest request gets the GPU. A chat request stops idle backends, and a job unloads idle LLMs. See <a href="#generation-evict">Taking turns when both do not fit</a>.</li>
+    </ul>
+    <p>With eviction off, the reservations always count, as with the switch off.</p>
+
     <h2 id="server">Server tab</h2>
     <dl>
         <dt>Server card</dt>
-        <dd>State, the build to run (<em>Auto</em> picks the newest), Max Loaded, and Start / Stop / Restart.</dd>
+        <dd>State, the build to run (<em>Auto</em> picks the newest), the eviction mode in effect with a link to change it, and Start / Stop / Restart.</dd>
         <dt>Available Models</dt>
         <dd>Every enabled chat model, with a load icon and a copy icon for its public name. Embedding and reranking models follow in their own sections. Hover a row to compare the VRAM measured at the last load (weights, KV cache and buffers, per GPU) with the estimate. Measured figures need <em>Model loading detail</em> 4 or higher in <a href="/settings">Settings</a>. The use that a card reports is a few hundred MiB higher, for driver overhead.</dd>
         <dt>API Endpoint and Agent Configs</dt>
@@ -364,7 +380,7 @@
     <p>Jobs and chat on one GPU slow each other (on one R9700: images 2.3× slower, songs 2.8× slower, chat from 45 to 11–20 tokens/s). So generation jobs take turns: one per GPU, up to 16 waiting; more get HTTP 429. Chat never waits. Benchmarks, Autotune and Autoconfigure also wait for a running job, then keep the GPU until they finish. Jobs on separate GPUs run at full speed if the LLM is not split onto those GPUs: set its GPU Assignment to keep it on its own card, or clear the generation GPU in Autoconfigure. Jobs from the own web page of a backend skip the queue.</p>
 
     <h3 id="generation-evict">Taking turns when both do not fit</h3>
-    <p>By default, toolchest refuses an LLM that does not fit beside the reservations. With <em>Let LLMs and backends take a GPU from each other</em> on (Settings → Generation backends):</p>
+    <p>By default, toolchest refuses an LLM that does not fit beside the reservations. With <em>LLMs and backends can take turns on a GPU</em> on (Settings → <a href="#eviction">Eviction</a>, with llama-toolchest in effect):</p>
     <ul>
         <li>Only running backends count. A chat request for an LLM that does not fit stops as few backends as needed on its GPUs, largest first. It waits for a running job there to finish.</li>
         <li>A job for a stopped backend starts it. It stops other backends first, then unloads LLMs on that GPU, largest first, as needed. An LLM unloads only after its replies in progress finish, and it loads again after the job.</li>
@@ -413,7 +429,7 @@ curl $BASE/v1/videos/generations -F prompt="the waves start to roll" -F start_im
     <h2 id="forks">llama.cpp forks (experimental)</h2>
     <p>Some forks of llama.cpp are much faster for one model. llama-toolchest can build a short list of tested forks. Each one runs as a <em>fork instance</em>: its own llama-server, for the model the fork is made for, on one whole GPU. It runs next to the router and the generation backends. Now the list has one fork, <strong>Avalon</strong>. It runs Qwen3.8-Flash-Next on one RDNA3 GPU, with most experts in system RAM.</p>
     <ol>
-        <li><strong>Turn on</strong> <em>llama.cpp forks (experimental)</em> in <a href="/settings">Settings</a>. With <em>Keep several models loaded</em> on, toolchest then decides what to unload.</li>
+        <li><strong>Turn on</strong> <em>llama.cpp forks (experimental)</em> in <a href="/settings">Settings</a>. With eviction set to llama.cpp, toolchest then decides what to unload (see <a href="#eviction">Eviction</a>).</li>
         <li><strong>Build</strong> the fork on <a href="/builds">Builds</a>. <em>Pinned (tested)</em> is the commit we tested. <em>Latest commit</em> is not tested.</li>
         <li><strong>Download its model</strong> on <a href="/models">Models</a>, under <em>Fork model sets</em>. Avalon's model is about 90 GiB.</li>
         <li><strong>Add an instance</strong> on <a href="/server">Server</a>, under <em>llama.cpp forks</em>. Choose the GPU. The dialog warns when the machine has too little RAM, no AVX2, or another GPU type. You can still start it.</li>
@@ -458,7 +474,7 @@ curl $BASE/v1/videos/generations -F prompt="the waves start to roll" -F start_im
         <dt>Model will not load, or llama-server crashes</dt><dd>Check Server Logs. The Server Logs start again with each router start, so for an earlier crash use <a href="#engine-notes">Engine notes</a>: it keeps each crash with its error lines. If you use tensor parallelism, try a layer-split GPU Assignment.</dd>
         <dt>Model missing from <code>/v1/models</code></dt><dd>Check its <em>On</em> switch, then restart the server.</dd>
         <dt>Stuck on "loading"</dt><dd>It probably failed to start; check Server Logs.</dd>
-        <dt>Out of VRAM</dt><dd>Run Autoconfigure, or lower GPU Layers or Context Size, use KV Cache Quant, or lower Max Loaded.</dd>
+        <dt>Out of VRAM</dt><dd>Run Autoconfigure, or lower GPU Layers or Context Size, use KV Cache Quant, or lower Max loaded models.</dd>
         <dt>No sampling presets</dt><dd>None were found for this model. Try <em>&#8635; Refresh presets</em> later.</dd>
     </dl>
 

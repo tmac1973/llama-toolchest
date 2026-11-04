@@ -1035,6 +1035,7 @@ func (s *Server) buildRouter() chi.Router {
 		r.Route("/settings", func(r chi.Router) {
 			r.Get("/", s.handleGetSettings)
 			r.Put("/", s.handleUpdateSettings)
+			r.Get("/eviction", s.handleEvictionCard)
 			r.Post("/test-connection", s.handleTestConnection)
 		})
 		r.Route("/monitor", func(r chi.Router) {
@@ -1278,7 +1279,6 @@ func (s *Server) handleServerPage(w http.ResponseWriter, r *http.Request) {
 	data := struct {
 		pageData
 		ActiveBuild string
-		ModelsMax   int
 		// BuildChoices is every build with its runnability. PickerHint is the
 		// select's tooltip: the marked options say which builds cannot run,
 		// and this says why, without a line of text under the control.
@@ -1289,17 +1289,16 @@ func (s *Server) handleServerPage(w http.ResponseWriter, r *http.Request) {
 		// ForksEnabled the Fork instances section.
 		GenerationEnabled bool
 		ForksEnabled      bool
-		// RouterMemory is the router memory switch (router_memory.go).
-		RouterMemory routerMemoryView
+		// Eviction is the line that links to Settings → Eviction.
+		Eviction evictionView
 	}{
 		GenerationEnabled: cfg.GenerationEnabled,
 		ForksEnabled:      cfg.ForksEnabled,
 		pageData:          pageData{Title: "Server", Nav: "server"},
 		ActiveBuild:       cfg.ActiveBuild,
-		ModelsMax:         cfg.ModelsMax,
 		BuildChoices:      choices,
 		AutoMismatch:      autoMismatch,
-		RouterMemory:      s.routerMemoryInfo(),
+		Eviction:          s.evictionInfo(),
 	}
 	data.PickerHint = s.buildPickerHint(choices, allMismatched)
 	s.render(w, "server.html", data)
@@ -1363,15 +1362,14 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		EnvWarnings      []string
 		EffectiveEnv     []envLine
 
-		GenerationEnabled  bool
-		ForksEnabled       bool
-		GenEvict           bool
-		GenKeepPromptCache bool
-		GenPortStart       int
-		GenPortEnd         int
-		GenPortCount       int
-		InContainer        bool
-		GenPortsPublished  bool
+		GenerationEnabled bool
+		ForksEnabled      bool
+		Eviction          evictionView
+		GenPortStart      int
+		GenPortEnd        int
+		GenPortCount      int
+		InContainer       bool
+		GenPortsPublished bool
 	}{
 		pageData:         pageData{Title: "Settings", Nav: "settings"},
 		ProxyEndpoint:    proxyEndpoint,
@@ -1396,12 +1394,11 @@ func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		EnvWarnings:      cfg.EnvSet().Warnings(),
 		EffectiveEnv:     effectiveEnvLines(cfg.EnvSet()),
 
-		GenerationEnabled:  cfg.GenerationEnabled,
-		ForksEnabled:       cfg.ForksEnabled,
-		GenEvict:           cfg.GenEvict,
-		GenKeepPromptCache: cfg.GenKeepPromptCache,
-		InContainer:        s.inContainer(),
-		GenPortsPublished:  s.genPortsPublished(),
+		GenerationEnabled: cfg.GenerationEnabled,
+		ForksEnabled:      cfg.ForksEnabled,
+		Eviction:          s.evictionInfo(),
+		InContainer:       s.inContainer(),
+		GenPortsPublished: s.genPortsPublished(),
 	}
 	data.GenPortStart, data.GenPortCount = cfg.GenPorts(data.InContainer)
 	data.GenPortEnd = data.GenPortStart + data.GenPortCount - 1

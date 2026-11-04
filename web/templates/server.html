@@ -231,28 +231,11 @@
                                 {{end}}
                             </select>
                         </label>
-                        <label title="Maximum models loaded at once. 1: loading a model unloads the one before. 0: no limit. Applies at the next server start.">
-                            Max Loaded
-                            <input type="number" name="models_max" value="{{.ModelsMax}}" min="0"
-                                   placeholder="0 = unlimited">
-                        </label>
                     </div>
-                    <input type="hidden" name="router_memory_touched" value="1">
-                    <label title="{{if .RouterMemory.Toolchest}}Keeps several models loaded while they fit in VRAM. Toolchest decides, because generation backends or forks are on. When a model does not fit, it unloads the idle models used least recently. Applies at the next server start.{{else}}Keeps several models loaded while they fit in VRAM. The llama-server router decides. When a model does not fit, it unloads the idle models used least recently. Applies at the next server start.{{if .RouterMemory.Note}} {{.RouterMemory.Note}}{{end}}{{end}}">
-                        <input type="checkbox" role="switch" name="router_memory"
-                               onchange="if (this.checked && this.form.models_max && this.form.models_max.value === '1') this.form.models_max.value = '0'"
-                               {{if .RouterMemory.On}}checked{{end}}>
-                        Keep several models loaded
-                    </label>
-                    {{if .RouterMemory.On}}{{if .RouterMemory.Toolchest}}
-                    <small title="Toolchest fit margin of each GPU: 1 GiB or 8%, the larger value.">Toolchest decides, with the fit margin of each GPU.</small>
-                    {{else if .RouterMemory.Margin}}
-                    <small title="Toolchest fit margin of the largest GPU: 1 GiB or 8%, the larger value. The router uses one value for all GPUs.">Effective margin: {{.RouterMemory.Margin}}.{{if .RouterMemory.Note}} {{.RouterMemory.Note}}{{end}}</small>
-                    {{end}}{{end}}
-                    {{if .RouterMemory.Restart}}
-                    <small><mark>Restart the server to apply.</mark></small>
-                    {{end}}
                 </form>
+                <p class="server-eviction"><small>Eviction: {{.Eviction.Label}} · Max loaded models: {{if .Eviction.ModelsMax}}{{.Eviction.ModelsMax}}{{else}}no limit{{end}} ·
+                    <a href="/settings#eviction">Change in Settings</a>{{if .Eviction.Restart}} ·
+                    <mark>Restart the server to apply.</mark>{{end}}</small></p>
                 <div id="build-save-status"></div>
                 <div id="server-action-error" class="server-action-error"></div>
                 <div role="group">

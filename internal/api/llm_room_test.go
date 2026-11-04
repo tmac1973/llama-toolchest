@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"github.com/tmac1973/llama-toolchest/internal/config"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -392,7 +393,7 @@ func runningBackend(t *testing.T, s *Server, reserveMiB int) {
 func TestLoadWithRoomLLMsBeforeBackends(t *testing.T) {
 	s, f := roomServer(t)
 	withGen(t, s)
-	s.cfg.GenEvict = true
+	s.cfg.GenEvict, s.cfg.Eviction = true, config.EvictionToolchest
 	runningBackend(t, s, 10000) // budget 18,818 MiB beside it
 	addRoomModel(t, s, "a", 8)
 	c := addRoomModel(t, s, "c", 12)
@@ -480,7 +481,7 @@ func TestLoadWithRoomBusyBlocksUnloadsNothing(t *testing.T) {
 func TestLoadWithRoomKeptRunningBackend(t *testing.T) {
 	s, f := roomServer(t)
 	withGen(t, s)
-	s.cfg.GenEvict = true
+	s.cfg.GenEvict, s.cfg.Eviction = true, config.EvictionToolchest
 	runningBackend(t, s, 10000)
 	inst, _ := s.gen.Instance("ming")
 	inst.KeepRunning = true
@@ -507,7 +508,7 @@ func TestLoadWithRoomKeptRunningBackend(t *testing.T) {
 func TestLoadWithRoomNoReservation(t *testing.T) {
 	s, f := roomServer(t)
 	withGen(t, s)
-	s.cfg.GenEvict = true
+	s.cfg.GenEvict, s.cfg.Eviction = true, config.EvictionToolchest
 	addInstance(t, s, generation.Instance{ID: "ming", Port: 8081, Enabled: true, ReservedMiB: 10000})
 	addRoomModel(t, s, "a", 12)
 	addRoomModel(t, s, "b", 8)

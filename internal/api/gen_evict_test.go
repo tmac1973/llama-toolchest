@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"github.com/tmac1973/llama-toolchest/internal/config"
 	"slices"
 	"strings"
 	"testing"
@@ -94,7 +95,7 @@ func TestMakeRoomForLLMOffRefuses(t *testing.T) {
 // GPU's job queue until release, so a job cannot start it again first.
 func TestMakeRoomForLLMStopsTheBackend(t *testing.T) {
 	s, big := evictServer(t)
-	s.cfg.GenEvict = true
+	s.cfg.GenEvict, s.cfg.Eviction = true, config.EvictionToolchest
 	release, err := s.makeRoomForLLM(context.Background(), big)
 	if err != nil {
 		t.Fatal(err)
@@ -137,7 +138,7 @@ func TestPickStoppedBackends(t *testing.T) {
 	s := vramServer(t)
 	addInstance(t, s, generation.Instance{ID: "ming", Port: 8081, Enabled: true, ReservedMiB: 4096})
 	for _, evict := range []bool{false, true} {
-		s.cfg.GenEvict = evict
+		s.cfg.GenEvict, s.cfg.Eviction = evict, config.EvictionToolchest
 		inst, pe := s.pickInstance("ming", generation.KindSD)
 		if pe != nil || inst.ID != "ming" {
 			t.Fatalf("eviction %v: pick = %+v, %v; want the stopped backend", evict, inst, pe)
@@ -154,7 +155,7 @@ func TestPickStoppedBackends(t *testing.T) {
 // when they are what is in the way.
 func TestMakeRoomForGenStopsOtherBackends(t *testing.T) {
 	s := vramServer(t)
-	s.cfg.GenEvict = true
+	s.cfg.GenEvict, s.cfg.Eviction = true, config.EvictionToolchest
 	runFakeInstance(t, s, "other", "ming-image", 0, newFakeBackend(t, 0))
 	other, _ := s.gen.Instance("other")
 	other.ReservedMiB = 20000
@@ -277,7 +278,7 @@ func TestHardwareMarksEvictableReservations(t *testing.T) {
 	if g.ReservedMiB != 14000 || g.EvictableMiB != 0 {
 		t.Errorf("eviction off: reserved %d, evictable %d; want 14000 and 0", g.ReservedMiB, g.EvictableMiB)
 	}
-	s.cfg.GenEvict = true
+	s.cfg.GenEvict, s.cfg.Eviction = true, config.EvictionToolchest
 	g = s.hardware().GPUs[0]
 	if g.ReservedMiB != 14000 || g.EvictableMiB != 8000 {
 		t.Errorf("eviction on: reserved %d, evictable %d; want 14000 and 8000 (ace is kept running)", g.ReservedMiB, g.EvictableMiB)
@@ -292,7 +293,7 @@ func TestHardwareMarksEvictableReservations(t *testing.T) {
 // unloaded) waits for the job instead of taking the room it needs.
 func TestMakeRoomForLLMWaitsForAStartingBackend(t *testing.T) {
 	s, big := evictServer(t)
-	s.cfg.GenEvict = true
+	s.cfg.GenEvict, s.cfg.Eviction = true, config.EvictionToolchest
 	if err := s.genMgr.Stop("ming"); err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +342,7 @@ func TestMakeRoomForLLMWaitsForAStartingBackend(t *testing.T) {
 // for flux on GPU 1, ace's job took GPU 2, and the load failed).
 func TestMakeRoomForLLMHoldsAllItsGPUs(t *testing.T) {
 	s, _ := evictServer(t)
-	s.cfg.GenEvict = true
+	s.cfg.GenEvict, s.cfg.Eviction = true, config.EvictionToolchest
 	// Short beside ming on GPU 0 even when split over two cards.
 	big := &models.Model{ID: "huge", ModelID: "org/huge", Filename: "huge.gguf", SizeBytes: 30 << 30}
 	if err := s.registry.Add(big); err != nil {
@@ -420,7 +421,7 @@ func TestStartGenFromUIMakesRoom(t *testing.T) {
 		t.Fatal("eviction off: the other backend was stopped")
 	}
 
-	s.cfg.GenEvict = true
+	s.cfg.GenEvict, s.cfg.Eviction = true, config.EvictionToolchest
 	err = s.startGenFromUI(context.Background(), inst)
 	t.Logf("eviction on: %v", err)
 	if err == nil || strings.Contains(err.Error(), "not enough VRAM") {
@@ -453,7 +454,7 @@ func TestMakeRoomForMeasure(t *testing.T) {
 		t.Fatalf("eviction off: err %v, other running %v; want nothing stopped", err, s.genMgr.IsActive("other"))
 	}
 
-	s.cfg.GenEvict = true
+	s.cfg.GenEvict, s.cfg.Eviction = true, config.EvictionToolchest
 	other, _ := s.gen.Instance("other")
 	other.KeepRunning = true
 	s.gen.UpdateInstance(other)
@@ -490,7 +491,7 @@ func TestMakeRoomForMeasure(t *testing.T) {
 // room.
 func TestMakeRoomForLLMWaitsForAMeasurement(t *testing.T) {
 	s, big := evictServer(t)
-	s.cfg.GenEvict = true
+	s.cfg.GenEvict, s.cfg.Eviction = true, config.EvictionToolchest
 	if err := s.genMgr.Stop("ming"); err != nil {
 		t.Fatal(err)
 	}

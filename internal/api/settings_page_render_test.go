@@ -46,6 +46,7 @@ func TestSettingsPageRendersEnvSection(t *testing.T) {
 		EffectiveEnv      []envLine
 		GenerationEnabled bool
 		ForksEnabled      bool
+		Eviction          evictionView
 		GenPortStart      int
 		GenPortEnd        int
 		GenPortCount      int

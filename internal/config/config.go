@@ -33,14 +33,14 @@ type Config struct {
 	LogLevel    string `yaml:"log_level"`    // default "info"
 	ActiveBuild string `yaml:"active_build"` // which llama.cpp build to use
 	ModelsMax   int    `yaml:"models_max"`   // max loaded models, 0 = unlimited
-	// RouterMemory keeps several models loaded and unloads the least
-	// recently used idle ones when a new one does not fit. With generation
-	// backends and forks off, the llama-server router decides
-	// (--models-memory-margin). With either on, toolchest decides
-	// (loadLLMWithRoom), because the router cannot see their reservations,
-	// and the router gets --models-max 0. One or the other decides what is
-	// unloaded, never both.
-	RouterMemory bool `yaml:"router_memory"`
+	// Eviction says which models unload when a new model needs room on a
+	// GPU: EvictionOff, EvictionLlamaCpp or EvictionToolchest. Empty in a
+	// config from before the setting; Load fills it from RouterMemory.
+	// See EffectiveEviction for the mode a router start uses.
+	Eviction string `yaml:"eviction,omitempty"`
+	// RouterMemory is the older "keep several models loaded" switch. Load
+	// reads it only to fill Eviction, and it is not written again.
+	RouterMemory bool `yaml:"router_memory,omitempty"`
 	AutoStart    bool `yaml:"auto_start"` // start the llama-server on container startup
 
 	// RuntimeEnv holds curated environment variables applied to the
@@ -70,12 +70,13 @@ type Config struct {
 	// about them is shown or run.
 	ForksEnabled bool `yaml:"forks_enabled,omitempty"`
 
-	// GenEvict lets LLMs and generation backends take a GPU from each
-	// other when both do not fit: a chat request for an LLM that is not
+	// GenEvict lets LLMs and generation backends take turns on a GPU
+	// when both do not fit: a chat request for an LLM that is not
 	// loaded stops idle backends in its way, and a job for a stopped
 	// backend unloads idle LLMs and starts it. Reservations then count
 	// only while a backend runs. Off by default: fixed reservations, and
-	// a load that does not fit is refused.
+	// a load that does not fit is refused. Only with EvictionToolchest
+	// in effect (GenEvictOn).
 	GenEvict bool `yaml:"gen_evict,omitempty"`
 
 	// GenKeepPromptCache saves an LLM's prompt cache to disk before an
@@ -226,9 +227,72 @@ const (
 
 // HoldsVRAMOutsideRouter reports whether a switched-on feature runs
 // servers that hold GPU memory the router cannot see: generation
-// backends or llama.cpp forks. Router memory stays off while it does.
+// backends or llama.cpp forks. The router cannot decide what to unload
+// while it does (EffectiveEviction).
 func (c *Config) HoldsVRAMOutsideRouter() bool {
 	return c.GenerationEnabled || c.ForksEnabled
+}
+
+// Eviction values: which models unload when a new model needs room.
+const (
+	// EvictionOff keeps up to ModelsMax models, by count; VRAM is not
+	// checked.
+	EvictionOff = "off"
+	// EvictionLlamaCpp lets the llama-server router unload idle LLMs
+	// until a new one fits (--models-memory-margin).
+	EvictionLlamaCpp = "llamacpp"
+	// EvictionToolchest lets toolchest unload idle LLMs until a new one
+	// fits, beside the reservations of generation backends.
+	EvictionToolchest = "toolchest"
+)
+
+// ValidEviction reports whether v is one of the Eviction values.
+func ValidEviction(v string) bool {
+	return v == EvictionOff || v == EvictionLlamaCpp || v == EvictionToolchest
+}
+
+// EffectiveEviction is the eviction mode a router start uses. llama.cpp
+// gives way to toolchest while generation backends or forks are on,
+// because the router cannot see their reservations; the saved choice
+// stays. The build check (llama.cpp too old for the router option) is
+// the caller's, since the config does not know the build.
+func (c *Config) EffectiveEviction() string {
+	switch {
+	case c.Eviction == EvictionLlamaCpp && c.HoldsVRAMOutsideRouter():
+		return EvictionToolchest
+	case ValidEviction(c.Eviction):
+		return c.Eviction
+	}
+	return EvictionOff
+}
+
+// GenEvictOn reports whether LLMs and generation backends take turns on
+// a GPU: the switch is on, backends are on, and toolchest decides what
+// unloads. With eviction off, a load that does not fit is refused.
+func (c *Config) GenEvictOn() bool {
+	return c.GenerationEnabled && c.GenEvict && c.EffectiveEviction() == EvictionToolchest
+}
+
+// migrateEviction fills Eviction in a config from before the setting.
+// "Keep several models loaded" becomes llama.cpp, which still gives way
+// to toolchest while backends or forks are on, as before. Without it,
+// the take-turns switch (GenEvict) needs toolchest now, so a config that
+// used it gets toolchest; any other is off.
+func migrateEviction(c *Config) {
+	if c.Eviction == "" {
+		switch {
+		case c.RouterMemory:
+			c.Eviction = EvictionLlamaCpp
+		case c.GenEvict && c.GenerationEnabled:
+			c.Eviction = EvictionToolchest
+		default:
+			c.Eviction = EvictionOff
+		}
+	} else if !ValidEviction(c.Eviction) {
+		slog.Warn("unknown eviction value in config; using off", "value", c.Eviction)
+		c.Eviction = EvictionOff
+	}
+	c.RouterMemory = false
 }
 
 // GenPorts returns the effective generation backend port range. In a
@@ -327,6 +391,7 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
+	migrateEviction(cfg)
 	applyEnvOverrides(cfg)
 	salvageModelsDir(cfg)
 	return cfg, nil

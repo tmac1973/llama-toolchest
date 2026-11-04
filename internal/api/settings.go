@@ -34,7 +34,11 @@ type settingsResponse struct {
 	GenKeepPromptCache bool `json:"gen_keep_prompt_cache"`
 	GenPortStart       int  `json:"gen_port_start"`
 	GenPortCount       int  `json:"gen_port_count"`
-	RouterMemory       bool `json:"router_memory"`
+	// Eviction is the chosen eviction mode (off, llamacpp or toolchest),
+	// and EvictionEffective the one a router start uses now.
+	Eviction          string `json:"eviction"`
+	EvictionEffective string `json:"eviction_effective"`
+	ModelsMax         int    `json:"models_max"`
 
 	// EnvOverrides maps each setting an environment variable overrides
 	// (by its YAML name) to that variable. The values above are the ones
@@ -69,7 +73,9 @@ func (s *Server) writeSettings(w http.ResponseWriter, r *http.Request, cfg *conf
 
 		GenerationEnabled:  cfg.GenerationEnabled,
 		ForksEnabled:       cfg.ForksEnabled,
-		RouterMemory:       cfg.RouterMemory,
+		Eviction:           cfg.Eviction,
+		EvictionEffective:  cfg.EffectiveEviction(),
+		ModelsMax:          cfg.ModelsMax,
 		GenEvict:           cfg.GenEvict,
 		GenKeepPromptCache: cfg.GenKeepPromptCache,
 	}
@@ -107,9 +113,9 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	// switching them on starts the auto-start ones, as a start does.
 	wasGenerationEnabled := s.cfg.GenerationEnabled
 	wasForksEnabled := s.cfg.ForksEnabled
-	// routerOn is the router memory option as this request sets it, nil
-	// when it does not; applied once the rest is (applyRouterMemory).
-	var routerOn *bool
+	// eviction is the eviction mode as this request sets it, nil when it
+	// does not; applied once the rest is (applyEvictionLocked).
+	var eviction *string
 
 	if isJSONRequest(r) {
 		var update struct {
@@ -120,18 +126,33 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 
 			DefaultModelSource *string `json:"default_model_source,omitempty"`
 
-			GenerationEnabled  *bool `json:"generation_enabled,omitempty"`
-			ForksEnabled       *bool `json:"forks_enabled,omitempty"`
-			GenEvict           *bool `json:"gen_evict,omitempty"`
-			GenKeepPromptCache *bool `json:"gen_keep_prompt_cache,omitempty"`
-			GenPortStart       *int  `json:"gen_port_start,omitempty"`
-			GenPortCount       *int  `json:"gen_port_count,omitempty"`
-			RouterMemory       *bool `json:"router_memory,omitempty"`
+			GenerationEnabled  *bool   `json:"generation_enabled,omitempty"`
+			ForksEnabled       *bool   `json:"forks_enabled,omitempty"`
+			GenEvict           *bool   `json:"gen_evict,omitempty"`
+			GenKeepPromptCache *bool   `json:"gen_keep_prompt_cache,omitempty"`
+			GenPortStart       *int    `json:"gen_port_start,omitempty"`
+			GenPortCount       *int    `json:"gen_port_count,omitempty"`
+			Eviction           *string `json:"eviction,omitempty"`
+			ModelsMax          *int    `json:"models_max,omitempty"`
+			// RouterMemory is the older switch: true is llama.cpp,
+			// false is off. Eviction wins when both are sent.
+			RouterMemory *bool `json:"router_memory,omitempty"`
 		}
 		if !decodeJSONBody(w, r, &update) {
 			return
 		}
-		routerOn = update.RouterMemory
+		eviction = update.Eviction
+		if eviction == nil && update.RouterMemory != nil {
+			e := routerMemoryEviction(*update.RouterMemory)
+			eviction = &e
+		}
+		if update.ModelsMax != nil {
+			if *update.ModelsMax < 0 {
+				http.Error(w, "models_max must be 0 (no limit) or more", http.StatusBadRequest)
+				return
+			}
+			s.cfg.ModelsMax = *update.ModelsMax
+		}
 		// Checked before anything is changed, so a rejected range leaves
 		// the other fields in this request unsaved too.
 		if update.GenPortStart != nil || update.GenPortCount != nil {
@@ -173,9 +194,9 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		if !parseForm(w, r) {
 			return
 		}
-		if r.Form.Has("router_memory_touched") {
-			on := r.FormValue("router_memory") == "on"
-			routerOn = &on
+		if r.Form.Has("eviction") {
+			e := r.FormValue("eviction")
+			eviction = &e
 		}
 		if r.Form.Has("gen_port_start") || r.Form.Has("gen_port_count") {
 			start, count, err := formGenPorts(r)
@@ -206,7 +227,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			s.cfg.ActiveBuild = r.FormValue("active_build")
 		}
 		if r.Form.Has("models_max") {
-			if v, err := strconv.Atoi(r.FormValue("models_max")); err == nil {
+			if v, err := strconv.Atoi(r.FormValue("models_max")); err == nil && v >= 0 {
 				s.cfg.ModelsMax = v
 			}
 		}
@@ -269,7 +290,10 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s.applyRouterMemoryLocked(routerOn)
+	if err := s.applyEvictionLocked(eviction); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	// Persist config
 	if err := s.saveConfigLocked(); err != nil {
@@ -311,14 +335,17 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 
 	if isHTMX(r) {
 		if wasGenerationEnabled != s.cfg.GenerationEnabled || wasForksEnabled != s.cfg.ForksEnabled {
-			// The Settings page shows the generation settings (evict,
-			// prompt cache) only while generation is on, and draws them
+			// The Settings page shows some generation settings only
+			// while generation is on, and draws them
 			// once, server-side. Reload it so they appear or go at once;
 			// the switch's form puts its card's anchor in the address
 			// first, so the reload lands on that card. Fork sections on
 			// other pages are drawn the same way.
 			w.Header().Set("HX-Refresh", "true")
 		}
+		// The Eviction card fetches itself again on this event, since
+		// several settings change what it shows.
+		w.Header().Set("HX-Trigger", "settingsSaved")
 		respondHTML(w)
 		if envTouched {
 			// Variable warnings plus an out-of-band refresh of the
