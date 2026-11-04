@@ -115,7 +115,7 @@ func (s *Server) forkFormChoices(store *forks.Store) forkFormData {
 	start, count := cfg.GenPorts(s.inContainer())
 	data := forkFormData{PortStart: start, PortEnd: start + count - 1}
 	for _, g := range s.monitor.Current().GPU {
-		data.GPUs = append(data.GPUs, genGPUChoice{Index: g.Index, Name: g.Name})
+		data.GPUs = append(data.GPUs, genGPUChoice{Index: g.Index, Name: g.Name, Link: g.PCIe})
 	}
 	vendor := s.monitor.GPUVendor()
 	for _, f := range curatedForks() {

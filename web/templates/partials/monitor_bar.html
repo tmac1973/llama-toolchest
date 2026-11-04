@@ -5,7 +5,7 @@
         <div style="margin-bottom:0.15rem;">On the GPUs</div>
         {{range .GPUs}}
         <div style="display:flex;align-items:center;gap:0.35rem;margin-bottom:0.2rem;">
-            <span style="flex-shrink:0;">GPU{{.Index}}</span>
+            <span style="flex-shrink:0;"{{with .Link}} title="{{.Title}}"{{end}}>GPU{{.Index}}</span>
             <div class="side-map-bar" style="flex:1;">
                 {{range .Segments}}<span class="{{if eq .Kind "gen"}}side-map-gen{{else if eq .Kind "stopped"}}side-map-stopped{{else if eq .Kind "loading"}}side-map-loading{{end}}" style="width:{{printf "%.1f" .WidthPct}}%;background-color:{{.Color}};--side-map-color:{{.Color}};" title="{{.Title}}"></span>{{end}}
             </div>
@@ -25,6 +25,7 @@
         <div style="display:flex;justify-content:space-between;"><span>VRAM</span><span>{{.VRAMGB}}</span></div>
         <progress value="{{.VRAMPercent}}" max="100" style="width:100%;height:6px;margin:0;"></progress>
         <div style="opacity:0.7;">{{.Details}}</div>
+        {{with .Link}}<div style="opacity:0.7;" title="{{.Title}}">{{.Label}}</div>{{end}}
     </div>
     {{end}}
     <div>

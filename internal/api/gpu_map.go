@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/tmac1973/llama-toolchest/internal/models"
+	"github.com/tmac1973/llama-toolchest/internal/monitor"
 )
 
 // handleGPUMap renders the GPU allocation map partial.
@@ -30,6 +31,7 @@ func (s *Server) handleGPUMap(w http.ResponseWriter, r *http.Request) {
 		TotalGB    float64
 		UsedGB     float64
 		FreeGB     float64
+		Link       *monitor.PCIeLink
 		Segments   []GPUSegment
 		Overcommit bool
 	}
@@ -40,6 +42,7 @@ func (s *Server) handleGPUMap(w http.ResponseWriter, r *http.Request) {
 		bars[i] = GPUBar{
 			Index:   gpu.Index,
 			Name:    gpu.Name,
+			Link:    gpu.PCIe,
 			TotalGB: totalGB,
 		}
 

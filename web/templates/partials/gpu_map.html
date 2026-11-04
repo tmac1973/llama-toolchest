@@ -13,7 +13,7 @@
         {{range .Bars}}
         <div style="margin-bottom: 0.5rem;">
             <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.15rem;">
-                <span><strong>GPU {{.Index}}</strong> <small>{{.Name}}</small></span>
+                <span><strong>GPU {{.Index}}</strong> <small>{{.Name}}</small>{{with .Link}} <small title="{{.Title}}">· {{.Label}}</small>{{end}}</span>
                 <span>
                     {{printf "%.1f" .UsedGB}} / {{printf "%.1f" .TotalGB}} GiB
                     {{if .Overcommit}} <mark style="padding:0 0.3rem;font-size:0.75rem;background:var(--pico-del-color);color:#fff;">OVER</mark>{{end}}

@@ -175,7 +175,7 @@
         </label>
         <label title="The GPU this instance runs on. It only sees this GPU.">GPU
             <select name="gpu">
-                {{- range .GPUs}}<option value="{{.Index}}"{{if and $.Editing (eq .Index $.EditGPU)}} selected{{end}}>{{.Index}}: {{.Name}}</option>{{else}}<option value="0">0</option>{{end}}
+                {{- range .GPUs}}<option value="{{.Index}}"{{if and $.Editing (eq .Index $.EditGPU)}} selected{{end}}>{{.Index}}: {{.Name}}{{with .Link}} ({{.Label}}){{end}}</option>{{else}}<option value="0">0</option>{{end}}
             </select>
         </label>
         <label title="The port that API clients connect to. It must be in the generation port range ({{.PortStart}}–{{.PortEnd}}). Empty: the lowest free port.">Port

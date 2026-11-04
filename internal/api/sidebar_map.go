@@ -29,6 +29,7 @@ type sidebarSegment struct {
 // sidebarMapGPU is one GPU's bar on the sidebar's map.
 type sidebarMapGPU struct {
 	Index    int
+	Link     *monitor.PCIeLink
 	Segments []sidebarSegment
 }
 
@@ -93,7 +94,7 @@ func (s *Server) sidebarMapData(m monitor.Metrics) sidebarMap {
 func buildSidebarMap(gpus []monitor.GPUInfo, allocs []models.GPUAllocation, loaded map[string]string, running map[string]bool) sidebarMap {
 	var out sidebarMap
 	for i, gpu := range gpus {
-		bar := sidebarMapGPU{Index: gpu.Index}
+		bar := sidebarMapGPU{Index: gpu.Index, Link: gpu.PCIe}
 		totalGB := float64(gpu.VRAMTotalMB) / 1024
 		for _, a := range allocs {
 			kind, ok := sidebarKind(a, loaded, running)

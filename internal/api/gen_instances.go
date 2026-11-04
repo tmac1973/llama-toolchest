@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/tmac1973/llama-toolchest/internal/builder"
 	"github.com/tmac1973/llama-toolchest/internal/generation"
+	"github.com/tmac1973/llama-toolchest/internal/monitor"
 	"github.com/tmac1973/llama-toolchest/internal/process"
 )
 
@@ -235,6 +236,7 @@ type genFormData struct {
 type genGPUChoice struct {
 	Index int
 	Name  string
+	Link  *monitor.PCIeLink
 }
 
 func (s *Server) genInstanceRows(store *generation.Store) []genInstanceRow {
@@ -460,7 +462,7 @@ func (s *Server) genFormChoices(store *generation.Store) genFormData {
 		data.Builds[kind] = s.genBuildsFor(kind)
 	}
 	for _, g := range s.monitor.Current().GPU {
-		data.GPUs = append(data.GPUs, genGPUChoice{Index: g.Index, Name: g.Name})
+		data.GPUs = append(data.GPUs, genGPUChoice{Index: g.Index, Name: g.Name, Link: g.PCIe})
 	}
 	if len(data.Sets) == 0 {
 		data.Missing = append(data.Missing, "a fully downloaded model set (Models page, Generation models)")

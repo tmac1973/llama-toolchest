@@ -93,7 +93,7 @@
         </label>
         <label title="The fork server uses this whole GPU. Router models and generation instances cannot use it while the fork server runs.">GPU
             <select name="gpu" id="fork-form-gpu" onchange="forkNeedsRefresh()">
-                {{- range .GPUs}}<option value="{{.Index}}"{{if and $.Editing (eq .Index $.Inst.GPU)}} selected{{end}}>{{.Index}}: {{.Name}}</option>{{else}}<option value="0">0</option>{{end}}
+                {{- range .GPUs}}<option value="{{.Index}}"{{if and $.Editing (eq .Index $.Inst.GPU)}} selected{{end}}>{{.Index}}: {{.Name}}{{with .Link}} ({{.Label}}){{end}}</option>{{else}}<option value="0">0</option>{{end}}
             </select>
         </label>
         <label title="The port of the fork server. It must be in the generation port range ({{.PortStart}}–{{.PortEnd}}). Empty: the lowest free port.">Port

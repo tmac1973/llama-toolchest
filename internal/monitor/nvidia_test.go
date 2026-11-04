@@ -47,7 +47,7 @@ func TestNVIDIACollectQueriesFieldsInParseOrder(t *testing.T) {
 	}
 	args := strings.Fields(string(raw))
 	want := []string{
-		"--query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,fan.speed",
+		"--query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,fan.speed,pci.bus_id",
 		"--format=csv,noheader,nounits",
 	}
 	if !reflect.DeepEqual(args, want) {
@@ -140,5 +140,38 @@ func TestNVIDIACollectReportsFailure(t *testing.T) {
 	fakeNVIDIASMI(t, "Unable to determine the device handle for GPU0000:01:00.0: Unknown Error\n", 1)
 	if got, err := (&nvidiaBacked{}).Collect(); err == nil {
 		t.Errorf("Collect = %+v, nil; want an error", got)
+	}
+}
+
+// nvidia-smi prints the bus id with an 8-digit domain; sysfs uses 4.
+func TestNVIDIABDF(t *testing.T) {
+	cases := map[string]string{
+		"00000000:03:00.0":   "0000:03:00.0",
+		" 00000000:0E:00.0 ": "0000:0e:00.0",
+		"00000001:C1:00.0":   "0001:c1:00.0",
+	}
+	for in, want := range cases {
+		if got, ok := nvidiaBDF(in); !ok || got != want {
+			t.Errorf("nvidiaBDF(%q) = %q, %v; want %q", in, got, ok, want)
+		}
+	}
+	for _, bad := range []string{"", "[N/A]", "zz:03:00.0"} {
+		if got, ok := nvidiaBDF(bad); ok {
+			t.Errorf("nvidiaBDF(%q) = %q, want no address", bad, got)
+		}
+	}
+}
+
+// The bus id column leads to the card's link in sysfs.
+func TestNVIDIACollectReadsTheLink(t *testing.T) {
+	fakeSysfs(t, compute2Tree)
+	fakeNVIDIASMI(t, "0, NVIDIA RTX A4000, 0, 4, 16376, 37, 14.09, 41, 00000000:03:00.0\n"+
+		"1, NVIDIA RTX A4000, 0, 4, 16376, 37, 15.14, 41, 00000000:0E:00.0\n", 0)
+	got, err := (&nvidiaBacked{}).Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].PCIe.Label() != "PCIe 4.0 x4, shared" || got[1].PCIe.Label() != "PCIe 4.0 x8" {
+		t.Errorf("links = %q, %q; want the chipset card and the CPU card", got[0].PCIe.Label(), got[1].PCIe.Label())
 	}
 }

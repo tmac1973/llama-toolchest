@@ -17,6 +17,7 @@ type GPUOption struct {
 	Disabled     bool   // the model cannot use this option
 	Note         string // why the option is disabled, shown as its tooltip
 	Recommend    bool   // suggested option
+	LinkLabel    string // the PCIe lanes of each GPU, such as "x4 shared, x8"
 }
 
 // DisableTensorOptions marks the tensor parallelism options unusable for
