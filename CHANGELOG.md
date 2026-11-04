@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.52.0](https://github.com/tmac1973/llama-toolchest/compare/v2.51.0...v2.52.0) (2026-11-04)
+
+
+### Features
+
+* **settings:** one Eviction card for all unload settings ([#553](https://github.com/tmac1973/llama-toolchest/issues/553)) ([2d90f19](https://github.com/tmac1973/llama-toolchest/commit/2d90f190c4db52d71f230f0a5a2d410d8c184eca)), closes [#552](https://github.com/tmac1973/llama-toolchest/issues/552)
+
 ## [2.51.0](https://github.com/tmac1973/llama-toolchest/compare/v2.50.0...v2.51.0) (2026-11-04)
 
 
