@@ -18,10 +18,12 @@ const (
 	// KindLoad is a model instance that finished loading.
 	KindLoad OutcomeKind = "load"
 	// KindLoadFailed is an instance that exited with an error status
-	// before it finished loading, without being asked to stop.
+	// before it finished loading, without being asked to stop or after
+	// it had started to abort.
 	KindLoadFailed OutcomeKind = "load_failed"
 	// KindCrash is an instance that had loaded and then exited with an
-	// error status, without being asked to stop.
+	// error status, without being asked to stop or after it had started
+	// to abort.
 	KindCrash OutcomeKind = "crash"
 	// KindUnload is an instance that ended for any other reason: an
 	// unload, an eviction, a stop that had to be forced, or the router
@@ -76,6 +78,10 @@ type instance struct {
 	spawnedAt time.Time
 	readyAt   time.Time
 	tail      []string
+	// fatal is set once the instance prints a line that says it is
+	// aborting. Kept apart from tail, which the backtrace that follows
+	// can push the line out of.
+	fatal bool
 }
 
 // The router's own lines about its instances (llama.cpp
@@ -131,6 +137,9 @@ func (t *Tracker) Add(line string, now time.Time) []Outcome {
 		if len(in.tail) > tailLines {
 			in.tail = in.tail[len(in.tail)-tailLines:]
 		}
+		if serverlog.Fatal(line) {
+			in.fatal = true
+		}
 	}
 	if load != nil {
 		return []Outcome{*load}
@@ -140,7 +149,14 @@ func (t *Tracker) Add(line string, now time.Time) []Outcome {
 	}
 
 	if m := stoppingRE.FindStringSubmatch(line); m != nil {
-		t.stopping[m[1]] = true
+		// A stop that reaches an instance already aborting does not make
+		// its exit an unload. The router reaps a dying process only once
+		// it has gone, and a benchmark job whose request just failed
+		// stops the router before that: the stop line then comes after
+		// the crash but before its exit.
+		if in := t.newest(m[1]); in == nil || !in.fatal {
+			t.stopping[m[1]] = true
+		}
 		return nil
 	}
 
@@ -196,14 +212,10 @@ func (t *Tracker) ready(line string, now time.Time) *Outcome {
 // of a child that exited itself, and EXIT_FAILURE (1) for one killed by a
 // signal (subprocess_join), so an abort after a CUDA error reads as 1.
 // A stop that timed out and was killed reads as 1 as well, which is why
-// the stop request, not the status, decides that case.
+// the stop request, not the status, decides that case, unless the
+// instance had already printed that it was aborting (see Add).
 func (t *Tracker) exited(name string, status int, now time.Time) Outcome {
-	var in *instance
-	for _, c := range t.byPort {
-		if c.name == name && (in == nil || c.spawnedAt.After(in.spawnedAt)) {
-			in = c
-		}
-	}
+	in := t.newest(name)
 	stopping := t.stopping[name]
 	delete(t.stopping, name)
 
@@ -238,6 +250,17 @@ func (t *Tracker) exited(name string, status int, now time.Time) Outcome {
 		out.ErrorLines = serverlog.ErrorLines(in.tail)
 	}
 	return out
+}
+
+// newest returns the latest instance spawned under name, or nil.
+func (t *Tracker) newest(name string) *instance {
+	var in *instance
+	for _, c := range t.byPort {
+		if c.name == name && (in == nil || c.spawnedAt.After(in.spawnedAt)) {
+			in = c
+		}
+	}
+	return in
 }
 
 // routerEnded returns the router's outcome followed by an unload for each

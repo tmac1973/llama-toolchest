@@ -279,3 +279,65 @@ func TestRouterReadyLineAloneMarksTheLoad(t *testing.T) {
 	}, base)
 	wantKinds(t, out, KindLoad)
 }
+
+// A benchmark cell fails as soon as llama-server aborts, and the job then
+// stops the router before the router has reaped the dying process. The
+// stop line comes between the crash and its exit, and must not turn the
+// crash into an unload (seen on compute2, 2026-11-04).
+func TestStopAfterAnAbortIsStillACrash(t *testing.T) {
+	out := feedLines(NewTracker(), []string{
+		"0.00.100.000 I srv          load: spawning server instance with name=qwen on port 34367",
+		"[34367] 0.03.300.000 I srv  server_run_i: model loaded",
+		"[34367] /data/llama.cpp/ggml/src/ggml-cuda/ggml-cuda.cu:110: CUDA error",
+		"[34367] 0.07.000.000 E CUDA error: unspecified launch failure",
+		"0.07.100.000 I srv     unload_all: stopping model instance name=qwen",
+		"0.07.200.000 I srv    operator(): instance name=qwen exited with status 1",
+	}, base)
+	wantKinds(t, out, KindLoad, KindCrash)
+	if len(out[1].ErrorLines) == 0 || !strings.Contains(out[1].ErrorLines[0], "CUDA error") {
+		t.Errorf("error lines = %q, want the CUDA error", out[1].ErrorLines)
+	}
+}
+
+// The same before the load finished: a failed load, not an unload.
+func TestStopAfterAnAbortDuringLoadIsAFailedLoad(t *testing.T) {
+	out := feedLines(NewTracker(), []string{
+		"0.00.100.000 I srv          load: spawning server instance with name=qwen on port 58325",
+		"[58325] 0.02.700.000 I sched_reserve: reserving ...",
+		"[58325] 0.02.800.000 E CUDA error: an illegal memory access was encountered",
+		"0.02.900.000 I srv     unload_all: stopping model instance name=qwen",
+		"0.03.000.000 I srv    operator(): instance name=qwen exited with status 1",
+	}, base)
+	wantKinds(t, out, KindLoadFailed)
+}
+
+// The fatal line can be pushed out of the kept tail by the backtrace
+// that follows it, and still counts.
+func TestAbortOutsideTheTailStillCounts(t *testing.T) {
+	lines := []string{
+		"0.00.100.000 I srv          load: spawning server instance with name=qwen on port 34367",
+		"[34367] 0.03.300.000 I srv  server_run_i: model loaded",
+		"[34367] 0.07.000.000 E CUDA error: unspecified launch failure",
+	}
+	for i := 0; i < tailLines+5; i++ {
+		lines = append(lines, "[34367] /data/builds/b/libggml-base.so.0(+0x1234)[0x7fd7ee536c6b]")
+	}
+	lines = append(lines,
+		"0.07.100.000 I srv     unload_all: stopping model instance name=qwen",
+		"0.07.200.000 I srv    operator(): instance name=qwen exited with status 1",
+	)
+	wantKinds(t, feedLines(NewTracker(), lines, base), KindLoad, KindCrash)
+}
+
+// An error line that is not an abort leaves a stop an unload: a failed
+// request logs at level E and the instance carries on.
+func TestStopAfterAnErrorLineIsAnUnload(t *testing.T) {
+	out := feedLines(NewTracker(), []string{
+		"0.00.100.000 I srv          load: spawning server instance with name=qwen on port 45221",
+		"[45221] 0.01.000.000 I srv  server_run_i: model loaded",
+		"[45221] 0.01.500.000 E srv    send_error: task id = 3, error: request exceeds the context size",
+		"0.02.000.000 I srv        unload: stopping model instance name=qwen",
+		"0.03.000.000 I srv    operator(): instance name=qwen exited with status 1",
+	}, base)
+	wantKinds(t, out, KindLoad, KindUnload)
+}
