@@ -24,7 +24,7 @@
             <input type="hidden" name="gpu_choice" value="1">
             <legend title="Autoconfigure fits the model only on the GPUs you select. Clear a GPU to keep it for image, video or music models.">Which GPUs can the model use?</legend>
             {{range .GPUs}}
-            <label class="autoconfig-gpu">
+            <label class="autoconfig-option">
                 <input type="checkbox" name="gpu" value="{{.Index}}"{{if .Checked}} checked{{end}}>
                 <span>GPU {{.Index}}{{if .Name}} — {{.Name}}{{end}}{{if .ReservedGiB}}<small>{{printf "%.1f" .ReservedGiB}} GiB reserved for image, video and music</small>{{end}}</span>
             </label>
@@ -33,10 +33,9 @@
         {{end}}
         {{if .EvictableGiB}}
         <fieldset>
-            <label title="Without this, Autoconfigure fits the model beside the {{printf "%.1f" .EvictableGiB}} GiB reserved for image, video and music models, and GPUs with those models on them get fewer layers. With it, the model is planned on the whole GPUs with its layers split evenly, and loading it stops those models (auto-evict). Each starts again for its next job. Models set to keep running are never stopped and still count.">
+            <label class="autoconfig-option" title="Without this, Autoconfigure fits the model beside the {{printf "%.1f" .EvictableGiB}} GiB reserved for image, video and music models, and GPUs with those models on them get fewer layers. With it, the model is planned on the whole GPUs with its layers split evenly, and loading it stops those models (auto-evict). Each starts again for its next job. Models set to keep running are never stopped and still count.">
                 <input type="checkbox" name="whole_gpus" value="1">
-                Use the whole GPUs, split evenly
-                <small>Loading the model stops the image, video and music models in its way ({{printf "%.1f" .EvictableGiB}} GiB reserved).</small>
+                <span>Use the whole GPUs, split evenly<small>Loading the model stops the image, video and music models in its way ({{printf "%.1f" .EvictableGiB}} GiB reserved).</small></span>
             </label>
         </fieldset>
         {{end}}
