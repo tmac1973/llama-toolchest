@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.51.0](https://github.com/tmac1973/llama-toolchest/compare/v2.50.0...v2.51.0) (2026-11-04)
+
+
+### Features
+
+* **engine-notes:** record why toolchest unloaded a model ([#543](https://github.com/tmac1973/llama-toolchest/issues/543)) ([017a26a](https://github.com/tmac1973/llama-toolchest/commit/017a26a9be21c7f4e03fdd4f2012d364f8063d99))
+* **server:** keep several models loaded with generation backends on ([#545](https://github.com/tmac1973/llama-toolchest/issues/545)) ([cb96bba](https://github.com/tmac1973/llama-toolchest/commit/cb96bba9756df27f27c499664a1eda799f285bb0))
+* **server:** track last use of each LLM and list the idle ones ([#542](https://github.com/tmac1973/llama-toolchest/issues/542)) ([8d92371](https://github.com/tmac1973/llama-toolchest/commit/8d923714e916a3bdabc5213bfe03957289f4aa96))
+* **server:** unload idle LLMs by VRAM before a load in toolchest memory mode ([#544](https://github.com/tmac1973/llama-toolchest/issues/544)) ([572be64](https://github.com/tmac1973/llama-toolchest/commit/572be64c9b769f3a6ea9486879860968bfecbbce))
+* **ui:** list served embedding and reranking models on the Server tab ([#538](https://github.com/tmac1973/llama-toolchest/issues/538)) ([bc0868f](https://github.com/tmac1973/llama-toolchest/commit/bc0868f3770d2dc5d6c1661324a496d610b32a09))
+
+
+### Bug Fixes
+
+* **models:** estimate embedding and reranking models from their own buffers ([#547](https://github.com/tmac1973/llama-toolchest/issues/547)) ([267af22](https://github.com/tmac1973/llama-toolchest/commit/267af22ce2f691766b706fcebc8090e1dd033534))
+* **proxy:** stop waiting when the router reports a failed load ([#550](https://github.com/tmac1973/llama-toolchest/issues/550)) ([e1ede80](https://github.com/tmac1973/llama-toolchest/commit/e1ede8041181154830cdaee6409aae478e5383cb))
+* **server:** count loaded models once when checking room on a card ([#549](https://github.com/tmac1973/llama-toolchest/issues/549)) ([70339bd](https://github.com/tmac1973/llama-toolchest/commit/70339bdb33b4b2eb69bd1569a672d9929e54ad10))
+* **server:** refuse a load that can never fit before unloading anything ([#548](https://github.com/tmac1973/llama-toolchest/issues/548)) ([404b659](https://github.com/tmac1973/llama-toolchest/commit/404b6597771b9b96b1b2f61d67552e172202b571))
+* **setup:** status reports the host install when one is present ([#551](https://github.com/tmac1973/llama-toolchest/issues/551)) ([62406a3](https://github.com/tmac1973/llama-toolchest/commit/62406a3d5c20c0ee96dcd6c6571e22b2a303e72e))
+
 ## [2.50.0](https://github.com/tmac1973/llama-toolchest/compare/v2.49.0...v2.50.0) (2026-11-03)
 
 
