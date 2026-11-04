@@ -133,3 +133,151 @@ func TestStreamCutOffReadsAsCrash(t *testing.T) {
 		t.Errorf("err = %v, want the crash message", err)
 	}
 }
+
+// scriptedRouter answers the warmup, then gives each benchmark request
+// to bench, numbered from 1.
+type scriptedRouter struct {
+	*httptest.Server
+	mu    sync.Mutex
+	bench int
+}
+
+func newScriptedRouter(t *testing.T, bench func(n int, w http.ResponseWriter, r *http.Request)) *scriptedRouter {
+	t.Helper()
+	sr := &scriptedRouter{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/models", func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"data":[],"object":"list"}`)
+	})
+	mux.HandleFunc("/models/load", func(w http.ResponseWriter, r *http.Request) {})
+	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		if body["max_tokens"] == float64(16) { // the warmup
+			writeTimings(w)
+			return
+		}
+		sr.mu.Lock()
+		sr.bench++
+		n := sr.bench
+		sr.mu.Unlock()
+		bench(n, w, r)
+	})
+	sr.Server = httptest.NewServer(mux)
+	t.Cleanup(sr.Close)
+	return sr
+}
+
+func (sr *scriptedRouter) requests() int {
+	sr.mu.Lock()
+	defer sr.mu.Unlock()
+	return sr.bench
+}
+
+func writeTimings(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	io.WriteString(w, `data: {"choices":[],"timings":{"prompt_n":64,"predicted_n":16,"predicted_per_second":50}}`+"\n\ndata: [DONE]\n\n")
+}
+
+func shortTimeouts(t *testing.T, stall, request time.Duration) {
+	t.Helper()
+	oldStall, oldRequest := benchStallTimeout, benchRequestTimeout
+	benchStallTimeout, benchRequestTimeout = stall, request
+	t.Cleanup(func() { benchStallTimeout, benchRequestTimeout = oldStall, oldRequest })
+}
+
+// runStandardCell runs one cell of internal-standard (nine requests if it
+// ran to the end) against the router.
+func runStandardCell(t *testing.T, routerURL string) *BenchmarkJob {
+	t.Helper()
+	env := &fakeEnv{routerURL: routerURL, saved: ConfigSnapshot{GPULayers: 999}}
+	j := oneCellJob(nil)
+	j.Presets = []string{"internal-standard"}
+	j.Cells = ExpandCells(j.ModelIDs, j.BuildIDs, j.Presets)
+	job, _ := runJob(t, j, env)
+	return job
+}
+
+// A server can hang before its reply starts (seen on compute2 with a
+// tensor split, 2026-11-04). After the warmup the model is loaded, so
+// that is a stall, not a ten-minute wait.
+func TestHangBeforeTheReplyStartsIsAStall(t *testing.T) {
+	shortTimeouts(t, 100*time.Millisecond, time.Minute)
+	router := newScriptedRouter(t, func(_ int, _ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	})
+	start := time.Now()
+	job := runStandardCell(t, router.URL)
+	if job.Cells[0].Status != CellStatusFailed || !strings.Contains(job.Cells[0].Error, "stopped responding") {
+		t.Errorf("cell = %s %q, want failed with the stall", job.Cells[0].Status, job.Cells[0].Error)
+	}
+	if took := time.Since(start); took > 5*time.Second {
+		t.Errorf("job took %s", took)
+	}
+	if n := router.requests(); n != 1 {
+		t.Errorf("hung server got %d benchmark requests, want 1", n)
+	}
+}
+
+// The warmup may wait for the model to load before its reply starts, and
+// that is no stall.
+func TestWarmupMayWaitForTheLoad(t *testing.T) {
+	shortTimeouts(t, 100*time.Millisecond, time.Minute)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(300 * time.Millisecond)
+		writeTimings(w)
+	}))
+	t.Cleanup(srv.Close)
+	r := &Runner{}
+	if _, err := r.sendCompletionWithTimings(context.Background(), srv.URL, "m", 64, 16, 0, SamplingParams{}, "", promptOptions{}); err != nil {
+		t.Errorf("warmup: %v, want it to wait for the load", err)
+	}
+}
+
+// A request that runs into the time limit means the server is stuck, as
+// a stall does: the cell ends rather than sending the next request into
+// the same wait.
+func TestTimedOutRequestEndsTheCell(t *testing.T) {
+	shortTimeouts(t, time.Minute, 300*time.Millisecond)
+	router := newScriptedRouter(t, func(_ int, w http.ResponseWriter, r *http.Request) {
+		// Progress that never ends: no stall, only the time limit.
+		w.Header().Set("Content-Type", "text/event-stream")
+		for {
+			io.WriteString(w, `data: {"choices":[],"prompt_progress":{"total":1531,"processed":0}}`+"\n\n")
+			w.(http.Flusher).Flush()
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(20 * time.Millisecond):
+			}
+		}
+	})
+	job := runStandardCell(t, router.URL)
+	if job.Cells[0].Status != CellStatusFailed || !strings.Contains(job.Cells[0].Error, "time limit") {
+		t.Errorf("cell = %s %q, want failed with the time limit", job.Cells[0].Status, job.Cells[0].Error)
+	}
+	if n := router.requests(); n != 1 {
+		t.Errorf("stuck server got %d benchmark requests, want 1", n)
+	}
+}
+
+// Tests that finished before a hang do not make the cell a result: one
+// sample of nine is not the cell's numbers, and a setting that hangs the
+// server is not one to rank.
+func TestHangAfterSomeTestsFailsTheCell(t *testing.T) {
+	shortTimeouts(t, 100*time.Millisecond, time.Minute)
+	router := newScriptedRouter(t, func(n int, w http.ResponseWriter, r *http.Request) {
+		if n == 1 {
+			writeTimings(w)
+			return
+		}
+		<-r.Context().Done()
+	})
+	job := runStandardCell(t, router.URL)
+	if job.Cells[0].Status != CellStatusFailed || !strings.Contains(job.Cells[0].Error, "remaining tests were not run") {
+		t.Errorf("cell = %s %q, want failed with the hang", job.Cells[0].Status, job.Cells[0].Error)
+	}
+	if n := router.requests(); n != 2 {
+		t.Errorf("server got %d benchmark requests, want 2", n)
+	}
+}
