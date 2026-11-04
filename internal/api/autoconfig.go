@@ -18,6 +18,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/autoconfig"
 	"github.com/tmac1973/llama-toolchest/internal/benchmark"
 	"github.com/tmac1973/llama-toolchest/internal/models"
+	"github.com/tmac1973/llama-toolchest/internal/monitor"
 )
 
 // autoconfigProfileName is the profile autoconfigure saves to.
@@ -169,6 +170,7 @@ type autoconfigGPUOption struct {
 	Name        string
 	ReservedGiB float64 // memory reserved there for image and music backends
 	Checked     bool
+	Link        *monitor.PCIeLink
 }
 
 // autoconfigGPUOptions lists the cards a plan spreads a model over, so
@@ -260,6 +262,10 @@ func (s *Server) handleAutoconfigDialog(w http.ResponseWriter, r *http.Request) 
 	hw := s.hardware()
 	d := autoconfigDialogData{ModelID: id, ModelName: m.PublicName(), Classes: contextClassOptions(m.ContextLength),
 		GPUs: autoconfigGPUOptions(hw), EvictableGiB: evictableGiB(hw)}
+	links := gpuLinks(s.gpuReadings())
+	for i := range d.GPUs {
+		d.GPUs[i].Link = links[d.GPUs[i].Index]
+	}
 	helperRouter := ""
 	if h := s.helperModel(); h != nil {
 		d.Helper = h.PublicName()

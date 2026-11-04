@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/broadcast"
@@ -32,6 +33,68 @@ type GPUInfo struct {
 	FanRPM     int    `json:"fan_rpm,omitempty"`
 	Arch       string `json:"arch,omitempty"`    // gfx target (ROCm only)
 	IsIGPU     bool   `json:"is_igpu,omitempty"` // integrated GPU (APU)
+	// PCIe is the card's link to the CPU, nil when it is not known or
+	// the GPU is integrated.
+	PCIe *PCIeLink `json:"pcie,omitempty"`
+}
+
+// PCIeLink is what a card's connection to the CPU can carry: the
+// narrowest and slowest link on the way, which is all the card can use.
+// It decides how fast the GPUs exchange data when one model is split
+// over several of them.
+type PCIeLink struct {
+	// Gen is the PCIe generation, 1 to 6, and Lanes the number of lanes
+	// the link runs with.
+	Gen   int `json:"gen"`
+	Lanes int `json:"lanes"`
+	// CardLanes is the number of lanes the card supports. More than
+	// Lanes means the slot or the board gives it fewer.
+	CardLanes int `json:"card_lanes,omitempty"`
+	// Shared is set when a link between the card and the CPU also
+	// carries other devices: the card is connected through the board's
+	// chipset or through a PCIe switch.
+	Shared bool `json:"shared,omitempty"`
+}
+
+// Label names the link the short way, such as "PCIe 4.0 x8" or
+// "PCIe 4.0 x4, shared".
+func (l *PCIeLink) Label() string {
+	if l == nil {
+		return ""
+	}
+	s := fmt.Sprintf("PCIe %d.0 x%d", l.Gen, l.Lanes)
+	if l.Shared {
+		s += ", shared"
+	}
+	return s
+}
+
+// Short names the lanes only, such as "x8" or "x4 shared", for a list
+// that names several GPUs on one line.
+func (l *PCIeLink) Short() string {
+	if l == nil {
+		return ""
+	}
+	s := fmt.Sprintf("x%d", l.Lanes)
+	if l.Shared {
+		s += " shared"
+	}
+	return s
+}
+
+// Title explains the link for a tooltip.
+func (l *PCIeLink) Title() string {
+	if l == nil {
+		return ""
+	}
+	s := fmt.Sprintf("PCIe %d.0 link to the CPU with %d lanes.", l.Gen, l.Lanes)
+	if l.CardLanes > l.Lanes {
+		s += fmt.Sprintf(" The card supports %d.", l.CardLanes)
+	}
+	if l.Shared {
+		s += " The link goes through the chipset or a PCIe switch, and other devices use it too."
+	}
+	return s + " A split model is fastest on GPUs with more lanes and no shared link."
 }
 
 // CPUInfo holds CPU usage metrics.

@@ -58,6 +58,7 @@ type monitorBarGPU struct {
 	VRAMPercent int
 	VRAMGB      string
 	Details     string
+	Link        *monitor.PCIeLink
 }
 
 // monitorBar is the monitor_bar template's data.
@@ -103,6 +104,7 @@ func monitorBarData(m monitor.Metrics) monitorBar {
 			VRAMPercent: vramPct,
 			VRAMGB:      fmt.Sprintf("%.1f/%.1fGiB", float64(gpu.VRAMUsedMB)/1024, float64(gpu.VRAMTotalMB)/1024),
 			Details:     details,
+			Link:        gpu.PCIe,
 		}
 	}
 	ramPct := 0

@@ -25,7 +25,7 @@ func (n *nvidiaBacked) Name() string { return "nvidia" }
 func (n *nvidiaBacked) Collect() ([]GPUInfo, error) {
 	// Query all metrics in one call
 	out, err := exec.Command("nvidia-smi",
-		"--query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,fan.speed",
+		"--query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,fan.speed,pci.bus_id",
 		"--format=csv,noheader,nounits").Output()
 	if err != nil {
 		return nil, fmt.Errorf("nvidia-smi: %w", err)
@@ -53,6 +53,13 @@ func (n *nvidiaBacked) Collect() ([]GPUInfo, error) {
 			}
 		}
 
+		var pcie *PCIeLink
+		if len(fields) > 8 {
+			if bdf, ok := nvidiaBDF(fields[8]); ok {
+				pcie = readPCIeLink(bdf)
+			}
+		}
+
 		gpus = append(gpus, GPUInfo{
 			Index:       idx,
 			Name:        strings.TrimSpace(fields[1]),
@@ -63,7 +70,22 @@ func (n *nvidiaBacked) Collect() ([]GPUInfo, error) {
 			PowerW:      power,
 			HasFan:      hasFan,
 			FanPercent:  fan,
+			PCIe:        pcie,
 		})
 	}
 	return gpus, nil
+}
+
+// nvidiaBDF turns nvidia-smi's bus id ("00000000:03:00.0", an 8-digit
+// domain) into the address sysfs uses ("0000:03:00.0").
+func nvidiaBDF(id string) (string, bool) {
+	domain, rest, ok := strings.Cut(strings.ToLower(strings.TrimSpace(id)), ":")
+	if !ok {
+		return "", false
+	}
+	d, err := strconv.ParseUint(domain, 16, 32)
+	if err != nil {
+		return "", false
+	}
+	return fmt.Sprintf("%04x:%s", d, rest), true
 }

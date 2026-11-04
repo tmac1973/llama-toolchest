@@ -335,6 +335,9 @@ type GPUSnapshot struct {
 	Index        int    `json:"index"`
 	Name         string `json:"name"`
 	VRAMTotalMiB int    `json:"vram_total_mib"` // as reported by nvidia-smi / sysfs, binary MiB
+	// PCIe is the card's link to the CPU when the run started, such as
+	// "PCIe 4.0 x4, shared"; empty when it was not known.
+	PCIe string `json:"pcie,omitempty"`
 
 	// LegacyVRAMTotalMB reads files written before the vram_total_mib
 	// rename; load() folds it into VRAMTotalMiB and clears it.
@@ -721,6 +724,7 @@ func GPUSnapshotsFromMetrics(m monitor.Metrics) []GPUSnapshot {
 			Index:        g.Index,
 			Name:         g.Name,
 			VRAMTotalMiB: g.VRAMTotalMB,
+			PCIe:         g.PCIe.Label(),
 		}
 	}
 	return snaps

@@ -26,7 +26,7 @@
             {{range .GPUs}}
             <label class="autoconfig-option">
                 <input type="checkbox" name="gpu" value="{{.Index}}"{{if .Checked}} checked{{end}}>
-                <span>GPU {{.Index}}{{if .Name}} — {{.Name}}{{end}}{{if .ReservedGiB}}<small>{{printf "%.1f" .ReservedGiB}} GiB reserved for image, video and music</small>{{end}}</span>
+                <span>GPU {{.Index}}{{if .Name}} — {{.Name}}{{end}}{{with .Link}}<small title="{{.Title}}">{{.Label}}</small>{{end}}{{if .ReservedGiB}}<small>{{printf "%.1f" .ReservedGiB}} GiB reserved for image, video and music</small>{{end}}</span>
             </label>
             {{end}}
         </fieldset>

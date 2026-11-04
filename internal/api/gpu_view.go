@@ -26,6 +26,38 @@ func igpuFlags(gpus []monitor.GPUInfo) []bool {
 	return out
 }
 
+// gpuLinks maps each GPU index to its PCIe link, for the GPUs whose link
+// is known.
+func gpuLinks(gpus []monitor.GPUInfo) map[int]*monitor.PCIeLink {
+	out := map[int]*monitor.PCIeLink{}
+	for _, g := range gpus {
+		if g.PCIe != nil {
+			out[g.Index] = g.PCIe
+		}
+	}
+	return out
+}
+
+// withGPULinks names the PCIe lanes of each GPU an option uses. An option
+// with a GPU whose link is not known gets no label: a partial list would
+// read as if the others had none.
+func withGPULinks(opts []models.GPUOption, gpus []monitor.GPUInfo) []models.GPUOption {
+	links := gpuLinks(gpus)
+	for i := range opts {
+		var parts []string
+		for _, g := range opts[i].GPUs {
+			l := links[g]
+			if l == nil {
+				parts = nil
+				break
+			}
+			parts = append(parts, l.Short())
+		}
+		opts[i].LinkLabel = strings.Join(parts, ", ")
+	}
+	return opts
+}
+
 // migrateGPUAssign maps legacy and pre-iGPU-audit GPU assignments onto
 // the current dropdown values, mutating cfg in place (the registry's
 // shared struct, so preset emission sees the migrated values too; disk

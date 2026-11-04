@@ -145,6 +145,9 @@ func (r *rocmBackend) collectROCmSMI() ([]GPUInfo, error) {
 		// Get GPU name from sysfs
 		gpu.Name = readGPUNameSysfs(gpu.Index)
 		tagROCmGPU(&gpu)
+		if !gpu.IsIGPU {
+			gpu.PCIe = readPCIeLink(bdf)
+		}
 
 		gpus = append(gpus, gpu)
 	}
@@ -268,6 +271,9 @@ func (r *rocmBackend) collectSysfs() ([]GPUInfo, error) {
 
 		gpu.Name = readGPUNameSysfs(idx)
 		tagROCmGPU(&gpu)
+		if resolved, err := filepath.EvalSymlinks(deviceDir); err == nil && !gpu.IsIGPU {
+			gpu.PCIe = readPCIeLink(filepath.Base(resolved))
+		}
 		gpus = append(gpus, gpu)
 	}
 

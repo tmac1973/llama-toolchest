@@ -903,7 +903,7 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 	// GPU assignment options
 	metrics := s.monitor.Current()
 	numGPUs := len(metrics.GPU)
-	gpuOptions := models.GPUAssignOptions(numGPUs, igpuFlags(metrics.GPU))
+	gpuOptions := withGPULinks(models.GPUAssignOptions(numGPUs, igpuFlags(metrics.GPU)), metrics.GPU)
 
 	// Migration: map legacy and pre-iGPU-audit configs onto the
 	// current dropdown values.

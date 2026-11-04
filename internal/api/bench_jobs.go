@@ -995,7 +995,7 @@ func (s *Server) handleJobForm(w http.ResponseWriter, r *http.Request) {
 		Models:      formModels,
 		Builds:      builds,
 		Presets:     benchmark.VisiblePresets(),
-		GPUOptions:  models.GPUAssignOptions(numGPUs, igpuFlags(gpuList)),
+		GPUOptions:  withGPULinks(models.GPUAssignOptions(numGPUs, igpuFlags(gpuList)), gpuList),
 		Params:      paramViews(numGPUs, igpuFlags(gpuList)),
 		MaxCells:    maxJobCells,
 		Running:     s.process.IsRunning(),
