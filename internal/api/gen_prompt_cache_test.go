@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"github.com/tmac1973/llama-toolchest/internal/config"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,6 +25,7 @@ func TestPromptCacheSavedAndRestored(t *testing.T) {
 	}
 	s.gen = store
 	s.cfg.GenerationEnabled, s.cfg.GenEvict, s.cfg.GenKeepPromptCache = true, true, true
+	s.cfg.Eviction = config.EvictionToolchest
 	if kv := s.promptCacheRouterEnv(); kv != "LLAMA_ARG_SLOT_SAVE_PATH="+s.promptCacheDir() {
 		t.Fatalf("router env = %q", kv)
 	}
@@ -73,6 +75,7 @@ func TestPromptCacheRestoredWhileCounted(t *testing.T) {
 	}
 	s.gen = store
 	s.cfg.GenerationEnabled, s.cfg.GenEvict, s.cfg.GenKeepPromptCache = true, true, true
+	s.cfg.Eviction = config.EvictionToolchest
 	name := s.registry.RouterName(m.ID)
 	f.mu.Lock()
 	f.slots = []routerclient.Slot{{ID: 0, PromptTokens: 26000}}
@@ -122,6 +125,7 @@ func TestUnloadForGenSkipsAModelAlreadyOut(t *testing.T) {
 	}
 	s.gen = store
 	s.cfg.GenerationEnabled, s.cfg.GenEvict, s.cfg.GenKeepPromptCache = true, true, true
+	s.cfg.Eviction = config.EvictionToolchest
 	f.mu.Lock()
 	f.status = map[string]string{s.registry.RouterName(m.ID): "unloaded"}
 	f.slots = []routerclient.Slot{{ID: 0, PromptTokens: 26000}}

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"github.com/tmac1973/llama-toolchest/internal/config"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -30,7 +31,7 @@ func setReservation(t *testing.T, s *Server, id string, mib int, keep bool) {
 func TestLockedReservationCountsWhileStopped(t *testing.T) {
 	s := vramServer(t)
 	s.cfg.ModelsMax = 1
-	s.cfg.GenEvict = true
+	s.cfg.GenEvict, s.cfg.Eviction = true, config.EvictionToolchest
 	big := &models.Model{ID: "big", ModelID: "org/big", Filename: "big.gguf", SizeBytes: 11 << 30}
 	if err := s.registry.Add(big); err != nil {
 		t.Fatal(err)
@@ -49,7 +50,7 @@ func TestLockedReservationCountsWhileStopped(t *testing.T) {
 // With eviction on, a load refuses rather than stop a locked backend.
 func TestMakeRoomForLLMKeepsLockedBackend(t *testing.T) {
 	s, big := evictServer(t)
-	s.cfg.GenEvict = true
+	s.cfg.GenEvict, s.cfg.Eviction = true, config.EvictionToolchest
 	setReservation(t, s, "ming", 20000, true)
 	release, err := s.makeRoomForLLM(context.Background(), big)
 	release()
@@ -66,7 +67,7 @@ func TestMakeRoomForLLMKeepsLockedBackend(t *testing.T) {
 // largest first, and never a locked one.
 func TestMakeRoomForGenStopsOnlyWhatItNeeds(t *testing.T) {
 	s := vramServer(t)
-	s.cfg.GenEvict = true
+	s.cfg.GenEvict, s.cfg.Eviction = true, config.EvictionToolchest
 	for id, mib := range map[string]int{"small": 6000, "large": 9000, "locked": 10000} {
 		runFakeInstance(t, s, id, "ming-image", 0, newFakeBackend(t, 0))
 		setReservation(t, s, id, mib, id == "locked")
@@ -91,7 +92,7 @@ func TestMakeRoomForGenStopsOnlyWhatItNeeds(t *testing.T) {
 // fit now, since it would then count; unlocking always works.
 func TestLockRefusedWhenItDoesNotFit(t *testing.T) {
 	s := vramServer(t)
-	s.cfg.GenEvict = true
+	s.cfg.GenEvict, s.cfg.Eviction = true, config.EvictionToolchest
 	runFakeInstance(t, s, "running", "ming-image", 0, newFakeBackend(t, 0))
 	setReservation(t, s, "running", 20000, false)
 	addInstance(t, s, generation.Instance{ID: "ming", Port: 8089, Enabled: true, ReservedMiB: 12000})

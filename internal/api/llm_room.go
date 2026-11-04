@@ -258,7 +258,7 @@ func (s *Server) makeRoomByUnloading(ctx context.Context, m *models.Model) ([]in
 				return nil, err
 			}
 			if !ok {
-				return nil, fmt.Errorf("Max Loaded (%d) is reached and every loaded model is answering a request; try again when one is idle", n)
+				return nil, fmt.Errorf("Max loaded models (%d) is reached and every loaded model is answering a request; try again when one is idle", n)
 			}
 		}
 	}

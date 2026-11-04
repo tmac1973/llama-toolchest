@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/tmac1973/llama-toolchest/internal/config"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -379,7 +380,7 @@ func TestImageJobsPrune(t *testing.T) {
 func TestImageJobStartingPhase(t *testing.T) {
 	for _, evict := range []bool{false, true} {
 		s := vramServer(t)
-		s.cfg.GenEvict = evict
+		s.cfg.GenEvict, s.cfg.Eviction = evict, config.EvictionToolchest
 		addInstance(t, s, generation.Instance{ID: "ming", Port: 8089, Enabled: true, ReservedMiB: 4096})
 		rec := postImageJob(s, `{"model":"ming","prompt":"x"}`)
 		var created map[string]any

@@ -63,7 +63,10 @@ type SourceInfo struct {
 // guarantee depends on the distinction.
 type Settings struct {
 	ModelsMax *int `json:"models_max,omitempty"`
-	// RouterMemory is the router memory option (config.RouterMemory).
+	// Eviction is the eviction mode (config.Eviction).
+	Eviction *string `json:"eviction,omitempty"`
+	// RouterMemory is the older switch that Eviction replaced; read from
+	// backups made before it, and no longer written.
 	RouterMemory *bool   `json:"router_memory,omitempty"`
 	AutoStart    *bool   `json:"auto_start,omitempty"`
 	LogLevel     *string `json:"log_level,omitempty"`
@@ -116,10 +119,10 @@ func Assemble(cfg *config.Config, b *builder.Builder, reg *models.Registry, gpus
 	}
 
 	s := &Settings{
-		ModelsMax:    ptr(cfg.ModelsMax),
-		RouterMemory: ptr(cfg.RouterMemory),
-		AutoStart:    ptr(cfg.AutoStart),
-		LogLevel:     ptr(cfg.LogLevel),
+		ModelsMax: ptr(cfg.ModelsMax),
+		Eviction:  ptr(cfg.Eviction),
+		AutoStart: ptr(cfg.AutoStart),
+		LogLevel:  ptr(cfg.LogLevel),
 	}
 	// Only when set: an empty value would restore as "no preference",
 	// which the target already has, so there is nothing to say.

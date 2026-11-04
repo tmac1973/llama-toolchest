@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"github.com/tmac1973/llama-toolchest/internal/config"
 	"testing"
 
 	"github.com/tmac1973/llama-toolchest/internal/models"
@@ -11,7 +12,7 @@ import (
 // stops the backend in its way rather than being refused for it.
 func TestMakeRoomForConfigStopsTheBackend(t *testing.T) {
 	s, big := evictServer(t)
-	s.cfg.GenEvict = true
+	s.cfg.GenEvict, s.cfg.Eviction = true, config.EvictionToolchest
 	cfg := &models.ModelConfig{}
 	var fitErr *genLLMFitError
 	if err := s.checkConfigFitsReservations(big, cfg); !errors.As(err, &fitErr) {
@@ -28,7 +29,7 @@ func TestMakeRoomForConfigStopsTheBackend(t *testing.T) {
 // A backend kept running is never stopped, so the cell is still refused.
 func TestMakeRoomForConfigKeepsALockedBackend(t *testing.T) {
 	s, big := evictServer(t)
-	s.cfg.GenEvict = true
+	s.cfg.GenEvict, s.cfg.Eviction = true, config.EvictionToolchest
 	inst, _ := s.gen.Instance("ming")
 	inst.KeepRunning = true
 	if err := s.gen.UpdateInstance(inst); err != nil {
