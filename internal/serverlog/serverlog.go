@@ -109,6 +109,24 @@ func InstancePort(line string) (port string, ok bool) {
 // throwing" — and those lines have no level to filter on.
 var rawFailureWords = []string{"error", "out of memory", "failed", "abort", "terminate called", "exception", "segmentation fault"}
 
+// fatalMarkers mark a line that only a process on its way down prints:
+// ggml's abort after a GPU backend error or a failed assert, a C++
+// exception nobody caught, or a signal.
+var fatalMarkers = []string{"cuda error", "rocm error", "musa error", "ggml_assert", "ggml_abort", "terminate called", "segmentation fault"}
+
+// Fatal reports whether a llama-server log line says the process is
+// aborting. An error line alone does not: a failed request or an
+// allocation that is retried smaller logs at level E and carries on.
+func Fatal(line string) bool {
+	lower := strings.ToLower(line)
+	for _, w := range fatalMarkers {
+		if strings.Contains(lower, w) {
+			return true
+		}
+	}
+	return false
+}
+
 // ErrorLines returns the error lines in a stretch of llama-server log,
 // oldest first, with the instance prefix, timestamp and level removed. A
 // line that repeats is kept once: a warm-up is retried, and every retry

@@ -194,3 +194,23 @@ func TestLoadedPort(t *testing.T) {
 		}
 	}
 }
+
+func TestFatal(t *testing.T) {
+	cases := []struct {
+		line string
+		want bool
+	}{
+		{"[8081] /src/ggml/src/ggml-cuda/ggml-cuda.cu:98: CUDA error", true},
+		{"[8081] 0.09.211.300 E CUDA error: an illegal memory access was encountered", true},
+		{"[8081] 0.09.211.300 E ROCm error: unspecified launch failure", true},
+		{"[8081] /src/ggml/src/ggml.c:1234: GGML_ASSERT(n_dims <= 4) failed", true},
+		{"[8081] terminate called after throwing an instance of 'std::runtime_error'", true},
+		{"[8081] 0.01.500.000 E srv    send_error: task id = 3, error: request exceeds the context size", false},
+		{"[8081] 0.02.000.000 E ggml_backend_cuda_buffer_type_alloc_buffer: allocating 512.00 MiB on device 0: cudaMalloc failed: out of memory", false},
+	}
+	for _, c := range cases {
+		if got := Fatal(c.line); got != c.want {
+			t.Errorf("Fatal(%q) = %v, want %v", c.line, got, c.want)
+		}
+	}
+}
