@@ -261,7 +261,7 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 	totalTests := len(cfg.Preset.PromptTokens) * cfg.Preset.Repetitions
 	completedTests := 0
 
-	var lastErr error
+	var lastErr, hung error
 tests:
 	for _, promptTokens := range cfg.Preset.PromptTokens {
 		for rep := 1; rep <= cfg.Preset.Repetitions; rep++ {
@@ -281,14 +281,16 @@ tests:
 			result, err := r.runOneTest(ctx, cfg.RouterURL, cfg.RouterName, promptTokens, cfg.Preset.GenTokens, rep, cfg.Sampling, run.ID, promptOptions{
 				Style:     cfg.Preset.PromptStyle,
 				Reasoning: cfg.Reasoning,
+				Loaded:    true,
 			})
 			if err != nil {
 				lastErr = err
 				slog.Error("benchmark test failed", "prompt_tokens", promptTokens, "rep", rep, "error", err)
-				if errors.Is(err, errBenchStalled) {
+				if errors.Is(err, errBenchStalled) || errors.Is(err, errBenchTimedOut) {
 					// The server is still hung: the next request would
-					// wait the whole timeout for it to start. The job
-					// restarts the router for the next cell anyway.
+					// wait as long for it. The job restarts the router
+					// for the next cell anyway.
+					hung = err
 					break tests
 				}
 				continue
@@ -302,6 +304,15 @@ tests:
 		}
 	}
 
+	if hung != nil {
+		// The results before the hang are kept, but the cell does not
+		// count as measured: a setting that hangs the server is not one
+		// to rank, and a few tests are not the cell's numbers. The text
+		// names no count, so two hangs read as the same failure (see
+		// writeOffTracker).
+		fail(fmt.Sprintf("%v; the remaining tests were not run", hung))
+		return
+	}
 	if len(run.Results) == 0 && lastErr != nil {
 		fail(fmt.Sprintf("all tests failed: %v", lastErr))
 		return
@@ -585,6 +596,10 @@ func (rc ReasoningControl) applyThinkingOff(payload map[string]any) {
 type promptOptions struct {
 	Style     PromptStyle
 	Reasoning ReasoningControl
+	// Loaded says the model has answered a request already (the warmup),
+	// so a reply that does not start counts as a stall. The warmup itself
+	// may wait for the model to load before the reply starts.
+	Loaded bool
 }
 
 // promptPrefixTemplate returns the per-repetition prefix for a style.
@@ -684,14 +699,20 @@ type timingsResponse struct {
 }
 
 // benchRequestTimeout caps one benchmark request from start to end.
-const benchRequestTimeout = 10 * time.Minute
+var benchRequestTimeout = 10 * time.Minute
+
+// errBenchTimedOut ends a request that took longer than
+// benchRequestTimeout.
+var errBenchTimedOut = errors.New("the request took longer than the time limit")
 
 // benchStallTimeout is how long a streamed benchmark request may go
 // without a word from llama-server before it counts as hung. The server
 // streams one message per batch of prompt it reads and one per token it
 // writes, so this only has to cover one batch on the slowest machine.
 // Without it a server that hangs mid-request holds the cell for the
-// whole of benchRequestTimeout, once per repetition.
+// whole of benchRequestTimeout, once per repetition. The timer starts
+// when the request is sent if the model is loaded, and when the reply
+// starts otherwise: a server can hang before it sends anything.
 var benchStallTimeout = 3 * time.Minute
 
 // errBenchStalled ends a request that stopped making progress.
@@ -723,10 +744,19 @@ func (r *Runner) sendCompletionWithTimings(ctx context.Context, routerURL, model
 	reqBody, _ := json.Marshal(reqPayload)
 
 	ctx, cancel := context.WithTimeoutCause(ctx, benchRequestTimeout,
-		fmt.Errorf("the request took longer than %s", benchRequestTimeout))
+		fmt.Errorf("%w (%s)", errBenchTimedOut, benchRequestTimeout))
 	defer cancel()
 	ctx, stall := context.WithCancelCause(ctx)
 	defer stall(nil)
+	wait := benchStallTimeout
+	idle := time.AfterFunc(wait, func() {
+		stall(fmt.Errorf("%w (no progress for %s)", errBenchStalled, wait))
+	})
+	defer idle.Stop()
+	if !opts.Loaded {
+		// The timer starts when the reply starts (below).
+		idle.Stop()
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, routerURL+"/v1/chat/completions", bytes.NewReader(reqBody))
 	if err != nil {
@@ -748,13 +778,9 @@ func (r *Runner) sendCompletionWithTimings(ctx context.Context, routerURL, model
 	var timings *timingsResponse
 	if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
 		// The server sends its headers once the request has a slot, so
-		// the stall timer starts here: waiting for a model to load is
-		// not a stall.
-		wait := benchStallTimeout
-		idle := time.AfterFunc(wait, func() {
-			stall(fmt.Errorf("%w (no progress for %s)", errBenchStalled, wait))
-		})
-		defer idle.Stop()
+		// for a model that may still be loading the stall timer starts
+		// here: waiting for a load is not a stall.
+		idle.Reset(wait)
 		timings, err = readStreamTimings(resp.Body, func() { idle.Reset(wait) })
 		if err == nil && timings == nil {
 			// The headers went out, so the request had started: a reply
@@ -763,6 +789,8 @@ func (r *Runner) sendCompletionWithTimings(ctx context.Context, routerURL, model
 		}
 	} else {
 		// A server that answers in one piece despite the stream request.
+		// It sends nothing until the end, so silence is no stall.
+		idle.Stop()
 		timings, err = readTimings(resp.Body)
 	}
 	if err != nil {
