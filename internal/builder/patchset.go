@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/tmac1973/llama-toolchest/internal/patchsets"
@@ -80,7 +81,7 @@ func (b *Builder) preparePatchSet(ctx context.Context, set patchsets.PatchSet, s
 	case "":
 		tag = set.Pinned.Tag
 	case "latest":
-		latest, err := latestReleaseTag(ctx, repoDir)
+		latest, err := latestReleaseTag(ctx, repoDir, srcDir)
 		if err != nil {
 			return nil, err
 		}
@@ -156,18 +157,35 @@ func (b *Builder) ensurePatchRepo(ctx context.Context, set patchsets.PatchSet, r
 	return b.runCmd(ctx, filepath.Dir(repoDir), logCh, "", nil, "git", "clone", "--filter=blob:none", "--no-checkout", set.Repo, filepath.Base(repoDir))
 }
 
-// latestReleaseTag returns the release tag with the highest release
-// number. The number, not the tag date: a re-cut tag can be newer than a
-// later release.
-func latestReleaseTag(ctx context.Context, repoDir string) (string, error) {
+// latestReleaseTag returns the newest release: the one on the newest
+// upstream base, and on that base the one with the highest release
+// number. The base comes first because a set may start again at r1 when
+// it moves to a new base. The number, not the tag date, orders releases
+// on one base: a re-cut tag can be newer than a later release. srcDir is
+// the fetched llama.cpp clone, where each base's commit count is read; a
+// base the clone does not have ranks below every base it has.
+func latestReleaseTag(ctx context.Context, repoDir, srcDir string) (string, error) {
 	out, err := gitOutput(ctx, repoDir, "tag", "--list", "v*")
 	if err != nil {
 		return "", fmt.Errorf("listing releases: %w", err)
 	}
-	best, bestN := "", -1
+	counts := map[string]int{}
+	best, bestCount, bestN := "", 0, -1
 	for _, tag := range strings.Split(out, "\n") {
-		if n, ok := patchsets.ReleaseNumber(tag); ok && n > bestN {
-			best, bestN = tag, n
+		base, n, ok := patchsets.ParseTag(tag)
+		if !ok {
+			continue
+		}
+		count, seen := counts[base]
+		if !seen {
+			count = -1
+			if c, err := gitOutput(ctx, srcDir, "rev-list", "--count", base+"^{commit}"); err == nil {
+				count, _ = strconv.Atoi(c)
+			}
+			counts[base] = count
+		}
+		if best == "" || count > bestCount || (count == bestCount && n > bestN) {
+			best, bestCount, bestN = tag, count, n
 		}
 	}
 	if best == "" {
@@ -282,10 +300,12 @@ func patchBranch(pr *patchRelease) string {
 	return "patchset/" + pr.set.ID + "/" + pr.rel.Tag
 }
 
-// patchBuildIDRef is the ref part of a patched build's ID ("rdna-r206").
-func patchBuildIDRef(pr *patchRelease) string {
+// patchBuildIDRef is the ref part of a patched build's ID: the set, the
+// base's build number and the release ("rdna-b11887-r206"). The base is
+// in it because a set may start again at r1 on a new base.
+func patchBuildIDRef(pr *patchRelease, baseCount int) string {
 	n, _ := patchsets.ReleaseNumber(pr.rel.Tag)
-	return fmt.Sprintf("%s-r%d", pr.set.ShortName, n)
+	return fmt.Sprintf("%s-b%d-r%d", pr.set.ShortName, baseCount, n)
 }
 
 // seriesAuthor reads the name and email of the first patch's From:

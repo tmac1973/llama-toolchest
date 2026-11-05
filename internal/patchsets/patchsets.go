@@ -21,7 +21,7 @@ type PatchSet struct {
 	ID   string
 	Name string
 	// ShortName starts the IDs of the set's builds ("rdna" gives
-	// "rdna-r206-rocm").
+	// "rdna-b11887-r206-rocm").
 	ShortName string
 	// Repo is the git repo that publishes the set's releases, each as a
 	// tag with a release.json and a patches/ folder.
@@ -72,16 +72,24 @@ func Find(id string) (PatchSet, bool) {
 }
 
 // releaseTagRE matches a release tag, v<blocks>-<base>-r<N>.
-var releaseTagRE = regexp.MustCompile(`^v\d+-[0-9a-f]+-r(\d+)$`)
+var releaseTagRE = regexp.MustCompile(`^v\d+-([0-9a-f]+)-r(\d+)$`)
+
+// ParseTag returns the abbreviated upstream base and N from a release
+// tag v<blocks>-<base>-r<N>. N alone does not order releases: a set may
+// start again at r1 when it moves to a new base.
+func ParseTag(tag string) (base string, n int, ok bool) {
+	m := releaseTagRE.FindStringSubmatch(tag)
+	if m == nil {
+		return "", 0, false
+	}
+	n, err := strconv.Atoi(m[2])
+	return m[1], n, err == nil
+}
 
 // ReleaseNumber returns N from a release tag v<blocks>-<base>-r<N>.
 func ReleaseNumber(tag string) (int, bool) {
-	m := releaseTagRE.FindStringSubmatch(tag)
-	if m == nil {
-		return 0, false
-	}
-	n, err := strconv.Atoi(m[1])
-	return n, err == nil
+	_, n, ok := ParseTag(tag)
+	return n, ok
 }
 
 // rdnaBoosts is stew675/llama-cpp-rdna-boosts: RDNA2–RDNA4 speed-ups for

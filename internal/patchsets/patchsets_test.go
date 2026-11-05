@@ -59,3 +59,13 @@ func TestReleaseNumber(t *testing.T) {
 		}
 	}
 }
+
+func TestParseTag(t *testing.T) {
+	base, n, ok := ParseTag("v16-6050b467c-r206")
+	if !ok || base != "6050b467c" || n != 206 {
+		t.Errorf("ParseTag = %q, %d, %v", base, n, ok)
+	}
+	if _, _, ok := ParseTag("v16-790cf51aa"); ok {
+		t.Error("a tag with no release number parsed")
+	}
+}

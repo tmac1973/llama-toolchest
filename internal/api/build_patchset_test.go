@@ -29,9 +29,9 @@ func patchBuildsServer(t *testing.T) *Server {
 	}
 	records := `[
 	  {"id":"b11880-rocm","profile":"rocm","git_ref":"b11880","git_sha":"0123456789abcdef0123456789abcdef01234567","status":"success","commit_count":11880},
-	  {"id":"rdna-r206-rocm","profile":"rocm","git_ref":"` + set.Pinned.Tag + `","git_sha":"efaa60db0553f0a8f25c89cf62c573bddc22b911","status":"success","commit_count":11887,
+	  {"id":"rdna-b11887-r206-rocm","profile":"rocm","git_ref":"` + set.Pinned.Tag + `","git_sha":"efaa60db0553f0a8f25c89cf62c573bddc22b911","status":"success","commit_count":11887,
 	   "patch_set":"rdna-boosts","patch_release":"` + set.Pinned.Tag + `","patch_base":"` + set.Pinned.Base + `"},
-	  {"id":"rdna-r999-rocm","profile":"rocm","git_ref":"v16-6050b467c-r999","git_sha":"1111111111111111111111111111111111111111","status":"success","commit_count":11887,
+	  {"id":"rdna-b11887-r999-rocm","profile":"rocm","git_ref":"v16-6050b467c-r999","git_sha":"1111111111111111111111111111111111111111","status":"success","commit_count":11887,
 	   "patch_set":"rdna-boosts","patch_release":"v16-6050b467c-r999","patch_base":"` + set.Pinned.Base + `"}
 	]`
 	if err := os.WriteFile(filepath.Join(dir, "config", "builds.json"), []byte(records), 0o644); err != nil {
@@ -142,10 +142,10 @@ func TestBuildsListShowsPatchedBuilds(t *testing.T) {
 		end := strings.Index(body[i:], "</tr>")
 		return body[i : i+end]
 	}
-	if r := row("rdna-r206-rocm"); !strings.Contains(r, "RDNA boosts r206") || strings.Contains(r, "untested") || !strings.Contains(r, "Base: 6050b46 (b11887)") {
+	if r := row("rdna-b11887-r206-rocm"); !strings.Contains(r, "RDNA boosts r206") || strings.Contains(r, "untested") || !strings.Contains(r, "Base: 6050b46 (b11887)") {
 		t.Errorf("tested patched row: %s", r)
 	}
-	if r := row("rdna-r999-rocm"); !strings.Contains(r, "RDNA boosts r999") || !strings.Contains(r, "untested") || !strings.Contains(r, "not the tested release") {
+	if r := row("rdna-b11887-r999-rocm"); !strings.Contains(r, "RDNA boosts r999") || !strings.Contains(r, "untested") || !strings.Contains(r, "not the tested release") {
 		t.Errorf("untested patched row: %s", r)
 	}
 	if r := row("b11880-rocm"); strings.Contains(r, "RDNA") || strings.Contains(r, "untested") {
@@ -165,7 +165,7 @@ func TestBuildInfoShowsPatchSet(t *testing.T) {
 		s.handleBuildInfo(rec, req)
 		return rec.Body.String()
 	}
-	body := info("rdna-r206-rocm")
+	body := info("rdna-b11887-r206-rocm")
 	for _, want := range []string{"Patch set", "RDNA boosts r206", "(tested)", "releases/tag/v16-6050b467c-r206", "<code>6050b46</code> · b11887"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("info lacks %q:\n%s", want, body)
@@ -184,7 +184,7 @@ func TestResolveBuildAutoSkipsPatchedBuilds(t *testing.T) {
 	if got := s.resolveBuild(""); got == nil || got.ID != "b11880-rocm" {
 		t.Errorf("Auto = %v, want b11880-rocm", got)
 	}
-	if got := s.resolveBuild("rdna-r206-rocm"); got == nil || got.ID != "rdna-r206-rocm" {
+	if got := s.resolveBuild("rdna-b11887-r206-rocm"); got == nil || got.ID != "rdna-b11887-r206-rocm" {
 		t.Errorf("saved patched build = %v", got)
 	}
 	if err := s.builder.Delete("b11880-rocm"); err != nil {
@@ -198,7 +198,7 @@ func TestResolveBuildAutoSkipsPatchedBuilds(t *testing.T) {
 // A patched build gets the launch options of upstream at its base.
 func TestPatchedBuildTargetIsItsBase(t *testing.T) {
 	s := patchBuildsServer(t)
-	b, _ := s.builder.Find("rdna-r206-rocm")
+	b, _ := s.builder.Find("rdna-b11887-r206-rocm")
 	got := buildTarget(b)
 	want := buildTarget(&builder.BuildResult{Profile: "rocm", CommitCount: 11887})
 	if !reflect.DeepEqual(got, want) {
@@ -211,13 +211,13 @@ func TestPatchedBuildTargetIsItsBase(t *testing.T) {
 
 func TestJobsAcceptPatchedBuilds(t *testing.T) {
 	s := patchBuildsServer(t)
-	if err := refuseForkJobBuild(s.builder, "rdna-r206-rocm"); err != nil {
+	if err := refuseForkJobBuild(s.builder, "rdna-b11887-r206-rocm"); err != nil {
 		t.Errorf("patched build refused as a job build: %v", err)
 	}
 	// List feeds the job form and the router; patched builds are in it.
 	found := false
 	for _, b := range s.builder.List() {
-		found = found || b.ID == "rdna-r206-rocm"
+		found = found || b.ID == "rdna-b11887-r206-rocm"
 	}
 	if !found {
 		t.Error("patched build not in the llama.cpp builds")
@@ -226,7 +226,7 @@ func TestJobsAcceptPatchedBuilds(t *testing.T) {
 
 func TestBuildPickersLabelPatchedBuilds(t *testing.T) {
 	data := jobFormData(t)
-	data.Builds = []buildOpt{{ID: "b1", Profile: "rocm"}, {ID: "rdna-r206-rocm", Profile: "rocm", PatchLabel: "RDNA boosts r206"}}
+	data.Builds = []buildOpt{{ID: "b1", Profile: "rocm"}, {ID: "rdna-b11887-r206-rocm", Profile: "rocm", PatchLabel: "RDNA boosts r206"}}
 	out := renderJobFormPartial(t, data)
 	if !strings.Contains(out, ", RDNA boosts r206)") || strings.Count(out, "RDNA boosts") != 1 {
 		t.Errorf("job form build labels:\n%s", out)
@@ -238,7 +238,7 @@ func TestBuildPickersLabelPatchedBuilds(t *testing.T) {
 	for _, c := range choices {
 		labels[c.ID] = c.PatchLabel
 	}
-	if labels["rdna-r206-rocm"] != "RDNA boosts r206" || labels["rdna-r999-rocm"] != "RDNA boosts r999" || labels["b11880-rocm"] != "" {
+	if labels["rdna-b11887-r206-rocm"] != "RDNA boosts r206" || labels["rdna-b11887-r999-rocm"] != "RDNA boosts r999" || labels["b11880-rocm"] != "" {
 		t.Errorf("server picker labels = %v", labels)
 	}
 }

@@ -45,7 +45,7 @@ So this plan builds rdna-boosts as a **patch set on the llama.cpp project**. A p
 The user runs the toolchest on a Linux host with an RDNA GPU (asmodean: R9700, gfx1201) and serves models from the router.
 
 1. On the Builds page the user chooses "llama.cpp + RDNA boosts" in the project picker and a ROCm profile. The ref field shows releases: "r206 (tested)" is selected; "Newest release (untested)" is the other choice.
-2. The user builds. The log shows the base checkout, each patch applied, and "Tree matches release v16-6050b467c-r206". The build appears as `rdna-r206-rocm` with an "RDNA boosts r206" badge.
+2. The user builds. The log shows the base checkout, each patch applied, and "Tree matches release v16-6050b467c-r206". The build appears as `rdna-b11887-r206-rocm` with an "RDNA boosts r206" badge.
 3. On the Server page the user selects that build as the router's build. The router starts with launch options for `b11887`.
 4. Autoconfigure, Autotune and benchmarks can use that build. The results name it as they name any build.
 5. To go back, the user selects an upstream build. Both kinds of build can stay on disk at the same time.
