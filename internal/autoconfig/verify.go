@@ -184,7 +184,11 @@ func replaceNote(notes []models.ProfileNote, n models.ProfileNote) []models.Prof
 //     model, context and speed, laid out differently.
 //  2. A smaller prompt batch. Costs some prompt speed at most, and frees
 //     working memory on every card.
-//  3. Half the context. Costs what the model can hold at once, so it is
+//  3. An 8-bit KV cache, the step the hardware fit takes first too. The
+//     effect on answers is very small, and it frees about half the cache,
+//     far more than a smaller batch: on asmodean the 35B-A3B at 262,144
+//     tokens was otherwise halved to 131,072.
+//  4. Half the context. Costs what the model can hold at once, so it is
 //     last.
 func stepDown(cfg models.ModelConfig, chk Check, numGPUs int, splitMoves *int) (models.ModelConfig, models.ProfileNote, bool) {
 	if *splitMoves < maxSplitMoves {
@@ -209,6 +213,15 @@ func stepDown(cfg models.ModelConfig, chk Check, numGPUs int, splitMoves *int) (
 			Origin: originTestLoad,
 			Reason: fmt.Sprintf("A test load %s with a prompt batch of %d. A prompt batch of %d needs less working memory on each GPU. Autotune can measure whether a larger one fits and is faster.",
 				chk.problem(), cfg.EffectiveUBatchSize(), checkedUBatch),
+		}, true
+	}
+	if cfg.KVCacheQuant == "" {
+		next := cfg
+		next.KVCacheQuant = "q8_0"
+		return next, models.ProfileNote{
+			Field:  "kv_cache_quant",
+			Origin: originTestLoad,
+			Reason: fmt.Sprintf("A test load %s with the conversation memory (KV cache) at full precision. At 8 bits it needs about half the memory, so the context is kept. The effect on answer quality is very small.", chk.problem()),
 		}, true
 	}
 	if half := cfg.ContextSize / 2; half >= minCheckedContext {
