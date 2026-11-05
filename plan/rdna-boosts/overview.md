@@ -23,7 +23,7 @@ So this plan builds rdna-boosts as a **patch set on the llama.cpp project**. A p
 ## Goals
 
 - Add a short curated list of patch sets to the toolchest source, with rdna-boosts as the only entry. Each entry gives the patch repo, a pinned tested release tag and its expected git tree, the backends and the GPU architectures it is for.
-- On the Builds page, offer each patch set as a choice in the project picker ("llama.cpp + RDNA boosts"), limited to ROCm profiles, with two releases: the pinned release (tested) and the newest release (untested). The build itself is a llama.cpp build.
+- On the Builds page, offer each patch set as a choice in the project picker ("llama.cpp + RDNA boosts"), limited to ROCm profiles, with the pinned release (tested), the newest release (untested) and the ten most recent releases (untested). The build itself is a llama.cpp build.
 - Build by checking out the release's upstream base commit, applying its patches with `git am`, and checking that the git tree equals the tree the release records. If the tree differs, the build fails.
 - Record the upstream base's commit count as the build's version, so option gating, ranking and "newest build" see `b11887` and not the patched count.
 - Let a patched build be the router's active build, and the build for benchmark, Autotune and Autoconfigure jobs, as any llama.cpp build is.
@@ -45,7 +45,7 @@ So this plan builds rdna-boosts as a **patch set on the llama.cpp project**. A p
 The user runs the toolchest on a Linux host with an RDNA GPU (asmodean: R9700, gfx1201) and serves models from the router.
 
 1. On the Builds page the user chooses "llama.cpp + RDNA boosts" in the project picker and a ROCm profile. The ref field shows releases: "r206 (tested)" is selected; "Newest release (untested)" is the other choice.
-2. The user builds. The log shows the base checkout, each patch applied, and "Tree matches release v16-6050b467c-r206". The build appears as `rdna-r206-rocm` with an "RDNA boosts r206" badge.
+2. The user builds. The log shows the base checkout, each patch applied, and "Tree matches release v16-6050b467c-r206". The build appears as `rdna-b11887-r206-rocm` with an "RDNA boosts r206" badge.
 3. On the Server page the user selects that build as the router's build. The router starts with launch options for `b11887`.
 4. Autoconfigure, Autotune and benchmarks can use that build. The results name it as they name any build.
 5. To go back, the user selects an upstream build. Both kinds of build can stay on disk at the same time.
@@ -79,7 +79,7 @@ The user runs the toolchest on a Linux host with an RDNA GPU (asmodean: R9700, g
 - **Where the source comes from** → upstream llama.cpp at the release's base, plus patches from the rdna-boosts repo at the release's tag. Not the maintainer's fork branch, which is force-pushed.
 - **Proof of a correct apply** → the git tree after `git am` must equal `release.json.tree`. Strict `git am` only, no 3-way fallback.
 - **Version for gating and ranking** → the base's commit count, not the patched count.
-- **Which releases** → the pinned tested release, plus the newest release as an untested choice.
+- **Which releases** → the pinned tested release, plus the newest release and the ten most recent releases as untested choices. Releases are ordered by upstream base first, then by release number, because the set can start again at r1 on a new base.
 - **Where the choice is made** → a project picker entry per patch set. It reuses the picker's release list and backend filter; the build is recorded under the llama.cpp project.
 - **Opt-in** → none. The picker entry allows only ROCm profiles. (Open: put it behind the "llama.cpp forks (experimental)" setting instead. Decide before Phase 03.)
 - **Ranking against upstream** → a patched build ranks at its base, the same as an upstream build of that commit. "Auto" (no saved router build) skips patched builds while any upstream build can run, so building a patch set never changes the router's build unless the user chooses it.

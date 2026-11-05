@@ -1191,10 +1191,10 @@ type projectChoice struct {
 	// Label is the name shown, and Notes a fork's or patch set's tooltip.
 	Label, Notes string
 	// PatchNote is the line shown under the ref picker for a patch set's
-	// tested release, and PatchLatestNote the one for its newest release,
-	// whose base and patch count are known only at build time. Both empty
-	// for a project.
-	PatchNote, PatchLatestNote string
+	// tested release (PatchPinned), and PatchOtherNote the one for its
+	// other releases, whose base and patch count the builder reads at
+	// build time. All empty for a project.
+	PatchNote, PatchOtherNote, PatchPinned string
 }
 
 // buildsPageBackends detects the build backends for the Builds page. A
@@ -1221,7 +1221,8 @@ func patchSetChoices(backends []builder.Backend) []projectChoice {
 			Notes:          ps.Notes,
 			PatchNote: fmt.Sprintf("Upstream llama.cpp at %s with %d patches. The build fails if the patched source does not match the release.",
 				ps.Pinned.Base[:9], ps.Pinned.NBlocks),
-			PatchLatestNote: "Upstream llama.cpp with the patches of the newest release. The build reads the base and the patches from that release. It fails if the patched source does not match the release.",
+			PatchOtherNote: "Upstream llama.cpp with the patches of the chosen release. The build reads the base and the patches from that release. It fails if the patched source does not match the release.",
+			PatchPinned:    ps.Pinned.Tag,
 		})
 	}
 	return out

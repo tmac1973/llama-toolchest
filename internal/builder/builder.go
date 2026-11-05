@@ -546,7 +546,7 @@ func (b *Builder) buildProject(ctx context.Context, project, profile string, git
 	// to DuplicateBuildError so the user sees the rebuild prompt.
 	idRef := buildIDRef(resolvedRef, sha)
 	if pr != nil {
-		idRef = patchBuildIDRef(pr)
+		idRef = patchBuildIDRef(pr, commitCount)
 	}
 	baseID := proj.IDPrefix + fmt.Sprintf("%s-%s", idRef, prof.Name)
 	if tag != "" {

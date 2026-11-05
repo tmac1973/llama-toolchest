@@ -41,7 +41,7 @@ Most of this already works, because a patched build is recorded under the llama.
 - `jobs_env_test.go`: a patched build passes `CheckBuildRunnable` and `refuseForkJobBuild`.
 - Render tests: the router picker and the benchmark picker show "RDNA boosts r206" on the patched build only.
 - Manual on asmodean:
-  - Select `rdna-r206-rocm` as the router build. The router starts and serves a model. Its launch command has no option newer than b11887.
+  - Select `rdna-b11887-r206-rocm` as the router build. The router starts and serves a model. Its launch command has no option newer than b11887.
   - Run one benchmark job and one Autoconfigure job on that build. Both finish and name the build with its label.
 
 ## Commit

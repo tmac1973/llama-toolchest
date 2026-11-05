@@ -178,15 +178,21 @@ func effectiveCMakeFlags(proj builder.Project, prof builder.BuildProfile, option
 
 func (s *Server) handleListRefs(w http.ResponseWriter, r *http.Request) {
 	refresh := r.URL.Query().Get("refresh") == "1"
-	// A patch set offers its tested release and its newest one; the
-	// builder reads the newest from the set's repo when it builds.
+	// A patch set offers its tested release, its newest one (read from
+	// the set's repo when it builds) and its recent releases.
 	if set, ok := patchSetChoice(r.URL.Query().Get("project")); ok {
+		rels, err := s.builder.PatchSetReleases(set.ID, refresh)
+		data := patchRefOptionsFor(set, rels, err)
 		if isHTMX(r) {
 			respondHTML(w)
-			s.renderPartial(w, "git_ref_options", gitRefOptionsData{PatchRelease: set.Pinned.Tag, PatchLabel: releaseLabel(set.Pinned.Tag)})
+			s.renderPartial(w, "git_ref_options", data)
 			return
 		}
-		respondJSON(w, []string{set.Pinned.Tag, "latest"})
+		refs := []string{set.Pinned.Tag, "latest"}
+		for _, o := range data.PatchRecent {
+			refs = append(refs, o.Ref)
+		}
+		respondJSON(w, refs)
 		return
 	}
 	proj, ok := builder.FindProject(r.URL.Query().Get("project"))
@@ -233,9 +239,42 @@ type gitRefOptionsData struct {
 	// offers only it (first, chosen) and the fork's latest commit.
 	Pinned string
 	// PatchRelease is a patch set's tested release tag and PatchLabel its
-	// short name ("r206"). When set, the picker offers only it (first,
-	// chosen) and the set's newest release.
+	// short name ("r206"). When set, the picker offers it (first,
+	// chosen), the set's newest release and PatchRecent.
 	PatchRelease, PatchLabel string
+	// PatchRecent are the set's newest releases other than the tested
+	// one, newest first; Label is "r220 · b11887".
+	PatchRecent []gitRefOption
+}
+
+// patchRecentMax is how many recent releases the patch set picker lists.
+// The set's repo makes several releases a day, so the list stops here.
+const patchRecentMax = 10
+
+// patchRefOptionsFor fills the release picker of a patch set from its
+// releases, newest first. A listing error (no clone yet) leaves only the
+// tested and the newest release, with the error as a note.
+func patchRefOptionsFor(set patchsets.PatchSet, rels []builder.PatchSetRelease, err error) gitRefOptionsData {
+	data := gitRefOptionsData{PatchRelease: set.Pinned.Tag, PatchLabel: releaseLabel(set.Pinned.Tag)}
+	if err != nil {
+		data.Error = err.Error()
+		return data
+	}
+	for _, r := range rels {
+		if len(data.PatchRecent) == patchRecentMax {
+			break
+		}
+		if r.Tag == set.Pinned.Tag {
+			continue
+		}
+		label := fmt.Sprintf("r%d · b%d", r.N, r.BaseCount)
+		if r.BaseCount < 0 {
+			base, _, _ := patchsets.ParseTag(r.Tag)
+			label = fmt.Sprintf("r%d · base %s", r.N, base)
+		}
+		data.PatchRecent = append(data.PatchRecent, gitRefOption{Ref: r.Tag, Label: label})
+	}
+	return data
 }
 
 type gitRefGroup struct {
@@ -249,6 +288,8 @@ type gitRefOption struct {
 	Ref       string
 	Anchor    int
 	HasAnchor bool
+	// Label is the text shown for a patch set release; empty for a tag.
+	Label string
 }
 
 // gitRefOptionsFor groups the upstream tags for the git ref picker. There
@@ -408,10 +449,10 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if patched {
-		// A patch set builds its tested release or its newest one,
-		// nothing else (plan/rdna-boosts).
-		if req.GitRef != "" && req.GitRef != "latest" && req.GitRef != set.Pinned.Tag {
-			http.Error(w, fmt.Sprintf("%s builds only its tested release (%s) or its newest release", set.Name, set.Pinned.Tag), http.StatusBadRequest)
+		// A patch set builds one of its releases, by tag, or its newest
+		// one; the builder checks that the release exists.
+		if _, _, ok := patchsets.ParseTag(req.GitRef); !ok && req.GitRef != "" && req.GitRef != "latest" {
+			http.Error(w, fmt.Sprintf("%s builds only its releases (for example %s) or its newest release", set.Name, set.Pinned.Tag), http.StatusBadRequest)
 			return
 		}
 		if req.GitRef == "" {

@@ -26,7 +26,7 @@
    With these values the patched commit IDs match the release's `tip`. On failure, run `git am --abort` and fail with the name of the patch that did not apply. Do not retry with `-3`.
 6. **Check the tree.** Compare `git rev-parse HEAD^{tree}` with `release.json.tree`. If they differ, fail with "The patched source does not match release <tag>." Log the tree hash on success.
 7. **Version.** Set `CommitCount` from `git rev-list --count <base>`, not from `HEAD`. Set `GitRef` to the release tag, `GitSHA` to the patched HEAD, `PatchSet`, `PatchRelease` and `PatchBase` from the release. `buildRank` then ranks the build at the base, and `buildTarget` writes options for the base.
-8. **Build ID.** For a patched build, the ID is `<short name>-r<N>-<profile>` (e.g. `rdna-r206-rocm`); a tag still adds `-<tag>`. The existing same-ID check and the flag-hash suffix work unchanged. A rebuild of the same release and profile gives `DuplicateBuildError`.
+8. **Build ID.** For a patched build, the ID is `<short name>-b<base count>-r<N>-<profile>` (e.g. `rdna-b11887-r206-rocm`); a tag still adds `-<tag>`. The existing same-ID check and the flag-hash suffix work unchanged. A rebuild of the same release and profile gives `DuplicateBuildError`.
 9. **Arch lists.** The `ProjectLlamaCpp` case at the end of `runBuild` reads `llama-arch.cpp` from the checkout, so patched builds get their own arch lists. Check that `BackfillArchs` reads `GitSHA` (the patched HEAD), which step 4's branch keeps reachable.
 10. **Logs.** Log each phase with the existing `==>` lines: "Patch set: RDNA boosts v16-6050b467c-r206", "Base: 6050b467c (b11887)", one line per applied patch, "Tree matches release …".
 
