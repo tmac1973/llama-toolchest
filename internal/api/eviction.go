@@ -49,10 +49,9 @@ type evictionView struct {
 	// forks on); GaveWay is set when it was chosen anyway.
 	LlamaCppBlocked string
 	GaveWay         bool
-	// Margin is the router's margin when llama.cpp decides; Note says
-	// the active build is too old for it.
-	Margin string
-	Note   string
+	// Note says the active build is too old for llama.cpp to decide by
+	// memory.
+	Note string
 
 	ModelsMax          int
 	GenerationEnabled  bool
@@ -96,8 +95,6 @@ func (s *Server) evictionInfo() evictionView {
 		if !hasOption {
 			v.Label = "llama.cpp (by count: build too old)"
 			v.Note = "The active llama.cpp build is older than b11930, so models unload by count until a newer build is active."
-		} else if mib := s.routerMemoryMarginMiB(); mib > 0 {
-			v.Margin = fmt.Sprintf("%.1f GiB", float64(mib)/1024)
 		}
 	default:
 		v.Label = "Off"

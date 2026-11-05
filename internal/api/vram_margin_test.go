@@ -27,15 +27,15 @@ func TestVRAMMarginForm(t *testing.T) {
 	s := newSettingsServer(t, &config.Config{VRAMMarginByGPU: map[int]int{3: 1024}})
 	rec := putMarginForm(t, s, url.Values{
 		"vram_margin_touched": {"1"},
-		"vram_margin_gib":     {"0.5"},
+		"vram_margin_gib":     {"1.5"},
 		"vram_margin_gpu_0":   {"2"},
 		"vram_margin_gpu_1":   {""},
 	})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body)
 	}
-	if s.cfg.VRAMMarginMiB != 512 || s.cfg.VRAMMarginByGPU[0] != 2048 {
-		t.Errorf("saved %d and %v, want 512 and GPU 0 at 2048", s.cfg.VRAMMarginMiB, s.cfg.VRAMMarginByGPU)
+	if s.cfg.VRAMMarginMiB != 1536 || s.cfg.VRAMMarginByGPU[0] != 2048 {
+		t.Errorf("saved %d and %v, want 1536 and GPU 0 at 2048", s.cfg.VRAMMarginMiB, s.cfg.VRAMMarginByGPU)
 	}
 	if _, ok := s.cfg.VRAMMarginByGPU[1]; ok {
 		t.Error("a blank GPU row saved a margin")
@@ -51,7 +51,7 @@ func TestVRAMMarginForm(t *testing.T) {
 		t.Errorf("saved %d and %v, want 0 and none", s.cfg.VRAMMarginMiB, s.cfg.VRAMMarginByGPU)
 	}
 
-	for _, bad := range []string{"-1", "abc", "2000"} {
+	for _, bad := range []string{"-1", "0", "0.5", "abc", "2000"} {
 		rec := putMarginForm(t, s, url.Values{"vram_margin_touched": {"1"}, "vram_margin_gib": {bad}})
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("%q: status %d, want 400", bad, rec.Code)
@@ -86,7 +86,7 @@ func TestVRAMMarginJSON(t *testing.T) {
 }
 
 // Each card gets its own margin, or the margin for every GPU; the router
-// gets the largest, with llama.cpp's working memory on top.
+// gets the largest, and the default is the 1 GiB minimum.
 func TestHardwareAppliesVRAMMargin(t *testing.T) {
 	s := newTestServer(t)
 	s.testHardware = &models.Hardware{GPUs: []models.GPUSpec{
@@ -94,19 +94,19 @@ func TestHardwareAppliesVRAMMargin(t *testing.T) {
 		{Index: 1, Name: "B", VRAMTotalMiB: 16384},
 	}}
 	if got := s.routerMemoryMarginMiB(); got != models.WorkingMemoryMiB {
-		t.Errorf("router margin with the default = %d MiB, want the working memory", got)
+		t.Errorf("router margin with the default = %d MiB, want the 1 GiB minimum", got)
 	}
-	s.cfg.VRAMMarginMiB = 512
+	s.cfg.VRAMMarginMiB = 1536
 	s.cfg.VRAMMarginByGPU = map[int]int{1: 2048}
 	gpus := s.hardware().GPUs
-	if gpus[0].MarginMiB != 512 || gpus[1].MarginMiB != 2048 {
-		t.Errorf("margins = %d and %d, want 512 and 2048", gpus[0].MarginMiB, gpus[1].MarginMiB)
+	if gpus[0].MarginMiB != 1536 || gpus[1].MarginMiB != 2048 {
+		t.Errorf("margins = %d and %d, want 1536 and 2048", gpus[0].MarginMiB, gpus[1].MarginMiB)
 	}
-	if got := models.CardBudgetMiB(gpus[0]); got != 24576-models.WorkingMemoryMiB-512 {
-		t.Errorf("budget = %d MiB, want the card less the working memory and its margin", got)
+	if got := models.CardBudgetMiB(gpus[0]); got != 24576-1536 {
+		t.Errorf("budget = %d MiB, want the card less its margin", got)
 	}
-	if got := s.routerMemoryMarginMiB(); got != 2048+models.WorkingMemoryMiB {
-		t.Errorf("router margin = %d MiB, want the largest, 2048, and the working memory", got)
+	if got := s.routerMemoryMarginMiB(); got != 2048 {
+		t.Errorf("router margin = %d MiB, want the largest, 2048", got)
 	}
 }
 
@@ -116,14 +116,14 @@ func TestVRAMMarginCard(t *testing.T) {
 		{Index: 0, Name: "RX 9070 XT", VRAMTotalMiB: 16304},
 		{Index: 1, Name: "R9700", VRAMTotalMiB: 32624},
 	}}
-	s.cfg.VRAMMarginMiB = 256
+	s.cfg.VRAMMarginMiB = 0
 	s.cfg.VRAMMarginByGPU = map[int]int{0: 1536}
 	rec := httptest.NewRecorder()
 	s.handleVRAMMarginCard(rec, httptest.NewRequest(http.MethodGet, "/api/settings/vram-margin", nil))
 	page := rec.Body.String()
 	for _, want := range []string{
 		`name="vram_margin_touched"`,
-		`name="vram_margin_gib" value="0.25"`,
+		`name="vram_margin_gib" value="1"`, // the default shows as the 1 GiB minimum
 		`name="vram_margin_gpu_0" value="1.5"`,
 		`name="vram_margin_gpu_1" value=""`,
 		"0: RX 9070 XT", "1: R9700",
@@ -138,12 +138,12 @@ func TestVRAMMarginCard(t *testing.T) {
 // backup does not name keeps its own.
 func TestRestoreVRAMMargin(t *testing.T) {
 	s := newSettingsServer(t, &config.Config{VRAMMarginByGPU: map[int]int{2: 4096}})
-	all := 768
+	all := 1280
 	changed, err := s.restoreDeps().ApplySettings(backup.Settings{VRAMMarginMiB: &all, VRAMMarginByGPU: map[int]int{1: 2048, 0: 1024}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.cfg.VRAMMarginMiB != 768 || s.cfg.VRAMMarginByGPU[0] != 1024 || s.cfg.VRAMMarginByGPU[1] != 2048 || s.cfg.VRAMMarginByGPU[2] != 4096 {
+	if s.cfg.VRAMMarginMiB != 1280 || s.cfg.VRAMMarginByGPU[0] != 1024 || s.cfg.VRAMMarginByGPU[1] != 2048 || s.cfg.VRAMMarginByGPU[2] != 4096 {
 		t.Errorf("after restore: %d and %v", s.cfg.VRAMMarginMiB, s.cfg.VRAMMarginByGPU)
 	}
 	want := []string{"vram_margin_mib", "vram_margin_by_gpu[0]", "vram_margin_by_gpu[1]"}

@@ -142,7 +142,7 @@ func TestEvictionInfo(t *testing.T) {
 	}
 	s.cfg.GenerationEnabled = true
 	v := s.evictionInfo()
-	if v.Checked != config.EvictionToolchest || !v.GaveWay || v.Margin != "" || v.Note != "" ||
+	if v.Checked != config.EvictionToolchest || !v.GaveWay || v.Note != "" ||
 		v.LlamaCppBlocked != "Not with generation backends on" || v.Label != "llama-toolchest" {
 		t.Errorf("generation on: %+v; want toolchest checked, gave way, no margin", v)
 	}
@@ -252,7 +252,7 @@ func TestEvictionCardRenders(t *testing.T) {
 	s.cfg.Eviction, s.cfg.GenerationEnabled = config.EvictionLlamaCpp, true
 	page = render()
 	if !strings.Contains(radio(page, "toolchest"), "checked") || !strings.Contains(radio(page, "llamacpp"), "disabled") ||
-		!strings.Contains(page, "Not with generation backends on") || !strings.Contains(page, "You chose llama.cpp") {
+		!strings.Contains(page, "Not with generation backends on") || !strings.Contains(page, "Saved as your") {
 		t.Errorf("llama.cpp with generation on: card wrong:\n%s", page)
 	}
 	if !strings.Contains(page, `name="gen_evict"`) || strings.Contains(page, `name="gen_keep_prompt_cache"`) {

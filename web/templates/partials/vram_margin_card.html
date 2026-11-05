@@ -4,20 +4,18 @@
 {{define "vram_margin_card"}}
 <article id="vram-margin">
     <header>GPU memory margin</header>
-    <p><small>Extra VRAM that toolchest keeps free on each GPU.
-       Autoconfigure, Measure and the load checks plan around it. Toolchest
-       always keeps 1 GiB free for llama.cpp's working memory in real
-       chats; the margin is on top of that. 0 adds nothing. With eviction
-       by llama.cpp, the router gets the largest margin. A margin applies
-       to the next plan or load; a running model keeps its settings.</small></p>
+    <p><small>VRAM kept free on each GPU, beside LLMs and generation
+       backends. At least 1 GiB: llama.cpp needs it in real chats, and it
+       leaves room for the driver. A change applies to the next plan, load
+       or backend start. <a href="/help#vram-margin">More in Help</a>.</small></p>
     <form hx-put="/api/settings"
           hx-target="#vram-margin-status"
           hx-swap="innerHTML"
           hx-trigger="change">
         <input type="hidden" name="vram_margin_touched" value="1">
-        <label class="vram-margin-all" title="GiB kept free on every GPU that has no margin of its own. 0: none.">
+        <label class="vram-margin-all" title="GiB kept free on every GPU that has no margin of its own. At least 1.">
             Every GPU (GiB)
-            <input type="number" name="vram_margin_gib" value="{{.GiB}}" min="0" step="0.25">
+            <input type="number" name="vram_margin_gib" value="{{.GiB}}" min="1" step="0.25">
         </label>
         {{if .GPUs}}
         <table class="vram-margin-gpus">
@@ -28,7 +26,7 @@
                 <td>{{.Index}}: {{.Name}}{{if .IGPU}} <small>(integrated)</small>{{end}}</td>
                 <td>{{.Total}}</td>
                 <td><input type="number" name="vram_margin_gpu_{{.Index}}" value="{{.GiB}}"
-                           min="0" step="0.25" placeholder="{{$.GiB}}"
+                           min="1" step="0.25" placeholder="{{$.GiB}}"
                            aria-label="Margin for GPU {{.Index}} in GiB"></td>
             </tr>
             {{end}}

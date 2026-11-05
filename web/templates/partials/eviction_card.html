@@ -9,7 +9,7 @@
     <header>Eviction</header>
     <p><small>Which models unload when a new model needs room on a GPU. A
        model that answers a request never unloads. Changes apply at the
-       next server start.</small></p>
+       next server start. <a href="/help#eviction">How eviction works</a>.</small></p>
     <form hx-put="/api/settings"
           hx-target="#eviction-status"
           hx-swap="innerHTML"
@@ -19,31 +19,30 @@
                 <input type="radio" name="eviction" value="off"
                        {{if eq .Checked "off"}}checked{{end}}>
                 Off
-                <br><small>Keeps up to <em>Max loaded models</em>. At the
-                limit, the model used least recently unloads. VRAM is not
-                checked.</small>
+                <br><small>The llama-server router keeps up to <em>Max loaded
+                models</em>, regardless of size. Supports generation models:
+                Autoconfigure fits LLMs around their reservations, and an LLM
+                that does not fit beside them is refused.</small>
             </label>
             <label {{with .LlamaCppBlocked}}title="{{.}}: the llama-server router cannot see the VRAM they use."{{end}}>
                 <input type="radio" name="eviction" value="llamacpp"
                        {{if eq .Checked "llamacpp"}}checked{{end}}
                        {{if .LlamaCppBlocked}}disabled{{end}}>
                 llama.cpp
-                <br><small>The llama-server router unloads idle LLMs, least
-                recently used first, until the new one fits in VRAM.{{with .Margin}}
-                It keeps {{.}} free on each GPU.{{end}}</small>
-                {{with .LlamaCppBlocked}}<br><small><mark>{{.}}</mark></small>{{end}}
+                <br><small>The llama-server router loads and unloads models to
+                fit VRAM. Generation models cannot be used with this setting,
+                because llama.cpp is not aware of their VRAM use.</small>
+                {{with .LlamaCppBlocked}}<br><small><mark>{{.}}.{{if $.GaveWay}} Saved as your
+                choice: llama-toolchest decides until they are off.{{end}}</mark></small>{{end}}
                 {{with .Note}}<br><small><mark>{{.}}</mark></small>{{end}}
             </label>
             <label>
                 <input type="radio" name="eviction" value="toolchest"
                        {{if eq .Checked "toolchest"}}checked{{end}}>
                 llama-toolchest
-                <br><small>Toolchest unloads idle LLMs, least recently used
-                first, until the new one fits by its estimate. It keeps the
-                reservations of generation backends free. If the model still
-                does not fit, llama-server tries to load it.</small>
-                {{if .GaveWay}}<br><small>You chose llama.cpp. llama-toolchest
-                decides while generation backends or forks are on.</small>{{end}}
+                <br><small>Toolchest manages both LLMs and generation models,
+                loading and unloading them on demand. Backends stop for an LLM
+                only with <em>LLMs and backends can take turns</em> on.</small>
             </label>
         </fieldset>
     </form>

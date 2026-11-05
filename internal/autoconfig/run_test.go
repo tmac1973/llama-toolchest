@@ -552,7 +552,7 @@ func TestRunPlansTheCardsDraftModel(t *testing.T) {
 	// The old 8% margin, as TestFitIsPlannedWithTheDraftContext: on the
 	// bare card both plans reach the same context.
 	hw := gpu24()
-	hw.GPUs[0].MarginMiB = 1966 - models.WorkingMemoryMiB
+	hw.GPUs[0].MarginMiB = 1966
 	deps := func(llm *llmcall.Client) Deps {
 		return Deps{
 			Registry: reg, Hardware: hw, HFBase: "https://hf.test",
