@@ -120,7 +120,7 @@
         <tr><th>Mode</th><th>Who decides</th><th>What unloads</th></tr>
         <tr><td><strong>Off</strong></td><td>The llama-server router, by count</td><td>It keeps up to <em>Max loaded models</em>. At the limit, the model used least recently unloads. VRAM is not checked, so a model that does not fit fails to load. <code>1</code> means one model at a time.</td></tr>
         <tr><td><strong>llama.cpp</strong></td><td>The llama-server router, by VRAM</td><td>Idle models unload, least recently used first, until the new model fits. The router keeps one margin free on each GPU; the card shows it. Needs llama.cpp b11930 or newer; an older build unloads by count.</td></tr>
-        <tr><td><strong>llama-toolchest</strong></td><td>Toolchest, by VRAM</td><td>Idle models unload, least recently used first, but only on the GPUs that are short. Toolchest keeps the fit margin (1 GiB or 8%) and the generation reservations free. Works with any build.</td></tr>
+        <tr><td><strong>llama-toolchest</strong></td><td>Toolchest, by VRAM</td><td>Idle models unload, least recently used first, but only on the GPUs that are short. Toolchest uses the fit margin (1 GiB or 8%) to choose what unloads. Only the generation reservations refuse a load. When nothing more can unload, toolchest sends the load and llama-server decides if the model fits. Works with any build.</td></tr>
     </table></div>
     <ul>
         <li><strong>In every mode:</strong> a model that answers a request never unloads. <em>Max loaded models</em> is always an upper limit. Benchmarks, Autotune and Autoconfigure load one model at a time.</li>

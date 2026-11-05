@@ -179,8 +179,8 @@ func TestLoadWithRoomCountsLoadedOnce(t *testing.T) {
 	loaded(t, s, f, "chat")
 	// 18,227 + 9,216 MiB: under the 28,818 MiB budget, over the 26,900
 	// the 2 GiB counted twice would leave.
-	if err := s.neverFitsError(embed); err != nil {
-		t.Errorf("neverFitsError: %v", err)
+	if blocked, err := s.neverFits(embed); err != nil || blocked {
+		t.Errorf("neverFits: blocked %v, err %v", blocked, err)
 	}
 	if err := loadWithRoom(t, s, embed); err != nil {
 		t.Fatal(err)
@@ -223,20 +223,42 @@ func TestLoadWithRoomUnloadsLRU(t *testing.T) {
 	}
 }
 
-// With only a busy model in the way, the load is refused.
-func TestLoadWithRoomRefusesWhenAllBusy(t *testing.T) {
+// With only a busy model in the way, nothing is unloaded and the load is
+// sent: the plan is an estimate, so llama-server decides (issue #561).
+func TestLoadWithRoomTriesWhenAllBusy(t *testing.T) {
 	s, f := roomServer(t)
 	addRoomModel(t, s, "a", 18)
 	c := addRoomModel(t, s, "c", 12)
 	loaded(t, s, f, "a")
 	end, _ := s.llmUse.begin(context.Background(), "a")
 	defer end()
-	err := loadWithRoom(t, s, c)
-	if err == nil || !strings.Contains(err.Error(), "does not fit: GPU 0") {
-		t.Fatalf("err = %v, want the fit refusal", err)
+	if err := loadWithRoom(t, s, c); err != nil {
+		t.Fatal(err)
 	}
-	if len(f.unloadCalls()) != 0 || len(f.loadCalls()) != 0 {
-		t.Errorf("unloads %v, loads %v; want none", f.unloadCalls(), f.loadCalls())
+	if len(f.unloadCalls()) != 0 {
+		t.Errorf("unloads %v; want none", f.unloadCalls())
+	}
+	if l := f.loadCalls(); !slices.Equal(l, []string{s.registry.RouterName("c")}) {
+		t.Errorf("loads = %v, want c", l)
+	}
+}
+
+// A model whose plan alone is over the card's budget, with no
+// reservation, is still loaded once the idle models on the card are
+// gone: issue #561, a 24 GB card refused a model it ran on 2.50.
+func TestLoadWithRoomOverPlanAlone(t *testing.T) {
+	s, f := roomServer(t)
+	addRoomModel(t, s, "a", 8)
+	huge := addRoomModel(t, s, "huge", 26)
+	loaded(t, s, f, "a")
+	if err := loadWithRoom(t, s, huge); err != nil {
+		t.Fatal(err)
+	}
+	if u := f.unloadCalls(); !slices.Equal(u, []string{s.registry.RouterName("a")}) {
+		t.Errorf("unloads = %v, want a", u)
+	}
+	if l := f.loadCalls(); !slices.Equal(l, []string{s.registry.RouterName("huge")}) {
+		t.Errorf("loads = %v, want huge", l)
 	}
 }
 
@@ -282,9 +304,9 @@ func TestLoadWithRoomRealFreeCheck(t *testing.T) {
 	a := addRoomModel(t, s, "a", 12)
 	c := addRoomModel(t, s, "c", 8)
 	loaded(t, s, f, "a")
-	// The card shows a's plan used, plus 7 GiB more than the plan knows.
+	// The card shows a's plan used, plus 9 GiB more than the plan knows.
 	s.testGPUReadings = func() []monitor.GPUInfo {
-		used := 1300 + 7*1024
+		used := 1300 + 9*1024
 		f.mu.Lock()
 		if f.status[s.registry.RouterName("a")] == "loaded" {
 			used += 13721
@@ -313,10 +335,29 @@ func TestLoadWithRoomRealFreeCheck(t *testing.T) {
 	}
 	big := addRoomModel(t, s, "big", 16)
 	short := s.realFreeShortGPUs(big)
-	if len(short) != 1 || short[0].needed != 18227+13721+models.FitMarginMiB(32624) {
-		t.Errorf("short = %+v, want big + loading a + margin", short)
+	if len(short) != 1 || short[0].needed != 18227+13721 {
+		t.Errorf("short = %+v, want big + loading a, no margin", short)
 	}
 	_ = a
+}
+
+// When the card shows less free than the plan needs and nothing idle is
+// left to unload, the load is still sent: llama-server decides.
+func TestLoadWithRoomRealFreeShortStillLoads(t *testing.T) {
+	s, f := roomServer(t)
+	c := addRoomModel(t, s, "c", 16)
+	s.testGPUReadings = func() []monitor.GPUInfo {
+		return []monitor.GPUInfo{{Index: 0, VRAMTotalMB: 32624, VRAMUsedMB: 20000}}
+	}
+	if short := s.realFreeShortGPUs(c); len(short) != 1 {
+		t.Fatalf("short = %+v, want GPU 0", short)
+	}
+	if err := loadWithRoom(t, s, c); err != nil {
+		t.Fatal(err)
+	}
+	if l := f.loadCalls(); !slices.Equal(l, []string{s.registry.RouterName("c")}) {
+		t.Errorf("loads = %v, want c", l)
+	}
 }
 
 // Two loads at once run one after the other: the second sees the first
@@ -452,7 +493,7 @@ func TestLoadWithRoomEvictOffRefuses(t *testing.T) {
 
 // A load that cannot fit beside a busy model, even with every idle model
 // gone, unloads nothing: the idle one stays (the asmodean field test,
-// step 5, unloaded the reranker for nothing).
+// step 5, unloaded the reranker for nothing). The load is still sent.
 func TestLoadWithRoomBusyBlocksUnloadsNothing(t *testing.T) {
 	s, f := roomServer(t)
 	addRoomModel(t, s, "a", 12)
@@ -464,14 +505,14 @@ func TestLoadWithRoomBusyBlocksUnloadsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer end()
-	a, _ := s.registry.Get("a")
-	err = loadWithRoom(t, s, big)
-	if err == nil || !strings.Contains(err.Error(), "even with every idle model unloaded") ||
-		!strings.Contains(err.Error(), "answering a request or loading: "+a.PublicName()) {
-		t.Fatalf("err = %v, want the never-fits refusal naming a", err)
+	if err := loadWithRoom(t, s, big); err != nil {
+		t.Fatal(err)
 	}
 	if u := f.unloadCalls(); len(u) != 0 {
-		t.Errorf("unloaded %v for a load that could never fit", u)
+		t.Errorf("unloaded %v for a load that cannot fit by plan", u)
+	}
+	if l := f.loadCalls(); !slices.Equal(l, []string{s.registry.RouterName("big")}) {
+		t.Errorf("loads = %v, want big", l)
 	}
 }
 

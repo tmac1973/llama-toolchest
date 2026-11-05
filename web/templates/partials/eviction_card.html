@@ -39,9 +39,9 @@
                        {{if eq .Checked "toolchest"}}checked{{end}}>
                 llama-toolchest
                 <br><small>Toolchest unloads idle LLMs, least recently used
-                first, until the new one fits. It keeps the fit margin (1 GiB
-                or 8%) and the reservations of generation backends
-                free.</small>
+                first, until the new one fits by its estimate. It keeps the
+                reservations of generation backends free. If the model still
+                does not fit, llama-server tries to load it.</small>
                 {{if .GaveWay}}<br><small>You chose llama.cpp. llama-toolchest
                 decides while generation backends or forks are on.</small>{{end}}
             </label>
