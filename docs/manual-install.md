@@ -78,7 +78,7 @@ The package doesn't pull GPU SDKs — install them yourself for the backend you 
     the build stops at "does not contain the HIP runtime CMake package" even
     though `hipcc` is on PATH.
 - **CUDA** — `cuda-toolkit` (Fedora/Debian via NVIDIA's repo)
-- **Vulkan** — see [Vulkan section in README](../README.md#vulkan)
+- **Vulkan** — see [Vulkan section in README](https://github.com/tmac1973/llama-toolchest/blob/main/README.md#vulkan)
 
 ## Image and music generation backends
 

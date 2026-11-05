@@ -20,7 +20,7 @@ nothing but Caddy faces the network.
 > logging/PII, and your host firewall and network policy.
 >
 > The rendered config lives at `./Caddyfile` (generated from
-> [`Caddyfile.template`](../Caddyfile.template)). Read it. If this server is
+> [`Caddyfile.template`](https://github.com/tmac1973/llama-toolchest/blob/main/Caddyfile.template)). Read it. If this server is
 > reachable from an untrusted network, treat the security of the deployment as
 > **your** responsibility.
 
@@ -200,7 +200,7 @@ the browser chat UI — not for programmatic clients.
   ACE-Step routes and `/tts` are at the server root because that is where
   their clients call them.
 
-Read [`Caddyfile.template`](../Caddyfile.template) and your rendered
+Read [`Caddyfile.template`](https://github.com/tmac1973/llama-toolchest/blob/main/Caddyfile.template) and your rendered
 `./Caddyfile` to confirm all of the above matches your expectations before
 exposing the server.
 

@@ -40,3 +40,6 @@ vendor/
 /data/
 # macOS folder metadata.
 .DS_Store
+# The docs site: built output and the Zensical environment (make docs).
+/site/
+/.venv-docs/

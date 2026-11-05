@@ -91,3 +91,24 @@ js-test:
 .PHONY: installer-test
 installer-test:
 	bash scripts/test-lib.sh
+
+# The documentation site (docs/, zensical.toml). Zensical is a Python tool, so
+# it goes in its own virtual environment, .venv-docs, at the version that
+# docs/requirements.txt pins. `make docs` builds the site into site/ and fails
+# on a broken link or anchor, as the docs workflow does. `make docs-serve`
+# shows it on a local address and rebuilds on every change.
+DOCS_VENV = .venv-docs
+
+$(DOCS_VENV)/bin/zensical: docs/requirements.txt
+	python3 -m venv $(DOCS_VENV)
+	$(DOCS_VENV)/bin/pip install -q -r docs/requirements.txt
+	touch $@
+
+.PHONY: docs-venv docs docs-serve
+docs-venv: $(DOCS_VENV)/bin/zensical
+
+docs: $(DOCS_VENV)/bin/zensical
+	$(DOCS_VENV)/bin/zensical build --clean --strict
+
+docs-serve: $(DOCS_VENV)/bin/zensical
+	$(DOCS_VENV)/bin/zensical serve
