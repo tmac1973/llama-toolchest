@@ -96,7 +96,7 @@ func (s *Server) evictionInfo() evictionView {
 		if !hasOption {
 			v.Label = "llama.cpp (by count: build too old)"
 			v.Note = "The active llama.cpp build is older than b11930, so models unload by count until a newer build is active."
-		} else if mib := s.routerMemoryMarginMiB(); mib > 1 {
+		} else if mib := s.routerMemoryMarginMiB(); mib > 0 {
 			v.Margin = fmt.Sprintf("%.1f GiB", float64(mib)/1024)
 		}
 	default:

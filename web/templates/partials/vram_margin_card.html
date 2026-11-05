@@ -4,11 +4,12 @@
 {{define "vram_margin_card"}}
 <article id="vram-margin">
     <header>GPU memory margin</header>
-    <p><small>VRAM that toolchest keeps free on each GPU. Autoconfigure,
-       Measure and the load checks plan around it. With eviction by
-       llama.cpp, the router keeps the largest margin of all GPUs free.
-       0 lets models use all of a card. A margin applies to the next
-       plan or load; a running model keeps its settings.</small></p>
+    <p><small>Extra VRAM that toolchest keeps free on each GPU.
+       Autoconfigure, Measure and the load checks plan around it. Toolchest
+       always keeps 1 GiB free for llama.cpp's working memory in real
+       chats; the margin is on top of that. 0 adds nothing. With eviction
+       by llama.cpp, the router gets the largest margin. A margin applies
+       to the next plan or load; a running model keeps its settings.</small></p>
     <form hx-put="/api/settings"
           hx-target="#vram-margin-status"
           hx-swap="innerHTML"

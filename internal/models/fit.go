@@ -69,10 +69,20 @@ func (g GPUSpec) UsableMiB() int {
 	return max(0, g.VRAMTotalMiB-g.OtherUsedMiB-g.ReservedMiB)
 }
 
+// WorkingMemoryMiB is the memory a plan leaves free on every GPU for
+// llama.cpp itself: real chats process a prompt in parts, and llama.cpp
+// asks for more working memory on the first card as they do, more than
+// the estimate and a test load show. Settings that passed every test run
+// with about 500 MiB left on one card crashed with out of memory on the
+// first real chat; with 1.3 GiB left they ran. It is kept even with no
+// GPU memory margin, since llama.cpp uses it.
+const WorkingMemoryMiB = 1024
+
 // cardBudgetGiB is what a plan may use of a card: what other programs
-// leave of it, less the user's margin, less generation reservations.
+// leave of it, less llama.cpp's working memory, the user's margin and
+// generation reservations.
 func cardBudgetGiB(g GPUSpec) float64 {
-	return float64(max(0, g.VRAMTotalMiB-g.OtherUsedMiB-g.MarginMiB-g.ReservedMiB)) / 1024
+	return float64(max(0, g.VRAMTotalMiB-g.OtherUsedMiB-WorkingMemoryMiB-g.MarginMiB-g.ReservedMiB)) / 1024
 }
 
 // CardBudgetMiB is what the planner lets models use of a card, in MiB:
@@ -161,18 +171,19 @@ func ThreadsFor(cores int) int {
 
 // RouterMemoryMarginMiB is the margin the router keeps free on each GPU
 // when it manages memory (--models-memory-margin): the largest of the
-// GPUs' margins, since the router takes one number for all of them. At
-// least 1 MiB, because 0 turns the router's memory accounting off. 0
-// without GPUs.
+// GPUs' margins, since the router takes one number for all of them,
+// plus llama.cpp's working memory (WorkingMemoryMiB). That also keeps it
+// above 0, which turns the router's memory accounting off. 0 without
+// GPUs.
 func RouterMemoryMarginMiB(gpus []GPUSpec) int {
 	if len(gpus) == 0 {
 		return 0
 	}
-	largest := 1
+	largest := 0
 	for _, g := range gpus {
 		largest = max(largest, g.MarginMiB)
 	}
-	return largest
+	return largest + WorkingMemoryMiB
 }
 
 // ramMarginGiB is the system memory left free for the operating system

@@ -86,15 +86,15 @@ func TestVRAMMarginJSON(t *testing.T) {
 }
 
 // Each card gets its own margin, or the margin for every GPU; the router
-// gets the largest, and at least 1 MiB so that it still decides by memory.
+// gets the largest, with llama.cpp's working memory on top.
 func TestHardwareAppliesVRAMMargin(t *testing.T) {
 	s := newTestServer(t)
 	s.testHardware = &models.Hardware{GPUs: []models.GPUSpec{
 		{Index: 0, Name: "A", VRAMTotalMiB: 24576},
 		{Index: 1, Name: "B", VRAMTotalMiB: 16384},
 	}}
-	if got := s.routerMemoryMarginMiB(); got != 1 {
-		t.Errorf("router margin with the default = %d MiB, want 1", got)
+	if got := s.routerMemoryMarginMiB(); got != models.WorkingMemoryMiB {
+		t.Errorf("router margin with the default = %d MiB, want the working memory", got)
 	}
 	s.cfg.VRAMMarginMiB = 512
 	s.cfg.VRAMMarginByGPU = map[int]int{1: 2048}
@@ -102,11 +102,11 @@ func TestHardwareAppliesVRAMMargin(t *testing.T) {
 	if gpus[0].MarginMiB != 512 || gpus[1].MarginMiB != 2048 {
 		t.Errorf("margins = %d and %d, want 512 and 2048", gpus[0].MarginMiB, gpus[1].MarginMiB)
 	}
-	if got := models.CardBudgetMiB(gpus[0]); got != 24576-512 {
-		t.Errorf("budget = %d MiB, want the card less its margin", got)
+	if got := models.CardBudgetMiB(gpus[0]); got != 24576-models.WorkingMemoryMiB-512 {
+		t.Errorf("budget = %d MiB, want the card less the working memory and its margin", got)
 	}
-	if got := s.routerMemoryMarginMiB(); got != 2048 {
-		t.Errorf("router margin = %d MiB, want the largest, 2048", got)
+	if got := s.routerMemoryMarginMiB(); got != 2048+models.WorkingMemoryMiB {
+		t.Errorf("router margin = %d MiB, want the largest, 2048, and the working memory", got)
 	}
 }
 

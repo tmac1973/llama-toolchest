@@ -336,8 +336,8 @@ func TestLoadWithRoomRealFreeCheck(t *testing.T) {
 	}
 	big := addRoomModel(t, s, "big", 16)
 	short := s.realFreeShortGPUs(big)
-	if len(short) != 1 || short[0].needed != 18227+13721+oldTestMarginMiB {
-		t.Errorf("short = %+v, want big + loading a + the margin", short)
+	if len(short) != 1 || short[0].needed != 18227+13721+models.WorkingMemoryMiB+oldTestMarginMiB {
+		t.Errorf("short = %+v, want big + loading a + working memory + the margin", short)
 	}
 	_ = a
 }

@@ -28,10 +28,11 @@ func vramServer(t *testing.T) *Server {
 	return s
 }
 
-// oldTestMarginMiB is the margin the GPU tests plan with: 8% of the
-// R9700's 31,324 MiB beside the desktop, the fixed margin from before
-// the setting, so their budgets stay as written (28,818 MiB for models).
-const oldTestMarginMiB = 2506
+// oldTestMarginMiB is the margin the GPU tests plan with: with llama.cpp's
+// working memory it makes 8% of the R9700's 31,324 MiB beside the
+// desktop, the fixed margin from before the setting, so their budgets
+// stay as written (28,818 MiB for models).
+const oldTestMarginMiB = 2506 - models.WorkingMemoryMiB
 
 func addInstance(t *testing.T, s *Server, inst generation.Instance) {
 	t.Helper()

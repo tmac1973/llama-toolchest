@@ -148,12 +148,9 @@ type CardMemory struct {
 func (c CardMemory) FreeMiB() int { return c.TotalMiB - c.UsedMiB }
 
 // MinCardFreeMiB is how much memory settings must leave free on every GPU
-// they use. A test run uses less than normal use: real chats process a
-// prompt in parts, and llama.cpp asks for more working memory on the
-// first card as they do. Settings that passed every test run with about
-// 500 MiB left on one card crashed with out of memory on the first real
-// chat; with 1.3 GiB left they ran.
-const MinCardFreeMiB = 1024
+// they use: llama.cpp's working memory in real chats, which the planner
+// leaves free too (models.WorkingMemoryMiB).
+const MinCardFreeMiB = models.WorkingMemoryMiB
 
 // TightestCard is the card with the least memory left, and false when
 // the run recorded no cards.

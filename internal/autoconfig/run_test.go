@@ -549,16 +549,20 @@ func TestRunPlansTheCardsDraftModel(t *testing.T) {
 		Arch: "dflash", DraftHead: "dspark", SizeBytes: 6 << 30}); err != nil {
 		t.Fatal(err)
 	}
+	// The old 8% margin, as TestFitIsPlannedWithTheDraftContext: on the
+	// bare card both plans reach the same context.
+	hw := gpu24()
+	hw.GPUs[0].MarginMiB = 1966 - models.WorkingMemoryMiB
 	deps := func(llm *llmcall.Client) Deps {
 		return Deps{
-			Registry: reg, Hardware: gpu24(), HFBase: "https://hf.test",
+			Registry: reg, Hardware: hw, HFBase: "https://hf.test",
 			Fetcher: &fakeFetcher{pages: map[string]string{
 				"https://hf.test/testorg/Test-9B-GGUF/raw/main/README.md": readTestdata(t, "unsloth_card.md"),
 			}},
 			LLM: llm, HelperID: "helper",
 		}
 	}
-	noDraft, err := Run(context.Background(), Deps{Registry: reg, Hardware: gpu24()}, runModelID, models.ContextMax)
+	noDraft, err := Run(context.Background(), Deps{Registry: reg, Hardware: hw}, runModelID, models.ContextMax)
 	if err != nil {
 		t.Fatal(err)
 	}

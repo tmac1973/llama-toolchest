@@ -123,8 +123,8 @@ func TestPlanFit(t *testing.T) {
 		}},
 		{"two cards", dense8B, Hardware{GPUs: []GPUSpec{{Index: 0, VRAMTotalMiB: 24 * 1024}, {Index: 1, VRAMTotalMiB: 24 * 1024}},
 			LogicalCores: 16}, ContextLong, func(t *testing.T, r FitResult) {
-			if r.Config.GPUAssign != "all" || r.BudgetGiB != 48 {
-				t.Errorf("GPUAssign = %q, budget %.1f; want all, 48 with no margin", r.Config.GPUAssign, r.BudgetGiB)
+			if r.Config.GPUAssign != "all" || r.BudgetGiB != 46 {
+				t.Errorf("GPUAssign = %q, budget %.1f; want all, 46: no margin, 1 GiB working memory a card", r.Config.GPUAssign, r.BudgetGiB)
 			}
 		}},
 		{"integrated GPU left out", dense8B, Hardware{GPUs: []GPUSpec{{Index: 0, VRAMTotalMiB: 16 * 1024}, {Index: 1, VRAMTotalMiB: 2 * 1024, IsIGPU: true}},
@@ -281,8 +281,8 @@ func TestPlanLeavesOtherProgramsTheirMemory(t *testing.T) {
 		}
 	}
 
-	if got := GPUMiB(busy); got[0] != CardBudgetMiB(busy.GPUs[0]) || got[0] != 16304-6*1024 {
-		t.Errorf("GPUMiB = %v, want the card's budget: less what others hold", got)
+	if got := GPUMiB(busy); got[0] != CardBudgetMiB(busy.GPUs[0]) || got[0] != 16304-6*1024-WorkingMemoryMiB {
+		t.Errorf("GPUMiB = %v, want the card's budget: less what others hold and the working memory", got)
 	}
 }
 
@@ -338,18 +338,18 @@ func TestPlanFitGivesTheDrafterASmallMicroBatchOnlyWhenNeeded(t *testing.T) {
 	}
 }
 
-// The budget is the card less other programs' memory, the user's margin
-// and the generation reservations. The R9700 case from the plan: 32,624
+// The budget is the card less other programs' memory, llama.cpp's
+// working memory, the user's margin and the generation reservations. The R9700 case from the plan: 32,624
 // MiB card, 1,300 MiB desktop, Qwen-Image and ACE-Step reserving 11,776
 // + 8,192 MiB.
 func TestCardBudgetWithReservations(t *testing.T) {
 	card := GPUSpec{VRAMTotalMiB: 32624, OtherUsedMiB: 1300}
-	if got := CardBudgetMiB(card); got != 32624-1300 {
-		t.Errorf("budget with no margin = %d MiB, want all the card but the desktop", got)
+	if got := CardBudgetMiB(card); got != 32624-1300-WorkingMemoryMiB {
+		t.Errorf("budget with no margin = %d MiB, want all the card but the desktop and the working memory", got)
 	}
 	card.MarginMiB = 2048
 	plain := CardBudgetMiB(card)
-	if plain != 32624-1300-2048 {
+	if plain != 32624-1300-WorkingMemoryMiB-2048 {
 		t.Errorf("budget with a 2 GiB margin = %d MiB", plain)
 	}
 	card.ReservedMiB = 11776 + 8192
@@ -430,8 +430,8 @@ func TestRouterMemoryMarginMiB(t *testing.T) {
 		want    int
 	}{
 		{nil, 0},
-		{[]int{0, 0}, 1},         // 0 would turn the router's accounting off
-		{[]int{512, 2048}, 2048}, // the largest margin decides
+		{[]int{0, 0}, WorkingMemoryMiB}, // llama.cpp's working memory, never 0
+		{[]int{512, 2048}, 2048 + WorkingMemoryMiB}, // the largest margin decides
 	}
 	for _, c := range cases {
 		var gpus []GPUSpec
