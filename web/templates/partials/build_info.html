@@ -7,6 +7,11 @@
     {{- if ne .ProjectID "llama.cpp"}}
     <dt><strong>Project</strong></dt><dd>{{.ProjectID}}{{if .HasWebUI}} <small>(with its built-in web UI)</small>{{end}}</dd>
     {{- end}}
+    {{- if .PatchSet}}
+    <dt><strong>Patch set</strong></dt><dd>{{.PatchLabel}}{{if .Untested}} <small>(untested)</small>{{else}} <small>(tested)</small>{{end}}</dd>
+    <dt><strong>Release</strong></dt><dd>{{if .PatchReleaseURL}}<a href="{{.PatchReleaseURL}}" target="_blank" rel="noopener">{{.PatchRelease}}</a>{{else}}{{.PatchRelease}}{{end}}</dd>
+    <dt><strong>Upstream base</strong></dt><dd><code>{{.ShortBase}}</code> · b{{.CommitCount}} <small>(launch options are written for this version)</small></dd>
+    {{- end}}
     <dt><strong>Profile</strong></dt><dd>{{.Profile}}</dd>
     <dt><strong>Git ref</strong></dt><dd>{{.GitRef}} <small>(<code>{{.ShortSHA}}</code>)</small></dd>
     {{- with .Tag}}

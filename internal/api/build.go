@@ -16,6 +16,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/builder"
 	"github.com/tmac1973/llama-toolchest/internal/forks"
 	"github.com/tmac1973/llama-toolchest/internal/models"
+	"github.com/tmac1973/llama-toolchest/internal/patchsets"
 )
 
 func (s *Server) handleListBackends(w http.ResponseWriter, r *http.Request) {
@@ -26,6 +27,9 @@ func (s *Server) handleListBackends(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleProfileOptions(w http.ResponseWriter, r *http.Request) {
 	profile := r.URL.Query().Get("profile")
 	project := r.URL.Query().Get("project")
+	if _, ok := patchSetChoice(project); ok {
+		project = builder.ProjectLlamaCpp
+	}
 	proj, ok := builder.FindProject(project)
 	if !ok {
 		http.Error(w, "unknown project: "+project, http.StatusBadRequest)
@@ -174,6 +178,17 @@ func effectiveCMakeFlags(proj builder.Project, prof builder.BuildProfile, option
 
 func (s *Server) handleListRefs(w http.ResponseWriter, r *http.Request) {
 	refresh := r.URL.Query().Get("refresh") == "1"
+	// A patch set offers its tested release and its newest one; the
+	// builder reads the newest from the set's repo when it builds.
+	if set, ok := patchSetChoice(r.URL.Query().Get("project")); ok {
+		if isHTMX(r) {
+			respondHTML(w)
+			s.renderPartial(w, "git_ref_options", gitRefOptionsData{PatchRelease: set.Pinned.Tag, PatchLabel: releaseLabel(set.Pinned.Tag)})
+			return
+		}
+		respondJSON(w, []string{set.Pinned.Tag, "latest"})
+		return
+	}
 	proj, ok := builder.FindProject(r.URL.Query().Get("project"))
 	if !ok {
 		http.Error(w, "unknown project", http.StatusBadRequest)
@@ -217,6 +232,10 @@ type gitRefOptionsData struct {
 	// Pinned is a curated fork's tested commit. When set, the picker
 	// offers only it (first, chosen) and the fork's latest commit.
 	Pinned string
+	// PatchRelease is a patch set's tested release tag and PatchLabel its
+	// short name ("r206"). When set, the picker offers only it (first,
+	// chosen) and the set's newest release.
+	PatchRelease, PatchLabel string
 }
 
 type gitRefGroup struct {
@@ -345,11 +364,22 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 		req.StartToken = r.FormValue("start_token")
 	}
 
+	// A patch set choice builds llama.cpp, with llama.cpp's options.
+	set, patched := patchSetChoice(req.Project)
+	if !patched && strings.HasPrefix(req.Project, patchSetChoicePrefix) {
+		http.NotFound(w, r)
+		return
+	}
+	optionsProject := req.Project
+	if patched {
+		optionsProject = builder.ProjectLlamaCpp
+	}
+
 	// Collect option overrides and extra cmake flags from form
 	var optionOverrides map[string]bool
 	var extraCMake string
 	if !isJSONRequest(r) {
-		options := builder.ProjectOptions(req.Project, req.Profile)
+		options := builder.ProjectOptions(optionsProject, req.Profile)
 		optionOverrides = make(map[string]bool)
 		for _, opt := range options {
 			// Checkboxes only send a value when checked
@@ -377,8 +407,25 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 			req.GitRef = f.PinnedSHA
 		}
 	}
+	if patched {
+		// A patch set builds its tested release or its newest one,
+		// nothing else (plan/rdna-boosts).
+		if req.GitRef != "" && req.GitRef != "latest" && req.GitRef != set.Pinned.Tag {
+			http.Error(w, fmt.Sprintf("%s builds only its tested release (%s) or its newest release", set.Name, set.Pinned.Tag), http.StatusBadRequest)
+			return
+		}
+		if req.GitRef == "" {
+			req.GitRef = set.Pinned.Tag
+		}
+	}
 	ctx := builder.WithStartToken(context.Background(), req.StartToken)
-	result, err := s.builder.BuildProject(ctx, req.Project, req.Profile, req.GitRef, req.Tag, req.Force, optionOverrides, extraCMake, req.ROCmRoot)
+	var result *builder.BuildResult
+	var err error
+	if patched {
+		result, err = s.builder.BuildPatched(ctx, builder.PatchSpec{SetID: set.ID, Release: req.GitRef}, req.Profile, req.Tag, req.Force, optionOverrides, extraCMake, req.ROCmRoot)
+	} else {
+		result, err = s.builder.BuildProject(ctx, req.Project, req.Profile, req.GitRef, req.Tag, req.Force, optionOverrides, extraCMake, req.ROCmRoot)
+	}
 	if err != nil {
 		var dup *builder.DuplicateBuildError
 		if errors.As(err, &dup) {
@@ -497,8 +544,13 @@ type buildRow struct {
 	// blank. Empty only when the build is stamped and matches.
 	BuiltAgainstTitle string
 	// Untested marks a curated fork's build of a commit other than the
-	// pinned one.
+	// pinned one, and a patched build of a release other than the tested
+	// one.
 	Untested bool
+	// PatchLabel names a patched build's patch set and release ("RDNA
+	// boosts r206"), and PatchTitle is its tooltip. Empty on an
+	// unpatched build.
+	PatchLabel, PatchTitle string
 }
 
 // notRecordedTitle is the tooltip for a build with no stamp. Worded as a
@@ -530,6 +582,12 @@ func (s *Server) buildRowFor(b *builder.BuildResult) buildRow {
 	}
 	if f, ok := forks.Find(b.ProjectID()); ok {
 		row.Untested = b.GitSHA != f.PinnedSHA
+	}
+	if b.PatchSet != "" {
+		var tested bool
+		row.PatchLabel, tested = patchLabel(b)
+		row.Untested = !tested
+		row.PatchTitle = fmt.Sprintf("%s · Base: %s (b%d)", b.PatchRelease, safeShortSHA(b.PatchBase), b.CommitCount)
 	}
 	current := s.currentBuildEnvFor(buildBackend(b))
 	gone, perInstall := builder.InstallGone(b.BuiltAgainst, s.rocmInstalls())
@@ -706,11 +764,18 @@ func (s *Server) resolveBuild(id string) *builder.BuildResult {
 	// — the one option that looks safest silently choosing a broken build.
 	// Builds with no stamp are not skipped: they cannot be judged, so they
 	// stay candidates.
+	//
+	// Patched builds are passed over while an upstream build can run: a
+	// patched build ranks at its upstream base, so without this, building
+	// a patch set could change the router's build without the user
+	// choosing it (plan/rdna-boosts).
 	ranked := s.builder.SuccessfulBuildsRanked()
-	for i := range ranked {
-		if !s.buildRowFor(&ranked[i]).Mismatch {
-			res := ranked[i]
-			return &res
+	for _, patched := range []bool{false, true} {
+		for i := range ranked {
+			if (ranked[i].PatchSet != "") == patched && !s.buildRowFor(&ranked[i]).Mismatch {
+				res := ranked[i]
+				return &res
+			}
 		}
 	}
 	// Every build was made somewhere else. Return the newest anyway: the
@@ -768,6 +833,9 @@ type buildInfoData struct {
 	// FlagsText is the cmake flags one per line, sorted; empty for a
 	// build from before flags were recorded.
 	FlagsText string
+	// PatchReleaseURL is a patched build's release page, ShortBase its
+	// upstream base; both empty on an unpatched build.
+	PatchReleaseURL, ShortBase string
 }
 
 func (s *Server) handleBuildInfo(w http.ResponseWriter, r *http.Request) {
@@ -788,11 +856,16 @@ func (s *Server) handleBuildInfo(w http.ResponseWriter, r *http.Request) {
 		flags = append(flags, "-D"+k+"="+found.CMakeFlags[k])
 	}
 	respondHTML(w)
-	s.renderPartial(w, "build_info", buildInfoData{
+	data := buildInfoData{
 		buildRow:  s.buildRowFor(found),
 		ShortSHA:  safeShortSHA(found.GitSHA),
 		FlagsText: strings.Join(flags, " \\\n  "),
-	})
+		ShortBase: safeShortSHA(found.PatchBase),
+	}
+	if set, ok := patchsets.Find(found.PatchSet); ok {
+		data.PatchReleaseURL = set.Repo + "/releases/tag/" + found.PatchRelease
+	}
+	s.renderPartial(w, "build_info", data)
 }
 
 func safeShortSHA(sha string) string {
@@ -860,4 +933,42 @@ func (s *Server) supportedArchs() (archs map[string]bool, known bool) {
 		archs[a] = true
 	}
 	return archs, true
+}
+
+// patchSetChoicePrefix starts a Builds page project value that names a
+// curated patch set ("patchset:rdna-boosts"). The build is a llama.cpp
+// build with the set applied.
+const patchSetChoicePrefix = "patchset:"
+
+// patchSetChoice returns the curated patch set a project value names.
+func patchSetChoice(value string) (patchsets.PatchSet, bool) {
+	id, ok := strings.CutPrefix(value, patchSetChoicePrefix)
+	if !ok {
+		return patchsets.PatchSet{}, false
+	}
+	return patchsets.Find(id)
+}
+
+// releaseLabel is a patch set release's short name: "r206" for
+// v16-6050b467c-r206, or the tag itself when it has no number.
+func releaseLabel(tag string) string {
+	if n, ok := patchsets.ReleaseNumber(tag); ok {
+		return fmt.Sprintf("r%d", n)
+	}
+	return tag
+}
+
+// patchLabel names a patched build's patch set and release ("RDNA boosts
+// r206") and reports whether that release is the tested one. Every page
+// that lists builds uses it, so they name a patched build the same way.
+// Empty on an unpatched build.
+func patchLabel(b *builder.BuildResult) (label string, tested bool) {
+	if b == nil || b.PatchSet == "" {
+		return "", false
+	}
+	set, ok := patchsets.Find(b.PatchSet)
+	if !ok {
+		return b.PatchSet + " " + releaseLabel(b.PatchRelease), false
+	}
+	return set.Name + " " + releaseLabel(b.PatchRelease), b.PatchRelease == set.Pinned.Tag
 }

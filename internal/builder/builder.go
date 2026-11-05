@@ -25,6 +25,7 @@ import (
 
 	"github.com/tmac1973/llama-toolchest/internal/atomicfile"
 	"github.com/tmac1973/llama-toolchest/internal/broadcast"
+	"github.com/tmac1973/llama-toolchest/internal/patchsets"
 )
 
 // llamaCppRepo is the upstream clone source. A var, not a const, so
@@ -96,6 +97,14 @@ type BuildResult struct {
 	// Project is the source tree built (see Project); empty on builds
 	// from before projects existed, which were all llama.cpp.
 	Project string `json:"project,omitempty"`
+	// PatchSet is the curated patch set (internal/patchsets) applied to
+	// the source, PatchRelease its release tag and PatchBase the upstream
+	// commit the patches applied to. GitSHA is then the patched HEAD, and
+	// CommitCount the base's count, so the build ranks and gets launch
+	// options as upstream at its base. All empty on an unpatched build.
+	PatchSet     string `json:"patch_set,omitempty"`
+	PatchRelease string `json:"patch_release,omitempty"`
+	PatchBase    string `json:"patch_base,omitempty"`
 	// HasWebUI is true when the build's server program carries its own
 	// web page (sd-server built with its frontend, ace-server always).
 	HasWebUI bool `json:"has_web_ui,omitempty"`
@@ -353,6 +362,18 @@ func (b *Builder) Build(ctx context.Context, profile string, gitRef string, tag 
 
 // BuildProject is Build for any project (see Projects).
 func (b *Builder) BuildProject(ctx context.Context, project, profile string, gitRef string, tag string, force bool, optionOverrides map[string]bool, extraCMake string, rocmRoot string) (*BuildResult, error) {
+	return b.buildProject(ctx, project, profile, gitRef, tag, force, optionOverrides, extraCMake, rocmRoot, nil)
+}
+
+// BuildPatched is Build with a curated patch set applied: llama.cpp at the
+// release's upstream base, with the release's patches on top (see
+// applyPatchSet). The build ranks and gets launch options as upstream at
+// that base.
+func (b *Builder) BuildPatched(ctx context.Context, spec PatchSpec, profile string, tag string, force bool, optionOverrides map[string]bool, extraCMake string, rocmRoot string) (*BuildResult, error) {
+	return b.buildProject(ctx, ProjectLlamaCpp, profile, "", tag, force, optionOverrides, extraCMake, rocmRoot, &spec)
+}
+
+func (b *Builder) buildProject(ctx context.Context, project, profile string, gitRef string, tag string, force bool, optionOverrides map[string]bool, extraCMake string, rocmRoot string, patch *PatchSpec) (*BuildResult, error) {
 	slog.Info("build requested", "project", project, "profile", profile, "git_ref", gitRef, "tag", tag, "force", force, "rocm_root", rocmRoot)
 
 	proj, ok := FindProject(project)
@@ -365,6 +386,13 @@ func (b *Builder) BuildProject(ctx context.Context, project, profile string, git
 	}
 	if !proj.SupportsBackend(prof.Backend) {
 		return nil, fmt.Errorf("%s can only be built with the %s profiles", proj.ID, strings.Join(proj.Backends, ", "))
+	}
+	var set patchsets.PatchSet
+	if patch != nil {
+		var err error
+		if set, err = checkPatchSpec(*patch, proj, prof); err != nil {
+			return nil, err
+		}
 	}
 
 	if prof.Backend == "vulkan" && RunningInContainer() {
@@ -470,12 +498,42 @@ func (b *Builder) BuildProject(ctx context.Context, project, profile string, git
 		return nil, err
 	}
 
+	// A patched build checks out the release's upstream base. An am left
+	// by an interrupted build is cleared first: aborting it later would
+	// move HEAD off the base.
+	var pr *patchRelease
+	if patch != nil {
+		var err error
+		if pr, err = b.preparePatchSet(ctx, set, *patch, srcDir, prepCh); err != nil {
+			endPrep("==> The build did not start: " + err.Error())
+			close(logCh)
+			return nil, err
+		}
+		clearStaleAM(ctx, srcDir)
+		gitRef = pr.rel.Base
+	}
+
 	resolvedRef, sha, commitCount, err := b.checkoutRef(ctx, proj, srcDir, gitRef, prepCh)
 	if err != nil {
 		err = fmt.Errorf("checkout: %w", err)
 		endPrep("==> The build did not start: " + err.Error())
 		close(logCh)
 		return nil, err
+	}
+
+	// commitCount stays the base's: the patched build is upstream at its
+	// base for ranking and launch options.
+	if pr != nil {
+		sendLog(prepCh, fmt.Sprintf("==> Base: %s (b%d)", shortSHA(pr.rel.Base), commitCount))
+		if sha, err = b.applyPatchSet(ctx, pr, srcDir, prepCh); err != nil {
+			endPrep("==> The build did not start: " + err.Error())
+			close(logCh)
+			return nil, err
+		}
+		resolvedRef = pr.rel.Tag
+		result.PatchSet = pr.set.ID
+		result.PatchRelease = pr.rel.Tag
+		result.PatchBase = pr.rel.Base
 	}
 
 	result.GitRef = resolvedRef
@@ -486,7 +544,11 @@ func (b *Builder) BuildProject(ctx context.Context, project, profile string, git
 	// by a build with different flags, auto-suffix a short hash of this
 	// build's flags so it can coexist. If flags are identical, fall through
 	// to DuplicateBuildError so the user sees the rebuild prompt.
-	baseID := proj.IDPrefix + fmt.Sprintf("%s-%s", buildIDRef(resolvedRef, sha), prof.Name)
+	idRef := buildIDRef(resolvedRef, sha)
+	if pr != nil {
+		idRef = patchBuildIDRef(pr)
+	}
+	baseID := proj.IDPrefix + fmt.Sprintf("%s-%s", idRef, prof.Name)
 	if tag != "" {
 		result.ID = baseID + "-" + tag
 	} else {

@@ -158,6 +158,9 @@ type jobFormProfile struct {
 // buildOpt is one build in the job form's build list.
 type buildOpt struct {
 	ID, Profile, GitRef, Tag string
+	// PatchLabel names a patched build's patch set and release; empty on
+	// an unpatched build.
+	PatchLabel string
 }
 
 // jobCreateRequest is the JSON body POST /api/benchmark-jobs accepts.
@@ -948,7 +951,8 @@ func (s *Server) handleJobForm(w http.ResponseWriter, r *http.Request) {
 		if b.Status != "success" {
 			continue
 		}
-		builds = append(builds, buildOpt{ID: b.ID, Profile: b.Profile, GitRef: b.GitRef, Tag: b.Tag})
+		label, _ := patchLabel(&b)
+		builds = append(builds, buildOpt{ID: b.ID, Profile: b.Profile, GitRef: b.GitRef, Tag: b.Tag, PatchLabel: label})
 	}
 	gpuList := s.monitor.Current().GPU
 	numGPUs := len(gpuList)

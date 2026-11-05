@@ -26,12 +26,14 @@
              drop-down's list partly off the page. hx-include="#build-project"
              sends the checked one. */}}
         <fieldset id="build-project" class="project-choice"
-                  title="The source to build: llama.cpp (language models), stable-diffusion.cpp (images, sd-server), acestep.cpp (music, ace-server) or a curated llama.cpp fork.">
+                  title="The source to build: llama.cpp (language models), llama.cpp with a curated patch set, stable-diffusion.cpp (images, sd-server), acestep.cpp (music, ace-server) or a curated llama.cpp fork.">
             <legend>Project</legend>
             {{range $i, $p := .Projects}}
             <label{{with $p.Notes}} title="{{.}}"{{end}}>
                 <input type="radio" name="project" value="{{$p.ID}}" {{if eq $i 0}}checked{{end}}
                        data-backends="{{$p.Backends}}" data-notes="{{$p.NotesURL}}" data-latest="{{$p.LatestNotesURL}}"
+                       {{with $p.PatchNote}}data-patch-note="{{.}}"{{end}}
+                       {{with $p.PatchLatestNote}}data-patch-latest-note="{{.}}"{{end}}
                        onchange="buildProjectChanged(this)">
                 {{$p.Label}}
             </label>
@@ -55,10 +57,10 @@
                 </select>
             </label>
             <label>
-                Git Ref
+                <span id="git-ref-label">Git Ref</span>
                 <div style="display:flex;gap:0.5rem;align-items:center;">
                     <select name="git_ref" id="git-ref-select" style="margin:0;"
-                            onchange="updateRefLink()">
+                            onchange="updateRefLink(); updatePatchNote()">
                         <option value="latest" selected>latest</option>
                     </select>
                     <a id="ref-link" href="https://github.com/ggml-org/llama.cpp/releases/latest"
@@ -82,6 +84,11 @@
                 </div>
             </label>
         </div>
+        {{/* Shown for a patch set choice only (buildProjectChanged). */}}
+        <p id="patch-note" hidden style="font-size:0.85rem;margin-top:-0.5rem;opacity:0.85;"></p>
+        <p id="patch-untested" role="alert" hidden style="color:var(--pico-del-color);font-size:0.85rem;margin-top:-0.5rem;">
+            The newest release is not tested with this toolchest. It can fail to build, fail to start or give wrong output.
+        </p>
 
         <label title="Label added to the build ID (for example rocwmma), so builds of the same ref and profile can coexist. Lowercase letters, digits and hyphens. Also names a saved flag set.">
             Build Tag <small>(optional; names saved flag sets)</small>
@@ -132,6 +139,19 @@ function updateRefLink() {
     a.href = ref === 'latest' ? latest : notes.replace('{ref}', encodeURIComponent(ref));
 }
 
+// A patch set choice picks a release, not a git ref: the label and the
+// line under the picker say so, and the newest release gets a warning.
+function updatePatchNote() {
+    var o = document.querySelector('#build-project input[name="project"]:checked');
+    var note = o ? o.getAttribute('data-patch-note') : null;
+    var latest = document.getElementById('git-ref-select').value === 'latest';
+    document.getElementById('git-ref-label').textContent = note ? 'Release' : 'Git Ref';
+    var p = document.getElementById('patch-note');
+    p.textContent = (note && latest && o.getAttribute('data-patch-latest-note')) || note || '';
+    p.hidden = !note;
+    document.getElementById('patch-untested').hidden = !note || !latest;
+}
+
 // A project change limits the profiles to the ones it builds with, then
 // reloads the options (through the profile's change trigger) and the refs.
 function buildProjectChanged(o) {
@@ -147,8 +167,9 @@ function buildProjectChanged(o) {
     if (prof.options[prof.selectedIndex].disabled && firstOK !== null) prof.value = firstOK;
     htmx.trigger(prof, 'change');
     htmx.ajax('GET', '/api/builds/refs?project=' + encodeURIComponent(o.value),
-        {target: '#git-ref-select', swap: 'innerHTML'}).then(updateRefLink);
+        {target: '#git-ref-select', swap: 'innerHTML'}).then(function () { updateRefLink(); updatePatchNote(); });
     updateRefLink();
+    updatePatchNote();
 }
 
 // A build has no ID until its source is fetched (or cloned the first

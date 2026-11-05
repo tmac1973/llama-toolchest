@@ -1,9 +1,13 @@
 {{/* The options of the Builds form's git ref picker. Data:
      gitRefOptionsData (build.go). Tag names come from the upstream
      remote; the template escapes them. A curated fork offers only its
-     pinned commit and its latest commit. */}}
+     pinned commit and its latest commit; a patch set only its tested
+     release and its newest release. */}}
 {{define "git_ref_options"}}
-{{- if .Pinned}}
+{{- if .PatchRelease}}
+<option value="{{.PatchRelease}}" selected>{{.PatchLabel}} (tested)</option>
+<option value="latest">Newest (untested)</option>
+{{- else if .Pinned}}
 <option value="{{.Pinned}}" selected>Pinned (tested): {{slice .Pinned 0 7}}</option>
 <option value="latest">Latest commit (untested)</option>
 {{- else}}

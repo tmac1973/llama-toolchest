@@ -2,6 +2,8 @@ package builder
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -24,5 +26,35 @@ func TestBuildReturnsACopyOfTheResult(t *testing.T) {
 	}
 	if got.Status != BuildStatusFailed {
 		t.Errorf("build status = %q, want failed", got.Status)
+	}
+}
+
+// A patched build's patch set fields survive a save and load of
+// builds.json, and a builds.json from before them loads with them empty.
+func TestPatchFieldsRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	b := NewBuilder(dir)
+	b.builds = []BuildResult{{
+		ID: "rdna-r206-rocm", Status: BuildStatusSuccess, CommitCount: 11887,
+		PatchSet: "rdna-boosts", PatchRelease: "v16-6050b467c-r206",
+		PatchBase: "6050b467c07a95c7b87debd4ddac2f8ba8d9b807",
+	}}
+	b.saveBuilds()
+	got, ok := NewBuilder(dir).Find("rdna-r206-rocm")
+	if !ok || got.PatchSet != "rdna-boosts" || got.PatchRelease != "v16-6050b467c-r206" ||
+		got.PatchBase != "6050b467c07a95c7b87debd4ddac2f8ba8d9b807" {
+		t.Fatalf("patch fields lost: %+v", got)
+	}
+
+	old := `[{"id":"b2-cpu","status":"success","git_ref":"b2"}]`
+	if err := os.WriteFile(filepath.Join(dir, "config", "builds.json"), []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, ok = NewBuilder(dir).Find("b2-cpu")
+	if !ok || got.PatchSet != "" || got.PatchRelease != "" || got.PatchBase != "" {
+		t.Fatalf("old build = %+v, %v; want no patch fields", got, ok)
 	}
 }
