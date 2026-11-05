@@ -12,6 +12,10 @@ name: docs
 # (Settings -> Pages -> Build and deployment). If the first deploy ran
 # before that was set, run this workflow again from the Actions tab.
 #
+# The links job runs the Go test that checks every docsURL link in the app's
+# templates against the pages and heading ids in docs/, so a docs change
+# that removes a page or an id the app links to fails here.
+#
 # No pip cache: Zensical's own docs advise against caching its builds for
 # now, and the install is small.
 on:
@@ -20,12 +24,18 @@ on:
     paths:
       - "docs/**"
       - "zensical.toml"
+      - "web/templates/**"
+      - "internal/api/docs_links*.go"
+      - "internal/api/testdata/docs_links/**"
       - ".github/workflows/docs.yml"
   push:
     branches: [main]
     paths:
       - "docs/**"
       - "zensical.toml"
+      - "web/templates/**"
+      - "internal/api/docs_links*.go"
+      - "internal/api/testdata/docs_links/**"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
@@ -65,8 +75,23 @@ jobs:
         with:
           path: site
 
+  links:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check app links to the docs
+        run: go test ./internal/api -run 'TestDocsURL|TestDocsLinksExist|TestCheckDocsLinksFixture'
+
   deploy:
-    needs: build
+    needs: [build, links]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
