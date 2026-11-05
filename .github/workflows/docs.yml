@@ -1,0 +1,81 @@
+name: docs
+
+# Build the documentation site (docs/, zensical.toml) on every pull request
+# that changes it, and publish it to GitHub Pages on every push to main that
+# changes it.
+#
+# The build runs in strict mode, so a link to a page or an anchor that does
+# not exist fails the check. ci.yml skips changes that touch only docs/**
+# and *.md, so this is the only check that runs on a docs-only pull request.
+#
+# Pages must be set to "GitHub Actions" as its source in the repo settings
+# (Settings -> Pages -> Build and deployment). If the first deploy ran
+# before that was set, run this workflow again from the Actions tab.
+#
+# No pip cache: Zensical's own docs advise against caching its builds for
+# now, and the install is small.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "zensical.toml"
+      - ".github/workflows/docs.yml"
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "zensical.toml"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install Zensical
+        run: pip install -r docs/requirements.txt
+
+      # Only a build that will be deployed needs the Pages setup.
+      - name: Set up Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v6
+
+      - name: Build
+        run: zensical build --clean --strict
+
+      - name: Upload site
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
