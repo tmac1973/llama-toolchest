@@ -59,9 +59,9 @@ func TestForkInstancesTable(t *testing.T) {
 			t.Errorf("stopped row lacks %q", want)
 		}
 	}
-	// The test build is not the pinned commit.
-	if !strings.Contains(body, "untested") {
-		t.Error("untested build not marked")
+	// Forks have no pinned commit, so no build is marked untested.
+	if strings.Contains(body, "untested") {
+		t.Error("fork build marked untested")
 	}
 
 	// Started from the card: the table comes back with the start's
@@ -101,7 +101,7 @@ func TestForkInstanceForm(t *testing.T) {
 		return rec
 	}
 	add := get("/api/forks/instances/form")
-	for _, want := range []string{`hx-post="/api/forks/instances"`, `name="id"`, `value="avalon"`, "avalon-ad2c6e7-rocm (untested)", `name="extra_env"`, `id="fork-needs"`} {
+	for _, want := range []string{`hx-post="/api/forks/instances"`, `name="id"`, `value="avalon"`, ">avalon-ad2c6e7-rocm</option>", `name="extra_env"`, `id="fork-needs"`} {
 		if !strings.Contains(add.Body.String(), want) {
 			t.Errorf("add form lacks %q", want)
 		}

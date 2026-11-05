@@ -10,16 +10,13 @@ import (
 	"testing"
 
 	"github.com/tmac1973/llama-toolchest/internal/builder"
-	"github.com/tmac1973/llama-toolchest/internal/forks"
 )
 
-// forkBuildsServer is projectBuildsServer plus two Avalon builds: the
-// pinned commit and a newer, untested one. The fork builds rank above the
-// llama.cpp build, so a resolver that let them through would pick one.
+// forkBuildsServer is projectBuildsServer plus two Avalon builds: an
+// older commit and a newer one. The fork builds rank above the llama.cpp
+// build, so a resolver that let them through would pick one.
 func forkBuildsServer(t *testing.T) *Server {
 	t.Helper()
-	f, _ := forks.Find("avalon")
-	pinned := f.PinnedSHA
 	s := newTestServer(t)
 	dir := s.cfg.DataDir
 	if err := os.MkdirAll(filepath.Join(dir, "config"), 0o755); err != nil {
@@ -27,7 +24,7 @@ func forkBuildsServer(t *testing.T) *Server {
 	}
 	records := `[
 	  {"id":"b9000-rocm","profile":"rocm","git_ref":"b9000","git_sha":"0123456789abcdef0123456789abcdef01234567","status":"success","commit_count":9000},
-	  {"id":"avalon-pinned-rocm","project":"avalon","profile":"rocm","git_ref":"` + pinned + `","git_sha":"` + pinned + `","status":"success","commit_count":11600},
+	  {"id":"avalon-main-ad2c6e7-rocm","project":"avalon","profile":"rocm","git_ref":"origin/main","git_sha":"ad2c6e750c7e1fb59363bff7d5a58e4794603c13","status":"success","commit_count":11600},
 	  {"id":"avalon-main-1111111-rocm","project":"avalon","profile":"rocm","git_ref":"origin/main","git_sha":"1111111111111111111111111111111111111111","status":"success","commit_count":11700}
 	]`
 	if err := os.WriteFile(filepath.Join(dir, "config", "builds.json"), []byte(records), 0o644); err != nil {
@@ -41,7 +38,7 @@ func forkBuildsServer(t *testing.T) *Server {
 // one or one named outright.
 func TestResolversSkipForkBuilds(t *testing.T) {
 	s := forkBuildsServer(t)
-	for _, id := range []string{"", "avalon-pinned-rocm"} {
+	for _, id := range []string{"", "avalon-main-ad2c6e7-rocm"} {
 		if got := s.resolveBuild(id); got == nil || got.ID != "b9000-rocm" {
 			t.Errorf("resolveBuild(%q) = %v, want b9000-rocm", id, got)
 		}
@@ -56,7 +53,7 @@ func TestResolveForkBuild(t *testing.T) {
 	if got := s.resolveForkBuild("avalon", ""); got == nil || got.ID != "avalon-main-1111111-rocm" {
 		t.Errorf("newest = %v", got)
 	}
-	if got := s.resolveForkBuild("avalon", "avalon-pinned-rocm"); got == nil || got.ID != "avalon-pinned-rocm" {
+	if got := s.resolveForkBuild("avalon", "avalon-main-ad2c6e7-rocm"); got == nil || got.ID != "avalon-main-ad2c6e7-rocm" {
 		t.Errorf("by ID = %v", got)
 	}
 	// Another project's build is not used even when named.
@@ -71,10 +68,10 @@ func TestResolveForkBuild(t *testing.T) {
 func TestJobsRefuseForkBuilds(t *testing.T) {
 	s := forkBuildsServer(t)
 	e := newJobEnv(s)
-	if err := e.EnsureBuildActive(t.Context(), "avalon-pinned-rocm", nil, false); err == nil || !strings.Contains(err.Error(), "fork") {
+	if err := e.EnsureBuildActive(t.Context(), "avalon-main-ad2c6e7-rocm", nil, false); err == nil || !strings.Contains(err.Error(), "fork") {
 		t.Errorf("EnsureBuildActive(fork build) = %v", err)
 	}
-	if err := e.CheckBuildRunnable(t.Context(), "avalon-pinned-rocm"); err == nil || !strings.Contains(err.Error(), "fork") {
+	if err := e.CheckBuildRunnable(t.Context(), "avalon-main-ad2c6e7-rocm"); err == nil || !strings.Contains(err.Error(), "fork") {
 		t.Errorf("CheckBuildRunnable(fork build) = %v", err)
 	}
 	if err := refuseForkJobBuild(s.builder, "b9000-rocm"); err != nil {
@@ -82,7 +79,9 @@ func TestJobsRefuseForkBuilds(t *testing.T) {
 	}
 }
 
-func TestBuildsListMarksUntestedForkBuilds(t *testing.T) {
+// Forks build only their latest commit, so no fork build is marked
+// untested.
+func TestBuildsListDoesNotMarkForkBuilds(t *testing.T) {
 	s := forkBuildsServer(t)
 	req := httptest.NewRequest("GET", "/api/builds", nil)
 	req.Header.Set("HX-Request", "true")
@@ -97,10 +96,7 @@ func TestBuildsListMarksUntestedForkBuilds(t *testing.T) {
 		end := strings.Index(body[i:], "</tr>")
 		return body[i : i+end]
 	}
-	if !strings.Contains(row("avalon-main-1111111-rocm"), "untested") {
-		t.Error("latest-commit build not marked untested")
-	}
-	for _, id := range []string{"avalon-pinned-rocm", "b9000-rocm"} {
+	for _, id := range []string{"avalon-main-ad2c6e7-rocm", "avalon-main-1111111-rocm", "b9000-rocm"} {
 		if strings.Contains(row(id), "untested") {
 			t.Errorf("%s marked untested", id)
 		}
@@ -138,13 +134,10 @@ func TestForkRefPicker(t *testing.T) {
 	rec := httptest.NewRecorder()
 	s.handleListRefs(rec, req)
 	body := rec.Body.String()
-	f, _ := forks.Find("avalon")
-	pinned := strings.Index(body, `value="`+f.PinnedSHA+`" selected`)
-	latest := strings.Index(body, `value="latest"`)
-	if pinned < 0 || latest < pinned || !strings.Contains(body, "Pinned (tested)") || !strings.Contains(body, "untested") {
+	if !strings.Contains(body, `value="latest"`) || strings.Contains(body, "untested") {
 		t.Errorf("fork ref picker:\n%s", body)
 	}
-	if strings.Count(body, "<option") != 2 {
+	if strings.Count(body, "<option") != 1 {
 		t.Errorf("fork ref picker has other refs:\n%s", body)
 	}
 }
@@ -164,7 +157,7 @@ func TestTriggerForkBuildGuards(t *testing.T) {
 	}
 	s.cfg.ForksEnabled = true
 	for _, ref := range []string{"b9000", "origin/feature", "0123456789abcdef0123456789abcdef01234567"} {
-		if rec := post(ref); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "pinned commit") {
+		if rec := post(ref); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "latest commit") {
 			t.Errorf("ref %s: %d %s", ref, rec.Code, rec.Body)
 		}
 	}

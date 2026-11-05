@@ -15,21 +15,17 @@ type Fork struct {
 	// ID and the build ID prefix ("avalon-").
 	ID   string
 	Name string
+	// Repo is built from its default branch: the forks move too fast
+	// to pin a commit.
 	Repo string
-	// PinnedSHA is the commit tested with this toolchest, and PinnedDate
-	// the day it was pinned (YYYY-MM-DD). A build of another commit is
-	// marked untested.
-	PinnedSHA  string
-	PinnedDate string
 	// Backends lists the build profile backends the fork supports.
 	Backends []string
 	Recipe   Recipe
 	// ModelRepo is the Hugging Face repo of the paired model, ModelName
 	// its display name, and ModelFiles every file a fork instance needs.
 	// ModelRevision is the repo commit the files are downloaded from: the
-	// model and the fork's code are tested as a pair, and the sizes in
-	// ModelFiles are that commit's, so a later upload cannot change the
-	// set under the pinned build. Move it with PinnedSHA, never alone.
+	// sizes in ModelFiles are that commit's, so a later upload cannot
+	// change the set. Move it with ModelFiles, never alone.
 	ModelRepo     string
 	ModelRevision string
 	ModelName     string

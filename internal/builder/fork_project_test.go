@@ -27,8 +27,8 @@ func TestForkProjects(t *testing.T) {
 			}
 		}
 		refs, err := p.listRefs(t.Context(), "")
-		if err != nil || !slices.Equal(refs, []string{f.PinnedSHA}) {
-			t.Errorf("%s refs = %v, %v; want the pinned commit only", f.ID, refs, err)
+		if err != nil || len(refs) != 0 {
+			t.Errorf("%s refs = %v, %v; want none (latest only)", f.ID, refs, err)
 		}
 		// A fork takes llama.cpp's options, LLAMA_* included.
 		if !slices.EqualFunc(ProjectOptions(f.ID, "rocm"), ProjectOptions(ProjectLlamaCpp, "rocm"),

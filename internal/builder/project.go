@@ -140,10 +140,8 @@ func projects() []Project {
 }
 
 // forkProject is a curated fork's project: built like llama.cpp, from the
-// fork's repo. Its ref picker offers the pinned commit, and "latest" is
-// the fork's default branch.
+// fork's repo. It builds only "latest", the fork's default branch.
 func forkProject(llama Project, f forks.Fork) Project {
-	pinned := f.PinnedSHA
 	return Project{
 		ID:              f.ID,
 		Kind:            ForkKind,
@@ -157,7 +155,7 @@ func forkProject(llama Project, f forks.Fork) Project {
 		ReleaseNotesURL: f.Repo + "/commit/{ref}",
 		LatestNotesURL:  f.Repo + "/commits",
 		latestRef:       defaultBranchRef,
-		listRefs:        func(context.Context, string) ([]string, error) { return []string{pinned}, nil },
+		listRefs:        func(context.Context, string) ([]string, error) { return nil, nil },
 	}
 }
 
@@ -223,7 +221,8 @@ func (r BuildResult) ProjectID() string {
 // "origin/master", which is what "latest" means for a project without
 // tags) gets the commit's short SHA, so each new commit on the branch gets
 // its own ID instead of a rebuild prompt. Slashes are not valid in an ID.
-// A full commit SHA (a fork's pinned commit) is cut to its short form.
+// A full commit SHA (forks once built pinned commits) is cut to its short
+// form.
 func buildIDRef(ref, sha string) string {
 	if fullSHARE.MatchString(ref) {
 		return ref[:7]
