@@ -42,6 +42,20 @@ func TestAutoconfigDialogOffersTheGPUs(t *testing.T) {
 	}
 }
 
+// Autoconfigure plans on the cards as they are with nothing of ours
+// loaded, where its test load runs: what a loaded model holds is not
+// counted as other programs' memory.
+func TestAutoconfigPlansOnTheIdleCards(t *testing.T) {
+	s := newHelperServer(t)
+	hw := threeCards()
+	hw.GPUs[2].OtherUsedMiB = 15800 // a loaded model, as the live reading counts it
+	s.testHardware = &hw
+	s.otherVRAM.idleOther = []int{0, 0, 0, 0}
+	if got := s.autoconfigHardware().GPUs[2].OtherUsedMiB; got != 0 {
+		t.Errorf("planned with %d MiB of other programs on GPU 2, want the idle reading's 0", got)
+	}
+}
+
 func TestChosenGPUs(t *testing.T) {
 	hw := threeCards()
 	read := func(form url.Values) ([]int, bool) {
