@@ -185,8 +185,32 @@ func clearStaleAM(ctx context.Context, srcDir string) {
 		return
 	}
 	if _, err := os.Stat(filepath.Join(gitDir, "rebase-apply")); err == nil {
-		_ = exec.CommandContext(ctx, "git", "-C", srcDir, "am", "--abort").Run()
+		abortAM(ctx, srcDir)
 	}
+}
+
+// abortAM ends a stopped git am. The abort writes a reflog entry, so it
+// needs a committer: without one (a container with no git config) it
+// fails and leaves the am in progress. It gets the set's fallback
+// identity and the same cut-off config as the apply.
+func abortAM(ctx context.Context, srcDir string) {
+	name, email := seriesAuthor("")
+	cmd := exec.CommandContext(ctx, "git", "-C", srcDir, "am", "--abort")
+	cmd.Env = amEnv(os.TempDir(), name, email)
+	_ = cmd.Run()
+}
+
+// amEnv is the environment git am runs in: the process environment
+// without the variables that change what it commits, with home and
+// config cut off and the given committer.
+func amEnv(home, name, email string) []string {
+	return append(cleanGitEnv(os.Environ()),
+		"HOME="+home,
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_COMMITTER_NAME="+name,
+		"GIT_COMMITTER_EMAIL="+email,
+	)
 }
 
 // applyPatchSet applies the release's patches on the checked-out base
@@ -218,20 +242,14 @@ func (b *Builder) applyPatchSet(ctx context.Context, pr *patchRelease, srcDir st
 	}
 	name, email := seriesAuthor(paths[0])
 
-	env := append(cleanGitEnv(os.Environ()),
-		"HOME="+tmp,
-		"GIT_CONFIG_NOSYSTEM=1",
-		"GIT_CONFIG_GLOBAL=/dev/null",
-		"GIT_COMMITTER_NAME="+name,
-		"GIT_COMMITTER_EMAIL="+email,
-	)
+	env := amEnv(tmp, name, email)
 	for _, p := range paths {
 		sendLog(logCh, "==> Applying "+filepath.Base(p))
 	}
 	args := append([]string{"am", "--committer-date-is-author-date", "--no-3way", "--no-gpg-sign", "--quiet"}, paths...)
 	if err := b.runCmd(ctx, srcDir, logCh, "", env, "git", args...); err != nil {
 		failed := failedPatch(ctx, srcDir)
-		_ = exec.CommandContext(ctx, "git", "-C", srcDir, "am", "--abort").Run()
+		abortAM(ctx, srcDir)
 		if failed != "" {
 			return "", fmt.Errorf("patch %s does not apply: %w", failed, err)
 		}
