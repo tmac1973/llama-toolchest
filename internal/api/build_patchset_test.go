@@ -52,6 +52,10 @@ func TestPatchSetChoicesNeedTheirBackend(t *testing.T) {
 	if !strings.Contains(got[0].PatchNote, "6050b467c") || !strings.Contains(got[0].PatchNote, "16 patches") {
 		t.Errorf("note = %q", got[0].PatchNote)
 	}
+	// The newest release can have another base and patch count.
+	if n := got[0].PatchLatestNote; n == "" || strings.Contains(n, "6050b467c") || strings.Contains(n, "16 patches") {
+		t.Errorf("latest note = %q", n)
+	}
 }
 
 func TestBuildsPageOffersPatchSetWithROCm(t *testing.T) {
@@ -141,7 +145,7 @@ func TestBuildsListShowsPatchedBuilds(t *testing.T) {
 	if r := row("rdna-r206-rocm"); !strings.Contains(r, "RDNA boosts r206") || strings.Contains(r, "untested") || !strings.Contains(r, "Base: 6050b46 (b11887)") {
 		t.Errorf("tested patched row: %s", r)
 	}
-	if r := row("rdna-r999-rocm"); !strings.Contains(r, "RDNA boosts r999") || !strings.Contains(r, "untested") {
+	if r := row("rdna-r999-rocm"); !strings.Contains(r, "RDNA boosts r999") || !strings.Contains(r, "untested") || !strings.Contains(r, "not the tested release") {
 		t.Errorf("untested patched row: %s", r)
 	}
 	if r := row("b11880-rocm"); strings.Contains(r, "RDNA") || strings.Contains(r, "untested") {

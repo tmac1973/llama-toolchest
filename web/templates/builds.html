@@ -33,6 +33,7 @@
                 <input type="radio" name="project" value="{{$p.ID}}" {{if eq $i 0}}checked{{end}}
                        data-backends="{{$p.Backends}}" data-notes="{{$p.NotesURL}}" data-latest="{{$p.LatestNotesURL}}"
                        {{with $p.PatchNote}}data-patch-note="{{.}}"{{end}}
+                       {{with $p.PatchLatestNote}}data-patch-latest-note="{{.}}"{{end}}
                        onchange="buildProjectChanged(this)">
                 {{$p.Label}}
             </label>
@@ -143,12 +144,12 @@ function updateRefLink() {
 function updatePatchNote() {
     var o = document.querySelector('#build-project input[name="project"]:checked');
     var note = o ? o.getAttribute('data-patch-note') : null;
+    var latest = document.getElementById('git-ref-select').value === 'latest';
     document.getElementById('git-ref-label').textContent = note ? 'Release' : 'Git Ref';
     var p = document.getElementById('patch-note');
-    p.textContent = note || '';
+    p.textContent = (note && latest && o.getAttribute('data-patch-latest-note')) || note || '';
     p.hidden = !note;
-    document.getElementById('patch-untested').hidden =
-        !note || document.getElementById('git-ref-select').value !== 'latest';
+    document.getElementById('patch-untested').hidden = !note || !latest;
 }
 
 // A project change limits the profiles to the ones it builds with, then
