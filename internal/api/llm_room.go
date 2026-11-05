@@ -177,8 +177,9 @@ type realFreeShort struct {
 // realFreeShortGPUs checks m's load against the memory the cards show
 // free, for each GPU m's plan uses: m's plan, the full plan of each model
 // still loading (whose memory may not be allocated yet), the reservations
-// of backends that count but do not hold their memory now, and the fit
-// margin. Without readings it finds nothing short.
+// of backends that count but do not hold their memory now. No margin is
+// added: the reading already counts the desktop and other programs.
+// Without readings it finds nothing short.
 func (s *Server) realFreeShortGPUs(m *models.Model) []realFreeShort {
 	cfg, err := s.registry.GetConfig(m.ID)
 	if err != nil || cfg == nil {
@@ -194,7 +195,7 @@ func (s *Server) realFreeShortGPUs(m *models.Model) []realFreeShort {
 		if plan[g.Index] <= 0 {
 			continue
 		}
-		needed := plan[g.Index] + loading[g.Index] + models.FitMarginMiB(g.VRAMTotalMB)
+		needed := plan[g.Index] + loading[g.Index]
 		if v := byGPU[g.Index]; v != nil {
 			needed += max(0, v.Reserved-v.Using)
 		}
@@ -247,10 +248,10 @@ func (s *Server) unloadIdleOn(ctx context.Context, m *models.Model, gpus []int) 
 }
 
 // makeRoomByUnloading unloads idle LLMs, least recently used first, until
-// a load of m stays under Max Loaded and its plan fits on every GPU. It
-// returns the GPUs still short of planned memory, or the error that
-// stopped it.
-func (s *Server) makeRoomByUnloading(ctx context.Context, m *models.Model) ([]int, error) {
+// a load of m stays under Max Loaded and, with byVRAM, its plan fits on
+// every GPU. It returns the GPUs still short of planned memory, or the
+// error that stopped it.
+func (s *Server) makeRoomByUnloading(ctx context.Context, m *models.Model, byVRAM bool) ([]int, error) {
 	if n := s.cfgCopy().ModelsMax; n > 0 {
 		for s.loadedLLMCount() >= n {
 			ok, err := s.unloadIdleOn(ctx, m, nil)
@@ -262,7 +263,7 @@ func (s *Server) makeRoomByUnloading(ctx context.Context, m *models.Model) ([]in
 			}
 		}
 	}
-	for {
+	for byVRAM {
 		short := s.llmShortGPUs(s.llmPlannedNeed(m))
 		if len(short) == 0 {
 			return nil, nil
@@ -275,50 +276,26 @@ func (s *Server) makeRoomByUnloading(ctx context.Context, m *models.Model) ([]in
 			return short, nil
 		}
 	}
+	return nil, nil
 }
 
-// plannedFitError says why m does not fit on short, the GPUs still short
-// after every idle LLM in the way is unloaded. With a generation
-// reservation in the way, it is the reservation refusal that names the
-// backends, as before toolchest memory mode.
-func (s *Server) plannedFitError(m *models.Model, short []int) error {
-	hw, need := s.llmPlannedNeed(m)
-	// Not "unload a model first": every idle one is gone already.
-	if err := s.reservationFitError(hw, need, false); err != nil {
-		return err
-	}
-	g := slices.Min(short)
-	byGPU := s.genFitVRAMByGPU("")
-	for _, spec := range hw.GPUs {
-		if spec.Index != g {
-			continue
-		}
-		spec.ReservedMiB = 0
-		if v := byGPU[g]; v != nil {
-			spec.ReservedMiB = v.Reserved
-		}
-		cfg, _ := s.registry.GetConfig(m.ID)
-		plan := map[int]int{}
-		if cfg != nil {
-			addLLMMiB(plan, m, cfg, models.RoomOf(s.idleHardware()))
-		}
-		left := models.CardBudgetMiB(spec) - (need[g] - plan[g])
-		return &genLLMFitError{msg: fmt.Sprintf("%s does not fit: GPU %d has %s for models and needs %s; every other model on it is answering a request",
-			m.PublicName(), g, mibText(max(0, left)), mibText(plan[g]))}
-	}
-	return &genLLMFitError{msg: fmt.Sprintf("%s does not fit on GPU %d", m.PublicName(), g)}
-}
-
-// neverFitsError reports whether m cannot fit even once everything that
+// neverFits checks whether m's plan cannot fit even once everything that
 // may go is gone: every idle LLM, and with eviction on every backend not
 // kept running. What stays is the LLMs that answer a request or are
 // loading, the reservations that cannot be freed (eviction off, kept
 // running, fork instances) and m itself. Checked before anything is
-// unloaded, so a load that can never fit unloads nothing. Nil when it can.
-func (s *Server) neverFitsError(m *models.Model) error {
+// unloaded.
+//
+// Only a reservation refuses the load (err): it is a promise to a
+// backend. A plan is an estimate, so otherwise llama-server decides
+// whether the model fits. busyBlocked is set when LLMs that answer a
+// request or are loading are what leave the plan short; unloading the
+// idle ones would then free memory for nothing, so the load is sent
+// with nothing unloaded.
+func (s *Server) neverFits(m *models.Model) (busyBlocked bool, err error) {
 	cfg, err := s.registry.GetConfig(m.ID)
 	if err != nil || cfg == nil {
-		return nil
+		return false, nil
 	}
 	room := models.RoomOf(s.idleHardware())
 	stay := map[int]int{}
@@ -369,32 +346,36 @@ func (s *Server) neverFitsError(m *models.Model) error {
 		if stay[g.Index] <= budget {
 			continue
 		}
+		if g.ReservedMiB <= 0 {
+			if len(busy[g.Index]) > 0 {
+				busyBlocked = true
+			}
+			continue
+		}
 		var why []string
 		if len(busy[g.Index]) > 0 {
 			why = append(why, "answering a request or loading: "+strings.Join(busy[g.Index], ", "))
 		}
-		if g.ReservedMiB > 0 {
-			what := "reserved for generation backends"
-			if evict {
-				what = "reserved for generation backends that are kept running or are forks"
-			}
-			why = append(why, fmt.Sprintf("%s %s (%s)", mibText(g.ReservedMiB), what, strings.Join(kept, ", ")))
+		what := "reserved for generation backends"
+		if evict {
+			what = "reserved for generation backends that are kept running or are forks"
 		}
-		msg := fmt.Sprintf("%s does not fit: GPU %d has %s for models and needs %s, even with every idle model unloaded",
-			m.PublicName(), g.Index, mibText(max(0, budget-(stay[g.Index]-plan[g.Index]))), mibText(plan[g.Index]))
-		if len(why) > 0 {
-			msg += "; " + strings.Join(why, "; ")
-		}
-		return &genLLMFitError{msg: msg}
+		why = append(why, fmt.Sprintf("%s %s (%s)", mibText(g.ReservedMiB), what, strings.Join(kept, ", ")))
+		msg := fmt.Sprintf("%s does not fit: GPU %d has %s for models and needs %s, even with every idle model unloaded; %s",
+			m.PublicName(), g.Index, mibText(max(0, budget-(stay[g.Index]-plan[g.Index]))), mibText(plan[g.Index]), strings.Join(why, "; "))
+		return false, &genLLMFitError{msg: msg}
 	}
-	return nil
+	return busyBlocked, nil
 }
 
 // loadLLMWithRoom loads m in toolchest memory mode: it unloads idle LLMs,
 // least recently used first, until m fits under Max Loaded and in VRAM;
 // then, with eviction on, it stops generation backends; then it checks
-// the cards' real free memory. Loads run one at a time, from the first
-// check until the router lists m as loading. release ends the hold on
+// the cards' real free memory. Only Max Loaded and generation
+// reservations refuse a load: when the plan or the free memory is still
+// short with nothing left to unload, the load is sent and llama-server
+// decides (issue #561). Loads run one at a time, from the first check
+// until the router lists m as loading. release ends the hold on
 // generation GPUs that makeRoomForLLM took; call it once the load has
 // finished.
 func (s *Server) loadLLMWithRoom(ctx context.Context, m *models.Model, routerName string) (release func(), err error) {
@@ -411,15 +392,16 @@ func (s *Server) loadLLMWithRoom(ctx context.Context, m *models.Model, routerNam
 		}
 	}()
 
-	if err := s.neverFitsError(m); err != nil {
+	busyBlocked, err := s.neverFits(m)
+	if err != nil {
 		return fail(err)
 	}
-	short, err := s.makeRoomByUnloading(ctx, m)
+	short, err := s.makeRoomByUnloading(ctx, m, !busyBlocked)
 	if err != nil {
 		return fail(err)
 	}
 	if len(short) > 0 {
-		// The idle LLMs are not enough: generation backends are in the
+		// The idle LLMs are not enough: generation backends may be in the
 		// way. makeRoomForLLM stops them with eviction on, and may wait
 		// for a job to finish first, so other loads are not held up
 		// behind it.
@@ -432,15 +414,21 @@ func (s *Server) loadLLMWithRoom(ctx context.Context, m *models.Model, routerNam
 		release = rel
 		s.llmLoadMu.Lock()
 		locked = true
-		if short, err = s.makeRoomByUnloading(ctx, m); err != nil {
+		if short, err = s.makeRoomByUnloading(ctx, m, true); err != nil {
 			return fail(err)
 		}
 		if len(short) > 0 {
-			return fail(s.plannedFitError(m, short))
+			// Not "unload a model first": every idle one is gone already.
+			hw, need := s.llmPlannedNeed(m)
+			if err := s.reservationFitError(hw, need, false); err != nil {
+				return fail(err)
+			}
+			slog.Info("loading a model past its planned room; llama-server decides whether it fits",
+				"model", m.PublicName(), "gpus", short)
 		}
 	}
 
-	for {
+	for !busyBlocked {
 		short := s.realFreeShortGPUs(m)
 		if len(short) == 0 {
 			break
@@ -455,8 +443,9 @@ func (s *Server) loadLLMWithRoom(ctx context.Context, m *models.Model, routerNam
 		}
 		if !ok {
 			r := short[0]
-			return fail(&genLLMFitError{msg: fmt.Sprintf("%s does not fit: GPU %d has %s free and needs %s",
-				m.PublicName(), r.gpu, mibText(max(0, r.free)), mibText(r.needed))})
+			slog.Info("loading a model with less VRAM free than its plan; llama-server decides whether it fits",
+				"model", m.PublicName(), "gpu", r.gpu, "free_mib", r.free, "planned_mib", r.needed)
+			break
 		}
 	}
 
