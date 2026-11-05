@@ -215,10 +215,6 @@ func (s *Server) handleListRefs(w http.ResponseWriter, r *http.Request) {
 
 	if isHTMX(r) {
 		respondHTML(w)
-		if f, ok := forks.Find(proj.ID); ok && proj.IsFork() {
-			s.renderPartial(w, "git_ref_options", gitRefOptionsData{Pinned: f.PinnedSHA})
-			return
-		}
 		if proj.ID != builder.ProjectLlamaCpp {
 			s.renderPartial(w, "git_ref_options", projectRefOptionsFor(refs, err))
 			return
@@ -235,9 +231,6 @@ type gitRefOptionsData struct {
 	Groups []gitRefGroup // only groups with at least one tag
 	// Error is why a refresh failed when nothing was cached either.
 	Error string
-	// Pinned is a curated fork's tested commit. When set, the picker
-	// offers only it (first, chosen) and the fork's latest commit.
-	Pinned string
 	// PatchRelease is a patch set's tested release tag and PatchLabel its
 	// short name ("r206"). When set, the picker offers it (first,
 	// chosen), the set's newest release and PatchRecent.
@@ -438,15 +431,12 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		// A fork builds its tested commit or its latest one, nothing
-		// else (plan/curated-forks).
-		if req.GitRef != "" && req.GitRef != "latest" && req.GitRef != f.PinnedSHA {
-			http.Error(w, fmt.Sprintf("%s builds only its pinned commit (%s) or its latest commit", f.Name, f.PinnedSHA[:7]), http.StatusBadRequest)
+		// A fork builds only its latest commit: it moves too fast to pin.
+		if req.GitRef != "" && req.GitRef != "latest" {
+			http.Error(w, fmt.Sprintf("%s builds only its latest commit", f.Name), http.StatusBadRequest)
 			return
 		}
-		if req.GitRef == "" {
-			req.GitRef = f.PinnedSHA
-		}
+		req.GitRef = "latest"
 	}
 	if patched {
 		// A patch set builds one of its releases, by tag, or its newest
@@ -584,8 +574,7 @@ type buildRow struct {
 	// BuiltAgainstTitle explains the cell: why it is flagged, or why it is
 	// blank. Empty only when the build is stamped and matches.
 	BuiltAgainstTitle string
-	// Untested marks a curated fork's build of a commit other than the
-	// pinned one, and a patched build of a release other than the tested
+	// Untested marks a patched build of a release other than the tested
 	// one.
 	Untested bool
 	// PatchLabel names a patched build's patch set and release ("RDNA
@@ -620,9 +609,6 @@ func (s *Server) buildRowFor(b *builder.BuildResult) buildRow {
 	row := buildRow{BuildResult: b, BuiltAgainstText: "—"}
 	if b == nil {
 		return row
-	}
-	if f, ok := forks.Find(b.ProjectID()); ok {
-		row.Untested = b.GitSHA != f.PinnedSHA
 	}
 	if b.PatchSet != "" {
 		var tested bool

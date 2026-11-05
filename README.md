@@ -285,14 +285,14 @@ GPU selection: pick "All GPUs" (tensor mode), specific GPUs ("GPU 0", "GPUs 0–
 
 ## llama.cpp forks (experimental)
 
-Some llama.cpp forks are much faster than upstream for one particular model. Llama Toolchest can build a short, curated list of them and run each as a **fork instance**: its own `llama-server`, serving the model the fork was made for, on one whole GPU, next to the normal router and any generation backends. The list lives in the source (`internal/forks`), with each fork pinned to a commit that has been tested, and the model files pinned to a revision of their Hugging Face repo.
+Some llama.cpp forks are much faster than upstream for one particular model. Llama Toolchest can build a short, curated list of them and run each as a **fork instance**: its own `llama-server`, serving the model the fork was made for, on one whole GPU, next to the normal router and any generation backends. The list lives in the source (`internal/forks`). The forks move too fast to pin, so each one builds from its latest commit; the model files are pinned to a revision of their Hugging Face repo.
 
 Right now there is one fork, [Avalon](https://github.com/freriadoc/Avalon). It runs Qwen3.8-Flash-Next (a 125B MoE, about 90 GiB) on one RDNA3 GPU, keeping the dense weights, the KV cache and a cache of the busiest experts in VRAM and the rest of the experts in system RAM. Its author reports around 90 tokens/s on an RX 7900 XT. It wants 32 GB or more of RAM, a CPU with AVX2, and about 98 GB of disk for the model.
 
 To use it:
 
 1. Turn on **llama.cpp forks (experimental)** in Settings. With eviction set to llama.cpp, toolchest then decides what to unload instead of the router, as it does with generation backends.
-2. On **Builds**, pick the Avalon project and build the pinned commit for your GPU (ROCm or CUDA). "Latest commit" is there too, marked untested.
+2. On **Builds**, pick the Avalon project and build it for your GPU (ROCm or CUDA). It builds Avalon's latest commit; build again later to pick up new fixes.
 3. On **Models**, under *Fork model sets*, download the model. Downloads resume after a restart.
 4. On **Server**, under *llama.cpp forks*, add an instance: pick the GPU, and optionally extra arguments or environment variables. The dialog warns if the machine looks too small; you can still start it.
 5. Start it, then send requests to the normal API address with the instance name as `model`.

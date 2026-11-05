@@ -44,10 +44,8 @@ type forkRow struct {
 	forks.Instance
 	ForkName string
 	// BuildLabel is the build the instance would run: the chosen one, or
-	// the newest of the fork; empty when there is none. Untested marks a
-	// build of another commit than the fork's pinned one.
+	// the newest of the fork; empty when there is none.
 	BuildLabel string
-	Untested   bool
 	GPUName    string
 	Status     process.Status
 	// SetReady reports whether the fork's model set is downloaded.
@@ -73,7 +71,6 @@ func (s *Server) forkRows(store *forks.Store) []forkRow {
 			row.ForkName = f.Name
 			if b := s.resolveForkBuild(f.ID, inst.BuildID); b != nil {
 				row.BuildLabel = b.ID
-				row.Untested = b.GitSHA != f.PinnedSHA
 			}
 		}
 		if set, err := store.ModelSet(inst.ForkID); err == nil {
@@ -106,8 +103,7 @@ type forkChoice struct {
 }
 
 type forkBuildChoice struct {
-	ID       string
-	Untested bool
+	ID string
 }
 
 func (s *Server) forkFormChoices(store *forks.Store) forkFormData {
@@ -128,7 +124,7 @@ func (s *Server) forkFormChoices(store *forks.Store) forkFormData {
 			if backend, err := generation.BuildBackend(b); err == nil && generation.CheckGPUVendor(backend, vendor) != nil {
 				continue
 			}
-			c.Builds = append(c.Builds, forkBuildChoice{ID: b.ID, Untested: b.GitSHA != f.PinnedSHA})
+			c.Builds = append(c.Builds, forkBuildChoice{ID: b.ID})
 		}
 		data.Forks = append(data.Forks, c)
 	}

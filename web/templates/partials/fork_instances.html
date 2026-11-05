@@ -21,7 +21,7 @@
         <tr>
             <td>{{.ID}}{{if .AutoStart}} <small title="Starts when llama-toolchest starts.">auto-start</small>{{end}}</td>
             <td>{{.ForkName}}{{if not .SetReady}} <small style="display:block;color:var(--pico-del-color);" title="Download it on the Models page, under Fork model sets.">model not downloaded</small>{{end}}</td>
-            <td>{{with .BuildLabel}}<kbd>{{.}}</kbd>{{else}}<small title="Build it on the Builds page.">no build</small>{{end}}{{if .Untested}} <mark title="This build is not the tested commit. It can fail to start or give wrong output.">untested</mark>{{end}}</td>
+            <td>{{with .BuildLabel}}<kbd>{{.}}</kbd>{{else}}<small title="Build it on the Builds page.">no build</small>{{end}}</td>
             <td>{{.GPU}}{{with .GPUName}} <small>{{.}}</small>{{end}}</td>
             <td>{{.Port}}</td>
             <td{{with .Status.Error}} title="{{.}}" style="cursor:help;"{{end}}>
@@ -88,7 +88,7 @@
         <label title="The build that runs it. Newest: the newest successful build of the fork. The list shows only builds for the GPUs of this machine.">Build
             <select name="build" id="fork-form-build" onchange="forkNeedsRefresh()">
                 <option value="">Newest</option>
-                {{- range .Forks}}{{$fork := .ID}}{{range .Builds}}<option value="{{.ID}}" data-fork="{{$fork}}"{{if and $.Editing (eq .ID $.Inst.BuildID)}} selected{{end}}>{{.ID}}{{if .Untested}} (untested){{end}}</option>{{end}}{{end}}
+                {{- range .Forks}}{{$fork := .ID}}{{range .Builds}}<option value="{{.ID}}" data-fork="{{$fork}}"{{if and $.Editing (eq .ID $.Inst.BuildID)}} selected{{end}}>{{.ID}}</option>{{end}}{{end}}
             </select>
         </label>
         <label title="The fork server uses this whole GPU. Router models and generation instances cannot use it while the fork server runs.">GPU

@@ -19,9 +19,6 @@ func TestCuratedForksAreComplete(t *testing.T) {
 			t.Errorf("fork ID %q is not a unique lowercase slug", f.ID)
 		}
 		seen[f.ID] = true
-		if !shaOK.MatchString(f.PinnedSHA) {
-			t.Errorf("%s: pinned SHA %q is not a full commit SHA", f.ID, f.PinnedSHA)
-		}
 		if len(f.Backends) == 0 || len(f.ModelFiles) == 0 || f.ModelRepo == "" {
 			t.Errorf("%s: needs backends, model files and a model repo", f.ID)
 		}

@@ -25,12 +25,10 @@ const avalonDraftFile = "MTP/mtp-Qwen3.8-Flash-Next-shared-IQ3K-IQ4NL-FR65k.gguf
 // model only runs on this fork.
 func avalon() Fork {
 	return Fork{
-		ID:         "avalon",
-		Name:       "Avalon",
-		Repo:       "https://github.com/freriadoc/Avalon",
-		PinnedSHA:  "ad2c6e750c7e1fb59363bff7d5a58e4794603c13",
-		PinnedDate: "2026-10-31",
-		Backends:   []string{"rocm", "cuda"},
+		ID:       "avalon",
+		Name:     "Avalon",
+		Repo:     "https://github.com/freriadoc/Avalon",
+		Backends: []string{"rocm", "cuda"},
 		// The launch command of Avalon's README. --fit, on by default,
 		// puts the dense weights on the GPU and the experts in RAM, and
 		// the expert cache takes the rest of the VRAM; --parallel 1 keeps
