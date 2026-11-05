@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -53,7 +55,7 @@ func TestPatchSetChoicesNeedTheirBackend(t *testing.T) {
 		t.Errorf("note = %q", got[0].PatchNote)
 	}
 	// The newest release can have another base and patch count.
-	if n := got[0].PatchLatestNote; n == "" || strings.Contains(n, "6050b467c") || strings.Contains(n, "16 patches") {
+	if n := got[0].PatchOtherNote; n == "" || strings.Contains(n, "6050b467c") || strings.Contains(n, "16 patches") {
 		t.Errorf("latest note = %q", n)
 	}
 }
@@ -88,8 +90,40 @@ func TestPatchSetRefPicker(t *testing.T) {
 	if pinned < 0 || latest < pinned || !strings.Contains(body, "r206 (tested)") || !strings.Contains(body, "Newest (untested)") {
 		t.Errorf("patch set ref picker:\n%s", body)
 	}
-	if strings.Count(body, "<option") != 2 {
-		t.Errorf("patch set ref picker has other refs:\n%s", body)
+	// No patch set clone yet: only the two choices and a note.
+	if strings.Count(body, "<option") != 3 || !strings.Contains(body, "build it once") {
+		t.Errorf("patch set ref picker before the first build:\n%s", body)
+	}
+}
+
+func TestPatchRefOptionsListRecentReleases(t *testing.T) {
+	set, _ := patchsets.Find("rdna-boosts")
+	rels := []builder.PatchSetRelease{
+		{Tag: "v16-6b9c0cfcb-r1", N: 1, BaseCount: 12094},
+		{Tag: "v16-6050b467c-r220", N: 220, BaseCount: 11887},
+		{Tag: set.Pinned.Tag, N: 206, BaseCount: 11887},
+		{Tag: "v16-0123456789-r5", N: 5, BaseCount: -1},
+	}
+	for n := 219; n > 200; n-- {
+		rels = append(rels, builder.PatchSetRelease{Tag: fmt.Sprintf("v16-6050b467c-r%d", n), N: n, BaseCount: 11887})
+	}
+	data := patchRefOptionsFor(set, rels, nil)
+	if data.PatchRelease != set.Pinned.Tag || len(data.PatchRecent) != patchRecentMax {
+		t.Fatalf("data = %+v", data)
+	}
+	if got := data.PatchRecent[0]; got.Ref != "v16-6b9c0cfcb-r1" || got.Label != "r1 · b12094" {
+		t.Errorf("first recent = %+v", got)
+	}
+	if got := data.PatchRecent[2]; got.Label != "r5 · base 0123456789" {
+		t.Errorf("unknown base = %+v", got)
+	}
+	for _, o := range data.PatchRecent {
+		if o.Ref == set.Pinned.Tag {
+			t.Error("the tested release is listed again as recent")
+		}
+	}
+	if data := patchRefOptionsFor(set, nil, errors.New("build it once")); data.Error == "" || len(data.PatchRecent) != 0 {
+		t.Errorf("error data = %+v", data)
 	}
 }
 
@@ -112,8 +146,8 @@ func TestTriggerPatchSetBuildGuards(t *testing.T) {
 		s.handleTriggerBuild(rec, req)
 		return rec
 	}
-	for _, ref := range []string{"b11887", "v16-6050b467c-r1", "6050b467c07a95c7b87debd4ddac2f8ba8d9b807"} {
-		if rec := post("patchset:rdna-boosts", "rocm", ref); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "tested release") {
+	for _, ref := range []string{"b11887", "v0.8.0", "6050b467c07a95c7b87debd4ddac2f8ba8d9b807"} {
+		if rec := post("patchset:rdna-boosts", "rocm", ref); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "only its releases") {
 			t.Errorf("ref %s: %d %s", ref, rec.Code, rec.Body)
 		}
 	}
@@ -122,8 +156,10 @@ func TestTriggerPatchSetBuildGuards(t *testing.T) {
 	}
 	// A valid choice reaches the builder, which refuses the CPU profile
 	// before it fetches anything.
-	if rec := post("patchset:rdna-boosts", "cpu", ""); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "rocm profiles") {
-		t.Errorf("cpu profile: %d %s", rec.Code, rec.Body)
+	for _, ref := range []string{"", "latest", "v16-6050b467c-r220"} {
+		if rec := post("patchset:rdna-boosts", "cpu", ref); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "rocm profiles") {
+			t.Errorf("cpu profile, ref %q: %d %s", ref, rec.Code, rec.Body)
+		}
 	}
 }
 

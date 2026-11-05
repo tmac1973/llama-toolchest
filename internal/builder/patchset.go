@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -157,20 +158,53 @@ func (b *Builder) ensurePatchRepo(ctx context.Context, set patchsets.PatchSet, r
 	return b.runCmd(ctx, filepath.Dir(repoDir), logCh, "", nil, "git", "clone", "--filter=blob:none", "--no-checkout", set.Repo, filepath.Base(repoDir))
 }
 
-// latestReleaseTag returns the newest release: the one on the newest
-// upstream base, and on that base the one with the highest release
-// number. The base comes first because a set may start again at r1 when
-// it moves to a new base. The number, not the tag date, orders releases
-// on one base: a re-cut tag can be newer than a later release. srcDir is
-// the fetched llama.cpp clone, where each base's commit count is read; a
-// base the clone does not have ranks below every base it has.
-func latestReleaseTag(ctx context.Context, repoDir, srcDir string) (string, error) {
+// PatchSetRelease is one release in a patch set's repo, for the Builds
+// page's release picker.
+type PatchSetRelease struct {
+	// Tag is the release tag; N its release number.
+	Tag string
+	N   int
+	// BaseCount is the build number of the release's upstream base, or
+	// -1 when the llama.cpp clone does not have that base.
+	BaseCount int
+}
+
+// PatchSetReleases lists a patch set's releases, newest first (see
+// rankReleases). With fetch, the set's repo is fetched first. The repo is
+// cloned by the first patched build, not here: until then this fails.
+func (b *Builder) PatchSetReleases(setID string, fetch bool) ([]PatchSetRelease, error) {
+	set, ok := findPatchSet(setID)
+	if !ok {
+		return nil, fmt.Errorf("unknown patch set: %s", setID)
+	}
+	repoDir := filepath.Join(b.dataDir, "patchsets", set.ID)
+	if _, err := gitOutput(context.Background(), repoDir, "rev-parse", "--git-dir"); err != nil {
+		return nil, errors.New("build it once to list the other releases")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), refsFetchTimeout)
+	defer cancel()
+	if fetch {
+		if err := exec.CommandContext(ctx, "git", "-C", repoDir, "fetch", "--tags", "--force", "origin").Run(); err != nil {
+			slog.Warn("patch set fetch failed; listing cached releases", "set", set.ID, "error", err)
+		}
+	}
+	return rankReleases(ctx, repoDir, filepath.Join(b.dataDir, "llama.cpp"))
+}
+
+// rankReleases lists the release tags in repoDir, newest first: by
+// upstream base, and on one base by release number. The base comes first
+// because a set may start again at r1 when it moves to a new base. The
+// number, not the tag date, orders releases on one base: a re-cut tag
+// can be newer than a later release. srcDir is the llama.cpp clone,
+// where each base's commit count is read; a base the clone does not have
+// ranks below every base it has.
+func rankReleases(ctx context.Context, repoDir, srcDir string) ([]PatchSetRelease, error) {
 	out, err := gitOutput(ctx, repoDir, "tag", "--list", "v*")
 	if err != nil {
-		return "", fmt.Errorf("listing releases: %w", err)
+		return nil, fmt.Errorf("listing releases: %w", err)
 	}
 	counts := map[string]int{}
-	best, bestCount, bestN := "", 0, -1
+	var rels []PatchSetRelease
 	for _, tag := range strings.Split(out, "\n") {
 		base, n, ok := patchsets.ParseTag(tag)
 		if !ok {
@@ -184,14 +218,27 @@ func latestReleaseTag(ctx context.Context, repoDir, srcDir string) (string, erro
 			}
 			counts[base] = count
 		}
-		if best == "" || count > bestCount || (count == bestCount && n > bestN) {
-			best, bestCount, bestN = tag, count, n
-		}
+		rels = append(rels, PatchSetRelease{Tag: tag, N: n, BaseCount: count})
 	}
-	if best == "" {
+	slices.SortFunc(rels, func(a, b PatchSetRelease) int {
+		if a.BaseCount != b.BaseCount {
+			return b.BaseCount - a.BaseCount
+		}
+		return b.N - a.N
+	})
+	return rels, nil
+}
+
+// latestReleaseTag returns the newest release (see rankReleases).
+func latestReleaseTag(ctx context.Context, repoDir, srcDir string) (string, error) {
+	rels, err := rankReleases(ctx, repoDir, srcDir)
+	if err != nil {
+		return "", err
+	}
+	if len(rels) == 0 {
 		return "", errors.New("the patch set repo has no releases")
 	}
-	return best, nil
+	return rels[0].Tag, nil
 }
 
 // clearStaleAM ends a git am left in the clone by an interrupted build.

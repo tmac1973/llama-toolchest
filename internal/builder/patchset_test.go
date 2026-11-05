@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -211,6 +212,31 @@ func TestBuildPatchedLatestPrefersNewerBase(t *testing.T) {
 	}
 	if got.PatchRelease != f.set.Pinned.Tag || got.ID != "tst-b2-r1-cpu" {
 		t.Errorf("latest built %q as %q, want the r1 on the newer base", got.PatchRelease, got.ID)
+	}
+}
+
+func TestPatchSetReleases(t *testing.T) {
+	f := newPatchFixture(t)
+	b := NewBuilder(f.dataDir)
+	if _, err := b.PatchSetReleases(f.set.ID, false); err == nil {
+		t.Error("listed releases before the set's repo was cloned")
+	}
+	if _, err := f.build(t, "", false); err != nil {
+		t.Fatal(err)
+	}
+	b1 := fixtureGit(t, f.srcDir, "rev-parse", "b1^{commit}")
+	f.release(t, "v2-"+f.base[:9]+"-r3", f.base[:9], f.tree, 2)
+	f.release(t, "v2-"+b1[:9]+"-r50", b1[:9], f.tree, 2)
+	rels, err := b.PatchSetReleases(f.set.ID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, r := range rels {
+		got = append(got, fmt.Sprintf("r%d@%d", r.N, r.BaseCount))
+	}
+	if want := []string{"r3@2", "r1@2", "r50@1"}; !slices.Equal(got, want) {
+		t.Errorf("releases = %v, want %v", got, want)
 	}
 }
 

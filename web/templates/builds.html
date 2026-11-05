@@ -33,7 +33,8 @@
                 <input type="radio" name="project" value="{{$p.ID}}" {{if eq $i 0}}checked{{end}}
                        data-backends="{{$p.Backends}}" data-notes="{{$p.NotesURL}}" data-latest="{{$p.LatestNotesURL}}"
                        {{with $p.PatchNote}}data-patch-note="{{.}}"{{end}}
-                       {{with $p.PatchLatestNote}}data-patch-latest-note="{{.}}"{{end}}
+                       {{with $p.PatchOtherNote}}data-patch-other-note="{{.}}"{{end}}
+                       {{with $p.PatchPinned}}data-patch-pinned="{{.}}"{{end}}
                        onchange="buildProjectChanged(this)">
                 {{$p.Label}}
             </label>
@@ -87,7 +88,7 @@
         {{/* Shown for a patch set choice only (buildProjectChanged). */}}
         <p id="patch-note" hidden style="font-size:0.85rem;margin-top:-0.5rem;opacity:0.85;"></p>
         <p id="patch-untested" role="alert" hidden style="color:var(--pico-del-color);font-size:0.85rem;margin-top:-0.5rem;">
-            The newest release is not tested with this toolchest. It can fail to build, fail to start or give wrong output.
+            This release is not tested with this toolchest. It can fail to build, fail to start or give wrong output.
         </p>
 
         <label title="Label added to the build ID (for example rocwmma), so builds of the same ref and profile can coexist. Lowercase letters, digits and hyphens. Also names a saved flag set.">
@@ -140,16 +141,17 @@ function updateRefLink() {
 }
 
 // A patch set choice picks a release, not a git ref: the label and the
-// line under the picker say so, and the newest release gets a warning.
+// line under the picker say so, and every release but the tested one
+// gets a warning.
 function updatePatchNote() {
     var o = document.querySelector('#build-project input[name="project"]:checked');
     var note = o ? o.getAttribute('data-patch-note') : null;
-    var latest = document.getElementById('git-ref-select').value === 'latest';
+    var tested = note && document.getElementById('git-ref-select').value === o.getAttribute('data-patch-pinned');
     document.getElementById('git-ref-label').textContent = note ? 'Release' : 'Git Ref';
     var p = document.getElementById('patch-note');
-    p.textContent = (note && latest && o.getAttribute('data-patch-latest-note')) || note || '';
+    p.textContent = (note && !tested && o.getAttribute('data-patch-other-note')) || note || '';
     p.hidden = !note;
-    document.getElementById('patch-untested').hidden = !note || !latest;
+    document.getElementById('patch-untested').hidden = !note || tested;
 }
 
 // A project change limits the profiles to the ones it builds with, then
