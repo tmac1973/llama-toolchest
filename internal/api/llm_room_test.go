@@ -126,6 +126,7 @@ func roomServer(t *testing.T) (*Server, *fakeRouter) {
 	t.Helper()
 	s, f, _ := startFakeRouter(t)
 	s.testHardware = &models.Hardware{GPUs: []models.GPUSpec{{Index: 0, Name: "R9700", VRAMTotalMiB: 32624, OtherUsedMiB: 1300}}}
+	s.cfg.VRAMMarginMiB = oldTestMarginMiB
 	s.memoryMode.Store(int32(memoryToolchest))
 	return s, f
 }
@@ -304,9 +305,9 @@ func TestLoadWithRoomRealFreeCheck(t *testing.T) {
 	a := addRoomModel(t, s, "a", 12)
 	c := addRoomModel(t, s, "c", 8)
 	loaded(t, s, f, "a")
-	// The card shows a's plan used, plus 9 GiB more than the plan knows.
+	// The card shows a's plan used, plus 7 GiB more than the plan knows.
 	s.testGPUReadings = func() []monitor.GPUInfo {
-		used := 1300 + 9*1024
+		used := 1300 + 7*1024
 		f.mu.Lock()
 		if f.status[s.registry.RouterName("a")] == "loaded" {
 			used += 13721
@@ -335,8 +336,8 @@ func TestLoadWithRoomRealFreeCheck(t *testing.T) {
 	}
 	big := addRoomModel(t, s, "big", 16)
 	short := s.realFreeShortGPUs(big)
-	if len(short) != 1 || short[0].needed != 18227+13721 {
-		t.Errorf("short = %+v, want big + loading a, no margin", short)
+	if len(short) != 1 || short[0].needed != 18227+13721+oldTestMarginMiB {
+		t.Errorf("short = %+v, want big + loading a + the margin", short)
 	}
 	_ = a
 }

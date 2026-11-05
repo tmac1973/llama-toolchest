@@ -75,6 +75,7 @@ func (s *Server) hardware() models.Hardware {
 	if s.testHardware != nil {
 		hw := *s.testHardware
 		hw.GPUs = append([]models.GPUSpec(nil), hw.GPUs...)
+		s.applyVRAMMargin(&hw)
 		s.applyGenVRAM(&hw)
 		return hw
 	}
@@ -94,8 +95,18 @@ func (s *Server) hardware() models.Hardware {
 		}
 		hw.GPUs = append(hw.GPUs, spec)
 	}
+	s.applyVRAMMargin(&hw)
 	s.applyGenVRAM(&hw)
 	return hw
+}
+
+// applyVRAMMargin sets each card's margin from Settings → GPU memory
+// margin (config.VRAMMarginFor).
+func (s *Server) applyVRAMMargin(hw *models.Hardware) {
+	cfg := s.cfgCopy()
+	for i := range hw.GPUs {
+		hw.GPUs[i].MarginMiB = cfg.VRAMMarginFor(hw.GPUs[i].Index)
+	}
 }
 
 // idleHardware is hardware with other programs' memory as it was when

@@ -3,7 +3,9 @@ package api
 import (
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/backup"
@@ -134,6 +136,27 @@ func (s *Server) restoreDeps() backup.Deps {
 			if eviction != nil && config.ValidEviction(*eviction) && s.cfg.Eviction != *eviction {
 				s.cfg.Eviction = *eviction
 				changed = append(changed, "eviction")
+			}
+			if in.VRAMMarginMiB != nil && validVRAMMarginMiB("vram_margin_mib", *in.VRAMMarginMiB) == nil &&
+				s.cfg.VRAMMarginMiB != *in.VRAMMarginMiB {
+				s.cfg.VRAMMarginMiB = *in.VRAMMarginMiB
+				changed = append(changed, "vram_margin_mib")
+			}
+			// Merged, never deleted: a GPU margin the backup does not name
+			// stays.
+			for _, g := range slices.Sorted(maps.Keys(in.VRAMMarginByGPU)) {
+				mib := in.VRAMMarginByGPU[g]
+				if g < 0 || validVRAMMarginMiB("vram_margin_by_gpu", mib) != nil {
+					continue
+				}
+				if cur, ok := s.cfg.VRAMMarginByGPU[g]; ok && cur == mib {
+					continue
+				}
+				if s.cfg.VRAMMarginByGPU == nil {
+					s.cfg.VRAMMarginByGPU = map[int]int{}
+				}
+				s.cfg.VRAMMarginByGPU[g] = mib
+				changed = append(changed, fmt.Sprintf("vram_margin_by_gpu[%d]", g))
 			}
 			if in.AutoStart != nil && s.cfg.AutoStart != *in.AutoStart {
 				s.cfg.AutoStart = *in.AutoStart

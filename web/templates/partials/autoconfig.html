@@ -85,7 +85,7 @@
                 hx-target="#autoconfig-{{cssID .ModelID}}" hx-swap="innerHTML">Close</button>
     </div>
     {{else}}
-    <p title="Estimated VRAM of these settings, against the VRAM free after a safety margin. System memory: layers or expert weights that stay on the CPU side.">
+    <p title="Estimated VRAM of these settings, against the VRAM free, less the GPU memory margin in Settings. System memory: layers or expert weights that stay on the CPU side.">
         Estimated <strong>{{printf "%.1f" .EstimateGiB}} GiB</strong> of {{printf "%.1f" .BudgetGiB}} GiB of GPU memory{{if gt .CPURAMGiB 0.05}}, and {{printf "%.1f" .CPURAMGiB}} GiB in system memory{{end}}.
     </p>
     {{if not .Fits}}<p role="alert"><mark>&#9888; This model does not fit on this machine even with the settings below. Choose a smaller quantization of it.</mark></p>{{end}}

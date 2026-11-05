@@ -217,6 +217,14 @@
     #eviction .eviction-restart button { width: auto; margin: 0; }
 </style>
 {{template "eviction_card" .Eviction}}
+<style>
+    #vram-margin .vram-margin-all input { max-width: 8rem; display: block; }
+    #vram-margin .vram-margin-gpus input { max-width: 8rem; margin: 0; }
+</style>
+<article id="vram-margin" hx-get="/api/settings/vram-margin" hx-trigger="load" hx-swap="outerHTML">
+    <header>GPU memory margin</header>
+    <p aria-busy="true">Loading…</p>
+</article>
 <script>
 // The Eviction card's Restart button: shows a refused restart in the
 // card, and fetches the card again so the restart notice goes away.
@@ -241,6 +249,14 @@ function onEvictionRestart(e) {
 if (location.hash === '#eviction') {
     window.addEventListener('load', function() {
         document.getElementById('eviction').scrollIntoView();
+    });
+}
+// Help links to the GPU memory margin card, which loads after the page.
+if (location.hash === '#vram-margin') {
+    htmx.onLoad(function(elt) {
+        if (elt.id === 'vram-margin') {
+            elt.scrollIntoView();
+        }
     });
 }
 </script>

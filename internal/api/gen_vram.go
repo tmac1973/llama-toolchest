@@ -218,7 +218,10 @@ func (s *Server) genFitCheck(inst generation.Instance, reserveMiB int) error {
 		parts = append(parts, "loaded LLMs "+mibText(llm))
 	}
 	parts = append(parts, otherNames...)
-	return fmt.Errorf("not enough VRAM on GPU %d (%s): %s needs %s, but only %s is left after %s and the safety margin",
+	if spec.MarginMiB > 0 {
+		parts = append(parts, "the GPU memory margin "+mibText(spec.MarginMiB))
+	}
+	return fmt.Errorf("not enough VRAM on GPU %d (%s): %s needs %s, but only %s is left after %s",
 		inst.GPU, mibText(spec.VRAMTotalMiB), inst.Name, mibText(reserveMiB), mibText(max(0, budget-llm)), strings.Join(parts, ", "))
 }
 

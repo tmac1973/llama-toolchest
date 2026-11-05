@@ -33,11 +33,7 @@ func routerLimits(modelsMax int, eviction string, job, buildHasOption bool, marg
 // routerMemoryMarginMiB is the memory the router keeps free on each GPU
 // when it manages memory (models.RouterMemoryMarginMiB).
 func (s *Server) routerMemoryMarginMiB() int {
-	var totals []int
-	for _, g := range s.monitor.Current().GPU {
-		totals = append(totals, g.VRAMTotalMB)
-	}
-	return models.RouterMemoryMarginMiB(totals)
+	return models.RouterMemoryMarginMiB(s.hardware().GPUs)
 }
 
 // evictionView is what the Settings card (eviction_card partial) and the
@@ -100,7 +96,7 @@ func (s *Server) evictionInfo() evictionView {
 		if !hasOption {
 			v.Label = "llama.cpp (by count: build too old)"
 			v.Note = "The active llama.cpp build is older than b11930, so models unload by count until a newer build is active."
-		} else if mib := s.routerMemoryMarginMiB(); mib > 0 {
+		} else if mib := s.routerMemoryMarginMiB(); mib > 1 {
 			v.Margin = fmt.Sprintf("%.1f GiB", float64(mib)/1024)
 		}
 	default:

@@ -91,7 +91,7 @@ func EmbeddingLaunchConfig(cfg *ModelConfig, m *Model) *ModelConfig {
 
 // EmbeddingGPU returns the one GPU an embedding or reranking model is
 // placed on by default: the discrete GPU with the most room (cardBudgetGiB: after other
-// programs, generation reservations and the safety margin), when the
+// programs, generation reservations and the GPU memory margin), when the
 // model's estimate at cfg fits there. ok is false when the machine has
 // fewer than two discrete GPUs, where one GPU is what "all" gives anyway,
 // and when the model fits on none of them alone.

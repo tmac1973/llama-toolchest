@@ -312,7 +312,12 @@ func TestMoveLayersOff(t *testing.T) {
 // context that only fits while drafting is off.
 func TestFitIsPlannedWithTheDraftContext(t *testing.T) {
 	estimate := func(mtpLayers int) (float64, int) {
-		res, err := Run(context.Background(), Deps{Registry: runRegistryWithMTP(t, mtpLayers), Hardware: gpu24()},
+		// With no margin the plan without draft layers fills the card,
+		// and the one with them moves layers off it; the old 8% margin
+		// leaves room for the draft context, so the two compare.
+		hw := gpu24()
+		hw.GPUs[0].MarginMiB = 1966
+		res, err := Run(context.Background(), Deps{Registry: runRegistryWithMTP(t, mtpLayers), Hardware: hw},
 			runModelID, models.ContextMax)
 		if err != nil {
 			t.Fatal(err)

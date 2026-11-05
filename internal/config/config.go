@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -42,6 +43,12 @@ type Config struct {
 	// reads it only to fill Eviction, and it is not written again.
 	RouterMemory bool `yaml:"router_memory,omitempty"`
 	AutoStart    bool `yaml:"auto_start"` // start the llama-server on container startup
+	// VRAMMarginMiB is the memory kept free on each GPU when toolchest
+	// plans a model or checks a load, and the router's margin when it
+	// decides by memory. 0, the default, lets models use all of a card.
+	// VRAMMarginByGPU sets it for single GPUs, by index; see VRAMMarginFor.
+	VRAMMarginMiB   int         `yaml:"vram_margin_mib,omitempty"`
+	VRAMMarginByGPU map[int]int `yaml:"vram_margin_by_gpu,omitempty"`
 
 	// RuntimeEnv holds curated environment variables applied to the
 	// llama-server router process. Router-wide by nature: every spawned
@@ -136,6 +143,7 @@ type Config struct {
 // their writers replace them rather than editing them in place.
 func (c *Config) Clone() Config {
 	out := *c
+	out.VRAMMarginByGPU = maps.Clone(c.VRAMMarginByGPU)
 	if c.file != nil {
 		f := *c.file
 		out.file = &f
@@ -271,6 +279,15 @@ func (c *Config) EffectiveEviction() string {
 // unloads. With eviction off, a load that does not fit is refused.
 func (c *Config) GenEvictOn() bool {
 	return c.GenerationEnabled && c.GenEvict && c.EffectiveEviction() == EvictionToolchest
+}
+
+// VRAMMarginFor is the memory to keep free on GPU gpu, in MiB: its own
+// value when it has one, otherwise VRAMMarginMiB.
+func (c *Config) VRAMMarginFor(gpu int) int {
+	if v, ok := c.VRAMMarginByGPU[gpu]; ok {
+		return v
+	}
+	return c.VRAMMarginMiB
 }
 
 // migrateEviction fills Eviction in a config from before the setting.

@@ -215,7 +215,7 @@ func moeSplitInputs(m *Model, cfg *ModelConfig, gpuMiB []int, active []int) (lay
 	layers = layerGPUBytes(m, cfg, b)
 	perCard := (b.Compute + b.Overhead + b.IndexerScratch) / float64(len(active))
 	for i, g := range active {
-		// gpuMiB is already each card's budget, after the safety margin.
+		// gpuMiB is already each card's budget, after the GPU memory margin.
 		budgets = append(budgets, float64(gpuMiB[g])/1024)
 		f := perCard
 		if i == 0 {
@@ -269,7 +269,7 @@ func MoESplitConfig(cfg *ModelConfig, m *Model, gpuMiB []int) *ModelConfig {
 
 // PlanCardLoads is the GPU memory, in GiB, each card in use would hold
 // under cfg with the split MoESplitConfig writes, and each card's budget
-// after the planner's safety margin. ok is false when cfg does not use a
+// after the GPU memory margin. ok is false when cfg does not use a
 // size-balanced split (no expert offload, or a single card), in which case
 // the pooled estimate stands.
 func PlanCardLoads(m *Model, cfg *ModelConfig, gpuMiB []int) (loads, budgets []float64, ok bool) {
@@ -289,7 +289,7 @@ func PlanCardLoads(m *Model, cfg *ModelConfig, gpuMiB []int) (loads, budgets []f
 
 // CardSplit is one card's part of the balanced split MoESplitConfig
 // writes: the layers it gets, the GPU memory it would hold in GiB, and
-// its budget after the planner's safety margin.
+// its budget after the GPU memory margin.
 type CardSplit struct {
 	GPU       int
 	Layers    int

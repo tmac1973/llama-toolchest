@@ -37,8 +37,8 @@ type HelperGPU struct {
 
 // HelperGPUFor picks the GPU for a helper model: the dedicated GPU with
 // the most room, after what other programs hold and what generation
-// backends reserve on it, less the same safety margin the fit planner
-// leaves. A helper is small, so it runs on that one card rather than
+// backends reserve on it, less the same GPU memory margin the fit
+// planner leaves. A helper is small, so it runs on that one card rather than
 // spread over all of them: a share on a card that is nearly full would
 // refuse the load even with room to spare on another.
 func HelperGPUFor(hw Hardware) HelperGPU {

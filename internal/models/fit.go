@@ -58,6 +58,9 @@ type GPUSpec struct {
 	// chose other GPUs for it in Autoconfigure (OnlyGPUs), usually to
 	// keep the card for image and music backends.
 	LeftOut bool
+	// MarginMiB is the memory the user keeps free on the card (Settings →
+	// GPU memory margin). 0, the default, lets a plan use all of it.
+	MarginMiB int
 }
 
 // UsableMiB is what the card leaves for llama.cpp before the safety
@@ -67,12 +70,9 @@ func (g GPUSpec) UsableMiB() int {
 }
 
 // cardBudgetGiB is what a plan may use of a card: what other programs
-// leave of it, less the safety margin, less generation reservations. The
-// margin is worked out before the reservations, so reserving memory for a
-// backend never shrinks the room left for the driver and the desktop.
+// leave of it, less the user's margin, less generation reservations.
 func cardBudgetGiB(g GPUSpec) float64 {
-	avail := float64(max(0, g.VRAMTotalMiB-g.OtherUsedMiB)) / 1024
-	return max(0, avail-fitMarginGiB(avail)-float64(g.ReservedMiB)/1024)
+	return float64(max(0, g.VRAMTotalMiB-g.OtherUsedMiB-g.MarginMiB-g.ReservedMiB)) / 1024
 }
 
 // CardBudgetMiB is what the planner lets models use of a card, in MiB:
@@ -140,7 +140,7 @@ type FitResult struct {
 	// with Origin "hardware fit".
 	Notes []ProfileNote
 	// EstimateGiB is the GPU memory the proposed config is estimated to
-	// use; BudgetGiB is what the planner allowed, after a safety margin.
+	// use; BudgetGiB is what the planner allowed, after the GPU memory margin.
 	EstimateGiB float64
 	BudgetGiB   float64
 	// CPURAMGiB is what the config keeps in system memory: weights, and
@@ -159,30 +159,20 @@ func ThreadsFor(cores int) int {
 	return max(1, cores/2)
 }
 
-// fitMarginGiB is the memory left free on each GPU: at least 1 GiB, or 8%
-// of the card, for the driver, the desktop and whatever else is running.
-func fitMarginGiB(totalGiB float64) float64 {
-	return math.Max(1, totalGiB*0.08)
-}
-
-// FitMarginMiB is fitMarginGiB for a card of totalMiB, in MiB.
-func FitMarginMiB(totalMiB int) int {
-	return int(math.Ceil(fitMarginGiB(float64(totalMiB)/1024) * 1024))
-}
-
 // RouterMemoryMarginMiB is the margin the router keeps free on each GPU
-// when it manages memory (--models-memory-margin): toolchest's own fit
-// margin for the largest GPU, since the router takes one number for all
-// of them. 0 without GPUs.
-func RouterMemoryMarginMiB(gpuTotalMiB []int) int {
-	largest := 0
-	for _, t := range gpuTotalMiB {
-		largest = max(largest, t)
-	}
-	if largest == 0 {
+// when it manages memory (--models-memory-margin): the largest of the
+// GPUs' margins, since the router takes one number for all of them. At
+// least 1 MiB, because 0 turns the router's memory accounting off. 0
+// without GPUs.
+func RouterMemoryMarginMiB(gpus []GPUSpec) int {
+	if len(gpus) == 0 {
 		return 0
 	}
-	return int(math.Ceil(fitMarginGiB(float64(largest)/1024) * 1024))
+	largest := 1
+	for _, g := range gpus {
+		largest = max(largest, g.MarginMiB)
+	}
+	return largest
 }
 
 // ramMarginGiB is the system memory left free for the operating system
@@ -453,7 +443,7 @@ func optionFor(gpus []GPUSpec, keep []int) *GPUOption {
 }
 
 // minCardRoomGiB is the least room a card must have left, after other
-// programs, generation reservations and the safety margin, for a plan to
+// programs, generation reservations and the GPU memory margin, for a plan to
 // put part of a model on it. Each card a model spans also holds a compute
 // buffer of its own, so a card with less than this could take at most a
 // few layers, and in practice refuses the load.
@@ -811,7 +801,7 @@ func (r CardRoom) For(m *Model, cfg *ModelConfig) []int {
 }
 
 // GPUMiB is what each GPU lets a model use, by position: CardBudgetMiB,
-// its total less what other programs hold, the safety margin and
+// its total less what other programs hold, the GPU memory margin and
 // generation reservations. MoESplitConfig, PlanCardLoads and CardLoadsMiB
 // take it, so the split a launch writes, the planner's check of each card
 // and the reservation check on loads all work from the same figure.

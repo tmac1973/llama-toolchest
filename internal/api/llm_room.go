@@ -177,9 +177,9 @@ type realFreeShort struct {
 // realFreeShortGPUs checks m's load against the memory the cards show
 // free, for each GPU m's plan uses: m's plan, the full plan of each model
 // still loading (whose memory may not be allocated yet), the reservations
-// of backends that count but do not hold their memory now. No margin is
-// added: the reading already counts the desktop and other programs.
-// Without readings it finds nothing short.
+// of backends that count but do not hold their memory now, and the GPU
+// memory margin the user set. The reading already counts the desktop and
+// other programs. Without readings it finds nothing short.
 func (s *Server) realFreeShortGPUs(m *models.Model) []realFreeShort {
 	cfg, err := s.registry.GetConfig(m.ID)
 	if err != nil || cfg == nil {
@@ -190,12 +190,13 @@ func (s *Server) realFreeShortGPUs(m *models.Model) []realFreeShort {
 	addLLMMiB(plan, m, cfg, room)
 	loading := s.loadingLLMMiB(room, m.ID)
 	byGPU := s.genFitVRAMByGPU("")
+	sc := s.cfgCopy()
 	var out []realFreeShort
 	for _, g := range s.gpuReadings() {
 		if plan[g.Index] <= 0 {
 			continue
 		}
-		needed := plan[g.Index] + loading[g.Index]
+		needed := plan[g.Index] + loading[g.Index] + sc.VRAMMarginFor(g.Index)
 		if v := byGPU[g.Index]; v != nil {
 			needed += max(0, v.Reserved-v.Using)
 		}
