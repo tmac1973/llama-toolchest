@@ -119,8 +119,8 @@
     <div class="help-wide"><table>
         <tr><th>Mode</th><th>Who decides</th><th>What unloads</th></tr>
         <tr><td><strong>Off</strong></td><td>The llama-server router, by count</td><td>It keeps up to <em>Max loaded models</em>. At the limit, the model used least recently unloads. VRAM is not checked, so a model that does not fit fails to load. <code>1</code> means one model at a time.</td></tr>
-        <tr><td><strong>llama.cpp</strong></td><td>The llama-server router, by VRAM</td><td>Idle models unload, least recently used first, until the new model fits. The router keeps one margin free on each GPU; the card shows it. Needs llama.cpp b11930 or newer; an older build unloads by count.</td></tr>
-        <tr><td><strong>llama-toolchest</strong></td><td>Toolchest, by VRAM</td><td>Idle models unload, least recently used first, but only on the GPUs that are short. Toolchest uses the fit margin (1 GiB or 8%) to choose what unloads. Only the generation reservations refuse a load. When nothing more can unload, toolchest sends the load and llama-server decides if the model fits. Works with any build.</td></tr>
+        <tr><td><strong>llama.cpp</strong></td><td>The llama-server router, by VRAM</td><td>Idle models unload, least recently used first, until the new model fits. The router keeps the largest <a href="#vram-margin">GPU memory margin</a> free on each GPU; the card shows it. Needs llama.cpp b11930 or newer; an older build unloads by count.</td></tr>
+        <tr><td><strong>llama-toolchest</strong></td><td>Toolchest, by VRAM</td><td>Idle models unload, least recently used first, but only on the GPUs that are short. Toolchest uses the <a href="#vram-margin">GPU memory margin</a> to choose what unloads. Only the generation reservations refuse a load. When nothing more can unload, toolchest sends the load and llama-server decides if the model fits. Works with any build.</td></tr>
     </table></div>
     <ul>
         <li><strong>In every mode:</strong> a model that answers a request never unloads. <em>Max loaded models</em> is always an upper limit. Benchmarks, Autotune and Autoconfigure load one model at a time.</li>
@@ -135,6 +135,17 @@
         <li><strong>On:</strong> the newest request gets the GPU. A chat request stops idle backends, and a job unloads idle LLMs. See <a href="#generation-evict">Taking turns when both do not fit</a>.</li>
     </ul>
     <p>With eviction off, the reservations always count, as with the switch off.</p>
+
+    <h2 id="vram-margin">GPU memory margin</h2>
+    <p>The margin is extra VRAM that toolchest keeps free on a GPU. Set it in <a href="/settings#vram-margin">Settings → GPU memory margin</a>, in GiB. The default is 0: nothing extra.</p>
+    <p>Toolchest always keeps 1 GiB free on each GPU for llama.cpp's working memory. Real chats process a prompt in parts, and llama.cpp then uses more memory than a test load shows. With less than 1 GiB free, settings that passed a test load ran out of memory on the first real chat. Toolchest also counts what the desktop and other programs use when it plans.</p>
+    <ul>
+        <li><strong>Every GPU:</strong> one value for all cards.</li>
+        <li><strong>One GPU:</strong> a row for each detected GPU. A value there replaces the value for every GPU. Use it for the GPU that runs the desktop, where use can go up while a model runs. Leave the row blank to use the value for every GPU.</li>
+        <li><strong>What uses it:</strong> Autoconfigure, the fit labels on Download Models, Measure, the fit checks of generation backends, and eviction by llama-toolchest. With eviction by llama.cpp, the router takes one margin for all GPUs, so it gets the largest one, plus the 1 GiB of working memory.</li>
+        <li><strong>When it applies:</strong> at the next plan, load or router start. A loaded model keeps the settings it has. Run Autoconfigure again to plan for a new margin.</li>
+        <li><strong>If a load fails out of memory:</strong> raise the margin of that GPU by 0.5 to 1 GiB, or give the model a smaller context.</li>
+    </ul>
 
     <h2 id="server">Server tab</h2>
     <dl>
@@ -366,7 +377,7 @@
     </table>
     </div>
     <ul>
-        <li><strong>Reservations are planned, not held.</strong> The LLM planner keeps them free, after a margin of 1 GiB or 8% of the card. It refuses an LLM load that would crowd one out: HTTP 507 from the API, an error from <em>Load</em>, benchmarks, Autotune and Autoconfigure. An enabled instance keeps its reservation while it is stopped.</li>
+        <li><strong>Reservations are planned, not held.</strong> The LLM planner keeps them free, and the <a href="#vram-margin">GPU memory margin</a> too. It refuses an LLM load that would crowd one out: HTTP 507 from the API, an error from <em>Load</em>, benchmarks, Autotune and Autoconfigure. An enabled instance keeps its reservation while it is stopped.</li>
         <li><strong>The chat page of llama-server</strong> (port 8080) loads models without toolchest, so toolchest cannot check them. On a GPU with reservations, load models from the Models page or the API.</li>
         <li>sd-server stays within its reservation; the ace-server figure is for planning only. On a smaller card, sd-server keeps part of a set in system RAM, so measure on the card you will use.</li>
         <li>All catalog image and video sets except SDXL run their text encoder on the CPU (<code>--backend te=cpu</code>). On the R9700 this saved 4–5.5 GiB per image set at no real cost. It saved 6 GiB on TI2V 5B and 3 GiB on LTX-2.3 at Full, enough to make Full fit; each video takes 13–16 s longer. Wan2.2 A14B saves only about 1 GiB, because sd.cpp already removes its encoder from VRAM before sampling. An LLM partly on the CPU and an image job do not slow each other more than before: the encoder runs for only a second or two. A custom set can do the same with <code>--backend te=cpu</code> in its launch arguments. Press <em>Details</em> on a set to see why it uses each of its settings.</li>

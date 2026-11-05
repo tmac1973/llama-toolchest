@@ -1,0 +1,43 @@
+{{/* Settings → GPU memory margin (vramMarginView, vram_margin.go). The
+     page loads the card from /api/settings/vram-margin, so the GPU rows
+     come from the system monitor at that moment. */}}
+{{define "vram_margin_card"}}
+<article id="vram-margin">
+    <header>GPU memory margin</header>
+    <p><small>Extra VRAM that toolchest keeps free on each GPU.
+       Autoconfigure, Measure and the load checks plan around it. Toolchest
+       always keeps 1 GiB free for llama.cpp's working memory in real
+       chats; the margin is on top of that. 0 adds nothing. With eviction
+       by llama.cpp, the router gets the largest margin. A margin applies
+       to the next plan or load; a running model keeps its settings.</small></p>
+    <form hx-put="/api/settings"
+          hx-target="#vram-margin-status"
+          hx-swap="innerHTML"
+          hx-trigger="change">
+        <input type="hidden" name="vram_margin_touched" value="1">
+        <label class="vram-margin-all" title="GiB kept free on every GPU that has no margin of its own. 0: none.">
+            Every GPU (GiB)
+            <input type="number" name="vram_margin_gib" value="{{.GiB}}" min="0" step="0.25">
+        </label>
+        {{if .GPUs}}
+        <table class="vram-margin-gpus">
+            <thead><tr><th>GPU</th><th>VRAM</th><th title="GiB kept free on this GPU. Blank: the margin for every GPU.">Margin (GiB)</th></tr></thead>
+            <tbody>
+            {{range .GPUs}}
+            <tr>
+                <td>{{.Index}}: {{.Name}}{{if .IGPU}} <small>(integrated)</small>{{end}}</td>
+                <td>{{.Total}}</td>
+                <td><input type="number" name="vram_margin_gpu_{{.Index}}" value="{{.GiB}}"
+                           min="0" step="0.25" placeholder="{{$.GiB}}"
+                           aria-label="Margin for GPU {{.Index}} in GiB"></td>
+            </tr>
+            {{end}}
+            </tbody>
+        </table>
+        <p><small>Give a GPU its own margin, for example the GPU that runs
+           the desktop. Leave it blank to use the margin for every GPU.</small></p>
+        {{end}}
+    </form>
+    <div id="vram-margin-status"></div>
+</article>
+{{end}}

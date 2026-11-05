@@ -167,7 +167,7 @@ func newRecommendCardView(g *recommend.Group, class models.ContextClass, ctxName
 	}
 	c.KVTip = "The KV cache holds the conversation. 8-bit uses half the memory of full precision, with a very small effect on quality."
 	c.Memory = fmt.Sprintf("%.1f GiB of %.1f GiB", p.EstimateGiB, p.BudgetGiB)
-	c.MemoryTip = "Estimated GPU memory use against what is available after a safety margin on each card. Real use can differ by a few percent."
+	c.MemoryTip = "Estimated GPU memory use against what each card has free, less the GPU memory margin in Settings. Real use can differ by a few percent."
 	if p.Placement == models.PlacementGPU && p.FewestGPUs < p.Cards {
 		c.Fewest = fmt.Sprintf("fits on %d of %d GPUs", p.FewestGPUs, p.Cards)
 	}

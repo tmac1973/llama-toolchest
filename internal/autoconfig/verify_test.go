@@ -131,38 +131,41 @@ func TestVerifyAdjustsALoadThatLeftACardNearlyFull(t *testing.T) {
 }
 
 // When nothing fits, the steps are taken in order of what they cost:
-// layers moved (nothing), a smaller prompt batch (some speed), then the
-// context (what the model can hold). And the run ends, with the proposal
+// layers moved (nothing), a smaller prompt batch (some speed), an 8-bit
+// KV cache (very little quality), then the context (what the model can
+// hold). And the run ends, with the proposal
 // left as estimated and marked as not working.
 func TestVerifyStepsDownInOrderOfCostAndGivesUp(t *testing.T) {
 	v := &verifier{runs: func(models.ModelConfig) Check { return outOfMemoryOn(2) }}
 	res := runWith(t, threeCards(), v)
 
-	// Five loads: at 4,096 tokens there is nothing smaller left to try.
-	if res.Check.Status != VerifyFailed || res.Check.Attempts != 5 {
-		t.Fatalf("check = %+v, want failed after 5 loads", res.Check)
+	// Six loads: at 4,096 tokens there is nothing smaller left to try.
+	if res.Check.Status != VerifyFailed || res.Check.Attempts != 6 {
+		t.Fatalf("check = %+v, want failed after 6 loads", res.Check)
 	}
 	if !strings.Contains(res.Check.Reason, "out of memory") {
 		t.Errorf("reason = %q, want what the server reported", res.Check.Reason)
 	}
-	if len(v.tried) != 5 {
-		t.Fatalf("loaded %d times, want 5", len(v.tried))
+	if len(v.tried) != 6 {
+		t.Fatalf("loaded %d times, want 6", len(v.tried))
 	}
 	type step struct {
 		split  string
 		ubatch int
+		kv     string
 		ctx    int
 	}
 	var got []step
 	for _, c := range v.tried {
-		got = append(got, step{c.TensorSplit, c.UBatchSize, c.ContextSize})
+		got = append(got, step{c.TensorSplit, c.UBatchSize, c.KVCacheQuant, c.ContextSize})
 	}
 	want := []step{
-		{"", 0, 8192},           // the plan
-		{"20,20,17", 0, 8192},   // layers off the card that ran out
-		{"20,20,14", 0, 8192},   // and again
-		{"20,20,14", 256, 8192}, // then a smaller prompt batch
-		{"20,20,14", 256, 4096}, // then half the context
+		{"", 0, "", 8192},               // the plan
+		{"20,20,17", 0, "", 8192},       // layers off the card that ran out
+		{"20,20,14", 0, "", 8192},       // and again
+		{"20,20,14", 256, "", 8192},     // then a smaller prompt batch
+		{"20,20,14", 256, "q8_0", 8192}, // then an 8-bit KV cache
+		{"20,20,14", 256, "q8_0", 4096}, // then half the context
 	}
 	for i, w := range want {
 		if got[i] != w {
@@ -220,8 +223,29 @@ func TestVerifyReplacesTheFitsNoteForASizeItReduced(t *testing.T) {
 	if strings.Contains(note, "hardware fit") {
 		t.Errorf("context note = %q: the fit's note for the larger size is still there", note)
 	}
-	if res.Check.Adjusted != 2 {
-		t.Errorf("adjusted = %d, want 2 (prompt batch and context)", res.Check.Adjusted)
+	if res.Check.Adjusted != 3 {
+		t.Errorf("adjusted = %d, want 3 (prompt batch, KV cache and context)", res.Check.Adjusted)
+	}
+}
+
+// When an 8-bit KV cache is enough, the context is kept: on asmodean the
+// 35B-A3B at 262,144 tokens was halved without this step.
+func TestVerifyTriesAn8BitCacheBeforeTheContext(t *testing.T) {
+	v := &verifier{runs: func(cfg models.ModelConfig) Check {
+		if cfg.KVCacheQuant == "" {
+			return Check{OutOfMemory: true, LowMemory: true, Device: 0, Reason: "it left only 99 MiB free on GPU 0"}
+		}
+		return Check{OK: true}
+	}}
+	res := runWith(t, gpu24(), v)
+	if res.Check.Status != VerifyPassed {
+		t.Fatalf("check = %+v", res.Check)
+	}
+	if res.Proposed.KVCacheQuant != "q8_0" || res.Proposed.ContextSize != 8192 {
+		t.Errorf("KV cache / context = %q / %d, want q8_0 at the planned 8192", res.Proposed.KVCacheQuant, res.Proposed.ContextSize)
+	}
+	if note := noteFor(res, "kv_cache_quant"); !strings.Contains(note, "test load") || !strings.Contains(note, "left too little GPU memory free") {
+		t.Errorf("KV cache note = %q, want the test load's explanation", note)
 	}
 }
 
@@ -312,7 +336,12 @@ func TestMoveLayersOff(t *testing.T) {
 // context that only fits while drafting is off.
 func TestFitIsPlannedWithTheDraftContext(t *testing.T) {
 	estimate := func(mtpLayers int) (float64, int) {
-		res, err := Run(context.Background(), Deps{Registry: runRegistryWithMTP(t, mtpLayers), Hardware: gpu24()},
+		// With no margin the plan without draft layers fills the card,
+		// and the one with them moves layers off it; the old 8% margin
+		// leaves room for the draft context, so the two compare.
+		hw := gpu24()
+		hw.GPUs[0].MarginMiB = 1966 - models.WorkingMemoryMiB
+		res, err := Run(context.Background(), Deps{Registry: runRegistryWithMTP(t, mtpLayers), Hardware: hw},
 			runModelID, models.ContextMax)
 		if err != nil {
 			t.Fatal(err)

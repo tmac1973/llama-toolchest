@@ -75,6 +75,7 @@ func (s *Server) hardware() models.Hardware {
 	if s.testHardware != nil {
 		hw := *s.testHardware
 		hw.GPUs = append([]models.GPUSpec(nil), hw.GPUs...)
+		s.applyVRAMMargin(&hw)
 		s.applyGenVRAM(&hw)
 		return hw
 	}
@@ -94,8 +95,18 @@ func (s *Server) hardware() models.Hardware {
 		}
 		hw.GPUs = append(hw.GPUs, spec)
 	}
+	s.applyVRAMMargin(&hw)
 	s.applyGenVRAM(&hw)
 	return hw
+}
+
+// applyVRAMMargin sets each card's margin from Settings → GPU memory
+// margin (config.VRAMMarginFor).
+func (s *Server) applyVRAMMargin(hw *models.Hardware) {
+	cfg := s.cfgCopy()
+	for i := range hw.GPUs {
+		hw.GPUs[i].MarginMiB = cfg.VRAMMarginFor(hw.GPUs[i].Index)
+	}
 }
 
 // idleHardware is hardware with other programs' memory as it was when
@@ -246,6 +257,16 @@ func contextClassOptions(maxCtx int) []contextClassOption {
 	}
 }
 
+// autoconfigHardware is the machine Autoconfigure plans for: the cards as
+// they were with nothing of ours loaded (idleHardware), because its test
+// load runs alone, as a benchmark cell does (checkProposedConfig). The
+// live reading counts what a loaded model holds beyond its buffer report
+// as other programs' memory: on compute2 a 4B model left loaded took
+// 1.0 GiB off a plan over two cards.
+func (s *Server) autoconfigHardware() models.Hardware {
+	return s.idleHardware()
+}
+
 // handleAutoconfigDialog shows the start dialog, or the result of a
 // finished run for this model that has not been saved or discarded.
 func (s *Server) handleAutoconfigDialog(w http.ResponseWriter, r *http.Request) {
@@ -259,7 +280,7 @@ func (s *Server) handleAutoconfigDialog(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	hw := s.hardware()
+	hw := s.autoconfigHardware()
 	d := autoconfigDialogData{ModelID: id, ModelName: m.PublicName(), Classes: contextClassOptions(m.ContextLength),
 		GPUs: autoconfigGPUOptions(hw), EvictableGiB: evictableGiB(hw)}
 	links := gpuLinks(s.gpuReadings())
@@ -309,7 +330,7 @@ func (s *Server) handleAutoconfigStart(w http.ResponseWriter, r *http.Request) {
 		s.renderAutoconfigMessage(w, id, panelBanner{"error", "A benchmark is running and using the GPU. Start Autoconfigure when it finishes."})
 		return
 	}
-	hw := s.hardware()
+	hw := s.autoconfigHardware()
 	chosen, ok := chosenGPUs(r, hw)
 	if !ok {
 		s.renderAutoconfigMessage(w, id, panelBanner{"error", "Choose at least one GPU for the model."})

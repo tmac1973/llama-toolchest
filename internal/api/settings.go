@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -39,6 +40,10 @@ type settingsResponse struct {
 	Eviction          string `json:"eviction"`
 	EvictionEffective string `json:"eviction_effective"`
 	ModelsMax         int    `json:"models_max"`
+	// VRAMMarginMiB is the memory kept free on each GPU, and
+	// VRAMMarginByGPU the GPUs with a margin of their own, by index.
+	VRAMMarginMiB   int         `json:"vram_margin_mib"`
+	VRAMMarginByGPU map[int]int `json:"vram_margin_by_gpu,omitempty"`
 
 	// EnvOverrides maps each setting an environment variable overrides
 	// (by its YAML name) to that variable. The values above are the ones
@@ -78,6 +83,8 @@ func (s *Server) writeSettings(w http.ResponseWriter, r *http.Request, cfg *conf
 		ModelsMax:          cfg.ModelsMax,
 		GenEvict:           cfg.GenEvict,
 		GenKeepPromptCache: cfg.GenKeepPromptCache,
+		VRAMMarginMiB:      cfg.VRAMMarginMiB,
+		VRAMMarginByGPU:    cfg.VRAMMarginByGPU,
 	}
 	resp.GenPortStart, resp.GenPortCount = cfg.GenPorts(s.inContainer())
 	for _, f := range []string{config.FieldExternalURL, config.FieldLlamaPort, config.FieldGenPublicPortStart} {
@@ -134,6 +141,9 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			GenPortCount       *int    `json:"gen_port_count,omitempty"`
 			Eviction           *string `json:"eviction,omitempty"`
 			ModelsMax          *int    `json:"models_max,omitempty"`
+			// VRAMMarginByGPU replaces every per-GPU margin; {} clears them.
+			VRAMMarginMiB   *int         `json:"vram_margin_mib,omitempty"`
+			VRAMMarginByGPU *map[int]int `json:"vram_margin_by_gpu,omitempty"`
 			// RouterMemory is the older switch: true is llama.cpp,
 			// false is off. Eviction wins when both are sent.
 			RouterMemory *bool `json:"router_memory,omitempty"`
@@ -152,6 +162,29 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			s.cfg.ModelsMax = *update.ModelsMax
+		}
+		if update.VRAMMarginMiB != nil {
+			if err := validVRAMMarginMiB("vram_margin_mib", *update.VRAMMarginMiB); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			s.cfg.VRAMMarginMiB = *update.VRAMMarginMiB
+		}
+		if update.VRAMMarginByGPU != nil {
+			for g, mib := range *update.VRAMMarginByGPU {
+				err := validVRAMMarginMiB(fmt.Sprintf("vram_margin_by_gpu[%d]", g), mib)
+				if err == nil && g < 0 {
+					err = fmt.Errorf("vram_margin_by_gpu: GPU index %d is not valid", g)
+				}
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+			}
+			s.cfg.VRAMMarginByGPU = maps.Clone(*update.VRAMMarginByGPU)
+			if len(s.cfg.VRAMMarginByGPU) == 0 {
+				s.cfg.VRAMMarginByGPU = nil
+			}
 		}
 		// Checked before anything is changed, so a rejected range leaves
 		// the other fields in this request unsaved too.
@@ -197,6 +230,14 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		if r.Form.Has("eviction") {
 			e := r.FormValue("eviction")
 			eviction = &e
+		}
+		if r.Form.Has("vram_margin_touched") {
+			all, byGPU, err := formVRAMMargin(r, s.cfg.VRAMMarginByGPU)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			s.cfg.VRAMMarginMiB, s.cfg.VRAMMarginByGPU = all, byGPU
 		}
 		if r.Form.Has("gen_port_start") || r.Form.Has("gen_port_count") {
 			start, count, err := formGenPorts(r)
