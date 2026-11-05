@@ -97,10 +97,13 @@
         {{$isCustom := and (ne $cs 0) (ne $cs 2048) (ne $cs 4096) (ne $cs 8192) (ne $cs 16384) (ne $cs 32768) (ne $cs 65536) (ne $cs 131072) (ne $cs 262144)}}
         <label title="{{if .IsEmbedding}}The longest input of one embedding request, in tokens. Longer inputs are refused. VRAM use grows fast with this value.{{else if .IsEncoder}}The longest query plus document of one rerank pair, in tokens. Longer pairs are refused. VRAM use grows fast with this value.{{else}}Maximum context, in tokens. More context uses more VRAM.{{end}}{{if gt $mc 0}} Model maximum: {{$mc}}.{{end}}">
             Context Size{{if gt $mc 0}} <small>(max {{$mc}})</small>{{end}}
+            {{/* Choosing Custom... must not autosave: the empty number box
+                 would save 0 (Model Default) and the re-render would bring
+                 the dropdown back. The form saves when a number is typed. */}}
             <div class="ctx-size-picker">
                 <select {{if not $isCustom}}name="context_size"{{end}}
                         {{if $isCustom}}style="display:none;"{{end}}
-                        onchange="if(this.value==='custom'){this.removeAttribute('name');this.style.display='none';var w=this.closest('.ctx-size-picker');w.querySelector('.ctx-custom-row').style.display='flex';w.querySelector('input').name='context_size';w.querySelector('input').focus();this.closest('form').classList.add('ctx-editing');}">
+                        onchange="if(this.value==='custom'){this.removeAttribute('name');this.style.display='none';var w=this.closest('.ctx-size-picker');w.querySelector('.ctx-custom-row').style.display='flex';w.querySelector('input').name='context_size';w.querySelector('input').focus();event.stopPropagation();}">
                     <option value="0" {{if eq $cs 0}}selected{{end}}>Model Default{{if gt $dc 0}} ({{$dc}}){{end}}</option>
                     <option value="2048" {{if eq $cs 2048}}selected{{end}} {{if and (gt $mc 0) (lt $mc 2048)}}disabled{{end}}>2K</option>
                     <option value="4096" {{if eq $cs 4096}}selected{{end}} {{if and (gt $mc 0) (lt $mc 4096)}}disabled{{end}}>4K</option>
@@ -118,11 +121,10 @@
                            {{if gt $mc 0}}max="{{$mc}}"{{end}}
                            {{if $isCustom}}name="context_size" value="{{$cs}}"{{end}}
                            style="margin:0;"
-                           placeholder="e.g. 16384"
-                           onchange="this.closest('form').classList.remove('ctx-editing');">
+                           placeholder="e.g. 16384">
                     <a href="#" class="ctx-presets-btn"
                        style="white-space:nowrap;font-size:0.85rem;"
-                       onclick="event.preventDefault();var w=this.closest('.ctx-size-picker');var s=w.querySelector('select');var inp=w.querySelector('input');inp.removeAttribute('name');w.querySelector('.ctx-custom-row').style.display='none';s.name='context_size';s.value='8192';s.style.display='';this.closest('form').classList.remove('ctx-editing');s.dispatchEvent(new Event('change',{bubbles:true}));">
+                       onclick="event.preventDefault();var w=this.closest('.ctx-size-picker');var s=w.querySelector('select');var inp=w.querySelector('input');inp.removeAttribute('name');w.querySelector('.ctx-custom-row').style.display='none';s.name='context_size';s.value='8192';s.style.display='';s.dispatchEvent(new Event('change',{bubbles:true}));">
                         Presets
                     </a>
                 </div>
