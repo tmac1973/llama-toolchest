@@ -1,17 +1,15 @@
 package forks
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 	"sync"
 
-	"github.com/tmac1973/llama-toolchest/internal/atomicfile"
+	"github.com/tmac1973/llama-toolchest/internal/jsonstore"
 )
 
 // SchemaVersion is the forks.json format this build reads and writes.
@@ -48,38 +46,15 @@ func StorePath(dataDir string) string {
 // Load reads the store under dataDir. A missing file is an empty store.
 func Load(dataDir string) (*Store, error) {
 	s := &Store{path: StorePath(dataDir), data: storeFile{SchemaVersion: SchemaVersion}}
-	raw, err := os.ReadFile(s.path)
-	if errors.Is(err, os.ErrNotExist) {
-		return s, nil
+	if err := jsonstore.Load(s.path, SchemaVersion, &s.data); err != nil {
+		return nil, err
 	}
-	if err != nil {
-		return nil, fmt.Errorf("reading %s: %w", s.path, err)
-	}
-	var f storeFile
-	if err := json.Unmarshal(raw, &f); err != nil {
-		return nil, fmt.Errorf("reading %s: %w", s.path, err)
-	}
-	if f.SchemaVersion != SchemaVersion {
-		return nil, fmt.Errorf("%s has schema version %d; this build reads version %d",
-			s.path, f.SchemaVersion, SchemaVersion)
-	}
-	s.data = f
 	return s, nil
 }
 
 // saveLocked writes the store. Callers must hold mu for writing.
 func (s *Store) saveLocked() error {
-	raw, err := json.MarshalIndent(s.data, "", "  ")
-	if err != nil {
-		return fmt.Errorf("saving fork store: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return fmt.Errorf("saving fork store: %w", err)
-	}
-	if err := atomicfile.WriteMode(s.path, raw, 0o600); err != nil {
-		return fmt.Errorf("saving fork store to %s: %w", s.path, err)
-	}
-	return nil
+	return jsonstore.Save(s.path, "fork store", s.data)
 }
 
 // Instances go in and out of the store as deep copies, so a caller

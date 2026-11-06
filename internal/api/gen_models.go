@@ -53,7 +53,7 @@ func (g *genDownloads) drop(setID string) {
 // could not be read at startup.
 func (s *Server) genStore(w http.ResponseWriter) *generation.Store {
 	if !s.generationOn() {
-		http.NotFound(w, nil)
+		featureOff(w, "Generation backends")
 		return nil
 	}
 	if s.gen == nil {

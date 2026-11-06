@@ -50,7 +50,7 @@ func (p *forkProxies) get(inst forks.Instance) *httputil.ReverseProxy {
 // forks are on. Only the instance name is matched: it is the one name a
 // fork instance answers to.
 func (s *Server) forkForModel(model string) (forks.Instance, bool) {
-	if model == "" || !s.forksOn() || s.forks == nil {
+	if model == "" || !s.forksEnabled() {
 		return forks.Instance{}, false
 	}
 	inst, err := s.forks.Instance(model)
@@ -124,7 +124,7 @@ func addSamplingDefaults(body []byte, defaults map[string]any) []byte {
 // chat models (meta.kind "text"), with meta.fork naming the fork and
 // meta.state "running" or "loading". Empty while forks are off.
 func (s *Server) forkV1Models() []map[string]any {
-	if !s.forksOn() || s.forks == nil {
+	if !s.forksEnabled() {
 		return nil
 	}
 	var out []map[string]any

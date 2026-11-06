@@ -159,11 +159,11 @@ func TestForkInstanceSaveValidates(t *testing.T) {
 
 	// A new generation instance does not take the fork's port either.
 	genInst := generation.Instance{ID: "flux2"}
-	if code, err := s.genPortFromForm(forkForm("POST", "/", url.Values{"port": {"8082"}}), gen, &genInst); err == nil || code != http.StatusConflict {
+	if code, err := s.genPortFromForm(forkForm("POST", "/", url.Values{"port": {"8082"}}), &genInst); err == nil || code != http.StatusConflict {
 		t.Errorf("generation instance on the fork's port: %d %v", code, err)
 	}
 	genInst = generation.Instance{ID: "flux3"}
-	if _, err := s.genPortFromForm(forkForm("POST", "/", url.Values{}), gen, &genInst); err != nil || genInst.Port != 8083 {
+	if _, err := s.genPortFromForm(forkForm("POST", "/", url.Values{}), &genInst); err != nil || genInst.Port != 8083 {
 		t.Errorf("generation instance got port %d, %v; want 8083", genInst.Port, err)
 	}
 }
