@@ -287,6 +287,26 @@ GPU selection: pick "All GPUs" (tensor mode), specific GPUs ("GPU 0", "GPUs 0–
 
 **Tensor parallelism on CUDA — NCCL.** llama.cpp's `-sm tensor` path uses NCCL for the AllReduce that fires after attention and the FFN in every transformer block. NCCL is the optimized GPU-to-GPU collective communications library; without it the build silently falls back to a slower generic path. The CUDA container image installs `libnccl-dev` automatically, and `setup.sh install --cuda` does the same on host installs. On ROCm the counterpart is RCCL, off by default upstream — enable the **RCCL Collectives** build toggle (the ROCm image ships `rccl-devel`; host installs offer it as an optional extra, since it only matters for multi-GPU); without it the log shows `falling back to meta-backend butterfly` and every token pays for the slow path. At runtime, pair tensor parallelism with **Flash Attention on** and **KV cache at `f16`** (no quant) — those are hard constraints in the current implementation. Note that the per-tensor split requires the model's attention head count to divide cleanly by the number of GPUs, so 3-way splits crash on many architectures (most pick power-of-2 head counts). 2 or 4 GPUs split far more reliably.
 
+## llama.cpp with RDNA boosts
+
+[llama-cpp-rdna-boosts](https://github.com/stew675/llama-cpp-rdna-boosts) is a set of patches on upstream llama.cpp that speeds up AMD RDNA2, RDNA3 and RDNA4 GPUs across the board, not for one model in particular. It adds faster prefill and decode kernels, a BF16 KV cache with WMMA flash attention, adaptive MTP draft depth and a few other changes. Everything is on by default, so there are no extra launch options to set.
+
+Llama Toolchest builds it as a llama.cpp build, ROCm only. On **Builds**, pick **llama.cpp + RDNA boosts** in the project picker and a ROCm profile, then a release. The release this toolchest version was tested with is marked *(tested)*; the newest release and the ten most recent ones are listed too (after the first build), marked *(untested)*. The build checks out the release's upstream base commit, applies the patches with `git am`, and fails unless the result is exactly the source tree the release publishes. It shows up as something like `rdna-b11887-r206-rocm` with an *RDNA boosts* badge.
+
+From then on it's an ordinary build: choose it as the router's build on the Server tab, and point benchmarks, Autotune and Autoconfigure at it. Switching back is just choosing an upstream build again, and both can stay on disk. *Auto* never picks a patched build while an upstream one can run, so nothing changes until you choose it.
+
+The catch is that the patches sit on an older upstream commit, often a few weeks behind. The toolchest treats the build as that base (`b11887` for r206), so it won't write launch options newer than the base, and new upstream options and model support only arrive when the patch set moves to a newer base.
+
+On a Radeon AI PRO R9700 (gfx1201, ROCm 10.1), r206 against upstream `b11887` built with the same flags:
+
+| Model | Prompt reading | Generation |
+| --- | --- | --- |
+| gemma-4-12b Q6_K_XL (dense) | +16% to +55% | about the same |
+| Qwen3.6-35B-A3B Q4_K_XL (MoE) | +4% to +21% | +20% to +25% |
+| Qwen3.6-35B-A3B with MTP drafting | +23% to +56% | +36% to +44% |
+
+The biggest prompt gains are on long prompts (24K tokens). Memory use was within 0.2 GiB of upstream, so Autoconfigure's plans hold for patched builds.
+
 ## llama.cpp forks (experimental)
 
 Some llama.cpp forks are much faster than upstream for one particular model. Llama Toolchest can build a short, curated list of them and run each as a **fork instance**: its own `llama-server`, serving the model the fork was made for, on one whole GPU, next to the normal router and any generation backends. The list lives in the source (`internal/forks`). The forks move too fast to pin, so each one builds from its latest commit; the model files are pinned to a revision of their Hugging Face repo.

@@ -186,6 +186,18 @@
         <dt>Saved flag sets</dt>
         <dd>Enter a <em>Build Tag</em> and press <em>Save Flags</em> to keep toggles and extra flags under that name, then replay them on any ref.</dd>
     </dl>
+    <h3 id="patch-sets">llama.cpp + RDNA boosts</h3>
+    <p><a href="https://github.com/stew675/llama-cpp-rdna-boosts" target="_blank" rel="noopener">RDNA boosts</a> is a set of patches on upstream llama.cpp. It makes AMD RDNA2, RDNA3 and RDNA4 GPUs faster. The patches apply to an older upstream commit, the <em>base</em>. All features are on, with no extra options. ROCm only.</p>
+    <ol>
+        <li><strong>Build it</strong>: on Builds, choose <em>llama.cpp + RDNA boosts</em> and a ROCm profile. Then choose a release. The build gets a name like <code>rdna-b11887-r206-rocm</code> and an <em>RDNA boosts</em> badge.</li>
+        <li><strong>Use it</strong>: on the Server tab, choose the build as the router's build. To go back, choose an upstream build. <em>Auto</em> does not choose a patched build while an upstream build can run.</li>
+    </ol>
+    <ul>
+        <li><strong>Tested</strong>: the release that this toolchest version was tested with. <strong>Untested</strong>: a newer release. It usually works, but nobody tested it with this toolchest. The list shows the newest release and the ten most recent ones after the first build.</li>
+        <li>The build fails if the patched source is not exactly the source of the release.</li>
+        <li>The build counts as its base (for example <code>b11887</code>). Toolchest does not write launch options that are newer than the base. New upstream options and new model types arrive only when the patch set moves to a newer base.</li>
+        <li>Benchmarks, Autotune and Autoconfigure can use a patched build like any build. To compare, run a benchmark on the patched build and on the upstream build of the same base.</li>
+    </ul>
 
     <h2 id="models">Models</h2>
     <p>Downloaded GGUFs, grouped by publisher and base model.</p>
