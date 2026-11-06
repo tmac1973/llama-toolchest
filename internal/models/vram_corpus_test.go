@@ -79,7 +79,8 @@ func gibBytes(f float64) int64 { return int64(f * gib) }
 func corpus() []corpusPoint {
 	out := append(rocmCorpus(), rocmLocalCorpus()...)
 	out = append(out, cudaCorpus()...)
-	return append(out, cudaBenchCorpus()...)
+	out = append(out, cudaBenchCorpus()...)
+	return append(out, cudaLaunchCorpus()...)
 }
 
 // rocmCorpus: one machine, 4x Radeon AI PRO R9700, tensor-parallel.
@@ -327,6 +328,116 @@ func cudaBenchCorpus() []corpusPoint {
 	}
 }
 
+// cudaLaunchCorpus: compute2's CUDA0 and CUDA1, 2026-11-06, v0.9.0-cuda,
+// started by hand with flash attention, every layer offloaded unless
+// noted, no projector, and either llama-server's default four slots in
+// one pool or four separate slots ("4 slots", -np 4). Qwen3.6-35B-A3B and
+// gpt-oss-20b at 131K (one point at 262K), Qwen3-30B-A3B at 64K, and
+// Qwen3.8-Flash-Next at 32K and 131K. measured is the two cards' used
+// memory once loaded, from empty cards; reported is llama.cpp's report,
+// each context's first reservation. The log's "sched copies" is noted
+// where it matters: these points tell when llama.cpp keeps its pipeline
+// copies.
+func cudaLaunchCorpus() []corpusPoint {
+	q35 := cudaBenchCorpus()[1].model
+	oss := Model{Arch: "gpt-oss", SizeBytes: 12109566624, TokenEmbdBytes: 615329280, NLayers: 24, AttnLayers: 24,
+		NEmbd: 2880, NHead: 64, NKVHead: 8, KVFullPerTok: 12288, KVSWAPerTok: 12288, SlidingWindow: 128, ContextLength: 131072,
+		ExpertCount: 32, ExpertUsedCount: 4, ExpertBytes: 10178887680, ExpertLayers: 24}
+	q30 := Model{Arch: "qwen3moe", SizeBytes: 18556685824, TokenEmbdBytes: 175030272, NLayers: 48, AttnLayers: 48,
+		NEmbd: 2048, NHead: 32, NKVHead: 4, KVFullPerTok: 49152, ContextLength: 40960,
+		ExpertCount: 128, ExpertUsedCount: 8, ExpertBytes: 17553162240, ExpertLayers: 48}
+	fn := Model{Arch: "qwen4exp", SizeBytes: 66379180698, PLEBytes: 28800138240, TokenEmbdBytes: 337715200, NLayers: 48,
+		AttnLayers: 12, NEmbd: 2560, NHead: 24, NKVHead: 2, KVFullPerTok: 12288, ContextLength: 262144, ExpertCount: 512,
+		ExpertUsedCount: 10, ExpertBytes: 33397145600, ExpertLayers: 48, IndexerKeyLength: 128, RecurrentStateBytes: 117669888}
+	c := func(par, ctx, ub, moe int, mtp bool) ModelConfig {
+		cfg := ModelConfig{ContextSize: ctx, UBatchSize: ub, BatchSize: max(ub, 2048), GPULayers: 999,
+			SplitMode: "layer", Parallel: par, CPUMoE: moe}
+		if mtp {
+			cfg.SpecType, cfg.DraftMax = "draft-mtp", 3
+		}
+		return cfg
+	}
+	used := func(a, b int) float64 { return float64(a+b) / 1024 }
+	rep := func(w, kv, rs, comp, moe float64) *reportedTerms {
+		return &reportedTerms{weights: w, kv: kv, recurrent: rs, compute: comp, moeCache: moe}
+	}
+	const k131 = 131072
+	cache := c(4, k131, 2048, 16, false)
+	cache.MoECacheMiB = 2048
+	partial := c(4, k131, 2048, 0, false)
+	partial.GPULayers = 30
+	tensor := c(0, k131, 4096, 0, false)
+	tensor.SplitMode = "tensor"
+	return []corpusPoint{
+		// Four copies of a 32K slot's mask fit at every micro-batch.
+		{name: "launch q35 4 slots ub4096", model: q35, cfg: c(4, k131, 4096, 0, false), cards: 2, measured: used(12693, 11419),
+			reported: rep(16.35, 2.50, 0.25, 4.06, 0), backend: "cuda"},
+		// The pool's 131K masks: four copies at 2048, one at 4096 and at
+		// 2048 with 262K ("retrying without pipeline parallelism").
+		{name: "launch q35 pool ub2048", model: q35, cfg: c(0, k131, 2048, 0, false), cards: 2, measured: used(13129, 11999),
+			reported: rep(16.35, 2.50, 0.25, 5.04, 0), backend: "cuda"},
+		{name: "launch q35 pool ub4096", model: q35, cfg: c(0, k131, 4096, 0, false), cards: 2, measured: used(12331, 11293),
+			reported: rep(16.35, 2.50, 0.25, 3.58, 0), backend: "cuda"},
+		{name: "launch q35 pool ctx262k ub2048", model: q35, cfg: c(0, 262144, 2048, 0, false), cards: 2, measured: used(13197, 12185),
+			reported: rep(16.35, 5.00, 0.25, 2.80, 0), backend: "cuda"},
+		// Experts in system memory, the MoE cache, layers left off the
+		// GPUs: one copy every time.
+		{name: "launch q35 4 slots moe8 ub4096", model: q35, cfg: c(4, k131, 4096, 8, false), cards: 2, measured: used(8665, 10521),
+			reported: rep(13.51, 2.50, 0.25, 2.09, 0), backend: "cuda"},
+		{name: "launch q35 pool moe8 ub4096", model: q35, cfg: c(0, k131, 4096, 8, false), cards: 2, measured: used(9435, 11293), backend: "cuda"},
+		// Its weights come out 0.11 GiB under the report, the experts
+		// being spread evenly over layers that are not, so the report is
+		// left out.
+		{name: "launch q35 4 slots moe16 cache2g ub2048", model: q35, cfg: cache, cards: 2, measured: used(7337, 10003), backend: "cuda"},
+		{name: "launch q35 4 slots ngl30 ub2048", model: q35, cfg: partial, cards: 2, measured: used(8349, 7045), backend: "cuda"},
+		// MTP: the drafter's copies fit with 32K slots, not with the
+		// pool at 2048, and neither context's does at 4096.
+		// Here llama.cpp kept the drafter's four copies (6.07 GiB of
+		// compute reported) with 0.5 GiB to spare on its card, which
+		// the estimate, judging by the average card, does not see: it
+		// plans one, and its total stays 0.1 GiB above. The report is left
+		// out for that.
+		{name: "launch q35 4 slots mtp ub4096", model: q35, cfg: c(4, k131, 4096, 0, true), cards: 2, measured: used(13115, 14467), backend: "cuda"},
+		{name: "launch q35 pool mtp ub2048", model: q35, cfg: c(0, k131, 2048, 0, true), cards: 2, measured: used(13549, 13659),
+			reported: rep(16.75, 2.75, 0.98, 5.70, 0), backend: "cuda"},
+		{name: "launch q35 pool mtp ub4096", model: q35, cfg: c(0, k131, 4096, 0, true), cards: 2, measured: used(12753, 13627),
+			reported: rep(16.75, 2.75, 0.98, 4.89, 0), backend: "cuda"},
+		{name: "launch q35 pool moe8 mtp ub4096", model: q35, cfg: c(0, k131, 4096, 8, true), cards: 2, measured: used(9855, 13627),
+			reported: rep(13.91, 2.75, 0.98, 4.91, 0), backend: "cuda"},
+		// Tensor-parallel: no pipeline. (Its report, per card, has the
+		// weights 0.2 GiB above the estimate's, which counts them once
+		// for the cards together; left out.)
+		{name: "launch q35 pool tensor ub4096", model: q35, cfg: tensor, cards: 2, measured: used(11811, 11811), backend: "cuda"},
+
+		// gpt-oss-20b, MXFP4, at 131K: sliding-window layers, and small
+		// enough that the pool's four copies fit even at 4096.
+		{name: "launch oss pool ub4096", model: oss, cfg: c(0, k131, 4096, 0, false), cards: 2, measured: used(12943, 12245),
+			reported: rep(10.69, 3.11, 0, 10.40, 0), backend: "cuda"},
+		{name: "launch oss pool moe8 ub4096", model: oss, cfg: c(0, k131, 4096, 8, false), cards: 2, measured: used(6087, 8873),
+			reported: rep(7.53, 3.11, 0, 3.58, 0), backend: "cuda"},
+		{name: "launch oss 4 slots ub4096", model: oss, cfg: c(4, k131, 4096, 0, false), cards: 2, measured: used(10021, 9273), backend: "cuda"},
+
+		// Qwen3-30B-A3B, Q4_K_M, at 64K: full attention on every layer.
+		// The pool's copies fit at 2048, not at 4096.
+		{name: "launch q30 pool ub2048", model: q30, cfg: c(0, 65536, 2048, 0, false), cards: 2, measured: used(13929, 13103),
+			reported: rep(17.11, 6.00, 0, 2.90, 0), backend: "cuda"},
+		{name: "launch q30 pool ub4096", model: q30, cfg: c(0, 65536, 4096, 0, false), cards: 2, measured: used(13555, 12873),
+			reported: rep(17.11, 6.00, 0, 2.31, 0), backend: "cuda"},
+		{name: "launch q30 pool moe8 ub4096", model: q30, cfg: c(0, 65536, 4096, 8, false), cards: 2, measured: used(10891, 12873),
+			reported: rep(14.29, 6.00, 0, 2.53, 0), backend: "cuda"},
+
+		// Qwen3.8-Flash-Next, UD-IQ1_S, with the experts of 34 layers in
+		// system memory: sparse attention, one copy. The KV figure holds
+		// the indexer's key cache, f32 with an f16 cache.
+		{name: "launch fn pool moe34 ctx32k ub512", model: fn, cfg: c(0, 32768, 512, 34, false), cards: 2, measured: used(3181, 12139),
+			reported: rep(12.38, 0.94, 0.44, 0.80, 0), backend: "cuda"},
+		{name: "launch fn pool moe34 ub512", model: fn, cfg: c(0, k131, 512, 34, false), cards: 2, measured: used(4719, 14013),
+			reported: rep(12.38, 3.75, 0.44, 1.32, 0), backend: "cuda"},
+		{name: "launch fn pool moe34 ctx32k ub2048", model: fn, cfg: c(0, 32768, 2048, 34, false), cards: 2, measured: used(3501, 12821),
+			reported: rep(12.38, 0.94, 0.44, 1.78, 0), backend: "cuda"},
+	}
+}
+
 // point looks a corpus point up by name. Positional access breaks
 // silently when a point is inserted, and inserting points is the whole
 // intent of this file.
@@ -556,9 +667,10 @@ func TestPipelineCopiesStayWhereTheyFit(t *testing.T) {
 	on16 := p.estimate().Total()
 	unknown := vramBreakdownOn(p.coeffs(), &p.model, &p.cfg, p.cards, 0).Total()
 	on48 := vramBreakdownOn(p.coeffs(), &p.model, &p.cfg, p.cards, 48).Total()
-	// Three more 1 GiB masks on each of two cards.
-	if d := unknown - on16; d < 5.5 || d > 6.5 {
-		t.Errorf("four copies cost %.2f GiB more than one; want about 6", d)
+	// Three more 1 GiB masks on each of two cards, and the copies of
+	// the graph's other inputs.
+	if d := unknown - on16; d < 6.5 || d > 7.5 {
+		t.Errorf("four copies cost %.2f GiB more than one; want about 7", d)
 	}
 	if on48 != unknown {
 		t.Errorf("on 48 GiB cards the estimate is %.2f, want the four copies' %.2f", on48, unknown)
@@ -568,5 +680,26 @@ func TestPipelineCopiesStayWhereTheyFit(t *testing.T) {
 	g := point(t, "bench glb 2c layer ub2048")
 	if got, want := g.estimate().Total(), vramBreakdownOn(g.coeffs(), &g.model, &g.cfg, g.cards, 0).Total(); got != want {
 		t.Errorf("glb at 2048: %.2f planned on A4000s, %.2f with every copy; its copies fit", got, want)
+	}
+}
+
+// Experts in system memory, the MoE cache and layers left off the GPUs
+// each turn llama.cpp's pipeline off, so a layer split runs one copy
+// however large the cards: the estimate must not depend on the card size
+// there, and must be below the same load with the pipeline on.
+func TestNoPipelineCopiesWithoutFullOffload(t *testing.T) {
+	for _, name := range []string{"launch q35 pool moe8 ub4096", "launch q35 4 slots moe16 cache2g ub2048", "launch q35 4 slots ngl30 ub2048"} {
+		p := point(t, name)
+		on16 := p.estimate().Total()
+		if big := vramBreakdownOn(p.coeffs(), &p.model, &p.cfg, p.cards, 0).Total(); big != on16 {
+			t.Errorf("%s: %.2f GiB on cards of unknown size, %.2f on A4000s; the pipeline is off either way", name, big, on16)
+		}
+		if !pipelineOff(&p.model, &p.cfg) {
+			t.Errorf("%s: pipeline taken to be on", name)
+		}
+	}
+	full := point(t, "launch q35 4 slots ub4096")
+	if pipelineOff(&full.model, &full.cfg) {
+		t.Error("a full offload with no experts in system memory taken to run without the pipeline")
 	}
 }

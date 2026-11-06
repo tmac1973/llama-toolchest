@@ -190,8 +190,38 @@ type computeCoeffs struct {
 }
 
 func (c computeCoeffs) at(ub, ctx int) float64 {
+	return c.atMask(ub, ctx, ctx)
+}
+
+// atMask is at with the context term taken at maskCtx: the positions one
+// attention mask spans (maskContext).
+func (c computeCoeffs) atMask(ub, ctx, maskCtx int) float64 {
 	u, x := float64(ub), float64(ctx)
-	return c.base + c.perUB*u + c.perCtx*x + c.perUBCtx*u*x
+	return c.base + c.perUB*u + c.perCtx*x + c.perUBCtx*u*float64(maskCtx)
+}
+
+// maskContext is how many positions one attention mask spans. With the
+// conversations in one pool (llama-server's default, or Shared Context)
+// it is the whole context. With separate slots each one is a stream of
+// its own, and the mask spans one slot's share: Qwen3.6-35B-A3B at 131K
+// and a 2048 micro-batch, split by layer over two A4000s, used 24.5 GiB
+// with the default pool and 21.5 with four separate slots, which is four
+// pipeline copies of the difference.
+func maskContext(cfg *ModelConfig, ctx int) int {
+	if cfg.Parallel >= 2 && !cfg.SharedContext {
+		return ctx / cfg.Parallel
+	}
+	return ctx
+}
+
+// pipelineOff reports whether llama.cpp runs a layer split without
+// pipeline parallelism, so with one copy whatever the room. It needs
+// every layer and the output on the GPUs, and no tensor overrides,
+// which --n-cpu-moe is made of, and no MoE cache (llama_context, the
+// pipeline_parallel condition). On compute2 every such load logged
+// "sched copies = 1".
+func pipelineOff(m *Model, cfg *ModelConfig) bool {
+	return cfg.CPUMoE > 0 || cfg.MoECacheMiB > 0 || (cfg.GPULayers > 0 && cfg.GPULayers <= m.NLayers)
 }
 
 type vramCoefficients struct {
@@ -204,7 +234,7 @@ type vramCoefficients struct {
 	// scratch (context x micro-batch, f32) on every device.
 	indexerScratchCopies float64
 	// indexerCacheAtKType stores the sparse-attention key cache at the KV
-	// cache's K type rather than f32.
+	// cache's K type, when that is quantized, rather than f32.
 	indexerCacheAtKType bool
 	// Overhead llama.cpp does not itemise: on the first device and on
 	// each further one.
@@ -225,11 +255,16 @@ type vramCoefficients struct {
 	// specCompute is the draft context's graph scratch, on top of the
 	// model's own, when speculative decoding is on.
 	specCompute computeCoeffs
-	// pipelineFallback: the context terms of layer and specCompute are
-	// pipelineCopies attention masks, and a context whose copies do not
-	// fit the card is planned with one, as llama.cpp then runs it (see
-	// pipelineCopiesFit).
+	// pipelineFallback: the set follows how llama.cpp sizes its masks and
+	// pipeline copies. The context terms of layer and specCompute are
+	// pipelineCopies attention masks, each spanning maskContext; a layer
+	// split runs one copy where llama.cpp turns the pipeline off
+	// (pipelineOff) or the copies do not fit the card (pipelineCopiesFit).
 	pipelineFallback bool
+	// layerCopyPerUB is the part of layer.perUB that is per pipeline
+	// copy: the graph's other inputs, which the scheduler copies with the
+	// mask.
+	layerCopyPerUB float64
 }
 
 // pipelineCopies is how many graphs llama.cpp keeps in flight on a layer
@@ -314,8 +349,17 @@ var cudaCoefficients = vramCoefficients{
 	// models at 2048 kept their four, at 2.3-2.5 GiB a card.
 	layer: computeCoeffs{base: 0.10, perUB: 2.95e-4, perUBCtx: 7.95e-9},
 	// Flash-Next's cards with no other scratch held 0.30 GiB at 32K and
-	// 0.92 at 128K, all of it accounted for by the terms above.
-	indexerScratchCopies: 0,
+	// 0.92 at 128K. Half a copy is one f16 mask for the indexer, the type
+	// llama.cpp v0.9.0 gives it with its fused indexer; like the attention
+	// mask it is a graph input, so a pipelined split copies it. v0.9.0
+	// with the experts of 34 layers in system memory (one copy) on two
+	// A4000s stays 0.7-0.9 GiB under the estimate at 32K and 128K; 0.7 is
+	// for the three-card load on v0.5.0, which needed 0.65. Four copies
+	// were not measured: no split of this model on compute2 keeps them.
+	//
+	// The key cache: 0.75 GiB for twelve layers at 128K with an f16 cache
+	// (f32), 0.20 with q8_0 (the K type).
+	indexerScratchCopies: 0.7,
 	indexerCacheAtKType:  true,
 	// 0.50-0.51 GiB on one card; 0.55-0.59 in all on three.
 	overheadFirst: 0.53,
@@ -337,13 +381,23 @@ var cudaCoefficients = vramCoefficients{
 	// point stays at least 0.8 GiB above what it used.
 	//
 	// The draft context is a llama.cpp context of its own, with its own
-	// pipeline copies, on the card that holds the MTP layer; the context
-	// term is their four masks. It reserves after the model's context, so
-	// it is the first to lose its copies: Qwen3.6-35B-A3B at 2048 on two
-	// A4000s kept the model's four and used 27.0 GiB less its projector,
-	// where four draft copies as well would need 30.1.
-	specCompute:      computeCoeffs{base: 0.45, perUBCtx: 1.0e-8},
+	// pipeline copies, on the card that holds the MTP layer. It reserves
+	// after the model's context, so it is the first to lose its copies:
+	// Qwen3.6-35B-A3B at 2048 and 131K on two A4000s kept the model's four
+	// and logged one for the drafter.
+	//
+	// Measured on its own (llama.cpp's report for the second context, the
+	// same model and cards, v0.9.0): each copy holds one mask and about 65
+	// KiB a micro-batch token besides. 2.01 GiB with four copies at 4096
+	// and four slots of 32K, 1.31 GiB with one copy at 4096 and the 131K
+	// pool. Everything but the base is per copy; the base is from the
+	// corpus points above, and covers what llama.cpp does not itemise.
+	specCompute:      computeCoeffs{base: 0.45, perUB: pipelineCopies * 6.5e-5, perUBCtx: pipelineCopies * 2.0 / (1 << 30)},
 	pipelineFallback: true,
+	// The same model's cards held 1197 MiB besides the masks with four
+	// copies at 4096, 834 with one: 30 KiB a token per copy, a third of
+	// layer.perUB for the four.
+	layerCopyPerUB: pipelineCopies * 2.4e-5,
 }
 
 var activeVRAMBackend atomic.Value // string
@@ -519,14 +573,18 @@ func vramBreakdownOn(co *vramCoefficients, m *Model, cfg *ModelConfig, cards int
 
 	// Graph scratch, per device.
 	layerSplit := isLayerSplit(cfg, cards)
-	perCard := co.single.at(ub, ctx)
+	maskCtx := ctx
+	if co.pipelineFallback {
+		maskCtx = maskContext(cfg, ctx)
+	}
+	perCard := co.single.atMask(ub, ctx, maskCtx)
 	switch {
 	case m.Kind() != KindChat:
 		perCard = encoderComputeGiB(co, m, ub, ctx)
 	case layerSplit:
-		perCard = co.layer.at(ub, ctx)
+		perCard = co.layer.atMask(ub, ctx, maskCtx)
 	case cards >= 2:
-		perCard = co.tensor.at(ub, ctx)
+		perCard = co.tensor.atMask(ub, ctx, maskCtx)
 	}
 	// Not on a tensor-parallel split: the only such quantized-cache point
 	// (ROCm, Flash-Next) is inside the fit of the tensor coefficients.
@@ -535,15 +593,16 @@ func vramBreakdownOn(co *vramCoefficients, m *Model, cfg *ModelConfig, cards int
 		perCard += float64(m.KVFullPerTok) / float64(m.AttnLayers) * float64(ctx) * 2 / (1024 * 1024 * 1024)
 	}
 	b.Compute = float64(cards) * perCard
-	// The masks the pipeline copies hold, which one copy would not.
+	// What the pipeline copies hold, which one copy would hold a
+	// quarter of: the masks, and the graph's other inputs.
 	var masks float64
 	if layerSplit && m.Kind() == KindChat {
-		masks = float64(cards) * co.layer.perUBCtx * float64(ub) * float64(ctx)
+		masks = float64(cards) * (co.layer.perUBCtx*float64(maskCtx) + co.layerCopyPerUB) * float64(ub)
 	}
 	if co.expertOffloadScratch && cfg.CPUMoE > 0 && m.ExpertLayers > 0 {
 		b.Compute += BytesToGiB(m.ExpertBytes / int64(m.ExpertLayers))
 	}
-	var spec, specMasks float64
+	var spec, specCopies float64
 	if IsDraftMode(cfg.SpecType) {
 		// The drafter's context has a micro-batch of its own when one is
 		// set (--spec-draft-n-ubatch), and its compute buffer follows it.
@@ -551,15 +610,15 @@ func vramBreakdownOn(co *vramCoefficients, m *Model, cfg *ModelConfig, cards int
 		if cfg.DraftUBatchSize > 0 {
 			dub = min(ub, cfg.DraftUBatchSize)
 		}
-		spec = co.specCompute.at(dub, ctx)
-		specMasks = co.specCompute.perUBCtx * float64(dub) * float64(ctx)
+		spec = co.specCompute.atMask(dub, ctx, maskCtx)
+		specCopies = spec - co.specCompute.base
 		if co.pipelineFallback && !layerSplit {
 			// No pipeline on one card or tensor-parallel: one mask. On a
 			// tensor split the draft context spans the cards as the
 			// model's does, with its scratch on every one: Qwen3.6-35B-A3B
 			// with MTP held 0.56 GiB a card more than without at 512, 1.4
 			// more at 4096.
-			spec -= specMasks * (pipelineCopies - 1) / pipelineCopies
+			spec -= specCopies * (pipelineCopies - 1) / pipelineCopies
 			if cards >= 2 {
 				spec *= float64(cards)
 			}
@@ -575,11 +634,14 @@ func vramBreakdownOn(co *vramCoefficients, m *Model, cfg *ModelConfig, cards int
 			layers = m.NLayers
 		}
 		bpe := 4.0
-		if co.indexerCacheAtKType {
+		if co.indexerCacheAtKType && cfg.KVCacheQuant != "" && cfg.KVCacheQuant != "f16" {
 			bpe = kvBytesPerElem(cfg.KVCacheQuant)
 		}
 		b.IndexerCache = float64(layers) * float64(ctx) * float64(m.IndexerKeyLength) * bpe / (1024 * 1024 * 1024)
-		b.IndexerScratch = float64(cards) * co.indexerScratchCopies * float64(ctx) * float64(ub) * 4 / (1024 * 1024 * 1024)
+		b.IndexerScratch = float64(cards) * co.indexerScratchCopies * float64(maskCtx) * float64(ub) * 4 / (1024 * 1024 * 1024)
+		if co.pipelineFallback && layerSplit {
+			b.IndexerScratch *= pipelineCopies
+		}
 	}
 
 	b.SpecKV = SpecKVCacheGB(m, cfg, ctx)
@@ -610,7 +672,12 @@ func vramBreakdownOn(co *vramCoefficients, m *Model, cfg *ModelConfig, cards int
 	b.Aux = AuxFilesVRAMGB(cfg)
 	b.Overhead = co.overheadFirst + float64(cards-1)*co.overheadExtra
 	if co.pipelineFallback && layerSplit {
-		pipelineCopiesFit(&b, cards, masks, spec, specMasks, cardGiB)
+		if pipelineOff(m, cfg) {
+			b.Compute -= (masks + specCopies) * (pipelineCopies - 1) / pipelineCopies
+			b.IndexerScratch /= pipelineCopies
+		} else {
+			pipelineCopiesFit(&b, cards, masks, spec, specCopies, cardGiB)
+		}
 	}
 	return b
 }
@@ -623,13 +690,13 @@ func vramBreakdownOn(co *vramCoefficients, m *Model, cfg *ModelConfig, cards int
 // and caches already on the cards; the draft context follows, on the
 // card that holds the drafter, with the model's buffers there too.
 //
-// masks is the model context's masks at full copies, in Compute; spec is
+// masks is what the model context's copies hold, in Compute; spec is
 // the draft context's whole scratch there, and specMasks its masks. A
 // card is judged by the average share of the load, which is below what
 // the busiest card holds, so the estimate drops a context to one copy
 // only where llama.cpp surely does. Unknown card size (0) keeps every
 // copy.
-func pipelineCopiesFit(b *VRAMBreakdown, cards int, masks, spec, specMasks, cardGiB float64) {
+func pipelineCopiesFit(b *VRAMBreakdown, cards int, masks, spec, specCopies, cardGiB float64) {
 	if cardGiB <= 0 || cards < 2 {
 		return
 	}
@@ -640,10 +707,14 @@ func pipelineCopiesFit(b *VRAMBreakdown, cards int, masks, spec, specMasks, card
 	if model/float64(cards) > cardGiB {
 		cut := masks * (pipelineCopies - 1) / pipelineCopies
 		b.Compute -= cut
-		model -= cut
+		idx := b.IndexerScratch * (pipelineCopies - 1) / pipelineCopies
+		b.IndexerScratch -= idx
+		model -= cut + idx
 	}
-	if spec > 0 && model/float64(cards)+b.SpecKV+spec > cardGiB {
-		b.Compute -= specMasks * (pipelineCopies - 1) / pipelineCopies
+	// The drafter's copies against what it allocates, without the base,
+	// which is what llama.cpp does not itemise.
+	if specCopies > 0 && model/float64(cards)+b.SpecKV+specCopies > cardGiB {
+		b.Compute -= specCopies * (pipelineCopies - 1) / pipelineCopies
 	}
 }
 
