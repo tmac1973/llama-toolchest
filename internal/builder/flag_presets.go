@@ -7,9 +7,11 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 
 	"github.com/tmac1973/llama-toolchest/internal/atomicfile"
+	"github.com/tmac1973/llama-toolchest/internal/readonly"
 )
 
 // FlagPreset is a saved build-flag set for a profile: toggle states plus
@@ -67,9 +69,17 @@ func (b *Builder) loadFlagPresetsLocked() {
 	b.fpLoaded = true
 	data, err := os.ReadFile(b.flagPresetsPath())
 	if err != nil {
+		if b.fpReadOnly = readonly.ReadReason("build-flag-presets.json", "Saved flag sets", err); b.fpReadOnly != "" {
+			slog.Error("failed to read flag presets; they are read-only", "error", err)
+		}
 		return
 	}
-	json.Unmarshal(data, &b.flagPresets)
+	if err := json.Unmarshal(data, &b.flagPresets); err != nil {
+		b.flagPresets = nil
+		b.fpReadOnly = readonly.ParseReason("build-flag-presets.json", "Saved flag sets", err)
+		slog.Error("failed to parse flag presets; they are read-only", "error", err)
+		return
+	}
 	changed := false
 	for i := range b.flagPresets {
 		if migrateFlagPreset(&b.flagPresets[i]) {
@@ -85,7 +95,19 @@ func (b *Builder) loadFlagPresetsLocked() {
 	}
 }
 
+// ErrFlagPresetsReadOnly is matched by errors.Is on every refusal while
+// build-flag-presets.json could not be loaded. The error text is the
+// plain-language reason.
+var ErrFlagPresetsReadOnly = errors.New("saved flag sets are read-only")
+
+func (b *Builder) flagPresetsWritableLocked() error {
+	return readonly.Check(b.fpReadOnly, ErrFlagPresetsReadOnly)
+}
+
 func (b *Builder) saveFlagPresetsLocked() error {
+	if err := b.flagPresetsWritableLocked(); err != nil {
+		return err
+	}
 	data, err := json.MarshalIndent(b.flagPresets, "", "  ")
 	if err != nil {
 		return fmt.Errorf("saving flag presets: %w", err)
@@ -141,6 +163,9 @@ func (b *Builder) SaveFlagPreset(p FlagPreset) error {
 	b.fpMu.Lock()
 	defer b.fpMu.Unlock()
 	b.loadFlagPresetsLocked()
+	if err := b.flagPresetsWritableLocked(); err != nil {
+		return err
+	}
 	for i := range b.flagPresets {
 		if b.flagPresets[i].Name == p.Name {
 			b.flagPresets[i] = p
@@ -152,18 +177,25 @@ func (b *Builder) SaveFlagPreset(p FlagPreset) error {
 }
 
 // DeleteFlagPreset removes a saved flag set, reporting whether it existed.
-func (b *Builder) DeleteFlagPreset(name string) bool {
+// The error is set when the change could not be saved; the set is then
+// kept.
+func (b *Builder) DeleteFlagPreset(name string) (bool, error) {
 	b.fpMu.Lock()
 	defer b.fpMu.Unlock()
 	b.loadFlagPresetsLocked()
+	if err := b.flagPresetsWritableLocked(); err != nil {
+		return false, err
+	}
 	for i, p := range b.flagPresets {
 		if p.Name == name {
+			kept := slices.Clone(b.flagPresets)
 			b.flagPresets = append(b.flagPresets[:i], b.flagPresets[i+1:]...)
 			if err := b.saveFlagPresetsLocked(); err != nil {
-				slog.Error("failed to save flag presets", "error", err)
+				b.flagPresets = kept
+				return true, err
 			}
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }

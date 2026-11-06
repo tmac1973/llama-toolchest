@@ -44,13 +44,17 @@ func runAceJob(ctx context.Context, base, path string, body any, onJobID func(st
 	if onJobID != nil {
 		onJobID(job.ID)
 	}
+	// cancelJob stops the job on ace-server. Not tied to ctx, which may
+	// have ended.
+	cancelJob := func() {
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		postJSON(cctx, base+"/job?id="+job.ID+"&cancel=1", nil)
+		cancel()
+	}
 	for {
 		select {
 		case <-ctx.Done():
-			// Not tied to ctx, which has ended.
-			cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-			postJSON(cctx, base+"/job?id="+job.ID+"&cancel=1", nil)
-			cancel()
+			cancelJob()
 			return nil, "", ctx.Err()
 		case <-time.After(aceJobPoll):
 		}
@@ -64,7 +68,11 @@ func runAceJob(ctx context.Context, base, path string, body any, onJobID func(st
 		var status struct {
 			Status string `json:"status"`
 		}
-		json.Unmarshal(st, &status)
+		if err := json.Unmarshal(st, &status); err != nil {
+			// Polling on would never see "done" and run until ctx ends.
+			cancelJob()
+			return nil, "", fmt.Errorf("ace-server %s job: unreadable status: %w", strings.TrimPrefix(path, "/"), err)
+		}
 		switch status.Status {
 		case "done":
 			return getBody(ctx, base+"/job?id="+job.ID+"&result=1")

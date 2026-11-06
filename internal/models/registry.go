@@ -794,15 +794,32 @@ func (r *Registry) Delete(id string) error {
 		return fmt.Errorf("model not found: %s", id)
 	}
 
-	// Delete the GGUF file(s) — for sharded models, delete all parts
-	shards := findShards(filepath.Dir(m.FilePath), filepath.Base(m.FilePath))
+	// Delete the GGUF file(s) — for sharded models, delete all parts. A
+	// file that could not be removed keeps the entry, so the model stays
+	// on the page and the delete can be tried again; without the entry the
+	// file would sit on disk with no record of it.
+	// An entry with no file path has no files: filepath.Dir("") is ".",
+	// and this must not remove the working directory.
+	var shards []string
+	if m.FilePath != "" {
+		shards = findShards(filepath.Dir(m.FilePath), filepath.Base(m.FilePath))
+	}
+	var errs []error
 	for _, shard := range shards {
-		os.Remove(shard)
-		os.Remove(shard + ".part") // clean up any partial downloads too
+		for _, f := range []string{shard, shard + ".part"} { // .part: a partial download
+			if err := os.Remove(f); err != nil && !errors.Is(err, os.ErrNotExist) {
+				errs = append(errs, err)
+			}
+		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		return fmt.Errorf("failed to delete the files of %s: %w", id, err)
 	}
 
 	// Remove empty directories left behind
-	removeEmptyDirs(filepath.Dir(m.FilePath), r.modelsDir)
+	if m.FilePath != "" {
+		removeEmptyDirs(filepath.Dir(m.FilePath), r.modelsDir)
+	}
 
 	delete(r.data.Models, id)
 	delete(r.data.Configs, id)

@@ -26,6 +26,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/atomicfile"
 	"github.com/tmac1973/llama-toolchest/internal/broadcast"
 	"github.com/tmac1973/llama-toolchest/internal/patchsets"
+	"github.com/tmac1973/llama-toolchest/internal/readonly"
 )
 
 // llamaCppRepo is the upstream clone source. A var, not a const, so
@@ -138,6 +139,11 @@ type Builder struct {
 	fpMu        sync.Mutex
 	fpLoaded    bool
 	flagPresets []FlagPreset
+	fpReadOnly  string // why build-flag-presets.json is not saved, or ""
+
+	// buildsReadOnly says why builds.json is not saved, or "". Set once by
+	// loadBuilds; read-only after that.
+	buildsReadOnly string
 }
 
 // NewBuilder creates a Builder and loads persisted build state.
@@ -1373,12 +1379,37 @@ func (b *Builder) buildsPath() string {
 	return filepath.Join(b.dataDir, "config", "builds.json")
 }
 
+// ReadOnlyReasons returns why builds.json or build-flag-presets.json is
+// not saved, one reason per file. It is empty when both are writable.
+func (b *Builder) ReadOnlyReasons() []string {
+	var out []string
+	if b.buildsReadOnly != "" {
+		out = append(out, b.buildsReadOnly)
+	}
+	b.fpMu.Lock()
+	b.loadFlagPresetsLocked()
+	if b.fpReadOnly != "" {
+		out = append(out, b.fpReadOnly)
+	}
+	b.fpMu.Unlock()
+	return out
+}
+
 func (b *Builder) loadBuilds() {
 	data, err := os.ReadFile(b.buildsPath())
 	if err != nil {
+		if b.buildsReadOnly = readonly.ReadReason("builds.json", "Build history", err); b.buildsReadOnly != "" {
+			slog.Error("failed to read builds; build history is read-only", "error", err)
+		}
 		return
 	}
-	json.Unmarshal(data, &b.builds)
+	if err := json.Unmarshal(data, &b.builds); err != nil {
+		// A part-filled list would be saved over the whole file later.
+		b.builds = nil
+		b.buildsReadOnly = readonly.ParseReason("builds.json", "Build history", err)
+		slog.Error("failed to parse builds; build history is read-only", "error", err)
+		return
+	}
 
 	// Clean up stale "building" entries — they can't recover after restart.
 	cleaned := b.builds[:0]
@@ -1396,6 +1427,10 @@ func (b *Builder) loadBuilds() {
 }
 
 func (b *Builder) saveBuilds() {
+	if b.buildsReadOnly != "" {
+		slog.Warn("build history not saved; builds.json is read-only")
+		return
+	}
 	data, err := json.MarshalIndent(b.builds, "", "  ")
 	if err != nil {
 		slog.Error("failed to marshal builds", "error", err)

@@ -78,7 +78,12 @@ func (s *Server) handleDeleteFlagPreset(w http.ResponseWriter, r *http.Request) 
 		s.renderFlagPresetRow(w, profile, "", "Select a saved set to delete.")
 		return
 	}
-	if s.builder.DeleteFlagPreset(name) {
+	found, err := s.builder.DeleteFlagPreset(name)
+	if err != nil {
+		s.renderFlagPresetRow(w, profile, name, err.Error())
+		return
+	}
+	if found {
 		s.renderFlagPresetRow(w, profile, "", fmt.Sprintf("Deleted %q.", name))
 		return
 	}
