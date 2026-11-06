@@ -13,7 +13,11 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/modelsource"
 )
 
-const baseURL = "https://huggingface.co/api"
+// SiteURL is the Hugging Face web site: repository pages and file
+// downloads.
+const SiteURL = "https://huggingface.co"
+
+const baseURL = SiteURL + "/api"
 
 // Client must stay interchangeable with the other model sources: the API
 // layer picks one by source id without any handler, template or struct
@@ -242,7 +246,7 @@ func (c *Client) populateFileSizes(ctx context.Context, modelID string, detail *
 // form the downloader uses, exposed so other callers (the header probe)
 // do not have to rebuild it.
 func (c *Client) DownloadURL(modelID, filename string) string {
-	return "https://huggingface.co/" + modelID + "/resolve/main/" + filename
+	return hfRevisionURL(modelID, "main", filename)
 }
 
 // ModelURL returns the human-facing page for a repository, for the link
@@ -251,7 +255,12 @@ func (c *Client) ModelURL(modelID string) string {
 	if modelID == "" || strings.HasPrefix(modelID, "/") || !strings.Contains(modelID, "/") {
 		return ""
 	}
-	return "https://huggingface.co/" + modelID
+	return RepoURL(modelID)
+}
+
+// RepoURL is the web page of a repository ("org/name").
+func RepoURL(repoID string) string {
+	return SiteURL + "/" + repoID
 }
 
 // nextLink returns the rel="next" URL of an HTTP Link header, or "".

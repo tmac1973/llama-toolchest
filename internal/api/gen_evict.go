@@ -633,7 +633,7 @@ func (s *Server) waitGPUFreed(gpu int, since time.Time, from, target, held int) 
 				for _, g := range m.GPU {
 					if g.Index == gpu {
 						select {
-						case readings <- g.VRAMUsedMB:
+						case readings <- g.VRAMUsedMiB:
 						case <-stop:
 							return
 						}

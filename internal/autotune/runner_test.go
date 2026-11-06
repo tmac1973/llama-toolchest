@@ -93,7 +93,7 @@ func (e *fakeEnv) CurrentMetrics() monitor.Metrics {
 	if e.tightWhen != nil && e.tightWhen(e.current) {
 		used = 15900
 	}
-	return monitor.Metrics{GPU: []monitor.GPUInfo{{Index: 0, VRAMUsedMB: used, VRAMTotalMB: 16376}}}
+	return monitor.Metrics{GPU: []monitor.GPUInfo{{Index: 0, VRAMUsedMiB: used, VRAMTotalMiB: 16376}}}
 }
 func (e *fakeEnv) RouterURL() string  { return e.url }
 func (e *fakeEnv) HFToken() string    { return "" }

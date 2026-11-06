@@ -63,7 +63,7 @@ func TestNVIDIACollectQueriesFieldsInParseOrder(t *testing.T) {
 // skipped rather than turned into a zero GPU.
 func TestNVIDIACollectParsesCSV(t *testing.T) {
 	a4000 := func(idx int, temp int, power float64) GPUInfo {
-		return GPUInfo{Index: idx, Name: "NVIDIA RTX A4000", VRAMUsedMB: 4, VRAMTotalMB: 16376,
+		return GPUInfo{Index: idx, Name: "NVIDIA RTX A4000", VRAMUsedMiB: 4, VRAMTotalMiB: 16376,
 			TempC: temp, PowerW: power, HasFan: true, FanPercent: 41}
 	}
 	cases := []struct {
@@ -81,24 +81,24 @@ func TestNVIDIACollectParsesCSV(t *testing.T) {
 		{
 			name: "passive card reports no fan",
 			out:  "0, NVIDIA A100-PCIE-40GB, 87, 30001, 40960, 52, 211.40, [N/A]\n",
-			want: []GPUInfo{{Index: 0, Name: "NVIDIA A100-PCIE-40GB", UtilPercent: 87, VRAMUsedMB: 30001,
-				VRAMTotalMB: 40960, TempC: 52, PowerW: 211.4}},
+			want: []GPUInfo{{Index: 0, Name: "NVIDIA A100-PCIE-40GB", UtilPercent: 87, VRAMUsedMiB: 30001,
+				VRAMTotalMiB: 40960, TempC: 52, PowerW: 211.4}},
 		},
 		{
 			name: "fan stopped at 0 percent is still a fan",
 			out:  "0, NVIDIA GeForce RTX 4090, 0, 300, 24564, 34, 21.00, 0\n",
-			want: []GPUInfo{{Index: 0, Name: "NVIDIA GeForce RTX 4090", VRAMUsedMB: 300, VRAMTotalMB: 24564,
+			want: []GPUInfo{{Index: 0, Name: "NVIDIA GeForce RTX 4090", VRAMUsedMiB: 300, VRAMTotalMiB: 24564,
 				TempC: 34, PowerW: 21, HasFan: true}},
 		},
 		{
 			name: "N/A in other fields reads as 0",
 			out:  "0, NVIDIA GH200 480GB, [N/A], [N/A], 97871, 40, N/A, [N/A]\n",
-			want: []GPUInfo{{Index: 0, Name: "NVIDIA GH200 480GB", VRAMTotalMB: 97871, TempC: 40}},
+			want: []GPUInfo{{Index: 0, Name: "NVIDIA GH200 480GB", VRAMTotalMiB: 97871, TempC: 40}},
 		},
 		{
 			name: "row without the fan field",
 			out:  "0, Tesla T4, 5, 100, 15360, 45, 27.5\n",
-			want: []GPUInfo{{Index: 0, Name: "Tesla T4", UtilPercent: 5, VRAMUsedMB: 100, VRAMTotalMB: 15360,
+			want: []GPUInfo{{Index: 0, Name: "Tesla T4", UtilPercent: 5, VRAMUsedMiB: 100, VRAMTotalMiB: 15360,
 				TempC: 45, PowerW: 27.5}},
 		},
 		{

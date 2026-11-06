@@ -25,8 +25,8 @@ func collectMemory() MemoryInfo {
 	if err != nil {
 		return info
 	}
-	info.TotalMB = int(v.Total / 1024 / 1024)
-	info.UsedMB = int(v.Used / 1024 / 1024)
+	info.TotalMiB = int(v.Total / 1024 / 1024)
+	info.UsedMiB = int(v.Used / 1024 / 1024)
 	return info
 }
 

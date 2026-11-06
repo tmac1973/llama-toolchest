@@ -384,7 +384,7 @@ func (s *Server) forkHostInfo(gpu int, backend string) forks.HostInfo {
 	info := forks.HostInfo{Backend: backend}
 	if s.monitor != nil {
 		m := s.monitor.Current()
-		info.RAMGiB = m.Memory.TotalMB / 1024
+		info.RAMGiB = m.Memory.TotalMiB / 1024
 		for _, g := range m.GPU {
 			if g.Index == gpu {
 				info.GPUArch = g.Arch
@@ -554,7 +554,7 @@ func (s *Server) gpuTotalMiB(gpu int) int {
 	}
 	for _, g := range s.monitor.Current().GPU {
 		if g.Index == gpu {
-			return g.VRAMTotalMB
+			return g.VRAMTotalMiB
 		}
 	}
 	return 0

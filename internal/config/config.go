@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/tmac1973/llama-toolchest/internal/redact"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 type Config struct {

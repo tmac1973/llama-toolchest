@@ -92,13 +92,13 @@ func (s *Server) readHardware() models.Hardware {
 		return models.Hardware{}
 	}
 	m := s.monitor.Current()
-	hw := models.Hardware{LogicalCores: m.CPU.Cores, RAMTotalMiB: m.Memory.TotalMB}
+	hw := models.Hardware{LogicalCores: m.CPU.Cores, RAMTotalMiB: m.Memory.TotalMiB}
 	if s.builder != nil {
 		hw.Build = buildTarget(s.resolveActiveBuild())
 	}
 	other := s.otherVRAMMiB()
 	for i, g := range m.GPU {
-		spec := models.GPUSpec{Index: g.Index, Name: g.Name, VRAMTotalMiB: g.VRAMTotalMB, IsIGPU: g.IsIGPU}
+		spec := models.GPUSpec{Index: g.Index, Name: g.Name, VRAMTotalMiB: g.VRAMTotalMiB, IsIGPU: g.IsIGPU}
 		if i < len(other) {
 			spec.OtherUsedMiB = other[i]
 		}

@@ -202,7 +202,7 @@ func CardsInUse(m monitor.Metrics, cfg ConfigSnapshot) []CardMemory {
 	}
 	var discrete []monitor.GPUInfo
 	for _, g := range m.GPU {
-		if !g.IsIGPU && g.VRAMTotalMB > 0 {
+		if !g.IsIGPU && g.VRAMTotalMiB > 0 {
 			discrete = append(discrete, g)
 		}
 	}
@@ -216,7 +216,7 @@ func CardsInUse(m monitor.Metrics, cfg ConfigSnapshot) []CardMemory {
 		if len(want) > 0 && !want[g.Index] {
 			continue
 		}
-		out = append(out, CardMemory{Index: g.Index, UsedMiB: g.VRAMUsedMB, TotalMiB: g.VRAMTotalMB})
+		out = append(out, CardMemory{Index: g.Index, UsedMiB: g.VRAMUsedMiB, TotalMiB: g.VRAMTotalMiB})
 	}
 	return out
 }
@@ -721,7 +721,7 @@ func GPUSnapshotsFromMetrics(m monitor.Metrics) []GPUSnapshot {
 		snaps[i] = GPUSnapshot{
 			Index:        g.Index,
 			Name:         g.Name,
-			VRAMTotalMiB: g.VRAMTotalMB,
+			VRAMTotalMiB: g.VRAMTotalMiB,
 			PCIe:         g.PCIe.Label(),
 		}
 	}

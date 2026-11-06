@@ -134,7 +134,7 @@ func (r *rocmBackend) collectROCmSMI() ([]GPUInfo, error) {
 		// Get VRAM info from sysfs (more reliable than rocm-smi CSV).
 		// gpu.Index is a KFD position now, so it indexes dirs directly.
 		if gpu.Index >= 0 && gpu.Index < len(dirs) {
-			gpu.VRAMUsedMB, gpu.VRAMTotalMB = readVRAMFromDir(dirs[gpu.Index])
+			gpu.VRAMUsedMiB, gpu.VRAMTotalMiB = readVRAMFromDir(dirs[gpu.Index])
 			// rocm-smi leaves the fan columns out when the fans have
 			// stopped, so the card's own fan files fill in.
 			if !gpu.HasFan {
@@ -263,7 +263,7 @@ func (r *rocmBackend) collectSysfs() ([]GPUInfo, error) {
 		}
 
 		// VRAM
-		gpu.VRAMUsedMB, gpu.VRAMTotalMB = readVRAMFromDir(deviceDir)
+		gpu.VRAMUsedMiB, gpu.VRAMTotalMiB = readVRAMFromDir(deviceDir)
 
 		// Temperature from hwmon
 		hwmonDirs, _ := filepath.Glob(filepath.Join(deviceDir, "hwmon", "hwmon*"))

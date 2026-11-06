@@ -95,7 +95,7 @@ func buildSidebarMap(gpus []monitor.GPUInfo, allocs []models.GPUAllocation, load
 	var out sidebarMap
 	for i, gpu := range gpus {
 		bar := sidebarMapGPU{Index: gpu.Index, Link: gpu.PCIe}
-		totalGB := float64(gpu.VRAMTotalMB) / 1024
+		totalGB := float64(gpu.VRAMTotalMiB) / 1024
 		for _, a := range allocs {
 			kind, ok := sidebarKind(a, loaded, running)
 			if !ok || !onGPU(a, i) || totalGB <= 0 {

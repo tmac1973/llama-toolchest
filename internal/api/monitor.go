@@ -76,8 +76,8 @@ func monitorBarData(m monitor.Metrics) monitorBar {
 	gpus := make([]monitorBarGPU, len(m.GPU))
 	for i, gpu := range m.GPU {
 		vramPct := 0
-		if gpu.VRAMTotalMB > 0 {
-			vramPct = gpu.VRAMUsedMB * 100 / gpu.VRAMTotalMB
+		if gpu.VRAMTotalMiB > 0 {
+			vramPct = gpu.VRAMUsedMiB * 100 / gpu.VRAMTotalMiB
 		}
 		details := fmt.Sprintf("%d°C", gpu.TempC)
 		if gpu.PowerW > 0 {
@@ -102,19 +102,19 @@ func monitorBarData(m monitor.Metrics) monitorBar {
 			Name:        gpu.Name,
 			UtilPercent: gpu.UtilPercent,
 			VRAMPercent: vramPct,
-			VRAMGB:      fmt.Sprintf("%.1f/%.1fGiB", float64(gpu.VRAMUsedMB)/1024, float64(gpu.VRAMTotalMB)/1024),
+			VRAMGB:      fmt.Sprintf("%.1f/%.1fGiB", float64(gpu.VRAMUsedMiB)/1024, float64(gpu.VRAMTotalMiB)/1024),
 			Details:     details,
 			Link:        gpu.PCIe,
 		}
 	}
 	ramPct := 0
-	if m.Memory.TotalMB > 0 {
-		ramPct = m.Memory.UsedMB * 100 / m.Memory.TotalMB
+	if m.Memory.TotalMiB > 0 {
+		ramPct = m.Memory.UsedMiB * 100 / m.Memory.TotalMiB
 	}
 	return monitorBar{
 		GPUs:       gpus,
 		CPUPercent: m.CPU.UsagePercent,
 		RAMPercent: ramPct,
-		RAMGB:      fmt.Sprintf("%.1f/%.1fGiB", float64(m.Memory.UsedMB)/1024, float64(m.Memory.TotalMB)/1024),
+		RAMGB:      fmt.Sprintf("%.1f/%.1fGiB", float64(m.Memory.UsedMiB)/1024, float64(m.Memory.TotalMiB)/1024),
 	}
 }

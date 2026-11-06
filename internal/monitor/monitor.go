@@ -15,15 +15,16 @@ type Metrics struct {
 	Memory    MemoryInfo `json:"memory"`
 }
 
-// GPUInfo holds per-GPU metrics.
+// GPUInfo holds per-GPU metrics. Memory is in MiB; the JSON names keep
+// their older "_mb" spelling so API clients go on working.
 type GPUInfo struct {
-	Index       int     `json:"index"`
-	Name        string  `json:"name"`
-	UtilPercent int     `json:"util_percent"` // 0-100
-	VRAMUsedMB  int     `json:"vram_used_mb"`
-	VRAMTotalMB int     `json:"vram_total_mb"`
-	TempC       int     `json:"temp_c"`
-	PowerW      float64 `json:"power_w,omitempty"`
+	Index        int     `json:"index"`
+	Name         string  `json:"name"`
+	UtilPercent  int     `json:"util_percent"` // 0-100
+	VRAMUsedMiB  int     `json:"vram_used_mb"`
+	VRAMTotalMiB int     `json:"vram_total_mb"`
+	TempC        int     `json:"temp_c"`
+	PowerW       float64 `json:"power_w,omitempty"`
 	// HasFan says the card reports a fan. FanPercent is its duty, 0-100,
 	// and FanRPM its speed, 0 when not reported (NVIDIA reports no RPM).
 	// Both are 0 on a card whose fans stop when it is cool; without
@@ -103,10 +104,11 @@ type CPUInfo struct {
 	Cores        int     `json:"cores"`
 }
 
-// MemoryInfo holds system memory metrics.
+// MemoryInfo holds system memory metrics, in MiB (JSON names as in
+// GPUInfo).
 type MemoryInfo struct {
-	UsedMB  int `json:"used_mb"`
-	TotalMB int `json:"total_mb"`
+	UsedMiB  int `json:"used_mb"`
+	TotalMiB int `json:"total_mb"`
 }
 
 // GPUBackend provides GPU-specific metric collection.

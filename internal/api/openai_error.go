@@ -13,6 +13,11 @@ import (
 // memory: a prompt, or an edit's source image and mask.
 const maxImageRequestBytes = 128 << 20
 
+// multipartMemory is how much of a multipart upload ParseMultipartForm
+// keeps in memory; the rest goes to temporary files. It is not a size
+// limit: each handler sets its own with http.MaxBytesReader.
+const multipartMemory = 32 << 20
+
 // openAIError writes an error in the OpenAI API's format.
 func openAIError(w http.ResponseWriter, status int, errType, code, message string) {
 	respondJSONStatus(w, status, map[string]any{

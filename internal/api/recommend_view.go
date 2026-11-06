@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tmac1973/llama-toolchest/internal/huggingface"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/recommend"
 )
@@ -137,7 +138,7 @@ func newRecommendCardView(g *recommend.Group, class models.ContextClass, ctxName
 		Name:      g.Name,
 		Publisher: repo.Author,
 		Repo:      repo.ID,
-		RepoURL:   "https://huggingface.co/" + repo.ID,
+		RepoURL:   huggingface.RepoURL(repo.ID),
 		Gated:     g.Gated,
 		Quant:     p.Quant,
 		Size:      fmt.Sprintf("%.1f GiB", models.BytesToGiB(p.SizeBytes)),
@@ -146,7 +147,7 @@ func newRecommendCardView(g *recommend.Group, class models.ContextClass, ctxName
 	}
 	c.NameURL = c.RepoURL
 	if g.BaseRepo != "" {
-		c.NameURL = "https://huggingface.co/" + g.BaseRepo
+		c.NameURL = huggingface.RepoURL(g.BaseRepo)
 	}
 	if g.Vision {
 		c.Vision = fmt.Sprintf("Can read images. The image reader needs about %.1f GiB more GPU memory when it is turned on.", models.BytesToGiB(g.MMProjBytes))

@@ -152,7 +152,7 @@ func readVideoInput(r *http.Request) (videoInput, *requestError) {
 		return errors.As(err, &mbe)
 	}
 	if isMultipartForm(r) {
-		if err := r.ParseMultipartForm(32 << 20); err != nil {
+		if err := r.ParseMultipartForm(multipartMemory); err != nil {
 			if tooLarge(err) {
 				return in, tooLargeError()
 			}

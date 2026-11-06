@@ -200,7 +200,7 @@ func (s *Server) realFreeShortGPUs(m *models.Model) []realFreeShort {
 		if v := byGPU[g.Index]; v != nil {
 			needed += max(0, v.Reserved-v.Using)
 		}
-		if free := g.VRAMTotalMB - g.VRAMUsedMB; free < needed {
+		if free := g.VRAMTotalMiB - g.VRAMUsedMiB; free < needed {
 			out = append(out, realFreeShort{gpu: g.Index, free: free, needed: needed})
 		}
 	}
