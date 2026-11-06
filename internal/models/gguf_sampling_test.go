@@ -1,11 +1,10 @@
 package models
 
 import (
-	"bytes"
-	"encoding/binary"
-	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/tmac1973/llama-toolchest/internal/testutil/gguftest"
 )
 
 // writeTestGGUF builds a minimal GGUF v3 file with the given metadata KVs.
@@ -17,30 +16,11 @@ type testKV struct {
 
 func writeTestGGUF(t *testing.T, kvs []testKV) string {
 	t.Helper()
-	var buf bytes.Buffer
-	buf.WriteString("GGUF")
-	binary.Write(&buf, binary.LittleEndian, uint32(3))        // version
-	binary.Write(&buf, binary.LittleEndian, uint64(0))        // tensor count
-	binary.Write(&buf, binary.LittleEndian, uint64(len(kvs))) // kv count
-	writeStr := func(s string) {
-		binary.Write(&buf, binary.LittleEndian, uint64(len(s)))
-		buf.WriteString(s)
-	}
+	var b gguftest.Builder
 	for _, kv := range kvs {
-		writeStr(kv.key)
-		binary.Write(&buf, binary.LittleEndian, kv.valueType)
-		switch v := kv.value.(type) {
-		case string:
-			writeStr(v)
-		default:
-			binary.Write(&buf, binary.LittleEndian, v)
-		}
+		b.Value(kv.key, kv.valueType, kv.value)
 	}
-	path := filepath.Join(t.TempDir(), "test.gguf")
-	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return path
+	return b.WriteFile(t, filepath.Join(t.TempDir(), "test.gguf"))
 }
 
 func TestParseGGUFSamplingKeys(t *testing.T) {

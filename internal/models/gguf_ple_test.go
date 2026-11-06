@@ -1,12 +1,12 @@
 package models
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/tmac1973/llama-toolchest/internal/testutil/gguftest"
 )
 
 // pleTensor describes one entry for writePLEGGUF.
@@ -21,55 +21,17 @@ type pleTensor struct {
 // data follow the (aligned) end of the tensor-info block.
 func writePLEGGUF(t *testing.T, alignment uint32, tensors []pleTensor, dataBytes int) string {
 	t.Helper()
-	var buf bytes.Buffer
-	writeStr := func(s string) {
-		binary.Write(&buf, binary.LittleEndian, uint64(len(s)))
-		buf.WriteString(s)
-	}
-
-	buf.WriteString("GGUF")
-	binary.Write(&buf, binary.LittleEndian, uint32(3))
-	binary.Write(&buf, binary.LittleEndian, uint64(len(tensors)))
-	kvCount := 1
+	var b gguftest.Builder
+	b.String("general.architecture", "testarch")
 	if alignment != 0 {
-		kvCount = 2
+		b.Alignment(alignment)
 	}
-	binary.Write(&buf, binary.LittleEndian, uint64(kvCount))
-
-	writeStr("general.architecture")
-	binary.Write(&buf, binary.LittleEndian, ggufTypeString)
-	writeStr("testarch")
-	if alignment != 0 {
-		writeStr("general.alignment")
-		binary.Write(&buf, binary.LittleEndian, ggufTypeUint32)
-		binary.Write(&buf, binary.LittleEndian, alignment)
-	}
-
-	// Tensor info: name, n_dims, dims..., ggml type, offset.
 	for _, tn := range tensors {
-		writeStr(tn.name)
-		binary.Write(&buf, binary.LittleEndian, uint32(2))
-		binary.Write(&buf, binary.LittleEndian, uint64(8))
-		binary.Write(&buf, binary.LittleEndian, uint64(16))
-		binary.Write(&buf, binary.LittleEndian, uint32(0)) // F32
-		binary.Write(&buf, binary.LittleEndian, tn.offset)
+		b.Tensor(tn.name, []uint64{8, 16}, gguftest.F32, tn.offset)
 	}
-
 	// Pad to the alignment, then the data region.
-	align := int(alignment)
-	if align == 0 {
-		align = 32
-	}
-	for buf.Len()%align != 0 {
-		buf.WriteByte(0)
-	}
-	buf.Write(make([]byte, dataBytes))
-
-	path := filepath.Join(t.TempDir(), "model.gguf")
-	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return path
+	b.Data(dataBytes)
+	return b.WriteFile(t, filepath.Join(t.TempDir(), "model.gguf"))
 }
 
 func TestPLETensorSizeFromOffsets(t *testing.T) {
@@ -175,15 +137,9 @@ func TestPLETensorScanToleratesTruncation(t *testing.T) {
 func writeSplitGGUF(t *testing.T, dir, base string, total int, pleShard int, pleSize int64) string {
 	t.Helper()
 	for i := 1; i <= total; i++ {
-		var buf bytes.Buffer
-		writeStr := func(s string) {
-			binary.Write(&buf, binary.LittleEndian, uint64(len(s)))
-			buf.WriteString(s)
-		}
 		var tensors []pleTensor
-		kv := 0
-		if i == 1 {
-			kv = 1 // metadata shard: architecture only, zero tensors
+		meta := i == 1 // metadata shard: architecture only, zero tensors
+		if meta {
 		} else if i == pleShard {
 			tensors = []pleTensor{
 				{"token_embd.weight", 0},
@@ -194,35 +150,20 @@ func writeSplitGGUF(t *testing.T, dir, base string, total int, pleShard int, ple
 			tensors = []pleTensor{{fmt.Sprintf("blk.%d.attn_q.weight", i), 0}}
 		}
 
-		buf.WriteString("GGUF")
-		binary.Write(&buf, binary.LittleEndian, uint32(3))
-		binary.Write(&buf, binary.LittleEndian, uint64(len(tensors)))
-		binary.Write(&buf, binary.LittleEndian, uint64(kv))
-		if kv > 0 {
-			writeStr("general.architecture")
-			binary.Write(&buf, binary.LittleEndian, ggufTypeString)
-			writeStr("qwen4exp")
+		var b gguftest.Builder
+		if meta {
+			b.String("general.architecture", "qwen4exp")
 		}
 		for _, tn := range tensors {
-			writeStr(tn.name)
-			binary.Write(&buf, binary.LittleEndian, uint32(1))
-			binary.Write(&buf, binary.LittleEndian, uint64(8))
-			binary.Write(&buf, binary.LittleEndian, uint32(0))
-			binary.Write(&buf, binary.LittleEndian, tn.offset)
-		}
-		for buf.Len()%32 != 0 {
-			buf.WriteByte(0)
+			b.Tensor(tn.name, []uint64{8}, gguftest.F32, tn.offset)
 		}
 		// Enough trailing data for the last tensor in the shard to have a
 		// length; the PLE table's size comes from the gap to the tensor
 		// after it, so this only has to be non-empty.
-		buf.Write(make([]byte, 8192))
+		b.Data(8192)
 
 		name := fmt.Sprintf("%s-%05d-of-%05d.gguf", base, i, total)
-		path := filepath.Join(dir, name)
-		if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
-			t.Fatal(err)
-		}
+		path := b.WriteFile(t, filepath.Join(dir, name))
 		// The table's size is the gap between its offset and the next
 		// tensor's, so the shard has to actually be that long or the
 		// arithmetic clamps to the file end. Extend it sparsely: the

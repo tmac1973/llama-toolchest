@@ -1,11 +1,10 @@
 package models
 
 import (
-	"bytes"
-	"encoding/binary"
-	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/tmac1973/llama-toolchest/internal/testutil/gguftest"
 )
 
 // writeMTPGGUF builds a minimal GGUF v3 carrying an architecture, an
@@ -15,49 +14,16 @@ import (
 // layout, not the data.
 func writeMTPGGUF(t *testing.T, arch string, nextn int, tensorNames []string) string {
 	t.Helper()
-	var buf bytes.Buffer
-	writeStr := func(s string) {
-		binary.Write(&buf, binary.LittleEndian, uint64(len(s)))
-		buf.WriteString(s)
-	}
-
-	buf.WriteString("GGUF")
-	binary.Write(&buf, binary.LittleEndian, uint32(3))
-	binary.Write(&buf, binary.LittleEndian, uint64(len(tensorNames)))
-	kvCount := 1
+	var b gguftest.Builder
+	b.String("general.architecture", arch)
 	if nextn > 0 {
-		kvCount = 2
+		b.Uint32(arch+".nextn_predict_layers", uint32(nextn))
 	}
-	binary.Write(&buf, binary.LittleEndian, uint64(kvCount))
-
-	writeStr("general.architecture")
-	binary.Write(&buf, binary.LittleEndian, ggufTypeString)
-	writeStr(arch)
-	if nextn > 0 {
-		writeStr(arch + ".nextn_predict_layers")
-		binary.Write(&buf, binary.LittleEndian, ggufTypeUint32)
-		binary.Write(&buf, binary.LittleEndian, uint32(nextn))
-	}
-
 	for i, name := range tensorNames {
-		writeStr(name)
-		binary.Write(&buf, binary.LittleEndian, uint32(2))
-		binary.Write(&buf, binary.LittleEndian, uint64(8))
-		binary.Write(&buf, binary.LittleEndian, uint64(16))
-		binary.Write(&buf, binary.LittleEndian, uint32(0))     // F32
-		binary.Write(&buf, binary.LittleEndian, uint64(i*512)) // offset
+		b.Tensor(name, []uint64{8, 16}, gguftest.F32, uint64(i*512))
 	}
-
-	for buf.Len()%32 != 0 {
-		buf.WriteByte(0)
-	}
-	buf.Write(make([]byte, 512*len(tensorNames)+512))
-
-	path := filepath.Join(t.TempDir(), "model.gguf")
-	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return path
+	b.Data(512*len(tensorNames) + 512)
+	return b.WriteFile(t, filepath.Join(t.TempDir(), "model.gguf"))
 }
 
 // TestIsMTPHead covers the shapes that actually ship. The two Qwen3.8

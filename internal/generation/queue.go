@@ -338,6 +338,14 @@ func (q *Queue) Load(gpu int) int {
 	return n
 }
 
+// Claimed reports whether a Hold or Keep is waiting for or has the GPU:
+// while it is, no new job starts there.
+func (q *Queue) Claimed(gpu int) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.gpu(gpu).claims > 0
+}
+
 // History returns a GPU's finished jobs, oldest first.
 func (q *Queue) History(gpu int) []TicketInfo {
 	q.mu.Lock()

@@ -99,7 +99,7 @@ func TestAutotuneEstimateFollowsTheChoices(t *testing.T) {
 		out := s.doTune(t, "POST", "/api/models/"+profTestID+"/autotune/estimate",
 			url.Values{"profile": {autoconfigProfileName}, "use_case": {uc}, "depth": {depth}})
 		var n int
-		if _, err := fmtSscan(out, &n); err != nil {
+		if _, err := estimateMinutes(out, &n); err != nil {
 			t.Fatalf("no estimate in %q", out)
 		}
 		return n
@@ -114,8 +114,8 @@ func TestAutotuneEstimateFollowsTheChoices(t *testing.T) {
 	}
 }
 
-// fmtSscan pulls "roughly N minutes" out of the rendered estimate.
-func fmtSscan(s string, n *int) (int, error) {
+// estimateMinutes pulls "about N minutes" out of the rendered estimate.
+func estimateMinutes(s string, n *int) (int, error) {
 	i := strings.Index(s, "about ")
 	if i < 0 {
 		return 0, errNoEstimate

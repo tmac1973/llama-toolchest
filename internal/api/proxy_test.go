@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/tmac1973/llama-toolchest/internal/routerclient"
 	"io"
 	"net"
 	"net/http"
@@ -17,6 +16,8 @@ import (
 	"testing"
 	"testing/iotest"
 	"time"
+
+	"github.com/tmac1973/llama-toolchest/internal/routerclient"
 
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/process"
@@ -662,7 +663,7 @@ func TestLoadAndCountRequestReloadsAfterAnUnload(t *testing.T) {
 		}
 		done <- err
 	}()
-	time.Sleep(50 * time.Millisecond)
+	testutil.Eventually(t, func() bool { return s.llmUse.waiting() > 0 }, "the request never waited for the unload")
 	f.mu.Lock()
 	f.status[m.ID] = "unloaded"
 	f.mu.Unlock()

@@ -2,67 +2,12 @@ package models
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"testing"
+
+	"github.com/tmac1973/llama-toolchest/internal/testutil/gguftest"
 )
-
-// ggufBuilder writes GGUF v3 metadata for tests that need arrays and an
-// exact key order.
-type ggufBuilder struct {
-	kvs   bytes.Buffer
-	count int
-}
-
-func (b *ggufBuilder) str(s string) {
-	binary.Write(&b.kvs, binary.LittleEndian, uint64(len(s)))
-	b.kvs.WriteString(s)
-}
-
-func (b *ggufBuilder) u32(key string, v uint32) {
-	b.str(key)
-	binary.Write(&b.kvs, binary.LittleEndian, ggufTypeUint32)
-	binary.Write(&b.kvs, binary.LittleEndian, v)
-	b.count++
-}
-
-func (b *ggufBuilder) s(key, v string) {
-	b.str(key)
-	binary.Write(&b.kvs, binary.LittleEndian, ggufTypeString)
-	b.str(v)
-	b.count++
-}
-
-func (b *ggufBuilder) i32s(key string, vs []int32) {
-	b.str(key)
-	binary.Write(&b.kvs, binary.LittleEndian, ggufTypeArray)
-	binary.Write(&b.kvs, binary.LittleEndian, ggufTypeInt32)
-	binary.Write(&b.kvs, binary.LittleEndian, uint64(len(vs)))
-	binary.Write(&b.kvs, binary.LittleEndian, vs)
-	b.count++
-}
-
-func (b *ggufBuilder) strs(key string, vs []string) {
-	b.str(key)
-	binary.Write(&b.kvs, binary.LittleEndian, ggufTypeArray)
-	binary.Write(&b.kvs, binary.LittleEndian, ggufTypeString)
-	binary.Write(&b.kvs, binary.LittleEndian, uint64(len(vs)))
-	for _, v := range vs {
-		b.str(v)
-	}
-	b.count++
-}
-
-func (b *ggufBuilder) bytes() []byte {
-	var out bytes.Buffer
-	out.WriteString("GGUF")
-	binary.Write(&out, binary.LittleEndian, uint32(3))
-	binary.Write(&out, binary.LittleEndian, uint64(0))
-	binary.Write(&out, binary.LittleEndian, uint64(b.count))
-	out.Write(b.kvs.Bytes())
-	return out.Bytes()
-}
 
 // farthestReader records the farthest byte read, which is what a ranged
 // HTTP read pays for. Seeks cost nothing.
@@ -93,19 +38,19 @@ func tokens(n int) []string {
 // passes a small number array, takes the vocabulary size from the token
 // list's header and reads none of the list itself.
 func TestMetaOnlyStopsAtTheTokenList(t *testing.T) {
-	var b ggufBuilder
-	b.s("general.architecture", "llama")
-	b.u32("llama.block_count", 32)
-	b.u32("llama.embedding_length", 4096)
-	b.u32("llama.attention.head_count", 32)
-	b.u32("llama.attention.head_count_kv", 8)
-	b.u32("llama.context_length", 131072)
-	b.s("tokenizer.ggml.model", "gpt2")
-	b.i32s("tokenizer.ggml.suppress_tokens", []int32{1, 2})
-	head := len(b.bytes())
-	b.strs("tokenizer.ggml.tokens", tokens(5000))
-	b.s("tokenizer.chat_template", "{{ tools }}")
-	data := b.bytes()
+	var b gguftest.Builder
+	b.String("general.architecture", "llama")
+	b.Uint32("llama.block_count", 32)
+	b.Uint32("llama.embedding_length", 4096)
+	b.Uint32("llama.attention.head_count", 32)
+	b.Uint32("llama.attention.head_count_kv", 8)
+	b.Uint32("llama.context_length", 131072)
+	b.String("tokenizer.ggml.model", "gpt2")
+	b.Int32Array("tokenizer.ggml.suppress_tokens", []int32{1, 2})
+	head := len(b.Bytes())
+	b.StringArray("tokenizer.ggml.tokens", tokens(5000))
+	b.String("tokenizer.chat_template", "{{ tools }}")
+	data := b.Bytes()
 
 	r := &farthestReader{r: bytes.NewReader(data)}
 	meta, err := ParseGGUFMetaOnly(r)
@@ -138,13 +83,13 @@ func TestMetaOnlyStopsAtTheTokenList(t *testing.T) {
 // A file that puts a model key after the tokenizer is read on, so the
 // key is not lost.
 func TestMetaOnlyReadsOnWhenKeysComeLate(t *testing.T) {
-	var b ggufBuilder
-	b.s("general.architecture", "llama")
-	b.strs("tokenizer.ggml.tokens", tokens(100))
-	b.u32("llama.block_count", 32)
-	b.u32("llama.context_length", 8192)
+	var b gguftest.Builder
+	b.String("general.architecture", "llama")
+	b.StringArray("tokenizer.ggml.tokens", tokens(100))
+	b.Uint32("llama.block_count", 32)
+	b.Uint32("llama.context_length", 8192)
 
-	meta, err := ParseGGUFMetaOnly(bytes.NewReader(b.bytes()))
+	meta, err := ParseGGUFMetaOnly(bytes.NewReader(b.Bytes()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,15 +99,15 @@ func TestMetaOnlyReadsOnWhenKeysComeLate(t *testing.T) {
 }
 
 func TestMetaOnlyReadsTheDerivationKeys(t *testing.T) {
-	var b ggufBuilder
-	b.s("general.architecture", "deepseek2")
-	b.u32("deepseek2.block_count", 61)
-	b.u32("deepseek2.vocab_size", 129280)
-	b.u32("deepseek2.leading_dense_block_count", 3)
-	b.u32("deepseek2.expert_feed_forward_length", 2048)
-	b.u32("deepseek2.embedding_length_per_layer_input", 256)
+	var b gguftest.Builder
+	b.String("general.architecture", "deepseek2")
+	b.Uint32("deepseek2.block_count", 61)
+	b.Uint32("deepseek2.vocab_size", 129280)
+	b.Uint32("deepseek2.leading_dense_block_count", 3)
+	b.Uint32("deepseek2.expert_feed_forward_length", 2048)
+	b.Uint32("deepseek2.embedding_length_per_layer_input", 256)
 
-	meta, err := ParseGGUFMetaOnly(bytes.NewReader(b.bytes()))
+	meta, err := ParseGGUFMetaOnly(bytes.NewReader(b.Bytes()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,17 +176,17 @@ func TestDerivedFor(t *testing.T) {
 // every model key, so the parse reads to the end of the metadata even
 // though the core keys are already known.
 func TestMetaOnlyReadsScatteredKeysToTheEnd(t *testing.T) {
-	var b ggufBuilder
-	b.s("general.architecture", "qwen35")
-	b.strs("tokenizer.ggml.tokens", tokens(100))
-	b.u32("qwen35.block_count", 64)
-	b.u32("qwen35.embedding_length", 5120)
-	b.u32("qwen35.attention.head_count", 24)
-	b.u32("qwen35.context_length", 262144)
-	b.strs("tokenizer.ggml.merges", tokens(100))
-	b.u32("qwen35.attention.head_count_kv", 4)
+	var b gguftest.Builder
+	b.String("general.architecture", "qwen35")
+	b.StringArray("tokenizer.ggml.tokens", tokens(100))
+	b.Uint32("qwen35.block_count", 64)
+	b.Uint32("qwen35.embedding_length", 5120)
+	b.Uint32("qwen35.attention.head_count", 24)
+	b.Uint32("qwen35.context_length", 262144)
+	b.StringArray("tokenizer.ggml.merges", tokens(100))
+	b.Uint32("qwen35.attention.head_count_kv", 4)
 
-	meta, err := ParseGGUFMetaOnly(bytes.NewReader(b.bytes()))
+	meta, err := ParseGGUFMetaOnly(bytes.NewReader(b.Bytes()))
 	if err != nil {
 		t.Fatal(err)
 	}

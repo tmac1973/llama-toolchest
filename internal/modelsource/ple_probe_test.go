@@ -1,15 +1,15 @@
 package modelsource
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/tmac1973/llama-toolchest/internal/testutil/gguftest"
 )
 
 // buildGGUF writes a minimal GGUF: one string KV of the requested padding
@@ -20,49 +20,24 @@ func buildGGUF(t *testing.T, kvPadding int, tensors []struct {
 	offset uint64
 }, dataBytes int) []byte {
 	t.Helper()
-	var b bytes.Buffer
-	ws := func(s string) {
-		binary.Write(&b, binary.LittleEndian, uint64(len(s)))
-		b.WriteString(s)
-	}
-	b.WriteString("GGUF")
-	binary.Write(&b, binary.LittleEndian, uint32(3))
-	binary.Write(&b, binary.LittleEndian, uint64(len(tensors)))
-	kv := 1
-	if kvPadding > 0 {
-		kv = 2
-	}
-	binary.Write(&b, binary.LittleEndian, uint64(kv))
-
-	ws("general.architecture")
-	binary.Write(&b, binary.LittleEndian, uint32(8)) // string
-	ws("testarch")
+	var b gguftest.Builder
+	b.String("general.architecture", "testarch")
 	if kvPadding > 0 {
 		// A real tokenizer is an array of many short strings, not one
 		// long one. The distinction decides the cost of reaching the
 		// tensor table: a single string is one seek, while an array's
 		// per-element length prefixes have to be read through.
-		ws("tokenizer.ggml.tokens")
-		binary.Write(&b, binary.LittleEndian, uint32(9)) // array
-		binary.Write(&b, binary.LittleEndian, uint32(8)) // of strings
 		const tokenLen = 8
-		count := kvPadding / (tokenLen + 8)
-		binary.Write(&b, binary.LittleEndian, uint64(count))
-		for i := 0; i < count; i++ {
-			ws(strings.Repeat("t", tokenLen))
+		tokens := make([]string, kvPadding/(tokenLen+8))
+		for i := range tokens {
+			tokens[i] = strings.Repeat("t", tokenLen)
 		}
+		b.StringArray("tokenizer.ggml.tokens", tokens)
 	}
 	for _, tn := range tensors {
-		ws(tn.name)
-		binary.Write(&b, binary.LittleEndian, uint32(1))
-		binary.Write(&b, binary.LittleEndian, uint64(8))
-		binary.Write(&b, binary.LittleEndian, uint32(0))
-		binary.Write(&b, binary.LittleEndian, tn.offset)
+		b.Tensor(tn.name, []uint64{8}, gguftest.F32, tn.offset)
 	}
-	for b.Len()%32 != 0 {
-		b.WriteByte(0)
-	}
-	b.Write(make([]byte, dataBytes))
+	b.Data(dataBytes)
 	return b.Bytes()
 }
 
@@ -79,14 +54,14 @@ func serveRanges(t *testing.T, bodies [][]byte) (*httptest.Server, *int64) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		idx := strings.TrimPrefix(r.URL.Path, "/")
 		var i int
-		if _, err := fmtSscan(idx, &i); err != nil || i >= len(bodies) {
+		if _, err := fmt.Sscanf(idx, "%d", &i); err != nil || i >= len(bodies) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		body := bodies[i]
 		rng := r.Header.Get("Range")
 		var start, end int
-		if n, _ := fmtSscanRange(rng, &start, &end); n == 2 {
+		if n, _ := fmt.Sscanf(rng, "bytes=%d-%d", &start, &end); n == 2 {
 			if end >= len(body) {
 				end = len(body) - 1
 			}
@@ -106,9 +81,6 @@ func serveRanges(t *testing.T, bodies [][]byte) (*httptest.Server, *int64) {
 	}))
 	return srv, &served
 }
-
-func fmtSscan(s string, i *int) (int, error)         { return fmt.Sscanf(s, "%d", i) }
-func fmtSscanRange(s string, a, b *int) (int, error) { return fmt.Sscanf(s, "bytes=%d-%d", a, b) }
 
 // A split model's metadata shard carries no tensors. Probing it would
 // mean walking a tokenizer megabytes long to find nothing, so it must be

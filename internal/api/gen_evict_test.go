@@ -3,11 +3,13 @@ package api
 import (
 	"context"
 	"errors"
-	"github.com/tmac1973/llama-toolchest/internal/config"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tmac1973/llama-toolchest/internal/config"
+	"github.com/tmac1973/llama-toolchest/internal/testutil"
 
 	"github.com/tmac1973/llama-toolchest/internal/generation"
 	"github.com/tmac1973/llama-toolchest/internal/models"
@@ -371,7 +373,7 @@ func TestMakeRoomForLLMHoldsAllItsGPUs(t *testing.T) {
 		release()
 		loaded <- err
 	}()
-	time.Sleep(100 * time.Millisecond) // the load is waiting in Hold by now
+	testutil.Eventually(t, func() bool { return s.genQueue.Claimed(1) }, "the load never waited in Hold")
 
 	// A job for GPU 1 arrives meanwhile: it must not start.
 	other, _ := s.genQueue.Submit(1, "ace", generation.KindAce)

@@ -1,13 +1,13 @@
 package models
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
 	"math"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/tmac1973/llama-toolchest/internal/testutil/gguftest"
 )
 
 // writeHybridGGUF builds a minimal GGUF carrying the hparams the KV
@@ -15,39 +15,20 @@ import (
 // (ssm.*), so the backfill has a real file to re-parse.
 func writeHybridGGUF(t *testing.T, dir, name string, layers, interval, kvHeads, headDim int) string {
 	t.Helper()
-	var b bytes.Buffer
-	wstr := func(s string) {
-		binary.Write(&b, binary.LittleEndian, uint64(len(s)))
-		b.WriteString(s)
-	}
-	kv := func(k string, v uint32) {
-		wstr(k)
-		binary.Write(&b, binary.LittleEndian, ggufTypeUint32)
-		binary.Write(&b, binary.LittleEndian, v)
-	}
-	b.WriteString("GGUF")
-	binary.Write(&b, binary.LittleEndian, uint32(3))
-	binary.Write(&b, binary.LittleEndian, uint64(0)) // no tensors
-	binary.Write(&b, binary.LittleEndian, uint64(12))
-	wstr("general.architecture")
-	binary.Write(&b, binary.LittleEndian, ggufTypeString)
-	wstr("hyb")
-	kv("hyb.block_count", uint32(layers))
-	kv("hyb.embedding_length", uint32(kvHeads*headDim))
-	kv("hyb.attention.head_count", uint32(kvHeads))
-	kv("hyb.attention.head_count_kv", uint32(kvHeads))
-	kv("hyb.attention.key_length", uint32(headDim))
-	kv("hyb.attention.value_length", uint32(headDim))
-	kv("hyb.full_attention_interval", uint32(interval))
-	kv("hyb.ssm.conv_kernel", 4)
-	kv("hyb.ssm.state_size", 16)
-	kv("hyb.ssm.group_count", 2)
-	kv("hyb.ssm.inner_size", 64)
-	p := filepath.Join(dir, name)
-	if err := os.WriteFile(p, b.Bytes(), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return p
+	var b gguftest.Builder
+	b.String("general.architecture", "hyb")
+	b.Uint32("hyb.block_count", uint32(layers))
+	b.Uint32("hyb.embedding_length", uint32(kvHeads*headDim))
+	b.Uint32("hyb.attention.head_count", uint32(kvHeads))
+	b.Uint32("hyb.attention.head_count_kv", uint32(kvHeads))
+	b.Uint32("hyb.attention.key_length", uint32(headDim))
+	b.Uint32("hyb.attention.value_length", uint32(headDim))
+	b.Uint32("hyb.full_attention_interval", uint32(interval))
+	b.Uint32("hyb.ssm.conv_kernel", 4)
+	b.Uint32("hyb.ssm.state_size", 16)
+	b.Uint32("hyb.ssm.group_count", 2)
+	b.Uint32("hyb.ssm.inner_size", 64)
+	return b.WriteFile(t, filepath.Join(dir, name))
 }
 
 // A hybrid model interleaves recurrent (linear-attention) layers, which
