@@ -4,7 +4,7 @@
 {{define "vram_margin_card"}}
 <article id="vram-margin">
     <header>GPU memory margin</header>
-    <p><small>VRAM reserved on each GPU for llama.cpp. The default is 1 GiB. <a href="/help#vram-margin">More in Help</a>.</small></p>
+    <p><small>VRAM reserved on each GPU for llama.cpp. The default is 1 GiB. Warning: setting this below 1 GiB can cause llama.cpp to run out of VRAM during long sessions. <a href="/help#vram-margin">More in Help</a>.</small></p>
     {{with .Warning}}<div class="callout" style="font-size:0.8rem;padding:0.4rem 0.6rem;margin-bottom:0.5rem;border-left-color:var(--pico-del-color);">{{.}}</div>{{end}}
     <form hx-put="/api/settings"
           hx-target="#vram-margin-status"
