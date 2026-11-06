@@ -9,19 +9,3 @@ The Help page in the app gives short answers. These pages give the full detail.
 - [Manual install](manual-install.md) and [Secure install](secure.md).
 
 The source code and the issue tracker are on [GitHub](https://github.com/tmac1973/llama-toolchest).
-
-!!! example "Diagram test"
-
-    This box checks that both kinds of diagram work in light and dark mode. It goes away when the GPU memory pages are written.
-
-    ```mermaid
-    flowchart LR
-        A[Request] --> B{Fits?}
-        B -- yes --> C[Load]
-        B -- no --> D[Unload an idle model]
-        D --> B
-    ```
-
-    <div class="tc-diagram" markdown>
-    --8<-- "assets/diagrams/_test-bar.svg"
-    </div>
