@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/atomicfile"
+	"github.com/tmac1973/llama-toolchest/internal/readonly"
 )
 
 // Status values of an autotune run.
@@ -191,11 +192,6 @@ type autotuneFile struct {
 // read-only store.
 var ErrStoreReadOnly = errors.New("autotune history is read-only")
 
-type readOnlyError struct{ reason string }
-
-func (e readOnlyError) Error() string        { return e.reason }
-func (e readOnlyError) Is(target error) bool { return target == ErrStoreReadOnly }
-
 // Store keeps autotune runs in <dataDir>/config/autotune.json.
 type Store struct {
 	mu       sync.RWMutex
@@ -219,26 +215,20 @@ func (s *Store) load() {
 	data, err := os.ReadFile(s.path())
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
-			s.readOnly = fmt.Sprintf("autotune.json could not be read (%v). "+
-				"Autotune results will not be saved until the file can be read, "+
-				"so that nothing overwrites it.", err)
+			s.readOnly = readonly.ReadReason("autotune.json", "Autotune results", err)
 			slog.Error("failed to read autotune history; store is read-only", "error", err)
 		}
 		return
 	}
 	var file autotuneFile
 	if err := json.Unmarshal(data, &file); err != nil {
-		s.readOnly = fmt.Sprintf("autotune.json could not be parsed (%v). "+
-			"Autotune results will not be saved until the file is fixed, "+
-			"so that nothing overwrites it.", err)
+		s.readOnly = readonly.ParseReason("autotune.json", "Autotune results", err)
 		slog.Error("failed to parse autotune history; store is read-only", "error", err)
 		return
 	}
 	s.runs = file.Runs
 	if file.SchemaVersion > autotuneSchemaVersion {
-		s.readOnly = fmt.Sprintf("autotune.json was written by a newer version of "+
-			"llama-toolchest (schema %d; this version reads up to %d). "+
-			"Autotune results will not be saved until llama-toolchest is upgraded.",
+		s.readOnly = readonly.NewerReason("autotune.json", "Autotune results",
 			file.SchemaVersion, autotuneSchemaVersion)
 		slog.Error("autotune history is from a newer build; store is read-only",
 			"schema_version", file.SchemaVersion, "supported", autotuneSchemaVersion)
@@ -266,10 +256,7 @@ func (s *Store) ReadOnlyReason() string {
 }
 
 func (s *Store) writableLocked() error {
-	if s.readOnly != "" {
-		return readOnlyError{s.readOnly}
-	}
-	return nil
+	return readonly.Check(s.readOnly, ErrStoreReadOnly)
 }
 
 // save writes the file. Callers hold s.mu.

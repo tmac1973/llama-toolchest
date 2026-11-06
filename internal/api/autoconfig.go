@@ -208,17 +208,6 @@ func autoconfigGPUOptions(hw models.Hardware) []autoconfigGPUOption {
 	return out
 }
 
-// evictableGiB is what a loading model may take back from the image and
-// music backends on the cards a plan spreads it over: nothing with
-// auto-evict off (models.GPUSpec.EvictableMiB is then unset).
-func evictableGiB(hw models.Hardware) float64 {
-	var n int
-	for _, g := range models.PlanCards(hw) {
-		n += min(g.EvictableMiB, g.ReservedMiB)
-	}
-	return float64(n) / 1024
-}
-
 // chosenGPUs reads the GPUs checked in the dialog (form: gpu). ok is
 // false when the dialog offered a choice and none was checked. chosen
 // is nil when there was no choice to make, or every card was checked.
@@ -291,7 +280,7 @@ func (s *Server) handleAutoconfigDialog(w http.ResponseWriter, r *http.Request) 
 	}
 	hw := s.autoconfigHardware()
 	d := autoconfigDialogData{ModelID: id, ModelName: m.PublicName(), Classes: contextClassOptions(m.ContextLength),
-		GPUs: autoconfigGPUOptions(hw), EvictableGiB: evictableGiB(hw)}
+		GPUs: autoconfigGPUOptions(hw), EvictableGiB: models.EvictableGiB(hw)}
 	links := gpuLinks(s.gpuReadings())
 	for i := range d.GPUs {
 		d.GPUs[i].Link = links[d.GPUs[i].Index]

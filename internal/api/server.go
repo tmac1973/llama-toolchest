@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -339,6 +340,12 @@ func (s *Server) llamaPort() int {
 		return 0
 	}
 	return s.cfg.LlamaPort
+}
+
+// routerBaseURL is the address of the llama-server router, without a
+// trailing slash.
+func (s *Server) routerBaseURL() string {
+	return "http://localhost:" + strconv.Itoa(s.llamaPort())
 }
 
 // externalURL returns the URL the dashboard links are built from.

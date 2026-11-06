@@ -144,7 +144,7 @@ func (c *Client) getJSON(ctx context.Context, u string, v any) error {
 		if err != nil {
 			return err
 		}
-		c.setAuth(req)
+		c.SetAuth(req)
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
 			return err

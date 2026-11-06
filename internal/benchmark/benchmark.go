@@ -17,6 +17,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/evaluate"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/monitor"
+	"github.com/tmac1973/llama-toolchest/internal/readonly"
 )
 
 const (
@@ -854,11 +855,6 @@ func (s *Store) Get(id string) (*BenchmarkRun, error) {
 // read-only store. The error text itself is the plain-language reason.
 var ErrStoreReadOnly = errors.New("benchmark history is read-only")
 
-type storeReadOnlyError struct{ reason string }
-
-func (e storeReadOnlyError) Error() string        { return e.reason }
-func (e storeReadOnlyError) Is(target error) bool { return target == ErrStoreReadOnly }
-
 // ErrSaveFailed is matched by errors.Is when writing benchmarks.json
 // failed. The change it belonged to has been undone in memory.
 var ErrSaveFailed = errors.New("benchmark history could not be saved")
@@ -881,10 +877,7 @@ func (s *Store) Writable() error {
 }
 
 func (s *Store) writableLocked() error {
-	if s.readOnly != "" {
-		return storeReadOnlyError{s.readOnly}
-	}
-	return nil
+	return readonly.Check(s.readOnly, ErrStoreReadOnly)
 }
 
 // Save adds or updates a benchmark run. Runs with no JobID are assigned
@@ -1504,9 +1497,7 @@ func (s *Store) load() {
 	data, err := os.ReadFile(s.benchmarkPath())
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
-			s.readOnly = fmt.Sprintf("benchmarks.json could not be read (%v). "+
-				"Benchmark history will not be saved until the file can be read, "+
-				"so that nothing overwrites it.", err)
+			s.readOnly = readonly.ReadReason("benchmarks.json", "Benchmark history", err)
 			slog.Error("failed to read benchmarks; store is read-only", "error", err)
 		}
 		return
@@ -1522,10 +1513,7 @@ func (s *Store) load() {
 		if file.Version > schemaVersion {
 			// Shown as-is, but never rewritten: the migrations below would
 			// write this build's layout over the newer one.
-			s.readOnly = fmt.Sprintf("benchmarks.json was written by a newer version of "+
-				"llama-toolchest (schema %d; this version reads up to %d). "+
-				"Benchmark history will not be saved until llama-toolchest is upgraded, "+
-				"so that nothing the newer version stored is lost.", file.Version, schemaVersion)
+			s.readOnly = readonly.NewerReason("benchmarks.json", "Benchmark history", file.Version, schemaVersion)
 			slog.Error("benchmarks are from a newer build; store is read-only",
 				"version", file.Version, "supported", schemaVersion)
 			return
@@ -1533,9 +1521,7 @@ func (s *Store) load() {
 	} else {
 		var runs []BenchmarkRun
 		if v1Err := json.Unmarshal(data, &runs); v1Err != nil {
-			s.readOnly = fmt.Sprintf("benchmarks.json could not be parsed (%v). "+
-				"Benchmark history will not be saved until the file is fixed, "+
-				"so that nothing overwrites it.", jsonErr)
+			s.readOnly = readonly.ParseReason("benchmarks.json", "Benchmark history", jsonErr)
 			slog.Error("failed to load benchmarks (neither v2 envelope nor v1 array); store is read-only",
 				"v2_error", jsonErr, "v1_error", v1Err)
 			return
@@ -1681,7 +1667,7 @@ func (s *Store) hasJobLocked(id string) bool {
 func (s *Store) persist() error {
 	if s.readOnly != "" {
 		slog.Warn("benchmark history is read-only; not saving", "reason", s.readOnly)
-		return storeReadOnlyError{s.readOnly}
+		return readonly.Check(s.readOnly, ErrStoreReadOnly)
 	}
 	file := benchmarkFile{
 		Version: schemaVersion,

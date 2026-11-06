@@ -234,8 +234,8 @@ func (s *Server) handleHFDownload(w http.ResponseWriter, r *http.Request) {
 	if req.Size > 0 {
 		avail := s.downloader.AvailableForDownload()
 		if avail >= 0 && req.Size > avail {
-			needGB := float64(req.Size) / (1024 * 1024 * 1024)
-			haveGB := float64(avail) / (1024 * 1024 * 1024)
+			needGB := models.BytesToGiB(req.Size)
+			haveGB := models.BytesToGiB(avail)
 			msg := fmt.Sprintf("insufficient disk space: need %.1f GiB, only %.1f GiB available after reserving the 2 GiB safety margin and any in-flight downloads", needGB, haveGB)
 			if inline && isHTMX(r) {
 				inlineRespond(msg, true)

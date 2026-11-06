@@ -23,7 +23,8 @@ type forkProxies struct {
 	byPort map[int]*httputil.ReverseProxy
 }
 
-func (p *forkProxies) get(port int) *httputil.ReverseProxy {
+func (p *forkProxies) get(inst forks.Instance) *httputil.ReverseProxy {
+	port := inst.Port
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if rp, ok := p.byPort[port]; ok {
@@ -32,7 +33,8 @@ func (p *forkProxies) get(port int) *httputil.ReverseProxy {
 	if p.byPort == nil {
 		p.byPort = map[int]*httputil.ReverseProxy{}
 	}
-	rp := httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: fmt.Sprintf("127.0.0.1:%d", port)})
+	target, _ := url.Parse(inst.BaseURL()) // always a valid URL
+	rp := httputil.NewSingleHostReverseProxy(target)
 	// As the router proxy does, so streamed tokens reach the client as
 	// they come.
 	rp.FlushInterval = 50 * time.Millisecond
@@ -89,7 +91,7 @@ func (s *Server) serveFork(w http.ResponseWriter, r *http.Request, inst forks.In
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	r.ContentLength = int64(len(body))
-	s.forkProxy.get(inst.Port).ServeHTTP(w, r)
+	s.forkProxy.get(inst).ServeHTTP(w, r)
 }
 
 // addSamplingDefaults adds each default the request does not set itself.
@@ -168,7 +170,7 @@ func (s *Server) forkV1Model(inst forks.Instance) map[string]any {
 func (s *Server) forkLoadedModel(inst forks.Instance) (status string, caps map[string]any, ok bool) {
 	switch s.forkMgr.Status(inst.ID).State {
 	case process.StateRunning:
-		return "loaded", forkPropsCapabilities(inst.Port), true
+		return "loaded", forkPropsCapabilities(inst.BaseURL()), true
 	case process.StateStarting:
 		return "loading", nil, true
 	}
@@ -179,9 +181,9 @@ func (s *Server) forkLoadedModel(inst forks.Instance) (status string, caps map[s
 // a fork's llama-server /props, in the shape of buildCapabilities. It is
 // nil when /props does not answer in time or cannot be read; the client
 // then uses its own defaults.
-func forkPropsCapabilities(port int) map[string]any {
+func forkPropsCapabilities(base string) map[string]any {
 	client := http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/props", port))
+	resp, err := client.Get(base + "/props")
 	if err != nil {
 		return nil
 	}

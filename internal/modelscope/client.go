@@ -25,7 +25,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/models"
@@ -57,29 +56,15 @@ type Client struct {
 
 	// token is guarded because Settings can replace it while a search or
 	// a listing is in flight on another goroutine.
-	mu    sync.RWMutex
-	token string
-}
-
-// SetToken replaces the access token, so one saved in Settings applies to
-// the next request rather than the next restart.
-func (c *Client) SetToken(token string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.token = token
-}
-
-func (c *Client) authToken() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.token
+	modelsource.BearerToken
 }
 
 func NewClient(token string) *Client {
-	return &Client{
+	c := &Client{
 		httpClient: &http.Client{Timeout: 30 * time.Second},
-		token:      token,
 	}
+	c.SetToken(token)
+	return c
 }
 
 // searchRequest is the body modelscope.cn's web UI sends.
@@ -143,7 +128,7 @@ func (c *Client) Search(ctx context.Context, query string) ([]modelsource.Search
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	c.setAuth(req)
+	c.SetAuth(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -264,7 +249,7 @@ func (c *Client) listFiles(ctx context.Context, modelID string) ([]repoFileEntry
 	if err != nil {
 		return nil, err
 	}
-	c.setAuth(req)
+	c.SetAuth(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -355,10 +340,4 @@ func splitID(modelID string) (owner, name string, ok bool) {
 		return "", "", false
 	}
 	return owner, name, true
-}
-
-func (c *Client) setAuth(req *http.Request) {
-	if tok := c.authToken(); tok != "" {
-		req.Header.Set("Authorization", "Bearer "+tok)
-	}
 }

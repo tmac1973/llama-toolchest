@@ -997,24 +997,10 @@ var (
 	crashMarkers = []string{"[e] ", "cuda error", "hip error", "rocm error", "ggml_assert", "terminate called", "segmentation fault", "aborted"}
 )
 
-// cleanLogLine shortens a log line for an error message: without sd.cpp's
-// "[E] " level and its " --- file.cpp:123" source suffix. A progress bar
-// redraws itself with carriage returns and an erase-line code, and an error
-// printed while it shows lands on the same line, after the last of them.
+// cleanLogLine is generation.CleanLogLine without sd.cpp's "[E] " level,
+// for an error message or for matching the line's text.
 func cleanLogLine(line string) string {
-	line = strings.TrimRight(line, "\r\n")
-	if i := strings.LastIndex(line, "\r"); i >= 0 {
-		line = line[i+1:]
-	}
-	if i := strings.LastIndex(line, "\x1b[K"); i >= 0 {
-		line = line[i+len("\x1b[K"):]
-	}
-	line = strings.TrimSpace(line)
-	line = strings.TrimPrefix(line, "[E] ")
-	if i := strings.LastIndex(line, " --- "); i > 0 {
-		line = line[:i]
-	}
-	return line
+	return strings.TrimPrefix(generation.CleanLogLine(line), "[E] ")
 }
 
 // reserveSlackMiB is how much of the room a capped reservation leaves
