@@ -333,7 +333,8 @@ func cudaBenchCorpus() []corpusPoint {
 // noted, no projector, and either llama-server's default four slots in
 // one pool or four separate slots ("4 slots", -np 4). Qwen3.6-35B-A3B and
 // gpt-oss-20b at 131K (one point at 262K), Qwen3-30B-A3B at 64K, and
-// Qwen3.8-Flash-Next at 32K and 131K. measured is the two cards' used
+// Qwen3.8-Flash-Next at 32K and 131K; a few later points on one card or
+// all three (CUDA0-2), marked 1c and 3c. measured is the two cards' used
 // memory once loaded, from empty cards; reported is llama.cpp's report,
 // each context's first reservation. The log's "sched copies" is noted
 // where it matters: these points tell when llama.cpp keeps its pipeline
@@ -358,6 +359,9 @@ func cudaLaunchCorpus() []corpusPoint {
 		return cfg
 	}
 	used := func(a, b int) float64 { return float64(a+b) / 1024 }
+	used3 := func(a, b, c int) float64 { return float64(a+b+c) / 1024 }
+	one := func(cfg ModelConfig) ModelConfig { cfg.SplitMode = ""; return cfg }
+	glb := cudaBenchCorpus()[0].model
 	rep := func(w, kv, rs, comp, moe float64) *reportedTerms {
 		return &reportedTerms{weights: w, kv: kv, recurrent: rs, compute: comp, moeCache: moe}
 	}
@@ -435,6 +439,26 @@ func cudaLaunchCorpus() []corpusPoint {
 			reported: rep(12.38, 3.75, 0.44, 1.32, 0), backend: "cuda"},
 		{name: "launch fn pool moe34 ctx32k ub2048", model: fn, cfg: c(0, 32768, 2048, 34, false), cards: 2, measured: used(3501, 12821),
 			reported: rep(12.38, 0.94, 0.44, 1.78, 0), backend: "cuda"},
+
+		// Flash-Next with every expert on the GPUs, over all three cards:
+		// four copies. Four separate slots shrink the attention masks
+		// (1.13 GiB less) but not the indexer's.
+		{name: "launch fn 3c pool ctx32k ub512", model: fn, cfg: c(0, 32768, 512, 0, false), cards: 3, measured: used3(13499, 13045, 12387),
+			reported: rep(34.67, 0.94, 0.44, 1.39, 0), backend: "cuda"},
+		{name: "launch fn 3c pool ctx32k ub2048", model: fn, cfg: c(0, 32768, 2048, 0, false), cards: 3, measured: used3(14703, 14473, 13815),
+			reported: rep(34.67, 0.94, 0.44, 5.35, 0), backend: "cuda"},
+		{name: "launch fn 3c 4 slots ctx32k ub2048", model: fn, cfg: c(4, 32768, 2048, 0, false), cards: 3, measured: used3(14315, 14083, 13425),
+			reported: rep(34.67, 0.94, 0.44, 4.21, 0), backend: "cuda"},
+
+		// One card (CUDA0): no pipeline, and the slots' masks shrink as on
+		// a split. With gpt-oss each slot also keeps its own window and
+		// micro-batch of sliding-window cache.
+		{name: "launch glb 1c pool ub4096", model: glb, cfg: one(c(0, k131, 4096, 0, false)), cards: 1, measured: used3(10385, 0, 0),
+			reported: rep(4.16, 4.00, 0.20, 1.58, 0), backend: "cuda"},
+		{name: "launch glb 1c 4 slots ub4096", model: glb, cfg: one(c(4, k131, 4096, 0, false)), cards: 1, measured: used3(9611, 0, 0),
+			reported: rep(4.16, 4.00, 0.20, 0.83, 0), backend: "cuda"},
+		{name: "launch oss 1c 4 slots ctx64k ub4096", model: oss, cfg: one(c(4, 65536, 4096, 0, false)), cards: 1, measured: used3(13971, 0, 0),
+			reported: rep(10.69, 1.90, 0, 0.86, 0), backend: "cuda"},
 	}
 }
 
@@ -701,5 +725,34 @@ func TestNoPipelineCopiesWithoutFullOffload(t *testing.T) {
 	full := point(t, "launch q35 4 slots ub4096")
 	if pipelineOff(&full.model, &full.cfg) {
 		t.Error("a full offload with no experts in system memory taken to run without the pipeline")
+	}
+}
+
+// Extra Flags count like the config's own fields: a hand-written tensor
+// override or CPU experts there turn the pipeline off as well.
+func TestExtraFlagsTurnThePipelineOff(t *testing.T) {
+	p := point(t, "launch q35 pool ub2048")
+	for flags, want := range map[string]bool{
+		"":                                 false,
+		"--jinja --reasoning-budget 0":     false,
+		`-ot "blk\..*\.ffn_.*_exps\.=CPU"`: true,
+		"--override-tensor=exps=CPU":       true,
+		"--cpu-moe":                        true,
+		"--n-cpu-moe 8":                    true,
+		"--n-cpu-moe 0":                    false,
+		"--moe-cache-mib 2048":             true,
+		"-ngl 30":                          true,
+		"-ngl 999":                         false,
+	} {
+		cfg := p.cfg
+		cfg.ExtraFlags = flags
+		if got := pipelineOff(&p.model, &cfg); got != want {
+			t.Errorf("extra flags %q: pipeline off %v, want %v", flags, got, want)
+		}
+	}
+	cfg := p.cfg
+	cfg.ExtraFlags = "-ot exps=CPU"
+	if with, without := vramBreakdownOn(p.coeffs(), &p.model, &cfg, p.cards, 0).Total(), p.estimate().Total(); with >= without {
+		t.Errorf("with -ot the estimate is %.2f GiB, without %.2f; one copy should be less", with, without)
 	}
 }
