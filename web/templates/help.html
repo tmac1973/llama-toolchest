@@ -1,9 +1,8 @@
 {{define "content"}}
 <style>
-    /* Prose reads best in a narrower column; wide tables (.help-wide) use
-       the whole page area. */
     .help-page { font-size: 0.9rem; line-height: 1.55; }
-    .help-page > :not(.help-wide) { max-width: 110ch; }
+    /* Prose reads best in a narrower column. */
+    .help-page > * { max-width: 110ch; }
     .help-page h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
     .help-page h2 {
         font-size: 1.1rem;
@@ -12,7 +11,6 @@
         border-top: 1px solid var(--pico-muted-border-color);
     }
     .help-page h3 { font-size: 0.95rem; margin-top: 1rem; margin-bottom: 0.35rem; }
-    .help-page h4 { font-size: 0.9rem; margin-top: 0.75rem; margin-bottom: 0.3rem; }
     .help-page p { margin: 0 0 0.5rem 0; }
     .help-page ul, .help-page ol { margin: 0 0 0.6rem 1.2rem; padding: 0; }
     .help-page li { margin-bottom: 0.2rem; }
@@ -26,24 +24,10 @@
         margin: 0 0 0.35rem 1rem;
         color: var(--pico-muted-color);
     }
-    .help-page code,
-    .help-page kbd {
+    .help-page code {
         font-size: 0.82rem;
         padding: 0.05rem 0.3rem;
     }
-    .help-page pre {
-        font-size: 0.78rem;
-        padding: 0.6rem 0.8rem;
-        margin: 0.4rem 0 0.75rem 0;
-        background: var(--pico-card-background-color);
-    }
-    .help-page table { font-size: 0.85rem; }
-    .help-page .help-wide { overflow-x: auto; margin-bottom: 0.75rem; }
-    .help-page .help-wide table { margin-bottom: 0; }
-    .help-page .help-wide td, .help-page .help-wide th { vertical-align: top; }
-    .help-page .help-wide .num { white-space: nowrap; }
-    .help-page .help-wide .name { min-width: 11rem; }
-    .help-page .help-wide .notes { min-width: 16rem; }
     .help-toc {
         display: flex;
         flex-wrap: wrap;
@@ -55,13 +39,7 @@
         border-radius: 0.3rem;
     }
     .help-toc a { text-decoration: none; }
-    .help-page .callout {
-        border-left: 3px solid var(--pico-primary);
-        padding: 0.35rem 0.75rem;
-        margin: 0.5rem 0 0.75rem 0;
-        background: rgba(0, 128, 255, 0.06);
-        font-size: 0.85rem;
-    }
+    .help-page .help-more { font-size: 0.9em; margin-top: 0.25rem; }
     .help-page .inline-icon {
         display: inline-block;
         vertical-align: -0.15em;
@@ -71,7 +49,7 @@
 
 <div class="help-page">
     <h1>Llama Toolchest — Help</h1>
-    <p style="color: var(--pico-muted-color);">Run local LLMs with llama.cpp, plus image, video and music generation, from one web UI.</p>
+    <p style="color: var(--pico-muted-color);">Run local LLMs with llama.cpp, plus image, video and music generation, from one web UI. This page gives short answers. The <a href="{{docsURL ""}}" target="_blank" rel="noopener">documentation</a> has the full detail, with diagrams.</p>
 
     <nav class="help-toc">
         <a href="#quickstart">Quickstart</a>
@@ -115,396 +93,85 @@
     </dl>
 
     <h2 id="eviction">Eviction</h2>
-    <p>Eviction is how toolchest makes room on a GPU for a new model. Set it in <a href="/settings#eviction">Settings → Eviction</a>. The Server tab shows the mode in effect. A change applies at the next server start; the card has a <em>Restart server</em> button for this.</p>
-    <div class="help-wide"><table>
-        <tr><th>Mode</th><th>Who decides</th><th>Generation models</th><th>What happens</th></tr>
-        <tr><td><strong>Off</strong></td><td>The llama-server router, by count</td><td>Yes</td><td>The router keeps up to <em>Max loaded models</em>, regardless of size. At the limit, the model used least recently unloads. On a GPU with a generation reservation, toolchest refuses an LLM that does not fit beside it (HTTP 507). Other GPUs are not checked: a model that does not fit fails to load.</td></tr>
-        <tr><td><strong>llama.cpp</strong></td><td>The llama-server router, by VRAM</td><td>No</td><td>Idle models unload, least recently used first, until the new model fits. The router keeps the largest <a href="#vram-margin">GPU memory margin</a> free on each GPU. Needs llama.cpp b11930 or newer; an older build unloads by count.</td></tr>
-        <tr><td><strong>llama-toolchest</strong></td><td>Toolchest, by VRAM</td><td>Yes</td><td>Idle LLMs unload, least recently used first, on the GPUs that are short, until the new model fits by its estimate. Generation reservations stay free. With <a href="#eviction-turns"><em>take turns</em></a> on, toolchest also stops idle backends for an LLM, and unloads LLMs for a job. When nothing more can unload, llama-server tries the load. Works with any build.</td></tr>
-    </table></div>
-    <ul>
-        <li><strong>Why llama.cpp mode cannot run generation models:</strong> the router knows only its own models. It cannot see the VRAM of generation backends or llama.cpp forks. While they are on, the card shows llama.cpp as not available, and toolchest decides. A saved llama.cpp choice is kept, and llama.cpp decides again when they are off.</li>
-        <li><strong>In every mode:</strong> a model that answers a request never unloads. <em>Max loaded models</em> is always an upper limit (0: no limit). Benchmarks, Autotune and Autoconfigure load one model at a time.</li>
-        <li><strong>Autoconfigure</strong> plans an LLM beside the generation reservations, on the cards as they are with nothing of ours loaded. With <em>take turns</em> on, <em>Use the whole GPUs, split evenly</em> plans it on the whole cards instead: loading it then stops the backends in its way.</li>
-        <li><strong>Small models stay:</strong> with llama.cpp or llama-toolchest, embedding and reranking models stay loaded beside a chat model while they fit. A small model can unload a big one if the big one leaves too little room on the small model's GPU. To keep both, give the big model a smaller context.</li>
-        <li><strong>Split Mode tensor:</strong> the router cannot see the memory of a model with Split Mode <code>tensor</code>, so with llama.cpp such a load can fail out of memory. Use llama-toolchest, or Split Mode <code>layer</code>.</li>
-    </ul>
+    <p>Eviction is how toolchest makes room on a GPU for a new model. <strong>Off</strong>: the llama-server router keeps up to <em>Max loaded models</em>, of any size. <strong>llama.cpp</strong>: the router unloads idle models by VRAM; it cannot run with generation backends or forks. <strong>llama-toolchest</strong>: toolchest unloads idle LLMs on the GPUs that are short, and keeps the generation reservations free. Set it in <a href="/settings#eviction">Settings → Eviction</a>; a new mode applies at the next server start.</p>
+    <p class="help-more"><a href="{{docsURL "gpu/eviction#modes"}}" target="_blank" rel="noopener">More in the docs</a>: a diagram of each mode, and the rules for small models.</p>
     <h3 id="eviction-reservations">Why generation models need reservations</h3>
-    <p>A generation backend holds almost no VRAM while it waits. It takes its memory, often 10 to 20 GB, only when a job starts. Without a reservation, an LLM could load into that free room, and the next job would run out of memory. A reservation keeps the room free. Measure works out its size from a test run (<a href="#generation-vram">Measured reservations</a>). With no generation backends, there are no reservations.</p>
+    <p>A generation backend takes its memory only when a job starts, so toolchest keeps that room free for it. <a class="help-more" href="{{docsURL "gpu/reservations#what"}}" target="_blank" rel="noopener">More in the docs</a></p>
     <h3 id="eviction-turns">LLMs and backends taking turns</h3>
-    <p>With generation backends on and llama-toolchest in effect, the card has one more switch, <em>LLMs and backends can take turns on a GPU</em>:</p>
-    <ul>
-        <li><strong>Off (default):</strong> each measured instance keeps its reservation free, also while it is stopped. An LLM that does not fit beside the reservations is refused (HTTP 507).</li>
-        <li><strong>On:</strong> the newest request gets the GPU. A chat request stops idle backends, and a job unloads idle LLMs. Locked instances never stop. See <a href="#generation-evict">Taking turns when both do not fit</a>.</li>
-    </ul>
+    <p>With <em>LLMs and backends can take turns on a GPU</em> on, the newest request gets the GPU: chat stops idle backends, and a job unloads idle LLMs. <a class="help-more" href="{{docsURL "gpu/taking-turns#take-turns"}}" target="_blank" rel="noopener">More in the docs</a></p>
 
     <h2 id="vram-margin">GPU memory margin</h2>
-    <p>The margin is VRAM that toolchest keeps free on each GPU, beside LLMs and generation backends. Set it in <a href="/settings#vram-margin">Settings → GPU memory margin</a>, in GiB. The default and the smallest value is 1 GiB.</p>
-    <ul>
-        <li><strong>Why at least 1 GiB:</strong> real chats process a prompt in parts, and llama.cpp then uses more memory than its estimate and a test load show. Settings that passed a test load with about 500 MiB free ran out of memory on the first real chat. The 1 GiB also leaves room for the driver. What the desktop and other programs use is counted apart, from the GPU's reading.</li>
-        <li><strong>Every GPU:</strong> one value for all cards.</li>
-        <li><strong>One GPU:</strong> a row for each detected GPU. A value there replaces the value for every GPU, for example a larger margin on the GPU that runs the desktop. Leave the row blank to use the value for every GPU.</li>
-        <li><strong>What uses it:</strong> Autoconfigure, the fit labels on Download Models, Measure, the start check of a generation backend, and eviction by llama-toolchest. With eviction by llama.cpp, the router takes one margin for all GPUs, so it gets the largest.</li>
-        <li><strong>When it applies:</strong> at the next plan, load or backend start. A loaded model keeps its settings. Run Autoconfigure again to plan for a new margin.</li>
-        <li><strong>If a load fails out of memory:</strong> raise the margin of that GPU by 0.5 to 1 GiB, or give the model a smaller context.</li>
-    </ul>
+    <p>The margin is VRAM that toolchest keeps free on each GPU, for llama.cpp's working memory and the driver. The default and the smallest value is 1 GiB. Set one value for every GPU, or a larger one for a GPU that runs the desktop. If a load runs out of memory, raise the margin of that GPU by 0.5 to 1 GiB.</p>
+    <p class="help-more"><a href="{{docsURL "gpu/memory-margin#what"}}" target="_blank" rel="noopener">More in the docs</a>: what toolchest counts on a GPU, and what the llama.cpp router gets.</p>
 
     <h2 id="server">Server tab</h2>
-    <dl>
-        <dt>Server card</dt>
-        <dd>State, the build to run (<em>Auto</em> picks the newest), the eviction mode in effect with a link to change it, and Start / Stop / Restart.</dd>
-        <dt>Available Models</dt>
-        <dd>Every enabled chat model, with a load icon and a copy icon for its public name. Embedding and reranking models follow in their own sections. Hover a row to compare the VRAM measured at the last load (weights, KV cache and buffers, per GPU) with the estimate. Measured figures need <em>Model loading detail</em> 4 or higher in <a href="/settings">Settings</a>. The use that a card reports is a few hundred MiB higher, for driver overhead.</dd>
-        <dt>API Endpoint and Agent Configs</dt>
-        <dd>The base URL for clients. <em>Agent Configs</em> gives config files for opencode, Kilo Code, pi, Goose and Crush, and shows where each file goes. The files are a snapshot: download them again after you change the served models or their context size. With an API key set, the files read it from <code>LLAMA_TOOLCHEST_API_KEY</code>.</dd>
-        <dt>Live Performance</dt>
-        <dd>Average generation and prompt speed per model, taken from real chat requests.</dd>
-        <dt>Server Logs</dt>
-        <dd>Live output from llama-server. To change the height, drag the bottom edge. Double-click the edge for the default height.</dd>
-        <dt id="engine-notes">Engine notes</dt>
-        <dd>The line above the Server Logs counts what llama-server did in the last 24 hours. It turns amber when a model crashed or failed to load. <em>Review</em> shows more: router starts and stops, loads, failed loads, crashes and unloads, and a table for each model with its time loaded, average load time, requests and tokens. Choose the period at the top: 24 hours, 7 days, 30 days or all.
-            <ul>
-                <li>A <strong>crash</strong> is a model that stopped with an error and nobody asked it to stop. An unload, an eviction, or a stop that had to be forced is not a crash. A <strong>failed load</strong> is a model that stopped before it finished loading.</li>
-                <li>Each crash shows the time, the model, the exit status, the build, the GPUs, and the error lines from the log. <em>What llama-server wrote</em> shows the last lines of that model's output.</li>
-                <li>Events while a benchmark or Autotune job holds the router show the job's name. The requests of a job are not counted as model usage.</li>
-                <li>Requests count by the hour, for completions, chat, embeddings and rerank. A request that gets an error answer counts as a failed request.</li>
-                <li>The data is kept in <code>engine-notes.json</code> in the data folder, so it stays after a restart. It stays until you delete it: use <em>Delete old data</em> at the bottom of Review. The same data is at <code>GET /api/service/notes?period=24h</code> (or <code>7d</code>, <code>30d</code>, <code>all</code>) as JSON.</li>
-                <li>A crash also writes a <code>WARN</code> line to the toolchest log.</li>
-            </ul>
-        </dd>
-    </dl>
+    <p>The Server tab starts and stops llama-server, picks its build, and shows the eviction mode in effect. It lists the models it serves, the API address with config files for coding agents, live speeds, and the server logs.</p>
+    <p class="help-more"><a href="{{docsURL "guides/server"}}" target="_blank" rel="noopener">More in the docs</a></p>
+    <h3 id="engine-notes">Engine notes</h3>
+    <p>The line above the Server Logs counts loads, failed loads and crashes; <em>Review</em> keeps each crash with its error lines. <a class="help-more" href="{{docsURL "guides/server#engine-notes"}}" target="_blank" rel="noopener">More in the docs</a></p>
 
     <h2 id="builds">Builds</h2>
-    <p>Builds compile <code>llama-server</code> from a <code>ggml-org/llama.cpp</code> ref for one backend. Several builds can be kept; choose one on the Server tab.</p>
-    <dl>
-        <dt>Profiles</dt>
-        <dd>Only backends found on this system show. <strong>CUDA</strong>: NVIDIA; needs the CUDA toolkit. <strong>ROCm</strong>: AMD; toolchest detects the GPU arch (set <code>GPU_TARGETS</code> in Extra CMake Flags to change it). With more than one ROCm, a <em>ROCm Install</em> picker shows. <strong>Vulkan</strong>: any vendor; host installs only. <strong>Metal</strong>: macOS. <strong>CPU</strong>: always available.</dd>
-        <dt>Ref</dt>
-        <dd>A release tag (<code>b*</code>) or <code>latest</code>. rocWMMA FlashAttention was removed at <code>b10332</code>, but it is still the fastest prompt reading on RDNA4. To use it, pin an older ref.</dd>
-        <dt>Options and Extra CMake Flags</dt>
-        <dd>Each toggle says when to use it. Extra CMake Flags takes anything else that CMake accepts; the preview shows the final flags. Vulkan tuning is in the runtime environment in Settings.</dd>
-        <dt>Saved flag sets</dt>
-        <dd>Enter a <em>Build Tag</em> and press <em>Save Flags</em> to keep toggles and extra flags under that name, then replay them on any ref.</dd>
-    </dl>
+    <p>Builds compile <code>llama-server</code> from a <code>ggml-org/llama.cpp</code> ref for one backend: CUDA, ROCm, Vulkan (host installs), Metal or CPU. Keep several builds, and choose one on the Server tab. Save toggles and extra CMake flags as a flag set to use them again on another ref.</p>
+    <p class="help-more"><a href="{{docsURL "guides/builds"}}" target="_blank" rel="noopener">More in the docs</a></p>
     <h3 id="patch-sets">llama.cpp + RDNA boosts</h3>
-    <p><a href="https://github.com/stew675/llama-cpp-rdna-boosts" target="_blank" rel="noopener">RDNA boosts</a> is a set of patches on upstream llama.cpp. It makes AMD RDNA2, RDNA3 and RDNA4 GPUs faster. The patches apply to an older upstream commit, the <em>base</em>. All features are on, with no extra options. ROCm only.</p>
-    <ol>
-        <li><strong>Build it</strong>: on Builds, choose <em>llama.cpp + RDNA boosts</em> and a ROCm profile. Then choose a release. The build gets a name like <code>rdna-b11887-r206-rocm</code> and an <em>RDNA boosts</em> badge.</li>
-        <li><strong>Use it</strong>: on the Server tab, choose the build as the router's build. To go back, choose an upstream build. <em>Auto</em> does not choose a patched build while an upstream build can run.</li>
-    </ol>
-    <ul>
-        <li><strong>Tested</strong>: the release that this toolchest version was tested with. <strong>Untested</strong>: a newer release. It usually works, but nobody tested it with this toolchest. The list shows the newest release and the ten most recent ones after the first build.</li>
-        <li>The build fails if the patched source is not exactly the source of the release.</li>
-        <li>The build counts as its base (for example <code>b11887</code>). Toolchest does not write launch options that are newer than the base. New upstream options and new model types arrive only when the patch set moves to a newer base.</li>
-        <li>Benchmarks, Autotune and Autoconfigure can use a patched build like any build. To compare, run a benchmark on the patched build and on the upstream build of the same base.</li>
-    </ul>
+    <p>A set of patches that makes AMD RDNA2, RDNA3 and RDNA4 GPUs faster, on an older upstream base; choose <em>llama.cpp + RDNA boosts</em> and a ROCm profile. <a class="help-more" href="{{docsURL "guides/builds#patch-sets"}}" target="_blank" rel="noopener">More in the docs</a></p>
 
     <h2 id="models">Models</h2>
-    <p>Downloaded GGUFs, grouped by publisher and base model.</p>
-    <dl>
-        <dt>Filter, Collapse / Expand All</dt><dd>Search by org, name, quant or architecture.</dd>
-        <dt>On switch</dt><dd>Enable or disable the model.</dd>
-        <dt>Configure</dt><dd>Per-model settings and saved profiles (see <a href="#model-config">Model config</a>).</dd>
-        <dt>Autoconfigure, Autotune</dt><dd>See <a href="#profiles">below</a>.</dd>
-        <dt>&#x21bb; and &#x2298;</dt><dd>Changes waiting for a server restart. Click to restart; it asks first, since a restart stops running requests.</dd>
-        <dt>VRAM Est.</dt><dd><em>Base</em> is the weights; <em>peak</em> adds the full KV cache at the configured context.</dd>
-        <dt>Downloads card</dt><dd>One row per download: <em>Pause</em>, <em>Resume</em> or <em>Discard</em> (deletes the partial files). Interrupted downloads come back paused after a restart.</dd>
-        <dt><code>incomplete</code>, orphan</dt><dd>An unfinished download, or a GGUF missing from disk. Neither can be enabled.</dd>
-        <dt>Update</dt><dd>Compares the model files with its repository on HuggingFace or ModelScope, for a publisher that uploads a fixed version under the same name. It compares SHA-256 checksums and lists the changed files: the model, its shards, and its projector and MTP head when they are in the same repository. Nothing downloads until you confirm, and then only the changed files. A file from before this check has no checksum, so toolchest reads it once: about a minute per 20 GB. A new file replaces the old one only when it is complete and its checksum matches. A loaded model keeps the old files until the server restarts (&#x21bb;). To continue a paused update, click Update again.</dd>
-        <dt>Remove</dt><dd><em>Keep Files</em> or <em>Delete Files</em>.</dd>
-    </dl>
+    <p>Downloaded GGUFs, grouped by publisher and base model. Turn a model on with its <em>On</em> switch, open <em>Configure</em> for its settings, and check for a newer upload with <em>Update</em>. The Downloads card pauses, resumes and discards downloads.</p>
+    <p class="help-more"><a href="{{docsURL "guides/models"}}" target="_blank" rel="noopener">More in the docs</a></p>
 
     <h2 id="profiles">Autoconfigure and Autotune</h2>
-    <p>A <strong>profile</strong> is a named copy of a model's settings. The profile bar at the top of Configure saves and restores them. Profiles survive re-downloading the model and are included in backups.</p>
-    <table class="help-table">
-        <thead><tr><th></th><th>Autoconfigure</th><th>Autotune</th></tr></thead>
-        <tbody>
-            <tr><td><strong>Does</strong></td><td>Suggests settings that fit</td><td>Measures many settings and keeps the fastest</td></tr>
-            <tr><td><strong>Sets</strong></td><td>Context size, KV cache type, GPU layers, expert offload, GPU placement, sampling</td><td>Batch sizes, flash attention, split mode, threads, speculative decoding</td></tr>
-            <tr><td><strong>Asks</strong></td><td>How long your conversations or documents are</td><td>What you use the model for (speculative decoding pays off most when answers repeat the prompt, as in code editing)</td></tr>
-            <tr><td><strong>Result</strong></td><td>A reviewed list of settings, each with a reason; <em>Save as profile</em> or <em>Save and apply</em></td><td>Up to three profiles: fastest generation, fastest prompt reading, fastest full answer</td></tr>
-            <tr><td><strong>While it runs</strong></td><td>Test-loads the settings (restarts the server, unloads other models)</td><td>Restarts the server for each setting; stop any time and continue later</td></tr>
-        </tbody>
-    </table>
-    <ul>
-        <li><strong>Run Autoconfigure first.</strong> Autotune keeps the context, memory and sampling settings, so it makes a badly set-up model faster, not correct.</li>
-        <li><strong>Test load.</strong> The memory estimate adds all GPUs together, but llama.cpp does not fill them evenly. If the test load runs out of memory, Autoconfigure tries these, in order: fewer layers on the full GPU, a smaller prompt batch, a smaller context. These settings show <em>test load</em>.</li>
-        <li><strong>GPUs.</strong> On a machine with more than one GPU, select the GPUs that the model can use. Autoconfigure fits the model only on those GPUs. Clear a GPU to keep it for image, video or music models. Autotune then measures the model on the GPUs that the profile uses.</li>
-        <li><strong>Helper model.</strong> Autoconfigure reads the model card with a small model of its own (install it on Settings). Without it, settings come only from what fits.</li>
-        <li><strong>Noise.</strong> Autotune keeps the simpler setting unless the faster one wins by more than the run-to-run variation. Each stage is a normal benchmark job; you can read it on Benchmarks.</li>
-    </ul>
+    <p><strong>Autoconfigure</strong> suggests settings that fit in VRAM, from how long your conversations are, and test-loads them. <strong>Autotune</strong> then measures speed settings and keeps the fastest, as up to three profiles. Run Autoconfigure first: Autotune makes a model faster, not correct.</p>
+    <p class="help-more"><a href="{{docsURL "guides/autoconfigure"}}" target="_blank" rel="noopener">More in the docs</a></p>
 
     <h2 id="model-config">Model config (Configure)</h2>
-    <h3>GPU Assignment</h3>
-    <dl>
-        <dt>GPU <em>N</em> / GPUs <em>i-j</em> / All GPUs</dt><dd>One GPU, or layers split across a range or all of them.</dd>
-        <dt>Tensor Parallelism</dt><dd>Experimental: splits each tensor over N GPUs. Needs a fast link between GPUs (and NCCL at build time on CUDA), flash attention on, and an <code>f16</code> KV cache. N must divide the attention head count of the model.</dd>
-        <dt>Custom</dt><dd>Your own <code>--tensor-split</code> string, passed through unchanged.</dd>
-    </dl>
-    <p>GPUs that are left out are hidden from the model with <code>--device</code>, so they stay free. Integrated GPUs show <em>(iGPU)</em>, and toolchest never chooses them for you. They need the <em>Include iGPU Build Target</em> build option.</p>
-
-    <h3>Key settings</h3>
-    <dl>
-        <dt>GPU Layers</dt><dd>Layers on the GPU; 999 means all.</dd>
-        <dt>Context Size</dt><dd>Larger needs more memory for the KV cache. For an embedding model, Context Size is the longest input of one request; for a reranking model, the longest query plus document. Most embedding models, and all reranking models, read an input in one micro-batch, so toolchest raises the micro-batch to the same size. VRAM use grows fast: about 1&nbsp;GiB at 8K and 7&nbsp;GiB at 32K for EmbeddingGemma 2. The default is 8192, or the model's limit if it is lower.</dd>
-        <dt>Embedding models and GPUs</dt><dd>At download, toolchest puts an embedding or reranking model on the one GPU with the most room, if it fits. Spread over several GPUs, each GPU needs its own working memory for the model. That can be many times the model's size.</dd>
-        <dt>Reranking models</dt><dd>A reranker scores how well each document answers a query, for the reranking step of a RAG pipeline. Toolchest recognises one from its file or its name (<em>rerank</em>), lists it under <em>Reranking Models</em>, and starts it with <code>--reranking</code>. Clients send <code>POST /v1/rerank</code> (or <code>/rerank</code> at the root) with <code>model</code>, <code>query</code> and <code>documents</code>; the answer has one <code>relevance_score</code> per document. A reranker marked <em>check file</em> has no classification head in its file: llama.cpp serves it but its scores mean nothing, so use another conversion.</dd>
-        <dt>Parallel Conversations and Shared Context</dt><dd>With Shared Context on, all conversations use one context pool. A long conversation can use more than its part. If the pool fills, llama.cpp clears waiting conversations, and they read their prompt again. If that is not enough, a request fails. A per-conversation limit stops one conversation from taking the whole pool.</dd>
-        <dt>Flash Attention</dt><dd>Usually on: faster, less memory.</dd>
-        <dt>KV Cache Quant</dt><dd><code>q8_0</code> about halves KV memory at almost no quality cost; <code>q4_0</code> saves more, with some loss.</dd>
-        <dt>Micro-batch (<code>-ub</code>) and Batch (<code>-b</code>)</dt><dd>Micro-batch usually has the largest effect on prompt speed; measure it with Autotune or a benchmark sweep. Batch must be &ge; micro-batch. Defaults: 512 and 2048.</dd>
-        <dt>Direct I/O</dt><dd>Loads weights without the OS page cache. Use it when VRAM is larger than system RAM.</dd>
-        <dt>Per-Layer Embeddings</dt><dd>Only for models with such a table (Gemma-3N, Gemma-4 E-series, Qwen4-Exp). <em>Auto</em> reads tables over 4&nbsp;GiB from the file as needed. Has no effect with Direct I/O.</dd>
-        <dt>Projector (mmproj)</dt><dd>Lets the model read images or audio, or speak. Toolchest finds it when it is in the model's folder.</dd>
-        <dt>Speculative Decoding</dt><dd>Predicts several tokens per step, with no change to the answer. A draft model gives the biggest gain; n-gram modes need no extra model. The <strong>?</strong> button explains each mode.</dd>
-        <dt>N-gram Cache file</dt><dd>With llama.cpp b11758 or newer, toolchest keeps what N-gram Cache learns in <code>/data/cache/ngram/&lt;model id&gt;.bin</code>. llama-server reads the file at load and writes it at unload. Benchmarks and Autotune do not use it. A broken file makes llama-server stop at load, so toolchest deletes a broken file before a load. <em>Clear learned n-grams</em> deletes the file; a loaded model writes it again at unload.</dd>
-        <dt>Sampling</dt><dd>Applies per request, with no restart. The <em>Preset</em> list shows defaults from the GGUF, the Unsloth docs and the <code>generation_config.json</code> of the base model. Empty fields still use the GGUF defaults. <em>&#8635; Refresh presets</em> looks again.</dd>
-        <dt>System Prompt</dt><dd>Some fine-tuned models need a fixed system prompt. The model card then shows it. Paste it here. The server adds it to each chat request that has no system message. A request with its own system message keeps it. Applies per request, with no restart.</dd>
-        <dt>Extra Flags</dt><dd>Any other llama-server flags, added as written.</dd>
-    </dl>
-    <div class="callout">Most changes need a <strong>server restart</strong>: press <em>Restart required</em> in the panel. Sampling changes do not.</div>
+    <p>The settings of one model: GPU Assignment, context size, KV cache type, batch sizes, speculative decoding, sampling, a default system prompt and extra flags. Most changes need a server restart; sampling and the system prompt do not.</p>
+    <p class="help-more"><a href="{{docsURL "guides/model-config"}}" target="_blank" rel="noopener">More in the docs</a>: what each setting does.</p>
 
     <h2 id="search-hf">Download Models</h2>
-    <p>Search <strong>HuggingFace</strong> or <strong>ModelScope</strong> for GGUF repos and download single quants. Downloads resume after an interruption. Gated models need a token for that host in <a href="/settings">Settings</a>. The buttons above the search open <em>Find recommended LLMs</em>, <em>Get embedding models</em> and, with generation on, <em>Get generation models</em>.</p>
-
+    <p>Search HuggingFace or ModelScope for GGUF repos, and download one quant. Downloads resume after an interruption. Gated models need a token for that host in <a href="/settings">Settings</a>.</p>
+    <p class="help-more"><a href="{{docsURL "guides/download-models"}}" target="_blank" rel="noopener">More in the docs</a></p>
     <h3 id="recommended">Recommended models</h3>
-    <p>Checks about 40 popular and new models against this machine. It suggests the largest quant that fits at the chosen context size. The figures are estimates from the same planner as Autoconfigure. A model downloaded from a card starts with the settings of that card.</p>
-    <ul>
-        <li><strong>Sort</strong>: <em>Best quality</em> (larger models first; below about 4 bits per weight counts for less), <em>Fastest</em> (least data read per token, so mixture-of-experts models do well), <em>Longest context</em>, <em>Newest</em>.</li>
-        <li><strong>Bits per weight</strong>: about 4.5 or more keeps nearly all quality; below 3 is never suggested.</li>
-        <li><strong>Experts in system memory</strong>: a large MoE model can run with some experts in RAM, more slowly. Dense models that do not fit on the GPU are left out.</li>
-        <li>The list stays for six hours, or until the GPUs or build change. <em>Refresh</em> asks again.</li>
-    </ul>
-
-    <h3>Vision and audio models</h3>
-    <p>Many vision models need a separate <strong>mmproj</strong> (projector) file from the same repo. Download it from the file list too. When it is in the model folder, Configure finds it. Models with built-in vision show <em>Vision: Built-in</em>.</p>
-    <p>Audio models use a projector file too. Toolchest reads from it what the model can do and shows badges: <em>vision</em> reads images, <em>audio</em> understands speech (transcription, live voice with <code>/v1/realtime</code>), <em>speech</em> speaks (<code>/tts</code>). A model that only speaks, such as Qwen3-TTS, cannot chat, so the agent configs leave it out. The audio routes need llama.cpp v0.8.0 or newer.</p>
+    <p><em>Find recommended LLMs</em> checks about 40 models against this machine and suggests the largest quant that fits. <a class="help-more" href="{{docsURL "guides/download-models#recommended"}}" target="_blank" rel="noopener">More in the docs</a></p>
 
     <h2 id="benchmarks">Benchmarks</h2>
-    <p>A <strong>job</strong> runs every combination of the chosen models, builds and presets. Each result records the build flags, settings and GPU state, so it stays useful after you change things. A job never changes your saved model settings.</p>
-
-    <h3>Speed presets</h3>
-    <div class="help-wide">
-    <table>
-        <thead><tr><th>Preset</th><th>Prompts (tokens)</th><th>Generated</th><th>Runs</th><th>Time</th></tr></thead>
-        <tbody>
-            <tr><td><code>internal-quick</code></td><td>256</td><td>128</td><td>1</td><td>~10 s</td></tr>
-            <tr><td><code>internal-standard</code></td><td>128 / 512 / 2048</td><td>128</td><td>3</td><td>~1 min</td></tr>
-            <tr><td><code>internal-thorough</code></td><td>128 / 512 / 2048 / 8192</td><td>256</td><td>5</td><td>~5 min</td></tr>
-            <tr><td><code>internal-long-ctx</code></td><td>32K</td><td>512</td><td>1</td><td></td></tr>
-            <tr><td><code>internal-long-ctx-thorough</code></td><td>8K / 16K / 32K / 64K</td><td>512</td><td>3</td><td>~20 min</td></tr>
-            <tr><td><code>benchy-quick</code>, <code>benchy-standard</code></td><td colspan="4">Run through <a href="https://github.com/eugr/llama-benchy">llama-benchy</a></td></tr>
-        </tbody>
-    </table>
-    </div>
-    <p>Prompt sizes are approximate; the real count (<code>prompt_tokens</code>) is usually 10&ndash;25% lower. Results show <strong>PP t/s</strong> (prompt reading speed), <strong>TG t/s</strong> (generation speed) and <strong>TTFT</strong> (time to first token).</p>
-
-    <h3>Parameters, sweeps and profiles</h3>
-    <ul>
-        <li>Each parameter uses the setting of the model by default. One value applies to the whole job. Several values make a sweep, with one result per value. Parameters marked <strong>&#8635;</strong> reload the model for each value; the preview shows the number of reloads.</li>
-        <li>Saved profiles show under each model as start points. Each checked profile is measured on its own, exactly as saved, so the parameters turn off. The job keeps a copy of each profile. &#9888; marks a profile saved on a build that the job does not include.</li>
-        <li><strong>Memory used</strong>: each result records the VRAM that its load used (needs <em>Model loading detail</em> 4). It shows the cost of a faster setting, such as a larger micro-batch.</li>
-        <li><strong>Actions</strong>: <em>Detail</em>, <em>Compare</em> (pick rows, across jobs), <em>Export</em> (CSV or JSON) and <em>Retry failed</em>.</li>
-        <li>Results marked <em>&#9888; unverified</em> are older than a fix to parameter overrides. Run them again if the settings matter.</li>
-    </ul>
-
-    <h3>Capability benchmarks</h3>
-    <p>These score how <em>good</em> a model is, not how fast. They load the model directly, so <strong>the server stops while one runs</strong> and starts again after it. Sampling settings have no effect. The KV cache stays at full precision unless the job sets <code>kv_cache_quant</code>. Test data downloads at first use.</p>
-    <div class="help-wide">
-    <table>
-        <thead><tr><th>Test</th><th>Measures</th><th>Use it to</th><th>Reading the score</th><th>Quick / full</th></tr></thead>
-        <tbody>
-            <tr><td><strong>perplexity</strong></td><td>How well it predicts Wikipedia text</td><td>Check a file works, or a setting change</td><td>Lower is better. Only comparable within one model.</td><td class="num">2–5 min / 15–40 min</td></tr>
-            <tr><td><strong>kl-divergence</strong></td><td>How far a smaller quant drifts from a larger one</td><td>Choose which size of a model to keep</td><td>0 means identical. Needs two quants of one model; the reference is measured once and stored (can be tens of GB).</td><td class="num">2–5 min / 15–40 min</td></tr>
-            <tr><td><strong>hellaswag</strong></td><td>Common sense: pick the right sentence ending</td><td>Compare different models</td><td>% correct. Guessing ~25%, people ~95.6%.</td><td class="num">1–5 min / 1–3 h</td></tr>
-            <tr><td><strong>winogrande</strong></td><td>What "it" or "they" refers to</td><td>A second opinion beside HellaSwag</td><td>% correct. Guessing ~50%, people ~94%.</td><td class="num">1–3 min / 5–15 min</td></tr>
-        </tbody>
-    </table>
-    </div>
-    <p>The number after <strong>±</strong> is the margin of error. If the ranges of two results overlap, the test found no real difference. Use <code>-full</code> for numbers you keep. <em>How to read this score</em> on a finished run shows good and bad values.</p>
+    <p>A job runs every combination of the chosen models, builds and presets. Speed presets measure prompt reading (PP), generation (TG) and time to first token. Capability tests (perplexity, KL divergence, HellaSwag, Winogrande) score how good a model is; the server stops while one runs.</p>
+    <p class="help-more"><a href="{{docsURL "guides/benchmarks"}}" target="_blank" rel="noopener">More in the docs</a>: the presets, sweeps, and how to read each score.</p>
 
     <h2 id="generation">Image, video and music generation</h2>
-    <p>Image and video generation (<code>sd-server</code> of stable-diffusion.cpp) and music (<code>ace-server</code> of acestep.cpp) can run next to llama-server. They are off until you turn them on.</p>
-    <ol>
-        <li><strong>Turn on</strong> <em>Generation backends</em> in <a href="/settings">Settings</a>.</li>
-        <li><strong>Build</strong> stable-diffusion.cpp and/or acestep.cpp on <a href="/builds">Builds</a> (ROCm, CUDA, or Vulkan in host installs).</li>
-        <li><strong>Get a model set.</strong> A set is the files one model needs, and the settings it runs with.
-            <ul>
-                <li><strong>Download one</strong> with <em>Get generation models</em> on <a href="/models/browse?open=generation">Download Models</a>. Files go in the <code>gen-models</code> folder of the models folder.</li>
-                <li><strong>See how a set runs:</strong> press <em>Details</em> on a catalog set or on a set on <a href="/models">Models</a>. It shows each file, each setting with the reason for it, and the command that toolchest starts. Values in angle brackets, such as <code>&lt;port&gt;</code>, are set for each instance.</li>
-                <li><strong>Use your own files:</strong> press <em>Add a custom set</em> on <a href="/models">Models</a>. Choose the backend and the recipe. The form then shows one field for each file the recipe needs. Type part of a file name to see matching files in the models folder. Toolchest checks that each file exists and is a model file. It never deletes the files of a custom set.</li>
-                <li><strong>Start from a known set:</strong> in <em>Details</em>, press <em>Copy as custom set</em>. The form opens with the recipe, settings and sizes of that set. Files that are on this machine are filled in. For a file that is not, the field shows the name of the catalog file. Change what you need, then save. Use this for a different quantization, a fine-tune, or files you already have from ComfyUI.</li>
-                <li><strong>Change a custom set:</strong> press <em>Edit</em>. Its name, backend and recipe stay; to change them, copy the set. Stop its instance first. After you change its files or settings, measure the instance again.</li>
-                <li><strong>Files in a container:</strong> the models folder is <code>/data/models</code> inside the container. Toolchest cannot see other host folders. Put the files under the models folder, or mount their folder under it.</li>
-            </ul>
-        </li>
-        <li><strong>Create an instance</strong>: on <a href="/models">Models</a>, under <em>Generation models</em>, press <em>New instance</em> and choose a build and GPU. It shows on <a href="/server">Server</a>.</li>
-        <li><strong>Measure it.</strong> One test generation records the peak VRAM; the reservation is that plus 10%. <em>Start</em> on an unmeasured instance offers to measure first.
-            <ul>
-                <li>Sets that edit images also measure an edit.</li>
-                <li>Video: choose a size (Short, Medium, Full or custom). The instance then refuses larger videos.</li>
-                <li>A video test runs one sampling step (one per expert for Wan2.2 A14B) and the whole decode. The peak is in the decode; the other steps only add time. After the instance makes a real video, its row shows how long it took.</li>
-                <li>After two sizes are measured, the Measure dialog shows for each other size what it should need and if it fits the card. The prediction is a line through the two measurements: memory grows with frames × width × height. Near the card limit, sd.cpp can decode in parts, which bends the line. So only Measure grants a size.</li>
-                <li><em>Measure inside</em> sets a budget smaller than the whole room, to leave space for other models. sd.cpp then keeps weights in system RAM and decodes in parts, so videos are slower. The instance keeps that budget after.</li>
-                <li>Measure stops when the size needs more than the card has, or when the test stops making progress: the GPU idle and the backend silent for 5 minutes, as a stuck tiled decode on a Radeon card does. It says how far it got.</li>
-            </ul>
-        </li>
-        <li><strong>Start it</strong>, or turn on auto-start. Change it with <em>Edit</em> while it is stopped. Changes other than auto-start clear the reservation.</li>
-    </ol>
-
+    <p>Image and video (<code>sd-server</code>) and music (<code>ace-server</code>) run next to llama-server. Turn on <em>Generation backends</em> in <a href="/settings">Settings</a>, build the backend, get a model set, create an instance, and measure it.</p>
+    <p class="help-more"><a href="{{docsURL "guides/generation"}}" target="_blank" rel="noopener">More in the docs</a>: model sets, custom sets, and each step.</p>
     <h3 id="generation-vram">Measured reservations</h3>
-    <p>October 2026, sd.cpp <code>master-1015</code>, acestep.cpp <code>de858d8</code>. Video figures are for the Short size unless noted. Times are on the R9700. The R9700 figures are from 2026-10-29, with text models on the CPU. So are the A4000 figures for FLUX.2 klein, TI2V 5B and LTX-2.3; the others are older, with text models on the GPU.</p>
-    <div class="help-wide">
-    <table>
-        <thead>
-            <tr>
-                <th class="name">Model set</th>
-                <th>Makes</th>
-                <th class="num" title="32 GB Radeon AI PRO R9700, ROCm">R9700 32 GB</th>
-                <th class="num" title="16 GB RTX A4000, CUDA">A4000 16 GB</th>
-                <th>Size measured</th>
-                <th>Time per job</th>
-                <th class="notes">Notes</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr><td>Ming-Image 0.1 Design</td><td>Images, transparent backgrounds</td><td class="num">10.5 GiB</td><td class="num">10.5 GiB</td><td></td><td></td><td>Text model runs on the CPU: half the memory, same speed</td></tr>
-            <tr><td>Qwen-Image 2.1 Turbo</td><td>Images</td><td class="num">6.5 GiB</td><td>–</td><td></td><td></td><td></td></tr>
-            <tr><td>Qwen-Image 2.1 Turbo Edit</td><td>Images, edits</td><td class="num">13.5 GiB</td><td>–</td><td></td><td>~34 s image, ~88 s edit at 1024²</td><td>Edits need about twice the memory of images. Its picture reader runs on the CPU with the text model</td></tr>
-            <tr><td>Z-Image Turbo</td><td>Images</td><td class="num">8.5 GiB</td><td>–</td><td></td><td></td><td></td></tr>
-            <tr><td>FLUX.2 klein 4B</td><td>Images, edits</td><td class="num">8.5 GiB</td><td class="num">7.5 GiB</td><td></td><td>5.1 s at 1024² (A4000)</td><td>Both figures include an edit</td></tr>
-            <tr><td>FLUX.3 Image Klein</td><td>Images, edits</td><td class="num">9.5 GiB</td><td>–</td><td></td><td></td><td>Edits need 2–3 GiB more than images</td></tr>
-            <tr><td>Chroma1-HD</td><td>Images</td><td class="num">12.0 GiB</td><td>–</td><td></td><td></td><td></td></tr>
-            <tr><td>Qwen-Image-Edit 2511</td><td>Images, edits</td><td class="num">16.5 GiB</td><td>–</td><td></td><td></td><td>Edits need 2–3 GiB more than images. Its picture reader runs on the CPU with the text model: about 17 s more per edit</td></tr>
-            <tr><td>Wan2.2 TI2V 5B</td><td>Video</td><td class="num">20.0 GiB</td><td class="num">13.8 GiB</td><td>Short: 33 frames, 832×480</td><td>~70 s<br>~14 min Medium inside 14 GiB<br>~110 s Short (A4000)</td><td>Medium and Full need more than the R9700 has with the whole room, but fit when measured inside a 14 GiB budget. A4000: Medium crashed in stable-diffusion.cpp's CUDA code while decoding in smaller pieces</td></tr>
-            <tr><td>Wan2.2 I2V A14B</td><td>Video from a start (and end) image</td><td class="num">28.0 GiB</td><td>Fails</td><td>Short: 33 frames, 832×480</td><td>~27 min</td><td>Medium: the decode does not fit the R9700. Full not measured. A4000: tiled decode crashes</td></tr>
-            <tr><td>Wan2.2 I2V A14B Lightning</td><td>Video from a start (and end) image</td><td class="num">28.3 GiB</td><td>Fails</td><td>Short: 33 frames, 832×480</td><td>~3 min 20 s</td><td>A little less detail than A14B. Medium needs 30.5 GiB: too much for the R9700</td></tr>
-            <tr><td>LTX-2.3 distilled 1.1</td><td>Video with sound</td><td class="num">27.7 GiB Full</td><td class="num">13.8 GiB Full</td><td>Short: 33 frames, 768×512<br>Full: 5 s, 1280×720</td><td>~35 s Short<br>~4 min 20 s Full (~11 min with start and end images)</td><td>A4000: Medium and Full fit, with most of the model in system RAM; stable-diffusion.cpp's CUDA code still crashes there now and then</td></tr>
-            <tr><td>HunyuanVideo 1.5 I2V 480p step-distilled</td><td>Video from a start image</td><td class="num">27.5 GiB</td><td title="stable-diffusion.cpp crashed at the start of every video on the A4000 (CUDA), 3 times in 3">Crashes</td><td>Up to Full: 5 s, 848×480</td><td>~2 min Short</td><td>The fastest HunyuanVideo set: 8 steps</td></tr>
-            <tr><td>HunyuanVideo 1.5 480p, CFG-distilled (I2V, T2V)</td><td>Video from text or a start image</td><td class="num">27.5 GiB</td><td title="Not tried on the A4000. It shares its code with the step-distilled set, which crashed there at the start of every video (CUDA).">Crashes (expected)</td><td>Up to Full: 5 s, 848×480</td><td>~8 min Short</td><td>50 steps, one pass each</td></tr>
-            <tr><td>HunyuanVideo 1.5 480p, base (I2V, T2V)</td><td>Video from text or a start image</td><td class="num">27.5 GiB</td><td title="Not tried on the A4000. It shares its code with the step-distilled set, which crashed there at the start of every video (CUDA).">Crashes (expected)</td><td>Up to Full: 5 s, 848×480</td><td>~16 min Short</td><td>50 steps, two passes each</td></tr>
-            <tr><td>HunyuanVideo 1.5 720p (I2V CFG-distilled, I2V, T2V)</td><td>Video from text or a start image</td><td class="num">13–14.5 GiB</td><td title="Not tried on the A4000. It shares its code with the step-distilled set, which crashed there at the start of every video (CUDA).">Crashes (expected)</td><td>Short only: 33 frames, 1280×720</td><td>~37 min Short (I2V CFG-distilled), ~70 min (T2V)</td><td>The 720p decode needs 31.4 GB, so it is done in smaller pieces. 65 frames ran out of memory; 121 frames crashed in stable-diffusion.cpp</td></tr>
-            <tr><td>ACE-Step 1.5 XL SFT</td><td>Music</td><td class="num">8.0 GiB</td><td>–</td><td></td><td></td><td></td></tr>
-            <tr><td>ACE-Step 1.5 turbo</td><td>Music</td><td>–</td><td class="num">7.5 GiB</td><td></td><td>~13 s per 60 s song (A4000)</td><td></td></tr>
-            <tr><td>Real-ESRGAN x4plus</td><td>Upscales images 4×</td><td class="num">1.0 GiB</td><td>–</td><td>1024² test image</td><td>~13 s for 768² to 3072²</td><td>No prompt. The result has no transparency</td></tr>
-        </tbody>
-    </table>
-    </div>
-    <ul>
-        <li><strong>Reservations are planned, not held.</strong> The LLM planner keeps them free, and the <a href="#vram-margin">GPU memory margin</a> too. It refuses an LLM load that would crowd one out: HTTP 507 from the API, an error from <em>Load</em>, benchmarks, Autotune and Autoconfigure. An enabled instance keeps its reservation while it is stopped.</li>
-        <li><strong>The chat page of llama-server</strong> (port 8080) loads models without toolchest, so toolchest cannot check them. On a GPU with reservations, load models from the Models page or the API.</li>
-        <li>sd-server stays within its reservation; the ace-server figure is for planning only. On a smaller card, sd-server keeps part of a set in system RAM, so measure on the card you will use.</li>
-        <li>All catalog image and video sets except SDXL run their text encoder on the CPU (<code>--backend te=cpu</code>). On the R9700 this saved 4–5.5 GiB per image set at no real cost. It saved 6 GiB on TI2V 5B and 3 GiB on LTX-2.3 at Full, enough to make Full fit; each video takes 13–16 s longer. Wan2.2 A14B saves only about 1 GiB, because sd.cpp already removes its encoder from VRAM before sampling. An LLM partly on the CPU and an image job do not slow each other more than before: the encoder runs for only a second or two. A custom set can do the same with <code>--backend te=cpu</code> in its launch arguments. Press <em>Details</em> on a set to see why it uses each of its settings.</li>
-        <li><strong>Which HunyuanVideo 1.5 set:</strong> the I2V 480p step-distilled set for speed (about 2 minutes for a short video); a 480p CFG-distilled set for 50-step quality in half the time of the base set; a 720p set for detail when a short clip is enough. I2V sets need a start image; T2V sets need only text. Their licence, the Tencent Hunyuan Community License, is not valid in the EU, the UK or South Korea. They do not work on NVIDIA cards yet: stable-diffusion.cpp crashed ("CONCAT failed") at the start of every video on an RTX A4000.</li>
-        <li>An instance row shows the system RAM that the backend used in its measurement: the text encoder, and weights that sd.cpp kept in RAM. Other programs need that RAM too.</li>
-        <li>An instance measured before its set settings or files changed shows <em>Measured with other files or settings</em>. Measure it again: it can need more or less memory now.</li>
-        <li><strong>Example, one 32 GB R9700:</strong> Ming-Image fits beside Qwen-Image Turbo or ACE-Step XL, not both. With Qwen-Image Turbo and ACE-Step XL, about 8.6 GiB is left for an LLM.</li>
-    </ul>
-
+    <p>Measure records the peak VRAM of one test job; the reservation is that plus 10%, and the planner keeps it free. The docs list what each catalog set needed on two test cards. <a class="help-more" href="{{docsURL "gpu/reservations#what"}}" target="_blank" rel="noopener">More in the docs</a> · <a href="{{docsURL "reference/measured-reservations"}}" target="_blank" rel="noopener">Measured reservations</a></p>
     <h3 id="generation-sharing">Sharing a GPU</h3>
-    <p>Jobs and chat on one GPU slow each other (on one R9700: images 2.3× slower, songs 2.8× slower, chat from 45 to 11–20 tokens/s). So generation jobs take turns: one per GPU, up to 16 waiting; more get HTTP 429. Chat never waits. Benchmarks, Autotune and Autoconfigure also wait for a running job, then keep the GPU until they finish. Jobs on separate GPUs run at full speed if the LLM is not split onto those GPUs: set its GPU Assignment to keep it on its own card, or clear the generation GPU in Autoconfigure. Jobs from the own web page of a backend skip the queue.</p>
-
+    <p>One job runs on each GPU, and up to 16 wait; more get HTTP 429. <a class="help-more" href="{{docsURL "gpu/taking-turns#sharing"}}" target="_blank" rel="noopener">More in the docs</a></p>
     <h3 id="generation-evict">Taking turns when both do not fit</h3>
-    <p>By default, toolchest refuses an LLM that does not fit beside the reservations. With <em>LLMs and backends can take turns on a GPU</em> on (Settings → <a href="#eviction">Eviction</a>, with llama-toolchest in effect):</p>
-    <ul>
-        <li>Only running backends count. A chat request for an LLM that does not fit stops as few backends as needed on its GPUs, largest first. It waits for a running job there to finish.</li>
-        <li>A job for a stopped backend starts it. It stops other backends first, then unloads LLMs on that GPU, largest first, as needed. An LLM unloads only after its replies in progress finish, and it loads again after the job.</li>
-        <li>The newest request wins, so chat and jobs on one GPU swap it each time, with a reload of seconds to a minute.</li>
-        <li><strong>Lock</strong> an instance on the Server page, so that it never stops this way.</li>
-        <li><strong>Keep the LLM&#39;s prompt cache</strong> saves conversations to disk before such an unload and restores them after (a 26,600-token conversation: 21 s to read again, 1.1 s to restore). Restart the router after you turn it on.</li>
-        <li>Benchmarks, Autotune and Autoconfigure never stop backends. Stop the backend first.</li>
-    </ul>
-
+    <p>With take turns on, chat and jobs on one GPU swap it, with a reload each time; lock an instance to keep it running. <a class="help-more" href="{{docsURL "gpu/taking-turns#take-turns"}}" target="_blank" rel="noopener">More in the docs</a></p>
     <h3 id="generation-api">Image, video and music API</h3>
-    <p>Instances show in <code>/v1/models</code> with <code>meta.kind</code> <code>image</code>, <code>video</code>, <code>music</code> or <code>upscale</code>. Use the instance or set ID as <code>model</code>. <code>meta.api</code> lists the routes of each instance, <code>meta.video</code> the limits of a video instance, and <code>meta.tasks</code> the tasks of a music instance. <code>meta.max_edit_images</code> gives the most reference images of an edit, and <code>meta.scale</code> the factor of an upscaler. <code>meta.measuring</code> is true while an instance is being measured. It refuses requests until the measurement ends. The <a href="/docs/api">API reference</a> has every field and error.</p>
-    <div class="help-wide">
-    <table>
-        <thead><tr><th>Kind</th><th>Wait for the result</th><th>Job (answers at once with an ID)</th><th>Download</th></tr></thead>
-        <tbody>
-            <tr><td>Image</td><td><code>POST /v1/images/generations</code>, <code>/v1/images/edits</code></td><td><code>POST /v1/images/jobs</code></td><td><code>…/jobs/{id}/image/0</code></td></tr>
-            <tr><td>Upscale</td><td><code>POST /v1/images/upscale</code></td><td>–</td><td>In the answer</td></tr>
-            <tr><td>Video</td><td><code>POST /v1/videos/generations</code></td><td><code>POST /v1/videos/jobs</code></td><td><code>…/jobs/{id}/video</code></td></tr>
-            <tr><td>Music</td><td>–</td><td><code>POST /v1/music/jobs</code>, or the ACE-Step routes <code>/release_task</code>, <code>/query_result</code>, <code>/v1/audio</code></td><td><code>…/jobs/{id}/audio</code></td></tr>
-        </tbody>
-    </table>
-    </div>
-    <ul>
-        <li><strong>Jobs:</strong> <code>GET</code> a job until <code>status</code> is <code>succeeded</code>, <code>failed</code> or <code>cancelled</code>. <code>phase</code> shows progress (<code>starting</code>, <code>queued</code>, <code>generating</code> or <code>composing</code>/<code>synthesizing</code>, <code>saving</code>) and <code>queue_position</code> the jobs ahead. <code>GET /v1/{images,videos,music}/jobs?status=…</code> lists jobs.</li>
-        <li><code>DELETE</code> cancels an unfinished job or deletes a finished one. A running image cannot stop; a running video can. Results stay 24 hours (videos: at most 50). Jobs survive a restart, but unfinished ones show <code>failed</code>.</li>
-        <li><strong>Image:</strong> a job takes the JSON of <code>/v1/images/generations</code>, or the multipart form of <code>/v1/images/edits</code> for an edit. Edits need a set with the <code>edit</code> capability.</li>
-        <li><strong>Upscale:</strong> JSON with <code>image</code> (base64) and, if you like, <code>repeats</code> (1–4). It needs an upscaler set, such as Real-ESRGAN x4plus: each run makes the image 4 times wider and higher, up to 8192 pixels. The result has no transparency.</li>
-        <li><strong>Video:</strong> JSON or multipart with <code>prompt</code>, <code>size</code>, <code>frames</code> or <code>seconds</code>, <code>fps</code>, <code>start_image</code>, <code>end_image</code>, <code>output_format</code> (<code>webm</code>, with sound for LTX-2.3, or <code>webp</code>), <code>extra</code>. Requests above the measured size are refused (<code>over_measured_size</code>).</li>
-        <li><strong>Music:</strong> <code>caption</code>, <code>lyrics</code>, <code>duration</code>. To work on an existing song, set <code>task_type</code> (<code>cover</code>, <code>repaint</code>, <code>lego</code>, <code>extract</code>, <code>complete</code>) and post it as multipart with an <code>audio</code> part. <code>lego</code>, <code>extract</code> and <code>complete</code> need a base model.</li>
-    </ul>
-    <pre>curl $BASE/v1/images/jobs -H "Content-Type: application/json" \
-  -d '{"model": "ming-image", "prompt": "a red fox", "size": "1024x1024"}'
-# {"id": "3f9c…", "status": "queued", "phase": "queued", "queue_position": 2}
-curl $BASE/v1/images/jobs/3f9c…
-curl -o fox.png $BASE/v1/images/jobs/3f9c…/image/0
-curl $BASE/v1/images/jobs -F model=qwen-image-edit-2511 -F prompt="make the fox blue" -F "image[]=@fox.png"
-jq -n --rawfile img &lt;(base64 -w0 fox.png) '{model: "real-esrgan-x4plus", image: $img}' |
-  curl $BASE/v1/images/upscale -H "Content-Type: application/json" -d @- | jq -r '.images[0].b64_json' | base64 -d &gt; fox-4x.png
-
-curl $BASE/v1/videos/generations -F prompt="the waves start to roll" -F start_image=@photo.png</pre>
-    <p><strong>Transparent backgrounds with Ming-Image</strong> need both: a prompt that starts with <code>RGBA, 4-channel, transparent background.</code>, and a fully transparent start image of the output size at strength 0.9, in an <code>&lt;sd_cpp_extra_args&gt;</code> block (84–89% of pixels came back clear):</p>
-    <pre>{"model": "ming-image", "size": "1024x1024", "response_format": "b64_json",
- "prompt": "&lt;sd_cpp_extra_args&gt;{\"init_image\": \"iVBORw0KGgo…\", \"strength\": 0.9}&lt;/sd_cpp_extra_args&gt;RGBA, 4-channel, transparent background. a red fox sticker"}</pre>
-    <p><em>Open web UI →</em> on the Server page opens the own web page of each backend (port 8081 and up). In a container, toolchest publishes those ports only if you chose that in <code>setup.sh</code>.</p>
+    <p>Instances show in <code>/v1/models</code> with <code>meta.kind</code>. Send image, video and music requests to the OpenAI-style routes, or as jobs that answer at once with an ID. The <a href="/docs/api">API reference</a> has every field. <a class="help-more" href="{{docsURL "api#generation-api"}}" target="_blank" rel="noopener">More in the docs</a></p>
 
     <h2 id="forks">llama.cpp forks (experimental)</h2>
-    <p>Some forks of llama.cpp are much faster for one model. llama-toolchest can build a short list of curated forks. Each one runs as a <em>fork instance</em>: its own llama-server, for the model the fork is made for, on one whole GPU. It runs next to the router and the generation backends. Now the list has one fork, <strong>Avalon</strong>. It runs Qwen3.8-Flash-Next on one RDNA3 GPU, with most experts in system RAM.</p>
-    <ol>
-        <li><strong>Turn on</strong> <em>llama.cpp forks (experimental)</em> in <a href="/settings">Settings</a>. With eviction set to llama.cpp, toolchest then decides what to unload (see <a href="#eviction">Eviction</a>).</li>
-        <li><strong>Build</strong> the fork on <a href="/builds">Builds</a>. It builds the newest commit of the fork. The fork changes fast, so toolchest does not pin one commit. Build again to get the newest fixes.</li>
-        <li><strong>Download its model</strong> on <a href="/models">Models</a>, under <em>Fork model sets</em>. Avalon's model is about 90 GiB.</li>
-        <li><strong>Add an instance</strong> on <a href="/server">Server</a>, under <em>llama.cpp forks</em>. Choose the GPU. The dialog warns when the machine has too little RAM, no AVX2, or another GPU type. You can still start it.</li>
-        <li><strong>Start it</strong>. Then send API requests with the instance name as <code>model</code>.</li>
-    </ol>
-    <ul>
-        <li>A fork instance uses its <strong>whole GPU</strong>. It does not start while a router model or a generation instance is on that GPU, and the router cannot load a model there while it runs.</li>
-        <li>Autotune, Autoconfigure and benchmarks do not cover fork instances.</li>
-        <li>While the instance loads, requests get HTTP 503 with <code>Retry-After</code>. A large model can take several minutes.</li>
-        <li><code>/props</code> and <code>/slots</code> of a fork instance are on its own port, not on the toolchest port.</li>
-    </ul>
-    <p>Known Avalon problems. Put the line in the instance's <em>Extra environment</em>:</p>
-    <ul>
-        <li><code>GGML_CUDA_MOE_PIN=0</code>: the machine has less RAM than the model. Without it, the load can stop and not finish.</li>
-        <li><code>GGML_CUDA_MOE_CACHE_MODE=off</code>: gfx1201 GPUs, for example the Radeon AI PRO R9700. Without it, the first request can stop and not finish.</li>
-    </ul>
+    <p>Build and run hand-picked forks of llama.cpp, each for the one model it is tuned for, next to the normal router. Turn them on in <a href="/settings">Settings</a>.</p>
+    <p class="help-more"><a href="{{docsURL "guides/forks"}}" target="_blank" rel="noopener">More in the docs</a></p>
 
     <h2 id="settings">Settings</h2>
-    <dl>
-        <dt>Auto-start</dt><dd>Start llama-server when llama-toolchest starts.</dd>
-        <dt>Runtime environment</dt><dd>Environment variables for llama-server and every model, applied at the next restart. The list is short on purpose; most tuning tips have no effect. <em>Extra environment</em> takes anything else (<code>KEY=VALUE</code> per line, applied last). <em>Effective environment</em> shows the result, with values set outside toolchest (systemd, container), which win.</dd>
-        <dt>Backup &amp; Restore</dt><dd>One JSON file with settings, environment, flag sets and per-model configs. Configs match by repo and quant, so they restore on another machine. Secrets only if you tick the box. Restore merges and never deletes. Configs for models you do not have wait as <em>pending</em> until the download. Benchmark history is not included. Scripts: <code>GET /api/backup</code>, <code>POST /api/restore</code>.</dd>
-        <dt>Server URL</dt><dd>The address for the API and chat links. Change it if you open the UI from another machine.</dd>
-        <dt>API Key</dt><dd>Optional Bearer token for <code>/v1/*</code>.</dd>
-        <dt>HF Token</dt><dd>For gated models.</dd>
-        <dt>Models directory</dt><dd>Where GGUFs and downloads go (default <code>&lt;data dir&gt;/models</code>). Restart after you change it.</dd>
-        <dt>Theme</dt><dd>Saved in this browser.</dd>
-    </dl>
+    <p>Auto-start, the runtime environment of llama-server, eviction, the GPU memory margin, generation backends, backup and restore, the server URL, the API key, tokens for model hosts, and the models folder.</p>
+    <p class="help-more"><a href="{{docsURL "guides/settings"}}" target="_blank" rel="noopener">More in the docs</a></p>
 
     <h2 id="api">Using the API</h2>
-    <p>The server speaks the OpenAI <code>/v1/*</code> API. Point any OpenAI-compatible client at it. The <a href="/docs/api">API reference</a> lists every route with a form to try it, and <a href="/openapi.json"><code>/openapi.json</code></a> has the same for code generators.</p>
-    <pre>curl $BASE/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "unsloth-Qwen3.5-4B.Q4_K_M",
-    "messages": [{"role": "user", "content": "hello"}]
-  }'</pre>
+    <p>The server speaks the OpenAI <code>/v1/*</code> API. Send requests to the address in the <em>API Endpoint</em> card, with the model's public name as <code>model</code>. The <a href="/docs/api">API reference</a> lists every route with a form to try it.</p>
+    <p class="help-more"><a href="{{docsURL "api"}}" target="_blank" rel="noopener">More in the docs</a></p>
 
     <h2 id="troubleshooting">Troubleshooting</h2>
-    <dl>
-        <dt>Start does nothing, or "no compiled build available"</dt><dd>There is no successful build. Build llama.cpp on Builds.</dd>
-        <dt>Model will not load, or llama-server crashes</dt><dd>Check Server Logs. The Server Logs start again with each router start, so for an earlier crash use <a href="#engine-notes">Engine notes</a>: it keeps each crash with its error lines. If you use tensor parallelism, try a layer-split GPU Assignment.</dd>
-        <dt>Model missing from <code>/v1/models</code></dt><dd>Check its <em>On</em> switch, then restart the server.</dd>
-        <dt>Stuck on "loading"</dt><dd>It probably failed to start; check Server Logs.</dd>
-        <dt>Out of VRAM</dt><dd>Run Autoconfigure, or lower GPU Layers or Context Size, use KV Cache Quant, or lower Max loaded models.</dd>
-        <dt>No sampling presets</dt><dd>None were found for this model. Try <em>&#8635; Refresh presets</em> later.</dd>
-    </dl>
+    <ul>
+        <li><strong>Start does nothing:</strong> there is no successful build. Build llama.cpp on Builds.</li>
+        <li><strong>A model will not load, or crashes:</strong> check the Server Logs, or <a href="#engine-notes">Engine notes</a> for an earlier crash.</li>
+        <li><strong>Out of VRAM:</strong> run Autoconfigure, or raise the <a href="#vram-margin">GPU memory margin</a> of that GPU.</li>
+    </ul>
+    <p class="help-more"><a href="{{docsURL "troubleshooting"}}" target="_blank" rel="noopener">More in the docs</a></p>
 
     <p style="margin-top: 2rem; text-align: center; color: var(--pico-muted-color); font-size: 0.8rem;">
-        llama.cpp: <a href="https://github.com/ggml-org/llama.cpp" target="_blank">github.com/ggml-org/llama.cpp</a>
+        Full documentation: <a href="{{docsURL ""}}" target="_blank" rel="noopener">tmac1973.github.io/llama-toolchest</a> · llama.cpp: <a href="https://github.com/ggml-org/llama.cpp" target="_blank">github.com/ggml-org/llama.cpp</a>
     </p>
 </div>
 {{end}}

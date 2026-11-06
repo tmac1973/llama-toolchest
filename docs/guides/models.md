@@ -18,7 +18,7 @@ Per-model settings and saved profiles (see [Model config](model-config.md)).
 
 See [below](autoconfigure.md).
 
-## ↻ and ⊘ { #and }
+## ↻ and ⊘ { #restart-markers }
 
 Changes waiting for a server restart. Click to restart; it asks first, since a restart stops running requests.
 
