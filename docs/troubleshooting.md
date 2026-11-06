@@ -24,4 +24,8 @@ Run Autoconfigure, or lower GPU Layers or Context Size, use KV Cache Quant, or l
 
 None were found for this model. Try *↻ Refresh presets* later.
 
+## "could not be parsed" or "was written by a newer version" { #store-read-only }
+
+A settings file under `<data>/config` (for example `models.json`, `builds.json` or `benchmarks.json`) could not be read. The page that uses it shows a warning and stops saving to it, so nothing overwrites the file. Fix the file, restore it from a backup, or upgrade llama-toolchest if a newer version wrote it. Then restart llama-toolchest.
+
 llama.cpp: [github.com/ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp)

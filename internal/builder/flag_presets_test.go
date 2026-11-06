@@ -62,7 +62,7 @@ func TestFlagPresetCRUD(t *testing.T) {
 		t.Error("preset did not persist to disk")
 	}
 
-	if !b.DeleteFlagPreset("rocwmma") {
+	if found, err := b.DeleteFlagPreset("rocwmma"); err != nil || !found {
 		t.Error("delete reported missing")
 	}
 	if _, ok := b.FindFlagPreset("rocwmma"); ok {

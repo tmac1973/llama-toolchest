@@ -1140,11 +1140,15 @@ func (s *Server) handleBuildsPage(w http.ResponseWriter, r *http.Request) {
 		// are on, and the curated forks while forks are on. The picker is
 		// hidden when llama.cpp is the only one.
 		Projects []projectChoice
+		// ReadOnlyReasons says why builds.json or build-flag-presets.json
+		// is not saved; shown as a warning at the top of the page.
+		ReadOnlyReasons []string
 	}{
-		pageData:  pageData{Title: "Builds", Nav: "builds"},
-		Backends:  buildsPageBackends(),
-		BuildEnv:  env,
-		BaseImage: base,
+		pageData:        pageData{Title: "Builds", Nav: "builds"},
+		Backends:        buildsPageBackends(),
+		BuildEnv:        env,
+		BaseImage:       base,
+		ReadOnlyReasons: s.builder.ReadOnlyReasons(),
 	}
 	for _, p := range builder.Projects() {
 		if !projectShown(p, &cfg) {

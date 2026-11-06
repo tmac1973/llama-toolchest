@@ -1,5 +1,11 @@
 {{define "content"}}
 <h1>Builds</h1>
+{{range .ReadOnlyReasons}}
+<p role="alert"
+   title="The file on disk is not changed. Fix or restore the file, or upgrade llama-toolchest. Then restart it.">
+    <mark>&#9888; {{.}}</mark>
+</p>
+{{end}}
 {{/* What this container runs, which is the other half of each build's
      "Built against" column below. Without it the page can say a build is
      stale but not what it is stale against — and after switching ROCm

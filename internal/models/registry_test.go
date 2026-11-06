@@ -509,3 +509,30 @@ func TestFindDraftCandidatesSkipsReranker(t *testing.T) {
 		t.Errorf("FindDraftCandidates = %v, want [real-draft] only", got)
 	}
 }
+
+// A model file that cannot be removed keeps the registry entry, so the
+// model stays listed and the delete can be tried again. Without the entry
+// the file would sit on disk with no record.
+func TestDeleteKeepsEntryWhenAFileCannotBeRemoved(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can remove files from a read-only folder")
+	}
+	r, _, modelsDir := newTestRegistry(t)
+	repo := filepath.Join(modelsDir, "org--stuck")
+	touch(t, filepath.Join(repo, "stuck.gguf"), 10)
+	register(t, r, modelsDir, "org/stuck", "stuck.gguf")
+	if err := os.Chmod(repo, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(repo, 0o755) })
+
+	if err := r.Delete("org/stuck--stuck.gguf"); err == nil {
+		t.Fatal("delete reported success although the file is still there")
+	}
+	if !exists(filepath.Join(repo, "stuck.gguf")) {
+		t.Fatal("test setup: the file was removed")
+	}
+	if got := modelIDs(r.List()); !slices.Equal(got, []string{"org/stuck--stuck.gguf"}) {
+		t.Errorf("registry after the failed delete = %v, want the entry kept", got)
+	}
+}
