@@ -1,48 +1,29 @@
 package modelsource
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/tmac1973/llama-toolchest/internal/models"
+	"github.com/tmac1973/llama-toolchest/internal/testutil/gguftest"
 )
 
 // metaGGUF is a GGUF whose model keys come before a tokenizer of
 // tokenBytes, the layout every published file checked has.
 func metaGGUF(tokenBytes int) []byte {
-	var b bytes.Buffer
-	ws := func(s string) {
-		binary.Write(&b, binary.LittleEndian, uint64(len(s)))
-		b.WriteString(s)
+	var b gguftest.Builder
+	b.String("general.architecture", "llama")
+	b.Uint32("llama.block_count", 32)
+	b.Uint32("llama.embedding_length", 4096)
+	b.Uint32("llama.attention.head_count", 32)
+	b.Uint32("llama.context_length", 8192)
+	tokens := make([]string, tokenBytes/16)
+	for i := range tokens {
+		tokens[i] = "tokentok"
 	}
-	u32 := func(k string, v uint32) {
-		ws(k)
-		binary.Write(&b, binary.LittleEndian, uint32(4))
-		binary.Write(&b, binary.LittleEndian, v)
-	}
-	b.WriteString("GGUF")
-	binary.Write(&b, binary.LittleEndian, uint32(3))
-	binary.Write(&b, binary.LittleEndian, uint64(0))
-	binary.Write(&b, binary.LittleEndian, uint64(6))
-	ws("general.architecture")
-	binary.Write(&b, binary.LittleEndian, uint32(8))
-	ws("llama")
-	u32("llama.block_count", 32)
-	u32("llama.embedding_length", 4096)
-	u32("llama.attention.head_count", 32)
-	u32("llama.context_length", 8192)
-	ws("tokenizer.ggml.tokens")
-	binary.Write(&b, binary.LittleEndian, uint32(9))
-	binary.Write(&b, binary.LittleEndian, uint32(8))
-	count := tokenBytes / 16
-	binary.Write(&b, binary.LittleEndian, uint64(count))
-	for range count {
-		ws("tokentok")
-	}
+	b.StringArray("tokenizer.ggml.tokens", tokens)
 	return b.Bytes()
 }
 

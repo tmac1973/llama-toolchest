@@ -56,10 +56,16 @@ func (s *Server) backfillPresets() {
 	slog.Info("backfilling sampling presets", "models", len(ids))
 	for i, id := range ids {
 		if i > 0 {
-			time.Sleep(time.Second + time.Duration(rand.IntN(2000))*time.Millisecond)
+			presetBackfillPause()
 		}
 		s.enrichModelPresets(id)
 	}
+}
+
+// presetBackfillPause waits between two models of the backfill: 1–3 s, so
+// the upstream services see a slow trickle. A var so tests need not wait.
+var presetBackfillPause = func() {
+	time.Sleep(time.Second + time.Duration(rand.IntN(2000))*time.Millisecond)
 }
 
 // handleRefreshPresets re-runs the preset source chain for one model on

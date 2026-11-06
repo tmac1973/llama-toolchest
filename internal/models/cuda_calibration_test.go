@@ -4,23 +4,25 @@ import (
 	"bytes"
 	"path/filepath"
 	"testing"
+
+	"github.com/tmac1973/llama-toolchest/internal/testutil/gguftest"
 )
 
 // gpt-oss leaves its sliding-window layout out of the file; llama.cpp
 // sets every other layer to the window in code, and so does the parser.
 func TestBuiltinSlidingWindowLayout(t *testing.T) {
-	var b ggufBuilder
-	b.s("general.architecture", "gpt-oss")
-	b.u32("gpt-oss.block_count", 24)
-	b.u32("gpt-oss.embedding_length", 2880)
-	b.u32("gpt-oss.attention.head_count", 64)
-	b.u32("gpt-oss.attention.head_count_kv", 8)
-	b.u32("gpt-oss.attention.key_length", 64)
-	b.u32("gpt-oss.attention.value_length", 64)
-	b.u32("gpt-oss.attention.sliding_window", 128)
-	b.u32("gpt-oss.context_length", 131072)
+	var b gguftest.Builder
+	b.String("general.architecture", "gpt-oss")
+	b.Uint32("gpt-oss.block_count", 24)
+	b.Uint32("gpt-oss.embedding_length", 2880)
+	b.Uint32("gpt-oss.attention.head_count", 64)
+	b.Uint32("gpt-oss.attention.head_count_kv", 8)
+	b.Uint32("gpt-oss.attention.key_length", 64)
+	b.Uint32("gpt-oss.attention.value_length", 64)
+	b.Uint32("gpt-oss.attention.sliding_window", 128)
+	b.Uint32("gpt-oss.context_length", 131072)
 
-	meta, err := ParseGGUFMetaOnly(bytes.NewReader(b.bytes()))
+	meta, err := ParseGGUFMetaOnly(bytes.NewReader(b.Bytes()))
 	if err != nil {
 		t.Fatal(err)
 	}

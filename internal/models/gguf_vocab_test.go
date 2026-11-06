@@ -1,11 +1,10 @@
 package models
 
 import (
-	"bytes"
-	"encoding/binary"
-	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/tmac1973/llama-toolchest/internal/testutil/gguftest"
 )
 
 // writeVocabGGUF builds a minimal GGUF v3 file whose metadata is:
@@ -15,37 +14,11 @@ import (
 // checked by the second read.
 func writeVocabGGUF(t *testing.T, key string, tokens []string) string {
 	t.Helper()
-	var buf bytes.Buffer
-	buf.WriteString("GGUF")
-	binary.Write(&buf, binary.LittleEndian, uint32(3)) // version
-	binary.Write(&buf, binary.LittleEndian, uint64(0)) // tensor count
-	binary.Write(&buf, binary.LittleEndian, uint64(3)) // kv count
-	writeStr := func(s string) {
-		binary.Write(&buf, binary.LittleEndian, uint64(len(s)))
-		buf.WriteString(s)
-	}
-	// kv 1: general.architecture
-	writeStr("general.architecture")
-	binary.Write(&buf, binary.LittleEndian, ggufTypeString)
-	writeStr("testarch")
-	// kv 2: key, type=array, elem=string, count, strings...
-	writeStr(key)
-	binary.Write(&buf, binary.LittleEndian, ggufTypeArray)
-	binary.Write(&buf, binary.LittleEndian, ggufTypeString)
-	binary.Write(&buf, binary.LittleEndian, uint64(len(tokens)))
-	for _, s := range tokens {
-		writeStr(s)
-	}
-	// kv 3: testarch.block_count = 42
-	writeStr("testarch.block_count")
-	binary.Write(&buf, binary.LittleEndian, ggufTypeUint32)
-	binary.Write(&buf, binary.LittleEndian, uint32(42))
-
-	path := filepath.Join(t.TempDir(), "vocab.gguf")
-	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return path
+	var b gguftest.Builder
+	b.String("general.architecture", "testarch")
+	b.StringArray(key, tokens)
+	b.Uint32("testarch.block_count", 42)
+	return b.WriteFile(t, filepath.Join(t.TempDir(), "vocab.gguf"))
 }
 
 func TestParseGGUFTokenizerVocabSize(t *testing.T) {

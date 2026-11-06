@@ -17,29 +17,46 @@ func (s *Server) handleGPUMap(w http.ResponseWriter, r *http.Request) {
 		return // render nothing when no GPUs detected
 	}
 	allocations := s.gpuMapAllocations(numGPUs)
+	bars := gpuMapBars(metrics.GPU, allocations)
 
-	// Build per-GPU data for the template
-	type GPUSegment struct {
-		ModelName string
-		Color     string
-		WidthPct  float64
-		Reserved  bool
+	data := struct {
+		Bars        []gpuBar
+		Allocations []models.GPUAllocation
+	}{
+		Bars:        bars,
+		Allocations: allocations,
 	}
-	type GPUBar struct {
-		Index      int
-		Name       string
-		TotalGB    float64
-		UsedGB     float64
-		FreeGB     float64
-		Link       *monitor.PCIeLink
-		Segments   []GPUSegment
-		Overcommit bool
-	}
+	s.renderPartial(w, "gpu_map", data)
+}
 
-	bars := make([]GPUBar, numGPUs)
-	for i, gpu := range metrics.GPU {
+// gpuSegment is one allocation's part of a GPU's bar in the map.
+type gpuSegment struct {
+	ModelName string
+	Color     string
+	WidthPct  float64 // of the card's total VRAM
+	Reserved  bool
+}
+
+// gpuBar is one GPU's bar in the map.
+type gpuBar struct {
+	Index      int
+	Name       string
+	TotalGB    float64
+	UsedGB     float64
+	FreeGB     float64
+	Link       *monitor.PCIeLink
+	Segments   []gpuSegment
+	Overcommit bool
+}
+
+// gpuMapBars builds each GPU's bar from the allocations that use it. The
+// i-th GPU of gpus is GPU index i of the allocations. A card that reports
+// no VRAM gets segments of width 0, not a division by zero.
+func gpuMapBars(gpus []monitor.GPUInfo, allocations []models.GPUAllocation) []gpuBar {
+	bars := make([]gpuBar, len(gpus))
+	for i, gpu := range gpus {
 		totalGB := float64(gpu.VRAMTotalMB) / 1024.0
-		bars[i] = GPUBar{
+		bars[i] = gpuBar{
 			Index:   gpu.Index,
 			Name:    gpu.Name,
 			Link:    gpu.PCIe,
@@ -55,7 +72,7 @@ func (s *Server) handleGPUMap(w http.ResponseWriter, r *http.Request) {
 					if totalGB > 0 {
 						pct = (a.LoadOn(i) / totalGB) * 100
 					}
-					bars[i].Segments = append(bars[i].Segments, GPUSegment{
+					bars[i].Segments = append(bars[i].Segments, gpuSegment{
 						ModelName: a.ModelName,
 						Color:     a.Color,
 						WidthPct:  pct,
@@ -70,15 +87,7 @@ func (s *Server) handleGPUMap(w http.ResponseWriter, r *http.Request) {
 		bars[i].FreeGB = totalGB - usedGB
 		bars[i].Overcommit = usedGB > totalGB
 	}
-
-	data := struct {
-		Bars        []GPUBar
-		Allocations []models.GPUAllocation
-	}{
-		Bars:        bars,
-		Allocations: allocations,
-	}
-	s.renderPartial(w, "gpu_map", data)
+	return bars
 }
 
 // gpuMapAllocations is every enabled LLM as its launch splits it, then

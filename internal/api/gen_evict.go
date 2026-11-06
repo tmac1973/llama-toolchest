@@ -65,6 +65,19 @@ type llmUse struct {
 	// changed is closed and replaced whenever a count or an eviction
 	// ends, waking the waiters.
 	changed chan struct{}
+	// waiters counts the callers blocked in waitLocked, so a test can
+	// tell that a request is waiting.
+	waiters int
+	// now is the clock for lastUsed; nil means time.Now. Tests set it so
+	// two uses get different times without a sleep.
+	now func() time.Time
+}
+
+func (u *llmUse) nowLocked() time.Time {
+	if u.now != nil {
+		return u.now()
+	}
+	return time.Now()
 }
 
 func (u *llmUse) initLocked() {
@@ -83,16 +96,26 @@ func (u *llmUse) notifyLocked() {
 func (u *llmUse) waitLocked(ctx context.Context, ready func() bool) error {
 	for !ready() {
 		ch := u.changed
+		u.waiters++
 		u.mu.Unlock()
 		select {
 		case <-ch:
 			u.mu.Lock()
+			u.waiters--
 		case <-ctx.Done():
 			u.mu.Lock()
+			u.waiters--
 			return ctx.Err()
 		}
 	}
 	return nil
+}
+
+// waiting returns how many callers wait for a count or an unload to end.
+func (u *llmUse) waiting() int {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.waiters
 }
 
 // begin counts a request for model id, after any unload of it under way
@@ -105,7 +128,7 @@ func (u *llmUse) begin(ctx context.Context, id string) (end func(), err error) {
 		return nil, err
 	}
 	u.n[id]++
-	u.lastUsed[id] = time.Now()
+	u.lastUsed[id] = u.nowLocked()
 	var once sync.Once
 	return func() {
 		once.Do(func() {
@@ -113,7 +136,7 @@ func (u *llmUse) begin(ctx context.Context, id string) (end func(), err error) {
 			defer u.mu.Unlock()
 			// Used until its reply ends, so a long chat is not the
 			// least recently used model while it streams.
-			u.lastUsed[id] = time.Now()
+			u.lastUsed[id] = u.nowLocked()
 			if u.n[id]--; u.n[id] <= 0 {
 				delete(u.n, id)
 			}
@@ -168,7 +191,7 @@ func (u *llmUse) touch(id string) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	u.initLocked()
-	u.lastUsed[id] = time.Now()
+	u.lastUsed[id] = u.nowLocked()
 }
 
 // lastUse is when model id was last used; zero when never.

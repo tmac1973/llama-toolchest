@@ -4,45 +4,17 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-class El {
-  constructor(tag){ this.tag=tag; this.children=[]; this.attrs={}; this.parent=null;
-    this.className=''; this.textContent=''; this.hidden=false; this.listeners={}; }
-  appendChild(c){ c.parent=this; this.children.push(c); return c; }
-  insertBefore(n, ref){ if(n.parent) n.parent.children.splice(n.parent.children.indexOf(n),1);
-    n.parent=this; const i=ref?this.children.indexOf(ref):-1;
-    if(i<0) this.children.push(n); else this.children.splice(i,0,n); return n; }
-  get firstChild(){ return this.children[0] || null; }
-  get parentNode(){ return this.parent; }
-  get nextSibling(){ if(!this.parent) return null; const s=this.parent.children; return s[s.indexOf(this)+1] || null; }
-  setAttribute(k,v){ this.attrs[k]=String(v); }
-  getAttribute(k){ return k in this.attrs ? this.attrs[k] : null; }
-  addEventListener(t,f){ (this.listeners[t]=this.listeners[t]||[]).push(f); }
-  click(){ (this.listeners.click||[]).forEach(f=>f()); }
-  // closest and querySelector know "[attr]", "tag[attr]", ".class" and
-  // "tag", which is all errors.js asks for.
-  closest(sel){ const m=sel.match(/^(\w*)\[([\w-]+)\]$/); let n=this;
-    while(n){ if(m && (!m[1] || n.tag===m[1]) && n.getAttribute(m[2])!==null) return n; n=n.parent; } return null; }
-  querySelector(sel){ const all=[];
-    (function walk(e){ for(const c of e.children){ all.push(c); walk(c); } })(this);
-    if(sel.startsWith('.')) return all.find(e=>e.className===sel.slice(1)) || null;
-    return all.find(e=>e.tag===sel) || null; }
-}
+const { El, makeDocument } = require('./dom.js');
 
-const main = new El('main');
-const listeners = {};
-global.document = {
-  addEventListener(t,f){ (listeners[t]=listeners[t]||[]).push(f); },
-  createElement(tag){ return new El(tag); },
-  querySelector(sel){ return sel==='main' ? main : null; },
-  body: main,
-};
+const doc = makeDocument();
+const main = doc.body.appendChild(new El('main'));
 global.window = global;
-const fire = (type, detail) => (listeners[type]||[]).forEach(f=>f({detail}));
+const fire = (type, detail) => doc.fire(type, {detail});
 const xhr = (status, text, ct) => ({status, responseText: text, getResponseHeader: () => ct || 'text/plain; charset=utf-8'});
 
 eval(fs.readFileSync(path.join(__dirname, 'errors.js'), 'utf8'));
 
-const notice = () => main.children.find(c=>c.attrs.id==='error-notice' || c.id==='error-notice');
+const notice = () => main.children.find(c=>c.id==='error-notice');
 const text = () => notice().querySelector('.error-notice-text').textContent;
 
 // A refused htmx action shows the server's plain-text reason.

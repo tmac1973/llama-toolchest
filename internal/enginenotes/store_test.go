@@ -41,7 +41,7 @@ func testStore(t *testing.T) (*Store, *clock, *writes, string) {
 	path := filepath.Join(t.TempDir(), "engine-notes.json")
 	c := &clock{t: base}
 	w := &writes{}
-	s, err := open(path, c.now, time.Hour, w.write)
+	s, err := open(path, c.now, nil, w.write)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestRoundTrip(t *testing.T) {
 		t.Errorf("writes = %d, want 1 on close", w.count())
 	}
 
-	again, err := open(path, c.now, time.Hour, w.write)
+	again, err := open(path, c.now, nil, w.write)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestUnreadableFileIsMovedAside(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := &clock{t: base}
-	s, err := open(path, c.now, time.Hour, (&writes{}).write)
+	s, err := open(path, c.now, nil, (&writes{}).write)
 	if err != nil {
 		t.Fatalf("open with a bad file: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestUnknownVersionIsMovedAside(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "engine-notes.json")
 	os.WriteFile(path, []byte(`{"version": 99, "events": []}`), 0o644)
-	s, err := open(path, (&clock{t: base}).now, time.Hour, (&writes{}).write)
+	s, err := open(path, (&clock{t: base}).now, nil, (&writes{}).write)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,18 +227,20 @@ func TestDeleteAll(t *testing.T) {
 func TestSavesAreBatched(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "engine-notes.json")
 	w := &writes{}
-	s, err := open(path, (&clock{t: base}).now, 50*time.Millisecond, w.write)
+	ticks := make(chan time.Time)
+	s, err := open(path, (&clock{t: base}).now, ticks, w.write)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 10; i++ {
 		s.AddUsage("m", 1, 1, false)
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for w.count() == 0 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
+	// ticks is unbuffered: a send returns once the loop has taken the
+	// tick, which is after it finished the save of the tick before. So
+	// after the third send, the first two ticks are fully handled.
+	for i := 0; i < 3; i++ {
+		ticks <- base
 	}
-	time.Sleep(150 * time.Millisecond) // a few more ticks with nothing new
 	if w.count() != 1 {
 		t.Errorf("writes = %d, want 1 for ten changes and idle ticks", w.count())
 	}

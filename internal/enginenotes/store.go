@@ -117,17 +117,28 @@ type Store struct {
 
 	stop chan struct{}
 	done chan struct{}
-	once sync.Once
+	// stopTicks stops the ticker behind the save ticks; nil in tests.
+	stopTicks func()
+	once      sync.Once
 }
 
 // Open loads the store saved at path, or starts an empty one when there
 // is none. A file that cannot be read is moved aside and the store starts
 // empty: losing the history is better than not starting.
 func Open(path string, now func() time.Time) (*Store, error) {
-	return open(path, now, saveEvery, atomicfile.Write)
+	tick := time.NewTicker(saveEvery)
+	s, err := open(path, now, tick.C, atomicfile.Write)
+	if err != nil {
+		tick.Stop()
+		return nil, err
+	}
+	s.stopTicks = tick.Stop
+	return s, nil
 }
 
-func open(path string, now func() time.Time, every time.Duration, write func(string, []byte) error) (*Store, error) {
+// open is Open with the save ticks and the file write given, for tests. A
+// nil ticks channel never ticks.
+func open(path string, now func() time.Time, ticks <-chan time.Time, write func(string, []byte) error) (*Store, error) {
 	s := &Store{
 		path:  path,
 		now:   now,
@@ -138,7 +149,7 @@ func open(path string, now func() time.Time, every time.Duration, write func(str
 	if err := s.load(); err != nil {
 		return nil, err
 	}
-	go s.saveLoop(every)
+	go s.saveLoop(ticks)
 	return s, nil
 }
 
@@ -345,15 +356,13 @@ func (s *Store) Save() error {
 	return nil
 }
 
-func (s *Store) saveLoop(every time.Duration) {
+func (s *Store) saveLoop(ticks <-chan time.Time) {
 	defer close(s.done)
-	tick := time.NewTicker(every)
-	defer tick.Stop()
 	for {
 		select {
 		case <-s.stop:
 			return
-		case <-tick.C:
+		case <-ticks:
 			if err := s.Save(); err != nil {
 				slog.Warn("engine notes not saved", "error", err)
 			}
@@ -368,6 +377,9 @@ func (s *Store) Close() error {
 	s.once.Do(func() {
 		close(s.stop)
 		<-s.done
+		if s.stopTicks != nil {
+			s.stopTicks()
+		}
 		err = s.Save()
 	})
 	return err

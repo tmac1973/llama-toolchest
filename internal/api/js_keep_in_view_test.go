@@ -13,6 +13,7 @@ import (
 func TestKeepInViewJS(t *testing.T) {
 	runNodeTest(t, map[string]string{
 		"keep-in-view.js": mustRead(t, filepath.Join("..", "..", "web", "static", "keep-in-view.js")),
+		"dom.js":          jsTestFile(t, "dom.js"),
 		"run.js":          jsTestFile(t, "keep_in_view_test.js"),
 	})
 }

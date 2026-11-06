@@ -244,9 +244,12 @@ func TestProxyUsageLeavesOutJobsAndOtherPaths(t *testing.T) {
 	s.env.ownsRouter = false
 	s.env.mu.Unlock()
 	post(t, h, "/v1/audio/speech", m.ID)
-	time.Sleep(50 * time.Millisecond)
-	if got := usageOf(t, s, m.ID); got.Requests != 0 {
-		t.Errorf("usage = %+v, want nothing counted", got)
+	// A request that does count, sent last: once it is counted, the two
+	// before it have had their turn, and the count must be exactly it.
+	post(t, h, "/v1/chat/completions", m.ID)
+	testutil.Eventually(t, func() bool { return usageOf(t, s, m.ID).Requests > 0 }, "the counted request was not counted")
+	if got := usageOf(t, s, m.ID); got.Requests != 1 {
+		t.Errorf("usage = %+v, want only the last request counted", got)
 	}
 }
 

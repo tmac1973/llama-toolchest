@@ -10,9 +10,9 @@ import (
 )
 
 // rawGGUF writes GGUF bytes field by field, so a test can stop at any
-// point or write a value the format does not allow. ggufBuilder (in
-// gguf_metaonly_test.go) only writes well-formed key/value pairs and no
-// tensor table, which is not enough to build damaged files.
+// point or write a value the format does not allow. gguftest.Builder
+// only writes well-formed files, which is not enough to build damaged
+// ones.
 type rawGGUF struct{ buf bytes.Buffer }
 
 func (g *rawGGUF) u32(v uint32) *rawGGUF {

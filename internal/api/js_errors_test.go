@@ -13,6 +13,7 @@ import (
 func TestErrorNoticeJS(t *testing.T) {
 	runNodeTest(t, map[string]string{
 		"errors.js": mustRead(t, filepath.Join("..", "..", "web", "static", "errors.js")),
+		"dom.js":    jsTestFile(t, "dom.js"),
 		"run.js":    jsTestFile(t, "errors_test.js"),
 	})
 }

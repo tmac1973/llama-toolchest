@@ -85,8 +85,8 @@ func TestIdleLLMsByLRU(t *testing.T) {
 		"loading": "loading", "except": "loaded", "stranger": "loaded",
 	}, nil)
 
+	tickingClock(s)
 	s.llmUse.touch("rerank")
-	time.Sleep(2 * time.Millisecond)
 	s.llmUse.touch("chat")
 	end, err := s.llmUse.begin(context.Background(), "busy")
 	if err != nil {
@@ -134,13 +134,27 @@ func roomServer(t *testing.T) (*Server, *fakeRouter) {
 // loaded sets the router's list to ids loaded, used in that order.
 func loaded(t *testing.T, s *Server, f *fakeRouter, ids ...string) {
 	t.Helper()
+	if s.llmUse.now == nil {
+		tickingClock(s)
+	}
 	st := map[string]string{}
 	for _, id := range ids {
 		st[s.registry.RouterName(id)] = "loaded"
 		s.llmUse.touch(id)
-		time.Sleep(2 * time.Millisecond)
 	}
 	f.reset(st, nil)
+}
+
+// tickingClock gives s.llmUse a clock that moves one second at each read,
+// so each use is later than the one before without a sleep. llmUse reads
+// it under its lock. Call it before the uses, while nothing else uses
+// s.llmUse.
+func tickingClock(s *Server) {
+	t := time.Now()
+	s.llmUse.now = func() time.Time {
+		t = t.Add(time.Second)
+		return t
+	}
 }
 
 func loadWithRoom(t *testing.T, s *Server, m *models.Model) error {

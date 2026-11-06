@@ -1,12 +1,11 @@
 package models
 
 import (
-	"bytes"
-	"encoding/binary"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/tmac1973/llama-toolchest/internal/testutil/gguftest"
 )
 
 // writeMoEGGUF builds a GGUF v3 file with the given uint32 metadata keys
@@ -14,38 +13,16 @@ import (
 // tensors, each tensorBytes long, in the order given.
 func writeMoEGGUF(t *testing.T, path string, keys map[string]uint32, tensors []string, tensorBytes int) string {
 	t.Helper()
-	var buf bytes.Buffer
-	writeStr := func(s string) {
-		binary.Write(&buf, binary.LittleEndian, uint64(len(s)))
-		buf.WriteString(s)
-	}
-	buf.WriteString("GGUF")
-	binary.Write(&buf, binary.LittleEndian, uint32(3))
-	binary.Write(&buf, binary.LittleEndian, uint64(len(tensors)))
-	binary.Write(&buf, binary.LittleEndian, uint64(1+len(keys)))
-	writeStr("general.architecture")
-	binary.Write(&buf, binary.LittleEndian, ggufTypeString)
-	writeStr("moearch")
+	var b gguftest.Builder
+	b.String("general.architecture", "moearch")
 	for k, v := range keys {
-		writeStr(k)
-		binary.Write(&buf, binary.LittleEndian, ggufTypeUint32)
-		binary.Write(&buf, binary.LittleEndian, v)
+		b.Uint32(k, v)
 	}
 	for i, name := range tensors {
-		writeStr(name)
-		binary.Write(&buf, binary.LittleEndian, uint32(1))
-		binary.Write(&buf, binary.LittleEndian, uint64(tensorBytes/4))
-		binary.Write(&buf, binary.LittleEndian, uint32(0)) // F32
-		binary.Write(&buf, binary.LittleEndian, uint64(i*tensorBytes))
+		b.Tensor(name, []uint64{uint64(tensorBytes / 4)}, gguftest.F32, uint64(i*tensorBytes))
 	}
-	for buf.Len()%32 != 0 {
-		buf.WriteByte(0)
-	}
-	buf.Write(make([]byte, len(tensors)*tensorBytes))
-	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return path
+	b.Data(len(tensors) * tensorBytes)
+	return b.WriteFile(t, path)
 }
 
 // A model whose first layer is dense and whose layers 1-3 carry experts:

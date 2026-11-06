@@ -5,11 +5,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/broadcast"
+	"github.com/tmac1973/llama-toolchest/internal/testutil"
 
 	"github.com/tmac1973/llama-toolchest/internal/modelsource"
 )
@@ -43,8 +45,12 @@ func TestStartRefusesWhileDownloading(t *testing.T) {
 // a cancelled entry lingers in the active map for 30s so late subscribers can
 // read its final status, but that must not block an immediate resume.
 func TestStartReplacesTerminalEntry(t *testing.T) {
+	srv := stallingServer(t, 1<<20)
 	for _, status := range []string{"cancelled", "failed", "complete"} {
 		d := NewDownloader(t.TempDir(), t.TempDir(), "")
+		// The run goroutine downloads from the local server, not from
+		// huggingface.co: the test must not depend on the network.
+		d.RegisterProvider(modelsource.SourceHuggingFace, Provider{URL: func(string, string) string { return srv.URL }})
 		seedActive(d, "org--Repo-GGUF--file", status)
 
 		id, err := d.Start(context.Background(), modelsource.SourceHuggingFace, "org/Repo-GGUF", "file.gguf", 0)
@@ -152,5 +158,96 @@ func TestStartToSharedFileCallsEveryCallback(t *testing.T) {
 		case <-time.After(5 * time.Second):
 			t.Fatalf("%s callback never called", name)
 		}
+	}
+}
+
+// stallingServer answers a GET with a body of size bytes, of which it
+// sends 1 KiB every 50 ms and never the last KiB: a download that stays
+// in progress until it is cancelled. A HEAD gets the size at once.
+func stallingServer(t *testing.T, size int) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(size))
+		if r.Method == http.MethodHead {
+			return
+		}
+		// A trickle, not one write and a stop: the downloader reports
+		// progress only after a read returns, at most every 500 ms.
+		for sent := 0; sent+1024 < size; sent += 1024 {
+			w.Write(make([]byte, 1024))
+			w.(http.Flusher).Flush()
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(50 * time.Millisecond):
+			}
+		}
+		<-r.Context().Done()
+	}))
+	// A failed test can leave a download running: drop its connection, or
+	// Close waits for the handler for ever.
+	t.Cleanup(func() {
+		srv.CloseClientConnections()
+		srv.Close()
+	})
+	return srv
+}
+
+func TestCancelUnknownDownload(t *testing.T) {
+	d := NewDownloader(t.TempDir(), t.TempDir(), "")
+	if err := d.Cancel("org--none--file"); err == nil {
+		t.Error("Cancel of an unknown download: no error")
+	}
+}
+
+// A download cancelled while bytes are still coming stops, reports
+// "cancelled", keeps its .part file for a resume, and no longer counts
+// toward PendingBytes.
+func TestCancelMidTransfer(t *testing.T) {
+	const size = 1 << 20
+	srv := stallingServer(t, size)
+	gen := t.TempDir()
+	d := NewDownloader(t.TempDir(), t.TempDir(), "")
+	d.RegisterProvider("fake", Provider{URL: func(string, string) string { return srv.URL }})
+
+	id, err := d.StartTo("fake", "org/repo", "big.safetensors", gen, size, func(string, int64) {
+		t.Error("onDone called for a cancelled download")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	testutil.Eventually(t, func() bool {
+		st, _ := d.Status(id)
+		return st.Status == "downloading" && st.BytesDownloaded > 0
+	}, "download never started")
+	if p := d.PendingBytes(); p <= 0 || p > size {
+		t.Errorf("PendingBytes mid-transfer = %d, want 1..%d", p, size)
+	}
+
+	if err := d.Cancel(id); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := d.Status(id); st.Status != "cancelled" {
+		t.Errorf("status after Cancel = %q, want cancelled", st.Status)
+	}
+	if p := d.PendingBytes(); p != 0 {
+		t.Errorf("PendingBytes after Cancel = %d, want 0", p)
+	}
+	part := FilePath(gen, "org/repo", "big.safetensors") + ".part"
+	if _, err := os.Stat(part); err != nil {
+		t.Errorf("the .part file is gone after a cancel: %v", err)
+	}
+}
+
+// FreeBytes reads the models folder's file system; AvailableForDownload
+// takes the safety margin off it.
+func TestFreeBytes(t *testing.T) {
+	d := NewDownloader(t.TempDir(), t.TempDir(), "")
+	free := d.FreeBytes()
+	if free <= 0 {
+		t.Fatalf("FreeBytes = %d, want > 0 on a real file system", free)
+	}
+	if avail := d.AvailableForDownload(); avail < 0 || avail > free {
+		t.Errorf("AvailableForDownload = %d, want 0..%d", avail, free)
 	}
 }
