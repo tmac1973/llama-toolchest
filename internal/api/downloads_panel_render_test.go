@@ -43,7 +43,7 @@ func TestDownloadsPanelActiveRow(t *testing.T) {
 func TestDownloadsPanelPausedRow(t *testing.T) {
 	out := renderDownloadsPanel(t, []downloadRow{{
 		ID: "org--M-GGUF--m.gguf", ModelID: "org/M-GGUF", Filename: "m.gguf",
-		OnDiskGB: 3.5, PartCount: 2,
+		OnDiskGB: 3.5, PartCount: 2, HasParts: true,
 	}})
 	if !strings.Contains(out, ">Resume</button>") || !strings.Contains(out, ">Discard</button>") {
 		t.Errorf("paused row must offer Resume and Discard; output=\n%s", out)
@@ -59,6 +59,40 @@ func TestDownloadsPanelPausedRow(t *testing.T) {
 	}
 	if !strings.Contains(out, "hx-confirm") {
 		t.Errorf("Discard must keep its confirmation; output=\n%s", out)
+	}
+}
+
+// A failed download that left no files shows its error and a Dismiss
+// button, and nothing to resume or discard.
+func TestDownloadsPanelFailedRow(t *testing.T) {
+	out := renderDownloadsPanel(t, []downloadRow{{
+		ID: "org--M-GGUF--m.gguf", ModelID: "org/M-GGUF", Filename: "m.gguf",
+		Error: "m.gguf is 5 bytes, but 7 bytes were expected; the download was discarded",
+	}})
+	if !strings.Contains(out, "Download failed: m.gguf is 5 bytes, but 7 bytes were expected") {
+		t.Errorf("failed row must show the error; output=\n%s", out)
+	}
+	if !strings.Contains(out, ">Dismiss</button>") || !strings.Contains(out, `hx-delete="/api/hf/download/org--M-GGUF--m.gguf"`) {
+		t.Errorf("failed row must offer Dismiss on the download route; output=\n%s", out)
+	}
+	for _, b := range []string{">Pause</button>", ">Resume</button>", ">Discard</button>", "on disk"} {
+		if strings.Contains(out, b) {
+			t.Errorf("failed row without files must not show %q; output=\n%s", b, out)
+		}
+	}
+}
+
+// A failed download that left partial files keeps Resume and Discard and
+// adds its error.
+func TestDownloadsPanelFailedRowWithParts(t *testing.T) {
+	out := renderDownloadsPanel(t, []downloadRow{{
+		ID: "org--M-GGUF--m.gguf", ModelID: "org/M-GGUF", Filename: "m.gguf",
+		OnDiskGB: 1, PartCount: 1, HasParts: true, Error: "HTTP 503",
+	}})
+	for _, want := range []string{">Resume</button>", ">Discard</button>", ">Dismiss</button>", "Download failed: HTTP 503"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q; output=\n%s", want, out)
+		}
 	}
 }
 
