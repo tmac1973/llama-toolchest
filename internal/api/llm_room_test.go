@@ -327,7 +327,7 @@ func TestLoadWithRoomRealFreeCheck(t *testing.T) {
 			used += 13721
 		}
 		f.mu.Unlock()
-		return []monitor.GPUInfo{{Index: 0, VRAMTotalMB: 32624, VRAMUsedMB: used}}
+		return []monitor.GPUInfo{{Index: 0, VRAMTotalMiB: 32624, VRAMUsedMiB: used}}
 	}
 	if err := loadWithRoom(t, s, c); err != nil {
 		t.Fatal(err)
@@ -339,7 +339,7 @@ func TestLoadWithRoomRealFreeCheck(t *testing.T) {
 	// a still loading counts with its whole plan.
 	f.reset(map[string]string{s.registry.RouterName("a"): "loading"}, nil)
 	s.testGPUReadings = func() []monitor.GPUInfo {
-		return []monitor.GPUInfo{{Index: 0, VRAMTotalMB: 32624, VRAMUsedMB: 1300}}
+		return []monitor.GPUInfo{{Index: 0, VRAMTotalMiB: 32624, VRAMUsedMiB: 1300}}
 	}
 	room := models.RoomOf(s.idleHardware())
 	if got := s.loadingLLMMiB(room, c.ID)[0]; got != 13721 {
@@ -362,7 +362,7 @@ func TestLoadWithRoomRealFreeShortStillLoads(t *testing.T) {
 	s, f := roomServer(t)
 	c := addRoomModel(t, s, "c", 16)
 	s.testGPUReadings = func() []monitor.GPUInfo {
-		return []monitor.GPUInfo{{Index: 0, VRAMTotalMB: 32624, VRAMUsedMB: 20000}}
+		return []monitor.GPUInfo{{Index: 0, VRAMTotalMiB: 32624, VRAMUsedMiB: 20000}}
 	}
 	if short := s.realFreeShortGPUs(c); len(short) != 1 {
 		t.Fatalf("short = %+v, want GPU 0", short)

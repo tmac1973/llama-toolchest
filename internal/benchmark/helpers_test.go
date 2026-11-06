@@ -257,8 +257,8 @@ func TestGPUSnapshotsFromMetrics(t *testing.T) {
 		t.Errorf("no GPUs = %#v, want an empty list", got)
 	}
 	m := monitor.Metrics{GPU: []monitor.GPUInfo{
-		{Index: 2, Name: "AMD Radeon AI PRO R9700", VRAMTotalMB: 32624, VRAMUsedMB: 100},
-		{Index: 0, Name: "AMD Radeon Graphics", VRAMTotalMB: 512, IsIGPU: true},
+		{Index: 2, Name: "AMD Radeon AI PRO R9700", VRAMTotalMiB: 32624, VRAMUsedMiB: 100},
+		{Index: 0, Name: "AMD Radeon Graphics", VRAMTotalMiB: 512, IsIGPU: true},
 	}}
 	got := GPUSnapshotsFromMetrics(m)
 	want := []GPUSnapshot{

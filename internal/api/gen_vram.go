@@ -1086,7 +1086,7 @@ func (s *Server) gpuReading(gpu int) func() (time.Time, int) {
 		m := s.monitor.Current()
 		for _, g := range m.GPU {
 			if g.Index == gpu {
-				return m.Timestamp, g.VRAMUsedMB
+				return m.Timestamp, g.VRAMUsedMiB
 			}
 		}
 		return m.Timestamp, 0
@@ -1183,7 +1183,7 @@ func (s *Server) gpuBusyPercent(gpu int) (int, bool) {
 func (s *Server) gpuUsedMiB(gpu int) int {
 	for _, g := range s.monitor.Current().GPU {
 		if g.Index == gpu {
-			return g.VRAMUsedMB
+			return g.VRAMUsedMiB
 		}
 	}
 	return 0

@@ -61,16 +61,16 @@ func (n *nvidiaBacked) Collect() ([]GPUInfo, error) {
 		}
 
 		gpus = append(gpus, GPUInfo{
-			Index:       idx,
-			Name:        strings.TrimSpace(fields[1]),
-			UtilPercent: util,
-			VRAMUsedMB:  vramUsed,
-			VRAMTotalMB: vramTotal,
-			TempC:       temp,
-			PowerW:      power,
-			HasFan:      hasFan,
-			FanPercent:  fan,
-			PCIe:        pcie,
+			Index:        idx,
+			Name:         strings.TrimSpace(fields[1]),
+			UtilPercent:  util,
+			VRAMUsedMiB:  vramUsed,
+			VRAMTotalMiB: vramTotal,
+			TempC:        temp,
+			PowerW:       power,
+			HasFan:       hasFan,
+			FanPercent:   fan,
+			PCIe:         pcie,
 		})
 	}
 	return gpus, nil

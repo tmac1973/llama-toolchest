@@ -914,7 +914,7 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 
 	// Mark disabled/recommended options
 	if numGPUs > 0 && model != nil {
-		perGPUGB := float64(metrics.GPU[0].VRAMTotalMB) / 1024.0
+		perGPUGB := float64(metrics.GPU[0].VRAMTotalMiB) / 1024.0
 		modelVRAM := models.VRAMEstimateForConfigOn(model, cfg, models.DeviceCountForConfig(cfg, len(s.monitor.Current().GPU)))
 		allModels := s.registry.List()
 		allConfigs := make(map[string]*models.ModelConfig)

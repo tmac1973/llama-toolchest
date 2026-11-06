@@ -55,7 +55,7 @@ type gpuBar struct {
 func gpuMapBars(gpus []monitor.GPUInfo, allocations []models.GPUAllocation) []gpuBar {
 	bars := make([]gpuBar, len(gpus))
 	for i, gpu := range gpus {
-		totalGB := float64(gpu.VRAMTotalMB) / 1024.0
+		totalGB := float64(gpu.VRAMTotalMiB) / 1024.0
 		bars[i] = gpuBar{
 			Index:   gpu.Index,
 			Name:    gpu.Name,

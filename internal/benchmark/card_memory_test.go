@@ -10,14 +10,14 @@ import (
 func threeCards(used ...int) monitor.Metrics {
 	var m monitor.Metrics
 	for i, u := range used {
-		m.GPU = append(m.GPU, monitor.GPUInfo{Index: i, VRAMUsedMB: u, VRAMTotalMB: 16376})
+		m.GPU = append(m.GPU, monitor.GPUInfo{Index: i, VRAMUsedMiB: u, VRAMTotalMiB: 16376})
 	}
 	return m
 }
 
 func TestCardsInUse(t *testing.T) {
 	m := threeCards(15879, 14649, 14949)
-	m.GPU = append(m.GPU, monitor.GPUInfo{Index: 3, VRAMUsedMB: 1000, VRAMTotalMB: 2048, IsIGPU: true})
+	m.GPU = append(m.GPU, monitor.GPUInfo{Index: 3, VRAMUsedMiB: 1000, VRAMTotalMiB: 2048, IsIGPU: true})
 
 	all := CardsInUse(m, ConfigSnapshot{GPULayers: 999, GPUAssign: "all"})
 	if len(all) != 3 {

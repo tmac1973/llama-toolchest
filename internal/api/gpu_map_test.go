@@ -15,8 +15,8 @@ func near(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
 // than it has is overcommitted.
 func TestGPUMapBars(t *testing.T) {
 	gpus := []monitor.GPUInfo{
-		{Index: 0, Name: "A", VRAMTotalMB: 16384},
-		{Index: 1, Name: "B", VRAMTotalMB: 8192},
+		{Index: 0, Name: "A", VRAMTotalMiB: 16384},
+		{Index: 1, Name: "B", VRAMTotalMiB: 8192},
 	}
 	allocs := []models.GPUAllocation{
 		{ModelName: "split", GPUs: []int{0, 1}, GPULoadGB: map[int]float64{0: 4, 1: 6}, Color: "#1"},

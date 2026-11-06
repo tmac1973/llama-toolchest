@@ -1,1 +1,14 @@
+# The docs site generator. Its own dependencies are pinned below so
+# `make docs` and the docs workflow build with the same versions; to
+# update, install zensical into a fresh venv and copy `pip freeze`.
 zensical==0.1.0
+click==8.5.1
+Jinja2==3.1.6
+Markdown==3.11.3
+MarkupSafe==3.0.4
+pathspec==1.1.1
+Pygments==2.21.0
+pymdown-extensions==12.3
+PyYAML==6.0.3
+tomli==2.5.0
+zensical-ui==0.0.41

@@ -80,7 +80,7 @@ func (s *Server) watchOtherVRAM() {
 func (s *Server) updateOtherVRAM(m monitor.Metrics) {
 	used := make([]int, len(m.GPU))
 	for i, g := range m.GPU {
-		used[i] = g.VRAMUsedMB
+		used[i] = g.VRAMUsedMiB
 	}
 	other, idle := s.attributeVRAM(used)
 	var idleOther []int

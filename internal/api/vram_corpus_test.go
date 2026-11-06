@@ -128,7 +128,7 @@ func TestCorpusRowScalesAggregatedFigures(t *testing.T) {
 
 func TestUsedGiBSumsEveryCard(t *testing.T) {
 	got := usedGiB(monitor.Metrics{GPU: []monitor.GPUInfo{
-		{VRAMUsedMB: 1024}, {VRAMUsedMB: 2048}, {VRAMUsedMB: 512},
+		{VRAMUsedMiB: 1024}, {VRAMUsedMiB: 2048}, {VRAMUsedMiB: 512},
 	}})
 	if got != 3.5 {
 		t.Errorf("used = %v GiB; want 3.5", got)

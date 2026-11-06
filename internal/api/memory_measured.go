@@ -154,7 +154,7 @@ func (s *Server) gpuUsedAfterFreshSample(timeout time.Duration) (float64, bool) 
 func usedGiB(m monitor.Metrics) float64 {
 	var total float64
 	for _, g := range m.GPU {
-		total += float64(g.VRAMUsedMB) / 1024
+		total += float64(g.VRAMUsedMiB) / 1024
 	}
 	return total
 }

@@ -196,7 +196,7 @@ func hfDownloadURL(modelID, filename string) string {
 }
 
 func hfRevisionURL(modelID, revision, filename string) string {
-	return "https://huggingface.co/" + modelID + "/resolve/" + revision + "/" + filename
+	return SiteURL + "/" + modelID + "/resolve/" + revision + "/" + filename
 }
 
 // fileURL is where a download of one file comes from: the source's

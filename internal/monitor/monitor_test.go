@@ -12,7 +12,7 @@ func TestSubscriberGetsTheLatestSnapshot(t *testing.T) {
 	if !m.Current().Timestamp.IsZero() {
 		t.Fatal("Current before the first poll should be empty")
 	}
-	snap := Metrics{Timestamp: time.Unix(100, 0), Memory: MemoryInfo{UsedMB: 1, TotalMB: 2}}
+	snap := Metrics{Timestamp: time.Unix(100, 0), Memory: MemoryInfo{UsedMiB: 1, TotalMiB: 2}}
 	m.metrics.Broadcast(snap)
 
 	if got := m.Current(); !got.Timestamp.Equal(snap.Timestamp) {

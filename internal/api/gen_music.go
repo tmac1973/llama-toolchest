@@ -569,7 +569,7 @@ func readMusicRequest(w http.ResponseWriter, r *http.Request) (musicRequest, err
 
 func readMusicForm(w http.ResponseWriter, r *http.Request) (*multipart.Form, error) {
 	r.Body = http.MaxBytesReader(w, r.Body, musicUploadLimit)
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
+	if err := r.ParseMultipartForm(multipartMemory); err != nil {
 		return nil, fmt.Errorf("reading the multipart body (at most %d MB): %w", musicUploadLimit>>20, err)
 	}
 	return r.MultipartForm, nil

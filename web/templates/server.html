@@ -757,7 +757,9 @@ function copyFromButton(btn) {
         var originalIcon = btn.dataset.icon;
         btn.innerHTML = btn.dataset.iconCheck;
         setTimeout(function(){ btn.innerHTML = originalIcon; }, 900);
-    }).catch(function() {});
+    }).catch(function() {
+        showError('Copying failed: the browser refused it. Select the text and copy it by hand.', btn);
+    });
 }
 
 // --- Clear "Settings saved." confirmation after a moment ---

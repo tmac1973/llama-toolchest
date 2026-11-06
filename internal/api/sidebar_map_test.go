@@ -15,9 +15,9 @@ import (
 // nothing on it gets no bar.
 func TestSidebarMapShowsOnlyWhatIsOnTheGPUs(t *testing.T) {
 	gpus := []monitor.GPUInfo{
-		{Index: 0, VRAMTotalMB: 16384},
-		{Index: 1, VRAMTotalMB: 16384},
-		{Index: 2, VRAMTotalMB: 16384},
+		{Index: 0, VRAMTotalMiB: 16384},
+		{Index: 1, VRAMTotalMiB: 16384},
+		{Index: 2, VRAMTotalMiB: 16384},
 	}
 	allocs := []models.GPUAllocation{
 		{ModelID: "qwen", ModelName: "Qwen3-30B", GPUs: []int{0, 1}, PerGPUGB: 8, TotalGB: 16, Color: "#111111"},
@@ -68,7 +68,7 @@ func TestSidebarMapShowsOnlyWhatIsOnTheGPUs(t *testing.T) {
 func TestSidebarMapRenders(t *testing.T) {
 	s := newTestServer(t)
 	data := monitorBar{Map: buildSidebarMap(
-		[]monitor.GPUInfo{{Index: 0, VRAMTotalMB: 16384}},
+		[]monitor.GPUInfo{{Index: 0, VRAMTotalMiB: 16384}},
 		[]models.GPUAllocation{
 			{ModelID: "qwen", ModelName: "Qwen3-30B", GPUs: []int{0}, PerGPUGB: 8, TotalGB: 8, Color: "#4e79a7"},
 			{ModelID: "gen:ace", ModelName: "ace (reserved)", GPUs: []int{0}, PerGPUGB: 2, TotalGB: 2, Color: "#f28e2b", Reserved: true},

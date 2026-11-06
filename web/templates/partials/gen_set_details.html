@@ -50,7 +50,7 @@
 <pre style="white-space:pre-wrap;word-break:break-all;margin-bottom:0.25rem;"><code>{{.Command}}</code></pre>
 <p><button type="button" class="outline secondary" style="padding:0.1rem 0.6rem;font-size:0.8rem;"
         data-copy="{{.Command}}" title="Copies the command. Replace the values in angle brackets before you run it."
-        onclick="var b=this; copyToClipboard(b.dataset.copy).then(function(){ b.textContent='Copied'; setTimeout(function(){ b.textContent='Copy command'; }, 1200); }).catch(function(){});">Copy command</button>
+        onclick="var b=this; copyToClipboard(b.dataset.copy).then(function(){ b.textContent='Copied'; setTimeout(function(){ b.textContent='Copy command'; }, 1200); }).catch(function(){ showError('Copying failed: the browser refused it. Select the command and copy it by hand.', b); });">Copy command</button>
 <small>An instance can add its own extra arguments on the Server page.</small></p>
 
 {{- $details := "gen-set-details-dialog"}}{{if eq .Tab "catalog"}}{{$details = "gen-catalog-details-dialog"}}{{end}}
