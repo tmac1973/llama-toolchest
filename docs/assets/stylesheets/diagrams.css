@@ -8,7 +8,6 @@
   --tc-llm-buf: #8fb6e0;  /* buffers */
   --tc-gen: #b35f2f;      /* generation reservation */
   --tc-margin: #8a6bbf;   /* GPU memory margin */
-  --tc-working: #c0912a;  /* 1 GiB working memory */
   --tc-other: #7a7a7a;    /* desktop and other programs */
   --tc-free: #dcdcdc;     /* free */
   --tc-text: #1f1f1f;
@@ -20,7 +19,6 @@
   --tc-llm-buf: #2c5f99;
   --tc-gen: #e08a55;
   --tc-margin: #a98be0;
-  --tc-working: #e0b44f;
   --tc-other: #9a9a9a;
   --tc-free: #3a3d48;
   --tc-text: #e6e6e6;

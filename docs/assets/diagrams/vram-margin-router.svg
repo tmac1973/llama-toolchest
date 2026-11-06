@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 250" role="img" aria-labelledby="vr-t">
+  <title id="vr-t">Margins as set per GPU, and the one margin that the llama.cpp router gets</title>
+  <!-- Only the top 4 GiB of each GPU is drawn: 40 px per GiB. -->
+  <g font-family="sans-serif" font-size="13" fill="currentColor">
+    <text x="20" y="18" font-weight="bold">As set in Settings</text>
+    <text x="290" y="18" font-weight="bold">What the router gets</text>
+
+    <g>
+      <rect x="20" y="40" width="60" height="120" fill="var(--tc-llm)"/>
+      <rect x="20" y="160" width="60" height="40" fill="var(--tc-margin)"/>
+      <rect x="20" y="40" width="60" height="160" fill="none" stroke="currentColor"/>
+      <text x="50" y="185" text-anchor="middle">1 GiB</text>
+      <text x="50" y="220" text-anchor="middle">GPU 0</text>
+
+      <rect x="100" y="40" width="60" height="80" fill="var(--tc-llm)"/>
+      <rect x="100" y="120" width="60" height="80" fill="var(--tc-margin)"/>
+      <rect x="100" y="40" width="60" height="160" fill="none" stroke="currentColor"/>
+      <text x="130" y="165" text-anchor="middle">2 GiB</text>
+      <text x="130" y="220" text-anchor="middle">GPU 1</text>
+
+      <rect x="180" y="40" width="60" height="120" fill="var(--tc-llm)"/>
+      <rect x="180" y="160" width="60" height="40" fill="var(--tc-margin)"/>
+      <rect x="180" y="40" width="60" height="160" fill="none" stroke="currentColor"/>
+      <text x="210" y="185" text-anchor="middle">1 GiB</text>
+      <text x="210" y="220" text-anchor="middle">GPU 2</text>
+    </g>
+
+    <path d="M252 120 h26" stroke="currentColor" fill="none"/>
+    <path d="M272 114 l8 6 l-8 6" stroke="currentColor" fill="none"/>
+
+    <g>
+      <rect x="290" y="40" width="60" height="80" fill="var(--tc-llm)"/>
+      <rect x="290" y="120" width="60" height="80" fill="var(--tc-margin)"/>
+      <rect x="290" y="40" width="60" height="160" fill="none" stroke="currentColor"/>
+      <text x="320" y="165" text-anchor="middle">2 GiB</text>
+      <text x="320" y="220" text-anchor="middle">GPU 0</text>
+
+      <rect x="370" y="40" width="60" height="80" fill="var(--tc-llm)"/>
+      <rect x="370" y="120" width="60" height="80" fill="var(--tc-margin)"/>
+      <rect x="370" y="40" width="60" height="160" fill="none" stroke="currentColor"/>
+      <text x="400" y="165" text-anchor="middle">2 GiB</text>
+      <text x="400" y="220" text-anchor="middle">GPU 1</text>
+
+      <rect x="450" y="40" width="60" height="80" fill="var(--tc-llm)"/>
+      <rect x="450" y="120" width="60" height="80" fill="var(--tc-margin)"/>
+      <rect x="450" y="40" width="60" height="160" fill="none" stroke="currentColor"/>
+      <text x="480" y="165" text-anchor="middle">2 GiB</text>
+      <text x="480" y="220" text-anchor="middle">GPU 2</text>
+    </g>
+    <text x="400" y="244" text-anchor="middle">the largest margin, on every GPU</text>
+  </g>
+</svg>
