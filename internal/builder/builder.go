@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,6 +26,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/broadcast"
 	"github.com/tmac1973/llama-toolchest/internal/patchsets"
 	"github.com/tmac1973/llama-toolchest/internal/readonly"
+	"github.com/tmac1973/llama-toolchest/internal/redact"
 )
 
 // llamaCppRepo is the upstream clone source. A var, not a const, so
@@ -1071,7 +1071,7 @@ func (b *Builder) ensureRepo(ctx context.Context, proj Project, srcDir string, l
 		return fmt.Errorf("%s exists but is not a usable %s clone; move it aside and build again", srcDir, proj.ID)
 	}
 
-	slog.Info("cloning the project", "project", proj.ID, "repo", redactURL(proj.Repo), "dir", srcDir)
+	slog.Info("cloning the project", "project", proj.ID, "repo", redact.URL(proj.Repo), "dir", srcDir)
 	sendLog(logCh, "==> Cloning "+proj.ID+"...")
 	if err := os.MkdirAll(filepath.Dir(srcDir), 0o755); err != nil {
 		return fmt.Errorf("creating clone parent: %w", err)
@@ -1728,19 +1728,4 @@ func prependPath(env []string, dir string) []string {
 		out = append(out, "PATH="+dir)
 	}
 	return out
-}
-
-// redactURL returns a repository URL without any user name or password in
-// it, for logs: a custom repo can carry a token (https://user:token@host/...).
-// A value that is not a URL is returned unchanged.
-func redactURL(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil || u.User == nil {
-		return raw
-	}
-	if _, hasPassword := u.User.Password(); !hasPassword {
-		// A token can be the user name alone: https://TOKEN@host/...
-		u.User = url.User("xxxxx")
-	}
-	return u.Redacted()
 }

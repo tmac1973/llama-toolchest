@@ -447,7 +447,7 @@ func (s *Server) runVideoJob(ctx context.Context, id string, inst generation.Ins
 	last := generation.LastVideo{Frames: res.Frames, Width: width, Height: height, Inputs: videoInputs(vid),
 		Seconds: int(time.Since(now).Round(time.Second).Seconds()), At: time.Now()}
 	if err := s.gen.EditInstance(inst.ID, func(i *generation.Instance) { i.LastVideo = last }); err != nil {
-		slog.Warn("could not record the video's time on its instance", "instance", inst.ID, "error", err)
+		slog.Warn("failed to record the video's time on its instance", "instance", inst.ID, "error", err)
 	}
 	finish(jobSucceeded, "", &videoJobVideo{
 		URL: "/v1/videos/jobs/" + id + "/video", MimeType: res.MimeType, Format: format,

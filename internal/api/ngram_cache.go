@@ -27,7 +27,7 @@ func (s *Server) prepareNgramCacheForLoad(id string) {
 		return
 	}
 	if err := models.PrepareNgramCacheFile(path); err != nil {
-		slog.Warn("could not prepare the learned n-gram file", "model", id, "error", err)
+		slog.Warn("failed to prepare the learned n-gram file", "model", id, "error", err)
 	}
 }
 

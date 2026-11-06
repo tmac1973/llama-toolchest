@@ -285,7 +285,7 @@ tests:
 			})
 			if err != nil {
 				lastErr = err
-				slog.Error("benchmark test failed", "prompt_tokens", promptTokens, "rep", rep, "error", err)
+				slog.Warn("benchmark test failed", "prompt_tokens", promptTokens, "rep", rep, "error", err)
 				if errors.Is(err, errBenchStalled) || errors.Is(err, errBenchTimedOut) {
 					// The server is still hung: the next request would
 					// wait as long for it. The job restarts the router
@@ -328,7 +328,7 @@ tests:
 // the load and answers at once, so the model may still be loading when
 // this returns; the warmup step after it retries until the model answers.
 func (r *Runner) ensureModelLoaded(ctx context.Context, routerURL, modelName string) error {
-	slog.Info("benchmark: loading model", "name", modelName, "url", routerURL)
+	slog.Info("benchmark: loading model", "model", modelName, "url", routerURL)
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	if err := routerclient.Load(ctx, routerURL, modelName); err != nil {
@@ -351,7 +351,7 @@ func (r *Runner) unloadAllModels(ctx context.Context, routerURL string) {
 			slog.Warn("benchmark: failed to unload model", "name", name, "error", err)
 			continue
 		}
-		slog.Info("benchmark: unload requested", "name", name)
+		slog.Info("benchmark: unload requested", "model", name)
 	}
 
 	// Wait for all models to be confirmed unloaded (up to 30s)
@@ -371,7 +371,7 @@ func (r *Runner) unloadAllModels(ctx context.Context, routerURL string) {
 func listLoadedModels(ctx context.Context, routerURL string) []string {
 	list, err := routerclient.List(ctx, routerURL)
 	if err != nil {
-		slog.Warn("benchmark: could not list router models", "error", err)
+		slog.Warn("benchmark: failed to list router models", "error", err)
 		return nil
 	}
 	var loaded []string

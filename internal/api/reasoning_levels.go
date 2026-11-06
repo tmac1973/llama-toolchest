@@ -65,7 +65,7 @@ func (s *Server) noteModelLoaded(m *models.Model) {
 		defer cancel()
 		levels, known, err := s.readReasoningLevels(ctx, s.registry.RouterName(m.ID))
 		if err != nil {
-			slog.Debug("could not read the reasoning effort levels", "model", m.PublicName(), "error", err)
+			slog.Debug("failed to read the reasoning effort levels", "model", m.PublicName(), "error", err)
 			return // read again on the next load
 		}
 		if err := s.registry.SetReasoningLevels(m.ID, levels, known, b.ID); err != nil {

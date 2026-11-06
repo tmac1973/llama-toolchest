@@ -14,6 +14,14 @@ dist/
 *.pfx
 id_rsa*
 id_ed25519*
+# Cloud and package-registry credentials.
+service-account*.json
+*credentials*.json
+.netrc
+.npmrc
+.pypirc
+*.jks
+*.keystore
 # A backup exported with secrets holds the tokens and the API key.
 llama-toolchest-backup-*.json
 # Rendered from Caddyfile.template by `setup.sh install --secure`; contains the
@@ -23,6 +31,8 @@ llama-toolchest-backup-*.json
 # hf_token and api_key fields, so it must never be committed. The example
 # lives at packaging/config/llama-toolchest.yaml.example.
 /config.yaml
+# The installed config name, for a copy of the example with real values.
+llama-toolchest.yaml
 .claude/*
 # Shared Claude Code config (attribution off); the rest of .claude/ stays local.
 !.claude/settings.json

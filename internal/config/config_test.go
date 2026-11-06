@@ -218,3 +218,22 @@ func TestFileValuesUndoEnvOverrides(t *testing.T) {
 		t.Errorf("FileValues changed the config in use: %q", cfg.ExternalURL)
 	}
 }
+
+// A rocm-next image name from the environment is shown on the Builds
+// page; anything that is not an image reference is ignored.
+func TestROCmBaseImageFromEnv(t *testing.T) {
+	for v, want := range map[string]string{
+		"rocm/dev-ubuntu-24.04:10.1.0-full": "rocm/dev-ubuntu-24.04:10.1.0-full",
+		"<script>":                          "",
+		"two words":                         "",
+	} {
+		t.Setenv("LLAMA_TOOLCHEST_ROCM_BASE_IMAGE", v)
+		cfg, err := Load(filepath.Join(t.TempDir(), "none.yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.ROCmBaseImage != want {
+			t.Errorf("%q: ROCmBaseImage = %q, want %q", v, cfg.ROCmBaseImage, want)
+		}
+	}
+}

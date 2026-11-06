@@ -120,7 +120,7 @@ func (s *Server) savePromptCache(ctx context.Context, m *models.Model, routerNam
 	}
 	slots, err := s.process.Slots(ctx, routerName)
 	if err != nil {
-		slog.Warn("prompt cache not saved: could not list the model's slots", "model", m.PublicName(), "error", err)
+		slog.Warn("prompt cache not saved: failed to list the model's slots", "model", m.PublicName(), "error", err)
 		return
 	}
 	var saved []savedSlot

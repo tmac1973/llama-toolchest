@@ -828,7 +828,7 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 			if err := s.gen.EditInstance(id, func(i *generation.Instance) {
 				i.MeasurePoints = generation.AddMeasurePoint(i.MeasurePoints, point)
 			}); err != nil {
-				slog.Warn("could not record a measurement point", "instance", id, "error", err)
+				slog.Warn("failed to record a measurement point", "instance", id, "error", err)
 			}
 		}
 		return abortErr

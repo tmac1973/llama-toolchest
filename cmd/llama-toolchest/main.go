@@ -66,7 +66,7 @@ func main() {
 	go func() {
 		slog.Info("listening", "addr", cfg.ListenAddr)
 		if err := httpSrv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("server error", "error", err)
+			slog.Error("failed to serve HTTP", "error", err)
 			os.Exit(1)
 		}
 	}()
@@ -86,7 +86,7 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
-		slog.Warn("http shutdown", "error", err)
+		slog.Warn("failed to shut down the HTTP server cleanly", "error", err)
 	}
 	<-done
 }
@@ -106,7 +106,7 @@ func initDataDir(cfg *config.Config) error {
 	// (clean exits rename it, failures delete it); remove stale corpses
 	// once at startup, next to the directory creation.
 	if n, err := evaluate.CleanStalePartials(evaluate.EvalDataRoot(cfg.DataDir)); err != nil {
-		slog.Warn("cleaning stale KL cache partials", "error", err)
+		slog.Warn("failed to clean stale KL cache partials", "error", err)
 	} else if n > 0 {
 		slog.Info("removed stale KL cache partials", "count", n)
 	}

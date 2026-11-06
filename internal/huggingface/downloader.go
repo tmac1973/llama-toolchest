@@ -19,6 +19,7 @@ import (
 
 	"github.com/tmac1973/llama-toolchest/internal/broadcast"
 	"github.com/tmac1973/llama-toolchest/internal/filehash"
+	"github.com/tmac1973/llama-toolchest/internal/redact"
 
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/modelsource"
@@ -723,7 +724,9 @@ func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, model
 	client := &http.Client{Timeout: 0}
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0, err
+		// After a redirect the URL can be a CDN's presigned one, whose
+		// signature must not reach the log or the page.
+		return 0, redact.Error(err)
 	}
 	defer resp.Body.Close()
 
