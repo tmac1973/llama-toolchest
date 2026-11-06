@@ -35,7 +35,7 @@ func findFork(id string) (forks.Fork, bool) {
 // startup.
 func (s *Server) forkStore(w http.ResponseWriter) *forks.Store {
 	if !s.forksOn() {
-		http.NotFound(w, nil)
+		featureOff(w, "Forks")
 		return nil
 	}
 	if s.forks == nil {

@@ -2,11 +2,9 @@ package api
 
 import (
 	"cmp"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -609,7 +607,7 @@ func (s *Server) handleGenCreateInstance(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "the instance needs a name", http.StatusBadRequest)
 		return
 	}
-	if code, err := s.genPortFromForm(r, store, &inst); err != nil {
+	if code, err := s.genPortFromForm(r, &inst); err != nil {
 		http.Error(w, err.Error(), code)
 		return
 	}
@@ -624,52 +622,13 @@ func (s *Server) handleGenCreateInstance(w http.ResponseWriter, r *http.Request)
 	s.genInstancesChanged(w, r)
 }
 
-// freeInstanceName is the set's ID, or the set's ID with -2, -3 and so on
-// when that is taken.
-// genPortFromForm sets inst.Port from the form's port field. Empty keeps
-// the instance's port, or gives a new instance the lowest free port in the
-// generation port range. A chosen port must be in that range and not used
-// by another instance; the instance's own port is always kept, also when
-// the range changed so that it is now outside. On an error it returns the
-// HTTP status to send.
-func (s *Server) genPortFromForm(r *http.Request, store *generation.Store, inst *generation.Instance) (int, error) {
-	cfg := s.cfgCopy()
-	start, count := cfg.GenPorts(s.inContainer())
-	raw := strings.TrimSpace(r.FormValue("port"))
-	if raw == "" {
-		if inst.Port != 0 {
-			return 0, nil
-		}
-		// Fork instances take their ports from the same range.
-		used := s.instancePorts(inst.ID, "")
-		for p := start; p < start+count; p++ {
-			if _, ok := used[p]; !ok {
-				inst.Port = p
-				return 0, nil
-			}
-		}
-		return http.StatusConflict, fmt.Errorf("%d–%d: %w; widen the range in Settings, or delete an instance", start, start+count-1, generation.ErrNoPort)
-	}
-	port, err := strconv.Atoi(raw)
-	if err != nil {
-		return http.StatusBadRequest, fmt.Errorf("port %q is not a number", raw)
-	}
-	if port == inst.Port {
-		return 0, nil
-	}
-	if err := store.CheckPort(inst.ID, port, start, count); err != nil {
-		if errors.Is(err, generation.ErrPortUsed) {
-			return http.StatusConflict, err
-		}
-		return http.StatusBadRequest, err
-	}
-	if who, ok := s.instancePorts(inst.ID, "")[port]; ok {
-		return http.StatusConflict, fmt.Errorf("port %d is %w (%s)", port, generation.ErrPortUsed, who)
-	}
-	inst.Port = port
-	return 0, nil
+// genPortFromForm is portFromForm for a generation instance.
+func (s *Server) genPortFromForm(r *http.Request, inst *generation.Instance) (int, error) {
+	return s.portFromForm(r, &inst.Port, inst.ID, "")
 }
 
+// freeInstanceName is the set's ID, or the set's ID with -2, -3 and so on
+// when that is taken.
 func (s *Server) freeInstanceName(store *generation.Store, base string) string {
 	name := base
 	for n := 2; ; n++ {
@@ -699,7 +658,7 @@ func (s *Server) handleGenEditInstance(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if code, err := s.genPortFromForm(r, store, &inst); err != nil {
+	if code, err := s.genPortFromForm(r, &inst); err != nil {
 		http.Error(w, err.Error(), code)
 		return
 	}
@@ -712,12 +671,7 @@ func (s *Server) handleGenEditInstance(w http.ResponseWriter, r *http.Request) {
 
 // genInstance reads the {id} instance, writing a 404 when it is unknown.
 func (s *Server) genInstance(w http.ResponseWriter, r *http.Request, store *generation.Store) (generation.Instance, bool) {
-	inst, err := store.Instance(chi.URLParam(r, "id"))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return inst, false
-	}
-	return inst, true
+	return urlInstance(w, r, store.Instance)
 }
 
 // startGenInstance starts an enabled instance that has a VRAM
@@ -833,39 +787,22 @@ func (s *Server) handleGenDeleteInstance(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	if s.genMgr.IsActive(inst.ID) {
-		http.Error(w, "stop the instance before deleting it", http.StatusConflict)
-		return
+	if deleteStoppedInstance(w, s.genMgr.Instances, inst.ID, store.DeleteInstance) {
+		s.genInstancesChanged(w, r)
 	}
-	if err := store.DeleteInstance(inst.ID); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	s.genMgr.Forget(inst.ID)
-	s.genInstancesChanged(w, r)
 }
 
 func (s *Server) handleGenInstanceLogs(w http.ResponseWriter, r *http.Request) {
 	if s.genStore(w) == nil {
 		return
 	}
-	id := chi.URLParam(r, "id")
-	ch := s.genMgr.Subscribe(id)
-	if ch == nil {
-		http.Error(w, "this instance has not run yet", http.StatusNotFound)
-		return
-	}
-	defer s.genMgr.Unsubscribe(id, ch)
-	StreamLines(w, r.Context(), ch, "Instance stopped")
+	streamInstanceLogs(w, r, s.genMgr.Instances)
 }
 
 // genInstancesChanged answers a change: the refreshed table for htmx, the
 // instance list as JSON otherwise.
 func (s *Server) genInstancesChanged(w http.ResponseWriter, r *http.Request) {
-	if isHTMX(r) {
-		w.Header().Set("HX-Trigger", "genInstancesChanged")
-	}
-	s.handleGenInstances(w, r)
+	instancesChanged(w, r, "genInstancesChanged", s.handleGenInstances)
 }
 
 // autoStartGenInstances starts every enabled auto-start instance. It does
@@ -874,27 +811,16 @@ func (s *Server) genInstancesChanged(w http.ResponseWriter, r *http.Request) {
 func (s *Server) autoStartGenInstances(afterRouter bool) {
 	// Under cfgMu: this runs in the background, also right after Settings
 	// switched generation on, while a further save can change it.
-	s.cfgMu.Lock()
-	on := s.cfg.GenerationEnabled
-	s.cfgMu.Unlock()
-	if !on || s.gen == nil {
+	if !s.genEnabled() {
 		return
 	}
 	// Model files moved at startup must be in place before anything runs.
 	s.genMove.wait()
-	if afterRouter {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		_ = s.process.WaitRunning(ctx)
-		cancel()
-	}
+	var ids []string
 	for _, inst := range s.gen.Instances() {
-		if !inst.Enabled || !inst.AutoStart {
-			continue
-		}
-		if err := s.startGenInstance(inst.ID); err != nil {
-			slog.Warn("failed to auto-start a generation instance", "instance", inst.ID, "error", err)
-		} else {
-			slog.Info("auto-started generation instance", "instance", inst.ID)
+		if inst.Enabled && inst.AutoStart {
+			ids = append(ids, inst.ID)
 		}
 	}
+	s.autoStartInstances("generation", afterRouter, ids, s.startGenInstance)
 }

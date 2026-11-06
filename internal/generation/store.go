@@ -1,16 +1,14 @@
 package generation
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"sync"
 
-	"github.com/tmac1973/llama-toolchest/internal/atomicfile"
 	"github.com/tmac1973/llama-toolchest/internal/config"
+	"github.com/tmac1973/llama-toolchest/internal/jsonstore"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
@@ -50,38 +48,15 @@ func StorePath(dataDir string) string {
 // Load reads the store under dataDir. A missing file is an empty store.
 func Load(dataDir string) (*Store, error) {
 	s := &Store{path: StorePath(dataDir), data: storeFile{SchemaVersion: SchemaVersion}}
-	raw, err := os.ReadFile(s.path)
-	if errors.Is(err, os.ErrNotExist) {
-		return s, nil
+	if err := jsonstore.Load(s.path, SchemaVersion, &s.data); err != nil {
+		return nil, err
 	}
-	if err != nil {
-		return nil, fmt.Errorf("reading %s: %w", s.path, err)
-	}
-	var f storeFile
-	if err := json.Unmarshal(raw, &f); err != nil {
-		return nil, fmt.Errorf("reading %s: %w", s.path, err)
-	}
-	if f.SchemaVersion != SchemaVersion {
-		return nil, fmt.Errorf("%s has schema version %d; this build reads version %d",
-			s.path, f.SchemaVersion, SchemaVersion)
-	}
-	s.data = f
 	return s, nil
 }
 
 // saveLocked writes the store. Callers must hold mu for writing.
 func (s *Store) saveLocked() error {
-	raw, err := json.MarshalIndent(s.data, "", "  ")
-	if err != nil {
-		return fmt.Errorf("saving generation store: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return fmt.Errorf("saving generation store: %w", err)
-	}
-	if err := atomicfile.WriteMode(s.path, raw, 0o600); err != nil {
-		return fmt.Errorf("saving generation store to %s: %w", s.path, err)
-	}
-	return nil
+	return jsonstore.Save(s.path, "generation store", s.data)
 }
 
 // Sets and instances go in and out of the store as deep copies: their
@@ -262,23 +237,6 @@ func (s *Store) AssignPort(start, count int) (int, error) {
 		}
 	}
 	return 0, fmt.Errorf("%d–%d: %w", start, start+count-1, ErrNoPort)
-}
-
-// CheckPort reports whether the instance id can use port: the port must be
-// in [start, start+count) and no other instance may use it. id is empty
-// for an instance that is not stored yet.
-func (s *Store) CheckPort(id string, port, start, count int) error {
-	if port < start || port >= start+count {
-		return fmt.Errorf("port %d is outside the generation port range %d–%d", port, start, start+count-1)
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	for _, inst := range s.data.Instances {
-		if inst.Port == port && inst.ID != id {
-			return fmt.Errorf("port %d is %w (%s)", port, ErrPortUsed, inst.ID)
-		}
-	}
-	return nil
 }
 
 func (s *Store) setIndexLocked(id string) int {

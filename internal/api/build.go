@@ -428,7 +428,7 @@ func (s *Server) handleTriggerBuild(w http.ResponseWriter, r *http.Request) {
 	}
 	if f, ok := forks.Find(req.Project); ok {
 		if !s.forksOn() {
-			http.NotFound(w, r)
+			featureOff(w, "Forks")
 			return
 		}
 		// A fork builds only its latest commit: it moves too fast to pin.

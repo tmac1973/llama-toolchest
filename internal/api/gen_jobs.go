@@ -493,8 +493,16 @@ func (s *Server) watchGenJobs() {
 	}
 }
 
+// genEnabled reports whether generation is switched on and its store
+// loaded.
 func (s *Server) genEnabled() bool {
 	return s.generationOn() && s.gen != nil
+}
+
+// forksEnabled reports whether forks are switched on and their store
+// loaded.
+func (s *Server) forksEnabled() bool {
+	return s.forksOn() && s.forks != nil
 }
 
 // jobRoutes is what the routes that image, video and music jobs share need

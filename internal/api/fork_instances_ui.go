@@ -197,7 +197,7 @@ func (s *Server) handleForkNeeds(w http.ResponseWriter, r *http.Request) {
 // forkReservationAllocations adds the running fork instances to the GPU
 // map, each as its whole GPU, striped as reserved.
 func (s *Server) forkReservationAllocations(firstColor int) []models.GPUAllocation {
-	if !s.forksOn() || s.forks == nil {
+	if !s.forksEnabled() {
 		return nil
 	}
 	var out []models.GPUAllocation

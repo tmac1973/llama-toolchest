@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,7 +9,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tmac1973/llama-toolchest/internal/builder"
@@ -131,42 +129,49 @@ func (s *Server) instancePorts(skipGen, skipFork string) map[int]string {
 	return used
 }
 
-// forkPortFromForm sets inst.Port from the form's port field. Empty keeps
-// the instance's port, or gives a new one the lowest port of the
-// generation port range that no generation or fork instance uses. A
-// chosen port must be in that range and free. On an error it returns the
-// HTTP status.
+// forkPortFromForm is portFromForm for a fork instance.
 func (s *Server) forkPortFromForm(r *http.Request, inst *forks.Instance) (int, error) {
+	return s.portFromForm(r, &inst.Port, "", inst.ID)
+}
+
+// portFromForm sets *port from the form's port field, for the generation
+// or fork instance skipGen or skipFork ("" for the other kind). Empty
+// keeps the instance's port, or gives a new instance the lowest port of
+// the generation port range that no generation or fork instance uses. A
+// chosen port must be in that range and not used by another instance; the
+// instance's own port is always kept, also when the range changed so that
+// it is now outside. On an error it returns the HTTP status to send.
+func (s *Server) portFromForm(r *http.Request, port *int, skipGen, skipFork string) (int, error) {
 	cfg := s.cfgCopy()
 	start, count := cfg.GenPorts(s.inContainer())
-	used := s.instancePorts("", inst.ID)
+	used := s.instancePorts(skipGen, skipFork)
 	raw := strings.TrimSpace(r.FormValue("port"))
 	if raw == "" {
-		if inst.Port != 0 {
+		if *port != 0 {
 			return 0, nil
 		}
 		for p := start; p < start+count; p++ {
 			if _, ok := used[p]; !ok {
-				inst.Port = p
+				*port = p
 				return 0, nil
 			}
 		}
-		return http.StatusConflict, fmt.Errorf("no free port in the generation port range %d–%d; widen the range in Settings, or delete an instance", start, start+count-1)
+		return http.StatusConflict, fmt.Errorf("%d–%d: %w; widen the range in Settings, or delete an instance", start, start+count-1, generation.ErrNoPort)
 	}
-	port, err := strconv.Atoi(raw)
+	p, err := strconv.Atoi(raw)
 	if err != nil {
 		return http.StatusBadRequest, fmt.Errorf("port %q is not a number", raw)
 	}
-	if port == inst.Port {
+	if p == *port {
 		return 0, nil
 	}
-	if port < start || port >= start+count {
-		return http.StatusBadRequest, fmt.Errorf("port %d is outside the generation port range %d–%d", port, start, start+count-1)
+	if p < start || p >= start+count {
+		return http.StatusBadRequest, fmt.Errorf("port %d is outside the generation port range %d–%d", p, start, start+count-1)
 	}
-	if who, ok := used[port]; ok {
-		return http.StatusConflict, fmt.Errorf("port %d is already used by another instance (%s)", port, who)
+	if who, ok := used[p]; ok {
+		return http.StatusConflict, fmt.Errorf("port %d is %w (%s)", p, generation.ErrPortUsed, who)
 	}
-	inst.Port = port
+	*port = p
 	return 0, nil
 }
 
@@ -237,26 +242,14 @@ func (s *Server) handleForkDeleteInstance(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	if s.forkMgr.IsActive(inst.ID) {
-		http.Error(w, "stop the instance before deleting it", http.StatusConflict)
-		return
+	if deleteStoppedInstance(w, s.forkMgr.Instances, inst.ID, store.DeleteInstance) {
+		s.forkInstancesChanged(w, r)
 	}
-	if err := store.DeleteInstance(inst.ID); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	s.forkMgr.Forget(inst.ID)
-	s.forkInstancesChanged(w, r)
 }
 
 // forkInstance reads the {id} instance, writing a 404 when it is unknown.
 func (s *Server) forkInstance(w http.ResponseWriter, r *http.Request, store *forks.Store) (forks.Instance, bool) {
-	inst, err := store.Instance(chi.URLParam(r, "id"))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return inst, false
-	}
-	return inst, true
+	return urlInstance(w, r, store.Instance)
 }
 
 // forkStartResult is a start's answer: the needs the host falls short of
@@ -314,23 +307,13 @@ func (s *Server) handleForkInstanceLogs(w http.ResponseWriter, r *http.Request) 
 	if s.forkStore(w) == nil {
 		return
 	}
-	id := chi.URLParam(r, "id")
-	ch := s.forkMgr.Subscribe(id)
-	if ch == nil {
-		http.Error(w, "this instance has not run yet", http.StatusNotFound)
-		return
-	}
-	defer s.forkMgr.Unsubscribe(id, ch)
-	StreamLines(w, r.Context(), ch, "Instance stopped")
+	streamInstanceLogs(w, r, s.forkMgr.Instances)
 }
 
 // forkInstancesChanged answers a change with the instance list, and tells
 // htmx pages to refresh it.
 func (s *Server) forkInstancesChanged(w http.ResponseWriter, r *http.Request) {
-	if isHTMX(r) {
-		w.Header().Set("HX-Trigger", "forkInstancesChanged")
-	}
-	s.handleForkInstances(w, r)
+	instancesChanged(w, r, "forkInstancesChanged", s.handleForkInstances)
 }
 
 // forkGPUBusyError is a start refused because something else is on the
@@ -419,7 +402,7 @@ func (s *Server) forkHostInfo(gpu int, backend string) forks.HostInfo {
 // goes through here (the button and auto-start). It returns the needs the
 // host falls short of, which do not stop the start.
 func (s *Server) startForkInstance(id string) ([]string, error) {
-	if !s.forksOn() || s.forks == nil {
+	if !s.forksEnabled() {
 		return nil, errors.New("llama.cpp forks are off")
 	}
 	inst, err := s.forks.Instance(id)
@@ -509,32 +492,29 @@ func (s *Server) forksSwitched(was, now bool) {
 // waits until the router is running or has failed, so the router's GPU
 // use is known to the busy-GPU check.
 func (s *Server) autoStartForkInstances(afterRouter bool) {
-	if !s.forksOn() || s.forks == nil {
+	if !s.forksEnabled() {
 		return
 	}
-	if afterRouter {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		_ = s.process.WaitRunning(ctx)
-		cancel()
-	}
+	var ids []string
 	for _, inst := range s.forks.Instances() {
-		if !inst.AutoStart {
-			continue
-		}
-		if warnings, err := s.startForkInstance(inst.ID); err != nil {
-			slog.Warn("failed to auto-start a fork instance", "instance", inst.ID, "error", err)
-		} else {
-			s.forkNotes.set(inst.ID, warnings)
-			slog.Info("auto-started fork instance", "instance", inst.ID)
+		if inst.AutoStart {
+			ids = append(ids, inst.ID)
 		}
 	}
+	s.autoStartInstances("fork", afterRouter, ids, func(id string) error {
+		warnings, err := s.startForkInstance(id)
+		if err == nil {
+			s.forkNotes.set(id, warnings)
+		}
+		return err
+	})
 }
 
 // forkVRAM adds the fork instances that are starting or running to the
 // per-GPU reservations: each one reserves its whole GPU, and is never
 // stopped to make room. exclude is left out.
 func (s *Server) forkVRAM(out map[int]*genVRAM, exclude string) {
-	if !s.forksOn() || s.forks == nil || s.forkMgr == nil {
+	if !s.forksEnabled() || s.forkMgr == nil {
 		return
 	}
 	for _, inst := range s.forks.Instances() {

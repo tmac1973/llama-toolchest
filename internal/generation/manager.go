@@ -2,7 +2,6 @@ package generation
 
 import (
 	"context"
-	"sort"
 	"sync"
 
 	"github.com/tmac1973/llama-toolchest/internal/process"
@@ -14,10 +13,12 @@ const instanceLogHistory = 500
 
 // Manager runs generation backend instances, one supervised process each.
 // It knows nothing about the store or builds; callers hand it a ready
-// launch config (see LaunchSpec).
+// launch config (see LaunchSpec). Stop, Status, the logs and the rest come
+// from process.Instances.
 type Manager struct {
-	mu   sync.Mutex
-	sups map[string]*process.Supervisor
+	*process.Instances
+
+	mu sync.Mutex
 	// measuring holds the instances in a measured test run: the API sends
 	// them no requests, and nothing else may start on their GPU.
 	measuring map[string]bool
@@ -46,146 +47,25 @@ func (m *Manager) IsMeasuring(id string) bool {
 
 // NewManager returns a manager with nothing running.
 func NewManager() *Manager {
-	return &Manager{sups: map[string]*process.Supervisor{}}
-}
-
-// supervisor returns the instance's supervisor, creating it on first use.
-// It is kept after the process stops, so its last log lines stay readable.
-func (m *Manager) supervisor(id string, kind BackendKind) *process.Supervisor {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	s, ok := m.sups[id]
-	if !ok {
-		label := "sd-server"
-		if kind == KindAce {
-			label = "ace-server"
-		}
-		s = process.NewSupervisor(label+" "+id, instanceLogHistory)
-		m.sups[id] = s
-	}
-	return s
-}
-
-func (m *Manager) existing(id string) *process.Supervisor {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.sups[id]
+	return &Manager{Instances: process.NewInstances(instanceLogHistory)}
 }
 
 // Start runs an instance with the given launch config.
 func (m *Manager) Start(id string, kind BackendKind, cfg process.SupervisorConfig) error {
-	return m.supervisor(id, kind).Start(cfg)
-}
-
-// Stop stops an instance. Stopping one that is not running is not an
-// error.
-func (m *Manager) Stop(id string) error {
-	s := m.existing(id)
-	if s == nil || !m.active(s) {
-		return nil
+	label := "sd-server"
+	if kind == KindAce {
+		label = "ace-server"
 	}
-	return s.Stop()
-}
-
-// Status returns an instance's process status; stopped when it never ran.
-func (m *Manager) Status(id string) process.Status {
-	if s := m.existing(id); s != nil {
-		return s.GetStatus()
-	}
-	return process.Status{State: process.StateStopped}
-}
-
-// IsRunning reports whether the instance has passed its health check.
-func (m *Manager) IsRunning(id string) bool {
-	s := m.existing(id)
-	return s != nil && s.IsRunning()
-}
-
-// IsActive reports whether the instance is starting or running.
-func (m *Manager) IsActive(id string) bool {
-	s := m.existing(id)
-	return s != nil && m.active(s)
-}
-
-func (m *Manager) active(s *process.Supervisor) bool {
-	st := s.GetStatus().State
-	return st == process.StateStarting || st == process.StateRunning
-}
-
-// PID returns the instance's process ID, or 0 when it is not running.
-func (m *Manager) PID(id string) int {
-	if s := m.existing(id); s != nil {
-		return s.PID()
-	}
-	return 0
+	return m.Instances.Start(id, label+" "+id, cfg)
 }
 
 // WaitRunning waits until the instance passes its health check, stops, or
 // ctx ends. When the backend failed, the error ends with the last error
 // line of its log, so the user sees why without opening the log.
 func (m *Manager) WaitRunning(ctx context.Context, id string) error {
-	if s := m.existing(id); s != nil {
-		err := s.WaitRunning(ctx)
-		if err != nil && s.GetStatus().State == process.StateFailed {
-			return withLastLogLine(err, s.RecentLogs())
-		}
-		return err
+	err := m.Instances.WaitRunning(ctx, id)
+	if err != nil && m.Status(id).State == process.StateFailed {
+		return withLastLogLine(err, m.RecentLogs(id))
 	}
-	return nil
-}
-
-// Subscribe returns the instance's log lines, starting with its recent
-// history; nil when the instance never ran.
-func (m *Manager) Subscribe(id string) chan string {
-	if s := m.existing(id); s != nil {
-		return s.Subscribe()
-	}
-	return nil
-}
-
-// RecentLogs returns the instance's buffered log lines, oldest first:
-// what it printed since it last started. Nil when it never ran.
-func (m *Manager) RecentLogs(id string) []string {
-	if s := m.existing(id); s != nil {
-		return s.RecentLogs()
-	}
-	return nil
-}
-
-// Unsubscribe removes a log subscriber.
-func (m *Manager) Unsubscribe(id string, ch chan string) {
-	if s := m.existing(id); s != nil {
-		s.Unsubscribe(ch)
-	}
-}
-
-// Forget drops a stopped instance's supervisor, after the instance is
-// deleted.
-func (m *Manager) Forget(id string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if s, ok := m.sups[id]; ok && !m.active(s) {
-		delete(m.sups, id)
-	}
-}
-
-// StopAll stops every running instance, for shutdown or when the
-// generation backends are switched off.
-func (m *Manager) StopAll() {
-	m.mu.Lock()
-	ids := make([]string, 0, len(m.sups))
-	for id := range m.sups {
-		ids = append(ids, id)
-	}
-	m.mu.Unlock()
-	sort.Strings(ids)
-	var wg sync.WaitGroup
-	for _, id := range ids {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			m.Stop(id)
-		}()
-	}
-	wg.Wait()
+	return err
 }
