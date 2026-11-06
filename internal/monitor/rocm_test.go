@@ -227,3 +227,14 @@ func TestReadFanHwmon(t *testing.T) {
 		t.Error("a hwmon directory without fan files reported a fan")
 	}
 }
+
+func TestCheckKFDCoverage(t *testing.T) {
+	if err := checkKFDCoverage(2, 2); err != nil {
+		t.Errorf("every KFD GPU listed: got %v, want nil", err)
+	}
+	// rocm-smi skipped one card: its rows would carry indices with a
+	// gap, so GPU numbers in the UI and llama-server's devices differ.
+	if err := checkKFDCoverage(1, 2); err == nil {
+		t.Error("a GPU missing from rocm-smi: got nil, want an error")
+	}
+}
