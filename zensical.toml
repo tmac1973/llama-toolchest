@@ -1,0 +1,103 @@
+# Config of the documentation site, built with Zensical from the Markdown in
+# docs/. `make docs` builds it, `make docs-serve` shows it on a local address,
+# and .github/workflows/docs.yml publishes it to GitHub Pages.
+
+[project]
+site_name = "llama-toolchest"
+site_description = "Manage llama.cpp builds, models, and image, video and music generation on your own GPUs."
+site_url = "https://tmac1973.github.io/llama-toolchest/"
+repo_url = "https://github.com/tmac1973/llama-toolchest"
+repo_name = "tmac1973/llama-toolchest"
+edit_uri = "edit/main/docs/"
+docs_dir = "docs"
+site_dir = "site"
+# A broken link or anchor stops the build.
+strict = true
+extra_css = ["assets/stylesheets/diagrams.css"]
+
+nav = [
+  { "Home" = "index.md" },
+  { "Getting started" = "getting-started.md" },
+  { "Concepts" = "concepts.md" },
+  { "GPU memory" = [
+    { "How toolchest shares a GPU" = "gpu/index.md" },
+    { "Eviction modes" = "gpu/eviction.md" },
+    { "GPU memory margin" = "gpu/memory-margin.md" },
+    { "Generation reservations" = "gpu/reservations.md" },
+    { "LLMs and backends on one GPU" = "gpu/taking-turns.md" },
+  ] },
+  { "Using the app" = [
+    { "Server tab" = "guides/server.md" },
+    { "Builds" = "guides/builds.md" },
+    { "Models" = "guides/models.md" },
+    { "Autoconfigure and Autotune" = "guides/autoconfigure.md" },
+    { "Model config" = "guides/model-config.md" },
+    { "Download Models" = "guides/download-models.md" },
+    { "Benchmarks" = "guides/benchmarks.md" },
+    { "Image, video and music" = "guides/generation.md" },
+    { "llama.cpp forks" = "guides/forks.md" },
+    { "Settings" = "guides/settings.md" },
+  ] },
+  { "API" = "api.md" },
+  { "Install" = [
+    { "Manual install" = "manual-install.md" },
+    { "Secure install" = "secure.md" },
+  ] },
+  { "Reference" = [
+    { "Measured reservations" = "reference/measured-reservations.md" },
+  ] },
+  { "Troubleshooting" = "troubleshooting.md" },
+]
+
+[project.validation]
+invalid_links = true
+invalid_link_anchors = true
+
+[project.theme]
+language = "en"
+features = [
+  "content.action.edit",
+  "content.code.copy",
+  "navigation.footer",
+  "navigation.indexes",
+  "navigation.sections",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme)"
+toggle.icon = "lucide/sun-moon"
+toggle.name = "Switch to light mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to system preference"
+
+[project.markdown_extensions]
+admonition = {}
+# Explicit heading ids, such as `## Modes { #modes }`. The app links to these
+# ids, and a Go test checks them (internal/api/docs_links_test.go).
+attr_list = {}
+md_in_html = {}
+tables = {}
+toc.permalink = true
+pymdownx.details = {}
+pymdownx.highlight.anchor_linenums = true
+pymdownx.inlinehilite = {}
+# Puts the SVG diagrams in docs/assets/diagrams/ into the page, so that they
+# can use the colors in diagrams.css: `--8<-- "assets/diagrams/name.svg"`.
+pymdownx.snippets.base_path = ["docs"]
+pymdownx.snippets.check_paths = true
+pymdownx.superfences.custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]

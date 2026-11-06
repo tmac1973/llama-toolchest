@@ -6,6 +6,8 @@ Click this screenshot to watch the explainer video:
 
 A web-based management interface for [llama.cpp](https://github.com/ggerganov/llama.cpp) inference servers. Build llama.cpp from source, download models from HuggingFace, configure and run inference, and expose an OpenAI-compatible API — all from a single containerized application.
 
+**Documentation:** https://tmac1973.github.io/llama-toolchest/
+
 **Linux only.** Supports NVIDIA CUDA, AMD ROCm, Vulkan (host install only), and CPU backends. Works with Docker and Podman on all major Linux distributions.
 
 ## Features
