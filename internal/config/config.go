@@ -45,10 +45,10 @@ type Config struct {
 	AutoStart    bool `yaml:"auto_start"` // start the llama-server on container startup
 	// VRAMMarginMiB is the memory kept free on each GPU when toolchest
 	// plans a model or checks a load, and the router's margin when it
-	// decides by memory. At least 1 GiB, llama.cpp's working memory: 0,
-	// the default, and any smaller value count as 1 GiB.
+	// decides by memory. nil is the default, DefaultVRAMMarginMiB; 0
+	// keeps nothing free. See VRAMMarginAll.
 	// VRAMMarginByGPU sets it for single GPUs, by index; see VRAMMarginFor.
-	VRAMMarginMiB   int         `yaml:"vram_margin_mib,omitempty"`
+	VRAMMarginMiB   *int        `yaml:"vram_margin_mib,omitempty"`
 	VRAMMarginByGPU map[int]int `yaml:"vram_margin_by_gpu,omitempty"`
 
 	// RuntimeEnv holds curated environment variables applied to the
@@ -282,13 +282,26 @@ func (c *Config) GenEvictOn() bool {
 	return c.GenerationEnabled && c.GenEvict && c.EffectiveEviction() == EvictionToolchest
 }
 
+// DefaultVRAMMarginMiB is the GPU memory margin of a config that sets
+// none: llama.cpp's working memory in real chats (models.WorkingMemoryMiB).
+const DefaultVRAMMarginMiB = 1024
+
+// VRAMMarginAll is the margin for every GPU without one of its own, in
+// MiB: VRAMMarginMiB, or DefaultVRAMMarginMiB when it is not set.
+func (c *Config) VRAMMarginAll() int {
+	if c.VRAMMarginMiB == nil {
+		return DefaultVRAMMarginMiB
+	}
+	return *c.VRAMMarginMiB
+}
+
 // VRAMMarginFor is the memory to keep free on GPU gpu, in MiB: its own
-// value when it has one, otherwise VRAMMarginMiB.
+// value when it has one, otherwise VRAMMarginAll.
 func (c *Config) VRAMMarginFor(gpu int) int {
 	if v, ok := c.VRAMMarginByGPU[gpu]; ok {
 		return v
 	}
-	return c.VRAMMarginMiB
+	return c.VRAMMarginAll()
 }
 
 // migrateEviction fills Eviction in a config from before the setting.

@@ -121,10 +121,10 @@ func TestPlanFit(t *testing.T) {
 				t.Error("no note says the model is too large")
 			}
 		}},
-		{"two cards", dense8B, Hardware{GPUs: []GPUSpec{{Index: 0, VRAMTotalMiB: 24 * 1024}, {Index: 1, VRAMTotalMiB: 24 * 1024}},
+		{"two cards", dense8B, Hardware{GPUs: []GPUSpec{{Index: 0, VRAMTotalMiB: 24 * 1024, MarginMiB: WorkingMemoryMiB}, {Index: 1, VRAMTotalMiB: 24 * 1024, MarginMiB: WorkingMemoryMiB}},
 			LogicalCores: 16}, ContextLong, func(t *testing.T, r FitResult) {
 			if r.Config.GPUAssign != "all" || r.BudgetGiB != 46 {
-				t.Errorf("GPUAssign = %q, budget %.1f; want all, 46: no margin, 1 GiB working memory a card", r.Config.GPUAssign, r.BudgetGiB)
+				t.Errorf("GPUAssign = %q, budget %.1f; want all, 46: the default 1 GiB margin a card", r.Config.GPUAssign, r.BudgetGiB)
 			}
 		}},
 		{"integrated GPU left out", dense8B, Hardware{GPUs: []GPUSpec{{Index: 0, VRAMTotalMiB: 16 * 1024}, {Index: 1, VRAMTotalMiB: 2 * 1024, IsIGPU: true}},
@@ -251,7 +251,7 @@ func TestPlanLeavesOtherProgramsTheirMemory(t *testing.T) {
 		KVFullPerTok: 36 * 8 * 256, ContextLength: 131072}
 	card := func(other int) Hardware {
 		return Hardware{LogicalCores: 16, RAMTotalMiB: 64 * 1024,
-			GPUs: []GPUSpec{{Index: 0, Name: "GPU", VRAMTotalMiB: 16304, OtherUsedMiB: other}}}
+			GPUs: []GPUSpec{{Index: 0, Name: "GPU", VRAMTotalMiB: 16304, OtherUsedMiB: other, MarginMiB: WorkingMemoryMiB}}}
 	}
 	empty, busy := card(0), card(6*1024)
 
@@ -344,8 +344,8 @@ func TestPlanFitGivesTheDrafterASmallMicroBatchOnlyWhenNeeded(t *testing.T) {
 // + 8,192 MiB.
 func TestCardBudgetWithReservations(t *testing.T) {
 	card := GPUSpec{VRAMTotalMiB: 32624, OtherUsedMiB: 1300}
-	if got := CardBudgetMiB(card); got != 32624-1300-WorkingMemoryMiB {
-		t.Errorf("budget with no margin = %d MiB, want all the card but the desktop and the 1 GiB minimum", got)
+	if got := CardBudgetMiB(card); got != 32624-1300 {
+		t.Errorf("budget with no margin = %d MiB, want all the card but the desktop", got)
 	}
 	card.MarginMiB = 2048
 	plain := CardBudgetMiB(card)
@@ -430,9 +430,9 @@ func TestRouterMemoryMarginMiB(t *testing.T) {
 		want    int
 	}{
 		{nil, 0},
-		{[]int{0, 0}, WorkingMemoryMiB},     // the 1 GiB minimum, never 0
-		{[]int{512, 2048}, 2048},            // the largest margin decides
-		{[]int{512, 768}, WorkingMemoryMiB}, // below the minimum counts as it
+		{[]int{0, 0}, 1},         // never 0: that turns the accounting off
+		{[]int{512, 2048}, 2048}, // the largest margin decides
+		{[]int{512, 768}, 768},   // below 1 GiB is allowed
 	}
 	for _, c := range cases {
 		var gpus []GPUSpec

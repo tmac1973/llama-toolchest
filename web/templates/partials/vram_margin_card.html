@@ -4,15 +4,16 @@
 {{define "vram_margin_card"}}
 <article id="vram-margin">
     <header>GPU memory margin</header>
-    <p><small>VRAM reserved on each GPU for llama.cpp. At least 1 GiB. <a href="/help#vram-margin">More in Help</a>.</small></p>
+    <p><small>VRAM reserved on each GPU for llama.cpp. The default is 1 GiB. <a href="/help#vram-margin">More in Help</a>.</small></p>
+    {{with .Warning}}<div class="callout" style="font-size:0.8rem;padding:0.4rem 0.6rem;margin-bottom:0.5rem;border-left-color:var(--pico-del-color);">{{.}}</div>{{end}}
     <form hx-put="/api/settings"
           hx-target="#vram-margin-status"
           hx-swap="innerHTML"
           hx-trigger="change">
         <input type="hidden" name="vram_margin_touched" value="1">
-        <label class="vram-margin-all" title="Margin in GiB for every GPU that has no margin of its own. At least 1.">
+        <label class="vram-margin-all" title="Margin in GiB for every GPU that has no margin of its own. Blank: the default, 1 GiB.">
             Every GPU (GiB)
-            <input type="number" name="vram_margin_gib" value="{{.GiB}}" min="1" step="0.25">
+            <input type="number" name="vram_margin_gib" value="{{.GiB}}" min="0" step="0.25">
         </label>
         {{if .GPUs}}
         <table class="vram-margin-gpus">
@@ -23,7 +24,7 @@
                 <td>{{.Index}}: {{.Name}}{{if .IGPU}} <small>(integrated)</small>{{end}}</td>
                 <td>{{.Total}}</td>
                 <td><input type="number" name="vram_margin_gpu_{{.Index}}" value="{{.GiB}}"
-                           min="1" step="0.25" placeholder="{{$.GiB}}"
+                           min="0" step="0.25" placeholder="{{$.GiB}}"
                            aria-label="Margin for GPU {{.Index}} in GiB"></td>
             </tr>
             {{end}}

@@ -24,7 +24,7 @@ func vramServer(t *testing.T) *Server {
 	t.Helper()
 	s := instanceServer(t)
 	s.testHardware = &models.Hardware{GPUs: []models.GPUSpec{{Index: 0, Name: "R9700", VRAMTotalMiB: 32624, OtherUsedMiB: 1300}}}
-	s.cfg.VRAMMarginMiB = oldTestMarginMiB
+	s.cfg.VRAMMarginMiB = ptr(oldTestMarginMiB)
 	return s
 }
 
