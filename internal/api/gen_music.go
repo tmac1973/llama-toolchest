@@ -485,7 +485,7 @@ func (s *Server) runMusicJob(ctx context.Context, id string, inst generation.Ins
 		measured["duration"] = secs
 		s.genMusic.update(id, func(j *musicJob) { j.Result = measured })
 	} else {
-		slog.Warn("music job: could not read the audio length", "job", id, "error", err)
+		slog.Warn("music job: failed to read the audio length", "job", id, "error", err)
 	}
 	setPhase(musicPhaseSaving)
 	if err := os.MkdirAll(s.musicDir(), 0o755); err != nil {

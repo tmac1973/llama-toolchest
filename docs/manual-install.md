@@ -52,7 +52,12 @@ On startup the binary loads the first config file it finds, in this order:
 4. `/etc/llama-toolchest/llama-toolchest.yaml` — system-scope
 
 A user config takes precedence over the system one when both exist. If none
-exist, built-in defaults are used. So the system-scope flow above works with
+exist, built-in defaults are used.
+
+The config can hold your Hugging Face token, ModelScope token and API key.
+Settings saves it readable by its owner only (mode 0600). If you write the
+file by hand, run `chmod 600` on it; llama-toolchest logs a warning at startup
+while a config with secrets is readable by other users. So the system-scope flow above works with
 the packaged unit as-is — no `--config` flag or env var needed. To pin a
 non-standard location anyway:
 

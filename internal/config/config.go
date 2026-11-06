@@ -8,9 +8,11 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/tmac1973/llama-toolchest/internal/redact"
 	"gopkg.in/yaml.v3"
 )
 
@@ -420,12 +422,30 @@ func Load(path string) (*Config, error) {
 		// no file → use defaults, fall through to validation
 	} else if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, err
+	} else {
+		warnReadableSecrets(path, cfg)
 	}
 
 	migrateEviction(cfg)
 	applyEnvOverrides(cfg)
 	salvageModelsDir(cfg)
 	return cfg, nil
+}
+
+// warnReadableSecrets warns when the config file holds a token or the API
+// key and other users can read it. Settings writes the file as 0600, but
+// a file made by hand or copied by a package can be wider until then. The
+// file is not changed here: its owner may have a reason.
+func warnReadableSecrets(path string, cfg *Config) {
+	if cfg.HFToken == "" && cfg.MSToken == "" && cfg.APIKey == "" {
+		return
+	}
+	fi, err := os.Stat(path)
+	if err != nil || fi.Mode().Perm()&0o077 == 0 {
+		return
+	}
+	slog.Warn("the config file holds a token or the API key and other users can read it; run chmod 600 on it",
+		"path", path, "mode", fmt.Sprintf("%04o", fi.Mode().Perm()))
 }
 
 // applyEnvOverrides lets a few deployment-critical fields be set from the
@@ -455,7 +475,7 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.ExternalURL = v
 			set(FieldExternalURL, "LLAMA_TOOLCHEST_EXTERNAL_URL")
 		} else {
-			slog.Warn("ignoring LLAMA_TOOLCHEST_EXTERNAL_URL: not an http(s) URL with a host", "value", v)
+			slog.Warn("ignoring LLAMA_TOOLCHEST_EXTERNAL_URL: not an http(s) URL with a host", "value", redact.URL(v))
 		}
 	}
 	if n, ok := envPort(envLlamaPort); ok {
@@ -484,8 +504,20 @@ func applyEnvOverrides(cfg *Config) {
 			slog.Warn("ignoring environment variable: not a port count from 1 to 64", "name", envGenPortCount, "value", v)
 		}
 	}
-	cfg.ROCmBaseImage = os.Getenv("LLAMA_TOOLCHEST_ROCM_BASE_IMAGE")
+	// Set by the rocm-next image's build and shown on the Builds page; an
+	// image reference is letters, digits and ._/:@- only.
+	if v := os.Getenv("LLAMA_TOOLCHEST_ROCM_BASE_IMAGE"); v != "" {
+		if imageRefPattern.MatchString(v) {
+			cfg.ROCmBaseImage = v
+		} else {
+			slog.Warn("ignoring LLAMA_TOOLCHEST_ROCM_BASE_IMAGE: not an image reference", "value", v)
+		}
+	}
 }
+
+// imageRefPattern matches a container image reference such as
+// rocm/dev-ubuntu-24.04:10.1.0-full or an image@sha256:... digest.
+var imageRefPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,254}$`)
 
 const (
 	envLlamaPort          = "LLAMA_TOOLCHEST_LLAMA_PORT"

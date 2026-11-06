@@ -495,8 +495,8 @@ data_dir: "/home/u/.local/share/llama-toolchest"
 models_dir: "/srv/models"
 llama_port: 8080
 external_url: "https://ai.example.test"
-hf_token: "hf_abc"
-api_key: "sk-123"
+hf_token: "hf_TEST_PLACEHOLDER"
+api_key: "TEST_PLACEHOLDER_KEY"
 log_level: "debug"
 models_max: 3
 auto_start: false
@@ -514,8 +514,8 @@ EOF
 data_dir: "/data"
 llama_port: 8181
 external_url: "https://ai.example.test"
-hf_token: "hf_abc"
-api_key: "sk-123"
+hf_token: "hf_TEST_PLACEHOLDER"
+api_key: "TEST_PLACEHOLDER_KEY"
 log_level: "debug"
 models_max: 3
 auto_start: false
@@ -918,7 +918,7 @@ gen_secure_caddy() {
     CADDY_GLOBAL="# self-signed / internal CA — no ACME"
     CADDY_TLS=$'tls internal {\n\t\ton_demand\n\t}'
     CADDY_SITE_ADDRESS=":443" CADDY_CHAT_ADDRESS=":8080"
-    AUTH_USER=admin AUTH_HASH='$2a$14$abc/def.ghi'
+    AUTH_USER=admin AUTH_HASH='$2a$14$TEST/PLACEHOLDER.HASH'
 }
 
 GEN_SETUP_FNS=(gen_app_port_start gen_port_count_problem gen_port_end gen_range_has gen_host_ports
@@ -1097,7 +1097,7 @@ PublishPort=127.0.0.1:18081-18088:8081-8088" "$(generate_quadlet_app | grep -E '
     local cf="$SCRIPT_DIR/Caddyfile"
     check_eq "secure gen: 8 Caddy sites" "8" "$(grep -c '^:808[1-8] {' "$cf")"
     check_eq "secure gen: last site forwards to 8088" \
-        $':8088 {\n\ttls internal {\n\t\ton_demand\n\t}\n\tbasic_auth {\n\t\tadmin $2a$14$abc/def.ghi\n\t}\n\treverse_proxy llama-toolchest:8088\n}' \
+        $':8088 {\n\ttls internal {\n\t\ton_demand\n\t}\n\tbasic_auth {\n\t\tadmin $2a$14$TEST/PLACEHOLDER.HASH\n\t}\n\treverse_proxy llama-toolchest:8088\n}' \
         "$(sed -n '/^:8088 {/,/^}/p' "$cf")"
     check_true "secure gen: ACE-Step routes use the Bearer key" \
         grep -q '@v1 path /v1 /v1/\* /release_task /query_result /tts' "$cf"
@@ -1236,7 +1236,7 @@ test_secure_custom_ports() (
     gen_setup_env
     print_secure_disclaimer() { :; }
     SECURE=true SECURE_EXPLICIT=true TLS_MODE=self-signed DOMAIN=box ACME_EMAIL=""
-    AUTH_USER=admin AUTH_HASH='$2a$14$abc/def.ghi' AUTH_PASS="" AUTH_PASS_FILE=""
+    AUTH_USER=admin AUTH_HASH='$2a$14$TEST/PLACEHOLDER.HASH' AUTH_PASS="" AUTH_PASS_FILE=""
     CADDY_HTTP_PORT=8000 CADDY_HTTPS_PORT=8443 CADDY_CHAT_PORT=9443
     configure_secure
     local cf="$SCRIPT_DIR/Caddyfile"

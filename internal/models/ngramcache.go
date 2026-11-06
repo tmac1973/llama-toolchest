@@ -131,7 +131,7 @@ func prepareNgramCaches(t Target, models []*Model, configs map[string]*ModelConf
 		}
 		if path := ngramCacheParam(m.ID, cfg, t); path != "" {
 			if err := PrepareNgramCacheFile(path); err != nil {
-				slog.Warn("could not prepare the learned n-gram file", "model", m.ID, "error", err)
+				slog.Warn("failed to prepare the learned n-gram file", "model", m.ID, "error", err)
 			}
 		}
 	}

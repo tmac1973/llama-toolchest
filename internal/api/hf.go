@@ -617,7 +617,7 @@ func (s *Server) onDownloadComplete(source, downloadID, modelID, filename string
 	if err := s.registry.Add(m); err != nil {
 		// The file is downloaded; a later scan registers it once the
 		// registry can be written again.
-		slog.Error("downloaded model could not be registered", "model", m.ID, "error", err)
+		slog.Error("failed to register the downloaded model", "model", m.ID, "error", err)
 		return
 	}
 

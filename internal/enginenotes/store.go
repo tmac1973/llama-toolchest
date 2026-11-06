@@ -182,7 +182,7 @@ func (s *Store) load() error {
 		if err := os.Rename(s.path, bad); err != nil {
 			return fmt.Errorf("move aside unreadable engine notes: %w", err)
 		}
-		slog.Warn("engine notes file could not be read; starting a new one", "path", s.path, "moved_to", bad, "reason", reason)
+		slog.Warn("failed to read the engine notes file; starting a new one", "path", s.path, "moved_to", bad, "reason", reason)
 		s.data = s.empty()
 		return nil
 	}

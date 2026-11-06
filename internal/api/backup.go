@@ -32,6 +32,9 @@ func (s *Server) handleBackupExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	// The file can hold tokens and the API key: no browser or proxy may
+	// keep a copy.
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Disposition",
 		fmt.Sprintf("attachment; filename=llama-toolchest-backup-%s.json", time.Now().Format("2006-01-02")))
 	w.Write(data)

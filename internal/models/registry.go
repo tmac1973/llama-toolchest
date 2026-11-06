@@ -1049,7 +1049,7 @@ func (r *Registry) BackfillGGUFMeta() {
 			// Keep what was read, but leave the version as it is so the
 			// next start reads the file again: a copy still in progress
 			// finishes, and the full header and tensor table come through.
-			slog.Info("failed to read the whole GGUF file; it will be read again on the next start",
+			slog.Warn("failed to read the whole GGUF file; it will be read again on the next start",
 				"model", m.ID, "file", m.FilePath)
 		} else {
 			m.GGUFMetaVersion = GGUFMetaVersion
