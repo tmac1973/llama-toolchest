@@ -18,7 +18,7 @@ The eviction mode, *Max loaded models*, and the switch that lets LLMs and genera
 
 ## GPU memory margin { #gpu-memory-margin }
 
-VRAM that toolchest keeps free on each GPU, for every GPU or for one GPU. See [GPU memory margin](../gpu/memory-margin.md).
+VRAM on each GPU that toolchest does not plan models into, for llama.cpp's working memory and the driver. Set it for every GPU or for one GPU. See [GPU memory margin](../gpu/memory-margin.md).
 
 ## Generation backends { #generation-backends }
 

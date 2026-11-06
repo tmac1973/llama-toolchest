@@ -42,7 +42,7 @@ When toolchest plans a load, it counts these parts on each GPU:
 - **Desktop and other programs:** the use that the GPU reports, apart from toolchest's own programs.
 - **LLMs:** for each loaded model, its weights, its KV cache and its buffers.
 - **Generation reservations:** the VRAM that each generation instance needs for a job. Toolchest keeps this room free, also while the backend waits. See [Generation reservations](reservations.md).
-- **The GPU memory margin:** VRAM that toolchest always keeps free, for llama.cpp's working memory and the driver. See [GPU memory margin](memory-margin.md).
+- **The GPU memory margin:** VRAM that toolchest does not plan models into, because llama.cpp's working memory and the driver use it. See [GPU memory margin](memory-margin.md).
 
 A new model can load when its estimate fits in what is left. When it does not fit, [eviction](eviction.md) decides what makes room.
 
