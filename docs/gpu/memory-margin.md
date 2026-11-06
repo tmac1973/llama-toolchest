@@ -2,7 +2,7 @@
 
 ## What it is { #what }
 
-The margin is VRAM that toolchest keeps free on each GPU, beside LLMs and generation backends. Toolchest never plans a model or a backend into it.
+The margin is VRAM on each GPU that toolchest does not plan models or generation backends into. It is not empty space: llama.cpp uses it for working memory in real chats, and the driver uses some of it too. The estimate of a model does not count that use, so the margin holds room for it.
 
 Set it in Settings → GPU memory margin (`/settings#vram-margin`), in GiB. The default and the smallest value is 1 GiB.
 
@@ -18,7 +18,7 @@ This bar shows what toolchest counts on one GPU when it plans a load:
 
 - **Desktop and other programs** are counted apart, from what the GPU reports. Toolchest reads this with none of its own programs loaded.
 - **The LLM** is its weights, its KV cache and its buffers, from the estimate.
-- **The margin** stays free. A new model fits only in the room above it.
+- **The margin** is room for llama.cpp's working memory and the driver. A new model fits only in the room above it.
 
 ## One value or one per GPU { #per-gpu }
 
@@ -36,13 +36,13 @@ This bar shows what toolchest counts on one GPU when it plans a load:
 
 ## With eviction by llama.cpp { #router }
 
-The llama-server router takes one margin for all GPUs. Toolchest gives it the largest margin of any GPU. So a larger margin on one GPU makes the router keep that much free on every GPU.
+The llama-server router takes one margin for all GPUs. Toolchest gives it the largest margin of any GPU. So a larger margin on one GPU makes the router leave that much room on every GPU.
 
 <div class="tc-diagram" markdown>
 --8<-- "assets/diagrams/vram-margin-router.svg"
 </div>
 
-To keep more free on one GPU only, use eviction by llama-toolchest. It uses the margin of each GPU.
+To leave more room on one GPU only, use eviction by llama-toolchest. It uses the margin of each GPU.
 
 ## When a change applies { #applies }
 

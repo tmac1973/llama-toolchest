@@ -167,7 +167,7 @@ models_max: 1               # Max simultaneously loaded models (0 = unlimited)
 eviction: off               # What unloads when a model needs room: off (by count),
                             # llamacpp (the router, by VRAM; b11930+) or toolchest (by VRAM).
                             # llamacpp gives way to toolchest with generation backends or forks on
-vram_margin_mib: 0          # VRAM kept free on each GPU, in MiB (0 = models may use all of it)
+vram_margin_mib: 0          # VRAM on each GPU not planned for models, in MiB (0 = the 1 GiB minimum)
 vram_margin_by_gpu: {}      # Per-GPU margins by GPU index, e.g. {0: 1024} for the desktop GPU
 auto_start: false           # Start the inference router on container startup
 ```
