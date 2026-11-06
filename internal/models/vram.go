@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 )
@@ -72,9 +73,20 @@ func serverSlots(cfg *ModelConfig) int {
 // the window for every sequence, plus a micro-batch, padded to 256 — not
 // the window alone. gemma-4-12B at 32K held 1.91 GiB against 0.81
 // estimated from the window, and 1024 x 4 + 512 cells predicts it exactly.
+//
+// Separate slots each keep a cache of their own, so each holds its window
+// and a micro-batch: gpt-oss-20b at 64K and 4096 held 0.29 GiB more with
+// four separate slots than with the pool, three micro-batches more.
 func swaCells(m *Model, cfg *ModelConfig, ctx, ub int) int {
 	if m.SlidingWindow <= 0 {
 		return ctx
+	}
+	if cfg.Parallel >= 2 && !cfg.SharedContext {
+		per := (m.SlidingWindow + ub + 255) / 256 * 256
+		if share := ctx / cfg.Parallel; ctx > 0 && per > share {
+			per = share
+		}
+		return per * cfg.Parallel
 	}
 	n := m.SlidingWindow*serverSlots(cfg) + ub
 	n = (n + 255) / 256 * 256
@@ -221,7 +233,36 @@ func maskContext(cfg *ModelConfig, ctx int) int {
 // pipeline_parallel condition). On compute2 every such load logged
 // "sched copies = 1".
 func pipelineOff(m *Model, cfg *ModelConfig) bool {
-	return cfg.CPUMoE > 0 || cfg.MoECacheMiB > 0 || (cfg.GPULayers > 0 && cfg.GPULayers <= m.NLayers)
+	return cfg.CPUMoE > 0 || cfg.MoECacheMiB > 0 || (cfg.GPULayers > 0 && cfg.GPULayers <= m.NLayers) ||
+		extraFlagsTurnPipelineOff(m, cfg.ExtraFlags)
+}
+
+// extraFlagsTurnPipelineOff reports whether Extra Flags do what
+// pipelineOff looks for in the config's own fields: a tensor override
+// written by hand (-ot), experts in system memory, a MoE cache, or fewer
+// GPU layers than the model has. llama-server reads Extra Flags after the
+// config's fields, so they count the same.
+func extraFlagsTurnPipelineOff(m *Model, raw string) bool {
+	if raw == "" {
+		return false
+	}
+	for _, f := range parseExtraFlags(raw) {
+		switch f.key {
+		case "ot", "override-tensor", "cmoe", "cpu-moe":
+			if f.value != "false" {
+				return true
+			}
+		case "ncmoe", "n-cpu-moe", "moe-cache-mib":
+			if n, err := strconv.Atoi(f.value); err == nil && n > 0 {
+				return true
+			}
+		case "ngl", "gpu-layers", "n-gpu-layers":
+			if n, err := strconv.Atoi(f.value); err == nil && n >= 0 && n <= m.NLayers {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 type vramCoefficients struct {
@@ -354,8 +395,9 @@ var cudaCoefficients = vramCoefficients{
 	// mask it is a graph input, so a pipelined split copies it. v0.9.0
 	// with the experts of 34 layers in system memory (one copy) on two
 	// A4000s stays 0.7-0.9 GiB under the estimate at 32K and 128K; 0.7 is
-	// for the three-card load on v0.5.0, which needed 0.65. Four copies
-	// were not measured: no split of this model on compute2 keeps them.
+	// for the three-card load on v0.5.0, which needed 0.65. With every
+	// expert on three A4000s llama.cpp kept four copies, and at 2048 the
+	// cards held 1.6 GiB more than one copy of this would explain.
 	//
 	// The key cache: 0.75 GiB for twelve layers at 128K with an f16 cache
 	// (f32), 0.20 with q8_0 (the K type).
@@ -638,7 +680,10 @@ func vramBreakdownOn(co *vramCoefficients, m *Model, cfg *ModelConfig, cards int
 			bpe = kvBytesPerElem(cfg.KVCacheQuant)
 		}
 		b.IndexerCache = float64(layers) * float64(ctx) * float64(m.IndexerKeyLength) * bpe / (1024 * 1024 * 1024)
-		b.IndexerScratch = float64(cards) * co.indexerScratchCopies * float64(maskCtx) * float64(ub) * 4 / (1024 * 1024 * 1024)
+		// The indexer ranks the whole context whatever the slots: four
+		// separate slots took Flash-Next's attention masks down by their
+		// share and left the rest as it was.
+		b.IndexerScratch = float64(cards) * co.indexerScratchCopies * float64(ctx) * float64(ub) * 4 / (1024 * 1024 * 1024)
 		if co.pipelineFallback && layerSplit {
 			b.IndexerScratch *= pipelineCopies
 		}
