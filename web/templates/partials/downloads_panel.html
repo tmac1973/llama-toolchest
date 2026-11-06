@@ -7,7 +7,7 @@
         <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem;">
             <span>
                 <strong>{{.ModelID}}</strong> — <small>{{.Filename}}</small>
-                {{if not .Active}}<small>({{printf "%.1f" .OnDiskGB}} GiB on disk, {{.PartCount}} partial file(s))</small>{{end}}
+                {{if .HasParts}}<small>({{printf "%.1f" .OnDiskGB}} GiB on disk, {{.PartCount}} partial file(s))</small>{{end}}
             </span>
             {{/* Deliberately not role="group": Pico gives groups width:100%
                  and stretches their buttons, which overflows this card. */}}
@@ -19,7 +19,7 @@
                         hx-delete="/api/hf/download/{{.ID}}"
                         hx-swap="none"
                         hx-on::after-request="htmx.trigger(document.body,'dlPanelRefresh')">Pause</button>
-                {{else}}
+                {{else if .HasParts}}
                 <button type="button" class="outline"
                         style="margin:0; padding:0.15rem 0.6rem; font-size:0.8rem;"
                         title="Continue this download from the bytes already on disk"
@@ -36,8 +36,19 @@
                         hx-swap="none"
                         hx-on::after-request="htmx.trigger(document.body,'dlPanelRefresh')">Discard</button>
                 {{end}}
+                {{if .Error}}
+                <button type="button" class="outline secondary"
+                        style="margin:0; padding:0.15rem 0.6rem; font-size:0.8rem;"
+                        title="Hide this error"
+                        hx-delete="/api/hf/download/{{.ID}}"
+                        hx-swap="none"
+                        hx-on::after-request="htmx.trigger(document.body,'dlPanelRefresh')">Dismiss</button>
+                {{end}}
             </span>
         </div>
+        {{if .Error}}
+        <small style="display:block; color: var(--pico-del-color);">Download failed: {{.Error}}</small>
+        {{end}}
         {{if .Active}}
         <progress value="{{printf "%.0f" .Pct}}" max="100" style="margin: 0.25rem 0;"></progress>
         <small>{{printf "%.1f" .DownGB}} / {{printf "%.1f" .TotalGB}} GiB ({{printf "%.1f" .SpeedMB}} MiB/s) — {{printf "%.0f" .Pct}}%</small>

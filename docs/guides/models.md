@@ -28,7 +28,7 @@ Changes waiting for a server restart. Click to restart; it asks first, since a r
 
 ## Downloads card { #downloads-card }
 
-One row per download: *Pause*, *Resume* or *Discard* (deletes the partial files). Interrupted downloads come back paused after a restart.
+One row per download: *Pause*, *Resume* or *Discard* (deletes the partial files). Interrupted downloads come back paused after a restart. A failed download shows its error until you click *Dismiss*, start it again or discard it. A file that ends at a size other than the one expected is a failure too: toolchest deletes it. The error also goes to the log, and `GET /api/hf/downloads` lists the download with `"status": "failed"` and its `error` until it is dismissed (`DELETE /api/hf/download/{id}`). A restart forgets failed downloads.
 
 ## `incomplete`, orphan { #incomplete-orphan }
 

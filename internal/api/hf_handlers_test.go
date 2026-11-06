@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -774,5 +775,46 @@ func TestHFDownloadProgressPollingStopsWhenTheDownloadEnds(t *testing.T) {
 
 	if rec := hfhProgress(s, "no-such-download", true); rec.Code != htmxStopPolling {
 		t.Errorf("unknown download: status %d, want %d", rec.Code, htmxStopPolling)
+	}
+}
+
+// A download that fails at the end, as with a size a few bytes off, stays
+// in /api/hf/downloads and the Downloads panel with its error until it is
+// dismissed through the cancel route.
+func TestHFFailedDownloadIsListedUntilDismissed(t *testing.T) {
+	s := hfhServer(t)
+	host := newHFHFileHost(t, "GGUF-bytes", false)
+	hfhUseFileHost(s, host)
+	const id = "org--Model-GGUF--m"
+
+	if rec := hfhPost(s, url.Values{"model_id": {"org/Model-GGUF"}, "filename": {"m.gguf"}, "size": {"12"}}, false); rec.Code != http.StatusAccepted {
+		t.Fatalf("start: %d %s", rec.Code, rec.Body.String())
+	}
+	testutil.EventuallyMsg(t, func() bool {
+		st, ok := s.downloader.Status(id)
+		return ok && st.Status == "failed"
+	}, func() string {
+		st, ok := s.downloader.Status(id)
+		return fmt.Sprintf("download did not fail: %+v, %v", st, ok)
+	})
+
+	var listed []huggingface.DownloadStatus
+	rec := hfhGet(s, s.handleHFActiveDownloads, "/api/hf/downloads", false)
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode: %v\n%s", err, rec.Body.String())
+	}
+	if len(listed) != 1 || listed[0].Status != "failed" || !strings.Contains(listed[0].Error, "12 bytes were expected") {
+		t.Fatalf("/api/hf/downloads = %+v, want the failed download with its error", listed)
+	}
+	panel := hfhGet(s, s.handleDownloadsPanel, "/api/hf/downloads-panel", true).Body.String()
+	if !strings.Contains(panel, "Download failed:") || !strings.Contains(panel, ">Dismiss</button>") {
+		t.Errorf("panel does not show the failure:\n%s", panel)
+	}
+
+	if rec := hfhCancel(s, id); rec.Code != http.StatusNoContent {
+		t.Fatalf("dismiss: %d %s", rec.Code, rec.Body.String())
+	}
+	if got := s.downloader.ListFailed(); len(got) != 0 {
+		t.Errorf("failed downloads after dismiss = %+v", got)
 	}
 }

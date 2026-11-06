@@ -385,10 +385,9 @@ func (s *Server) handleHFActiveDownloads(w http.ResponseWriter, r *http.Request)
 		s.handleDownloadsPanel(w, r)
 		return
 	}
-	active := s.downloader.ListActive()
-	if active == nil {
-		active = []huggingface.DownloadStatus{}
-	}
+	// Failed downloads are listed too, with their error, until they are
+	// dismissed (DELETE /api/hf/download/{id}) or started again.
+	active := append(s.downloader.ListActive(), s.downloader.ListFailed()...)
 	respondJSON(w, active)
 }
 
@@ -412,13 +411,19 @@ type downloadRow struct {
 	// Paused/incomplete rows
 	OnDiskGB  float64
 	PartCount int
+	HasParts  bool
+
+	// Error is why the last attempt failed; empty when it did not.
+	Error string
 }
 
 // handleDownloadsPanel renders the single Downloads card on the Models page:
 // all in-flight downloads plus all resumable partials on disk, deduped by
 // download ID (an in-flight download's own .part files must not surface as a
 // second "incomplete" row — the pre-merge UI had that bug, offering Resume on
-// a download that was actively running).
+// a download that was actively running). A failed download shows its error
+// on its partial-files row, or on a row of its own when it left no files,
+// until the user dismisses it.
 func (s *Server) handleDownloadsPanel(w http.ResponseWriter, r *http.Request) {
 	var rows []downloadRow
 	activeIDs := make(map[string]bool)
@@ -435,15 +440,30 @@ func (s *Server) handleDownloadsPanel(w http.ResponseWriter, r *http.Request) {
 		}
 		rows = append(rows, row)
 	}
+	failed := make(map[string]huggingface.DownloadStatus)
+	for _, f := range s.downloader.ListFailed() {
+		failed[f.ID] = f
+	}
 	for _, p := range s.registry.OrphanParts() {
 		id := huggingface.SafeModelID(p.ModelID) + "--" + huggingface.SafeFileID(p.Filename)
 		if activeIDs[id] {
 			continue
 		}
-		rows = append(rows, downloadRow{
+		row := downloadRow{
 			ID: id, ModelID: p.ModelID, Filename: p.Filename,
-			OnDiskGB: models.BytesToGiB(p.BytesOnDisk), PartCount: p.PartCount,
-		})
+			OnDiskGB: models.BytesToGiB(p.BytesOnDisk), PartCount: p.PartCount, HasParts: true,
+		}
+		if f, ok := failed[id]; ok {
+			row.Error = f.Error
+			delete(failed, id)
+		}
+		rows = append(rows, row)
+	}
+	for id, f := range failed {
+		if activeIDs[id] {
+			continue
+		}
+		rows = append(rows, downloadRow{ID: id, ModelID: f.ModelID, Filename: f.Filename, Error: f.Error})
 	}
 	// Stable order — ListActive iterates a map, and the client skips the swap
 	// when the rendered HTML is byte-identical to what it already shows.
@@ -516,6 +536,7 @@ func (s *Server) handleIncompleteDiscard(w http.ResponseWriter, r *http.Request)
 			}
 		}
 	}
+	s.downloader.DismissFailed(safeName + "--" + huggingface.SafeFileID(filename))
 	slog.Info("discarded incomplete download", "model", modelID, "filename", filename, "files_removed", removed)
 
 	// Empty response so the per-row target clears; the panel re-polls and drops
@@ -525,7 +546,12 @@ func (s *Server) handleIncompleteDiscard(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) handleHFDownloadCancel(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	if err := s.downloader.Cancel(id); err != nil {
+	// The same request dismisses a failed download, so an API caller can
+	// clear what /api/hf/downloads lists.
+	// A failed download stays in the active map for 30 seconds, where
+	// Cancel finds it too, so dismiss whatever Cancel answers.
+	dismissed := s.downloader.DismissFailed(id)
+	if err := s.downloader.Cancel(id); err != nil && !dismissed {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}

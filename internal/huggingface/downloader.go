@@ -132,6 +132,11 @@ type Downloader struct {
 	// knows one by one. Set by ExpectSize; it is what lets the shards of
 	// a split model be checked, since a download only gets their total.
 	sizes map[string]int64
+	// failed holds the last status of each download that failed, keyed by
+	// download ID, until the user dismisses it or the download is started
+	// again. The download itself leaves active 30 seconds after it ends;
+	// without this its error would go with it.
+	failed map[string]DownloadStatus
 }
 
 func NewDownloader(dataDir, modelsDir, token string) *Downloader {
@@ -139,6 +144,7 @@ func NewDownloader(dataDir, modelsDir, token string) *Downloader {
 		dataDir:   dataDir,
 		modelsDir: modelsDir,
 		active:    make(map[string]*download),
+		failed:    make(map[string]DownloadStatus),
 		providers: make(map[string]Provider),
 		expected:  make(map[string]string),
 		sizes:     make(map[string]int64),
@@ -288,15 +294,40 @@ func FilePath(destRoot, modelID, filename string) string {
 }
 
 // Status returns the latest status of a download still held by the
-// downloader (in progress, or finished within the last 30 seconds).
+// downloader (in progress, finished within the last 30 seconds, or
+// failed and not yet dismissed).
 func (d *Downloader) Status(downloadID string) (DownloadStatus, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	dl, ok := d.active[downloadID]
 	if !ok {
-		return DownloadStatus{}, false
+		s, ok := d.failed[downloadID]
+		return s, ok
 	}
 	return dl.last(), true
+}
+
+// ListFailed returns the downloads that failed and are not yet
+// dismissed, sorted by ID.
+func (d *Downloader) ListFailed() []DownloadStatus {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	out := make([]DownloadStatus, 0, len(d.failed))
+	for _, s := range d.failed {
+		out = append(out, s)
+	}
+	slices.SortFunc(out, func(a, b DownloadStatus) int { return strings.Compare(a.ID, b.ID) })
+	return out
+}
+
+// DismissFailed forgets a failed download. It reports whether there was
+// one to forget.
+func (d *Downloader) DismissFailed(downloadID string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	_, ok := d.failed[downloadID]
+	delete(d.failed, downloadID)
+	return ok
 }
 
 func (d *Downloader) start(source, modelID, revision, filename string, expectedBytes int64, idPrefix, destRoot string, onDone FileDoneFunc) (string, error) {
@@ -306,6 +337,8 @@ func (d *Downloader) start(source, modelID, revision, filename string, expectedB
 	downloadID := fmt.Sprintf("%s%s--%s", idPrefix, safeName, safeFilename)
 
 	d.mu.Lock()
+	// A new attempt replaces the error of the last one.
+	delete(d.failed, downloadID)
 	if existing, exists := d.active[downloadID]; exists {
 		if s := existing.last(); s.Status == "downloading" {
 			if onDone != nil {
@@ -493,6 +526,16 @@ func (d *Downloader) run(ctx context.Context, source, downloadID, modelID, filen
 	sendProgress := func(status DownloadStatus) {
 		dl.broadcast(status)
 	}
+	// fail reports a failure, logs it and keeps it in d.failed, so it can
+	// still be seen after the download leaves the active map.
+	fail := func(file, msg string) {
+		status := DownloadStatus{ID: downloadID, ModelID: modelID, Filename: file, Status: "failed", Error: msg}
+		slog.Warn("download failed", "model", modelID, "file", file, "error", msg)
+		d.mu.Lock()
+		d.failed[downloadID] = status
+		d.mu.Unlock()
+		sendProgress(status)
+	}
 
 	// Expand sharded files: "model-00001-of-00005.gguf" → all 5 parts
 	filenames := models.ExpandShards(filename)
@@ -506,8 +549,7 @@ func (d *Downloader) run(ctx context.Context, source, downloadID, modelID, filen
 	}
 	modelDir := filepath.Join(root, safeName)
 	if err := os.MkdirAll(modelDir, 0o755); err != nil {
-		sendProgress(DownloadStatus{ID: downloadID, ModelID: modelID, Filename: filename, Status: "failed",
-			Error: fmt.Sprintf("creating model directory: %v", err)})
+		fail(filename, fmt.Sprintf("creating model directory: %v", err))
 		return
 	}
 
@@ -550,7 +592,7 @@ func (d *Downloader) run(ctx context.Context, source, downloadID, modelID, filen
 				sendProgress(DownloadStatus{ID: downloadID, ModelID: modelID, Filename: label, Status: "cancelled"})
 				return
 			}
-			sendProgress(DownloadStatus{ID: downloadID, ModelID: modelID, Filename: label, Status: "failed", Error: err.Error()})
+			fail(label, err.Error())
 			return
 		}
 		totalDownloaded += downloaded
