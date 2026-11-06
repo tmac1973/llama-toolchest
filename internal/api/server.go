@@ -605,6 +605,9 @@ func (s *Server) templateFuncs() template.FuncMap {
 		// cssID sanitizes a string so it's safe to use as both an HTML id
 		// attribute and a CSS selector (see domID in hf.go).
 		"cssID": domID,
+		// docsURL gives the full URL of a page on the documentation site,
+		// such as {{docsURL "gpu/eviction#modes"}} (see docs_links.go).
+		"docsURL": docsURL,
 		// groupThousands writes a number with thousands separators.
 		"groupThousands": models.GroupDigits,
 		// profileCell renders a run's saved profile for the comparison
