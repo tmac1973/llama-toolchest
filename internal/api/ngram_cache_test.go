@@ -45,7 +45,7 @@ func TestNgramCacheDialogAndClear(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, body = s.doProfileRequest(t, "GET", "/api/models/"+profTestID+"/config", nil)
-	if !strings.Contains(body, "Learned n-grams: 3 KB") || !strings.Contains(body, "Clear learned n-grams") {
+	if !strings.Contains(body, "Learned n-grams: 3.0 KiB") || !strings.Contains(body, "Clear learned n-grams") {
 		t.Errorf("with a file: no size or button")
 	}
 

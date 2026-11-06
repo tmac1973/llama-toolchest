@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/tmac1973/llama-toolchest/internal/evaluate"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
@@ -56,21 +57,9 @@ func (s *Server) ngramCacheView(id string, cfg *models.ModelConfig) ngramCacheIn
 	info := ngramCacheInfo{Show: true, Text: "Nothing learned yet. llama-server writes the file at unload."}
 	if st, err := os.Stat(path); err == nil {
 		info.Size = st.Size()
-		info.Text = fmt.Sprintf("Learned n-grams: %s, kept between loads.", humanBytes(st.Size()))
+		info.Text = fmt.Sprintf("Learned n-grams: %s, kept between loads.", evaluate.FormatBytes(st.Size()))
 	}
 	return info
-}
-
-// humanBytes writes a file size in KB or MB.
-func humanBytes(n int64) string {
-	switch {
-	case n >= 1<<20:
-		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
-	case n >= 1<<10:
-		return fmt.Sprintf("%.0f KB", float64(n)/(1<<10))
-	default:
-		return fmt.Sprintf("%d bytes", n)
-	}
 }
 
 // handleClearNgramCache deletes a model's learned n-gram file. A loaded

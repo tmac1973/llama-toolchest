@@ -26,7 +26,7 @@ var sdSourceSuffix = regexp.MustCompile(` --- [\w./-]+:\d+$`)
 func LastErrorLine(lines []string) string {
 	firstE, lastError, last := "", "", ""
 	for _, raw := range lines[max(0, len(lines)-lastLinesSearched):] {
-		line := cleanLogLine(raw)
+		line := errorLine(raw)
 		if line == "" || strings.HasPrefix(line, "==>") {
 			continue
 		}
@@ -47,11 +47,27 @@ func LastErrorLine(lines []string) string {
 	return last
 }
 
-// cleanLogLine trims a log line, drops an SSE "data: " prefix and sd.cpp's
-// source location, and cuts it to maxErrorLineLen.
-func cleanLogLine(line string) string {
+// CleanLogLine returns the text of a backend log line: trimmed, without
+// an SSE "data: " prefix or sd.cpp's " --- file.cpp:123" source suffix. A
+// progress bar redraws itself with carriage returns and an erase-line
+// code, and a line printed while it shows lands on the same line, after
+// the last of them; only that part is kept. The "[E] " level is kept:
+// LastErrorLine looks for it.
+func CleanLogLine(line string) string {
+	line = strings.TrimRight(line, "\r\n")
+	if i := strings.LastIndex(line, "\r"); i >= 0 {
+		line = line[i+1:]
+	}
+	if i := strings.LastIndex(line, "\x1b[K"); i >= 0 {
+		line = line[i+len("\x1b[K"):]
+	}
 	line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "data: "))
-	line = sdSourceSuffix.ReplaceAllString(line, "")
+	return sdSourceSuffix.ReplaceAllString(line, "")
+}
+
+// errorLine is CleanLogLine cut to maxErrorLineLen, for an error message.
+func errorLine(line string) string {
+	line = CleanLogLine(line)
 	if r := []rune(line); len(r) > maxErrorLineLen {
 		line = string(r[:maxErrorLineLen]) + "…"
 	}

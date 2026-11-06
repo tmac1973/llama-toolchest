@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/models"
@@ -27,25 +26,10 @@ type Client struct {
 
 	// token is guarded because Settings can replace it while a search or
 	// a listing is in flight on another goroutine.
-	mu    sync.RWMutex
-	token string
+	modelsource.BearerToken
 
 	// apiBase replaces the HuggingFace API address, for tests.
 	apiBase string
-}
-
-// SetToken replaces the access token, so one saved in Settings applies to
-// the next request rather than the next restart.
-func (c *Client) SetToken(token string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.token = token
-}
-
-func (c *Client) authToken() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.token
 }
 
 // The search and file types are shared with the other model sources, so
@@ -60,10 +44,11 @@ type (
 )
 
 func NewClient(token string) *Client {
-	return &Client{
+	c := &Client{
 		httpClient: &http.Client{Timeout: 30 * time.Second},
-		token:      token,
 	}
+	c.SetToken(token)
+	return c
 }
 
 // Search queries HuggingFace for GGUF models.
@@ -75,7 +60,7 @@ func (c *Client) Search(ctx context.Context, query string) ([]ModelSearchResult,
 	if err != nil {
 		return nil, err
 	}
-	c.setAuth(req)
+	c.SetAuth(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -102,7 +87,7 @@ func (c *Client) GetModel(ctx context.Context, modelID string) (*ModelDetail, er
 	if err != nil {
 		return nil, err
 	}
-	c.setAuth(req)
+	c.SetAuth(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -174,7 +159,7 @@ func (c *Client) tree(ctx context.Context, modelID string) ([]treeEntry, error) 
 		if err != nil {
 			return tree, err
 		}
-		c.setAuth(req)
+		c.SetAuth(req)
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
 			if page == 0 {
@@ -267,12 +252,6 @@ func (c *Client) ModelURL(modelID string) string {
 		return ""
 	}
 	return "https://huggingface.co/" + modelID
-}
-
-func (c *Client) setAuth(req *http.Request) {
-	if tok := c.authToken(); tok != "" {
-		req.Header.Set("Authorization", "Bearer "+tok)
-	}
 }
 
 // nextLink returns the rel="next" URL of an HTTP Link header, or "".

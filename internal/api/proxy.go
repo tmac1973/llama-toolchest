@@ -35,10 +35,7 @@ const autoLoadPollInterval = 250 * time.Millisecond
 // newProxyHandler creates a reverse proxy to the llama-server router.
 // Injects per-model sampling defaults for chat completion requests.
 func (s *Server) newProxyHandler() http.Handler {
-	target := &url.URL{
-		Scheme: "http",
-		Host:   fmt.Sprintf("localhost:%d", s.llamaPort()),
-	}
+	target, _ := url.Parse(s.routerBaseURL()) // always a valid URL
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	proxy.FlushInterval = 50 * time.Millisecond

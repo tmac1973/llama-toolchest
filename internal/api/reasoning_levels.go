@@ -85,7 +85,7 @@ func (s *Server) noteModelLoaded(m *models.Model) {
 // build does not report the levels (older than llama.cpp #31271); an
 // error means no answer, to be tried again.
 func (s *Server) readReasoningLevels(ctx context.Context, routerName string) (levels []string, known bool, err error) {
-	u := fmt.Sprintf("http://localhost:%d/props?model=%s&autoload=false", s.llamaPort(), url.QueryEscape(routerName))
+	u := s.routerBaseURL() + "/props?model=" + url.QueryEscape(routerName) + "&autoload=false"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, false, err

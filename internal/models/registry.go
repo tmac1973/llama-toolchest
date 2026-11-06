@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/atomicfile"
+	"github.com/tmac1973/llama-toolchest/internal/readonly"
 )
 
 // OrgAndBase returns the HuggingFace organization and base model name
@@ -557,11 +558,6 @@ const RegistrySchemaVersion = 2
 // ErrRegistryReadOnly is matched by errors.Is on every refusal from a
 // read-only registry. The error text itself is the plain-language reason.
 var ErrRegistryReadOnly = errors.New("model registry is read-only")
-
-type readOnlyError struct{ reason string }
-
-func (e readOnlyError) Error() string        { return e.reason }
-func (e readOnlyError) Is(target error) bool { return target == ErrRegistryReadOnly }
 
 type registryData struct {
 	SchemaVersion int                     `json:"schema_version"`
@@ -1976,23 +1972,16 @@ func (r *Registry) load() {
 	data, err := os.ReadFile(r.registryPath())
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
-			r.readOnly = fmt.Sprintf("models.json could not be read (%v). "+
-				"Model settings will not be saved until the file can be read, "+
-				"so that nothing overwrites it.", err)
+			r.readOnly = readonly.ReadReason("models.json", "Model settings", err)
 			slog.Error("failed to read model registry; registry is read-only", "error", err)
 		}
 		return
 	}
 	if err := json.Unmarshal(data, &r.data); err != nil {
-		r.readOnly = fmt.Sprintf("models.json could not be parsed (%v). "+
-			"Model settings will not be saved until the file is fixed, "+
-			"so that nothing overwrites it.", err)
+		r.readOnly = readonly.ParseReason("models.json", "Model settings", err)
 		slog.Error("failed to parse model registry; registry is read-only", "error", err)
 	} else if r.data.SchemaVersion > RegistrySchemaVersion {
-		r.readOnly = fmt.Sprintf("models.json was written by a newer version of "+
-			"llama-toolchest (schema %d; this version reads up to %d). "+
-			"Model settings will not be saved until llama-toolchest is upgraded, "+
-			"so that nothing the newer version stored is lost.",
+		r.readOnly = readonly.NewerReason("models.json", "Model settings",
 			r.data.SchemaVersion, RegistrySchemaVersion)
 		slog.Error("model registry is from a newer build; registry is read-only",
 			"schema_version", r.data.SchemaVersion, "supported", RegistrySchemaVersion)
@@ -2057,10 +2046,7 @@ func (r *Registry) ReadOnlyReason() string {
 // then failed to save would launch a config the panel reported as not
 // saved.
 func (r *Registry) writableLocked() error {
-	if r.readOnly != "" {
-		return readOnlyError{r.readOnly}
-	}
-	return nil
+	return readonly.Check(r.readOnly, ErrRegistryReadOnly)
 }
 
 // skipReadOnlyLocked is writableLocked for the startup backfills, which

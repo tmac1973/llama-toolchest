@@ -227,7 +227,7 @@ func PlanFit(m *Model, base ModelConfig, hw Hardware, class ContextClass) FitRes
 	}
 	w.Notes = append(w.Notes, ProfileNote{Origin: "hardware fit", Reason: fmt.Sprintf(
 		"Beside the %.1f GiB reserved for image and music backends, this model would get less context or run partly from system memory, so these settings use the whole GPUs. Auto-evict is on: loading the model stops those backends, and each starts again for its next job.",
-		evictableGiB(hw))})
+		EvictableGiB(hw))})
 	return w
 }
 
@@ -269,9 +269,10 @@ func WholeCards(hw Hardware) (Hardware, bool) {
 	return out, ok
 }
 
-// evictableGiB is what a loading model may take back on the cards a plan
-// uses.
-func evictableGiB(hw Hardware) float64 {
+// EvictableGiB is what a loading model may take back from the image and
+// music backends on the cards a plan spreads it over: nothing with
+// auto-evict off (GPUSpec.EvictableMiB is then unset).
+func EvictableGiB(hw Hardware) float64 {
 	var n int
 	for _, g := range PlanCards(hw) {
 		n += min(g.EvictableMiB, g.ReservedMiB)

@@ -9,6 +9,8 @@
 // import the builder, nor internal/generation (which does).
 package forks
 
+import "strconv"
+
 // Fork is one curated fork.
 type Fork struct {
 	// ID is a lowercase slug ("avalon"). It is also the builder project
@@ -94,4 +96,10 @@ type Instance struct {
 	// ExtraEnv is NAME=value lines for this instance only.
 	ExtraEnv  []string `json:"extra_env,omitempty"`
 	AutoStart bool     `json:"auto_start,omitempty"`
+}
+
+// BaseURL is the address the toolchest reaches the instance at, on
+// loopback whatever host it listens on.
+func (inst Instance) BaseURL() string {
+	return "http://127.0.0.1:" + strconv.Itoa(inst.Port)
 }

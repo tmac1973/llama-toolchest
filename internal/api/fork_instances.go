@@ -468,7 +468,7 @@ func (s *Server) startForkInstance(id string) ([]string, error) {
 		Args:          forks.Args(f, set, inst),
 		Env:           env,
 		WorkDir:       set.Dir,
-		HealthURL:     fmt.Sprintf("http://127.0.0.1:%d/health", inst.Port),
+		HealthURL:     inst.BaseURL() + "/health",
 		HealthTimeout: forks.StartTimeout,
 	}
 	if err := s.forkMgr.Start(inst.ID, cfg); err != nil {
