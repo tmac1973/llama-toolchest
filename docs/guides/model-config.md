@@ -53,6 +53,8 @@ Usually on: faster, less memory.
 
 Micro-batch usually has the largest effect on prompt speed; measure it with Autotune or a benchmark sweep. Batch must be ≥ micro-batch. Defaults: 512 and 2048.
 
+A larger micro-batch also takes more GPU memory, mostly for the attention mask, which grows with micro-batch × context. On a layer split over several GPUs, llama.cpp keeps four copies of it so the GPUs can work on different micro-batches at the same time, and drops to one copy when four do not fit. On CUDA builds the memory estimate does the same, so a large micro-batch at a long context is planned at what it really uses.
+
 ### Direct I/O { #direct-io }
 
 Loads weights without the OS page cache. Use it when VRAM is larger than system RAM.

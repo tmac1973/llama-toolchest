@@ -302,3 +302,71 @@ func TestCollectorMatchesAPaddedPortPrefix(t *testing.T) {
 		t.Errorf("GPU = %v MiB; want 8192", got)
 	}
 }
+
+// Qwen3.6-35B-A3B with MTP on two cards, in the shape llama.cpp v0.9.0
+// logs it: the model's context and the drafter's each reserve once while
+// loading, and the model's reserves again when a request changes its
+// graph (the MTP drafter's embeddings, a request's sampler). The later
+// reservation replaces the first; summing it in reported 31.2 GiB for
+// cards that held 27.8.
+const mtpReserves = `0.00.100.000 I srv          load: spawning server instance with name=q35 on port 46231
+[46231] 0.10.000.001 I load_tensors:        CUDA0 model buffer size =  8000.00 MiB
+[46231] 0.10.000.002 I load_tensors:        CUDA1 model buffer size =  8000.00 MiB
+[46231] 0.11.000.000 I llama_context: constructing llama_context
+[46231] 0.11.000.100 I llama_kv_cache:      CUDA0 KV buffer size =  1000.00 MiB
+[46231] 0.11.000.101 I llama_kv_cache:      CUDA1 KV buffer size =  1000.00 MiB
+[46231] 0.11.100.000 I sched_reserve: reserving ...
+[46231] 0.11.200.000 I sched_reserve:      CUDA0 compute buffer size =  1500.00 MiB
+[46231] 0.11.200.001 I sched_reserve:      CUDA1 compute buffer size =  1600.00 MiB
+[46231] 0.11.200.002 I sched_reserve:  CUDA_Host compute buffer size =   200.00 MiB
+[46231] 0.12.000.000 I llama_context: constructing llama_context
+[46231] 0.12.000.100 I llama_kv_cache:      CUDA1 KV buffer size =   256.00 MiB
+[46231] 0.12.100.000 I sched_reserve: reserving ...
+[46231] 0.12.200.000 I sched_reserve:      CUDA1 compute buffer size =   300.00 MiB
+[46231] 0.13.000.000 I srv  load_model: model loaded
+[46231] 0.20.000.000 I sched_reserve: reserving ...
+[46231] 0.20.100.000 I sched_reserve:      CUDA0 compute buffer size =  1510.00 MiB
+[46231] 0.20.100.001 I sched_reserve:      CUDA1 compute buffer size =  1610.00 MiB
+[46231] 0.20.100.002 I sched_reserve:  CUDA_Host compute buffer size =   200.00 MiB`
+
+func TestCollectorCountsEachContextsFirstReservation(t *testing.T) {
+	c := NewCollector()
+	feed(c, mtpReserves)
+	m, ok := c.Latest("q35")
+	if !ok {
+		t.Fatal("no measurement")
+	}
+	gpu := func(e Entry) bool { return e.Kind == KindCompute && e.OnGPU() }
+	// The model's 1500 + 1600 and the drafter's 300; not the 3120 the
+	// model's second reservation would add.
+	if got := m.Report.SumMiB(gpu); got != 3400 {
+		t.Errorf("GPU compute = %v MiB; want 3400", got)
+	}
+	if got := m.Report.GPUMiB(true); got != 16000+2256+3400 {
+		t.Errorf("GPU total = %v MiB; want %v", got, 16000+2256+3400)
+	}
+}
+
+// A build that logs no reservation lines keeps every compute line, as
+// before: there is nothing to tell a second reservation by.
+func TestCollectorWithoutReserveLinesKeepsEveryComputeLine(t *testing.T) {
+	c := NewCollector()
+	feed(c, twoInstances)
+	a, _ := c.Latest("modelA")
+	if got := a.Report.SumMiB(func(e Entry) bool { return e.Kind == KindCompute }); got != 1280 {
+		t.Errorf("compute = %v MiB; want 1280", got)
+	}
+}
+
+func TestParseMarker(t *testing.T) {
+	for line, want := range map[string]Marker{
+		"[46231] 0.11.000.000 I llama_context: constructing llama_context":                MarkerContext,
+		"data: [ 8080] 0.11.100.000 I sched_reserve: reserving ...":                       MarkerReserve,
+		"[46231] 0.11.200.000 I sched_reserve: reserve took 12.00 ms":                     MarkerNone,
+		"[46231] 0.11.200.000 I sched_reserve:  CUDA0 compute buffer size =  1500.00 MiB": MarkerNone,
+	} {
+		if _, got := ParseMarker(line); got != want {
+			t.Errorf("%q: marker %v; want %v", line, got, want)
+		}
+	}
+}
