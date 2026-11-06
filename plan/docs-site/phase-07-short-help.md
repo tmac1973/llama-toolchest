@@ -40,6 +40,8 @@ working, also with no internet access.
    | --- | --- |
    | `#eviction` | `gpu/eviction#modes` |
    | `#vram-margin` | `gpu/memory-margin#what` |
+| `#eviction-reservations` (added by #570) | `gpu/reservations#what` |
+| `#eviction-turns` (added by #570) | `gpu/taking-turns#take-turns` |
    | `#server`, `#engine-notes` | `guides/server`, `guides/server#engine-notes` |
    | `#builds` | `guides/builds` |
    | `#models` | `guides/models` |
@@ -66,8 +68,9 @@ working, also with no internet access.
    sentences (Measure records each instance's peak VRAM plus 10%; the planner
    keeps that much free) and two links: `gpu/reservations#what` and
    `reference/measured-reservations`.
-5. Apply the differences between Help and the code that Phases 03–05 listed,
-   so the short text matches the code.
+5. Apply the differences between Help and the code that Phases 03–05 listed
+   (in the descriptions of PRs #575 and #576), so the short text matches the
+   code.
 6. Add the "Docs" navigation link in `layout.html`:
    `<a href="{{docsURL ""}}" target="_blank" rel="noopener">Docs</a>`.
    Phase 06 made `docsURL ""` return the base URL.
