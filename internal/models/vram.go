@@ -225,7 +225,20 @@ type vramCoefficients struct {
 	// specCompute is the draft context's graph scratch, on top of the
 	// model's own, when speculative decoding is on.
 	specCompute computeCoeffs
+	// pipelineFallback: the context terms of layer and specCompute are
+	// pipelineCopies attention masks, and a context whose copies do not
+	// fit the card is planned with one, as llama.cpp then runs it (see
+	// pipelineCopiesFit).
+	pipelineFallback bool
 }
+
+// pipelineCopies is how many graphs llama.cpp keeps in flight on a layer
+// split with pipeline parallelism (GGML_SCHED_MAX_COPIES). The scheduler
+// gives each one its own copy of the graph's inputs, so the next
+// micro-batch can be copied in while the last is computed; the other
+// buffers are shared. The largest input by far is the attention mask, a
+// micro-batch by the context in f16, on every card.
+const pipelineCopies = 4
 
 // rocmCoefficients come from two ROCm machines: a 4x Radeon AI PRO R9700
 // box split tensor-parallel (eleven loads, four architectures), and one
@@ -277,13 +290,28 @@ var cudaCoefficients = vramCoefficients{
 	// 0.51 at 32K with 2048 — the context term grows with the
 	// micro-batch, so it is a product.
 	single: computeCoeffs{base: 0.03, perUB: 1.9e-4, perUBCtx: 1.75e-9},
-	// Not measured tensor-parallel on CUDA: the layer split's figure, the
-	// larger of the two kinds measured, stands in.
-	tensor: computeCoeffs{base: 0.10, perUB: 2.95e-4, perUBCtx: 7.95e-9},
+	// Tensor-parallel, per card, from compute2's benchmark runs (two
+	// A4000s, 131K, v0.8.0 and v0.9.0): 0.27 GiB (Spark-X2.6-4B) to 0.62
+	// (Qwen3.6-35B-A3B) with a 512 micro-batch, 0.92 for the 4B with 2048.
+	// No pipeline copies here, so the context term is one attention mask,
+	// a quarter of the layer split's. The base is high for the 4B points
+	// because the same config read up to 0.4 GiB apart from one run to
+	// the next, and it covers the highest.
+	tensor: computeCoeffs{base: 0.62, perUB: 1.0e-4, perUBCtx: 7.95e-9 / pipelineCopies},
 	// Split by layer, per card: 0.19 GiB at 8K to 0.66 at 128K with a 512
 	// micro-batch, 1.13 at 32K and 2.47 at 128K with 2048.
 	// The base covers granite-30B, whose cards held 0.37 GiB at 32K where
 	// the 8B's held 0.25: wider feed-forward layers take more.
+	//
+	// The context term is the attention masks of four graphs in flight
+	// (pipelineCopies), one f16 value per micro-batch token and context
+	// position in each: 4 x 2 bytes is 7.45e-9 GiB, and the fit came out
+	// at 7.95e-9. When the copies do not fit, llama.cpp retries with one
+	// and the term is a quarter of this. On compute2 (v0.8.0 and v0.9.0,
+	// two A4000s, 131K) Qwen3.6-35B-A3B at a 4096 micro-batch used 23.5
+	// GiB less its projector, where four masks a card would need 30.8,
+	// and llama.cpp reported 3.82 GiB of compute buffers in all. The 4B
+	// models at 2048 kept their four, at 2.3-2.5 GiB a card.
 	layer: computeCoeffs{base: 0.10, perUB: 2.95e-4, perUBCtx: 7.95e-9},
 	// Flash-Next's cards with no other scratch held 0.30 GiB at 32K and
 	// 0.92 at 128K, all of it accounted for by the terms above.
@@ -307,7 +335,15 @@ var cudaCoefficients = vramCoefficients{
 	// MTP's draft context: +0.4 to +0.64 GiB at 32K, and +0.38 (27B) to
 	// +1.25 (35B-A3B) at 128K. With the recurrent copies below, every MTP
 	// point stays at least 0.8 GiB above what it used.
-	specCompute: computeCoeffs{base: 0.45, perUBCtx: 1.0e-8},
+	//
+	// The draft context is a llama.cpp context of its own, with its own
+	// pipeline copies, on the card that holds the MTP layer; the context
+	// term is their four masks. It reserves after the model's context, so
+	// it is the first to lose its copies: Qwen3.6-35B-A3B at 2048 on two
+	// A4000s kept the model's four and used 27.0 GiB less its projector,
+	// where four draft copies as well would need 30.1.
+	specCompute:      computeCoeffs{base: 0.45, perUBCtx: 1.0e-8},
+	pipelineFallback: true,
 }
 
 var activeVRAMBackend atomic.Value // string
@@ -317,6 +353,17 @@ var activeVRAMBackend atomic.Value // string
 // without a fitted set of its own uses ROCm's, the more cautious.
 func SetVRAMBackend(backend string) {
 	activeVRAMBackend.Store(backend)
+}
+
+var vramCardMiB atomic.Int64
+
+// SetVRAMCardMiB tells the estimate how large one GPU is, in MiB, which
+// decides whether llama.cpp's pipeline copies fit (pipelineCopiesFit).
+// With cards of different sizes it is the largest, so a split is never
+// planned at one copy where it would get four. Zero, the start, means
+// not known: the copies are taken to fit.
+func SetVRAMCardMiB(mib int) {
+	vramCardMiB.Store(int64(max(0, mib)))
 }
 
 func coefficientsFor(backend string) *vramCoefficients {
@@ -403,6 +450,12 @@ func VRAMBreakdownForConfigOn(m *Model, cfg *ModelConfig, cards int) VRAMBreakdo
 }
 
 func vramBreakdownWith(co *vramCoefficients, m *Model, cfg *ModelConfig, cards int) VRAMBreakdown {
+	return vramBreakdownOn(co, m, cfg, cards, float64(vramCardMiB.Load())/1024)
+}
+
+// vramBreakdownOn is the estimate on cards of cardGiB each, 0 when not
+// known.
+func vramBreakdownOn(co *vramCoefficients, m *Model, cfg *ModelConfig, cards int, cardGiB float64) VRAMBreakdown {
 	if cards < 1 {
 		cards = 1
 	}
@@ -482,9 +535,15 @@ func vramBreakdownWith(co *vramCoefficients, m *Model, cfg *ModelConfig, cards i
 		perCard += float64(m.KVFullPerTok) / float64(m.AttnLayers) * float64(ctx) * 2 / (1024 * 1024 * 1024)
 	}
 	b.Compute = float64(cards) * perCard
+	// The masks the pipeline copies hold, which one copy would not.
+	var masks float64
+	if layerSplit && m.Kind() == KindChat {
+		masks = float64(cards) * co.layer.perUBCtx * float64(ub) * float64(ctx)
+	}
 	if co.expertOffloadScratch && cfg.CPUMoE > 0 && m.ExpertLayers > 0 {
 		b.Compute += BytesToGiB(m.ExpertBytes / int64(m.ExpertLayers))
 	}
+	var spec, specMasks float64
 	if IsDraftMode(cfg.SpecType) {
 		// The drafter's context has a micro-batch of its own when one is
 		// set (--spec-draft-n-ubatch), and its compute buffer follows it.
@@ -492,7 +551,20 @@ func vramBreakdownWith(co *vramCoefficients, m *Model, cfg *ModelConfig, cards i
 		if cfg.DraftUBatchSize > 0 {
 			dub = min(ub, cfg.DraftUBatchSize)
 		}
-		b.Compute += co.specCompute.at(dub, ctx)
+		spec = co.specCompute.at(dub, ctx)
+		specMasks = co.specCompute.perUBCtx * float64(dub) * float64(ctx)
+		if co.pipelineFallback && !layerSplit {
+			// No pipeline on one card or tensor-parallel: one mask. On a
+			// tensor split the draft context spans the cards as the
+			// model's does, with its scratch on every one: Qwen3.6-35B-A3B
+			// with MTP held 0.56 GiB a card more than without at 512, 1.4
+			// more at 4096.
+			spec -= specMasks * (pipelineCopies - 1) / pipelineCopies
+			if cards >= 2 {
+				spec *= float64(cards)
+			}
+		}
+		b.Compute += spec
 	}
 
 	// Sparse attention: a key cache of its own, plus scratch that scales
@@ -537,7 +609,42 @@ func vramBreakdownWith(co *vramCoefficients, m *Model, cfg *ModelConfig, cards i
 	b.MoECache = BytesToGiB(MoECacheBytes(m, cfg))
 	b.Aux = AuxFilesVRAMGB(cfg)
 	b.Overhead = co.overheadFirst + float64(cards-1)*co.overheadExtra
+	if co.pipelineFallback && layerSplit {
+		pipelineCopiesFit(&b, cards, masks, spec, specMasks, cardGiB)
+	}
 	return b
+}
+
+// pipelineCopiesFit plans a layer split's pipeline copies the way
+// llama.cpp allocates them. Each context reserves its compute buffers
+// for pipelineCopies graphs, and when that allocation fails it retries
+// with one (llama_context::sched_reserve, "retrying without pipeline
+// parallelism"). The model's context reserves first, with its weights
+// and caches already on the cards; the draft context follows, on the
+// card that holds the drafter, with the model's buffers there too.
+//
+// masks is the model context's masks at full copies, in Compute; spec is
+// the draft context's whole scratch there, and specMasks its masks. A
+// card is judged by the average share of the load, which is below what
+// the busiest card holds, so the estimate drops a context to one copy
+// only where llama.cpp surely does. Unknown card size (0) keeps every
+// copy.
+func pipelineCopiesFit(b *VRAMBreakdown, cards int, masks, spec, specMasks, cardGiB float64) {
+	if cardGiB <= 0 || cards < 2 {
+		return
+	}
+	// What is on the cards when the model's context reserves: not the
+	// drafter's cache and scratch, which come after, nor the projector,
+	// which is loaded last.
+	model := b.Total() - b.Aux - b.SpecKV - spec
+	if model/float64(cards) > cardGiB {
+		cut := masks * (pipelineCopies - 1) / pipelineCopies
+		b.Compute -= cut
+		model -= cut
+	}
+	if spec > 0 && model/float64(cards)+b.SpecKV+spec > cardGiB {
+		b.Compute -= specMasks * (pipelineCopies - 1) / pipelineCopies
+	}
 }
 
 // encoderTokenScratch is the graph scratch per micro-batch token of an

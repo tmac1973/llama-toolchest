@@ -32,7 +32,19 @@ type Measurement struct {
 	// Report holds the buffer lines this instance logged, unscaled: a
 	// tensor-parallel load reports per card, and turning that into totals
 	// needs a card count only the caller has (Report.ScaleAggregates).
+	//
+	// It holds each context's first compute reservation only. A context
+	// reserves again whenever a setting changes its graph, while
+	// serving too, and those buffers replace the first; the log does not
+	// say which context a later reservation is for, and it is about the
+	// size of the first. Summing them all counted one load's compute
+	// buffers two or three times: Qwen3.6-35B-A3B with MTP reported 31.2
+	// GiB on two A4000s that held 27.8.
 	Report Report
+
+	// reserved: the current context has had its first reservation;
+	// skipCompute: the compute lines now arriving are a later one.
+	reserved, skipCompute bool
 }
 
 // readyPort reports the port of an instance that has finished loading.
@@ -141,6 +153,21 @@ func (c *Collector) Add(line string) Event {
 		return Event{Kind: EventReady, Model: ld.Model, Port: port}
 	}
 
+	if port, mk := ParseMarker(line); mk != MarkerNone {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if ld := c.byPort[port]; ld != nil && port != "" {
+			switch mk {
+			case MarkerContext:
+				ld.reserved, ld.skipCompute = false, false
+			case MarkerReserve:
+				ld.skipCompute = ld.reserved
+				ld.reserved = true
+			}
+		}
+		return Event{}
+	}
+
 	e, ok := ParseLine(line)
 	if !ok || e.Instance == "" {
 		// An unprefixed buffer line came from the router process itself,
@@ -149,7 +176,7 @@ func (c *Collector) Add(line string) Event {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if ld := c.byPort[e.Instance]; ld != nil {
+	if ld := c.byPort[e.Instance]; ld != nil && !(e.Kind == KindCompute && ld.skipCompute) {
 		ld.Report.Entries = append(ld.Report.Entries, e)
 	}
 	return Event{}

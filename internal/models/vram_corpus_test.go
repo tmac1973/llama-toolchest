@@ -37,9 +37,24 @@ type corpusPoint struct {
 // coeffs is the coefficient set a point is checked against.
 func (p corpusPoint) coeffs() *vramCoefficients { return coefficientsFor(p.backend) }
 
-// estimate is the point's estimate under its own backend's coefficients.
+// estimate is the point's estimate under its own backend's coefficients,
+// on the cards it was measured on.
 func (p corpusPoint) estimate() VRAMBreakdown {
-	return vramBreakdownWith(p.coeffs(), &p.model, &p.cfg, p.cards)
+	return vramBreakdownOn(p.coeffs(), &p.model, &p.cfg, p.cards, p.cardGiB())
+}
+
+// a4000MiB is one of compute2's RTX A4000s as the monitor reads it.
+const a4000MiB = 15352
+
+// cardGiB is the size of the cards a point was measured on, which
+// decides whether llama.cpp kept its pipeline copies. Every CUDA point
+// is from compute2; the ROCm points leave it unknown, as their
+// coefficients do not model the copies.
+func (p corpusPoint) cardGiB() float64 {
+	if p.backend == "cuda" {
+		return a4000MiB / 1024.0
+	}
+	return 0
 }
 
 // reportedTerms is one load's buffer report, GiB on the accelerators.
@@ -63,7 +78,8 @@ func gibBytes(f float64) int64 { return int64(f * gib) }
 // corpus is every measured load, on both backends.
 func corpus() []corpusPoint {
 	out := append(rocmCorpus(), rocmLocalCorpus()...)
-	return append(out, cudaCorpus()...)
+	out = append(out, cudaCorpus()...)
+	return append(out, cudaBenchCorpus()...)
 }
 
 // rocmCorpus: one machine, 4x Radeon AI PRO R9700, tensor-parallel.
@@ -273,6 +289,44 @@ func cudaCorpus() []corpusPoint {
 	}
 }
 
+// cudaBenchCorpus: compute2 again, two of its A4000s, from the benchmark
+// history (2026-11-01 to 11-05, builds v0.8.0-cuda and v0.9.0-cuda,
+// flash attention on, 131K context, llama.cpp's four conversations).
+// measured is the sum of the cards' used memory while the model was
+// loaded, less the vision projector where one was loaded (0.84 GiB for
+// the 35B-A3B), since these records carry no projector path. These are
+// the large micro-batches the points above lack: at 2048 and 4096 the
+// estimate was 4 to 11 GiB high (issue #582). Their buffer reports are
+// left out: before #582 the report added every compute reservation
+// llama.cpp made while serving, not only the one in use.
+func cudaBenchCorpus() []corpusPoint {
+	q35 := Model{Arch: "qwen35moe", SizeBytes: 18536192288, TokenEmbdBytes: 540344320, NLayers: 41, AttnLayers: 10,
+		NEmbd: 2048, NHead: 16, NKVHead: 2, KVFullPerTok: 10240, ContextLength: 262144, ExpertCount: 256, ExpertUsedCount: 8,
+		ExpertBytes: 15927869440, ExpertLayers: 41, NextNLayers: 1, RecurrentStateBytes: 65863680}
+	spark := Model{Arch: "spark2_5", SizeBytes: 3543441312, TokenEmbdBytes: 671088640, NLayers: 36, AttnLayers: 36,
+		NEmbd: 2560, NHead: 16, NKVHead: 4, KVFullPerTok: 18432, KVSWAPerTok: 55296, SlidingWindow: 512, ContextLength: 1048576}
+	glb := Model{Arch: "qwen35", SizeBytes: 4482402848, TokenEmbdBytes: 675430400, OutputTied: true, NLayers: 32, AttnLayers: 8,
+		NEmbd: 2560, NHead: 16, NKVHead: 4, KVFullPerTok: 16384, ContextLength: 262144, RecurrentStateBytes: 52690944}
+	c := func(ub int, split, spec string, draft int) ModelConfig {
+		return ModelConfig{ContextSize: 131072, BatchSize: max(ub, 2048), UBatchSize: ub, GPULayers: 999,
+			SplitMode: split, SpecType: spec, DraftMax: draft}
+	}
+	const mmproj = 902822528.0 / gib
+	used := func(a, b int) float64 { return float64(a+b) / 1024 }
+	return []corpusPoint{
+		// Four pipeline copies of a 0.5 GiB mask fit beside the model.
+		{name: "bench glb 2c layer ub2048", model: glb, cfg: c(2048, "layer", "", 0), cards: 2, measured: used(6869, 7087), backend: "cuda"},
+		// Four copies of a 1 GiB mask did not: llama.cpp kept one.
+		{name: "bench q35 2c layer ub4096", model: q35, cfg: c(4096, "layer", "", 0), cards: 2, measured: used(13109, 11785) - mmproj, backend: "cuda"},
+		// The model's context kept four copies, the drafter's one.
+		{name: "bench q35 2c layer ub2048 mtp", model: q35, cfg: c(2048, "layer", "draft-mtp", 3), cards: 2, measured: used(14273, 14197) - mmproj, backend: "cuda"},
+		{name: "bench q35 2c layer ub4096 mtp", model: q35, cfg: c(4096, "layer", "draft-mtp", 6), cards: 2, measured: used(13915, 14571) - mmproj, backend: "cuda"},
+		// No pipeline on a tensor split.
+		{name: "bench spark 2c tensor ub2048", model: spark, cfg: c(2048, "tensor", "", 0), cards: 2, measured: used(5125, 5125), backend: "cuda"},
+		{name: "bench q35 2c tensor ub4096 mtp", model: q35, cfg: c(4096, "tensor", "draft-mtp", 3), cards: 2, measured: used(14945, 14483) - mmproj, backend: "cuda"},
+	}
+}
+
 // point looks a corpus point up by name. Positional access breaks
 // silently when a point is inserted, and inserting points is the whole
 // intent of this file.
@@ -477,5 +531,42 @@ func TestCardCountersExceedTheBufferReport(t *testing.T) {
 		if remainder > 3.0 {
 			t.Errorf("%s: %.2f GiB unreported; the remainder was a near-constant 2.3 across the sweep it was measured on", p.name, remainder)
 		}
+	}
+}
+
+// Issue #582: at large micro-batches the estimate was 4 to 11 GiB above
+// what two A4000s used, because it counted four pipeline copies of the
+// attention mask where llama.cpp had dropped to one, and the layer
+// split's copies on a tensor split, which has none. Never under is
+// TestEstimateNeverUnderPredicts; this holds the points close.
+func TestLargeMicroBatchesStayClose(t *testing.T) {
+	for _, p := range cudaBenchCorpus() {
+		got := p.estimate().Total()
+		if over := got - p.measured; over > 2.0 {
+			t.Errorf("%s: estimated %.2f GiB, the cards used %.2f — over by %.2f", p.name, got, p.measured, over)
+		}
+	}
+}
+
+// The copies are dropped only when they would not fit. On cards of an
+// unknown size, or large enough, they stay: llama.cpp keeps them there,
+// and planning one would put the estimate under what is used.
+func TestPipelineCopiesStayWhereTheyFit(t *testing.T) {
+	p := point(t, "bench q35 2c layer ub4096")
+	on16 := p.estimate().Total()
+	unknown := vramBreakdownOn(p.coeffs(), &p.model, &p.cfg, p.cards, 0).Total()
+	on48 := vramBreakdownOn(p.coeffs(), &p.model, &p.cfg, p.cards, 48).Total()
+	// Three more 1 GiB masks on each of two cards.
+	if d := unknown - on16; d < 5.5 || d > 6.5 {
+		t.Errorf("four copies cost %.2f GiB more than one; want about 6", d)
+	}
+	if on48 != unknown {
+		t.Errorf("on 48 GiB cards the estimate is %.2f, want the four copies' %.2f", on48, unknown)
+	}
+
+	// The glb point fits its four, on the same cards.
+	g := point(t, "bench glb 2c layer ub2048")
+	if got, want := g.estimate().Total(), vramBreakdownOn(g.coeffs(), &g.model, &g.cfg, g.cards, 0).Total(); got != want {
+		t.Errorf("glb at 2048: %.2f planned on A4000s, %.2f with every copy; its copies fit", got, want)
 	}
 }

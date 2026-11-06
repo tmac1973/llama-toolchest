@@ -814,6 +814,18 @@ func (r CardRoom) For(m *Model, cfg *ModelConfig) []int {
 	return r.Shared
 }
 
+// LargestCardMiB is the size of the largest discrete GPU, in MiB: the
+// card size the estimate is given (SetVRAMCardMiB). 0 with none.
+func LargestCardMiB(gpus []GPUSpec) int {
+	n := 0
+	for _, g := range gpus {
+		if !g.IsIGPU {
+			n = max(n, g.VRAMTotalMiB)
+		}
+	}
+	return n
+}
+
 // GPUMiB is what each GPU lets a model use, by position: CardBudgetMiB,
 // its total less what other programs hold, the GPU memory margin and
 // generation reservations. MoESplitConfig, PlanCardLoads and CardLoadsMiB

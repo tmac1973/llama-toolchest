@@ -104,6 +104,45 @@ var recurrentRE = regexp.MustCompile(
 var moeCacheRE = regexp.MustCompile(
 	`^(?:\[\s*(\d+)\] )?[\d.]+ [A-Z] (\w+):\s+(\S+)\s+MoE cache size\s*=\s*([\d.]+)\s*MiB`)
 
+// Marker is a line that tells which allocation the compute lines after
+// it belong to.
+type Marker int
+
+const (
+	MarkerNone Marker = iota
+	// MarkerContext is a llama.cpp context starting: the model's own,
+	// then the draft context's when speculative decoding is on. Each
+	// context has compute buffers of its own.
+	MarkerContext
+	// MarkerReserve is a context reserving its compute buffers, which
+	// it does once while loading and again whenever a setting changes the
+	// graph's shape, even while serving (a request's sampler, the MTP
+	// drafter's embeddings). A later reservation replaces the earlier
+	// buffers rather than adding to them.
+	MarkerReserve
+)
+
+// markerRE matches the two lines, with the same prefix as lineRE.
+var markerRE = regexp.MustCompile(
+	`^(?:\[\s*(\d+)\] )?[\d.]+ [A-Z] \w+:\s+(constructing llama_context|reserving \.\.\.)`)
+
+// ParseMarker reports whether a line is a Marker, and the instance that
+// logged it.
+func ParseMarker(line string) (instance string, mk Marker) {
+	line = strings.TrimPrefix(line, "data: ")
+	if !strings.Contains(line, "constructing llama_context") && !strings.Contains(line, "reserving ...") {
+		return "", MarkerNone
+	}
+	m := markerRE.FindStringSubmatch(line)
+	if m == nil {
+		return "", MarkerNone
+	}
+	if m[2] == "reserving ..." {
+		return m[1], MarkerReserve
+	}
+	return m[1], MarkerContext
+}
+
 // ParseLine extracts one entry, reporting false for any line that is not
 // a buffer report — which is the overwhelming majority of the stream.
 func ParseLine(line string) (Entry, bool) {
@@ -213,13 +252,13 @@ func (r Report) Instances() []string {
 // SumMiB totals every entry matching the filter.
 //
 // Summing is right for weights, KV and recurrent state: each line is a
-// distinct allocation on a distinct device. It is NOT known to be right
-// for compute buffers. llama.cpp reserves more than once per load — a
-// hybrid model reserves separately for each memory module — and whether
-// those reservations are separate allocations or one buffer resized to
-// the largest graph is not something the log states. MaxComputeMiB
-// exists for the other reading; plan/ple-vram-findings.md step 3 settles
-// which by comparing both against measured VRAM.
+// distinct allocation on a distinct device. For compute buffers it is
+// right across contexts (the model's and a draft context's are separate
+// allocations) but not across one context's reservations, where a later
+// one replaces the earlier buffers. The Collector keeps only each
+// context's first reservation, so its reports can be summed; a Report
+// filled with Add keeps every line, and MaxComputeMiB is the other
+// reading of it.
 func (r Report) SumMiB(match func(Entry) bool) float64 {
 	var total float64
 	for _, e := range r.Entries {

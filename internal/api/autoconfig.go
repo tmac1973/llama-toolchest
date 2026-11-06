@@ -72,6 +72,15 @@ func (s *Server) hardware() models.Hardware {
 	if s.builder != nil {
 		models.SetVRAMBackend(buildBackend(s.resolveActiveBuild()))
 	}
+	hw := s.readHardware()
+	// So is the card size, which decides whether llama.cpp's pipeline
+	// copies fit a layer split.
+	models.SetVRAMCardMiB(models.LargestCardMiB(hw.GPUs))
+	return hw
+}
+
+// readHardware is hardware without the estimate's settings.
+func (s *Server) readHardware() models.Hardware {
 	if s.testHardware != nil {
 		hw := *s.testHardware
 		hw.GPUs = append([]models.GPUSpec(nil), hw.GPUs...)
