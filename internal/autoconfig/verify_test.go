@@ -340,7 +340,7 @@ func TestFitIsPlannedWithTheDraftContext(t *testing.T) {
 		// and the one with them moves layers off it; the old 8% margin
 		// leaves room for the draft context, so the two compare.
 		hw := gpu24()
-		hw.GPUs[0].MarginMiB = 1966 - models.WorkingMemoryMiB
+		hw.GPUs[0].MarginMiB = 1966
 		res, err := Run(context.Background(), Deps{Registry: runRegistryWithMTP(t, mtpLayers), Hardware: hw},
 			runModelID, models.ContextMax)
 		if err != nil {

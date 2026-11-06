@@ -79,9 +79,8 @@ func TestMaxMoECacheMiB(t *testing.T) {
 	m := flashNext()
 	hw := Hardware{LogicalCores: 32, RAMTotalMiB: 64 * 1024}
 	for i := range 3 {
-		// The old 8% (1,311 MiB, with the working memory) leaves room
-		// for a cache.
-		hw.GPUs = append(hw.GPUs, GPUSpec{Index: i, Name: "RTX A4000", VRAMTotalMiB: 16376, MarginMiB: 1311 - WorkingMemoryMiB})
+		// The old 8% margin (1,311 MiB) leaves room for a cache.
+		hw.GPUs = append(hw.GPUs, GPUSpec{Index: i, Name: "RTX A4000", VRAMTotalMiB: 16376, MarginMiB: 1311})
 	}
 	plan := PlanFit(m, DefaultConfig(), hw, ContextMedium)
 	if !plan.Fits || plan.Config.CPUMoE == 0 {

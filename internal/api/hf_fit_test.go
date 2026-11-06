@@ -9,12 +9,11 @@ import (
 )
 
 // fitHardware is cards of gpuGiB each, with the margin from before the
-// setting (8% of the card, with llama.cpp's working memory), which the
-// labels below were written for.
+// setting (8% of the card), which the labels below were written for.
 func fitHardware(gpuGiB ...int) models.Hardware {
 	hw := models.Hardware{LogicalCores: 16, RAMTotalMiB: 64 * 1024}
 	for i, g := range gpuGiB {
-		hw.GPUs = append(hw.GPUs, models.GPUSpec{Index: i, Name: "GPU", VRAMTotalMiB: g * 1024, MarginMiB: g*1024*8/100 - models.WorkingMemoryMiB})
+		hw.GPUs = append(hw.GPUs, models.GPUSpec{Index: i, Name: "GPU", VRAMTotalMiB: g * 1024, MarginMiB: g * 1024 * 8 / 100})
 	}
 	return hw
 }

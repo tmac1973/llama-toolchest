@@ -115,35 +115,37 @@
     </dl>
 
     <h2 id="eviction">Eviction</h2>
-    <p>Eviction is how toolchest makes room on a GPU. It unloads an LLM, or stops a generation backend, so that a new one can load. Set it in <a href="/settings#eviction">Settings → Eviction</a>. The Server tab shows the mode in effect. A change applies at the next server start; the card has a <em>Restart server</em> button for this.</p>
+    <p>Eviction is how toolchest makes room on a GPU for a new model. Set it in <a href="/settings#eviction">Settings → Eviction</a>. The Server tab shows the mode in effect. A change applies at the next server start; the card has a <em>Restart server</em> button for this.</p>
     <div class="help-wide"><table>
-        <tr><th>Mode</th><th>Who decides</th><th>What unloads</th></tr>
-        <tr><td><strong>Off</strong></td><td>The llama-server router, by count</td><td>It keeps up to <em>Max loaded models</em>. At the limit, the model used least recently unloads. VRAM is not checked, so a model that does not fit fails to load. <code>1</code> means one model at a time.</td></tr>
-        <tr><td><strong>llama.cpp</strong></td><td>The llama-server router, by VRAM</td><td>Idle models unload, least recently used first, until the new model fits. The router keeps the largest <a href="#vram-margin">GPU memory margin</a> free on each GPU; the card shows it. Needs llama.cpp b11930 or newer; an older build unloads by count.</td></tr>
-        <tr><td><strong>llama-toolchest</strong></td><td>Toolchest, by VRAM</td><td>Idle models unload, least recently used first, but only on the GPUs that are short. Toolchest uses the <a href="#vram-margin">GPU memory margin</a> to choose what unloads. Only the generation reservations refuse a load. When nothing more can unload, toolchest sends the load and llama-server decides if the model fits. Works with any build.</td></tr>
+        <tr><th>Mode</th><th>Who decides</th><th>Generation models</th><th>What happens</th></tr>
+        <tr><td><strong>Off</strong></td><td>The llama-server router, by count</td><td>Yes</td><td>The router keeps up to <em>Max loaded models</em>, regardless of size. At the limit, the model used least recently unloads. On a GPU with a generation reservation, toolchest refuses an LLM that does not fit beside it (HTTP 507). Other GPUs are not checked: a model that does not fit fails to load.</td></tr>
+        <tr><td><strong>llama.cpp</strong></td><td>The llama-server router, by VRAM</td><td>No</td><td>Idle models unload, least recently used first, until the new model fits. The router keeps the largest <a href="#vram-margin">GPU memory margin</a> free on each GPU. Needs llama.cpp b11930 or newer; an older build unloads by count.</td></tr>
+        <tr><td><strong>llama-toolchest</strong></td><td>Toolchest, by VRAM</td><td>Yes</td><td>Idle LLMs unload, least recently used first, on the GPUs that are short, until the new model fits by its estimate. Generation reservations stay free. With <a href="#eviction-turns"><em>take turns</em></a> on, toolchest also stops idle backends for an LLM, and unloads LLMs for a job. When nothing more can unload, llama-server tries the load. Works with any build.</td></tr>
     </table></div>
     <ul>
-        <li><strong>In every mode:</strong> a model that answers a request never unloads. <em>Max loaded models</em> is always an upper limit. Benchmarks, Autotune and Autoconfigure load one model at a time.</li>
-        <li><strong>Small models stay:</strong> with llama.cpp or llama-toolchest, embedding and reranking models stay loaded beside a chat model while they fit. A small model can unload a big one: if the big model leaves too little room on a GPU that the small model uses, a request for the small model unloads the big one. To keep both, give the big model a smaller context.</li>
-        <li><strong>llama.cpp gives way to llama-toolchest</strong> while generation backends or llama.cpp forks are on. The router cannot see the VRAM that they use. The card then shows llama.cpp as not available, and toolchest decides. Your choice is kept, and llama.cpp decides again when backends and forks are off.</li>
+        <li><strong>Why llama.cpp mode cannot run generation models:</strong> the router knows only its own models. It cannot see the VRAM of generation backends or llama.cpp forks. While they are on, the card shows llama.cpp as not available, and toolchest decides. A saved llama.cpp choice is kept, and llama.cpp decides again when they are off.</li>
+        <li><strong>In every mode:</strong> a model that answers a request never unloads. <em>Max loaded models</em> is always an upper limit (0: no limit). Benchmarks, Autotune and Autoconfigure load one model at a time.</li>
+        <li><strong>Autoconfigure</strong> plans an LLM beside the generation reservations, on the cards as they are with nothing of ours loaded. With <em>take turns</em> on, <em>Use the whole GPUs, split evenly</em> plans it on the whole cards instead: loading it then stops the backends in its way.</li>
+        <li><strong>Small models stay:</strong> with llama.cpp or llama-toolchest, embedding and reranking models stay loaded beside a chat model while they fit. A small model can unload a big one if the big one leaves too little room on the small model's GPU. To keep both, give the big model a smaller context.</li>
         <li><strong>Split Mode tensor:</strong> the router cannot see the memory of a model with Split Mode <code>tensor</code>, so with llama.cpp such a load can fail out of memory. Use llama-toolchest, or Split Mode <code>layer</code>.</li>
     </ul>
-    <h3>LLMs and generation backends</h3>
+    <h3 id="eviction-reservations">Why generation models need reservations</h3>
+    <p>A generation backend holds almost no VRAM while it waits. It takes its memory, often 10 to 20 GB, only when a job starts. Without a reservation, an LLM could load into that free room, and the next job would run out of memory. A reservation keeps the room free. Measure works out its size from a test run (<a href="#generation-vram">Measured reservations</a>). With no generation backends, there are no reservations.</p>
+    <h3 id="eviction-turns">LLMs and backends taking turns</h3>
     <p>With generation backends on and llama-toolchest in effect, the card has one more switch, <em>LLMs and backends can take turns on a GPU</em>:</p>
     <ul>
         <li><strong>Off (default):</strong> each measured instance keeps its reservation free, also while it is stopped. An LLM that does not fit beside the reservations is refused (HTTP 507).</li>
-        <li><strong>On:</strong> the newest request gets the GPU. A chat request stops idle backends, and a job unloads idle LLMs. See <a href="#generation-evict">Taking turns when both do not fit</a>.</li>
+        <li><strong>On:</strong> the newest request gets the GPU. A chat request stops idle backends, and a job unloads idle LLMs. Locked instances never stop. See <a href="#generation-evict">Taking turns when both do not fit</a>.</li>
     </ul>
-    <p>With eviction off, the reservations always count, as with the switch off.</p>
 
     <h2 id="vram-margin">GPU memory margin</h2>
-    <p>The margin is extra VRAM that toolchest keeps free on a GPU. Set it in <a href="/settings#vram-margin">Settings → GPU memory margin</a>, in GiB. The default is 0: nothing extra.</p>
-    <p>Toolchest always keeps 1 GiB free on each GPU for llama.cpp's working memory. Real chats process a prompt in parts, and llama.cpp then uses more memory than a test load shows. With less than 1 GiB free, settings that passed a test load ran out of memory on the first real chat. Toolchest also counts what the desktop and other programs use when it plans.</p>
+    <p>The margin is VRAM that toolchest keeps free on each GPU, beside LLMs and generation backends. Set it in <a href="/settings#vram-margin">Settings → GPU memory margin</a>, in GiB. The default and the smallest value is 1 GiB.</p>
     <ul>
+        <li><strong>Why at least 1 GiB:</strong> real chats process a prompt in parts, and llama.cpp then uses more memory than its estimate and a test load show. Settings that passed a test load with about 500 MiB free ran out of memory on the first real chat. The 1 GiB also leaves room for the driver. What the desktop and other programs use is counted apart, from the GPU's reading.</li>
         <li><strong>Every GPU:</strong> one value for all cards.</li>
-        <li><strong>One GPU:</strong> a row for each detected GPU. A value there replaces the value for every GPU. Use it for the GPU that runs the desktop, where use can go up while a model runs. Leave the row blank to use the value for every GPU.</li>
-        <li><strong>What uses it:</strong> Autoconfigure, the fit labels on Download Models, Measure, the fit checks of generation backends, and eviction by llama-toolchest. With eviction by llama.cpp, the router takes one margin for all GPUs, so it gets the largest one, plus the 1 GiB of working memory.</li>
-        <li><strong>When it applies:</strong> at the next plan, load or router start. A loaded model keeps the settings it has. Run Autoconfigure again to plan for a new margin.</li>
+        <li><strong>One GPU:</strong> a row for each detected GPU. A value there replaces the value for every GPU, for example a larger margin on the GPU that runs the desktop. Leave the row blank to use the value for every GPU.</li>
+        <li><strong>What uses it:</strong> Autoconfigure, the fit labels on Download Models, Measure, the start check of a generation backend, and eviction by llama-toolchest. With eviction by llama.cpp, the router takes one margin for all GPUs, so it gets the largest.</li>
+        <li><strong>When it applies:</strong> at the next plan, load or backend start. A loaded model keeps its settings. Run Autoconfigure again to plan for a new margin.</li>
         <li><strong>If a load fails out of memory:</strong> raise the margin of that GPU by 0.5 to 1 GiB, or give the model a smaller context.</li>
     </ul>
 

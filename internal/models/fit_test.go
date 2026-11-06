@@ -345,11 +345,11 @@ func TestPlanFitGivesTheDrafterASmallMicroBatchOnlyWhenNeeded(t *testing.T) {
 func TestCardBudgetWithReservations(t *testing.T) {
 	card := GPUSpec{VRAMTotalMiB: 32624, OtherUsedMiB: 1300}
 	if got := CardBudgetMiB(card); got != 32624-1300-WorkingMemoryMiB {
-		t.Errorf("budget with no margin = %d MiB, want all the card but the desktop and the working memory", got)
+		t.Errorf("budget with no margin = %d MiB, want all the card but the desktop and the 1 GiB minimum", got)
 	}
 	card.MarginMiB = 2048
 	plain := CardBudgetMiB(card)
-	if plain != 32624-1300-WorkingMemoryMiB-2048 {
+	if plain != 32624-1300-2048 {
 		t.Errorf("budget with a 2 GiB margin = %d MiB", plain)
 	}
 	card.ReservedMiB = 11776 + 8192
@@ -430,8 +430,9 @@ func TestRouterMemoryMarginMiB(t *testing.T) {
 		want    int
 	}{
 		{nil, 0},
-		{[]int{0, 0}, WorkingMemoryMiB}, // llama.cpp's working memory, never 0
-		{[]int{512, 2048}, 2048 + WorkingMemoryMiB}, // the largest margin decides
+		{[]int{0, 0}, WorkingMemoryMiB},     // the 1 GiB minimum, never 0
+		{[]int{512, 2048}, 2048},            // the largest margin decides
+		{[]int{512, 768}, WorkingMemoryMiB}, // below the minimum counts as it
 	}
 	for _, c := range cases {
 		var gpus []GPUSpec

@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
 // maxVRAMMarginGiB is the largest margin the settings take: more than
@@ -41,11 +43,11 @@ func gibText(mib int) string {
 // the system monitor reports.
 func (s *Server) vramMarginInfo() vramMarginView {
 	cfg := s.cfgCopy()
-	v := vramMarginView{GiB: gibText(cfg.VRAMMarginMiB)}
+	v := vramMarginView{GiB: gibText(max(cfg.VRAMMarginMiB, models.WorkingMemoryMiB))}
 	for _, g := range s.hardware().GPUs {
 		row := vramMarginGPU{Index: g.Index, Name: g.Name, Total: mibText(g.VRAMTotalMiB), IGPU: g.IsIGPU}
 		if mib, ok := cfg.VRAMMarginByGPU[g.Index]; ok {
-			row.GiB = gibText(mib)
+			row.GiB = gibText(max(mib, models.WorkingMemoryMiB))
 		}
 		v.GPUs = append(v.GPUs, row)
 	}
@@ -58,18 +60,23 @@ func (s *Server) handleVRAMMarginCard(w http.ResponseWriter, r *http.Request) {
 	s.renderPartial(w, "vram_margin_card", s.vramMarginInfo())
 }
 
-// parseVRAMMarginGiB reads a margin in GiB as MiB. Blank is 0 and ok is
-// false for a field left blank.
+// parseVRAMMarginGiB reads a margin in GiB as MiB. Blank is 0, the
+// default, and ok is false for a field left blank. Less than 1 GiB is
+// refused: llama.cpp needs that much for its working memory
+// (models.WorkingMemoryMiB).
 func parseVRAMMarginGiB(field, text string) (mib int, ok bool, err error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return 0, false, nil
 	}
 	v, err := strconv.ParseFloat(text, 64)
-	if err != nil || math.IsNaN(v) || v < 0 || v > maxVRAMMarginGiB {
-		return 0, false, fmt.Errorf("%s must be a number of GiB from 0 to %d, not %q", field, maxVRAMMarginGiB, text)
+	if err != nil || math.IsNaN(v) || v > maxVRAMMarginGiB {
+		return 0, false, fmt.Errorf("%s must be a number of GiB from 1 to %d, not %q", field, maxVRAMMarginGiB, text)
 	}
-	return int(math.Round(v * 1024)), true, nil
+	if mib = int(math.Round(v * 1024)); mib < models.WorkingMemoryMiB {
+		return 0, false, fmt.Errorf("%s must be at least 1 GiB, not %q: llama.cpp needs that much free in real chats, and so does the driver", field, text)
+	}
+	return mib, true, nil
 }
 
 // formVRAMMargin reads the card's form: vram_margin_gib for every GPU
@@ -110,10 +117,13 @@ func formVRAMMargin(r *http.Request, saved map[int]int) (all int, byGPU map[int]
 	return all, byGPU, nil
 }
 
-// validVRAMMarginMiB checks a margin in MiB from the JSON API.
+// validVRAMMarginMiB checks a margin in MiB from the JSON API or a
+// backup: 0 is the default (1 GiB), and anything else must be from
+// models.WorkingMemoryMiB up.
 func validVRAMMarginMiB(field string, mib int) error {
-	if mib < 0 || mib > maxVRAMMarginGiB*1024 {
-		return fmt.Errorf("%s must be from 0 to %d MiB, not %d", field, maxVRAMMarginGiB*1024, mib)
+	if mib != 0 && (mib < models.WorkingMemoryMiB || mib > maxVRAMMarginGiB*1024) {
+		return fmt.Errorf("%s must be 0 (the default, 1 GiB) or from %d to %d MiB, not %d",
+			field, models.WorkingMemoryMiB, maxVRAMMarginGiB*1024, mib)
 	}
 	return nil
 }

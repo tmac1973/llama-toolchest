@@ -45,7 +45,8 @@ type Config struct {
 	AutoStart    bool `yaml:"auto_start"` // start the llama-server on container startup
 	// VRAMMarginMiB is the memory kept free on each GPU when toolchest
 	// plans a model or checks a load, and the router's margin when it
-	// decides by memory. 0, the default, lets models use all of a card.
+	// decides by memory. At least 1 GiB, llama.cpp's working memory: 0,
+	// the default, and any smaller value count as 1 GiB.
 	// VRAMMarginByGPU sets it for single GPUs, by index; see VRAMMarginFor.
 	VRAMMarginMiB   int         `yaml:"vram_margin_mib,omitempty"`
 	VRAMMarginByGPU map[int]int `yaml:"vram_margin_by_gpu,omitempty"`
