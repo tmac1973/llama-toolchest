@@ -1,5 +1,29 @@
 # Changelog
 
+## [2.53.0](https://github.com/tmac1973/llama-toolchest/compare/v2.52.0...v2.53.0) (2026-11-06)
+
+
+### Features
+
+* **builds:** build llama.cpp with the RDNA boosts patch set ([#562](https://github.com/tmac1973/llama-toolchest/issues/562)) ([baa786a](https://github.com/tmac1973/llama-toolchest/commit/baa786a5eba5a1e8d767ffd761aca90e6c753c4d))
+* **builds:** patch set releases — order by base, base in build IDs, list recent releases ([#564](https://github.com/tmac1973/llama-toolchest/issues/564)) ([cbc6702](https://github.com/tmac1973/llama-toolchest/commit/cbc67025fca69cd8dc1d8c6440f7af68c3859862))
+* **forks:** build Avalon from its latest commit instead of a pinned one ([#568](https://github.com/tmac1973/llama-toolchest/issues/568)) ([30a0353](https://github.com/tmac1973/llama-toolchest/commit/30a0353f84aa686133c477867413d9300d023305))
+* **gpus:** show each card's PCIe link to the CPU ([#558](https://github.com/tmac1973/llama-toolchest/issues/558)) ([79f5030](https://github.com/tmac1973/llama-toolchest/commit/79f503091cc1bb40d68cbe96ad1c70f38f755a07))
+* **settings:** clearer Eviction card, 1 GiB margin minimum, Help on eviction ([#570](https://github.com/tmac1973/llama-toolchest/issues/570)) ([4451e86](https://github.com/tmac1973/llama-toolchest/commit/4451e862113c635a280d15bbf9e241f893902bd3))
+* **settings:** GPU memory margin in GiB, per GPU, default 0 ([#565](https://github.com/tmac1973/llama-toolchest/issues/565)) ([#566](https://github.com/tmac1973/llama-toolchest/issues/566)) ([1edda09](https://github.com/tmac1973/llama-toolchest/commit/1edda09e9140157f868937ae2d9b4c936bf00feb))
+* **ui:** add docsURL template function and check app links to the docs ([#574](https://github.com/tmac1973/llama-toolchest/issues/574)) ([14fbbac](https://github.com/tmac1973/llama-toolchest/commit/14fbbac5b79a1e7842bda503c21d2cf4e96d051a))
+
+
+### Bug Fixes
+
+* **benchmark:** end a cell as soon as llama-server hangs ([#559](https://github.com/tmac1973/llama-toolchest/issues/559)) ([39dfe3c](https://github.com/tmac1973/llama-toolchest/commit/39dfe3c58cf445f29a74cf04e2d7667bfc84162c))
+* **engine-notes:** count a crash as a crash when a stop follows it ([#557](https://github.com/tmac1973/llama-toolchest/issues/557)) ([8a5ef95](https://github.com/tmac1973/llama-toolchest/commit/8a5ef9517de46287ac8c662a353b6c2083238378))
+* **monitor:** fall back to sysfs when rocm-smi leaves out a KFD GPU ([#579](https://github.com/tmac1973/llama-toolchest/issues/579)) ([d9bf5f4](https://github.com/tmac1973/llama-toolchest/commit/d9bf5f409aba6b3d051635db67349d10f79dd87b))
+* **server:** let llama-server decide when a load fits in toolchest mode ([#561](https://github.com/tmac1973/llama-toolchest/issues/561)) ([#563](https://github.com/tmac1973/llama-toolchest/issues/563)) ([0ff2bc5](https://github.com/tmac1973/llama-toolchest/commit/0ff2bc53e6455dd642b44bf6df86e02a7726045c))
+* **ui:** keep the custom context size box open when Custom is chosen ([#567](https://github.com/tmac1973/llama-toolchest/issues/567)) ([190946d](https://github.com/tmac1973/llama-toolchest/commit/190946d35ef3650af22def7778ddd94e7eec80e4))
+* **ui:** keep what is on screen in place when htmx swaps it ([#581](https://github.com/tmac1973/llama-toolchest/issues/581))3 ([590e8d5](https://github.com/tmac1973/llama-toolchest/commit/590e8d5e23e093dc9c095cc750de7b2d6462c9a3))
+* **ui:** stop the whole-GPUs note overlapping its toggle in Autoconfigure ([#555](https://github.com/tmac1973/llama-toolchest/issues/555)) ([3f3d61e](https://github.com/tmac1973/llama-toolchest/commit/3f3d61e9d4a2fe17b97bbb0665b7aa63cd0f93da))
+
 ## [2.52.0](https://github.com/tmac1973/llama-toolchest/compare/v2.51.0...v2.52.0) (2026-11-04)
 
 
