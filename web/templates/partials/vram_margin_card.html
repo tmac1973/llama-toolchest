@@ -4,10 +4,7 @@
 {{define "vram_margin_card"}}
 <article id="vram-margin">
     <header>GPU memory margin</header>
-    <p><small>VRAM on each GPU that toolchest does not plan models or
-       generation backends into. llama.cpp uses it for working memory in
-       real chats, and the driver uses some too, so it is at least 1 GiB.
-       A change applies to the next plan, load or backend start. <a href="/help#vram-margin">More in Help</a>.</small></p>
+    <p><small>VRAM reserved on each GPU for llama.cpp. At least 1 GiB. <a href="/help#vram-margin">More in Help</a>.</small></p>
     <form hx-put="/api/settings"
           hx-target="#vram-margin-status"
           hx-swap="innerHTML"
