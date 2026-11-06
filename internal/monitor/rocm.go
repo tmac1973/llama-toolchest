@@ -151,10 +151,27 @@ func (r *rocmBackend) collectROCmSMI() ([]GPUInfo, error) {
 
 		gpus = append(gpus, gpu)
 	}
+	if err := checkKFDCoverage(len(gpus), len(dirs)); err != nil {
+		return nil, err
+	}
 	// Rows arrive in rocm-smi's PCI-address order; present them in
 	// GPU-index order so the sidebar reads ROCm0, ROCm1, ...
 	sort.Slice(gpus, func(i, j int) bool { return gpus[i].Index < gpus[j].Index })
 	return gpus, nil
+}
+
+// checkKFDCoverage rejects a rocm-smi listing that leaves out a GPU KFD
+// knows. The rest of the app numbers GPUs by their position in the
+// list (Model settings, the device lists llama-server gets), while the
+// sidebar and autoconfig show gpu.Index; both agree only when the
+// indices run 0..n-1 with no gap. Rows are already unique KFD
+// positions, so equal counts mean no gap; with a gap the sysfs
+// fallback, which lists every KFD GPU, takes over.
+func checkKFDCoverage(rows, kfdGPUs int) error {
+	if rows != kfdGPUs {
+		return fmt.Errorf("rocm-smi: lists %d GPUs but KFD has %d", rows, kfdGPUs)
+	}
+	return nil
 }
 
 // listAMDGPUDirs returns the sysfs device directories of AMD GPUs in
