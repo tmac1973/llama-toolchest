@@ -68,7 +68,15 @@ The patched build uses 0.17 GiB more, and both stay under the 25.0 GiB plan. No 
 
 ## Step 6 — host mode
 
-Not done in this test (see the PR).
+On the local workstation (CachyOS, RX 9070 XT gfx1201, host ROCm 7.2.4 at `/opt/rocm`), the toolchest from this branch ran as a `systemd-run --user` unit with the system unit's protections: `ProtectHome=read-only`, `ProtectSystem=full`, `NoNewPrivileges=true`. Data and config were in `/var/tmp/lt-rdna`, so `HOME` was read-only. `PrivateTmp` was left off, because it hides `/var/tmp` from the unit; the real unit keeps its data in `/var/lib`.
+
+Building `v16-6050b467c-r206` from a fresh data folder passed:
+
+- the llama.cpp clone and the patch repo clone;
+- the base checkout, `git am` of the 16 patches, and the tree check (commit efaa60db, the release tip);
+- cmake and ninja, in 28 minutes; status `success`, commit count 11887, the patch fields set.
+
+The built `llama-server --version` reports build 11903, commit efaa60db0, and its help lists `draft-mtp-adaptive`. The build also passed on ROCm 7.2.4, not only 10.1. A root system install was not tested (no sudo on this machine).
 
 ## State after the test
 
