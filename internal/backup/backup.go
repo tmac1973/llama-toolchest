@@ -76,7 +76,11 @@ type Settings struct {
 	// says when the GPUs differ.
 	VRAMMarginMiB   *int        `json:"vram_margin_mib,omitempty"`
 	VRAMMarginByGPU map[int]int `json:"vram_margin_by_gpu,omitempty"`
-	LogLevel        *string     `json:"log_level,omitempty"`
+	// VRAMMarginZeroOK says 0 in the margins is 0 MiB. A backup from
+	// before it has a margin of 0 for the default and counted any value
+	// below 1 GiB as 1 GiB, so restore reads those as the default.
+	VRAMMarginZeroOK bool    `json:"vram_margin_zero_ok,omitempty"`
+	LogLevel         *string `json:"log_level,omitempty"`
 	// DefaultModelSource is a plain preference, not a secret, so it
 	// travels with every backup.
 	DefaultModelSource *string `json:"default_model_source,omitempty"`
@@ -126,12 +130,13 @@ func Assemble(cfg *config.Config, b *builder.Builder, reg *models.Registry, gpus
 	}
 
 	s := &Settings{
-		ModelsMax:       ptr(cfg.ModelsMax),
-		Eviction:        ptr(cfg.Eviction),
-		AutoStart:       ptr(cfg.AutoStart),
-		LogLevel:        ptr(cfg.LogLevel),
-		VRAMMarginMiB:   ptr(cfg.VRAMMarginMiB),
-		VRAMMarginByGPU: maps.Clone(cfg.VRAMMarginByGPU),
+		ModelsMax:        ptr(cfg.ModelsMax),
+		Eviction:         ptr(cfg.Eviction),
+		AutoStart:        ptr(cfg.AutoStart),
+		LogLevel:         ptr(cfg.LogLevel),
+		VRAMMarginMiB:    ptr(cfg.VRAMMarginAll()),
+		VRAMMarginByGPU:  maps.Clone(cfg.VRAMMarginByGPU),
+		VRAMMarginZeroOK: true,
 	}
 	// Only when set: an empty value would restore as "no preference",
 	// which the target already has, so there is nothing to say.

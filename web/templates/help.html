@@ -101,7 +101,7 @@
     <p>With <em>LLMs and backends can take turns on a GPU</em> on, the newest request gets the GPU: chat stops idle backends, and a job unloads idle LLMs. <a class="help-more" href="{{docsURL "gpu/taking-turns#take-turns"}}" target="_blank" rel="noopener">More in the docs</a></p>
 
     <h2 id="vram-margin">GPU memory margin</h2>
-    <p>The margin is VRAM reserved on each GPU for llama.cpp's working memory in real chats. The default and the smallest value is 1 GiB. Set one value for every GPU, or a larger one for a GPU that runs the desktop. If a load runs out of memory, raise the margin of that GPU by 0.5 to 1 GiB.</p>
+    <p>The margin is VRAM reserved on each GPU for llama.cpp's working memory in real chats. The default is 1 GiB. You can set less, down to 0, but then a model can load and run out of memory in its first long chat. Set one value for every GPU, or a larger one for a GPU that runs the desktop. If a load runs out of memory, raise the margin of that GPU by 0.5 to 1 GiB.</p>
     <p class="help-more"><a href="{{docsURL "gpu/memory-margin#what"}}" target="_blank" rel="noopener">More in the docs</a>: what toolchest counts on a GPU, and what the llama.cpp router gets.</p>
 
     <h2 id="server">Server tab</h2>

@@ -59,15 +59,13 @@ type GPUSpec struct {
 	// keep the card for image and music backends.
 	LeftOut bool
 	// MarginMiB is the memory kept free on the card (Settings → GPU memory
-	// margin). Never less than WorkingMemoryMiB: a smaller value, or 0,
-	// counts as that (KeptFreeMiB).
+	// margin). 0 keeps nothing free; the default is WorkingMemoryMiB.
 	MarginMiB int
 }
 
-// KeptFreeMiB is the memory a plan leaves free on the card: its margin,
-// and at least llama.cpp's working memory.
+// KeptFreeMiB is the memory a plan leaves free on the card: its margin.
 func (g GPUSpec) KeptFreeMiB() int {
-	return max(g.MarginMiB, WorkingMemoryMiB)
+	return g.MarginMiB
 }
 
 // UsableMiB is what the card leaves for llama.cpp before the safety
@@ -81,8 +79,9 @@ func (g GPUSpec) UsableMiB() int {
 // asks for more working memory on the first card as they do, more than
 // the estimate and a test load show. Settings that passed every test run
 // with about 500 MiB left on one card crashed with out of memory on the
-// first real chat; with 1.3 GiB left they ran. It is the smallest GPU
-// memory margin, and the default.
+// first real chat; with 1.3 GiB left they ran. It is the default GPU
+// memory margin (config.DefaultVRAMMarginMiB). A smaller margin is
+// allowed, at the risk of that crash.
 const WorkingMemoryMiB = 1024
 
 // cardBudgetGiB is what a plan may use of a card: what other programs
@@ -179,10 +178,13 @@ func ThreadsFor(cores int) int {
 // RouterMemoryMarginMiB is the margin the router keeps free on each GPU
 // when it manages memory (--models-memory-margin): the largest of the
 // GPUs' margins (KeptFreeMiB), since the router takes one number for all
-// of them. At least WorkingMemoryMiB, which also keeps it above 0: 0
-// turns the router's memory accounting off. 0 without GPUs.
+// of them. At least 1 MiB, also when every margin is 0: 0 turns the
+// router's memory accounting off. 0 without GPUs.
 func RouterMemoryMarginMiB(gpus []GPUSpec) int {
-	largest := 0
+	if len(gpus) == 0 {
+		return 0
+	}
+	largest := 1
 	for _, g := range gpus {
 		largest = max(largest, g.KeptFreeMiB())
 	}

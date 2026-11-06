@@ -40,8 +40,9 @@ type settingsResponse struct {
 	Eviction          string `json:"eviction"`
 	EvictionEffective string `json:"eviction_effective"`
 	ModelsMax         int    `json:"models_max"`
-	// VRAMMarginMiB is the memory kept free on each GPU, and
-	// VRAMMarginByGPU the GPUs with a margin of their own, by index.
+	// VRAMMarginMiB is the memory kept free on each GPU (the default
+	// when none is set), and VRAMMarginByGPU the GPUs with a margin of
+	// their own, by index.
 	VRAMMarginMiB   int         `json:"vram_margin_mib"`
 	VRAMMarginByGPU map[int]int `json:"vram_margin_by_gpu,omitempty"`
 
@@ -83,7 +84,7 @@ func (s *Server) writeSettings(w http.ResponseWriter, r *http.Request, cfg *conf
 		ModelsMax:          cfg.ModelsMax,
 		GenEvict:           cfg.GenEvict,
 		GenKeepPromptCache: cfg.GenKeepPromptCache,
-		VRAMMarginMiB:      cfg.VRAMMarginMiB,
+		VRAMMarginMiB:      cfg.VRAMMarginAll(),
 		VRAMMarginByGPU:    cfg.VRAMMarginByGPU,
 	}
 	resp.GenPortStart, resp.GenPortCount = cfg.GenPorts(s.inContainer())
@@ -168,7 +169,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			s.cfg.VRAMMarginMiB = *update.VRAMMarginMiB
+			s.cfg.VRAMMarginMiB = update.VRAMMarginMiB
 		}
 		if update.VRAMMarginByGPU != nil {
 			for g, mib := range *update.VRAMMarginByGPU {
@@ -401,6 +402,9 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		msg := "Settings saved."
+		if r.Form.Has("vram_margin_touched") && lowVRAMMargin(s.cfg) {
+			msg += " " + lowMarginWarning
+		}
 		if v := s.cfg.EnvVar(config.FieldExternalURL); v != "" && r.Form.Has("external_url") {
 			msg = "Saved to the config file. " + v + " still sets the URL in use; the saved value applies once that variable is removed."
 		}

@@ -137,10 +137,19 @@ func (s *Server) restoreDeps() backup.Deps {
 				s.cfg.Eviction = *eviction
 				changed = append(changed, "eviction")
 			}
-			if in.VRAMMarginMiB != nil && validVRAMMarginMiB("vram_margin_mib", *in.VRAMMarginMiB) == nil &&
-				s.cfg.VRAMMarginMiB != *in.VRAMMarginMiB {
-				s.cfg.VRAMMarginMiB = *in.VRAMMarginMiB
-				changed = append(changed, "vram_margin_mib")
+			// A backup from before 0 meant 0 MiB counted anything below
+			// the default as the default.
+			oldMargin := func(mib int) int {
+				if !in.VRAMMarginZeroOK && mib < config.DefaultVRAMMarginMiB {
+					return config.DefaultVRAMMarginMiB
+				}
+				return mib
+			}
+			if in.VRAMMarginMiB != nil && validVRAMMarginMiB("vram_margin_mib", *in.VRAMMarginMiB) == nil {
+				if mib := oldMargin(*in.VRAMMarginMiB); s.cfg.VRAMMarginAll() != mib {
+					s.cfg.VRAMMarginMiB = &mib
+					changed = append(changed, "vram_margin_mib")
+				}
 			}
 			// Merged, never deleted: a GPU margin the backup does not name
 			// stays.
@@ -149,6 +158,7 @@ func (s *Server) restoreDeps() backup.Deps {
 				if g < 0 || validVRAMMarginMiB("vram_margin_by_gpu", mib) != nil {
 					continue
 				}
+				mib = oldMargin(mib)
 				if cur, ok := s.cfg.VRAMMarginByGPU[g]; ok && cur == mib {
 					continue
 				}

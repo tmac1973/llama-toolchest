@@ -4,11 +4,19 @@
 
 The margin is VRAM on each GPU that toolchest does not plan models or generation backends into. It is not empty space: llama.cpp uses it for working memory in real chats, and the driver uses some of it too. The estimate of a model does not count that use, so the margin holds room for it.
 
-Set it in Settings → GPU memory margin (`/settings#vram-margin`), in GiB. The default and the smallest value is 1 GiB.
+Set it in Settings → GPU memory margin (`/settings#vram-margin`), in GiB. The default is 1 GiB. You can set any value from 0 up; 0 keeps nothing free.
 
-## Why at least 1 GiB { #at-least-1-gib }
+## Why the default is 1 GiB { #at-least-1-gib }
 
 The estimate of a model and a test load do not show all the memory that llama.cpp uses. Real chats process a prompt in parts, and llama.cpp then needs more working memory. Settings that passed a test load with about 500 MiB free ran out of memory on the first real chat. The 1 GiB also leaves room for the driver.
+
+## A margin below 1 GiB { #below-1-gib }
+
+A smaller margin lets Autoconfigure plan a larger context or more GPU layers, and lets more models load at once. The risk is the crash above: a model can load, pass the test load, and then run out of memory in its first long chat. The card shows a warning while any margin is below 1 GiB.
+
+If you use a small margin, test the model with a long prompt before you rely on it. If it runs out of memory, raise the margin.
+
+With eviction by llama.cpp, the router always gets at least 1 MiB, because a margin of 0 turns off its memory checks.
 
 This bar shows what toolchest counts on one GPU when it plans a load:
 
@@ -23,7 +31,7 @@ This bar shows what toolchest counts on one GPU when it plans a load:
 ## One value or one per GPU { #per-gpu }
 
 - **Every GPU:** one value for all cards.
-- **One GPU:** a row for each detected GPU. A value there replaces the value for every GPU. Use it, for example, for a larger margin on the GPU that runs the desktop, where use can go up while a model runs. Leave the row blank to use the value for every GPU.
+- **One GPU:** a row for each detected GPU. A value there replaces the value for every GPU. Use it, for example, for a larger margin on the GPU that runs the desktop, where use can go up while a model runs. Leave the row blank to use the value for every GPU. Leave the value for every GPU blank to go back to the default.
 
 ## What uses the margin { #users }
 

@@ -196,7 +196,7 @@ func (s *Server) realFreeShortGPUs(m *models.Model) []realFreeShort {
 		if plan[g.Index] <= 0 {
 			continue
 		}
-		needed := plan[g.Index] + loading[g.Index] + max(models.WorkingMemoryMiB, sc.VRAMMarginFor(g.Index))
+		needed := plan[g.Index] + loading[g.Index] + sc.VRAMMarginFor(g.Index)
 		if v := byGPU[g.Index]; v != nil {
 			needed += max(0, v.Reserved-v.Using)
 		}
