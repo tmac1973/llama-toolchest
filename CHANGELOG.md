@@ -1,5 +1,29 @@
 # Changelog
 
+## [2.54.0](https://github.com/tmac1973/llama-toolchest/compare/v2.53.0...v2.54.0) (2026-11-07)
+
+
+### Features
+
+* **settings:** allow a GPU memory margin below 1 GiB ([#584](https://github.com/tmac1973/llama-toolchest/issues/584)) ([193057f](https://github.com/tmac1973/llama-toolchest/commit/193057ffe4302d71ef73ea74c60166c748400477))
+
+
+### Bug Fixes
+
+* **bench:** restore the user's memory mode after a benchmark job ([#597](https://github.com/tmac1973/llama-toolchest/issues/597)) ([bf9491b](https://github.com/tmac1973/llama-toolchest/commit/bf9491b241bf2d72a3df6be8e7a42050519286a0))
+* **downloads:** keep failed downloads visible until dismissed ([#588](https://github.com/tmac1973/llama-toolchest/issues/588)) ([31760d5](https://github.com/tmac1973/llama-toolchest/commit/31760d52b4360445bc79200cfae360067c91e91b))
+* keep corrupt builder files, report failed model deletes and bad ace-server status ([#591](https://github.com/tmac1973/llama-toolchest/issues/591)) ([dd253cc](https://github.com/tmac1973/llama-toolchest/commit/dd253cca003e4ebaf416ee3387f6204c18b3275d)), closes [#590](https://github.com/tmac1973/llama-toolchest/issues/590)
+* redact URLs in logs, harden the backup export and config, align log wording ([#595](https://github.com/tmac1973/llama-toolchest/issues/595)) ([eecc42c](https://github.com/tmac1973/llama-toolchest/commit/eecc42c942a540d290a86c7fe9790b90e8ce2b24)), closes [#590](https://github.com/tmac1973/llama-toolchest/issues/590)
+* **vram:** plan llama.cpp's pipeline copies only where they fit on CUDA ([#583](https://github.com/tmac1973/llama-toolchest/issues/583)) ([91c9eca](https://github.com/tmac1973/llama-toolchest/commit/91c9ecac037ab0cfad8d3c826b066cf4b2a26502)), closes [#582](https://github.com/tmac1973/llama-toolchest/issues/582)
+* **vram:** plan one pipeline copy with CPU experts, the MoE cache or partial offload ([#586](https://github.com/tmac1973/llama-toolchest/issues/586)) ([e19763a](https://github.com/tmac1973/llama-toolchest/commit/e19763ac316675be13ba055236c2610d9d522577))
+* **vram:** read pipeline-off flags from Extra Flags, keep the indexer mask whole ([#587](https://github.com/tmac1973/llama-toolchest/issues/587)) ([2cd7b69](https://github.com/tmac1973/llama-toolchest/commit/2cd7b6904bef0fa010a298de42ea5ddfe0f0a0e5))
+
+
+### Refactors
+
+* share the instance manager, store file code and handlers of forks and generation ([#593](https://github.com/tmac1973/llama-toolchest/issues/593)) ([6375433](https://github.com/tmac1973/llama-toolchest/commit/63754333a4fae39db07ef0b56cb2808e59673d58)), closes [#590](https://github.com/tmac1973/llama-toolchest/issues/590)
+* share the read-only store guard, router and fork URLs, bearer token and log line cleanup ([#592](https://github.com/tmac1973/llama-toolchest/issues/592)) ([313394c](https://github.com/tmac1973/llama-toolchest/commit/313394c5fc0f200af9ec42cdb4e8b1cbb6abd281)), closes [#590](https://github.com/tmac1973/llama-toolchest/issues/590)
+
 ## [2.53.0](https://github.com/tmac1973/llama-toolchest/compare/v2.52.0...v2.53.0) (2026-11-06)
 
 
