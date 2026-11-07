@@ -134,7 +134,7 @@ func TestJobRouterOptionsAreExplicit(t *testing.T) {
 	if e.routerOwnedByJob() {
 		t.Error("no job has taken the router")
 	}
-	if opt := e.jobRouterOptions(); opt.buildID != "" || opt.overrides != nil {
+	if opt := e.jobRouterOptions(); opt.buildID != "" || opt.overrides != nil || opt.job {
 		t.Errorf("idle options should be zero, got %+v", opt)
 	}
 
@@ -148,6 +148,9 @@ func TestJobRouterOptionsAreExplicit(t *testing.T) {
 	}
 	if opt.overrides == nil || opt.overrides["m"].ContextSize != 4096 {
 		t.Errorf("overrides = %+v, want the job's substitute config", opt.overrides)
+	}
+	if !opt.job {
+		t.Error("a start the job makes must use the job's router limits")
 	}
 	if !e.routerOwnedByJob() {
 		t.Error("the job holds the router")

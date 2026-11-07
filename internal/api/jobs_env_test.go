@@ -10,6 +10,7 @@ import (
 
 	"github.com/tmac1973/llama-toolchest/internal/benchmark"
 	"github.com/tmac1973/llama-toolchest/internal/builder"
+	"github.com/tmac1973/llama-toolchest/internal/config"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 )
 
@@ -27,10 +28,11 @@ func readPreset(t *testing.T, s *Server, name string) string {
 // A benchmark cell runs under a substitute config, but the user's saved
 // config is never touched: not in memory, not in models.json, not in
 // preset.ini. When the job ends, the router goes back to the saved
-// config. This goes through the production jobEnv and a real
-// process.Manager running a fake llama-server.
+// config and the user's memory mode. This goes through the production
+// jobEnv and a real process.Manager running a fake llama-server.
 func TestEphemeralConfigKeepsTheSavedConfig(t *testing.T) {
 	s, proc := evalStopServer(t)
+	s.cfg.Eviction = config.EvictionToolchest
 	const id = "m1"
 	if err := s.registry.Add(&models.Model{
 		ID: id, ModelID: "org/M-GGUF", Quant: "Q4_K_M", Filename: "m.gguf",
@@ -63,6 +65,9 @@ func TestEphemeralConfigKeepsTheSavedConfig(t *testing.T) {
 	if !strings.Contains(readPreset(t, s, models.BenchPresetFileName), "ctx-size = 4096") {
 		t.Error("benchmark preset does not carry the substitute context size")
 	}
+	if mode := memoryMode(s.memoryMode.Load()); mode != memoryCount {
+		t.Errorf("during the job: mode = %s, want count", mode)
+	}
 
 	// The saved config, in memory and on disk, is the user's.
 	checkSaved := func(when string) {
@@ -90,6 +95,9 @@ func TestEphemeralConfigKeepsTheSavedConfig(t *testing.T) {
 	}
 	if live, ok := s.runningConfigFor(id); !ok || live.ContextSize != 8192 {
 		t.Errorf("router is not back on the saved config: %+v", live)
+	}
+	if !s.toolchestMemory() {
+		t.Errorf("after the job: mode = %s, want toolchest", memoryMode(s.memoryMode.Load()))
 	}
 	checkSaved("after the job")
 }
