@@ -60,11 +60,14 @@ func (e *jobEnv) routerOwnedByJob() bool {
 	return e.ownsRouter
 }
 
-// jobRouterOptions renders the job's current intent.
+// jobRouterOptions renders the job's current intent. job follows
+// ownsRouter: every job start takes the router first, and the restore at
+// job end releases it first, so the restore runs the router under the
+// user's own memory mode and model limit, not the job's.
 func (e *jobEnv) jobRouterOptions() routerOptions {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return routerOptions{buildID: e.jobBuildID, overrides: e.jobConfigs, job: true}
+	return routerOptions{buildID: e.jobBuildID, overrides: e.jobConfigs, job: e.ownsRouter}
 }
 
 func newJobEnv(s *Server) *jobEnv { return &jobEnv{s: s} }
