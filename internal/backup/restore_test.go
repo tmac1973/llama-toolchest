@@ -367,3 +367,35 @@ func TestApplyEnvKeepsTargetSecrets(t *testing.T) {
 		t.Errorf("merged extra = %q", got)
 	}
 }
+
+// A valid name and the pin reach ApplySettings; an invalid name is left
+// out with a warning, and an empty one passes (it means the default).
+func TestApplyDefaultModelName(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		applied  bool
+		warnings int
+	}{
+		{"chat", true, 0},
+		{"", true, 0},
+		{"two words", false, 1},
+	} {
+		rec := newRecorder(1, t.TempDir())
+		name, pin := tc.name, "qwen"
+		f := &File{Version: Version, Settings: &Settings{DefaultModelName: &name, DefaultModelPin: &pin}}
+		rep := Apply(f, Selections{Settings: true}, rec.deps)
+		if len(rec.settings) != 1 {
+			t.Fatalf("%q: ApplySettings called %d times", tc.name, len(rec.settings))
+		}
+		got := rec.settings[0]
+		if (got.DefaultModelName != nil) != tc.applied {
+			t.Errorf("%q: name passed on = %v, want %v", tc.name, got.DefaultModelName != nil, tc.applied)
+		}
+		if got.DefaultModelPin == nil || *got.DefaultModelPin != "qwen" {
+			t.Errorf("%q: pin not passed on", tc.name)
+		}
+		if len(rep.Warnings) != tc.warnings {
+			t.Errorf("%q: warnings %v, want %d", tc.name, rep.Warnings, tc.warnings)
+		}
+	}
+}

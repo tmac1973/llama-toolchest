@@ -80,6 +80,10 @@ type Config struct {
 	// about them is shown or run.
 	ForksEnabled bool `yaml:"forks_enabled,omitempty"`
 
+	// DefaultModel is the virtual model name clients can send instead of
+	// a real one; see DefaultModelConfig.
+	DefaultModel DefaultModelConfig `yaml:"default_model,omitempty"`
+
 	// GenEvict lets LLMs and generation backends take turns on a GPU
 	// when both do not fit: a chat request for an LLM that is not
 	// loaded stops idle backends in its way, and a job for a stopped

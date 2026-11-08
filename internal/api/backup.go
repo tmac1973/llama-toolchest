@@ -6,6 +6,7 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/backup"
@@ -182,6 +183,20 @@ func (s *Server) restoreDeps() backup.Deps {
 			if in.DefaultModelSource != nil && s.cfg.DefaultModelSource != *in.DefaultModelSource {
 				s.cfg.DefaultModelSource = modelsource.NormalizeSource(*in.DefaultModelSource)
 				changed = append(changed, "default_model_source")
+			}
+			if in.DefaultModelOff != nil && s.cfg.DefaultModel.Off != *in.DefaultModelOff {
+				s.cfg.DefaultModel.Off = *in.DefaultModelOff
+				changed = append(changed, "default_model_off")
+			}
+			if in.DefaultModelName != nil {
+				if name := strings.TrimSpace(*in.DefaultModelName); s.cfg.DefaultModel.Name != name {
+					s.cfg.DefaultModel.Name = name
+					changed = append(changed, "default_model_name")
+				}
+			}
+			if in.DefaultModelPin != nil && s.cfg.DefaultModel.Pin != *in.DefaultModelPin {
+				s.cfg.DefaultModel.Pin = *in.DefaultModelPin
+				changed = append(changed, "default_model_pin")
 			}
 			if in.HFToken != nil && s.cfg.HFToken != *in.HFToken {
 				s.cfg.HFToken = *in.HFToken
