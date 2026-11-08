@@ -38,7 +38,9 @@ info:
     `meta.kind` is `text`, `image`, `video`, `music` or `upscale`, and
     `meta.api` lists which routes serve a generation instance. A fork
     instance is a `text` model with `meta.fork` set; send its ID as
-    `model` to the chat and completion routes. Add `?kind=image` (or `text`, `video`, `music`, `upscale`)
+    `model` to the chat and completion routes. The first entry is often
+    `default`, a name that stands for one real chat model: `meta.target`
+    says which one it goes to now. Add `?kind=image` (or `text`, `video`, `music`, `upscale`)
     to list only one kind. For
     generation routes, `model` is an instance ID or its model set's ID. It
     may be left out when only one instance of that kind can take the job.
@@ -111,7 +113,11 @@ paths:
         entry's `meta.kind` is `text`, `image`, `video`, `music` or
         `upscale`.
 
-        Only enabled models are listed. The LLMs come first, then the
+        Only enabled models are listed. The default model name comes
+        first (`meta.virtual` set), when it is on and has a model to go to.
+        A chat request to it, or with no `model`, goes to `meta.target`:
+        the pinned model, else the loaded chat model used last, else the
+        chat model used last before a restart. The LLMs come next, then the
         generation models (one entry per generation instance), then the
         llama.cpp fork instances that are running or loading (`meta.kind`
         `text`, `meta.fork` set). A request for a fork instance that is
@@ -1565,6 +1571,28 @@ components:
             - $ref: "#/components/schemas/LLMMeta"
             - $ref: "#/components/schemas/GenerationMeta"
             - $ref: "#/components/schemas/ForkMeta"
+            - $ref: "#/components/schemas/DefaultModelMeta"
+
+    DefaultModelMeta:
+      type: object
+      title: Default model name
+      required: [kind, virtual, target, target_reason]
+      properties:
+        kind:
+          const: text
+        virtual:
+          const: true
+          description: The entry is a name for another model, not a model of its own.
+        target:
+          type: string
+          description: The model a chat request to this name goes to now, as its `id` in this list.
+        target_reason:
+          type: string
+          enum: [pinned, loaded, last used]
+          description: |
+            `pinned`: set in Settings. `loaded`: the loaded chat model (or
+            running fork) used last. `last used`: the chat model used last
+            before a restart; the next request loads it.
 
     ForkMeta:
       type: object

@@ -183,15 +183,19 @@ func TestV1ModelsListsRunningForks(t *testing.T) {
 		}
 		return out
 	}
+	// The default model name comes first; the running fork is its target.
 	all := list("")
-	if got := ids(all); len(got) != 1 || got[0] != "qwen-next" {
+	if got := ids(all); len(got) != 2 || got[0] != "default" || got[1] != "qwen-next" {
 		t.Fatalf("models = %v", got)
 	}
-	meta := all[0]["meta"].(map[string]any)
-	if all[0]["owned_by"] != "fork:avalon" || meta["kind"] != "text" || meta["fork"] != "avalon" || meta["state"] != "running" {
-		t.Errorf("entry = %+v", all[0])
+	if meta := all[0]["meta"].(map[string]any); meta["target"] != "qwen-next" {
+		t.Errorf("default entry = %+v", all[0])
 	}
-	if got := ids(list("?kind=text")); len(got) != 1 {
+	meta := all[1]["meta"].(map[string]any)
+	if all[1]["owned_by"] != "fork:avalon" || meta["kind"] != "text" || meta["fork"] != "avalon" || meta["state"] != "running" {
+		t.Errorf("entry = %+v", all[1])
+	}
+	if got := ids(list("?kind=text")); len(got) != 2 {
 		t.Errorf("kind=text = %v", got)
 	}
 	if got := ids(list("?kind=image")); len(got) != 0 {

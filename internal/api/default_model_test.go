@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -371,5 +372,93 @@ func TestProxyDefaultModelStoppedForkPin(t *testing.T) {
 	rec := proxyPost(s, "/v1/chat/completions", `{"model":"default","messages":[]}`)
 	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "Fork instance stopped is not running") {
 		t.Errorf("%d %s", rec.Code, rec.Body)
+	}
+}
+
+// v1List and v1One read /v1/models and /v1/models/{id}.
+func v1List(t *testing.T, s *Server, query string) []map[string]any {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	s.handleV1Models(rec, httptest.NewRequest("GET", "/v1/models"+query, nil))
+	var out struct {
+		Data []map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	return out.Data
+}
+
+func v1One(s *Server, id string) (int, map[string]any) {
+	rec := httptest.NewRecorder()
+	s.handleV1Model(rec, withChiParam(httptest.NewRequest("GET", "/v1/models/"+id, nil), "model", id))
+	var out map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &out)
+	return rec.Code, out
+}
+
+func TestV1ModelsListsDefaultModel(t *testing.T) {
+	s, f, m := startFakeRouter(t)
+	f.reset(map[string]string{}, nil)
+	p := addChatModel(t, s, "pinned", models.ModelConfig{Enabled: true}, false)
+
+	if data := v1List(t, s, ""); len(data) == 0 || data[0]["id"] == "default" {
+		t.Errorf("no target: the list has the default entry: %v", data)
+	}
+	if code, _ := v1One(s, "default"); code != http.StatusNotFound {
+		t.Errorf("no target: /v1/models/default = %d", code)
+	}
+
+	s.cfg.DefaultModel.Pin = p.ID
+	data := v1List(t, s, "")
+	if len(data) != 3 || data[0]["id"] != "default" {
+		t.Fatalf("pinned: list = %v", data)
+	}
+	meta := data[0]["meta"].(map[string]any)
+	if meta["virtual"] != true || meta["kind"] != "text" || meta["target"] != p.PublicName() || meta["target_reason"] != defaultReasonPinned {
+		t.Errorf("pinned: entry = %v", data[0])
+	}
+	if code, one := v1One(s, "default"); code != http.StatusOK || one["meta"].(map[string]any)["target"] != p.PublicName() {
+		t.Errorf("pinned: /v1/models/default = %d %v", code, one)
+	}
+	if data := v1List(t, s, "?kind=text"); data[0]["id"] != "default" {
+		t.Errorf("kind=text: first entry %v", data[0]["id"])
+	}
+	if data := v1List(t, s, "?kind=image"); len(data) != 0 {
+		t.Errorf("kind=image: %v", data)
+	}
+
+	s.cfg.DefaultModel.Name = "chat"
+	if data := v1List(t, s, ""); data[0]["id"] != "chat" {
+		t.Errorf("renamed: first entry %v", data[0]["id"])
+	}
+	if code, _ := v1One(s, "default"); code != http.StatusNotFound {
+		t.Errorf("renamed: the old name still answers")
+	}
+	s.cfg.DefaultModel.Name = ""
+
+	s.cfg.DefaultModel.Off = true
+	if data := v1List(t, s, ""); data[0]["id"] == "default" {
+		t.Error("off: the list has the default entry")
+	}
+	s.cfg.DefaultModel.Off = false
+
+	// A real model aliased "default" is listed as itself, and answers the
+	// lookup.
+	s.registry.SetConfig(m.ID, &models.ModelConfig{Enabled: true, Aliases: []string{"default"}})
+	for _, d := range v1List(t, s, "") {
+		if d["id"] == "default" {
+			t.Error("alias clash: the list has the default entry")
+		}
+	}
+	if code, one := v1One(s, "default"); code != http.StatusOK || one["id"] != m.PublicName() {
+		t.Errorf("alias clash: /v1/models/default = %d %v", code, one["id"])
+	}
+
+	if loads := f.loadCalls(); len(loads) != 0 {
+		t.Errorf("listing loaded a model: %v", loads)
+	}
+	if s.cfg.DefaultModel.Pin != p.ID {
+		t.Error("listing changed the pin")
 	}
 }
