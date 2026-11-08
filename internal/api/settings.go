@@ -45,6 +45,12 @@ type settingsResponse struct {
 	// their own, by index.
 	VRAMMarginMiB   int         `json:"vram_margin_mib"`
 	VRAMMarginByGPU map[int]int `json:"vram_margin_by_gpu,omitempty"`
+	// DefaultModelOn, DefaultModelName and DefaultModelPin are the
+	// virtual model name: the name clients send ("default" when none is
+	// saved), and the model it always goes to ("" for none).
+	DefaultModelOn   bool   `json:"default_model_on"`
+	DefaultModelName string `json:"default_model_name"`
+	DefaultModelPin  string `json:"default_model_pin"`
 
 	// EnvOverrides maps each setting an environment variable overrides
 	// (by its YAML name) to that variable. The values above are the ones
@@ -86,6 +92,9 @@ func (s *Server) writeSettings(w http.ResponseWriter, r *http.Request, cfg *conf
 		GenKeepPromptCache: cfg.GenKeepPromptCache,
 		VRAMMarginMiB:      cfg.VRAMMarginAll(),
 		VRAMMarginByGPU:    cfg.VRAMMarginByGPU,
+		DefaultModelOn:     cfg.DefaultModelOn(),
+		DefaultModelName:   cfg.DefaultModelName(),
+		DefaultModelPin:    cfg.DefaultModel.Pin,
 	}
 	resp.GenPortStart, resp.GenPortCount = cfg.GenPorts(s.inContainer())
 	for _, f := range []string{config.FieldExternalURL, config.FieldLlamaPort, config.FieldGenPublicPortStart} {
@@ -124,6 +133,9 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	// eviction is the eviction mode as this request sets it, nil when it
 	// does not; applied once the rest is (applyEvictionLocked).
 	var eviction *string
+	// defaultModel is this request's change to the virtual model name;
+	// checked and applied once the rest is (applyDefaultModelLocked).
+	var defaultModel defaultModelUpdate
 
 	if isJSONRequest(r) {
 		var update struct {
@@ -148,10 +160,15 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			// RouterMemory is the older switch: true is llama.cpp,
 			// false is off. Eviction wins when both are sent.
 			RouterMemory *bool `json:"router_memory,omitempty"`
+
+			DefaultModelOn   *bool   `json:"default_model_on,omitempty"`
+			DefaultModelName *string `json:"default_model_name,omitempty"`
+			DefaultModelPin  *string `json:"default_model_pin,omitempty"`
 		}
 		if !decodeJSONBody(w, r, &update) {
 			return
 		}
+		defaultModel = defaultModelUpdate{On: update.DefaultModelOn, Name: update.DefaultModelName, Pin: update.DefaultModelPin}
 		eviction = update.Eviction
 		if eviction == nil && update.RouterMemory != nil {
 			e := routerMemoryEviction(*update.RouterMemory)
@@ -232,6 +249,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			e := r.FormValue("eviction")
 			eviction = &e
 		}
+		defaultModel = formDefaultModel(r.Form)
 		if r.Form.Has("vram_margin_touched") {
 			all, byGPU, err := formVRAMMargin(r, s.cfg.VRAMMarginByGPU)
 			if err != nil {
@@ -333,6 +351,10 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.applyEvictionLocked(eviction); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.applyDefaultModelLocked(defaultModel); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}

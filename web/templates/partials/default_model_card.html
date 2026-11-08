@@ -1,0 +1,47 @@
+{{/* Settings → Default model (defaultModelView, default_model_card.go).
+     The page loads the card from /api/settings/default-model, and the card
+     fetches itself again after every settings save (settingsSaved), so the
+     "Now" line follows a new pin at once. */}}
+{{define "default_model_card"}}
+<article id="default-model"
+         hx-get="/api/settings/default-model"
+         hx-trigger="settingsSaved from:body"
+         hx-swap="outerHTML">
+    <header>Default model</header>
+    <p><small>A model name for clients that goes to one of your chat
+       models. Set it in a client once; change the model here. <a href="/help#default-model">More in Help</a>.</small></p>
+    {{with .Clash}}<div class="callout" style="font-size:0.8rem;padding:0.4rem 0.6rem;margin-bottom:0.5rem;border-left-color:var(--pico-del-color);">The name is off: {{.}}. Rename it to use it.</div>{{end}}
+    <form hx-put="/api/settings"
+          hx-target="#default-model-status"
+          hx-swap="innerHTML"
+          hx-trigger="change">
+        <input type="hidden" name="default_model_form" value="1">
+        <label title="Off: clients must send a real model name. Requests to the name go to the router as sent.">
+            <input type="checkbox" role="switch" name="default_model_on" {{if .On}}checked{{end}}>
+            Answer requests to the default model name
+        </label>
+        <label class="default-model-name" title="The model name clients send. Letters, digits and . _ - : /. Blank: {{.Placeholder}}.">
+            Name
+            <input type="text" name="default_model_name" value="{{.Name}}" placeholder="{{.Placeholder}}" maxlength="64">
+        </label>
+        <label class="default-model-pin" title="The model that answers every time. No pin: the loaded chat model that answered last.">
+            Pinned model
+            <select name="default_model_pin">
+                <option value="" {{if not .Pin}}selected{{end}}>No pin (loaded model used last)</option>
+                {{range .Options}}<option value="{{.Value}}" {{if eq .Value $.Pin}}selected{{end}}>{{.Label}}</option>
+                {{end}}
+            </select>
+        </label>
+    </form>
+    <p class="default-model-now" title="The model that answers a request to the name now.">
+        {{- if not .On}}<small>Now: off.</small>
+        {{- else if .Clash}}<small>Now: off (a model has the name).</small>
+        {{- else if eq .Reason "pinned"}}<small>Now: <kbd>{{.Target}}</kbd> (pinned)</small>
+        {{- else if eq .Reason "loaded"}}<small>Now: <kbd>{{.Target}}</kbd> (loaded, used last)</small>
+        {{- else if eq .Reason "last used"}}<small>Now: <kbd>{{.Target}}</kbd> (used last; loads on the next request)</small>
+        {{- else}}<small>Now: no model. Pin one, or send a request to a model by its name first.</small>
+        {{- end}}
+    </p>
+    <div id="default-model-status"></div>
+</article>
+{{end}}

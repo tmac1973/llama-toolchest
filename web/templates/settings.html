@@ -225,6 +225,15 @@
     <header>GPU memory margin</header>
     <p aria-busy="true">Loading…</p>
 </article>
+<style>
+    #default-model .default-model-name input,
+    #default-model .default-model-pin select { max-width: 28rem; display: block; }
+    #default-model .default-model-now { margin-bottom: 0.25rem; }
+</style>
+<article id="default-model" hx-get="/api/settings/default-model" hx-trigger="load" hx-swap="outerHTML">
+    <header>Default model</header>
+    <p aria-busy="true">Loading…</p>
+</article>
 <script>
 // The Eviction card's Restart button: shows a refused restart in the
 // card, and fetches the card again so the restart notice goes away.
@@ -251,10 +260,11 @@ if (location.hash === '#eviction') {
         document.getElementById('eviction').scrollIntoView();
     });
 }
-// Help links to the GPU memory margin card, which loads after the page.
-if (location.hash === '#vram-margin') {
+// Help links to the GPU memory margin and Default model cards, which
+// load after the page.
+if (location.hash === '#vram-margin' || location.hash === '#default-model') {
     htmx.onLoad(function(elt) {
-        if (elt.id === 'vram-margin') {
+        if ('#' + elt.id === location.hash) {
             elt.scrollIntoView();
         }
     });

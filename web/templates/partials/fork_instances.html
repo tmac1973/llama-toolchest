@@ -19,7 +19,7 @@
     <tbody>
     {{- range .}}
         <tr>
-            <td>{{.ID}}{{if .AutoStart}} <small title="Starts when llama-toolchest starts.">auto-start</small>{{end}}</td>
+            <td>{{.ID}}{{with .DefaultBadge}} <mark style="padding:0 0.3rem;font-size:0.75rem;" title="{{.}}">default</mark>{{end}}{{if .AutoStart}} <small title="Starts when llama-toolchest starts.">auto-start</small>{{end}}</td>
             <td>{{.ForkName}}{{if not .SetReady}} <small style="display:block;color:var(--pico-del-color);" title="Download it on the Models page, under Fork model sets.">model not downloaded</small>{{end}}</td>
             <td>{{with .BuildLabel}}<kbd>{{.}}</kbd>{{else}}<small title="Build it on the Builds page.">no build</small>{{end}}</td>
             <td>{{.GPU}}{{with .GPUName}} <small>{{.}}</small>{{end}}</td>

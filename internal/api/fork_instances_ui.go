@@ -51,6 +51,9 @@ type forkRow struct {
 	// SetReady reports whether the fork's model set is downloaded.
 	SetReady bool
 	Warnings []string
+	// DefaultBadge titles the "default" badge of the instance requests
+	// to the virtual model name go to now; "" for every other one.
+	DefaultBadge string
 }
 
 // Active reports whether the instance is starting or running.
@@ -63,6 +66,7 @@ func (s *Server) forkRows(store *forks.Store) []forkRow {
 	for _, g := range s.monitor.Current().GPU {
 		gpuNames[g.Index] = g.Name
 	}
+	_, defaultID := s.defaultTargetIDs()
 	var rows []forkRow
 	for _, inst := range store.Instances() {
 		row := forkRow{Instance: inst, ForkName: inst.ForkID, GPUName: gpuNames[inst.GPU],
@@ -75,6 +79,9 @@ func (s *Server) forkRows(store *forks.Store) []forkRow {
 		}
 		if set, err := store.ModelSet(inst.ForkID); err == nil {
 			row.SetReady = set.Complete
+		}
+		if inst.ID == defaultID {
+			row.DefaultBadge = s.defaultBadgeTitle()
 		}
 		rows = append(rows, row)
 	}

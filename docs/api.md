@@ -30,7 +30,7 @@ The name applies to `/chat/completions`, `/completions`, `/messages` and `/respo
  "meta": {"kind": "text", "virtual": true, "target": "unsloth-gemma-4-12b-it.UD_Q6_K_XL", "target_reason": "loaded"}}
 ```
 
-If a model, alias or fork instance already has the name `default`, that one wins and the virtual name stays off until you rename it. For now you set the name in the config file:
+If a model, alias or fork instance already has the name `default`, that one wins and the virtual name stays off until you rename it. Set the name and the pin in [Settings → Default model](guides/settings.md#default-model). They are kept in the config file as:
 
 ```yaml
 default_model:

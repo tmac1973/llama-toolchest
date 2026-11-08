@@ -10,6 +10,10 @@ Search by org, name, quant or architecture.
 
 Enable or disable the model.
 
+## default badge { #default-badge }
+
+Marks the model that requests to the default model name go to right now. It moves when you change the pin, or, with no pin, when another loaded model answers a chat request. See [Default model](settings.md#default-model).
+
 ## Configure { #configure }
 
 Per-model settings and saved profiles (see [Model config](model-config.md)).

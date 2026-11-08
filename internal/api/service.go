@@ -666,7 +666,8 @@ func (s *Server) handleModelEnable(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("HX-Trigger-After-Swap", `{"gpuMapChanged":true}`)
 		respondHTML(w)
-		s.renderModelCard(w, m, s.routerKnownStates(), isOrphan, isIncomplete)
+		defaultID, _ := s.defaultTargetIDs()
+		s.renderModelCard(w, m, s.routerKnownStates(), isOrphan, isIncomplete, defaultID)
 		return
 	}
 

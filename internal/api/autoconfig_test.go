@@ -43,7 +43,7 @@ func (s *Server) renderCard(t *testing.T) string {
 		t.Fatal(err)
 	}
 	rec := httptest.NewRecorder()
-	s.renderModelCard(rec, m, nil, false, false)
+	s.renderModelCard(rec, m, nil, false, false, "")
 	return rec.Body.String()
 }
 

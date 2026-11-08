@@ -467,8 +467,10 @@ func routerStateFor(states map[string]string, names ...string) (string, bool) {
 	return "", false
 }
 
-// renderModelCard writes one model_card partial.
-func (s *Server) renderModelCard(w http.ResponseWriter, m *models.Model, routerKnown map[string]string, isOrphan, isIncomplete bool) {
+// renderModelCard writes one model_card partial. defaultID is the model
+// requests to the virtual model name go to now (defaultTargetIDs), which
+// gets a badge.
+func (s *Server) renderModelCard(w http.ResponseWriter, m *models.Model, routerKnown map[string]string, isOrphan, isIncomplete bool, defaultID string) {
 	// Look up router state under any of the names the router might know this
 	// model by. The router's primary ID is the auto-discovery section name
 	// (RouterName), but it may also surface m.ID or PublicName via aliases.
@@ -531,6 +533,9 @@ func (s *Server) renderModelCard(w http.ResponseWriter, m *models.Model, routerK
 		CanAutoconfig:     m.Kind() == models.KindChat && !isOrphan && !isIncomplete,
 		RerankHeadWarning: rerankHeadWarningFor(m),
 	}
+	if m.ID == defaultID {
+		data.DefaultBadge = s.defaultBadgeTitle()
+	}
 	_, data.CanUpdate = s.updateTargets(m)
 	// nil in the render tests, which build a server without the store.
 	var latest *autotune.Autotune
@@ -566,6 +571,9 @@ type modelCardView struct {
 	CanAutoconfig  bool
 	// RerankHeadWarning titles the "check file" badge (see rerankHeadWarning).
 	RerankHeadWarning string
+	// DefaultBadge titles the "default" badge of the model requests to
+	// the virtual model name go to now; "" for every other model.
+	DefaultBadge string
 	// CanUpdate is set for a model downloaded from a repository, which
 	// the Update button can check against it.
 	CanUpdate bool
@@ -622,11 +630,12 @@ func (s *Server) renderModelList(w http.ResponseWriter, r *http.Request, modelLi
 		w.Write([]byte(`<div class="model-list-controls"><input type="search" class="model-filter" placeholder="Filter by name, quant, architecture…" oninput="filterModels(this.value)" autocomplete="off"></div>`))
 	}
 
+	defaultID, _ := s.defaultTargetIDs()
 	w.Write([]byte(`<div class="model-card-list">`))
 	w.Write([]byte(`<div class="model-card-header"><span></span><span>Model</span><span>Quant</span><span title="Estimated VRAM at the configured context size">VRAM Est.</span><span>Size</span><span></span></div>`))
 	for _, e := range entries {
 		if e.m != nil {
-			s.renderModelCard(w, e.m, routerKnown, orphanSet[e.m.ID], incompleteSet[e.m.ID])
+			s.renderModelCard(w, e.m, routerKnown, orphanSet[e.m.ID], incompleteSet[e.m.ID], defaultID)
 		} else {
 			s.renderPendingCard(w, e.p)
 		}

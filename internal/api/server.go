@@ -1055,6 +1055,7 @@ func (s *Server) buildRouter() chi.Router {
 			r.Put("/", s.handleUpdateSettings)
 			r.Get("/eviction", s.handleEvictionCard)
 			r.Get("/vram-margin", s.handleVRAMMarginCard)
+			r.Get("/default-model", s.handleDefaultModelCard)
 			r.Post("/test-connection", s.handleTestConnection)
 		})
 		r.Route("/monitor", func(r chi.Router) {
