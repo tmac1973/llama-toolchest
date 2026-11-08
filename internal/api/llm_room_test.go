@@ -601,7 +601,7 @@ func TestLoadAndCountRequestRetriesRunOut(t *testing.T) {
 				f.status[name] = "unloaded"
 			}
 		})
-		end, err := s.loadAndCountRequest(context.Background(), []byte(`{"model":"c"}`))
+		end, err := s.loadAndCountRequest(context.Background(), "/v1/chat/completions", []byte(`{"model":"c"}`))
 		if mode == memoryToolchest {
 			if err == nil || !strings.Contains(err.Error(), "unloaded 4 times") {
 				t.Errorf("toolchest mode: err = %v, want the retry refusal", err)

@@ -90,7 +90,7 @@ func TestPromptCacheRestoredWhileCounted(t *testing.T) {
 	f.mu.Unlock()
 	done := make(chan func(), 1)
 	go func() {
-		end, err := s.loadAndCountRequest(context.Background(), []byte(`{"model":"`+m.ID+`"}`))
+		end, err := s.loadAndCountRequest(context.Background(), "/v1/chat/completions", []byte(`{"model":"`+m.ID+`"}`))
 		if err != nil {
 			t.Error(err)
 		}

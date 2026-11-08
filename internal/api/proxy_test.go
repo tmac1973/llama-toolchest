@@ -611,7 +611,7 @@ func TestLoadAndCountRequestCountsOnlyOnceLoaded(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		end, err := s.loadAndCountRequest(context.Background(), []byte(`{"model":"`+m.ID+`"}`))
+		end, err := s.loadAndCountRequest(context.Background(), "/v1/chat/completions", []byte(`{"model":"`+m.ID+`"}`))
 		done <- result{end, err}
 	}()
 	testutil.Eventually(t, func() bool { return len(f.loadCalls()) == 1 }, "the model was not loaded")
@@ -657,7 +657,7 @@ func TestLoadAndCountRequestReloadsAfterAnUnload(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		end, err := s.loadAndCountRequest(context.Background(), []byte(`{"model":"`+m.ID+`"}`))
+		end, err := s.loadAndCountRequest(context.Background(), "/v1/chat/completions", []byte(`{"model":"`+m.ID+`"}`))
 		if err == nil {
 			end()
 		}

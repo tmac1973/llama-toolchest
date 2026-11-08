@@ -61,6 +61,7 @@ func newTestServer(t *testing.T) *Server {
 		genMgr:         generation.NewManager(),
 		forkMgr:        forks.NewManager(),
 		genQueue:       generation.NewQueue(),
+		defaultState:   loadDefaultModelState(filepath.Join(dir, "default-model.json")),
 	}
 	s.pages = s.parseTemplates()
 	return s
