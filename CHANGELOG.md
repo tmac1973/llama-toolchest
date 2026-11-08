@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.55.0](https://github.com/tmac1973/llama-toolchest/compare/v2.54.0...v2.55.0) (2026-11-08)
+
+
+### Features
+
+* **api:** list the default model name in /v1/models ([#598](https://github.com/tmac1973/llama-toolchest/issues/598)) ([#604](https://github.com/tmac1973/llama-toolchest/issues/604)) ([53e7ead](https://github.com/tmac1973/llama-toolchest/commit/53e7ead9e99fa8f1149da360b4a3c2539cd80213))
+* **config:** add default model settings and last-used state file ([#598](https://github.com/tmac1973/llama-toolchest/issues/598)) ([#600](https://github.com/tmac1973/llama-toolchest/issues/600)) ([9abdb7f](https://github.com/tmac1973/llama-toolchest/commit/9abdb7f07c3df84b410c627a2cdccc2fbd880241))
+* **proxy:** record the last-used chat model and fork use times ([#598](https://github.com/tmac1973/llama-toolchest/issues/598)) ([#602](https://github.com/tmac1973/llama-toolchest/issues/602)) ([4a93939](https://github.com/tmac1973/llama-toolchest/commit/4a9393990a85529af4c07d0fe683011caa689600))
+* **proxy:** resolve the default model name for chat requests ([#598](https://github.com/tmac1973/llama-toolchest/issues/598)) ([#603](https://github.com/tmac1973/llama-toolchest/issues/603)) ([9be8081](https://github.com/tmac1973/llama-toolchest/commit/9be808190ed189247f247ffae4551c52401bc119))
+* **ui:** add the Default model card and badge ([#598](https://github.com/tmac1973/llama-toolchest/issues/598)) ([#605](https://github.com/tmac1973/llama-toolchest/issues/605)) ([3988045](https://github.com/tmac1973/llama-toolchest/commit/398804527cd2b0709e99fe7bc6c3a4c716c1e9f8))
+
 ## [2.54.0](https://github.com/tmac1973/llama-toolchest/compare/v2.53.0...v2.54.0) (2026-11-07)
 
 
