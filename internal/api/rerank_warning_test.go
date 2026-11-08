@@ -41,7 +41,7 @@ func TestRerankHeadWarning(t *testing.T) {
 
 		m, _ := s.registry.Get(tt.id)
 		rec = httptest.NewRecorder()
-		s.renderModelCard(rec, m, nil, false, false)
+		s.renderModelCard(rec, m, nil, false, false, "")
 		card := rec.Body.String()
 		if got := strings.Contains(card, "check file"); got != tt.want {
 			t.Errorf("%s: card shows the badge = %v, want %v", tt.id, got, tt.want)

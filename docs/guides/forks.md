@@ -12,6 +12,7 @@ Some forks of llama.cpp are much faster for one model. llama-toolchest can build
 - Autotune, Autoconfigure and benchmarks do not cover fork instances.
 - While the instance loads, requests get HTTP 503 with `Retry-After`. A large model can take several minutes.
 - `/props` and `/slots` of a fork instance are on its own port, not on the toolchest port.
+- A fork instance can be the [default model](settings.md#default-model). Pin it in Settings, or leave no pin and use it last. The Server page then marks its row with a *default* badge.
 
 Known Avalon problems. Put the line in the instance's *Extra environment*:
 

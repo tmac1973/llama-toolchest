@@ -20,6 +20,17 @@ The eviction mode, *Max loaded models*, and the switch that lets LLMs and genera
 
 VRAM on each GPU that toolchest does not plan models into, for llama.cpp's working memory and the driver. Set it for every GPU or for one GPU. See [GPU memory margin](../gpu/memory-margin.md).
 
+## Default model { #default-model }
+
+A model name that clients can send in place of a real one. Point a client at `default` once, and from then on you choose which chat model answers it here, with no change to the client.
+
+- **Answer requests to the default model name** turns it on or off. It is on after an upgrade.
+- **Name** is what clients send. Leave it blank for `default`. Letters, digits and `. _ - : /` are allowed. You can't save a name that a model, an alias or a fork instance already has.
+- **Pinned model** is the chat model or fork instance that always answers. A pinned model that isn't loaded loads on the next request. A pinned fork instance that is stopped answers 503 until you start it.
+- **No pin** sends each request to the loaded chat model, or running fork instance, that answered last. With nothing loaded, the chat model you used last loads, even after a restart.
+
+The *Now* line under the form says where requests go at the moment and why. If you delete or disable the pinned model, or remove its fork instance, the pin is cleared. A fork pin stays while forks are switched off. The [API page](../api.md#default-model) covers which routes take the name and what clients see in `/v1/models`.
+
 ## Generation backends { #generation-backends }
 
 Turns on image, video and music generation. See [Image, video and music generation](generation.md).

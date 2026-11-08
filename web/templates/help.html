@@ -155,8 +155,10 @@
     <p class="help-more"><a href="{{docsURL "guides/forks"}}" target="_blank" rel="noopener">More in the docs</a></p>
 
     <h2 id="settings">Settings</h2>
-    <p>Auto-start, the runtime environment of llama-server, eviction, the GPU memory margin, generation backends, backup and restore, the server URL, the API key, tokens for model hosts, and the models folder.</p>
+    <p>Auto-start, the runtime environment of llama-server, eviction, the GPU memory margin, the default model name, generation backends, backup and restore, the server URL, the API key, tokens for model hosts, and the models folder.</p>
     <p class="help-more"><a href="{{docsURL "guides/settings"}}" target="_blank" rel="noopener">More in the docs</a></p>
+    <h3 id="default-model">Default model name</h3>
+    <p>Clients can send <code>default</code> as the model. The request goes to the pinned model. With no pin, it goes to the loaded chat model that answered last. Change the pin in <a href="/settings#default-model">Settings</a>, and the clients need no change. A <mark>default</mark> badge marks that model on the Models and Server pages. <a class="help-more" href="{{docsURL "guides/settings#default-model"}}" target="_blank" rel="noopener">More in the docs</a></p>
 
     <h2 id="api">Using the API</h2>
     <p>The server speaks the OpenAI <code>/v1/*</code> API. Send requests to the address in the <em>API Endpoint</em> card, with the model's public name as <code>model</code>. The <a href="/docs/api">API reference</a> lists every route with a form to try it.</p>

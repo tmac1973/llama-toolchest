@@ -35,6 +35,7 @@
             {{if .HasAudio}} <mark style="padding:0 0.3rem;font-size:0.75rem;" title="Understands speech: audio in chat, /v1/audio/transcriptions, or live with /v1/realtime (llama.cpp v0.8.0 or newer).">audio</mark>{{end}}
             {{if .Speaks}} <mark style="padding:0 0.3rem;font-size:0.75rem;" title="Makes speech: POST /tts{{if .HasAudio}} or /v1/realtime{{end}} (llama.cpp v0.8.0 or newer).{{if not .HasChatTemplate}} It only speaks, and does not answer chat requests.{{end}}">speech</mark>{{end}}
             {{if .CallsTools}} <mark style="padding:0 0.3rem;font-size:0.75rem;">tools</mark>{{end}}
+            {{with .DefaultBadge}} <mark style="padding:0 0.3rem;font-size:0.75rem;" title="{{.}}">default</mark>{{end}}
             {{if .RerankHeadWarning}} <mark style="padding:0 0.3rem;font-size:0.75rem;" title="{{.RerankHeadWarning}}">check file</mark>{{end}}
             {{if .GPULabel}} <mark style="padding:0 0.3rem;font-size:0.75rem;background:var(--pico-muted-border-color);color:var(--pico-color);">{{.GPULabel}}</mark>{{end}}
             {{if .IsOrphan}} <del>missing</del>{{end}}
