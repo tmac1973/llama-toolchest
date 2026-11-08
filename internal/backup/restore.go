@@ -157,6 +157,12 @@ func Apply(f *File, sel Selections, deps Deps) Report {
 			s.APIKey = nil
 			rep.Warnings = append(rep.Warnings, "settings: empty api_key ignored")
 		}
+		if s.DefaultModelName != nil && strings.TrimSpace(*s.DefaultModelName) != "" {
+			if err := config.ValidDefaultModelName(*s.DefaultModelName); err != nil {
+				rep.Warnings = append(rep.Warnings, fmt.Sprintf("settings: default_model_name %q ignored: %v", *s.DefaultModelName, err))
+				s.DefaultModelName = nil
+			}
+		}
 		changed, err := deps.ApplySettings(s)
 		if err != nil {
 			rep.Skipped = append(rep.Skipped, SkippedItem{"settings", err.Error()})

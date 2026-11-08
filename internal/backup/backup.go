@@ -84,9 +84,16 @@ type Settings struct {
 	// DefaultModelSource is a plain preference, not a secret, so it
 	// travels with every backup.
 	DefaultModelSource *string `json:"default_model_source,omitempty"`
-	HFToken            *string `json:"hf_token,omitempty"` // only with includeSecrets, and only when non-empty
-	MSToken            *string `json:"ms_token,omitempty"` // ModelScope; same rules as HFToken
-	APIKey             *string `json:"api_key,omitempty"`  // only with includeSecrets, and only when non-empty
+	// DefaultModelOff, DefaultModelName and DefaultModelPin are the
+	// virtual model name (config.DefaultModelConfig). The pin is a
+	// registry ID or a fork instance ID, so on another machine it may name
+	// no model; it is then cleared when the name is next resolved.
+	DefaultModelOff  *bool   `json:"default_model_off,omitempty"`
+	DefaultModelName *string `json:"default_model_name,omitempty"`
+	DefaultModelPin  *string `json:"default_model_pin,omitempty"`
+	HFToken          *string `json:"hf_token,omitempty"` // only with includeSecrets, and only when non-empty
+	MSToken          *string `json:"ms_token,omitempty"` // ModelScope; same rules as HFToken
+	APIKey           *string `json:"api_key,omitempty"`  // only with includeSecrets, and only when non-empty
 }
 
 // RuntimeEnv mirrors the global EnvSet: curated variable values plus the
@@ -137,6 +144,13 @@ func Assemble(cfg *config.Config, b *builder.Builder, reg *models.Registry, gpus
 		VRAMMarginMiB:    ptr(cfg.VRAMMarginAll()),
 		VRAMMarginByGPU:  maps.Clone(cfg.VRAMMarginByGPU),
 		VRAMMarginZeroOK: true,
+		DefaultModelOff:  ptr(cfg.DefaultModel.Off),
+	}
+	if cfg.DefaultModel.Name != "" {
+		s.DefaultModelName = ptr(cfg.DefaultModel.Name)
+	}
+	if cfg.DefaultModel.Pin != "" {
+		s.DefaultModelPin = ptr(cfg.DefaultModel.Pin)
 	}
 	// Only when set: an empty value would restore as "no preference",
 	// which the target already has, so there is nothing to say.

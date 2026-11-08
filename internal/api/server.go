@@ -100,6 +100,9 @@ type Server struct {
 	// promptCache records the LLM prompt caches saved before an eviction
 	// unload, until they are restored (see gen_prompt_cache.go).
 	promptCache promptCacheStore
+	// defaultState remembers the chat model used last, for the virtual
+	// model name (default_model_state.go).
+	defaultState *defaultModelState
 
 	// gen holds the generation backends' model sets and instances. It is
 	// nil when generation.json could not be read; genErr then says why,
@@ -465,6 +468,7 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 		memory:         memreport.NewCollector(),
 		hashes:         filehash.Open(filepath.Join(cfg.DataDir, "cache", "file-hashes.json")),
 		updates:        make(map[string]*modelUpdate),
+		defaultState:   loadDefaultModelState(filepath.Join(cfg.DataDir, "default-model.json")),
 	}
 	s.downloader.SetHashStore(s.hashes)
 	s.genMgr = generation.NewManager()

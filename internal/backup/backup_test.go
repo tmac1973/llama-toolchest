@@ -173,3 +173,19 @@ func TestAssembleLeavesSecretEnvLinesOut(t *testing.T) {
 		t.Errorf("secrets-on extra = %q, want %q", full.RuntimeEnv.Extra, cfg.RuntimeEnvExtra)
 	}
 }
+
+// The virtual model name travels with the backup: the switch always,
+// the name and pin only when set.
+func TestAssembleDefaultModel(t *testing.T) {
+	cfg, b, reg := testState(t)
+	f := Assemble(cfg, b, reg, nil, false)
+	s := f.Settings
+	if s.DefaultModelOff == nil || *s.DefaultModelOff || s.DefaultModelName != nil || s.DefaultModelPin != nil {
+		t.Errorf("unset: off %v, name %v, pin %v", s.DefaultModelOff, s.DefaultModelName, s.DefaultModelPin)
+	}
+	cfg.DefaultModel = config.DefaultModelConfig{Off: true, Name: "chat", Pin: "fork:ik-1"}
+	s = Assemble(cfg, b, reg, nil, false).Settings
+	if !*s.DefaultModelOff || *s.DefaultModelName != "chat" || *s.DefaultModelPin != "fork:ik-1" {
+		t.Errorf("set: off %v, name %q, pin %q", *s.DefaultModelOff, *s.DefaultModelName, *s.DefaultModelPin)
+	}
+}
