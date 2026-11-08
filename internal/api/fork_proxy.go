@@ -84,6 +84,9 @@ func (s *Server) serveFork(w http.ResponseWriter, r *http.Request, inst forks.In
 			fmt.Sprintf("Fork instance %s is not running. Start it on the Server page.", inst.ID))
 		return
 	}
+	if isChatPath(r.URL.Path) {
+		s.forkUse.note(inst.ID)
+	}
 	if strings.HasSuffix(r.URL.Path, "/chat/completions") {
 		if f, ok := findFork(inst.ForkID); ok {
 			body = addSamplingDefaults(body, f.SamplingDefaults)

@@ -178,7 +178,7 @@ func (s *Server) newProxyHandler() http.Handler {
 // loadAndCountRequest). When that fails it answers the request and
 // returns false.
 func (s *Server) loadForProxy(w http.ResponseWriter, r *http.Request, body []byte) (end func(), ok bool) {
-	end, err := s.loadAndCountRequest(r.Context(), body)
+	end, err := s.loadAndCountRequest(r.Context(), r.URL.Path, body)
 	if err == nil {
 		return end, true
 	}
@@ -248,8 +248,10 @@ const loadAttempts = 4
 // once the model is loaded: while it waits for the load — which may wait
 // for a generation job's turn on the GPU — it holds nothing a job's
 // unload waits for, so neither waits on the other. When an unload got in
-// between the load and the count, the model is loaded again.
-func (s *Server) loadAndCountRequest(ctx context.Context, body []byte) (end func(), err error) {
+// between the load and the count, the model is loaded again. A chat
+// request (path) to a chat model is noted as its last use, for the
+// virtual model name.
+func (s *Server) loadAndCountRequest(ctx context.Context, path string, body []byte) (end func(), err error) {
 	noop := func() {}
 	id := s.requestModelID(body)
 	for attempt := 0; ; attempt++ {
@@ -282,6 +284,11 @@ func (s *Server) loadAndCountRequest(ctx context.Context, body []byte) (end func
 			// room check.
 			if m, _ := s.registry.Get(id); m != nil {
 				s.restorePromptCache(ctx, m, s.registry.RouterName(id))
+			}
+			if isChatPath(path) {
+				if m, cfg := s.modelFromBody(body); m != nil && m.Kind() == models.KindChat && advertisedToClients(m, cfg) {
+					s.noteChatUse(m.ID)
+				}
 			}
 			return end, nil
 		}

@@ -133,6 +133,8 @@ type Server struct {
 	forkNotes forkStartNotes
 	// forkProxy sends API requests for a fork instance to its port.
 	forkProxy forkProxies
+	// forkUse keeps when each fork instance last took a chat request.
+	forkUse forkUse
 	// testForkHostInfo replaces this host's RAM, CPU and GPU details in
 	// the fork needs checks. Nil in production; tests set it.
 	testForkHostInfo *forks.HostInfo

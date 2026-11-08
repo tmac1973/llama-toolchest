@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -247,5 +248,26 @@ func TestLoadedModelsListsRunningForks(t *testing.T) {
 	}
 	if m.Capabilities["context_per_request"] != float64(262144) || m.Capabilities["parallel"] != float64(1) {
 		t.Errorf("capabilities = %v", m.Capabilities)
+	}
+}
+
+// A chat request to a running fork counts as its use; the state file,
+// which only router models go in, is left as it was. A stopped fork's
+// 503 counts as no use.
+func TestForkChatNotesForkUse(t *testing.T) {
+	s, _ := runningFork(t)
+	s.defaultState = loadDefaultModelState(filepath.Join(t.TempDir(), "default-model.json"))
+	proxyPost(s, "/v1/chat/completions", `{"model":"qwen-next","messages":[]}`)
+	if s.forkUse.lastUse("qwen-next").IsZero() {
+		t.Error("a chat request to a running fork was not counted")
+	}
+	if got := s.defaultState.get(); got.ID != "" {
+		t.Errorf("a fork went into the state file: %+v", got)
+	}
+
+	s.forks.AddInstance(forks.Instance{ID: "stopped", ForkID: "avalon", GPU: 0, Port: 1})
+	proxyPost(s, "/v1/chat/completions", `{"model":"stopped","messages":[]}`)
+	if !s.forkUse.lastUse("stopped").IsZero() {
+		t.Error("a request to a stopped fork was counted")
 	}
 }
