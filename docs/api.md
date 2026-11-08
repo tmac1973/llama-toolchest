@@ -11,6 +11,27 @@ curl $BASE/v1/chat/completions \
   }'
 ```
 
+## Default model name { #default-model }
+
+Set a client's model to `default` and it works with whichever chat model you use, so you don't have to edit each client when you switch models. Real model names and aliases still work as before. On each chat request, `default` becomes one real model, picked in this order:
+
+1. The model or fork instance you pinned.
+2. The loaded chat model, or running fork, that answered a chat request most recently.
+3. The chat model you used last before the server restarted. It loads with the usual room checks.
+
+If none of these exists, the request gets a `503` with the code `no_default_model`. A pinned model that is not loaded loads as it would under its own name. A pinned fork that is stopped answers `503`, as a fork does. When a pinned model is deleted or disabled, or its fork instance is removed, the pin is cleared.
+
+The name applies to `/chat/completions`, `/completions`, `/messages` and `/responses`, with or without `/v1`. A chat request with no `model` field counts as `default`. On any other route, `default` gets a `400` with the code `default_model_chat_only`, because embedding, reranking and generation models keep their own names. The response's `model` field names the model that actually answered.
+
+If a model, alias or fork instance already has the name `default`, that one wins and the virtual name stays off until you rename it. For now you set the name in the config file:
+
+```yaml
+default_model:
+  name: default    # what clients send; empty means "default"
+  pin: ""          # a model ID, or fork:<instance ID>; empty means no pin
+  off: false       # true turns the name off
+```
+
 ## Image, video and music API { #generation-api }
 
 Instances show in `/v1/models` with `meta.kind` `image`, `video`, `music` or `upscale`. Use the instance or set ID as `model`. `meta.api` lists the routes of each instance, `meta.video` the limits of a video instance, and `meta.tasks` the tasks of a music instance. `meta.max_edit_images` gives the most reference images of an edit, and `meta.scale` the factor of an upscaler. `meta.measuring` is true while an instance is being measured. It refuses requests until the measurement ends. The API reference (`/docs/api`) has every field and error.
