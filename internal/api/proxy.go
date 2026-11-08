@@ -137,6 +137,18 @@ func (s *Server) newProxyHandler() http.Handler {
 		case isJSONContentType(r.Header.Get("Content-Type")):
 			body, err := io.ReadAll(r.Body)
 			r.Body.Close()
+			if err == nil {
+				// The virtual model name, or no model, on a chat path
+				// becomes the real model before anything reads it.
+				var refused *defaultModelError
+				if body, refused = s.rewriteDefaultModel(r.URL.Path, body); refused != nil {
+					refused.write(w)
+					return
+				}
+				if s.refuseDefaultModelOffChat(w, r.URL.Path, bodyModel(body)) {
+					return
+				}
+			}
 			// A fork instance's name goes to that instance, never to the
 			// router: none of the router's loading, counting or sampling
 			// defaults apply to it.
@@ -161,7 +173,11 @@ func (s *Server) newProxyHandler() http.Handler {
 				r.ContentLength = int64(len(body))
 			}
 		case isMultipartForm(r):
-			if model := multipartModel(r, multipartModelLimit); model != "" {
+			model := multipartModel(r, multipartModelLimit)
+			if s.refuseDefaultModelOffChat(w, r.URL.Path, model) {
+				return
+			}
+			if model != "" {
 				body, _ := json.Marshal(map[string]string{"model": model})
 				end, ok := s.loadForProxy(w, r, body)
 				if !ok {
@@ -403,16 +419,25 @@ func (s *Server) lookupRouterStatus(routerName string, m *models.Model) (process
 		return process.ModelStatus{}, false
 	}
 	for _, lm := range loaded {
-		if lm.ID == routerName || lm.Model == routerName {
+		if routerEntryIs(lm, routerName, m) {
 			return lm, true
-		}
-		for _, a := range lm.Aliases {
-			if a == routerName || a == m.ID || a == m.PublicName() {
-				return lm, true
-			}
 		}
 	}
 	return process.ModelStatus{}, false
+}
+
+// routerEntryIs reports whether the router's entry lm is model m, which
+// the router knows as routerName.
+func routerEntryIs(lm process.ModelStatus, routerName string, m *models.Model) bool {
+	if lm.ID == routerName || lm.Model == routerName {
+		return true
+	}
+	for _, a := range lm.Aliases {
+		if a == routerName || a == m.ID || a == m.PublicName() {
+			return true
+		}
+	}
+	return false
 }
 
 // waitForModelLoaded polls the router until the named model reports
