@@ -83,6 +83,9 @@ func (s *Server) handleV1Models(w http.ResponseWriter, r *http.Request) {
 	// LLMs carry meta.kind only while generation is on, so they are
 	// filtered here rather than by their meta.
 	if kind == "" || kind == "text" {
+		if obj := s.defaultV1Model(); obj != nil {
+			data = append(data, obj)
+		}
 		for _, m := range s.registry.List() {
 			cfg, _ := s.registry.GetConfig(m.ID)
 			if advertisedToClients(m, cfg) {
@@ -221,6 +224,13 @@ func (s *Server) handleV1Model(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "model")
 
 	m, cfg := s.findModelByAny(id)
+	cur := s.cfgCopy()
+	if m == nil && id == cur.DefaultModelName() {
+		if obj := s.defaultV1Model(); obj != nil {
+			respondJSON(w, obj)
+			return
+		}
+	}
 	if inst, ok := s.forkForModel(id); m == nil && ok {
 		if obj := s.forkV1Model(inst); obj != nil {
 			respondJSON(w, obj)
@@ -247,6 +257,34 @@ func (s *Server) handleV1Model(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, s.openAIModel(m, cfg))
+}
+
+// defaultV1Model is the /v1/models entry for the virtual model name,
+// with its current target in meta, or nil when the name is switched off,
+// clashes with a real name, or has no target. It never loads a model or
+// changes the config.
+func (s *Server) defaultV1Model() map[string]any {
+	cfg := s.cfgCopy()
+	name := cfg.DefaultModelName()
+	if !cfg.DefaultModelOn() || s.defaultNameClash(name) != "" {
+		return nil
+	}
+	t, ok := s.resolveDefaultModel()
+	if !ok {
+		return nil
+	}
+	return map[string]any{
+		"id":       name,
+		"object":   "model",
+		"created":  0,
+		"owned_by": "llama-toolchest",
+		"meta": map[string]any{
+			"kind":          "text",
+			"virtual":       true,
+			"target":        t.Name,
+			"target_reason": t.Reason,
+		},
+	}
 }
 
 // advertisedToClients reports whether the OpenAI-compatible API offers a

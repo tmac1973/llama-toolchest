@@ -23,6 +23,13 @@ If none of these exists, the request gets a `503` with the code `no_default_mode
 
 The name applies to `/chat/completions`, `/completions`, `/messages` and `/responses`, with or without `/v1`. A chat request with no `model` field counts as `default`. On any other route, `default` gets a `400` with the code `default_model_chat_only`, because embedding, reranking and generation models keep their own names. The response's `model` field names the model that actually answered.
 
+`/v1/models` lists the name first, so a client's model picker shows it. Its `meta` says that it's virtual and which model it goes to right now, and why: `pinned`, `loaded` (the loaded model used last) or `last used` (the next request loads it). The entry is left out while the name is off or has nowhere to go.
+
+```json
+{"id": "default", "object": "model", "created": 0, "owned_by": "llama-toolchest",
+ "meta": {"kind": "text", "virtual": true, "target": "unsloth-gemma-4-12b-it.UD_Q6_K_XL", "target_reason": "loaded"}}
+```
+
 If a model, alias or fork instance already has the name `default`, that one wins and the virtual name stays off until you rename it. For now you set the name in the config file:
 
 ```yaml
