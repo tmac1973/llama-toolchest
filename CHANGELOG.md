@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.56.0](https://github.com/tmac1973/llama-toolchest/compare/v2.55.0...v2.56.0) (2026-11-09)
+
+
+### Features
+
+* **forks:** run an Avalon instance on two GPUs ([#607](https://github.com/tmac1973/llama-toolchest/issues/607)) ([50482c7](https://github.com/tmac1973/llama-toolchest/commit/50482c7b90891e6d0d5bafb8bbf5449f5b8739ea)), closes [#606](https://github.com/tmac1973/llama-toolchest/issues/606)
+
 ## [2.55.0](https://github.com/tmac1973/llama-toolchest/compare/v2.54.0...v2.55.0) (2026-11-08)
 
 
