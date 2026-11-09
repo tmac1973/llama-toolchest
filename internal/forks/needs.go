@@ -14,10 +14,11 @@ type HostInfo struct {
 	// checked then.
 	AVX2Known bool
 	AVX2      bool
-	// GPUArch is the chosen GPU's architecture ("gfx1100"), and Backend
-	// its build profile backend ("rocm", "cuda").
-	GPUArch string
-	Backend string
+	// GPUArchs are the chosen GPUs' architectures ("gfx1100"), one per
+	// GPU ("" when unknown), and Backend their build profile backend
+	// ("rocm", "cuda").
+	GPUArchs []string
+	Backend  string
 	// FreeDiskGiB is the models folder's free space. Callers leave it
 	// zero once the fork's model set is downloaded, since the space is
 	// then already used.
@@ -40,9 +41,20 @@ func CheckNeeds(f Fork, host HostInfo) []string {
 	case "rocm":
 		if len(n.ROCmArchs) == 0 {
 			out = append(out, fmt.Sprintf("%s does not support AMD GPUs.", f.Name))
-		} else if host.GPUArch != "" && !slices.Contains(n.ROCmArchs, host.GPUArch) {
-			out = append(out, fmt.Sprintf("This GPU is %s. %s is tuned for %s and may not run on it.",
-				host.GPUArch, f.Name, strings.Join(n.ROCmArchs, ", ")))
+		} else {
+			var seen []string
+			for _, arch := range host.GPUArchs {
+				if arch == "" || slices.Contains(n.ROCmArchs, arch) || slices.Contains(seen, arch) {
+					continue
+				}
+				seen = append(seen, arch)
+				what := "This GPU is"
+				if len(host.GPUArchs) > 1 {
+					what = "A chosen GPU is"
+				}
+				out = append(out, fmt.Sprintf("%s %s. %s is tuned for %s and may not run on it.",
+					what, arch, f.Name, strings.Join(n.ROCmArchs, ", ")))
+			}
 		}
 	case "cuda":
 		if !n.CUDA {

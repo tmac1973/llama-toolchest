@@ -2,7 +2,7 @@
      forkFormData and the fork_needs warnings (fork_instances_ui.go). */}}
 {{define "fork_instances_table"}}
 {{- if not .}}
-<p><small>No fork instances yet. Press Add instance to run a fork's model on one GPU.</small></p>
+<p><small>No fork instances yet. Press Add instance to run a fork's model on one GPU, or on two when the fork can use them.</small></p>
 {{- else}}
 <table role="grid">
     <thead>
@@ -10,7 +10,7 @@
             <th title="The model name clients use in API requests.">Instance</th>
             <th>Fork</th>
             <th title="The build that runs it: the chosen one, or the newest successful build of the fork.">Build</th>
-            <th title="The fork server uses this whole GPU while it runs.">GPU</th>
+            <th title="The fork server uses each of these GPUs whole while it runs.">GPU</th>
             <th>Port</th>
             <th>State</th>
             <th></th>
@@ -22,7 +22,7 @@
             <td>{{.ID}}{{with .DefaultBadge}} <mark style="padding:0 0.3rem;font-size:0.75rem;" title="{{.}}">default</mark>{{end}}{{if .AutoStart}} <small title="Starts when llama-toolchest starts.">auto-start</small>{{end}}</td>
             <td>{{.ForkName}}{{if not .SetReady}} <small style="display:block;color:var(--pico-del-color);" title="Download it on the Models page, under Fork model sets.">model not downloaded</small>{{end}}</td>
             <td>{{with .BuildLabel}}<kbd>{{.}}</kbd>{{else}}<small title="Build it on the Builds page.">no build</small>{{end}}</td>
-            <td>{{.GPU}}{{with .GPUName}} <small>{{.}}</small>{{end}}</td>
+            <td>{{range $i, $g := .GPUList}}{{if $i}}<br>{{end}}{{$g.Index}}{{with $g.Name}} <small>{{.}}</small>{{end}}{{end}}</td>
             <td>{{.Port}}</td>
             <td{{with .Status.Error}} title="{{.}}" style="cursor:help;"{{end}}>
                 {{- if eq .Status.State "starting"}}<span aria-busy="true" title="Loading the model. A large model can take several minutes.">starting…</span>
@@ -35,7 +35,7 @@
                 {{- if .Active}}
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/forks/instances/{{$id}}/stop" hx-target="#fork-instances" data-error-label="Not stopped">Stop</button>
                 {{- else}}
-                    <button type="button" class="outline" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/forks/instances/{{$id}}/start" hx-target="#fork-instances" title="Start the fork server. It uses the whole GPU, so the GPU must be empty." data-error-label="Not started">Start</button>
+                    <button type="button" class="outline" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/forks/instances/{{$id}}/start" hx-target="#fork-instances" title="Start the fork server. It uses each of its GPUs whole, so they must be empty." data-error-label="Not started">Start</button>
                 {{- end}}
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" data-id="{{$id}}" onclick="openForkLog(this.dataset.id)">Logs</button>
                 {{- if not .Active}}
@@ -74,7 +74,7 @@
         </label>
     </div>
     {{- range .Forks}}
-    <div class="fork-form-about" data-fork="{{.ID}}">
+    <div class="fork-form-about" data-fork="{{.ID}}" data-max-gpus="{{.GPULimit}}">
         <p><small>{{.Notes}} Model: {{.ModelName}}{{if .SetReady}} (downloaded){{end}}. License: {{.License}}.</small></p>
         {{- if not .SetReady}}
         <p><small><mark>The model is not downloaded yet.</mark> Download it on the <a href="/models">Models</a> page, under Fork model sets. You can save the instance now and start it later.</small></p>
@@ -92,10 +92,18 @@
             </select>
         </label>
         <label title="The fork server uses this whole GPU. Router models and generation instances cannot use it while the fork server runs.">GPU
-            <select name="gpu" id="fork-form-gpu" onchange="forkNeedsRefresh()">
+            <select name="gpu" id="fork-form-gpu" onchange="forkGPUChanged()">
                 {{- range .GPUs}}<option value="{{.Index}}"{{if and $.Editing (eq .Index $.Inst.GPU)}} selected{{end}}>{{.Index}}: {{.Name}}{{with .Link}} ({{.Label}}){{end}}</option>{{else}}<option value="0">0</option>{{end}}
             </select>
         </label>
+        {{- if gt (len .GPUs) 1}}
+        <label id="fork-form-second-gpu-label" title="A second GPU for a fork that can use two. The fork server uses it whole too. None: one GPU only.">Second GPU
+            <select name="second_gpu" id="fork-form-second-gpu" onchange="forkNeedsRefresh()">
+                <option value="">None</option>
+                {{- range .GPUs}}<option value="{{.Index}}"{{if and $.Editing (eq .Index $.SecondGPU)}} selected{{end}}>{{.Index}}: {{.Name}}{{with .Link}} ({{.Label}}){{end}}</option>{{end}}
+            </select>
+        </label>
+        {{- end}}
         <label title="The port of the fork server. It must be in the generation port range ({{.PortStart}}–{{.PortEnd}}). Empty: the lowest free port.">Port
             <input type="number" name="port" placeholder="automatic"{{if .Editing}} value="{{.Inst.Port}}"{{end}}>
         </label>

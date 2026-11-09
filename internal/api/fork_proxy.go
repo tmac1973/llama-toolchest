@@ -160,6 +160,7 @@ func (s *Server) forkV1Model(inst forks.Instance) map[string]any {
 		"meta": map[string]any{
 			"kind":  "text",
 			"fork":  inst.ForkID,
+			"gpus":  inst.GPUs(),
 			"state": state,
 		},
 	}
