@@ -355,14 +355,24 @@
     </article>
 </dialog>
 <script>
-// The form shows the chosen fork's notes and only its builds, then asks
-// the server what this machine lacks for it on the chosen GPU.
+// The form shows the chosen fork's notes and only its builds, shows the
+// second GPU only for a fork that can use two, then asks the server what
+// this machine lacks for it on the chosen GPUs.
 function forkFormChanged() {
     var sel = document.getElementById('fork-form-fork');
     if (!sel) return;
+    var maxGPUs = 1;
     document.querySelectorAll('#fork-form .fork-form-about').forEach(function(d) {
         d.hidden = d.dataset.fork !== sel.value;
+        if (!d.hidden) maxGPUs = parseInt(d.dataset.maxGpus, 10) || 1;
     });
+    var second = document.getElementById('fork-form-second-gpu');
+    if (second) {
+        var label = document.getElementById('fork-form-second-gpu-label');
+        label.hidden = maxGPUs < 2;
+        second.disabled = maxGPUs < 2;
+        forkSecondGPUOptions();
+    }
     var build = document.getElementById('fork-form-build');
     for (var i = 0; i < build.options.length; i++) {
         var o = build.options[i];
@@ -371,12 +381,29 @@ function forkFormChanged() {
     }
     forkNeedsRefresh();
 }
+// The second GPU cannot be the first one.
+function forkSecondGPUOptions() {
+    var second = document.getElementById('fork-form-second-gpu');
+    if (!second) return;
+    var first = document.getElementById('fork-form-gpu').value;
+    for (var i = 0; i < second.options.length; i++) {
+        var o = second.options[i];
+        o.hidden = o.value !== '' && o.value === first;
+        if (o.hidden && o.selected) second.value = '';
+    }
+}
+function forkGPUChanged() {
+    forkSecondGPUOptions();
+    forkNeedsRefresh();
+}
 function forkNeedsRefresh() {
     var fork = document.getElementById('fork-form-fork');
     if (!fork) return;
+    var second = document.getElementById('fork-form-second-gpu');
     htmx.ajax('GET', '/api/forks/needs?' + new URLSearchParams({
         fork: fork.value,
         gpu: document.getElementById('fork-form-gpu').value,
+        second_gpu: second && !second.disabled ? second.value : '',
         build: document.getElementById('fork-form-build').value,
     }), {target: '#fork-needs', swap: 'innerHTML'});
 }

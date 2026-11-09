@@ -135,11 +135,11 @@ func TestForkNeedsBox(t *testing.T) {
 		s.handleForkNeeds(rec, htmxReq("GET", "/api/forks/needs?fork=avalon&gpu=1", nil))
 		return rec.Body.String()
 	}
-	s.testForkHostInfo = &forks.HostInfo{RAMGiB: 128, AVX2Known: true, AVX2: true, GPUArch: "gfx1100"}
+	s.testForkHostInfo = &forks.HostInfo{RAMGiB: 128, AVX2Known: true, AVX2: true, GPUArchs: []string{"gfx1100"}}
 	if body := strings.TrimSpace(get()); body != "" {
 		t.Errorf("a host that meets all needs got:\n%s", body)
 	}
-	s.testForkHostInfo = &forks.HostInfo{RAMGiB: 16, GPUArch: "gfx1201"}
+	s.testForkHostInfo = &forks.HostInfo{RAMGiB: 16, GPUArchs: []string{"gfx1201"}}
 	body := get()
 	for _, want := range []string{"16 GiB of RAM", "gfx1201", "You can still start it"} {
 		if !strings.Contains(body, want) {

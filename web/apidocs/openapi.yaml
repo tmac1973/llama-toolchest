@@ -1597,13 +1597,18 @@ components:
     ForkMeta:
       type: object
       title: Fork instance
-      required: [kind, fork, state]
+      required: [kind, fork, gpus, state]
       properties:
         kind:
           const: text
         fork:
           type: string
           description: The curated fork the instance runs, for example `avalon`.
+        gpus:
+          type: array
+          items:
+            type: integer
+          description: The GPUs the instance holds whole, the first one first. Two for an Avalon instance on two GPUs.
         state:
           type: string
           enum: [running, loading]

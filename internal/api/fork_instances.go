@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -49,7 +50,7 @@ func (s *Server) handleForkInstances(w http.ResponseWriter, r *http.Request) {
 
 // forkInstanceFromForm reads an instance's fields from the form into
 // inst, checking what depends on this host: the fork, its model set, the
-// build, the GPU, the extra arguments and the environment lines. The
+// build, the GPUs, the extra arguments and the environment lines. The
 // port is set by forkPortFromForm. On an error it returns the HTTP status.
 func (s *Server) forkInstanceFromForm(r *http.Request, store *forks.Store, inst *forks.Instance) (int, error) {
 	if err := r.ParseForm(); err != nil {
@@ -71,10 +72,28 @@ func (s *Server) forkInstanceFromForm(r *http.Request, store *forks.Store, inst 
 	if err != nil || gpu < 0 {
 		return http.StatusBadRequest, errors.New("choose a GPU")
 	}
-	if gpus := s.monitor.Current().GPU; len(gpus) > 0 && gpu >= len(gpus) {
-		return http.StatusBadRequest, fmt.Errorf("this machine has no GPU %d", gpu)
+	inst.GPU, inst.ExtraGPUs = gpu, nil
+	// second_gpu is empty for an instance on one GPU.
+	if raw := strings.TrimSpace(r.FormValue("second_gpu")); raw != "" {
+		second, err := strconv.Atoi(raw)
+		if err != nil || second < 0 {
+			return http.StatusBadRequest, fmt.Errorf("second GPU %q is not a GPU number", raw)
+		}
+		if f.GPULimit() < 2 {
+			return http.StatusBadRequest, fmt.Errorf("%s runs on one GPU only", f.Name)
+		}
+		if second == gpu {
+			return http.StatusBadRequest, errors.New("choose a second GPU that is not the first one")
+		}
+		inst.ExtraGPUs = []int{second}
 	}
-	inst.GPU = gpu
+	if gpus := s.monitor.Current().GPU; len(gpus) > 0 {
+		for _, g := range inst.GPUs() {
+			if g >= len(gpus) {
+				return http.StatusBadRequest, fmt.Errorf("this machine has no GPU %d", g)
+			}
+		}
+	}
 	args, err := generation.ValidateExtraArgs(r.FormValue("extra_args"))
 	if err != nil {
 		return http.StatusBadRequest, err
@@ -316,8 +335,8 @@ func (s *Server) forkInstancesChanged(w http.ResponseWriter, r *http.Request) {
 	instancesChanged(w, r, "forkInstancesChanged", s.handleForkInstances)
 }
 
-// forkGPUBusyError is a start refused because something else is on the
-// instance's GPU.
+// forkGPUBusyError is a start refused because something else is on one
+// of the instance's GPUs.
 type forkGPUBusyError struct{ msg string }
 
 func (e *forkGPUBusyError) Error() string { return e.msg }
@@ -364,7 +383,7 @@ func (s *Server) gpuOccupants(gpu int, skipFork string) []string {
 	}
 	if s.forks != nil {
 		for _, inst := range s.forks.Instances() {
-			if inst.ID != skipFork && inst.GPU == gpu && s.forkMgr.IsActive(inst.ID) {
+			if inst.ID != skipFork && slices.Contains(inst.GPUs(), gpu) && s.forkMgr.IsActive(inst.ID) {
 				out = append(out, inst.ID+" (fork)")
 			}
 		}
@@ -373,9 +392,9 @@ func (s *Server) gpuOccupants(gpu int, skipFork string) []string {
 }
 
 // forkHostInfo describes this host for a fork's needs: RAM, AVX2 and the
-// GPU's architecture. Disk space is left out: it only matters for the
-// download, which is done by the time an instance starts.
-func (s *Server) forkHostInfo(gpu int, backend string) forks.HostInfo {
+// architectures of the GPUs. Disk space is left out: it only matters for
+// the download, which is done by the time an instance starts.
+func (s *Server) forkHostInfo(gpus []int, backend string) forks.HostInfo {
 	if s.testForkHostInfo != nil {
 		info := *s.testForkHostInfo
 		info.Backend = backend
@@ -385,10 +404,14 @@ func (s *Server) forkHostInfo(gpu int, backend string) forks.HostInfo {
 	if s.monitor != nil {
 		m := s.monitor.Current()
 		info.RAMGiB = m.Memory.TotalMiB / 1024
-		for _, g := range m.GPU {
-			if g.Index == gpu {
-				info.GPUArch = g.Arch
+		for _, gpu := range gpus {
+			arch := ""
+			for _, g := range m.GPU {
+				if g.Index == gpu {
+					arch = g.Arch
+				}
 			}
+			info.GPUArchs = append(info.GPUArchs, arch)
 		}
 	}
 	if raw, err := os.ReadFile("/proc/cpuinfo"); err == nil {
@@ -431,17 +454,26 @@ func (s *Server) startForkInstance(id string) ([]string, error) {
 	if err := generation.CheckGPUVendor(backend, s.monitor.GPUVendor()); err != nil {
 		return nil, err
 	}
-	if busy := s.gpuOccupants(inst.GPU, id); len(busy) > 0 {
-		return nil, &forkGPUBusyError{msg: fmt.Sprintf("GPU %d holds %s. A fork instance uses the whole GPU; unload or stop them first.",
-			inst.GPU, strings.Join(busy, ", "))}
+	var held []string
+	for _, gpu := range inst.GPUs() {
+		if busy := s.gpuOccupants(gpu, id); len(busy) > 0 {
+			held = append(held, fmt.Sprintf("GPU %d holds %s.", gpu, strings.Join(busy, ", ")))
+		}
 	}
-	warnings := forks.CheckNeeds(f, s.forkHostInfo(inst.GPU, backend))
+	if len(held) > 0 {
+		return nil, &forkGPUBusyError{msg: strings.Join(held, " ") + " A fork instance uses each of its GPUs whole; unload or stop them first."}
+	}
+	warnings := forks.CheckNeeds(f, s.forkHostInfo(inst.GPUs(), backend))
 
 	env := process.BuildEnv(filepath.Dir(build.BinaryPath), nil)
 	// The GPU selector and the instance's own lines must not follow
 	// BuildEnv's "inherited wins" rule: a stray HIP_VISIBLE_DEVICES around
 	// toolchest would put the instance on the wrong GPU.
-	for _, line := range forks.Env(f, inst, backend, models.BackendDeviceIndex(backend, inst.GPU)) {
+	var devices []int
+	for _, gpu := range inst.GPUs() {
+		devices = append(devices, models.BackendDeviceIndex(backend, gpu))
+	}
+	for _, line := range forks.Env(f, inst, backend, devices) {
 		name, value, _ := strings.Cut(line, "=")
 		env = builder.SetEnv(env, name, value)
 	}
@@ -511,8 +543,8 @@ func (s *Server) autoStartForkInstances(afterRouter bool) {
 }
 
 // forkVRAM adds the fork instances that are starting or running to the
-// per-GPU reservations: each one reserves its whole GPU, and is never
-// stopped to make room. exclude is left out.
+// per-GPU reservations: each one reserves each of its GPUs whole, and is
+// never stopped to make room. exclude is left out.
 func (s *Server) forkVRAM(out map[int]*genVRAM, exclude string) {
 	if !s.forksEnabled() || s.forkMgr == nil {
 		return
@@ -521,19 +553,24 @@ func (s *Server) forkVRAM(out map[int]*genVRAM, exclude string) {
 		if inst.ID == exclude || !s.forkMgr.IsActive(inst.ID) {
 			continue
 		}
-		total := s.gpuTotalMiB(inst.GPU)
+		// The process's memory is one number for all its GPUs; on two it
+		// is split evenly, which is close enough under a whole-GPU hold.
+		gpus := inst.GPUs()
 		using := 0
 		if pid := s.forkMgr.PID(inst.ID); pid > 0 {
 			using, _ = s.genProcVRAM.read(pid)
 		}
-		v := out[inst.GPU]
-		if v == nil {
-			v = &genVRAM{}
-			out[inst.GPU] = v
+		using /= len(gpus)
+		for _, gpu := range gpus {
+			v := out[gpu]
+			if v == nil {
+				v = &genVRAM{}
+				out[gpu] = v
+			}
+			v.Using += using
+			v.Reserved += max(s.gpuTotalMiB(gpu), using)
+			v.Names = append(v.Names, inst.ID+" (fork, whole GPU)")
 		}
-		v.Using += using
-		v.Reserved += max(total, using)
-		v.Names = append(v.Names, inst.ID+" (fork, whole GPU)")
 	}
 }
 

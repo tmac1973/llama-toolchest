@@ -722,7 +722,7 @@ func MarkRecommended(options []GPUOption, modelVRAMGB float64, perGPUGB float64,
 	gpuUsed := make(map[int]float64)
 	for _, a := range existing {
 		for _, g := range a.GPUs {
-			gpuUsed[g] += a.PerGPUGB
+			gpuUsed[g] += a.LoadOn(g)
 		}
 	}
 

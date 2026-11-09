@@ -86,7 +86,7 @@ func TestStoreRoundTrip(t *testing.T) {
 		t.Error("an empty store wrote a file")
 	}
 	set := ModelSet{ForkID: "avalon", Dir: "/models/fork-models/x", Complete: true}
-	inst := Instance{ID: "avalon-qwen", ForkID: "avalon", GPU: 1, Port: 8082,
+	inst := Instance{ID: "avalon-qwen", ForkID: "avalon", GPU: 1, ExtraGPUs: []int{0}, Port: 8082,
 		ExtraArgs: []string{"-c", "32768"}, ExtraEnv: []string{"GGML_CUDA_MOE_PIN=0"}, AutoStart: true}
 	if err := s.PutModelSet(set); err != nil {
 		t.Fatal(err)
@@ -103,7 +103,7 @@ func TestStoreRoundTrip(t *testing.T) {
 		t.Errorf("model set = %+v, %v", got, err)
 	}
 	got, err := s2.Instance("avalon-qwen")
-	if err != nil || got.GPU != 1 || got.Port != 8082 || !got.AutoStart ||
+	if err != nil || !slices.Equal(got.GPUs(), []int{1, 0}) || got.Port != 8082 || !got.AutoStart ||
 		!slices.Equal(got.ExtraArgs, inst.ExtraArgs) || !slices.Equal(got.ExtraEnv, inst.ExtraEnv) {
 		t.Errorf("instance = %+v, %v", got, err)
 	}
@@ -203,23 +203,27 @@ func TestEnv(t *testing.T) {
 	f, _ := Find("avalon")
 	f.Recipe.Env = []string{"GGML_CUDA_MOE_PIN=1", "A=1"}
 	inst := Instance{ExtraEnv: []string{"GGML_CUDA_MOE_PIN=0", "B=2"}}
-	got := Env(f, inst, "rocm", 1)
+	got := Env(f, inst, "rocm", []int{1})
 	want := []string{"HIP_VISIBLE_DEVICES=1", "GGML_CUDA_MOE_PIN=0", "A=1", "B=2"}
 	if !slices.Equal(got, want) {
 		t.Errorf("rocm env = %v, want %v", got, want)
 	}
-	if got := Env(f, Instance{}, "cuda", 0); got[0] != "CUDA_VISIBLE_DEVICES=0" {
+	if got := Env(f, Instance{}, "cuda", []int{0}); got[0] != "CUDA_VISIBLE_DEVICES=0" {
 		t.Errorf("cuda env = %v", got)
 	}
+	// Two GPUs: both visible, the first one first.
+	if got := Env(f, Instance{}, "rocm", []int{2, 0}); got[0] != "HIP_VISIBLE_DEVICES=2,0" {
+		t.Errorf("two-GPU env = %v", got)
+	}
 	// An instance can also replace the GPU selector.
-	if got := Env(f, Instance{ExtraEnv: []string{"HIP_VISIBLE_DEVICES=0"}}, "rocm", 1); got[0] != "HIP_VISIBLE_DEVICES=0" {
+	if got := Env(f, Instance{ExtraEnv: []string{"HIP_VISIBLE_DEVICES=0"}}, "rocm", []int{1}); got[0] != "HIP_VISIBLE_DEVICES=0" {
 		t.Errorf("selector not replaced: %v", got)
 	}
 }
 
 func TestCheckNeeds(t *testing.T) {
 	f, _ := Find("avalon")
-	good := HostInfo{RAMGiB: 64, AVX2Known: true, AVX2: true, GPUArch: "gfx1100", Backend: "rocm", FreeDiskGiB: 200}
+	good := HostInfo{RAMGiB: 64, AVX2Known: true, AVX2: true, GPUArchs: []string{"gfx1100"}, Backend: "rocm", FreeDiskGiB: 200}
 	if got := CheckNeeds(f, good); len(got) != 0 {
 		t.Errorf("a host that meets all needs got %v", got)
 	}
@@ -230,18 +234,48 @@ func TestCheckNeeds(t *testing.T) {
 		host HostInfo
 		word string
 	}{
-		"little RAM":   {HostInfo{RAMGiB: 24}, "24 GiB of RAM"},
-		"no AVX2":      {HostInfo{AVX2Known: true}, "AVX2"},
-		"other arch":   {HostInfo{Backend: "rocm", GPUArch: "gfx1201"}, "gfx1201"},
-		"vulkan":       {HostInfo{Backend: "vulkan"}, "vulkan"},
-		"little space": {HostInfo{FreeDiskGiB: 50}, "50 GiB free"},
+		"little RAM":     {HostInfo{RAMGiB: 24}, "24 GiB of RAM"},
+		"no AVX2":        {HostInfo{AVX2Known: true}, "AVX2"},
+		"other arch":     {HostInfo{Backend: "rocm", GPUArchs: []string{"gfx1201"}}, "gfx1201"},
+		"pair, one off":  {HostInfo{Backend: "rocm", GPUArchs: []string{"gfx1100", "gfx1201"}}, "A chosen GPU is gfx1201"},
+		"pair, both off": {HostInfo{Backend: "rocm", GPUArchs: []string{"gfx1201", "gfx1201"}}, "gfx1201"},
+		"vulkan":         {HostInfo{Backend: "vulkan"}, "vulkan"},
+		"little space":   {HostInfo{FreeDiskGiB: 50}, "50 GiB free"},
 	} {
 		got := CheckNeeds(f, c.host)
 		if len(got) != 1 || !strings.Contains(got[0], c.word) {
 			t.Errorf("%s: %v, want one sentence with %q", name, got, c.word)
 		}
 	}
+	if got := CheckNeeds(f, HostInfo{Backend: "rocm", GPUArchs: []string{"gfx1100", "gfx1100"}}); len(got) != 0 {
+		t.Errorf("7900 XTX pair: %v", got)
+	}
 	if got := CheckNeeds(f, HostInfo{Backend: "cuda"}); len(got) != 0 {
 		t.Errorf("cuda host: %v", got)
+	}
+}
+
+func TestInstanceGPUs(t *testing.T) {
+	s, err := Load(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, gpus := range map[string][]int{
+		"three GPUs": {1, 2},
+		"same GPU":   {0},
+		"negative":   {-1},
+	} {
+		inst := Instance{ID: "x", ForkID: "avalon", GPU: 0, ExtraGPUs: gpus}
+		if err := s.AddInstance(inst); err == nil {
+			t.Errorf("%s: added", name)
+		}
+	}
+	if err := s.AddInstance(Instance{ID: "pair", ForkID: "avalon", GPU: 1, ExtraGPUs: []int{0}}); err != nil {
+		t.Errorf("a two-GPU Avalon instance: %v", err)
+	}
+	f, _ := Find("avalon")
+	f.MaxGPUs = 0
+	if err := checkGPUs(f, []int{0, 1}); err == nil {
+		t.Error("a one-GPU fork took two GPUs")
 	}
 }

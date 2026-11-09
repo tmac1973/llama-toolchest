@@ -43,10 +43,12 @@ func (n *forkStartNotes) get(id string) []string {
 type forkRow struct {
 	forks.Instance
 	ForkName string
+	// GPUList is the instance's GPUs with their names, the first one
+	// first.
+	GPUList []genGPUChoice
 	// BuildLabel is the build the instance would run: the chosen one, or
 	// the newest of the fork; empty when there is none.
 	BuildLabel string
-	GPUName    string
 	Status     process.Status
 	// SetReady reports whether the fork's model set is downloaded.
 	SetReady bool
@@ -69,8 +71,11 @@ func (s *Server) forkRows(store *forks.Store) []forkRow {
 	_, defaultID := s.defaultTargetIDs()
 	var rows []forkRow
 	for _, inst := range store.Instances() {
-		row := forkRow{Instance: inst, ForkName: inst.ForkID, GPUName: gpuNames[inst.GPU],
+		row := forkRow{Instance: inst, ForkName: inst.ForkID,
 			Status: s.forkMgr.Status(inst.ID), Warnings: s.forkNotes.get(inst.ID)}
+		for _, g := range inst.GPUs() {
+			row.GPUList = append(row.GPUList, genGPUChoice{Index: g, Name: gpuNames[g]})
+		}
 		if f, ok := findFork(inst.ForkID); ok {
 			row.ForkName = f.Name
 			if b := s.resolveForkBuild(f.ID, inst.BuildID); b != nil {
@@ -97,6 +102,8 @@ type forkFormData struct {
 	// Editing is set when the form changes a stopped instance.
 	Editing bool
 	Inst    forks.Instance
+	// SecondGPU is the edited instance's second GPU, -1 for none.
+	SecondGPU int
 	// ExtraArgs and ExtraEnv are the instance's values as the fields
 	// show them.
 	ExtraArgs, ExtraEnv string
@@ -116,7 +123,7 @@ type forkBuildChoice struct {
 func (s *Server) forkFormChoices(store *forks.Store) forkFormData {
 	cfg := s.cfgCopy()
 	start, count := cfg.GenPorts(s.inContainer())
-	data := forkFormData{PortStart: start, PortEnd: start + count - 1}
+	data := forkFormData{PortStart: start, PortEnd: start + count - 1, SecondGPU: -1}
 	for _, g := range s.monitor.Current().GPU {
 		data.GPUs = append(data.GPUs, genGPUChoice{Index: g.Index, Name: g.Name, Link: g.PCIe})
 	}
@@ -157,6 +164,9 @@ func (s *Server) handleForkInstanceForm(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		data.Editing, data.Inst = true, inst
+		if len(inst.ExtraGPUs) > 0 {
+			data.SecondGPU = inst.ExtraGPUs[0]
+		}
 		data.ExtraArgs = joinArgs(inst.ExtraArgs)
 		data.ExtraEnv = strings.Join(inst.ExtraEnv, "\n")
 	}
@@ -178,7 +188,7 @@ func joinArgs(args []string) string {
 }
 
 // handleForkNeeds lists the needs of a fork that this host falls short of
-// on a GPU, for the form's warning box.
+// on the chosen GPUs, for the form's warning box.
 func (s *Server) handleForkNeeds(w http.ResponseWriter, r *http.Request) {
 	if s.forkStore(w) == nil {
 		return
@@ -189,6 +199,10 @@ func (s *Server) handleForkNeeds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	gpu, _ := strconv.Atoi(r.URL.Query().Get("gpu"))
+	gpus := []int{gpu}
+	if second, err := strconv.Atoi(r.URL.Query().Get("second_gpu")); err == nil && second != gpu && f.GPULimit() > 1 {
+		gpus = append(gpus, second)
+	}
 	backend := ""
 	if b := s.resolveForkBuild(f.ID, r.URL.Query().Get("build")); b != nil {
 		backend, _ = generation.BuildBackend(*b)
@@ -198,11 +212,11 @@ func (s *Server) handleForkNeeds(w http.ResponseWriter, r *http.Request) {
 		backend = "rocm"
 	}
 	respondHTML(w)
-	s.renderPartial(w, "fork_needs", forks.CheckNeeds(f, s.forkHostInfo(gpu, backend)))
+	s.renderPartial(w, "fork_needs", forks.CheckNeeds(f, s.forkHostInfo(gpus, backend)))
 }
 
 // forkReservationAllocations adds the running fork instances to the GPU
-// map, each as its whole GPU, striped as reserved.
+// map, each as its whole GPUs, striped as reserved.
 func (s *Server) forkReservationAllocations(firstColor int) []models.GPUAllocation {
 	if !s.forksEnabled() {
 		return nil
@@ -212,15 +226,25 @@ func (s *Server) forkReservationAllocations(firstColor int) []models.GPUAllocati
 		if !s.forkMgr.IsActive(inst.ID) {
 			continue
 		}
-		gb := float64(s.gpuTotalMiB(inst.GPU)) / 1024
-		if gb == 0 {
+		a := models.GPUAllocation{
+			ModelID: "fork:" + inst.ID, ModelName: inst.ID + " (fork, whole GPU)",
+			Color: models.AllocationColor(firstColor + len(out)), Reserved: true,
+			GPULoadGB: map[int]float64{},
+		}
+		for _, g := range inst.GPUs() {
+			gb := float64(s.gpuTotalMiB(g)) / 1024
+			if gb == 0 {
+				continue
+			}
+			a.GPUs = append(a.GPUs, g)
+			a.GPULoadGB[g] = gb
+			a.TotalGB += gb
+		}
+		if len(a.GPUs) == 0 {
 			continue
 		}
-		out = append(out, models.GPUAllocation{
-			ModelID: "fork:" + inst.ID, ModelName: inst.ID + " (fork, whole GPU)",
-			GPUs: []int{inst.GPU}, PerGPUGB: gb, TotalGB: gb,
-			Color: models.AllocationColor(firstColor + len(out)), Reserved: true,
-		})
+		a.PerGPUGB = a.TotalGB / float64(len(a.GPUs))
+		out = append(out, a)
 	}
 	return out
 }

@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// deviceEnvVar is the variable that limits a fork instance to one GPU,
+// deviceEnvVar is the variable that limits a fork instance to its GPUs,
 // by build profile backend.
 var deviceEnvVar = map[string]string{
 	"rocm": "HIP_VISIBLE_DEVICES",
@@ -30,13 +30,17 @@ func Args(f Fork, set ModelSet, inst Instance) []string {
 }
 
 // Env returns the NAME=value lines for an instance: the GPU selector for
-// the backend, set to device (the instance's GPU as the backend numbers
-// it), then the fork's lines, then the instance's. A later line for the
-// same name replaces an earlier one.
-func Env(f Fork, inst Instance, backend string, device int) []string {
+// the backend, set to devices (the instance's GPUs as the backend numbers
+// them, the first one first), then the fork's lines, then the instance's.
+// A later line for the same name replaces an earlier one.
+func Env(f Fork, inst Instance, backend string, devices []int) []string {
 	var lines []string
-	if v := deviceEnvVar[backend]; v != "" {
-		lines = append(lines, v+"="+strconv.Itoa(device))
+	if v := deviceEnvVar[backend]; v != "" && len(devices) > 0 {
+		ids := make([]string, len(devices))
+		for i, d := range devices {
+			ids[i] = strconv.Itoa(d)
+		}
+		lines = append(lines, v+"="+strings.Join(ids, ","))
 	}
 	lines = append(lines, f.Recipe.Env...)
 	lines = append(lines, inst.ExtraEnv...)

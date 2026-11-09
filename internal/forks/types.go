@@ -22,7 +22,10 @@ type Fork struct {
 	Repo string
 	// Backends lists the build profile backends the fork supports.
 	Backends []string
-	Recipe   Recipe
+	// MaxGPUs is how many GPUs one instance can use; 0 means 1. The fork
+	// itself decides how to use them: it sees only the instance's GPUs.
+	MaxGPUs int
+	Recipe  Recipe
 	// ModelRepo is the Hugging Face repo of the paired model, ModelName
 	// its display name, and ModelFiles every file a fork instance needs.
 	// ModelRevision is the repo commit the files are downloaded from: the
@@ -40,6 +43,11 @@ type Fork struct {
 	// SamplingDefaults are added to a chat request that does not set
 	// them, as the router's sampling defaults are.
 	SamplingDefaults map[string]any
+}
+
+// GPULimit is how many GPUs one instance of f can use.
+func (f Fork) GPULimit() int {
+	return max(1, f.MaxGPUs)
 }
 
 // Recipe is how a fork instance is launched.
@@ -82,20 +90,29 @@ type ModelSet struct {
 	Complete bool   `json:"complete"`
 }
 
-// Instance is one fork instance: a fork's llama-server on one GPU.
+// Instance is one fork instance: a fork's llama-server on one whole GPU,
+// or on more when the fork allows it.
 type Instance struct {
 	// ID is the instance's name and the model name clients send.
 	ID     string `json:"id"`
 	ForkID string `json:"fork_id"`
 	// BuildID is the fork build to run; "" means the newest successful
 	// build of the fork.
-	BuildID   string   `json:"build_id,omitempty"`
+	BuildID string `json:"build_id,omitempty"`
+	// GPU is the instance's first GPU, and ExtraGPUs the others, up to
+	// the fork's GPULimit. The instance holds each one whole.
 	GPU       int      `json:"gpu"`
+	ExtraGPUs []int    `json:"extra_gpus,omitempty"`
 	Port      int      `json:"port"`
 	ExtraArgs []string `json:"extra_args,omitempty"`
 	// ExtraEnv is NAME=value lines for this instance only.
 	ExtraEnv  []string `json:"extra_env,omitempty"`
 	AutoStart bool     `json:"auto_start,omitempty"`
+}
+
+// GPUs returns every GPU of the instance, the first one first.
+func (inst Instance) GPUs() []int {
+	return append([]int{inst.GPU}, inst.ExtraGPUs...)
 }
 
 // BaseURL is the address the toolchest reaches the instance at, on

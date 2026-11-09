@@ -62,6 +62,7 @@ func (s *Store) saveLocked() error {
 func (inst Instance) clone() Instance {
 	inst.ExtraArgs = slices.Clone(inst.ExtraArgs)
 	inst.ExtraEnv = slices.Clone(inst.ExtraEnv)
+	inst.ExtraGPUs = slices.Clone(inst.ExtraGPUs)
 	return inst
 }
 
@@ -194,13 +195,34 @@ func validateInstance(inst Instance) error {
 	if !instanceIDPattern.MatchString(inst.ID) {
 		return fmt.Errorf("instance name %q %w", inst.ID, ErrBadID)
 	}
-	if _, ok := Find(inst.ForkID); !ok {
+	f, ok := Find(inst.ForkID)
+	if !ok {
 		return fmt.Errorf("unknown fork %q", inst.ForkID)
+	}
+	if err := checkGPUs(f, inst.GPUs()); err != nil {
+		return err
 	}
 	if err := CheckExtraArgs(inst.ExtraArgs); err != nil {
 		return err
 	}
 	return CheckEnv(inst.ExtraEnv)
+}
+
+// checkGPUs checks an instance's GPUs: no more than the fork can use, and
+// each one a different GPU.
+func checkGPUs(f Fork, gpus []int) error {
+	if len(gpus) > f.GPULimit() {
+		return fmt.Errorf("%s uses at most %d GPU(s); this instance has %d", f.Name, f.GPULimit(), len(gpus))
+	}
+	for i, g := range gpus {
+		if g < 0 {
+			return fmt.Errorf("GPU %d does not exist", g)
+		}
+		if slices.Contains(gpus[:i], g) {
+			return fmt.Errorf("GPU %d is chosen twice", g)
+		}
+	}
+	return nil
 }
 
 // CheckExtraArgs refuses the options toolchest sets itself.

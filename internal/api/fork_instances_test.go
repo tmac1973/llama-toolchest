@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -135,6 +136,8 @@ func TestForkInstanceSaveValidates(t *testing.T) {
 		"port out of range": {url.Values{"port": {"9999"}}, http.StatusBadRequest},
 		"generation's port": {url.Values{"port": {"8081"}}, http.StatusConflict},
 		"build of no fork":  {url.Values{"build": {"b9000-rocm"}}, http.StatusBadRequest},
+		"second GPU twice":  {url.Values{"second_gpu": {"1"}}, http.StatusBadRequest},
+		"second GPU bad":    {url.Values{"second_gpu": {"x"}}, http.StatusBadRequest},
 	} {
 		if rec := add(c.form); rec.Code != c.code {
 			t.Errorf("%s: %d %s, want %d", name, rec.Code, strings.TrimSpace(rec.Body.String()), c.code)
@@ -165,6 +168,17 @@ func TestForkInstanceSaveValidates(t *testing.T) {
 	genInst = generation.Instance{ID: "flux3"}
 	if _, err := s.genPortFromForm(forkForm("POST", "/", url.Values{}), &genInst); err != nil || genInst.Port != 8083 {
 		t.Errorf("generation instance got port %d, %v; want 8083", genInst.Port, err)
+	}
+
+	// Avalon takes a second GPU; an empty field means one GPU.
+	if rec := add(url.Values{"id": {"avalon-pair"}, "second_gpu": {"0"}}); rec.Code != http.StatusOK {
+		t.Fatalf("two-GPU instance: %d %s", rec.Code, rec.Body)
+	}
+	if pair, _ := s.forks.Instance("avalon-pair"); !slices.Equal(pair.GPUs(), []int{1, 0}) {
+		t.Errorf("two-GPU instance saved GPUs %v", pair.GPUs())
+	}
+	if inst.ExtraGPUs != nil {
+		t.Errorf("one-GPU instance saved extra GPUs %v", inst.ExtraGPUs)
 	}
 }
 
@@ -350,5 +364,59 @@ func TestForkBusyCheckFollowsAutoEvict(t *testing.T) {
 	gen.EditInstance("locked", func(inst *generation.Instance) { inst.KeepRunning = false })
 	if got := s.gpuOccupants(1, ""); len(got) != 0 {
 		t.Errorf("auto-evict on, nothing locked: %v", got)
+	}
+}
+
+// An instance on two GPUs sees both, the first one first, refuses to
+// start while either holds something else, and reserves both whole.
+func TestForkInstanceOnTwoGPUs(t *testing.T) {
+	s, port := forkInstanceServer(t)
+	other := forks.Instance{ID: "avalon-one", ForkID: "avalon", GPU: 0, Port: port}
+	pair := forks.Instance{ID: "avalon-pair", ForkID: "avalon", GPU: 1, ExtraGPUs: []int{0}, Port: port}
+	for _, inst := range []forks.Instance{other, pair} {
+		if err := s.forks.AddInstance(inst); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if _, err := s.startForkInstance(other.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.forkMgr.WaitRunning(ctx, other.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.startForkInstance(pair.ID)
+	var busy *forkGPUBusyError
+	if !errors.As(err, &busy) || !strings.Contains(err.Error(), "GPU 0 holds avalon-one (fork)") {
+		t.Fatalf("start while its second GPU is busy: %v", err)
+	}
+	if err := s.forkMgr.Stop(other.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.startForkInstance(pair.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.forkMgr.WaitRunning(ctx, pair.ID); err != nil {
+		t.Fatal(err)
+	}
+	environ, _ := os.ReadFile(fmt.Sprintf("/proc/%d/environ", s.forkMgr.PID(pair.ID)))
+	if !strings.Contains(string(environ), "HIP_VISIBLE_DEVICES=1,0\x00") {
+		t.Error("process environment lacks HIP_VISIBLE_DEVICES=1,0")
+	}
+	hw := s.hardware()
+	for _, gpu := range []int{0, 1} {
+		if err := s.reservationFitError(hw, map[int]int{gpu: 1024}, false); err == nil {
+			t.Errorf("LLM fits on GPU %d of a two-GPU fork instance", gpu)
+		}
+	}
+	allocs := s.forkReservationAllocations(0)
+	if len(allocs) != 1 || !slices.Equal(allocs[0].GPUs, []int{1, 0}) || allocs[0].LoadOn(0) < 23 || allocs[0].LoadOn(1) < 23 {
+		t.Errorf("GPU map = %+v", allocs)
+	}
+	if m := s.forkV1Model(pair); m == nil || !slices.Equal(m["meta"].(map[string]any)["gpus"].([]int), []int{1, 0}) {
+		t.Errorf("/v1/models entry = %v", m)
 	}
 }

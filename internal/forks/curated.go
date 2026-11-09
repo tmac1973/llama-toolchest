@@ -21,6 +21,8 @@ const avalonDraftFile = "MTP/mtp-Qwen3.8-Flash-Next-shared-IQ3K-IQ4NL-FR65k.gguf
 // avalon is freriadoc/Avalon, a fork tuned for Qwen3.8-Flash-Next (a
 // 125B MoE) on one RDNA3 GPU: the dense weights, the KV cache and a cache
 // of the hottest experts stay in VRAM, the other experts in system RAM.
+// With two GPUs visible it runs the model as a two-stage pipeline, each
+// GPU with its own layers, KV cache and expert cache.
 // Its GGUF uses quant types upstream llama.cpp does not have, so the
 // model only runs on this fork.
 func avalon() Fork {
@@ -29,6 +31,7 @@ func avalon() Fork {
 		Name:     "Avalon",
 		Repo:     "https://github.com/freriadoc/Avalon",
 		Backends: []string{"rocm", "cuda"},
+		MaxGPUs:  2,
 		// The launch command of Avalon's README. --fit, on by default,
 		// puts the dense weights on the GPU and the experts in RAM, and
 		// the expert cache takes the rest of the VRAM; --parallel 1 keeps
@@ -88,7 +91,7 @@ func avalon() Fork {
 			{"moe-cache-ranking.bin", 177192},
 		},
 		License: "MIT (Avalon); Qwen Community License 1.0 (model)",
-		Notes:   "Runs Qwen3.8-Flash-Next on one RDNA3 GPU with the experts in system RAM. Tuned on an RX 7900 XT with ROCm 7.2.",
+		Notes:   "Runs Qwen3.8-Flash-Next on one RDNA3 GPU with the experts in system RAM, or on two GPUs as a two-stage pipeline. Tuned on an RX 7900 XT with ROCm 7.2.",
 		Needs: Needs{
 			MinRAMGiB:  32,
 			AVX2:       true,
