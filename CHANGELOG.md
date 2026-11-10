@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.57.0](https://github.com/tmac1973/llama-toolchest/compare/v2.56.0...v2.57.0) (2026-11-10)
+
+
+### Features
+
+* **models:** keep the vision projector in system RAM ([#610](https://github.com/tmac1973/llama-toolchest/issues/610)) ([8b6956a](https://github.com/tmac1973/llama-toolchest/commit/8b6956acef0d4bc6e7f79e4c7b16f099057a90dc))
+* **models:** pair a vision projector from another repository ([#611](https://github.com/tmac1973/llama-toolchest/issues/611)) ([289095e](https://github.com/tmac1973/llama-toolchest/commit/289095ef4eb9185f977dbceef046c882c6437ddc))
+
+
+### Bug Fixes
+
+* **autotune:** only try draft models related to the target ([#614](https://github.com/tmac1973/llama-toolchest/issues/614)) ([3e96935](https://github.com/tmac1973/llama-toolchest/commit/3e96935690d31cafc37214b2981a26ad8b97e32f))
+* **builder:** pin a lone ROCm install when hipconfig sits outside it ([#615](https://github.com/tmac1973/llama-toolchest/issues/615)) ([cf8eb97](https://github.com/tmac1973/llama-toolchest/commit/cf8eb9756bc62b2f47cb6a5f7f71600e6084f355))
+* **ui:** keep the Configure form when the projector offer loads ([#613](https://github.com/tmac1973/llama-toolchest/issues/613)) ([303a8c5](https://github.com/tmac1973/llama-toolchest/commit/303a8c5e8b8d01a37b4bd3e5c35f4a3b518c0f06))
+* **ui:** show test loads where they run on the sidebar's GPU map ([#616](https://github.com/tmac1973/llama-toolchest/issues/616)) ([ba1a19c](https://github.com/tmac1973/llama-toolchest/commit/ba1a19c0d2e66ca39bdd82ba64f98be615cc37db))
+
 ## [2.56.0](https://github.com/tmac1973/llama-toolchest/compare/v2.55.0...v2.56.0) (2026-11-09)
 
 
