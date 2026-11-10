@@ -41,17 +41,17 @@ type sidebarLegendEntry struct {
 	Title string
 }
 
-// sidebarMap is the small map above the sidebar's meters: only what is
-// on the GPUs now (loaded LLMs, running backends, and what stopped
-// backends keep reserved), where the Server page's map shows every
-// enabled model.
+// sidebarMap is the small map above the sidebar's meters: a bar for
+// every GPU with only what is on it now (loaded LLMs, running backends,
+// and what stopped backends keep reserved), where the Server page's map
+// shows every enabled model.
 type sidebarMap struct {
 	GPUs   []sidebarMapGPU
 	Legend []sidebarLegendEntry
 }
 
 // sidebarMapData builds the sidebar's map from the GPU map's entries.
-// Empty when there are no GPUs or nothing is on them.
+// Empty when there are no GPUs.
 func (s *Server) sidebarMapData(m monitor.Metrics) sidebarMap {
 	if len(m.GPU) == 0 {
 		return sidebarMap{}
@@ -78,7 +78,13 @@ func (s *Server) sidebarMapData(m monitor.Metrics) sidebarMap {
 			running["gen:"+inst.ID] = s.genMgr.IsActive(inst.ID)
 		}
 	}
-	allocs := s.gpuMapAllocations(len(m.GPU))
+	// A benchmark or Autoconfigure test load runs the model under its
+	// own config, which may put it on other cards than the saved one.
+	var overrides map[string]*models.ModelConfig
+	if env, ok := s.jobEnv(); ok {
+		overrides = env.jobRouterOptions().overrides
+	}
+	allocs := s.gpuMapAllocations(len(m.GPU), overrides)
 	if s.genEvictOn() {
 		// A stopped backend gives its memory up, so it is not on the card.
 		allocs = slices.DeleteFunc(allocs, func(a models.GPUAllocation) bool { return a.Reserved && !running[a.ModelID] })
@@ -90,7 +96,8 @@ func (s *Server) sidebarMapData(m monitor.Metrics) sidebarMap {
 // in loaded (registry ID → router status) and every generation
 // reservation, solid while its backend runs (running, by allocation ID)
 // and outlined while it is stopped. Widths are shares of each card's
-// total memory, as on the Server page's map.
+// total memory, as on the Server page's map. Every GPU gets a bar, an
+// empty one when nothing is on it.
 func buildSidebarMap(gpus []monitor.GPUInfo, allocs []models.GPUAllocation, loaded map[string]string, running map[string]bool) sidebarMap {
 	var out sidebarMap
 	for i, gpu := range gpus {
@@ -102,18 +109,17 @@ func buildSidebarMap(gpus []monitor.GPUInfo, allocs []models.GPUAllocation, load
 				continue
 			}
 			gb := a.LoadOn(i)
+			if gb <= 0 {
+				// A custom split with no share for this card ("1,1,0").
+				continue
+			}
 			bar.Segments = append(bar.Segments, sidebarSegment{
 				Name: sidebarName(a), Color: a.Color, Kind: kind,
 				WidthPct: min(100, gb/totalGB*100),
 				Title:    fmt.Sprintf("%s: about %.1f GiB on GPU %d (%s)", sidebarName(a), gb, gpu.Index, sidebarKindText(kind, loaded[a.ModelID])),
 			})
 		}
-		if len(bar.Segments) > 0 {
-			out.GPUs = append(out.GPUs, bar)
-		}
-	}
-	if len(out.GPUs) == 0 {
-		return sidebarMap{}
+		out.GPUs = append(out.GPUs, bar)
 	}
 	for _, a := range allocs {
 		kind, ok := sidebarKind(a, loaded, running)

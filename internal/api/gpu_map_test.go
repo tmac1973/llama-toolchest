@@ -53,7 +53,7 @@ func TestGPUMapBarsZeroVRAM(t *testing.T) {
 // the hardware the server sees has another GPU count than the monitor.
 func TestGPUMapAllocationsEmpty(t *testing.T) {
 	s := newTestServer(t)
-	if got := s.gpuMapAllocations(3); len(got) != 0 {
+	if got := s.gpuMapAllocations(3, nil); len(got) != 0 {
 		t.Errorf("allocations = %+v, want none", got)
 	}
 }
