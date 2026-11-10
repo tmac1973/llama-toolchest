@@ -323,7 +323,9 @@
         </label>
     </div>
     {{if .ProjectorLookup}}
-    <div hx-get="/api/models/{{.ModelID}}/projector-sources" hx-trigger="load" hx-swap="innerHTML"></div>
+    {{/* hx-target and hx-swap are set here because the form's are
+         inherited: without them the offer would replace the whole form. */}}
+    <div hx-get="/api/models/{{.ModelID}}/projector-sources" hx-trigger="load" hx-target="this" hx-swap="innerHTML"></div>
     {{end}}
     {{end}}
 

@@ -45,7 +45,9 @@ func TestProjectorFieldForEveryChatModel(t *testing.T) {
 	for _, want := range []string{
 		`name="mmproj_path"`, `name="mmproj_enabled"`, `list="mmproj-choices-m"`,
 		`<option value="/models/b--X-GGUF/X.mmproj-Q8_0.gguf">b--X-GGUF/X.mmproj-Q8_0.gguf</option>`,
-		`hx-get="/api/models/m/projector-sources"`,
+		// Its own target: the form's hx-target="this" is inherited, and
+		// would have the offer replace the whole form.
+		`hx-get="/api/models/m/projector-sources" hx-trigger="load" hx-target="this" hx-swap="innerHTML"`,
 	} {
 		if !strings.Contains(none, want) {
 			t.Errorf("model without a projector: panel missing %s", want)
