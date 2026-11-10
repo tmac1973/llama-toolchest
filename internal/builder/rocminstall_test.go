@@ -183,28 +183,58 @@ func TestVersionLess(t *testing.T) {
 func TestChooseROCm(t *testing.T) {
 	two := []ROCmInstall{{Root: "/opt/rocm/core-10.1", Version: "10.1.0"}, {Root: "/usr", Version: "7.1", Distro: true}}
 
-	if inst, pinned, err := chooseROCm(nil, ""); inst != nil || pinned || err != nil {
+	if inst, pinned, err := ChooseROCm(nil, "", true); inst != nil || pinned || err != nil {
 		t.Errorf("none: %v %v %v", inst, pinned, err)
 	}
 	// One install: recorded, not pinned — builds as before.
-	if inst, pinned, _ := chooseROCm(two[1:], ""); inst == nil || inst.Root != "/usr" || pinned {
+	if inst, pinned, _ := ChooseROCm(two[1:], "", true); inst == nil || inst.Root != "/usr" || pinned {
 		t.Errorf("one: %v %v", inst, pinned)
 	}
 	// Except a lone 10.x install, which the hipconfig-based setup gets wrong.
-	if inst, pinned, _ := chooseROCm(two[:1], ""); inst == nil || !pinned {
+	if inst, pinned, _ := ChooseROCm(two[:1], "", true); inst == nil || !pinned {
 		t.Errorf("one 10.x: %v %v", inst, pinned)
 	}
-	if _, pinned, _ := chooseROCm([]ROCmInstall{{Root: "/opt/rocm-7.2.4/core-10.1"}}, ""); !pinned {
+	if _, pinned, _ := ChooseROCm([]ROCmInstall{{Root: "/opt/rocm-7.2.4/core-10.1"}}, "", true); !pinned {
 		t.Error("a 10.x install nested in an old one is not pinned")
 	}
-	if inst, pinned, _ := chooseROCm(two, ""); inst.Root != "/opt/rocm/core-10.1" || !pinned {
+	if inst, pinned, _ := ChooseROCm(two, "", true); inst.Root != "/opt/rocm/core-10.1" || !pinned {
 		t.Errorf("two, default: %v %v", inst, pinned)
 	}
-	if inst, pinned, _ := chooseROCm(two, "/usr"); inst.Root != "/usr" || !pinned {
+	if inst, pinned, _ := ChooseROCm(two, "/usr", true); inst.Root != "/usr" || !pinned {
 		t.Errorf("two, chosen: %v %v", inst, pinned)
 	}
-	if _, _, err := chooseROCm(two, "/opt/rocm-6.4.0"); err == nil {
+	if _, _, err := ChooseROCm(two, "/opt/rocm-6.4.0", true); err == nil {
 		t.Error("an unknown root is accepted")
+	}
+
+	// A lone 7.x install whose hipconfig sits in a root without HIP's CMake
+	// package (/usr/bin/hipconfig beside /opt/rocm-7.2.4): pinned. Issue #609.
+	old := []ROCmInstall{{Root: "/opt/rocm-7.2.4", Version: "7.2.4"}}
+	if inst, pinned, _ := ChooseROCm(old, "", false); inst == nil || !pinned {
+		t.Errorf("one 7.x, stray hipconfig: %v %v", inst, pinned)
+	}
+	if _, pinned, _ := ChooseROCm(old, "", true); pinned {
+		t.Error("one 7.x with a working hipconfig is pinned")
+	}
+	// The distro install is the /usr root, so it never needs this.
+	if _, pinned, _ := ChooseROCm(two[1:], "", false); pinned {
+		t.Error("the distro install alone is pinned")
+	}
+}
+
+func TestRootHasHIPRuntime(t *testing.T) {
+	f := newFakeFS(t)
+	f.amdInstall("/opt/rocm-7.2.4", "7.2.4")
+	f.file("/usr/bin/hipconfig", "")
+	if !rootHasHIPRuntime(f.root, "/opt/rocm-7.2.4") {
+		t.Error("an AMD install has no HIP runtime")
+	}
+	if rootHasHIPRuntime(f.root, "/usr") {
+		t.Error("/usr without HIP's CMake package has a HIP runtime")
+	}
+	f.file("/usr/lib/x86_64-linux-gnu/cmake/hip-lang/hip-lang-config.cmake", "")
+	if !rootHasHIPRuntime(f.root, "/usr") {
+		t.Error("the distro's multiarch HIP runtime is missed")
 	}
 }
 

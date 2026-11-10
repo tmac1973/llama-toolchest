@@ -2,6 +2,8 @@ package api
 
 import (
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -87,5 +89,34 @@ func TestBuildRowJudgesInstallStamps(t *testing.T) {
 	s.rocmInstallsFn = func() []builder.ROCmInstall { return nil }
 	if row := s.buildRowFor(b); row.Mismatch {
 		t.Errorf("flagged with no installs detected: %+v", row)
+	}
+}
+
+// With one install there is no picker, but the preview still shows the flags
+// of a build pinned to it when the build will be: here a stray hipconfig
+// whose root lacks HIP's CMake package (issue #609).
+func TestBuildOptionsPreviewPinsLoneInstall(t *testing.T) {
+	root := t.TempDir()
+	clang := filepath.Join(root, "lib", "llvm", "bin", "clang++")
+	if err := os.MkdirAll(filepath.Dir(clang), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(clang, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s := newTestServer(t)
+	s.rocmInstallsFn = func() []builder.ROCmInstall { return []builder.ROCmInstall{{Root: root, Version: "7.2.4"}} }
+	want := "CMAKE_HIP_COMPILER_ROCM_ROOT=" + root
+
+	if out := renderBuildOptions(t, s, "profile=rocm"); strings.Contains(out, want) {
+		t.Error("preview pinned a lone install hipconfig can build")
+	}
+	s.hipconfigUsableFn = func() bool { return false }
+	out := renderBuildOptions(t, s, "profile=rocm")
+	if !strings.Contains(out, want) {
+		t.Errorf("preview lacks the pinned root %q:\n%s", want, out)
+	}
+	if strings.Contains(out, `name="rocm_root"`) {
+		t.Error("picker shown with one install")
 	}
 }

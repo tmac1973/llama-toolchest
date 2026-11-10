@@ -73,6 +73,10 @@ type Server struct {
 	// production (builder.CachedROCmInstalls); tests set it for the same
 	// reason as currentBuildEnv.
 	rocmInstallsFn func() []builder.ROCmInstall
+	// hipconfigUsableFn reports whether a lone install can build through
+	// hipconfig (see builder.HipconfigUsable). Nil in production; tests
+	// set it so the Builds form's preview doesn't depend on the host.
+	hipconfigUsableFn func() bool
 	// inContainerFn reports whether toolchest runs inside a container.
 	// Nil in production (builder.RunningInContainer); tests set it so the
 	// result does not depend on where the tests run.
