@@ -259,8 +259,12 @@ type ModelConfig struct {
 	PLEMode        string `json:"ple_mode,omitempty"`        // "", "on", "off"
 	MmprojPath     string `json:"mmproj_path,omitempty"`     // path to mmproj GGUF for vision models
 	MmprojDisabled bool   `json:"mmproj_disabled,omitempty"` // skip --mmproj at launch even when MmprojPath is set; preserves the path so it can be re-enabled without retyping
-	MtpPath        string `json:"mtp_path,omitempty"`        // path to a separate MTP drafter-head GGUF (gemma-4 style); loaded via --model-draft under spec_type=draft-mtp. Empty for self-speculation MTP (Qwen3.6/DeepSeek-V3) where the head is baked into the main GGUF.
-	MtpDisabled    bool   `json:"mtp_disabled,omitempty"`    // skip the separate --model-draft MTP head at launch even when MtpPath is set; preserves the path so it can be re-enabled
+	// MmprojInRAM keeps the projector in system memory (--no-mmproj-offload)
+	// rather than on the GPU, leaving its VRAM to the model. Images and
+	// audio are then encoded on the CPU, which is slower.
+	MmprojInRAM bool   `json:"mmproj_in_ram,omitempty"`
+	MtpPath     string `json:"mtp_path,omitempty"`     // path to a separate MTP drafter-head GGUF (gemma-4 style); loaded via --model-draft under spec_type=draft-mtp. Empty for self-speculation MTP (Qwen3.6/DeepSeek-V3) where the head is baked into the main GGUF.
+	MtpDisabled bool   `json:"mtp_disabled,omitempty"` // skip the separate --model-draft MTP head at launch even when MtpPath is set; preserves the path so it can be re-enabled
 
 	// ReasoningPreserve controls --reasoning-preserve: whether the chat
 	// template keeps the model's reasoning from earlier turns in the
@@ -528,6 +532,9 @@ func (c *ModelConfig) EffectiveFlagsFor(kind ModelKind, t Target) string {
 		}
 		if c.MmprojPath != "" && !c.MmprojDisabled {
 			parts = append(parts, "--mmproj", c.MmprojPath)
+			if c.MmprojInRAM {
+				parts = append(parts, "--no-mmproj-offload")
+			}
 		}
 		// Speculative decoding (see specDecodingParams for the SpecType rules).
 		for _, p := range specDecodingParams(c, t) {

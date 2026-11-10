@@ -67,6 +67,8 @@ Only for models with such a table (Gemma-3N, Gemma-4 E-series, Qwen4-Exp). *Auto
 
 Lets the model read images or audio, or speak. Toolchest finds it when it is in the model's folder.
 
+*Load Projector* off starts the model without it and keeps the path. *Projector in RAM* keeps it in system memory instead of on the GPU (`--no-mmproj-offload`). Its VRAM then goes to the model, for more context or more layers on the GPU, but images and audio are read on the CPU, more slowly. The memory estimate counts it as system memory.
+
 ### Speculative Decoding { #speculative-decoding }
 
 Predicts several tokens per step, with no change to the answer. A draft model gives the biggest gain; n-gram modes need no extra model. The **?** button explains each mode.

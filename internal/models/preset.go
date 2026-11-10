@@ -205,6 +205,10 @@ func writeConfigParams(b *strings.Builder, cfg *ModelConfig, kind ModelKind, t T
 		}
 		if cfg.MmprojPath != "" && !cfg.MmprojDisabled {
 			b.WriteString(fmt.Sprintf("mmproj = %s\n", cfg.MmprojPath))
+			// "false" makes the router use --no-mmproj-offload.
+			if cfg.MmprojInRAM {
+				b.WriteString("mmproj-offload = false\n")
+			}
 		}
 		// Speculative decoding (see specDecodingParams for the SpecType rules).
 		for _, p := range specDecodingParams(cfg, t) {

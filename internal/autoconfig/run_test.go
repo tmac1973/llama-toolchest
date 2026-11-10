@@ -585,3 +585,61 @@ func TestRunPlansTheCardsDraftModel(t *testing.T) {
 		t.Errorf("context %d (%s) is what fits without the draft model too", res.Proposed.ContextSize, res.Proposed.KVCacheQuant)
 	}
 }
+
+// The dialog's projector choice is applied before the fit: kept in RAM,
+// the projector no longer counts against the GPU, and the note says it
+// was the user's choice. A model without a projector ignores it.
+func TestRunAppliesTheProjectorChoice(t *testing.T) {
+	reg := runRegistry(t)
+	proj := filepath.Join(t.TempDir(), "mmproj.gguf")
+	if f, err := os.Create(proj); err != nil {
+		t.Fatal(err)
+	} else {
+		f.Truncate(2 << 30)
+		f.Close()
+	}
+	inRAM, onGPU := true, false
+
+	none, err := Run(context.Background(), Deps{Registry: reg, Hardware: gpu24(), ProjectorInRAM: &inRAM}, runModelID, models.ContextShort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if none.Proposed.MmprojInRAM {
+		t.Error("a model without a projector was set to keep one in RAM")
+	}
+
+	cfg, _ := reg.GetConfig(runModelID)
+	c := *cfg
+	c.MmprojPath = proj
+	if err := reg.SetConfig(runModelID, &c); err != nil {
+		t.Fatal(err)
+	}
+	gpu, err := Run(context.Background(), Deps{Registry: reg, Hardware: gpu24(), ProjectorInRAM: &onGPU}, runModelID, models.ContextShort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ram, err := Run(context.Background(), Deps{Registry: reg, Hardware: gpu24(), ProjectorInRAM: &inRAM}, runModelID, models.ContextShort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gpu.Proposed.MmprojInRAM || !ram.Proposed.MmprojInRAM {
+		t.Fatalf("in RAM: %v on the GPU, %v in RAM", gpu.Proposed.MmprojInRAM, ram.Proposed.MmprojInRAM)
+	}
+	if d := gpu.Fit.EstimateGiB - ram.Fit.EstimateGiB; d < 1.9 || d > 2.1 {
+		t.Errorf("GPU estimate %.2f GiB on the GPU, %.2f in RAM: want 2 GiB less", gpu.Fit.EstimateGiB, ram.Fit.EstimateGiB)
+	}
+	noted := false
+	for _, n := range ram.Notes {
+		if n.Field == "mmproj_in_ram" && n.Origin == "your choice" {
+			noted = true
+		}
+	}
+	if !noted {
+		t.Errorf("the change is not explained: %+v", ram.Notes)
+	}
+	for _, n := range gpu.Notes {
+		if n.Field == "mmproj_in_ram" {
+			t.Errorf("an unchanged setting has a note: %+v", n)
+		}
+	}
+}

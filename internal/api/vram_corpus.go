@@ -184,6 +184,9 @@ func configLiteral(cfg *models.ModelConfig) string {
 	}
 	if cfg.MmprojPath != "" && !cfg.MmprojDisabled {
 		f = append(f, fmt.Sprintf("MmprojPath: %q", cfg.MmprojPath))
+		if cfg.MmprojInRAM {
+			f = append(f, "MmprojInRAM: true")
+		}
 	}
 	if cfg.MtpPath != "" && !cfg.MtpDisabled {
 		f = append(f, fmt.Sprintf("MtpPath: %q", cfg.MtpPath))
