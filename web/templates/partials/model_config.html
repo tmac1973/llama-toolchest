@@ -299,12 +299,17 @@
                    style="opacity: 0.7; cursor: default;">
         </label>
     </div>
-    {{else if .HasMMProj}}
+    {{else if not .IsEncoder}}
     <div class="grid">
-        <label title="Path to the projector (mmproj) GGUF. It lets the model read images or audio, or speak. Toolchest finds it in the model folder.">
+        <label title="Path to the projector (mmproj) GGUF. It lets the model read images or audio, or speak. Toolchest finds it in the model folder; pick another projector on disk or type a path.">
             Projector (mmproj)
             <input type="text" name="mmproj_path" value="{{.Config.MmprojPath}}"
-                   placeholder="Auto-detected or enter path to mmproj GGUF">
+                   list="mmproj-choices-{{.ModelID}}"
+                   placeholder="{{if .HasMMProj}}Auto-detected or enter path to mmproj GGUF{{else}}None. Pick a projector on disk or enter a path{{end}}">
+            <datalist id="mmproj-choices-{{.ModelID}}">
+                {{range .ProjectorChoices}}<option value="{{.Path}}">{{.Label}}</option>
+                {{end}}
+            </datalist>
         </label>
         <label title="Off: start without the projector and keep the path. Use it to save VRAM.">
             Load Projector
@@ -317,6 +322,9 @@
                    {{if .Config.MmprojInRAM}}checked{{end}}>
         </label>
     </div>
+    {{if .ProjectorLookup}}
+    <div hx-get="/api/models/{{.ModelID}}/projector-sources" hx-trigger="load" hx-swap="innerHTML"></div>
+    {{end}}
     {{end}}
 
     <hr style="margin: 1rem 0 0.5rem;">

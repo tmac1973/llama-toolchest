@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -197,6 +198,11 @@ type Server struct {
 	// the calls made against a host that rate-limits.
 	detailMu    sync.RWMutex
 	detailCache map[string]detailEntry
+	// projectors caches where each repository's vision projector is,
+	// for models whose own repository has none (projector.go).
+	// findProjector replaces the HuggingFace lookup, for tests.
+	projectors    projectorCache
+	findProjector func(ctx context.Context, repo, base string) (*huggingface.ProjectorRepo, error)
 	// hashes holds the SHA-256 of downloaded files, which the Update
 	// button on a model card compares with the repository's.
 	hashes *filehash.Store
@@ -954,6 +960,8 @@ func (s *Server) buildRouter() chi.Router {
 			r.Delete("/{id}/update", s.handleModelUpdateDismiss)
 			r.Get("/{id}/config", s.handleGetModelConfig)
 			r.Put("/{id}/config", s.handleUpdateModelConfig)
+			r.Get("/{id}/projector-sources", s.handleProjectorSources)
+			r.Post("/{id}/projector-download", s.handleProjectorDownload)
 			r.Get("/{id}/autotune", s.handleAutotuneDialog)
 			r.Post("/{id}/autotune", s.handleAutotuneStart)
 			r.Post("/{id}/autotune/estimate", s.handleAutotuneEstimate)
