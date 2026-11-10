@@ -1821,6 +1821,9 @@ type DraftCandidate struct {
 	// DraftHead is Model.DraftHead: the kind of converted head, if the
 	// file is one.
 	DraftHead string
+	// ModelID and BaseModelRepo are the model's, for RelatedDrafts.
+	ModelID       string
+	BaseModelRepo string
 }
 
 // FindDraftCandidates returns models that could serve as the drafter for
@@ -1890,6 +1893,9 @@ func (r *Registry) FindDraftCandidates(id, mode string) []DraftCandidate {
 			SizeGB:    BytesToGiB(m.SizeBytes),
 			Arch:      m.Arch,
 			DraftHead: m.DraftHead,
+
+			ModelID:       m.ModelID,
+			BaseModelRepo: m.BaseModelRepo,
 		})
 	}
 	return candidates

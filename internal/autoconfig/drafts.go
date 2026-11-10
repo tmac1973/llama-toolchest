@@ -4,9 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/tmac1973/llama-toolchest/internal/models"
@@ -28,29 +26,10 @@ type DraftSuggestion struct {
 	Why       string
 }
 
-// sizeToken matches a parameter count in a repository name: "-9B",
-// "-0.8B", "-500M". Everything from it on is dropped to get the family
-// name: "Qwen3.5-9B-Instruct" → "Qwen3.5".
-var sizeToken = regexp.MustCompile(`-(\d+(?:\.\d+)?)([BbMm])\b`)
-
 // familyAndSize splits a repository name (the part after the owner) into
 // its family and parameter count. ok is false when the name has no size.
 func familyAndSize(name string) (family string, params float64, ok bool) {
-	loc := sizeToken.FindStringSubmatchIndex(name)
-	if loc == nil {
-		return "", 0, false
-	}
-	n, err := strconv.ParseFloat(name[loc[2]:loc[3]], 64)
-	if err != nil {
-		return "", 0, false
-	}
-	switch strings.ToUpper(name[loc[4]:loc[5]]) {
-	case "B":
-		n *= 1e9
-	case "M":
-		n *= 1e6
-	}
-	return name[:loc[0]], n, true
+	return models.FamilyAndSize(name)
 }
 
 func repoName(repo string) (owner, name string) {
