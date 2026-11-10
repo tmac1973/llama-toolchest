@@ -423,6 +423,12 @@ func draftOptions(in PlanInput) ([]draftOption, []string) {
 			skipped = append(skipped, fmt.Sprintf("%s: no file for it is installed", models.SpecModeLabel(mode)))
 			continue
 		}
+		if mode == "draft" {
+			// The registry matches a draft model on architecture and
+			// size; keep the ones related to this model, so a finetune
+			// made for something else is not measured.
+			cands = models.RelatedDrafts(in.Model, cands)
+		}
 		// The smallest candidates first: a drafter is worth having only
 		// while it is much cheaper than the model it drafts for.
 		sort.SliceStable(cands, func(i, j int) bool { return cands[i].SizeGB < cands[j].SizeGB })

@@ -1,6 +1,8 @@
 package autotune
 
 import (
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -237,6 +239,29 @@ func TestPlanSpecUsesInstalledDraftModels(t *testing.T) {
 	}
 	if strings.Contains(strings.Join(skipped, " "), "Draft model:") {
 		t.Error("a draft model is installed but was reported as missing")
+	}
+}
+
+// A draft model of the right architecture and size but no relation to
+// the model, a finetune for another purpose, is not measured when the
+// publisher's own small model is installed.
+func TestPlanSpecSkipsAnUnrelatedDraftModel(t *testing.T) {
+	in := baseInput()
+	in.Model.ModelID = "mradermacher/ThinkingCap-Qwen3.8-27B-i1-GGUF"
+	in.Model.BaseModelRepo = "Qwen/Qwen3.8-27B"
+	in.DraftCandidates = func(mode string) []models.DraftCandidate {
+		if mode != "draft" {
+			return nil
+		}
+		return []models.DraftCandidate{
+			{ID: "qwen-4b", SizeGB: 2.6, ModelID: "unsloth/Qwen3.5-4B-GGUF", BaseModelRepo: "Qwen/Qwen3.5-4B"},
+			{ID: "3d-coder", SizeGB: 4.2, ModelID: "ccore/Qwen3.5-4B-3D-Coder"},
+		}
+	}
+	cells, _, _ := PlanStage(StageSpec, in)
+	joined := strings.Join(slices.Collect(maps.Keys(values(cells, "spec_type"))), " ")
+	if !strings.Contains(joined, "draft_model=qwen-4b") || strings.Contains(joined, "3d-coder") {
+		t.Errorf("want only the related draft model: %s", joined)
 	}
 }
 

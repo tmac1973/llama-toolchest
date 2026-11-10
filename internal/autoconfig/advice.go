@@ -309,19 +309,21 @@ func Validate(adv Advice, in Inputs) Checked {
 // chat model the map happened to yield, a different one each run. A head
 // must also be made for m: one made for another model is no drafter for
 // this one, and with none installed the proposal suggests downloading
-// the right one instead.
+// the right one instead. A plain draft model is one RelatedDrafts keeps:
+// the closest relative of m, not merely the smallest file that loads.
 func draftFiles(mode string, m *models.Model, cands []models.DraftCandidate) []models.DraftCandidate {
 	if models.IsHeadBasedDraftMode(mode) {
 		cands = models.HeadsMadeFor(m, models.HeadsForMode(mode, cands))
+		cands = slices.Clone(cands)
+		slices.SortStableFunc(cands, func(a, b models.DraftCandidate) int {
+			if c := cmp.Compare(a.SizeGB, b.SizeGB); c != 0 {
+				return c
+			}
+			return strings.Compare(a.ID, b.ID)
+		})
+		return cands
 	}
-	cands = slices.Clone(cands)
-	slices.SortStableFunc(cands, func(a, b models.DraftCandidate) int {
-		if c := cmp.Compare(a.SizeGB, b.SizeGB); c != 0 {
-			return c
-		}
-		return strings.Compare(a.ID, b.ID)
-	})
-	return cands
+	return models.RelatedDrafts(m, cands)
 }
 
 // samplingProposals turns a publisher preset into proposals.
