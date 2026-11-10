@@ -183,6 +183,11 @@ type autoconfigDialogData struct {
 	// loading model may take back, with auto-evict on. Above zero, the
 	// dialog offers to plan on the whole GPUs (form: whole_gpus).
 	EvictableGiB float64
+	// HasProjector is true when the model loads a vision projector: the
+	// dialog then asks where to keep it (form: projector_in_ram, with
+	// projector_choice=1), starting from ProjectorInRAM, its setting now.
+	HasProjector   bool
+	ProjectorInRAM bool
 }
 
 type autoconfigGPUOption struct {
@@ -281,6 +286,9 @@ func (s *Server) handleAutoconfigDialog(w http.ResponseWriter, r *http.Request) 
 	hw := s.autoconfigHardware()
 	d := autoconfigDialogData{ModelID: id, ModelName: m.PublicName(), Classes: contextClassOptions(m.ContextLength),
 		GPUs: autoconfigGPUOptions(hw), EvictableGiB: models.EvictableGiB(hw)}
+	if cfg, err := s.registry.GetConfig(id); err == nil && models.ProjectorLoaded(cfg) {
+		d.HasProjector, d.ProjectorInRAM = true, cfg.MmprojInRAM
+	}
 	links := gpuLinks(s.gpuReadings())
 	for i := range d.GPUs {
 		d.GPUs[i].Link = links[d.GPUs[i].Index]
@@ -305,7 +313,9 @@ func (s *Server) handleAutoconfigDialog(w http.ResponseWriter, r *http.Request) 
 // handleAutoconfigStart starts a run (form: context_class, the GPUs to
 // fit on as gpu, with gpu_choice=1 when the dialog offered them, and
 // whole_gpus=1 to plan on the whole GPUs, for auto-evict to stop the
-// image and music backends in the way).
+// image and music backends in the way, and projector_in_ram=1 to keep the
+// vision projector in system memory, with projector_choice=1 when the
+// dialog asked).
 func (s *Server) handleAutoconfigStart(w http.ResponseWriter, r *http.Request) {
 	id := s.registry.ResolveID(chi.URLParam(r, "id"))
 	if !parseForm(w, r) {
@@ -367,6 +377,10 @@ func (s *Server) handleAutoconfigStart(w http.ResponseWriter, r *http.Request) {
 		},
 		Verify:    s.checkProposedConfig,
 		WholeGPUs: whole,
+	}
+	if r.FormValue("projector_choice") == "1" {
+		inRAM := r.FormValue("projector_in_ram") == "1"
+		deps.ProjectorInRAM = &inRAM
 	}
 	helper := s.helperModel()
 	if helper != nil {
@@ -727,6 +741,9 @@ func (s *Server) autoconfigReviewData(id, name string, run autoconfigRun) autoco
 		}
 	}
 	for _, f := range reviewFields {
+		if f.key == "mmproj_in_ram" && !models.ProjectorLoaded(&res.Base) {
+			continue
+		}
 		cur, prop := f.show(&res.Base), f.show(&res.Proposed)
 		row := reviewRow{Label: f.label, Help: fieldHelp[f.key], Current: cur, Proposed: prop, Why: why[f.key], Source: origin[f.key]}
 		switch {
@@ -810,6 +827,12 @@ var reviewFields = []reviewField{
 			return "a custom split (" + c.TensorSplit + ")"
 		}
 		return gpuAssignText(c.GPUAssign)
+	}},
+	{"mmproj_in_ram", "Vision projector", func(c *models.ModelConfig) string {
+		if c.MmprojInRAM {
+			return "system memory"
+		}
+		return "GPU"
 	}},
 	{"flash_attention", "Flash attention", func(c *models.ModelConfig) string {
 		if c.FlashAttention {

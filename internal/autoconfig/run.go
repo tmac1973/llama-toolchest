@@ -32,6 +32,11 @@ type Deps struct {
 	// reservations out, for auto-evict to stop them. The layer split is
 	// then written out so that every load keeps it (pinWholeSplit).
 	WholeGPUs bool
+	// ProjectorInRAM, when set, is where the user wants the vision
+	// projector: in system memory (true) or on the GPU (false). Nil
+	// keeps the model's own setting. It is applied before the fit, so a
+	// projector kept in RAM leaves its GPU memory to the model.
+	ProjectorInRAM *bool
 }
 
 // Result is a proposed starting profile and everything the review screen
@@ -111,6 +116,9 @@ func Run(ctx context.Context, d Deps, id string, class models.ContextClass) (*Re
 	// a 22 GiB chat model set as a DSpark head would otherwise shrink the
 	// plan to make room for a drafter that never loads.
 	start := base
+	if d.ProjectorInRAM != nil && models.ProjectorLoaded(&base) {
+		start.MmprojInRAM = *d.ProjectorInRAM
+	}
 	badDraft := unusableDraftFile(d.Registry, id, &base)
 	if badDraft != "" {
 		start.SpecType, start.DraftModelPath = "", ""
@@ -148,6 +156,13 @@ func Run(ctx context.Context, d Deps, id string, class models.ContextClass) (*Re
 	}
 	for _, n := range fit.Notes {
 		addNote(n)
+	}
+	if start.MmprojInRAM != base.MmprojInRAM {
+		reason := "You chose to keep the vision projector in system memory, so its GPU memory goes to the model. Images and audio are read on the CPU, which is slower."
+		if !start.MmprojInRAM {
+			reason = "You chose to put the vision projector on the GPU, so images and audio are read faster. Its GPU memory is planned for."
+		}
+		addNote(models.ProfileNote{Field: "mmproj_in_ram", Origin: "your choice", Reason: reason})
 	}
 	if badDraft != "" {
 		addNote(models.ProfileNote{Field: "spec_type", Origin: "draft file", Reason: fmt.Sprintf(

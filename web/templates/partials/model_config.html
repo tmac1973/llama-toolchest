@@ -311,6 +311,11 @@
             <input type="checkbox" name="mmproj_enabled" role="switch"
                    {{if not .Config.MmprojDisabled}}checked{{end}}>
         </label>
+        <label title="On: keep the projector in system RAM, not on the GPU (--no-mmproj-offload). It frees its VRAM for the model, but images and audio are read more slowly, on the CPU.">
+            Projector in RAM
+            <input type="checkbox" name="mmproj_in_ram" role="switch"
+                   {{if .Config.MmprojInRAM}}checked{{end}}>
+        </label>
     </div>
     {{end}}
 

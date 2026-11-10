@@ -1146,6 +1146,7 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 			// Default-false on a missing checkbox means "disabled", which is
 			// exactly the unchecked state.
 			cfg.MmprojDisabled = r.FormValue("mmproj_enabled") != "on"
+			cfg.MmprojInRAM = r.FormValue("mmproj_in_ram") == "on"
 		}
 		if r.Form.Has("mtp_path") {
 			cfg.MtpPath = r.FormValue("mtp_path")

@@ -13,5 +13,6 @@ A **profile** is a named copy of a model's settings. The profile bar at the top 
 - **Run Autoconfigure first.** Autotune keeps the context, memory and sampling settings, so it makes a badly set-up model faster, not correct.
 - **Test load.** The memory estimate adds all GPUs together, but llama.cpp does not fill them evenly. If the test load runs out of memory, Autoconfigure tries these, in order: fewer layers on the full GPU, a smaller prompt batch, a smaller context. These settings show *test load*.
 - **GPUs.** On a machine with more than one GPU, select the GPUs that the model can use. Autoconfigure fits the model only on those GPUs. Clear a GPU to keep it for image, video or music models. Autotune then measures the model on the GPUs that the profile uses.
+- **Vision projector.** For a model with a projector, choose *Keep the vision projector in system RAM* to plan without it on the GPU. Its VRAM goes to the model, and images and audio are read on the CPU, more slowly. The box starts with the model's current setting.
 - **Helper model.** Autoconfigure reads the model card with a small model of its own (install it on Settings). Without it, settings come only from what fits.
 - **Noise.** Autotune keeps the simpler setting unless the faster one wins by more than the run-to-run variation. Each stage is a normal benchmark job; you can read it on Benchmarks.

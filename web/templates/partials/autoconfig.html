@@ -39,6 +39,15 @@
             </label>
         </fieldset>
         {{end}}
+        {{if .HasProjector}}
+        <fieldset>
+            <input type="hidden" name="projector_choice" value="1">
+            <label class="autoconfig-option" title="The vision projector reads images and audio. On the GPU it is faster. In system memory, its GPU memory goes to the model instead, which can mean more context or more layers on the GPU, and images are read on the CPU, more slowly.">
+                <input type="checkbox" name="projector_in_ram" value="1"{{if .ProjectorInRAM}} checked{{end}}>
+                <span>Keep the vision projector in system RAM<small>Frees its GPU memory for the model. Images and audio are read more slowly, on the CPU.</small></span>
+            </label>
+        </fieldset>
+        {{end}}
         {{if not .Helper}}
         <p><mark>&#9888; No helper model is installed, so the model's documentation will not be read. The settings will come from what fits on this machine only.</mark>
             <a href="/settings">Install a helper model in Settings.</a></p>

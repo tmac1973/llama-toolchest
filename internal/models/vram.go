@@ -517,8 +517,8 @@ type VRAMBreakdown struct {
 
 	// CPURAM is not part of the GPU total: it is what the config keeps in
 	// system memory instead — the weights and KV cache of layers left off
-	// the GPU (gpu_layers below the layer count), and expert layers kept
-	// on the CPU (cpu_moe).
+	// the GPU (gpu_layers below the layer count), expert layers kept on
+	// the CPU (cpu_moe), and a projector kept in RAM (MmprojInRAM).
 	CPURAM float64
 }
 
@@ -715,6 +715,7 @@ func vramBreakdownOn(co *vramCoefficients, m *Model, cfg *ModelConfig, cards int
 
 	b.MoECache = BytesToGiB(MoECacheBytes(m, cfg))
 	b.Aux = AuxFilesVRAMGB(cfg)
+	b.CPURAM += ProjectorRAMGB(cfg)
 	b.Overhead = co.overheadFirst + float64(cards-1)*co.overheadExtra
 	if co.pipelineFallback && layerSplit {
 		if pipelineOff(m, cfg) {
@@ -946,10 +947,12 @@ const PLEAutoMinBytes = 4 * 1024 * 1024 * 1024
 // drafter head, and a speculative draft model. Each is counted only when it is
 // both downloaded (file present) and activated (its enable toggle on, or, for a
 // draft model, draft mode selected). File size approximates the loaded weights;
-// a draft model's own small KV cache is not separately modeled.
+// a draft model's own small KV cache is not separately modeled. A
+// projector kept in system memory (MmprojInRAM) is in ProjectorRAMGB
+// instead.
 func AuxFilesVRAMGB(cfg *ModelConfig) float64 {
 	var gb float64
-	if cfg.MmprojPath != "" && !cfg.MmprojDisabled {
+	if ProjectorLoaded(cfg) && !cfg.MmprojInRAM {
 		gb += fileSizeGB(cfg.MmprojPath)
 	}
 	if cfg.MtpPath != "" && !cfg.MtpDisabled {
@@ -967,6 +970,20 @@ func AuxFilesVRAMGB(cfg *ModelConfig) float64 {
 		gb += fileSizeGB(cfg.DraftModelPath)
 	}
 	return gb
+}
+
+// ProjectorLoaded reports whether the config loads a vision projector.
+func ProjectorLoaded(cfg *ModelConfig) bool {
+	return cfg.MmprojPath != "" && !cfg.MmprojDisabled
+}
+
+// ProjectorRAMGB is the projector's size when it is loaded and kept in
+// system memory (MmprojInRAM), and 0 otherwise.
+func ProjectorRAMGB(cfg *ModelConfig) float64 {
+	if !ProjectorLoaded(cfg) || !cfg.MmprojInRAM {
+		return 0
+	}
+	return fileSizeGB(cfg.MmprojPath)
 }
 
 // fileSizeGB returns a file's size in GB, or 0 if it can't be stat'd (e.g. not
