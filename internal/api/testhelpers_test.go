@@ -56,12 +56,13 @@ func newTestServer(t *testing.T) *Server {
 		updates:     map[string]*modelUpdate{},
 		// No ROCm installs unless a test says otherwise, so results do not
 		// depend on what the machine running the tests has.
-		rocmInstallsFn: func() []builder.ROCmInstall { return nil },
-		inContainerFn:  func() bool { return false },
-		genMgr:         generation.NewManager(),
-		forkMgr:        forks.NewManager(),
-		genQueue:       generation.NewQueue(),
-		defaultState:   loadDefaultModelState(filepath.Join(dir, "default-model.json")),
+		rocmInstallsFn:    func() []builder.ROCmInstall { return nil },
+		hipconfigUsableFn: func() bool { return true },
+		inContainerFn:     func() bool { return false },
+		genMgr:            generation.NewManager(),
+		forkMgr:           forks.NewManager(),
+		genQueue:          generation.NewQueue(),
+		defaultState:      loadDefaultModelState(filepath.Join(dir, "default-model.json")),
 	}
 	s.pages = s.parseTemplates()
 	return s

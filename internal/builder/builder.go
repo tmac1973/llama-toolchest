@@ -361,7 +361,7 @@ func (e *DuplicateBuildError) Error() string {
 // optionOverrides allows toggling profile-specific cmake flags.
 // extraCMake allows passing additional raw cmake flags.
 // rocmRoot picks the ROCm install a rocm build uses, by its Root, when the
-// machine has more than one; "" means the newest (see chooseROCm).
+// machine has more than one; "" means the newest (see ChooseROCm).
 func (b *Builder) Build(ctx context.Context, profile string, gitRef string, tag string, force bool, optionOverrides map[string]bool, extraCMake string, rocmRoot string) (*BuildResult, error) {
 	return b.BuildProject(ctx, ProjectLlamaCpp, profile, gitRef, tag, force, optionOverrides, extraCMake, rocmRoot)
 }
@@ -435,8 +435,7 @@ func (b *Builder) buildProject(ctx context.Context, project, profile string, git
 	stamp := BuildEnvStamp(prof.Backend)
 	var pin *rocmPin
 	if prof.Backend == "rocm" {
-		hcRoot := hipconfigRoot()
-		inst, pinned, err := chooseROCm(DetectROCmInstalls(), rocmRoot, hcRoot == "" || rootHasHIPRuntime("", hcRoot))
+		inst, pinned, err := ChooseROCm(DetectROCmInstalls(), rocmRoot, HipconfigUsable())
 		if err != nil {
 			return nil, err
 		}

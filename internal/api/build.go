@@ -84,7 +84,9 @@ func (s *Server) handleProfileOptions(w http.ResponseWriter, r *http.Request) {
 		var pin *builder.ROCmInstall
 		prof, profOK := builder.FindProfile(profile)
 		if profOK && prof.Backend == "rocm" {
-			if installs := s.rocmInstalls(); len(installs) > 1 {
+			installs := s.rocmInstalls()
+			chosenRoot := ""
+			if len(installs) > 1 {
 				chosen := installs[0]
 				if i, ok := builder.FindROCmInstall(installs, r.URL.Query().Get("rocm_root")); ok {
 					chosen = i
@@ -95,7 +97,12 @@ func (s *Server) handleProfileOptions(w http.ResponseWriter, r *http.Request) {
 					})
 				}
 				data.ROCmWarning = chosen.Damaged
-				pin = &chosen
+				chosenRoot = chosen.Root
+			}
+			// A build can be pinned with no picker too (a lone 10.x install,
+			// or a stray hipconfig), so ask the build's own rule.
+			if inst, pinned, err := builder.ChooseROCm(installs, chosenRoot, s.hipconfigUsable()); err == nil && pinned {
+				pin = inst
 			}
 		}
 
@@ -708,6 +715,15 @@ func (s *Server) rocmInstalls() []builder.ROCmInstall {
 		return s.rocmInstallsFn()
 	}
 	return builder.CachedROCmInstalls()
+}
+
+// hipconfigUsable is builder.HipconfigUsable, through an overridable field
+// for the same reason as currentBuildEnvFor.
+func (s *Server) hipconfigUsable() bool {
+	if s.hipconfigUsableFn != nil {
+		return s.hipconfigUsableFn()
+	}
+	return builder.HipconfigUsable()
 }
 
 // inContainer reports whether toolchest runs inside a container, through

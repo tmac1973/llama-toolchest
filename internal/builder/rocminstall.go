@@ -381,8 +381,10 @@ type rocmPin struct {
 	compiler string
 }
 
-// chooseROCm picks the install a rocm build uses. root is the Builds form's
-// choice, "" for the default (the newest).
+// ChooseROCm picks the install a rocm build uses. root is the Builds form's
+// choice, "" for the default (the newest); hipconfigOK is HipconfigUsable().
+// The build and the Builds form's flag preview both decide here, so the
+// preview shows the flags a pinned build adds.
 //
 // pinned is true with more than one install, and for a 10.x install even on
 // its own. Otherwise a machine with one install keeps building as it always
@@ -398,7 +400,7 @@ type rocmPin struct {
 // Debian 13 (issue #609).
 // inst is nil when nothing was detected, and the build is left to the
 // hipconfig-based setup and fails there as before.
-func chooseROCm(installs []ROCmInstall, root string, hipconfigOK bool) (inst *ROCmInstall, pinned bool, err error) {
+func ChooseROCm(installs []ROCmInstall, root string, hipconfigOK bool) (inst *ROCmInstall, pinned bool, err error) {
 	pin := func(i ROCmInstall) bool {
 		return len(installs) > 1 || i.isCore() || (!i.Distro && !hipconfigOK)
 	}
@@ -413,6 +415,14 @@ func chooseROCm(installs []ROCmInstall, root string, hipconfigOK bool) (inst *RO
 		return nil, false, nil
 	}
 	return &installs[0], pin(installs[0]), nil
+}
+
+// HipconfigUsable reports whether the hipconfig-based setup in runBuild can
+// work here: there is no hipconfig, leaving cmake to its own search, or the
+// root it sits in has HIP's CMake package.
+func HipconfigUsable() bool {
+	r := hipconfigRoot()
+	return r == "" || rootHasHIPRuntime("", r)
 }
 
 // hipconfigRoot returns the ROCm root the hipconfig-based setup in runBuild
