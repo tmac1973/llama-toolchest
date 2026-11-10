@@ -16,7 +16,7 @@ func (s *Server) handleGPUMap(w http.ResponseWriter, r *http.Request) {
 	if numGPUs == 0 {
 		return // render nothing when no GPUs detected
 	}
-	allocations := s.gpuMapAllocations(numGPUs)
+	allocations := s.gpuMapAllocations(numGPUs, nil)
 	bars := gpuMapBars(metrics.GPU, allocations)
 
 	data := struct {
@@ -93,14 +93,19 @@ func gpuMapBars(gpus []monitor.GPUInfo, allocations []models.GPUAllocation) []gp
 // gpuMapAllocations is every enabled LLM as its launch splits it, then
 // each enabled generation instance's reservation, in the map's colors.
 // The sidebar's map picks the ones loaded now from the same list, so a
-// model has the same color in both.
-func (s *Server) gpuMapAllocations(numGPUs int) []models.GPUAllocation {
+// model has the same color in both. overrides (by registry ID) stand in
+// for saved configs: the sidebar passes the config a benchmark or
+// Autoconfigure test load runs under, so the map shows where the model
+// is now rather than where its saved settings would put it.
+func (s *Server) gpuMapAllocations(numGPUs int, overrides map[string]*models.ModelConfig) []models.GPUAllocation {
 	// Helper models are loaded only for a moment during Autoconfigure, so
 	// they are not part of what is planned onto the GPUs.
 	allModels := s.registry.ListServing()
 	allConfigs := make(map[string]*models.ModelConfig)
 	for _, m := range allModels {
-		if c, err := s.registry.GetConfig(m.ID); err == nil {
+		if c, ok := overrides[m.ID]; ok {
+			allConfigs[m.ID] = c
+		} else if c, err := s.registry.GetConfig(m.ID); err == nil {
 			allConfigs[m.ID] = c
 		}
 	}

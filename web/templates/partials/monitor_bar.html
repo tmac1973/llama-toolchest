@@ -6,16 +6,18 @@
         {{range .GPUs}}
         <div style="display:flex;align-items:center;gap:0.35rem;margin-bottom:0.2rem;">
             <span style="flex-shrink:0;"{{with .Link}} title="{{.Title}}"{{end}}>GPU{{.Index}}</span>
-            <div class="side-map-bar" style="flex:1;">
+            <div class="side-map-bar" style="flex:1;"{{if not .Segments}} title="Nothing on GPU{{.Index}}"{{end}}>
                 {{range .Segments}}<span class="{{if eq .Kind "gen"}}side-map-gen{{else if eq .Kind "stopped"}}side-map-stopped{{else if eq .Kind "loading"}}side-map-loading{{end}}" style="width:{{printf "%.1f" .WidthPct}}%;background-color:{{.Color}};--side-map-color:{{.Color}};" title="{{.Title}}"></span>{{end}}
             </div>
         </div>
         {{end}}
+        {{with .Legend}}
         <div class="side-map-legend">
-            {{range .Legend}}
+            {{range .}}
             <span title="{{.Title}}"><span class="side-map-key{{if eq .Kind "gen"}} side-map-gen{{else if eq .Kind "stopped"}} side-map-stopped{{else if eq .Kind "loading"}} side-map-loading{{end}}" style="background-color:{{.Color}};--side-map-color:{{.Color}};"></span>{{.Name}}</span>
             {{end}}
         </div>
+        {{end}}
     </div>
     {{end}}{{end}}
     {{range .GPUs}}

@@ -12,7 +12,7 @@ import (
 // The sidebar's map shows only what is on the GPUs now: a loaded LLM on
 // each card it spans, a running backend, and a stopped backend's
 // reservation, but not an enabled LLM that is not loaded. A GPU with
-// nothing on it gets no bar.
+// nothing on it still gets its bar, an empty one.
 func TestSidebarMapShowsOnlyWhatIsOnTheGPUs(t *testing.T) {
 	gpus := []monitor.GPUInfo{
 		{Index: 0, VRAMTotalMiB: 16384},
@@ -27,8 +27,8 @@ func TestSidebarMapShowsOnlyWhatIsOnTheGPUs(t *testing.T) {
 	}
 	got := buildSidebarMap(gpus, allocs, map[string]string{"qwen": "loaded"}, map[string]bool{"gen:sd": true})
 
-	if len(got.GPUs) != 2 || got.GPUs[0].Index != 0 || got.GPUs[1].Index != 1 {
-		t.Fatalf("bars = %+v, want GPU 0 and 1 only (gemma on GPU 2 is not loaded)", got.GPUs)
+	if len(got.GPUs) != 3 || got.GPUs[2].Index != 2 || len(got.GPUs[2].Segments) != 0 {
+		t.Fatalf("bars = %+v, want all three GPUs, GPU 2 empty (gemma on it is not loaded)", got.GPUs)
 	}
 	g0 := got.GPUs[0].Segments
 	if len(g0) != 2 || g0[0].Name != "Qwen3-30B" || g0[0].Kind != sidebarLLM || g0[0].WidthPct != 50 ||
@@ -58,8 +58,35 @@ func TestSidebarMapShowsOnlyWhatIsOnTheGPUs(t *testing.T) {
 		t.Errorf("loading model = %+v, legend %q; want the loading kind and a legend that says so", seg, loading.Legend[0].Name)
 	}
 
-	if m := buildSidebarMap(gpus, allocs[:2], nil, nil); len(m.GPUs) != 0 || len(m.Legend) != 0 {
-		t.Errorf("nothing loaded gave %+v, want an empty map", m)
+	if m := buildSidebarMap(gpus, allocs[:2], nil, nil); len(m.GPUs) != 3 || len(m.Legend) != 0 ||
+		len(m.GPUs[0].Segments)+len(m.GPUs[1].Segments)+len(m.GPUs[2].Segments) != 0 {
+		t.Errorf("nothing loaded gave %+v, want three empty bars and no legend", m)
+	}
+
+	// A custom split that gives a card no share ("1,1,0", as
+	// Autoconfigure writes when it is told to use two of three cards)
+	// draws nothing on that card.
+	split := []models.GPUAllocation{{ModelID: "qwen", ModelName: "Qwen3-30B", GPUs: []int{0, 1, 2},
+		GPULoadGB: map[int]float64{0: 8, 1: 8}, TotalGB: 16, Color: "#111111"}}
+	if m := buildSidebarMap(gpus, split, map[string]string{"qwen": "loaded"}, nil); len(m.GPUs[2].Segments) != 0 {
+		t.Errorf("GPU 2 = %+v, want nothing on a card with no share of the split", m.GPUs[2].Segments)
+	}
+}
+
+// While a benchmark or Autoconfigure test load runs a model under its own
+// config, the map places the model by that config, not the saved one.
+func TestSidebarMapUsesJobConfig(t *testing.T) {
+	s := batchMatrixServer(t, models.ModelConfig{GPUAssign: "all"})
+	s.env = newJobEnv(s)
+	s.env.jobConfigs = map[string]*models.ModelConfig{"m": {Enabled: true, GPUAssign: "0,1"}}
+
+	saved := s.gpuMapAllocations(3, nil)
+	job := s.gpuMapAllocations(3, s.env.jobRouterOptions().overrides)
+	if len(saved) != 1 || len(saved[0].GPUs) != 3 {
+		t.Fatalf("saved = %+v, want the model on all three GPUs", saved)
+	}
+	if len(job) != 1 || len(job[0].GPUs) != 2 || job[0].GPUs[1] != 1 {
+		t.Errorf("under the job = %+v, want the model on GPU 0 and 1", job)
 	}
 }
 
@@ -94,6 +121,14 @@ func TestSidebarMapRenders(t *testing.T) {
 	rec = httptest.NewRecorder()
 	s.renderPartial(rec, "monitor_bar", monitorBar{})
 	if strings.Contains(rec.Body.String(), "On the GPUs") {
-		t.Error("an empty map still drew its heading")
+		t.Error("a map with no GPUs still drew its heading")
+	}
+
+	rec = httptest.NewRecorder()
+	s.renderPartial(rec, "monitor_bar", monitorBar{Map: buildSidebarMap(
+		[]monitor.GPUInfo{{Index: 0, VRAMTotalMiB: 16384}}, nil, nil, nil)})
+	if out := rec.Body.String(); !strings.Contains(out, "On the GPUs") || !strings.Contains(out, `title="Nothing on GPU0"`) ||
+		strings.Contains(out, "side-map-legend") {
+		t.Errorf("an empty GPU should draw an empty bar and no legend:\n%s", out)
 	}
 }
