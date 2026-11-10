@@ -65,7 +65,11 @@ Only for models with such a table (Gemma-3N, Gemma-4 E-series, Qwen4-Exp). *Auto
 
 ### Projector (mmproj) { #projector-mmproj }
 
-Lets the model read images or audio, or speak. Toolchest finds it when it is in the model's folder.
+Lets the model read images or audio, or speak. Toolchest finds it when it is in the model's folder, or in the folder above it.
+
+Every chat model without built-in vision has this field. To use a projector from another folder, pick one of the projector files on disk from the field's list, or type its path. *Load Projector* off keeps the path but starts the model without it, to save VRAM.
+
+When a model has no projector, Configure asks Hugging Face where one is. It looks in the model's own repository, then in the publisher's sibling repository (mradermacher's `X-i1-GGUF` keeps its projector in `X-GGUF`), then in other quantizations of the same base model, the same publisher's first. If it finds one, Configure shows *Download projector from* that repository, with a button for each file (Q8_0 first, then F16) and its size. The file is saved in the model's own folder and set as the projector when it is done; restart the model to load it. The answer is kept for a day. When Hugging Face cannot be reached, Configure shows nothing and asks again later.
 
 *Load Projector* off starts the model without it and keeps the path. *Projector in RAM* keeps it in system memory instead of on the GPU (`--no-mmproj-offload`). Its VRAM then goes to the model, for more context or more layers on the GPU, but images and audio are read on the CPU, more slowly. The memory estimate counts it as system memory.
 

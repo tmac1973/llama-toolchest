@@ -752,11 +752,17 @@ func rerankHeadWarningFor(m *models.Model) string {
 // modelConfigPanelData is what the model_config partial renders. It is a
 // named type so the render tests build the same shape the handler does.
 type modelConfigPanelData struct {
-	ModelID           string
-	Config            *models.ModelConfig
-	EffectiveFlags    string
-	MaxContext        int
-	HasMMProj         bool
+	ModelID        string
+	Config         *models.ModelConfig
+	EffectiveFlags string
+	MaxContext     int
+	HasMMProj      bool
+	// ProjectorChoices lists the projector files on disk for the
+	// Projector field, shown for every chat model without built-in
+	// vision. ProjectorLookup asks for an offer to download one from
+	// another repository (projector.go).
+	ProjectorChoices  []projectorChoice
+	ProjectorLookup   bool
 	HasMTP            bool
 	HasBuiltinVision  bool
 	IsEmbedding       bool
@@ -993,6 +999,10 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 	}
 	if model != nil {
 		data.SeededText, data.SeededTip = seededNote(model.Seeded)
+		if kind == models.KindChat && !hasBuiltinVision {
+			data.ProjectorChoices = projectorChoices(s.cfg.ModelsPath())
+			data.ProjectorLookup = wantsProjectorLookup(model, cfg)
+		}
 		data.HasExperts = model.ExpertCount > 0
 		data.NLayers = model.NLayers
 		data.HasReasoning = model.EffectiveReasoning(cfg).Supported

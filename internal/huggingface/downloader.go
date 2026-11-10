@@ -59,6 +59,9 @@ type download struct {
 	// each must hear when it is done. Guarded by Downloader.mu.
 	destRoot string
 	onDone   []FileDoneFunc
+	// destDir, when set, is the exact folder the file is saved in, in
+	// place of <root>/<SafeModelID(modelID)> (see StartInto).
+	destDir string
 	// revision is the repository revision to download from (StartToAt);
 	// empty for the default branch.
 	revision string
@@ -289,6 +292,18 @@ func (d *Downloader) StartToAt(source, modelID, revision, filename, destRoot str
 	return d.start(source, modelID, revision, filename, expectedBytes, "gen--", destRoot, onDone)
 }
 
+// StartInto downloads one file from a repository into destDir itself,
+// not into that repository's own folder, and calls onDone instead of the
+// downloader's completion callback. It is how a vision projector
+// published in another repository is saved beside the model that uses it.
+// The download ID starts with "mmproj--".
+func (d *Downloader) StartInto(source, modelID, filename, destDir string, expectedBytes int64, onDone FileDoneFunc) (string, error) {
+	if destDir == "" {
+		return "", errors.New("no destination folder")
+	}
+	return d.startDl(source, modelID, "", filename, expectedBytes, "mmproj--", "", destDir, onDone)
+}
+
 // FilePath is where StartTo puts a file.
 func FilePath(destRoot, modelID, filename string) string {
 	return filepath.Join(destRoot, SafeModelID(modelID), filename)
@@ -332,6 +347,10 @@ func (d *Downloader) DismissFailed(downloadID string) bool {
 }
 
 func (d *Downloader) start(source, modelID, revision, filename string, expectedBytes int64, idPrefix, destRoot string, onDone FileDoneFunc) (string, error) {
+	return d.startDl(source, modelID, revision, filename, expectedBytes, idPrefix, destRoot, "", onDone)
+}
+
+func (d *Downloader) startDl(source, modelID, revision, filename string, expectedBytes int64, idPrefix, destRoot, destDir string, onDone FileDoneFunc) (string, error) {
 	// Create a stable download ID — replace all slashes to keep it URL-safe
 	safeName := SafeModelID(modelID)
 	safeFilename := SafeFileID(filename)
@@ -372,6 +391,7 @@ func (d *Downloader) start(source, modelID, revision, filename string, expectedB
 		done:          make(chan struct{}),
 		bc:            broadcast.New[DownloadStatus](1, 16),
 		destRoot:      destRoot,
+		destDir:       destDir,
 		revision:      revision,
 		expectedBytes: expectedBytes,
 	}
@@ -549,6 +569,9 @@ func (d *Downloader) run(ctx context.Context, source, downloadID, modelID, filen
 		root = dl.destRoot
 	}
 	modelDir := filepath.Join(root, safeName)
+	if dl.destDir != "" {
+		modelDir = dl.destDir
+	}
 	if err := os.MkdirAll(modelDir, 0o755); err != nil {
 		fail(filename, fmt.Sprintf("creating model directory: %v", err))
 		return

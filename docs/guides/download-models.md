@@ -15,4 +15,6 @@ Checks about 40 popular and new models against this machine. It suggests the lar
 
 Many vision models need a separate **mmproj** (projector) file from the same repo. Download it from the file list too. When it is in the model folder, Configure finds it. Models with built-in vision show *Vision: Built-in*.
 
+Some publishers put the projector in a different repo. mradermacher's imatrix repos (`X-i1-GGUF`) have none; the static repo (`X-GGUF`) has it. For such a model, Configure finds the projector on Hugging Face and offers to download it into the model's folder. See [Projector (mmproj)](model-config.md#projector-mmproj).
+
 Audio models use a projector file too. Toolchest reads from it what the model can do and shows badges: *vision* reads images, *audio* understands speech (transcription, live voice with `/v1/realtime`), *speech* speaks (`/tts`). A model that only speaks, such as Qwen3-TTS, cannot chat, so the agent configs leave it out. The audio routes need llama.cpp v0.8.0 or newer.

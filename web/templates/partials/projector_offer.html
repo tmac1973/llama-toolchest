@@ -1,0 +1,17 @@
+{{define "projector_offer"}}
+{{/* The offer to download a projector for a model that has none on disk,
+     from the repository the lookup found (projector.go). */}}
+<small style="display:block;margin-bottom:0.75rem;">
+    {{if .OwnRepo}}This repository has a projector that was not downloaded.{{else}}This repository has no projector.{{end}}
+    Download projector from <a href="{{.RepoURL}}" target="_blank" rel="noopener">{{.Repo}}</a>:
+    {{range .Files}}
+    <button type="button" class="outline secondary" style="padding: 0 0.4rem; margin-left: 0.3rem; font-size: 0.8em; width:auto;"
+            title="Downloads {{.Filename}} into this model's folder and sets it as the projector."
+            hx-post="/api/models/{{$.ModelID}}/projector-download"
+            hx-vals='{{hxVals "repo" $.Repo "file" .Filename}}'
+            hx-params="repo,file"
+            hx-target="closest small"
+            hx-swap="outerHTML">{{.Quant}} ({{sizeText .Size}})</button>
+    {{end}}
+</small>
+{{end}}
