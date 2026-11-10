@@ -435,7 +435,8 @@ func (b *Builder) buildProject(ctx context.Context, project, profile string, git
 	stamp := BuildEnvStamp(prof.Backend)
 	var pin *rocmPin
 	if prof.Backend == "rocm" {
-		inst, pinned, err := chooseROCm(DetectROCmInstalls(), rocmRoot)
+		hcRoot := hipconfigRoot()
+		inst, pinned, err := chooseROCm(DetectROCmInstalls(), rocmRoot, hcRoot == "" || rootHasHIPRuntime("", hcRoot))
 		if err != nil {
 			return nil, err
 		}

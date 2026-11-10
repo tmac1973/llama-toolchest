@@ -392,20 +392,51 @@ type rocmPin struct {
 // themselves, and the hipconfig-based setup then takes /usr for the ROCm root
 // and fails in cmake — measured on Debian 13 and Rocky 10 with 10.1 alone. (The
 // ROCm 10 container only escaped because its PATH puts /opt/rocm/bin first.)
+// The same goes for a lone install of the old line whenever hipconfigOK is
+// false: the hipconfig the build would find sits in a root without the HIP
+// CMake package, such as /usr/bin/hipconfig beside an /opt/rocm-7.2.4 on
+// Debian 13 (issue #609).
 // inst is nil when nothing was detected, and the build is left to the
 // hipconfig-based setup and fails there as before.
-func chooseROCm(installs []ROCmInstall, root string) (inst *ROCmInstall, pinned bool, err error) {
+func chooseROCm(installs []ROCmInstall, root string, hipconfigOK bool) (inst *ROCmInstall, pinned bool, err error) {
+	pin := func(i ROCmInstall) bool {
+		return len(installs) > 1 || i.isCore() || (!i.Distro && !hipconfigOK)
+	}
 	if root != "" {
 		i, ok := FindROCmInstall(installs, root)
 		if !ok {
 			return nil, false, fmt.Errorf("ROCm install %s not found on this machine", root)
 		}
-		return &i, len(installs) > 1 || i.isCore(), nil
+		return &i, pin(i), nil
 	}
 	if len(installs) == 0 {
 		return nil, false, nil
 	}
-	return &installs[0], len(installs) > 1 || installs[0].isCore(), nil
+	return &installs[0], pin(installs[0]), nil
+}
+
+// hipconfigRoot returns the ROCm root the hipconfig-based setup in runBuild
+// takes: the directory above the bin holding hipconfig, links not followed.
+// "" when there is no hipconfig.
+func hipconfigRoot() string {
+	tool := FindROCmTool("hipconfig")
+	if tool == "" {
+		return ""
+	}
+	return filepath.Dir(filepath.Dir(tool))
+}
+
+// rootHasHIPRuntime reports whether cmake finds the HIP CMake package under
+// root, in lib, lib64 or, for the distro's /usr, a multiarch directory.
+func rootHasHIPRuntime(fsRoot, root string) bool {
+	if hasHIPRuntime(filepath.Join(fsRoot, root)) {
+		return true
+	}
+	if root != "/usr" {
+		return false
+	}
+	m, _ := filepath.Glob(filepath.Join(fsRoot, "/usr/lib/*-linux-gnu/cmake/hip-lang/hip-lang-config.cmake"))
+	return len(m) > 0
 }
 
 // isCore reports a 10.x install, from AMD's stable.repo.amd.com packages or
