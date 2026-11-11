@@ -344,6 +344,9 @@ func sum(xs []float64) float64 {
 // whole result. The spread is still over every repetition, so a setting
 // whose speed jumps around has to clear that spread in the noise rule.
 func rowNearest(run *benchmark.BenchmarkRun, size int) (benchmark.SizeSummary, bool) {
+	if row, ok := requestedRow(run, size); ok {
+		return row, true
+	}
 	rows := run.SizeRows()
 	best, found := benchmark.SizeSummary{}, false
 	for _, r := range rows {
@@ -368,6 +371,65 @@ func rowNearest(run *benchmark.BenchmarkRun, size int) (benchmark.SizeSummary, b
 		best.PPMean, best.TGMean = median(pp), median(tg)
 	}
 	return best, true
+}
+
+// requestedRow gathers the repetitions of the prompt size the run asked
+// for that is closest to size, whatever llama.cpp counted for each. The
+// per-size rows group by the counted number, and that differs between
+// repetitions of one request: the first reads the whole prompt, the later
+// ones reuse the cached start of it. A 512-token chat prompt counted 464
+// tokens once and 422 twice, so the row nearest 512 held one repetition,
+// with no spread at all. ok is false for a run that did not record what
+// it asked for, which rowNearest then reads by its rows.
+func requestedRow(run *benchmark.BenchmarkRun, size int) (benchmark.SizeSummary, bool) {
+	if len(run.PromptTokens) == 0 || len(run.Results) == 0 {
+		return benchmark.SizeSummary{}, false
+	}
+	nearest := func(n int) int {
+		best := run.PromptTokens[0]
+		for _, s := range run.PromptTokens[1:] {
+			if abs(s-n) < abs(best-n) {
+				best = s
+			}
+		}
+		return best
+	}
+	target := nearest(size)
+	row := benchmark.SizeSummary{PromptTokens: target}
+	var pp, tg []float64
+	var ttft float64
+	for _, r := range run.Results {
+		if nearest(r.PromptTokens) != target {
+			continue
+		}
+		pp = append(pp, r.PromptTokPerSec)
+		tg = append(tg, r.GenTokPerSec)
+		ttft += r.TTFTMs
+		row.GenTokens = r.GenTokens
+	}
+	if len(tg) == 0 {
+		return benchmark.SizeSummary{}, false
+	}
+	row.Count = len(tg)
+	row.PPMean, row.PPStd = median(pp), stdDev(pp)
+	row.TGMean, row.TGStd = median(tg), stdDev(tg)
+	row.AvgTTFTMs = ttft / float64(len(tg))
+	return row, true
+}
+
+// stdDev is the population standard deviation, as the per-size rows
+// report it.
+func stdDev(xs []float64) float64 {
+	var mean float64
+	for _, x := range xs {
+		mean += x
+	}
+	mean /= float64(len(xs))
+	var sq float64
+	for _, x := range xs {
+		sq += (x - mean) * (x - mean)
+	}
+	return math.Sqrt(sq / float64(len(xs)))
 }
 
 // median is the middle value, or the mean of the middle two.
@@ -446,7 +508,11 @@ func Complexity(cfg, base benchmark.ConfigSnapshot) int {
 	if cfg.SpecAssist != base.SpecAssist && cfg.SpecAssist != "" {
 		n += 2
 	}
-	if cfg.SpecType != base.SpecType && cfg.SpecType != "" {
+	// Swapping the profile's draft method for an assist alone is a change
+	// of mechanism too. Counting it as nothing made "ngram-mod instead of
+	// MTP" read plainer than "MTP with ngram-mod" on a profile with MTP.
+	// Turning speculation off altogether stays free: that is plainer.
+	if cfg.SpecType != base.SpecType && (cfg.SpecType != "" || cfg.SpecAssist != "") {
 		n += 3
 	}
 	for _, p := range []struct{ cur, base int }{
@@ -463,15 +529,21 @@ func Complexity(cfg, base benchmark.ConfigSnapshot) int {
 }
 
 // Pick chooses the winner for a goal: among the candidates no other
-// candidate really beats (by the noise rule), the plainest one, and of
-// equally plain ones the one with the smallest spread. ranked is every
-// candidate that has a score for the goal, fastest first, for choosing
-// finalists.
+// candidate really beats, the plainest one, and of equally plain ones the
+// one whose slow runs are fastest (its score less its spread). ranked is
+// every candidate that has a score for the goal, fastest first, for
+// choosing finalists.
 //
 // Every candidate is checked against every other, not only against the
 // fastest: a setting whose speed jumps around can measure fastest with a
 // spread so wide that a clearly slower setting falls inside it, and that
 // slower setting must not win just for being plainer.
+//
+// The other way round, a setting must not survive on its own spread. One
+// whose coding runs swung between 54 and 93 tokens per second sat inside
+// the noise of every steady, faster setting, and then won for being one
+// step plainer. So a candidate's spread counts in the comparison only as
+// far as the faster setting's does (see outrun).
 func Pick(cands []Candidate, g Goal, base benchmark.ConfigSnapshot) (winner Candidate, ranked []Candidate, ok bool) {
 	for _, c := range cands {
 		if _, has := c.Scores[g]; has {
@@ -485,28 +557,48 @@ func Pick(cands []Candidate, g Goal, base benchmark.ConfigSnapshot) (winner Cand
 		return ranked[i].Scores[g].Value > ranked[j].Scores[g].Value
 	})
 
-	// The fastest is never beaten, so there is always a winner.
+	// The fastest is never outrun, so there is always a winner.
 	winnerComplexity := -1
 	for _, c := range ranked {
-		if beatenByAny(c, ranked, g) {
+		if outrunByAny(c, ranked, g) {
 			continue // really slower than something
 		}
 		n := Complexity(c.Config, base)
 		if winnerComplexity < 0 || n < winnerComplexity ||
-			(n == winnerComplexity && c.Scores[g].Std < winner.Scores[g].Std) {
+			(n == winnerComplexity && slowRuns(c.Scores[g]) > slowRuns(winner.Scores[g])) {
 			winner, winnerComplexity = c, n
 		}
 	}
 	return winner, ranked, true
 }
 
-func beatenByAny(c Candidate, others []Candidate, g Goal) bool {
+// outrun reports whether a is faster than b by more than the noise, for
+// choosing between candidates. It is Beats with b's spread capped at a's:
+// a steady setting is not outrun by a jumpy one that measured a little
+// faster, but a jumpy setting cannot hide behind its own spread from a
+// steady one that measured clearly faster.
+func outrun(a, b Score) bool {
+	bStd := math.Min(b.Std, a.Std)
+	return a.Value-b.Value > math.Sqrt(a.Std*a.Std+bStd*bStd)
+}
+
+func outrunByAny(c Candidate, others []Candidate, g Goal) bool {
 	for _, o := range others {
-		if Beats(o.Scores[g], c.Scores[g]) {
+		if outrun(o.Scores[g], c.Scores[g]) {
 			return true
 		}
 	}
 	return false
+}
+
+// slowRuns is a score less its spread: roughly what the setting gives on
+// its slower runs. Between equally plain settings it prefers the steady
+// one when the two measured about the same, and the faster one when the
+// gap is wider than the steady one's spread. Preferring the smallest
+// spread outright picked 43.8 tokens per second over 62.6 because the
+// slower setting jumped around a little less.
+func slowRuns(s Score) float64 {
+	return s.Value - s.Std
 }
 
 // Describe turns a candidate's sweep values into plain language for the

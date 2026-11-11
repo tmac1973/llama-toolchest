@@ -370,3 +370,101 @@ func TestMarginPhrase(t *testing.T) {
 		t.Errorf("prompt speed is not affected by speculation: %q", got)
 	}
 }
+
+// The first repetition of a prompt reads all of it and the later ones
+// reuse its cached start, so llama.cpp counts different sizes for one
+// request. The numbers are a chat run from compute2: 464 tokens once, 422
+// twice, for a 512-token request. All three are that request.
+func TestScoreRunsGathersRepetitionsOfOneRequest(t *testing.T) {
+	chat := &benchmark.BenchmarkRun{PromptTokens: []int{512, 4096}, Results: []benchmark.BenchmarkResult{
+		{PromptTokens: 464, PromptTokPerSec: 741, GenTokPerSec: 33.2},
+		{PromptTokens: 422, PromptTokPerSec: 727, GenTokPerSec: 32.4},
+		{PromptTokens: 422, PromptTokPerSec: 727, GenTokPerSec: 37.7},
+		{PromptTokens: 3177, PromptTokPerSec: 979, GenTokPerSec: 32.4},
+		{PromptTokens: 3219, PromptTokPerSec: 978, GenTokPerSec: 31.8},
+		{PromptTokens: 3219, PromptTokPerSec: 976, GenTokPerSec: 36.0},
+	}}
+	chat.Summary = benchmark.ComputeSummary(chat.Results)
+	runs := map[string]*benchmark.BenchmarkRun{"autotune-chat": chat}
+
+	gen, err := ScoreRuns(UseChat, GoalGeneration, runs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gen.Value != 33.2 {
+		t.Errorf("generation = %v, want the median of all three 512-token repetitions, 33.2", gen.Value)
+	}
+	if gen.Std == 0 {
+		t.Error("generation spread is 0: only one repetition was read")
+	}
+	prompt, _ := ScoreRuns(UseChat, GoalPrompt, runs)
+	if prompt.Value != 978 {
+		t.Errorf("prompt = %v, want the median of the three 4096-token repetitions, 978", prompt.Value)
+	}
+}
+
+// The speculative stage of a run on compute2, generation only. An ngram
+// assist alone measured 65.1 with a spread of 19.5, inside the noise of
+// every steady setting faster than it, and won for being one step plainer
+// than MTP with an assist. Its spread is its own problem, not a reason to
+// pick it.
+func TestPickDoesNotLetAJumpySettingHideInItsSpread(t *testing.T) {
+	base := benchmark.ConfigSnapshot{SpecType: "draft-mtp", DraftMax: 3}
+	pair := benchmark.ConfigSnapshot{SpecType: "draft-mtp", DraftMax: 6, SpecAssist: "ngram-simple", AssistSizeN: 12}
+	assist := benchmark.ConfigSnapshot{DraftMax: 3, SpecAssist: "ngram-mod", AssistNMax: 64}
+	cands := []Candidate{
+		cand("MTP + ngram-mod", pair, map[string]string{"spec_type": "draft-mtp+ngram-mod"}, 69.8, 4.7),
+		cand("MTP + ngram-simple", pair, map[string]string{"spec_type": "draft-mtp+ngram-simple"}, 68.1, 1.2),
+		cand("ngram-mod alone", assist, map[string]string{"spec_type": "ngram-mod"}, 65.1, 19.5),
+	}
+	winner, _, _ := Pick(cands, GoalGeneration, base)
+	if winner.Label == "ngram-mod alone" {
+		t.Error("the jumpy assist won on its own spread over steady, faster settings")
+	}
+
+	// A steady setting is still not outrun by a jumpy one that measured
+	// a little faster: MTP alone stays in, and wins for being plainer.
+	mtp := benchmark.ConfigSnapshot{SpecType: "draft-mtp", DraftMax: 6}
+	cands = append(cands, cand("MTP", mtp, map[string]string{"spec_type": "draft-mtp"}, 66.7, 0.3))
+	cands[1] = cand("MTP + ngram-simple", pair, map[string]string{"spec_type": "draft-mtp+ngram-simple"}, 68.1, 4)
+	winner, _, _ = Pick(cands, GoalGeneration, base)
+	if winner.Label != "MTP" {
+		t.Errorf("winner = %q, want MTP: the pairs' gains are inside their own spread", winner.Label)
+	}
+}
+
+// Between equally plain settings, a smaller spread is not worth a much
+// lower speed. These are three assist sizes from compute2: picking the
+// smallest spread chose 43.8 over 62.6.
+func TestPickPrefersTheFasterOfEquallyPlainNoisySettings(t *testing.T) {
+	base := benchmark.ConfigSnapshot{}
+	cfg := func(n int) benchmark.ConfigSnapshot {
+		return benchmark.ConfigSnapshot{SpecAssist: "ngram-mod", AssistNMax: n}
+	}
+	cands := []Candidate{
+		cand("draft 32", cfg(32), map[string]string{"spec_type": "ngram-mod:assist_n_max=32"}, 62.6, 17.3),
+		cand("draft 128", cfg(128), map[string]string{"spec_type": "ngram-mod:assist_n_max=128"}, 49.8, 14.9),
+		cand("draft 96", cfg(96), map[string]string{"spec_type": "ngram-mod:assist_n_max=96"}, 43.8, 13.2),
+	}
+	winner, _, _ := Pick(cands, GoalGeneration, base)
+	if winner.Label != "draft 32" {
+		t.Errorf("winner = %q, want draft 32", winner.Label)
+	}
+}
+
+// Swapping the profile's draft method for an assist alone is a change of
+// mechanism; turning speculation off is not.
+func TestComplexityCountsSwappingTheDraftMethod(t *testing.T) {
+	base := benchmark.ConfigSnapshot{SpecType: "draft-mtp", DraftMax: 3}
+	pair := base
+	pair.SpecAssist = "ngram-mod"
+	swap := benchmark.ConfigSnapshot{SpecAssist: "ngram-mod", DraftMax: 3}
+	if Complexity(swap, base) <= Complexity(pair, base) {
+		t.Errorf("ngram-mod instead of MTP (%d) reads no further from an MTP profile than MTP with ngram-mod (%d)",
+			Complexity(swap, base), Complexity(pair, base))
+	}
+	off := benchmark.ConfigSnapshot{DraftMax: 3}
+	if Complexity(off, base) != 0 {
+		t.Errorf("turning speculation off has complexity %d, want 0", Complexity(off, base))
+	}
+}
