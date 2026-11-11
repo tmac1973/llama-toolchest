@@ -27,10 +27,10 @@ Each use case runs one or two hidden benchmark presets, called *workloads*:
 | Use case | Workloads | Prompt | Answer |
 | --- | --- | --- | --- |
 | **General chat** | chat (`autotune-chat`) | A passage of prose with a request to respond to it, at 512 and 4096 tokens | 256 tokens of new text |
-| **Coding and editing** | coding (`autotune-code`) | A Python file of about 1536 tokens, with a request to rename a method, add type hints and return the whole file | 512 tokens, mostly the file again |
+| **Coding and editing** | coding (`autotune-code`) | A Python file of about 1536 tokens (a different one each run), with a request to rename a method, add type hints and return the whole file | 512 tokens, mostly the file again |
 | **Mixed** (the default) | chat and coding | Both of the above | Both of the above |
 
-Every setting runs each workload three times. *Mixed* measures every setting with both workloads, so it takes about twice as long. Choose it when you use the model for both kinds of work, or when you are not sure.
+Every setting runs each workload three times. The coding workload edits a different file each time: n-gram speculative decoding remembers text it has seen between requests, so with the same file every time it would guess the later answers from the first one and make n-gram settings look faster than they are. Every setting edits the same three files, so the comparison stays fair. *Mixed* measures every setting with both workloads, so it takes about twice as long. Choose it when you use the model for both kinds of work, or when you are not sure.
 
 ## How each goal is scored { #goals }
 
