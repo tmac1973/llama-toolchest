@@ -431,6 +431,78 @@ func TestPlanBatchNeverPairsTensorSplitWithFlashAttentionOff(t *testing.T) {
 	}
 }
 
+// The compute2 run that lost its prompt winner: the draft-settings stage
+// had two finalists, both MTP, and the speculative stage's prompt
+// finalist had speculation turned off, so nothing tuned it. It must still
+// reach the confirming stage, or the saved prompt profile is one that
+// measured 10% slower.
+func TestPlanConfirmKeepsAFinalistNothingTuned(t *testing.T) {
+	in := baseInput()
+	in.Model.NextNLayers = 1
+	off := map[string]string{"spec_type": "none", "batch_size": "2048", "ubatch_size": "256", "split_mode": "layer"}
+	mtp := map[string]string{"spec_type": "draft-mtp:draft_max=6", "split_mode": "tensor"}
+	in.Finalists = map[string][]Candidate{
+		StagePlacement: {
+			{Values: map[string]string{"split_mode": "tensor"}, Scores: map[Goal]Score{GoalResponse: {Value: -20}}},
+			{Values: map[string]string{"batch_size": "2048", "ubatch_size": "256", "split_mode": "layer"}, Scores: map[Goal]Score{GoalResponse: {Value: -21}}},
+		},
+		StageSpec: {
+			{Values: mtp, Goals: []Goal{GoalGeneration, GoalResponse}},
+			{Values: off, Goals: []Goal{GoalPrompt}},
+		},
+		StageSpecParams: {
+			{Values: map[string]string{"spec_type": "draft-mtp:draft_max=6,draft_sampling=probabilistic", "split_mode": "tensor"}, Goals: []Goal{GoalGeneration}},
+			{Values: map[string]string{"spec_type": "draft-mtp:draft_max=3", "split_mode": "tensor"}, Goals: []Goal{GoalPrompt, GoalResponse}},
+		},
+	}
+	if !tunedLater(in, Candidate{Values: mtp}) {
+		t.Fatal("the MTP finalist should be tuned by the draft-settings stage")
+	}
+	if tunedLater(in, Candidate{Values: off}) {
+		t.Fatal("speculation turned off has nothing to tune")
+	}
+	cells, _, _ := PlanStage(StageConfirm, in)
+	found := false
+	for _, c := range cells {
+		if c["spec_type"] == "none" && c["ubatch_size"] == "256" && c["split_mode"] == "layer" {
+			found = true
+		}
+		if c["spec_type"] == "draft-mtp:draft_max=6" {
+			t.Errorf("the untuned MTP finalist took a place its tuned versions stand for: %v", c)
+		}
+	}
+	if !found {
+		t.Errorf("the prompt finalist did not reach the confirming stage: %v", cells)
+	}
+	// Speculation off already carries its batch settings, so crossing it
+	// with both batch finalists measures it once, not twice.
+	if len(cells) != 6 {
+		t.Errorf("cells = %d, want 6 (the profile, 2 batch × 2 tuned, and the prompt finalist)", len(cells))
+	}
+}
+
+// A quick run skips the draft-settings stage, so every speculative
+// finalist is the last word on its goal, and none is dropped for the
+// carry limit.
+func TestPlanConfirmQuickKeepsEveryGoal(t *testing.T) {
+	in := baseInput()
+	in.Quick = true
+	in.Finalists = map[string][]Candidate{
+		StageSpec: {
+			{Values: map[string]string{"spec_type": "draft-mtp:draft_max=3"}, Goals: []Goal{GoalGeneration}},
+			{Values: map[string]string{"spec_type": "none"}, Goals: []Goal{GoalPrompt}},
+			{Values: map[string]string{"spec_type": "ngram-mod"}, Goals: []Goal{GoalResponse}},
+		},
+	}
+	got := map[string]bool{}
+	for _, c := range confirmSpecs(in) {
+		got[c.Values["spec_type"]] = true
+	}
+	if len(got) != 3 {
+		t.Errorf("confirming %v, want every goal's finalist", got)
+	}
+}
+
 // A candidate with no response measurement must not displace a measured
 // one from the confirming stage.
 func TestPlanConfirmIgnoresUnmeasuredCandidates(t *testing.T) {

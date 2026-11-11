@@ -643,7 +643,7 @@ func splitSpec(value string) (mode, assist string, params map[string]string) {
 // starting profile.
 func planConfirm(in PlanInput) []map[string]string {
 	batch := topByResponse(in.Finalists[batchFinalists(in)], 2)
-	spec := distinct(append(append([]Candidate{}, in.Finalists[StageSpecParams]...), in.Finalists[StageSpec]...), in.carry())
+	spec := confirmSpecs(in)
 
 	cells := []map[string]string{{}} // the starting profile
 	for _, b := range batch {
@@ -662,6 +662,40 @@ func planConfirm(in PlanInput) []map[string]string {
 		}
 	}
 	return cells
+}
+
+// confirmSpecs are the speculative settings the confirming stage measures:
+// every finalist that is the last word on its goal, then the others, up
+// to carry, to fill spare places.
+//
+// The draft-settings stage tunes the speculative finalists, so its
+// finalists replace theirs. But it only measures settings with something
+// to tune: speculation turned off, or an assist with no settings of its
+// own, never reaches it, and its winner for a goal is then only the best
+// of the others. Taking the first few of both stages' finalists dropped
+// exactly that one. On compute2 the prompt finalist was "no speculative
+// decoding" at 1010 tokens per second; the draft-settings stage had two
+// finalists, it came fourth, and the saved prompt profile read 895.
+func confirmSpecs(in PlanInput) []Candidate {
+	tuned := in.Finalists[StageSpecParams]
+	var untuned, spare []Candidate
+	for _, c := range in.Finalists[StageSpec] {
+		if tunedLater(in, c) {
+			spare = append(spare, c)
+		} else {
+			untuned = append(untuned, c)
+		}
+	}
+	must := distinct(append(append([]Candidate{}, tuned...), untuned...), len(tuned)+len(untuned))
+	return distinct(append(must, spare...), max(in.carry(), len(must)))
+}
+
+// tunedLater reports whether the draft-settings stage measures variants
+// of a speculative finalist, so that its own finalists stand for it.
+func tunedLater(in PlanInput, c Candidate) bool {
+	probe := in
+	probe.Finalists = map[string][]Candidate{StageSpec: {c}}
+	return len(planSpecParams(probe)) > 0
 }
 
 // topByResponse returns the n candidates with the best response time.
@@ -978,7 +1012,9 @@ func EstimateRun(in PlanInput, uc UseCase, sizeGiB, secondsPerCell float64) (cel
 		most = max(most, len(planSpecParams(probe)))
 	}
 	cells += min(most*carry, maxCells)
-	cells += min(confirmCells, 1+2*carry) // the profile, then two batch finalists by each speculative one
+	// The profile, then two batch finalists by each speculative one: up
+	// to carry of them, or one per goal when each goal has its own.
+	cells += min(confirmCells, 1+2*max(carry, len(Goals)))
 
 	// One cell runs one preset, so a workload with two presets has twice
 	// the cells rather than cells that each take twice as long.
