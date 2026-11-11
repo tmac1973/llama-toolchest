@@ -59,6 +59,14 @@ type BenchmarkRun struct {
 	// Configuration snapshot
 	Config ConfigSnapshot `json:"config"`
 
+	// LaunchConfig is the whole config the cell ran under, recorded when
+	// it ran: Config laid over the profile copy the cell measured, or
+	// over the model's settings at that moment. Config holds only what
+	// changes throughput; this also keeps sampling, the chat template
+	// and the rest, so the run can be saved as a profile later exactly
+	// as it was measured. Nil on runs recorded before it existed.
+	LaunchConfig *models.ModelConfig `json:"launch_config,omitempty"`
+
 	// Build info. The flat BuildID/BuildRef/BuildProfile fields predate
 	// the Build snapshot and are preserved for already-persisted runs;
 	// new runs populate Build with the full snapshot. Use EffectiveBuild()

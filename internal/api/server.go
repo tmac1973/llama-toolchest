@@ -938,6 +938,8 @@ func (s *Server) buildRouter() chi.Router {
 			r.Delete("/batch-delete", s.handleBatchDeleteBenchmarks)
 			r.Get("/{id}", s.handleGetBenchmark)
 			r.Delete("/{id}", s.handleDeleteBenchmark)
+			r.Get("/{id}/use", s.handleBenchUseForm)
+			r.Post("/{id}/use", s.handleBenchUseSave)
 		})
 		r.Get("/timings", s.handleTimings)
 		r.Get("/timings/{model_id}", s.handleTimings)

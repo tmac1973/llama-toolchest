@@ -84,6 +84,10 @@
                         hx-get="/api/benchmarks/{{.Cell.BenchmarkRunID}}" hx-target="next .bench-detail" hx-swap="innerHTML"
                         hx-on::before-request="var d=this.closest('tr').nextElementSibling.querySelector('td');if(d.innerHTML.trim()){d.innerHTML='';event.preventDefault();}">Detail</button>
                 {{end}}
+                {{if .UseTip}}
+                <span title="{{.UseTip}}"><button type="button" class="outline secondary" style="padding:0.2rem 0.5rem;font-size:0.8rem;width:auto;"
+                        {{if .CanUse}}onclick="openBenchUse('{{.Cell.BenchmarkRunID}}')"{{else}}disabled{{end}}>Use</button></span>
+                {{end}}
             </td>
         </tr>
         {{/*

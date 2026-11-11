@@ -839,6 +839,11 @@ func (s *Server) renderJobDetail(w http.ResponseWriter, job *benchmark.Benchmark
 		// ProfileTip says when the job copied that profile.
 		ProfileLbl string
 		ProfileTip string
+		// CanUse offers to save the run's settings as a profile, and
+		// UseTip says what that does or why it cannot. No tip, no
+		// button: a cell with no completed run has nothing to save.
+		CanUse bool
+		UseTip string
 	}
 	rows := make([]cellRow, 0, len(job.Cells))
 	var done, failed int
@@ -875,6 +880,9 @@ func (s *Server) renderJobDetail(w http.ResponseWriter, job *benchmark.Benchmark
 				}
 				if run.BuildID != "" {
 					row.BuildLbl = run.BuildID
+				}
+				if run.Status == benchmark.StatusCompleted {
+					row.CanUse, row.UseTip = s.benchUseOffer(run)
 				}
 				if run.Eval != nil {
 					// Capability cell: the score column is where its

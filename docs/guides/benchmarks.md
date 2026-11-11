@@ -20,8 +20,19 @@ Prompt sizes are approximate; the real count (`prompt_tokens`) is usually 10–2
 - Each parameter uses the setting of the model by default. One value applies to the whole job. Several values make a sweep, with one result per value. Parameters marked **↻** reload the model for each value; the preview shows the number of reloads.
 - Saved profiles show under each model as start points. Each checked profile is measured on its own, exactly as saved, so the parameters turn off. The job keeps a copy of each profile. ⚠ marks a profile saved on a build that the job does not include.
 - **Memory used**: each result records the VRAM that its load used (needs *Model loading detail* 4). It shows the cost of a faster setting, such as a larger micro-batch.
-- **Actions**: *Detail*, *Compare* (pick rows, across jobs), *Export* (CSV or JSON) and *Retry failed*.
+- **Actions**: *Detail*, *Use*, *Compare* (pick rows, across jobs), *Export* (CSV or JSON) and *Retry failed*.
 - Results marked *⚠ unverified* are older than a fix to parameter overrides. Run them again if the settings matter.
+
+## Using a result's settings { #use-a-result }
+
+**Use** on a finished result saves the settings it was measured with as a profile of its model. Each result records the whole config it ran under when it ran. A profile saved from it therefore has the same sampling, chat template and other settings that the cell had, even if you changed the model since then.
+
+The dialog suggests a name from the sweep point or the profile the cell started from; type over it to change it. It warns when the name replaces a saved profile, and lists the settings that differ from the model's current ones.
+
+- **Save** adds the profile only. Apply it later from the model's *Configure* panel.
+- **Save and apply** also makes it the model's settings. A loaded model uses them the next time it loads.
+
+The profile is marked *(benchmark)*, with a note naming the job and what the result measured. Results recorded before this feature existed did not keep their whole config, so *Use* is turned off on them. Run the cell again to save it.
 
 ## Capability benchmarks { #capability-benchmarks }
 
