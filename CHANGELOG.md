@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.57.1](https://github.com/tmac1973/llama-toolchest/compare/v2.57.0...v2.57.1) (2026-11-11)
+
+
+### Bug Fixes
+
+* **autotune:** read every repetition and stop noisy settings winning ([#617](https://github.com/tmac1973/llama-toolchest/issues/617)) ([2dce9d1](https://github.com/tmac1973/llama-toolchest/commit/2dce9d1d03d0ab5754f3ee08167d41fe0fa3dbdc))
+
 ## [2.57.0](https://github.com/tmac1973/llama-toolchest/compare/v2.56.0...v2.57.0) (2026-11-10)
 
 
