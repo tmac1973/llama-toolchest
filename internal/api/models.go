@@ -3,6 +3,7 @@ package api
 import (
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 
@@ -537,6 +538,7 @@ func (s *Server) renderModelCard(w http.ResponseWriter, m *models.Model, routerK
 		data.DefaultBadge = s.defaultBadgeTitle()
 	}
 	_, data.CanUpdate = s.updateTargets(m)
+	data.BrowseRepoURL = s.browseRepoURL(m)
 	// nil in the render tests, which build a server without the store.
 	var latest *autotune.Autotune
 	if s.tuneStore != nil {
@@ -577,10 +579,29 @@ type modelCardView struct {
 	// CanUpdate is set for a model downloaded from a repository, which
 	// the Update button can check against it.
 	CanUpdate bool
+	// BrowseRepoURL opens the model's repository on the Download page,
+	// to get another quant or the mmproj file. "" for embedding and
+	// reranking models and for models without a repository.
+	BrowseRepoURL string
 	// Autotune is the state of this model's latest autotune run, so a
 	// finished run is visible on the card rather than only behind the
 	// button that started it.
 	Autotune autotune.CardState
+}
+
+// browseRepoURL is the Download page link that opens the file list of
+// the repository m came from. Only chat models get one: the Download
+// page lists other quants and the mmproj file, which matter for chat
+// models only.
+func (s *Server) browseRepoURL(m *models.Model) string {
+	if m.Kind() != models.KindChat {
+		return ""
+	}
+	source := modelsource.NormalizeSource(m.Source)
+	if s.sourceClient(source).ModelURL(m.ModelID) == "" {
+		return ""
+	}
+	return "/models/browse?" + url.Values{"repo": {m.ModelID}, "source": {source}}.Encode()
 }
 
 // renderModelList renders the shared model list used by the chat, embedding

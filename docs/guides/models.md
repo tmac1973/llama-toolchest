@@ -38,6 +38,10 @@ One row per download: *Pause*, *Resume* or *Discard* (deletes the partial files)
 
 An unfinished download, or a GGUF missing from disk. Neither can be enabled.
 
+## ↗ and ⤓ { #repo-links }
+
+Next to the name of a chat model, ↗ opens its repository page on HuggingFace or ModelScope. ⤓ opens the Download page with the file list of that repository, so you can get another quant or the mmproj file without a search. Embedding and reranking models, and models found on disk without a repository, do not show ⤓.
+
 ## Update { #update }
 
 Compares the model files with its repository on HuggingFace or ModelScope, for a publisher that uploads a fixed version under the same name. It compares SHA-256 checksums and lists the changed files: the model, its shards, and its projector and MTP head when they are in the same repository. Nothing downloads until you confirm, and then only the changed files. A file from before this check has no checksum, so toolchest reads it once: about a minute per 20 GB. A new file replaces the old one only when it is complete and its checksum matches. A loaded model keeps the old files until the server restarts (↻). To continue a paused update, click Update again.

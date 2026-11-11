@@ -137,13 +137,37 @@
             });
     };
 
+    // Opened from the download icon of a model on the Models page: show
+    // the files of that repository, as its Files button would.
+    var params = new URLSearchParams(location.search);
+    var repo = params.get('repo');
+    if (repo) {
+        var source = params.get('source') === 'modelscope' ? 'modelscope' : 'hf';
+        document.querySelector('input[name="source"][value="' + source + '"]').checked = true;
+        document.querySelector('input[name="q"]').value = repo;
+        var article = document.createElement('article');
+        var name = document.createElement('strong');
+        name.textContent = repo;
+        var files = document.createElement('div');
+        article.append(name, files);
+        var results = document.getElementById('hf-results');
+        results.replaceChildren(article);
+        files.setAttribute('aria-busy', 'true');
+        htmx.ajax('GET', '/api/hf/model?' + new URLSearchParams({ id: repo, source: source }),
+                  { target: files, swap: 'innerHTML' })
+            .finally(function () { files.removeAttribute('aria-busy'); });
+    }
+
     // Opened from a link: the search box's autofocus would scroll the page
-    // down to it, past the card, so it is focused without scrolling.
-    var opened = new URLSearchParams(location.search).get('open');
-    if (opened) {
+    // down to it, past the card or the file list, so it is focused
+    // without scrolling.
+    var opened = params.get('open');
+    if (opened || repo) {
         var search = document.querySelector('input[name="q"]');
         search.removeAttribute('autofocus');
         search.focus({ preventScroll: true });
+    }
+    if (opened) {
         opened.split(',').forEach(function (name) { window.toggleDownloadCard(name.trim(), true); });
     }
 })();
