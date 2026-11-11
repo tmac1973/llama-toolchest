@@ -30,6 +30,9 @@ type fakeEnv struct {
 
 	routerURL string
 	saved     ConfigSnapshot
+	// savedConfig is the whole live config saved is a snapshot of, for
+	// the LaunchConfig a current-settings cell records.
+	savedConfig models.ModelConfig
 
 	applied       []ConfigSnapshot // one per ApplyEphemeralConfig call
 	appliedBase   *models.ModelConfig
@@ -135,6 +138,7 @@ func (f *fakeEnv) ResolveModel(id string) (ModelInfo, error) {
 		DisplayName: "M",
 		RouterName:  "m",
 		Config:      f.saved,
+		SavedConfig: f.savedConfig,
 	}, nil
 }
 

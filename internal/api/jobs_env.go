@@ -546,6 +546,7 @@ func (e *jobEnv) modelInfoBundle(m *models.Model) (benchmark.ModelInfo, error) {
 		RouterName:  e.s.registry.RouterName(m.ID),
 		Reasoning:   reasoningControl(m, cfg),
 		Config:      benchmark.SnapshotFromConfig(*cfg, profile, edited),
+		SavedConfig: *cfg,
 	}, nil
 }
 

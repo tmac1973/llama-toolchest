@@ -42,8 +42,8 @@ type ConfigProfile struct {
 	// saved. Speculative decoding methods and flags depend on the build, so
 	// restoring on another one is worth a warning.
 	BuildID string `json:"build_id,omitempty"`
-	// Source is who wrote the profile: ProfileSourceUser, …Autoconfig or
-	// …Autotune.
+	// Source is who wrote the profile: ProfileSourceUser, …Autoconfig,
+	// …Autotune or …Benchmark.
 	Source string `json:"source"`
 	// Notes explain individual settings, for profiles written by
 	// autoconfigure or autotune.
@@ -57,6 +57,7 @@ const (
 	ProfileSourceUser       = "user"
 	ProfileSourceAutoconfig = "autoconfig"
 	ProfileSourceAutotune   = "autotune"
+	ProfileSourceBenchmark  = "benchmark"
 )
 
 // ProfileNote is a plain-language reason for one setting.
@@ -162,6 +163,56 @@ func profileFields(c ModelConfig) ModelConfig {
 // compares what they point to.
 func ProfileEqual(a, b ModelConfig) bool {
 	return reflect.DeepEqual(profileFields(a), profileFields(b))
+}
+
+// ProfileChange is one setting that differs between two configs, named by
+// its ModelConfig JSON key.
+type ProfileChange struct {
+	Field string
+	From  string
+	To    string
+}
+
+// ProfileChanges lists the profile settings that differ from from to to,
+// in ModelConfig field order. Like ProfileEqual it ignores Enabled,
+// Aliases and the ActiveProfile label.
+func ProfileChanges(from, to ModelConfig) []ProfileChange {
+	a, b := reflect.ValueOf(profileFields(from)), reflect.ValueOf(profileFields(to))
+	t := a.Type()
+	var out []ProfileChange
+	for i := range t.NumField() {
+		if reflect.DeepEqual(a.Field(i).Interface(), b.Field(i).Interface()) {
+			continue
+		}
+		name, _, _ := strings.Cut(t.Field(i).Tag.Get("json"), ",")
+		if name == "" || name == "-" {
+			name = t.Field(i).Name
+		}
+		out = append(out, ProfileChange{Field: name, From: settingText(a.Field(i)), To: settingText(b.Field(i))})
+	}
+	return out
+}
+
+// settingText is one config value as a person reads it: a pointer by what
+// it points to, and an unset value as "unset".
+func settingText(v reflect.Value) string {
+	if v.Kind() == reflect.Pointer {
+		if v.IsNil() {
+			return "unset"
+		}
+		v = v.Elem()
+	}
+	switch {
+	case v.Kind() == reflect.Slice && v.Len() == 0, v.Kind() == reflect.String && v.String() == "":
+		return "unset"
+	case v.Kind() == reflect.Slice:
+		parts := make([]string, v.Len())
+		for i := range parts {
+			parts[i] = fmt.Sprint(v.Index(i).Interface())
+		}
+		return strings.Join(parts, ", ")
+	}
+	return fmt.Sprint(v.Interface())
 }
 
 // profileIdentity is the (repository, file) pair a model's profiles are

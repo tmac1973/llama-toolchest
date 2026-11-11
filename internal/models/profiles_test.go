@@ -268,3 +268,18 @@ func TestCloneConfigCopiesEveryReference(t *testing.T) {
 		t.Error("clone differs from the original")
 	}
 }
+
+func TestProfileChanges(t *testing.T) {
+	temp := 0.7
+	from := ModelConfig{Enabled: true, ContextSize: 8192, UBatchSize: 512, Aliases: []string{"a"}, ActiveProfile: "x"}
+	to := ModelConfig{ContextSize: 8192, UBatchSize: 1024, KVCacheQuant: "q8_0", Temperature: &temp}
+	got := ProfileChanges(from, to)
+	want := []ProfileChange{
+		{Field: "ubatch_size", From: "512", To: "1024"},
+		{Field: "kv_cache_quant", From: "unset", To: "q8_0"},
+		{Field: "temperature", From: "unset", To: "0.7"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ProfileChanges = %+v, want %+v (Enabled, Aliases and ActiveProfile ignored)", got, want)
+	}
+}

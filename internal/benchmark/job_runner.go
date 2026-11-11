@@ -193,6 +193,10 @@ type ModelInfo struct {
 	DisplayName string         // short, human-readable name for the run
 	RouterName  string         // identifier the router responds to
 	Config      ConfigSnapshot // saved baseline; ConfigOverrides overlay on this
+	// SavedConfig is the model's whole live config, which Config is a
+	// snapshot of: what a cell measuring the current settings records
+	// as its LaunchConfig.
+	SavedConfig models.ModelConfig
 	// Reasoning is how this model's thinking mode is turned off, detected
 	// from its chat template. The recall workload needs it; nothing else
 	// does.
@@ -648,6 +652,7 @@ func (q *JobQueue) runCell(ctx context.Context, job *BenchmarkJob, cell *JobCell
 		Quant:         modelInfo.Quant,
 		SizeGiB:       modelInfo.SizeGiB,
 		Config:        cfg,
+		LaunchConfig:  launchConfig(modelInfo, baseConfig, cfg),
 		BuildID:       buildSnap.ID,
 		BuildRef:      buildSnap.GitRef,
 		BuildProfile:  buildSnap.Profile,
@@ -760,6 +765,7 @@ func (q *JobQueue) runCapabilityCell(ctx context.Context, job *BenchmarkJob, cel
 		Quant:         modelInfo.Quant,
 		SizeGiB:       modelInfo.SizeGiB,
 		Config:        cfg,
+		LaunchConfig:  launchConfig(modelInfo, baseConfig, cfg),
 		BuildID:       buildSnap.ID,
 		BuildRef:      buildSnap.GitRef,
 		BuildProfile:  buildSnap.Profile,
@@ -906,6 +912,18 @@ func (q *JobQueue) runCapabilityCell(ctx context.Context, job *BenchmarkJob, cel
 	run.ProgressDetail = ""
 	q.store.Save(run)
 	return nil
+}
+
+// launchConfig is the BenchmarkRun.LaunchConfig of a cell: cfg laid over
+// base, the profile copy the cell measures, or over the model's live
+// config when base is nil.
+func launchConfig(m ModelInfo, base *models.ModelConfig, cfg ConfigSnapshot) *models.ModelConfig {
+	from := m.SavedConfig
+	if base != nil {
+		from = *base
+	}
+	out := ApplySnapshotToConfig(from, cfg)
+	return &out
 }
 
 // startingPoint is the BenchmarkRun.StartingPoint of a cell measured

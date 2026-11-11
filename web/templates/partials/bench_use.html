@@ -1,0 +1,51 @@
+{{/* "Use" on a benchmark job's cell: saves the settings the run measured
+     as a profile of its model, and optionally applies it. Renders into
+     #bench-use-slot in the benchmarks page's #bench-use-modal. */}}
+
+{{define "bench_use"}}
+{{with .Banner}}
+<p role="{{if eq .Kind "ok"}}status{{else}}alert{{end}}">
+    {{if eq .Kind "ok"}}&#10003; {{.Text}}{{else}}<mark>&#9888; {{.Text}}</mark>{{end}}
+</p>
+{{end}}
+{{if .Unavailable}}
+<p><mark>&#9888; {{.Unavailable}}</mark></p>
+<footer><button type="button" class="secondary" onclick="this.closest('dialog').close();">Close</button></footer>
+{{else if .Done}}
+<footer><button type="button" onclick="this.closest('dialog').close();">Close</button></footer>
+{{else}}
+<p>Saves the settings this run measured as a profile of <strong>{{.ModelName}}</strong>{{if .Quant}} <kbd>{{.Quant}}</kbd>{{end}}: the settings it was benchmarked with, and the sampling, chat template and other settings it had when the run started.</p>
+{{if .Measured}}<p><small><strong>Measured:</strong> {{.Measured}}</small></p>{{end}}
+{{if .BuildNote}}<p><small><mark>&#9888; {{.BuildNote}}</mark></small></p>{{end}}
+
+<form hx-post="/api/benchmarks/{{.RunID}}/use" hx-target="#bench-use-slot" hx-swap="innerHTML">
+    <label>Profile name
+        <input type="text" name="profile_name" value="{{.Name}}" maxlength="64" required autofocus
+               list="bench-use-existing" oninput="benchUseCheckName(this)">
+    </label>
+    <datalist id="bench-use-existing">{{range .Existing}}<option value="{{.}}">{{end}}</datalist>
+    <small id="bench-use-replaces" style="display:block;margin-top:-0.5rem;margin-bottom:1rem;color:var(--pico-del-color);" hidden></small>
+
+    <details{{if le (len .Changes) 8}} open{{end}}>
+        <summary><small>{{if .Changes}}{{len .Changes}} setting{{if ne (len .Changes) 1}}s differ{{else}} differs{{end}} from the model's current settings{{else}}The same as the model's current settings{{end}}</small></summary>
+        {{if .Changes}}
+        <table style="font-size:0.8rem;">
+            <thead><tr><th>Setting</th><th>Current</th><th>This run</th></tr></thead>
+            <tbody>
+            {{range .Changes}}<tr><td><code>{{.Field}}</code></td><td>{{.From}}</td><td>{{.To}}</td></tr>{{end}}
+            </tbody>
+        </table>
+        {{end}}
+    </details>
+
+    <footer style="display:flex;gap:0.5rem;justify-content:flex-end;flex-wrap:wrap;">
+        <button type="button" class="secondary" style="width:auto;margin:0;" onclick="this.closest('dialog').close();">Cancel</button>
+        <button type="submit" class="outline" style="width:auto;margin:0;" name="apply" value="0"
+                title="Saves the profile. The model keeps its current settings until you apply it from its Configure panel.">Save</button>
+        <button type="submit" style="width:auto;margin:0;" name="apply" value="1"
+                title="Saves the profile and makes it the model's settings. A loaded model uses them the next time it loads.">Save and apply</button>
+    </footer>
+</form>
+<script>benchUseCheckName(document.querySelector('#bench-use-slot input[name=profile_name]'));</script>
+{{end}}
+{{end}}
