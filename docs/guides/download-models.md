@@ -13,7 +13,7 @@ Checks about 40 popular and new models against this machine. It suggests the lar
 
 ## Vision and audio models { #vision-and-audio-models }
 
-Many vision models need a separate **mmproj** (projector) file from the same repo. Download it from the file list too. When it is in the model folder, Configure finds it. Models with built-in vision show *Vision: Built-in*.
+Many vision models need a separate **mmproj** (projector) file from the same repo. Download it from the file list too. For a model you already have, ⤓ next to its name on the Models page opens this file list. When it is in the model folder, Configure finds it. Models with built-in vision show *Vision: Built-in*.
 
 Some publishers put the projector in a different repo. mradermacher's imatrix repos (`X-i1-GGUF`) have none; the static repo (`X-GGUF`) has it. For such a model, Configure finds the projector on Hugging Face and offers to download it into the model's folder. See [Projector (mmproj)](model-config.md#projector-mmproj).
 

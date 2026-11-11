@@ -78,3 +78,34 @@ func TestModelCardUpdateButton(t *testing.T) {
 		t.Errorf("Update button shown for a model that cannot be updated; output=\n%s", out)
 	}
 }
+
+// Only a chat model from a repository links to its file list on the
+// Download page.
+func TestBrowseRepoURL(t *testing.T) {
+	s := newTestServer(t)
+	cases := []struct {
+		name string
+		m    models.Model
+		want string
+	}{
+		{"huggingface", models.Model{ModelID: "unsloth/Qwen3-8B-GGUF"},
+			"/models/browse?repo=unsloth%2FQwen3-8B-GGUF&source=hf"},
+		{"modelscope", models.Model{ModelID: "unsloth/Qwen3-8B-GGUF", Source: "modelscope"},
+			"/models/browse?repo=unsloth%2FQwen3-8B-GGUF&source=modelscope"},
+		{"no repository", models.Model{ModelID: "m"}, ""},
+		{"embedding", models.Model{ModelID: "o/m", Embedding: true}, ""},
+		{"reranker", models.Model{ModelID: "o/m", PoolingType: models.PoolingRank}, ""},
+	}
+	for _, c := range cases {
+		if got := s.browseRepoURL(&c.m); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+	out := renderModelCardPartial(t, modelCardData{BrowseRepoURL: "/models/browse?repo=o%2Fm&source=hf"})
+	if !strings.Contains(out, `href="/models/browse?repo=o%2Fm&amp;source=hf"`) {
+		t.Errorf("card lacks the link:\n%s", out)
+	}
+	if out := renderModelCardPartial(t, modelCardData{}); strings.Contains(out, "/models/browse?") {
+		t.Error("card links to the Download page without a repository")
+	}
+}
