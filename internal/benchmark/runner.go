@@ -426,150 +426,6 @@ const (
 // actual template, the same as the analysis prefix.
 const BenchPromptEchoPrefixTemplate = "This is benchmark repetition number %d. Reproduce the following text exactly, character for character, with no commentary and no introduction.\n\n"
 
-// BenchPromptCodePrefixTemplate asks for an edited copy of the file that
-// follows. The edits are mechanical and spread through the file, so the
-// answer repeats most of the input while still being written rather than
-// recalled.
-const BenchPromptCodePrefixTemplate = "This is benchmark repetition number %d. Rename the method `add_item` to `add_stock` everywhere it appears, add type hints to every function, and return the complete updated file with no commentary.\n\n"
-
-// BenchCodeText is the source file PromptStyleCode asks the model to
-// edit. Deterministic like BenchPromptText, and self-contained: no
-// imports a model might comment on, and nothing that makes the edit
-// ambiguous.
-const BenchCodeText = "```python\n" + benchCodeBody + "```\n"
-
-const benchCodeBody = `"""Inventory tracking for a small warehouse.
-
-The module keeps stock levels per item, records movements in and out,
-and reports on what needs reordering. It is deliberately plain: a
-dictionary of items, a list of movements, and functions over them.
-"""
-
-
-class Item:
-    """A single stocked product."""
-
-    def __init__(self, sku, name, unit_price, reorder_level=0):
-        self.sku = sku
-        self.name = name
-        self.unit_price = unit_price
-        self.reorder_level = reorder_level
-        self.quantity = 0
-
-    def value(self):
-        """Return the value of the stock held for this item."""
-        return self.quantity * self.unit_price
-
-    def needs_reorder(self):
-        """Return True when stock has fallen to the reorder level."""
-        return self.quantity <= self.reorder_level
-
-    def __repr__(self):
-        return "Item(sku=%r, name=%r, quantity=%r)" % (self.sku, self.name, self.quantity)
-
-
-class Movement:
-    """A change in stock: positive in, negative out."""
-
-    def __init__(self, sku, quantity, reason, at):
-        self.sku = sku
-        self.quantity = quantity
-        self.reason = reason
-        self.at = at
-
-    def is_inbound(self):
-        """Return True when this movement added stock."""
-        return self.quantity > 0
-
-
-class Inventory:
-    """The warehouse's stock, indexed by SKU."""
-
-    def __init__(self, name):
-        self.name = name
-        self.items = {}
-        self.movements = []
-
-    def register(self, item):
-        """Add an item to the catalogue, replacing one with the same SKU."""
-        self.items[item.sku] = item
-        return item
-
-    def add_item(self, sku, quantity, reason="delivery", at=None):
-        """Add stock for one SKU and record the movement.
-
-        Raises KeyError when the SKU is not in the catalogue, and
-        ValueError when the quantity is not positive.
-        """
-        if sku not in self.items:
-            raise KeyError("unknown sku: %s" % sku)
-        if quantity <= 0:
-            raise ValueError("quantity must be positive")
-        item = self.items[sku]
-        item.quantity += quantity
-        self.movements.append(Movement(sku, quantity, reason, at))
-        return item.quantity
-
-    def remove_item(self, sku, quantity, reason="sale", at=None):
-        """Take stock out for one SKU and record the movement."""
-        if sku not in self.items:
-            raise KeyError("unknown sku: %s" % sku)
-        if quantity <= 0:
-            raise ValueError("quantity must be positive")
-        item = self.items[sku]
-        if item.quantity < quantity:
-            raise ValueError("only %d of %s in stock" % (item.quantity, sku))
-        item.quantity -= quantity
-        self.movements.append(Movement(sku, -quantity, reason, at))
-        return item.quantity
-
-    def quantity_of(self, sku):
-        """Return the stock held for one SKU, or zero when unknown."""
-        item = self.items.get(sku)
-        return item.quantity if item else 0
-
-    def total_value(self):
-        """Return the value of everything in stock."""
-        return sum(item.value() for item in self.items.values())
-
-    def reorder_list(self):
-        """Return the items at or below their reorder level, by name."""
-        low = [item for item in self.items.values() if item.needs_reorder()]
-        return sorted(low, key=lambda item: item.name)
-
-    def movements_for(self, sku):
-        """Return every movement recorded for one SKU, oldest first."""
-        return [m for m in self.movements if m.sku == sku]
-
-    def busiest_items(self, limit=5):
-        """Return the SKUs with the most movements, busiest first."""
-        counts = {}
-        for movement in self.movements:
-            counts[movement.sku] = counts.get(movement.sku, 0) + 1
-        ranked = sorted(counts.items(), key=lambda pair: pair[1], reverse=True)
-        return ranked[:limit]
-
-    def summary(self):
-        """Return a short report on the state of the inventory."""
-        lines = ["Inventory: %s" % self.name]
-        lines.append("  items: %d" % len(self.items))
-        lines.append("  total value: %.2f" % self.total_value())
-        low = self.reorder_list()
-        if low:
-            lines.append("  needs reorder: %s" % ", ".join(item.name for item in low))
-        return "\n".join(lines)
-
-
-def restock_from_plan(inventory, plan, reason="plan"):
-    """Apply a {sku: quantity} plan to an inventory, skipping unknown SKUs."""
-    applied = {}
-    for sku, quantity in plan.items():
-        if sku not in inventory.items:
-            continue
-        applied[sku] = inventory.add_item(sku, quantity, reason=reason)
-    return applied
-`
-
 // ReasoningControl describes how to turn a model's thinking mode off, in
 // whichever way that model exposes. Detected from the chat template
 // (models.ReasoningCapability) and carried through ModelInfo.
@@ -602,15 +458,15 @@ type promptOptions struct {
 	Loaded bool
 }
 
-// promptPrefixTemplate returns the per-repetition prefix for a style.
-func promptPrefixTemplate(style PromptStyle) string {
+// promptPrefix returns the per-repetition prefix for a style.
+func promptPrefix(style PromptStyle, repetition int) string {
 	switch style {
 	case PromptStyleEcho:
-		return BenchPromptEchoPrefixTemplate
+		return fmt.Sprintf(BenchPromptEchoPrefixTemplate, repetition)
 	case PromptStyleCode:
-		return BenchPromptCodePrefixTemplate
+		return codePrefix(repetition)
 	}
-	return BenchPromptPrefixTemplate
+	return fmt.Sprintf(BenchPromptPrefixTemplate, repetition)
 }
 
 // buildPrompt constructs a prompt of approximately the target token count
@@ -654,16 +510,17 @@ func buildPromptFor(nonce string, targetTokens int, repetition int, style Prompt
 	}
 	b.WriteString(fmt.Sprintf("Benchmark %s, target %d tokens, repetition %d%s.\n\n",
 		nonce, targetTokens, repetition, styleMark))
-	b.WriteString(fmt.Sprintf(promptPrefixTemplate(style), repetition))
+	b.WriteString(promptPrefix(style, repetition))
 	body := BenchPromptText
 	if style == PromptStyleCode {
-		body = BenchCodeText
+		// Each repetition edits a different file (see benchCodeFiles).
+		body = codeText(repetition)
 	}
 	for i := 0; b.Len() < targetChars; i++ {
 		if style == PromptStyleCode && i > 0 {
 			// A second copy is a second file rather than the same one
 			// twice, so the edit stays unambiguous.
-			b.WriteString(fmt.Sprintf("\n\nAnd this file, inventory_v%d.py:\n\n", i+1))
+			b.WriteString(fmt.Sprintf("\n\nAnd this file, %s_v%d.py:\n\n", codeFileFor(repetition).Name, i+1))
 		}
 		b.WriteString(body)
 	}

@@ -30,6 +30,62 @@ func TestCodePromptCarriesTheFile(t *testing.T) {
 	}
 }
 
+// Every repetition of the code workload edits a file of its own. On the
+// same file each time, an n-gram cache drafted the second repetition's
+// answer from the first's, and generation sped up run over run.
+func TestCodePromptEditsADifferentFileEachRepetition(t *testing.T) {
+	reps := GetPreset("autotune-code").Repetitions
+	if reps > len(benchCodeFiles) {
+		t.Fatalf("autotune-code runs %d repetitions but there are %d files; the last would repeat an edit", reps, len(benchCodeFiles))
+	}
+	seen := map[string]int{}
+	for rep := 1; rep <= reps; rep++ {
+		f := codeFileFor(rep)
+		p := buildPromptFor("nonce", 1536, rep, PromptStyleCode)
+		if !strings.Contains(p, "Rename the method `"+f.Method+"` to `"+f.Rename+"`") {
+			t.Errorf("repetition %d does not ask to rename %s", rep, f.Method)
+		}
+		if !strings.Contains(p, f.Body[:200]) {
+			t.Errorf("repetition %d does not carry the %s file", rep, f.Name)
+		}
+		if prev, dup := seen[f.Name]; dup {
+			t.Errorf("repetitions %d and %d both edit %s", prev, rep, f.Name)
+		}
+		seen[f.Name] = rep
+		if long := buildPromptFor("nonce", 4096, rep, PromptStyleCode); !strings.Contains(long, f.Name+"_v2.py") {
+			t.Errorf("repetition %d pads with another file's name", rep)
+		}
+	}
+	if codeFileFor(len(benchCodeFiles)+1).Name != codeFileFor(1).Name {
+		t.Error("repetitions past the last file should start over")
+	}
+}
+
+// The files are interchangeable: each one is long enough to fill most of
+// the prompt, defines its method and calls it again further down, and
+// names no other file's method, so the edit is equally clear in each.
+func TestCodeFilesAreAlike(t *testing.T) {
+	for _, f := range benchCodeFiles {
+		if len(f.Body) < 4000 {
+			t.Errorf("%s is %d characters; a 1536-token prompt would be mostly padding", f.Name, len(f.Body))
+		}
+		if !strings.Contains(f.Body, "def "+f.Method+"(") {
+			t.Errorf("%s does not define %s", f.Name, f.Method)
+		}
+		if n := strings.Count(f.Body, f.Method+"("); n < 2 {
+			t.Errorf("%s uses %s %d times; the rename should touch a caller too", f.Name, f.Method, n)
+		}
+		if strings.Contains(f.Body, f.Rename) {
+			t.Errorf("%s already contains %s", f.Name, f.Rename)
+		}
+		for _, other := range benchCodeFiles {
+			if other.Name != f.Name && strings.Contains(f.Body, other.Method) {
+				t.Errorf("%s mentions %s, the method %s renames", f.Name, other.Method, other.Name)
+			}
+		}
+	}
+}
+
 // Autotune's presets are comparable across its own runs, and stay out of
 // the pickers.
 func TestAutotunePresetsAreHidden(t *testing.T) {
