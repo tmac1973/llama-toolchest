@@ -16,4 +16,53 @@ A **profile** is a named copy of a model's settings. The profile bar at the top 
 - **Vision projector.** For a model with a projector, choose *Keep the vision projector in system RAM* to plan without it on the GPU. Its VRAM goes to the model, and images and audio are read on the CPU, more slowly. The box starts with the model's current setting.
 - **Helper model.** Autoconfigure reads the model card with a small model of its own (install it on Settings). Without it, settings come only from what fits.
 - **Draft models.** For speculative decoding, Autotune tries installed draft models that are related to the model: same publisher as its base model, or same family. A finetune made for something else is left out. If no installed model is related, it tries the smallest ones that load.
-- **Noise.** Autotune keeps the simpler setting unless the faster one wins by more than the run-to-run variation. A setting whose speed jumps around between runs cannot use its own variation to stay close to a steadier, faster one. Between equally simple settings, the one with the faster slow runs wins. Each stage is a normal benchmark job; you can read it on Benchmarks.
+- **Noise.** Autotune keeps the simpler setting unless the faster one wins by more than the run-to-run variation. [How Autotune picks a winner](#picking) has the full rule. Each stage is a normal benchmark job; you can read it on Benchmarks.
+
+## What the use cases measure { #use-cases }
+
+Autotune asks what you use the model for because the answer changes which settings are fastest. Speculative decoding guesses the next few tokens and has the model check them in one step. When the answer repeats the prompt, as when you ask for an edited copy of a file, most guesses are right and generation can be several times faster. When the answer is new text, few guesses are right and the same setting gains little or nothing.
+
+Each use case runs one or two hidden benchmark presets, called *workloads*:
+
+| Use case | Workloads | Prompt | Answer |
+| --- | --- | --- | --- |
+| **General chat** | chat (`autotune-chat`) | A passage of prose with a request to respond to it, at 512 and 4096 tokens | 256 tokens of new text |
+| **Coding and editing** | coding (`autotune-code`) | A Python file of about 1536 tokens, with a request to rename a method, add type hints and return the whole file | 512 tokens, mostly the file again |
+| **Mixed** (the default) | chat and coding | Both of the above | Both of the above |
+
+Every setting runs each workload three times. *Mixed* measures every setting with both workloads, so it takes about twice as long. Choose it when you use the model for both kinds of work, or when you are not sure.
+
+## How each goal is scored { #goals }
+
+Autotune scores every setting on three goals and reads each goal from a fixed prompt size:
+
+| Goal | Chat workload | Coding workload |
+| --- | --- | --- |
+| **Fastest generation**: tokens written per second | Read on the 512-token prompt | Read on the 1536-token prompt |
+| **Fastest prompt**: tokens of input read per second | Read on the 4096-token prompt | Read on the 1536-token prompt |
+| **Fastest response**: seconds for a whole answer | A 512-token prompt and a 256-token answer | A 1536-token prompt and a 512-token answer |
+
+Response time is calculated from the measured prompt and generation speeds for that request size.
+
+Each score is the median of the three runs, so one unusually fast or slow run cannot decide the result. The score also records its *spread*: how much the three runs differed.
+
+With *Mixed*, the two workloads are combined into one score per goal:
+
+- **Speeds** (generation and prompt) are the average of the chat and coding speeds.
+- **Response time** is the total of one chat answer and one coding answer.
+
+The results show both parts, for example *Average of two workloads: chat 112.1 → 129.5, coding 115.0 → 133.8 tokens per second*. The first number is the starting profile, and the second is the winner. A setting can win *Mixed* because of a large gain on coding alone, so check the parts when one kind of work matters more to you.
+
+## How Autotune picks a winner { #picking }
+
+Autotune measures in stages, in this order: batch sizes and attention, GPU split and CPU threads, expert cache, speculative decoding, the draft settings, and confirming the finalists. A stage that does not apply to the model is skipped. Each stage picks a winner for each goal, and the next stage builds on those winners.
+
+For each goal, a stage picks its winner like this:
+
+1. **Remove the clearly slower settings.** A setting is out if another setting is faster by more than the *noise*: the two settings' spreads combined. A gap smaller than that might be chance. A setting with a large spread cannot use its own spread to stay close to a steadier setting that measured clearly faster.
+2. **Prefer the plainest setting.** Of the settings left, the one with the fewest changes from the starting profile wins. Each changed batch size, attention, split, thread or draft value counts as one change. Speculative decoding counts as two or three, because it adds a mechanism and sometimes a second model file.
+3. **Break ties on the slow runs.** Of equally plain settings, the one with the higher score minus its spread wins. This prefers a steady setting when two measured about the same, and the faster one when the gap is real.
+
+The last stage measures the finalists and the starting profile again, close together, and only those numbers decide the result. The winner must still beat the starting profile by more than the noise. If it does not, Autotune keeps your profile and says that it is already the fastest for that goal. The results also show the closest alternative and its margin of error, so you can see whether the gap was small or just uncertain.
+
+Each goal that has a winner gets a saved profile. When one setting wins two or three goals, it is saved once, as one profile for all of them.
