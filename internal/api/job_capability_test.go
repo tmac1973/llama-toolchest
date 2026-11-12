@@ -425,17 +425,26 @@ func TestEvalFlagsCompleteAndValidated(t *testing.T) {
 // exercise.
 func evalStopServer(t *testing.T) (*Server, *process.Manager) {
 	t.Helper()
-	binDir := fakeLlamaServerDir(t)
 	health := 0
+	return fakeRouterServer(t, func() bool {
+		health++
+		// One failed poll first, so the state machine actually
+		// traverses starting → running.
+		return health > 1
+	})
+}
+
+// fakeRouterServer is evalStopServer with the fake's /health answering
+// 200 only while healthy returns true.
+func fakeRouterServer(t *testing.T, healthy func() bool) (*Server, *process.Manager) {
+	t.Helper()
+	binDir := fakeLlamaServerDir(t)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/health" {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		health++
-		if health == 1 {
-			// One failed poll first, so the state machine actually
-			// traverses starting → running.
+		if !healthy() {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}

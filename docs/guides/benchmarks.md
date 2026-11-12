@@ -1,6 +1,6 @@
 # Benchmarks
 
-A **job** runs every combination of the chosen models, builds and presets. Each result records the build flags, settings and GPU state, so it stays useful after you change things. A job never changes your saved model settings.
+A **job** runs every combination of the chosen models, builds and presets. Each result records the build flags, settings and GPU state, so it stays useful after you change things. A job never changes your saved model settings. A job (or an Autotune run) started while the server is still starting, as just after the app restarts, waits up to two minutes for it to come up instead of failing at once.
 
 ## Speed presets { #speed-presets }
 
