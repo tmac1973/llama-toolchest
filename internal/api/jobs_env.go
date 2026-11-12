@@ -20,6 +20,7 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/memreport"
 	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/monitor"
+	"github.com/tmac1973/llama-toolchest/internal/process"
 )
 
 // jobEnv adapts *Server to benchmark.JobEnv. Created once at server
@@ -143,6 +144,13 @@ func (e *jobEnv) EnsureBuildActive(ctx context.Context, buildID string, modelIDs
 		return fmt.Errorf("build %s is %s, not success", buildID, target.Status)
 	}
 
+	// Before the fast path below reads IsRunning: a router that is
+	// still starting reads as not running, and is then often the very
+	// router the fast path would have kept.
+	if err := e.waitForStartingRouter(ctx); err != nil {
+		return err
+	}
+
 	e.mu.Lock()
 	e.jobBuildID = buildID
 	hasConfigs := e.jobConfigs != nil
@@ -198,6 +206,9 @@ func (e *jobEnv) EnsureBuildActive(ctx context.Context, buildID string, modelIDs
 // until it is running or the deadline passes. Factored out of
 // EnsureBuildActive so config swaps reuse the same wait semantics.
 func (e *jobEnv) restartRouter(ctx context.Context, what string) error {
+	if err := e.waitForStartingRouter(ctx); err != nil {
+		return err
+	}
 	if e.s.process.IsRunning() {
 		if err := e.s.process.Stop(); err != nil {
 			return fmt.Errorf("stop router: %w", err)
@@ -216,6 +227,42 @@ func (e *jobEnv) restartRouter(ctx context.Context, what string) error {
 			return fmt.Errorf("timed out waiting for router after %s", what)
 		}
 		return fmt.Errorf("router after %s: %w", what, err)
+	}
+	return nil
+}
+
+// routerStartingWait is how long a job waits for a router that is still
+// starting when the job needs it. A variable so tests can shorten it.
+var routerStartingWait = 2 * time.Minute
+
+// waitForStartingRouter waits for a router that is still starting — the
+// one the service starts when it comes up, or one the user just started —
+// to finish, before the job stops, restarts or reuses it.
+//
+// A starting router is not IsRunning, so without this the job skipped
+// the stop and its start was refused with "router already starting":
+// a job started right after a container restart failed every cell in
+// under a second.
+//
+// A router that stops or fails while starting is no longer in the way,
+// so that returns nil and the job starts its own.
+func (e *jobEnv) waitForStartingRouter(ctx context.Context) error {
+	if e.s.process.GetStatus().State != process.StateStarting {
+		return nil
+	}
+	slog.Info("router is still starting; the job waits for it", "timeout", routerStartingWait)
+	waitCtx, cancel := context.WithTimeout(ctx, routerStartingWait)
+	defer cancel()
+	err := e.s.process.WaitRunning(waitCtx)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("the server was still starting after %s. "+
+			"Wait until the Server page shows it running, then run this again", routerStartingWait)
+	}
+	if err != nil {
+		slog.Info("the starting router did not come up; the job starts its own", "error", err)
 	}
 	return nil
 }
@@ -466,6 +513,11 @@ func (e *jobEnv) releaseRouter() {
 // the user, before the job) nothing is recorded and cleanup leaves it
 // stopped. Idempotent: a second call for the same job changes nothing.
 func (e *jobEnv) StopRouterForEval(ctx context.Context) error {
+	// A starting router reads as stopped below, and would then load
+	// models alongside the evaluation.
+	if err := e.waitForStartingRouter(ctx); err != nil {
+		return err
+	}
 	e.mu.Lock()
 	if e.stoppedForEval {
 		e.mu.Unlock()
