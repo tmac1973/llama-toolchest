@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.58.0](https://github.com/tmac1973/llama-toolchest/compare/v2.57.1...v2.58.0) (2026-11-12)
+
+
+### Features
+
+* **benchmarks:** save a result's settings as a profile with Use ([#621](https://github.com/tmac1973/llama-toolchest/issues/621)) ([3cb735d](https://github.com/tmac1973/llama-toolchest/commit/3cb735dd054ddb21d02066ea6568c7b5d0b670a1))
+* **models:** link each chat model to its repository's files on the Download page ([#619](https://github.com/tmac1973/llama-toolchest/issues/619)) ([82fcffb](https://github.com/tmac1973/llama-toolchest/commit/82fcffb50cb8082a8aeb1150caf6b2907e374a8d))
+
+
+### Bug Fixes
+
+* **autotune:** bring every goal's winner to the confirming stage ([#624](https://github.com/tmac1973/llama-toolchest/issues/624)) ([44db7c2](https://github.com/tmac1973/llama-toolchest/commit/44db7c257f081925d12ac057719b47a1d9dd865b))
+* **benchmark:** edit a different file in each coding repetition ([#623](https://github.com/tmac1973/llama-toolchest/issues/623)) ([b0051ef](https://github.com/tmac1973/llama-toolchest/commit/b0051ef12ea2834f5688573fa4006f1398e2acaa))
+* **benchmark:** wait for a router that is still starting before a job takes it over ([#625](https://github.com/tmac1973/llama-toolchest/issues/625)) ([80c9209](https://github.com/tmac1973/llama-toolchest/commit/80c920906af79712757be5dccee6d3734871fea1))
+
 ## [2.57.1](https://github.com/tmac1973/llama-toolchest/compare/v2.57.0...v2.57.1) (2026-11-11)
 
 
