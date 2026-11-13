@@ -113,7 +113,7 @@ func corpusRow(m *models.Model, meas memreport.Measurement, note loadNote, build
 		gib(gpuOf(report, memreport.KindModel)),
 		gib(gpuOf(report, memreport.KindKV)),
 		gib(gpuOf(report, memreport.KindRecurrent)),
-		gib(gpuOf(report, memreport.KindCompute)+gpuOf(report, memreport.KindOutput)),
+		gib(gpuWorking(report)),
 		moeCache)
 	return b.String()
 }

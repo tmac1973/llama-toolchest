@@ -933,7 +933,7 @@ func (e *jobEnv) MeasuredMemory(modelID string) (benchmark.MemorySnapshot, bool)
 		GPUGiB:      gib(report.GPUMiB(true)),
 		WeightsGiB:  gib(gpuOf(report, memreport.KindModel)),
 		KVGiB:       gib(gpuOf(report, memreport.KindKV) + gpuOf(report, memreport.KindRecurrent)),
-		ComputeGiB:  gib(gpuOf(report, memreport.KindCompute) + gpuOf(report, memreport.KindOutput)),
+		ComputeGiB:  gib(gpuWorking(report)),
 		MoECacheGiB: gib(gpuOf(report, memreport.KindMoECache)),
 		HostGiB:     gib(report.HostMiB(true)),
 		Cards:       cards,

@@ -298,13 +298,14 @@ func (s *Server) memoryTooltip(m *models.Model, cfg *models.ModelConfig, state s
 
 	// The three terms are every kind llama.cpp reports, so they add up to
 	// the total: recurrent state is part of what the model remembers, and
-	// the output buffer is part of what a graph needs to run.
+	// the output and hidden-state buffers are part of what a graph needs to
+	// run.
 	lines := []string{
 		fmt.Sprintf("%s: %.1f GiB of GPU memory — %.1f weights, %.1f KV cache, %.1f working buffers%s.",
 			lead, gpu,
 			gib(gpuOf(report, memreport.KindModel)),
 			gib(gpuOf(report, memreport.KindKV)+gpuOf(report, memreport.KindRecurrent)),
-			gib(gpuOf(report, memreport.KindCompute)+gpuOf(report, memreport.KindOutput)),
+			gib(gpuWorking(report)),
 			moeCacheTerm(gib(gpuOf(report, memreport.KindMoECache)))),
 	}
 	if where := deviceSummary(report, note.cards); where != "" {
@@ -325,6 +326,12 @@ func moeCacheTerm(gib float64) string {
 		return ""
 	}
 	return fmt.Sprintf(", %.1f expert cache", gib)
+}
+
+// gpuWorking totals the working buffers on the accelerators: the graph's
+// compute scratch, the logits, and the hidden states a drafter reads.
+func gpuWorking(r memreport.Report) float64 {
+	return gpuOf(r, memreport.KindCompute) + gpuOf(r, memreport.KindOutput) + gpuOf(r, memreport.KindHidden)
 }
 
 // gib converts a MiB figure to GiB.

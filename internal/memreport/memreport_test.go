@@ -390,3 +390,46 @@ func TestMoECacheLine(t *testing.T) {
 		t.Errorf("cache total = %.2f", r.ByKind()[KindMoECache])
 	}
 }
+
+// Builds from b12007 log the KV cache's rotation constants, and from
+// b12063 and b12226 the hidden states DFlash and MTP drafters read, each
+// on a buffer line of its own. Dropping them undercounted DFlash loads by
+// the size of the layer input buffer.
+func TestDrafterAndRotationBufferLines(t *testing.T) {
+	const log = `[46231] 0.14.275.753 I load_tensors:        CUDA0 model buffer size = 10240.00 MiB
+[46231] 0.16.162.940 I init_rotation:      CUDA0 rotation buffer size =     0.50 MiB
+[46231] 0.16.300.000 I layer_inp_dev_alloc:      CUDA0 layer input buffer size =   200.00 MiB (5 layers)
+[46231] 0.16.300.100 I h_nextn_dev_alloc:      CUDA0 h_nextn buffer size =    40.02 MiB`
+	r := parseAll(t, log)
+	if len(r.Entries) != 4 {
+		t.Fatalf("entries = %d, want 4: %+v", len(r.Entries), r.Entries)
+	}
+	byKind := r.ByKind()
+	if !close(byKind[KindKV], 0.50) {
+		t.Errorf("KV = %.2f, want the rotation buffer", byKind[KindKV])
+	}
+	if !close(byKind[KindHidden], 240.02) {
+		t.Errorf("hidden = %.2f, want the layer input and h_nextn buffers", byKind[KindHidden])
+	}
+	if e := r.Entries[2]; e.Device != "CUDA0" || e.Category != "layer_inp_dev_alloc" || e.Instance != "46231" {
+		t.Errorf("layer input line = %+v", e)
+	}
+}
+
+// DFlash enables its captured layers one at a time, and llama.cpp frees
+// and allocates the layer input buffer again for each, logging every
+// size on the way. Only the last one is held.
+func TestHiddenBufferReallocationReplaces(t *testing.T) {
+	const log = `[46231] 0.16.300.000 I layer_inp_dev_alloc:      CUDA0 layer input buffer size =    40.00 MiB (1 layers)
+[46231] 0.16.300.001 I layer_inp_dev_alloc:      CUDA0 layer input buffer size =    80.00 MiB (2 layers)
+[46231] 0.16.300.002 I layer_inp_dev_alloc:      CUDA1 layer input buffer size =    80.00 MiB (2 layers)
+[39114] 0.16.300.003 I layer_inp_dev_alloc:      CUDA0 layer input buffer size =    40.00 MiB (1 layers)
+[46231] 0.16.300.004 I layer_inp_dev_alloc:      CUDA0 layer input buffer size =   120.00 MiB (3 layers)`
+	r := parseAll(t, log)
+	if got := r.ForInstance("46231").SumMiB(nil); !close(got, 120+80) {
+		t.Errorf("46231 = %.2f MiB, want the last size per device, 120 + 80", got)
+	}
+	if got := r.ForInstance("39114").SumMiB(nil); !close(got, 40) {
+		t.Errorf("39114 = %.2f MiB, want its own buffer untouched", got)
+	}
+}

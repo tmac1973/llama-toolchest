@@ -370,3 +370,20 @@ func TestParseMarker(t *testing.T) {
 		}
 	}
 }
+
+// A measurement handed out mid-load keeps the hidden buffer it was given,
+// even when a later reallocation replaces it in the collector.
+func TestCollectorHiddenReplacementLeavesSnapshotsAlone(t *testing.T) {
+	c := NewCollector()
+	feed(c, `0.00.100.000 I srv          load: spawning server instance with name=dflash on port 46231
+[46231] 0.16.300.000 I layer_inp_dev_alloc:      CUDA0 layer input buffer size =    40.00 MiB (1 layers)`)
+	before, _ := c.Latest("dflash")
+	feed(c, `[46231] 0.16.300.001 I layer_inp_dev_alloc:      CUDA0 layer input buffer size =    80.00 MiB (2 layers)`)
+	after, _ := c.Latest("dflash")
+	if got := before.Report.SumMiB(nil); got != 40 {
+		t.Errorf("snapshot = %v MiB; want the 40 it was taken with", got)
+	}
+	if got := after.Report.SumMiB(nil); got != 80 {
+		t.Errorf("latest = %v MiB; want 80, the reallocation replacing the first", got)
+	}
+}
