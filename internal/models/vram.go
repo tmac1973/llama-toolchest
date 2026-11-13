@@ -355,12 +355,16 @@ var rocmCoefficients = vramCoefficients{
 	// The costs found on CUDA, seen on the RX 9070 XT: an 8-bit cache
 	// added 0.48 GiB on Qwen3.5-4B at 128K (0.50 predicted), expert
 	// offload 0.26 GiB on the 35B-A3B, and MTP the recurrent state seven
-	// times over. MTP's draft scratch is smaller than CUDA's: +0.15 to
-	// +0.22 GiB at 32K and +0.31 at 128K.
+	// times over. MTP's draft scratch is smaller than CUDA's and nearly
+	// flat with context: +0.15 to +0.22 GiB at 32K, +0.31 at 128K, and on
+	// llama.cpp v1.0.0 0.36 at 262,144 (Qwen3.8-27B on the R9700, the
+	// draft context's 0.32 and its h_nextn buffer). The context term was
+	// six times that, 0.70 GiB at 262,144, and with the draft cache
+	// counted twice it planned the 27B at half its context.
 	recurrentPerDraftToken: true,
 	quantKVScratch:         true,
 	expertOffloadScratch:   true,
-	specCompute:            computeCoeffs{base: 0.30, perUBCtx: 3.0e-9},
+	specCompute:            computeCoeffs{base: 0.30, perUBCtx: 4.5e-10},
 }
 
 // cudaCoefficients come from compute2 (3x RTX A4000, build v0.5.0-cuda):
@@ -703,8 +707,9 @@ func vramBreakdownOn(co *vramCoefficients, m *Model, cfg *ModelConfig, cards int
 	// conversation. Unlike the KV cache it is not shared: a shared context
 	// pools only the attention layers.
 	perSeq := BytesToGiB(m.RecurrentStateBytes)
-	if perSeq == 0 && m.AttnLayers > 0 && m.AttnLayers < m.NLayers {
-		perSeq = float64(m.NLayers-m.AttnLayers) * co.recurrentPerLayerSeq
+	if perSeq == 0 && m.AttnLayers > 0 && m.AttnLayers+m.NextNLayers < m.NLayers {
+		// The MTP layers are neither: their cache is the draft context's.
+		perSeq = float64(m.NLayers-m.AttnLayers-m.NextNLayers) * co.recurrentPerLayerSeq
 	}
 	if perSeq > 0 {
 		b.Recurrent = perSeq * float64(serverSlots(cfg))
@@ -765,8 +770,12 @@ func pipelineCopiesFit(b *VRAMBreakdown, cards int, masks, spec, specCopies, car
 		model -= cut + idx
 	}
 	// The drafter's copies against what it allocates, without the base,
-	// which is what llama.cpp does not itemise.
-	if specCopies > 0 && model/float64(cards)+b.SpecKV+specCopies > cardGiB {
+	// which is what llama.cpp does not itemise. They are dropped only past
+	// the overhead allowance: within it the average card cannot tell, and
+	// keeping them errs high, which costs some context where a guess too
+	// low costs a load. Qwen3.6-35B-A3B with MTP and four slots came out
+	// 0.11 GiB over the card this way, and llama.cpp kept all four copies.
+	if specCopies > 0 && model/float64(cards)+b.SpecKV+specCopies > cardGiB+b.Overhead/float64(cards) {
 		b.Compute -= specCopies * (pipelineCopies - 1) / pipelineCopies
 	}
 }
@@ -825,8 +834,8 @@ func encoderComputeGiB(co *vramCoefficients, m *Model, ub, ctx int) float64 {
 }
 
 // specDraftLayers is how many layers of KV cache the draft context holds
-// when the count is not known from the file: the drafter's own layer,
-// and the one it predicts from.
+// when the count is not known from the file: a separate draft model or
+// converted head, which the model's own record does not describe.
 const specDraftLayers = 2
 
 // SpecKVCacheGB estimates the KV cache of the speculative draft context,
@@ -839,10 +848,15 @@ const specDraftLayers = 2
 // context and gigabytes at a long one, which is exactly where a planner
 // has to get it right.
 //
-// Two things make it larger than its share of layers suggests. It is not
-// quantized — the model's cache-type setting does not reach it, so it is
-// f16 whatever the main cache is — and it spans the drafter's layers
-// plus the one it predicts from.
+// It is larger than its share of layers suggests because it is not
+// quantized: the model's cache-type setting does not reach it, so it is
+// f16 whatever the main cache is.
+//
+// With built-in MTP it holds the MTP layers and nothing else: llama.cpp
+// reports one layer for Qwen3.8-27B, 1024 MiB at 262,144 tokens, beside
+// 16 in the model's own cache. Counting the layer the drafter predicts
+// from as well doubled the term, and a 27B on a 32 GiB card was planned
+// at half its context with room to spare.
 func SpecKVCacheGB(m *Model, cfg *ModelConfig, ctx int) float64 {
 	if m == nil || cfg == nil || !IsDraftMode(cfg.SpecType) || m.NLayers <= 0 {
 		return 0
@@ -854,8 +868,8 @@ func SpecKVCacheGB(m *Model, cfg *ModelConfig, ctx int) float64 {
 		return 0
 	}
 	layers := specDraftLayers
-	if n := m.NextNLayers; n > 0 && n+1 > layers {
-		layers = n + 1
+	if n := m.NextNLayers; n > 0 && cfg.SpecType == "draft-mtp" {
+		layers = n
 	}
 	if layers > m.NLayers {
 		layers = m.NLayers

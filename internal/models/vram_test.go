@@ -175,7 +175,10 @@ func TestKVCacheGBSlidingWindowCap(t *testing.T) {
 // then failed at "failed to allocate buffer for kv cache" while creating
 // the draft context.
 func TestSpecKVCacheIsCountedWhenDraftingIsOn(t *testing.T) {
+	// The KV factors are the trunk's, as the parser records them: 16
+	// attention layers of 4 heads at 256 for K and V each.
 	m := &Model{NLayers: 65, NEmbd: 5120, NHead: 24, NKVHead: 4,
+		AttnLayers: 16, KVFullPerTok: 16 * 4 * 512,
 		ContextLength: 262144, SizeBytes: 31457991680, NextNLayers: 1}
 
 	off := ModelConfig{ContextSize: 262144, KVCacheQuant: "q8_0", GPULayers: 999}

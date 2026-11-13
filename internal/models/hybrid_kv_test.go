@@ -82,6 +82,32 @@ func TestHybridKVExcludesRecurrentLayers(t *testing.T) {
 	}
 }
 
+// The MTP layers at the end of the block count hold their cache in the
+// draft context, so the model's own KV factors leave them out. A file
+// that marks its MTP block as attending in attention.recurrent_layers
+// (ThinkingCap-Qwen3.8-27B does) counted 17 layers where llama.cpp
+// allocates 16.
+func TestKVScalingLeavesOutTheMTPLayers(t *testing.T) {
+	recurrent := make([]bool, 65)
+	for il := range recurrent {
+		recurrent[il] = (il+1)%4 != 0
+	}
+	recurrent[64] = false // the MTP block
+
+	meta := &GGUFMeta{NLayers: 65, NEmbd: 5120, NHead: 24, NextNPredictLayers: 1}
+	computeKVScaling(meta, 4, nil, 256, 256, 0, 0, 0, nil, 4, recurrent)
+	if meta.AttnLayers != 16 || meta.KVFullPerTok != 16*4*512 {
+		t.Errorf("attention layers %d, KV per token %d; want 16 and %d", meta.AttnLayers, meta.KVFullPerTok, 16*4*512)
+	}
+
+	// Without MTP layers the last block is part of the trunk.
+	plain := &GGUFMeta{NLayers: 65, NEmbd: 5120, NHead: 24}
+	computeKVScaling(plain, 4, nil, 256, 256, 0, 0, 0, nil, 4, recurrent)
+	if plain.AttnLayers != 17 {
+		t.Errorf("attention layers %d without MTP, want 17", plain.AttnLayers)
+	}
+}
+
 // An explicit array wins over the interval, matching llama.cpp's own
 // precedence.
 func TestRecurrentLayerArrayTakesPrecedence(t *testing.T) {

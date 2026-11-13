@@ -202,8 +202,23 @@ func rocmLocalCorpus() []corpusPoint {
 			reported: &reportedTerms{weights: 7.0, kv: 0.69, recurrent: 1.72, compute: 0.54}, backend: "rocm"},
 		{name: "rx9070 q35a3 ctx128k ub512 q8 moe32", model: models["q35a3"], cfg: ModelConfig{ContextSize: 131072, UBatchSize: 512, GPULayers: 999, KVCacheQuant: "q8_0", CPUMoE: 32}, cards: 1, measured: 8.02,
 			reported: &reportedTerms{weights: 5.6, kv: 1.33, recurrent: 0.25, compute: 0.57}, backend: "rocm"},
+		// The same machine's later card, a Radeon AI PRO R9700 (32 GiB), on
+		// llama.cpp v1.0.0, 2026-11-13: ThinkingCap-Qwen3.8-27B Q4_K_M at
+		// its full context with MTP, as Autoconfigure would plan it. Read
+		// from the card counters with the model loaded and served, less
+		// the same counters with it unloaded. KV is the model's 16 layers
+		// at 8 bits (8.50) and the drafter's one at f16 (1.00); compute is
+		// the model's context (1.35), the drafter's (0.32) and h_nextn.
+		{name: "r9700 thinkingcap27b ctx262k q8 mtp", model: thinkingCap27B, cfg: ModelConfig{ContextSize: 262144, GPULayers: 999, KVCacheQuant: "q8_0", SpecType: "draft-mtp", DraftMax: 3}, cards: 1, measured: 28.83,
+			reported: &reportedTerms{weights: 14.98, kv: 9.50, recurrent: 2.34, compute: 1.70}, backend: "rocm"},
 	}
 }
+
+// thinkingCap27B is ThinkingCap-Qwen3.8-27B.i1-Q4_K_M as the parser
+// records it: 64 trunk layers and one MTP layer, 16 attending.
+var thinkingCap27B = Model{Arch: "qwen35", SizeBytes: 16810715712, TokenEmbdBytes: 715161600, NLayers: 65, AttnLayers: 16,
+	NEmbd: 5120, NHead: 24, NKVHead: 4, KVFullPerTok: 16 * 4 * 512, ContextLength: 262144,
+	RecurrentStateBytes: 156893184, NextNLayers: 1}
 
 // cudaCorpus: compute2, 3x RTX A4000 (16 GiB), build v0.5.0-cuda,
 // measured 2026-10-02 by starting llama-server with the preset's flags
