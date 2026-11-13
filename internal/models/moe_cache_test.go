@@ -25,6 +25,32 @@ func TestPresetWritesTheMoECache(t *testing.T) {
 	}
 }
 
+// --moe-cache-cpu-share is written only with the cache it shares out,
+// only when set, and only for a build that takes it.
+func TestPresetWritesTheMoECacheCPUShare(t *testing.T) {
+	write := func(cfg *ModelConfig, tgt Target) string {
+		var b strings.Builder
+		writeConfigParams(&b, cfg, KindChat, tgt)
+		return b.String()
+	}
+	cfg := &ModelConfig{GPULayers: 999, CPUMoE: 20, MoECacheMiB: 1024, MoECacheCPUShare: 0.9}
+	if got := write(cfg, Target{}); !strings.Contains(got, "moe-cache-cpu-share = 0.9\n") {
+		t.Errorf("current build: share not written:\n%s", got)
+	}
+	if got := cfg.EffectiveFlagsFor(KindChat, Target{}); !strings.Contains(got, "--moe-cache-cpu-share 0.9") {
+		t.Errorf("current build: share not in the effective flags: %s", got)
+	}
+	if got := write(cfg, Target{Version: versionMoECacheCPUShare - 1}); strings.Contains(got, "moe-cache-cpu-share") {
+		t.Errorf("older build: share written, which stops the router at startup:\n%s", got)
+	}
+	if got := write(&ModelConfig{GPULayers: 999, CPUMoE: 20, MoECacheCPUShare: 0.9}, Target{}); strings.Contains(got, "moe-cache-cpu-share") {
+		t.Errorf("cache off: share written:\n%s", got)
+	}
+	if got := write(&ModelConfig{GPULayers: 999, CPUMoE: 20, MoECacheMiB: 1024}, Target{}); strings.Contains(got, "moe-cache-cpu-share") {
+		t.Errorf("share not set: written anyway:\n%s", got)
+	}
+}
+
 // The cache is GPU memory up to the size asked for, never more than the
 // experts it caches, and part of what llama.cpp itemises.
 func TestVRAMEstimateCountsTheMoECache(t *testing.T) {

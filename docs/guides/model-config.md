@@ -22,6 +22,14 @@ GPUs that are left out are hidden from the model with `--device`, so they stay f
 
 Layers on the GPU; 999 means all.
 
+### CPU Expert Layers and the MoE cache { #moe-cache }
+
+Mixture-of-experts models only. **CPU Expert Layers** (`--n-cpu-moe`) keeps the expert weights of that many layers in system memory, so a model larger than VRAM can run. Each token uses only a few experts, so this costs less speed than putting fewer layers on the GPU.
+
+**MoE Cache (MiB)** (`--moe-cache-mib`) is a GPU cache for the experts kept in system memory: the experts tokens use most often are read from the GPU instead. It uses GPU memory left over after the model, so Autoconfigure leaves it off and [Autotune](autoconfigure.md#picking) measures which size helps. It needs CPU Expert Layers and llama.cpp b11507 or newer.
+
+**MoE Cache CPU Share** (`--moe-cache-cpu-share`) appears once the cache is on. When the cache is full, an expert that is not in it is normally copied to the GPU. The share, from 0 to 1, is the part of those misses that the CPU computes from system memory instead. 0 (the default) copies them all. A high share such as 0.9 helps most with a small cache, where copying is the bottleneck; with a large cache it gains little or loses speed. It uses no extra memory. It needs llama.cpp b12191 or newer; an older build leaves it out.
+
 ### Context Size { #context-size }
 
 Larger needs more memory for the KV cache. For an embedding model, Context Size is the longest input of one request; for a reranking model, the longest query plus document. Most embedding models, and all reranking models, read an input in one micro-batch, so toolchest raises the micro-batch to the same size. VRAM use grows fast: about 1 GiB at 8K and 7 GiB at 32K for EmbeddingGemma 2. The default is 8192, or the model's limit if it is lower.

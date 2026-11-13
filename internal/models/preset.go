@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/tmac1973/llama-toolchest/internal/atomicfile"
@@ -150,6 +151,9 @@ func writeConfigParams(b *strings.Builder, cfg *ModelConfig, kind ModelKind, t T
 		// any there it would only warn and do nothing.
 		if t.moeCacheOption() && cfg.MoECacheMiB > 0 {
 			b.WriteString(fmt.Sprintf("moe-cache-mib = %d\n", cfg.MoECacheMiB))
+			if t.moeCacheCPUShareOption() && cfg.MoECacheCPUShare > 0 {
+				b.WriteString(fmt.Sprintf("moe-cache-cpu-share = %s\n", strconv.FormatFloat(cfg.MoECacheCPUShare, 'g', -1, 64)))
+			}
 		}
 	}
 	for _, p := range gpuPlacementParams(cfg, t.Backend) {

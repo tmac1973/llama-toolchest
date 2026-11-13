@@ -90,6 +90,15 @@
                    min="0" step="256" placeholder="0 = off">
             <small>{{if .MoECacheNote}}{{.MoECacheNote}}{{else if and (gt .Config.MoECacheMiB 0) (gt .Config.CPUMoE 0)}}Effective: <code>--moe-cache-mib {{.Config.MoECacheMiB}}</code>{{else if gt .Config.MoECacheMiB 0}}Not used: no expert layers are kept in system memory.{{else}}not set (off){{end}}</small>
         </label>
+        {{/* Shown once the cache is on; autosave re-renders the form. */}}
+        {{if gt .Config.MoECacheMiB 0}}
+        <label title="MoE cache only. Once the cache is full, the share of cache misses the CPU computes from the experts in system memory instead of copying them to the GPU. 0: all copied (default). Helps most with a small cache; try 0.9.">
+            MoE Cache CPU Share
+            <input type="number" name="moe_cache_cpu_share" value="{{if gt .Config.MoECacheCPUShare 0.0}}{{.Config.MoECacheCPUShare}}{{end}}"
+                   min="0" max="1" step="0.05" placeholder="0 = all copied">
+            <small>{{if .MoECacheCPUShareNote}}{{.MoECacheCPUShareNote}}{{else if and (gt .Config.MoECacheCPUShare 0.0) (gt .Config.CPUMoE 0)}}Effective: <code>--moe-cache-cpu-share {{.Config.MoECacheCPUShare}}</code>{{else}}not set (0){{end}}</small>
+        </label>
+        {{end}}
         {{end}}
         {{$cs := .Config.ContextSize}}
         {{$mc := .MaxContext}}
