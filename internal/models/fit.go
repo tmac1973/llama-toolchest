@@ -545,11 +545,28 @@ const moeCacheStepMiB = 256
 // refuses to load. It is never more than the experts there are to cache.
 //
 // The budget is the whole machine's, as PlanFit's is; a profile placed
-// on fewer cards than that is not narrowed to them.
+// on fewer cards than that is not narrowed to them. A profile that fits
+// only on the whole cards (WholeCards: auto-evict on) is sized there, as
+// PlanFit planned it: loading it stops the backends in its way, so their
+// room is the cache's too. Beside the reservations nothing fitted, and
+// on compute2 Autotune's expert-cache stage was skipped for every model
+// with experts in system memory.
 func MaxMoECacheMiB(m *Model, cfg ModelConfig, hw Hardware) int {
+	mib, fits := maxMoECacheOn(m, cfg, hw)
+	if !fits {
+		if whole, ok := WholeCards(hw); ok {
+			mib, _ = maxMoECacheOn(m, cfg, whole)
+		}
+	}
+	return mib
+}
+
+// maxMoECacheOn is MaxMoECacheMiB on hw as given; fits is false when the
+// profile itself does not fit there.
+func maxMoECacheOn(m *Model, cfg ModelConfig, hw Hardware) (mib int, fits bool) {
 	experts := cpuExpertBytes(m, &cfg)
 	if experts == 0 {
-		return 0
+		return 0, true
 	}
 	budget, ramBudget := FitBudgets(hw)
 	nCards := max(1, len(PlanCards(hw)))
@@ -562,7 +579,7 @@ func MaxMoECacheMiB(m *Model, cfg ModelConfig, hw Hardware) int {
 	}
 	hi := int((experts>>20)/moeCacheStepMiB) + 1 // enough to cache every expert
 	if !ok(0) {
-		return 0 // the profile itself does not fit by the estimate
+		return 0, false // the profile itself does not fit by the estimate
 	}
 	lo := 0
 	for lo < hi { // largest steps in [0, hi] that fits
@@ -573,11 +590,11 @@ func MaxMoECacheMiB(m *Model, cfg ModelConfig, hw Hardware) int {
 			hi = mid - 1
 		}
 	}
-	mib := lo * moeCacheStepMiB
+	mib = lo * moeCacheStepMiB
 	if int64(mib)<<20 < moeCacheMinBytes(m) {
-		return 0
+		return 0, true
 	}
-	return mib
+	return mib, true
 }
 
 // moeCacheMinBytes is about the smallest cache llama.cpp accepts: room
