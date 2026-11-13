@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.59.0](https://github.com/tmac1973/llama-toolchest/compare/v2.58.0...v2.59.0) (2026-11-13)
+
+
+### Features
+
+* **autotune:** measure the smallest MoE cache with a CPU share of 0.9 ([#630](https://github.com/tmac1973/llama-toolchest/issues/630)) ([d3d7bd3](https://github.com/tmac1973/llama-toolchest/commit/d3d7bd321116ad3b48bc732a6f0f52010c62ef15))
+* **config:** offer the f8_e4m3 KV cache type from llama.cpp b12274 ([#629](https://github.com/tmac1973/llama-toolchest/issues/629)) ([7fa5909](https://github.com/tmac1973/llama-toolchest/commit/7fa590987be7f7cb4603f4e0cf70940f10e28bdc))
+* **moe:** add the MoE cache CPU share (--moe-cache-cpu-share) ([#628](https://github.com/tmac1973/llama-toolchest/issues/628)) ([dff8d44](https://github.com/tmac1973/llama-toolchest/commit/dff8d442be935c729db58493ea44d601c4fb769b))
+
+
+### Bug Fixes
+
+* **autotune:** size the MoE cache on the whole cards a profile needs ([#632](https://github.com/tmac1973/llama-toolchest/issues/632)) ([e589609](https://github.com/tmac1973/llama-toolchest/commit/e5896090656de5026298cd2b3a01935743c48a14))
+* **memreport:** count llama.cpp v1.0.0's new GPU buffers; add the v1.0.0 review ([#626](https://github.com/tmac1973/llama-toolchest/issues/626)) ([d507084](https://github.com/tmac1973/llama-toolchest/commit/d50708429d617c3f9ff06d52b8e2869c1e3e0e84))
+* **vram:** count MTP models' KV caches and drafter scratch as llama.cpp allocates them ([#631](https://github.com/tmac1973/llama-toolchest/issues/631)) ([f3a6761](https://github.com/tmac1973/llama-toolchest/commit/f3a6761aa8f491d542dfd96085bb7b67017dcb01))
+
 ## [2.58.0](https://github.com/tmac1973/llama-toolchest/compare/v2.57.1...v2.58.0) (2026-11-12)
 
 
