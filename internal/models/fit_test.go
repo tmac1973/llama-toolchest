@@ -291,6 +291,11 @@ func TestPlanLeavesOtherProgramsTheirMemory(t *testing.T) {
 // without the option, and on some machine it buys a longer context than
 // the plan could otherwise keep.
 func TestPlanFitGivesTheDrafterASmallMicroBatchOnlyWhenNeeded(t *testing.T) {
+	// On CUDA, where the drafter's scratch grows with its micro-batch
+	// and the small one was measured to make plans fit. ROCm's is nearly
+	// flat, so there the micro-batch rarely decides a plan.
+	SetVRAMBackend("cuda")
+	defer SetVRAMBackend("")
 	base := defaultBase()
 	base.SpecType = "draft-mtp"
 	old := Target{Version: versionDraftUBatch - 1}

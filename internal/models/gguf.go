@@ -108,9 +108,10 @@ type GGUFMeta struct {
 	// whole cache before attending, which costs both a key cache of its
 	// own and graph scratch proportional to context x micro-batch.
 	IndexerKeyLength int `json:"indexer_key_length,omitempty"`
-	// AttnLayers counts the layers that actually hold a KV cache. Equal to
-	// NLayers on a plain model; smaller on a hybrid, where the rest carry
-	// recurrent state.
+	// AttnLayers counts the layers that actually hold a KV cache in the
+	// model's own context. Equal to NLayers on a plain model; smaller on a
+	// hybrid, where the rest carry recurrent state, and on a model with
+	// built-in MTP layers, whose cache is the draft context's.
 	AttnLayers int `json:"attn_layers,omitempty"`
 	// RecurrentStateBytes is the recurrent state one conversation needs on
 	// a hybrid model; llama.cpp keeps one for every conversation it serves.
@@ -869,8 +870,16 @@ func computeKVScaling(meta *GGUFMeta, headCountKV int, kvHeadCounts []int, keyLe
 		defaultKV = meta.NHead
 	}
 
+	// The MTP layers at the end of the block count are left out, as in
+	// recurrentStateBytes: llama.cpp gives their cache to the draft
+	// context, not the model's own (Qwen3.8-27B: 16 layers in the model's
+	// cache and 1 in the draft's, where counting it here made 17).
+	layers := meta.NLayers
+	if n := meta.NextNPredictLayers; n > 0 && n < layers {
+		layers -= n
+	}
 	full, swa, maxKV := 0, 0, meta.NKVHead
-	for i := 0; i < meta.NLayers; i++ {
+	for i := 0; i < layers; i++ {
 		// A recurrent layer carries linear-attention state instead of a KV
 		// cache, so it contributes nothing here. Counting them made the
 		// estimate for a hybrid too large by the full-attention interval —

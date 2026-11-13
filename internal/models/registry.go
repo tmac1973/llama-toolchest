@@ -1026,7 +1026,9 @@ func (r *Registry) ListNeedingPresetFetch() []string {
 //	11 — whether attention is non-causal (NonCausal), so the VRAM
 //	    estimate of an embedding model leaves out the KV cache llama.cpp
 //	    does not allocate for it.
-const GGUFMetaVersion = 11
+//	12 — the MTP layers left out of the KV factors and the attention-layer
+//	    count, since their cache belongs to the draft context.
+const GGUFMetaVersion = 12
 
 // BackfillGGUFMeta re-reads GGUF metadata for records written by an older
 // parser, in one pass at startup.
