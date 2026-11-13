@@ -27,6 +27,12 @@ const (
 	KindCompute   Kind = "compute"   // scratch for the graph
 	KindOutput    Kind = "output"    // logits
 	KindMoECache  Kind = "moe-cache" // GPU cache of experts kept in system memory (--moe-cache-mib)
+	// KindHidden is a copy of the target's hidden states that a drafter
+	// reads on the GPU: the layer inputs DFlash reads, the h_nextn rows
+	// MTP reads. Sized by the batch like compute, but llama.cpp frees and
+	// allocates it again whenever the captured layers change, so a later
+	// line replaces the earlier one (see Report.add).
+	KindHidden Kind = "hidden"
 )
 
 // Entry is one "<device> <kind> buffer size = N MiB" observation.
@@ -86,8 +92,13 @@ func isHostDevice(device string) bool {
 // "[%5d] ": a port below 10000 arrives padded, and a prefix that failed
 // to match would drop the line entirely rather than merely lose its
 // instance.
+//
+// "rotation" is the KV cache's rotation constants (init_rotation), kept
+// beside the cache it belongs to; "layer input" and "h_nextn" are the
+// hidden-state copies of KindHidden. A name missing from this list drops
+// its line, and the report then undercounts the card without saying so.
 var lineRE = regexp.MustCompile(
-	`^(?:\[\s*(\d+)\] )?[\d.]+ [A-Z] (\w+):\s+(\S+)\s+(model|KV|compute|output)\s+buffer size\s*=\s*([\d.]+)\s*MiB`)
+	`^(?:\[\s*(\d+)\] )?[\d.]+ [A-Z] (\w+):\s+(\S+)\s+(model|KV|compute|output|rotation|layer input|h_nextn)\s+buffer size\s*=\s*([\d.]+)\s*MiB`)
 
 // recurrentRE is separate because llama.cpp spells recurrent state "RS"
 // in the buffer line while naming the function llama_memory_recurrent.
@@ -168,12 +179,14 @@ func ParseLine(line string) (Entry, bool) {
 		}
 		kind := KindModel
 		switch m[4] {
-		case "KV":
+		case "KV", "rotation":
 			kind = KindKV
 		case "compute":
 			kind = KindCompute
 		case "output":
 			kind = KindOutput
+		case "layer input", "h_nextn":
+			kind = KindHidden
 		}
 		return Entry{Instance: m[1], Category: m[2], Device: m[3], Kind: kind, MiB: mib}, true
 	}
@@ -217,9 +230,31 @@ type Report struct {
 func (r *Report) Add(line string) bool {
 	e, ok := ParseLine(line)
 	if ok {
-		r.Entries = append(r.Entries, e)
+		r.add(e)
 	}
 	return ok
+}
+
+// add keeps an entry. A hidden-state buffer replaces the one the same
+// instance last logged under the same function and device: llama.cpp
+// frees the old buffer before allocating the new one, once for every
+// layer DFlash starts capturing, so summing them would count the buffer
+// once per layer.
+func (r *Report) add(e Entry) {
+	if e.Kind == KindHidden {
+		for i := len(r.Entries) - 1; i >= 0; i-- {
+			p := r.Entries[i]
+			if p.Kind == KindHidden && p.Instance == e.Instance && p.Category == e.Category && p.Device == e.Device {
+				// A fresh slice, not a write in place: Collector.Latest
+				// hands out copies that share this one's array.
+				entries := append([]Entry(nil), r.Entries...)
+				entries[i] = e
+				r.Entries = entries
+				return
+			}
+		}
+	}
+	r.Entries = append(r.Entries, e)
 }
 
 // ForInstance returns the entries a single model instance logged, keyed
@@ -257,7 +292,7 @@ func (r Report) Instances() []string {
 // allocations) but not across one context's reservations, where a later
 // one replaces the earlier buffers. The Collector keeps only each
 // context's first reservation, so its reports can be summed; a Report
-// filled with Add keeps every line, and MaxComputeMiB is the other
+// filled with Add keeps every compute line, and MaxComputeMiB is the other
 // reading of it.
 func (r Report) SumMiB(match func(Entry) bool) float64 {
 	var total float64

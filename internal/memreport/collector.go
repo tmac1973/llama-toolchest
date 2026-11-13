@@ -177,7 +177,7 @@ func (c *Collector) Add(line string) Event {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if ld := c.byPort[e.Instance]; ld != nil && !(e.Kind == KindCompute && ld.skipCompute) {
-		ld.Report.Entries = append(ld.Report.Entries, e)
+		ld.Report.add(e)
 	}
 	return Event{}
 }
