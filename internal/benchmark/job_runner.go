@@ -1102,6 +1102,9 @@ func ApplyOverrides(base ConfigSnapshot, overrides *ConfigOverrides) ConfigSnaps
 	if overrides.MoECacheMiB != nil {
 		out.MoECacheMiB = *overrides.MoECacheMiB
 	}
+	if overrides.MoECacheCPUShare != nil {
+		out.MoECacheCPUShare = *overrides.MoECacheCPUShare
+	}
 	if overrides.SplitMode != nil {
 		out.SplitMode = *overrides.SplitMode
 	}

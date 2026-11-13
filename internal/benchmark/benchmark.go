@@ -320,6 +320,9 @@ type ConfigSnapshot struct {
 	CPUMoE int `json:"cpu_moe,omitempty"`
 	// MoECacheMiB is --moe-cache-mib: the GPU cache for those experts.
 	MoECacheMiB int `json:"moe_cache_mib,omitempty"`
+	// MoECacheCPUShare is --moe-cache-cpu-share: the share of cache
+	// misses the CPU computes once the cache is full.
+	MoECacheCPUShare float64 `json:"moe_cache_cpu_share,omitempty"`
 
 	// Draft model resources, for the draft methods that load a second
 	// model.

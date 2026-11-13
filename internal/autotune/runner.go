@@ -36,6 +36,9 @@ type Deps struct {
 	// a model of this architecture with a tensor split
 	// (PlanInput.NoTensorSplit). Nil means not known.
 	TensorSplitRefused func(arch string) bool
+	// MoECacheCPUShare reports whether the active build takes
+	// --moe-cache-cpu-share (PlanInput.MoECacheCPUShare). Nil means no.
+	MoECacheCPUShare func() bool
 	// Busy returns a plain-language reason the GPU cannot be used now, or
 	// "" — a benchmark job, or an autoconfigure run.
 	Busy func() string
@@ -447,6 +450,9 @@ func (r *Runner) planInput(rec *Autotune) (PlanInput, error) {
 	}
 	if r.deps.MoECache != nil {
 		in.MoECacheMiB = r.deps.MoECache(m, profile.Config)
+	}
+	if r.deps.MoECacheCPUShare != nil {
+		in.MoECacheCPUShare = r.deps.MoECacheCPUShare()
 	}
 	if r.deps.TensorSplitRefused != nil && r.deps.TensorSplitRefused(m.Arch) {
 		in.NoTensorSplit = m.Arch

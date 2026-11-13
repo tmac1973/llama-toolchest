@@ -637,6 +637,11 @@ func DescribeValue(field, value string) string {
 			return "no expert cache"
 		}
 		return value + " MiB expert cache"
+	case "moe_cache_cpu_share":
+		if value == "0" {
+			return "every cache miss copied to the GPU"
+		}
+		return value + " of cache misses computed on the CPU"
 	case "spec_type":
 		return describeSpec(value)
 	}

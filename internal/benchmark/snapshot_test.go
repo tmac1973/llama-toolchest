@@ -37,6 +37,8 @@ func TestSnapshotFromConfigCopiesEveryMatchingField(t *testing.T) {
 			v.SetBool(true)
 		case reflect.Int:
 			v.SetInt(7)
+		case reflect.Float64:
+			v.SetFloat(0.5)
 		case reflect.String:
 			v.SetString("x")
 		default:
@@ -106,5 +108,17 @@ func TestCompareShowsProfileColumnOnlyWhenItVaries(t *testing.T) {
 	}
 	if got := ProfileCellText(b.Config); got != "A (edited)" {
 		t.Errorf("ProfileCellText = %q", got)
+	}
+}
+
+// A winner measured with the MoE cache CPU share saves it in its profile.
+func TestConfigForValuesCarriesTheMoECacheCPUShare(t *testing.T) {
+	base := models.ModelConfig{CPUMoE: 8}
+	cfg, err := ConfigForValues(base, map[string]string{"moe_cache_mib": "1024", "moe_cache_cpu_share": "0.9"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MoECacheMiB != 1024 || cfg.MoECacheCPUShare != 0.9 {
+		t.Errorf("config = cache %d, share %v; want 1024 and 0.9", cfg.MoECacheMiB, cfg.MoECacheCPUShare)
 	}
 }

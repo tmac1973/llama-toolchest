@@ -33,6 +33,10 @@ type PlanInput struct {
 	// be used: no experts in system memory, no room, or a build without
 	// the option. The expert-cache stage measures sizes up to it.
 	MoECacheMiB int
+	// MoECacheCPUShare is whether the active build takes
+	// --moe-cache-cpu-share. The expert-cache stage then measures its
+	// smallest cache with a share of moeCacheCPUShare.
+	MoECacheCPUShare bool
 	// Quick is a run at DepthQuick.
 	Quick bool
 	// NoTensorSplit is the model's architecture when the active build
@@ -237,20 +241,42 @@ func threadOptions(cores int) []string {
 // from nothing else here — the profile was planned without one — so the
 // question is only whether the copying it does pays for itself on this
 // machine, and at which size.
+//
+// With a build that takes --moe-cache-cpu-share, the smallest size is
+// measured with the CPU computing most misses instead of copying them:
+// upstream measured that doubling generation with a small cache, where
+// copying is what limits it, and gaining little with a large one. A small
+// cache without the share rarely beats a larger one, so the cell is
+// swapped rather than added and the run takes no longer. With only one
+// size there is nothing to swap: it stays a plain cache.
 func planMoECache(in PlanInput) []map[string]string {
 	sizes := moeCacheSizesFor(in)
 	if len(sizes) == 0 {
 		return nil
 	}
+	share := in.MoECacheCPUShare && len(sizes) > 1
 	var cells []map[string]string
 	for _, carried := range carryForward(in, placementFinalists(in)) {
 		cells = append(cells, withValue(carried, "moe_cache_mib", "0"))
-		for _, s := range sizes {
-			cells = append(cells, withValue(carried, "moe_cache_mib", strconv.Itoa(s)))
+		for i, s := range sizes {
+			cell := withValue(carried, "moe_cache_mib", strconv.Itoa(s))
+			switch {
+			case share && i == 0:
+				cell["moe_cache_cpu_share"] = moeCacheCPUShare
+			case share && in.Base.MoECacheCPUShare > 0:
+				// The other sizes are measured without a share, even
+				// when the starting profile has one.
+				cell["moe_cache_cpu_share"] = "0"
+			}
+			cells = append(cells, cell)
 		}
 	}
 	return cells
 }
+
+// moeCacheCPUShare is the share of cache misses the expert-cache stage
+// has the CPU compute on its smallest cache.
+const moeCacheCPUShare = "0.9"
 
 // moeCacheSizes is the cache sizes worth measuring when up to room MiB
 // fits (room): a quarter, a half and all of it, on 256 MiB steps, without
