@@ -30,10 +30,10 @@ func appendDraftResourceParams(params []specParam, c *ModelConfig, t Target) []s
 	if c.DraftCPUMoE > 0 {
 		params = append(params, specParam{"n-cpu-moe-draft", strconv.Itoa(c.DraftCPUMoE)})
 	}
-	if c.DraftKVCacheQuant != "" {
+	if kv := t.kvCacheType(c.DraftKVCacheQuant); kv != "" {
 		params = append(params,
-			specParam{"cache-type-k-draft", c.DraftKVCacheQuant},
-			specParam{"cache-type-v-draft", c.DraftKVCacheQuant})
+			specParam{"cache-type-k-draft", kv},
+			specParam{"cache-type-v-draft", kv})
 	}
 	return params
 }

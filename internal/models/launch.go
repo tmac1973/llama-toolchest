@@ -86,6 +86,9 @@ const (
 	// versionRouterMemory is b11930 (#21231), which added
 	// --models-memory-margin to the router.
 	versionRouterMemory = 11930
+	// versionF8KVCache is b12274 (#28392), which added the f8_e4m3 KV
+	// cache type. An older llama-server refuses to start with it.
+	versionF8KVCache = 12274
 )
 
 // newest reports whether the target is to be written for as current
@@ -133,6 +136,19 @@ func (t Target) DraftSamplingOption() bool { return t.newest(versionDraftSamplin
 
 // DraftUBatchOption reports whether the build takes --spec-draft-n-ubatch.
 func (t Target) DraftUBatchOption() bool { return t.newest(versionDraftUBatch) }
+
+// F8KVCacheOption reports whether the build takes the f8_e4m3 KV cache
+// type.
+func (t Target) F8KVCacheOption() bool { return t.newest(versionF8KVCache) }
+
+// kvCacheType is the cache type to write for q: q itself, or "" (f16,
+// llama.cpp's default) for f8_e4m3 on a build too old for it.
+func (t Target) kvCacheType(q string) string {
+	if q == KVCacheF8 && !t.F8KVCacheOption() {
+		return ""
+	}
+	return q
+}
 
 // NgramCacheFileOption reports whether the build keeps the N-gram Cache
 // method's learned n-grams in a file between loads.

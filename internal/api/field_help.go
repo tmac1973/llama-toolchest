@@ -5,7 +5,7 @@ package api
 // name.
 var fieldHelp = map[string]string{
 	"context_size":     "The longest conversation or document the model can hold at once, in tokens (about three quarters of a word each). Larger values use more GPU memory.",
-	"kv_cache_quant":   "How the conversation memory (KV cache) is stored. f16 is full precision. q8_0 uses about half the memory with a very small effect on quality; q4_0 uses about a quarter and may affect quality.",
+	"kv_cache_quant":   "How the conversation memory (KV cache) is stored. f16 is full precision. q8_0 uses about half the memory with a very small effect on quality; q4_0 uses about a quarter and may affect quality. f8_e4m3 (llama.cpp b12274 and later) is an 8-bit floating-point cache, slightly smaller than q8_0.",
 	"gpu_layers":       "How many of the model's layers run on the GPU. All is fastest; layers left on the CPU are much slower.",
 	"cpu_moe":          "Mixture-of-experts models only: how many layers keep their expert weights in system memory instead of GPU memory. Lets a model larger than the GPU run, at some cost in speed.",
 	"moe_cache_mib":    "Mixture-of-experts models only: a GPU cache, in MiB, for the expert weights kept in system memory. The experts tokens use most often are then read from the GPU instead. Uses GPU memory left over after the model.",

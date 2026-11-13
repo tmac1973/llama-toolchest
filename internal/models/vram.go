@@ -22,10 +22,17 @@ func EstimateVRAM(sizeBytes int64) float64 {
 	return float64(sizeBytes)*1.1/(1024*1024*1024) + vramOverheadGB
 }
 
+// KVCacheF8 is llama.cpp's 8-bit floating-point KV cache type (b12274).
+// It is offered only as a user choice: the fitter, Autoconfig and the
+// recommender pick q8_0 until f8_e4m3 has been benchmarked against it.
+const KVCacheF8 = "f8_e4m3"
+
 // kvBytesPerElem returns the bytes consumed per KV-cache element for a given
 // cache quantization (quantized caches carry a small per-block scale).
 func kvBytesPerElem(kvCacheQuant string) float64 {
 	switch kvCacheQuant {
+	case KVCacheF8:
+		return 1.0 // 8 bits; any scale is one per tensor, not per block
 	case "q4_0":
 		return 0.5625 // 4.5 bits = 0.5625 bytes (4 bits + 0.5 bit block scale)
 	case "q8_0":
