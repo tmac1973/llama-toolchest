@@ -719,6 +719,50 @@ func TestPlanMoECacheStage(t *testing.T) {
 	}
 }
 
+// With a build that takes the CPU share, the smallest cache is measured
+// with it instead of without: the same number of cells, one of them
+// changed.
+func TestPlanMoECacheStageTriesTheCPUShare(t *testing.T) {
+	in := baseInput()
+	in.MoECacheMiB = 4096
+	in.MoECacheCPUShare = true
+	in.Finalists[StageBatch] = []Candidate{
+		{Values: map[string]string{"ubatch_size": "512"}},
+		{Values: map[string]string{"ubatch_size": "1024"}},
+	}
+	cells, _, _ := PlanStage(StageMoECache, in)
+	if len(cells) != 8 {
+		t.Fatalf("cells = %d, want 2 finalists x 4 sizes, as without the share: %v", len(cells), cells)
+	}
+	for _, c := range cells {
+		share, has := c["moe_cache_cpu_share"]
+		if want := c["moe_cache_mib"] == "1024"; has != want || (has && share != "0.9") {
+			t.Errorf("cell %v: share %q, want 0.9 on the 1024 MiB cache only", c, share)
+		}
+	}
+
+	// A profile that already has a share: the other sizes say 0, so they
+	// measure the cache alone.
+	in.Base.MoECacheCPUShare = 0.5
+	cells, _, _ = PlanStage(StageMoECache, in)
+	for _, c := range cells {
+		want := map[string]string{"0": "", "1024": "0.9", "2048": "0", "4096": "0"}[c["moe_cache_mib"]]
+		if c["moe_cache_cpu_share"] != want {
+			t.Errorf("cell %v: share %q, want %q", c, c["moe_cache_cpu_share"], want)
+		}
+	}
+
+	// One size only: it stays a plain cache.
+	in.Base.MoECacheCPUShare = 0
+	in.MoECacheMiB = 256
+	cells, _, _ = PlanStage(StageMoECache, in)
+	for _, c := range cells {
+		if share, ok := c["moe_cache_cpu_share"]; ok {
+			t.Errorf("one size: cell %v measures share %q, want the plain cache", c, share)
+		}
+	}
+}
+
 func TestMoECacheSizes(t *testing.T) {
 	for _, tc := range []struct {
 		room int

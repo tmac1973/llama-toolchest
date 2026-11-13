@@ -28,7 +28,7 @@ Mixture-of-experts models only. **CPU Expert Layers** (`--n-cpu-moe`) keeps the 
 
 **MoE Cache (MiB)** (`--moe-cache-mib`) is a GPU cache for the experts kept in system memory: the experts tokens use most often are read from the GPU instead. It uses GPU memory left over after the model, so Autoconfigure leaves it off and [Autotune](autoconfigure.md#picking) measures which size helps. It needs CPU Expert Layers and llama.cpp b11507 or newer.
 
-**MoE Cache CPU Share** (`--moe-cache-cpu-share`) appears once the cache is on. When the cache is full, an expert that is not in it is normally copied to the GPU. The share, from 0 to 1, is the part of those misses that the CPU computes from system memory instead. 0 (the default) copies them all. A high share such as 0.9 helps most with a small cache, where copying is the bottleneck; with a large cache it gains little or loses speed. It uses no extra memory. It needs llama.cpp b12191 or newer; an older build leaves it out.
+**MoE Cache CPU Share** (`--moe-cache-cpu-share`) appears once the cache is on. When the cache is full, an expert that is not in it is normally copied to the GPU. The share, from 0 to 1, is the part of those misses that the CPU computes from system memory instead. 0 (the default) copies them all. A high share such as 0.9 helps most with a small cache, where copying is the bottleneck; with a large cache it gains little or loses speed. It uses no extra memory. It needs llama.cpp b12191 or newer; an older build leaves it out. With such a build, Autotune measures its smallest cache size with a share of 0.9 instead of without one, so the run takes no longer; when that cell wins, its profile keeps the share.
 
 ### Context Size { #context-size }
 

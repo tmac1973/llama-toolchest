@@ -159,22 +159,24 @@ func (o *ConfigOverrides) IsEmpty() bool {
 // ConfigOverrides applies on top of each model's saved ModelConfig for
 // every cell. Pointer fields so nil = "use the model's saved value".
 type ConfigOverrides struct {
-	GPULayers      *int    `json:"gpu_layers,omitempty"`
-	ContextSize    *int    `json:"context_size,omitempty"`
-	Threads        *int    `json:"threads,omitempty"`
-	BatchSize      *int    `json:"batch_size,omitempty"`
-	UBatchSize     *int    `json:"ubatch_size,omitempty"`
-	CPUMoE         *int    `json:"cpu_moe,omitempty"`
-	MoECacheMiB    *int    `json:"moe_cache_mib,omitempty"`
-	SplitMode      *string `json:"split_mode,omitempty"`
-	FlashAttention *bool   `json:"flash_attention,omitempty"`
-	KVCacheQuant   *string `json:"kv_cache_quant,omitempty"`
-	DirectIO       *bool   `json:"direct_io,omitempty"`
-	PLEMode        *string `json:"ple_mode,omitempty"`
-	ExtraFlags     *string `json:"extra_flags,omitempty"`
-	GPUAssign      *string `json:"gpu_assign,omitempty"`
-	TensorSplit    *string `json:"tensor_split,omitempty"`
-	SpecType       *string `json:"spec_type,omitempty"`
+	GPULayers   *int `json:"gpu_layers,omitempty"`
+	ContextSize *int `json:"context_size,omitempty"`
+	Threads     *int `json:"threads,omitempty"`
+	BatchSize   *int `json:"batch_size,omitempty"`
+	UBatchSize  *int `json:"ubatch_size,omitempty"`
+	CPUMoE      *int `json:"cpu_moe,omitempty"`
+	MoECacheMiB *int `json:"moe_cache_mib,omitempty"`
+	// MoECacheCPUShare is --moe-cache-cpu-share, from 0 to 1.
+	MoECacheCPUShare *float64 `json:"moe_cache_cpu_share,omitempty"`
+	SplitMode        *string  `json:"split_mode,omitempty"`
+	FlashAttention   *bool    `json:"flash_attention,omitempty"`
+	KVCacheQuant     *string  `json:"kv_cache_quant,omitempty"`
+	DirectIO         *bool    `json:"direct_io,omitempty"`
+	PLEMode          *string  `json:"ple_mode,omitempty"`
+	ExtraFlags       *string  `json:"extra_flags,omitempty"`
+	GPUAssign        *string  `json:"gpu_assign,omitempty"`
+	TensorSplit      *string  `json:"tensor_split,omitempty"`
+	SpecType         *string  `json:"spec_type,omitempty"`
 	// DraftModelPath is the draft file a cell loads. A sweep value may
 	// put a model registry ID here instead of a path; runCell resolves it
 	// before the cell runs and before the run records it, because only

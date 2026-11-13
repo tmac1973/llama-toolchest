@@ -543,6 +543,8 @@ var sweepFields = map[string]SweepField{
 		func(o *ConfigOverrides, v *int) { o.CPUMoE = v }),
 	"moe_cache_mib": intField("moe_cache_mib", "MoE cache (--moe-cache-mib)", "Mixture-of-experts models with CPU expert layers only: a GPU cache, in MiB, for the experts kept in system memory. Larger caches read fewer experts from system memory and use more GPU memory. 0 is off.", "0,2048,4096,8192",
 		func(o *ConfigOverrides, v *int) { o.MoECacheMiB = v }),
+	"moe_cache_cpu_share": floatField("moe_cache_cpu_share", "MoE cache CPU share (--moe-cache-cpu-share)", "With the MoE cache on: once it is full, the share of cache misses, from 0 to 1, the CPU computes from system memory instead of copying the experts to the GPU. Helps most with a small cache. 0 copies them all. Needs b12191 or newer.", "0,0.5,0.9",
+		func(o *ConfigOverrides, v *float64) { o.MoECacheCPUShare = v }),
 	"threads": intField("threads", "Threads", "CPU threads. Matters mainly when layers run on CPU.", "4,8,16",
 		func(o *ConfigOverrides, v *int) { o.Threads = v }),
 	"split_mode": strField("split_mode", "Split Mode", "How a model spread over several GPUs is divided: by layer, or by tensor (which needs flash attention). Only meaningful with more than one GPU.", "layer,tensor",
@@ -658,6 +660,12 @@ func init() {
 	f := sweepFields["top_k"]
 	f.RestartsRouter = false
 	sweepFields["top_k"] = f
+
+	// The MoE cache CPU share is the one float that is not a sampling
+	// param: it is a load-time flag, so a change reloads llama-server.
+	f = sweepFields["moe_cache_cpu_share"]
+	f.RestartsRouter = true
+	sweepFields["moe_cache_cpu_share"] = f
 
 	// tensor_split values are themselves comma-separated ("1,1"), so its
 	// list needs a different separator.
@@ -830,6 +838,9 @@ func init() {
 	))
 	set("moe_cache_mib", true, choices(
 		"0", "0 (off)", "1024", "1 GiB", "2048", "2 GiB", "4096", "4 GiB", "8192", "8 GiB", "16384", "16 GiB",
+	))
+	set("moe_cache_cpu_share", true, choices(
+		"0", "0 (default)", "0.5", "0.5", "0.9", "0.9", "0.95", "0.95",
 	))
 	set("threads", true, choices(
 		"4", "4", "8", "8", "16", "16", "32", "32",

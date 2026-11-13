@@ -159,9 +159,10 @@ func (s *Server) autotuneEstimate(id, profileName string, uc autotune.UseCase, d
 		DraftCandidates: func(mode string) []models.DraftCandidate {
 			return s.registry.FindDraftCandidates(id, mode)
 		},
-		Finalists:   map[string][]autotune.Candidate{},
-		MoECacheMiB: s.autotuneMoECache(m, profile.Config),
-		Quick:       depth == autotune.DepthQuick,
+		Finalists:        map[string][]autotune.Candidate{},
+		MoECacheMiB:      s.autotuneMoECache(m, profile.Config),
+		MoECacheCPUShare: s.activeTarget().MoECacheCPUShareOption(),
+		Quick:            depth == autotune.DepthQuick,
 	}
 	if s.tensorSplitRefused(m.Arch) {
 		in.NoTensorSplit = m.Arch

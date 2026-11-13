@@ -219,6 +219,8 @@ func TestApplySnapshotToConfigCoversEveryField(t *testing.T) {
 			v.SetBool(true)
 		case reflect.Int:
 			v.SetInt(7)
+		case reflect.Float64:
+			v.SetFloat(0.5)
 		case reflect.String:
 			v.SetString("x")
 		default:
