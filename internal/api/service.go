@@ -817,6 +817,11 @@ type modelConfigPanelData struct {
 	// are not used: a build too old for them. Empty when they are.
 	DraftSamplingNote string
 	DraftUBatchNote   string
+	// F8KVCache offers f8_e4m3 in the two KV cache dropdowns: the build
+	// takes it, or a saved config already names it. F8KVCacheNote says
+	// why a saved f8_e4m3 is not used: a build too old for it.
+	F8KVCache     bool
+	F8KVCacheNote string
 	// CPURAMLabel says how much of the weights stay in system memory with
 	// these settings, or is empty when everything is on the GPU.
 	CPURAMLabel string
@@ -1027,6 +1032,13 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 		if !t.DraftUBatchOption() {
 			data.DraftUBatchNote = "The active llama.cpp build is older than b11630 and does not use this setting."
 		}
+	}
+	if s.activeTarget().F8KVCacheOption() {
+		data.F8KVCache = true
+	} else if cfg.KVCacheQuant == models.KVCacheF8 || cfg.DraftKVCacheQuant == models.KVCacheF8 {
+		// Kept as a choice, so saving the dialog does not drop it.
+		data.F8KVCache = true
+		data.F8KVCacheNote = "The active llama.cpp build is older than b12274 and does not use f8_e4m3; the cache stays at f16."
 	}
 	if data.HasExperts && !s.activeTarget().MoECacheOption() {
 		data.MoECacheNote = "The active llama.cpp build is older than b11507 and does not use this setting."

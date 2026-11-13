@@ -179,9 +179,9 @@ func writeConfigParams(b *strings.Builder, cfg *ModelConfig, kind ModelKind, t T
 		if cfg.Jinja {
 			b.WriteString("jinja = true\n")
 		}
-		if cfg.KVCacheQuant != "" {
-			b.WriteString(fmt.Sprintf("cache-type-k = %s\n", cfg.KVCacheQuant))
-			b.WriteString(fmt.Sprintf("cache-type-v = %s\n", cfg.KVCacheQuant))
+		if kv := t.kvCacheType(cfg.KVCacheQuant); kv != "" {
+			b.WriteString(fmt.Sprintf("cache-type-k = %s\n", kv))
+			b.WriteString(fmt.Sprintf("cache-type-v = %s\n", kv))
 		}
 		// --direct-io was removed at b10875 (see directIOParam); the
 		// router refuses a preset that still carries it.

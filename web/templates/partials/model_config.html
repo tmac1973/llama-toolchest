@@ -244,13 +244,15 @@
     {{end}}
 
     <div class="grid">
-        <label title="Quantizes the KV cache to use less VRAM. q8_0 halves it with little quality loss. q4_0 uses a quarter and can lower quality.">
+        <label title="Quantizes the KV cache to use less VRAM. q8_0 halves it with little quality loss. q4_0 uses a quarter and can lower quality. f8_e4m3 (b12274+) is an 8-bit float cache.">
             KV Cache Quantization
             <select name="kv_cache_quant">
                 <option value="" {{if eq .Config.KVCacheQuant ""}}selected{{end}}>Off (f16)</option>
                 <option value="q8_0" {{if eq .Config.KVCacheQuant "q8_0"}}selected{{end}}>q8_0</option>
                 <option value="q4_0" {{if eq .Config.KVCacheQuant "q4_0"}}selected{{end}}>q4_0</option>
+                {{if .F8KVCache}}<option value="f8_e4m3" {{if eq .Config.KVCacheQuant "f8_e4m3"}}selected{{end}}>f8_e4m3</option>{{end}}
             </select>
+            {{if and .F8KVCacheNote (eq .Config.KVCacheQuant "f8_e4m3")}}<small>{{.F8KVCacheNote}}</small>{{end}}
         </label>
         <label title="Conversations served at once. Empty: llama.cpp default, 4 that share the context. From 2, each gets an equal part, unless Shared Context is on.">
             Parallel Conversations
@@ -556,7 +558,9 @@
                 <option value="f16" {{if eq .Config.DraftKVCacheQuant "f16"}}selected{{end}}>f16</option>
                 <option value="q8_0" {{if eq .Config.DraftKVCacheQuant "q8_0"}}selected{{end}}>q8_0</option>
                 <option value="q4_0" {{if eq .Config.DraftKVCacheQuant "q4_0"}}selected{{end}}>q4_0</option>
+                {{if .F8KVCache}}<option value="f8_e4m3" {{if eq .Config.DraftKVCacheQuant "f8_e4m3"}}selected{{end}}>f8_e4m3</option>{{end}}
             </select>
+            {{if and .F8KVCacheNote (eq .Config.DraftKVCacheQuant "f8_e4m3")}}<small>{{.F8KVCacheNote}}</small>{{end}}
         </label>
     </div>
     {{end}}

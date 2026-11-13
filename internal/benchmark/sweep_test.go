@@ -468,6 +468,14 @@ func TestSpecValueDraftCache(t *testing.T) {
 		t.Errorf("f16 gave %v, want an explicit empty string", full.DraftKVCacheQuant)
 	}
 
+	var f8 ConfigOverrides
+	if err := applySpecValue(&f8, "draft:draft_cache=f8_e4m3,draft_model=org--small--Q4"); err != nil {
+		t.Fatal(err)
+	}
+	if f8.DraftKVCacheQuant == nil || *f8.DraftKVCacheQuant != "f8_e4m3" {
+		t.Errorf("f8_e4m3 gave %v", f8.DraftKVCacheQuant)
+	}
+
 	// A value that does not mention it inherits the saved setting.
 	var inherit ConfigOverrides
 	if err := applySpecValue(&inherit, "draft-mtp:draft_max=6"); err != nil {

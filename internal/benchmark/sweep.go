@@ -241,7 +241,7 @@ const SpecDraftUBatchKey = "draft_ubatch"
 
 // draftCacheTypes are the cache types a draft_cache value may name: the
 // same ones a model's own cache may use.
-var draftCacheTypes = map[string]bool{"f16": true, "q8_0": true, "q4_0": true}
+var draftCacheTypes = map[string]bool{"f16": true, "q8_0": true, "q4_0": true, models.KVCacheF8: true}
 
 func parseSpecValue(raw string) (specValue, error) {
 	v := strings.TrimSpace(raw)
@@ -317,7 +317,7 @@ func parseSpecValue(raw string) (specValue, error) {
 			}
 		} else if k == SpecDraftCacheKey {
 			if !draftCacheTypes[val] {
-				return out, fmt.Errorf("draft_cache %q is not a cache type; use f16, q8_0 or q4_0", val)
+				return out, fmt.Errorf("draft_cache %q is not a cache type; use f16, q8_0, q4_0 or f8_e4m3", val)
 			}
 		} else if k == "draft_sampling" {
 			if !slices.Contains(models.DraftSamplingModes, val) {
@@ -593,7 +593,7 @@ var sweepFields = map[string]SweepField{
 			return nil
 		},
 	},
-	"kv_cache_quant": strField("kv_cache_quant", "KV Cache Quant", "KV cache type, e.g. f16, q8_0, q4_0. Trades memory for accuracy.", "f16,q8_0",
+	"kv_cache_quant": strField("kv_cache_quant", "KV Cache Quant", "KV cache type, e.g. f16, q8_0, q4_0, f8_e4m3. Trades memory for accuracy.", "f16,q8_0",
 		func(o *ConfigOverrides, v *string) { o.KVCacheQuant = v }),
 	// gpu_assign and tensor_split reach the evaluation only through the
 	// placement resolution (they become --device / --tensor-split via
@@ -840,7 +840,7 @@ func init() {
 		"layer", "layer (default)", "tensor", "tensor",
 	))
 	set("kv_cache_quant", true, choices(
-		"f16", "f16 (no quant)", "q8_0", "q8_0", "q4_0", "q4_0",
+		"f16", "f16 (no quant)", "q8_0", "q8_0", "q4_0", "q4_0", "f8_e4m3", "f8_e4m3 (b12274+)",
 	))
 	// "none" (not an empty value, which would be dropped as unset) is the
 	// explicit off entry; the field's set function maps it to "".

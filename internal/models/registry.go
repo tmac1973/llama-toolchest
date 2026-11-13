@@ -249,7 +249,7 @@ type ModelConfig struct {
 	Threads        int    `json:"threads"`
 	FlashAttention bool   `json:"flash_attention"`
 	Jinja          bool   `json:"jinja"`
-	KVCacheQuant   string `json:"kv_cache_quant"` // "", "q8_0", "q4_0"
+	KVCacheQuant   string `json:"kv_cache_quant"` // "", "q8_0", "q4_0", "f8_e4m3"
 	DirectIO       bool   `json:"direct_io"`      // bypass page cache, load straight to VRAM
 	// PLEMode controls llama.cpp's --tensor-read-lazy for the per-layer /
 	// n-gram embedding table. "" is auto (llama.cpp's default: on-demand
@@ -515,8 +515,8 @@ func (c *ModelConfig) EffectiveFlagsFor(kind ModelKind, t Target) string {
 		if c.Jinja {
 			parts = append(parts, "--jinja")
 		}
-		if c.KVCacheQuant != "" {
-			parts = append(parts, "--cache-type-k", c.KVCacheQuant, "--cache-type-v", c.KVCacheQuant)
+		if kv := t.kvCacheType(c.KVCacheQuant); kv != "" {
+			parts = append(parts, "--cache-type-k", kv, "--cache-type-v", kv)
 		}
 		if c.DirectIO {
 			parts = append(parts, t.DirectIOFlags()...)

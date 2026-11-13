@@ -49,6 +49,10 @@ Usually on: faster, less memory.
 
 `q8_0` about halves KV memory at almost no quality cost; `q4_0` saves more, with some loss.
 
+`f8_e4m3` is an 8-bit floating-point cache, added in llama.cpp b12274. It takes one byte per element, slightly less than `q8_0`, which also stores a scale for every block of 32. A model can carry fixed scales for it in the GGUF; NVIDIA's NVFP4 checkpoints do. Cards without FP8 hardware, such as the RTX A4000, decode it in software in the flash attention kernels. The choice appears only when the active build is b12274 or newer; a model saved with it on an older build gets an `f16` cache and a note under the field. The same choice is in Draft KV Cache Quant and in benchmark sweeps.
+
+toolchest never picks `f8_e4m3` itself: the fitter, Autoconfig and the recommendations use `q8_0` when the cache has to shrink, until `f8_e4m3` has been measured against it.
+
 ### Micro-batch (`-ub`) and Batch (`-b`) { #micro-batch-ub-and-batch-b }
 
 Micro-batch usually has the largest effect on prompt speed; measure it with Autotune or a benchmark sweep. Batch must be ≥ micro-batch. Defaults: 512 and 2048.
