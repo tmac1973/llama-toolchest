@@ -239,6 +239,11 @@ type ModelConfig struct {
 	// there. Split over the GPUs that hold those layers. 0 is off, which is
 	// llama.cpp's default; it means nothing without CPUMoE.
 	MoECacheMiB int `json:"moe_cache_mib,omitempty"`
+	// MoECacheCPUShare maps to --moe-cache-cpu-share: once the MoE cache
+	// is full, the share (0 to 1) of cache misses the CPU computes from
+	// the experts in system memory instead of copying them to the GPU.
+	// 0 is llama.cpp's default; it means nothing without the cache.
+	MoECacheCPUShare float64 `json:"moe_cache_cpu_share,omitempty"`
 	// BatchSize/UBatchSize map to --batch-size / --ubatch-size. Zero means
 	// "don't emit", leaving llama.cpp on its own defaults (2048 / 512), so
 	// existing models are unaffected. UBatchSize is the physical compute
@@ -494,6 +499,9 @@ func (c *ModelConfig) EffectiveFlagsFor(kind ModelKind, t Target) string {
 		parts = append(parts, "--n-cpu-moe", strconv.Itoa(c.CPUMoE))
 		if t.moeCacheOption() && c.MoECacheMiB > 0 {
 			parts = append(parts, "--moe-cache-mib", strconv.Itoa(c.MoECacheMiB))
+			if t.moeCacheCPUShareOption() && c.MoECacheCPUShare > 0 {
+				parts = append(parts, "--moe-cache-cpu-share", strconv.FormatFloat(c.MoECacheCPUShare, 'g', -1, 64))
+			}
 		}
 	}
 	for _, p := range gpuPlacementParams(c, t.Backend) {

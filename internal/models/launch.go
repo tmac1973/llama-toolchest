@@ -72,6 +72,9 @@ const (
 	// over the GPUs that hold the cached layers, which is what the memory
 	// estimate assumes, so it is written from there.
 	versionMoECache = 11507
+	// versionMoECacheCPUShare is b12191 (#30966), which added
+	// --moe-cache-cpu-share.
+	versionMoECacheCPUShare = 12191
 	// versionDraftSampling is b11368 (#27694), which added
 	// --spec-draft-sampling.
 	versionDraftSampling = 11368
@@ -130,6 +133,10 @@ func (t Target) contextPerSlotOption() bool { return t.newest(versionContextPerS
 // moeCacheOption reports whether the build takes --moe-cache-mib.
 func (t Target) moeCacheOption() bool { return t.newest(versionMoECache) }
 
+// moeCacheCPUShareOption reports whether the build takes
+// --moe-cache-cpu-share.
+func (t Target) moeCacheCPUShareOption() bool { return t.newest(versionMoECacheCPUShare) }
+
 // DraftSamplingOption reports whether the build takes
 // --spec-draft-sampling.
 func (t Target) DraftSamplingOption() bool { return t.newest(versionDraftSampling) }
@@ -160,6 +167,9 @@ func (t Target) RouterMemoryOption() bool { return t.newest(versionRouterMemory)
 
 // MoECacheOption is moeCacheOption for the config form and Autotune.
 func (t Target) MoECacheOption() bool { return t.moeCacheOption() }
+
+// MoECacheCPUShareOption is moeCacheCPUShareOption for the config form.
+func (t Target) MoECacheCPUShareOption() bool { return t.moeCacheCPUShareOption() }
 
 // ContextPerSlotOption is contextPerSlotOption for the config form.
 func (t Target) ContextPerSlotOption() bool { return t.contextPerSlotOption() }

@@ -813,6 +813,9 @@ type modelConfigPanelData struct {
 	// MoECacheNote says why the MoE cache setting is not used: a build
 	// too old for it. Empty when it is.
 	MoECacheNote string
+	// MoECacheCPUShareNote says why the MoE cache CPU share is not used:
+	// a build too old for it. Empty when it is.
+	MoECacheCPUShareNote string
 	// DraftSamplingNote and DraftUBatchNote say why those draft settings
 	// are not used: a build too old for them. Empty when they are.
 	DraftSamplingNote string
@@ -1043,6 +1046,9 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 	if data.HasExperts && !s.activeTarget().MoECacheOption() {
 		data.MoECacheNote = "The active llama.cpp build is older than b11507 and does not use this setting."
 	}
+	if data.HasExperts && !s.activeTarget().MoECacheCPUShareOption() {
+		data.MoECacheCPUShareNote = "The active llama.cpp build is older than b12191 and does not use this setting."
+	}
 	if data.HasReasoning {
 		t := s.activeTarget()
 		data.ReasoningPreserveDefault = "drop"
@@ -1112,6 +1118,12 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		cfg.UBatchSize, _ = strconv.Atoi(r.FormValue("ubatch_size"))
 		cfg.CPUMoE, _ = strconv.Atoi(r.FormValue("cpu_moe"))
 		cfg.MoECacheMiB, _ = strconv.Atoi(r.FormValue("moe_cache_mib"))
+		// The share is only shown with the cache on; with it off, the
+		// stored value would be left behind unseen.
+		cfg.MoECacheCPUShare = 0
+		if cfg.MoECacheMiB > 0 {
+			cfg.MoECacheCPUShare, _ = strconv.ParseFloat(r.FormValue("moe_cache_cpu_share"), 64)
+		}
 		cfg.Threads, _ = strconv.Atoi(r.FormValue("threads"))
 		cfg.FlashAttention = r.FormValue("flash_attention") == "on"
 		cfg.Jinja = r.FormValue("jinja") == "on"
@@ -1252,6 +1264,10 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 	}
 	if cfg.MoECacheMiB < 0 {
 		http.Error(w, "The MoE cache size cannot be negative", http.StatusBadRequest)
+		return
+	}
+	if !(cfg.MoECacheCPUShare >= 0 && cfg.MoECacheCPUShare <= 1) {
+		http.Error(w, "The MoE cache CPU share must be from 0 to 1", http.StatusBadRequest)
 		return
 	}
 	if m, err := s.registry.Get(id); err == nil && m.NLayers > 0 && cfg.CPUMoE > m.NLayers {
