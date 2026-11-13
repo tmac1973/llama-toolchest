@@ -136,3 +136,30 @@ func TestMaxMoECacheMiB(t *testing.T) {
 		t.Errorf("no experts in system memory: MaxMoECacheMiB = %d, want 0", got)
 	}
 }
+
+// With auto-evict on, a profile that fits only once the backends in its
+// way are stopped was planned on the whole cards, and its cache is sized
+// there too. Beside the reservations nothing fitted, so Autotune skipped
+// the expert-cache stage on compute2 for every such model. With
+// auto-evict off the reservations stay, and so does the answer.
+func TestMaxMoECacheMiBUsesTheWholeCardsAPlanNeeds(t *testing.T) {
+	m := flashNext()
+	hw := evictAll(compute2Reserved())
+	plan := PlanFit(m, DefaultConfig(), hw, ContextMedium)
+	if !plan.Fits || plan.Config.CPUMoE == 0 {
+		t.Fatalf("plan: %+v", plan.Config)
+	}
+	// The plan keeps the fewest expert layers in system memory that fit,
+	// which leaves the cards full. A profile keeping a few more there, as
+	// Autotune's starting profiles often do, leaves room to cache them.
+	plan.Config.CPUMoE += 4
+	if _, fits := maxMoECacheOn(m, plan.Config, hw); fits {
+		t.Fatal("the plan fits beside the reservations; the fixture does not test the whole cards")
+	}
+	if got := MaxMoECacheMiB(m, plan.Config, hw); got <= 0 {
+		t.Errorf("MaxMoECacheMiB = %d with auto-evict on, want room on the whole cards", got)
+	}
+	if got := MaxMoECacheMiB(m, plan.Config, compute2Reserved()); got != 0 {
+		t.Errorf("MaxMoECacheMiB = %d with auto-evict off, want 0: the reservations stay", got)
+	}
+}
