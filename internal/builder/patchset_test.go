@@ -104,8 +104,13 @@ func newPatchFixture(t *testing.T) *patchFixture {
 // release commits a release.json with these values and tags it.
 func (f *patchFixture) release(t *testing.T, tag, base, tree string, n int) {
 	t.Helper()
-	writeFile(t, filepath.Join(f.repo, "release.json"),
-		fmt.Sprintf(`{"release":%q,"base":%q,"tree":%q,"n_blocks":%d}`, tag, base, tree, n))
+	f.releaseJSON(t, tag, fmt.Sprintf(`{"release":%q,"base":%q,"tree":%q,"n_blocks":%d}`, tag, base, tree, n))
+}
+
+// releaseJSON commits this release.json and tags it.
+func (f *patchFixture) releaseJSON(t *testing.T, tag, body string) {
+	t.Helper()
+	writeFile(t, filepath.Join(f.repo, "release.json"), body)
 	fixtureGit(t, f.repo, "add", "-A")
 	fixtureGit(t, f.repo, "commit", "-q", "--no-gpg-sign", "--allow-empty", "-m", tag)
 	fixtureGit(t, f.repo, "tag", tag)
@@ -212,6 +217,30 @@ func TestBuildPatchedLatestPrefersNewerBase(t *testing.T) {
 	}
 	if got.PatchRelease != f.set.Pinned.Tag || got.ID != "tst-b2-r1-cpu" {
 		t.Errorf("latest built %q as %q, want the r1 on the newer base", got.PatchRelease, got.ID)
+	}
+}
+
+// From r288 a release counts only its official blocks in n_blocks;
+// n_default is every patch file to apply, temporary blocks included.
+func TestBuildPatchedTemporaryBlocks(t *testing.T) {
+	f := newPatchFixture(t)
+	tag := "v1-" + f.base[:9] + "-r2"
+	f.releaseJSON(t, tag, fmt.Sprintf(`{"release":%q,"base":%q,"tree":%q,"n_blocks":1,"n_default":2,"n_temporary":1}`, tag, f.base[:9], f.tree))
+	got, err := f.build(t, tag, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != BuildStatusSuccess {
+		t.Fatalf("status = %s (%s)", got.Status, got.Error)
+	}
+	if tree := fixtureGit(t, f.srcDir, "rev-parse", got.GitSHA+"^{tree}"); tree != f.tree {
+		t.Errorf("built tree %s, want %s", tree, f.tree)
+	}
+
+	tag = "v1-" + f.base[:9] + "-r3"
+	f.releaseJSON(t, tag, fmt.Sprintf(`{"release":%q,"base":%q,"tree":%q,"n_blocks":1,"n_default":3}`, tag, f.base[:9], f.tree))
+	if _, err := f.build(t, tag, false); err == nil || !strings.Contains(err.Error(), "has 2 patch files, but its release.json says 3") {
+		t.Errorf("wrong n_default: err = %v", err)
 	}
 }
 
