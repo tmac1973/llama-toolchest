@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.60.0](https://github.com/tmac1973/llama-toolchest/compare/v2.59.1...v2.60.0) (2026-11-15)
+
+
+### Features
+
+* **engine-notes:** record generation backend starts, crashes and failed starts ([#638](https://github.com/tmac1973/llama-toolchest/issues/638)) ([b7cb6f1](https://github.com/tmac1973/llama-toolchest/commit/b7cb6f11c1d6c6992b5a83329614465f156c5fe0))
+* **engine-notes:** show the cause of each failure, warn only on failures that matter, and download the JSON ([#637](https://github.com/tmac1973/llama-toolchest/issues/637)) ([2c742bc](https://github.com/tmac1973/llama-toolchest/commit/2c742bc9822424b214a224c0280616ca93b06882))
+
+
+### Bug Fixes
+
+* **autotune:** stop failed draft and tensor-split settings from skipping or retrying cells they should not ([#636](https://github.com/tmac1973/llama-toolchest/issues/636)) ([dd4dacc](https://github.com/tmac1973/llama-toolchest/commit/dd4daccbb4c81e87b0bc940a0816d308591a1af4))
+
 ## [2.59.1](https://github.com/tmac1973/llama-toolchest/compare/v2.59.0...v2.59.1) (2026-11-15)
 
 
