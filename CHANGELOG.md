@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.59.1](https://github.com/tmac1973/llama-toolchest/compare/v2.59.0...v2.59.1) (2026-11-15)
+
+
+### Bug Fixes
+
+* **builder:** count a patch set release's temporary blocks (n_default) ([#634](https://github.com/tmac1973/llama-toolchest/issues/634)) ([cade5b7](https://github.com/tmac1973/llama-toolchest/commit/cade5b71a28e960c1cb898e26edeb5769dcaa1f4))
+
 ## [2.59.0](https://github.com/tmac1973/llama-toolchest/compare/v2.58.0...v2.59.0) (2026-11-13)
 
 
