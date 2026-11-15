@@ -64,8 +64,12 @@ func (t *Totals) countCause(c Cause) {
 	}
 }
 
-// ModelRow is one model's figures for the period.
+// ModelRow is one model's figures for the period, or one generation
+// instance's.
 type ModelRow struct {
+	// Source is SourceLlamaServer for a model, or the generation backend
+	// for an instance (IsGeneration), whose ModelID is the instance id.
+	Source      string `json:"source"`
 	ModelID     string `json:"model_id"`
 	Name        string `json:"name"`
 	Loads       int    `json:"loads"`
@@ -108,13 +112,19 @@ func (s *Store) Summary(window time.Duration, open []OpenInstance, resolve Resol
 	}
 	sum := Summary{CountingSince: s.data.CountingSince, From: from, To: now}
 
-	rows := map[string]*ModelRow{}
-	loadTotals := map[string]float64{}
-	row := func(id, name string) *ModelRow {
-		r := rows[id]
+	// Rows are kept by source and id: a generation instance may share
+	// its id with a model.
+	type rowKey struct{ source, id string }
+	rows := map[rowKey]*ModelRow{}
+	loadTotals := map[rowKey]float64{}
+	row := func(source, id, name string) *ModelRow {
+		if source == "" {
+			source = SourceLlamaServer
+		}
+		r := rows[rowKey{source, id}]
 		if r == nil {
-			r = &ModelRow{ModelID: id}
-			rows[id] = r
+			r = &ModelRow{Source: source, ModelID: id}
+			rows[rowKey{source, id}] = r
 		}
 		if r.Name == "" && name != "" {
 			r.Name = name
@@ -147,12 +157,12 @@ func (s *Store) Summary(window time.Duration, open []OpenInstance, resolve Resol
 		if id == "" {
 			id = e.RouterName
 		}
-		r := row(id, e.ModelName)
+		r := row(e.Source, id, e.ModelName)
 		switch e.Kind {
 		case KindLoad:
 			t.Loads++
 			r.Loads++
-			loadTotals[id] += e.LoadSeconds
+			loadTotals[rowKey{r.Source, id}] += e.LoadSeconds
 			if e.Time.After(r.LastUsed) {
 				r.LastUsed = e.Time
 			}
@@ -186,8 +196,8 @@ func (s *Store) Summary(window time.Duration, open []OpenInstance, resolve Resol
 	}
 
 	for _, in := range open {
-		id, name := in.RouterName, ""
-		if resolve != nil {
+		id, name := in.RouterName, in.Name
+		if in.Source == "" && resolve != nil {
 			id, name = resolve(in.RouterName)
 		}
 		since := in.ReadySince
@@ -195,7 +205,7 @@ func (s *Store) Summary(window time.Duration, open []OpenInstance, resolve Resol
 			since = from
 		}
 		if now.After(since) {
-			row(id, name).LoadedSeconds += now.Sub(since).Seconds()
+			row(in.Source, id, name).LoadedSeconds += now.Sub(since).Seconds()
 		}
 	}
 
@@ -208,7 +218,7 @@ func (s *Store) Summary(window time.Duration, open []OpenInstance, resolve Resol
 			if err != nil || !hour.Add(time.Hour).After(from) || hour.After(now) {
 				continue
 			}
-			r := row(id, "")
+			r := row(SourceLlamaServer, id, "")
 			r.Requests += u.Requests
 			r.FailedRequests += u.Failed
 			r.PromptTokens += u.PromptTokens
@@ -219,21 +229,27 @@ func (s *Store) Summary(window time.Duration, open []OpenInstance, resolve Resol
 		}
 	}
 
-	for id, r := range rows {
+	for key, r := range rows {
 		if r.Loads > 0 {
-			r.AvgLoadSeconds = loadTotals[id] / float64(r.Loads)
+			r.AvgLoadSeconds = loadTotals[key] / float64(r.Loads)
 		}
 		if r.Name == "" {
-			r.Name = id
-			if resolve != nil {
-				if _, name := resolve(id); name != "" {
+			r.Name = key.id
+			if resolve != nil && r.Source == SourceLlamaServer {
+				if _, name := resolve(key.id); name != "" {
 					r.Name = name
 				}
 			}
 		}
 		sum.Models = append(sum.Models, *r)
 	}
-	sort.Slice(sum.Models, func(i, j int) bool { return sum.Models[i].Name < sum.Models[j].Name })
+	sort.Slice(sum.Models, func(i, j int) bool {
+		a, b := sum.Models[i], sum.Models[j]
+		if a.Name != b.Name {
+			return a.Name < b.Name
+		}
+		return a.Source < b.Source
+	})
 	sort.SliceStable(sum.Failures, func(i, j int) bool { return sum.Failures[i].Time.After(sum.Failures[j].Time) })
 	return sum
 }

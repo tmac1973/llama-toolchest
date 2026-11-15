@@ -1,4 +1,5 @@
-{{/* Engine notes: what llama-server did, from engine-notes.json.
+{{/* Engine notes: what llama-server and the generation backends did, from
+     engine-notes.json.
 
      The strip (a notesStripView) is polled into #engine-notes above the
      Server log. The dialog body (a notesBodyView) is loaded into
@@ -35,18 +36,18 @@
     <div title="Router starts. A job (a benchmark or Autotune) restarts the router for each setting it tests."><dt>Router starts</dt><dd>{{.RouterStartsUser}} by you, {{.RouterStartsJob}} by jobs</dd></div>
     <div><dt>Router stops</dt><dd>{{.RouterStops}}</dd></div>
     <div title="The router stopped without a request to stop it."><dt>Router exits on their own</dt><dd>{{.RouterExits}}</dd></div>
-    <div><dt>Loads</dt><dd>{{.Loads}}</dd></div>
-    <div title="The model stopped before it finished loading."><dt>Failed loads</dt><dd>{{.FailedLoads}}</dd></div>
-    <div title="A loaded model stopped with an error, and nobody asked it to stop."><dt>Crashes</dt><dd>{{.Crashes}}</dd></div>
-    <div title="Crashes and failed loads while a job held the router."><dt>Failures in jobs</dt><dd>{{.FailuresInJobs}}</dd></div>
-    <div title="Failures in jobs that a job is there to find: a setting that did not fit, or that llama.cpp does not support. These do not show a warning."><dt>Expected in jobs</dt><dd>{{.ExpectedFailures}}</dd></div>
-    <div title="A model stopped as asked: an unload, an eviction or a router stop."><dt>Unloads</dt><dd>{{.Unloads}}</dd></div>
+    <div title="Model loads and generation instance starts that finished."><dt>Loads</dt><dd>{{.Loads}}</dd></div>
+    <div title="A model or generation instance stopped before it finished loading."><dt>Failed loads</dt><dd>{{.FailedLoads}}</dd></div>
+    <div title="A loaded model or a running generation instance stopped with an error, and nobody asked it to stop."><dt>Crashes</dt><dd>{{.Crashes}}</dd></div>
+    <div title="Crashes and failed loads while a job held the router, or while Measure held a generation instance."><dt>Failures in jobs</dt><dd>{{.FailuresInJobs}}</dd></div>
+    <div title="Failures in jobs that a job is there to find: a setting or size that did not fit, or that llama.cpp does not support. These do not show a warning."><dt>Expected in jobs</dt><dd>{{.ExpectedFailures}}</dd></div>
+    <div title="A model or generation instance stopped as asked: an unload, an eviction, a stop or a router stop."><dt>Unloads</dt><dd>{{.Unloads}}</dd></div>
     <div title="Unloads that toolchest made to free VRAM for another model or a generation backend."><dt>To make room</dt><dd>{{.UnloadsForRoom}}</dd></div>
   </dl>
   {{- if or .GPUFaults .OutOfVRAM .OutOfRAM .Unsupported .OtherFailures}}
   <h4>Causes</h4>
   <dl class="engine-notes-totals">
-    <div title="A CUDA or ROCm fault, such as an illegal memory access. A setting does not cause this. A bug in llama.cpp or the driver, or a hardware problem, does."><dt>GPU faults</dt><dd>{{if .GPUFaults}}<strong>{{.GPUFaults}}</strong>{{else}}0{{end}}</dd></div>
+    <div title="A CUDA or ROCm fault, such as an illegal memory access. A setting does not cause this. A bug in the backend or the driver, or a hardware problem, does."><dt>GPU faults</dt><dd>{{if .GPUFaults}}<strong>{{.GPUFaults}}</strong>{{else}}0{{end}}</dd></div>
     <div title="A GPU ran out of memory, while the model loaded or later."><dt>Out of VRAM</dt><dd>{{.OutOfVRAM}}</dd></div>
     <div title="System memory ran out, or the system stopped the process (exit status 137)."><dt>Out of system memory</dt><dd>{{.OutOfRAM}}</dd></div>
     <div title="llama.cpp refused a setting: a failed GGML_ASSERT or an option it does not support. It fails the same way each time."><dt>Setting not supported</dt><dd>{{.Unsupported}}</dd></div>
@@ -97,13 +98,47 @@
   </div>
   {{- end}}
 
+  {{- if .GenInstances}}
+  <h4>Generation instances</h4>
+  <div class="engine-notes-table">
+  <table class="striped">
+    <thead><tr>
+      <th>Instance</th>
+      <th title="The program that runs the instance: sd-server for images and video, ace-server for music.">Backend</th>
+      <th title="Starts that passed the health check.">Starts</th>
+      <th title="Starts that stopped before the health check passed.">Failed</th>
+      <th title="Stops with an error that nobody asked for.">Crashes</th>
+      <th title="Stops that were asked for.">Stops</th>
+      <th title="Total time running in this period. An instance that runs now counts up to now.">Time running</th>
+      <th title="Average time from start to ready.">Avg start</th>
+      <th title="The latest start.">Last started</th>
+    </tr></thead>
+    <tbody>
+    {{- range .GenInstances}}
+      <tr>
+        <td>{{.Name}}</td>
+        <td>{{.Source}}</td>
+        <td>{{.Loads}}</td>
+        <td>{{.FailedLoads}}</td>
+        <td>{{if .Crashes}}<strong>{{.Crashes}}</strong>{{else}}0{{end}}</td>
+        <td>{{.Unloads}}</td>
+        <td>{{.Loaded}}</td>
+        <td>{{.AvgLoad}}</td>
+        <td>{{with .LastUsed}}<time datetime="{{.ISO}}">{{.Label}}</time>{{else}}—{{end}}</td>
+      </tr>
+    {{- end}}
+    </tbody>
+  </table>
+  </div>
+  {{- end}}
+
   <h4>Crashes and failed loads</h4>
-  <p class="engine-notes-note">A crash is an exit with an error status that nobody asked for. An unload, an eviction or a stop that had to be forced is not a crash. The same failure several times in a row shows once, with a count.</p>
+  <p class="engine-notes-note">A crash is an exit with an error status that nobody asked for. An unload, an eviction or a stop that had to be forced is not a crash. Each failure names the program: llama-server, or sd-server or ace-server for a generation instance. The same failure several times in a row shows once, with a count.</p>
   {{- if .Failures}}
   <ul class="engine-notes-failures">
     {{- range .Failures}}
     <li data-cause="{{.Cause}}"{{if .Expected}} data-expected{{end}}>
-      <div><strong>{{with .FirstAt}}<time datetime="{{.ISO}}">{{.Label}}</time> to {{end}}<time datetime="{{.At.ISO}}">{{.At.Label}}</time></strong>{{if gt .Count 1}} · {{.Count}} times{{end}} · {{.Model}} · {{.What}} · <span class="engine-notes-cause">{{.CauseLabel}}</span> · exit status {{.ExitStatus}}{{if .Expected}} · <span class="engine-notes-expected" title="A job tried a setting that did not fit or that llama.cpp does not support. This is what the job is there to find.">expected in a job</span>{{end}}</div>
+      <div><strong>{{with .FirstAt}}<time datetime="{{.ISO}}">{{.Label}}</time> to {{end}}<time datetime="{{.At.ISO}}">{{.At.Label}}</time></strong>{{if gt .Count 1}} · {{.Count}} times{{end}} · <span class="engine-notes-source" title="The program that failed.">{{.Source}}</span> · {{.Model}} · {{.What}} · <span class="engine-notes-cause">{{.CauseLabel}}</span> · exit status {{.ExitStatus}}{{if .Expected}} · <span class="engine-notes-expected" title="A job tried a setting that did not fit or that llama.cpp does not support. This is what the job is there to find.">expected in a job</span>{{end}}</div>
       <div class="engine-notes-meta">
         {{- if .Build}}Build {{.Build}}{{end}}{{if .GPUs}}{{if .Build}} · {{end}}{{.GPUs}}{{end}}{{if .Job}}{{if or .Build .GPUs}} · {{end}}during job “{{.Job}}”{{end -}}
       </div>
@@ -111,7 +146,7 @@
 {{end}}</pre>{{end}}
       {{- if .Tail}}
       <details>
-        <summary>What llama-server wrote</summary>
+        <summary>What {{.Source}} wrote</summary>
         <pre>{{range .Tail}}{{.}}
 {{end}}</pre>
       </details>

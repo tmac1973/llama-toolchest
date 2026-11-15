@@ -105,8 +105,15 @@ func newNotesStripView(sum enginenotes.Summary) notesStripView {
 	}
 	last := notable[0] // newest first
 	text += " — last: " + failureModel(last)
+	var about []string
+	if enginenotes.IsGeneration(last.Source) {
+		about = append(about, last.Source)
+	}
 	if last.Cause != "" && last.Cause != enginenotes.CauseOther {
-		text += " (" + last.Cause.Label() + ")"
+		about = append(about, last.Cause.Label())
+	}
+	if len(about) > 0 {
+		text += " (" + strings.Join(about, ", ") + ")"
 	}
 	at := newTimeView(last.Time, sum.To)
 	v.Text, v.LastAt = text, &at
@@ -117,7 +124,7 @@ func newNotesStripView(sum enginenotes.Summary) notesStripView {
 func failureSig(fs []enginenotes.Event) string {
 	h := fnv.New64a()
 	for _, f := range fs {
-		fmt.Fprintf(h, "%d %s\n", f.Time.UnixNano(), f.RouterName)
+		fmt.Fprintf(h, "%d %s %s\n", f.Time.UnixNano(), f.Source, failureModel(f))
 	}
 	return fmt.Sprintf("%016x", h.Sum64())
 }
@@ -134,14 +141,17 @@ func failureModel(e enginenotes.Event) string {
 
 // notesBodyView is the Review dialog's content for one period.
 type notesBodyView struct {
-	Period   string
-	Periods  []notesPeriodButton
-	From     timeView
-	Since    timeView
-	Totals   enginenotes.Totals
-	Models   []notesModelView
-	Failures []notesFailureView
-	Empty    bool
+	Period  string
+	Periods []notesPeriodButton
+	From    timeView
+	Since   timeView
+	Totals  enginenotes.Totals
+	Models  []notesModelView
+	// GenInstances are the generation backends' instances, kept apart
+	// from the models: they have no requests or tokens to count here.
+	GenInstances []notesModelView
+	Failures     []notesFailureView
+	Empty        bool
 	// Result is the line after a delete.
 	Result string
 }
@@ -152,7 +162,9 @@ type notesPeriodButton struct {
 }
 
 type notesModelView struct {
-	Name                                 string
+	Name string
+	// Source is the backend, for a generation instance.
+	Source                               string
 	Loads, FailedLoads, Crashes, Unloads int
 	UnloadsForRoom                       int
 	Loaded, AvgLoad                      string
@@ -168,9 +180,12 @@ type notesFailureView struct {
 	At timeView
 	// Count is how many failures the entry stands for, and FirstAt when
 	// the oldest of them happened; At and the rest are the newest one's.
-	Count      int
-	FirstAt    *timeView
-	Model      string
+	Count   int
+	FirstAt *timeView
+	Model   string
+	// Source is the program that failed: llama-server, sd-server or
+	// ace-server.
+	Source     string
 	What       string
 	Cause      string
 	CauseLabel string
@@ -223,6 +238,11 @@ func newNotesBodyView(period string, sum enginenotes.Summary) notesBodyView {
 			at := newTimeView(m.LastUsed, sum.To)
 			row.LastUsed = &at
 		}
+		if enginenotes.IsGeneration(m.Source) {
+			row.Source = m.Source
+			v.GenInstances = append(v.GenInstances, row)
+			continue
+		}
 		v.Models = append(v.Models, row)
 	}
 	var prev *enginenotes.Event
@@ -242,9 +262,16 @@ func newNotesBodyView(period string, sum enginenotes.Summary) notesBodyView {
 		what := "crash"
 		if f.Kind == enginenotes.KindLoadFailed {
 			what = "failed to load"
+			if enginenotes.IsGeneration(f.Source) {
+				what = "failed to start"
+			}
+		}
+		source := f.Source
+		if source == "" {
+			source = enginenotes.SourceLlamaServer
 		}
 		v.Failures = append(v.Failures, notesFailureView{
-			At: newTimeView(f.Time, sum.To), Count: 1, Model: failureModel(f), What: what,
+			At: newTimeView(f.Time, sum.To), Count: 1, Model: failureModel(f), Source: source, What: what,
 			Cause: string(f.Cause), CauseLabel: f.Cause.Label(), Expected: f.Expected,
 			ExitStatus: f.ExitStatus, Build: f.Build, GPUs: f.GPUs, Job: f.JobName,
 			ErrorLines: f.ErrorLines, Tail: f.Tail,
@@ -253,8 +280,8 @@ func newNotesBodyView(period string, sum enginenotes.Summary) notesBodyView {
 	return v
 }
 
-// sameFailure reports whether b repeats a: the same model, kind, cause,
-// job and first error line.
+// sameFailure reports whether b repeats a: the same program, model,
+// kind, cause, job and first error line.
 func sameFailure(a, b enginenotes.Event) bool {
 	first := func(e enginenotes.Event) string {
 		if len(e.ErrorLines) > 0 {
@@ -262,7 +289,7 @@ func sameFailure(a, b enginenotes.Event) bool {
 		}
 		return ""
 	}
-	return failureModel(a) == failureModel(b) && a.Kind == b.Kind && a.Cause == b.Cause &&
+	return a.Source == b.Source && failureModel(a) == failureModel(b) && a.Kind == b.Kind && a.Cause == b.Cause &&
 		a.JobName == b.JobName && first(a) == first(b)
 }
 

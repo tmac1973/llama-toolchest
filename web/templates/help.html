@@ -108,7 +108,7 @@
     <p>The Server tab starts and stops llama-server, picks its build, and shows the eviction mode in effect. It lists the models it serves, the API address with config files for coding agents, live speeds, and the server logs.</p>
     <p class="help-more"><a href="{{docsURL "guides/server"}}" target="_blank" rel="noopener">More in the docs</a></p>
     <h3 id="engine-notes">Engine notes</h3>
-    <p>The line above the Server Logs counts loads, failed loads and crashes. <em>Review</em> keeps each crash with its error lines and its cause, such as a GPU fault or out of VRAM. Failures that a job expected, such as a setting that did not fit, do not show a warning. <em>Download JSON</em> saves the whole file. <a class="help-more" href="{{docsURL "guides/server#engine-notes"}}" target="_blank" rel="noopener">More in the docs</a></p>
+    <p>The line above the Server Logs counts loads, failed loads and crashes of llama-server and of the generation instances (sd-server, ace-server). <em>Review</em> keeps each crash with the program, its error lines and its cause, such as a GPU fault or out of VRAM. Failures that a job expected, such as a setting that did not fit, do not show a warning. <em>Download JSON</em> saves the whole file. <a class="help-more" href="{{docsURL "guides/server#engine-notes"}}" target="_blank" rel="noopener">More in the docs</a></p>
 
     <h2 id="builds">Builds</h2>
     <p>Builds compile <code>llama-server</code> from a <code>ggml-org/llama.cpp</code> ref for one backend: CUDA, ROCm, Vulkan (host installs), Metal or CPU. Keep several builds, and choose one on the Server tab. Save toggles and extra CMake flags as a flag set to use them again on another ref.</p>

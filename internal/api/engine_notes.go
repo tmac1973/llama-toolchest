@@ -228,12 +228,14 @@ func (s *Server) noteRouterStart(job bool, build string) {
 	s.notes.Record(e)
 }
 
-// openInstances is what the log reader last saw loaded.
+// openInstances is what the log reader last saw loaded, and the
+// generation instances loaded now.
 func (s *Server) openInstances() []enginenotes.OpenInstance {
+	var open []enginenotes.OpenInstance
 	if p := s.notesOpen.Load(); p != nil {
-		return *p
+		open = append(open, *p...)
 	}
-	return nil
+	return append(open, s.genOpenInstances()...)
 }
 
 // notesPeriods are the periods a summary can cover; "all" is 0.

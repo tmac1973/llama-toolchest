@@ -18,10 +18,24 @@ import (
 // log, so the server records it where it starts the router.
 const KindRouterStart OutcomeKind = "router_start"
 
-// SourceLlamaServer marks events about llama-server. Generation backends
-// will record under their own source later; the field keeps room for
-// them in the same file.
-const SourceLlamaServer = "llama-server"
+// Sources say which program an event is about. llama-server events come
+// from the router's log (Tracker); the generation backends' come from
+// their supervisors, one instance at a time. An event saved before
+// sources existed reads as llama-server.
+const (
+	SourceLlamaServer = "llama-server"
+	// SourceSDServer is stable-diffusion.cpp's sd-server, which serves
+	// the image and video instances.
+	SourceSDServer = "sd-server"
+	// SourceAceServer is acestep.cpp's ace-server, which serves the
+	// music instances.
+	SourceAceServer = "ace-server"
+)
+
+// IsGeneration reports whether source is a generation backend.
+func IsGeneration(source string) bool {
+	return source == SourceSDServer || source == SourceAceServer
+}
 
 // The bounds that keep the file small. Crash records are the ones worth
 // keeping longest, so they have their own cap and are the last to go.
@@ -49,7 +63,9 @@ type Event struct {
 
 	// ModelID is the registry id and ModelName the display name when the
 	// event was recorded, so a model deleted since still reads well.
-	// RouterName is the router's name= for it.
+	// RouterName is the router's name= for it. For a generation backend,
+	// ModelID and ModelName are the instance's id and name, and
+	// RouterName is empty.
 	ModelID    string `json:"model_id,omitempty"`
 	ModelName  string `json:"model_name,omitempty"`
 	RouterName string `json:"router_name,omitempty"`
@@ -59,8 +75,9 @@ type Event struct {
 	LoadSeconds   float64 `json:"load_seconds,omitempty"`
 	LoadedSeconds float64 `json:"loaded_seconds,omitempty"`
 
-	// Build is the llama.cpp build that was running, and GPUs the GPU
-	// assignment the model was launched with, as the UI labels it.
+	// Build is the build that was running (llama.cpp, or the generation
+	// backend's), and GPUs the GPU assignment the model or instance was
+	// launched with, as the UI labels it.
 	Build string `json:"build,omitempty"`
 	GPUs  string `json:"gpus,omitempty"`
 
@@ -70,7 +87,8 @@ type Event struct {
 	// asked for to make room ("room for ..."). Empty for other unloads.
 	UnloadReason string `json:"unload_reason,omitempty"`
 	// JobID and JobName name the benchmark or Autoconfigure job that
-	// held the router, if one did.
+	// held the router, or the Measure run that held a generation
+	// instance, if one did.
 	JobID   string `json:"job_id,omitempty"`
 	JobName string `json:"job_name,omitempty"`
 

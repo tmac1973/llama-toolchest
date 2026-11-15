@@ -140,6 +140,53 @@ func TestSupervisorEarlyExitFails(t *testing.T) {
 	})
 }
 
+// OnReady and OnExit report each start once: a crash, a stop that was
+// asked for, and a program a signal ended, each with its last lines.
+func TestSupervisorHooks(t *testing.T) {
+	run := func(body string, stop bool) (ready bool, info ExitInfo) {
+		t.Helper()
+		s := NewSupervisor("Fake", 50)
+		cfg := testConfig(t, body)
+		readyCh, exitCh := make(chan struct{}, 1), make(chan ExitInfo, 1)
+		cfg.OnReady = func() { readyCh <- struct{}{} }
+		cfg.OnExit = func(i ExitInfo) { exitCh <- i }
+		if err := s.Start(cfg); err != nil {
+			t.Fatal(err)
+		}
+		if stop {
+			<-readyCh
+			ready = true
+			if err := s.Stop(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		select {
+		case info = <-exitCh:
+		case <-time.After(5 * time.Second):
+			t.Fatal("OnExit was not called")
+		}
+		select {
+		case <-readyCh:
+			ready = true
+		default:
+		}
+		return ready, info
+	}
+
+	_, crash := run("echo CUDA error: an illegal memory access\nexit 3", false)
+	if crash.Err == nil || crash.Status != 3 || crash.Stopped || !slices.Contains(crash.Lines, "CUDA error: an illegal memory access") {
+		t.Errorf("crash: %+v", crash)
+	}
+	ready, stopped := run("exec sleep 30", true)
+	if !ready || !stopped.Stopped {
+		t.Errorf("stop: ready %v, %+v", ready, stopped)
+	}
+	_, killed := run("kill -9 $$", false)
+	if killed.Status != 137 || killed.Stopped {
+		t.Errorf("SIGKILL: %+v", killed)
+	}
+}
+
 func TestSupervisorStartTwiceRefused(t *testing.T) {
 	s := NewSupervisor("Fake", 50)
 	cfg := testConfig(t, "exec sleep 30")

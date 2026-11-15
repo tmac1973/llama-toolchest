@@ -255,8 +255,9 @@ type Server struct {
 	// started. See internal/api/memory_measured.go.
 	memory *memreport.Collector
 
-	// notes keeps the router's starts, loads, crashes and unloads, and
-	// each model's requests, in <data>/engine-notes.json. Nil when the
+	// notes keeps the router's starts, loads, crashes and unloads, each
+	// model's requests, and the generation instances' starts and ends,
+	// in <data>/engine-notes.json. Nil when the
 	// file could not be opened. notesOpen is what the log reader last saw
 	// loaded, and notesJob the job that last started the router; see
 	// engine_notes.go.
@@ -273,6 +274,10 @@ type Server struct {
 	// (instanceJob).
 	instanceJobsMu sync.Mutex
 	instanceJobs   map[string]*jobRef
+	// genNotesOpen holds the generation instances loaded now, by id, for
+	// engine notes' time-loaded figures (gen_engine_notes.go).
+	genNotesOpenMu sync.Mutex
+	genNotesOpen   map[string]enginenotes.OpenInstance
 }
 
 // jobEnv returns the benchmark job environment, if wired.
