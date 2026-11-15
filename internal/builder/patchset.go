@@ -50,6 +50,18 @@ type releaseJSON struct {
 	Base    string `json:"base"`
 	Tree    string `json:"tree"`
 	NBlocks int    `json:"n_blocks"`
+	// NDefault is the number of patch files to apply: the official
+	// blocks plus any temporary ones. Releases before r288 do not have it,
+	// and there every patch file is an official block.
+	NDefault int `json:"n_default"`
+}
+
+// nPatches is the number of patch files the release applies.
+func (rj releaseJSON) nPatches() int {
+	if rj.NDefault > 0 {
+		return rj.NDefault
+	}
+	return rj.NBlocks
 }
 
 // checkPatchSpec refuses a patch spec the project or profile cannot take.
@@ -127,8 +139,8 @@ func (b *Builder) preparePatchSet(ctx context.Context, set patchsets.PatchSet, s
 		}
 	}
 	slices.Sort(files)
-	if len(files) != rj.NBlocks {
-		return nil, fmt.Errorf("release %s has %d patch files, but its release.json says %d", tag, len(files), rj.NBlocks)
+	if len(files) != rj.nPatches() {
+		return nil, fmt.Errorf("release %s has %d patch files, but its release.json says %d", tag, len(files), rj.nPatches())
 	}
 
 	rel := patchsets.Release{Tag: tag, Base: base, Tree: rj.Tree, NBlocks: rj.NBlocks}
