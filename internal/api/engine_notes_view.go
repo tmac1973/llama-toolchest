@@ -29,7 +29,8 @@ func newTimeView(t, now time.Time) timeView {
 
 // notesStripView is the one line above the Server log.
 type notesStripView struct {
-	// Warn is set when the last 24 hours hold a crash or a failed load.
+	// Warn is set when the last 24 hours hold a crash or a failed load
+	// that a job was not there to find (enginenotes.Expected).
 	Warn bool
 	Text string
 	// LastAt is when the latest failure happened, shown after Text.
@@ -44,31 +45,69 @@ func count(n int, one, many string) string {
 	return fmt.Sprintf("%d %s", n, plural(n, one, many))
 }
 
+// newNotesStripView sums up the last 24 hours. A failure a job was there
+// to find — a setting that did not fit or that llama.cpp refused while
+// Autotune or a benchmark tried it — is counted but does not warn: an
+// Autotune run can leave dozens, and none of them is a problem.
 func newNotesStripView(sum enginenotes.Summary) notesStripView {
 	t := sum.Totals
-	v := notesStripView{Sig: failureSig(sum.Failures)}
-	if len(sum.Failures) == 0 {
-		if t == (enginenotes.Totals{}) && len(sum.Models) == 0 {
+	var notable []enginenotes.Event
+	for _, f := range sum.Failures {
+		if !f.Expected {
+			notable = append(notable, f)
+		}
+	}
+	v := notesStripView{Sig: failureSig(notable)}
+	if len(notable) == 0 {
+		switch {
+		case t == (enginenotes.Totals{}) && len(sum.Models) == 0:
 			v.Text = "Engine notes — nothing recorded yet"
-		} else {
+		case t.ExpectedFailures > 0:
+			v.Text = "Engine notes — " + count(t.Loads, "load", "loads") + " in the last 24 h, no crashes outside the " +
+				count(t.ExpectedFailures, "setting", "settings") + " that jobs found would not run"
+		default:
 			v.Text = "Engine notes — " + count(t.Loads, "load", "loads") + " in the last 24 h, no crashes"
 		}
 		return v
 	}
 	v.Warn = true
-	var parts []string
-	if t.Crashes > 0 {
-		parts = append(parts, count(t.Crashes, "crash", "crashes"))
+	var crashes, failedLoads, faults, inJobs int
+	for _, f := range notable {
+		if f.JobID != "" {
+			inJobs++
+		}
+		if f.Kind == enginenotes.KindLoadFailed {
+			failedLoads++
+		} else {
+			crashes++
+		}
+		if f.Cause == enginenotes.CauseGPUFault {
+			faults++
+		}
 	}
-	if t.FailedLoads > 0 {
-		parts = append(parts, count(t.FailedLoads, "failed load", "failed loads"))
+	var parts []string
+	if crashes > 0 {
+		parts = append(parts, count(crashes, "crash", "crashes"))
+	}
+	if failedLoads > 0 {
+		parts = append(parts, count(failedLoads, "failed load", "failed loads"))
 	}
 	text := strings.Join(parts, " and ") + " in the last 24 h"
-	if t.FailuresInJobs > 0 {
-		text += fmt.Sprintf(" (%d in jobs)", t.FailuresInJobs)
+	var notes []string
+	if faults > 0 {
+		notes = append(notes, count(faults, "GPU fault", "GPU faults"))
 	}
-	last := sum.Failures[0] // newest first
+	if inJobs > 0 {
+		notes = append(notes, fmt.Sprintf("%d in jobs", inJobs))
+	}
+	if len(notes) > 0 {
+		text += " (" + strings.Join(notes, ", ") + ")"
+	}
+	last := notable[0] // newest first
 	text += " — last: " + failureModel(last)
+	if last.Cause != "" && last.Cause != enginenotes.CauseOther {
+		text += " (" + last.Cause.Label() + ")"
+	}
 	at := newTimeView(last.Time, sum.To)
 	v.Text, v.LastAt = text, &at
 	return v
@@ -122,10 +161,20 @@ type notesModelView struct {
 	LastUsed                             *timeView
 }
 
+// notesFailureView is one failure, or a run of the same failure: the
+// same model, kind, cause, job and first error line, one after another.
+// An Autotune stage can fail the same way twenty times in two minutes.
 type notesFailureView struct {
-	At         timeView
+	At timeView
+	// Count is how many failures the entry stands for, and FirstAt when
+	// the oldest of them happened; At and the rest are the newest one's.
+	Count      int
+	FirstAt    *timeView
 	Model      string
 	What       string
+	Cause      string
+	CauseLabel string
+	Expected   bool
 	ExitStatus int
 	Build      string
 	GPUs       string
@@ -176,18 +225,45 @@ func newNotesBodyView(period string, sum enginenotes.Summary) notesBodyView {
 		}
 		v.Models = append(v.Models, row)
 	}
-	for _, f := range sum.Failures {
+	var prev *enginenotes.Event
+	for i, f := range sum.Failures {
+		if prev != nil && sameFailure(*prev, f) {
+			last := &v.Failures[len(v.Failures)-1]
+			last.Count++
+			// A range within one minute would read "07:13 to 07:13".
+			if at := newTimeView(f.Time, sum.To); at.Label != last.At.Label {
+				last.FirstAt = &at
+			} else {
+				last.FirstAt = nil
+			}
+			continue
+		}
+		prev = &sum.Failures[i]
 		what := "crash"
 		if f.Kind == enginenotes.KindLoadFailed {
 			what = "failed to load"
 		}
 		v.Failures = append(v.Failures, notesFailureView{
-			At: newTimeView(f.Time, sum.To), Model: failureModel(f), What: what,
+			At: newTimeView(f.Time, sum.To), Count: 1, Model: failureModel(f), What: what,
+			Cause: string(f.Cause), CauseLabel: f.Cause.Label(), Expected: f.Expected,
 			ExitStatus: f.ExitStatus, Build: f.Build, GPUs: f.GPUs, Job: f.JobName,
 			ErrorLines: f.ErrorLines, Tail: f.Tail,
 		})
 	}
 	return v
+}
+
+// sameFailure reports whether b repeats a: the same model, kind, cause,
+// job and first error line.
+func sameFailure(a, b enginenotes.Event) bool {
+	first := func(e enginenotes.Event) string {
+		if len(e.ErrorLines) > 0 {
+			return e.ErrorLines[0]
+		}
+		return ""
+	}
+	return failureModel(a) == failureModel(b) && a.Kind == b.Kind && a.Cause == b.Cause &&
+		a.JobName == b.JobName && first(a) == first(b)
 }
 
 // formatSeconds is a duration as the dialog shows it: "35 s", "42 m",

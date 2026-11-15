@@ -126,17 +126,25 @@
     .engine-notes-meta { color: var(--pico-muted-color); font-size: 0.8rem; }
     .engine-notes-failures pre { font-size: 0.75rem; margin: 0.3rem 0; padding: 0.4rem 0.6rem; max-height: 20rem; overflow: auto; }
     .engine-notes-failures summary { font-size: 0.8rem; }
-    .engine-notes-delete {
+    .engine-notes-cause { font-weight: 600; }
+    .engine-notes-failures li[data-cause="gpu_fault"] { border-left-color: var(--pico-del-color, #c62828); }
+    .engine-notes-failures li[data-expected] { border-left-color: var(--pico-muted-border-color); }
+    .engine-notes-expected { color: var(--pico-muted-color); }
+    .engine-notes-footer {
         display: flex;
+        flex-wrap: wrap;
         align-items: flex-end;
+        justify-content: space-between;
         gap: 0.6rem;
         margin: 1.2rem 0 0;
         padding-top: 0.8rem;
         border-top: 1px solid var(--pico-muted-border-color);
     }
+    .engine-notes-delete { display: flex; align-items: flex-end; gap: 0.6rem; margin: 0; }
+    .engine-notes-download { margin: 0; padding: 0.3rem 0.8rem; font-size: 0.8rem; }
     .engine-notes-delete label { margin: 0; font-size: 0.8rem; }
-    .engine-notes-delete select { margin: 0.15rem 0 0; padding: 0.25rem 2rem 0.25rem 0.5rem; font-size: 0.8rem; height: auto; }
-    .engine-notes-delete button { margin: 0; padding: 0.3rem 0.8rem; font-size: 0.8rem; }
+    .engine-notes-delete select { width: auto; margin: 0.15rem 0 0; padding: 0.25rem 2rem 0.25rem 0.5rem; font-size: 0.8rem; height: auto; }
+    .engine-notes-delete button { width: auto; margin: 0; padding: 0.3rem 0.8rem; font-size: 0.8rem; }
     .server-action-error {
         color: var(--pico-del-color);
         font-size: 0.8rem;

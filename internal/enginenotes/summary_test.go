@@ -78,7 +78,7 @@ func TestModelRows(t *testing.T) {
 	sum := s.Summary(24*time.Hour, open, names)
 
 	want := Totals{RouterStartsUser: 1, RouterStartsJob: 1, RouterStops: 1, RouterExits: 1,
-		Loads: 2, FailedLoads: 1, Crashes: 1, Unloads: 2, UnloadsForRoom: 1, FailuresInJobs: 1}
+		Loads: 2, FailedLoads: 1, Crashes: 1, Unloads: 2, UnloadsForRoom: 1, FailuresInJobs: 1, OtherFailures: 2}
 	if sum.Totals != want {
 		t.Errorf("totals = %+v\nwant %+v", sum.Totals, want)
 	}

@@ -61,7 +61,7 @@ func (s *Server) recordOutcome(o enginenotes.Outcome) {
 	if o.RouterName != "" {
 		e.ModelID, e.ModelName, e.GPUs = s.describeInstance(o.RouterName)
 	}
-	if job := s.jobTag(); job != nil {
+	if job := s.instanceJob(o); job != nil {
 		e.JobID, e.JobName = job.ID, job.Name
 	}
 	if o.Kind == enginenotes.KindUnload {
@@ -163,6 +163,37 @@ func (s *Server) resolveRouterName(routerName string) (string, string) {
 	return routerName, routerName
 }
 
+// instanceJob is the job an outcome belongs to: the job holding the
+// router now, or the one that held it when the instance loaded.
+//
+// The second matters at the end of a job. A cell that fails ends the
+// job, and the job lets go of the router before the log reader reaches
+// the line that says the instance exited; the crash would otherwise
+// count as one in normal use.
+func (s *Server) instanceJob(o enginenotes.Outcome) *jobRef {
+	job := s.jobTag()
+	if o.Port == "" {
+		return job
+	}
+	s.instanceJobsMu.Lock()
+	defer s.instanceJobsMu.Unlock()
+	switch o.Kind {
+	case enginenotes.KindLoad:
+		if job != nil {
+			if s.instanceJobs == nil {
+				s.instanceJobs = map[string]*jobRef{}
+			}
+			s.instanceJobs[o.Port] = job
+		}
+	case enginenotes.KindCrash, enginenotes.KindUnload, enginenotes.KindLoadFailed:
+		if job == nil {
+			job = s.instanceJobs[o.Port]
+		}
+		delete(s.instanceJobs, o.Port)
+	}
+	return job
+}
+
 // jobTag is the job holding the router, or nil when none does.
 func (s *Server) jobTag() *jobRef {
 	env, ok := s.jobEnv()
@@ -242,6 +273,24 @@ func (s *Server) handleEngineNotes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondJSON(w, sum)
+}
+
+// handleEngineNotesDownload answers GET /api/service/notes/download with
+// the whole of engine-notes.json, as a file to save.
+func (s *Server) handleEngineNotesDownload(w http.ResponseWriter, r *http.Request) {
+	if s.notes == nil {
+		http.Error(w, "engine notes are not available", http.StatusServiceUnavailable)
+		return
+	}
+	raw, err := s.notes.JSON()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	name := "engine-notes-" + time.Now().UTC().Format("2006-01-02") + ".json"
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
+	w.Write(raw)
 }
 
 // notesDeleteAges are the ages the delete control offers; "all" is 0.
