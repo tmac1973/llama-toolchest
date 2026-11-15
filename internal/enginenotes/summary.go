@@ -36,6 +36,32 @@ type Totals struct {
 	// FailuresInJobs is how many of the crashes and failed loads happened
 	// while a job held the router.
 	FailuresInJobs int `json:"failures_in_jobs"`
+	// ExpectedFailures is how many of those a job is there to find
+	// (Expected): a setting that did not fit or was refused.
+	ExpectedFailures int `json:"expected_failures"`
+
+	// The crashes and failed loads by cause (CauseOf).
+	GPUFaults     int `json:"gpu_faults"`
+	OutOfVRAM     int `json:"out_of_vram"`
+	OutOfRAM      int `json:"out_of_ram"`
+	Unsupported   int `json:"unsupported"`
+	OtherFailures int `json:"other_failures"`
+}
+
+// countCause adds one failure of cause c.
+func (t *Totals) countCause(c Cause) {
+	switch c {
+	case CauseGPUFault:
+		t.GPUFaults++
+	case CauseOutOfVRAM:
+		t.OutOfVRAM++
+	case CauseOutOfRAM:
+		t.OutOfRAM++
+	case CauseUnsupported:
+		t.Unsupported++
+	default:
+		t.OtherFailures++
+	}
 }
 
 // ModelRow is one model's figures for the period.
@@ -146,8 +172,14 @@ func (s *Store) Summary(window time.Duration, open []OpenInstance, resolve Resol
 		}
 		r.LoadedSeconds += e.LoadedSeconds
 		if e.IsFailure() {
+			e.Cause = CauseOf(e)
+			e.Expected = Expected(e, e.Cause)
+			t.countCause(e.Cause)
 			if e.JobID != "" {
 				t.FailuresInJobs++
+			}
+			if e.Expected {
+				t.ExpectedFailures++
 			}
 			sum.Failures = append(sum.Failures, e)
 		}

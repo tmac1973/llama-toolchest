@@ -268,6 +268,11 @@ type Server struct {
 	// (noteUnloadReason).
 	pendingUnloadsMu sync.Mutex
 	pendingUnloads   map[string]pendingUnload
+	// instanceJobs keeps the job that held the router when an instance
+	// loaded, by the instance's port, until the instance ends
+	// (instanceJob).
+	instanceJobsMu sync.Mutex
+	instanceJobs   map[string]*jobRef
 }
 
 // jobEnv returns the benchmark job environment, if wired.
@@ -1059,6 +1064,7 @@ func (s *Server) buildRouter() chi.Router {
 			r.Get("/loaded-models", s.handleLoadedModels)
 			r.Get("/notes", s.handleEngineNotes)
 			r.Get("/notes/strip", s.handleEngineNotesStrip)
+			r.Get("/notes/download", s.handleEngineNotesDownload)
 			r.Post("/notes/delete", s.handleEngineNotesDelete)
 		})
 		r.Get("/ps", s.handlePS)

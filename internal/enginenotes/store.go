@@ -77,6 +77,12 @@ type Event struct {
 	RouterError string   `json:"router_error,omitempty"`
 	ErrorLines  []string `json:"error_lines,omitempty"`
 	Tail        []string `json:"tail,omitempty"`
+
+	// Cause and Expected are set on the failures a Summary returns
+	// (CauseOf, Expected), never saved: they are read from the lines
+	// above each time, so a better reading applies to old events too.
+	Cause    Cause `json:"cause,omitempty"`
+	Expected bool  `json:"expected,omitempty"`
 }
 
 // IsFailure reports whether the event is a crash or a failed load: the
@@ -330,6 +336,19 @@ func (s *Store) DeleteAll() (events, hours int, err error) {
 	s.dirty = true
 	s.mu.Unlock()
 	return events, hours, s.Save()
+}
+
+// JSON is everything the store holds, as engine-notes.json holds it once
+// saved, indented for a person to read. It includes what is not saved
+// yet, so a download is never a few seconds behind the page.
+func (s *Store) JSON() ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	raw, err := json.MarshalIndent(s.data, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("encode engine notes: %w", err)
+	}
+	return raw, nil
 }
 
 // Save writes the store if anything changed since the last write.

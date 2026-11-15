@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -18,6 +19,13 @@ var viewNow = time.Date(2026, 10, 30, 15, 0, 0, 0, time.UTC)
 func crashAt(ago time.Duration, name, job string) enginenotes.Event {
 	return enginenotes.Event{Kind: enginenotes.KindCrash, Time: viewNow.Add(-ago),
 		ModelName: name, RouterName: name, JobName: job, JobID: job}
+}
+
+// withCause marks a failure as the summary does.
+func withCause(e enginenotes.Event, c enginenotes.Cause) enginenotes.Event {
+	e.Cause = c
+	e.Expected = enginenotes.Expected(e, c)
+	return e
 }
 
 func TestStripText(t *testing.T) {
@@ -41,6 +49,21 @@ func TestStripText(t *testing.T) {
 			Failures: []enginenotes.Event{crashAt(time.Hour, "A", "j"), crashAt(2*time.Hour, "B", "j"),
 				crashAt(3*time.Hour, "C", "")},
 		}, "3 crashes in the last 24 h (2 in jobs) — last: A", true},
+		{"GPU fault", enginenotes.Summary{
+			Totals:   enginenotes.Totals{Crashes: 1, GPUFaults: 1},
+			Failures: []enginenotes.Event{withCause(crashAt(time.Hour, "A", ""), enginenotes.CauseGPUFault)},
+		}, "1 crash in the last 24 h (1 GPU fault) — last: A (GPU fault)", true},
+		// What Autotune finds would not run is counted, not warned about.
+		{"only expected failures", enginenotes.Summary{
+			Totals: enginenotes.Totals{Loads: 40, Crashes: 2, FailuresInJobs: 2, ExpectedFailures: 2},
+			Failures: []enginenotes.Event{withCause(crashAt(time.Hour, "A", "j"), enginenotes.CauseOutOfVRAM),
+				withCause(crashAt(2*time.Hour, "A", "j"), enginenotes.CauseUnsupported)},
+		}, "Engine notes — 40 loads in the last 24 h, no crashes outside the 2 settings that jobs found would not run", false},
+		{"expected and not", enginenotes.Summary{
+			Totals: enginenotes.Totals{Crashes: 2, FailuresInJobs: 1, ExpectedFailures: 1},
+			Failures: []enginenotes.Event{withCause(crashAt(time.Hour, "A", "j"), enginenotes.CauseOutOfVRAM),
+				withCause(crashAt(2*time.Hour, "B", ""), enginenotes.CauseOutOfVRAM)},
+		}, "1 crash in the last 24 h — last: B (out of VRAM)", true},
 		{"crash and failed load", enginenotes.Summary{
 			Totals: enginenotes.Totals{Crashes: 1, FailedLoads: 1},
 			Failures: []enginenotes.Event{
@@ -185,5 +208,63 @@ func TestNotesStripEndpoint(t *testing.T) {
 	html := rec.Body.String()
 	if !strings.Contains(html, `data-level="warning"`) || !strings.Contains(html, "1 crash in the last 24 h — last: Qwen at <time") {
 		t.Errorf("strip = %s", html)
+	}
+}
+
+// The download is the whole file, as an attachment, including events not
+// saved yet.
+func TestNotesDownload(t *testing.T) {
+	s := newTestServer(t)
+	openTestNotes(t, s)
+	s.notes.Record(enginenotes.Event{Kind: enginenotes.KindCrash, ModelName: "Qwen", RouterName: "q",
+		ErrorLines: []string{"CUDA error: out of memory"}})
+	rec := httptest.NewRecorder()
+	s.handleEngineNotesDownload(rec, httptest.NewRequest(http.MethodGet, "/api/service/notes/download", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d", rec.Code)
+	}
+	if cd := rec.Header().Get("Content-Disposition"); !strings.HasPrefix(cd, `attachment; filename="engine-notes-`) {
+		t.Errorf("Content-Disposition = %q", cd)
+	}
+	var got struct {
+		Version int                 `json:"version"`
+		Events  []enginenotes.Event `json:"events"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("not JSON: %v", err)
+	}
+	if got.Version != 1 || len(got.Events) != 1 || got.Events[0].ModelName != "Qwen" {
+		t.Errorf("download = %+v", got)
+	}
+}
+
+// Repeats of one failure show once, with a count and the time range; a
+// different failure starts a new entry.
+func TestNotesBodyGroupsRepeats(t *testing.T) {
+	oom := func(ago time.Duration) enginenotes.Event {
+		e := withCause(crashAt(ago, "A", "j"), enginenotes.CauseOutOfVRAM)
+		e.ErrorLines = []string{"CUDA error: out of memory"}
+		return e
+	}
+	fault := withCause(crashAt(30*time.Minute, "A", ""), enginenotes.CauseGPUFault)
+	fault.ErrorLines = []string{"CUDA error: an illegal memory access was encountered"}
+	sum := enginenotes.Summary{To: viewNow, Totals: enginenotes.Totals{Crashes: 4},
+		Failures: []enginenotes.Event{fault, oom(time.Hour), oom(time.Hour + time.Minute), oom(time.Hour + 2*time.Minute)}}
+	v := newNotesBodyView("24h", sum)
+	if len(v.Failures) != 2 {
+		t.Fatalf("entries = %d, want 2", len(v.Failures))
+	}
+	if g := v.Failures[1]; g.Count != 3 || g.FirstAt == nil || g.FirstAt.Label != "13:58 UTC" || !g.Expected {
+		t.Errorf("group = %+v", g)
+	}
+	s := newTestServer(t)
+	rec := httptest.NewRecorder()
+	s.renderPartial(rec, "engine_notes_body", v)
+	html := rec.Body.String()
+	for _, want := range []string{"3 times", "GPU fault", "out of VRAM", "expected in a job", `data-cause="gpu_fault"`,
+		`href="/api/service/notes/download"`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("body is missing %q", want)
+		}
 	}
 }

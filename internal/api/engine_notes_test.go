@@ -122,6 +122,32 @@ func TestCrashDuringAJobIsTagged(t *testing.T) {
 	}
 }
 
+// A job can let go of the router before the log reader reaches the line
+// that says its instance crashed. The crash still belongs to the job
+// that held the router when the instance loaded.
+func TestCrashAfterTheJobEndedKeepsTheJob(t *testing.T) {
+	s := newTestServer(t)
+	openTestNotes(t, s)
+	s.env = &jobEnv{s: s, ownsRouter: true}
+	s.notesJob.Store(&jobRef{ID: "job-1", Name: "night run"})
+	s.recordOutcome(enginenotes.Outcome{Kind: enginenotes.KindLoad, RouterName: "m", Port: "4001", Time: time.Now()})
+
+	s.env.mu.Lock()
+	s.env.ownsRouter = false
+	s.env.mu.Unlock()
+	s.recordOutcome(enginenotes.Outcome{Kind: enginenotes.KindCrash, RouterName: "m", Port: "4001", ExitStatus: 1, Time: time.Now()})
+	if c := allNotes(s).Failures[0]; c.JobID != "job-1" {
+		t.Errorf("crash job = %q, want the job that loaded the instance", c.JobID)
+	}
+
+	// The next instance, loaded with no job, crashes with none.
+	s.recordOutcome(enginenotes.Outcome{Kind: enginenotes.KindLoad, RouterName: "m", Port: "4002", Time: time.Now()})
+	s.recordOutcome(enginenotes.Outcome{Kind: enginenotes.KindCrash, RouterName: "m", Port: "4002", ExitStatus: 1, Time: time.Now()})
+	if got := allNotes(s).Totals.FailuresInJobs; got != 1 {
+		t.Errorf("failures in jobs = %d, want 1", got)
+	}
+}
+
 func TestRouterStartReasons(t *testing.T) {
 	s, proc := evalStopServer(t)
 	openTestNotes(t, s)
