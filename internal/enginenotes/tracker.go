@@ -70,6 +70,10 @@ type OpenInstance struct {
 	RouterName string
 	Port       string
 	ReadySince time.Time
+	// Source is empty for llama-server. A generation instance sets it,
+	// and RouterName and Name to its instance id and name.
+	Source string
+	Name   string
 }
 
 type instance struct {

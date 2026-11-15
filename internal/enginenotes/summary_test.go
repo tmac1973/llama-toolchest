@@ -170,3 +170,43 @@ func TestUsageInTheFirstHourCounts(t *testing.T) {
 		t.Errorf("models = %+v, want the request since the delete", sum.Models)
 	}
 }
+
+// A generation instance has its own row, apart from a model with the same
+// id, and an open one counts its time running. The resolver names models
+// only.
+func TestGenerationInstancesHaveTheirOwnRows(t *testing.T) {
+	s, c, _, _ := testStore(t)
+	c.set(base.Add(-48 * time.Hour))
+	s.DeleteAll()
+	c.set(base.Add(-2 * time.Hour))
+	s.Record(Event{Kind: KindLoad, ModelID: "x", LoadSeconds: 4})
+	s.Record(Event{Source: SourceSDServer, Kind: KindLoad, ModelID: "x", ModelName: "Image X", LoadSeconds: 20})
+	s.Record(Event{Source: SourceSDServer, Kind: KindCrash, ModelID: "x", ModelName: "Image X", LoadedSeconds: 60})
+	s.Record(Event{Source: SourceAceServer, Kind: KindLoadFailed, ModelID: "song", ModelName: "Song"})
+	c.set(base)
+	open := []OpenInstance{{Source: SourceAceServer, RouterName: "song", Name: "Song", ReadySince: base.Add(-10 * time.Minute)}}
+	sum := s.Summary(0, open, names)
+
+	if len(sum.Models) != 3 {
+		t.Fatalf("models = %+v, want the model x and two instances", sum.Models)
+	}
+	bySource := map[string]ModelRow{}
+	for _, m := range sum.Models {
+		bySource[m.Source] = m
+	}
+	if m := bySource[SourceLlamaServer]; m.Name != "Name of x" || m.Loads != 1 || m.Crashes != 0 {
+		t.Errorf("model x = %+v", m)
+	}
+	if g := bySource[SourceSDServer]; g.ModelID != "x" || g.Name != "Image X" || g.Loads != 1 || g.Crashes != 1 || g.AvgLoadSeconds != 20 || g.LoadedSeconds != 60 {
+		t.Errorf("sd-server instance = %+v", g)
+	}
+	if g := bySource[SourceAceServer]; g.Name != "Song" || g.FailedLoads != 1 || g.LoadedSeconds != 600 {
+		t.Errorf("ace-server instance = %+v", g)
+	}
+	if sum.Totals.Loads != 2 || sum.Totals.Crashes != 1 || sum.Totals.FailedLoads != 1 {
+		t.Errorf("totals = %+v", sum.Totals)
+	}
+	if len(sum.Failures) != 2 || !IsGeneration(sum.Failures[0].Source) {
+		t.Errorf("failures = %+v", sum.Failures)
+	}
+}

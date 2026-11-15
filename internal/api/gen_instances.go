@@ -716,6 +716,7 @@ func (s *Server) launchGenInstance(inst generation.Instance, set generation.Mode
 	if err != nil {
 		return err
 	}
+	cfg.OnReady, cfg.OnExit = s.genNotesHooks(inst, set.Kind, build.ID)
 	return s.genMgr.Start(inst.ID, set.Kind, cfg)
 }
 

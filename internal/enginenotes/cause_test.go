@@ -35,6 +35,41 @@ func TestCauseOf(t *testing.T) {
 		{"word in the tail only", Event{Kind: KindCrash, ExitStatus: 1, Tail: []string{
 			"I llama_context: flash_attn is not supported by the CPU backend"}}, CauseOther},
 		{"not a failure", Event{Kind: KindUnload, ExitStatus: 137}, ""},
+
+		// sd-server (stable-diffusion.cpp) on the RTX A4000s, 2026-10.
+		{"sd-server CONCAT fault", Event{Source: SourceSDServer, Kind: KindCrash, ExitStatus: 134, ErrorLines: []string{
+			"[E] ggml: ggml_cuda_compute_forward: CONCAT failed",
+			"[E] ggml: CUDA error: an illegal memory access was encountered"}}, CauseGPUFault},
+		// The progress bar can push the CUDA error line out; the failed
+		// operation alone, with no memory error, is still a fault.
+		{"sd-server failed operation only", Event{Source: SourceSDServer, Kind: KindCrash, ExitStatus: 134, Tail: []string{
+			"  |======>   |  7/15 - 7.58it/s[E] ggml: ggml_cuda_compute_forward: CONCAT failed"}}, CauseGPUFault},
+		// A real OOM: the decode did not fit, sd.cpp retried smaller, ran
+		// out again and aborted.
+		{"sd-server abort after a retry", Event{Source: SourceSDServer, Kind: KindCrash, ExitStatus: 134, Tail: []string{
+			"[W] model manager cannot make enough memory available on CUDA0: need 25114.96 MB device / 24602.96 MB budget --- model_manager.cpp:2013",
+			"[W] VAE decode ran out of memory; retrying with temporal tiling --- backend_fit.cpp:518",
+			"[E] wan_vae segment 1/1 (graph) failed during weight preparation --- ggml_runner.cpp:898",
+			"/data/stable-diffusion.cpp/ggml/src/ggml-cuda/ggml-cuda.cu:111: CUDA error",
+			"==> sd-server x exited with error: signal: aborted (core dumped)"}}, CauseOutOfVRAM},
+		{"sd-server failed operation after a retry", Event{Source: SourceSDServer, Kind: KindCrash, ExitStatus: 134, Tail: []string{
+			"[W] VAE decode ran out of memory; retrying with spatial+temporal tiling --- backend_fit.cpp:518",
+			"[E] ggml: ggml_cuda_compute_forward: CONCAT failed",
+			"[E] ggml: CUDA error: out of memory"}}, CauseOutOfVRAM},
+		// A fault after a retry is still a fault: the retry got past the
+		// memory problem.
+		{"sd-server fault after a retry", Event{Source: SourceSDServer, Kind: KindCrash, ExitStatus: 134, Tail: []string{
+			"[W] VAE decode ran out of memory; retrying with temporal tiling --- backend_fit.cpp:518",
+			"[E] ggml: ggml_cuda_compute_forward: CONCAT failed",
+			"[E] ggml: CUDA error: unspecified launch failure"}}, CauseGPUFault},
+		// After a retry, a failure the later lines do not explain is the
+		// memory problem the retry did not get past.
+		{"sd-server nothing after a retry", Event{Source: SourceSDServer, Kind: KindCrash, ExitStatus: 1, ErrorLines: []string{
+			"[W] VAE decode ran out of memory; retrying with temporal tiling",
+			"[E] server: failed to write the response"}}, CauseOutOfVRAM},
+		{"sd-server model manager", Event{Source: SourceSDServer, Kind: KindLoadFailed, ExitStatus: 134, ErrorLines: []string{
+			"[W] model manager cannot make enough memory available on ROCm0: need 8092.58 MB device / 7580.58 MB budget"}}, CauseOutOfVRAM},
+		{"ace-server killed", Event{Source: SourceAceServer, Kind: KindCrash, ExitStatus: 137}, CauseOutOfRAM},
 	}
 	for _, c := range cases {
 		if got := CauseOf(c.e); got != c.want {

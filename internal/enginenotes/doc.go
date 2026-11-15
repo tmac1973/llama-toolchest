@@ -10,6 +10,10 @@
 // the model again on the next request. This package reads the log as it
 // arrives and keeps what matters, so the count and the reason survive.
 //
+// The generation backends (sd-server, ace-server) are recorded in the
+// same store under their own Source. Their supervisors report each start
+// and exit, so they need no Tracker.
+//
 // It imports nothing from this project but internal/serverlog, which
 // knows the shape of the router's lines, and internal/atomicfile, which
 // writes the saved copy (engine-notes.json) safely.

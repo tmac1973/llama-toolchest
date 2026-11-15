@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/tmac1973/llama-toolchest/internal/broadcast"
@@ -44,6 +45,27 @@ type SupervisorConfig struct {
 	HealthInterval time.Duration
 	HealthTimeout  time.Duration
 	StopTimeout    time.Duration
+
+	// OnReady and OnExit, when set, are called once for this start:
+	// OnReady when the health check first passes, OnExit once the
+	// program has ended and its last lines are in the log. They run on
+	// the supervisor's own goroutines and must not call back into it
+	// while holding it up for long.
+	OnReady func()
+	OnExit  func(ExitInfo)
+}
+
+// ExitInfo is how a supervised program ended.
+type ExitInfo struct {
+	// Err is the error the program exited with: nil for exit status 0.
+	Err error
+	// Status is the exit status, or 128 plus the signal number for a
+	// program a signal ended (137 for SIGKILL), as a shell reports it.
+	Status int
+	// Stopped is true when Stop asked the program to end.
+	Stopped bool
+	// Lines are the log lines kept for this start, oldest first.
+	Lines []string
 }
 
 // Supervisor starts one child process, streams its output to log
@@ -61,6 +83,9 @@ type Supervisor struct {
 	config    *SupervisorConfig
 	healthURL string
 	done      chan struct{}
+	// stopping is the process Stop was asked to end, so its exit is not
+	// mistaken for one nobody asked for.
+	stopping *exec.Cmd
 
 	logs *broadcast.Broadcaster[string]
 }
@@ -145,8 +170,8 @@ func (s *Supervisor) Start(cfg SupervisorConfig) error {
 		StartedAt: time.Now(),
 	}
 
-	go s.monitorProcess(cmd, out, done)
-	go s.pollHealth(cfg)
+	go s.monitorProcess(cmd, out, done, cfg.OnExit)
+	go s.pollHealth(cmd, cfg)
 
 	slog.Info("process started", "name", cfg.Name, "pid", cmd.Process.Pid)
 	return nil
@@ -164,6 +189,7 @@ func (s *Supervisor) Stop() error {
 	cancel := s.cancel
 	done := s.done
 	cfg := *s.config
+	s.stopping = cmd
 	s.mu.Unlock()
 
 	if err := terminate(cmd.Process); err != nil {
@@ -325,7 +351,7 @@ func (s *Supervisor) broadcast(line string) {
 	s.logs.Broadcast(line)
 }
 
-func (s *Supervisor) monitorProcess(cmd *exec.Cmd, out *lineWriter, done chan struct{}) {
+func (s *Supervisor) monitorProcess(cmd *exec.Cmd, out *lineWriter, done chan struct{}, onExit func(ExitInfo)) {
 	err := cmd.Wait()
 	if errors.Is(err, exec.ErrWaitDelay) {
 		// The program exited cleanly; only a child kept its output open.
@@ -335,24 +361,42 @@ func (s *Supervisor) monitorProcess(cmd *exec.Cmd, out *lineWriter, done chan st
 	close(done)
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.cmd != cmd {
-		return
+	stopped := s.stopping == cmd
+	if s.cmd == cmd {
+		if err != nil {
+			s.status.State = StateFailed
+			s.status.Error = err.Error()
+			s.broadcast(fmt.Sprintf("==> %s exited with error: %v", s.label, err))
+		} else {
+			s.status.State = StateStopped
+			s.broadcast("==> " + s.label + " exited normally")
+		}
+		s.status.HealthOK = false
 	}
+	s.mu.Unlock()
 
-	if err != nil {
-		s.status.State = StateFailed
-		s.status.Error = err.Error()
-		s.broadcast(fmt.Sprintf("==> %s exited with error: %v", s.label, err))
-	} else {
-		s.status.State = StateStopped
-		s.broadcast("==> " + s.label + " exited normally")
+	if onExit != nil {
+		onExit(ExitInfo{Err: err, Status: exitStatus(cmd), Stopped: stopped, Lines: s.logs.History()})
 	}
-	s.status.HealthOK = false
 }
 
-func (s *Supervisor) pollHealth(cfg SupervisorConfig) {
+// exitStatus is the ended program's exit status, as ExitInfo.Status
+// describes it.
+func exitStatus(cmd *exec.Cmd) int {
+	ps := cmd.ProcessState
+	if ps == nil {
+		return -1
+	}
+	if code := ps.ExitCode(); code >= 0 {
+		return code
+	}
+	if ws, ok := ps.Sys().(interface{ Signal() syscall.Signal }); ok {
+		return 128 + int(ws.Signal())
+	}
+	return -1
+}
+
+func (s *Supervisor) pollHealth(cmd *exec.Cmd, cfg SupervisorConfig) {
 	client := &http.Client{Timeout: 2 * time.Second}
 	deadline := time.Now().Add(cfg.HealthTimeout)
 
@@ -360,7 +404,7 @@ func (s *Supervisor) pollHealth(cfg SupervisorConfig) {
 		time.Sleep(cfg.HealthInterval)
 
 		s.mu.Lock()
-		if s.status.State != StateStarting && s.status.State != StateRunning {
+		if s.cmd != cmd || (s.status.State != StateStarting && s.status.State != StateRunning) {
 			s.mu.Unlock()
 			return
 		}
@@ -374,16 +418,23 @@ func (s *Supervisor) pollHealth(cfg SupervisorConfig) {
 
 		if resp.StatusCode == http.StatusOK {
 			s.mu.Lock()
+			if s.cmd != cmd {
+				s.mu.Unlock()
+				return
+			}
 			s.status.State = StateRunning
 			s.status.HealthOK = true
 			s.mu.Unlock()
 			s.broadcast("==> " + s.label + " health check passed — ready")
+			if cfg.OnReady != nil {
+				cfg.OnReady()
+			}
 			return
 		}
 	}
 
 	s.mu.Lock()
-	if s.status.State == StateStarting {
+	if s.cmd == cmd && s.status.State == StateStarting {
 		s.status.State = StateFailed
 		s.status.Error = "health check timeout"
 	}
