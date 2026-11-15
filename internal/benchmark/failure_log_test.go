@@ -126,6 +126,49 @@ func TestFailedRunRecordsWhatTheServerReported(t *testing.T) {
 // not sent again: each one makes the router load the model again with the
 // same settings, and that load runs out of memory again.
 func TestWarmupIsNotRetriedAfterOutOfMemory(t *testing.T) {
+	completions, got := runWarmupAgainst(t, oomLog)
+	if completions != 1 {
+		t.Errorf("warm-up requests = %d, want 1", completions)
+	}
+	if !strings.HasPrefix(got.Error, "warmup failed: HTTP 500") {
+		t.Errorf("error = %q, want it to start with the warm-up error", got.Error)
+	}
+	if !strings.Contains(got.Error, "cudaMalloc failed: out of memory") {
+		t.Errorf("error = %q, want it to quote the cause from the server log", got.Error)
+	}
+}
+
+// What llama-server printed when DFlash was loaded with a tensor split,
+// taken from the machine this is from: it stops on an assertion while it
+// loads, the same way every time.
+var assertLog = []string{
+	"0.00.412.118 I srv  operator(): spawning server instance with name=big on port 35569",
+	"[35569] 0.05.992.124 I sched_reserve: reserve took 1.26 ms, sched copies = 1",
+	"[35569] /data/llama.cpp/ggml/src/ggml-backend-meta.cpp:573: GGML_ASSERT(src_ss[0].axis != GGML_BACKEND_SPLIT_AXIS_0) failed",
+	"[35569] /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b)[0x7f488b99a28b]",
+	"0.06.100.004 E srv  operator(): instance name=big exited with status 134",
+}
+
+// A load that stopped on a failed assertion stops on it again, so the
+// warm-up is not retried either. Each DFlash cell used to cost five loads.
+func TestWarmupIsNotRetriedAfterAFailedAssertion(t *testing.T) {
+	completions, got := runWarmupAgainst(t, assertLog)
+	if completions != 1 {
+		t.Errorf("warm-up requests = %d, want 1", completions)
+	}
+	if !strings.HasPrefix(got.Error, "warmup failed: HTTP 500") {
+		t.Errorf("error = %q, want it to start with the warm-up error", got.Error)
+	}
+	if !strings.Contains(got.Error, "GGML_ASSERT(") {
+		t.Errorf("error = %q, want it to quote the assertion from the server log", got.Error)
+	}
+}
+
+// runWarmupAgainst runs a benchmark whose warm-up requests all fail,
+// with a server log that gains failLog once the run has started. It
+// returns how many warm-up requests were sent and the failed run.
+func runWarmupAgainst(t *testing.T, failLog []string) (int, *BenchmarkRun) {
+	t.Helper()
 	completions := 0
 	mux := http.NewServeMux()
 	mux.HandleFunc("/models", func(w http.ResponseWriter, r *http.Request) {
@@ -149,7 +192,7 @@ func TestWarmupIsNotRetriedAfterOutOfMemory(t *testing.T) {
 		if calls == 1 {
 			return before
 		}
-		return append(append([]string{}, before...), oomLog...)
+		return append(append([]string{}, before...), failLog...)
 	}
 
 	store := NewStore(t.TempDir(), nil)
@@ -163,9 +206,6 @@ func TestWarmupIsNotRetriedAfterOutOfMemory(t *testing.T) {
 		ServerLog:  serverLog,
 	}, nil)
 
-	if completions != 1 {
-		t.Errorf("warm-up requests = %d, want 1", completions)
-	}
 	got, err := store.Get("run-1")
 	if err != nil {
 		t.Fatalf("read back run: %v", err)
@@ -173,12 +213,7 @@ func TestWarmupIsNotRetriedAfterOutOfMemory(t *testing.T) {
 	if got.Status != StatusFailed {
 		t.Fatalf("status = %s, want failed", got.Status)
 	}
-	if !strings.HasPrefix(got.Error, "warmup failed: HTTP 500") {
-		t.Errorf("error = %q, want it to start with the warm-up error", got.Error)
-	}
-	if !strings.Contains(got.Error, "cudaMalloc failed: out of memory") {
-		t.Errorf("error = %q, want it to quote the cause from the server log", got.Error)
-	}
+	return completions, got
 }
 
 // What llama-server printed when a model loaded and then ran out of

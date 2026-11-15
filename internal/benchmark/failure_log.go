@@ -66,6 +66,22 @@ func OutOfMemory(lines []string) bool {
 	return false
 }
 
+// assertWord marks a line where llama.cpp stopped on a failed assertion.
+// It checks the same thing the same way on every load, so a load that
+// stopped on one stops on it again.
+const assertWord = "GGML_ASSERT("
+
+// FailedAssertion reports whether the lines llama-server printed about a
+// failure say that it stopped on a failed assertion.
+func FailedAssertion(lines []string) bool {
+	for _, l := range lines {
+		if strings.Contains(l, assertWord) {
+			return true
+		}
+	}
+	return false
+}
+
 // failureReason picks the one line that best says why a run failed: a
 // line that says memory ran out when there is one, and otherwise the
 // first line.

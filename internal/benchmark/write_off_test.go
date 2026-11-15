@@ -227,3 +227,42 @@ func TestWriteOffKeepsADraftFileThatHasWorked(t *testing.T) {
 		t.Error("wrote off a draft file that had already been measured successfully")
 	}
 }
+
+// A draft model that ran out of memory with a tensor split can still fit
+// with a layer split. On the machine this is from, its two tensor-split
+// failures wrote it off for the layer split too, so it was never
+// measured there.
+func TestWriteOffKeepsADraftFileForAnotherSplit(t *testing.T) {
+	w := newWriteOffTracker()
+	const oom = "all tests failed: HTTP 500: proxy error: Could not establish connection"
+	const file = "draft_model=org--mid--IQ4"
+	cell := func(spec, split string) map[string]string {
+		return map[string]string{"spec_type": spec, "split_mode": split}
+	}
+	w.recordSuccess(cell("none", "tensor"))
+	w.recordSuccess(cell("none", "layer"))
+
+	// The draft model alone with a tensor split, once per workload.
+	alone := "draft:draft_max=16," + file
+	w.recordFailure(cell(alone, "tensor"), oom)
+	w.recordFailure(cell(alone, "tensor"), oom)
+
+	paired := "draft+ngram-mod:assist_n_max=64,draft_max=16," + file
+	if _, skip := w.writeOff(cell(paired, "tensor"), true); !skip {
+		t.Error("a pairing of the draft file was measured again with the split it failed with")
+	}
+	if _, skip := w.writeOff(cell(alone, "layer"), true); skip {
+		t.Fatal("the draft file was written off for a split it was never measured with")
+	}
+
+	// Once it has failed with the layer split as well, the split makes no
+	// difference and the rest are skipped whatever their split.
+	w.recordFailure(cell(alone, "layer"), oom)
+	w.recordFailure(cell(alone, "layer"), oom)
+	if _, skip := w.writeOff(cell(paired, "layer"), true); !skip {
+		t.Error("a draft file that failed with both splits was measured again")
+	}
+	if _, skip := w.writeOff(cell(paired, "row"), true); !skip {
+		t.Error("a draft file that failed with two splits was measured with a third")
+	}
+}
