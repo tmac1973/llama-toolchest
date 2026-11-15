@@ -333,11 +333,35 @@ func planSpec(in PlanInput) ([]map[string]string, []string) {
 
 	var cells []map[string]string
 	for _, carried := range carryForward(in, batchFinalists(in)) {
+		split := carried["split_mode"]
+		if split == "" {
+			split = in.Base.SplitMode
+		}
 		for _, v := range values {
+			if split == "tensor" && refusesTensorSplit(v) {
+				continue
+			}
 			cells = append(cells, withValue(carried, "spec_type", v))
 		}
 	}
 	return cells, skipped
+}
+
+// noTensorSplitModes are the draft methods llama.cpp cannot run with a
+// tensor split. DFlash stops llama-server while it loads, on an assertion
+// in the tensor-split backend (ggml-backend-meta.cpp), every time: on the
+// machine this is from, each such cell cost five loads to learn that.
+var noTensorSplitModes = []string{"draft-dflash"}
+
+// refusesTensorSplit reports whether a speculative-decoding value uses a
+// draft method from noTensorSplitModes, alone or paired with an assist.
+func refusesTensorSplit(v string) bool {
+	for _, m := range noTensorSplitModes {
+		if v == m || strings.HasPrefix(v, m+":") || strings.HasPrefix(v, m+"+") {
+			return true
+		}
+	}
+	return false
 }
 
 // specValues are the speculative decoding settings the speculative stage

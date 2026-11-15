@@ -162,7 +162,7 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 	// Step 2: Warmup — retry with backoff since model may still be initializing
 	send("warmup", "Warming up — sending test request to initialize GPU kernels...", 10)
 	var warmupErr error
-	outOfMemory := false
+	noRetry := false
 	for attempt := 1; attempt <= 5; attempt++ {
 		warmupErr = r.sendCompletion(ctx, cfg.RouterURL, cfg.RouterName, 64, 16)
 		if warmupErr == nil {
@@ -170,12 +170,21 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 		}
 		// Each request for a model that failed to load makes the router
 		// load it again, with the same settings. A load that ran out of
-		// memory runs out again every time, so a retry only costs another
-		// full load.
-		if cfg.ServerLog != nil && OutOfMemory(serverlog.ErrorLines(linesAfter(cfg.ServerLog(), logMark))) {
-			slog.Warn("benchmark warmup failed: out of memory, not retrying", "attempt", attempt, "error", warmupErr)
-			outOfMemory = true
-			break
+		// memory runs out again every time, and one that stopped on a
+		// failed assertion stops on it again, so a retry only costs
+		// another full load.
+		if cfg.ServerLog != nil {
+			lines := serverlog.ErrorLines(linesAfter(cfg.ServerLog(), logMark))
+			if OutOfMemory(lines) {
+				slog.Warn("benchmark warmup failed: out of memory, not retrying", "attempt", attempt, "error", warmupErr)
+				noRetry = true
+				break
+			}
+			if FailedAssertion(lines) {
+				slog.Warn("benchmark warmup failed: llama-server stopped on a failed assertion, not retrying", "attempt", attempt, "error", warmupErr)
+				noRetry = true
+				break
+			}
 		}
 		slog.Warn("benchmark warmup attempt failed, retrying...", "attempt", attempt, "error", warmupErr)
 		select {
@@ -187,7 +196,7 @@ func (r *Runner) Run(ctx context.Context, cfg RunConfig, progress chan<- Progres
 		case <-time.After(time.Duration(attempt*3) * time.Second):
 		}
 	}
-	if warmupErr != nil && outOfMemory {
+	if warmupErr != nil && noRetry {
 		fail(fmt.Sprintf("warmup failed: %v", warmupErr))
 		return
 	}

@@ -820,3 +820,76 @@ func TestCellSecondsFromHistory(t *testing.T) {
 		t.Errorf("no history = %.1f s, want 0 so the default stands", got)
 	}
 }
+
+// DFlash with a tensor split stops llama-server while it loads, every
+// time, so the speculative stage measures it only on a layer split.
+func TestPlanSpecMeasuresDFlashOnlyWithoutATensorSplit(t *testing.T) {
+	in := baseInput()
+	in.Cards = 2
+	in.Model.ModelID = "Qwen/Qwen3.5-9B-GGUF"
+	in.Model.Filename = "Qwen3.5-9B-Q4_K_M.gguf"
+	in.DraftCandidates = func(mode string) []models.DraftCandidate {
+		if mode != "draft-dflash" {
+			return nil
+		}
+		return []models.DraftCandidate{{ID: "dflash-head", Filename: "Qwen3.5-9B-DFlash-Q8_0.gguf", SizeGB: 1}}
+	}
+	in.Finalists[StagePlacement] = []Candidate{
+		{Values: map[string]string{"split_mode": "tensor"}},
+		{Values: map[string]string{"split_mode": "layer"}},
+	}
+	cells, _, _ := PlanStage(StageSpec, in)
+
+	dflash := map[string]int{}
+	for _, c := range cells {
+		if refusesTensorSplit(c["spec_type"]) {
+			dflash[c["split_mode"]]++
+		}
+	}
+	if dflash["tensor"] != 0 {
+		t.Errorf("DFlash was measured %d times with a tensor split", dflash["tensor"])
+	}
+	// DFlash alone and paired with each assist.
+	if want := 1 + len(models.AssistModes()); dflash["layer"] != want {
+		t.Errorf("DFlash was measured %d times with a layer split, want %d", dflash["layer"], want)
+	}
+}
+
+// A profile that already splits by tensor, with no split swept, gets no
+// DFlash cells either.
+func TestPlanSpecSkipsDFlashOnATensorSplitProfile(t *testing.T) {
+	in := baseInput()
+	in.Base.SplitMode = "tensor"
+	in.Model.ModelID = "Qwen/Qwen3.5-9B-GGUF"
+	in.Model.Filename = "Qwen3.5-9B-Q4_K_M.gguf"
+	in.DraftCandidates = func(mode string) []models.DraftCandidate {
+		if mode != "draft-dflash" {
+			return nil
+		}
+		return []models.DraftCandidate{{ID: "dflash-head", Filename: "Qwen3.5-9B-DFlash-Q8_0.gguf", SizeGB: 1}}
+	}
+	cells, _, _ := PlanStage(StageSpec, in)
+	for _, c := range cells {
+		if refusesTensorSplit(c["spec_type"]) {
+			t.Fatalf("DFlash was measured on a tensor-split profile: %v", c)
+		}
+	}
+	if len(cells) == 0 {
+		t.Fatal("the stage measured nothing")
+	}
+}
+
+func TestRefusesTensorSplit(t *testing.T) {
+	for v, want := range map[string]bool{
+		"draft-dflash":                       true,
+		"draft-dflash:draft_model=x":         true,
+		"draft-dflash+ngram-mod:draft_model": true,
+		"draft-dflashy":                      false,
+		"draft-mtp:draft_max=6":              false,
+		"none":                               false,
+	} {
+		if got := refusesTensorSplit(v); got != want {
+			t.Errorf("refusesTensorSplit(%q) = %v, want %v", v, got, want)
+		}
+	}
+}

@@ -21,6 +21,7 @@ Prompt sizes are approximate; the real count (`prompt_tokens`) is usually 10–2
 - Saved profiles show under each model as start points. Each checked profile is measured on its own, exactly as saved, so the parameters turn off. The job keeps a copy of each profile. ⚠ marks a profile saved on a build that the job does not include.
 - **Memory used**: each result records the VRAM that its load used (needs *Model loading detail* 4). It shows the cost of a faster setting, such as a larger micro-batch.
 - **Actions**: *Detail*, *Use*, *Compare* (pick rows, across jobs), *Export* (CSV or JSON) and *Retry failed*.
+- **Settings that keep failing**: when a sweep value (or a draft file) fails twice with the same error, the job skips the rest of the cells that use it, and each skipped cell says why. It skips only cells like the ones that failed. For example, a draft model that ran out of memory with a tensor split is still measured with a layer split. A model that runs out of memory or stops on a failed `GGML_ASSERT` while it loads is not loaded again for the warm-up retries, because it fails the same way each time.
 - Results marked *⚠ unverified* are older than a fix to parameter overrides. Run them again if the settings matter.
 
 ## Using a result's settings { #use-a-result }

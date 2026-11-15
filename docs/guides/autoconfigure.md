@@ -56,7 +56,7 @@ The results show both parts, for example *Average of two workloads: chat 112.1 â
 
 ## How Autotune picks a winner { #picking }
 
-Autotune measures in stages, in this order: batch sizes and attention, GPU split and CPU threads, expert cache, speculative decoding, the draft settings, and confirming the finalists. A stage that does not apply to the model is skipped. Each stage picks a winner for each goal, and the next stage builds on those winners.
+Autotune measures in stages, in this order: batch sizes and attention, GPU split and CPU threads, expert cache, speculative decoding, the draft settings, and confirming the finalists. A stage that does not apply to the model is skipped. Some pairs are not measured because llama.cpp cannot load them: flash attention off with a tensor split, and DFlash with a tensor split. Each stage picks a winner for each goal, and the next stage builds on those winners.
 
 For each goal, a stage picks its winner like this:
 

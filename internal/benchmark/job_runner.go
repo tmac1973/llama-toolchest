@@ -1387,10 +1387,21 @@ const failuresBeforeWriteOff = 2
 // where the GPUs cannot reach each other, say — otherwise costs a model
 // load and a timeout once per remaining combination, which on a wide
 // sweep is most of an hour spent proving the same thing.
+//
+// A value is blamed only for cells like the ones it failed in. A draft
+// model that runs out of memory with a tensor split can still fit with a
+// layer split, so its failures with one split say nothing about the
+// other. For each other swept field, a cell is skipped only when its
+// value is one the failures were seen with, or when they were seen with
+// two or more values of that field, which shows the field makes no
+// difference.
 type writeOffTracker struct {
 	fails     map[string]int
 	reason    map[string]string
 	succeeded map[string]bool
+	// seen holds, per subject, the values of each other field that its
+	// current run of failures was measured with.
+	seen map[string]map[string]map[string]bool
 }
 
 func newWriteOffTracker() *writeOffTracker {
@@ -1398,6 +1409,7 @@ func newWriteOffTracker() *writeOffTracker {
 		fails:     map[string]int{},
 		reason:    map[string]string{},
 		succeeded: map[string]bool{},
+		seen:      map[string]map[string]map[string]bool{},
 	}
 }
 
@@ -1407,6 +1419,9 @@ type writeOffSubject struct {
 	key string
 	// label names it in the reason a skipped cell carries.
 	label string
+	// field is the swept field the subject comes from. The other fields
+	// are what decide whether a cell is like the ones that failed.
+	field string
 }
 
 // draftFileField is the key prefix for a draft file, kept apart from the
@@ -1438,6 +1453,7 @@ func writeOffSubjects(values map[string]string) []writeOffSubject {
 				out = append(out, writeOffSubject{
 					key:   draftFileField + "=" + sv.mode + " " + file,
 					label: fmt.Sprintf("the %s file %s", sv.mode, file),
+					field: "spec_type",
 				})
 			}
 		}
@@ -1451,6 +1467,7 @@ func writeOffSubjects(values map[string]string) []writeOffSubject {
 		out = append(out, writeOffSubject{
 			key:   field + "=" + values[field],
 			label: field + " = " + values[field],
+			field: field,
 		})
 	}
 	return out
@@ -1470,11 +1487,54 @@ func (w *writeOffTracker) recordFailure(values map[string]string, err string) {
 			// on the strength of two unrelated problems.
 			w.fails[k] = 1
 			w.reason[k] = err
+			w.seen[k] = nil
+			w.see(k, subj.field, values)
 			continue
 		}
 		w.fails[k]++
 		w.reason[k] = err
+		w.see(k, subj.field, values)
 	}
+}
+
+// see notes the values of every field but own that a failure of subject
+// k was measured with.
+func (w *writeOffTracker) see(k, own string, values map[string]string) {
+	if w.seen[k] == nil {
+		w.seen[k] = map[string]map[string]bool{}
+	}
+	for field, v := range values {
+		if field == own {
+			continue
+		}
+		if w.seen[k][field] == nil {
+			w.seen[k][field] = map[string]bool{}
+		}
+		w.seen[k][field][v] = true
+	}
+}
+
+// likeFailures reports whether a cell with these values is like the ones
+// subject k failed in: for every other field, the cell's value was seen
+// in those failures, or two or more values were.
+func (w *writeOffTracker) likeFailures(k, own string, values map[string]string) bool {
+	fields := map[string]bool{}
+	for field := range values {
+		fields[field] = true
+	}
+	for field := range w.seen[k] {
+		fields[field] = true
+	}
+	for field := range fields {
+		if field == own {
+			continue
+		}
+		seen := w.seen[k][field]
+		if !seen[values[field]] && len(seen) < 2 {
+			return false
+		}
+	}
+	return true
 }
 
 // recordSuccess clears every value the cell carried: a value that has
@@ -1498,6 +1558,9 @@ func (w *writeOffTracker) writeOff(values map[string]string, anyCompleted bool) 
 	for _, subj := range writeOffSubjects(values) {
 		k := subj.key
 		if w.succeeded[k] || w.fails[k] < failuresBeforeWriteOff {
+			continue
+		}
+		if !w.likeFailures(k, subj.field, values) {
 			continue
 		}
 		return fmt.Sprintf("not measured: every setting measured with %s failed the same way, "+
