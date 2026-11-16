@@ -112,6 +112,36 @@ exit 1`)
 	}
 }
 
+// sd-server given an argument it does not know prints the error, then
+// hundreds of lines of help, then exits. The error is far above the last
+// lines and the help has "error" in it: the failed start keeps the error,
+// not the help, and the cause is a setting that is not supported.
+func TestGenInstanceFailedStartAfterUsage(t *testing.T) {
+	s := newTestServer(t)
+	openTestNotes(t, s)
+	inst := generation.Instance{ID: "img", Name: "Image", GPU: 0}
+	startFakeGen(t, s, inst, generation.KindSD, `echo "[E] error: unknown argument: --no-such-flag --- common.cpp:354"
+echo "stable-diffusion.cpp version master-1028-37bc88b, commit 37bc88b"
+echo "Usage: /data/builds/sd/sd-server [options]"
+i=0; while [ $i -lt 120 ]; do echo "  --option-$i                 some help"; i=$((i+1)); done
+echo "  --log-level                   minimum log level, one of [debug, verbose, info, warn, error] (default: info)"
+exit 1`)
+
+	testutil.Eventually(t, func() bool { return allNotes(s).Totals.FailedLoads == 1 }, "no failed start recorded")
+	f := allNotes(s).Failures[0]
+	if len(f.ErrorLines) == 0 || f.ErrorLines[0] != "[E] error: unknown argument: --no-such-flag" {
+		t.Errorf("error lines = %q, want the unknown argument first", f.ErrorLines)
+	}
+	for _, l := range append(slices.Clone(f.ErrorLines), f.Tail...) {
+		if strings.Contains(l, "--option-") || strings.Contains(l, "--log-level") {
+			t.Errorf("help text kept: %q", l)
+		}
+	}
+	if f.Cause != enginenotes.CauseUnsupported {
+		t.Errorf("cause = %q, want a setting that is not supported", f.Cause)
+	}
+}
+
 // A start made while Measure holds the instance carries Measure as its
 // job, so running out of memory at a size Measure tries is expected.
 func TestGenInstanceMeasureIsTheJob(t *testing.T) {

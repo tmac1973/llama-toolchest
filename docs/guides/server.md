@@ -37,10 +37,12 @@ The line above the Server Logs counts what llama-server and the generation backe
     | GPU fault | `illegal memory access`, `misaligned address`, `unspecified launch failure`, or a failed GPU operation such as `ggml_cuda_compute_forward: CONCAT failed` with no memory error | A setting does not cause this. A bug in the backend or the driver, or a hardware problem, does. Look at these even when they happen during a job. |
     | Out of VRAM | `out of memory`, `cudaMalloc failed`, `failed to allocate`, `cannot make enough memory available` | A GPU ran out of memory, while the model loaded or later. |
     | Out of system memory | `std::bad_alloc`, `cannot allocate memory`, or exit status 137 | System RAM ran out, or the system stopped the process. |
-    | Setting not supported | `GGML_ASSERT(...)`, `not supported` | llama.cpp refused the setting. It fails the same way each time. |
+    | Setting not supported | `GGML_ASSERT(...)`, `not supported`, `unknown argument` | The backend refused the setting or an option in the extra arguments. It fails the same way each time. |
     | Other | none of the above | The error lines do not show the cause. |
 
     For sd-server, only the lines after its last `retrying with` line count. sd.cpp writes that line when a step ran out of memory and it tries again with less. When it then stops and the later lines show no GPU fault, the cause is out of VRAM. The memory errors before the retry are not the cause, because sd.cpp recovered from them.
+
+    When a generation backend gets an option it does not know, it writes the error and then its whole help text. The help text is left out of the error lines and the output, so the error itself stays visible. For a failed start, all of the output is searched for error lines; for a crash, only the last lines are.
 
     The cause is read again each time you open Review, so older events get it too.
 
