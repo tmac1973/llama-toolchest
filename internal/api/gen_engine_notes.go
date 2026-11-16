@@ -3,6 +3,7 @@ package api
 import (
 	"log/slog"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,10 +14,31 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/serverlog"
 )
 
-// genNotesErrorLines is how many of a stopped backend's last log lines
+// genNotesErrorLines is how many of a crashed backend's last log lines
 // are searched for error lines. A backend that ran for hours has failed
 // requests far back in its log, which say nothing about why it stopped.
+// A failed start is searched whole: all of its log is the start.
 const genNotesErrorLines = 80
+
+// withoutUsage drops the help text a backend prints after an argument it
+// does not know, from its "Usage:" line on. The help is hundreds of lines
+// that bury the error above it and has words such as "error" in it. The
+// supervisor's own "==> " lines after it are kept.
+func withoutUsage(lines []string) []string {
+	for i, l := range lines {
+		if !strings.HasPrefix(strings.ToLower(l), "usage:") {
+			continue
+		}
+		out := lines[:i:i]
+		for _, l := range lines[i+1:] {
+			if strings.HasPrefix(l, "==> ") {
+				out = append(out, l)
+			}
+		}
+		return out
+	}
+	return lines
+}
 
 // genNotesSource is the engine-notes source for a backend kind.
 func genNotesSource(kind generation.BackendKind) string {
@@ -105,8 +127,13 @@ func (s *Server) recordGenExit(base enginenotes.Event, info process.ExitInfo, re
 				lines = append(lines, l)
 			}
 		}
+		lines = withoutUsage(lines)
 		e.Tail = lines
-		e.ErrorLines = serverlog.ErrorLines(lines[max(0, len(lines)-genNotesErrorLines):])
+		searched := lines
+		if e.Kind == enginenotes.KindCrash {
+			searched = lines[max(0, len(lines)-genNotesErrorLines):]
+		}
+		e.ErrorLines = serverlog.ErrorLines(searched)
 	}
 	s.notes.Record(e)
 	if !e.IsFailure() {
