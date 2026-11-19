@@ -56,6 +56,10 @@ type forkRow struct {
 	// DefaultBadge titles the "default" badge of the instance requests
 	// to the virtual model name go to now; "" for every other one.
 	DefaultBadge string
+	// WebUIURL opens llama-server's own web page while the instance
+	// runs; WebUINote says why there is no link then.
+	WebUIURL  string
+	WebUINote string
 }
 
 // Active reports whether the instance is starting or running.
@@ -87,6 +91,9 @@ func (s *Server) forkRows(store *forks.Store) []forkRow {
 		}
 		if inst.ID == defaultID {
 			row.DefaultBadge = s.defaultBadgeTitle()
+		}
+		if row.Status.State == process.StateRunning {
+			row.WebUIURL, row.WebUINote = s.webUIPortLink(inst.Port)
 		}
 		rows = append(rows, row)
 	}

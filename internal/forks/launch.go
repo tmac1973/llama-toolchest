@@ -14,11 +14,12 @@ var deviceEnvVar = map[string]string{
 }
 
 // Args returns llama-server's arguments for an instance: where to listen,
-// the model files from the set's folder, the fork's own options, then the
+// on every address like the router and the generation backends, so its
+// built-in web UI is reachable on the instance port; the model files from the set's folder, the fork's own options, then the
 // instance's extra arguments, so a later copy of an option wins.
 func Args(f Fork, set ModelSet, inst Instance) []string {
 	args := []string{
-		"--host", "127.0.0.1",
+		"--host", "0.0.0.0",
 		"--port", strconv.Itoa(inst.Port),
 		"-m", filepath.Join(set.Dir, filepath.FromSlash(f.Recipe.ModelFileArg)),
 	}
