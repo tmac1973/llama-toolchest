@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.61.0](https://github.com/tmac1973/llama-toolchest/compare/v2.60.0...v2.61.0) (2026-11-20)
+
+
+### Features
+
+* **server:** live traffic viewer for API requests ([#646](https://github.com/tmac1973/llama-toolchest/issues/646)) ([eae8ba7](https://github.com/tmac1973/llama-toolchest/commit/eae8ba7f7811b3e4482834c246ddae0c52b15897))
+
+
+### Bug Fixes
+
+* **engine-notes:** keep a generation backend's error when it prints its help text ([#640](https://github.com/tmac1973/llama-toolchest/issues/640)) ([4c51664](https://github.com/tmac1973/llama-toolchest/commit/4c516645e3a9b22dea649a0158b06c1fc02752af))
+* **forks:** listen on all addresses so the fork's web UI is reachable ([#643](https://github.com/tmac1973/llama-toolchest/issues/643)) ([0aa5d7a](https://github.com/tmac1973/llama-toolchest/commit/0aa5d7aa09516bf0f35846b6fd45db7afcf5f676))
+* **ui:** make the fork and generation instance log dialogs bigger ([#644](https://github.com/tmac1973/llama-toolchest/issues/644)) ([6f7edf1](https://github.com/tmac1973/llama-toolchest/commit/6f7edf16313cc81962dd97e3761aea867b5ab8f9))
+
 ## [2.60.0](https://github.com/tmac1973/llama-toolchest/compare/v2.59.1...v2.60.0) (2026-11-15)
 
 
