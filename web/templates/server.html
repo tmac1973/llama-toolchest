@@ -99,6 +99,9 @@
     }
     /* Pico keeps a dialog's article narrow; the model table needs the room. */
     #engine-notes-dialog > article { max-width: none; width: 100%; }
+    /* The instance logs use most of the window: long lines, many of them. */
+    #fork-log-dialog > article, #gen-log-dialog > article { max-width: none; width: 100%; }
+    #fork-log, #gen-log { height: 75vh; max-height: none; overflow: auto; font-size: 0.8rem; }
     #engine-notes-body { max-height: 70vh; overflow-y: auto; font-size: 0.85rem; }
     .engine-notes-periods { width: auto; margin-bottom: 0.6rem; }
     .engine-notes-periods button { padding: 0.25rem 0.75rem; font-size: 0.8rem; }
@@ -353,13 +356,13 @@
         <div id="fork-form"></div>
     </article>
 </dialog>
-<dialog id="fork-log-dialog" style="max-width:960px;width:95vw;">
+<dialog id="fork-log-dialog" style="max-width:1600px;width:95vw;">
     <article>
         <header>
             <button type="button" aria-label="Close" rel="prev" onclick="this.closest('dialog').close();"></button>
             <span id="fork-log-title">Instance log</span>
         </header>
-        <pre id="fork-log" style="max-height:60vh;overflow:auto;font-size:0.8rem;"></pre>
+        <pre id="fork-log"></pre>
     </article>
 </dialog>
 <script>
@@ -457,13 +460,13 @@ document.getElementById('fork-log-dialog').addEventListener('close', function() 
         <div id="gen-edit-form"></div>
     </article>
 </dialog>
-<dialog id="gen-log-dialog" style="max-width:960px;width:95vw;">
+<dialog id="gen-log-dialog" style="max-width:1600px;width:95vw;">
     <article>
         <header>
             <button type="button" aria-label="Close" rel="prev" onclick="this.closest('dialog').close();"></button>
             <span id="gen-log-title">Instance log</span>
         </header>
-        <pre id="gen-log" style="max-height:60vh;overflow:auto;font-size:0.8rem;"></pre>
+        <pre id="gen-log"></pre>
     </article>
 </dialog>
 <dialog id="gen-measure-start-dialog" style="max-width:560px;">
