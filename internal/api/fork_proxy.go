@@ -71,7 +71,11 @@ func bodyModel(body []byte) string {
 // serveFork sends a request to a fork instance: a 503 that says why when
 // it is stopped or still loading, otherwise the request with the fork's
 // sampling defaults added to a chat request.
-func (s *Server) serveFork(w http.ResponseWriter, r *http.Request, inst forks.Instance, body []byte) {
+// x records the request for the live traffic viewer (nil when none is
+// open).
+func (s *Server) serveFork(w http.ResponseWriter, r *http.Request, inst forks.Instance, body []byte, x *trafficExchange) {
+	target := "fork:" + inst.ID
+	x.request(target, body)
 	switch st := s.forkMgr.Status(inst.ID); st.State {
 	case process.StateRunning:
 	case process.StateStarting:
@@ -90,6 +94,7 @@ func (s *Server) serveFork(w http.ResponseWriter, r *http.Request, inst forks.In
 	if strings.HasSuffix(r.URL.Path, "/chat/completions") {
 		if f, ok := findFork(inst.ForkID); ok {
 			body = addSamplingDefaults(body, f.SamplingDefaults)
+			x.request(target, body)
 		}
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))

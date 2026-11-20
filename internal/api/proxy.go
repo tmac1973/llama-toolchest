@@ -133,6 +133,10 @@ func (s *Server) newProxyHandler() http.Handler {
 			proxy.ServeHTTP(w, r)
 			return
 		}
+		// The live traffic viewer sees what goes on and comes back,
+		// errors from here included. Nothing while no viewer is open.
+		w, x := s.beginTraffic(w, r)
+		defer x.end()
 		switch {
 		case isJSONContentType(r.Header.Get("Content-Type")):
 			body, err := io.ReadAll(r.Body)
@@ -153,10 +157,11 @@ func (s *Server) newProxyHandler() http.Handler {
 			// router: none of the router's loading, counting or sampling
 			// defaults apply to it.
 			if inst, ok := s.forkForModel(bodyModel(body)); err == nil && ok {
-				s.serveFork(w, r, inst, body)
+				s.serveFork(w, r, inst, body, x)
 				return
 			}
 			if err == nil {
+				x.request("router", body)
 				end, ok := s.loadForProxy(w, r, body)
 				if !ok {
 					return
@@ -169,11 +174,13 @@ func (s *Server) newProxyHandler() http.Handler {
 					body = s.injectSamplingDefaults(body)
 				}
 				body = s.injectSystemPrompt(r.URL.Path, body)
+				x.request("router", body)
 				r.Body = io.NopCloser(bytes.NewReader(body))
 				r.ContentLength = int64(len(body))
 			}
 		case isMultipartForm(r):
 			model := multipartModel(r, multipartModelLimit)
+			x.requestNote("router", model, "multipart form: not shown")
 			if s.refuseDefaultModelOffChat(w, r.URL.Path, model) {
 				return
 			}

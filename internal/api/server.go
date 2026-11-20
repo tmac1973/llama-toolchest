@@ -140,6 +140,9 @@ type Server struct {
 	forkProxy forkProxies
 	// forkUse keeps when each fork instance last took a chat request.
 	forkUse forkUse
+	// traffic sends proxied requests to the live traffic viewer while
+	// one is open.
+	traffic trafficTap
 	// testForkHostInfo replaces this host's RAM, CPU and GPU details in
 	// the fork needs checks. Nil in production; tests set it.
 	testForkHostInfo *forks.HostInfo
@@ -1064,6 +1067,8 @@ func (s *Server) buildRouter() chi.Router {
 			r.Post("/restart", s.handleServiceRestart)
 			r.Get("/logs", s.handleServiceLogs)
 			r.Delete("/logs", s.handleServiceLogsClear)
+			r.Get("/traffic", s.handleTrafficStream)
+			r.Post("/traffic/render", s.handleTrafficRender)
 			r.Get("/log-tabs", s.handleServiceLogTabs)
 			r.Get("/health", s.handleServiceHealth)
 			r.Get("/loaded-models", s.handleLoadedModels)
