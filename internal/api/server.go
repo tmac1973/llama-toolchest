@@ -957,6 +957,7 @@ func (s *Server) buildRouter() chi.Router {
 		})
 		r.Get("/timings", s.handleTimings)
 		r.Get("/timings/{model_id}", s.handleTimings)
+		r.Post("/timings/reset", s.handleTimingsReset)
 		r.Route("/models", func(r chi.Router) {
 			r.Get("/", s.handleListModels)
 			r.Get("/embeddings", s.handleListEmbeddingModels)

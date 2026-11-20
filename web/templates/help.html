@@ -110,6 +110,8 @@
     <h3 id="engine-notes">Engine notes</h3>
     <p>The line above the Server Logs counts loads, failed loads and crashes of llama-server and of the generation instances (sd-server, ace-server). <em>Review</em> keeps each crash with the program, its error lines and its cause, such as a GPU fault or out of VRAM. Failures that a job expected, such as a setting that did not fit, do not show a warning. <em>Download JSON</em> saves the whole file. <a class="help-more" href="{{docsURL "guides/server#engine-notes"}}" target="_blank" rel="noopener">More in the docs</a></p>
 
+    <h3 id="live-performance">Live Performance</h3>
+    <p>Live Performance shows the speed of real chat requests per model, fork instances included. <em>Cache</em> is the part of the prompt that llama-server took from its prompt cache, and how many requests reused it. Later turns of a conversation should be high. A low value means the prompt changes near the start of each turn. <em>Reset</em> clears one model's figures. <a class="help-more" href="{{docsURL "guides/server#live-performance"}}" target="_blank" rel="noopener">More in the docs</a></p>
     <h3 id="live-traffic">Live traffic</h3>
     <p><em>Live traffic</em> in the Server Logs header shows the requests sent to the API, and their responses as they arrive. Use it to see what a client sends and what an engine answers. It records only while its window is open, and it never shows API keys. Each request has its own row: filter by model or by engine (the router or a fork instance). <em>Show rendered prompt</em> asks the engine for the prompt its chat template makes of a chat request. <a class="help-more" href="{{docsURL "guides/server#live-traffic"}}" target="_blank" rel="noopener">More in the docs</a></p>
 
