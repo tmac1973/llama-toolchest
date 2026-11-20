@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.62.0](https://github.com/tmac1973/llama-toolchest/compare/v2.61.0...v2.62.0) (2026-11-20)
+
+
+### Features
+
+* **server:** prompt cache hits, fork instances and a reset in Live Performance ([#650](https://github.com/tmac1973/llama-toolchest/issues/650)) ([51ad593](https://github.com/tmac1973/llama-toolchest/commit/51ad5935fc858e389d400596c1bf30a97cf1b268)), closes [#648](https://github.com/tmac1973/llama-toolchest/issues/648)
+
+
+### Bug Fixes
+
+* **ui:** make model names readable in the live traffic list ([#647](https://github.com/tmac1973/llama-toolchest/issues/647)) ([78f5e1d](https://github.com/tmac1973/llama-toolchest/commit/78f5e1d33bddf63798be5bb4b1b9b1e904196589))
+
 ## [2.61.0](https://github.com/tmac1973/llama-toolchest/compare/v2.60.0...v2.61.0) (2026-11-20)
 
 
