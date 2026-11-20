@@ -42,6 +42,23 @@ func newFakeFork(t *testing.T) *fakeFork {
 		case "/props":
 			fmt.Fprint(w, `{"default_generation_settings":{"n_ctx":262144},"total_slots":1,"modalities":{"vision":false}}`)
 			return
+		case "/apply-template":
+			// The live traffic viewer's rendered prompt: the messages'
+			// contents, one per line.
+			var req struct {
+				Messages []struct{ Content string } `json:"messages"`
+				Stream   *bool                      `json:"stream"`
+			}
+			json.NewDecoder(r.Body).Decode(&req)
+			var p strings.Builder
+			for _, m := range req.Messages {
+				p.WriteString("<|" + m.Content + "|>")
+			}
+			if req.Stream != nil {
+				p.WriteString("stream was sent")
+			}
+			json.NewEncoder(w).Encode(map[string]string{"prompt": p.String()})
+			return
 		}
 		var body map[string]any
 		raw, _ := io.ReadAll(r.Body)

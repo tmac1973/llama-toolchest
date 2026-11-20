@@ -23,6 +23,18 @@ Average generation and prompt speed per model, taken from real chat requests.
 
 Live output from llama-server. To change the height, drag the bottom edge. Double-click the edge for the default height.
 
+## Live traffic { #live-traffic }
+
+*Live traffic*, in the Server Logs header, opens a window that shows the requests clients send to the API and the responses as they arrive. It is for troubleshooting: you see the request as the engine gets it, and what the engine sends back, token by token.
+
+- **What it records.** Every POST that goes through toolchest's API to llama-server (the router) or to a [fork instance](forks.md): chat, completions, embeddings, rerank, speech and the rest. Model lists and other GETs are left out. The request shown is the one sent on to the engine, after toolchest added the model's sampling defaults and system prompt.
+- **When it records.** Only while the window is open. With the window closed, toolchest records nothing, keeps nothing and writes nothing to disk. Requests from before you opened it do not show.
+- **Parallel requests.** Each request has its own row, newest first, with its model, its engine, its path and its state (waiting, streaming, or the status and time). Responses never mix: select a row to see that one request. *Model* and *Engine* filter the list. *Engine* tells the router apart from each fork instance, so you can watch, for example, only the Avalon instance. *Pause* keeps the list as it is while you read; the responses of the requests in it still come in. *Clear* empties the list. The window keeps the last 50 requests.
+- **What a request shows.** The request body, the answer put together from the streamed pieces (the reasoning, the text and any tool calls, each in its own block, and why the engine stopped (for example `length` when it reached `max_tokens`)), and the raw response. *Copy* copies either one.
+- **Show rendered prompt.** For a chat request, this asks the same engine for the prompt its chat template makes of the request, with llama-server's `/apply-template`. It shows how the engine sees the messages, which helps with chat template problems. The model must be loaded, or the fork instance running. The engine renders the request again when you press the button, so if the template changed since, the result can differ from what it used. An engine without `/apply-template` says so.
+- **What it leaves out.** Headers are never recorded, so API keys never show. Base64 data, such as images and audio, is shortened, and bodies and responses are cut at 1 MiB; a note says so. Multipart requests (audio files, image edits) show only the model they name.
+- **What it cannot see.** Requests sent straight to an engine's own port, which do not go through toolchest, and `/v1/realtime` voice sessions. Generation requests (images, video, music) are not shown either.
+
 ## Engine notes { #engine-notes }
 
 The line above the Server Logs counts what llama-server and the generation backends did in the last 24 hours. It turns amber when a model or a generation instance crashed or failed to load, unless a job expected that failure (see below). *Review* shows more: router starts and stops, loads, failed loads, crashes and unloads, a table for each model with its time loaded, average load time, requests and tokens, and a separate table for the generation instances. Choose the period at the top: 24 hours, 7 days, 30 days or all.

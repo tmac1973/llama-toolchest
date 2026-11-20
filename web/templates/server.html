@@ -97,6 +97,29 @@
     @media (prefers-reduced-motion: reduce) {
         .engine-notes.is-new { animation: none; }
     }
+    /* Live traffic: the request list on the left, one request on the right. */
+    #traffic-dialog > article { max-width: none; width: 100%; }
+    .traffic-bar { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin-bottom: 0.75rem; }
+    .traffic-bar select { width: auto; margin: 0; padding-top: 0.25rem; padding-bottom: 0.25rem; font-size: 0.85rem; }
+    .traffic-bar label { margin: 0; font-size: 0.85rem; display: flex; align-items: center; gap: 0.4rem; }
+    .traffic-bar button, .traffic-small { margin: 0; padding: 0.2rem 0.6rem; font-size: 0.8rem; width: auto; }
+    .traffic-panes { display: grid; grid-template-columns: minmax(16rem, 1fr) 2.5fr; gap: 1rem; height: 70vh; }
+    @media (max-width: 800px) { .traffic-panes { grid-template-columns: 1fr; height: auto; } }
+    #traffic-list { margin: 0; padding: 0; overflow-y: auto; }
+    #traffic-list li { list-style: none; margin: 0 0 0.3rem 0; padding: 0; }
+    .traffic-row { display: grid; grid-template-columns: auto 1fr auto; gap: 0 0.5rem; width: 100%; margin: 0;
+        padding: 0.35rem 0.5rem; text-align: left; font-size: 0.8rem; background: none;
+        color: var(--pico-color); border: 1px solid var(--pico-muted-border-color); }
+    .traffic-row.selected { border-color: var(--pico-primary); background: var(--pico-primary-focus); }
+    .traffic-row.failed .traffic-status { color: var(--pico-del-color); }
+    .traffic-time, .traffic-status { color: var(--pico-muted-color); white-space: nowrap; }
+    .traffic-model { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .traffic-path { grid-column: 1 / -1; color: var(--pico-muted-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #traffic-detail { overflow-y: auto; font-size: 0.85rem; }
+    #traffic-detail h6 { display: flex; gap: 0.75rem; align-items: center; margin: 0.75rem 0 0.25rem; }
+    #traffic-detail pre { max-height: 40vh; overflow: auto; font-size: 0.8rem; white-space: pre-wrap; word-break: break-word; margin: 0; }
+    .traffic-meta { font-weight: 600; margin-bottom: 0.25rem; }
+    .traffic-note, .traffic-empty, #traffic-state { color: var(--pico-muted-color); font-size: 0.8rem; margin: 0.25rem 0; }
     /* Pico keeps a dialog's article narrow; the model table needs the room. */
     #engine-notes-dialog > article { max-width: none; width: 100%; }
     /* The instance logs use most of the window: long lines, many of them. */
@@ -299,6 +322,11 @@
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <span>Server Logs</span>
                     <div style="display: flex; gap: 1rem; align-items: center;">
+                        <button type="button" id="traffic-open" class="outline secondary"
+                                style="margin: 0; padding: 0.25rem 0.75rem; font-size: 0.8rem;"
+                                title="Shows API requests and their responses as they arrive.">
+                            Live traffic
+                        </button>
                         <label style="margin: 0; font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem;">
                             Live tail
                             <input type="checkbox" class="log-tail-toggle" role="switch" checked
@@ -906,4 +934,28 @@ async function restartServer(btn) {
     };
 })();
 </script>
+<dialog id="traffic-dialog" style="max-width:1600px;width:95vw;">
+    <article>
+        <header>
+            <button type="button" aria-label="Close" rel="prev" onclick="this.closest('dialog').close();"></button>
+            <span>Live traffic</span>
+        </header>
+        <div class="traffic-bar">
+            <select id="traffic-model" aria-label="Model"></select>
+            <select id="traffic-target" aria-label="Engine"></select>
+            <label title="Keeps the list as it is. Responses still come in.">
+                <input type="checkbox" id="traffic-pause" role="switch" style="margin: 0;"> Pause
+            </label>
+            <button type="button" id="traffic-clear" class="outline secondary">Clear</button>
+            <span id="traffic-state"
+                  title="Shows POST requests to this server's API. Does not show requests sent to an engine port, or /v1/realtime. Never shows API keys.">Not recording.</span>
+            <a class="help-more" href="{{docsURL "guides/server#live-traffic"}}" target="_blank" rel="noopener">More in the docs</a>
+        </div>
+        <div class="traffic-panes">
+            <ul id="traffic-list"></ul>
+            <div id="traffic-detail"></div>
+        </div>
+    </article>
+</dialog>
+<script src="/static/traffic.js"></script>
 {{end}}
