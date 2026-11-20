@@ -31,6 +31,7 @@ const a2 = assemble(store.byId[2]);
 assert.strictEqual(a1.text, 'one', 'request 1 got another stream\'s text');
 assert.strictEqual(a1.reasoning, 'think ');
 assert.strictEqual(a2.text, 'Hello', 'request 2 was not put back together');
+assert.strictEqual(a1.finish, '', 'request 1 has not stopped yet');
 assert.strictEqual(store.byId[1].done, false);
 assert.strictEqual(store.byId[2].done, true);
 assert.strictEqual(store.byId[2].ms, 1500);
@@ -63,8 +64,15 @@ t.apply({ type: 'chunk', id: 1, data:
     delta({ tool_calls: [{ index: 0, function: { arguments: 'ty":"Oslo"}' } }] }) });
 assert.deepStrictEqual(assemble(t.byId[1]).tools, [{ name: 'get_weather', args: '{"city":"Oslo"}' }]);
 t.apply({ type: 'response', id: 2, status: 200, content_type: 'application/json' });
-t.apply({ type: 'chunk', id: 2, data: JSON.stringify({ choices: [{ message: { content: 'whole' } }] }) });
+t.apply({ type: 'chunk', id: 2, data: JSON.stringify({ choices: [{ message: { content: 'whole' }, finish_reason: 'stop' }] }) });
 assert.strictEqual(assemble(t.byId[2]).text, 'whole');
+assert.strictEqual(assemble(t.byId[2]).finish, 'stop');
+// All tokens spent on reasoning: no answer, but the reason shows.
+t.apply({ type: 'start', id: 4 });
+t.apply({ type: 'response', id: 4, status: 200, content_type: 'text/event-stream' });
+t.apply({ type: 'chunk', id: 4, data: delta({ reasoning_content: 'hmm' }) +
+    sse({ choices: [{ delta: {}, finish_reason: 'length' }] }) });
+assert.deepStrictEqual([assemble(t.byId[4]).text, assemble(t.byId[4]).finish], ['', 'length']);
 // Embeddings have nothing to put together.
 t.apply({ type: 'response', id: 3, status: 200, content_type: 'application/json' });
 t.apply({ type: 'chunk', id: 3, data: '{"data":[{"embedding":[0.1]}]}' });

@@ -107,13 +107,14 @@
     }
 
     // assemble reads a response for people: the answer text, the
-    // reasoning and the tool calls, from a streamed (SSE) or a whole JSON
+    // reasoning, the tool calls and why the engine stopped, from a streamed (SSE) or a whole JSON
     // response. null when there is nothing to show that way.
     function assemble(x) {
-        var out = { text: '', reasoning: '', tools: [] };
+        var out = { text: '', reasoning: '', tools: [], finish: '' };
         var tools = {};
         function addChoice(c) {
             if (!c) return;
+            if (typeof c.finish_reason === 'string') out.finish = c.finish_reason;
             var d = c.delta || c.message || {};
             if (typeof c.text === 'string') out.text += c.text;
             if (typeof d.content === 'string') out.text += d.content;
@@ -147,7 +148,7 @@
             }
         }
         Object.keys(tools).sort().forEach(function (k) { out.tools.push(tools[k]); });
-        if (!out.text && !out.reasoning && !out.tools.length) return null;
+        if (!out.text && !out.reasoning && !out.tools.length && !out.finish) return null;
         return out;
     }
 
@@ -229,6 +230,7 @@
                 b.type = 'button';
                 b.className = 'traffic-row' + (selected === x.id ? ' selected' : '') +
                     (x.done && x.status >= 400 ? ' failed' : '');
+                b.title = (x.model || '(no model)') + ' · ' + targetLabel(x.target) + ' · ' + x.path;
                 b.appendChild(el('span', shortTime(x.time), 'traffic-time'));
                 b.appendChild(el('span', x.model || '(no model)', 'traffic-model'));
                 b.appendChild(el('span', statusText(x), 'traffic-status'));
@@ -267,15 +269,15 @@
                 detailEl.appendChild(el('p', 'Select a request to see it.', 'traffic-empty'));
                 return;
             }
+            var a = assemble(x);
             detailEl.appendChild(el('p',
                 (x.model || '(no model)') + ' · ' + targetLabel(x.target) + ' · ' + x.method + ' ' + x.path +
-                ' · ' + statusText(x), 'traffic-meta'));
+                ' · ' + statusText(x) + (a && a.finish ? ' · stopped: ' + a.finish : ''), 'traffic-meta'));
 
             var req = x.body ? pretty(x.body) : '(not recorded)';
             detailEl.appendChild(section('Request (as sent to the engine)', req, copyButton(function () { return req; })));
             if (x.note) detailEl.appendChild(el('p', 'Note: ' + x.note + '.', 'traffic-note'));
 
-            var a = assemble(x);
             if (a) {
                 if (a.reasoning) detailEl.appendChild(section('Reasoning', a.reasoning));
                 detailEl.appendChild(section('Answer', a.text || '(none)'));
