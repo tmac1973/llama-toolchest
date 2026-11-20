@@ -107,9 +107,12 @@
     @media (max-width: 800px) { .traffic-panes { grid-template-columns: 1fr; height: auto; } }
     #traffic-list { margin: 0; padding: 0; overflow-y: auto; }
     #traffic-list li { list-style: none; margin: 0 0 0.3rem 0; padding: 0; }
+    /* Pico sets every button's --pico-color to the dark text of a filled
+       button; these rows have no fill, so they use the page's text color. */
     .traffic-row { display: grid; grid-template-columns: auto 1fr auto; gap: 0 0.5rem; width: 100%; margin: 0;
         padding: 0.35rem 0.5rem; text-align: left; font-size: 0.8rem; background: none;
-        color: var(--pico-color); border: 1px solid var(--pico-muted-border-color); }
+        color: var(--pico-contrast); border: 1px solid var(--pico-muted-border-color); }
+    .traffic-row:hover { border-color: var(--pico-primary); }
     .traffic-row.selected { border-color: var(--pico-primary); background: var(--pico-primary-focus); }
     .traffic-row.failed .traffic-status { color: var(--pico-del-color); }
     .traffic-time, .traffic-status { color: var(--pico-muted-color); white-space: nowrap; }
