@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/tmac1973/llama-toolchest/internal/benchmark"
 	"github.com/tmac1973/llama-toolchest/internal/forks"
 )
 
@@ -66,9 +67,20 @@ func newFakeFork(t *testing.T) *fakeFork {
 		f.mu.Lock()
 		f.got = append(f.got, fakeForkRequest{Path: r.URL.Path, Body: body})
 		f.mu.Unlock()
+		// A chat answer carries llama-server's timings, as a stream or,
+		// when the request did not ask for one, a whole JSON answer.
+		const timings = `"timings":{"prompt_n":10,"cache_n":30,"prompt_per_second":200,"predicted_n":5,"predicted_per_second":25}`
+		if r.URL.Path == "/v1/chat/completions" && body["stream"] != true {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"hi"}}],`+timings+`}`)
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n")
 		w.(http.Flusher).Flush()
+		if r.URL.Path == "/v1/chat/completions" {
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],"+timings+"}\n\n")
+		}
 		fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
 	t.Cleanup(f.srv.Close)
@@ -88,6 +100,7 @@ func (f *fakeFork) requests() []fakeForkRequest {
 func runningFork(t *testing.T) (*Server, *fakeFork) {
 	t.Helper()
 	s, _ := forkInstanceServer(t)
+	s.bench = benchmark.NewStore(t.TempDir(), nil)
 	fake := newFakeFork(t)
 	if err := s.forks.AddInstance(forks.Instance{ID: "qwen-next", ForkID: "avalon", GPU: 1, Port: fake.port}); err != nil {
 		t.Fatal(err)

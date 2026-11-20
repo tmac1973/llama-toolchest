@@ -436,6 +436,22 @@ func (s *Server) handleTimings(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, samples)
 }
 
+// handleTimingsReset clears one model's Live Performance samples (the
+// Reset button on its row) and answers with the table again.
+func (s *Server) handleTimingsReset(w http.ResponseWriter, r *http.Request) {
+	model := r.FormValue("model")
+	if model == "" {
+		http.Error(w, "model is required", http.StatusBadRequest)
+		return
+	}
+	s.bench.ClearTimings(model)
+	slog.Info("live performance reset", "model", model)
+	respondHTML(w)
+	s.renderPartial(w, "timings_summary", struct {
+		Summary []benchmark.TimingModelSummary
+	}{Summary: s.bench.TimingSummary()})
+}
+
 // handleBenchmarkForm returns the benchmark form options (model list, presets).
 func (s *Server) handleBenchmarkForm(w http.ResponseWriter, r *http.Request) {
 	respondHTML(w)
@@ -488,14 +504,19 @@ func (s *Server) captureTimings(modelID string, timings map[string]any) {
 		return
 	}
 
-	s.bench.RecordTiming(benchmark.TimingSample{
+	sample := benchmark.TimingSample{
 		Timestamp:       time.Now(),
 		ModelID:         modelID,
 		PromptTokens:    int(promptN),
 		GenTokens:       int(predictedN),
 		PromptTokPerSec: promptPerSec,
 		GenTokPerSec:    predictedPerSec,
-	})
+	}
+	if cacheN, ok := timings["cache_n"].(float64); ok {
+		n := int(cacheN)
+		sample.CacheTokens = &n
+	}
+	s.bench.RecordTiming(sample)
 
 	slog.Debug("captured timing", "model", modelID,
 		"prompt_tps", fmt.Sprintf("%.1f", promptPerSec),

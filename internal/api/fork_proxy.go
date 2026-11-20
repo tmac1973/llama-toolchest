@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,7 +24,9 @@ type forkProxies struct {
 	byPort map[int]*httputil.ReverseProxy
 }
 
-func (p *forkProxies) get(inst forks.Instance) *httputil.ReverseProxy {
+// get returns the proxy for inst's port; modify, when set, is its
+// ModifyResponse.
+func (p *forkProxies) get(inst forks.Instance, modify func(*http.Response) error) *httputil.ReverseProxy {
 	port := inst.Port
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -42,6 +45,7 @@ func (p *forkProxies) get(inst forks.Instance) *httputil.ReverseProxy {
 		writeProxyError(w, http.StatusServiceUnavailable, "service_unavailable",
 			"the fork instance did not answer; it may have stopped")
 	}
+	rp.ModifyResponse = modify
 	p.byPort[port] = rp
 	return rp
 }
@@ -99,7 +103,46 @@ func (s *Server) serveFork(w http.ResponseWriter, r *http.Request, inst forks.In
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	r.ContentLength = int64(len(body))
-	s.forkProxy.get(inst).ServeHTTP(w, r)
+	r = r.WithContext(context.WithValue(r.Context(), forkInstanceKey{}, inst.ID))
+	s.forkProxy.get(inst, s.forkTimings).ServeHTTP(w, r)
+}
+
+// forkInstanceKey carries a fork instance's ID from serveFork to the
+// proxy's ModifyResponse. A port can change hands between instances, so
+// the proxy made for it cannot keep the ID itself.
+type forkInstanceKey struct{}
+
+// forkTimings records a fork instance's chat speeds and prompt cache use
+// in Live Performance, as the router proxy does for llama-server. The row
+// is the instance name: the name clients send as the model.
+func (s *Server) forkTimings(resp *http.Response) error {
+	if resp.StatusCode != http.StatusOK || resp.Request == nil ||
+		!strings.HasSuffix(resp.Request.URL.Path, "/chat/completions") {
+		return nil
+	}
+	id, _ := resp.Request.Context().Value(forkInstanceKey{}).(string)
+	if id == "" {
+		return nil
+	}
+	if strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
+		resp.Body = newSSETimingCapture(resp.Body, func(_ string, timings map[string]any) {
+			s.captureTimings(id, timings)
+		}, nil)
+		return nil
+	}
+	body, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+	if err != nil {
+		return nil
+	}
+	var result struct {
+		Timings map[string]any `json:"timings"`
+	}
+	if json.Unmarshal(body, &result) == nil && result.Timings != nil {
+		go s.captureTimings(id, result.Timings)
+	}
+	return nil
 }
 
 // addSamplingDefaults adds each default the request does not set itself.

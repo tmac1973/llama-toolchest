@@ -465,6 +465,10 @@ type TimingSample struct {
 	GenTokens       int       `json:"gen_n"`
 	PromptTokPerSec float64   `json:"prompt_tps"`
 	GenTokPerSec    float64   `json:"gen_tps"`
+	// CacheTokens is llama-server's cache_n: the prompt tokens taken from
+	// the prompt cache, which PromptTokens leaves out. Nil when the
+	// response did not say (an engine without it).
+	CacheTokens *int `json:"cache_n,omitempty"`
 }
 
 // PresetSourceInternal drives the in-process API benchmark loop in
@@ -1330,6 +1334,17 @@ func (s *Store) RecordTiming(sample TimingSample) {
 	s.timings[sample.ModelID] = samples
 }
 
+// ClearTimings drops one model's timing samples, so its Live Performance
+// row starts again from the next request. It reports whether the model
+// had any.
+func (s *Store) ClearTimings(modelID string) bool {
+	s.timingsMu.Lock()
+	defer s.timingsMu.Unlock()
+	_, ok := s.timings[modelID]
+	delete(s.timings, modelID)
+	return ok
+}
+
 // Timings returns recent timing samples for a model (or all models if empty).
 func (s *Store) Timings(modelID string) []TimingSample {
 	s.timingsMu.RLock()
@@ -1392,8 +1407,10 @@ func (s *Store) TimingSummary() []TimingModelSummary {
 		}
 
 		minTok, maxTok := 0, 0
+		var cache cacheAgg
 		for i, t := range samples {
 			sum.add(t)
+			cache.add(t)
 			if b := bucketFor(t.PromptTokens); b >= 0 {
 				buckets[b].add(t)
 			}
@@ -1412,6 +1429,9 @@ func (s *Store) TimingSummary() []TimingModelSummary {
 			AvgPromptTokPerSec: sum.promptRate(),
 			MinPromptTokens:    minTok,
 			MaxPromptTokens:    maxTok,
+			CacheShare:         cache.share(),
+			CacheHits:          cache.hits,
+			CacheCounted:       cache.counted,
 		}
 		for i, b := range promptBuckets {
 			if buckets[i].count == 0 {
@@ -1478,6 +1498,32 @@ func (a *timingAgg) genRate() float64 {
 	return a.genTokens / a.genSecs
 }
 
+// cacheAgg sums the prompt cache use of the samples that report it.
+type cacheAgg struct {
+	counted, hits     int
+	cached, processed int
+}
+
+func (a *cacheAgg) add(t TimingSample) {
+	if t.CacheTokens == nil {
+		return
+	}
+	a.counted++
+	if *t.CacheTokens > 0 {
+		a.hits++
+	}
+	a.cached += *t.CacheTokens
+	a.processed += t.PromptTokens
+}
+
+// share is the part of all prompt tokens that came from the cache.
+func (a *cacheAgg) share() float64 {
+	if a.cached+a.processed == 0 {
+		return 0
+	}
+	return float64(a.cached) / float64(a.cached+a.processed)
+}
+
 // TimingModelSummary is aggregated timing stats for one model.
 type TimingModelSummary struct {
 	ModelID            string  `json:"model_id"`
@@ -1489,7 +1535,18 @@ type TimingModelSummary struct {
 	MinPromptTokens int            `json:"min_prompt_tokens"`
 	MaxPromptTokens int            `json:"max_prompt_tokens"`
 	Buckets         []TimingBucket `json:"buckets,omitempty"`
+	// Prompt cache use, over the CacheCounted requests that reported it
+	// (0 when none did): CacheShare is the part of all prompt tokens that
+	// came from the cache (0–1), CacheHits the requests that reused some.
+	// A conversation's first request always misses, so CacheHits says why
+	// a share is lower than the later turns alone would give.
+	CacheShare   float64 `json:"cache_share"`
+	CacheHits    int     `json:"cache_hits"`
+	CacheCounted int     `json:"cache_counted"`
 }
+
+// CachePercent is CacheShare as a percentage, for display.
+func (m TimingModelSummary) CachePercent() float64 { return m.CacheShare * 100 }
 
 // TimingBucket is the same stats restricted to one prompt-length range,
 // which is what makes two periods comparable when the traffic mix moved.

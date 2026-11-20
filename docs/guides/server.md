@@ -17,7 +17,12 @@ The base URL for clients. *Agent Configs* gives config files for opencode, Kilo 
 
 ## Live Performance { #live-performance }
 
-Average generation and prompt speed per model, taken from real chat requests.
+Average generation and prompt speed per model, taken from real chat requests to llama-server and to [fork instances](forks.md). A fork instance has its own row, under its instance name. The figures are kept in memory, so a restart starts them again.
+
+- **Cache** shows how much of the prompt llama-server took from its prompt cache instead of processing it again, for example `92% · 14/15`. The percentage is the part of all prompt tokens that came from the cache. The count is how many requests reused the cache at all, out of the requests that reported it. The first request of a conversation always misses, which is why the count can be lower than the number of requests.
+- A chat client sends the whole conversation on every turn, and llama-server reuses the part it already processed. So on a model that serves conversations, later turns should come almost entirely from the cache. **A low percentage means the prompt changes near the start** from turn to turn: a date or time in the system prompt, a client that rewrites or shortens the history, or tools sent in a different order. Each turn then processes the whole conversation again. To find what changes, open [Live traffic](#live-traffic) and use *Show rendered prompt* on two turns in a row.
+- An engine that does not report its cache use shows `—`.
+- **Reset** clears the figures of one model. Use it after you change a setting, to see only the requests that came after the change.
 
 ## Server Logs { #server-logs }
 
