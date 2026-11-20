@@ -180,7 +180,7 @@ func TestArgs(t *testing.T) {
 	args := Args(f, set, inst)
 	joined := strings.Join(args, " ")
 	for _, want := range []string{
-		"--host 127.0.0.1 --port 8085",
+		"--host 0.0.0.0 --port 8085",
 		"-m /m/avalon/" + f.Recipe.ModelFileArg,
 		"-md /m/avalon/" + f.Recipe.DraftFileArg,
 		"--spec-type draft-mtp",

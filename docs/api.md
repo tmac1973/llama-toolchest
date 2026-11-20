@@ -77,4 +77,4 @@ curl $BASE/v1/videos/generations -F prompt="the waves start to roll" -F start_im
  "prompt": "<sd_cpp_extra_args>{\"init_image\": \"iVBORw0KGgo…\", \"strength\": 0.9}</sd_cpp_extra_args>RGBA, 4-channel, transparent background. a red fox sticker"}
 ```
 
-*Open web UI →* on the Server page opens the own web page of each backend (port 8081 and up). In a container, toolchest publishes those ports only if you chose that in `setup.sh`.
+*Open web UI →* on the Server page opens the own web page of each backend and each running fork instance (port 8081 and up). In a container, toolchest publishes those ports only if you chose that in `setup.sh`.

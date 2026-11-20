@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -59,6 +60,9 @@ func TestForkInstancesTable(t *testing.T) {
 			t.Errorf("stopped row lacks %q", want)
 		}
 	}
+	if strings.Contains(body, "Open web UI") {
+		t.Error("stopped row offers the web UI")
+	}
 	// Forks have no pinned commit, so no build is marked untested.
 	if strings.Contains(body, "untested") {
 		t.Error("fork build marked untested")
@@ -67,6 +71,8 @@ func TestForkInstancesTable(t *testing.T) {
 	// Started from the card: the table comes back with the start's
 	// warnings, Stop instead of Start, and no Edit or Delete.
 	s.testForkHostInfo = &forks.HostInfo{RAMGiB: 16}
+	s.cfg.ExternalURL = "http://asmodean:3000"
+	s.inContainerFn = func() bool { return false }
 	rec := httptest.NewRecorder()
 	s.handleForkInstanceAction(rec, withIDAction(htmxReq("POST", "/", nil), "avalon-qwen", "start"))
 	if rec.Code != http.StatusOK {
@@ -76,7 +82,7 @@ func TestForkInstancesTable(t *testing.T) {
 	defer cancel()
 	s.forkMgr.WaitRunning(ctx, "avalon-qwen")
 	body = forkTable(t, s)
-	for _, want := range []string{"16 GiB of RAM", `hx-post="/api/forks/instances/avalon-qwen/stop"`} {
+	for _, want := range []string{"16 GiB of RAM", `hx-post="/api/forks/instances/avalon-qwen/stop"`, "Open web UI", fmt.Sprintf(`href="http://asmodean:%d"`, port)} {
 		if !strings.Contains(body, want) {
 			t.Errorf("running row lacks %q:\n%s", want, body)
 		}

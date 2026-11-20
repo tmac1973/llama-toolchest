@@ -190,7 +190,13 @@ func (s *Server) genWebUILink(b *builder.BuildResult, inst generation.Instance, 
 	if !running {
 		return "", ""
 	}
-	if link := s.genWebUIURL(inst.Port); link != "" {
+	return s.webUIPortLink(inst.Port)
+}
+
+// webUIPortLink is the link to the web page of a running generation or
+// fork instance on port, or why there is none and what to do about it.
+func (s *Server) webUIPortLink(port int) (link, note string) {
+	if link := s.genWebUIURL(port); link != "" {
 		return link, ""
 	}
 	if !s.genPortsPublished() {

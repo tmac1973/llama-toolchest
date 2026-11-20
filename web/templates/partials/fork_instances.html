@@ -30,6 +30,12 @@
                 {{- range .Warnings}}<small style="display:block;color:var(--pico-ins-color);">{{.}}</small>{{end}}
             </td>
             <td>
+                {{- with .WebUIURL}}
+                <a href="{{.}}" target="_blank" rel="noopener" style="font-size:0.85rem;" title="The llama-server web page of the fork. Its chats go straight to the fork, without the toolchest sampling defaults.">Open web UI →</a>
+                {{- end}}
+                {{- with .WebUINote}}
+                <small style="display:block;color:var(--pico-muted-color);max-width:22rem;">{{.}}</small>
+                {{- end}}
                 <span style="display:flex;gap:0.4rem;flex-wrap:wrap;">
                 {{- $id := .ID}}
                 {{- if .Active}}
