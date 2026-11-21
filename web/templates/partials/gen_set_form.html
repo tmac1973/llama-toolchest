@@ -50,9 +50,6 @@
     <div id="gen-set-form-fields">
         {{template "gen_set_form_fields" .}}
     </div>
-    <label title="Extra backend flags, for example --steps 8 --cfg-scale 1. Toolchest sets the address, port, VRAM limit and model folders. Press Details on a catalog set to see the flags it uses and why.">Extra launch arguments
-        <input type="text" name="launch_args" value="{{.LaunchArgs}}" placeholder="--steps 8 --cfg-scale 1">
-    </label>
     {{/* The file suggestions, loaded once when the form opens. hx-target
          is set here, or the form's #gen-model-sets would be inherited. */}}
     <div hx-get="/api/gen/models/files" hx-trigger="load" hx-target="this" hx-swap="innerHTML" data-error-label="File suggestions not loaded"></div>
@@ -147,6 +144,20 @@
 <label title="Select this when the DiT is an ACE-Step base model. Only a base model can add, pull out or complete instruments (lego, extract, complete).">
     <input type="checkbox" name="stem_tasks" value="1"{{if .StemTasks}} checked{{end}}> Base DiT
 </label>
+{{- end}}
+{{/* Inside the redrawn part, so a recipe change can fill it from the
+     recipe's defaults (prefill in gen_set_form.go). */}}
+<label title="Extra backend flags, for example --steps 8 --cfg-scale 1. Toolchest sets the address, port, VRAM limit and model folders. Press Details on a catalog set to see the flags it uses and why.">Extra launch arguments
+    <input type="text" name="launch_args" value="{{.LaunchArgs}}" placeholder="--steps 8 --cfg-scale 1">
+    {{- if .ArgsFromRecipe}}<small>From the recipe's defaults. Change or clear them as you need.</small>{{end}}
+</label>
+{{- if .FromSet}}<input type="hidden" name="from_set" value="1">{{end}}
+{{- if not (or .FromSet .EditID)}}
+<input type="hidden" name="prefill_args" value="{{.PrefillArgs}}">
+<input type="hidden" name="prefill_width" value="{{.PrefillWidth}}">
+<input type="hidden" name="prefill_height" value="{{.PrefillHeight}}">
+<input type="hidden" name="prefill_frames" value="{{.PrefillFrames}}">
+<input type="hidden" name="prefill_fps" value="{{.PrefillFPS}}">
 {{- end}}
 {{end}}
 

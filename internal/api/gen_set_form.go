@@ -126,6 +126,45 @@ type genSetForm struct {
 	// cannot use (a copy or edit of such a set); RecipeWarning says why.
 	UnknownRecipe bool
 	RecipeWarning string
+	// FromSet is set when the form was filled from a set or catalog
+	// entry (a copy or edit); such a form is never prefilled.
+	FromSet bool
+	// The Prefill fields hold what the form last filled in from the
+	// recipe's defaults, sent back in hidden fields. A field that still
+	// holds its prefill value (or is empty) takes the next recipe's
+	// value; one the user changed is kept.
+	PrefillArgs, PrefillWidth, PrefillHeight, PrefillFrames, PrefillFPS string
+}
+
+// ArgsFromRecipe reports whether the launch-argument field holds what the
+// form filled in from the recipe.
+func (f genSetForm) ArgsFromRecipe() bool {
+	return f.PrefillArgs != "" && f.LaunchArgs == f.PrefillArgs
+}
+
+// prefill fills the launch arguments and test sizes of a new set from
+// its recipe's defaults: each field that is empty or still holds what was
+// filled in before. A field the user changed is kept, and is not filled
+// again on a later recipe change. A kind without recipes clears what was
+// filled.
+func (f *genSetForm) prefill() {
+	var args, width, height, frames, fps string
+	if r, ok := generation.ActiveRecipes().Get(f.Recipe); ok && f.Recipe != "" && !f.UnknownRecipe {
+		args = generation.JoinArgs(r.LaunchDefaults())
+		width, height, frames, fps = r.SizeDefaults()
+	}
+	fill := func(field, prev *string, val string) {
+		if *field == "" || *field == *prev {
+			*field, *prev = val, val
+		} else {
+			*prev = ""
+		}
+	}
+	fill(&f.LaunchArgs, &f.PrefillArgs, args)
+	fill(&f.Width, &f.PrefillWidth, width)
+	fill(&f.Height, &f.PrefillHeight, height)
+	fill(&f.Frames, &f.PrefillFrames, frames)
+	fill(&f.FPS, &f.PrefillFPS, fps)
 }
 
 // genSetFormFromRequest reads the custom set form's values from a request,
@@ -155,6 +194,9 @@ func (s *Server) genSetFormFrom(get func(string) string) genSetForm {
 		License:     get("license"),
 		EditID:      get("edit_id"),
 		RecipeSlots: get("recipe_slots"),
+		FromSet:     get("from_set") == "1",
+		PrefillArgs: get("prefill_args"), PrefillWidth: get("prefill_width"), PrefillHeight: get("prefill_height"),
+		PrefillFrames: get("prefill_frames"), PrefillFPS: get("prefill_fps"),
 	}
 	if f.Tab != "catalog" {
 		f.Tab = "models"
@@ -186,6 +228,9 @@ func (s *Server) genSetFormFrom(get func(string) string) genSetForm {
 
 	if len(f.Recipes) > 0 {
 		f.RecipeGroups = genRecipeGroups(f.Kind)
+	}
+	if !f.FromSet && f.EditID == "" {
+		f.prefill()
 	}
 	if !f.UnknownRecipe {
 		slots = generation.KindSlots(f.Kind, f.Recipe)
@@ -330,6 +375,7 @@ func (s *Server) genSetFilledForm(set generation.ModelSet, entry generation.Cata
 		"launch_args": {generation.JoinArgs(src.LaunchArgs)},
 		"tab":         {tab},
 		"license":     {src.License},
+		"from_set":    {"1"},
 	}
 	for k, n := range map[string]int{"width": src.DefaultWidth, "height": src.DefaultHeight, "frames": src.DefaultFrames, "fps": src.DefaultFPS,
 		"max_frames": src.MaxFrames, "max_width": src.MaxWidth, "max_height": src.MaxHeight, "scale": src.Scale} {

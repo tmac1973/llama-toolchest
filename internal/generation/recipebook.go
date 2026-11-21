@@ -40,7 +40,7 @@ type Recipe struct {
 	Unavailable string
 
 	// rawDefaults and rawContext keep the file's defaults and context for
-	// the custom set form.
+	// the custom set form (LaunchDefaults, SizeDefaults).
 	rawDefaults map[string]any
 	rawContext  map[string]any
 }
@@ -193,6 +193,7 @@ func parseRecipeFile(fsys fs.FS, name string) (*Recipe, error) {
 	r := &Recipe{ID: f.ID, Name: f.Name, Description: f.Description, Kind: KindSD,
 		Features: f.Features, SizeMultiple: f.SizeMultiple, UpstreamLabels: map[string]string{},
 		rawDefaults: f.Defaults, rawContext: f.Context}
+	logUnknownRecipeKeys(r)
 	if len(f.VideoConstraints) > 0 && string(f.VideoConstraints) != "null" {
 		r.Kind = KindVideo
 	}
