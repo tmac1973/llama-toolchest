@@ -23,7 +23,17 @@ An instance starts only on a build that knows its set's recipe. If you run a set
 
 ## Download files for a custom set { #custom-set-downloads }
 
-A file field of the custom set form takes a path in the models folder, or a link to one file on Hugging Face. Copy the link from the file's page on Hugging Face, for example `https://huggingface.co/stabilityai/sd-turbo/blob/main/sd_turbo.safetensors`. Links with `/resolve/` in place of `/blob/` work too. One set can have both local files and links. LoRA files must be local files.
+A file field of the custom set form takes a path in the models folder, or a link to one file on Hugging Face. One set can have both local files and links. LoRA files must be local files.
+
+To choose a file, press *Browse* next to the field. The dialog shows:
+
+- **Suggested repositories:** the repository the recipe links to, and the repositories that catalog sets use for this slot. Press one to list its files.
+- **Files that catalog sets use for this slot**, for example the text encoder of the FLUX.2 klein set when you make a FLUX.2 klein set of your own.
+- **The files of one repository**, with their sizes. Type any repository (`org/name`) or paste a Hugging Face link, and press *List files*. The list shows model files only (`.safetensors`, `.gguf`, `.ckpt`, `.pt`, `.pth`; `.json` for the tokenizer). *Show all files* shows the rest. A repository in the Diffusers layout gets a note: sd-server needs one combined file, so look for a single-file or GGUF version.
+
+*Use* writes the file's link into the field. You can also paste a link yourself: copy it from the file's page on Hugging Face, for example `https://huggingface.co/stabilityai/sd-turbo/blob/main/sd_turbo.safetensors`. Links with `/resolve/` in place of `/blob/` work too.
+
+Above *Add set*, the form shows how much the links download and how much space is free. It changes when a field changes.
 
 When you press *Add set*:
 
