@@ -1,6 +1,7 @@
 package modelsource
 
 import (
+	"path"
 	"sort"
 
 	"github.com/tmac1973/llama-toolchest/internal/models"
@@ -61,4 +62,26 @@ func GroupShards(files []File) []File {
 	})
 
 	return append(result, singles...)
+}
+
+// MarkMainlineCopies sets MainlineCopy on renamed GGUFs (see
+// models.MainlineGGUFSuffix) and HasMainlineCopy on every other file with
+// the same name, so the list can say which file is for which llama.cpp.
+// Run it after GroupShards: a split file is matched by its first shard.
+func MarkMainlineCopies(files []File) {
+	mainline := map[string]bool{}
+	for i := range files {
+		if models.IsMainlineGGUF(files[i].Filename) {
+			files[i].MainlineCopy = true
+			mainline[path.Base(models.LocalGGUFName(files[i].Filename))] = true
+		}
+	}
+	if len(mainline) == 0 {
+		return
+	}
+	for i := range files {
+		if !files[i].MainlineCopy && mainline[path.Base(files[i].Filename)] {
+			files[i].HasMainlineCopy = true
+		}
+	}
 }

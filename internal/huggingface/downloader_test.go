@@ -123,6 +123,54 @@ func TestStartToOwnRootAndCallback(t *testing.T) {
 	}
 }
 
+// A renamed GGUF is fetched by its repository name and saved as "*.gguf",
+// and the completion callback gets the saved name, so the model is
+// registered under the name llama.cpp and the model scan use.
+func TestStartSavesARenamedGGUFAsGGUF(t *testing.T) {
+	const body = "GGUF tensors"
+	var asked string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	d := NewDownloader(t.TempDir(), dir, "")
+	d.RegisterProvider("fake", Provider{URL: func(_, filename string) string {
+		asked = filename
+		return srv.URL
+	}})
+	done := make(chan string, 1)
+	d.SetOnComplete(func(_, _, _, filename string, _ int64) { done <- filename })
+
+	const remote = "Mainline_Support/Model-UD-Q4_K_XL.gguf_file"
+	id, err := d.Start(context.Background(), "fake", "unsloth/Model-GGUF", remote, int64(len(body)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "unsloth--Model-GGUF--Mainline_Support--Model-UD-Q4_K_XL"; id != want {
+		t.Errorf("download ID = %q, want %q (the saved name)", id, want)
+	}
+	select {
+	case name := <-done:
+		if name != "Mainline_Support/Model-UD-Q4_K_XL.gguf" {
+			t.Errorf("completion filename = %q", name)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("download never finished")
+	}
+	if asked != remote {
+		t.Errorf("fetched %q, want the repository name %q", asked, remote)
+	}
+	saved := FilePath(dir, "unsloth/Model-GGUF", remote)
+	if !strings.HasSuffix(saved, ".gguf") {
+		t.Errorf("FilePath = %q, want a .gguf name", saved)
+	}
+	if got, _ := os.ReadFile(saved); string(got) != body {
+		t.Errorf("saved file holds %q", got)
+	}
+}
+
 // Two generation sets can share a file. When the second asks for it while
 // the first's download is running, both must hear when it is done.
 func TestStartToSharedFileCallsEveryCallback(t *testing.T) {

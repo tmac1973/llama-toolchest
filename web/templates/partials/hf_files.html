@@ -18,7 +18,7 @@
     <tbody>
         {{range $i, $f := .Files}}
         <tr{{if and $.Suggest (eq $f.Filename $.Suggest)}} class="rec-suggested"{{end}}>
-            <td><small>{{$f.Filename}}{{if $f.Shards}} ({{len $f.Shards}} parts){{end}}{{if $f.IsMMProj}} <mark style="padding:0 0.3rem;">vision</mark>{{end}}{{if and $.Suggest (eq $f.Filename $.Suggest)}} <mark style="padding:0 0.3rem;" title="The file the recommendation suggests for this machine at that context size.">{{$.SuggestLabel}}</mark>{{end}}</small></td>
+            <td><small>{{$f.Filename}}{{if $f.Shards}} ({{len $f.Shards}} parts){{end}}{{if $f.IsMMProj}} <mark style="padding:0 0.3rem;">vision</mark>{{end}}{{if $f.MainlineCopy}} <ins style="padding:0 0.3rem;" title="The publisher made this copy for mainline llama.cpp. It is saved as a .gguf file.">mainline llama.cpp</ins>{{end}}{{if $f.HasMainlineCopy}} <mark style="padding:0 0.3rem;" title="This file needs the publisher's own llama.cpp build. For mainline llama.cpp, download the copy marked mainline llama.cpp.">needs the publisher's llama.cpp</mark>{{end}}{{if and $.Suggest (eq $f.Filename $.Suggest)}} <mark style="padding:0 0.3rem;" title="The file the recommendation suggests for this machine at that context size.">{{$.SuggestLabel}}</mark>{{end}}</small></td>
             <td><kbd>{{$f.Quant}}</kbd></td>
             <td>{{printf "%.1f" (divGB $f.Size)}} GiB</td>
             <td><span id="vram-{{cssID $.ID}}-{{$i}}">

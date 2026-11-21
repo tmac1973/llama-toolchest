@@ -95,6 +95,7 @@ func (dl *download) last() DownloadStatus {
 type FileDoneFunc func(path string, sizeBytes int64)
 
 // CompletionFunc is called when a download finishes successfully.
+// filename is the name the file was saved under (see models.LocalGGUFName).
 type CompletionFunc func(source, downloadID, modelID, filename string, sizeBytes int64)
 
 // Downloader manages resumable GGUF downloads from HuggingFace.
@@ -305,8 +306,10 @@ func (d *Downloader) StartInto(source, modelID, filename, destDir string, expect
 }
 
 // FilePath is where StartTo puts a file.
+// A renamed GGUF ("*.gguf_file") is saved as "*.gguf"; see
+// models.LocalGGUFName.
 func FilePath(destRoot, modelID, filename string) string {
-	return filepath.Join(destRoot, SafeModelID(modelID), filename)
+	return filepath.Join(destRoot, SafeModelID(modelID), models.LocalGGUFName(filename))
 }
 
 // Status returns the latest status of a download still held by the
@@ -353,7 +356,9 @@ func (d *Downloader) start(source, modelID, revision, filename string, expectedB
 func (d *Downloader) startDl(source, modelID, revision, filename string, expectedBytes int64, idPrefix, destRoot, destDir string, onDone FileDoneFunc) (string, error) {
 	// Create a stable download ID — replace all slashes to keep it URL-safe
 	safeName := SafeModelID(modelID)
-	safeFilename := SafeFileID(filename)
+	// The local name, so the ID matches the model ID the file is
+	// registered under once it is saved.
+	safeFilename := SafeFileID(models.LocalGGUFName(filename))
 	downloadID := fmt.Sprintf("%s%s--%s", idPrefix, safeName, safeFilename)
 
 	d.mu.Lock()
@@ -638,10 +643,10 @@ func (d *Downloader) run(ctx context.Context, source, downloadID, modelID, filen
 	d.mu.Unlock()
 	if len(onDone) > 0 {
 		for _, f := range onDone {
-			f(filepath.Join(modelDir, filenames[0]), totalDownloaded)
+			f(filepath.Join(modelDir, models.LocalGGUFName(filenames[0])), totalDownloaded)
 		}
 	} else if d.onComplete != nil {
-		d.onComplete(source, downloadID, modelID, filenames[0], totalDownloaded)
+		d.onComplete(source, downloadID, modelID, models.LocalGGUFName(filenames[0]), totalDownloaded)
 	}
 }
 
@@ -682,8 +687,11 @@ func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, model
 		dl.broadcast(status)
 	}
 
-	partPath := filepath.Join(modelDir, filename+".part")
-	finalPath := filepath.Join(modelDir, filename)
+	// A renamed GGUF ("*.gguf_file") is saved as "*.gguf", so llama.cpp
+	// and the model scan see it; the URL keeps the repository's name.
+	local := models.LocalGGUFName(filename)
+	partPath := filepath.Join(modelDir, local+".part")
+	finalPath := filepath.Join(modelDir, local)
 	wantSize = d.expectedSize(finalPath, wantSize)
 
 	// Ensure subdirectories exist (for files like "Q8_0/model.gguf")

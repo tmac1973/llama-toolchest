@@ -118,7 +118,7 @@ func (c *Client) GetModel(ctx context.Context, modelID string) (*ModelDetail, er
 
 	detail := &ModelDetail{ID: raw.ID, ParamCount: raw.GGUF.Total}
 	for _, s := range raw.Siblings {
-		if !strings.HasSuffix(strings.ToLower(s.Filename), ".gguf") {
+		if !models.IsGGUFName(s.Filename) {
 			continue
 		}
 		quant := models.ParseQuant(s.Filename)
@@ -136,6 +136,7 @@ func (c *Client) GetModel(ctx context.Context, modelID string) (*ModelDetail, er
 
 	// Group split/sharded GGUF files into single entries
 	detail.Files = modelsource.GroupShards(detail.Files)
+	modelsource.MarkMainlineCopies(detail.Files)
 
 	return detail, nil
 }

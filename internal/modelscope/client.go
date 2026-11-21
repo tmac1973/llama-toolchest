@@ -218,7 +218,7 @@ func (c *Client) GetModel(ctx context.Context, modelID string) (*modelsource.Det
 	detail := &modelsource.Detail{ID: modelID}
 	for _, f := range files {
 		rel := f.Path
-		if !strings.HasSuffix(strings.ToLower(rel), ".gguf") {
+		if !models.IsGGUFName(rel) {
 			continue
 		}
 		detail.Files = append(detail.Files, modelsource.File{
@@ -230,6 +230,7 @@ func (c *Client) GetModel(ctx context.Context, modelID string) (*modelsource.Det
 		})
 	}
 	detail.Files = modelsource.GroupShards(detail.Files)
+	modelsource.MarkMainlineCopies(detail.Files)
 	return detail, nil
 }
 

@@ -251,6 +251,38 @@ func TestGetModelGroupsShards(t *testing.T) {
 	}
 }
 
+// A renamed GGUF ("*.gguf_file") is listed with its size and marked as a
+// mainline copy, and the root file with the same name is marked as having
+// one. Unsloth names its mainline llama.cpp copies this way.
+func TestGetModelListsRenamedMainlineCopies(t *testing.T) {
+	siblings := `{"id":"unsloth/Model-GGUF","siblings":[
+		{"rfilename":"Model-UD-Q4_K_XL.gguf"},
+		{"rfilename":"Mainline_Support/HOW_TO_RUN.md"},
+		{"rfilename":"Mainline_Support/Model-UD-Q4_K_XL.gguf_file"}]}`
+	tree := `[
+		{"path":"Model-UD-Q4_K_XL.gguf","size":4000},
+		{"path":"Mainline_Support/Model-UD-Q4_K_XL.gguf_file","size":4100}]`
+	c, _ := newHFCFake(t, "", hfcModelHandler(t, siblings, tree))
+
+	d, err := c.GetModel(context.Background(), "unsloth/Model-GGUF")
+	if err != nil {
+		t.Fatalf("GetModel: %v", err)
+	}
+	byName := map[string]ModelFile{}
+	for _, f := range d.Files {
+		byName[f.Filename] = f
+	}
+	if len(byName) != 2 {
+		t.Fatalf("files = %+v, want the root GGUF and its mainline copy", d.Files)
+	}
+	if f := byName["Mainline_Support/Model-UD-Q4_K_XL.gguf_file"]; !f.MainlineCopy || f.Size != 4100 || f.Quant != "UD_Q4_K_XL" {
+		t.Errorf("mainline copy = %+v", f)
+	}
+	if f := byName["Model-UD-Q4_K_XL.gguf"]; !f.HasMainlineCopy || f.MainlineCopy {
+		t.Errorf("root file = %+v, want HasMainlineCopy", f)
+	}
+}
+
 // When the model endpoint fails, GetModel returns the status as an error
 // and does not go on to ask for the tree of a repository it could not
 // read.
