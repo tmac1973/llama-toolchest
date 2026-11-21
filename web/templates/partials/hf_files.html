@@ -72,7 +72,8 @@
      render cannot drift into showing different things. */}}
 {{define "hf_vram_cell"}}
 {{if .Fit}}{{printf "%.1f" .Fit.VRAMGiB}} GiB
-{{- if gt .Fit.RAMGiB 0.0}}<br><small title="{{if eq .Fit.RAMKind "experts"}}Some expert weights stay in system memory so the rest fits on the GPU. It runs, but generation is slower.{{else}}Only part of the model fits on the GPU. These layers run on the CPU, which is much slower.{{end}}">+{{printf "%.1f" .Fit.RAMGiB}} GiB {{if eq .Fit.RAMKind "experts"}}of experts{{else}}of layers{{end}} in system memory</small>{{end}}
+{{- if and (gt .Fit.RAMGiB 0.0) .Fit.Shared}}<br><small title="{{if eq .Fit.RAMKind "experts"}}The GPU's share of the memory is full. The CPU runs some expert weights from the same memory. Generation is slower.{{else}}The GPU's share of the memory is full. The CPU runs these layers, which is much slower.{{end}}">+{{printf "%.1f" .Fit.RAMGiB}} GiB {{if eq .Fit.RAMKind "experts"}}of experts{{else}}of layers{{end}} on the CPU</small>
+{{- else if gt .Fit.RAMGiB 0.0}}<br><small title="{{if eq .Fit.RAMKind "experts"}}Some expert weights stay in system memory so the rest fits on the GPU. It runs, but generation is slower.{{else}}Only part of the model fits on the GPU. These layers run on the CPU, which is much slower.{{end}}">+{{printf "%.1f" .Fit.RAMGiB}} GiB {{if eq .Fit.RAMKind "experts"}}of experts{{else}}of layers{{end}} in system memory</small>{{end}}
 {{- else}}{{printf "%.1f" .VRAMEstGB}} GiB{{end}}
 {{- if gt .StreamedBytes 0}}<br><small title="llama.cpp keeps the per-layer embedding table off the GPU, so it is not in the VRAM estimate.{{if .EmbeddingTableStreamed}} A table this large is read from the file when needed.{{else}} A table this small loads into system memory.{{end}} It still takes disk space.">+{{printf "%.1f" (divGB .StreamedBytes)}} GiB embedding table{{if .EmbeddingTableStreamed}}, read from disk{{else}} in system memory{{end}}</small>{{end}}
 {{end}}
@@ -83,7 +84,7 @@
 {{- else if .Fit -}}
 {{- $tip := printf "%s\n\nEstimated from the model's description. Real use can differ by a few percent." .Fit.Detail -}}
 {{if eq .Fit.Kind "gpu"}}<ins title="{{$tip}}">{{.Fit.Label}}</ins>
-{{else if eq .Fit.Kind "experts"}}<mark title="Some expert layers stay in system memory. It runs, but generation is slower.&#10;&#10;{{$tip}}">{{.Fit.Label}}</mark>
+{{else if eq .Fit.Kind "experts"}}<mark title="{{if .Fit.Shared}}The CPU runs some expert layers, because the GPU's share of the memory is full.{{else}}Some expert layers stay in system memory.{{end}} It runs, but generation is slower.&#10;&#10;{{$tip}}">{{.Fit.Label}}</mark>
 {{else if eq .Fit.Kind "partial"}}<mark title="Part of the model runs on the CPU, which is much slower.&#10;&#10;{{$tip}}">{{.Fit.Label}}</mark>
 {{else}}<del title="{{$tip}}">{{.Fit.Label}}</del>{{end}}
 {{- else -}}

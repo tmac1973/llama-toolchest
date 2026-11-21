@@ -23,3 +23,22 @@ var fieldHelp = map[string]string{
 	"presence_penalty": "Pushes the model toward new topics by penalizing tokens it has already used.",
 	"repeat_penalty":   "Discourages repeating the same words. 1.0 turns this off.",
 }
+
+// sharedFieldHelp replaces fieldHelp entries on unified memory (Apple
+// Silicon), where nothing moves to other memory: the CPU runs what the
+// GPU's share of the memory has no room for.
+var sharedFieldHelp = map[string]string{
+	"cpu_moe":       "Mixture-of-experts models only: how many layers have their expert weights run by the CPU instead of the GPU. The weights stay in the same memory. Lets a model larger than the GPU's share of the memory run, at some cost in speed.",
+	"moe_cache_mib": "Mixture-of-experts models only: GPU memory, in MiB, for copies of the expert weights the CPU runs. The GPU then runs the experts tokens use most often. On a Mac each copy uses the memory a second time.",
+	"mmproj_in_ram": "Where the vision projector, which reads images and audio, runs. On the GPU it is faster; on the CPU its share of the GPU's memory goes to the model, and images are read more slowly.",
+	"threads":       "CPU threads used for the parts of the model that run on the CPU. One per performance core is usually best.",
+}
+
+// fieldHelpFor is the help for a setting, in the words for unified
+// memory when shared is set.
+func fieldHelpFor(key string, shared bool) string {
+	if h, ok := sharedFieldHelp[key]; ok && shared {
+		return h
+	}
+	return fieldHelp[key]
+}

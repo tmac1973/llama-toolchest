@@ -31,6 +31,10 @@ type fileFit struct {
 	VRAMGiB float64
 	RAMGiB  float64
 	RAMKind models.Placement
+	// Shared says the GPU's memory is the machine's RAM (Apple Silicon):
+	// what the GPU has no room for stays in the same memory and the CPU
+	// runs it, so the words are "on the CPU", not "in system memory".
+	Shared bool
 }
 
 // fitVRAMContext is the context the VRAM column is estimated at.
@@ -117,6 +121,7 @@ func planFileFit(m *models.Model, hw models.Hardware) *fileFit {
 	}
 
 	var lines []string
+	shared := models.SharedMemory(hw)
 	var atVRAMCtx *models.FitResult
 	seen := map[int]bool{}
 	bestGPU, bestExperts, anyPartial := 0, 0, false
@@ -144,15 +149,19 @@ func planFileFit(m *models.Model, hw models.Hardware) *fileFit {
 		case models.PlacementPartial:
 			anyPartial = true
 		}
-		lines = append(lines, tokensLabel(want)+": "+fitLine(m, r, kind, want))
+		lines = append(lines, tokensLabel(want)+": "+fitLine(m, r, kind, want, shared))
 	}
 
-	fit := &fileFit{Detail: strings.Join(lines, "\n")}
+	fit := &fileFit{Detail: strings.Join(lines, "\n"), Shared: shared}
 	switch {
 	case bestGPU > 0:
 		fit.Kind, fit.Label = models.PlacementGPU, "Up to "+tokensLabel(bestGPU)
 	case bestExperts > 0:
-		fit.Kind, fit.Label = models.PlacementExperts, "Experts in RAM · up to "+tokensLabel(bestExperts)
+		where := "Experts in RAM"
+		if shared {
+			where = "Experts on CPU"
+		}
+		fit.Kind, fit.Label = models.PlacementExperts, where+" · up to "+tokensLabel(bestExperts)
 	case anyPartial:
 		fit.Kind, fit.Label = models.PlacementPartial, "Partly on CPU"
 	default:
@@ -177,7 +186,7 @@ func planFileFit(m *models.Model, hw models.Hardware) *fileFit {
 }
 
 // fitLine describes one context class's plan in a few words.
-func fitLine(m *models.Model, r models.FitResult, kind models.Placement, want int) string {
+func fitLine(m *models.Model, r models.FitResult, kind models.Placement, want int, shared bool) string {
 	c := r.Config
 	var parts []string
 	switch kind {
@@ -186,7 +195,11 @@ func fitLine(m *models.Model, r models.FitResult, kind models.Placement, want in
 	case models.PlacementPartial:
 		parts = append(parts, fmt.Sprintf("only %d of %d layers on the GPU", c.GPULayers, m.NLayers))
 	case models.PlacementExperts:
-		parts = append(parts, fmt.Sprintf("experts of %d layers in system memory", c.CPUMoE-m.ExpertLayerFirst))
+		where := "in system memory"
+		if shared {
+			where = "on the CPU"
+		}
+		parts = append(parts, fmt.Sprintf("experts of %d layers %s", c.CPUMoE-m.ExpertLayerFirst, where))
 	default:
 		parts = append(parts, "all on the GPU")
 	}

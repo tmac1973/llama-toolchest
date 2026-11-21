@@ -155,7 +155,7 @@ func (s *Server) autotuneEstimate(id, profileName string, uc autotune.UseCase, d
 	}
 	cards, cores := s.autotuneHardware(profile.Config)
 	in := autotune.PlanInput{
-		Model: m, Base: profile.Config, Cards: cards, Cores: cores,
+		Model: m, Base: profile.Config, Cards: cards, Cores: cores, PerfCores: s.hardware().PerfCores,
 		DraftCandidates: func(mode string) []models.DraftCandidate {
 			return s.registry.FindDraftCandidates(id, mode)
 		},

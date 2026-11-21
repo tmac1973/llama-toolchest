@@ -828,6 +828,10 @@ type modelConfigPanelData struct {
 	// CPURAMLabel says how much of the weights stay in system memory with
 	// these settings, or is empty when everything is on the GPU.
 	CPURAMLabel string
+	// SharedMemory says the GPU's memory is the machine's RAM (Apple
+	// Silicon): the tooltips then say the CPU runs what the GPU has no
+	// room for, not that it moves to system memory.
+	SharedMemory bool
 	// ReadOnlyReason is set when models.json cannot be saved; the panel
 	// says why before the user edits anything.
 	ReadOnlyReason string
@@ -1021,7 +1025,10 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 			data.EffortLevels = append(data.EffortLevels, cfg.ReasoningEffort)
 		}
 		data.EffectiveSplit = models.BalancedSplit(model, cfg, s.activeTarget().Room().For(model, cfg))
-		if gib := models.VRAMBreakdownForConfigOn(model, cfg, models.DeviceCountForConfig(cfg, numGPUs)).CPURAM; gib >= 0.05 {
+		data.SharedMemory = s.sharedMemory()
+		if gib := models.VRAMBreakdownForConfigOn(model, cfg, models.DeviceCountForConfig(cfg, numGPUs)).CPURAM; gib >= 0.05 && data.SharedMemory {
+			data.CPURAMLabel = fmt.Sprintf("The CPU runs about %.1f GiB of the model's weights with these settings.", gib)
+		} else if gib >= 0.05 {
 			data.CPURAMLabel = fmt.Sprintf("About %.1f GiB of the model's weights stay in system memory with these settings.", gib)
 		}
 	}

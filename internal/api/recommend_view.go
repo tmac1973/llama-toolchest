@@ -153,7 +153,12 @@ func newRecommendCardView(g *recommend.Group, class models.ContextClass, ctxName
 		c.Vision = fmt.Sprintf("Can read images. The image reader needs about %.1f GiB more GPU memory when it is turned on.", models.BytesToGiB(g.MMProjBytes))
 	}
 
-	if p.Placement == models.PlacementExperts {
+	if p.Placement == models.PlacementExperts && p.SharedMemory {
+		// Unified memory: the experts do not move, the CPU runs them.
+		c.Placement = "Experts on the CPU"
+		c.PlacementTip = fmt.Sprintf("The GPU's share of the memory is full. The CPU runs some expert weights (%.1f GiB) from the same memory. Generation is slower than with all on the GPU. To give the GPU more memory, see macOS in the docs.", p.CPURAMGiB)
+		c.Slow = true
+	} else if p.Placement == models.PlacementExperts {
 		c.Placement = "Experts in system memory"
 		c.PlacementTip = fmt.Sprintf("Some of the model's expert weights (%.1f GiB) are kept in system memory so it fits. It runs, but generation is slower than with everything on the GPU.", p.CPURAMGiB)
 		c.Slow = true
@@ -169,6 +174,9 @@ func newRecommendCardView(g *recommend.Group, class models.ContextClass, ctxName
 	c.KVTip = "The KV cache holds the conversation. 8-bit uses half the memory of full precision, with a very small effect on quality."
 	c.Memory = fmt.Sprintf("%.1f GiB of %.1f GiB", p.EstimateGiB, p.BudgetGiB)
 	c.MemoryTip = "Estimated GPU memory use against what each card has free, less the GPU memory margin in Settings. Real use can differ by a few percent."
+	if p.SharedMemory {
+		c.MemoryTip = "Estimated GPU memory use against the part of the memory macOS lets the GPU use, less the GPU memory margin in Settings. Real use can differ by a few percent."
+	}
 	if p.Placement == models.PlacementGPU && p.FewestGPUs < p.Cards {
 		c.Fewest = fmt.Sprintf("fits on %d of %d GPUs", p.FewestGPUs, p.Cards)
 	}
@@ -188,7 +196,9 @@ func newRecommendCardView(g *recommend.Group, class models.ContextClass, ctxName
 			if next.KVQuant == "q8_0" {
 				parts = append(parts, "8-bit KV cache")
 			}
-			if next.Placement == models.PlacementExperts {
+			if next.Placement == models.PlacementExperts && next.SharedMemory {
+				parts = append(parts, "experts on the CPU")
+			} else if next.Placement == models.PlacementExperts {
 				parts = append(parts, "experts in system memory")
 			}
 			c.Next = "At " + target + ": " + strings.Join(parts, ", ")
@@ -257,18 +267,26 @@ func profileLine(p recommend.Profile) (line, tip string) {
 				gpus = append(gpus, n)
 			}
 		}
-		parts = append(parts, strings.Join(gpus, " + "), fmt.Sprintf("%.0f GB VRAM", vram))
+		if models.SharedMemory(p.Hardware) && p.Hardware.RAMTotalMiB > 0 {
+			// Unified memory: the GPU's figure is its share of the RAM.
+			parts = append(parts, strings.Join(gpus, " + "), fmt.Sprintf("%.0f GB of %.0f GB unified memory for the GPU", vram, float64(p.Hardware.RAMTotalMiB)/1024))
+		} else {
+			parts = append(parts, strings.Join(gpus, " + "), fmt.Sprintf("%.0f GB VRAM", vram))
+		}
 		if other >= 0.5 {
 			parts = append(parts, fmt.Sprintf("%.1f GB in use by other programs or reserved for image and music backends", other))
 		}
 	}
-	if p.Hardware.RAMTotalMiB > 0 {
+	if p.Hardware.RAMTotalMiB > 0 && !models.SharedMemory(p.Hardware) {
 		parts = append(parts, fmt.Sprintf("%.0f GB RAM", float64(p.Hardware.RAMTotalMiB)/1024))
 	}
 	if p.BuildID != "" {
 		parts = append(parts, "build "+p.BuildID)
 	}
 	tip = "What these recommendations were worked out for. If something looks wrong, check this first."
+	if models.SharedMemory(p.Hardware) {
+		tip += " On a Mac the CPU and the GPU share one memory. macOS lets the GPU use only part of it; the CPU runs what does not fit there."
+	}
 	if other >= 0.5 {
 		tip += " GPU memory other programs are using (the desktop, another AI tool) is left to them, so a model that would fit on an empty card may be planned with less context or offered a smaller quant. The list is worked out again when that use changes by a gigabyte or more."
 	}

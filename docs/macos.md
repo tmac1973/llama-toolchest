@@ -96,3 +96,9 @@ sudo sysctl iogpu.wired_limit_mb=20480    # 20 GiB on a 24 GB Mac
 ```
 
 Leave macOS a few GiB: if the GPU takes too much, the Mac starts to swap and everything slows down.
+
+### When the GPU's share is full { #cpu-share }
+
+When a model does not fit in the GPU's share, Autoconfigure lets the CPU run part of it. Nothing is copied to other memory; the CPU simply does that part of the work. For a mixture-of-experts model it moves only expert weights, which costs the least speed, and the Recommended list and the Fit column on Download Models say **Experts on the CPU**. A dense model gets some of its layers run on the CPU instead, which is much slower. Raising the limit above helps in both cases.
+
+When the CPU runs part of a model, Autoconfigure gives it one thread per performance core. The efficiency cores are left out, because work split over both kinds waits for the slower cores. Autotune measures half the performance cores, all of them, and every core.

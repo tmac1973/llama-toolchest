@@ -22,6 +22,9 @@ type PlanInput struct {
 	// worth measuring at all.
 	Cards int
 	Cores int
+	// PerfCores is the number of performance cores on a CPU that also
+	// has efficiency cores (Apple Silicon), 0 when it has one kind.
+	PerfCores int
 	// DraftCandidates lists the installed files usable by a draft
 	// method, as the registry reports them.
 	DraftCandidates func(mode string) []models.DraftCandidate
@@ -162,7 +165,7 @@ func planPlacement(in PlanInput) []map[string]string {
 	}
 	threads := []string{""}
 	if onCPU(in) && in.Cores >= 4 {
-		threads = threadOptions(in.Cores)
+		threads = threadOptions(in.Cores, in.PerfCores)
 	}
 	if len(splits) == 1 && len(threads) == 1 {
 		return nil
@@ -219,10 +222,18 @@ func onCPU(in PlanInput) bool {
 
 // threadOptions offers a quarter, a half and three quarters of the
 // machine's logical cores, deduplicated and at least one.
-func threadOptions(cores int) []string {
+//
+// On a CPU with performance and efficiency cores (perf > 0) work split
+// over both kinds waits for the slow cores, so the counts measured are
+// half the performance cores, all of them, and every core.
+func threadOptions(cores, perf int) []string {
 	seen := map[int]bool{}
 	var out []string
-	for _, n := range []int{cores / 4, cores / 2, cores * 3 / 4} {
+	counts := []int{cores / 4, cores / 2, cores * 3 / 4}
+	if perf > 0 {
+		counts = []int{perf / 2, perf, cores}
+	}
+	for _, n := range counts {
 		if n < 1 {
 			n = 1
 		}

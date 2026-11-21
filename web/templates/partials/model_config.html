@@ -78,7 +78,7 @@
                    min="0" max="999" placeholder="999 = all layers">
         </label>
         {{if .HasExperts}}
-        <label title="MoE models only. Keeps the experts of this many layers in system memory to fit VRAM. Faster than fewer GPU Layers. 0: none. Maximum: {{.NLayers}}.">
+        <label title="{{if $.SharedMemory}}MoE models only. The CPU runs the experts of this many layers, so the rest fits in the GPU's share of the memory. Faster than fewer GPU Layers. 0: none. Maximum: {{.NLayers}}.{{else}}MoE models only. Keeps the experts of this many layers in system memory to fit VRAM. Faster than fewer GPU Layers. 0: none. Maximum: {{.NLayers}}.{{end}}">
             CPU Expert Layers
             <input type="number" name="cpu_moe" value="{{if gt .Config.CPUMoE 0}}{{.Config.CPUMoE}}{{end}}"
                    min="0" max="{{.NLayers}}" placeholder="0 = all on GPU">
@@ -88,11 +88,11 @@
             MoE Cache (MiB)
             <input type="number" name="moe_cache_mib" value="{{if gt .Config.MoECacheMiB 0}}{{.Config.MoECacheMiB}}{{end}}"
                    min="0" step="256" placeholder="0 = off">
-            <small>{{if .MoECacheNote}}{{.MoECacheNote}}{{else if and (gt .Config.MoECacheMiB 0) (gt .Config.CPUMoE 0)}}Effective: <code>--moe-cache-mib {{.Config.MoECacheMiB}}</code>{{else if gt .Config.MoECacheMiB 0}}Not used: no expert layers are kept in system memory.{{else}}not set (off){{end}}</small>
+            <small>{{if .MoECacheNote}}{{.MoECacheNote}}{{else if and (gt .Config.MoECacheMiB 0) (gt .Config.CPUMoE 0)}}Effective: <code>--moe-cache-mib {{.Config.MoECacheMiB}}</code>{{else if gt .Config.MoECacheMiB 0}}Not used: {{if $.SharedMemory}}the CPU runs no expert layers.{{else}}no expert layers are kept in system memory.{{end}}{{else}}not set (off){{end}}</small>
         </label>
         {{/* Shown once the cache is on; autosave re-renders the form. */}}
         {{if gt .Config.MoECacheMiB 0}}
-        <label title="MoE cache only. Once the cache is full, the share of cache misses the CPU computes from the experts in system memory instead of copying them to the GPU. 0: all copied (default). Helps most with a small cache; try 0.9.">
+        <label title="MoE cache only. Once the cache is full, the share of cache misses the CPU computes{{if not $.SharedMemory}} from the experts in system memory{{end}} instead of copying them to the GPU. 0: all copied (default). Helps most with a small cache; try 0.9.">
             MoE Cache CPU Share
             <input type="number" name="moe_cache_cpu_share" value="{{if gt .Config.MoECacheCPUShare 0.0}}{{.Config.MoECacheCPUShare}}{{end}}"
                    min="0" max="1" step="0.05" placeholder="0 = all copied">
@@ -193,7 +193,7 @@
     </small>
     {{end}}
     {{if .CPURAMLabel}}
-    <small title="Model weights that these settings keep in system memory, from GPU Layers and CPU Expert Layers. The VRAM estimate does not include them."
+    <small title="{{if $.SharedMemory}}Model weights the CPU runs with these settings, from GPU Layers and CPU Expert Layers. They use the same memory as the GPU, but the VRAM estimate does not include them.{{else}}Model weights that these settings keep in system memory, from GPU Layers and CPU Expert Layers. The VRAM estimate does not include them.{{end}}"
            style="display:block;margin-bottom:0.75rem;cursor:help;">{{.CPURAMLabel}}</small>
     {{end}}
 
@@ -327,8 +327,8 @@
             <input type="checkbox" name="mmproj_enabled" role="switch"
                    {{if not .Config.MmprojDisabled}}checked{{end}}>
         </label>
-        <label title="On: keep the projector in system RAM, not on the GPU (--no-mmproj-offload). It frees its VRAM for the model, but images and audio are read more slowly, on the CPU.">
-            Projector in RAM
+        <label title="{{if $.SharedMemory}}On: run the projector on the CPU, not on the GPU (--no-mmproj-offload). It frees its share of the GPU's memory for the model, but images and audio are read more slowly.{{else}}On: keep the projector in system RAM, not on the GPU (--no-mmproj-offload). It frees its VRAM for the model, but images and audio are read more slowly, on the CPU.{{end}}">
+            {{if $.SharedMemory}}Projector on CPU{{else}}Projector in RAM{{end}}
             <input type="checkbox" name="mmproj_in_ram" role="switch"
                    {{if .Config.MmprojInRAM}}checked{{end}}>
         </label>
@@ -555,7 +555,7 @@
         </label>
     </div>
     <div class="grid">
-        <label title="Keeps the MoE weights of the first N draft model layers in system memory. Uses less VRAM and runs slower.">
+        <label title="{{if $.SharedMemory}}The CPU runs the MoE weights of the first N draft model layers. Uses less of the GPU's memory and runs slower.{{else}}Keeps the MoE weights of the first N draft model layers in system memory. Uses less VRAM and runs slower.{{end}}">
             Draft CPU MoE Layers
             <input type="number" name="draft_cpu_moe" value="{{if gt .Config.DraftCPUMoE 0}}{{.Config.DraftCPUMoE}}{{end}}"
                    min="0" placeholder="0">

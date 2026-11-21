@@ -42,10 +42,17 @@
         {{if .HasProjector}}
         <fieldset>
             <input type="hidden" name="projector_choice" value="1">
+            {{if .SharedMemory}}
+            <label class="autoconfig-option" title="The vision projector reads images and audio. On the GPU it is faster. On the CPU, its share of the GPU's memory goes to the model instead. This can give more context or more of the model on the GPU. Images are then read more slowly.">
+                <input type="checkbox" name="projector_in_ram" value="1"{{if .ProjectorInRAM}} checked{{end}}>
+                <span>Run the vision projector on the CPU<small>Frees its share of the GPU's memory for the model. Images and audio are read more slowly.</small></span>
+            </label>
+            {{else}}
             <label class="autoconfig-option" title="The vision projector reads images and audio. On the GPU it is faster. In system memory, its GPU memory goes to the model instead, which can mean more context or more layers on the GPU, and images are read on the CPU, more slowly.">
                 <input type="checkbox" name="projector_in_ram" value="1"{{if .ProjectorInRAM}} checked{{end}}>
                 <span>Keep the vision projector in system RAM<small>Frees its GPU memory for the model. Images and audio are read more slowly, on the CPU.</small></span>
             </label>
+            {{end}}
         </fieldset>
         {{end}}
         {{if not .Helper}}
@@ -94,9 +101,15 @@
                 hx-target="#autoconfig-{{cssID .ModelID}}" hx-swap="innerHTML">Close</button>
     </div>
     {{else}}
+    {{if .SharedMemory}}
+    <p title="Estimated GPU memory of these settings, against the part of the memory macOS lets the GPU use, less the GPU memory margin in Settings. The CPU runs the layers or expert weights that do not fit there. Both parts use the same memory.">
+        Estimated <strong>{{printf "%.1f" .EstimateGiB}} GiB</strong> of {{printf "%.1f" .BudgetGiB}} GiB of GPU memory{{if gt .CPURAMGiB 0.05}}, and {{printf "%.1f" .CPURAMGiB}} GiB more that the CPU runs{{end}}.
+    </p>
+    {{else}}
     <p title="Estimated VRAM of these settings, against the VRAM free, less the GPU memory margin in Settings. System memory: layers or expert weights that stay on the CPU side.">
         Estimated <strong>{{printf "%.1f" .EstimateGiB}} GiB</strong> of {{printf "%.1f" .BudgetGiB}} GiB of GPU memory{{if gt .CPURAMGiB 0.05}}, and {{printf "%.1f" .CPURAMGiB}} GiB in system memory{{end}}.
     </p>
+    {{end}}
     {{if not .Fits}}<p role="alert"><mark>&#9888; This model does not fit on this machine even with the settings below. Choose a smaller quantization of it.</mark></p>{{end}}
     {{if .Check}}
     <p title="{{.CheckHelp}}" style="cursor:help;"{{if not .CheckOK}} role="alert"{{end}}>

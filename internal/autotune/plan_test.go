@@ -893,3 +893,15 @@ func TestRefusesTensorSplit(t *testing.T) {
 		}
 	}
 }
+
+// On a CPU with performance and efficiency cores the thread counts
+// measured are built from the performance cores; elsewhere from a
+// quarter, a half and three quarters of the logical cores.
+func TestThreadOptions(t *testing.T) {
+	if got := threadOptions(16, 0); !slices.Equal(got, []string{"4", "8", "12"}) {
+		t.Errorf("16 logical cores: %v", got)
+	}
+	if got := threadOptions(10, 4); !slices.Equal(got, []string{"2", "4", "10"}) {
+		t.Errorf("Apple M4 (4 performance of 10 cores): %v", got)
+	}
+}

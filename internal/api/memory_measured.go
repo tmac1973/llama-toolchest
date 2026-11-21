@@ -312,7 +312,7 @@ func (s *Server) memoryTooltip(m *models.Model, cfg *models.ModelConfig, state s
 		lines = append(lines, where)
 	}
 	if host >= 0.05 {
-		lines = append(lines, fmt.Sprintf("Another %.1f GiB sits in system memory.", host))
+		lines = append(lines, fmt.Sprintf("Another %.1f GiB is on the CPU side, outside GPU memory.", host))
 	}
 	lines = append(lines, estimate)
 	lines = append(lines, "The measured figure is llama.cpp's own accounting. A card's reported usage runs a few hundred MiB per GPU above it, for driver overhead llama.cpp does not count.")
@@ -413,7 +413,7 @@ func memDetail(m *benchmark.MemorySnapshot) string {
 			m.GPUGiB, m.Cards, m.WeightsGiB, m.KVGiB, m.ComputeGiB, moeCacheTerm(m.MoECacheGiB)),
 	}
 	if m.HostGiB >= 0.05 {
-		lines = append(lines, fmt.Sprintf("Another %.1f GiB in system memory.", m.HostGiB))
+		lines = append(lines, fmt.Sprintf("Another %.1f GiB on the CPU side, outside GPU memory.", m.HostGiB))
 	}
 	switch {
 	case m.Contended:

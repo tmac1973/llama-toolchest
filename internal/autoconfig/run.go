@@ -159,6 +159,9 @@ func Run(ctx context.Context, d Deps, id string, class models.ContextClass) (*Re
 	}
 	if start.MmprojInRAM != base.MmprojInRAM {
 		reason := "You chose to keep the vision projector in system memory, so its GPU memory goes to the model. Images and audio are read on the CPU, which is slower."
+		if models.SharedMemory(d.Hardware) {
+			reason = "You chose to run the vision projector on the CPU, so its share of the GPU's memory goes to the model. Images and audio are read more slowly."
+		}
 		if !start.MmprojInRAM {
 			reason = "You chose to put the vision projector on the GPU, so images and audio are read faster. Its GPU memory is planned for."
 		}

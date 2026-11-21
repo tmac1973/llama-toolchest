@@ -44,6 +44,10 @@ type Pick struct {
 	// CPUMoE and CPURAMGiB describe experts kept in system memory.
 	CPUMoE    int
 	CPURAMGiB float64
+	// SharedMemory says the GPU's memory is the machine's RAM (Apple
+	// Silicon): experts the GPU has no room for stay in the same memory
+	// and the CPU runs them (models.SharedMemory).
+	SharedMemory bool
 	// FewestGPUs is the fewest cards the file runs on fully at this
 	// context, of Cards in all. Equal when it needs them all.
 	FewestGPUs int
@@ -138,7 +142,7 @@ func newPick(f candidateFile, r models.FitResult, want int, class models.Context
 		File: f.file.Filename, Quant: f.file.Quant, SizeBytes: f.file.Size, BPW: f.bpw,
 		Context: r.Config.ContextSize, KVQuant: r.Config.KVCacheQuant, Placement: r.Placement(m),
 		EstimateGiB: r.EstimateGiB, BudgetGiB: r.BudgetGiB,
-		CPUMoE: r.Config.CPUMoE, CPURAMGiB: r.CPURAMGiB,
+		CPUMoE: r.Config.CPUMoE, CPURAMGiB: r.CPURAMGiB, SharedMemory: models.SharedMemory(hw),
 		Cards: len(cards), FewestGPUs: len(cards),
 		ExpertBytes: m.ExpertBytes, ExpertUsedCount: m.ExpertUsedCount, ExpertCount: m.ExpertCount,
 	}
