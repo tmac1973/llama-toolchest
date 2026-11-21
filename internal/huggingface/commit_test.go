@@ -80,3 +80,43 @@ func TestRepoFilesAt(t *testing.T) {
 		t.Errorf("requests = %v, want %v", paths, want)
 	}
 }
+
+func TestFileAccess(t *testing.T) {
+	var methods []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		methods = append(methods, r.Method+" "+r.URL.Path)
+		switch r.URL.Path {
+		case "/org/open/resolve/" + testSHA + "/big.gguf":
+			http.Redirect(w, r, "http://127.0.0.1:1/cdn", http.StatusFound) // not followed
+		case "/org/open/resolve/" + testSHA + "/small.json":
+			w.WriteHeader(http.StatusOK)
+		case "/org/gated/resolve/" + testSHA + "/m.safetensors":
+			w.Header().Set("X-Error-Code", "GatedRepo")
+			w.WriteHeader(http.StatusUnauthorized)
+		default:
+			w.Header().Set("X-Error-Code", "EntryNotFound")
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	c := NewClient("")
+	c.siteBase = srv.URL
+	ctx := context.Background()
+
+	for _, f := range []string{"big.gguf", "small.json"} {
+		if err := c.FileAccess(ctx, "org/open", testSHA, f); err != nil {
+			t.Errorf("%s: %v", f, err)
+		}
+	}
+	if err := c.FileAccess(ctx, "org/gated", testSHA, "m.safetensors"); err == nil || !strings.Contains(err.Error(), "gated model") {
+		t.Errorf("gated: got %v, want the gated-model message", err)
+	}
+	if err := c.FileAccess(ctx, "org/open", testSHA, "gone.gguf"); err == nil || !strings.Contains(err.Error(), "not in org/open") {
+		t.Errorf("missing file: got %v", err)
+	}
+	for _, m := range methods {
+		if !strings.HasPrefix(m, "HEAD ") {
+			t.Errorf("request %s is not a HEAD", m)
+		}
+	}
+}

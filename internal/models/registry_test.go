@@ -261,7 +261,7 @@ func TestRemoveEmptyDirs(t *testing.T) {
 	if err := os.MkdirAll(quant, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	removeEmptyDirs(quant, models)
+	RemoveEmptyDirs(quant, models)
 	if exists(quant) || exists(filepath.Join(models, "org--repo")) {
 		t.Error("empty folders were left behind")
 	}
@@ -273,7 +273,7 @@ func TestRemoveEmptyDirs(t *testing.T) {
 	// everything above it.
 	keep := filepath.Join(models, "org--keep", "Q8_0")
 	touch(t, filepath.Join(keep, "mmproj.gguf"), 1)
-	removeEmptyDirs(keep, models)
+	RemoveEmptyDirs(keep, models)
 	if !exists(filepath.Join(keep, "mmproj.gguf")) {
 		t.Error("a folder with a file in it was removed")
 	}
@@ -284,13 +284,13 @@ func TestRemoveEmptyDirs(t *testing.T) {
 	if err := os.MkdirAll(sibling, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	removeEmptyDirs(keep, models)
+	RemoveEmptyDirs(keep, models)
 	if !exists(sibling) {
 		t.Error("an empty sibling folder was removed")
 	}
 
 	// A folder that does not exist is not an error.
-	removeEmptyDirs(filepath.Join(models, "never-made"), models)
+	RemoveEmptyDirs(filepath.Join(models, "never-made"), models)
 }
 
 // Deleting the last model used to remove the models folder itself, and
@@ -305,7 +305,7 @@ func TestRemoveEmptyDirsStopsAtTheModelsFolder(t *testing.T) {
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	removeEmptyDirs(repo, models)
+	RemoveEmptyDirs(repo, models)
 	if exists(repo) {
 		t.Error("the empty repo folder was left behind")
 	}
@@ -317,7 +317,7 @@ func TestRemoveEmptyDirsStopsAtTheModelsFolder(t *testing.T) {
 	if err := os.MkdirAll(outside, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	removeEmptyDirs(outside, models)
+	RemoveEmptyDirs(outside, models)
 	if !exists(outside) {
 		t.Error("a folder outside the models folder was removed")
 	}

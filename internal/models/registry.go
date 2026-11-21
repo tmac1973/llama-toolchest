@@ -829,7 +829,7 @@ func (r *Registry) Delete(id string) error {
 
 	// Remove empty directories left behind
 	if m.FilePath != "" {
-		removeEmptyDirs(filepath.Dir(m.FilePath), r.modelsDir)
+		RemoveEmptyDirs(filepath.Dir(m.FilePath), r.modelsDir)
 	}
 
 	delete(r.data.Models, id)
@@ -837,11 +837,11 @@ func (r *Registry) Delete(id string) error {
 	return r.save()
 }
 
-// removeEmptyDirs removes dir and then each parent that is left empty,
+// RemoveEmptyDirs removes dir and then each parent that is left empty,
 // stopping below root (the models folder), which is never removed. A dir
 // that is not inside root is left alone: a model file kept elsewhere must
 // not lead to folders being removed there.
-func removeEmptyDirs(dir, root string) {
+func RemoveEmptyDirs(dir, root string) {
 	dir, root = filepath.Clean(dir), filepath.Clean(root)
 	for {
 		rel, err := filepath.Rel(root, dir)
