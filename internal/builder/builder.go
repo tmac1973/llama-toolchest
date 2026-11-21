@@ -924,6 +924,12 @@ func (b *Builder) runBuild(ctx context.Context, proj Project, prof BuildProfile,
 		}
 	}
 
+	if err := copyExtras(srcDir, outDir, proj.Extras, sendLog); err != nil {
+		b.finishBuild(result, BuildStatusFailed, "install failed: "+err.Error())
+		sendLog(fmt.Sprintf("==> Install FAILED: %v", err))
+		return
+	}
+
 	// Cleanup temp build dir
 	os.RemoveAll(buildDir)
 
@@ -962,6 +968,37 @@ func (b *Builder) finishBuild(result *BuildResult, status, errMsg string) {
 		}
 	}
 	b.saveBuilds()
+}
+
+// copyExtras copies each set of extra files from the checkout (srcDir)
+// into the build's directory (outDir). The destination folder is replaced,
+// so a file upstream deleted does not stay after a forced rebuild. A
+// checkout without the files is not an error: older commits lack them.
+func copyExtras(srcDir, outDir string, extras []ExtraFiles, sendLog func(string)) error {
+	for _, e := range extras {
+		matches, err := filepath.Glob(filepath.Join(srcDir, e.Src, e.Glob))
+		if err != nil {
+			return err
+		}
+		dst := filepath.Join(outDir, e.Dst)
+		if err := os.RemoveAll(dst); err != nil {
+			return err
+		}
+		if len(matches) == 0 {
+			sendLog("    No " + filepath.ToSlash(e.Src) + " in this checkout; the build uses the built-in list")
+			continue
+		}
+		if err := os.MkdirAll(dst, 0o755); err != nil {
+			return err
+		}
+		for _, m := range matches {
+			if err := atomicfile.Copy(m, filepath.Join(dst, filepath.Base(m))); err != nil {
+				return fmt.Errorf("copy %s: %w", filepath.Base(m), err)
+			}
+		}
+		sendLog(fmt.Sprintf("    Copied %d files to %s", len(matches), e.Dst))
+	}
+	return nil
 }
 
 // repoState classifies what sits at the llama.cpp clone path.
