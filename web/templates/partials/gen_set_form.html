@@ -81,12 +81,17 @@
         <select name="recipe" hx-get="/api/gen/models/sets/form/fields" hx-include="closest form"
                 hx-target="#gen-set-form-fields" hx-swap="innerHTML" data-error-label="Form not updated"{{if .EditID}} disabled{{end}}>
             {{- $r := .Recipe}}
+            {{- if .UnknownRecipe}}<option value="{{.Recipe}}" selected>{{.Recipe}} (not in the recipe list)</option>{{end}}
             {{- range .Recipes}}<option value="{{.}}"{{if eq . $r}} selected{{end}}>{{.}}</option>{{end}}
         </select>
     </label>
     {{- end}}
 </div>
 
+{{- with .RecipeSlots}}<input type="hidden" name="recipe_slots" value="{{.}}">{{end}}
+{{- with .RecipeWarning}}
+<div class="callout" style="font-size:0.85rem;padding:0.4rem 0.6rem;margin-bottom:0.75rem;border-left-color:var(--pico-del-color);">{{.}}</div>
+{{- end}}
 <fieldset>
     <legend><small>Files</small></legend>
     {{- range .Slots}}
