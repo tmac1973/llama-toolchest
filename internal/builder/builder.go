@@ -909,7 +909,7 @@ func (b *Builder) runBuild(ctx context.Context, proj Project, prof BuildProfile,
 		}
 		for _, e := range entries {
 			name := e.Name()
-			if strings.HasSuffix(name, ".so") || strings.Contains(name, ".so.") {
+			if isSharedLib(name) {
 				if err := atomicfile.Copy(filepath.Join(dir, name), filepath.Join(outDir, name)); err == nil {
 					sendLog(fmt.Sprintf("    Installed lib: %s", name))
 				}
@@ -1779,4 +1779,11 @@ func prependPath(env []string, dir string) []string {
 		out = append(out, "PATH="+dir)
 	}
 	return out
+}
+
+// isSharedLib reports whether name is a shared library a build binary may
+// link against: libfoo.so and libfoo.so.1 on Linux, libfoo.dylib on macOS.
+func isSharedLib(name string) bool {
+	return strings.HasSuffix(name, ".so") || strings.Contains(name, ".so.") ||
+		strings.HasSuffix(name, ".dylib")
 }
