@@ -102,6 +102,9 @@ func LaunchSpec(inst Instance, set ModelSet, build builder.BuildResult, host, da
 	p := argPaths{Host: host, Port: port}
 	switch set.Kind {
 	case KindSD, KindVideo:
+		if err := CheckRecipeForBuild(set, build); err != nil {
+			return cfg, err
+		}
 		if p.LoraDir, err = LoraDir(set); err != nil {
 			return cfg, fmt.Errorf("model set %s: %w", set.ID, err)
 		}

@@ -53,6 +53,9 @@ type SetDetails struct {
 	Command string `json:"command"`
 	Notes   string `json:"notes,omitempty"`
 	License string `json:"license,omitempty"`
+	// RecipeWarning says why the active recipe list cannot run the set's
+	// recipe; empty when it can.
+	RecipeWarning string `json:"recipe_warning,omitempty"`
 }
 
 // The markers the command shows for values each instance sets itself.
@@ -101,6 +104,7 @@ func (d *SetDetails) fill(set ModelSet, entry CatalogEntry) error {
 	// its own (ACE-Step), not null.
 	d.Slots, d.Flags, d.FixedFlags = []SlotDetail{}, []FlagDetail{}, []FlagDetail{}
 	d.Program = "sd-server"
+	d.RecipeWarning = RecipeWarning(set.Kind, set.Recipe)
 	if set.Kind == KindAce {
 		d.Program = "ace-server"
 	}

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 var testExtras = []ExtraFiles{{Src: filepath.Join("examples", "server", "recipes"), Dst: "recipes", Glob: "*.json"}}
@@ -84,5 +85,35 @@ func TestProjectExtras(t *testing.T) {
 		if (len(p.Extras) > 0) != (p.ID == ProjectSDCpp) {
 			t.Errorf("%s has extras %v", p.ID, p.Extras)
 		}
+	}
+}
+
+// OnChange runs after a build is deleted.
+func TestOnChangeAfterDelete(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	records := `[{"id":"sd-x-rocm","project":"stable-diffusion.cpp","profile":"rocm","status":"success"}]`
+	if err := os.WriteFile(filepath.Join(dir, "config", "builds.json"), []byte(records), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b := NewBuilder(dir)
+	called := make(chan struct{}, 2)
+	b.OnChange = func() { called <- struct{}{} }
+	if err := b.Delete("sd-x-rocm"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-called:
+	case <-time.After(5 * time.Second):
+		t.Fatal("OnChange not called after Delete")
+	}
+	// finishBuild calls it too.
+	b.finishBuild(&BuildResult{ID: "y"}, BuildStatusFailed, "test")
+	select {
+	case <-called:
+	case <-time.After(5 * time.Second):
+		t.Fatal("OnChange not called after finishBuild")
 	}
 }

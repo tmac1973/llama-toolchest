@@ -8,10 +8,13 @@ import (
 	"log/slog"
 	"os"
 	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/tmac1973/llama-toolchest/internal/builder"
 )
 
 // Recipe is one sd-server recipe: upstream's recipe file
@@ -294,3 +297,70 @@ func ActiveRecipes() *RecipeBook {
 
 // SetActiveRecipes swaps the active recipe book.
 func SetActiveRecipes(b *RecipeBook) { activeRecipes.Store(b) }
+
+// buildRecipes caches each build's recipe book by build ID.
+var buildRecipes sync.Map // build ID -> *RecipeBook
+
+// RecipesForBuild returns the recipes a build was made with: the files
+// the builder copied into its folder (recipes/ next to sd-server), or the
+// snapshot for a build without them, such as one made before builds kept
+// their recipes.
+func RecipesForBuild(build builder.BuildResult) *RecipeBook {
+	if b, ok := buildRecipes.Load(build.ID); ok {
+		return b.(*RecipeBook)
+	}
+	book := SnapshotRecipes()
+	dir := filepath.Join(filepath.Dir(build.BinaryPath), "recipes")
+	if _, err := os.Stat(dir); err != nil {
+		slog.Info("build has no recipe files; using the built-in list", "build", build.ID)
+	} else if b, err := LoadRecipes(dir); err != nil {
+		slog.Warn("build's recipe files could not be read; using the built-in list", "build", build.ID, "error", err)
+	} else {
+		b.Source = build.ID
+		book = b
+	}
+	buildRecipes.Store(build.ID, book)
+	return book
+}
+
+// ForgetBuildRecipes drops a build's cached recipe book, so the next
+// RecipesForBuild reads its folder again (after a forced rebuild).
+func ForgetBuildRecipes(id string) { buildRecipes.Delete(id) }
+
+// CheckRecipeForBuild refuses an image or video set whose recipe the
+// build does not know, or knows but toolchest cannot run. Other kinds
+// always pass.
+func CheckRecipeForBuild(set ModelSet, build builder.BuildResult) error {
+	if set.Kind != KindSD && set.Kind != KindVideo {
+		return nil
+	}
+	r, ok := RecipesForBuild(build).Get(set.Recipe)
+	switch {
+	case !ok:
+		return fmt.Errorf("build %s does not know recipe %s, which %s uses. Choose a newer stable-diffusion.cpp build for the instance, or build one on the Builds page", build.ID, set.Recipe, set.Name)
+	case r.Unavailable != "":
+		return fmt.Errorf("recipe %s cannot be used: %s", set.Recipe, r.Unavailable)
+	case r.Kind != set.Kind && set.Kind == KindSD:
+		return fmt.Errorf("recipe %s is a video recipe; make the set a video set", set.Recipe)
+	case r.Kind != set.Kind:
+		return fmt.Errorf("recipe %s is an image recipe; make the set an image set", set.Recipe)
+	}
+	return nil
+}
+
+// RecipeWarning says why the active recipe list cannot run a set's
+// recipe, or "" when it can (and for kinds without recipes).
+func RecipeWarning(kind BackendKind, recipe string) string {
+	if kind != KindSD && kind != KindVideo {
+		return ""
+	}
+	book := ActiveRecipes()
+	r, ok := book.Get(recipe)
+	switch {
+	case !ok:
+		return fmt.Sprintf("The active recipe list (%s) does not know recipe %s. The set is kept. An instance starts only on a build that knows this recipe.", book.Source, recipe)
+	case r.Unavailable != "":
+		return fmt.Sprintf("Recipe %s cannot be used: %s.", recipe, r.Unavailable)
+	}
+	return ""
+}
