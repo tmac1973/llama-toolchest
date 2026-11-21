@@ -38,8 +38,16 @@ type Component struct {
 	Repo string `json:"repo,omitempty"`
 	File string `json:"file,omitempty"`
 	// Path is the absolute local path once the file is present.
-	Path  string `json:"path,omitempty"`
-	Bytes int64  `json:"bytes,omitempty"`
+	Path string `json:"path,omitempty"`
+	// Revision is the commit Repo and File are downloaded from. It is
+	// empty for catalog sets and for sets saved before revisions were
+	// pinned; empty means the repository's default branch.
+	Revision string `json:"revision,omitempty"`
+	Bytes    int64  `json:"bytes,omitempty"`
+	// Error is why the last file downloaded for this slot was refused,
+	// for example because it is not a model file. Empty when there is no
+	// error.
+	Error string `json:"error,omitempty"`
 }
 
 // VideoSize is a video's length and size: a Measure preset, or the size a

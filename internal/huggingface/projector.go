@@ -158,7 +158,7 @@ func (c *Client) quantizationsOf(ctx context.Context, base string) ([]repoInfo, 
 
 // projectorFiles lists a repository's projector files with their sizes.
 func (c *Client) projectorFiles(ctx context.Context, repo string) (*ProjectorRepo, error) {
-	tree, err := c.tree(ctx, repo)
+	tree, err := c.tree(ctx, repo, "main")
 	if err != nil {
 		return nil, err
 	}
