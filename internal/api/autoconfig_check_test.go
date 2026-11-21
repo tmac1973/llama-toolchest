@@ -111,6 +111,8 @@ func TestCheckSummary(t *testing.T) {
 			[]string{"2 settings were adjusted"}, nil},
 		{"failed", autoconfig.Verification{Status: autoconfig.VerifyFailed, Attempts: 5, Reason: "CUDA error: out of memory"}, false,
 			[]string{"did not run", "5 test loads", "CUDA error: out of memory", "have not been made to work"}, nil},
+		{"ran out of memory every time", autoconfig.Verification{Status: autoconfig.VerifyFailed, Attempts: 6, Reason: "cudaMalloc failed: out of memory", OutOfMemory: true}, false,
+			[]string{"cannot be loaded", "6 test loads", "not offered for saving", "cudaMalloc failed: out of memory"}, []string{"shown as estimated"}},
 		{"skipped", autoconfig.Verification{Status: autoconfig.VerifySkipped, Reason: "a benchmark started and is using the GPU"}, false,
 			[]string{"Not checked", "a benchmark started", "have not been loaded"}, nil},
 	}

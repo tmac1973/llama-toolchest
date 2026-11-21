@@ -40,9 +40,7 @@ func keptReservedGiB(hw models.Hardware) float64 {
 // The split is even, or for a model with expert layers in system memory
 // (or cards of different sizes) the size-balanced one MoESplitConfig
 // works out for the whole cards. It applies only to a layer split over
-// every GPU in the machine: a custom split cannot leave a card out, and
-// one with a share of nothing would still bring that card into the
-// process (see moveLayersOff). ok is false when nothing was written.
+// every GPU in the machine. ok is false when nothing was written.
 func pinWholeSplit(m *models.Model, cfg models.ModelConfig, hw models.Hardware) (models.ModelConfig, models.ProfileNote, bool) {
 	n := len(hw.GPUs)
 	if n < 2 || cfg.GPUAssign == "custom" || strings.HasPrefix(cfg.GPUAssign, "tensor") ||

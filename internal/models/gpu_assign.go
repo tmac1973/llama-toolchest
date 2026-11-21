@@ -316,10 +316,11 @@ func BackendDeviceIndex(backend string, gpu int) int {
 // so the padded split is trimmed to its active entries and main-gpu —
 // always the first active GPU, which becomes index 0 — is omitted.
 //
-// "custom" assignments keep the user's raw tensor-split untouched, and
-// backends without device names keep the padded-split emission.
+// A "custom" split is written as the user gave it, except that a share of
+// nothing ("0,14,32") leaves that card out the same way. Backends without
+// device names keep the padded-split emission.
 func gpuPlacementParams(c *ModelConfig, backend string) []specParam {
-	if c.GPUAssign != "" && c.GPUAssign != "custom" {
+	if c.GPUAssign != "" {
 		if gpus := SplitDeviceIndices(c.TensorSplit); gpus != nil {
 			if devices := DeviceList(backend, gpus); devices != "" {
 				out := []specParam{{"device", devices}}
@@ -678,7 +679,14 @@ func resolveModelGPUs(cfg *ModelConfig, numGPUs int) []int {
 		}
 	}
 
-	// "all", "custom" with tensor-split, or default: assume all GPUs
+	// A custom split with a share of nothing leaves that card out.
+	if cfg.GPUAssign == "custom" {
+		if gpus := SplitDeviceIndices(cfg.TensorSplit); gpus != nil {
+			return gpus
+		}
+	}
+
+	// "all", "custom" over every card, or default: assume all GPUs
 	all := make([]int, numGPUs)
 	for i := range all {
 		all[i] = i

@@ -12,7 +12,7 @@ Experimental: splits each tensor over N GPUs. Needs a fast link between GPUs (an
 
 ### Custom { #custom }
 
-Your own `--tensor-split` string, passed through unchanged.
+Your own `--tensor-split` string, passed through unchanged. A GPU with a share of 0 is left out with `--device`, as with the other assignments: `0,14,32` runs the model on GPUs 1 and 2 only.
 
 GPUs that are left out are hidden from the model with `--device`, so they stay free. Integrated GPUs show *(iGPU)*, and toolchest never chooses them for you. They need the *Include iGPU Build Target* build option.
 

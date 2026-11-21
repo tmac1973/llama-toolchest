@@ -50,6 +50,12 @@ func moeSplitApplies(cfg *ModelConfig, m *Model, gpuMiB []int) bool {
 	if cfg.CPUMoE > 0 && m.ExpertLayers > 0 && m.ExpertBytes > 0 {
 		return true
 	}
+	// A looped model's layers differ too: its extra cache slots hold no
+	// weights, and llama.cpp's even split puts every block on the first
+	// cards.
+	if m.LoopSlots > 0 {
+		return true
+	}
 	lo, hi := -1, 0
 	for _, g := range activeGPUs(cfg, len(gpuMiB)) {
 		if g >= len(gpuMiB) {
@@ -80,15 +86,25 @@ func activeGPUs(cfg *ModelConfig, numGPUs int) []int {
 // weights that are not experts, its experts unless --n-cpu-moe keeps them
 // in system memory, and its share of the KV cache, recurrent state and
 // indexer cache, which llama.cpp places with the layer.
+//
+// A looped model has more layers in llama.cpp's split than blocks in the
+// file: the cache slots of its extra passes come after the blocks, hold
+// their own KV cache and no weights (see GGUFMeta.LoopSlots). With an
+// even split over two cards, Inkling 2 Mini's 24 blocks all went to the
+// first: 13.1 GiB of weights there, 0.5 on the second.
 func layerGPUBytes(m *Model, cfg *ModelConfig, b VRAMBreakdown) []float64 {
 	resident := m.SizeBytes - m.PLEBytes - m.TokenEmbdBytes
 	if resident <= 0 {
 		resident = m.SizeBytes
 	}
 	experts := min(m.ExpertBytes, resident)
-	base := float64(resident-experts) / float64(m.NLayers)
-	perExpertLayer := float64(experts) / float64(m.ExpertLayers)
-	perLayerState := (b.KVCache + b.Recurrent + b.IndexerCache) * (1 << 30) / float64(m.NLayers)
+	body := resident - experts
+	if !m.EmbeddingsTied() && m.OutputBytes > 0 && m.OutputBytes < body {
+		body -= m.OutputBytes // on the last card; see outputGiB
+	}
+	base := float64(body) / float64(m.NLayers)
+	slots := m.NLayers + m.LoopSlots
+	perLayerState := (b.KVCache + b.Recurrent + b.IndexerCache) * (1 << 30) / float64(slots)
 	// llama.cpp gives the MoE cache to the cards that hold the layers
 	// whose experts it caches. Spreading it over those layers puts it on
 	// the same cards, roughly in the same proportion.
@@ -97,12 +113,15 @@ func layerGPUBytes(m *Model, cfg *ModelConfig, b VRAMBreakdown) []float64 {
 		perCachedLayer = b.MoECache * (1 << 30) / float64(n)
 	}
 
-	out := make([]float64, m.NLayers)
+	out := make([]float64, slots)
 	for il := range out {
-		out[il] = base + perLayerState
+		out[il] = perLayerState
+		if il < m.NLayers {
+			out[il] += base
+		}
 		inSpan := il >= m.ExpertLayerFirst && il < m.ExpertLayerFirst+m.ExpertLayers
 		if inSpan && il >= cfg.CPUMoE {
-			out[il] += perExpertLayer
+			out[il] += float64(m.expertBytesAt(il)) * float64(experts) / float64(max(m.ExpertBytes, 1))
 		}
 		if inSpan && il < cfg.CPUMoE {
 			out[il] += perCachedLayer
@@ -223,9 +242,26 @@ func moeSplitInputs(m *Model, cfg *ModelConfig, gpuMiB []int, active []int) (lay
 			// model caches and auxiliary files such as the image reader.
 			f += b.SpecKV + b.Aux
 		}
+		if i == len(active)-1 {
+			f += outputGiB(m)
+		}
 		fixed = append(fixed, f)
 	}
 	return layers, budgets, fixed
+}
+
+// outputGiB is the output layer llama.cpp places on the card that runs
+// the last layers: output.weight, or with tied embeddings the GPU copy of
+// the input table it reuses. Inkling 2 Mini's is 469 MiB of 13.6 GiB on
+// two cards, and spreading it over the layers put the last card 0.5 GiB
+// under what it held. The last card in the split is the one: every card
+// gets at least one layer, so the output position, past every layer,
+// falls on it.
+func outputGiB(m *Model) float64 {
+	if m.EmbeddingsTied() {
+		return BytesToGiB(m.TokenEmbdBytes)
+	}
+	return BytesToGiB(m.OutputBytes)
 }
 
 // MoESplitConfig returns cfg with a --tensor-split that balances the

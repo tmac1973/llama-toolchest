@@ -136,6 +136,26 @@ func TestAutoconfigSaveAndApply(t *testing.T) {
 	}
 }
 
+// Settings that ran out of GPU memory in every test load are known not to
+// load: the review shows no save buttons, and a save sent anyway is
+// refused.
+func TestAutoconfigRefusesToSaveSettingsThatRanOutOfMemory(t *testing.T) {
+	s := newHelperServer(t)
+	finishedRun(t, s)
+	s.autoconf.run.result.Check = autoconfig.Verification{Status: autoconfig.VerifyFailed, Attempts: 6,
+		Reason: "cudaMalloc failed: out of memory", OutOfMemory: true}
+	if d := s.autoconfigReviewData(profTestID, "m", *s.autoconf.run); !d.CannotLoad {
+		t.Error("the review offers settings that never loaded for saving")
+	}
+	out := s.doAutoconfig(t, "POST", "/api/models/"+profTestID+"/autoconfig/save", url.Values{"apply": {"1"}})
+	if !strings.Contains(out, "Not saved") {
+		t.Errorf("no refusal:\n%s", out)
+	}
+	if _, err := s.registry.GetProfile(profTestID, "Autoconfig"); err == nil {
+		t.Error("the settings were saved as a profile")
+	}
+}
+
 // The card offers the button and a place to render into.
 func TestModelCardOffersAutoconfigure(t *testing.T) {
 	s := newHelperServer(t)
