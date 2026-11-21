@@ -182,7 +182,7 @@ func Assemble(cfg *config.Config, b *builder.Builder, reg *models.Registry, gpus
 	}
 	f.RuntimeEnv = &RuntimeEnv{Curated: cfg.RuntimeEnv, Extra: extra}
 
-	f.FlagPresets = b.FlagPresets("") // already name-sorted
+	f.FlagPresets = b.FlagPresets("", "") // already name-sorted
 
 	f.ModelConfigs = assembleModelConfigs(reg, cfg.ModelsPath())
 	f.Profiles = assembleProfiles(reg, cfg.ModelsPath())

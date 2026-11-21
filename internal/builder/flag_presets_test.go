@@ -33,11 +33,11 @@ func TestFlagPresetCRUD(t *testing.T) {
 	}
 
 	// Profile scoping: rocm listing must not leak the cuda preset.
-	rocm := b.FlagPresets("rocm")
+	rocm := b.FlagPresets("", "rocm")
 	if len(rocm) != 1 || rocm[0].Name != "rocwmma" {
 		t.Fatalf("rocm listing = %+v", rocm)
 	}
-	if got := b.FlagPresets(""); len(got) != 2 {
+	if got := b.FlagPresets("", ""); len(got) != 2 {
 		t.Fatalf("all listing = %+v", got)
 	}
 
@@ -46,8 +46,8 @@ func TestFlagPresetCRUD(t *testing.T) {
 	if err := b.SaveFlagPreset(p); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
-	got, ok := b.FindFlagPreset("rocwmma")
-	if !ok || got.ExtraCMake != "-DBAZ=1" || len(b.FlagPresets("rocm")) != 1 {
+	got, ok := b.FindFlagPreset(ProjectLlamaCpp, "rocwmma")
+	if !ok || got.ExtraCMake != "-DBAZ=1" || len(b.FlagPresets("", "rocm")) != 1 {
 		t.Fatalf("upsert result: %+v", got)
 	}
 	// Off-toggles are stored explicitly so applying doesn't fall back to
@@ -58,14 +58,14 @@ func TestFlagPresetCRUD(t *testing.T) {
 
 	// Persistence across Builder instances (same dataDir).
 	b2 := NewBuilder(b.dataDir)
-	if _, ok := b2.FindFlagPreset("rocwmma"); !ok {
+	if _, ok := b2.FindFlagPreset(ProjectLlamaCpp, "rocwmma"); !ok {
 		t.Error("preset did not persist to disk")
 	}
 
-	if found, err := b.DeleteFlagPreset("rocwmma"); err != nil || !found {
+	if found, err := b.DeleteFlagPreset(ProjectLlamaCpp, "rocwmma"); err != nil || !found {
 		t.Error("delete reported missing")
 	}
-	if _, ok := b.FindFlagPreset("rocwmma"); ok {
+	if _, ok := b.FindFlagPreset(ProjectLlamaCpp, "rocwmma"); ok {
 		t.Error("preset survived delete")
 	}
 }
@@ -107,24 +107,24 @@ func TestFlagPresetMigratesCUDAGraphsOnce(t *testing.T) {
 
 	b := NewBuilder(dir)
 	for _, name := range []string{"was-off", "was-on", "missing"} {
-		p, _ := b.FindFlagPreset(name)
+		p, _ := b.FindFlagPreset(ProjectLlamaCpp, name)
 		if !p.Options["GGML_CUDA_GRAPHS"] || p.Version != FlagPresetVersion {
 			t.Errorf("%s: graphs=%v version=%d, want on at version %d", name, p.Options["GGML_CUDA_GRAPHS"], p.Version, FlagPresetVersion)
 		}
 	}
-	if p, _ := b.FindFlagPreset("was-off"); !p.Options["GGML_CUDA_FORCE_MMQ"] {
+	if p, _ := b.FindFlagPreset(ProjectLlamaCpp, "was-off"); !p.Options["GGML_CUDA_FORCE_MMQ"] {
 		t.Error("other toggles must be kept")
 	}
-	if p, _ := b.FindFlagPreset("rocm"); len(p.Options) != 1 || p.Version != FlagPresetVersion {
+	if p, _ := b.FindFlagPreset(ProjectLlamaCpp, "rocm"); len(p.Options) != 1 || p.Version != FlagPresetVersion {
 		t.Errorf("rocm preset should only be stamped: %+v", p)
 	}
 
 	// Turned off under the new meaning, it stays off: on disk and when
 	// read back by a new Builder.
-	if err := b.SaveFlagPreset(FlagPreset{Name: "was-off", Profile: "cuda", Options: map[string]bool{"GGML_CUDA_GRAPHS": false}, Version: FlagPresetVersion}); err != nil {
+	if err := b.SaveFlagPreset(FlagPreset{Name: "was-off", Project: ProjectLlamaCpp, Profile: "cuda", Options: map[string]bool{"GGML_CUDA_GRAPHS": false}, Version: FlagPresetVersion}); err != nil {
 		t.Fatal(err)
 	}
-	if p, _ := NewBuilder(dir).FindFlagPreset("was-off"); p.Options["GGML_CUDA_GRAPHS"] {
+	if p, _ := NewBuilder(dir).FindFlagPreset(ProjectLlamaCpp, "was-off"); p.Options["GGML_CUDA_GRAPHS"] {
 		t.Error("a preset saved at the current version was migrated again")
 	}
 }
@@ -136,7 +136,7 @@ func TestSaveFlagPresetMigratesUnversioned(t *testing.T) {
 	if err := b.SaveFlagPreset(FlagPreset{Name: "restored", Profile: "cuda", Options: map[string]bool{"GGML_CUDA_GRAPHS": false}}); err != nil {
 		t.Fatal(err)
 	}
-	if p, _ := b.FindFlagPreset("restored"); !p.Options["GGML_CUDA_GRAPHS"] {
+	if p, _ := b.FindFlagPreset(ProjectLlamaCpp, "restored"); !p.Options["GGML_CUDA_GRAPHS"] {
 		t.Error("an unversioned preset should be migrated on save")
 	}
 }
@@ -151,5 +151,85 @@ func TestSaveFlagPresetReportsWriteFailure(t *testing.T) {
 	b := NewBuilder(dir)
 	if err := b.SaveFlagPreset(FlagPreset{Name: "fast", Profile: "cuda", Options: map[string]bool{}}); err == nil {
 		t.Fatal("save succeeded although the config directory cannot be created")
+	}
+}
+
+// Sets belong to a project: the listing filters by it, the same name can
+// exist in two projects, and find and delete touch only the named
+// project's set.
+func TestFlagPresetsPerProject(t *testing.T) {
+	b := testBuilder(t)
+	for _, p := range []FlagPreset{
+		{Name: "fast", Project: ProjectLlamaCpp, Profile: "rocm", ExtraCMake: "-DLLAMA=1"},
+		{Name: "fast", Project: ProjectSDCpp, Profile: "rocm", ExtraCMake: "-DSD=1"},
+		{Name: "only-sd", Project: ProjectSDCpp, Profile: "rocm"},
+	} {
+		if err := b.SaveFlagPreset(p); err != nil {
+			t.Fatalf("save %s/%s: %v", p.Project, p.Name, err)
+		}
+	}
+	if got := b.FlagPresets(ProjectLlamaCpp, "rocm"); len(got) != 1 || got[0].ExtraCMake != "-DLLAMA=1" {
+		t.Errorf("llama.cpp listing = %+v", got)
+	}
+	if got := b.FlagPresets(ProjectSDCpp, "rocm"); len(got) != 2 {
+		t.Errorf("sd.cpp listing = %+v", got)
+	}
+	if got := b.FlagPresets(ProjectAceStep, ""); len(got) != 0 {
+		t.Errorf("acestep listing = %+v; want none", got)
+	}
+	if got := b.FlagPresets("", ""); len(got) != 3 {
+		t.Errorf("all listing = %+v", got)
+	}
+	if _, ok := b.FindFlagPreset(ProjectLlamaCpp, "only-sd"); ok {
+		t.Error("found another project's set")
+	}
+	if p, ok := b.FindFlagPreset(ProjectSDCpp, "fast"); !ok || p.ExtraCMake != "-DSD=1" {
+		t.Errorf("sd.cpp fast = %+v, %v", p, ok)
+	}
+	if found, err := b.DeleteFlagPreset(ProjectSDCpp, "fast"); err != nil || !found {
+		t.Fatalf("delete: %v, %v", found, err)
+	}
+	if _, ok := b.FindFlagPreset(ProjectLlamaCpp, "fast"); !ok {
+		t.Error("deleting the sd.cpp set removed the llama.cpp set of the same name")
+	}
+}
+
+// Sets saved before they recorded a project become llama.cpp sets, on
+// load and on a restore from an older backup. They were all saved with
+// the llama.cpp toggle list.
+func TestFlagPresetMigratesMissingProject(t *testing.T) {
+	dir := t.TempDir()
+	old := `[
+  {"name": "v0", "profile": "rocm", "options": {}},
+  {"name": "v1", "profile": "cuda", "options": {"GGML_CUDA_GRAPHS": false}, "version": 1}
+]`
+	if err := os.MkdirAll(filepath.Join(dir, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config", "build-flag-presets.json"), []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b := NewBuilder(dir)
+	for _, name := range []string{"v0", "v1"} {
+		if p, ok := b.FindFlagPreset(ProjectLlamaCpp, name); !ok || p.Version != FlagPresetVersion {
+			t.Errorf("%s: %+v, %v; want a llama.cpp set at version %d", name, p, ok, FlagPresetVersion)
+		}
+	}
+	// The CUDA graphs step is for version 0 only: a version 1 off stays off.
+	if p, _ := b.FindFlagPreset(ProjectLlamaCpp, "v1"); p.Options["GGML_CUDA_GRAPHS"] {
+		t.Error("a version 1 set was given the version 0 CUDA graphs step")
+	}
+	if got := b.FlagPresets(ProjectSDCpp, ""); len(got) != 0 {
+		t.Errorf("old sets must not show for sd.cpp: %+v", got)
+	}
+
+	if err := b.SaveFlagPreset(FlagPreset{Name: "restored", Profile: "cpu", Version: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := b.FindFlagPreset(ProjectLlamaCpp, "restored"); !ok {
+		t.Error("a restored set without a project should become a llama.cpp set")
+	}
+	if err := b.SaveFlagPreset(FlagPreset{Name: "no-project", Profile: "cpu", Version: FlagPresetVersion}); err == nil {
+		t.Error("a current-version set without a project should be rejected")
 	}
 }
