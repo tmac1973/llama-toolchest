@@ -101,7 +101,7 @@
         <input type="text" name="slot_{{.Slot}}" value="{{.Value}}" list="{{.List}}" placeholder="{{.Hint}}" autocomplete="off">
     </label>
     {{- end}}
-    <small>Type part of a file name to see matching files in the models folder (<code>{{.ModelsDir}}</code>). Files elsewhere must be under that folder. In a container, mount their folder under it.</small>
+    <small>Type part of a file name to see matching files in the models folder (<code>{{.ModelsDir}}</code>), or paste a Hugging Face file link to download the file. Files elsewhere must be under that folder. In a container, mount their folder under it.</small>
 </fieldset>
 
 {{- if or (eq .Kind "sd") (eq .Kind "video")}}
