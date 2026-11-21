@@ -113,6 +113,9 @@ type genSetForm struct {
 	// CopiedFrom names the set or catalog entry the form was filled from;
 	// empty for a new set.
 	CopiedFrom string
+	// CopyDownloads is true when a copy's file fields hold Hugging Face
+	// links for files that are not on this machine.
+	CopyDownloads bool
 	// EditID is the custom set the form edits; empty when it adds one.
 	EditID string
 	// VideoSizes (JSON) and License are copied from the source and sent
@@ -351,10 +354,12 @@ func editableSet(store *generation.Store, id string) (generation.ModelSet, int, 
 // genSetFilledForm is the custom set form filled from set: from entry for
 // a catalog set or entry (fromCatalog), as a catalog set runs with its
 // entry's current values, otherwise from the set's own. Each file that is
-// on this machine fills its slot; one that is not leaves the slot empty,
-// with the catalog file's name as the hint. For an edit (edit), a
-// downloaded file fills its slot with its Hugging Face link, on disk or
-// not, so saving the edit keeps it a file toolchest downloads.
+// on this machine fills its slot with its path; a downloadable one that is
+// not fills it with its Hugging Face link, so adding the copy downloads
+// it. A LoRA slot takes local files only, so a missing LoRA leaves its
+// slot empty, with the file's name as the hint. For an edit (edit), a
+// downloaded file fills its slot with its link, on disk or not, so saving
+// the edit keeps it a file toolchest downloads.
 func (s *Server) genSetFilledForm(set generation.ModelSet, entry generation.CatalogEntry, fromCatalog, edit bool, name, tab string) (genSetForm, error) {
 	// The source's values: the catalog entry's for a catalog set or entry,
 	// otherwise the custom set's own.
@@ -401,17 +406,27 @@ func (s *Server) genSetFilledForm(set generation.ModelSet, entry generation.Cata
 	}
 	vals.Set("recipe_slots", strings.Join(slots, ","))
 	hints := map[string]string{}
+	links := false
 	for _, c := range set.Components {
+		_, lora := generation.LoraSlots[c.Slot]
 		if edit && c.Repo != "" {
 			vals.Set("slot_"+c.Slot, generation.HFLink(c.Repo, c.Revision, c.File))
 			continue
 		}
 		path := c.Path
 		if path == "" && c.Repo != "" {
-			if p := huggingface.FilePath(generation.ModelsDir(s.cfg), c.Repo, c.File); fileExists(p) {
+			switch p := huggingface.FilePath(generation.ModelsDir(s.cfg), c.Repo, c.File); {
+			case fileExists(p):
 				path = p
-			} else {
+			case lora:
+				// LoRA slots take local files only: the field stays empty,
+				// with the file's name as the hint.
 				hints[c.Slot] = filepath.Base(c.File)
+			default:
+				// A catalog component has no revision, so its link names
+				// main; a custom set's component keeps its pinned commit.
+				vals.Set("slot_"+c.Slot, generation.HFLink(c.Repo, c.Revision, c.File))
+				links = true
 			}
 		}
 		if path != "" {
@@ -425,6 +440,7 @@ func (s *Server) genSetFilledForm(set generation.ModelSet, entry generation.Cata
 			f.Slots[i].Hint = h
 		}
 	}
+	f.CopyDownloads = links
 	return f, nil
 }
 
