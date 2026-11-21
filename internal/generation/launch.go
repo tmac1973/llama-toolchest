@@ -64,7 +64,7 @@ func CheckGPUVendor(backend, monitorVendor string) error {
 	if need == "" || monitorVendor == "" || monitorVendor == need {
 		return nil
 	}
-	gpus := map[string]string{"rocm": "AMD", "nvidia": "NVIDIA"}
+	gpus := map[string]string{"rocm": "AMD", "nvidia": "NVIDIA", "metal": "Apple"}
 	return fmt.Errorf("a %s build needs %s GPUs, but this machine's GPUs are %s", backend, gpus[need], gpus[monitorVendor])
 }
 

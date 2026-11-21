@@ -59,12 +59,12 @@ func TestAttributeUse(t *testing.T) {
 }
 
 func TestDeviceIndex(t *testing.T) {
-	for dev, want := range map[string]int{"CUDA0": 0, "CUDA2": 2, "ROCm1": 1, "Vulkan0": 0} {
+	for dev, want := range map[string]int{"CUDA0": 0, "CUDA2": 2, "ROCm1": 1, "Vulkan0": 0, "MTL0": 0, "MTL0_Mapped": 0} {
 		if got, ok := deviceIndex(dev); !ok || got != want {
 			t.Errorf("deviceIndex(%q) = %d, %v", dev, got, ok)
 		}
 	}
-	for _, dev := range []string{"CPU", "ROCm_Host", "Meta(CUDA0,CUDA1)"} {
+	for _, dev := range []string{"CPU", "CPU_Mapped", "ROCm_Host", "Meta(CUDA0,CUDA1)"} {
 		if _, ok := deviceIndex(dev); ok {
 			t.Errorf("deviceIndex(%q) gave an index", dev)
 		}

@@ -406,6 +406,10 @@ func (b *Builder) buildProject(ctx context.Context, project, profile string, git
 		}
 	}
 
+	if err := CheckBuildTools(); err != nil {
+		return nil, err
+	}
+
 	if prof.Backend == "vulkan" && RunningInContainer() {
 		if proj.ID == ProjectLlamaCpp {
 			return nil, errors.New("vulkan builds are only supported in host mode, not inside containers")
