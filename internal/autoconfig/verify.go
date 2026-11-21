@@ -88,6 +88,10 @@ type Verification struct {
 	// backends, and no adjustment made them fit. Such settings cannot be
 	// loaded, so they are not offered for saving.
 	Reserved bool
+	// OutOfMemory says every test load ran out of GPU memory, down to the
+	// last adjustment tried. The settings are known not to load, so they
+	// are not offered for saving either.
+	OutOfMemory bool
 }
 
 const (
@@ -153,14 +157,14 @@ func verifyProposal(ctx context.Context, d Deps, m *models.Model, proposed model
 			v.Status = VerifyFailed
 			return proposed, nil, v
 		}
-		next, note, ok := stepDown(cfg, chk, len(d.Hardware.GPUs), &splitMoves)
+		next, note, ok := stepDown(cfg, chk, len(d.Hardware.GPUs), launchSplit(m, cfg, d.Hardware), &splitMoves)
 		if !ok {
 			break
 		}
 		cfg = next
 		notes = replaceNote(notes, note)
 	}
-	v.Status, v.Reserved = VerifyFailed, last.Reserved
+	v.Status, v.Reserved, v.OutOfMemory = VerifyFailed, last.Reserved, last.OutOfMemory
 	return proposed, nil, v
 }
 
@@ -190,9 +194,9 @@ func replaceNote(notes []models.ProfileNote, n models.ProfileNote) []models.Prof
 //     tokens was otherwise halved to 131,072.
 //  4. Half the context. Costs what the model can hold at once, so it is
 //     last.
-func stepDown(cfg models.ModelConfig, chk Check, numGPUs int, splitMoves *int) (models.ModelConfig, models.ProfileNote, bool) {
+func stepDown(cfg models.ModelConfig, chk Check, numGPUs int, launch string, splitMoves *int) (models.ModelConfig, models.ProfileNote, bool) {
 	if *splitMoves < maxSplitMoves {
-		if next, device, ok := moveLayersOff(cfg, chk.Device, numGPUs); ok {
+		if next, device, ok := moveLayersOff(cfg, chk.Device, numGPUs, launch); ok {
 			*splitMoves++
 			return next, models.ProfileNote{
 				Field:  "gpu_assign",
@@ -236,21 +240,42 @@ func stepDown(cfg models.ModelConfig, chk Check, numGPUs int, splitMoves *int) (
 	return cfg, models.ProfileNote{}, false
 }
 
+// launchSplit is the split the test load ran with when it is not cfg's
+// own: the one balanced by size and room that the launch writes for a
+// model with experts in system memory or with layers of different sizes
+// (models.MoESplitConfig). "" when the launch uses cfg's split as it is.
+func launchSplit(m *models.Model, cfg models.ModelConfig, hw models.Hardware) string {
+	if cfg.GPUAssign == "custom" {
+		return ""
+	}
+	if launch := models.MoESplitConfig(&cfg, m, models.GPUMiB(hw)); launch != &cfg {
+		return launch.TensorSplit
+	}
+	return ""
+}
+
 // moveLayersOff gives the card that ran out a smaller share of the
-// model's layers, and reports which card that was. It applies only to a
-// layer split over every card in the machine: a tensor-parallel split
-// puts the same share on every card by design, and one card has nowhere
-// to move anything.
+// model's layers, and reports which card that was. It starts from the
+// split the load ran with: launch when the launch balanced one, else
+// cfg's. It applies only to a layer split over two or more cards: a
+// tensor-parallel split puts the same share on every card by design, and
+// one card has nowhere to move anything. Cards the config leaves out
+// keep a share of nothing, which keeps them out of the process (a custom
+// split with a zero is written as a device list).
 //
 // When the failure did not name a card, the last one is assumed for a
 // model that drafts, because llama.cpp puts the whole draft context on
 // the card holding the model's last layers. Without a draft context there
 // is no reason to prefer any card, and nothing is moved.
-func moveLayersOff(cfg models.ModelConfig, device, numGPUs int) (models.ModelConfig, int, bool) {
+func moveLayersOff(cfg models.ModelConfig, device, numGPUs int, launch string) (models.ModelConfig, int, bool) {
 	if cfg.SplitMode == "tensor" || strings.HasPrefix(cfg.GPUAssign, "tensor") || numGPUs < 2 {
 		return cfg, 0, false
 	}
-	shares := splitShares(cfg, numGPUs)
+	from := cfg
+	if launch != "" {
+		from.TensorSplit = launch
+	}
+	shares := splitShares(from, numGPUs)
 	used := 0
 	last := -1
 	for i, s := range shares {
@@ -259,11 +284,7 @@ func moveLayersOff(cfg models.ModelConfig, device, numGPUs int) (models.ModelCon
 			last = i
 		}
 	}
-	// Every card has to be in use. A config that leaves a card out does
-	// so with a device list, which keeps that card out of the process
-	// altogether; a custom split cannot say that, and would bring it
-	// back with a share of nothing.
-	if used < 2 || used != len(shares) {
+	if used < 2 {
 		return cfg, 0, false
 	}
 	if device < 0 || device >= len(shares) || shares[device] <= 0 {

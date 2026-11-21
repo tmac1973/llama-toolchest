@@ -96,12 +96,18 @@ type Model struct {
 	// TokenEmbdBytes, IndexerKeyLength and AttnLayers feed the VRAM
 	// estimate; see GGUFMeta for what each means. All three are filled by
 	// the same re-read that raises GGUFMetaVersion.
-	TokenEmbdBytes   int64 `json:"token_embd_bytes,omitempty"`
+	TokenEmbdBytes int64 `json:"token_embd_bytes,omitempty"`
+	// OutputBytes is the size of output.weight; see GGUFMeta.OutputBytes.
+	OutputBytes      int64 `json:"output_bytes,omitempty"`
 	IndexerKeyLength int   `json:"indexer_key_length,omitempty"`
 	AttnLayers       int   `json:"attn_layers,omitempty"`
 	// RecurrentStateBytes is a hybrid model's recurrent state for one
 	// conversation; see GGUFMeta.RecurrentStateBytes.
 	RecurrentStateBytes int64 `json:"recurrent_state_bytes,omitempty"`
+	// LoopSlots and RelAttnHeads describe a looped model with
+	// relative-position attention (inkling2_loop); see GGUFMeta.
+	LoopSlots    int `json:"loop_slots,omitempty"`
+	RelAttnHeads int `json:"rel_attn_heads,omitempty"`
 	// MTPHead marks a standalone MTP drafter head that was registered as
 	// an ordinary model by a parser that couldn't recognize it. Records
 	// carrying it are dropped on the next backfill; nothing should serve
@@ -137,6 +143,8 @@ type Model struct {
 	ExpertBytes      int64 `json:"expert_bytes,omitempty"`
 	ExpertLayerFirst int   `json:"expert_layer_first,omitempty"`
 	ExpertLayers     int   `json:"expert_layers,omitempty"`
+	// ExpertLayerBytes is ExpertBytes by layer number; see GGUFMeta.
+	ExpertLayerBytes []int64 `json:"expert_layer_bytes,omitempty"`
 
 	// Architecture parameters parsed from GGUF header.
 	Arch          string `json:"arch,omitempty"`
@@ -1028,7 +1036,12 @@ func (r *Registry) ListNeedingPresetFetch() []string {
 //	    does not allocate for it.
 //	12 — the MTP layers left out of the KV factors and the attention-layer
 //	    count, since their cache belongs to the draft context.
-const GGUFMetaVersion = 12
+//	13 — a looped model's extra cache slots (LoopSlots) counted in the KV
+//	    factors, relative-position attention recorded (RelAttnHeads), and
+//	    the output layer's size (OutputBytes), which the layer split
+//	    places on the last card, and the expert sizes layer by layer
+//	    (ExpertLayerBytes).
+const GGUFMetaVersion = 13
 
 // BackfillGGUFMeta re-reads GGUF metadata for records written by an older
 // parser, in one pass at startup.

@@ -146,6 +146,9 @@ func TestVerifyStepsDownInOrderOfCostAndGivesUp(t *testing.T) {
 	if !strings.Contains(res.Check.Reason, "out of memory") {
 		t.Errorf("reason = %q, want what the server reported", res.Check.Reason)
 	}
+	if !res.Check.OutOfMemory {
+		t.Errorf("check = %+v, want marked as running out of memory, so it is not offered for saving", res.Check)
+	}
 	if len(v.tried) != 6 {
 		t.Fatalf("loaded %d times, want 6", len(v.tried))
 	}
@@ -263,6 +266,9 @@ func TestVerifyDoesNotStepDownForOtherFailures(t *testing.T) {
 	if !strings.Contains(res.Check.Reason, "unknown architecture") {
 		t.Errorf("reason = %q", res.Check.Reason)
 	}
+	if res.Check.OutOfMemory {
+		t.Errorf("check = %+v: a failure that is not about memory must stay saveable", res.Check)
+	}
 	if len(v.tried) != 1 {
 		t.Errorf("loaded %d times for a failure a smaller plan cannot fix", len(v.tried))
 	}
@@ -310,11 +316,13 @@ func TestMoveLayersOff(t *testing.T) {
 		{"no card named, no draft context", layer, -1, 3, "", 0},
 		{"one card", layer, 0, 1, "", 0},
 		{"tensor parallelism", models.ModelConfig{GPUAssign: "tensor-3", SplitMode: "tensor"}, 2, 3, "", 0},
-		{"a card left out of the assignment", models.ModelConfig{GPUAssign: "0-1", SplitMode: "layer", TensorSplit: "1,1,0"}, 1, 3, "", 0},
+		{"a card left out of the assignment", models.ModelConfig{GPUAssign: "0-1", SplitMode: "layer", TensorSplit: "1,1,0"}, 1, 3, "20,17,0", 1},
+		{"a card left out, the other named", models.ModelConfig{GPUAssign: "1-2", SplitMode: "layer", TensorSplit: "0,1,1"}, 0, 3, "", 0},
+		{"one card left", models.ModelConfig{GPUAssign: "1", SplitMode: "layer", TensorSplit: "0,1,0"}, 1, 3, "", 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			next, dev, ok := moveLayersOff(tt.cfg, tt.device, tt.gpus)
+			next, dev, ok := moveLayersOff(tt.cfg, tt.device, tt.gpus, "")
 			if tt.want == "" {
 				if ok {
 					t.Errorf("moved layers (split %q) where there was nothing to move", next.TensorSplit)
@@ -328,6 +336,17 @@ func TestMoveLayersOff(t *testing.T) {
 				t.Errorf("gpu_assign = %q; only \"custom\" keeps a written split when the config is saved", next.GPUAssign)
 			}
 		})
+	}
+}
+
+// A split the launch balanced (experts in system memory, or a looped
+// model) is the one the load ran with, so the move starts from it rather
+// than from an even split.
+func TestMoveLayersOffStartsFromTheLaunchSplit(t *testing.T) {
+	cfg := models.ModelConfig{GPUAssign: "1-2", SplitMode: "layer", TensorSplit: "0,1,1"}
+	next, dev, ok := moveLayersOff(cfg, 2, 3, "0,16,32")
+	if !ok || dev != 2 || next.TensorSplit != "0,16,27" || next.GPUAssign != "custom" {
+		t.Errorf("split = %q from GPU %d (ok=%v, assign %q), want \"0,16,27\" from GPU 2 as custom", next.TensorSplit, dev, ok, next.GPUAssign)
 	}
 }
 

@@ -504,7 +504,9 @@ const specDraftTokens = 16
 //	Recurrent       the linear-attention state buffers of a hybrid model
 //	IndexerCache    the sparse-attention key cache
 //	Compute         compute and output buffers
-//	IndexerScratch  the rest of the compute buffers on a sparse model
+//	IndexerScratch  the compute buffers that grow with context times
+//	                micro-batch on a sparse model or one with
+//	                relative-position attention
 //	Overhead        nothing — it is the remainder llama.cpp never itemises,
 //	                the gap between its own accounting and the card counters
 type VRAMBreakdown struct {
@@ -700,6 +702,18 @@ func vramBreakdownOn(co *vramCoefficients, m *Model, cfg *ModelConfig, cards int
 		}
 	}
 
+	// Relative-position attention: the attention scores of a micro-batch
+	// against the whole context, kept apart from flash attention, on every
+	// card that runs attention layers. Like the indexer's scratch it is
+	// copied for every graph a pipelined layer split keeps in flight.
+	if m.RelAttnHeads > 0 && m.Kind() == KindChat {
+		rel := float64(cards) * relAttnBytesPerHead * float64(m.RelAttnHeads) * float64(ctx) * float64(ub) / (1024 * 1024 * 1024)
+		if co.pipelineFallback && layerSplit {
+			rel *= pipelineCopies
+		}
+		b.IndexerScratch += rel
+	}
+
 	b.SpecKV = SpecKVCacheGB(m, cfg, ctx)
 
 	// Hybrid models: the layers that are not attention layers keep a
@@ -739,6 +753,17 @@ func vramBreakdownOn(co *vramCoefficients, m *Model, cfg *ModelConfig, cards int
 	}
 	return b
 }
+
+// relAttnBytesPerHead is the relative-attention scratch per head, micro-
+// batch token and context position. Inkling 2 Mini (24 heads, build
+// b12600, one A4000) held 197 bytes for the three (188 MiB at a 128
+// micro-batch and 8K, 199 GiB at 2048 and 512K) besides the usual
+// scratch: two f32 values per head and a little more. 8.5 a head keeps
+// every point measured on one card and on two (with experts in system
+// memory, so one graph in flight: 1.79 GiB a card at 32K and 256) below
+// the estimate. With four graphs in flight the two cards held 2.4-3.9
+// times one card's scratch, under the four copies counted.
+const relAttnBytesPerHead = 8.5
 
 // pipelineCopiesFit plans a layer split's pipeline copies the way
 // llama.cpp allocates them. Each context reserves its compute buffers
@@ -944,7 +969,23 @@ func cpuExpertBytes(m *Model, cfg *ModelConfig) int64 {
 	if n == 0 {
 		return 0
 	}
-	return m.ExpertBytes / int64(m.ExpertLayers) * int64(n)
+	var moved int64
+	for il := m.ExpertLayerFirst; il < m.ExpertLayerFirst+n; il++ {
+		moved += m.expertBytesAt(il)
+	}
+	return moved
+}
+
+// expertBytesAt is the size of layer il's experts: measured where the
+// file was read layer by layer (ExpertLayerBytes), else an even share.
+func (m *Model) expertBytesAt(il int) int64 {
+	if il < m.ExpertLayerFirst || il >= m.ExpertLayerFirst+m.ExpertLayers || m.ExpertLayers <= 0 {
+		return 0
+	}
+	if len(m.ExpertLayerBytes) >= m.ExpertLayerFirst+m.ExpertLayers {
+		return m.ExpertLayerBytes[il]
+	}
+	return m.ExpertBytes / int64(m.ExpertLayers)
 }
 
 // MoECacheBytes is the GPU memory the MoE cache takes: the size asked for,

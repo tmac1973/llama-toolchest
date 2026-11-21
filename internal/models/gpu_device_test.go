@@ -56,21 +56,41 @@ func TestPresetDeviceListDropsMainGPU(t *testing.T) {
 	}
 }
 
-// "custom" means the user typed the split by hand — emit it verbatim
-// with no device restriction, whatever it contains.
+// "custom" means the user typed the split by hand: it is emitted as
+// given, except that a share of nothing leaves that card out with a device
+// list, as every other assignment does.
 func TestPresetCustomSplitStaysRaw(t *testing.T) {
 	mods := []*Model{{ID: "a", ModelID: "u/A", Quant: "Q8_0", FilePath: "/m/a.gguf"}}
 	cfgs := map[string]*ModelConfig{
 		"a": {Enabled: true, ContextSize: 8192, GPULayers: 999, Threads: 8,
-			GPUAssign: "custom", TensorSplit: "3,1,0,0"},
+			GPUAssign: "custom", TensorSplit: "3,1,2,1"},
 	}
 	ini := GeneratePresetINI("/m", mods, cfgs, Target{Backend: "rocm"})
 
 	if strings.Contains(ini, "device =") {
-		t.Errorf("custom assignment must not emit a device list:\n%s", ini)
+		t.Errorf("custom split over every card must not emit a device list:\n%s", ini)
 	}
-	if !strings.Contains(ini, "tensor-split = 3,1,0,0") {
+	if !strings.Contains(ini, "tensor-split = 3,1,2,1") {
 		t.Errorf("custom split must be preserved verbatim:\n%s", ini)
+	}
+}
+
+func TestPresetCustomSplitLeavesZeroCardsOut(t *testing.T) {
+	mods := []*Model{{ID: "a", ModelID: "u/A", Quant: "Q8_0", FilePath: "/m/a.gguf"}}
+	cfgs := map[string]*ModelConfig{
+		"a": {Enabled: true, ContextSize: 8192, GPULayers: 999, Threads: 8,
+			GPUAssign: "custom", TensorSplit: "0,14,32"},
+	}
+	ini := GeneratePresetINI("/m", mods, cfgs, Target{Backend: "cuda"})
+
+	if !strings.Contains(ini, "device = CUDA1,CUDA2") {
+		t.Errorf("custom split with a zero share must leave that card out:\n%s", ini)
+	}
+	if !strings.Contains(ini, "tensor-split = 14,32") {
+		t.Errorf("custom split must be trimmed to the cards in use:\n%s", ini)
+	}
+	if got := AssignedModelGPUs(cfgs["a"], 3); len(got) != 2 || got[0] != 1 || got[1] != 2 {
+		t.Errorf("AssignedModelGPUs = %v, want [1 2]", got)
 	}
 }
 

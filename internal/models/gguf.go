@@ -103,6 +103,10 @@ type GGUFMeta struct {
 	// the tensor block for the same reason as PLEBytes: publishers quantize
 	// it independently of the body.
 	TokenEmbdBytes int64 `json:"token_embd_bytes,omitempty"`
+	// OutputBytes is the on-disk size of output.weight, zero when the file
+	// has none (tied embeddings). llama.cpp puts the output layer on the
+	// card that runs the last layers.
+	OutputBytes int64 `json:"output_bytes,omitempty"`
 	// IndexerKeyLength is attention.indexer.key_length, present only on
 	// sparse-attention architectures. Non-zero means the model ranks the
 	// whole cache before attending, which costs both a key cache of its
@@ -117,6 +121,20 @@ type GGUFMeta struct {
 	// a hybrid model; llama.cpp keeps one for every conversation it serves.
 	// See recurrentStateBytes.
 	RecurrentStateBytes int64 `json:"recurrent_state_bytes,omitempty"`
+	// LoopStart, LoopEnd and LoopSlots describe a looped model
+	// (inkling2_loop): blocks LoopStart..LoopEnd-1 run {arch}.loop.count
+	// times. llama.cpp gives every extra pass cache slots of its own, after
+	// the file's blocks: LoopSlots of them, which share the weights of the
+	// blocks they repeat but keep their own KV cache. Zero on every other
+	// model.
+	LoopStart int `json:"loop_start,omitempty"`
+	LoopEnd   int `json:"loop_end,omitempty"`
+	LoopSlots int `json:"loop_slots,omitempty"`
+	// RelAttnHeads is the attention head count of a model with
+	// relative-position attention ({arch}.attention.relative_length), and
+	// zero on every other model. Its attention scores take scratch that
+	// grows with context times micro-batch, flash attention or not.
+	RelAttnHeads int `json:"rel_attn_heads,omitempty"`
 
 	// NextNPredictLayers is {arch}.nextn_predict_layers: how many MTP /
 	// NextN draft layers the file describes. Non-zero on both flavors of
@@ -137,6 +155,11 @@ type GGUFMeta struct {
 	ExpertBytes      int64 `json:"expert_bytes,omitempty"`
 	ExpertLayerFirst int   `json:"expert_layer_first,omitempty"`
 	ExpertLayers     int   `json:"expert_layers,omitempty"`
+	// ExpertLayerBytes is ExpertBytes layer by layer, indexed by layer
+	// number. A publisher may quantize some layers' experts more than
+	// others: Inkling 2 Mini IQ4_NL has 547 MiB in each of its first
+	// layers and 628 on average.
+	ExpertLayerBytes []int64 `json:"expert_layer_bytes,omitempty"`
 	// HasBlockTensors and HasTrunkBlock0 describe the shape of the tensor
 	// table: whether the file carries any blk.N.* tensors at all, and
 	// whether blk.0 is among them. A drafter head declares the full
@@ -220,9 +243,12 @@ func (meta *GGUFMeta) ApplyTo(m *Model) {
 	m.PLEBytes = meta.PLEBytes
 	m.PLEChecked = meta.PLEChecked
 	m.TokenEmbdBytes = meta.TokenEmbdBytes
+	m.OutputBytes = meta.OutputBytes
 	m.IndexerKeyLength = meta.IndexerKeyLength
 	m.AttnLayers = meta.AttnLayers
 	m.RecurrentStateBytes = meta.RecurrentStateBytes
+	m.LoopSlots = meta.LoopSlots
+	m.RelAttnHeads = meta.RelAttnHeads
 	m.MTPHead = meta.IsMTPHead()
 	m.DraftHead = meta.DraftHeadKind()
 	// Built-in MTP layers make the model its own drafter (draft-mtp with
@@ -238,6 +264,7 @@ func (meta *GGUFMeta) ApplyTo(m *Model) {
 	m.ExpertBytes = meta.ExpertBytes
 	m.ExpertLayerFirst = meta.ExpertLayerFirst
 	m.ExpertLayers = meta.ExpertLayers
+	m.ExpertLayerBytes = meta.ExpertLayerBytes
 	// Known from the tensor table only; a metadata-only read leaves it to
 	// the architecture (see Model.EmbeddingsTied).
 	m.OutputTied = !meta.MetaOnly && meta.TokenEmbdBytes > 0 && !meta.HasOutputTensor
@@ -307,6 +334,9 @@ func ParseGGUFMeta(path string) (*GGUFMeta, error) {
 		if meta.TokenEmbdBytes == 0 {
 			meta.TokenEmbdBytes = sh.TokenEmbdBytes
 		}
+		if meta.OutputBytes == 0 {
+			meta.OutputBytes = sh.OutputBytes
+		}
 		meta.HasOutputTensor = meta.HasOutputTensor || sh.HasOutput
 		meta.HasClassifierHead = meta.HasClassifierHead || sh.HasClassifier
 		meta.HasNextNTensors = meta.HasNextNTensors || sh.HasNextN
@@ -316,6 +346,9 @@ func ParseGGUFMeta(path string) (*GGUFMeta, error) {
 		meta.ExpertBytes += sh.ExpertBytes
 		for l := range sh.expertLayerSet {
 			meta.addExpertLayer(l)
+		}
+		for l, n := range sh.expertLayerBytes {
+			meta.addExpertLayerBytes(l, n)
 		}
 	}
 	return meta, nil
@@ -403,6 +436,10 @@ func parseGGUFMeta(f io.ReadSeeker, metaOnly bool) (*GGUFMeta, error) {
 		// The size of a recurrent layer's state: ssm.conv_kernel,
 		// ssm.state_size, ssm.group_count and ssm.inner_size.
 		ssmConv, ssmState, ssmGroups, ssmInner int
+		// headCountMax is the largest attention.head_count, scalar or
+		// per layer; relativeLength is attention.relative_length; and
+		// loopCount is loop.count (see GGUFMeta.LoopSlots).
+		headCountMax, relativeLength, loopCount int
 	)
 
 	// For the metadata-only stop: a model key seen after a tokenizer key
@@ -559,8 +596,38 @@ keys:
 			}
 
 		case arch != "" && key == arch+".attention.head_count":
+			// A per-layer array on some models (inkling2). NHead stays
+			// unset for those, as before; the largest entry is kept for
+			// the relative-attention scratch.
+			if valueType == ggufTypeArray {
+				for _, x := range readGGUFArrayInts(f) {
+					headCountMax = max(headCountMax, x)
+				}
+				continue
+			}
 			if v, ok := readGGUFScalarInt(f, valueType); ok {
 				meta.NHead = v
+				headCountMax = v
+				continue
+			}
+		case arch != "" && key == arch+".attention.relative_length":
+			if v, ok := readGGUFScalarInt(f, valueType); ok {
+				relativeLength = v
+				continue
+			}
+		case arch != "" && key == arch+".loop.start":
+			if v, ok := readGGUFScalarInt(f, valueType); ok {
+				meta.LoopStart = v
+				continue
+			}
+		case arch != "" && key == arch+".loop.end":
+			if v, ok := readGGUFScalarInt(f, valueType); ok {
+				meta.LoopEnd = v
+				continue
+			}
+		case arch != "" && key == arch+".loop.count":
+			if v, ok := readGGUFScalarInt(f, valueType); ok {
+				loopCount = v
 				continue
 			}
 
@@ -720,6 +787,11 @@ keys:
 		meta.NonCausal = *causal == 0
 	}
 
+	meta.LoopSlots = loopSlots(meta, loopCount)
+	if relativeLength > 0 {
+		meta.RelAttnHeads = headCountMax
+	}
+
 	computeKVScaling(meta, headCountKV, kvHeadCounts, keyLen, valLen, keyLenSWA, valLenSWA, slidingWindow, swaPattern,
 		fullAttnInterval, recurrentLayers)
 	meta.RecurrentStateBytes = recurrentStateBytes(meta.NLayers-meta.NextNPredictLayers, fullAttnInterval, recurrentLayers,
@@ -737,6 +809,7 @@ keys:
 	// good, so a failure here must not fail the parse.
 	scan := scanTensorBlock(f, tensorCount, alignment)
 	meta.PLEBytes, meta.TokenEmbdBytes = scan.PLEBytes, scan.TokenEmbdBytes
+	meta.OutputBytes = scan.OutputBytes
 	meta.HasBlockTensors, meta.HasTrunkBlock0 = scan.HasBlockTensors, scan.HasTrunkBlock0
 	meta.HasOutputTensor = scan.HasOutput
 	meta.HasClassifierHead = scan.HasClassifier
@@ -744,6 +817,9 @@ keys:
 	meta.HasNextNTensors, meta.NextNChecked = scan.HasNextN, scan.complete
 	meta.ExpertBytes = scan.ExpertBytes
 	meta.ExpertLayerFirst, meta.ExpertLayers = scan.expertLayerSpan()
+	for l, n := range scan.expertLayerBytes {
+		meta.addExpertLayerBytes(l, n)
+	}
 
 	// A successful parse means reasoning was evaluated even if no chat template
 	// was present — in which case Reasoning stays the unsupported zero value.
@@ -776,6 +852,19 @@ keys:
 //
 // Both are absent on a non-hybrid model, where every layer attends and
 // this returns false throughout — so nothing changes for those.
+// loopSlots is how many cache slots llama.cpp adds for a looped model's
+// extra passes: (passes-1) x (end-start), the same validity checks as
+// llama_model_inkling2_loop aside from the block size. Zero when the
+// keys are absent or describe no loop.
+func loopSlots(meta *GGUFMeta, passes int) int {
+	start, end := meta.LoopStart, meta.LoopEnd
+	if passes < 2 || start <= 0 || end <= start || end > meta.NLayers {
+		meta.LoopStart, meta.LoopEnd = 0, 0
+		return 0
+	}
+	return (passes - 1) * (end - start)
+}
+
 func isRecurrentLayer(il, fullAttnInterval int, recurrentLayers []bool) bool {
 	if il < len(recurrentLayers) {
 		return recurrentLayers[il]
@@ -896,10 +985,19 @@ func computeKVScaling(meta *GGUFMeta, headCountKV int, kvHeadCounts []int, keyLe
 			maxKV = kv
 		}
 		local := i < len(swaPattern) && swaPattern[i]
+		// A looped model's extra passes repeat the core blocks with a
+		// cache of their own (llama_model_inkling2_loop): each such block
+		// holds its cache once per pass. Inkling 2 Mini: 8 full-attention
+		// layers in llama.cpp's cache where the 24 blocks have 4.
+		times := 1
+		if meta.LoopSlots > 0 && i >= meta.LoopStart && i < meta.LoopEnd {
+			times += meta.LoopSlots / (meta.LoopEnd - meta.LoopStart)
+		}
+		meta.AttnLayers += times - 1
 		if local && slidingWindow > 0 {
-			swa += kv * (kDimSWA + vDimSWA)
+			swa += times * kv * (kDimSWA + vDimSWA)
 		} else {
-			full += kv * (kDim + vDim)
+			full += times * kv * (kDim + vDim)
 		}
 	}
 	meta.KVFullPerTok = full
@@ -1213,6 +1311,7 @@ const (
 type tensorScan struct {
 	PLEBytes        int64
 	TokenEmbdBytes  int64
+	OutputBytes     int64
 	HasBlockTensors bool
 	HasTrunkBlock0  bool
 	HasOutput       bool // an output.weight tensor; see GGUFMeta.HasOutputTensor
@@ -1223,6 +1322,8 @@ type tensorScan struct {
 	// numbers they belong to.
 	ExpertBytes    int64
 	expertLayerSet map[int]bool
+	// expertLayerBytes is ExpertBytes by layer number.
+	expertLayerBytes map[int]int64
 	// complete is false when the tensor table could not be read to its end
 	// or the file ends before the last tensor's data: a damaged file, or one
 	// still being copied in. The parse then leaves the checked flags unset,
@@ -1258,6 +1359,18 @@ func layerSpan(set map[int]bool) (first, count int) {
 // The per-shard sets are merged through the stored span, which assumes
 // expert layers are contiguous — true of every MoE layout llama.cpp
 // supports, where only a leading run of layers is dense.
+// addExpertLayerBytes adds n bytes of expert tensors to layer l in
+// ExpertLayerBytes, growing it as needed.
+func (meta *GGUFMeta) addExpertLayerBytes(l int, n int64) {
+	if l < 0 || n <= 0 {
+		return
+	}
+	if l >= len(meta.ExpertLayerBytes) {
+		meta.ExpertLayerBytes = append(meta.ExpertLayerBytes, make([]int64, l+1-len(meta.ExpertLayerBytes))...)
+	}
+	meta.ExpertLayerBytes[l] += n
+}
+
 func (meta *GGUFMeta) addExpertLayer(l int) {
 	if meta.ExpertLayers == 0 {
 		meta.ExpertLayerFirst, meta.ExpertLayers = l, 1
@@ -1300,6 +1413,8 @@ func scanTensorBlock(f io.ReadSeeker, tensorCount uint64, alignment int64) tenso
 	var scan tensorScan
 	var pleOffset int64 = -1
 	var embOffset int64 = -1
+	expertLayerOf := map[int64]int{}
+	var outOffset int64 = -1
 	var expertOffsets []int64
 	offsets := make([]int64, 0, tensorCount)
 
@@ -1332,6 +1447,7 @@ func scanTensorBlock(f io.ReadSeeker, tensorCount uint64, alignment int64) tenso
 		}
 		if name == outputTensorName {
 			scan.HasOutput = true
+			outOffset = int64(offset)
 		}
 		if classifierTensorNames[name] {
 			scan.HasClassifier = true
@@ -1349,6 +1465,7 @@ func scanTensorBlock(f io.ReadSeeker, tensorCount uint64, alignment int64) tenso
 					scan.expertLayerSet = map[int]bool{}
 				}
 				scan.expertLayerSet[l] = true
+				expertLayerOf[int64(offset)] = l
 			}
 		}
 		if strings.HasPrefix(name, blockTensorPrefix) {
@@ -1375,7 +1492,7 @@ func scanTensorBlock(f io.ReadSeeker, tensorCount uint64, alignment int64) tenso
 
 	// The block layout stands on its own: a file can carry layers while
 	// having neither of the two tensors measured below.
-	if pleOffset < 0 && embOffset < 0 && len(expertOffsets) == 0 {
+	if pleOffset < 0 && embOffset < 0 && outOffset < 0 && len(expertOffsets) == 0 {
 		return scan
 	}
 
@@ -1400,8 +1517,16 @@ func scanTensorBlock(f io.ReadSeeker, tensorCount uint64, alignment int64) tenso
 	}
 	scan.PLEBytes = sizeAt(pleOffset)
 	scan.TokenEmbdBytes = sizeAt(embOffset)
+	scan.OutputBytes = sizeAt(outOffset)
 	for _, off := range expertOffsets {
-		scan.ExpertBytes += sizeAt(off)
+		n := sizeAt(off)
+		scan.ExpertBytes += n
+		if l, ok := expertLayerOf[off]; ok {
+			if scan.expertLayerBytes == nil {
+				scan.expertLayerBytes = map[int]int64{}
+			}
+			scan.expertLayerBytes[l] += n
+		}
 	}
 	return scan
 }
@@ -1513,9 +1638,20 @@ func scanShardsForTensors(path string) (tensorScan, bool) {
 		if out.TokenEmbdBytes == 0 {
 			out.TokenEmbdBytes = meta.TokenEmbdBytes
 		}
+		if out.OutputBytes == 0 {
+			out.OutputBytes = meta.OutputBytes
+		}
 		out.HasOutput = out.HasOutput || meta.HasOutputTensor
 		out.HasClassifier = out.HasClassifier || meta.HasClassifierHead
 		out.ExpertBytes += meta.ExpertBytes
+		for l, n := range meta.ExpertLayerBytes {
+			if n > 0 {
+				if out.expertLayerBytes == nil {
+					out.expertLayerBytes = map[int]int64{}
+				}
+				out.expertLayerBytes[l] += n
+			}
+		}
 		for l := meta.ExpertLayerFirst; l < meta.ExpertLayerFirst+meta.ExpertLayers; l++ {
 			if out.expertLayerSet == nil {
 				out.expertLayerSet = map[int]bool{}
