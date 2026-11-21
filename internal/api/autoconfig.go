@@ -98,7 +98,7 @@ func (s *Server) readHardware() models.Hardware {
 	}
 	other := s.otherVRAMMiB()
 	for i, g := range m.GPU {
-		spec := models.GPUSpec{Index: g.Index, Name: g.Name, VRAMTotalMiB: g.VRAMTotalMiB, IsIGPU: g.IsIGPU}
+		spec := models.GPUSpec{Index: g.Index, Name: g.Name, VRAMTotalMiB: g.VRAMTotalMiB, IsIGPU: g.IsIGPU, SharesRAM: g.SharesRAM}
 		if i < len(other) {
 			spec.OtherUsedMiB = other[i]
 		}

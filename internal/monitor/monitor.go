@@ -34,6 +34,10 @@ type GPUInfo struct {
 	FanRPM     int    `json:"fan_rpm,omitempty"`
 	Arch       string `json:"arch,omitempty"`    // gfx target (ROCm only)
 	IsIGPU     bool   `json:"is_igpu,omitempty"` // integrated GPU (APU)
+	// SharesRAM says the GPU's memory is the machine's RAM (Apple
+	// Silicon): what a model keeps on the GPU is not free for the parts
+	// it keeps in system memory.
+	SharesRAM bool `json:"shares_ram,omitempty"`
 	// PCIe is the card's link to the CPU, nil when it is not known or
 	// the GPU is integrated.
 	PCIe *PCIeLink `json:"pcie,omitempty"`
