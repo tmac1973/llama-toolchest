@@ -585,6 +585,7 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 			return ""
 		},
 		Hardware:           s.autotuneHardware,
+		PerfCores:          func() int { return s.hardware().PerfCores },
 		MoECache:           s.autotuneMoECache,
 		TensorSplitRefused: s.tensorSplitRefused,
 		MoECacheCPUShare:   func() bool { return s.activeTarget().MoECacheCPUShareOption() },

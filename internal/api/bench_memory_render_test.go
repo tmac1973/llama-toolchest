@@ -78,7 +78,7 @@ func TestRunDetailShowsTheMemoryBreakdown(t *testing.T) {
 
 	for _, want := range []string{
 		"Memory used", "23.0 GiB on the GPUs", "20.0 weights",
-		"1.0 GiB in system memory", "Cards reported 24.5 GiB",
+		"1.0 GiB on the CPU side", "Cards reported 24.5 GiB",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("detail view missing %q\n%s", want, out)

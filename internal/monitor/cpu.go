@@ -10,6 +10,7 @@ func collectCPU() CPUInfo {
 	if n, err := cpu.Counts(true); err == nil {
 		info.Cores = n
 	}
+	info.PerfCores = perfCores()
 
 	// Non-blocking sample: gopsutil keeps state between calls and returns
 	// usage since the last invocation when interval=0.

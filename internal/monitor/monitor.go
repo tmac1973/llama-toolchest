@@ -106,6 +106,9 @@ func (l *PCIeLink) Title() string {
 type CPUInfo struct {
 	UsagePercent float64 `json:"usage_percent"` // 0-100
 	Cores        int     `json:"cores"`
+	// PerfCores is the number of performance cores on a CPU that also
+	// has efficiency cores (Apple Silicon), 0 when it has one kind.
+	PerfCores int `json:"perf_cores,omitempty"`
 }
 
 // MemoryInfo holds system memory metrics, in MiB (JSON names as in

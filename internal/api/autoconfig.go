@@ -79,6 +79,25 @@ func (s *Server) hardware() models.Hardware {
 	return hw
 }
 
+// sharedMemory reports whether this machine's GPU uses the machine's RAM
+// (Apple Silicon unified memory). The words for model parts the GPU has
+// no room for then change: they stay in the same memory and the CPU runs
+// them.
+func (s *Server) sharedMemory() bool {
+	if s.testHardware != nil {
+		return models.SharedMemory(*s.testHardware)
+	}
+	if s.monitor == nil {
+		return false
+	}
+	for _, g := range s.monitor.Current().GPU {
+		if g.SharesRAM {
+			return true
+		}
+	}
+	return false
+}
+
 // readHardware is hardware without the estimate's settings.
 func (s *Server) readHardware() models.Hardware {
 	if s.testHardware != nil {
@@ -92,7 +111,7 @@ func (s *Server) readHardware() models.Hardware {
 		return models.Hardware{}
 	}
 	m := s.monitor.Current()
-	hw := models.Hardware{LogicalCores: m.CPU.Cores, RAMTotalMiB: m.Memory.TotalMiB}
+	hw := models.Hardware{LogicalCores: m.CPU.Cores, PerfCores: m.CPU.PerfCores, RAMTotalMiB: m.Memory.TotalMiB}
 	if s.builder != nil {
 		hw.Build = buildTarget(s.resolveActiveBuild())
 	}
@@ -188,6 +207,10 @@ type autoconfigDialogData struct {
 	// projector_choice=1), starting from ProjectorInRAM, its setting now.
 	HasProjector   bool
 	ProjectorInRAM bool
+	// SharedMemory says the GPU's memory is the machine's RAM (Apple
+	// Silicon), which changes the words: nothing moves to system memory,
+	// the CPU runs it.
+	SharedMemory bool
 }
 
 type autoconfigGPUOption struct {
@@ -285,7 +308,7 @@ func (s *Server) handleAutoconfigDialog(w http.ResponseWriter, r *http.Request) 
 	}
 	hw := s.autoconfigHardware()
 	d := autoconfigDialogData{ModelID: id, ModelName: m.PublicName(), Classes: contextClassOptions(m.ContextLength),
-		GPUs: autoconfigGPUOptions(hw), EvictableGiB: models.EvictableGiB(hw)}
+		GPUs: autoconfigGPUOptions(hw), EvictableGiB: models.EvictableGiB(hw), SharedMemory: models.SharedMemory(hw)}
 	if cfg, err := s.registry.GetConfig(id); err == nil && models.ProjectorLoaded(cfg) {
 		d.HasProjector, d.ProjectorInRAM = true, cfg.MmprojInRAM
 	}
@@ -658,11 +681,13 @@ type autoconfigReviewData struct {
 	EstimateGiB float64
 	BudgetGiB   float64
 	CPURAMGiB   float64
-	Changed     []reviewRow
-	Unchanged   []reviewRow
-	General     []string
-	Suggestions []autoconfig.DraftSuggestion
-	Sources     []string
+	// SharedMemory: see autoconfigDialogData.
+	SharedMemory bool
+	Changed      []reviewRow
+	Unchanged    []reviewRow
+	General      []string
+	Suggestions  []autoconfig.DraftSuggestion
+	Sources      []string
 	// Check is the outcome of the test load, in the words the review
 	// shows; CheckOK picks the style. Both empty when no check ran.
 	Check     string
@@ -710,7 +735,7 @@ func checkSummary(c autoconfig.Verification) (text string, ok bool) {
 }
 
 func (s *Server) autoconfigReviewData(id, name string, run autoconfigRun) autoconfigReviewData {
-	d := autoconfigReviewData{ModelID: id, ModelName: name}
+	d := autoconfigReviewData{ModelID: id, ModelName: name, SharedMemory: s.sharedMemory()}
 	if run.err != nil {
 		d.Error = run.err.Error()
 		return d
@@ -745,7 +770,7 @@ func (s *Server) autoconfigReviewData(id, name string, run autoconfigRun) autoco
 			continue
 		}
 		cur, prop := f.show(&res.Base), f.show(&res.Proposed)
-		row := reviewRow{Label: f.label, Help: fieldHelp[f.key], Current: cur, Proposed: prop, Why: why[f.key], Source: origin[f.key]}
+		row := reviewRow{Label: f.label, Help: fieldHelpFor(f.key, d.SharedMemory), Current: cur, Proposed: prop, Why: why[f.key], Source: origin[f.key]}
 		switch {
 		case cur != prop:
 			d.Changed = append(d.Changed, row)
@@ -830,7 +855,7 @@ var reviewFields = []reviewField{
 	}},
 	{"mmproj_in_ram", "Vision projector", func(c *models.ModelConfig) string {
 		if c.MmprojInRAM {
-			return "system memory"
+			return "CPU"
 		}
 		return "GPU"
 	}},

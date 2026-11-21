@@ -107,7 +107,12 @@ func CardBudgetMiB(g GPUSpec) int {
 type Hardware struct {
 	GPUs         []GPUSpec
 	LogicalCores int
-	RAMTotalMiB  int // 0 = unknown, and the system-memory check is skipped
+	// PerfCores is the number of performance cores on a CPU that also
+	// has efficiency cores (Apple Silicon), 0 when the CPU has one kind.
+	// Work split over both kinds waits for the slow cores, so threads
+	// for the CPU's part of a model are one per performance core.
+	PerfCores   int
+	RAMTotalMiB int // 0 = unknown, and the system-memory check is skipped
 	// Build is the llama.cpp build the plan is for. It decides which
 	// options a plan may use; the zero value is current llama.cpp.
 	Build Target
@@ -177,6 +182,15 @@ type FitResult struct {
 // second thread of a core and loses to contention with it.
 func ThreadsFor(cores int) int {
 	return max(1, cores/2)
+}
+
+// threadsOn is the default CPU thread count for hw: one per performance
+// core when the CPU names them, ThreadsFor otherwise.
+func threadsOn(hw Hardware) int {
+	if hw.PerfCores > 0 {
+		return hw.PerfCores
+	}
+	return ThreadsFor(hw.LogicalCores)
 }
 
 // RouterMemoryMarginMiB is the margin the router keeps free on each GPU
@@ -624,9 +638,13 @@ func moeCacheMinBytes(m *Model) int64 {
 // the plan changed from base.
 func finishFit(m *Model, base, cfg ModelConfig, b VRAMBreakdown, budget float64, requested int, hw Hardware, fits bool) FitResult {
 	onCPU := cfg.CPUMoE > 0 || (cfg.GPULayers > 0 && cfg.GPULayers < m.NLayers)
-	if onCPU && hw.LogicalCores > 0 {
-		cfg.Threads = ThreadsFor(hw.LogicalCores)
+	if onCPU && (hw.LogicalCores > 0 || hw.PerfCores > 0) {
+		cfg.Threads = threadsOn(hw)
 	}
+	// On unified memory (Apple Silicon) nothing moves to other memory:
+	// the parts the GPU has no room for stay in the same RAM and the CPU
+	// runs them.
+	shared := SharedMemory(hw)
 
 	var notes []ProfileNote
 	note := func(field, reason string) {
@@ -651,7 +669,13 @@ func finishFit(m *Model, base, cfg ModelConfig, b VRAMBreakdown, budget float64,
 	}
 	if cfg.CPUMoE != base.CPUMoE {
 		if cfg.CPUMoE > 0 {
-			note("cpu_moe", fmt.Sprintf("Keeps the expert weights of the first %d layers in system memory so the model fits. Each token uses only a few experts, so this costs less speed than moving whole layers.", cfg.CPUMoE))
+			if shared {
+				note("cpu_moe", fmt.Sprintf("The CPU runs the expert weights of the first %d layers, because the GPU's share of the memory is full. Each token uses only a few experts, so this costs less speed than running whole layers on the CPU.", cfg.CPUMoE))
+			} else {
+				note("cpu_moe", fmt.Sprintf("Keeps the expert weights of the first %d layers in system memory so the model fits. Each token uses only a few experts, so this costs less speed than moving whole layers.", cfg.CPUMoE))
+			}
+		} else if shared {
+			note("cpu_moe", "All expert weights fit in the GPU's share of the memory, so the GPU runs all of them.")
 		} else {
 			note("cpu_moe", "All expert weights fit on the GPU, so none are kept in system memory.")
 		}
@@ -693,6 +717,8 @@ func finishFit(m *Model, base, cfg ModelConfig, b VRAMBreakdown, budget float64,
 				gpusAre(leftOut), minCardRoomGiB)
 		}
 		note("gpu_assign", text)
+	} else if cfg.GPUAssign != base.GPUAssign && shared {
+		note("gpu_assign", "Puts the model on the Mac's GPU.")
 	} else if cfg.GPUAssign != base.GPUAssign {
 		note("gpu_assign", "Spreads the model over every dedicated GPU in this machine. An integrated GPU is left out when a dedicated one is present, because it shares system memory and is slower.")
 	}
@@ -706,10 +732,21 @@ func finishFit(m *Model, base, cfg ModelConfig, b VRAMBreakdown, budget float64,
 		note("parallel", "llama.cpp's default: conversations share the whole context, so one conversation can use all of it.")
 	}
 	if cfg.Threads != base.Threads {
-		note("threads", fmt.Sprintf("Part of the model runs on the CPU, so it uses %d threads: one per physical core.", cfg.Threads))
+		per := "physical core"
+		if hw.PerfCores > 0 {
+			per = "performance core"
+		}
+		note("threads", fmt.Sprintf("Part of the model runs on the CPU, so it uses %d threads: one per %s.", cfg.Threads, per))
 	}
 	if other := otherUsedGiB(hw); other >= 0.5 {
-		note("", fmt.Sprintf("Other programs are using %.1f GiB of GPU memory right now (the desktop, another AI tool). These settings leave it to them. With that memory free, more context or fewer layers in system memory may fit.", other))
+		less := "fewer layers in system memory"
+		if shared {
+			less = "less work on the CPU"
+		}
+		note("", fmt.Sprintf("Other programs are using %.1f GiB of GPU memory right now (the desktop, another AI tool). These settings leave it to them. With that memory free, more context or %s may fit.", other, less))
+	}
+	if shared && onCPU {
+		note("", fmt.Sprintf("macOS lets the GPU use only %.1f GiB of this Mac's memory, so the CPU runs part of the model. Raising that limit (the iogpu.wired_limit_mb setting, see macOS → Memory in the docs) lets the GPU run more of it.", wiredLimitGiB(hw)))
 	}
 	if reserved := reservedGiB(hw); reserved > 0 {
 		note("", fmt.Sprintf("%.1f GiB of GPU memory is reserved for image and music backends. These settings leave it to them.", reserved))
@@ -790,6 +827,18 @@ func FitBudgets(hw Hardware) (vramGiB, ramGiB float64) {
 		ramGiB = total - ramMarginGiB(total)
 	}
 	return vramGiB, ramGiB
+}
+
+// wiredLimitGiB is the memory macOS lets the GPU use on a machine with
+// unified memory: the GPU's memory as the monitor reports it.
+func wiredLimitGiB(hw Hardware) float64 {
+	var n int
+	for _, g := range PlanCards(hw) {
+		if g.SharesRAM {
+			n += g.VRAMTotalMiB
+		}
+	}
+	return float64(n) / 1024
 }
 
 // SharedMemory reports whether a card a plan uses keeps its memory in the

@@ -536,3 +536,44 @@ func TestPlanFitOnUnifiedMemory(t *testing.T) {
 		t.Error("SharedMemory does not follow SharesRAM")
 	}
 }
+
+// On a Mac nothing moves to other memory: the plan's notes say the CPU
+// runs the experts, point at the GPU's limit, and set one thread per
+// performance core.
+func TestPlanFitNotesOnUnifiedMemory(t *testing.T) {
+	moe := &Model{NLayers: 48, NEmbd: 2048, NHead: 32, NKVHead: 4,
+		ContextLength: 262144, SizeBytes: 18 * fitGiB,
+		ExpertCount: 128, ExpertUsedCount: 8, ExpertBytes: 18*fitGiB - fitGiB, ExpertLayerFirst: 0, ExpertLayers: 48}
+	mac := appleMac()
+	mac.PerfCores = 4
+	r := PlanFit(moe, defaultBase(), mac, ContextShort)
+	if !r.Fits || r.Config.CPUMoE == 0 {
+		t.Fatalf("a 19 GiB MoE on a 24 GB Mac should fit with experts on the CPU: fits %v, cpu_moe %d", r.Fits, r.Config.CPUMoE)
+	}
+	if r.Config.Threads != 4 {
+		t.Errorf("threads %d, want one per performance core (4)", r.Config.Threads)
+	}
+	var all string
+	for _, n := range r.Notes {
+		all += n.Field + ": " + n.Reason + "\n"
+	}
+	for _, want := range []string{"cpu_moe: The CPU runs the expert weights", "one per performance core", "iogpu.wired_limit_mb"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("notes miss %q:\n%s", want, all)
+		}
+	}
+	if strings.Contains(all, "system memory") {
+		t.Errorf("notes on a Mac speak of system memory:\n%s", all)
+	}
+
+	// Beside a discrete card the words stay as they were.
+	pc := oneGPU(12 * 1024)
+	r = PlanFit(moe, defaultBase(), pc, ContextShort)
+	all = ""
+	for _, n := range r.Notes {
+		all += n.Reason + "\n"
+	}
+	if !strings.Contains(all, "in system memory") || strings.Contains(all, "iogpu") {
+		t.Errorf("notes on a PC:\n%s", all)
+	}
+}

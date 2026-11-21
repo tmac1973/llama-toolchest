@@ -526,3 +526,18 @@ func TestGroupKey(t *testing.T) {
 		}
 	}
 }
+
+// On unified memory the CPU reads the experts from the memory the GPU
+// uses, so moving them costs less than moving them to system memory
+// beside a graphics card, but still more than nothing.
+func TestReadCostOnUnifiedMemory(t *testing.T) {
+	const g = 1 << 30
+	moe := &Pick{SizeBytes: 20 * g, ExpertBytes: 18 * g, ExpertUsedCount: 8, ExpertCount: 128}
+	discrete := *moe
+	discrete.CPURAMGiB = 6
+	unified := discrete
+	unified.SharedMemory = true
+	if !(readCost(moe) < readCost(&unified) && readCost(&unified) < readCost(&discrete)) {
+		t.Errorf("read costs: all on GPU %.2f, unified %.2f, discrete %.2f", readCost(moe), readCost(&unified), readCost(&discrete))
+	}
+}

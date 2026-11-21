@@ -8,7 +8,7 @@ Checks about 40 popular and new models against this machine. It suggests the lar
 
 - **Sort**: *Best quality* (larger models first; below about 4 bits per weight counts for less), *Fastest* (least data read per token, so mixture-of-experts models do well), *Longest context*, *Newest*.
 - **Bits per weight**: about 4.2 (IQ4_XS) or more keeps nearly all quality; below 3 is never suggested.
-- **Experts in system memory**: a large MoE model can run with some experts in RAM, more slowly. Dense models that do not fit on the GPU are left out.
+- **Experts in system memory**: a large MoE model can run with some experts in RAM, more slowly. Dense models that do not fit on the GPU are left out. On a Mac this reads **Experts on the CPU**: the experts stay in the same memory, and the CPU runs them (see [Memory on a Mac](../macos.md#memory)).
 - The list is made again when the GPUs or the build change. After six hours, the page says that the list is old. *Refresh* makes it again.
 
 ## Vision and audio models { #vision-and-audio-models }

@@ -72,7 +72,7 @@ func TestMemoryTooltipReportsWhatWasAllocated(t *testing.T) {
 		"2.0 KV cache",
 		"1.0 working buffers",
 		"Per GPU: ROCm0 23.0 GiB",
-		"Another 1.0 GiB sits in system memory",
+		"Another 1.0 GiB is on the CPU side, outside GPU memory",
 		"Estimated for the current settings:",
 	} {
 		if !strings.Contains(got, want) {

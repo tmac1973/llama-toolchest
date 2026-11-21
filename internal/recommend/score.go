@@ -42,6 +42,12 @@ func qualityFactor(bpw float64) float64 {
 // card against a few tens on a desktop's memory.
 const systemMemorySlowdown = 8
 
+// unifiedMemorySlowdown stands in for systemMemorySlowdown on unified
+// memory (Apple Silicon). The CPU reads the experts from the same memory
+// the GPU uses, at almost the same speed; it is slower only because the
+// CPU computes less quickly than the GPU.
+const unifiedMemorySlowdown = 2
+
 // readCost is about how long a model takes per generated token, in GiB
 // read from GPU memory: reading the weights is what limits generation
 // speed in llama.cpp. A dense model reads its whole file; a
@@ -56,7 +62,11 @@ func readCost(p *Pick) float64 {
 	used := float64(p.ExpertUsedCount) / float64(p.ExpertCount)
 	inRAM := min(experts, p.CPURAMGiB*(1<<30))
 	onGPU := (size - experts) + (experts-inRAM)*used
-	return gib(onGPU + systemMemorySlowdown*inRAM*used)
+	slowdown := float64(systemMemorySlowdown)
+	if p.SharedMemory {
+		slowdown = unifiedMemorySlowdown
+	}
+	return gib(onGPU + slowdown*inRAM*used)
 }
 
 func headroom(p *Pick) float64 {

@@ -28,6 +28,10 @@ type Deps struct {
 	// model on and how many logical cores the machine has, which decide
 	// whether some settings are worth measuring at all.
 	Hardware func(cfg models.ModelConfig) (cards, cores int)
+	// PerfCores is the number of performance cores on a CPU that also
+	// has efficiency cores (Apple Silicon), 0 when it has one kind. Nil
+	// is 0.
+	PerfCores func() int
 	// MoECache is the largest MoE cache, in MiB, that fits beside a
 	// profile on this machine with the active build (PlanInput.MoECacheMiB);
 	// nil or 0 skips the expert-cache stage.
@@ -440,8 +444,12 @@ func (r *Runner) planInput(rec *Autotune) (PlanInput, error) {
 	if r.deps.Hardware != nil {
 		cards, cores = r.deps.Hardware(profile.Config)
 	}
+	perf := 0
+	if r.deps.PerfCores != nil {
+		perf = r.deps.PerfCores()
+	}
 	in := PlanInput{
-		Model: m, Base: profile.Config, Cards: cards, Cores: cores,
+		Model: m, Base: profile.Config, Cards: cards, Cores: cores, PerfCores: perf,
 		DraftCandidates: func(mode string) []models.DraftCandidate {
 			return r.deps.Registry.FindDraftCandidates(rec.ModelID, mode)
 		},
