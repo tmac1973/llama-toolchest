@@ -117,6 +117,11 @@ const buildLogHistorySize = 2000
 type Builder struct {
 	dataDir string
 
+	// OnChange is called, in its own goroutine, after a build finishes
+	// (well or not) or is deleted. May be nil. Set it before the first
+	// build starts.
+	OnChange func()
+
 	mu     sync.Mutex
 	builds []BuildResult
 	logChs map[string]chan string
@@ -677,7 +682,15 @@ func (b *Builder) Delete(id string) error {
 
 	b.builds = append(b.builds[:idx], b.builds[idx+1:]...)
 	b.saveBuilds()
+	b.changed()
 	return nil
+}
+
+// changed tells OnChange that the builds changed.
+func (b *Builder) changed() {
+	if f := b.OnChange; f != nil {
+		go f()
+	}
 }
 
 func (b *Builder) runBuild(ctx context.Context, proj Project, prof BuildProfile, srcDir string, result *BuildResult, logCh chan string, pin *rocmPin) {
@@ -968,6 +981,7 @@ func (b *Builder) finishBuild(result *BuildResult, status, errMsg string) {
 		}
 	}
 	b.saveBuilds()
+	b.changed()
 }
 
 // copyExtras copies each set of extra files from the checkout (srcDir)

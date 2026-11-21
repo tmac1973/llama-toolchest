@@ -63,6 +63,14 @@ type genSetForm struct {
 	// VideoSizes (JSON) and License are copied from the source and sent
 	// back unchanged in hidden fields.
 	VideoSizes, License string
+	// RecipeSlots are the slots of the set a copy or edit was filled
+	// from, comma-separated, sent back in a hidden field. They give the
+	// file fields when the active recipe list cannot use the recipe.
+	RecipeSlots string
+	// UnknownRecipe is set when the form keeps a recipe the active list
+	// cannot use (a copy or edit of such a set); RecipeWarning says why.
+	UnknownRecipe bool
+	RecipeWarning string
 }
 
 // genSetFormFromRequest reads the custom set form's values from a request,
@@ -84,13 +92,14 @@ func (s *Server) genSetFormFrom(get func(string) string) genSetForm {
 		Width:      get("width"), Height: get("height"),
 		Frames: get("frames"), FPS: get("fps"),
 		MaxFrames: get("max_frames"), MaxWidth: get("max_width"), MaxHeight: get("max_height"),
-		Scale:      get("scale"),
-		StemTasks:  get("stem_tasks") == "1",
-		ModelsDir:  s.cfg.ModelsPath(),
-		Tab:        get("tab"),
-		VideoSizes: get("video_sizes"),
-		License:    get("license"),
-		EditID:     get("edit_id"),
+		Scale:       get("scale"),
+		StemTasks:   get("stem_tasks") == "1",
+		ModelsDir:   s.cfg.ModelsPath(),
+		Tab:         get("tab"),
+		VideoSizes:  get("video_sizes"),
+		License:     get("license"),
+		EditID:      get("edit_id"),
+		RecipeSlots: get("recipe_slots"),
 	}
 	if f.Tab != "catalog" {
 		f.Tab = "models"
@@ -104,13 +113,25 @@ func (s *Server) genSetFormFrom(get func(string) string) genSetForm {
 	default:
 		f.Kind, f.Recipes = generation.KindSD, generation.Recipes()
 	}
-	if len(f.Recipes) == 0 {
+	var slots generation.RecipeSlotSet
+	switch {
+	case len(f.Recipes) == 0:
 		f.Recipe = ""
-	} else if !slices.Contains(f.Recipes, f.Recipe) {
+	case slices.Contains(f.Recipes, f.Recipe):
+	case f.Recipe != "" && f.RecipeSlots != "" && generation.RecipeWarning(f.Kind, f.Recipe) != "":
+		// A copy or edit of a set whose recipe the active list cannot use
+		// keeps the recipe and the set's own slots, with a warning. Saving
+		// it is refused until a build knows the recipe.
+		f.UnknownRecipe = true
+		f.RecipeWarning = generation.RecipeWarning(f.Kind, f.Recipe)
+		slots.Required = strings.Split(f.RecipeSlots, ",")
+	default:
 		f.Recipe = f.Recipes[0]
 	}
 
-	slots := generation.KindSlots(f.Kind, f.Recipe)
+	if !f.UnknownRecipe {
+		slots = generation.KindSlots(f.Kind, f.Recipe)
+	}
 	for _, slot := range slots.Slots() {
 		field := genSetSlotField{Slot: slot, Label: generation.SlotLabel(f.Recipe, slot),
 			Required: slices.Contains(slots.Required, slot), Value: strings.TrimSpace(get("slot_" + slot)),
@@ -265,6 +286,11 @@ func (s *Server) genSetFilledForm(set generation.ModelSet, entry generation.Cata
 		}
 		vals.Set("video_sizes", string(b))
 	}
+	var slots []string
+	for _, c := range set.Components {
+		slots = append(slots, c.Slot)
+	}
+	vals.Set("recipe_slots", strings.Join(slots, ","))
 	hints := map[string]string{}
 	for _, c := range set.Components {
 		path := c.Path

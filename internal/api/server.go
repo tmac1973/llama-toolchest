@@ -496,6 +496,8 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 		defaultState:   loadDefaultModelState(filepath.Join(cfg.DataDir, "default-model.json")),
 	}
 	s.downloader.SetHashStore(s.hashes)
+	bld.OnChange = s.refreshRecipes
+	s.refreshRecipes()
 	s.genMgr = generation.NewManager()
 	s.forkMgr = forks.NewManager()
 	s.genVideoJobs.max = videoJobMax

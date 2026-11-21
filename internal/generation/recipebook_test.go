@@ -2,9 +2,13 @@ package generation
 
 import (
 	"io/fs"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/tmac1973/llama-toolchest/internal/builder"
 )
 
 // legacyImageCaps are the capabilities the old hand-kept RecipeCapabilities
@@ -250,3 +254,92 @@ func TestSetActiveRecipes(t *testing.T) {
 }
 
 func fsGlobSnapshot() ([]string, error) { return fs.Glob(snapshotFS, "sdrecipes/*.json") }
+
+// fixtureBuild is an sd build whose folder holds the given fixture
+// recipes.
+func fixtureBuild(t *testing.T, id string, recipes ...string) builder.BuildResult {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), id)
+	if err := os.MkdirAll(filepath.Join(dir, "recipes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range recipes {
+		data, err := os.ReadFile(filepath.Join("testdata", "recipes", r+".json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "recipes", r+".json"), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() { ForgetBuildRecipes(id) })
+	return builder.BuildResult{ID: id, Profile: "rocm", BinaryPath: filepath.Join(dir, "sd-server")}
+}
+
+func TestRecipesForBuild(t *testing.T) {
+	b := fixtureBuild(t, "sd-test-two", "flux1-dev", "wan22-t2v")
+	book := RecipesForBuild(b)
+	if book.Source != b.ID || book.Len() != 2 {
+		t.Fatalf("book from %q with %d recipes", book.Source, book.Len())
+	}
+	// Cached: a new file is not seen until the build is forgotten.
+	extra, _ := os.ReadFile(filepath.Join("testdata", "recipes", "pid.json"))
+	if err := os.WriteFile(filepath.Join(filepath.Dir(b.BinaryPath), "recipes", "pid.json"), extra, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if RecipesForBuild(b).Len() != 2 {
+		t.Error("the cache was not used")
+	}
+	ForgetBuildRecipes(b.ID)
+	if RecipesForBuild(b).Len() != 3 {
+		t.Error("ForgetBuildRecipes did not make the folder be read again")
+	}
+	// A build without recipe files uses the snapshot.
+	old := builder.BuildResult{ID: "sd-test-old", Profile: "rocm", BinaryPath: filepath.Join(t.TempDir(), "sd-server")}
+	t.Cleanup(func() { ForgetBuildRecipes(old.ID) })
+	if RecipesForBuild(old) != SnapshotRecipes() {
+		t.Error("a build without recipes did not get the snapshot")
+	}
+}
+
+func TestCheckRecipeForBuild(t *testing.T) {
+	b := fixtureBuild(t, "sd-test-check", "flux1-dev", "flux1-canny", "wan22-t2v")
+	ok := ModelSet{Name: "Flux", Kind: KindSD, Recipe: "flux1-dev"}
+	if err := CheckRecipeForBuild(ok, b); err != nil {
+		t.Errorf("known recipe: %v", err)
+	}
+	for set, want := range map[*ModelSet]string{
+		{Name: "Z", Kind: KindSD, Recipe: "z-image-turbo"}:         "does not know recipe z-image-turbo",
+		{Name: "Canny", Kind: KindSD, Recipe: "flux1-canny"}:       "cannot be used",
+		{Name: "Wan", Kind: KindSD, Recipe: "wan22-t2v"}:           "is a video recipe",
+		{Name: "Flux video", Kind: KindVideo, Recipe: "flux1-dev"}: "is an image recipe",
+	} {
+		if err := CheckRecipeForBuild(*set, b); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %v, want %q", set.Name, err, want)
+		}
+	}
+	if err := CheckRecipeForBuild(ModelSet{Kind: KindAce}, b); err != nil {
+		t.Errorf("ace set: %v", err)
+	}
+	// An instance start on that build is refused.
+	set := ModelSet{ID: "z", Name: "Z", Kind: KindSD, Recipe: "z-image-turbo", Complete: true,
+		Components: []Component{{Slot: "diffusion_model", Path: "/m/z.gguf"}, {Slot: "llm", Path: "/m/q.gguf"}, {Slot: "vae", Path: "/m/v.safetensors"}}}
+	if _, err := LaunchSpec(Instance{ID: "z", Port: 8090}, set, b, "", t.TempDir(), LaunchOptions{}); err == nil || !strings.Contains(err.Error(), "does not know recipe") {
+		t.Errorf("LaunchSpec: %v", err)
+	}
+}
+
+func TestRecipeWarning(t *testing.T) {
+	if w := RecipeWarning(KindSD, "z-image-turbo"); w != "" {
+		t.Errorf("known recipe: %q", w)
+	}
+	if w := RecipeWarning(KindSD, "gone"); !strings.Contains(w, "does not know recipe gone") || !strings.Contains(w, "snapshot") {
+		t.Errorf("unknown recipe: %q", w)
+	}
+	if w := RecipeWarning(KindSD, "sd35-large"); !strings.Contains(w, "CLIP-G") {
+		t.Errorf("unavailable recipe: %q", w)
+	}
+	if w := RecipeWarning(KindAce, ""); w != "" {
+		t.Errorf("ace: %q", w)
+	}
+}

@@ -12,6 +12,9 @@
 {{- with .Recipe}}, recipe <code title="The stable-diffusion.cpp recipe. It sets which files the set needs.">{{.}}</code>{{end}}.
 {{if .Custom}}Custom set, made from your own files.{{else}}Catalog set.{{end}}</small></p>
 
+{{- with .RecipeWarning}}
+<div class="callout" style="font-size:0.85rem;padding:0.4rem 0.6rem;margin-bottom:0.75rem;border-left-color:var(--pico-del-color);">{{.}}</div>
+{{- end}}
 <h6 style="margin-bottom:0.25rem;">Files</h6>
 <ul class="gen-details-list">
 {{- range .Slots}}
