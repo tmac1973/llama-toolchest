@@ -74,6 +74,10 @@ type genModelsData struct {
 	Recipes []string        `json:"recipes"`
 	// VideoRecipes are the recipes a custom video set may use.
 	VideoRecipes []string `json:"video_recipes"`
+	// UnavailableRecipes are the recipes of both kinds that toolchest
+	// cannot run, by ID, with the reason. They are not in Recipes or
+	// VideoRecipes.
+	UnavailableRecipes map[string]string `json:"unavailable_recipes"`
 	// FreeGB is the space a new download may use, or -1 when unknown.
 	FreeGB float64 `json:"free_gb"`
 }
@@ -152,7 +156,13 @@ type genSetRow struct {
 }
 
 func (s *Server) genModelsView(store *generation.Store) genModelsData {
-	data := genModelsData{Recipes: generation.Recipes(), VideoRecipes: generation.VideoRecipeIDs(), FreeGB: -1}
+	data := genModelsData{Recipes: generation.Recipes(), VideoRecipes: generation.VideoRecipeIDs(),
+		UnavailableRecipes: map[string]string{}, FreeGB: -1}
+	for _, kind := range []generation.BackendKind{generation.KindSD, generation.KindVideo} {
+		for _, r := range generation.ActiveRecipes().Unavailable(kind) {
+			data.UnavailableRecipes[r.ID] = r.Unavailable
+		}
+	}
 	if avail := s.downloader.AvailableForDownload(); avail >= 0 {
 		data.FreeGB = float64(avail) / 1e9
 	}
