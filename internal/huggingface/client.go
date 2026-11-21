@@ -141,6 +141,52 @@ func (c *Client) GetModel(ctx context.Context, modelID string) (*ModelDetail, er
 	return detail, nil
 }
 
+// isCommit reports whether rev is a full commit SHA (40 hex digits).
+func isCommit(rev string) bool {
+	if len(rev) != 40 {
+		return false
+	}
+	for _, r := range rev {
+		if !strings.ContainsRune("0123456789abcdef", r) {
+			return false
+		}
+	}
+	return true
+}
+
+// RepoCommit returns the commit that a branch or tag of a repository
+// points to now, so a download can be pinned to it. A full commit SHA is
+// returned as it is, without a request.
+func (c *Client) RepoCommit(ctx context.Context, modelID, rev string) (string, error) {
+	if isCommit(rev) {
+		return rev, nil
+	}
+	u := fmt.Sprintf("%s/models/%s/revision/%s", c.apiURL(), modelID, url.PathEscape(rev))
+	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	if err != nil {
+		return "", err
+	}
+	c.SetAuth(req)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", statusError(resp, modelID, c.Token() != "")
+	}
+	var raw struct {
+		SHA string `json:"sha"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return "", err
+	}
+	if !isCommit(raw.SHA) {
+		return "", fmt.Errorf("%s: Hugging Face gave no commit for %s", modelID, rev)
+	}
+	return raw.SHA, nil
+}
+
 type treeEntry struct {
 	Type string `json:"type"`
 	Path string `json:"path"`
@@ -155,10 +201,11 @@ type treeEntry struct {
 // is paged past 1,000 entries, with the next page named in a Link
 // header. Repositories that large are rare (the biggest checked held 395
 // files), but a missed page would leave files out. A page that fails
-// ends the listing early: err is set only when no page was read.
-func (c *Client) tree(ctx context.Context, modelID string) ([]treeEntry, error) {
+// ends the listing early: err is set only when no page was read. rev
+// is a branch, tag or commit.
+func (c *Client) tree(ctx context.Context, modelID, rev string) ([]treeEntry, error) {
 	var tree []treeEntry
-	next := fmt.Sprintf("%s/models/%s/tree/main?recursive=true", c.apiURL(), modelID)
+	next := fmt.Sprintf("%s/models/%s/tree/%s?recursive=true", c.apiURL(), modelID, url.PathEscape(rev))
 	for page := 0; next != "" && page < 20; page++ {
 		req, err := http.NewRequestWithContext(ctx, "GET", next, nil)
 		if err != nil {
@@ -194,10 +241,15 @@ func (c *Client) tree(ctx context.Context, modelID string) ([]treeEntry, error) 
 	return tree, nil
 }
 
-// RepoFiles lists every file in a repository with its size and, for
-// files kept in Git LFS, its SHA-256.
+// RepoFiles lists every file in a repository's main branch with its
+// size and, for files kept in Git LFS, its SHA-256.
 func (c *Client) RepoFiles(ctx context.Context, modelID string) ([]modelsource.RepoFile, error) {
-	tree, err := c.tree(ctx, modelID)
+	return c.RepoFilesAt(ctx, modelID, "main")
+}
+
+// RepoFilesAt is RepoFiles at one revision: a branch, tag or commit.
+func (c *Client) RepoFilesAt(ctx context.Context, modelID, rev string) ([]modelsource.RepoFile, error) {
+	tree, err := c.tree(ctx, modelID, rev)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +271,7 @@ func (c *Client) RepoFiles(ctx context.Context, modelID string) ([]modelsource.R
 
 // populateFileSizes fetches file sizes from the HF tree API.
 func (c *Client) populateFileSizes(ctx context.Context, modelID string, detail *ModelDetail) {
-	tree, _ := c.tree(ctx, modelID)
+	tree, _ := c.tree(ctx, modelID, "main")
 
 	type entry struct {
 		size int64

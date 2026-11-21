@@ -24,6 +24,10 @@ type Recipe struct {
 	ID          string
 	Name        string
 	Description string
+	// ModelURL is the model's page that the recipe file links to, for
+	// example https://huggingface.co/<org>/<name>. Empty when it gives
+	// none.
+	ModelURL string
 	// Kind is KindVideo for a recipe with video_constraints, else KindSD.
 	Kind BackendKind
 	// Slots are the files the recipe takes, in the file's order. An
@@ -138,6 +142,7 @@ type recipeFile struct {
 	ID            string `json:"id"`
 	Name          string `json:"name"`
 	Description   string `json:"description"`
+	ModelURL      string `json:"model_url"`
 	Slots         []struct {
 		ID       string `json:"id"`
 		Required bool   `json:"required"`
@@ -190,7 +195,7 @@ func parseRecipeFile(fsys fs.FS, name string) (*Recipe, error) {
 	if want := strings.TrimSuffix(path.Base(name), ".json"); f.ID != want {
 		return nil, fmt.Errorf("id %q is not the file name %q", f.ID, want)
 	}
-	r := &Recipe{ID: f.ID, Name: f.Name, Description: f.Description, Kind: KindSD,
+	r := &Recipe{ID: f.ID, Name: f.Name, Description: f.Description, ModelURL: f.ModelURL, Kind: KindSD,
 		Features: f.Features, SizeMultiple: f.SizeMultiple, UpstreamLabels: map[string]string{},
 		rawDefaults: f.Defaults, rawContext: f.Context}
 	logUnknownRecipeKeys(r)
