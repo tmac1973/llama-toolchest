@@ -100,7 +100,7 @@ func (c *Client) GetModel(ctx context.Context, modelID string) (*ModelDetail, er
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Hugging Face API returned HTTP %d", resp.StatusCode)
+		return nil, statusError(resp, modelID, c.Token() != "")
 	}
 
 	var raw struct {
@@ -174,7 +174,7 @@ func (c *Client) tree(ctx context.Context, modelID string) ([]treeEntry, error) 
 		if resp.StatusCode != http.StatusOK {
 			resp.Body.Close()
 			if page == 0 {
-				return nil, fmt.Errorf("Hugging Face API returned HTTP %d", resp.StatusCode)
+				return nil, statusError(resp, modelID, c.Token() != "")
 			}
 			break
 		}

@@ -769,6 +769,9 @@ func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, model
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+		if source == "" || source == modelsource.SourceHuggingFace {
+			return 0, statusError(resp, modelID, p.Token != "")
+		}
 		return 0, fmt.Errorf("download server returned HTTP %d", resp.StatusCode)
 	}
 
