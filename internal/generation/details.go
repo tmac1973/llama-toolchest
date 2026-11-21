@@ -113,8 +113,8 @@ func (d *SetDetails) fill(set ModelSet, entry CatalogEntry) error {
 	})
 	for _, c := range comps {
 		label := SlotLabel(set.Recipe, c.Slot)
-		if slices.Contains(slots.OneOf, c.Slot) {
-			label += " (one of: " + strings.Join(slots.OneOf, ", ") + ")"
+		if g := slots.Group(c.Slot); g != nil {
+			label += " (one of: " + strings.Join(g, ", ") + ")"
 		}
 		_, err := os.Stat(c.Path)
 		d.Slots = append(d.Slots, SlotDetail{Slot: c.Slot, Label: label, Required: slices.Contains(slots.Required, c.Slot),
@@ -149,18 +149,20 @@ func (d *SetDetails) fill(set ModelSet, entry CatalogEntry) error {
 }
 
 // KindSlots returns the slots a set of a kind and recipe takes: the
-// recipe's for image and video sets, the fixed ones for music and
-// upscaler sets.
+// recipe's for image and video sets (from the active recipe book; none
+// when the book does not have the recipe for that kind), the fixed ones
+// for music and upscaler sets.
 func KindSlots(kind BackendKind, recipe string) RecipeSlotSet {
 	switch kind {
-	case KindVideo:
-		return VideoRecipes[recipe].Slots
 	case KindAce:
 		return RecipeSlotSet{Required: AceSlots}
 	case KindUpscale:
 		return RecipeSlotSet{Required: []string{UpscalerSlot}}
 	}
-	return RecipeSlots[recipe]
+	if r, ok := ActiveRecipes().Get(recipe); ok && r.Kind == kind {
+		return r.Slots
+	}
+	return RecipeSlotSet{}
 }
 
 // slotIndex is a slot's place in the recipe's order; unknown slots last.

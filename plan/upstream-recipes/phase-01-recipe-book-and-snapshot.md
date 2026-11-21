@@ -39,7 +39,7 @@ Replace the hand-written recipe tables with upstream's own recipe files. Toolche
 7. In `recipe_overlay.go`, apply the overlay after parsing, inside `ParseRecipes`, so every book (snapshot or build) gets it:
    - **Extra slots:** `wan22-i2v` and `wan22-t2v` get optional `lora` and `high_noise_lora` (they are toolchest slots, not upstream ones; the Lightning catalog set uses them).
    - **Labels:** the current `RecipeSlotLabels` content moves here unchanged, as `recipeLabels`.
-   - **Capabilities:** `textStart` lists the video recipes that also start from a prompt alone: `wan22-ti2v-5b`, `ltx23-distilled`, `ltx23-dev`, `ltx25-dev`, `lingbot-video-dense`, `lingbot-video-moe`. A video recipe without `init_image` always gets text. `alpha` for `ming-image`. `editNeedsSlot` maps `qwen-image-21`, `qwen-image-21-turbo`, `qwen-image-edit-2511` to `llm_vision`.
+   - **Capabilities:** `textStart` lists the video recipes that also start from a prompt alone: `wan22-ti2v-5b`, `ltx23-distilled`, `ltx23-dev`, `ltx25-dev`, `lingbot-video-dense`, `lingbot-video-moe`. A video recipe without `init_image` always gets text. `alpha` for `ming-image`. A recipe with an `llm_vision` slot edits only when that file is given. (The first draft listed only the three Qwen-Image recipes; all 11 recipes with the slot are edit models, so the rule was made general.)
    - **Edit limits:** `RecipeMaxEditImages`, unchanged.
    - **Left out on purpose:** `wan21-vace` ("needs control video frames, which llama-toolchest does not send") and `wan22-s2v` ("needs an audio input, which llama-toolchest does not send").
 8. Availability, set in `ParseRecipes` after the overlay, first match wins:
@@ -72,7 +72,7 @@ make js-test
 - Parser: each fixture parses to the expected kind, slots, `OneOf`, labels, features, size multiple; the `schema_version: 2` file is skipped with a warning; a file whose `id` differs from its name is skipped; an empty folder is an error.
 - Snapshot: `SnapshotRecipes()` parses all 108 files without a skip.
 - Availability: `animatediff-sd15` (required `motion_module`) and `flux1-canny` (`control_image`) are unavailable with the expected reasons; `wan21-vace` and `wan22-s2v` give the overlay reasons; `sd35-large` (required `clip_g`) is unavailable; a hand-made fixture with an optional unknown slot is available and the slot is gone (no snapshot recipe has one at `master-1047`).
-- Overlay: `wan22-t2v` has `lora` and `high_noise_lora`; `qwen-image-21` edits only with `llm_vision`; `ming-image` has `alpha`; `ltx23-dev` has `text`, `start_image`, `end_image`; `wan22-t2v` has only `text`.
+- Overlay: `wan22-t2v` has `lora` and `high_noise_lora`; `qwen-image-21` and `krea2-turbo-edit` edit only with `llm_vision`; `ming-image` has `alpha`; `ltx23-dev` has `text`, `start_image`, `end_image`; `wan22-t2v` has only `text`.
 - Compatibility: the 25 legacy recipes match (step 10).
 - Catalog: every `Catalog()` entry's recipe is in the snapshot, available, and of the entry's kind; `TestCatalogEntriesAreValid` still passes.
 - Order: `TestRecipesOrder` still puts catalog recipes first.

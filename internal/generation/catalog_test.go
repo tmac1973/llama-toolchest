@@ -228,8 +228,18 @@ func TestRecipeCapabilities(t *testing.T) {
 
 func TestRecipesOrder(t *testing.T) {
 	got := Recipes()
-	if len(got) != len(RecipeSlots) || got[0] != "ming-image" {
-		t.Errorf("Recipes = %v, want every recipe, ming-image first", got)
+	if len(got) != len(availableRecipes(KindSD)) || got[0] != "ming-image" {
+		t.Errorf("Recipes = %v, want every available image recipe, ming-image first", got)
+	}
+	// After the catalog's recipes, the rest are A-Z.
+	n := 0
+	for _, id := range got {
+		if slices.ContainsFunc(Catalog(), func(e CatalogEntry) bool { return e.Recipe == id }) {
+			n++
+		}
+	}
+	if !slices.IsSorted(got[n:]) {
+		t.Errorf("recipes after the catalog's are not A-Z: %v", got[n:])
 	}
 }
 

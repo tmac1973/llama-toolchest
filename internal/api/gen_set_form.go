@@ -115,8 +115,8 @@ func (s *Server) genSetFormFrom(get func(string) string) genSetForm {
 		field := genSetSlotField{Slot: slot, Label: generation.SlotLabel(f.Recipe, slot),
 			Required: slices.Contains(slots.Required, slot), Value: strings.TrimSpace(get("slot_" + slot)),
 			Hint: "/path/to/file", List: "gen-model-file-list"}
-		if slices.Contains(slots.OneOf, slot) {
-			field.OneOf = strings.Join(slots.OneOf, ", ")
+		if g := slots.Group(slot); g != nil {
+			field.OneOf = strings.Join(g, ", ")
 		}
 		if slot == "tokenizer" {
 			field.Hint, field.List = "/path/to/tokenizer.json", "gen-tokenizer-file-list"

@@ -76,14 +76,9 @@ func TestSlotLabels(t *testing.T) {
 			t.Errorf("recipe %q slot %s has no label", recipe, slot)
 		}
 	}
-	for id, r := range RecipeSlots {
-		for _, s := range r.Slots() {
-			check(id, s)
-		}
-	}
-	for id, r := range VideoRecipes {
+	for _, r := range append(availableRecipes(KindSD), availableRecipes(KindVideo)...) {
 		for _, s := range r.Slots.Slots() {
-			check(id, s)
+			check(r.ID, s)
 		}
 	}
 	for _, s := range AceSlots {
@@ -93,23 +88,24 @@ func TestSlotLabels(t *testing.T) {
 	if SlotLabel("wan22-i2v", "diffusion_model") != "Low-noise expert" || SlotLabel("flux3-klein", "diffusion_model") != "Diffusion model" {
 		t.Error("recipe labels do not take precedence over the shared ones")
 	}
-	for recipe, labels := range RecipeSlotLabels {
-		r, ok := RecipeSlots[recipe]
+	for recipe, labels := range recipeLabels {
+		r, ok := SnapshotRecipes().Get(recipe)
 		if !ok {
-			r = VideoRecipes[recipe].Slots
+			t.Errorf("recipeLabels has recipe %s, which the snapshot does not have", recipe)
+			continue
 		}
 		for slot := range labels {
-			if !slices.Contains(r.Slots(), slot) {
-				t.Errorf("RecipeSlotLabels[%s] labels %s, which the recipe does not have", recipe, slot)
+			if !slices.Contains(r.Slots.Slots(), slot) {
+				t.Errorf("recipeLabels[%s] labels %s, which the recipe does not have", recipe, slot)
 			}
 		}
 	}
 }
 
 func TestVideoRecipeSizeMultiples(t *testing.T) {
-	for id, r := range VideoRecipes {
+	for _, r := range availableRecipes(KindVideo) {
 		if r.SizeMultiple <= 0 {
-			t.Errorf("%s has no size multiple", id)
+			t.Errorf("%s has no size multiple", r.ID)
 		}
 	}
 	// A catalog entry agrees with its recipe.

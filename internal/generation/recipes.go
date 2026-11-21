@@ -17,8 +17,9 @@ import (
 type RecipeSlotSet struct {
 	Required []string
 	Optional []string
-	// OneOf lists slots of which at least one must be filled.
-	OneOf []string
+	// OneOf lists groups of slots; at least one slot of each group must
+	// be filled (upstream's required_any).
+	OneOf [][]string
 }
 
 // Slots returns every slot the recipe accepts, required first.
@@ -26,22 +27,14 @@ func (r RecipeSlotSet) Slots() []string {
 	return append(slices.Clone(r.Required), r.Optional...)
 }
 
-// RecipeSlots holds the slots of the sd-server recipes a set may use,
-// copied from stable-diffusion.cpp examples/server/recipes/*.json at
-// master-1000-95ff762 (2026-10-24).
-var RecipeSlots = map[string]RecipeSlotSet{
-	"ming-image":           {Required: []string{"diffusion_model", "llm", "tokenizer"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}},
-	"qwen-image-21-turbo":  {Required: []string{"diffusion_model", "llm"}, Optional: []string{"llm_vision", "vae", "tae"}, OneOf: []string{"vae", "tae"}},
-	"qwen-image-21":        {Required: []string{"diffusion_model", "llm"}, Optional: []string{"llm_vision", "vae", "tae"}, OneOf: []string{"vae", "tae"}},
-	"flux2-klein-4b":       {Required: []string{"diffusion_model", "llm"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}},
-	"z-image-turbo":        {Required: []string{"diffusion_model", "llm"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}},
-	"flux3-klein":          {Required: []string{"diffusion_model", "llm"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}},
-	"qwen-image-edit-2511": {Required: []string{"diffusion_model", "llm"}, Optional: []string{"llm_vision", "vae", "tae"}, OneOf: []string{"vae", "tae"}},
-	"z-image":              {Required: []string{"diffusion_model", "llm"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}},
-	"chroma":               {Required: []string{"diffusion_model", "t5xxl"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}},
-	"flux1-dev":            {Required: []string{"diffusion_model", "clip_l", "t5xxl"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}},
-	"flux1-schnell":        {Required: []string{"diffusion_model", "clip_l", "t5xxl"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}},
-	"sdxl-checkpoint":      {Required: []string{"model"}, Optional: []string{"vae", "tae"}},
+// Group returns the OneOf group a slot is in, or nil.
+func (r RecipeSlotSet) Group(slot string) []string {
+	for _, g := range r.OneOf {
+		if slices.Contains(g, slot) {
+			return g
+		}
+	}
+	return nil
 }
 
 // Video capabilities: what a video set can start from. A set without
@@ -52,48 +45,17 @@ const (
 	CapEndImage   = "end_image"
 )
 
-// VideoRecipe is a video recipe's slots, and what its model can start
-// from.
-type VideoRecipe struct {
-	Slots RecipeSlotSet
-	// Caps comes from the recipe's features (init_image gives
-	// CapStartImage, end_image CapEndImage), plus CapText when the model
-	// can work from a prompt alone.
-	Caps []string
-	// SizeMultiple is what sd-server rounds a video's width and height up
-	// to: the recipe's size_multiple.
-	SizeMultiple int
-}
-
-// VideoRecipes holds the video recipes a set may use, copied from
-// stable-diffusion.cpp examples/server/recipes/*.json at
-// master-1000-95ff762 (2026-10-24); size multiples read at master-1015-e41fbcf
-// (2026-11-01). wan21-vace and wan22-s2v are left out: they need control
-// videos or audio, which toolchest does not send.
-var VideoRecipes = map[string]VideoRecipe{
-	"wan22-ti2v-5b":        {wanSlots(), []string{CapText, CapStartImage}, 32},
-	"wan22-i2v":            {wanMoESlots(), []string{CapStartImage, CapEndImage}, 16},
-	"wan22-t2v":            {wanMoESlots(), []string{CapText}, 16},
-	"wan21-t2v":            {wanSlots(), []string{CapText}, 16},
-	"wan21-i2v":            {RecipeSlotSet{Required: []string{"diffusion_model", "t5xxl"}, Optional: []string{"vae", "tae", "clip_vision"}, OneOf: []string{"vae", "tae"}}, []string{CapStartImage}, 16},
-	"wan21-flf2v":          {RecipeSlotSet{Required: []string{"diffusion_model", "t5xxl", "clip_vision"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}}, []string{CapStartImage, CapEndImage}, 16},
-	"ltx23-distilled":      {ltxSlots(), []string{CapText, CapStartImage, CapEndImage}, 32},
-	"ltx23-dev":            {ltxSlots(), []string{CapText, CapStartImage, CapEndImage}, 32},
-	"ltx25-dev":            {RecipeSlotSet{Required: []string{"diffusion_model", "llm"}, Optional: []string{"vae", "tae", "audio_vae"}, OneOf: []string{"vae", "tae"}}, []string{CapText, CapStartImage, CapEndImage}, 32},
-	"hunyuan-video-15-t2v": {hunyuanSlots(), []string{CapText}, 16},
-	"hunyuan-video-15-i2v": {hunyuanSlots(), []string{CapStartImage}, 16},
-	"lingbot-video-dense":  {llmVideoSlots(), []string{CapText, CapStartImage}, 16},
-	"lingbot-video-moe":    {llmVideoSlots(), []string{CapText, CapStartImage}, 16},
-}
-
 // RecipeSizeMultiple returns a video recipe's size multiple, or 0 for an
 // image recipe or an unknown one.
 func RecipeSizeMultiple(recipe string) int {
-	return VideoRecipes[recipe].SizeMultiple
+	if r, ok := ActiveRecipes().Get(recipe); ok && r.Kind == KindVideo {
+		return r.SizeMultiple
+	}
+	return 0
 }
 
-// SlotLabels names each slot for people, for any recipe. RecipeSlotLabels
-// gives a recipe's own names where upstream has them. See SlotLabel.
+// SlotLabels names each slot for people, for any recipe. A recipe's own
+// labels (recipeLabels, then upstream's) come first. See SlotLabel.
 var SlotLabels = map[string]string{
 	"model":                      "Checkpoint (one file)",
 	"diffusion_model":            "Diffusion model",
@@ -114,64 +76,31 @@ var SlotLabels = map[string]string{
 	"dit":                        "DiT (music model)",
 	"embedding":                  "Text embedding model",
 	UpscalerSlot:                 "ESRGAN upscaler",
+	// Slots that toolchest has no sd-server flag for. They are named in
+	// the reason a recipe cannot be used.
+	"clip_g":                 "CLIP-G text encoder",
+	"control_net":            "ControlNet",
+	"ip_adapter":             "IP-Adapter",
+	"photo_maker":            "PhotoMaker",
+	"pulid_weights":          "PuLID weights",
+	"motion_module":          "motion module",
+	"audio_encoder":          "audio encoder",
+	"uncond_diffusion_model": "unconditional diffusion model",
 }
 
-// RecipeSlotLabels are the slot names upstream's recipe files give, from
-// stable-diffusion.cpp examples/server/recipes/*.json at
-// master-1015-e41fbcf (2026-11-01), written in toolchest's words.
-var RecipeSlotLabels = map[string]map[string]string{
-	"ming-image":           {"llm": "Ling Mini 2.0 text model", "tokenizer": "Ling tokenizer (tokenizer.json)"},
-	"qwen-image-21-turbo":  qwenImage21Labels,
-	"qwen-image-21":        qwenImage21Labels,
-	"flux2-klein-4b":       {"llm": "Qwen3 4B text model"},
-	"z-image-turbo":        {"llm": "Qwen3 4B text model"},
-	"z-image":              {"llm": "Qwen3 4B text model"},
-	"flux3-klein":          {"llm": "Qwen3-VL 4B text model"},
-	"qwen-image-edit-2511": {"llm": "Qwen2.5-VL 7B text model", "llm_vision": "Qwen2.5-VL 7B vision projector (for edits)", "vae": "Qwen-Image VAE"},
-	"sdxl-checkpoint":      {"vae": "VAE override"},
-	"wan22-ti2v-5b":        {"t5xxl": "UMT5-XXL text encoder", "vae": "Wan2.2 VAE"},
-	"wan22-i2v":            wanMoELabels,
-	"wan22-t2v":            wanMoELabels,
-	"wan21-t2v":            {"t5xxl": "UMT5-XXL text encoder", "vae": "Wan2.1 VAE"},
-	"wan21-i2v":            {"t5xxl": "UMT5-XXL text encoder", "vae": "Wan2.1 VAE", "clip_vision": "CLIP Vision H"},
-	"wan21-flf2v":          {"t5xxl": "UMT5-XXL text encoder", "vae": "Wan2.1 VAE", "clip_vision": "CLIP Vision H"},
-	"ltx23-distilled":      ltx23Labels,
-	"ltx23-dev":            ltx23Labels,
-	"ltx25-dev":            {"llm": "LTX-2.5 Gemma 4 12B text model (with projection)", "vae": "LTX-2.5 video VAE", "audio_vae": "LTX-2.5 audio VAE"},
-	"hunyuan-video-15-t2v": hunyuanLabels,
-	"hunyuan-video-15-i2v": hunyuanLabels,
-	"lingbot-video-dense":  {"llm": "Qwen3-VL 4B text model", "vae": "Wan2.1 VAE"},
-	"lingbot-video-moe":    {"llm": "Qwen3-VL 4B text model", "vae": "Wan2.1 VAE"},
-}
-
-var (
-	qwenImage21Labels = map[string]string{"llm": "Qwen3-VL 8B text model", "llm_vision": "Qwen3-VL 8B vision projector (for edits)", "vae": "Qwen-Image 2.1 VAE", "tae": "TAEQI2.1"}
-	wanMoELabels      = map[string]string{"diffusion_model": "Low-noise expert", "t5xxl": "UMT5-XXL text encoder", "vae": "Wan2.1 VAE"}
-	ltx23Labels       = map[string]string{"llm": "Gemma 3 12B text model", "vae": "LTX-2.3 video VAE", "audio_vae": "LTX-2.3 audio VAE"}
-	hunyuanLabels     = map[string]string{"llm": "Qwen2.5-VL 7B text model", "t5xxl": "ByT5 Small GlyphXL (for text in the video)", "vae": "HunyuanVideo 1.5 VAE", "tae": "TAEHV 1.5"}
-)
-
-// SlotLabel returns a slot's name for people: the recipe's own label, else
-// the shared one, else the slot ID itself.
+// SlotLabel returns a slot's name for people: toolchest's label for the
+// recipe, else upstream's, else the shared one, else the slot ID.
 func SlotLabel(recipe, slot string) string {
-	if l := RecipeSlotLabels[recipe][slot]; l != "" {
+	if r, ok := ActiveRecipes().Get(recipe); ok {
+		return r.slotLabel(slot)
+	}
+	if l := recipeLabels[recipe][slot]; l != "" {
 		return l
 	}
 	if l := SlotLabels[slot]; l != "" {
 		return l
 	}
 	return slot
-}
-
-func wanSlots() RecipeSlotSet {
-	return RecipeSlotSet{Required: []string{"diffusion_model", "t5xxl"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}}
-}
-
-// wanMoESlots are the Wan2.2 A14B pairs: a low-noise and a high-noise
-// expert, each with an optional LoRA (such as the Lightning 4-step ones).
-func wanMoESlots() RecipeSlotSet {
-	return RecipeSlotSet{Required: []string{"diffusion_model", "high_noise_diffusion_model", "t5xxl"},
-		Optional: []string{"vae", "tae", "lora", "high_noise_lora"}, OneOf: []string{"vae", "tae"}}
 }
 
 // LoraSlots are the LoRA slots, and whether each one is for the
@@ -221,53 +150,12 @@ func CheckLoraArgs(set ModelSet, args []string) error {
 	return nil
 }
 
-func ltxSlots() RecipeSlotSet {
-	return RecipeSlotSet{Required: []string{"diffusion_model", "llm", "embeddings_connectors"}, Optional: []string{"vae", "tae", "audio_vae"}, OneOf: []string{"vae", "tae"}}
-}
-
-func hunyuanSlots() RecipeSlotSet {
-	return RecipeSlotSet{Required: []string{"diffusion_model", "llm", "t5xxl"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}}
-}
-
-func llmVideoSlots() RecipeSlotSet {
-	return RecipeSlotSet{Required: []string{"diffusion_model", "llm"}, Optional: []string{"vae", "tae"}, OneOf: []string{"vae", "tae"}}
-}
-
 // Recipes returns the image recipe IDs a custom set may use: the
-// catalog's recipes first, in catalog order, then the rest alphabetically.
-func Recipes() []string {
-	return recipeIDs(KindSD, func(id string) bool { _, ok := RecipeSlots[id]; return ok }, keys(RecipeSlots))
-}
+// catalog's recipes first, in catalog order, then the rest A–Z.
+func Recipes() []string { return ActiveRecipes().IDs(KindSD) }
 
 // VideoRecipeIDs is Recipes for video sets.
-func VideoRecipeIDs() []string {
-	return recipeIDs(KindVideo, func(id string) bool { _, ok := VideoRecipes[id]; return ok }, keys(VideoRecipes))
-}
-
-func recipeIDs(kind BackendKind, known func(string) bool, all []string) []string {
-	var ids []string
-	for _, e := range Catalog() {
-		if e.Kind == kind && e.Recipe != "" && known(e.Recipe) && !slices.Contains(ids, e.Recipe) {
-			ids = append(ids, e.Recipe)
-		}
-	}
-	var rest []string
-	for _, id := range all {
-		if !slices.Contains(ids, id) {
-			rest = append(rest, id)
-		}
-	}
-	slices.Sort(rest)
-	return append(ids, rest...)
-}
-
-func keys[V any](m map[string]V) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	return out
-}
+func VideoRecipeIDs() []string { return ActiveRecipes().IDs(KindVideo) }
 
 // AceSlots are the four files every ACE-Step set needs.
 var AceSlots = []string{"lm", "dit", "embedding", "vae"}
@@ -279,41 +167,43 @@ const UpscalerSlot = "upscaler"
 // CapEdit is an image set that can edit images.
 const CapEdit = "edit"
 
-// RecipeMaxEditImages is how many reference images one edit can take, by
-// recipe: the model makers' own limits. FLUX.3 Image Klein takes up to
-// 10, FLUX.2 klein 4B up to 4 (Black Forest Labs' FLUX.2 specifications)
-// and Qwen-Image-Edit 2511 1 to 3. The Qwen-Image 2.1 recipes are left
-// out: their limit for Turbo is not published. Measure tests an edit with
-// one reference, so many more can need more VRAM than the reservation.
-var RecipeMaxEditImages = map[string]int{
-	"flux3-klein":          10,
-	"flux2-klein-4b":       4,
-	"qwen-image-edit-2511": 3,
-}
-
 // RecipeCapabilities returns the capabilities a custom set gets from its
-// recipe and files: alpha output for Ming-Image, and editing for the
-// recipes whose sd.cpp docs describe it. Qwen-Image edits need the vision
-// weights, so those recipes edit only with an llm_vision file. A video
-// recipe gives what its model can start from (VideoRecipe.Caps).
+// recipe and files. A video recipe gives what its model can start from:
+// start_image from init_image, end_image from end_image, and text when it
+// has no init_image or the overlay says so (recipeTextStart). An image
+// recipe edits when it takes reference images (ref_images); one with a
+// vision projector slot (llm_vision) edits only when that file is given.
+// Ming-Image makes images with alpha.
 func RecipeCapabilities(recipe string, comps []Component) []string {
-	if r, ok := VideoRecipes[recipe]; ok {
-		return slices.Clone(r.Caps)
+	r, ok := ActiveRecipes().Get(recipe)
+	if !ok {
+		return nil
 	}
-	hasSlot := func(slot string) bool {
-		return slices.ContainsFunc(comps, func(c Component) bool { return c.Slot == slot })
+	if r.Kind == KindVideo {
+		var caps []string
+		if recipeTextStart[r.ID] || !r.HasFeature("init_image") {
+			caps = append(caps, CapText)
+		}
+		if r.HasFeature("init_image") {
+			caps = append(caps, CapStartImage)
+		}
+		if r.HasFeature("end_image") {
+			caps = append(caps, CapEndImage)
+		}
+		return caps
 	}
-	switch recipe {
-	case "ming-image":
-		return []string{"alpha"}
-	case "flux2-klein-4b", "flux3-klein":
-		return []string{"edit"}
-	case "qwen-image-21", "qwen-image-21-turbo", "qwen-image-edit-2511":
-		if hasSlot("llm_vision") {
-			return []string{"edit"}
+	var caps []string
+	if recipeAlpha[r.ID] {
+		caps = append(caps, "alpha")
+	}
+	if r.HasFeature("ref_images") {
+		vision := !slices.Contains(r.Slots.Slots(), "llm_vision") ||
+			slices.ContainsFunc(comps, func(c Component) bool { return c.Slot == "llm_vision" })
+		if vision {
+			caps = append(caps, CapEdit)
 		}
 	}
-	return nil
+	return caps
 }
 
 // ValidateComponents checks that a set's components fill its slots: every
@@ -322,21 +212,19 @@ func RecipeCapabilities(recipe string, comps []Component) []string {
 func ValidateComponents(kind BackendKind, recipe string, comps []Component) error {
 	var slots RecipeSlotSet
 	switch kind {
-	case KindSD:
-		var ok bool
-		if slots, ok = RecipeSlots[recipe]; !ok {
-			if _, video := VideoRecipes[recipe]; video {
-				return fmt.Errorf("recipe %s is a video recipe; make the set a video set", recipe)
-			}
-			return fmt.Errorf("unknown recipe %q", recipe)
-		}
-	case KindVideo:
-		r, ok := VideoRecipes[recipe]
-		if !ok {
-			if _, image := RecipeSlots[recipe]; image {
-				return fmt.Errorf("recipe %s is an image recipe; make the set an image set", recipe)
-			}
+	case KindSD, KindVideo:
+		r, ok := ActiveRecipes().Get(recipe)
+		switch {
+		case !ok && kind == KindVideo:
 			return fmt.Errorf("unknown video recipe %q", recipe)
+		case !ok:
+			return fmt.Errorf("unknown recipe %q", recipe)
+		case r.Kind == KindVideo && kind == KindSD:
+			return fmt.Errorf("recipe %s is a video recipe; make the set a video set", recipe)
+		case r.Kind == KindSD && kind == KindVideo:
+			return fmt.Errorf("recipe %s is an image recipe; make the set an image set", recipe)
+		case r.Unavailable != "":
+			return fmt.Errorf("recipe %s cannot be used: %s", recipe, r.Unavailable)
 		}
 		slots = r.Slots
 	case KindAce:
@@ -361,8 +249,10 @@ func ValidateComponents(kind BackendKind, recipe string, comps []Component) erro
 			return fmt.Errorf("%s needs a %q file", describeSet(kind, recipe), s)
 		}
 	}
-	if len(slots.OneOf) > 0 && !slices.ContainsFunc(slots.OneOf, func(s string) bool { return have[s] }) {
-		return fmt.Errorf("%s needs one of: %s", describeSet(kind, recipe), strings.Join(slots.OneOf, ", "))
+	for _, g := range slots.OneOf {
+		if !slices.ContainsFunc(g, func(s string) bool { return have[s] }) {
+			return fmt.Errorf("%s needs one of: %s", describeSet(kind, recipe), strings.Join(g, ", "))
+		}
 	}
 	return nil
 }

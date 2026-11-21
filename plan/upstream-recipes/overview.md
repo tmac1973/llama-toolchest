@@ -17,7 +17,7 @@ Tracked in issue #528. Left out of #515 on purpose.
 - A recipe is a video recipe when its file has `video_constraints`; otherwise it is an image recipe.
 - A small toolchest overlay, in Go, sits on top of the upstream data. It holds:
   - the edit-image limits (`RecipeMaxEditImages`),
-  - the rule that Qwen-Image recipes edit only with an `llm_vision` file,
+  - the rule that a recipe with an `llm_vision` slot edits only when that file is given (first written for the Qwen-Image recipes; made general in phase 01),
   - the video recipes that also start from text alone, and Ming-Image's `alpha`,
   - recipes left out on purpose, with a reason (`wan21-vace`, `wan22-s2v`),
   - toolchest's reworded slot labels.
@@ -76,6 +76,6 @@ Tracked in issue #528. Left out of #515 on purpose.
 - **Fallback when no build has recipes** → an embedded snapshot of upstream's JSON files (`go:embed`), read by the same parser. The Go slot tables are removed.
 - **Recipes toolchest cannot run** → shown greyed, with a reason. A recipe whose only unknown slot is optional stays usable without it.
 - **Slot labels** → toolchest's reworded labels first, then upstream's, then the generic name.
-- **Capabilities** → derived from upstream `features` (`ref_images` → edit, `init_image` → start image, `end_image` → end image), with an overlay for text-only video starts, Ming's alpha and the Qwen `llm_vision` rule.
+- **Capabilities** → derived from upstream `features` (`ref_images` → edit, `init_image` → start image, `end_image` → end image), with an overlay for text-only video starts, Ming's alpha and the `llm_vision` rule (any recipe with that slot edits only with the file; made general in phase 01, approved by the user).
 - **Upstream defaults** → prefill the launch-argument field of the custom set form for a new set.
 - **A saved set whose recipe is unknown** → keep it, warn in Details, refuse to start it on a build that does not know the recipe. Nothing is deleted or changed.

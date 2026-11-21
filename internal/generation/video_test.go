@@ -13,14 +13,14 @@ import (
 // set using it could not be launched. LoRA slots are the exception: they
 // go to sd-server as one --lora-model-dir.
 func TestVideoRecipeSlotsHaveFlags(t *testing.T) {
-	for id, r := range VideoRecipes {
+	for _, r := range append(availableRecipes(KindSD), availableRecipes(KindVideo)...) {
 		for _, slot := range r.Slots.Slots() {
 			if _, lora := LoraSlots[slot]; !lora && sdSlotFlags[slot] == "" {
-				t.Errorf("%s: slot %q has no sd-server flag", id, slot)
+				t.Errorf("%s: slot %q has no sd-server flag", r.ID, slot)
 			}
 		}
-		if len(r.Caps) == 0 {
-			t.Errorf("%s: no capabilities", id)
+		if r.Kind == KindVideo && len(RecipeCapabilities(r.ID, nil)) == 0 {
+			t.Errorf("%s: no capabilities", r.ID)
 		}
 	}
 }
@@ -57,8 +57,8 @@ func TestVideoRecipeCapabilities(t *testing.T) {
 	}
 	got := RecipeCapabilities("wan22-ti2v-5b", nil)
 	got[0] = "changed"
-	if VideoRecipes["wan22-ti2v-5b"].Caps[0] != CapText {
-		t.Error("RecipeCapabilities hands out the table's own slice")
+	if RecipeCapabilities("wan22-ti2v-5b", nil)[0] != CapText {
+		t.Error("RecipeCapabilities hands out a shared slice")
 	}
 }
 
@@ -66,11 +66,11 @@ func TestVideoRecipeCapabilities(t *testing.T) {
 // and never an image recipe.
 func TestVideoRecipeIDs(t *testing.T) {
 	got := VideoRecipeIDs()
-	if len(got) != len(VideoRecipes) || got[0] != "wan22-ti2v-5b" {
-		t.Errorf("VideoRecipeIDs = %v, want every video recipe, the catalog's first", got)
+	if len(got) != len(availableRecipes(KindVideo)) || got[0] != "wan22-ti2v-5b" {
+		t.Errorf("VideoRecipeIDs = %v, want every available video recipe, the catalog's first", got)
 	}
 	for _, id := range Recipes() {
-		if _, video := VideoRecipes[id]; video {
+		if r, _ := ActiveRecipes().Get(id); r.Kind != KindSD {
 			t.Errorf("Recipes lists video recipe %s", id)
 		}
 	}
@@ -119,14 +119,14 @@ func TestCatalogVideoSets(t *testing.T) {
 		if e.MaxFrames < e.DefaultFrames || e.MaxWidth < e.DefaultWidth || e.MaxHeight < e.DefaultHeight {
 			t.Errorf("%s: ceiling %dx%d %d frames is smaller than the test video", e.ID, e.MaxWidth, e.MaxHeight, e.MaxFrames)
 		}
-		if _, ok := VideoRecipes[e.Recipe]; !ok {
+		if r, ok := ActiveRecipes().Get(e.Recipe); !ok || r.Kind != KindVideo {
 			t.Errorf("%s: recipe %s is not a video recipe", e.ID, e.Recipe)
 		}
 		if e.SizeMultiple <= 0 {
 			t.Errorf("%s: needs the size multiple sd-server rounds to", e.ID)
 		}
-		if !slices.Equal(e.Capabilities, VideoRecipes[e.Recipe].Caps) {
-			t.Errorf("%s: capabilities %v differ from its recipe's %v", e.ID, e.Capabilities, VideoRecipes[e.Recipe].Caps)
+		if caps := RecipeCapabilities(e.Recipe, nil); !slices.Equal(e.Capabilities, caps) {
+			t.Errorf("%s: capabilities %v differ from its recipe's %v", e.ID, e.Capabilities, caps)
 		}
 	}
 	if !found {
