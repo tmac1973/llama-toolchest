@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.63.0](https://github.com/tmac1973/llama-toolchest/compare/v2.62.0...v2.63.0) (2026-11-21)
+
+
+### Features
+
+* **builder:** keep stable-diffusion.cpp recipe files with each build ([#654](https://github.com/tmac1973/llama-toolchest/issues/654)) ([5b70de0](https://github.com/tmac1973/llama-toolchest/commit/5b70de021ac4fd921d4d1a1a1a6d17b8e0bdcaa0))
+* **generation:** read sd-server recipes from upstream recipe files ([#652](https://github.com/tmac1973/llama-toolchest/issues/652)) ([404e774](https://github.com/tmac1973/llama-toolchest/commit/404e77492dbd1799003af57834a52df70fa277b4))
+
 ## [2.62.0](https://github.com/tmac1973/llama-toolchest/compare/v2.61.0...v2.62.0) (2026-11-20)
 
 
