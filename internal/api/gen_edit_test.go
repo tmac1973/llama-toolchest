@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -217,7 +218,7 @@ func TestGenEditFormAndButtons(t *testing.T) {
 			t.Errorf("edit form lacks %q", want)
 		}
 	}
-	if strings.Count(body, " disabled>") != 2 {
+	if n := len(regexp.MustCompile(`<select[^>]* disabled>`).FindAllString(body, -1)); n != 2 {
 		t.Error("the backend and recipe selects are not locked")
 	}
 

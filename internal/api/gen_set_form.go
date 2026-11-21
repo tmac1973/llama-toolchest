@@ -36,6 +36,57 @@ type genSetSlotField struct {
 	List string
 }
 
+// genRecipeGroup is one <optgroup> of the custom set form's recipe
+// select.
+type genRecipeGroup struct {
+	Label   string
+	Options []genRecipeOption
+}
+
+// genRecipeOption is one recipe in the select. A disabled option is a
+// recipe toolchest cannot run; its Text ends with the reason.
+type genRecipeOption struct {
+	ID, Text, Reason string
+	Disabled         bool
+}
+
+// recipeOptionText is "<upstream name> (<id>)", or the ID alone when the
+// recipe has no name.
+func recipeOptionText(r *generation.Recipe) string {
+	if r.Name == "" || r.Name == r.ID {
+		return r.ID
+	}
+	return r.Name + " (" + r.ID + ")"
+}
+
+// genRecipeGroups groups the active recipes of a kind for the select:
+// the catalog's recipes, the other usable ones, and the ones toolchest
+// cannot run (disabled, with the reason). Empty groups are left out.
+func genRecipeGroups(kind generation.BackendKind) []genRecipeGroup {
+	book := generation.ActiveRecipes()
+	usable := func(label string, ids []string) genRecipeGroup {
+		g := genRecipeGroup{Label: label}
+		for _, id := range ids {
+			if r, ok := book.Get(id); ok {
+				g.Options = append(g.Options, genRecipeOption{ID: id, Text: recipeOptionText(r)})
+			}
+		}
+		return g
+	}
+	off := genRecipeGroup{Label: "Not available in llama-toolchest"}
+	for _, r := range book.Unavailable(kind) {
+		off.Options = append(off.Options, genRecipeOption{ID: r.ID, Text: recipeOptionText(r) + " — " + r.Unavailable,
+			Reason: r.Unavailable, Disabled: true})
+	}
+	var out []genRecipeGroup
+	for _, g := range []genRecipeGroup{usable("Used by the catalog", book.CatalogIDs(kind)), usable("Other recipes", book.OtherIDs(kind)), off} {
+		if len(g.Options) > 0 {
+			out = append(out, g)
+		}
+	}
+	return out
+}
+
 // genSetForm is what the gen_set_form and gen_set_form_fields partials
 // render: the custom set form, with the values typed so far.
 type genSetForm struct {
@@ -43,7 +94,11 @@ type genSetForm struct {
 	Kind    generation.BackendKind
 	Recipe  string
 	Recipes []string
-	Slots   []genSetSlotField
+	// RecipeGroups are the recipe select's option groups.
+	RecipeGroups []genRecipeGroup
+	// RecipeDescription is the chosen recipe's upstream description.
+	RecipeDescription string
+	Slots             []genSetSlotField
 	// LaunchArgs is the set's extra backend flags, as typed.
 	LaunchArgs                     string
 	Width, Height, Frames, FPS     string
@@ -129,8 +184,14 @@ func (s *Server) genSetFormFrom(get func(string) string) genSetForm {
 		f.Recipe = f.Recipes[0]
 	}
 
+	if len(f.Recipes) > 0 {
+		f.RecipeGroups = genRecipeGroups(f.Kind)
+	}
 	if !f.UnknownRecipe {
 		slots = generation.KindSlots(f.Kind, f.Recipe)
+		if r, ok := generation.ActiveRecipes().Get(f.Recipe); ok {
+			f.RecipeDescription = r.Description
+		}
 	}
 	for _, slot := range slots.Slots() {
 		field := genSetSlotField{Slot: slot, Label: generation.SlotLabel(f.Recipe, slot),

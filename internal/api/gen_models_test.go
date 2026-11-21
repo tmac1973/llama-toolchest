@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -354,6 +355,25 @@ func TestGenModelsJSONKeys(t *testing.T) {
 	for _, key := range []string{`"catalog"`, `"sets"`, `"id":"m"`, `"complete":true`, `"percent":100`, `"size_gb"`} {
 		if !strings.Contains(body, key) {
 			t.Errorf("JSON lacks %s:\n%.400s", key, body)
+		}
+	}
+
+	// recipes and video_recipes list the usable recipes; the others are
+	// in unavailable_recipes, with the reason.
+	var data struct {
+		Recipes            []string          `json:"recipes"`
+		VideoRecipes       []string          `json:"video_recipes"`
+		UnavailableRecipes map[string]string `json:"unavailable_recipes"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &data); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(data.Recipes, generation.Recipes()) || !slices.Equal(data.VideoRecipes, generation.VideoRecipeIDs()) {
+		t.Error("recipes or video_recipes changed")
+	}
+	for _, id := range []string{"sd35-large", "wan22-s2v"} {
+		if data.UnavailableRecipes[id] == "" || slices.Contains(data.Recipes, id) || slices.Contains(data.VideoRecipes, id) {
+			t.Errorf("%s: reason %q, or listed as usable", id, data.UnavailableRecipes[id])
 		}
 	}
 }

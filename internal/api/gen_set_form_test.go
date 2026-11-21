@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"html/template"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -193,5 +194,87 @@ func TestGenModelFiles(t *testing.T) {
 	if !strings.Contains(body, `<datalist id="gen-model-file-list"><option value="`+filepath.Join(root, "Repo--a/model.gguf")+`">`) ||
 		!strings.Contains(body, `<datalist id="gen-tokenizer-file-list"><option value="`) || strings.Contains(body, "config.json") {
 		t.Errorf("datalists = %s", body)
+	}
+}
+
+// groupOf returns the label of the group that holds recipe id, and the
+// option.
+func groupOf(groups []genRecipeGroup, id string) (string, genRecipeOption) {
+	for _, g := range groups {
+		for _, o := range g.Options {
+			if o.ID == id {
+				return g.Label, o
+			}
+		}
+	}
+	return "", genRecipeOption{}
+}
+
+// The recipe select groups the catalog's recipes, the other usable ones
+// and the ones toolchest cannot run, which are disabled with the reason.
+func TestGenSetFormRecipeGroups(t *testing.T) {
+	s := genServer(t)
+	form := func(query string) genSetForm {
+		v, err := url.ParseQuery(query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s.genSetFormFrom(v.Get)
+	}
+
+	img := form("kind=sd&recipe=z-image-turbo")
+	var labels []string
+	for _, g := range img.RecipeGroups {
+		labels = append(labels, g.Label)
+	}
+	if want := []string{"Used by the catalog", "Other recipes", "Not available in llama-toolchest"}; !slices.Equal(labels, want) {
+		t.Errorf("image groups = %v, want %v", labels, want)
+	}
+	for _, c := range []struct{ id, group, reason string }{
+		{"z-image-turbo", "Used by the catalog", ""},
+		{"pixart-alpha-1024", "Other recipes", ""},
+		{"sd35-large", "Not available in llama-toolchest", "CLIP-G"},
+	} {
+		g, o := groupOf(img.RecipeGroups, c.id)
+		if g != c.group || o.Disabled != (c.reason != "") || !strings.Contains(o.Text, c.reason) {
+			t.Errorf("%s: group %q, option %+v; want group %q, reason with %q", c.id, g, o, c.group, c.reason)
+		}
+	}
+	if _, o := groupOf(img.RecipeGroups, "z-image-turbo"); o.Text != "Z-Image Turbo (z-image-turbo)" {
+		t.Errorf("option text = %q", o.Text)
+	}
+	if g, _ := groupOf(img.RecipeGroups, "wan22-t2v"); g != "" {
+		t.Error("the image form offers a video recipe")
+	}
+
+	vid := form("kind=video&recipe=wan22-i2v")
+	for _, c := range []struct{ id, group, reason string }{
+		{"wan22-i2v", "Used by the catalog", ""},
+		{"wan22-t2v", "Other recipes", ""},
+		{"animatediff-sd15", "Not available in llama-toolchest", "motion module"},
+		{"wan21-vace", "Not available in llama-toolchest", "control video frames"},
+	} {
+		g, o := groupOf(vid.RecipeGroups, c.id)
+		if g != c.group || o.Disabled != (c.reason != "") || !strings.Contains(strings.ToLower(o.Text), c.reason) {
+			t.Errorf("%s: group %q, option %+v; want group %q, reason with %q", c.id, g, o, c.group, c.reason)
+		}
+	}
+
+	// The drawn form: optgroups, a disabled option, and the chosen
+	// recipe's description, which a recipe without one does not get.
+	body := setFormFields(t, s, "kind=sd&recipe=pixart-alpha-1024")
+	pixart, _ := generation.ActiveRecipes().Get("pixart-alpha-1024")
+	for _, want := range []string{`<optgroup label="Used by the catalog">`, `<option value="sd35-large" disabled>`,
+		`value="pixart-alpha-1024" selected`, "<small>" + template.HTMLEscapeString(pixart.Description) + "</small>"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("form lacks %q", want)
+		}
+	}
+	zit, _ := generation.ActiveRecipes().Get("z-image-turbo")
+	if zit.Description != "" {
+		t.Fatalf("z-image-turbo now has a description; pick another recipe for this test")
+	}
+	if body := setFormFields(t, s, "kind=sd&recipe=z-image-turbo"); strings.Contains(body, "</select><small>") {
+		t.Error("a recipe without a description shows a description line")
 	}
 }

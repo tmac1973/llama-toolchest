@@ -86,6 +86,12 @@ func (b *RecipeBook) Len() int { return len(b.recipes) }
 // IDs returns the available recipes of a kind: the catalog's recipes
 // first, in catalog order, then the rest A–Z.
 func (b *RecipeBook) IDs(kind BackendKind) []string {
+	return append(b.CatalogIDs(kind), b.OtherIDs(kind)...)
+}
+
+// CatalogIDs returns the available recipes of a kind that catalog
+// entries use, in catalog order.
+func (b *RecipeBook) CatalogIDs(kind BackendKind) []string {
 	var ids []string
 	for _, e := range Catalog() {
 		if e.Kind != kind || e.Recipe == "" || slices.Contains(ids, e.Recipe) {
@@ -95,14 +101,21 @@ func (b *RecipeBook) IDs(kind BackendKind) []string {
 			ids = append(ids, e.Recipe)
 		}
 	}
-	var rest []string
+	return ids
+}
+
+// OtherIDs returns the available recipes of a kind that no catalog
+// entry uses, A–Z.
+func (b *RecipeBook) OtherIDs(kind BackendKind) []string {
+	catalog := b.CatalogIDs(kind)
+	var ids []string
 	for id, r := range b.recipes {
-		if r.Kind == kind && r.Unavailable == "" && !slices.Contains(ids, id) {
-			rest = append(rest, id)
+		if r.Kind == kind && r.Unavailable == "" && !slices.Contains(catalog, id) {
+			ids = append(ids, id)
 		}
 	}
-	slices.Sort(rest)
-	return append(ids, rest...)
+	slices.Sort(ids)
+	return ids
 }
 
 // Unavailable returns the recipes of a kind that toolchest cannot run,

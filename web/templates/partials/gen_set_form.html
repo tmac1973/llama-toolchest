@@ -76,14 +76,19 @@
         </select>
     </label>
     {{- if .Recipes}}
-    <label title="The stable-diffusion.cpp recipe of the files. It sets which files the set needs.{{if .EditID}} An edit keeps the recipe. To use another, copy the set.{{end}}">Recipe
+    <label title="The stable-diffusion.cpp recipe of the files. It sets which files the set needs. Greyed recipes need something llama-toolchest cannot send or pass.{{if .EditID}} An edit keeps the recipe. To use another, copy the set.{{end}}">Recipe
         {{- if .EditID}}<input type="hidden" name="recipe" value="{{.Recipe}}">{{end}}
         <select name="recipe" hx-get="/api/gen/models/sets/form/fields" hx-include="closest form"
                 hx-target="#gen-set-form-fields" hx-swap="innerHTML" data-error-label="Form not updated"{{if .EditID}} disabled{{end}}>
             {{- $r := .Recipe}}
             {{- if .UnknownRecipe}}<option value="{{.Recipe}}" selected>{{.Recipe}} (not in the recipe list)</option>{{end}}
-            {{- range .Recipes}}<option value="{{.}}"{{if eq . $r}} selected{{end}}>{{.}}</option>{{end}}
+            {{- range .RecipeGroups}}
+            <optgroup label="{{.Label}}">
+                {{- range .Options}}<option value="{{.ID}}"{{if .Disabled}} disabled{{else if eq .ID $r}} selected{{end}}>{{.Text}}</option>{{end}}
+            </optgroup>
+            {{- end}}
         </select>
+        {{- with .RecipeDescription}}<small>{{.}}</small>{{end}}
     </label>
     {{- end}}
 </div>
