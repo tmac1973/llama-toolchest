@@ -31,6 +31,15 @@ type BinarySpec struct {
 	Candidates []string // relative to the cmake build directory
 }
 
+// ExtraFiles are files from the checkout that a build keeps next to its
+// programs: the shared checkout moves to another commit on the next
+// build, so a build that needs them later must have its own copy. Src is
+// a folder in the checkout, Glob picks its files, and Dst is the folder
+// in the build's directory they go to.
+type ExtraFiles struct {
+	Src, Dst, Glob string
+}
+
 // Project describes a ggml-based source tree the builder can build: where
 // it comes from, how a build profile maps to its cmake options, which
 // programs a build must produce, and how its release tags look.
@@ -54,6 +63,8 @@ type Project struct {
 	Backends []string
 	Required BinarySpec
 	Optional []BinarySpec
+	// Extras are checkout files each build keeps a copy of.
+	Extras []ExtraFiles
 	// ReleaseNotesURL is where the UI links for a ref; "{ref}" is
 	// replaced by the ref, and LatestNotesURL is used for "latest".
 	ReleaseNotesURL string
@@ -105,6 +116,10 @@ func projects() []Project {
 		Backends:      gpuOnly,
 		Required:      BinarySpec{"sd-server", []string{filepath.Join("bin", "sd-server")}},
 		Optional:      []BinarySpec{{"sd-cli", []string{filepath.Join("bin", "sd-cli")}}},
+		// sd-server's recipe files: llama-toolchest reads a build's own
+		// copy, so the custom set form and the start check match the
+		// sd-server the build made.
+		Extras: []ExtraFiles{{Src: filepath.Join("examples", "server", "recipes"), Dst: "recipes", Glob: "*.json"}},
 		// sd.cpp tags each master build; there is no "latest" release page.
 		ReleaseNotesURL: "https://github.com/leejet/stable-diffusion.cpp/releases/tag/{ref}",
 		LatestNotesURL:  "https://github.com/leejet/stable-diffusion.cpp/releases",
