@@ -45,7 +45,15 @@ Optional Bearer token for `/v1/*`.
 
 ## HuggingFace Token and ModelScope Token { #hf-token }
 
-For gated models on each host.
+For gated and private models on each host. Public models download without a token.
+
+A gated model on Hugging Face needs three things:
+
+1. Open the model's page on Hugging Face while signed in, and agree to its access terms. Some models grant access at once; for others the owner must approve the request first.
+2. Make a token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens). A *Read* token works. A *Fine-grained* token works only with **Read access to contents of all public gated repos you can access** turned on, under *Repositories*.
+3. Save the token here, then start the download again.
+
+When a download fails, its message says which of these is missing. Without a token, a gated model fails with HTTP 401. With a token that cannot read the model, it fails with HTTP 403.
 
 ## Models directory { #models-directory }
 
