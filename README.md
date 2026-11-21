@@ -176,7 +176,7 @@ eviction: off               # What unloads when a model needs room: off (by coun
                             # llamacpp gives way to toolchest with generation backends or forks on
 vram_margin_mib: 0          # VRAM on each GPU not planned for models, in MiB (0 = the 1 GiB minimum)
 vram_margin_by_gpu: {}      # Per-GPU margins by GPU index, e.g. {0: 1024} for the desktop GPU
-auto_start: false           # Start the inference router on container startup
+auto_start: false           # Start the inference router when llama-toolchest starts
 ```
 
 To persist models on the host filesystem (so they survive `docker volume rm`), set `LLAMA_TOOLCHEST_MODELS_DIR=/path/to/models` in `.env` before running `setup.sh`. Existing models in the volume won't be visible after switching — move them first.

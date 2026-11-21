@@ -191,8 +191,8 @@
 
 <article>
     <header>Startup</header>
-    <p>If enabled, the inference server starts automatically when the
-       container launches, using the currently-selected build and model
+    <p>When this is on, the inference server starts each time
+       llama-toolchest starts. It uses the selected build and the model
        configs.</p>
     <form hx-put="/api/settings"
           hx-target="#auto-start-status"
@@ -202,7 +202,7 @@
         <label>
             <input type="checkbox" role="switch" name="auto_start"
                    {{if .AutoStart}}checked{{end}}>
-            Auto-start server on container startup
+            Start the inference server when llama-toolchest starts
         </label>
     </form>
     <div id="auto-start-status"></div>
