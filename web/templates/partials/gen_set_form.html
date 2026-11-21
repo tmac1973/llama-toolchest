@@ -40,7 +40,7 @@
 {{- end}}
     <input type="hidden" name="tab" value="{{.Tab}}">
     {{- with .CopiedFrom}}
-    <p><small>Copied from <strong>{{.}}</strong>. Change the files or settings, then save.</small></p>
+    <p><small>Copied from <strong>{{.}}</strong>. Change the files or settings, then save.{{if $.CopyDownloads}} Files that are not on this machine will download when you add the set.{{end}}</small></p>
     {{- end}}
     {{- if .VideoSizes}}<input type="hidden" name="video_sizes" value="{{.VideoSizes}}">{{end}}
     {{- if .License}}<input type="hidden" name="license" value="{{.License}}">{{end}}

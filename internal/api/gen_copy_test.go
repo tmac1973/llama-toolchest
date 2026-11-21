@@ -15,6 +15,11 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/huggingface"
 )
 
+func isLoraSlot(slot string) bool {
+	_, ok := generation.LoraSlots[slot]
+	return ok
+}
+
 // copyForm asks for the custom set form filled from a set or catalog
 // entry.
 func copyForm(t *testing.T, s *Server, query string) (genSetForm, *httptest.ResponseRecorder) {
@@ -66,8 +71,9 @@ func writeCatalogFiles(t *testing.T, s *Server, e generation.CatalogEntry, slots
 }
 
 // A catalog entry not fully downloaded: the files on disk fill their
-// slots, the others are empty with the catalog file name as the hint, and
-// the flags, sizes, limits and licence are the entry's.
+// slots, the others hold their Hugging Face links (a LoRA is empty with
+// the file name as the hint), and the flags, sizes, limits and licence are
+// the entry's.
 func TestGenCopyCatalogEntry(t *testing.T) {
 	s := genServer(t)
 	e, _ := generation.LookupCatalog("wan22-i2v-a14b-lightning")
@@ -97,9 +103,13 @@ func TestGenCopyCatalogEntry(t *testing.T) {
 			if sf.Value != huggingface.FilePath(generation.ModelsDir(s.cfg), c.Repo, c.File) {
 				t.Errorf("vae = %q, want the downloaded file", sf.Value)
 			}
-		default:
+		case isLoraSlot(c.Slot):
 			if sf.Value != "" || sf.Hint != filepath.Base(c.File) {
-				t.Errorf("slot %s: value %q hint %q, want empty with hint %s", sf.Slot, sf.Value, sf.Hint, filepath.Base(c.File))
+				t.Errorf("LoRA slot %s: value %q hint %q, want empty with hint %s", sf.Slot, sf.Value, sf.Hint, filepath.Base(c.File))
+			}
+		default:
+			if want := generation.HFLink(c.Repo, "main", c.File); sf.Value != want {
+				t.Errorf("slot %s = %q, want the link %s", sf.Slot, sf.Value, want)
 			}
 		}
 	}
@@ -114,7 +124,7 @@ func TestGenCopyCatalogEntry(t *testing.T) {
 		t.Errorf("video sizes = %s (%v)", f.VideoSizes, err)
 	}
 	for _, want := range []string{"Copied from <strong>" + e.Name, `hx-post="/api/gen/models/sets?view=catalog"`, `name="video_sizes"`, `name="tab" value="catalog"`,
-		`placeholder="` + filepath.Base(e.Components[0].File) + `"`} {
+		`placeholder="` + filepath.Base(e.Components[4].File) + `"`, "will download when you add the set"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("form lacks %q", want)
 		}
@@ -255,5 +265,56 @@ func TestGenDetailsCopyButton(t *testing.T) {
 	body = rec.Body.String()
 	if !strings.Contains(body, `hx-get="/api/gen/models/sets/form?copy=mine&amp;tab=models"`) || !strings.Contains(body, `hx-target="#gen-set-form-body-models"`) {
 		t.Errorf("set details copy button:\n%s", body)
+	}
+}
+
+// A copy of a catalog entry with nothing on disk fills every slot but the
+// LoRAs with a link on main, and says the files will download.
+func TestGenCopyCatalogEntryNothingOnDisk(t *testing.T) {
+	s := genServer(t)
+	e, _ := generation.LookupCatalog("flux2-klein-4b")
+	f, rec := copyForm(t, s, "copy_catalog="+e.ID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("HTTP %d %s", rec.Code, rec.Body)
+	}
+	if !f.CopyDownloads || !strings.Contains(rec.Body.String(), "will download when you add the set") {
+		t.Error("the form does not say the files will download")
+	}
+	for _, c := range e.Components {
+		for _, sf := range f.Slots {
+			if sf.Slot == c.Slot && (sf.Value != generation.HFLink(c.Repo, "main", c.File) || sf.Hint == filepath.Base(c.File)) {
+				t.Errorf("slot %s: value %q hint %q", sf.Slot, sf.Value, sf.Hint)
+			}
+		}
+	}
+}
+
+// A copy of a custom set whose downloaded file is not on disk links the
+// pinned commit; a downloaded set on disk says nothing about downloads.
+func TestGenCopyCustomSetKeepsPin(t *testing.T) {
+	s := genServer(t)
+	const rev = "0123456789abcdef0123456789abcdef01234567"
+	if err := s.gen.AddModelSet(generation.ModelSet{ID: "pinned", Name: "Pinned", Kind: generation.KindUpscale, Scale: 4,
+		Components: []generation.Component{{Slot: generation.UpscalerSlot, Repo: "org/up", File: "x4.pth", Revision: rev}}}); err != nil {
+		t.Fatal(err)
+	}
+	f, rec := copyForm(t, s, "copy=pinned")
+	if want := generation.HFLink("org/up", rev, "x4.pth"); f.Slots[0].Value != want || !f.CopyDownloads {
+		t.Errorf("slot = %q (downloads %v), want %s", f.Slots[0].Value, f.CopyDownloads, want)
+	}
+	if !strings.Contains(rec.Body.String(), rev) {
+		t.Error("the form lacks the pinned link")
+	}
+
+	p := huggingface.FilePath(generation.ModelsDir(s.cfg), "org/up", "x4.pth")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, fakeGGUF, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, rec = copyForm(t, s, "copy=pinned")
+	if f.Slots[0].Value != p || f.CopyDownloads || strings.Contains(rec.Body.String(), "will download") {
+		t.Errorf("on disk: slot = %q, downloads %v", f.Slots[0].Value, f.CopyDownloads)
 	}
 }
