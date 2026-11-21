@@ -1033,6 +1033,8 @@ func (s *Server) buildRouter() chi.Router {
 			r.Post("/sets", s.handleGenCreateSet)
 			r.Get("/sets/form", s.handleGenSetForm)
 			r.Get("/sets/form/fields", s.handleGenSetFormFields)
+			r.Get("/sets/form/browse", s.handleGenSetBrowse)
+			r.Get("/sets/form/size", s.handleGenSetFormSize)
 			r.Get("/files", s.handleGenModelFiles)
 			r.Put("/sets/{id}", s.handleGenUpdateSet)
 			r.Delete("/sets/{id}", s.handleGenDeleteSet)

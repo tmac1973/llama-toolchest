@@ -854,3 +854,32 @@ func (m ModelSet) RunArgs() []string {
 	}
 	return m.LaunchArgs
 }
+
+// SlotSuggestion is a file a catalog set uses for one slot, offered when
+// a custom set's slot is filled from Hugging Face.
+type SlotSuggestion struct {
+	SetName, Repo, File string
+	Bytes               int64
+}
+
+// SlotSuggestions are the files that catalog sets of the kind use for
+// the slot, in catalog order, each file once. For sd and video the set
+// must also follow the recipe; ACE-Step and upscale sets match by kind
+// alone.
+func SlotSuggestions(kind BackendKind, recipe, slot string) []SlotSuggestion {
+	var out []SlotSuggestion
+	seen := map[string]bool{}
+	for _, e := range Catalog() {
+		if e.Kind != kind || ((kind == KindSD || kind == KindVideo) && e.Recipe != recipe) {
+			continue
+		}
+		for _, c := range e.Components {
+			if c.Slot != slot || c.Repo == "" || seen[c.Repo+"/"+c.File] {
+				continue
+			}
+			seen[c.Repo+"/"+c.File] = true
+			out = append(out, SlotSuggestion{SetName: e.Name, Repo: c.Repo, File: c.File, Bytes: c.Bytes})
+		}
+	}
+	return out
+}

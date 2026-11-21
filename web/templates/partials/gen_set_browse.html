@@ -1,0 +1,77 @@
+{{/* The Browse dialog of one file field of the custom set form: the
+     repositories to list, the files catalog sets use for the slot, and
+     the files of one repository. Use writes a file's Hugging Face link
+     into the field (web/static/gen-set-browse.js). Data: genBrowseView
+     (gen_set_browse.go). */}}
+{{define "gen_set_browse"}}
+<header>
+    <button type="button" aria-label="Close" rel="prev" onclick="this.closest('dialog').close();"></button>
+    Choose a file for <code>{{.Slot}}</code>
+</header>
+<form hx-get="/api/gen/models/sets/form/browse" hx-target="#gen-set-browse-body" hx-swap="innerHTML"
+      data-error-label="Files not listed" style="margin-bottom:0.75rem;">
+    <input type="hidden" name="slot" value="{{.Slot}}">
+    <input type="hidden" name="kind" value="{{.Kind}}">
+    <input type="hidden" name="recipe" value="{{.Recipe}}">
+    <fieldset role="group" style="margin-bottom:0.25rem;">
+        <input type="text" name="repo" value="{{.Repo}}" placeholder="org/name, or a Hugging Face link" aria-label="Repository" autocomplete="off">
+        <button type="submit" title="List the files of this Hugging Face repository." style="white-space:nowrap;width:auto;">List files</button>
+    </fieldset>
+    {{- with .Repos}}
+    <small style="display:block;margin-top:0.5rem;">Suggested:
+        {{- range $i, $r := .}}{{if $i}} ·{{end}}
+        {{if $r.Current}}<strong>{{$r.Repo}}</strong>{{else}}<a href="#" hx-get="{{$r.URL}}" hx-target="#gen-set-browse-body" hx-swap="innerHTML" data-error-label="Files not listed">{{$r.Repo}}</a>{{end}}
+        {{- end}}
+    </small>
+    {{- end}}
+</form>
+
+{{- with .Suggestions}}
+<p style="margin-bottom:0.25rem;"><small><strong>Files that catalog sets use for this slot</strong></small></p>
+<table style="font-size:0.85rem;">
+    <tbody>
+    {{- range .}}
+        <tr>
+            <td><code>{{.Path}}</code><br><small>{{.From}}</small></td>
+            <td style="white-space:nowrap;">{{.Size}}</td>
+            <td><button type="button" class="outline" style="margin:0;padding:0.1rem 0.5rem;font-size:0.8rem;"
+                        data-slot="{{$.Slot}}" data-link="{{.Link}}" onclick="genSetUseFile(this)">Use</button></td>
+        </tr>
+    {{- end}}
+    </tbody>
+</table>
+{{- end}}
+
+{{- if .Error}}
+<p><small><mark>{{.Error}}</mark></small></p>
+{{- else if .Repo}}
+<p style="margin-bottom:0.25rem;"><small><strong>Files in {{.Repo}}</strong>{{if not .All}} (model files only){{end}}</small></p>
+{{- if .Diffusers}}
+<div class="callout" style="font-size:0.85rem;padding:0.4rem 0.6rem;margin-bottom:0.5rem;">This repo is in the Diffusers layout. sd-server needs one combined file. Look for a single-file or GGUF version of the model.</div>
+{{- end}}
+{{- if .Files}}
+<div style="max-height:45vh;overflow-y:auto;">
+<table style="font-size:0.85rem;">
+    <tbody>
+    {{- range .Files}}
+        <tr>
+            <td style="word-break:break-all;"><code>{{.Path}}</code></td>
+            <td style="white-space:nowrap;">{{.Size}}</td>
+            <td><button type="button" class="outline" style="margin:0;padding:0.1rem 0.5rem;font-size:0.8rem;"
+                        data-slot="{{$.Slot}}" data-link="{{.Link}}" onclick="genSetUseFile(this)">Use</button></td>
+        </tr>
+    {{- end}}
+    </tbody>
+</table>
+</div>
+{{- else}}
+<p><small>No {{if .All}}files{{else}}model files{{end}} in this repository.</small></p>
+{{- end}}
+{{- with .ToggleURL}}
+<p><small><a href="#" hx-get="{{.}}" hx-target="#gen-set-browse-body" hx-swap="innerHTML" data-error-label="Files not listed">
+    {{- if $.All}}Show model files only{{else}}Show all files ({{$.Hidden}} more){{end}}</a></small></p>
+{{- end}}
+{{- else}}
+<p><small>Type a Hugging Face repository, such as <code>stabilityai/sd-turbo</code>, and press List files.</small></p>
+{{- end}}
+{{end}}

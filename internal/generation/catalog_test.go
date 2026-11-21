@@ -272,3 +272,27 @@ func TestCatalogTextEncodersOnCPU(t *testing.T) {
 		}
 	}
 }
+
+func TestSlotSuggestions(t *testing.T) {
+	got := SlotSuggestions(KindSD, "flux2-klein-4b", "llm")
+	if len(got) != 1 || got[0].Repo != "unsloth/Qwen3-4B-GGUF" || got[0].Bytes == 0 || got[0].SetName == "" {
+		t.Errorf("klein llm suggestions = %+v", got)
+	}
+	if got := SlotSuggestions(KindSD, "flux2-klein-4b", "clip_g"); len(got) != 0 {
+		t.Errorf("a slot no catalog set uses = %+v", got)
+	}
+	if got := SlotSuggestions(KindSD, "no-such-recipe", "diffusion_model"); len(got) != 0 {
+		t.Errorf("an unknown recipe = %+v", got)
+	}
+	ups := SlotSuggestions(KindUpscale, "", UpscalerSlot)
+	if len(ups) == 0 || ups[0].Repo != "Comfy-Org/Real-ESRGAN" {
+		t.Errorf("upscaler suggestions = %+v", ups)
+	}
+	seen := map[string]bool{}
+	for _, s := range SlotSuggestions(KindAce, "", "vae") {
+		if seen[s.Repo+s.File] {
+			t.Errorf("%s/%s offered twice", s.Repo, s.File)
+		}
+		seen[s.Repo+s.File] = true
+	}
+}
