@@ -1,5 +1,7 @@
 # Manual install (no setup.sh)
 
+These are the Linux packages. On a Mac, see [macOS → Manual install](macos.md#manual-install).
+
 If you'd rather skip `setup.sh` entirely, the released `.deb`/`.rpm` packages are self-contained:
 
 ```bash

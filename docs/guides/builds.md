@@ -4,7 +4,7 @@ Builds compile `llama-server` from a `ggml-org/llama.cpp` ref for one backend. S
 
 ## Profiles { #profiles }
 
-Only backends found on this system show. **CUDA**: NVIDIA; needs the CUDA toolkit. **ROCm**: AMD; toolchest detects the GPU arch (set `GPU_TARGETS` in Extra CMake Flags to change it). With more than one ROCm, a *ROCm Install* picker shows. **Vulkan**: any vendor; host installs only. **Metal**: macOS. **CPU**: always available.
+Only backends found on this system show. **CUDA**: NVIDIA; needs the CUDA toolkit. **ROCm**: AMD; toolchest detects the GPU arch (set `GPU_TARGETS` in Extra CMake Flags to change it). With more than one ROCm, a *ROCm Install* picker shows. **Vulkan**: any vendor; host installs only. **Metal**: Apple Silicon Macs; needs `cmake` and `ninja` from Homebrew (see [macOS](../macos.md)). **CPU**: always available.
 
 ## Ref { #ref }
 

@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# macOS has its own, much shorter setup (no containers, no GPU SDKs, launchd
+# instead of systemd). Hand over before anything below runs: this script
+# needs bash 4, and macOS ships bash 3.2.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    exec /bin/bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scripts/setup-macos.sh" "$@"
+fi
+
 # ─────────────────────────────────────────────────────────────────────────────
 # llama-toolchest setup — distro-agnostic, runtime-agnostic setup and launcher
 # ─────────────────────────────────────────────────────────────────────────────
