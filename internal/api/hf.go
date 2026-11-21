@@ -163,7 +163,7 @@ func (s *Server) handleHFModel(w http.ResponseWriter, r *http.Request) {
 			Fit:             fits[f.Filename],
 		}
 		view.AnyPending = view.AnyPending || fv.EstimatePending
-		if _, ok := s.registry.HasFile(detail.ID, f.Filename); ok {
+		if _, ok := s.registry.HasFile(detail.ID, models.LocalGGUFName(f.Filename)); ok {
 			fv.AlreadyDownloaded = true
 		} else {
 			// available < 0 means "free space unknown" (statfs failed) — don't

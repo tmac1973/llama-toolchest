@@ -18,3 +18,11 @@ Many vision models need a separate **mmproj** (projector) file from the same rep
 Some publishers put the projector in a different repo. mradermacher's imatrix repos (`X-i1-GGUF`) have none; the static repo (`X-GGUF`) has it. For such a model, Configure finds the projector on Hugging Face and offers to download it into the model's folder. See [Projector (mmproj)](model-config.md#projector-mmproj).
 
 Audio models use a projector file too. Toolchest reads from it what the model can do and shows badges: *vision* reads images, *audio* understands speech (transcription, live voice with `/v1/realtime`), *speech* speaks (`/tts`). A model that only speaks, such as Qwen3-TTS, cannot chat, so the agent configs leave it out. The audio routes need llama.cpp v0.8.0 or newer.
+
+## Two layouts in one repo { #mainline-copies }
+
+Some repos hold two versions of each quant. Unsloth does this when its files need its own llama.cpp build. The files in the root need that build. Copies for mainline llama.cpp are in a `Mainline_Support` folder and end in `.gguf_file`, so other tools do not list them next to the root files.
+
+The file list shows both versions. A copy for mainline llama.cpp has the label *mainline llama.cpp*. It downloads as a normal `.gguf` file, and *Update* on the Models page still finds it in the repo. A root file that has such a copy has the label *needs the publisher's llama.cpp*. llama-toolchest cannot build that llama.cpp, so download the mainline copy.
+
+A new model can also need a newer llama.cpp than your build. If it loads but writes nonsense, rebuild llama.cpp on the Builds page and read the repo's model card.

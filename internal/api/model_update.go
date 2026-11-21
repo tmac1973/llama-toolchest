@@ -281,6 +281,15 @@ func (s *Server) checkModelUpdate(ctx context.Context, u *modelUpdate, m *models
 	for _, t := range targets {
 		i, ok := byPath[t.Path]
 		if !ok {
+			// A file saved as "*.gguf" may be a renamed GGUF in the
+			// repository (see models.LocalGGUFName); the update then
+			// downloads it by that name.
+			if j, renamed := byPath[t.Path+"_file"]; renamed {
+				i, ok = j, true
+				t.Path += "_file"
+			}
+		}
+		if !ok {
 			missing = append(missing, t.Path)
 			continue
 		}

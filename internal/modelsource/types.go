@@ -41,6 +41,14 @@ type File struct {
 	// sha256; the first shard's for a split file). Empty when the host
 	// gives none. Used to key cached header reads.
 	OID string `json:"oid,omitempty"`
+	// MainlineCopy marks a GGUF the publisher renamed to "*.gguf_file"
+	// (see models.MainlineGGUFSuffix): a copy for mainline llama.cpp, saved
+	// as "*.gguf".
+	MainlineCopy bool `json:"mainline_copy,omitempty"`
+	// HasMainlineCopy marks a file the repository also holds as a
+	// MainlineCopy. The publisher keeps that copy apart because this file
+	// needs their own llama.cpp build.
+	HasMainlineCopy bool `json:"has_mainline_copy,omitempty"`
 }
 
 // Detail holds one repository's GGUF files.

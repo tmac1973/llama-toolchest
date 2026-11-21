@@ -1409,7 +1409,37 @@ func scanTensorBlock(f io.ReadSeeker, tensorCount uint64, alignment int64) tenso
 // ggufShardPattern matches a split GGUF filename like
 // "model-00001-of-00005.gguf". The naming is llama.cpp's, shared by every
 // publisher that splits with its tooling.
-var ggufShardPattern = regexp.MustCompile(`^(.+)-(\d{5})-of-(\d{5})\.gguf$`)
+var ggufShardPattern = regexp.MustCompile(`^(.+)-(\d{5})-of-(\d{5})(\.gguf(?:_file)?)$`)
+
+// MainlineGGUFSuffix marks a GGUF that a publisher renamed on purpose so
+// that tools do not list it next to the repository's other GGUFs. Unsloth
+// does this when a repository holds two layouts of one model: the root
+// files need Unsloth's own llama.cpp build, and the copies in a
+// "Mainline_Support" folder, named "*.gguf_file", are for mainline
+// llama.cpp. The file is a normal GGUF and is saved as "*.gguf".
+const MainlineGGUFSuffix = ".gguf_file"
+
+// IsMainlineGGUF reports whether a repository file is a renamed GGUF (see
+// MainlineGGUFSuffix).
+func IsMainlineGGUF(name string) bool {
+	return strings.HasSuffix(strings.ToLower(name), MainlineGGUFSuffix)
+}
+
+// IsGGUFName reports whether a repository file is a GGUF the downloader
+// can list: a plain ".gguf" or a renamed one (see MainlineGGUFSuffix).
+func IsGGUFName(name string) bool {
+	return strings.HasSuffix(strings.ToLower(name), ".gguf") || IsMainlineGGUF(name)
+}
+
+// LocalGGUFName is the name a repository file is saved under: a renamed
+// GGUF (see MainlineGGUFSuffix) gets its ".gguf" back, so llama.cpp and
+// the model scan see it. Other names are unchanged.
+func LocalGGUFName(name string) string {
+	if IsMainlineGGUF(name) {
+		return name[:len(name)-len("_file")]
+	}
+	return name
+}
 
 // SplitShardName reads a split GGUF filename: the name before the shard
 // suffix and the shard count. ok is false for an unsplit file.
@@ -1429,9 +1459,10 @@ func ExpandShards(filename string) []string {
 	if !ok {
 		return []string{filename}
 	}
+	ext := ggufShardPattern.FindStringSubmatch(filename)[4]
 	shards := make([]string, total)
 	for i := range total {
-		shards[i] = fmt.Sprintf("%s-%05d-of-%05d.gguf", base, i+1, total)
+		shards[i] = fmt.Sprintf("%s-%05d-of-%05d%s", base, i+1, total, ext)
 	}
 	return shards
 }
