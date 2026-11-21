@@ -186,7 +186,9 @@ func attributeUse(used []int, running bool, loaded []process.ModelStatus, report
 	return other, false
 }
 
-var deviceNumber = regexp.MustCompile(`^(?:CUDA|ROCm|Vulkan|SYCL)(\d+)$`)
+// Metal names its weights buffer "MTL0_Mapped" and the rest "MTL0"; both
+// are on the GPU (unified memory, so "mapped" does not mean the host).
+var deviceNumber = regexp.MustCompile(`^(?:CUDA|ROCm|Vulkan|SYCL|MTL)(\d+)(?:_Mapped)?$`)
 
 // deviceIndex is the GPU index of a llama.cpp device name ("CUDA1" → 1).
 // The app runs CUDA with CUDA_DEVICE_ORDER=PCI_BUS_ID, the order the
