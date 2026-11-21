@@ -496,3 +496,43 @@ func TestPlanFitOnChosenGPUs(t *testing.T) {
 			all.Config.GPUAssign, all.BudgetGiB, none.Config.GPUAssign, none.BudgetGiB)
 	}
 }
+
+// appleMac is a 24 GB Apple Silicon Mac: the GPU's memory is the RAM, of
+// which Metal lets the GPU wire about three quarters.
+func appleMac() Hardware {
+	return Hardware{GPUs: []GPUSpec{{Index: 0, Name: "Apple M4", VRAMTotalMiB: 18186, SharesRAM: true, MarginMiB: WorkingMemoryMiB}},
+		LogicalCores: 10, RAMTotalMiB: 24 * 1024}
+}
+
+// On unified memory the GPU part of a plan comes out of the RAM, so a
+// model larger than the RAM budget must not fit by putting layers on the
+// CPU, as it would beside a discrete card of the same size.
+func TestPlanFitOnUnifiedMemory(t *testing.T) {
+	dense24 := &Model{NLayers: 80, NEmbd: 8192, NHead: 64, NKVHead: 8, ContextLength: 131072, SizeBytes: 24 * fitGiB}
+	mac := appleMac()
+	discrete := appleMac()
+	discrete.GPUs[0].SharesRAM = false
+
+	if r := PlanFit(dense24, defaultBase(), discrete, ContextShort); !r.Fits || r.Config.GPULayers >= 80 {
+		t.Fatalf("beside a discrete card the 24 GiB model should fit with layers on the CPU: %+v", r.Config)
+	}
+	if r := PlanFit(dense24, defaultBase(), mac, ContextShort); r.Fits {
+		t.Errorf("a 24 GiB model fits a 24 GB Mac: GPU %.1f GiB + system %.1f GiB", r.EstimateGiB, r.CPURAMGiB)
+	}
+
+	// What fits the RAM still fits, and the GPU part plus the system part
+	// stays inside it.
+	for _, m := range []*Model{dense8B, moe30B} {
+		r := PlanFit(m, defaultBase(), mac, ContextShort)
+		if !r.Fits {
+			t.Errorf("%.1f GiB model does not fit a 24 GB Mac", float64(m.SizeBytes)/float64(fitGiB))
+			continue
+		}
+		if _, ram := FitBudgets(mac); r.EstimateGiB+r.CPURAMGiB > ram {
+			t.Errorf("plan uses %.1f + %.1f GiB of a %.1f GiB RAM budget", r.EstimateGiB, r.CPURAMGiB, ram)
+		}
+	}
+	if !SharedMemory(mac) || SharedMemory(discrete) {
+		t.Error("SharedMemory does not follow SharesRAM")
+	}
+}

@@ -120,7 +120,7 @@ func TestMaxMoECacheMiB(t *testing.T) {
 	at := func(mib int) bool {
 		c := plan.Config
 		c.MoECacheMiB = mib
-		_, ok := fitsOn(m, &c, 3, budget, ram, GPUMiB(hw))
+		_, ok := fitsOn(m, &c, 3, budget, ram, false, GPUMiB(hw))
 		return ok
 	}
 	if !at(got) {

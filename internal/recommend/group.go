@@ -210,12 +210,18 @@ func gib(bytes float64) float64 { return bytes / (1 << 30) }
 // by a coarse score and returns the ones worth a full check.
 func chooseFinalists(groups []*Group, hw models.Hardware) []*Group {
 	vram, ram := models.FitBudgets(hw)
+	// On unified memory (Apple Silicon) the GPU budget is part of the
+	// RAM, so the most a model can use is the RAM budget alone.
+	room := vram + ram
+	if models.SharedMemory(hw) && ram > 0 {
+		room = max(vram, ram)
+	}
 	var fit []*Group
 	for _, g := range groups {
 		// Whether a model can keep experts in system memory is not known
 		// until its header is read, so system memory counts for every
 		// model here; the quant picker refuses dense models that need it.
-		if g.paramsFromHub && gib(float64(g.Params)*smallestBPW/8) > vram+ram {
+		if g.paramsFromHub && gib(float64(g.Params)*smallestBPW/8) > room {
 			continue
 		}
 		fit = append(fit, g)

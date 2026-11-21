@@ -40,6 +40,10 @@ type GPUSpec struct {
 	Name         string
 	VRAMTotalMiB int
 	IsIGPU       bool
+	// SharesRAM says the card's memory is the machine's RAM (Apple
+	// Silicon unified memory). A plan on such a card has one pool: the
+	// GPU part and the system-memory part together must fit the RAM.
+	SharesRAM bool
 	// OtherUsedMiB is memory other programs hold on the card (a desktop,
 	// another server), which a plan has to leave to them.
 	OtherUsedMiB int
@@ -293,6 +297,7 @@ func planFit(m *Model, base ModelConfig, hw Hardware, class ContextClass) FitRes
 		cfg.TensorSplit, cfg.SplitMode, cfg.MainGPU = ResolveGPUAssign(opt.Value, len(hw.GPUs))
 	}
 	budget, ramBudget := FitBudgets(hw)
+	shared := SharedMemory(hw)
 	nCards := max(1, len(PlanCards(hw)))
 	if opt != nil {
 		budget, nCards = 0, max(1, len(opt.GPUs))
@@ -329,7 +334,7 @@ func planFit(m *Model, base ModelConfig, hw Hardware, class ContextClass) FitRes
 	}
 
 	fits := func(c *ModelConfig) (VRAMBreakdown, bool) {
-		return fitsOn(m, c, nCards, budget, ramBudget, gpuMiB)
+		return fitsOn(m, c, nCards, budget, ramBudget, shared, gpuMiB)
 	}
 
 	var last ModelConfig
@@ -513,13 +518,19 @@ func effectiveDraftMax(c *ModelConfig) int {
 // prompt a thousand small steps.
 const planDraftUBatch = 128
 
-// fitsOn reports whether c fits the budgets PlanFit plans against.
-func fitsOn(m *Model, c *ModelConfig, nCards int, budget, ramBudget float64, gpuMiB []int) (VRAMBreakdown, bool) {
+// fitsOn reports whether c fits the budgets PlanFit plans against. With
+// shared set the GPU's memory is the system memory, so the GPU part
+// counts against ramBudget too.
+func fitsOn(m *Model, c *ModelConfig, nCards int, budget, ramBudget float64, shared bool, gpuMiB []int) (VRAMBreakdown, bool) {
 	b := VRAMBreakdownForConfigOn(m, c, nCards)
 	if budget <= 0 || b.Total() > budget {
 		return b, false
 	}
-	if ramBudget > 0 && b.CPURAM > ramBudget {
+	ram := b.CPURAM
+	if shared {
+		ram += b.Total()
+	}
+	if ramBudget > 0 && ram > ramBudget {
 		return b, false
 	}
 	// With experts in system memory the layers differ in size, so the
@@ -569,12 +580,13 @@ func maxMoECacheOn(m *Model, cfg ModelConfig, hw Hardware) (mib int, fits bool) 
 		return 0, true
 	}
 	budget, ramBudget := FitBudgets(hw)
+	shared := SharedMemory(hw)
 	nCards := max(1, len(PlanCards(hw)))
 	gpuMiB := GPUMiB(hw)
 	ok := func(steps int) bool {
 		c := cfg
 		c.MoECacheMiB = steps * moeCacheStepMiB
-		_, fits := fitsOn(m, &c, nCards, budget, ramBudget, gpuMiB)
+		_, fits := fitsOn(m, &c, nCards, budget, ramBudget, shared, gpuMiB)
 		return fits
 	}
 	hi := int((experts>>20)/moeCacheStepMiB) + 1 // enough to cache every expert
@@ -778,6 +790,18 @@ func FitBudgets(hw Hardware) (vramGiB, ramGiB float64) {
 		ramGiB = total - ramMarginGiB(total)
 	}
 	return vramGiB, ramGiB
+}
+
+// SharedMemory reports whether a card a plan uses keeps its memory in the
+// machine's RAM (GPUSpec.SharesRAM). On such a machine the GPU budget is
+// part of the RAM budget, not memory beside it.
+func SharedMemory(hw Hardware) bool {
+	for _, g := range PlanCards(hw) {
+		if g.SharesRAM {
+			return true
+		}
+	}
+	return false
 }
 
 // otherUsedGiB is what other programs hold on the cards a plan uses.

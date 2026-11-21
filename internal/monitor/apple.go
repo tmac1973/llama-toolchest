@@ -78,5 +78,6 @@ func appleGPUInfo(s appleGPUStats, totalMiB int) GPUInfo {
 		UtilPercent:  s.UtilPercent,
 		VRAMUsedMiB:  min(totalMiB, int(s.UsedBytes/1024/1024)),
 		VRAMTotalMiB: totalMiB,
+		SharesRAM:    true,
 	}
 }
