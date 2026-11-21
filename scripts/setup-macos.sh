@@ -83,10 +83,7 @@ service_path() {
 check_arch() {
     case "$(uname -m)" in
         arm64) ok "Apple Silicon ($(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo arm64))" ;;
-        x86_64)
-            warn "This is an Intel Mac. llama-toolchest runs here, but only with the CPU build:"
-            warn "Metal and the GPU memory planning need Apple Silicon."
-            ;;
+        x86_64) fatal "This is an Intel Mac. llama-toolchest on macOS supports Apple Silicon (M1 and newer) only." ;;
         *) fatal "Unsupported CPU: $(uname -m)" ;;
     esac
 }
@@ -181,7 +178,6 @@ install_binary() {
     fi
     version="${version#v}"
     arch="arm64"
-    [[ "$(uname -m)" == "x86_64" ]] && arch="amd64"
     asset="llama-toolchest_${version}_macos_${arch}.tar.gz"
 
     tmp="$(mktemp -d)"

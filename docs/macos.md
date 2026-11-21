@@ -14,7 +14,7 @@ Working macOS support starts with release 2.63.0. Older macOS downloads start, b
 | Curated llama.cpp forks | No: they need ROCm or CUDA |
 | Container and secure (Caddy) installs | No: Linux only |
 
-Intel Macs are not tested. The program starts there, but toolchest does not see the GPU, so expect CPU builds only.
+Intel Macs are not supported, and there is no release download for them.
 
 ## Install with setup.sh { #install }
 

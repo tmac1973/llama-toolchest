@@ -32,6 +32,11 @@ builds:
     goarch:
       - amd64
       - arm64
+    # macOS is Apple Silicon only: Intel Macs have no unified memory and
+    # llama-toolchest does not use their GPU.
+    ignore:
+      - goos: darwin
+        goarch: amd64
 
 archives:
   - id: default
