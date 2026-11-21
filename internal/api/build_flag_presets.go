@@ -15,23 +15,44 @@ type flagPresetRowData struct {
 	Msg      string // status line under the controls, if any
 }
 
+// flagPresetProject is the project a saved flag set belongs to for a
+// Builds page project value: the value itself, or llama.cpp when the page
+// shows no project choice (no generation backends or forks on).
+func flagPresetProject(value string) string {
+	if value == "" {
+		return builder.ProjectLlamaCpp
+	}
+	return value
+}
+
+// flagPresetOptionsProject is the project whose toggles a flag set of the
+// given project holds: a patch set choice builds llama.cpp.
+func flagPresetOptionsProject(project string) string {
+	if _, ok := patchSetChoice(project); ok {
+		return builder.ProjectLlamaCpp
+	}
+	return project
+}
+
 // renderFlagPresetRow writes the saved-flag-set controls: a dropdown of
-// the profile's presets, Save and Delete buttons, and an optional status
+// the project and profile's presets, Save and Delete buttons, and an optional status
 // message. The dropdown applies a preset by re-fetching #build-options
 // with a preset= param (which also fills the Build Tag via an OOB swap);
 // Save posts the whole build form so it captures the live toggle states.
-func (s *Server) renderFlagPresetRow(w http.ResponseWriter, profile, selected, msg string) {
+func (s *Server) renderFlagPresetRow(w http.ResponseWriter, project, profile, selected, msg string) {
 	respondHTML(w)
 	s.renderPartial(w, "flag_preset_row", flagPresetRowData{
-		Presets:  s.builder.FlagPresets(profile),
+		Presets:  s.builder.FlagPresets(project, profile),
 		Selected: selected,
 		Msg:      msg,
 	})
 }
 
-// handleFlagPresetRow renders the controls for the selected profile.
+// handleFlagPresetRow renders the controls for the selected project and
+// profile.
 func (s *Server) handleFlagPresetRow(w http.ResponseWriter, r *http.Request) {
-	s.renderFlagPresetRow(w, r.URL.Query().Get("profile"), "", "")
+	q := r.URL.Query()
+	s.renderFlagPresetRow(w, flagPresetProject(q.Get("project")), q.Get("profile"), "", "")
 }
 
 // handleSaveFlagPreset saves the posted build form as a flag preset
@@ -40,52 +61,56 @@ func (s *Server) handleSaveFlagPreset(w http.ResponseWriter, r *http.Request) {
 	if !parseForm(w, r) {
 		return
 	}
+	project := flagPresetProject(r.FormValue("project"))
 	profile := r.FormValue("profile")
 	name := strings.TrimSpace(r.FormValue("tag"))
 	if name == "" {
-		s.renderFlagPresetRow(w, profile, "", "Enter a Build Tag first — it names the saved set.")
+		s.renderFlagPresetRow(w, project, profile, "", "Enter a Build Tag first — it names the saved set.")
 		return
 	}
 	// Checkbox semantics: a present opt_* field means checked; absent
 	// means unchecked. Record every option explicitly so applying the
 	// preset later doesn't fall back to defaults for the off ones.
 	options := map[string]bool{}
-	for _, opt := range builder.ProfileOptions(profile) {
+	for _, opt := range builder.ProjectOptions(flagPresetOptionsProject(project), profile) {
 		options[opt.Flag] = r.Form.Get("opt_"+opt.Flag) == "on"
 	}
 	p := builder.FlagPreset{
 		Name:       name,
+		Project:    project,
 		Profile:    profile,
 		Options:    options,
 		ExtraCMake: strings.TrimSpace(r.FormValue("extra_cmake")),
 		Version:    builder.FlagPresetVersion,
 	}
 	if err := s.builder.SaveFlagPreset(p); err != nil {
-		s.renderFlagPresetRow(w, profile, "", err.Error())
+		s.renderFlagPresetRow(w, project, profile, "", err.Error())
 		return
 	}
-	s.renderFlagPresetRow(w, profile, name, fmt.Sprintf("Saved %q.", name))
+	s.renderFlagPresetRow(w, project, profile, name, fmt.Sprintf("Saved %q.", name))
 }
 
-// handleDeleteFlagPreset removes the selected preset.
+// handleDeleteFlagPreset removes the selected preset of the chosen
+// project.
 func (s *Server) handleDeleteFlagPreset(w http.ResponseWriter, r *http.Request) {
 	if !parseForm(w, r) {
 		return
 	}
+	project := flagPresetProject(r.FormValue("project"))
 	profile := r.FormValue("profile")
 	name := r.FormValue("preset")
 	if name == "" {
-		s.renderFlagPresetRow(w, profile, "", "Select a saved set to delete.")
+		s.renderFlagPresetRow(w, project, profile, "", "Select a saved set to delete.")
 		return
 	}
-	found, err := s.builder.DeleteFlagPreset(name)
+	found, err := s.builder.DeleteFlagPreset(project, name)
 	if err != nil {
-		s.renderFlagPresetRow(w, profile, name, err.Error())
+		s.renderFlagPresetRow(w, project, profile, name, err.Error())
 		return
 	}
 	if found {
-		s.renderFlagPresetRow(w, profile, "", fmt.Sprintf("Deleted %q.", name))
+		s.renderFlagPresetRow(w, project, profile, "", fmt.Sprintf("Deleted %q.", name))
 		return
 	}
-	s.renderFlagPresetRow(w, profile, "", fmt.Sprintf("No saved set named %q.", name))
+	s.renderFlagPresetRow(w, project, profile, "", fmt.Sprintf("No saved set named %q.", name))
 }

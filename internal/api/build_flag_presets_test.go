@@ -35,7 +35,7 @@ func TestSaveFlagPresetRecordsEveryOption(t *testing.T) {
 	if !strings.Contains(body, "Saved &#34;fast&#34;.") {
 		t.Errorf("no saved message in:\n%s", body)
 	}
-	p, ok := s.builder.FindFlagPreset("fast")
+	p, ok := s.builder.FindFlagPreset(builder.ProjectLlamaCpp, "fast")
 	if !ok {
 		t.Fatal("the preset was not saved")
 	}
@@ -57,7 +57,7 @@ func TestSaveFlagPresetNeedsATag(t *testing.T) {
 	if !strings.Contains(body, "Enter a Build Tag first") {
 		t.Errorf("no tag message in:\n%s", body)
 	}
-	if len(s.builder.FlagPresets("")) != 0 {
+	if len(s.builder.FlagPresets("", "")) != 0 {
 		t.Error("a preset was saved without a name")
 	}
 }
@@ -78,7 +78,69 @@ func TestDeleteFlagPresetHandler(t *testing.T) {
 	if body := postFlagPreset(t, s.handleDeleteFlagPreset, url.Values{"profile": {"cpu"}, "preset": {"fast"}}); !strings.Contains(body, "Deleted &#34;fast&#34;.") {
 		t.Errorf("existing set: got\n%s", body)
 	}
-	if _, ok := s.builder.FindFlagPreset("fast"); ok {
+	if _, ok := s.builder.FindFlagPreset(builder.ProjectLlamaCpp, "fast"); ok {
 		t.Error("the set survived the delete")
+	}
+}
+
+// A set is saved for the chosen project, with that project's toggles,
+// and the row lists only that project's sets.
+func TestFlagPresetsFollowTheProject(t *testing.T) {
+	s := newTestServer(t)
+	postFlagPreset(t, s.handleSaveFlagPreset, url.Values{"project": {builder.ProjectSDCpp}, "profile": {"cpu"}, "tag": {"sd-set"}})
+	postFlagPreset(t, s.handleSaveFlagPreset, url.Values{"profile": {"cpu"}, "tag": {"llama-set"}})
+
+	sd, ok := s.builder.FindFlagPreset(builder.ProjectSDCpp, "sd-set")
+	if !ok {
+		t.Fatal("the sd.cpp set was not saved for sd.cpp")
+	}
+	if want := len(builder.ProjectOptions(builder.ProjectSDCpp, "cpu")); len(sd.Options) != want {
+		t.Errorf("sd.cpp set has %d options; want sd.cpp's %d", len(sd.Options), want)
+	}
+	for flag := range sd.Options {
+		if strings.HasPrefix(flag, "LLAMA_") {
+			t.Errorf("sd.cpp set holds the llama.cpp toggle %s", flag)
+		}
+	}
+	if _, ok := s.builder.FindFlagPreset(builder.ProjectLlamaCpp, "llama-set"); !ok {
+		t.Error("a save with no project choice should be a llama.cpp set")
+	}
+
+	row := func(project string) string {
+		req := httptest.NewRequest(http.MethodGet, "/?profile=cpu&project="+url.QueryEscape(project), nil)
+		rec := httptest.NewRecorder()
+		s.handleFlagPresetRow(rec, req)
+		return rec.Body.String()
+	}
+	if body := row(builder.ProjectSDCpp); !strings.Contains(body, `value="sd-set"`) || strings.Contains(body, `value="llama-set"`) {
+		t.Errorf("sd.cpp row:\n%s", body)
+	}
+	if body := row(""); strings.Contains(body, `value="sd-set"`) || !strings.Contains(body, `value="llama-set"`) {
+		t.Errorf("llama.cpp row:\n%s", body)
+	}
+}
+
+// Applying a set by name never loads another project's set: the toggles
+// stay the chosen project's own, at their defaults.
+func TestApplyFlagPresetRefusesAnotherProject(t *testing.T) {
+	s := newTestServer(t)
+	if err := s.builder.SaveFlagPreset(builder.FlagPreset{
+		Name: "llama-set", Project: builder.ProjectLlamaCpp, Profile: "cpu",
+		ExtraCMake: "-DFROM_LLAMA=1", Version: builder.FlagPresetVersion,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	get := func(project string) string {
+		req := httptest.NewRequest(http.MethodGet, "/?profile=cpu&preset=llama-set&project="+url.QueryEscape(project), nil)
+		req.Header.Set("HX-Request", "true")
+		rec := httptest.NewRecorder()
+		s.handleProfileOptions(rec, req)
+		return rec.Body.String()
+	}
+	if body := get(builder.ProjectSDCpp); strings.Contains(body, "-DFROM_LLAMA=1") {
+		t.Errorf("sd.cpp applied the llama.cpp set:\n%s", body)
+	}
+	if body := get(builder.ProjectLlamaCpp); !strings.Contains(body, "-DFROM_LLAMA=1") {
+		t.Errorf("llama.cpp did not apply its own set:\n%s", body)
 	}
 }

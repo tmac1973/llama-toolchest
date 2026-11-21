@@ -18,6 +18,8 @@ Each toggle says when to use it. Extra CMake Flags takes anything else that CMak
 
 Enter a *Build Tag* and press *Save Flags* to keep toggles and extra flags under that name, then replay them on any ref.
 
+A flag set belongs to the project and the profile it was saved with. *Saved Flag Sets* lists only the sets of the chosen project and profile, so a llama.cpp set does not show for stable-diffusion.cpp, a fork or a patch set. Two projects can each have a set with the same name. Older sets, saved before sets had a project, become llama.cpp sets: they were all saved with the llama.cpp toggles.
+
 ## llama.cpp + RDNA boosts { #patch-sets }
 
 [RDNA boosts](https://github.com/stew675/llama-cpp-rdna-boosts) is a set of patches on upstream llama.cpp. It makes AMD RDNA2, RDNA3 and RDNA4 GPUs faster. The patches apply to an older upstream commit, the *base*. All features are on, with no extra options. ROCm only.

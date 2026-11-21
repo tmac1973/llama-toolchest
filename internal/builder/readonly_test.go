@@ -49,7 +49,7 @@ func TestCorruptFlagPresetsFileIsNotOverwritten(t *testing.T) {
 	if !errors.Is(err, ErrFlagPresetsReadOnly) {
 		t.Fatalf("SaveFlagPreset error = %v, want ErrFlagPresetsReadOnly", err)
 	}
-	if _, err := b.DeleteFlagPreset("fast"); !errors.Is(err, ErrFlagPresetsReadOnly) {
+	if _, err := b.DeleteFlagPreset(ProjectLlamaCpp, "fast"); !errors.Is(err, ErrFlagPresetsReadOnly) {
 		t.Fatalf("DeleteFlagPreset error = %v, want ErrFlagPresetsReadOnly", err)
 	}
 	if got, _ := os.ReadFile(p); string(got) != corrupt {

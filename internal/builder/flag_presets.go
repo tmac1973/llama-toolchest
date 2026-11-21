@@ -14,13 +14,17 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/readonly"
 )
 
-// FlagPreset is a saved build-flag set for a profile: toggle states plus
-// extra cmake flags, named by the user via the Build Tag field. It
-// deliberately excludes the git ref — the point is replaying a favorite
-// flag set against new refs — and is scoped to a profile, since toggles
-// only exist per backend.
+// FlagPreset is a saved build-flag set for a project and profile: toggle
+// states plus extra cmake flags, named by the user via the Build Tag
+// field. It deliberately excludes the git ref — the point is replaying a
+// favorite flag set against new refs — and is scoped to a project and a
+// profile, since the toggles differ per project and per backend.
 type FlagPreset struct {
-	Name       string          `json:"name"`
+	Name string `json:"name"`
+	// Project is the Builds page project choice the set was saved for: a
+	// project ID ("llama.cpp", "stable-diffusion.cpp", a fork) or a patch
+	// set choice ("patchset:rdna-boosts"). Names are unique per project.
+	Project    string          `json:"project,omitempty"`
 	Profile    string          `json:"profile"`
 	Options    map[string]bool `json:"options"`
 	ExtraCMake string          `json:"extra_cmake,omitempty"`
@@ -36,7 +40,12 @@ type FlagPreset struct {
 // 1: the CUDA Graphs toggle defaults to on and writes
 // GGML_CUDA_GRAPHS=OFF when off. Before, off wrote nothing and llama.cpp
 // built with graphs on anyway, so both stored values meant on.
-const FlagPresetVersion = 1
+//
+// 2: a preset records its project. Before, presets had none and were
+// offered for every project. They were all saved with the llama.cpp
+// toggle list, whatever project was chosen, so they become llama.cpp
+// presets.
+const FlagPresetVersion = 2
 
 // migrateFlagPreset brings a preset saved under an older FlagPresetVersion
 // up to the current one without changing what it builds. It reports
@@ -52,6 +61,9 @@ func migrateFlagPreset(p *FlagPreset) bool {
 			p.Options = map[string]bool{}
 		}
 		p.Options["GGML_CUDA_GRAPHS"] = true
+	}
+	if p.Version < 2 && p.Project == "" {
+		p.Project = ProjectLlamaCpp
 	}
 	p.Version = FlagPresetVersion
 	return true
@@ -118,40 +130,46 @@ func (b *Builder) saveFlagPresetsLocked() error {
 	return nil
 }
 
-// FlagPresets returns the saved flag sets for a profile ("" = all),
-// sorted by name.
-func (b *Builder) FlagPresets(profile string) []FlagPreset {
+// FlagPresets returns the saved flag sets for a project and a profile
+// ("" = any), sorted by name.
+func (b *Builder) FlagPresets(project, profile string) []FlagPreset {
 	b.fpMu.Lock()
 	defer b.fpMu.Unlock()
 	b.loadFlagPresetsLocked()
 	var out []FlagPreset
 	for _, p := range b.flagPresets {
-		if profile == "" || p.Profile == profile {
+		if (project == "" || p.Project == project) && (profile == "" || p.Profile == profile) {
 			out = append(out, p)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].Project < out[j].Project
+	})
 	return out
 }
 
-// FindFlagPreset returns the saved flag set with the given name.
-func (b *Builder) FindFlagPreset(name string) (FlagPreset, bool) {
+// FindFlagPreset returns the project's saved flag set with the given name.
+func (b *Builder) FindFlagPreset(project, name string) (FlagPreset, bool) {
 	b.fpMu.Lock()
 	defer b.fpMu.Unlock()
 	b.loadFlagPresetsLocked()
 	for _, p := range b.flagPresets {
-		if p.Name == name {
+		if p.Project == project && p.Name == name {
 			return p, true
 		}
 	}
 	return FlagPreset{}, false
 }
 
-// SaveFlagPreset upserts a flag set — saving under an existing name
-// updates it, which is the natural "update my favorite" flow. The name
+// SaveFlagPreset upserts a flag set — saving under a name the project
+// already has updates it, which is the natural "update my favorite" flow. The name
 // follows the build-tag rules so it can label builds directly. A preset
 // without a current Version (one restored from an older backup) is
-// migrated first; the build form's save sets the current Version.
+// migrated first (a missing project becomes llama.cpp); the build form's
+// save sets the current Version and the project.
 func (b *Builder) SaveFlagPreset(p FlagPreset) error {
 	if !validTagRE.MatchString(p.Name) {
 		return fmt.Errorf("invalid name %q: lowercase letters, digits, and hyphens", p.Name)
@@ -160,6 +178,9 @@ func (b *Builder) SaveFlagPreset(p FlagPreset) error {
 		return errors.New("a flag preset needs a profile")
 	}
 	migrateFlagPreset(&p)
+	if p.Project == "" {
+		return errors.New("a flag preset needs a project")
+	}
 	b.fpMu.Lock()
 	defer b.fpMu.Unlock()
 	b.loadFlagPresetsLocked()
@@ -167,7 +188,7 @@ func (b *Builder) SaveFlagPreset(p FlagPreset) error {
 		return err
 	}
 	for i := range b.flagPresets {
-		if b.flagPresets[i].Name == p.Name {
+		if b.flagPresets[i].Project == p.Project && b.flagPresets[i].Name == p.Name {
 			b.flagPresets[i] = p
 			return b.saveFlagPresetsLocked()
 		}
@@ -176,10 +197,11 @@ func (b *Builder) SaveFlagPreset(p FlagPreset) error {
 	return b.saveFlagPresetsLocked()
 }
 
-// DeleteFlagPreset removes a saved flag set, reporting whether it existed.
+// DeleteFlagPreset removes the project's saved flag set with the given
+// name, reporting whether it existed.
 // The error is set when the change could not be saved; the set is then
 // kept.
-func (b *Builder) DeleteFlagPreset(name string) (bool, error) {
+func (b *Builder) DeleteFlagPreset(project, name string) (bool, error) {
 	b.fpMu.Lock()
 	defer b.fpMu.Unlock()
 	b.loadFlagPresetsLocked()
@@ -187,7 +209,7 @@ func (b *Builder) DeleteFlagPreset(name string) (bool, error) {
 		return false, err
 	}
 	for i, p := range b.flagPresets {
-		if p.Name == name {
+		if p.Project == project && p.Name == name {
 			kept := slices.Clone(b.flagPresets)
 			b.flagPresets = append(b.flagPresets[:i], b.flagPresets[i+1:]...)
 			if err := b.saveFlagPresetsLocked(); err != nil {

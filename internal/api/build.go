@@ -27,6 +27,8 @@ func (s *Server) handleListBackends(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleProfileOptions(w http.ResponseWriter, r *http.Request) {
 	profile := r.URL.Query().Get("profile")
 	project := r.URL.Query().Get("project")
+	// The project choice as sent, which a saved flag set records.
+	presetProject := flagPresetProject(project)
 	if _, ok := patchSetChoice(project); ok {
 		project = builder.ProjectLlamaCpp
 	}
@@ -52,10 +54,12 @@ func (s *Server) handleProfileOptions(w http.ResponseWriter, r *http.Request) {
 	// Applying a saved flag set: its stored states replace the live ones,
 	// and the Build Tag is filled with the preset name via an OOB swap
 	// (below). Later toggle edits re-fetch without preset=, so tweaks on
-	// top of a loaded preset stick until saved again.
+	// top of a loaded preset stick until saved again. Only a set of the
+	// chosen project and profile applies: another project's toggles are
+	// not this project's.
 	var loadedPreset *builder.FlagPreset
 	if name := r.URL.Query().Get("preset"); name != "" {
-		if p, ok := s.builder.FindFlagPreset(name); ok && p.Profile == profile {
+		if p, ok := s.builder.FindFlagPreset(presetProject, name); ok && p.Profile == profile {
 			hasOverrides = true
 			overrides = p.Options
 			extraCMake = p.ExtraCMake
