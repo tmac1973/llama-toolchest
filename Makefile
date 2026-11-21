@@ -74,6 +74,15 @@ package:
 scrape-sampling-presets:
 	go run ./scripts/scrape-sampling-presets
 
+# Refresh the sd-server recipe snapshot built into llama-toolchest
+# (internal/generation/sdrecipes) from a stable-diffusion.cpp checkout:
+#   make update-sd-recipes SD=~/.local/share/llama-toolchest/stable-diffusion.cpp
+# The copied files are committed. Run it when upstream adds recipes.
+.PHONY: update-sd-recipes
+update-sd-recipes:
+	@test -n "$(SD)" || { echo "usage: make update-sd-recipes SD=<stable-diffusion.cpp checkout>"; exit 2; }
+	go run ./scripts/update-sd-recipes $(SD)
+
 # Runs the page JavaScript that is worth executing — the benchmark job
 # form's parameter controls, and the visualization's metric filter —
 # against a DOM stub. Part of `go test ./...`, but skipped when node is

@@ -1,0 +1,1 @@
+{"schema_version": 2, "id": "future-schema", "name": "Future", "slots": [{"id": "model", "required": true}]}

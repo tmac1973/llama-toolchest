@@ -1,0 +1,1 @@
+{"schema_version": 1, "id": "optional-extra", "name": "Optional extra slot", "slots": [{"id": "diffusion_model", "required": true}, {"id": "clip_g", "required": false}, {"id": "vae", "required": false}], "defaults": {}}
