@@ -99,7 +99,9 @@ func projects() []Project {
 		latestRef:       llamaLatestRef,
 		listRefs:        llamaListRefs,
 	}
-	gpuOnly := []string{"rocm", "cuda", "vulkan"}
+	// The generation backends build for every GPU backend; there is no
+	// CPU build. Metal (Apple Silicon) was tested on an M4 on 2026-11-21.
+	gpuOnly := []string{"rocm", "cuda", "vulkan", "metal"}
 	sd := Project{
 		ID:         ProjectSDCpp,
 		Kind:       "sd",
@@ -259,6 +261,7 @@ func sdMapFlags(flags map[string]string) {
 		"GGML_HIP":    "SD_HIPBLAS",
 		"GGML_CUDA":   "SD_CUDA",
 		"GGML_VULKAN": "SD_VULKAN",
+		"GGML_METAL":  "SD_METAL",
 	} {
 		if flags[ggml] == "ON" {
 			flags[sd] = "ON"

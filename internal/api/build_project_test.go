@@ -95,7 +95,7 @@ func TestProfileOptionsPreviewPerProject(t *testing.T) {
 	if strings.Contains(llama, "SD_CUDA") || !strings.Contains(llama, "LLAMA_OPENSSL") {
 		t.Errorf("llama.cpp preview changed:\n%s", llama)
 	}
-	if cpu := get("project=acestep.cpp&profile=cpu"); !strings.Contains(cpu, "can only be built with the rocm, cuda, vulkan profiles") {
+	if cpu := get("project=acestep.cpp&profile=cpu"); !strings.Contains(cpu, "can only be built with the rocm, cuda, vulkan, metal profiles") {
 		t.Errorf("acestep.cpp cpu preview lacks the profile warning:\n%s", cpu)
 	}
 }
@@ -113,7 +113,7 @@ func TestBuildsPageProjectPickerOnlyWhenEnabled(t *testing.T) {
 	}
 	s.cfg.GenerationEnabled = true
 	on := render()
-	for _, want := range []string{`id="build-project"`, `value="stable-diffusion.cpp"`, `data-backends="rocm,cuda,vulkan"`, `value="acestep.cpp"`} {
+	for _, want := range []string{`id="build-project"`, `value="stable-diffusion.cpp"`, `data-backends="rocm,cuda,vulkan,metal"`, `value="acestep.cpp"`} {
 		if !strings.Contains(on, want) {
 			t.Errorf("project picker lacks %s", want)
 		}

@@ -89,9 +89,10 @@ func LaunchSpec(inst Instance, set ModelSet, build builder.BuildResult, host, da
 	if err != nil {
 		return cfg, err
 	}
-	envVar := deviceEnvVar[backend]
-	if envVar == "" {
-		return cfg, fmt.Errorf("build %s uses the %s profile; generation backends need rocm, cuda or vulkan", build.ID, backend)
+	// Metal has one GPU, so it needs no device selector.
+	envVar, ok := deviceEnvVar[backend]
+	if !ok && backend != "metal" {
+		return cfg, fmt.Errorf("build %s uses the %s profile; generation backends need rocm, cuda, vulkan or metal", build.ID, backend)
 	}
 	port := strconv.Itoa(inst.Port)
 	base := inst.BaseURL()
@@ -139,7 +140,9 @@ func LaunchSpec(inst Instance, set ModelSet, build builder.BuildResult, host, da
 	// The device selector must not follow BuildEnv's "inherited wins"
 	// rule: a stray HIP_VISIBLE_DEVICES around toolchest would put the
 	// backend on the wrong GPU.
-	env = builder.SetEnv(env, envVar, strconv.Itoa(models.BackendDeviceIndex(backend, inst.GPU)))
+	if envVar != "" {
+		env = builder.SetEnv(env, envVar, strconv.Itoa(models.BackendDeviceIndex(backend, inst.GPU)))
+	}
 
 	cfg.BinaryPath = build.BinaryPath
 	cfg.Args = args

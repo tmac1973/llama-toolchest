@@ -93,6 +93,17 @@ func TestLaunchSpecDeviceVariablePerProfile(t *testing.T) {
 			t.Errorf("%s: %s = %q, want 2", profile, want, v)
 		}
 	}
+	// Metal has one GPU: the build is accepted and no selector is set.
+	cfg, err := LaunchSpec(Instance{ID: "x", Port: 8082}, mingSet(),
+		builder.BuildResult{ID: "b", Profile: "metal", BinaryPath: "/b/sd-server"}, "", t.TempDir(), LaunchOptions{})
+	if err != nil {
+		t.Fatalf("metal build refused: %v", err)
+	}
+	for _, v := range []string{"HIP_VISIBLE_DEVICES", "CUDA_VISIBLE_DEVICES", "GGML_VK_VISIBLE_DEVICES"} {
+		if _, n := envValue(cfg.Env, v); n != 0 {
+			t.Errorf("metal: %s set", v)
+		}
+	}
 	if _, err := LaunchSpec(Instance{ID: "x", Port: 8082}, mingSet(),
 		builder.BuildResult{ID: "b", Profile: "cpu"}, "", t.TempDir(), LaunchOptions{}); err == nil {
 		t.Error("a cpu build was accepted")

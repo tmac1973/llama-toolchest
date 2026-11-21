@@ -34,7 +34,7 @@ func TestProjectBackends(t *testing.T) {
 			t.Errorf("llama.cpp refuses %s", b)
 		}
 	}
-	for b, want := range map[string]bool{"rocm": true, "cuda": true, "vulkan": true, "metal": false, "cpu": false} {
+	for b, want := range map[string]bool{"rocm": true, "cuda": true, "vulkan": true, "metal": true, "cpu": false} {
 		if got := sd.SupportsBackend(b); got != want {
 			t.Errorf("sd.cpp SupportsBackend(%s) = %v, want %v", b, got, want)
 		}
@@ -63,6 +63,12 @@ func TestSDMapFlags(t *testing.T) {
 	sd.MapFlags(cuda)
 	if cuda["SD_CUDA"] != "ON" || cuda["SD_HIPBLAS"] != "" {
 		t.Errorf("cuda flags = %v", cuda)
+	}
+
+	metal := map[string]string{"GGML_METAL": "ON"}
+	sd.MapFlags(metal)
+	if metal["SD_METAL"] != "ON" {
+		t.Errorf("metal flags = %v", metal)
 	}
 }
 
