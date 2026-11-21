@@ -150,6 +150,12 @@ type genSetRow struct {
 	TotalGB float64 `json:"total_gb"`
 	// FailedError is set when a download of this set failed.
 	FailedError string `json:"failed_error,omitempty"`
+	// FileError is why a downloaded file of the set was refused (the
+	// first one), empty when none was.
+	FileError string `json:"file_error,omitempty"`
+	// Resumable is true for an incomplete set that has files to
+	// download: a catalog set, or a custom set with linked files.
+	Resumable bool `json:"resumable"`
 	// Instances counts the backend instances that run this set. The
 	// Models page offers New instance only for a set with none.
 	Instances int `json:"instances"`
@@ -190,9 +196,13 @@ func (s *Server) genModelsView(store *generation.Store) genModelsData {
 // genSetRowFor reports a set's download progress from its files on disk
 // and its downloads still in flight.
 func (s *Server) genSetRowFor(m generation.ModelSet) genSetRow {
-	row := genSetRow{ModelSet: m}
+	row := genSetRow{ModelSet: m, Resumable: !m.Complete && (m.CatalogID != "" || hasDownload(m))}
 	var done, total int64
 	for _, c := range m.Components {
+		if c.Error != "" && row.FileError == "" {
+			// The check's error already names the slot.
+			row.FileError = c.Error
+		}
 		total += c.Bytes
 		if c.Path != "" {
 			done += c.Bytes
@@ -358,29 +368,10 @@ func (s *Server) handleGenCatalogDownload(w http.ResponseWriter, r *http.Request
 	}
 	s.genSetMu.Unlock()
 
-	// A file already on disk (for example one ACE-Step set's shared files
-	// when the other set is downloaded) is taken as it is; the rest are
-	// downloaded.
-	root := generation.ModelsDir(s.cfg)
-	var ids []string
-	for _, c := range set.Components {
-		path := huggingface.FilePath(root, c.Repo, c.File)
-		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() && (c.Bytes == 0 || info.Size() == c.Bytes) {
-			s.genFileDone(set.ID, c.Slot, path, info.Size())
-			continue
-		}
-		slot := c.Slot
-		id, err := s.downloader.StartTo(modelsource.SourceHuggingFace, c.Repo, c.File, root, c.Bytes,
-			func(path string, size int64) { s.genFileDone(set.ID, slot, path, size) })
-		if err != nil && id == "" {
-			http.Error(w, fmt.Sprintf("starting %s: %v", c.File, err), http.StatusInternalServerError)
-			return
-		}
-		// "already in progress" still returns the running download's ID.
-		ids = append(ids, id)
+	if err := s.startSetDownloads(set); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
-	s.genDownloads.set(set.ID, ids)
-	slog.Info("generation model set download started", "set", set.ID, "files", len(ids))
 	// The downloads list shows the new files without waiting for its poll.
 	w.Header().Set("HX-Trigger", "dlPanelRefresh")
 	if r.URL.Query().Get("view") == "catalog" {
@@ -390,10 +381,121 @@ func (s *Server) handleGenCatalogDownload(w http.ResponseWriter, r *http.Request
 	s.handleGenModels(w, r)
 }
 
+// handleGenSetDownload resumes a custom set's downloads: after a restart
+// during the download, a failed download, or a file that was refused.
+// Catalog sets resume through handleGenCatalogDownload.
+func (s *Server) handleGenSetDownload(w http.ResponseWriter, r *http.Request) {
+	store := s.genStore(w)
+	if store == nil {
+		return
+	}
+	if err := s.genMove.busy(); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	s.genSetMu.Lock()
+	set, err := store.ModelSet(chi.URLParam(r, "id"))
+	switch {
+	case errors.Is(err, generation.ErrNotFound):
+		s.genSetMu.Unlock()
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	case err != nil:
+		s.genSetMu.Unlock()
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	case set.CatalogID != "":
+		s.genSetMu.Unlock()
+		http.Error(w, "a catalog set resumes from its catalog download", http.StatusBadRequest)
+		return
+	case set.Complete:
+		s.genSetMu.Unlock()
+		http.Error(w, fmt.Sprintf("%s is already downloaded", set.Name), http.StatusConflict)
+		return
+	case !hasDownload(set):
+		s.genSetMu.Unlock()
+		http.Error(w, fmt.Sprintf("%s has no files to download; edit it to give its missing files", set.Name), http.StatusBadRequest)
+		return
+	}
+	for i := range set.Components {
+		set.Components[i].Error = ""
+	}
+	err = store.UpdateModelSet(set)
+	s.genSetMu.Unlock()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := s.startSetDownloads(set); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("HX-Trigger", "dlPanelRefresh")
+	s.handleGenModels(w, r)
+}
+
+// hasDownload reports whether the set has a linked file that is not on
+// disk yet, which Resume can download.
+func hasDownload(set generation.ModelSet) bool {
+	for _, c := range set.Components {
+		if c.Repo != "" && c.Path == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// startSetDownloads downloads the set's linked files (those with a Repo)
+// that have no Path yet, from their pinned commit (the default branch
+// when none is pinned). A file already at its download path (for
+// example one ACE-Step set's shared files when the other set is
+// downloaded) is taken as it is. It does nothing for a set with nothing
+// to download.
+func (s *Server) startSetDownloads(set generation.ModelSet) error {
+	root := generation.ModelsDir(s.cfg)
+	var ids []string
+	for _, c := range set.Components {
+		if c.Repo == "" || c.Path != "" {
+			continue
+		}
+		path := huggingface.FilePath(root, c.Repo, c.File)
+		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() && (c.Bytes == 0 || info.Size() == c.Bytes) {
+			s.genFileDone(set.ID, c.Slot, path, info.Size())
+			continue
+		}
+		slot := c.Slot
+		id, err := s.downloader.StartToAt(modelsource.SourceHuggingFace, c.Repo, c.Revision, c.File, root, c.Bytes,
+			func(path string, size int64) { s.genFileDone(set.ID, slot, path, size) })
+		if err != nil && id == "" {
+			return fmt.Errorf("starting %s: %v", c.File, err)
+		}
+		// "already in progress" still returns the running download's ID.
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	s.genDownloads.set(set.ID, ids)
+	slog.Info("generation model set download started", "set", set.ID, "files", len(ids))
+	return nil
+}
+
+// setDownloading reports whether any of the set's downloads is running.
+func (s *Server) setDownloading(setID string) bool {
+	for _, id := range s.genDownloads.get(setID) {
+		if st, ok := s.downloader.Status(id); ok && st.Status == "downloading" {
+			return true
+		}
+	}
+	return false
+}
+
 // genFileDone records a downloaded file in its set, and marks the set
 // complete once every file is present. A file whose size is not the
 // size the set gives for it is not recorded, so the set stays
-// incomplete rather than loading a wrong file.
+// incomplete rather than loading a wrong file. A file that is not what
+// its slot needs (generation.CheckFileFormat) is deleted, and the reason
+// is kept on the component for the set's row.
 func (s *Server) genFileDone(setID, slot, path string, size int64) {
 	s.genSetMu.Lock()
 	defer s.genSetMu.Unlock()
@@ -406,12 +508,19 @@ func (s *Server) genFileDone(setID, slot, path string, size int64) {
 	for i := range set.Components {
 		c := &set.Components[i]
 		if c.Slot == slot {
-			if c.Bytes > 0 && size != c.Bytes {
+			switch err := generation.CheckFileFormat(slot, path); {
+			case c.Bytes > 0 && size != c.Bytes:
 				slog.Warn("generation model file has the wrong size; not recorded",
 					"set", setID, "slot", slot, "path", path, "size", size, "expected", c.Bytes)
 				c.Path = ""
-			} else {
-				c.Path, c.Bytes = path, size
+			case err != nil:
+				slog.Warn("downloaded generation model file refused", "set", setID, "slot", slot, "path", path, "error", err)
+				if rmErr := os.Remove(path); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+					slog.Warn("failed to remove a refused generation model file", "path", path, "error", rmErr)
+				}
+				c.Path, c.Error = "", err.Error()
+			default:
+				c.Path, c.Bytes, c.Error = path, size, ""
 			}
 		}
 		if c.Path == "" {
@@ -428,7 +537,9 @@ func (s *Server) genFileDone(setID, slot, path string, size int64) {
 	}
 }
 
-// handleGenCreateSet creates a custom set from files already on disk.
+// handleGenCreateSet creates a custom set from files on disk and
+// Hugging Face file links. Linked files that are not on disk download
+// after the save, like a catalog set's.
 func (s *Server) handleGenCreateSet(w http.ResponseWriter, r *http.Request) {
 	store := s.genStore(w)
 	if store == nil {
@@ -442,6 +553,12 @@ func (s *Server) handleGenCreateSet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), code)
 		return
 	}
+	if !set.Complete {
+		if err := s.genMove.busy(); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+	}
 
 	s.genSetMu.Lock()
 	err = store.AddModelSet(set)
@@ -454,6 +571,13 @@ func (s *Server) handleGenCreateSet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if !set.Complete {
+		if err := s.startSetDownloads(set); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("HX-Trigger", "dlPanelRefresh")
+	}
 	// The Download Models tab has no set list to redraw: it gets a note.
 	if r.URL.Query().Get("view") == "catalog" {
 		respondHTML(w)
@@ -463,9 +587,10 @@ func (s *Server) handleGenCreateSet(w http.ResponseWriter, r *http.Request) {
 	s.handleGenModels(w, r)
 }
 
-// handleGenDeleteSet removes a set. A catalog set's files are deleted too,
-// except files another set still uses; a custom set's files are the
-// user's own and are never touched.
+// handleGenDeleteSet removes a set. The files toolchest downloaded for
+// it (catalog files, and a custom set's linked files) are deleted too,
+// except files another set still uses. Files a custom set was given as
+// local paths are the user's own and are never touched.
 func (s *Server) handleGenDeleteSet(w http.ResponseWriter, r *http.Request) {
 	store := s.genStore(w)
 	if store == nil {
@@ -502,10 +627,13 @@ func (s *Server) handleGenDeleteSet(w http.ResponseWriter, r *http.Request) {
 	}
 	s.genDownloads.drop(id)
 
-	if set.CatalogID != "" {
+	{
 		root := generation.ModelsDir(s.cfg)
 		shared := newSharedFiles(others, root)
 		for _, c := range set.Components {
+			if c.Repo == "" {
+				continue
+			}
 			// The path the file was recorded at, which may be outside
 			// root (a file that could not be moved there).
 			path := c.Path

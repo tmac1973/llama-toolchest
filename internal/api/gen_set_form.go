@@ -241,7 +241,7 @@ func (s *Server) genSetFormFrom(get func(string) string) genSetForm {
 	for _, slot := range slots.Slots() {
 		field := genSetSlotField{Slot: slot, Label: generation.SlotLabel(f.Recipe, slot),
 			Required: slices.Contains(slots.Required, slot), Value: strings.TrimSpace(get("slot_" + slot)),
-			Hint: "/path/to/file", List: "gen-model-file-list"}
+			Hint: "A file in the models folder, or a Hugging Face file link", List: "gen-model-file-list"}
 		if g := slots.Group(slot); g != nil {
 			field.OneOf = strings.Join(g, ", ")
 		}
@@ -308,7 +308,7 @@ func (s *Server) genSetCopyForm(r *http.Request, store *generation.Store) (genSe
 		set = generation.ModelSet{Name: entry.Name, Kind: entry.Kind, Recipe: entry.Recipe, Components: entry.Components}
 	}
 
-	f, err := s.genSetFilledForm(set, entry, fromCatalog, s.freeSetName(store, set.Name+" custom"), r.FormValue("tab"))
+	f, err := s.genSetFilledForm(set, entry, fromCatalog, false, s.freeSetName(store, set.Name+" custom"), r.FormValue("tab"))
 	if err != nil {
 		return genSetForm{}, http.StatusInternalServerError, err
 	}
@@ -323,7 +323,7 @@ func (s *Server) genSetEditForm(r *http.Request, store *generation.Store) (genSe
 	if err != nil {
 		return genSetForm{}, code, err
 	}
-	f, err := s.genSetFilledForm(set, generation.CatalogEntry{}, false, set.Name, "models")
+	f, err := s.genSetFilledForm(set, generation.CatalogEntry{}, false, true, set.Name, "models")
 	if err != nil {
 		return genSetForm{}, http.StatusInternalServerError, err
 	}
@@ -352,8 +352,10 @@ func editableSet(store *generation.Store, id string) (generation.ModelSet, int, 
 // a catalog set or entry (fromCatalog), as a catalog set runs with its
 // entry's current values, otherwise from the set's own. Each file that is
 // on this machine fills its slot; one that is not leaves the slot empty,
-// with the catalog file's name as the hint.
-func (s *Server) genSetFilledForm(set generation.ModelSet, entry generation.CatalogEntry, fromCatalog bool, name, tab string) (genSetForm, error) {
+// with the catalog file's name as the hint. For an edit (edit), a
+// downloaded file fills its slot with its Hugging Face link, on disk or
+// not, so saving the edit keeps it a file toolchest downloads.
+func (s *Server) genSetFilledForm(set generation.ModelSet, entry generation.CatalogEntry, fromCatalog, edit bool, name, tab string) (genSetForm, error) {
 	// The source's values: the catalog entry's for a catalog set or entry,
 	// otherwise the custom set's own.
 	src := set
@@ -400,6 +402,10 @@ func (s *Server) genSetFilledForm(set generation.ModelSet, entry generation.Cata
 	vals.Set("recipe_slots", strings.Join(slots, ","))
 	hints := map[string]string{}
 	for _, c := range set.Components {
+		if edit && c.Repo != "" {
+			vals.Set("slot_"+c.Slot, generation.HFLink(c.Repo, c.Revision, c.File))
+			continue
+		}
 		path := c.Path
 		if path == "" && c.Repo != "" {
 			if p := huggingface.FilePath(generation.ModelsDir(s.cfg), c.Repo, c.File); fileExists(p) {
@@ -535,18 +541,42 @@ func (s *Server) setFromForm(r *http.Request, existing *generation.ModelSet) (ge
 	if err != nil {
 		return bad(err)
 	}
-	set.Components = comps
-	if err := generation.ValidateComponents(kind, recipe, set.Components); err != nil {
+	if err := generation.ValidateComponents(kind, recipe, comps); err != nil {
 		return bad(err)
 	}
-	if err := generation.CheckFiles(set.Components, s.cfg.ModelsPath(), s.inContainer()); err != nil {
+	// Local files are checked now. Linked files are pinned and sized, and
+	// one already at its download path is taken; the rest download after
+	// the save and are checked when each one is done (genFileDone).
+	var local []generation.Component
+	for _, c := range comps {
+		if c.Repo == "" {
+			local = append(local, c)
+		}
+	}
+	if err := generation.CheckFiles(local, s.cfg.ModelsPath(), s.inContainer()); err != nil {
 		return bad(err)
 	}
-	for _, c := range set.Components {
+	var known []generation.Component
+	if existing != nil {
+		known = existing.Components
+	}
+	comps, err = s.resolveHFComponents(r.Context(), comps, known)
+	if err != nil {
+		return bad(err)
+	}
+	if err := s.checkDownloadSpace(comps); err != nil {
+		return generation.ModelSet{}, http.StatusInsufficientStorage, err
+	}
+	for _, c := range comps {
+		if c.Path == "" {
+			set.Complete = false
+			continue
+		}
 		if err := generation.CheckFileFormat(c.Slot, c.Path); err != nil {
 			return bad(err)
 		}
 	}
+	set.Components = comps
 	if _, err := generation.LoraDir(set); err != nil {
 		return bad(err)
 	}
@@ -592,23 +622,45 @@ func (s *Server) handleGenUpdateSet(w http.ResponseWriter, r *http.Request) {
 
 // updateSet does handleGenUpdateSet's checks and save under genSetMu. On
 // an error it also returns the HTTP status to send.
+//
+// The form is read and its links resolved before the lock is taken, as
+// that asks Hugging Face; the checks run again under the lock.
 func (s *Server) updateSet(r *http.Request, store *generation.Store) (int, error) {
-	s.genSetMu.Lock()
-	defer s.genSetMu.Unlock()
-	existing, code, err := editableSet(store, chi.URLParam(r, "id"))
+	id := chi.URLParam(r, "id")
+	check := func() (generation.ModelSet, int, error) {
+		existing, code, err := editableSet(store, id)
+		if err != nil {
+			return existing, code, err
+		}
+		for _, inst := range store.Instances() {
+			if inst.ModelSetID == existing.ID && (s.genMgr.IsActive(inst.ID) || s.genMgr.IsMeasuring(inst.ID)) {
+				return existing, http.StatusConflict, fmt.Errorf("stop %s first: a set cannot change while its instance runs", inst.Name)
+			}
+		}
+		if s.setDownloading(existing.ID) {
+			return existing, http.StatusConflict, fmt.Errorf("%s is still downloading. Wait for the download to finish, or delete the set", existing.Name)
+		}
+		return existing, 0, nil
+	}
+	existing, code, err := check()
 	if err != nil {
 		return code, err
-	}
-	for _, inst := range store.Instances() {
-		if inst.ModelSetID == existing.ID && (s.genMgr.IsActive(inst.ID) || s.genMgr.IsMeasuring(inst.ID)) {
-			return http.StatusConflict, fmt.Errorf("stop %s first: a set cannot change while its instance runs", inst.Name)
-		}
 	}
 	set, code, err := s.setFromForm(r, &existing)
 	if err != nil {
 		return code, err
 	}
-	if err := store.UpdateModelSet(set); err != nil {
+	s.genSetMu.Lock()
+	if _, code, err := check(); err != nil {
+		s.genSetMu.Unlock()
+		return code, err
+	}
+	err = store.UpdateModelSet(set)
+	s.genSetMu.Unlock()
+	if err != nil {
+		return http.StatusInternalServerError, err
+	}
+	if err := s.startSetDownloads(set); err != nil {
 		return http.StatusInternalServerError, err
 	}
 	return 0, nil
@@ -647,11 +699,22 @@ func formVideoSizes(r *http.Request, set generation.ModelSet) ([]generation.Vide
 
 // formComponents reads a set's files from the form: one slot_<slot> field
 // per file, or the older files field with one "slot = /path" line per
-// file. Not both.
+// file. Not both. A value that is a Hugging Face file link becomes a
+// component to download (Repo, File, Revision, no Path).
 func formComponents(r *http.Request) ([]generation.Component, error) {
 	var comps []generation.Component
-	add := func(slot, path string) {
-		c := generation.Component{Slot: slot, Path: path}
+	var linkErr error
+	add := func(slot, value string) {
+		// A Hugging Face file link is a file to download; Add set pins
+		// and sizes it (resolveHFComponents).
+		if repo, rev, file, ok := generation.ParseHFLink(value); ok {
+			if _, lora := generation.LoraSlots[slot]; lora && linkErr == nil {
+				linkErr = fmt.Errorf("%s: LoRA files must be local files", slot)
+			}
+			comps = append(comps, generation.Component{Slot: slot, Repo: repo, File: file, Revision: rev})
+			return
+		}
+		c := generation.Component{Slot: slot, Path: value}
 		if info, err := os.Stat(c.Path); err == nil {
 			c.Bytes = info.Size()
 		}
@@ -678,6 +741,9 @@ func formComponents(r *http.Request) ([]generation.Component, error) {
 			return nil, fmt.Errorf("%q: write each file as slot = /path/to/file", line)
 		}
 		add(strings.TrimSpace(slot), strings.TrimSpace(path))
+	}
+	if linkErr != nil {
+		return nil, linkErr
 	}
 	slices.SortFunc(comps, func(a, b generation.Component) int { return strings.Compare(a.Slot, b.Slot) })
 	return comps, nil

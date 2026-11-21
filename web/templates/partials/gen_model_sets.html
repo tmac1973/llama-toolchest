@@ -31,10 +31,10 @@
                     <progress value="{{.Percent}}" max="100" style="margin:0;" title="{{printf "%.1f" .DoneGB}} of {{printf "%.1f" .TotalGB}} GB downloaded"></progress>
                     <small>{{.Percent}}%</small>
                     {{- else}}
-                    <span title="{{with .FailedError}}The download failed: {{.}}{{else}}Some files are missing, for example after a restart during the download.{{end}}" style="cursor:help;">Incomplete{{if .FailedError}} (failed){{end}}</span>
-                    {{- if .CatalogID}}
+                    <span title="{{with .FileError}}A downloaded file was refused and deleted. {{.}}. Edit the set to choose another file, then press Resume.{{else}}{{with .FailedError}}The download failed: {{.}}{{else}}Some files are missing, for example after a restart during the download.{{end}}{{end}}" style="cursor:help;">Incomplete{{if .FileError}} (wrong file){{else if .FailedError}} (failed){{end}}</span>
+                    {{- if .Resumable}}
                     <button type="button" class="outline" style="margin:0 0 0 0.5rem;padding:0.1rem 0.5rem;font-size:0.8rem;"
-                            hx-post="/api/gen/models/catalog/{{.CatalogID}}/download"
+                            hx-post="{{if .CatalogID}}/api/gen/models/catalog/{{.CatalogID}}/download{{else}}/api/gen/models/sets/{{.ID}}/download{{end}}"
                             hx-target="#gen-model-sets" hx-swap="innerHTML"
                             data-error-label="Download not resumed">Resume</button>
                     {{- end}}

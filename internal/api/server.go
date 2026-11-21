@@ -118,6 +118,10 @@ type Server struct {
 	// download completions make from their own goroutines.
 	genSetMu     sync.Mutex
 	genDownloads genDownloads
+	// hfRepoCache keeps Hugging Face file lists for custom set downloads;
+	// hfRepoFake replaces the Hugging Face client for them in tests.
+	hfRepoCache hfRepoCache
+	hfRepoFake  hfRepoAPI
 
 	// forks holds the curated forks' model sets and fork instances; nil
 	// when forks.json could not be read, with forksErr saying why.
@@ -1033,6 +1037,7 @@ func (s *Server) buildRouter() chi.Router {
 			r.Put("/sets/{id}", s.handleGenUpdateSet)
 			r.Delete("/sets/{id}", s.handleGenDeleteSet)
 			r.Get("/sets/{id}/details", s.handleGenSetDetails)
+			r.Post("/sets/{id}/download", s.handleGenSetDownload)
 		})
 		r.Get("/forks/needs", s.handleForkNeeds)
 		r.Route("/forks/instances", func(r chi.Router) {

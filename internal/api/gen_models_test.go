@@ -21,12 +21,20 @@ import (
 	"github.com/tmac1973/llama-toolchest/internal/testutil"
 )
 
-// genServer returns a test server with generation backends on, an empty
-// store, and a downloader whose Hugging Face files come from a fake server
-// that answers every file with "<repo>/<file>".
 // fakeGGUF is the start of a GGUF file: enough for the custom set form's
 // file format check.
 var fakeGGUF = []byte("GGUF\x03\x00\x00\x00")
+
+// fakeFileBody is what genServer's fake Hugging Face serves for a file:
+// a GGUF start, so the file passes the format check, then
+// "<repo>/<file>".
+func fakeFileBody(repo, file string) []byte {
+	return append(slices.Clone(fakeGGUF), repo+"/"+file...)
+}
+
+// genServer returns a test server with generation backends on, an empty
+// store, and a downloader whose Hugging Face files come from a fake server
+// that answers every file with fakeFileBody.
 
 func genServer(t *testing.T) *Server {
 	t.Helper()
@@ -38,7 +46,7 @@ func genServer(t *testing.T) *Server {
 	}
 	s.gen = store
 	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(strings.TrimPrefix(r.URL.Path, "/")))
+		w.Write(append(slices.Clone(fakeGGUF), strings.TrimPrefix(r.URL.Path, "/")...))
 	}))
 	t.Cleanup(fake.Close)
 	s.downloader = huggingface.NewDownloader(s.cfg.DataDir, filepath.Join(s.cfg.DataDir, "models"), "")
@@ -62,7 +70,7 @@ func addFakeSizedSet(t *testing.T, s *Server, id string) {
 		Components: slices.Clone(entry.Components), Created: time.Now(),
 	}
 	for i, c := range set.Components {
-		set.Components[i].Bytes = int64(len(c.Repo + "/" + c.File))
+		set.Components[i].Bytes = int64(len(fakeFileBody(c.Repo, c.File)))
 	}
 	if err := s.gen.AddModelSet(set); err != nil {
 		t.Fatal(err)
@@ -122,7 +130,7 @@ func TestGenCatalogDownloadCompletes(t *testing.T) {
 		if !strings.HasPrefix(c.Path, root) {
 			t.Errorf("%s landed at %s, outside %s", c.Slot, c.Path, root)
 		}
-		if got, _ := os.ReadFile(c.Path); string(got) != c.Repo+"/"+c.File {
+		if got, _ := os.ReadFile(c.Path); string(got) != string(fakeFileBody(c.Repo, c.File)) {
 			t.Errorf("%s holds %q", c.Slot, got)
 		}
 	}
@@ -160,7 +168,7 @@ func TestGenCatalogDownloadReplacesWrongSizedFile(t *testing.T) {
 		set, _ = s.gen.ModelSet("flux2-klein-4b")
 		return set.Complete
 	}, func() string { return fmt.Sprintf("set never completed: %+v", set) })
-	if got, _ := os.ReadFile(path); string(got) != c.Repo+"/"+c.File {
+	if got, _ := os.ReadFile(path); string(got) != string(fakeFileBody(c.Repo, c.File)) {
 		t.Errorf("%s holds %q, want the downloaded file", c.Slot, got)
 	}
 }
@@ -171,15 +179,23 @@ func TestGenFileDoneRefusesWrongSize(t *testing.T) {
 	s := genServer(t)
 	addFakeSizedSet(t, s, "flux2-klein-4b")
 	set, _ := s.gen.ModelSet("flux2-klein-4b")
+	dir := t.TempDir()
+	fileFor := func(c generation.Component) string {
+		p := filepath.Join(dir, c.File)
+		if err := os.WriteFile(p, fakeFileBody(c.Repo, c.File), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
 	for _, c := range set.Components {
-		s.genFileDone(set.ID, c.Slot, "/x/"+c.File, c.Bytes)
+		s.genFileDone(set.ID, c.Slot, fileFor(c), c.Bytes)
 	}
 	if set, _ = s.gen.ModelSet("flux2-klein-4b"); !set.Complete {
 		t.Fatal("files of the right size did not complete the set")
 	}
 
 	c := set.Components[0]
-	s.genFileDone(set.ID, c.Slot, "/x/"+c.File, c.Bytes+1)
+	s.genFileDone(set.ID, c.Slot, fileFor(c), c.Bytes+1)
 	set, _ = s.gen.ModelSet("flux2-klein-4b")
 	if set.Complete {
 		t.Error("a file of the wrong size left the set complete")
