@@ -278,3 +278,90 @@ func TestGenSetFormRecipeGroups(t *testing.T) {
 		t.Error("a recipe without a description shows a description line")
 	}
 }
+
+// A new set's launch arguments and test sizes start from the recipe's
+// defaults. A recipe change refills the fields the user did not change
+// and keeps the ones they did; a copy or an edit is never prefilled.
+func TestGenSetFormPrefill(t *testing.T) {
+	s := genServer(t)
+	form := func(v url.Values) genSetForm {
+		return s.genSetFormFrom(v.Get)
+	}
+	// next is the query the redrawn form sends back: its values and
+	// hidden prefill fields, with the recipe changed.
+	next := func(f genSetForm, recipe string) url.Values {
+		return url.Values{"kind": {string(f.Kind)}, "recipe": {recipe}, "launch_args": {f.LaunchArgs},
+			"width": {f.Width}, "height": {f.Height}, "frames": {f.Frames}, "fps": {f.FPS},
+			"prefill_args": {f.PrefillArgs}, "prefill_width": {f.PrefillWidth}, "prefill_height": {f.PrefillHeight},
+			"prefill_frames": {f.PrefillFrames}, "prefill_fps": {f.PrefillFPS}}
+	}
+	defaults := func(id string) (string, string, string) {
+		r, _ := generation.ActiveRecipes().Get(id)
+		w, h, _, _ := r.SizeDefaults()
+		return generation.JoinArgs(r.LaunchDefaults()), w, h
+	}
+
+	// The first draw shows the kind's first recipe with its defaults.
+	f := form(url.Values{})
+	args, w, h := defaults(f.Recipe)
+	if f.LaunchArgs != args || f.Width != w || f.Height != h || !f.ArgsFromRecipe() {
+		t.Errorf("first draw of %s: args %q size %sx%s, want %q %sx%s", f.Recipe, f.LaunchArgs, f.Width, f.Height, args, w, h)
+	}
+
+	// Untouched fields follow the recipe.
+	f = form(url.Values{"kind": {"sd"}, "recipe": {"flux1-dev"}})
+	if f.LaunchArgs != "--steps 20 --cfg-scale 1 --guidance 3.5 --sampling-method euler" || f.Width != "1024" {
+		t.Errorf("flux1-dev: %q %s", f.LaunchArgs, f.Width)
+	}
+	f = form(next(f, "pixart-alpha-1024"))
+	if args, _, _ := defaults("pixart-alpha-1024"); f.LaunchArgs != args || !strings.Contains(args, "--model-args pixart_vae_scale_factor=0.18215") {
+		t.Errorf("after a change to pixart: %q, want %q", f.LaunchArgs, args)
+	}
+
+	// Changed args are kept, on this change and the next; the untouched
+	// size still follows.
+	v := next(f, "pid")
+	v.Set("launch_args", "--steps 30")
+	f = form(v)
+	if f.LaunchArgs != "--steps 30" || f.Width != "2048" || f.ArgsFromRecipe() {
+		t.Errorf("changed args: %q, width %s", f.LaunchArgs, f.Width)
+	}
+	f = form(next(f, "flux1-dev"))
+	if f.LaunchArgs != "--steps 30" || f.Width != "1024" {
+		t.Errorf("changed args after a second change: %q, width %s", f.LaunchArgs, f.Width)
+	}
+
+	// Video fills frames and FPS; a kind without recipes clears what was
+	// filled.
+	f = form(url.Values{"kind": {"video"}, "recipe": {"wan22-t2v"}})
+	if f.Frames != "33" || f.FPS != "16" || !strings.Contains(f.LaunchArgs, "--moe-boundary 0.875") {
+		t.Errorf("wan22-t2v: frames %s fps %s args %q", f.Frames, f.FPS, f.LaunchArgs)
+	}
+	v = next(f, "")
+	v.Set("kind", "ace")
+	if f = form(v); f.LaunchArgs != "" || f.Width != "" {
+		t.Errorf("ace after wan: args %q width %s", f.LaunchArgs, f.Width)
+	}
+
+	// The drawn form has the note and the hidden fields.
+	body := setFormFields(t, s, "kind=sd&recipe=pid")
+	for _, want := range []string{`name="launch_args" value="--steps 4`, "From the recipe's defaults", `name="prefill_width" value="2048"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("form lacks %q", want)
+		}
+	}
+
+	// A copy keeps the source's (empty) flags and sizes, also after a
+	// recipe change; an edit is not prefilled either.
+	f = form(url.Values{"kind": {"sd"}, "recipe": {"flux1-dev"}, "from_set": {"1"}})
+	if f.LaunchArgs != "" || f.Width != "" {
+		t.Errorf("copy was prefilled: %q %s", f.LaunchArgs, f.Width)
+	}
+	if body := setFormFields(t, s, "kind=sd&recipe=flux1-dev&from_set=1"); !strings.Contains(body, `name="from_set" value="1"`) || strings.Contains(body, "prefill_args") {
+		t.Error("a copy's redraw loses from_set or has prefill fields")
+	}
+	f = form(url.Values{"kind": {"sd"}, "recipe": {"flux1-dev"}, "edit_id": {"mine"}})
+	if f.LaunchArgs != "" || f.Width != "" {
+		t.Errorf("edit was prefilled: %q %s", f.LaunchArgs, f.Width)
+	}
+}
