@@ -1,6 +1,6 @@
 # llama-toolchest
 
-llama-toolchest is a web app that runs [llama.cpp](https://github.com/ggml-org/llama.cpp) on your own GPUs. It builds llama.cpp from source, downloads models, plans what fits in VRAM, and serves an OpenAI-compatible API. It can also run image, video and music generation next to your LLMs. It runs on Linux, with NVIDIA CUDA, AMD ROCm, Vulkan or the CPU.
+llama-toolchest is a web app that runs [llama.cpp](https://github.com/ggml-org/llama.cpp) on your own GPUs. It builds llama.cpp from source, downloads models, plans what fits in VRAM, and serves an OpenAI-compatible API. It can also run image, video and music generation next to your LLMs. It runs on Linux, with NVIDIA CUDA, AMD ROCm, Vulkan or the CPU, and on Apple Silicon Macs with Metal (see [macOS](macos.md)).
 
 The Help page in the app gives short answers. These pages give the full detail.
 

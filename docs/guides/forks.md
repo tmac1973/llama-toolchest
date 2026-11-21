@@ -1,6 +1,6 @@
 # llama.cpp forks (experimental)
 
-Some forks of llama.cpp are much faster for one model. llama-toolchest can build a short list of curated forks. Each one runs as a *fork instance*: its own llama-server, for the model the fork is made for, on one whole GPU (or two, when the fork can use two). It runs next to the router and the generation backends. Now the list has one fork, **Avalon**. It runs Qwen3.8-Flash-Next on one RDNA3 GPU, with most experts in system RAM, or on two GPUs (see [Avalon on two GPUs](#two-gpus)).
+Some forks of llama.cpp are much faster for one model. llama-toolchest can build a short list of curated forks. Each one runs as a *fork instance*: its own llama-server, for the model the fork is made for, on one whole GPU (or two, when the fork can use two). It runs next to the router and the generation backends. Now the list has one fork, **Avalon**. It runs Qwen3.8-Flash-Next on one RDNA3 GPU, with most experts in system RAM, or on two GPUs (see [Avalon on two GPUs](#two-gpus)). Forks need ROCm or CUDA, so they are not offered on a Mac.
 
 1. **Turn on** *llama.cpp forks (experimental)* in Settings (`/settings`). With eviction set to llama.cpp, toolchest then decides what to unload (see [Eviction](../gpu/eviction.md#modes)).
 2. **Build** the fork on Builds (`/builds`). It builds the newest commit of the fork. The fork changes fast, so toolchest does not pin one commit. Build again to get the newest fixes.

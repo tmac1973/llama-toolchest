@@ -40,6 +40,7 @@ nav = [
   ] },
   { "API" = "api.md" },
   { "Install" = [
+    { "macOS" = "macos.md" },
     { "Manual install" = "manual-install.md" },
     { "Secure install" = "secure.md" },
   ] },

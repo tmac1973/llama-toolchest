@@ -8,11 +8,11 @@ A web-based management interface for [llama.cpp](https://github.com/ggerganov/ll
 
 **Documentation:** https://tmac1973.github.io/llama-toolchest/
 
-**Linux only.** Supports NVIDIA CUDA, AMD ROCm, Vulkan (host install only), and CPU backends. Works with Docker and Podman on all major Linux distributions.
+**Linux and macOS.** On Linux it supports NVIDIA CUDA, AMD ROCm, Vulkan (host install only) and CPU backends, with Docker and Podman on all major distributions. On Apple Silicon Macs it runs natively with Metal — see [macOS](#macos).
 
 ## Features
 
-- **Build management** — Compile llama.cpp with CUDA / ROCm / Vulkan / CPU backends. Toggleable build options, real-time SSE log streaming.
+- **Build management** — Compile llama.cpp with CUDA / ROCm / Vulkan / Metal / CPU backends. Toggleable build options, real-time SSE log streaming.
 - **Model management** — Download GGUF models from HuggingFace, scan existing files, configure per-model parameters.
 - **Multi-model loading** — Run multiple models simultaneously via llama.cpp's router. Per-model isolated subprocess, LRU eviction at the VRAM limit.
 - **Per-model config** — Context size, KV cache quant, GPU layers, tensor split, flash attention, sampling, a default system prompt, aliases, and speculative-decoding draft model.
@@ -44,6 +44,12 @@ cd llama-toolchest
 ```
 
 The setup script detects your GPU and container runtime, installs missing prerequisites, shows a summary, then builds and starts. The management UI is at `http://localhost:3000`.
+
+### macOS
+
+On an Apple Silicon Mac the same `./setup.sh install` runs a macOS setup: it checks for the Xcode Command Line Tools and Homebrew, offers to `brew install cmake ninja`, installs the latest release in `~/.local/bin`, and runs it as a launchd agent that starts at login. There are no containers or install modes on a Mac. `./setup.sh up`, `down`, `restart`, `logs`, `status` and `uninstall` manage it.
+
+Chat, image and music models run on the GPU with Metal; the curated llama.cpp forks and the secure (Caddy) install are Linux only. Working macOS support starts with release 2.63.0. See [macOS](https://tmac1973.github.io/llama-toolchest/macos/) in the docs for details, a manual install and how memory works on a Mac.
 
 ### Install modes
 
@@ -122,6 +128,7 @@ If you'd rather skip `setup.sh` and install the released `.deb`/`.rpm` packages 
 | NVIDIA (Maxwell+) | CUDA 12.8 | cuda, cpu, vulkan† | GTX 900 series and newer. Driver >= 570. |
 | AMD | ROCm 7.2 (default), ROCm 10 ‡ | rocm, cpu, vulkan† | RDNA and newer. |
 | Other (Intel Arc, etc.) | Vulkan† | vulkan, cpu | Cross-vendor; install with `./setup.sh install --vulkan`. |
+| Apple Silicon (M1+) | Metal | metal, cpu | macOS only, native install. See [macOS](#macos). |
 | None | CPU-only | cpu | No GPU required. |
 
 † Vulkan is host-install only — see [GPU Backend Notes → Vulkan](#vulkan).
