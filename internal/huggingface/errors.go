@@ -31,7 +31,7 @@ func statusError(resp *http.Response, modelID string, hasToken bool) error {
 		// let the token read this repository.
 		msg = fmt.Sprintf("Hugging Face refused the saved token for %s. Open %s and check that you have access "+
 			"(agree to the access terms, or wait for the owner to approve your request). "+
-			"A fine-grained token also needs \"Read access to contents of all public gated repos you can access\" "+
+			"A fine-grained token also needs \"Read contents of gated repos you can access\" "+
 			"turned on in its permissions.", modelID, page)
 	case status == http.StatusUnauthorized && hasToken:
 		msg = fmt.Sprintf("Hugging Face did not accept the saved token for %s. "+

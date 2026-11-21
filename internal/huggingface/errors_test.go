@@ -27,7 +27,7 @@ func TestStatusError(t *testing.T) {
 		{"gated, no token", resp(401, "GatedRepo", "Access is restricted. Please log in."), false,
 			[]string{"gated model", "agree to its access terms", "save a HuggingFace token", "(HTTP 401)"}, []string{"refused the saved token"}},
 		{"gated, token refused", resp(403, "GatedRepo", "Please enable access to public gated repositories in your fine-grained token settings."), true,
-			[]string{"refused the saved token", "Read access to contents of all public gated repos", "Hugging Face said: Please enable", "(HTTP 403)"}, nil},
+			[]string{"refused the saved token", "Read contents of gated repos you can access", "Hugging Face said: Please enable", "(HTTP 403)"}, nil},
 		{"403 without a code", resp(403, "", ""), true,
 			[]string{"refused the saved token"}, []string{"Hugging Face said"}},
 		{"bad token", resp(401, "", "Invalid username or password."), true,
