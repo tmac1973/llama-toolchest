@@ -25,7 +25,7 @@ func statusError(resp *http.Response, modelID string, hasToken bool) error {
 	switch {
 	case code == "GatedRepo" && !hasToken:
 		msg = fmt.Sprintf("%s is a gated model. Open %s, sign in and agree to its access terms. "+
-			"Then save a HuggingFace token in Settings and start the download again.", modelID, page)
+			"Then save a HuggingFace token in Settings and try again.", modelID, page)
 	case code == "GatedRepo" || (status == http.StatusForbidden && hasToken):
 		// A 403 with a token: Hugging Face knows who you are but will not
 		// let the token read this repository.
