@@ -976,6 +976,8 @@ func (s *Server) buildRouter() chi.Router {
 			r.Post("/embedding-presets/download", s.handleDownloadEmbeddingPreset)
 			r.Get("/rerank-presets", s.handleRerankPresets)
 			r.Post("/rerank-presets/download", s.handleDownloadRerankPreset)
+			r.Get("/speech-presets", s.handleSpeechPresets)
+			r.Post("/speech-presets/download", s.handleDownloadSpeechPreset)
 			r.Get("/{id}", s.handleGetModel)
 			r.Get("/{id}/info", s.handleModelInfo)
 			r.Delete("/{id}", s.handleDeleteModel)

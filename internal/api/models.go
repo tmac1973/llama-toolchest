@@ -185,6 +185,60 @@ func (s *Server) handleRerankPresets(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, presets)
 }
 
+func (s *Server) handleSpeechPresets(w http.ResponseWriter, r *http.Request) {
+	presets := models.CuratedSpeechModels()
+	if isHTMX(r) {
+		respondHTML(w)
+		s.renderPartial(w, "speech_presets", struct {
+			Presets    []models.SpeechModelPreset
+			Downloaded map[string]bool
+			Build      int // the active llama.cpp build, 0 when unknown
+		}{Presets: presets, Downloaded: s.downloadedRepos(), Build: s.activeTarget().Version})
+		return
+	}
+	respondJSON(w, presets)
+}
+
+// handleDownloadSpeechPreset downloads a curated speech model and its
+// projector into the repo's folder. Whichever file ends last, the
+// projector is then set on the model (see onDownloadComplete).
+func (s *Server) handleDownloadSpeechPreset(w http.ResponseWriter, r *http.Request) {
+	if !parseForm(w, r) {
+		return
+	}
+	var preset *models.SpeechModelPreset
+	for _, p := range models.CuratedSpeechModels() {
+		if p.Repo == r.FormValue("repo") {
+			preset = &p
+			break
+		}
+	}
+	if preset == nil {
+		http.Error(w, "not a curated speech model", http.StatusBadRequest)
+		return
+	}
+	downloadID, err := s.downloader.Start(r.Context(), modelsource.SourceHuggingFace, preset.Repo, preset.Filename, 0)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	mmprojID, err := s.downloader.Start(r.Context(), modelsource.SourceHuggingFace, preset.Repo, preset.MmprojFilename, 0)
+	if err != nil {
+		http.Error(w, "the model is downloading, but its projector could not start: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if isHTMX(r) {
+		respondHTML(w)
+		s.renderPartial(w, "download_progress", struct {
+			DownloadID string
+			Filename   string
+		}{DownloadID: downloadID, Filename: preset.Filename})
+		return
+	}
+	respondJSON(w, map[string]string{"download_id": downloadID, "mmproj_download_id": mmprojID})
+}
+
 // downloadedRepos are the repos of every registered model, so a curated
 // card can mark the ones already downloaded.
 func (s *Server) downloadedRepos() map[string]bool {

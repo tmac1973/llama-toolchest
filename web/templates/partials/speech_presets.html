@@ -1,0 +1,61 @@
+{{/* "Get speech models" on the Download Models tab. The speech models
+     on this machine are on the Models tab. */}}
+{{define "speech_presets"}}
+<article class="dl-card">
+<header class="rec-head">
+    <div>
+        <strong>Speech models</strong><br>
+        <small class="rec-muted">Text-to-speech models for <code>/tts</code> and <code>/v1/audio/speech</code>. Download gets the model and its projector. The projector holds the voice encoder and the audio decoder, and the model needs it to speak. A speech model only speaks. It does not chat.</small>
+    </div>
+    <div class="rec-actions">
+        <button type="button" class="outline secondary" onclick="toggleDownloadCard('speech', false)"
+                title="Hide the list. The speech models you downloaded are on the Models tab.">Hide</button>
+    </div>
+</header>
+<table role="grid">
+    <thead>
+        <tr>
+            <th>Model</th>
+            <th title="Languages the model speaks. Send the language as lang.">Languages</th>
+            <th title="GPU memory used with the model loaded at its default settings (8192 context, 4 slots) and one speech request answered. Measured, not estimated.">VRAM</th>
+            <th title="License of the weights. Apache-2.0 allows any use.">Licence</th>
+            <th title="The download size of the model and its projector together.">Size</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Presets}}
+        <tr>
+            <td>
+                <strong>{{.Name}}</strong>
+                <br><small style="opacity: 0.7;">{{.Desc}}</small>
+                <br><small class="rec-muted">{{.Voice}}</small>
+                {{if and $.Build (lt $.Build .MinBuild)}}
+                <br><small class="rec-slow">Needs llama.cpp b{{.MinBuild}} or newer. The active build is b{{$.Build}}. Build a newer one on the <a href="/builds">Builds</a> page.</small>
+                {{end}}
+            </td>
+            <td>{{.Languages}}</td>
+            <td>{{.VRAMLabel}}</td>
+            <td>{{.License}}</td>
+            <td>{{.SizeLabel}}</td>
+            <td>
+                {{if index $.Downloaded .Repo}}
+                    <small><ins>Downloaded</ins></small>
+                {{else}}
+                    <button type="button"
+                            hx-post="/api/models/speech-presets/download"
+                            hx-vals='{{hxVals "repo" .Repo}}'
+                            hx-target="closest tr"
+                            hx-swap="afterend"
+                            title="Downloads the model and its projector. Both show in the Downloads list."
+                            style="margin:0;padding:0.2rem 0.6rem;font-size:0.8rem;">
+                        Download
+                    </button>
+                {{end}}
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+</article>
+{{end}}

@@ -39,6 +39,29 @@ default_model:
   off: false       # true turns the name off
 ```
 
+## Speech API { #speech-api }
+
+`POST /tts` goes to llama-server's own `/tts` as it is, behind the same API key as `/v1/*`. If the model is not loaded, toolchest loads it first. The answer is a WAV file. Send JSON, or a multipart form with the voice to copy as a `speaker_ref` file. Get a model from [Get speech models](guides/download-models.md#speech-models).
+
+```bash
+curl $BASE/tts -o line.wav \
+  -F model=moonbox-dev-Qwen3-TTS-12Hz-1.7B-Base.Q8_0 -F input="The ship left at dawn." -F lang=en \
+  -F speaker_ref=@voice.wav -F speaker_ref_text="What is said in voice.wav." -F seed=7
+```
+
+The fields are llama-server's. Which ones a model uses depends on the model:
+
+| Field | What it does | Qwen3-TTS |
+| --- | --- | --- |
+| `seed` | `-1` (the default) is random. Another seed gives another take. The same seed gives the same audio on the CPU, but on a GPU it can give a slightly different take. | Yes |
+| `temperature`, `top_k`, `top_p` | Sampling. Leave them out for the server's and the model's own values. | Yes |
+| `speaker_ref`, `speaker_ref_b64` | A recording of the voice to copy. | Yes |
+| `speaker_ref_text` | What is said in that recording. The copy is closer. Needs llama.cpp b12491 or newer, a recording of 30 s or less, and a projector with the reference encoder. | Yes |
+| `speed` | Pace as a factor of the model's own (`1.0`). Needs b12238 or newer. | No: any value other than `1.0` gets a `400` |
+| `lang`, `voice`, `response_format`, `stream` | Language, a voice of the model's own, `wav`/`pcm`/`pcm16`, and audio sent as it is made. | `lang` yes, `voice` no |
+
+A model that cannot change its pace answers `400` for `speed`, so a client that needs another pace has to time-stretch the audio itself. The API reference (`/docs/api`) has every field. llama-server also answers the OpenAI-style `POST /v1/audio/speech` with the same models.
+
 ## Image, video and music API { #generation-api }
 
 Instances show in `/v1/models` with `meta.kind` `image`, `video`, `music` or `upscale`. Use the instance or set ID as `model`. `meta.api` lists the routes of each instance, `meta.video` the limits of a video instance, and `meta.tasks` the tasks of a music instance. `meta.max_edit_images` gives the most reference images of an edit, and `meta.scale` the factor of an upscaler. `meta.measuring` is true while an instance is being measured. It refuses requests until the measurement ends. The API reference (`/docs/api`) has every field and error.
