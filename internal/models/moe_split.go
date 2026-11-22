@@ -232,7 +232,10 @@ func balanceSplit(layers []float64, budgets, fixed []float64) []int {
 func moeSplitInputs(m *Model, cfg *ModelConfig, gpuMiB []int, active []int) (layers, budgets, fixed []float64) {
 	b := VRAMBreakdownForConfigOn(m, cfg, len(active))
 	layers = layerGPUBytes(m, cfg, b)
-	perCard := (b.Compute + b.Overhead + b.IndexerScratch) / float64(len(active))
+	// The loop core's CPU experts are in Compute, but all on the first
+	// card; see loopCPUExpertBytes.
+	loopExperts := BytesToGiB(loopCPUExpertBytes(m, cfg))
+	perCard := (b.Compute - loopExperts + b.Overhead + b.IndexerScratch) / float64(len(active))
 	for i, g := range active {
 		// gpuMiB is already each card's budget, after the GPU memory margin.
 		budgets = append(budgets, float64(gpuMiB[g])/1024)
@@ -240,7 +243,7 @@ func moeSplitInputs(m *Model, cfg *ModelConfig, gpuMiB []int, active []int) (lay
 		if i == 0 {
 			// The first card also holds what is not per layer: draft
 			// model caches and auxiliary files such as the image reader.
-			f += b.SpecKV + b.Aux
+			f += b.SpecKV + b.Aux + loopExperts
 		}
 		if i == len(active)-1 {
 			f += outputGiB(m)

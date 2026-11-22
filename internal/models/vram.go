@@ -657,6 +657,7 @@ func vramBreakdownOn(co *vramCoefficients, m *Model, cfg *ModelConfig, cards int
 	if co.expertOffloadScratch && cfg.CPUMoE > 0 && m.ExpertLayers > 0 {
 		b.Compute += BytesToGiB(m.ExpertBytes / int64(m.ExpertLayers))
 	}
+	b.Compute += BytesToGiB(loopCPUExpertBytes(m, cfg))
 	var spec, specCopies float64
 	if IsDraftMode(cfg.SpecType) {
 		// The drafter's context has a micro-batch of its own when one is
@@ -974,6 +975,29 @@ func cpuExpertBytes(m *Model, cfg *ModelConfig) int64 {
 		moved += m.expertBytesAt(il)
 	}
 	return moved
+}
+
+// loopCPUExpertBytes is what --n-cpu-moe keeps in system memory from a
+// looped model's loop core, which the GPU holds again anyway. llama.cpp
+// copies those experts into the compute buffer of the first card, one
+// copy each, so they save nothing there: Inkling 2 Mini on two A4000s
+// (64K, micro-batch 256) held 11,156 MiB on its first card with 6 to 12
+// CPU expert layers, the compute buffer 547 MiB larger for each layer
+// past 6. At 128K with 22 the first card held all twelve loop layers'
+// copies (6.4 GiB), four of them for layers the second card runs. With
+// the first card holding only block 0 (split 1,47) no copies showed on
+// either card, so where they go depends on the split; the first card is
+// the cautious place to count them. They stay in system memory too.
+func loopCPUExpertBytes(m *Model, cfg *ModelConfig) int64 {
+	if m.LoopSlots <= 0 {
+		return 0
+	}
+	var n int64
+	last := m.ExpertLayerFirst + cpuExpertLayers(m, cfg)
+	for il := max(m.LoopStart, m.ExpertLayerFirst); il < min(last, m.LoopEnd); il++ {
+		n += m.expertBytesAt(il)
+	}
+	return n
 }
 
 // expertBytesAt is the size of layer il's experts: measured where the

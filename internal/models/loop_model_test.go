@@ -61,7 +61,7 @@ func TestParseLoopedModel(t *testing.T) {
 
 	var m Model
 	meta.ApplyTo(&m)
-	if m.LoopSlots != 4 || m.RelAttnHeads != 4 {
+	if m.LoopSlots != 4 || m.LoopStart != 2 || m.LoopEnd != 4 || m.RelAttnHeads != 4 {
 		t.Errorf("ApplyTo did not copy the loop: %+v", m)
 	}
 }
@@ -190,5 +190,61 @@ func TestParseExpertBytesByLayer(t *testing.T) {
 	}
 	if meta.OutputBytes != 64 {
 		t.Errorf("output bytes = %d, want 64", meta.OutputBytes)
+	}
+}
+
+// --n-cpu-moe keeps a loop core's experts in system memory, but llama.cpp
+// copies them to the GPU again, so they count there as well.
+func TestLoopCoreCPUExpertsStayOnTheGPU(t *testing.T) {
+	m := &Model{NLayers: 24, LoopStart: 6, LoopEnd: 18, LoopSlots: 24, ExpertLayers: 24, ExpertBytes: 24 * 100}
+	for _, tt := range []struct{ cpuMoE, want int64 }{{5, 0}, {6, 0}, {9, 300}, {20, 1200}} {
+		if got := loopCPUExpertBytes(m, &ModelConfig{CPUMoE: int(tt.cpuMoE)}); got != tt.want {
+			t.Errorf("--n-cpu-moe %d: %d bytes back on the GPU, want %d", tt.cpuMoE, got, tt.want)
+		}
+	}
+	plain := *m
+	plain.LoopSlots = 0
+	if got := loopCPUExpertBytes(&plain, &ModelConfig{CPUMoE: 9}); got != 0 {
+		t.Errorf("a model without a loop: %d bytes, want none", got)
+	}
+}
+
+// inkling2Mini is Inkling 2 Mini IQ4_NL as compute2 reads it.
+func inkling2Mini() *Model {
+	experts := make([]int64, 24)
+	for i := range experts {
+		experts[i] = 573308928
+		if i >= 20 {
+			experts[i] = 1082916864
+		}
+	}
+	return &Model{ID: "ink", Arch: "inkling2_loop", NLayers: 24, NEmbd: 2304, NKVHead: 8, RelAttnHeads: 24,
+		KVFullPerTok: 16384, KVSWAPerTok: 81920, SlidingWindow: 1024, AttnLayers: 48,
+		LoopStart: 6, LoopEnd: 18, LoopSlots: 24, ContextLength: 1048576,
+		ExpertCount: 128, ExpertUsedCount: 8, ExpertLayers: 24, ExpertBytes: 15797846016, ExpertLayerBytes: experts,
+		SizeBytes: 17627940768, TokenEmbdBytes: 492106752, OutputBytes: 492106752}
+}
+
+// On two A4000s the plan takes a smaller prompt batch before it moves
+// experts to system memory: at llama.cpp's 512 a 64K plan needed the
+// experts of 21 layers there, at 256 it needs few.
+func TestFitPrefersASmallerPromptBatchForRelativeAttention(t *testing.T) {
+	SetVRAMBackend("cuda")
+	defer SetVRAMBackend("")
+	card := func(i int) GPUSpec { return GPUSpec{Index: i, VRAMTotalMiB: 15352, MarginMiB: WorkingMemoryMiB} }
+	hw := Hardware{GPUs: []GPUSpec{card(0), card(1)}, LogicalCores: 16, RAMTotalMiB: 64 * 1024}
+	for _, tt := range []struct {
+		class     ContextClass
+		maxCPUMoE int
+	}{{ContextMedium, 6}, {ContextMax, 24}} {
+		res := PlanFit(inkling2Mini(), DefaultConfig(), hw, tt.class)
+		c := res.Config
+		if !res.Fits || c.UBatchSize != planSmallUBatch || c.CPUMoE > tt.maxCPUMoE {
+			t.Errorf("%s: fits %v, ctx %d, ubatch %d, %d CPU expert layers; want ubatch %d and at most %d CPU expert layers",
+				tt.class, res.Fits, c.ContextSize, c.UBatchSize, c.CPUMoE, planSmallUBatch, tt.maxCPUMoE)
+		}
+		if c.ContextSize >= 1048576 {
+			t.Errorf("%s: context %d; the full 1M does not fit two 16 GiB cards", tt.class, c.ContextSize)
+		}
 	}
 }
