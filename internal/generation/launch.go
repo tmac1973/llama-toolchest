@@ -135,6 +135,9 @@ func LaunchSpec(inst Instance, set ModelSet, build builder.BuildResult, host, da
 	if err != nil {
 		return cfg, err
 	}
+	if set.Kind == KindSD || set.Kind == KindVideo {
+		args = adaptArgsForBuild(set.ID, build, args)
+	}
 
 	env := process.BuildEnv(filepath.Dir(build.BinaryPath), nil)
 	// The device selector must not follow BuildEnv's "inherited wins"

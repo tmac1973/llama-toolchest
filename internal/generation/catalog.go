@@ -469,7 +469,11 @@ func Catalog() []CatalogEntry {
 				umt5Q8,
 				wan21VAE,
 			},
-			// The wan22-i2v recipe's defaults. sd-server has no flag for the
+			// The wan22-i2v recipe's defaults. --high-noise-cfg-scale and
+			// --high-noise-sampling-method are for builds before
+			// master-1116; LaunchSpec leaves them out on newer builds,
+			// which use --cfg-scale and --sampling-method for both
+			// experts (see highNoiseFlags). sd-server has no flag for the
 			// recipe's high_noise_flow_shift; --flow-shift covers both
 			// experts. --moe-boundary is the recipe's 0.9, not sd-server's
 			// default 0.875.
@@ -542,7 +546,7 @@ func Catalog() []CatalogEntry {
 				"--steps":                "4 steps on each expert. Lightning's own workflow uses 2 + 2: faster (110 s) but softer, with smeared faces in the last frames. 4 + 4 (200 s) was about as sharp as the 20-step set.",
 				"--high-noise-steps":     "4 steps on the high-noise expert, before the low-noise expert takes over. --moe-boundary is not needed.",
 				"--cfg-scale 1":          "The Lightning LoRAs are made for CFG 1: one pass per step.",
-				"--high-noise-cfg-scale": "The Lightning LoRAs are made for CFG 1: one pass per step.",
+				"--high-noise-cfg-scale": "The Lightning LoRAs are made for CFG 1: one pass per step. stable-diffusion.cpp master-1116 and later builds do not have this flag. On those builds, toolchest leaves it out, and the high-noise expert uses --cfg-scale 1.",
 				"--temporal-tiling":      "With --vae-tiling, the Wan2.1 VAE hung while it read the start image on ROCm. This flag tiles only the decode.",
 				"--backend te=cpu":       "Runs the text model on the CPU. This saved only about 1 GiB here, because stable-diffusion.cpp already takes the text model off the GPU before it samples.",
 			},

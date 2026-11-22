@@ -21,6 +21,12 @@ A recipe is stable-diffusion.cpp's description of a model: which files it needs,
 
 An instance starts only on a build that knows its set's recipe. If you run a set on an older build that does not have the recipe, the start is refused and says so; choose a newer build for the instance. A set whose recipe the current list does not know is kept. *Details* shows a warning, and *Copy* and *Edit* still open it.
 
+### Flags that newer builds removed { #removed-flags }
+
+stable-diffusion.cpp master-1116 removed the separate settings for the high-noise expert of a Wan2.2 A14B pair, such as `--high-noise-cfg-scale` and `--high-noise-sampling-method`. On those builds, both experts use `--cfg-scale` and `--sampling-method`. `--high-noise-steps` and `--moe-boundary` are still there.
+
+Older builds still need these flags, because without them the high-noise expert uses its own default of CFG 7. So the Wan2.2 I2V A14B sets keep them. When an instance starts, toolchest reads the build's `sd-server --help`. If the build does not list one of these flags, toolchest leaves the flag and its value out. *Details* still shows the flags. In the catalog sets, each one has the same value as the flag that replaces it, so the video does not change. If a custom set or an instance gives the high-noise expert a different value, llama-toolchest's log has a warning, and the high-noise expert uses the low-noise value.
+
 ## Download files for a custom set { #custom-set-downloads }
 
 A file field of the custom set form takes a path in the models folder, or a link to one file on Hugging Face. One set can have both local files and links. LoRA files must be local files.
