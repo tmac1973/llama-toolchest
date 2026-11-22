@@ -367,42 +367,46 @@ paths:
       operationId: createSpeech
       summary: Text to speech
       description: |
-        Sent to llama-server's `/tts`. Send JSON, or `multipart/form-data`
-        with a `speaker_ref` file to copy a voice from. If `model` names
-        a model that is not loaded, llama-toolchest loads it first, as for
-        chat. In a form, a `model` field after a large file is not looked
-        for past 64 MiB; llama-server then loads the model itself. See the
-        [llama.cpp server documentation](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md)
-        for the other fields. A llama.cpp build older than v0.8.0 answers
-        404.
+        Sent to llama-server's `/tts` as it is. Send JSON, or
+        `multipart/form-data` with a `speaker_ref` file to copy a voice
+        from. If `model` names a model that is not loaded, llama-toolchest
+        loads it first, as for chat. In a form, a `model` field after a
+        large file is not looked for past 64 MiB; llama-server then loads
+        the model itself.
+
+        The fields below are llama-server's. Which ones a model uses
+        depends on the model: llama-server answers 400 for `speed` other
+        than `1.0` on a model that cannot change its pace, Qwen3-TTS among
+        them. A client that wants another pace from such a model has to
+        time-stretch the audio itself. See the
+        [llama.cpp server documentation](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md#post-tts-generate-speech-audio-from-text)
+        and its [list of speech models](https://github.com/ggml-org/llama.cpp/blob/master/docs/multimodal/tts.md).
+        A llama.cpp build older than v0.8.0 answers 404.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              allOf:
-                - $ref: "#/components/schemas/ProxiedRequest"
-                - type: object
-                  properties:
-                    input:
-                      type: string
-                      description: The text to speak.
+              $ref: "#/components/schemas/TTSRequest"
             example:
-              model: my-tts-model
+              model: moonbox-dev-Qwen3-TTS-12Hz-1.7B-Base.Q8_0
               input: Hello, this is a test.
+              lang: en
+              seed: 42
           multipart/form-data:
             schema:
               allOf:
-                - $ref: "#/components/schemas/ProxiedRequest"
+                - $ref: "#/components/schemas/TTSRequest"
                 - type: object
                   properties:
-                    input:
-                      type: string
-                      description: The text to speak.
                     speaker_ref:
                       type: string
                       format: binary
-                      description: A short recording of the voice to use.
+                      description: |
+                        A recording of the voice to copy (WAV or MP3). It
+                        wins over `speaker_ref_b64`. For Qwen3-TTS a clean
+                        clip of about 5 s is enough; with
+                        `speaker_ref_text` it must be 30 s or shorter.
       responses:
         "200":
           description: The speech.
@@ -1506,6 +1510,86 @@ components:
         model:
           type: string
           description: An LLM's public name, registry ID, router name or alias. `GET /v1/models?kind=text` lists the choices.
+
+    TTSRequest:
+      allOf:
+        - $ref: "#/components/schemas/ProxiedRequest"
+        - type: object
+          required: [input]
+          properties:
+            input:
+              type: string
+              description: The text to speak. `prompt` is the same.
+            lang:
+              type: string
+              description: Language of the text, such as `en` or `zh`. Which codes a model knows depends on the model.
+            voice:
+              type: string
+              description: One of the model's own voices, listed in llama-server's `GET /props`. Not with a `speaker_ref`.
+            speaker_ref_b64:
+              type: string
+              format: byte
+              description: A recording of the voice to copy, base64-encoded. In a form, send the `speaker_ref` file instead.
+            speaker_ref_text:
+              type: string
+              description: |
+                What is said in the reference recording. Qwen3-TTS then
+                continues from the recording, which copies the voice more
+                closely. Needs llama.cpp b12491 or newer, a clip of 30 s or
+                less, and a projector with the reference encoder (the one
+                from Download Models → Get speech models has it). Without
+                these, llama-server logs a warning and copies the voice from
+                the recording alone.
+            seed:
+              type: integer
+              description: |
+                Seed for the model and the audio decoder. `-1`, the default,
+                is random. Another seed gives another take. On the CPU the
+                same seed with the same request gives the same audio; on a
+                GPU it can still give a slightly different take, because
+                the GPU's sums are not always done in the same order.
+              default: -1
+            temperature:
+              type: number
+              description: Sampling temperature. `0` always picks the likeliest token. Leave it out for the server's and the model's own values.
+            top_k:
+              type: integer
+              description: "`0` or left out keeps the server's `--top-k` and the model's own value."
+            top_p:
+              type: number
+              description: "`0` or left out keeps the server's `--top-p` and the model's own value."
+            repeat_penalty:
+              type: number
+              description: Penalty for repeating, over the whole utterance. Stops the model from saying a line again.
+              default: 1.05
+            speed:
+              type: number
+              description: |
+                Pace, as a factor of the model's own (`1.0`). Only some
+                models can change it (Kokoro, tiny-voca, ZONOS3). The
+                others, Qwen3-TTS among them, answer 400 for any other
+                value. Needs llama.cpp b12238 or newer.
+              default: 1.0
+            loudness:
+              type: number
+              description: Target loudness in LUFS, below 0. `0`, the default, keeps the model's own. Only some models take it; the others answer 400.
+              default: 0
+            n_predict:
+              type: integer
+              description: The most audio frames to make. The model's own limit when left out.
+            response_format:
+              type: string
+              enum: [wav, pcm, pcm16]
+              default: wav
+              description: "`pcm` is raw 32-bit float samples, `pcm16` raw 16-bit samples. The `Content-Type` of the answer gives the sample rate."
+            stream:
+              type: boolean
+              default: false
+              description: Send the audio as it is made. A streamed WAV has an unknown length in its header; most players read it to the end.
+            raw_prompt:
+              type: boolean
+              default: false
+              description: Give `input` to the model as it is, without the model's own text preparation.
 
     RerankRequest:
       allOf:

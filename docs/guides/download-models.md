@@ -1,6 +1,6 @@
 # Download Models
 
-Search **HuggingFace** or **ModelScope** for GGUF repos and download single quants. Downloads resume after an interruption. Gated models need a token for that host in Settings (`/settings`). The buttons above the search open *Find recommended LLMs*, *Get embedding models* and, with generation on, *Get generation models*.
+Search **HuggingFace** or **ModelScope** for GGUF repos and download single quants. Downloads resume after an interruption. Gated models need a token for that host in Settings (`/settings`). The buttons above the search open *Find recommended LLMs*, *Get embedding models*, *Get reranking models*, *Get speech models* and, with generation on, *Get generation models*.
 
 ## Recommended models { #recommended }
 
@@ -18,6 +18,18 @@ Many vision models need a separate **mmproj** (projector) file from the same rep
 Some publishers put the projector in a different repo. mradermacher's imatrix repos (`X-i1-GGUF`) have none; the static repo (`X-GGUF`) has it. For such a model, Configure finds the projector on Hugging Face and offers to download it into the model's folder. See [Projector (mmproj)](model-config.md#projector-mmproj).
 
 Audio models use a projector file too. Toolchest reads from it what the model can do and shows badges: *vision* reads images, *audio* understands speech (transcription, live voice with `/v1/realtime`), *speech* speaks (`/tts`). A model that only speaks, such as Qwen3-TTS, cannot chat, so the agent configs leave it out. The audio routes need llama.cpp v0.8.0 or newer.
+
+## Speech models { #speech-models }
+
+*Get speech models* lists text-to-speech models that were checked with llama-server. *Download* gets two files into the same folder: the model and its projector. The projector holds the voice encoder, the audio code predictor and the decoder, so the model cannot speak without it. When both files are there, the model's Configure page shows the projector and the model has the *speech* badge.
+
+| Model | Files | Size | VRAM | Needs |
+| --- | --- | --- | --- | --- |
+| Qwen3-TTS 1.7B Base | `qwen3-tts-1-7b-Q8_0.gguf` and `mmproj-qwen3-tts-1-7b-F16.gguf` from [moonbox-dev/Qwen3-TTS-12Hz-1.7B-Base-GGUF](https://huggingface.co/moonbox-dev/Qwen3-TTS-12Hz-1.7B-Base-GGUF) | 2.7 GB | 5.1 GiB | llama.cpp b12491 or newer |
+
+The VRAM figure was measured on a Radeon AI PRO R9700 with the model's default settings (8192 context, 4 slots), the model loaded and requests answered. Toolchest's own estimate for these settings is a little higher, so its load checks keep enough room. If the active build is older than the model needs, the card says so; build a newer one on the [Builds](builds.md) page.
+
+Qwen3-TTS copies a voice from a recording that you send with each request (`speaker_ref`). A clean recording of one speaker, without music, works best; about 5 seconds is enough. If you also send what is said in the recording (`speaker_ref_text`), the model continues from the recording, and the copy is closer. The recording must then be 30 seconds or shorter. This needs a projector with the reference encoder. The ggml-org projector (August 2026) does not have one, so the card downloads moonbox-dev's. The fields are in [Using the API](../api.md#speech-api).
 
 ## Two layouts in one repo { #mainline-copies }
 
