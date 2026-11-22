@@ -1,5 +1,37 @@
 # Changelog
 
+## [2.63.0](https://github.com/tmac1973/llama-toolchest/compare/v2.62.0...v2.63.0) (2026-11-22)
+
+
+### Features
+
+* **builder:** build stable-diffusion.cpp and acestep.cpp with Metal on macOS ([#664](https://github.com/tmac1973/llama-toolchest/issues/664)) ([66404e8](https://github.com/tmac1973/llama-toolchest/commit/66404e87c260ac8b0f31df5e02eb578c3cda0541))
+* **builder:** keep stable-diffusion.cpp recipe files with each build ([#654](https://github.com/tmac1973/llama-toolchest/issues/654)) ([5b70de0](https://github.com/tmac1973/llama-toolchest/commit/5b70de021ac4fd921d4d1a1a1a6d17b8e0bdcaa0))
+* **generation:** browse Hugging Face files in the custom set form ([#670](https://github.com/tmac1973/llama-toolchest/issues/670)) ([2b85cc8](https://github.com/tmac1973/llama-toolchest/commit/2b85cc8d1af87c0957d498ec9ccd0010c587fe35))
+* **generation:** download Hugging Face files for custom sets ([#669](https://github.com/tmac1973/llama-toolchest/issues/669)) ([ded762a](https://github.com/tmac1973/llama-toolchest/commit/ded762af50073f56cb79e26321504290052e92b5))
+* **generation:** fill copied sets' missing files with Hugging Face links ([#671](https://github.com/tmac1973/llama-toolchest/issues/671)) ([9584116](https://github.com/tmac1973/llama-toolchest/commit/9584116fb0de06a48e0ca41329229e67e2c47d76))
+* **generation:** parse Hugging Face file links and pin repo revisions ([#668](https://github.com/tmac1973/llama-toolchest/issues/668)) ([693427a](https://github.com/tmac1973/llama-toolchest/commit/693427a68d7d07eb7b639afd84a4dac2f834cdb9))
+* **generation:** read sd-server recipes from upstream recipe files ([#652](https://github.com/tmac1973/llama-toolchest/issues/652)) ([404e774](https://github.com/tmac1973/llama-toolchest/commit/404e77492dbd1799003af57834a52df70fa277b4))
+* **generation:** use the newest sd build's recipes and check them at start ([#655](https://github.com/tmac1973/llama-toolchest/issues/655)) ([732fd56](https://github.com/tmac1973/llama-toolchest/commit/732fd564bba5ac486fd28661eab3e70641af9802))
+* **models:** list and download mainline copies named *.gguf_file ([#659](https://github.com/tmac1973/llama-toolchest/issues/659)) ([a7530e5](https://github.com/tmac1973/llama-toolchest/commit/a7530e5c76797563f63e76e3ad33ce31a2f4c86e))
+* **monitor:** read Apple Silicon unified memory as the GPU's memory on macOS ([#661](https://github.com/tmac1973/llama-toolchest/issues/661)) ([4a04ed6](https://github.com/tmac1973/llama-toolchest/commit/4a04ed6484644c93df59865aa9319b1a3f380d6c))
+* **setup:** install and run on macOS, and document it ([#667](https://github.com/tmac1973/llama-toolchest/issues/667)) ([56db436](https://github.com/tmac1973/llama-toolchest/commit/56db43628851161cc76393a5d7384a3b24be7c76))
+* **ui:** group the custom set recipe list and show why recipes are not available ([#656](https://github.com/tmac1973/llama-toolchest/issues/656)) ([03a939a](https://github.com/tmac1973/llama-toolchest/commit/03a939aa2e7a20e3836632016e3882c18bee8d0d))
+* **ui:** prefill a new custom set from its recipe's defaults ([#658](https://github.com/tmac1973/llama-toolchest/issues/658)) ([8852b25](https://github.com/tmac1973/llama-toolchest/commit/8852b25adb77bbc06911feab6012c70cbed9f021))
+
+
+### Bug Fixes
+
+* **autoconfig:** count loop-core CPU experts and plan a 256 prompt batch for Inkling ([#677](https://github.com/tmac1973/llama-toolchest/issues/677)) ([523cc7a](https://github.com/tmac1973/llama-toolchest/commit/523cc7aae96806673610d641db465e70c9e1893b))
+* **autoconfig:** plan looped models such as Inkling 2 Mini so they load ([#674](https://github.com/tmac1973/llama-toolchest/issues/674)) ([527e89f](https://github.com/tmac1973/llama-toolchest/commit/527e89fa19d42100cbf2d9f962e1e1fdc3ec9fb8)), closes [#672](https://github.com/tmac1973/llama-toolchest/issues/672)
+* **builder:** copy .dylib libraries so macOS builds can start ([#660](https://github.com/tmac1973/llama-toolchest/issues/660)) ([37df834](https://github.com/tmac1973/llama-toolchest/commit/37df834b79664b8c6a92d0f841c6f75f54d85284))
+* **builds:** keep saved flag sets per project ([#663](https://github.com/tmac1973/llama-toolchest/issues/663)) ([cf15f68](https://github.com/tmac1973/llama-toolchest/commit/cf15f681712ba02b049a9330ae2b3df87fd075f1))
+* **download:** explain Hugging Face 401/403 errors and what to do ([#657](https://github.com/tmac1973/llama-toolchest/issues/657)) ([ab0d9e2](https://github.com/tmac1973/llama-toolchest/commit/ab0d9e24fe5dbd60d3948140639cc3ff37abc98e))
+* **generation:** refuse gated files at Add set, remove empty folders on delete, fix Resume wording ([#676](https://github.com/tmac1973/llama-toolchest/issues/676)) ([72bcf04](https://github.com/tmac1973/llama-toolchest/commit/72bcf04831f691f1160c47f7325bba5fe1d61118))
+* **huggingface:** say "try again" in the gated-model message ([#678](https://github.com/tmac1973/llama-toolchest/issues/678)) ([cadd4bf](https://github.com/tmac1973/llama-toolchest/commit/cadd4bf6553a2db52c4e399a7b45ed396bebeb87))
+* **planner:** count GPU and system memory as one pool on Apple Silicon ([#665](https://github.com/tmac1973/llama-toolchest/issues/665)) ([59be312](https://github.com/tmac1973/llama-toolchest/commit/59be312f034293c859a683da8c8bc2a4d0f43e99))
+* **planner:** say "on the CPU" on Apple Silicon and plan threads for performance cores ([#673](https://github.com/tmac1973/llama-toolchest/issues/673)) ([5aa5489](https://github.com/tmac1973/llama-toolchest/commit/5aa5489613364f990e95c93b5860f3db92247240))
+
 ## [2.62.0](https://github.com/tmac1973/llama-toolchest/compare/v2.61.0...v2.62.0) (2026-11-20)
 
 
