@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.64.0](https://github.com/tmac1973/llama-toolchest/compare/v2.63.0...v2.64.0) (2026-11-22)
+
+
+### Features
+
+* **models:** Qwen3-TTS speech model card and /tts request fields ([#683](https://github.com/tmac1973/llama-toolchest/issues/683)) ([186e543](https://github.com/tmac1973/llama-toolchest/commit/186e543057c872b2a693abf132d187f5ba706b53)), closes [#680](https://github.com/tmac1973/llama-toolchest/issues/680)
+* **video:** Wan2.2 S2V speech-to-video set with an audio input ([#686](https://github.com/tmac1973/llama-toolchest/issues/686)) ([9567bf0](https://github.com/tmac1973/llama-toolchest/commit/9567bf0e712e29baa50e746ac3053a8af8eb5007))
+
+
+### Bug Fixes
+
+* **generation:** leave out high-noise flags that sd.cpp master-1116 removed ([#687](https://github.com/tmac1973/llama-toolchest/issues/687)) ([e7378d5](https://github.com/tmac1973/llama-toolchest/commit/e7378d53bb573ec43413bf3f518a3adac2d7afd4))
+* **generation:** run sd-server without ggml's GPU buffer cache ([#688](https://github.com/tmac1973/llama-toolchest/issues/688)) ([72d5cc3](https://github.com/tmac1973/llama-toolchest/commit/72d5cc35e9eb7c5a9a977286a39e1191c9be69e9))
+
 ## [2.63.0](https://github.com/tmac1973/llama-toolchest/compare/v2.62.0...v2.63.0) (2026-11-22)
 
 
