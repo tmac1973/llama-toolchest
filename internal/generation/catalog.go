@@ -596,7 +596,8 @@ func Catalog() []CatalogEntry {
 			License:      "Apache-2.0",
 			Notes: "Speech-to-video: makes the person in a start image speak or sing along with an audio track (WAV, MP3 or FLAC). Needs both. " +
 				"With no length given, the video is as long as the audio, up to 5 seconds at 1280×720 and 16 fps. " +
-				"Newer sd-server builds put the audio in the WebM; older ones make a silent video. Shares its text model and VAE with Wan2.2 I2V A14B.",
+				"Newer sd-server builds put the audio in the WebM; older ones make a silent video. Shares its text model and VAE with Wan2.2 I2V A14B. " +
+				"A 3-second 832×480 video takes about 11 minutes on a Radeon AI PRO R9700 and about 18 on an RTX A4000.",
 			// 81 frames is 5 s at 16 fps, the model's only rate.
 			DefaultWidth:  832,
 			DefaultHeight: 480,
@@ -610,7 +611,13 @@ func Catalog() []CatalogEntry {
 				{Label: "Medium", Frames: 49, Width: 1280, Height: 720},
 				{Label: "Full", Frames: 81, Width: 1280, Height: 720},
 			},
-			FullMeasureTime: "Not measured yet; expect a few minutes for Short, as for Wan2.2 I2V A14B.",
+			// Field test, 2026-11-22, sd.cpp master-1116-bf31b9c (PR #686):
+			// R9700 Short peaked at 27.6 GiB (whole decode), Medium 17.6 GiB
+			// and Full 22.0 GiB (both decoded in pieces). A4000 Short 14.1
+			// GiB (in pieces) and 49 frames at 832x480 12.6 GiB. Real videos:
+			// 49 frames 832x480 in 11 min (R9700) and 18 min (A4000), 81
+			// frames 832x480 in 20 min (R9700).
+			FullMeasureTime: "On a Radeon AI PRO R9700, measuring Short took about 2 minutes, and Full a few minutes more.",
 			// The Wan2.1 VAE scales by 8 and the model patches by 2.
 			SizeMultiple: 16,
 		},
