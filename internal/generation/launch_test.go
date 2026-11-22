@@ -82,6 +82,34 @@ func TestLaunchSpecSD(t *testing.T) {
 	}
 }
 
+// sd-server runs without ggml's device buffer cache on ROCm and CUDA,
+// unless the variable is already set around toolchest.
+func TestLaunchSpecBufferCacheOff(t *testing.T) {
+	launch := func(profile string) process.SupervisorConfig {
+		t.Helper()
+		cfg, err := LaunchSpec(Instance{ID: "x", Port: 8082}, mingSet(),
+			builder.BuildResult{ID: "b", Profile: profile, BinaryPath: "/b/sd-server"}, "", t.TempDir(), LaunchOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cfg
+	}
+	for _, profile := range []string{"rocm", "cuda"} {
+		if v, n := envValue(launch(profile).Env, "GGML_CUDA_REUSE_BUFFERS"); v != "0" || n != 1 {
+			t.Errorf("%s: GGML_CUDA_REUSE_BUFFERS = %q (%d entries), want 0", profile, v, n)
+		}
+	}
+	for _, profile := range []string{"vulkan", "metal"} {
+		if _, n := envValue(launch(profile).Env, "GGML_CUDA_REUSE_BUFFERS"); n != 0 {
+			t.Errorf("%s: GGML_CUDA_REUSE_BUFFERS set", profile)
+		}
+	}
+	t.Setenv("GGML_CUDA_REUSE_BUFFERS", "1")
+	if v, n := envValue(launch("rocm").Env, "GGML_CUDA_REUSE_BUFFERS"); v != "1" || n != 1 {
+		t.Errorf("inherited GGML_CUDA_REUSE_BUFFERS = %q (%d entries), want the inherited 1", v, n)
+	}
+}
+
 func TestLaunchSpecDeviceVariablePerProfile(t *testing.T) {
 	for profile, want := range map[string]string{"cuda": "CUDA_VISIBLE_DEVICES", "vulkan": "GGML_VK_VISIBLE_DEVICES"} {
 		cfg, err := LaunchSpec(Instance{ID: "x", Port: 8082, GPU: 2}, mingSet(),
