@@ -763,6 +763,16 @@ func (m ModelSet) CurrentCapabilities() []string {
 	return e.Capabilities
 }
 
+// FixedFPS is the only frame rate the set's model makes, from its recipe
+// (the active build's recipe book), or 0 when it makes any. Worked out at
+// run time, so it holds for catalog and custom sets alike.
+func (m ModelSet) FixedFPS() int {
+	if r, ok := ActiveRecipes().Get(m.Recipe); ok {
+		return r.FixedFPS
+	}
+	return 0
+}
+
 // MaxEditImages is how many reference images one edit can take: the
 // limit of the set's model (RecipeMaxEditImages), or 0 when the set
 // cannot edit or the limit is not known.

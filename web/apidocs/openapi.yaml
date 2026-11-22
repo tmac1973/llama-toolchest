@@ -1317,7 +1317,7 @@ components:
   requestBodies:
     VideoRequest:
       required: true
-      description: JSON, or a multipart form with the same field names (then `start_image` and `end_image` are files and `extra` is JSON text).
+      description: JSON, or a multipart form with the same field names (then `start_image`, `end_image` and `audio` are files and `extra` is JSON text).
       content:
         application/json:
           schema:
@@ -1336,6 +1336,9 @@ components:
                     type: string
                     format: binary
                   end_image:
+                    type: string
+                    format: binary
+                  audio:
                     type: string
                     format: binary
 
@@ -1365,9 +1368,13 @@ components:
       description: |
         The request is not valid. `code` says why: `bad_request`,
         `bad_value`, `bad_size` (width and height must be multiples of 8),
-        `start_image_required`, `input_not_supported`, `over_limit` (more
-        than the model can make), `over_measured_size` (more than this
-        instance was measured for) or `model_required`.
+        `start_image_required`, `audio_required` (the set needs an
+        `audio` track), `bad_audio` (the audio is not a WAV, MP3 or FLAC
+        that can be read, or is longer than 10 minutes),
+        `input_not_supported`, `over_limit` (more than the model can make;
+        also audio longer than that when no length is sent),
+        `over_measured_size` (more than this instance was measured for) or
+        `model_required`.
       content:
         application/json:
           schema:
@@ -1795,7 +1802,8 @@ components:
           description: |
             Image sets: `alpha` (can draw on a transparent background),
             `edit` (can edit images). Video sets: `text` (a prompt alone is
-            enough), `start_image`, `end_image`. A catalog set always shows
+            enough), `start_image`, `end_image`, `audio` (speech-to-video:
+            needs an `audio` track, and a start image). A catalog set always shows
             the current catalog's list, also when it was downloaded before
             a change to it.
         gpu:
@@ -1866,6 +1874,9 @@ components:
               type: integer
             default_fps:
               type: integer
+            fixed_fps:
+              type: integer
+              description: The only frame rate the model makes (16 for Wan2.2 S2V). A request's `fps` is replaced by it. Left out when the model makes any rate.
             max_frames:
               type: integer
               description: The most frames the model can make. Left out when there is no limit.
@@ -2040,12 +2051,18 @@ components:
             set's length.
         seconds:
           type: number
-          description: The length in seconds, multiplied by `fps` to give `frames`.
+          description: |
+            The length in seconds, multiplied by `fps` to give `frames`.
+            With an `audio` track and neither `frames` nor `seconds`, the
+            video is as long as the audio (rounded up to 4n+1 frames), and
+            audio longer than the model's limit is refused. A length you
+            send wins: sd-server cuts longer audio and pads shorter audio
+            with silence.
         fps:
           type: integer
           minimum: 1
           maximum: 240
-          description: Frames per second. Defaults to the set's frame rate.
+          description: Frames per second. Defaults to the set's frame rate. A set with `meta.video.fixed_fps` always uses that rate.
         seed:
           type: integer
           description: Random when left out.
@@ -2057,6 +2074,17 @@ components:
         end_image:
           type: string
           description: Base64 or a `data:` URL. Needs a set with the `end_image` capability, and a start image.
+        audio:
+          type: string
+          description: |
+            The driving speech or music for a set with the `audio`
+            capability (Wan2.2 S2V), which needs it: base64 or a `data:`
+            URL of a WAV, MP3 or FLAC file, up to 10 minutes. One track.
+            toolchest sends it to sd-server as a WAV. sd-server builds from
+            stable-diffusion.cpp 6cd0ef1 (2026-11-22) put it in the WebM as
+            its sound; older builds make a silent video, so add the track
+            yourself (for example `ffmpeg -i video.webm -i speech.wav -c:v
+            copy -c:a libopus -shortest out.webm`).
         output_format:
           type: string
           enum: [webm, webp]
@@ -2118,6 +2146,11 @@ components:
                   type: boolean
                 end_image:
                   type: boolean
+                audio:
+                  type: boolean
+                audio_seconds:
+                  type: number
+                  description: The audio's length, to 0.1 s.
                 extra:
                   type: object
             video:

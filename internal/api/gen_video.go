@@ -38,9 +38,11 @@ type vidGenRequest struct {
 	Frames         int    `json:"video_frames"`
 	FPS            int    `json:"fps"`
 	// InitImage and EndImage are base64 images, or empty.
-	InitImage    string `json:"init_image,omitempty"`
-	EndImage     string `json:"end_image,omitempty"`
-	OutputFormat string `json:"output_format"`
+	InitImage string `json:"init_image,omitempty"`
+	EndImage  string `json:"end_image,omitempty"`
+	// RefAudios is the driving audio as base64 WAVs (one for Wan2.2 S2V).
+	RefAudios    []string `json:"ref_audios,omitempty"`
+	OutputFormat string   `json:"output_format"`
 	// Lora is the set's LoRA files, by name within --lora-model-dir.
 	Lora []vidLora `json:"lora,omitempty"`
 	// Steps and HighNoiseSteps, when above zero, replace the set's

@@ -343,3 +343,19 @@ func TestRecipeWarning(t *testing.T) {
 		t.Errorf("ace: %q", w)
 	}
 }
+
+func TestRecipeFixedFPS(t *testing.T) {
+	book := SnapshotRecipes()
+	for id, want := range map[string]int{"wan22-s2v": 16, "minimax-h3-fl2va": 24, "wan22-i2v": 0} {
+		r, ok := book.Get(id)
+		if !ok {
+			t.Fatalf("snapshot has no %s", id)
+		}
+		if r.FixedFPS != want {
+			t.Errorf("%s FixedFPS = %d, want %d", id, r.FixedFPS, want)
+		}
+	}
+	if got := (ModelSet{Recipe: "wan22-s2v"}).FixedFPS(); got != 16 {
+		t.Errorf("a wan22-s2v set's FixedFPS() = %d, want 16", got)
+	}
+}

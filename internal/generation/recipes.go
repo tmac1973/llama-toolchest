@@ -38,11 +38,13 @@ func (r RecipeSlotSet) Group(slot string) []string {
 }
 
 // Video capabilities: what a video set can start from. A set without
-// CapText needs a start image.
+// CapText needs a start image. A set with CapAudio needs an audio track
+// (speech-to-video), sent to sd-server as ref_audios.
 const (
 	CapText       = "text"
 	CapStartImage = "start_image"
 	CapEndImage   = "end_image"
+	CapAudio      = "audio"
 )
 
 // RecipeSizeMultiple returns a video recipe's size multiple, or 0 for an
