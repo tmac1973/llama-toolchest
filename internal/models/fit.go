@@ -358,9 +358,24 @@ func planFit(m *Model, base ModelConfig, hw Hardware, class ContextClass) FitRes
 			}
 		}
 	}
+	// A model with relative-position attention spends most of its working
+	// memory on context x micro-batch (relAttnBytesPerHead): Inkling 2
+	// Mini at 64K needs 6.4 GiB a card at llama.cpp's 512 and half that
+	// at 256. A smaller micro-batch costs some prompt speed; moving
+	// experts to system memory costs generation speed, and in its loop
+	// core saves nothing (loopCPUExpertBytes). So the plan tries the
+	// smaller one first.
+	ub := 0
+	ubatches := []int{0}
+	if m.RelAttnHeads > 0 {
+		ubatches = append(ubatches, planSmallUBatch)
+	}
 	try := func(ctx int, kv string, gpuLayers, cpuMoE int) bool {
 		c := cfg
 		c.ContextSize, c.KVCacheQuant, c.GPULayers, c.CPUMoE = ctx, kv, gpuLayers, cpuMoE
+		if ub > 0 {
+			c.BatchSize, c.UBatchSize = DefaultBatchSize, ub
+		}
 		for _, n := range draftCounts {
 			for _, ub := range draftUBatches {
 				c.DraftMax, c.DraftUBatchSize = n, ub
@@ -389,8 +404,11 @@ func planFit(m *Model, base ModelConfig, hw Hardware, class ContextClass) FitRes
 	// so keeping some in system memory costs far less speed than halving
 	// the context costs usefulness.
 	for _, c := range contexts {
-		if try(c, "", 999, 0) || try(c, "q8_0", 999, 0) {
-			return done(true)
+		ub = 0
+		for _, ub = range ubatches {
+			if try(c, "", 999, 0) || try(c, "q8_0", 999, 0) {
+				return done(true)
+			}
 		}
 		if m.ExpertCount > 0 && m.ExpertLayers > 0 {
 			// The smallest number that fits: each layer moved costs speed.
@@ -510,6 +528,11 @@ func effectiveDraftMax(c *ModelConfig) int {
 	}
 	return specDraftTokens
 }
+
+// planSmallUBatch is the micro-batch PlanFit tries for a model with
+// relative-position attention before it gives up anything else: the
+// smallest one Autotune measures.
+const planSmallUBatch = 256
 
 // planDraftUBatch is the drafter micro-batch PlanFit sets when it needs
 // the memory. A drafter is fed the tokens it drafts, a handful per step,
@@ -699,7 +722,9 @@ func finishFit(m *Model, base, cfg ModelConfig, b VRAMBreakdown, budget float64,
 	if cfg.FlashAttention != base.FlashAttention {
 		note("flash_attention", "Flash attention uses less memory and is faster on most GPUs.")
 	}
-	if cfg.BatchSize != base.BatchSize || cfg.UBatchSize != base.UBatchSize {
+	if cfg.UBatchSize == planSmallUBatch && m.RelAttnHeads > 0 {
+		note("ubatch_size", fmt.Sprintf("A prompt batch of %d: this model's working memory grows with the prompt batch times the context, and the smaller batch costs less speed than the alternatives. Autotune can measure whether a larger one fits and is faster.", planSmallUBatch))
+	} else if cfg.BatchSize != base.BatchSize || cfg.UBatchSize != base.UBatchSize {
 		note("ubatch_size", "Batch sizes are left at llama.cpp's defaults. Autotune can measure better values for this machine.")
 	}
 	if cfg.Parallel != base.Parallel {

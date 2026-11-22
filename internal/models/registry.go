@@ -104,8 +104,11 @@ type Model struct {
 	// RecurrentStateBytes is a hybrid model's recurrent state for one
 	// conversation; see GGUFMeta.RecurrentStateBytes.
 	RecurrentStateBytes int64 `json:"recurrent_state_bytes,omitempty"`
-	// LoopSlots and RelAttnHeads describe a looped model with
-	// relative-position attention (inkling2_loop); see GGUFMeta.
+	// LoopStart, LoopEnd, LoopSlots and RelAttnHeads describe a looped
+	// model with relative-position attention (inkling2_loop); see
+	// GGUFMeta.
+	LoopStart    int `json:"loop_start,omitempty"`
+	LoopEnd      int `json:"loop_end,omitempty"`
 	LoopSlots    int `json:"loop_slots,omitempty"`
 	RelAttnHeads int `json:"rel_attn_heads,omitempty"`
 	// MTPHead marks a standalone MTP drafter head that was registered as
@@ -1036,12 +1039,12 @@ func (r *Registry) ListNeedingPresetFetch() []string {
 //	    does not allocate for it.
 //	12 — the MTP layers left out of the KV factors and the attention-layer
 //	    count, since their cache belongs to the draft context.
-//	13 — a looped model's extra cache slots (LoopSlots) counted in the KV
+//	14 — a looped model's extra cache slots (LoopSlots) counted in the KV
 //	    factors, relative-position attention recorded (RelAttnHeads), and
 //	    the output layer's size (OutputBytes), which the layer split
 //	    places on the last card, and the expert sizes layer by layer
 //	    (ExpertLayerBytes).
-const GGUFMetaVersion = 13
+const GGUFMetaVersion = 14
 
 // BackfillGGUFMeta re-reads GGUF metadata for records written by an older
 // parser, in one pass at startup.

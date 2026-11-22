@@ -247,7 +247,7 @@ func (meta *GGUFMeta) ApplyTo(m *Model) {
 	m.IndexerKeyLength = meta.IndexerKeyLength
 	m.AttnLayers = meta.AttnLayers
 	m.RecurrentStateBytes = meta.RecurrentStateBytes
-	m.LoopSlots = meta.LoopSlots
+	m.LoopStart, m.LoopEnd, m.LoopSlots = meta.LoopStart, meta.LoopEnd, meta.LoopSlots
 	m.RelAttnHeads = meta.RelAttnHeads
 	m.MTPHead = meta.IsMTPHead()
 	m.DraftHead = meta.DraftHeadKind()
