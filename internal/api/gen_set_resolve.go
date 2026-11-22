@@ -25,6 +25,7 @@ const hfRepoCacheTTL = 10 * time.Minute
 type hfRepoAPI interface {
 	RepoCommit(ctx context.Context, modelID, rev string) (string, error)
 	RepoFilesAt(ctx context.Context, modelID, rev string) ([]modelsource.RepoFile, error)
+	FileAccess(ctx context.Context, modelID, rev, filename string) error
 }
 
 func (s *Server) hfRepos() hfRepoAPI {
@@ -73,7 +74,8 @@ func (s *Server) repoFiles(ctx context.Context, repo, rev string) ([]modelsource
 
 // resolveHFComponents pins each linked component (one with a Repo) to a
 // commit, gives it the file's size, and takes a file already at its
-// download path as present. Components without a Repo are returned as
+// download path as present. A file to download must be one the saved
+// token may download, so a gated file is refused here. Components without a Repo are returned as
 // they are. known are the components of the set an edit changes: one
 // with the same repo, file and pinned commit that is still on disk is
 // taken as it is, without asking Hugging Face.
@@ -118,6 +120,12 @@ func (s *Server) resolveHFComponents(ctx context.Context, comps, known []generat
 		path := huggingface.FilePath(root, c.Repo, c.File)
 		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() && info.Size() == size {
 			c.Path = path
+			continue
+		}
+		// A gated repository lists its files to anyone; only the download
+		// is refused. Ask before the set is saved, not after.
+		if err := s.hfRepos().FileAccess(ctx, c.Repo, commit, c.File); err != nil {
+			return nil, hfResolveError(ctx, c.Slot, err)
 		}
 	}
 	return out, nil

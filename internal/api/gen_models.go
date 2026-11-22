@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/tmac1973/llama-toolchest/internal/generation"
 	"github.com/tmac1973/llama-toolchest/internal/huggingface"
+	"github.com/tmac1973/llama-toolchest/internal/models"
 	"github.com/tmac1973/llama-toolchest/internal/modelsource"
 )
 
@@ -648,6 +649,9 @@ func (s *Server) handleGenDeleteSet(w http.ResponseWriter, r *http.Request) {
 					slog.Warn("failed to remove a generation model file", "path", p, "error", err)
 				}
 			}
+			// The repository's folder (and a subfolder the file was in)
+			// goes too once it is empty; the gen-models folder stays.
+			models.RemoveEmptyDirs(filepath.Dir(path), root)
 		}
 	}
 	s.handleGenModels(w, r)

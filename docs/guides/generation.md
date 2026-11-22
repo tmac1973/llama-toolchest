@@ -44,13 +44,13 @@ When you press *Add set*:
 3. If the other files do not fit in the free space of the models folder, the set is not added. The message gives both sizes.
 4. Toolchest saves the set and starts the downloads. The set's row on Models shows the progress. An instance cannot start until all the files are there.
 
-When a file finishes, toolchest checks that it is a model file (GGUF, safetensors or PyTorch; a JSON file for the tokenizer). If it is not, for example a README or an HTML page, toolchest deletes it. The row then shows *Incomplete (wrong file)*, and its tooltip gives the reason. Edit the set to give another file, then press *Resume*.
+When a file finishes, toolchest checks that it is a model file (GGUF, safetensors or PyTorch; a JSON file for the tokenizer). If it is not, for example a README or an HTML page, toolchest deletes it. The row then shows *Incomplete (wrong file)*, and its tooltip gives the reason. Edit the set to give another file. Saving the edit starts its download, so you do not need *Resume*.
 
 *Resume* also continues a download that stopped, for example after a restart. It downloads from the commit the set keeps.
 
-When you delete the set, toolchest deletes the files it downloaded for it, but not the files another set still uses. It never deletes files you gave as paths.
+When you delete the set, toolchest deletes the files it downloaded for it, and the folders that are then empty, but not the files another set still uses. It never deletes files you gave as paths.
 
-A gated model needs a Hugging Face token in Settings, and you must agree to the model's terms on Hugging Face first. See [HuggingFace token](settings.md#hf-token).
+A gated model needs a Hugging Face token in Settings, and you must agree to the model's terms on Hugging Face first. Browse lists a gated repository's files even without access, so *Add set* checks each file to download first. If the token cannot download it, the set is not added, and the message (also in the line above *Add set*) says what to do. See [HuggingFace token](settings.md#hf-token).
 
 ## GPU memory { #gpu-memory }
 

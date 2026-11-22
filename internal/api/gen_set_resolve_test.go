@@ -30,6 +30,16 @@ type hfFake struct {
 	err      error
 	commits  int
 	listings int
+	// denied maps "repo/file" to the error a download of it would get.
+	denied   map[string]error
+	accesses int
+}
+
+func (f *hfFake) FileAccess(ctx context.Context, repo, rev, file string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.accesses++
+	return f.denied[repo+"/"+file]
 }
 
 func (f *hfFake) RepoCommit(ctx context.Context, repo, rev string) (string, error) {
@@ -165,6 +175,41 @@ func TestResolveHFComponents(t *testing.T) {
 	}
 }
 
+// A gated file is listed like any other, so Add set asks for access
+// first: the set is refused before it is saved, and the size line says
+// why. A file already on disk is not asked about.
+func TestCreateSetRefusesGatedFile(t *testing.T) {
+	s, fake, revs := linkServer(t, nil)
+	fake.denied = map[string]error{"org/up/x4.pth": errors.New("org/up is a gated model. Open https://huggingface.co/org/up")}
+	form := url.Values{"name": {"Gated"}, "kind": {"upscale"}, "slot_upscaler": {upLink}}
+
+	rec := httptest.NewRecorder()
+	s.handleGenCreateSet(rec, htmxReq("POST", "/", form))
+	if rec.Code == http.StatusOK || !strings.Contains(rec.Body.String(), "upscaler: org/up is a gated model") {
+		t.Errorf("add: HTTP %d %s", rec.Code, rec.Body)
+	}
+	if _, err := s.gen.ModelSet("gated"); !errors.Is(err, generation.ErrNotFound) {
+		t.Errorf("the set was saved: %v", err)
+	}
+	if len(revs()) != 0 {
+		t.Error("a download started")
+	}
+
+	rec = httptest.NewRecorder()
+	s.handleGenSetFormSize(rec, htmxReq("GET", "/?"+form.Encode(), nil))
+	if !strings.Contains(rec.Body.String(), "gated model") || !strings.Contains(rec.Body.String(), "pico-del-color") {
+		t.Errorf("size line: %s", rec.Body)
+	}
+
+	path := huggingface.FilePath(generation.ModelsDir(s.cfg), "org/up", "x4.pth")
+	os.MkdirAll(filepath.Dir(path), 0o755)
+	os.WriteFile(path, fakeFileBody("org/up", "x4.pth"), 0o644)
+	before := fake.accesses
+	if _, err := s.resolveHFComponents(context.Background(), []generation.Component{{Slot: "upscaler", Repo: "org/up", File: "x4.pth"}}, nil); err != nil || fake.accesses != before {
+		t.Errorf("on disk: %v, %d access checks", err, fake.accesses-before)
+	}
+}
+
 func TestCreateSetFromLinkDownloads(t *testing.T) {
 	s, _, revs := linkServer(t, nil)
 	rec := httptest.NewRecorder()
@@ -246,7 +291,9 @@ func TestDownloadedWrongFileIsRefused(t *testing.T) {
 	testutil.EventuallyMsg(t, func() bool {
 		set, _ = s.gen.ModelSet("bad")
 		return len(revs()) == 2 && !s.setDownloading("bad") && set.Components[0].Error != ""
-	}, func() string { return fmt.Sprintf("resume did not download again: %d downloads, %+v", len(revs()), set) })
+	}, func() string {
+		return fmt.Sprintf("resume did not download again: %d downloads, %+v", len(revs()), set)
+	})
 }
 
 func TestResumeRefusals(t *testing.T) {
@@ -279,8 +326,8 @@ func TestResumeRefusals(t *testing.T) {
 	}
 }
 
-// Delete removes a custom set's downloaded file, keeps one another set
-// uses, and never touches a local file.
+// Delete removes a custom set's downloaded file and its emptied folder,
+// keeps one another set uses, and never touches a local file.
 func TestDeleteCustomSetFiles(t *testing.T) {
 	s, _, _ := linkServer(t, nil)
 	root := generation.ModelsDir(s.cfg)
@@ -311,7 +358,10 @@ func TestDeleteCustomSetFiles(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("HTTP %d %s", rec.Code, rec.Body)
 	}
-	for p, keep := range map[string]bool{own: false, shared: true, local: true} {
+	// The emptied repository folder goes too; the folder of the shared
+	// file and the gen-models folder stay.
+	for p, keep := range map[string]bool{own: false, shared: true, local: true,
+		filepath.Dir(own): false, filepath.Dir(shared): true, root: true} {
 		if _, err := os.Stat(p); (err == nil) != keep {
 			t.Errorf("%s: kept=%v, want %v", p, err == nil, keep)
 		}

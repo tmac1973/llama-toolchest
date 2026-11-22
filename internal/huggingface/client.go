@@ -34,6 +34,8 @@ type Client struct {
 
 	// apiBase replaces the HuggingFace API address, for tests.
 	apiBase string
+	// siteBase replaces SiteURL for file requests, for tests.
+	siteBase string
 }
 
 // The search and file types are shared with the other model sources, so
@@ -185,6 +187,36 @@ func (c *Client) RepoCommit(ctx context.Context, modelID, rev string) (string, e
 		return "", fmt.Errorf("%s: Hugging Face gave no commit for %s", modelID, rev)
 	}
 	return raw.SHA, nil
+}
+
+// FileAccess checks that a file of a repository at a commit can be
+// downloaded with the saved token. Hugging Face lists the files of a
+// gated repository to anyone, and only the download is refused, so a
+// listing alone does not show it. A HEAD request on the download address
+// answers like the download would; its redirect to the file store is not
+// followed. The error is the one statusError gives, for example the
+// gated-model message.
+func (c *Client) FileAccess(ctx context.Context, modelID, rev, filename string) error {
+	site := SiteURL
+	if c.siteBase != "" {
+		site = c.siteBase
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, site+"/"+modelID+"/resolve/"+url.PathEscape(rev)+"/"+filename, nil)
+	if err != nil {
+		return err
+	}
+	c.SetAuth(req)
+	client := *c.httpClient
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return statusError(resp, modelID, c.Token() != "")
+	}
+	return nil
 }
 
 type treeEntry struct {
