@@ -75,3 +75,20 @@ All jobs used the portrait and had no length unless noted.
 - S2V on an sd.cpp build older than 6cd0ef1 (silent output) was not run.
   e41fbcf has the `wan22-s2v` recipe and the same `ref_audios` field.
 - compute2 was not measured at Medium or Full.
+
+## Re-measure with the GPU buffer cache off (#688)
+
+Same day, binary `2.63.0-main-72d5cc3` (main with #686, #687 and #688). sd-server
+now starts with `GGML_CUDA_REUSE_BUFFERS=0`. Same instances and sizes, whole
+room, ming-image stopped on asmodean.
+
+| Size | asmodean before → after | compute2 before → after |
+| --- | --- | --- |
+| Short: 33 × 832×480 | 27.6 → **24.1 GiB**, reservation 27.7 → 26.5 GiB | 14.1 → **11.7 GiB**, reservation 14.0 → 13.0 GiB |
+| 49 × 832×480 | – | 12.6 → 12.6 GiB |
+| Medium: 49 × 1280×720 | 17.6 → 17.6 GiB | – |
+| Full: 81 × 1280×720 | 22.0 → 22.0 GiB (about 7 min to measure) | – |
+
+Only the runs that decode the whole video at once got smaller. Runs where
+sd.cpp decodes in smaller pieces peaked the same, to the MiB; the logs show
+that both runs did sample and decode in full.
