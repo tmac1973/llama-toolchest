@@ -136,7 +136,7 @@ func LaunchSpec(inst Instance, set ModelSet, build builder.BuildResult, host, da
 		return cfg, err
 	}
 
-	env := process.BuildEnv(filepath.Dir(build.BinaryPath), nil)
+	env := process.BuildEnv(filepath.Dir(build.BinaryPath), sdServerEnv(set.Kind, backend))
 	// The device selector must not follow BuildEnv's "inherited wins"
 	// rule: a stray HIP_VISIBLE_DEVICES around toolchest would put the
 	// backend on the wrong GPU.
@@ -152,6 +152,24 @@ func LaunchSpec(inst Instance, set ModelSet, build builder.BuildResult, host, da
 		return cfg, err
 	}
 	return cfg, nil
+}
+
+// sdServerEnv returns the variables toolchest adds to sd-server's
+// environment. A variable that is already set around toolchest wins.
+//
+// GGML_CUDA_REUSE_BUFFERS=0 turns off ggml's device buffer cache. From
+// sd.cpp master-1116 on (its ggml 1.0.0 sync), sd.cpp turns the cache on
+// while a model runs: freed GPU buffers of up to 4 GiB in total stay on the
+// card for reuse. The cache is outside --max-vram, and ggml empties it only
+// when the card itself is almost full, so the instance can use more than
+// its reservation. Measure stopped the Wan2.2 I2V A14B Lightning set in its
+// decode for this (R9700, 2026-11-22). The variable is the same for HIP
+// builds, and older builds ignore it. Vulkan's cache is 1 GiB and stays on.
+func sdServerEnv(kind BackendKind, backend string) []string {
+	if kind == KindAce || (backend != "rocm" && backend != "cuda") {
+		return nil
+	}
+	return []string{"GGML_CUDA_REUSE_BUFFERS=0"}
 }
 
 // argPaths are the values buildArgs puts in the flags toolchest adds: the
