@@ -615,13 +615,15 @@ func Catalog() []CatalogEntry {
 				{Label: "Medium", Frames: 49, Width: 1280, Height: 720},
 				{Label: "Full", Frames: 81, Width: 1280, Height: 720},
 			},
-			// Field test, 2026-11-22, sd.cpp master-1116-bf31b9c (PR #686):
-			// R9700 Short peaked at 27.6 GiB (whole decode), Medium 17.6 GiB
-			// and Full 22.0 GiB (both decoded in pieces). A4000 Short 14.1
-			// GiB (in pieces) and 49 frames at 832x480 12.6 GiB. Real videos:
+			// Field test, 2026-11-22, sd.cpp master-1116-bf31b9c (PR #686),
+			// re-measured with the GPU buffer cache off (#688): R9700 Short
+			// peaked at 24.1 GiB (whole decode; 27.6 GiB with the cache),
+			// Medium 17.6 GiB and Full 22.0 GiB (both decoded in pieces, the
+			// same with or without the cache). A4000 Short 11.7 GiB (14.1
+			// with the cache) and 49 frames at 832x480 12.6 GiB. Real videos:
 			// 49 frames 832x480 in 11 min (R9700) and 18 min (A4000), 81
 			// frames 832x480 in 20 min (R9700).
-			FullMeasureTime: "On a Radeon AI PRO R9700, measuring Short took about 2 minutes, and Full a few minutes more.",
+			FullMeasureTime: "On a Radeon AI PRO R9700, measuring Short took about 2 minutes, and Full about 7.",
 			// The Wan2.1 VAE scales by 8 and the model patches by 2.
 			SizeMultiple: 16,
 		},
