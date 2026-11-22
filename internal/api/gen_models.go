@@ -131,6 +131,9 @@ func catalogTags(kind generation.BackendKind, caps []string) []genTag {
 	if has(generation.CapEndImage) {
 		add("end image", "Can end on an image you give.")
 	}
+	if has(generation.CapAudio) {
+		add("audio", "Needs a speech or music track you give.")
+	}
 	if has(generation.CapEdit) {
 		add("edit", "Can edit an image you send.")
 	}

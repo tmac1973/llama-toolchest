@@ -38,11 +38,13 @@ func (r RecipeSlotSet) Group(slot string) []string {
 }
 
 // Video capabilities: what a video set can start from. A set without
-// CapText needs a start image.
+// CapText needs a start image. A set with CapAudio needs an audio track
+// (speech-to-video), sent to sd-server as ref_audios.
 const (
 	CapText       = "text"
 	CapStartImage = "start_image"
 	CapEndImage   = "end_image"
+	CapAudio      = "audio"
 )
 
 // RecipeSizeMultiple returns a video recipe's size multiple, or 0 for an
@@ -70,6 +72,7 @@ var SlotLabels = map[string]string{
 	"vae":                        "VAE",
 	"tae":                        "Tiny autoencoder (TAE)",
 	"audio_vae":                  "Audio VAE",
+	"audio_encoder":              "Audio encoder",
 	"lora":                       "LoRA",
 	"high_noise_lora":            "High-noise LoRA",
 	"lm":                         "Language model (5 Hz LM)",
@@ -84,7 +87,6 @@ var SlotLabels = map[string]string{
 	"photo_maker":            "PhotoMaker",
 	"pulid_weights":          "PuLID weights",
 	"motion_module":          "motion module",
-	"audio_encoder":          "audio encoder",
 	"uncond_diffusion_model": "unconditional diffusion model",
 }
 
@@ -189,6 +191,9 @@ func RecipeCapabilities(recipe string, comps []Component) []string {
 		}
 		if r.HasFeature("end_image") {
 			caps = append(caps, CapEndImage)
+		}
+		if r.HasFeature("ref_audios") && recipeAudioInput[r.ID] {
+			caps = append(caps, CapAudio)
 		}
 		return caps
 	}

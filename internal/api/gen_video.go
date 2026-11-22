@@ -10,10 +10,12 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"math"
 	"path/filepath"
 	"syscall"
 	"time"
 
+	"github.com/tmac1973/llama-toolchest/internal/audiofile"
 	"github.com/tmac1973/llama-toolchest/internal/generation"
 )
 
@@ -38,9 +40,11 @@ type vidGenRequest struct {
 	Frames         int    `json:"video_frames"`
 	FPS            int    `json:"fps"`
 	// InitImage and EndImage are base64 images, or empty.
-	InitImage    string `json:"init_image,omitempty"`
-	EndImage     string `json:"end_image,omitempty"`
-	OutputFormat string `json:"output_format"`
+	InitImage string `json:"init_image,omitempty"`
+	EndImage  string `json:"end_image,omitempty"`
+	// RefAudios is the driving audio as base64 WAVs (one for Wan2.2 S2V).
+	RefAudios    []string `json:"ref_audios,omitempty"`
+	OutputFormat string   `json:"output_format"`
 	// Lora is the set's LoRA files, by name within --lora-model-dir.
 	Lora []vidLora `json:"lora,omitempty"`
 	// Steps and HighNoiseSteps, when above zero, replace the set's
@@ -305,6 +309,18 @@ func measurePicture(w, h int, end bool) []byte {
 	var buf bytes.Buffer
 	png.Encode(&buf, img)
 	return buf.Bytes()
+}
+
+// measureAudio makes the audio track Measure gives a speech-to-video set:
+// a quiet 220 Hz tone at 16 kHz mono (wav2vec2's own rate), seconds long.
+// Its content does not change the memory the job needs.
+func measureAudio(seconds float64) []byte {
+	n := int(seconds * 16000)
+	s := make([]int16, n)
+	for i := range s {
+		s[i] = int16(0.3 * math.MaxInt16 * math.Sin(2*math.Pi*220*float64(i)/16000))
+	}
+	return audiofile.WriteWAV(s, 16000, 1)
 }
 
 // backendGone reports whether err means the backend's port no longer

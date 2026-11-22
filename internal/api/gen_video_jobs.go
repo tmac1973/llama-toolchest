@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/tmac1973/llama-toolchest/internal/audiofile"
 	"github.com/tmac1973/llama-toolchest/internal/generation"
 )
 
@@ -40,10 +41,10 @@ const videoMaxFPS = 240
 // extra object may not set: they have fields of their own, or toolchest
 // sets them itself.
 var videoReservedExtra = []string{"prompt", "negative_prompt", "width", "height", "seed", "video_frames", "fps",
-	"init_image", "end_image", "output_format", "preview", "preview_interval"}
+	"init_image", "end_image", "ref_audios", "output_format", "preview", "preview_interval"}
 
 // videoJobRequest is a video request as the job shows it back: without the
-// images, only whether they were given.
+// images and audio, only whether they were given (and the audio's length).
 type videoJobRequest struct {
 	Model          string         `json:"model,omitempty"`
 	Prompt         string         `json:"prompt"`
@@ -55,6 +56,8 @@ type videoJobRequest struct {
 	OutputFormat   string         `json:"output_format"`
 	StartImage     bool           `json:"start_image,omitempty"`
 	EndImage       bool           `json:"end_image,omitempty"`
+	Audio          bool           `json:"audio,omitempty"`
+	AudioSeconds   float64        `json:"audio_seconds,omitempty"`
 	Extra          map[string]any `json:"extra,omitempty"`
 }
 
@@ -127,23 +130,26 @@ func (s *Server) videoDir() string {
 // videoInput is a parsed video request before the set's defaults are
 // applied. Pointers tell a field left out from one set to zero.
 type videoInput struct {
-	Model          string         `json:"model"`
-	Prompt         string         `json:"prompt"`
-	NegativePrompt string         `json:"negative_prompt"`
-	Size           string         `json:"size"`
-	Frames         *int           `json:"frames"`
-	Seconds        *float64       `json:"seconds"`
-	FPS            *int           `json:"fps"`
-	Seed           *int64         `json:"seed"`
-	StartImage     string         `json:"start_image"`
-	EndImage       string         `json:"end_image"`
-	OutputFormat   string         `json:"output_format"`
-	Extra          map[string]any `json:"extra"`
+	Model          string   `json:"model"`
+	Prompt         string   `json:"prompt"`
+	NegativePrompt string   `json:"negative_prompt"`
+	Size           string   `json:"size"`
+	Frames         *int     `json:"frames"`
+	Seconds        *float64 `json:"seconds"`
+	FPS            *int     `json:"fps"`
+	Seed           *int64   `json:"seed"`
+	StartImage     string   `json:"start_image"`
+	EndImage       string   `json:"end_image"`
+	// Audio is the base64 audio track (WAV, MP3 or FLAC) for sets with
+	// CapAudio.
+	Audio        string         `json:"audio"`
+	OutputFormat string         `json:"output_format"`
+	Extra        map[string]any `json:"extra"`
 }
 
 // readVideoInput reads a JSON body or a multipart form with the same field
-// names; in a form, start_image and end_image are files and extra is JSON
-// text.
+// names; in a form, start_image, end_image and audio are files and extra
+// is JSON text.
 func readVideoInput(r *http.Request) (videoInput, *requestError) {
 	var in videoInput
 	r.Body = http.MaxBytesReader(nil, r.Body, maxImageRequestBytes)
@@ -172,7 +178,7 @@ func readVideoInput(r *http.Request) (videoInput, *requestError) {
 				return in, badRequest("bad_value", "extra must be a JSON object")
 			}
 		}
-		for name, dst := range map[string]*string{"start_image": &in.StartImage, "end_image": &in.EndImage} {
+		for name, dst := range map[string]*string{"start_image": &in.StartImage, "end_image": &in.EndImage, "audio": &in.Audio} {
 			file, _, err := r.FormFile(name)
 			if errors.Is(err, http.ErrMissingFile) {
 				continue
@@ -199,7 +205,7 @@ func readVideoInput(r *http.Request) (videoInput, *requestError) {
 	if err := json.Unmarshal(body, &in); err != nil {
 		return in, badRequest("bad_request", "the body is not valid JSON: %v", err)
 	}
-	in.StartImage, in.EndImage = stripDataURL(in.StartImage), stripDataURL(in.EndImage)
+	in.StartImage, in.EndImage, in.Audio = stripDataURL(in.StartImage), stripDataURL(in.EndImage), stripDataURL(in.Audio)
 	return in, nil
 }
 
@@ -253,16 +259,42 @@ func buildVideoRequest(in videoInput, inst generation.Instance, set generation.M
 			return videoJobRequest{}, vidGenRequest{}, badRequest("bad_value", "size must be WIDTHxHEIGHT, e.g. 832x480")
 		}
 	}
+	can := func(c string) bool { return slices.Contains(set.CurrentCapabilities(), c) }
+	var audio audiofile.Audio
+	switch {
+	case in.Audio != "" && !can(generation.CapAudio):
+		return videoJobRequest{}, vidGenRequest{}, badRequest("input_not_supported", "%s cannot take audio", set.Name)
+	case in.Audio == "" && can(generation.CapAudio):
+		return videoJobRequest{}, vidGenRequest{}, badRequest("audio_required", "%s needs an audio track (WAV, MP3 or FLAC)", set.Name)
+	case in.Audio != "":
+		raw, err := base64.StdEncoding.DecodeString(in.Audio)
+		if err != nil {
+			return videoJobRequest{}, vidGenRequest{}, badRequest("bad_value", "audio is not valid base64")
+		}
+		// Decode returns only ErrFormat-wrapped errors and ErrTooLong.
+		if audio, err = audiofile.Decode(raw); err != nil {
+			return videoJobRequest{}, vidGenRequest{}, badRequest("bad_audio", "%s", err.Error())
+		}
+	}
+
+	// A model with a fixed frame rate (Wan2.2 S2V: 16) makes only that, so
+	// it is used before frames are worked out from seconds or the audio.
 	fps := set.DefaultFPS
 	if in.FPS != nil {
 		fps = *in.FPS
 	}
+	if f := set.FixedFPS(); f > 0 {
+		fps = f
+	}
 	frames := set.DefaultFrames
+	fromAudio := false
 	switch {
 	case in.Frames != nil:
 		frames = *in.Frames
 	case in.Seconds != nil:
 		frames = int(math.Round(*in.Seconds * float64(fps)))
+	case in.Audio != "":
+		frames, fromAudio = audioFrames(audio.Seconds, fps), true
 	}
 	seed := int64(-1)
 	if in.Seed != nil {
@@ -277,7 +309,6 @@ func buildVideoRequest(in videoInput, inst generation.Instance, set generation.M
 		return videoJobRequest{}, vidGenRequest{}, badRequest("bad_value", "width and height must be at least 64")
 	}
 
-	can := func(c string) bool { return slices.Contains(set.CurrentCapabilities(), c) }
 	switch {
 	case in.StartImage == "" && !can(generation.CapText):
 		return videoJobRequest{}, vidGenRequest{}, badRequest("start_image_required", "%s needs a start_image", set.Name)
@@ -293,9 +324,13 @@ func buildVideoRequest(in videoInput, inst generation.Instance, set generation.M
 	// same size is allowed. A zero field (custom sets) is not checked.
 	long, short := max(w, h), min(w, h)
 	maxLong, maxShort := max(set.MaxWidth, set.MaxHeight), min(set.MaxWidth, set.MaxHeight)
+	if fromAudio && set.MaxFrames > 0 && frames > set.MaxFrames {
+		return videoJobRequest{}, vidGenRequest{}, badRequest("over_limit", "the audio is %.1f s; %s makes at most %.1f s. Send a shorter track, or send frames or seconds to cut it",
+			audio.Seconds, set.Name, float64(set.MaxFrames)/float64(fps))
+	}
 	if (set.MaxFrames > 0 && frames > set.MaxFrames) || (maxShort > 0 && (long > maxLong || short > maxShort)) {
 		return videoJobRequest{}, vidGenRequest{}, badRequest("over_limit", "%s makes at most %d frames (%.0f s at %d fps) and %dx%d",
-			set.Name, set.MaxFrames, float64(set.MaxFrames)/float64(max(set.DefaultFPS, 1)), set.DefaultFPS, set.MaxWidth, set.MaxHeight)
+			set.Name, set.MaxFrames, float64(set.MaxFrames)/float64(fps), fps, set.MaxWidth, set.MaxHeight)
 	}
 	if verr := checkMeasuredSize(inst, set, frames, w, h); verr != nil {
 		return videoJobRequest{}, vidGenRequest{}, verr
@@ -313,7 +348,23 @@ func buildVideoRequest(in videoInput, inst generation.Instance, set generation.M
 		Prompt: in.Prompt, NegativePrompt: in.NegativePrompt, Width: w, Height: h, Seed: seed,
 		Frames: frames, FPS: fps, InitImage: in.StartImage, EndImage: in.EndImage, OutputFormat: format, Lora: loras, Extra: in.Extra,
 	}
+	if in.Audio != "" {
+		shown.Audio, shown.AudioSeconds = true, math.Round(audio.Seconds*10)/10
+		vid.RefAudios = []string{base64.StdEncoding.EncodeToString(audio.WAV)}
+	}
 	return shown, vid, nil
+}
+
+// audioFrames is how many frames cover seconds of audio at fps, rounded up
+// to the next 4n+1. Wan video models take 4n+1 frames, and the Wan2.2 S2V
+// recipe rounds any other count down (frame_rounding "floor"), which would
+// cut the end of the speech.
+func audioFrames(seconds float64, fps int) int {
+	n := int(math.Ceil(seconds*float64(fps) - 1e-9))
+	if n <= 1 {
+		return 1
+	}
+	return (n-1+3)/4*4 + 1
 }
 
 // checkMeasuredSize refuses a request with more video (frames × width ×
@@ -458,6 +509,10 @@ func (s *Server) runVideoJob(ctx context.Context, id string, inst generation.Ins
 // videoInputs names what a video was made from, for the instance row.
 func videoInputs(vid vidGenRequest) string {
 	switch {
+	case len(vid.RefAudios) > 0 && vid.InitImage != "":
+		return "a start image and audio"
+	case len(vid.RefAudios) > 0:
+		return "audio"
 	case vid.EndImage != "":
 		return "start and end images"
 	case vid.InitImage != "":

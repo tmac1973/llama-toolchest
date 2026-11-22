@@ -21,6 +21,16 @@ A recipe is stable-diffusion.cpp's description of a model: which files it needs,
 
 An instance starts only on a build that knows its set's recipe. If you run a set on an older build that does not have the recipe, the start is refused and says so; choose a newer build for the instance. A set whose recipe the current list does not know is kept. *Details* shows a warning, and *Copy* and *Edit* still open it.
 
+## Speech-to-video { #speech-to-video }
+
+Wan2.2 S2V (the `wan22-s2v` recipe) makes the person in a picture speak or sing along with an audio track. A set for it needs one more file than the other Wan sets, the *Audio encoder* (wav2vec2 Large English), and it has the `start_image` and `audio` capabilities.
+
+- **Both inputs are needed:** a `start_image` with the face, and an `audio` track as a WAV, MP3 or FLAC file. A job without one of them is refused.
+- **Length:** with no `frames` or `seconds`, the video is as long as the audio. Audio that is longer than the set's limit is then refused. Send a length to cut it instead.
+- **Frame rate:** the model always makes 16 fps. A different `fps` in a request is replaced, and the custom set form saves 16.
+- **Sound:** sd-server builds from stable-diffusion.cpp 6cd0ef1 (2026-11-22) put the audio in the WebM. Older builds make a silent video; add the track yourself, as the [API page](../api.md#generation-api) shows.
+- **Measure** sends a test picture and a test tone as long as the test video.
+
 ## Download files for a custom set { #custom-set-downloads }
 
 A file field of the custom set form takes a path in the models folder, or a link to one file on Hugging Face. One set can have both local files and links. LoRA files must be local files.
