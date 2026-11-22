@@ -165,7 +165,6 @@ func TestRecipeAvailability(t *testing.T) {
 		"flux1-canny":       "needs a control image input",
 		"sd35-large":        "needs the CLIP-G text encoder file",
 		"wan21-vace":        "needs control video frames",
-		"wan22-s2v":         "needs an audio input",
 		"minimax-h3-ref2va": "needs a reference video input",
 	} {
 		r, ok := book.Get(id)
@@ -182,6 +181,15 @@ func TestRecipeAvailability(t *testing.T) {
 		if !slices.ContainsFunc(book.Unavailable(r.Kind), func(u *Recipe) bool { return u.ID == id }) {
 			t.Errorf("%s is not in the unavailable list", id)
 		}
+	}
+	// Wan2.2 S2V's audio is sent (recipeAudioInput), so it is usable.
+	s2v, ok := book.Get("wan22-s2v")
+	if !ok || s2v.Unavailable != "" || !slices.Contains(book.IDs(KindVideo), "wan22-s2v") {
+		t.Errorf("wan22-s2v: %v, unavailable %q; want it usable", ok, s2v.Unavailable)
+	}
+	if ok && (!slices.Equal(s2v.Slots.Required, []string{"diffusion_model", "t5xxl", "audio_encoder"}) ||
+		len(s2v.Slots.OneOf) != 1 || !slices.Equal(s2v.Slots.OneOf[0], []string{"vae", "tae"})) {
+		t.Errorf("wan22-s2v slots = %+v", s2v.Slots)
 	}
 	err := ValidateComponents(KindSD, "sd35-large", []Component{{Slot: "diffusion_model"}})
 	if err == nil || !strings.Contains(err.Error(), "cannot be used") {

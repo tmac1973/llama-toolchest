@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"math"
@@ -208,5 +209,35 @@ func TestV1ModelsFixedFPS(t *testing.T) {
 	}
 	if v := get()["fixed_fps"]; v != float64(16) {
 		t.Errorf("wan22-s2v fixed_fps = %v, want 16", v)
+	}
+}
+
+// Measure gives a speech-to-video set a start picture and an audio track
+// that covers every frame, at the recipe's fixed 16 fps.
+func TestMeasureVideoS2V(t *testing.T) {
+	fastVidPoll(t)
+	f := newFakeVidServer(t, 0, "completed")
+	set := generation.ModelSet{Kind: generation.KindVideo, Recipe: "wan22-s2v", Capabilities: []string{generation.CapStartImage, generation.CapAudio},
+		DefaultWidth: 832, DefaultHeight: 480, DefaultFrames: 33, DefaultFPS: 24}
+	if err := runMeasureVideo(context.Background(), f.srv.URL, set, generation.VideoSize{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := f.body["init_image"]; !ok {
+		t.Error("no start picture")
+	}
+	if _, ok := f.body["end_image"]; ok {
+		t.Error("an end picture was sent")
+	}
+	if f.body["fps"] != float64(16) {
+		t.Errorf("fps %v, want the recipe's 16", f.body["fps"])
+	}
+	tracks, _ := f.body["ref_audios"].([]any)
+	if len(tracks) != 1 {
+		t.Fatalf("%d audio tracks", len(tracks))
+	}
+	raw, _ := base64.StdEncoding.DecodeString(tracks[0].(string))
+	a, err := audiofile.Decode(raw)
+	if err != nil || a.Format != audiofile.WAV || a.Seconds < 33.0/16 {
+		t.Errorf("track: %v, %q, %.2f s; want a WAV of at least %.2f s", err, a.Format, a.Seconds, 33.0/16)
 	}
 }

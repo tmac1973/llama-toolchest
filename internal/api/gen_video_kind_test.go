@@ -234,3 +234,51 @@ func TestGenCatalogDownloadVideoFields(t *testing.T) {
 		t.Error("files of the wrong size completed the set")
 	}
 }
+
+// A custom Wan2.2 S2V set gets the audio encoder slot, the start_image and
+// audio capabilities, and the recipe's fixed 16 fps whatever the form says.
+func TestGenCreateS2VSet(t *testing.T) {
+	s := genServer(t)
+	body := setFormFields(t, s, "kind=video&recipe=wan22-s2v")
+	if !slices.Contains(slotNames(body), "audio_encoder") || !strings.Contains(body, "always makes 16 fps") {
+		t.Errorf("form: slots %v, fixed fps note shown %v", slotNames(body), strings.Contains(body, "always makes 16 fps"))
+	}
+	dir := t.TempDir()
+	var lines []string
+	for slot, name := range map[string]string{"diffusion_model": "s2v.gguf", "t5xxl": "umt5.gguf", "audio_encoder": "wav2vec2.safetensors", "vae": "vae.safetensors"} {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, fakeGGUF, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		lines = append(lines, slot+" = "+p)
+	}
+	for recipe, want := range map[string]int{"wan22-s2v": 16, "wan22-ti2v-5b": 24} {
+		form := url.Values{"name": {recipe + " set"}, "kind": {"video"}, "recipe": {recipe}, "fps": {"24"}, "files": {strings.Join(lines, "\n")}}
+		if recipe == "wan22-ti2v-5b" {
+			var files []string
+			for _, l := range lines {
+				if !strings.HasPrefix(l, "audio_encoder") {
+					files = append(files, l)
+				}
+			}
+			form.Set("files", strings.Join(files, "\n"))
+		}
+		rec := httptest.NewRecorder()
+		s.handleGenCreateSet(rec, htmxReq("POST", "/", form))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: HTTP %d %s", recipe, rec.Code, rec.Body)
+		}
+		var set generation.ModelSet
+		for _, m := range s.gen.ModelSets() {
+			if m.Name == recipe+" set" {
+				set = m
+			}
+		}
+		if set.DefaultFPS != want {
+			t.Errorf("%s: DefaultFPS %d, want %d", recipe, set.DefaultFPS, want)
+		}
+		if recipe == "wan22-s2v" && !slices.Equal(set.CurrentCapabilities(), []string{generation.CapStartImage, generation.CapAudio}) {
+			t.Errorf("s2v caps %v", set.CurrentCapabilities())
+		}
+	}
+}

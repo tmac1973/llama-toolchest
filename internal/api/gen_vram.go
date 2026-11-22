@@ -1389,6 +1389,10 @@ func runMeasureVideo(ctx context.Context, base string, set generation.ModelSet, 
 		size = generation.VideoSize{Frames: set.DefaultFrames, Width: set.DefaultWidth, Height: set.DefaultHeight}
 	}
 	w, h := max(size.Width, 64), max(size.Height, 64)
+	fps := set.FixedFPS()
+	if fps == 0 {
+		fps = max(set.DefaultFPS, 1)
+	}
 	// One sampling step: memory peaks in the first step or in the decode,
 	// and the steps after it only take time (Wan2.2 TI2V 5B at 81 frames
 	// 1280x704 peaked the same with 1 step as with 20, in 166 s against
@@ -1397,7 +1401,7 @@ func runMeasureVideo(ctx context.Context, base string, set generation.ModelSet, 
 	// sd-server master-1015 made no video.
 	req := vidGenRequest{
 		Prompt: "a sunrise over a calm sea, slow camera pan", Width: w, Height: h, Seed: 42,
-		Frames: max(size.Frames, 1), FPS: max(set.DefaultFPS, 1), OutputFormat: "webm", Lora: setLoras(set),
+		Frames: max(size.Frames, 1), FPS: fps, OutputFormat: "webm", Lora: setLoras(set),
 		Steps: 1,
 	}
 	if set.HasHighNoiseModel() {
@@ -1408,6 +1412,12 @@ func runMeasureVideo(ctx context.Context, base string, set generation.ModelSet, 
 	}
 	if slices.Contains(caps, generation.CapEndImage) {
 		req.EndImage = base64.StdEncoding.EncodeToString(measurePicture(w, h, true))
+	}
+	// A speech-to-video set needs audio; the track covers every frame,
+	// so the job is the full length.
+	if slices.Contains(caps, generation.CapAudio) {
+		track := measureAudio(float64(req.Frames)/float64(fps) + 0.5)
+		req.RefAudios = []string{base64.StdEncoding.EncodeToString(track)}
 	}
 	_, err := runVidGen(ctx, base, req, nil)
 	return err

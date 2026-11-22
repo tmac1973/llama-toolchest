@@ -50,6 +50,7 @@ func TestVideoRecipeCapabilities(t *testing.T) {
 		"wan22-ti2v-5b":   {CapText, CapStartImage},
 		"wan22-i2v":       {CapStartImage, CapEndImage},
 		"ltx23-distilled": {CapText, CapStartImage, CapEndImage},
+		"wan22-s2v":       {CapStartImage, CapAudio},
 	} {
 		if got := RecipeCapabilities(recipe, nil); !slices.Equal(got, want) {
 			t.Errorf("%s = %v, want %v", recipe, got, want)

@@ -256,6 +256,9 @@ func unavailableReason(r *Recipe, missing []string) string {
 		return reason
 	}
 	for _, f := range r.Features {
+		if f == "ref_audios" && recipeAudioInput[r.ID] {
+			continue
+		}
 		if what := recipeNeedsInput[f]; what != "" {
 			return "needs " + what + " input, which llama-toolchest does not send"
 		}

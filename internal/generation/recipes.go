@@ -72,6 +72,7 @@ var SlotLabels = map[string]string{
 	"vae":                        "VAE",
 	"tae":                        "Tiny autoencoder (TAE)",
 	"audio_vae":                  "Audio VAE",
+	"audio_encoder":              "Audio encoder",
 	"lora":                       "LoRA",
 	"high_noise_lora":            "High-noise LoRA",
 	"lm":                         "Language model (5 Hz LM)",
@@ -86,7 +87,6 @@ var SlotLabels = map[string]string{
 	"photo_maker":            "PhotoMaker",
 	"pulid_weights":          "PuLID weights",
 	"motion_module":          "motion module",
-	"audio_encoder":          "audio encoder",
 	"uncond_diffusion_model": "unconditional diffusion model",
 }
 
@@ -191,6 +191,9 @@ func RecipeCapabilities(recipe string, comps []Component) []string {
 		}
 		if r.HasFeature("end_image") {
 			caps = append(caps, CapEndImage)
+		}
+		if r.HasFeature("ref_audios") && recipeAudioInput[r.ID] {
+			caps = append(caps, CapAudio)
 		}
 		return caps
 	}

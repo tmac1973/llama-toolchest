@@ -98,7 +98,9 @@ type genSetForm struct {
 	RecipeGroups []genRecipeGroup
 	// RecipeDescription is the chosen recipe's upstream description.
 	RecipeDescription string
-	Slots             []genSetSlotField
+	// FixedFPS is the only frame rate the chosen video recipe makes, or 0.
+	FixedFPS int
+	Slots    []genSetSlotField
 	// LaunchArgs is the set's extra backend flags, as typed.
 	LaunchArgs                     string
 	Width, Height, Frames, FPS     string
@@ -239,6 +241,7 @@ func (s *Server) genSetFormFrom(get func(string) string) genSetForm {
 		slots = generation.KindSlots(f.Kind, f.Recipe)
 		if r, ok := generation.ActiveRecipes().Get(f.Recipe); ok {
 			f.RecipeDescription = r.Description
+			f.FixedFPS = r.FixedFPS
 		}
 	}
 	for _, slot := range slots.Slots() {
@@ -536,6 +539,10 @@ func (s *Server) setFromForm(r *http.Request, existing *generation.ModelSet) (ge
 		// only the measured size holds requests back.
 		set.DefaultWidth, set.DefaultHeight = formInt(r, "width", 832), formInt(r, "height", 480)
 		set.DefaultFrames, set.DefaultFPS = formInt(r, "frames", 33), formInt(r, "fps", 24)
+		// A model with a fixed frame rate (Wan2.2 S2V: 16) makes only that.
+		if rec, ok := generation.ActiveRecipes().Get(set.Recipe); ok && rec.FixedFPS > 0 {
+			set.DefaultFPS = rec.FixedFPS
+		}
 		set.MaxFrames = formInt(r, "max_frames", 0)
 		set.MaxWidth, set.MaxHeight = formInt(r, "max_width", 0), formInt(r, "max_height", 0)
 		if err := checkVideoCeiling(set); err != nil {
