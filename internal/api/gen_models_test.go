@@ -387,7 +387,10 @@ func TestGenModelsJSONKeys(t *testing.T) {
 	if !slices.Equal(data.Recipes, generation.Recipes()) || !slices.Equal(data.VideoRecipes, generation.VideoRecipeIDs()) {
 		t.Error("recipes or video_recipes changed")
 	}
-	for _, id := range []string{"sd35-large", "wan22-s2v"} {
+	if !slices.Contains(data.VideoRecipes, "wan22-s2v") {
+		t.Error("wan22-s2v (audio is sent) is not listed as usable")
+	}
+	for _, id := range []string{"sd35-large", "wan21-vace"} {
 		if data.UnavailableRecipes[id] == "" || slices.Contains(data.Recipes, id) || slices.Contains(data.VideoRecipes, id) {
 			t.Errorf("%s: reason %q, or listed as usable", id, data.UnavailableRecipes[id])
 		}
