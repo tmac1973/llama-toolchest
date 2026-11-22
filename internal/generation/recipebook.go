@@ -39,6 +39,10 @@ type Recipe struct {
 	Features       []string
 	// SizeMultiple is what sd-server rounds a size up to (size_multiple).
 	SizeMultiple int
+	// FixedFPS is the only frame rate a video recipe's model makes
+	// (video_constraints.fixed_fps), or 0 for any. sd-server overrides any
+	// other rate with a warning.
+	FixedFPS int
 	// Unavailable is empty when toolchest can run the recipe, else the
 	// reason it cannot.
 	Unavailable string
@@ -201,6 +205,12 @@ func parseRecipeFile(fsys fs.FS, name string) (*Recipe, error) {
 	logUnknownRecipeKeys(r)
 	if len(f.VideoConstraints) > 0 && string(f.VideoConstraints) != "null" {
 		r.Kind = KindVideo
+		var vc struct {
+			FixedFPS int `json:"fixed_fps"`
+		}
+		if err := json.Unmarshal(f.VideoConstraints, &vc); err == nil {
+			r.FixedFPS = vc.FixedFPS
+		}
 	}
 	var missing []string // required slots sd-server has no flag for
 	for _, s := range f.Slots {
@@ -246,6 +256,9 @@ func unavailableReason(r *Recipe, missing []string) string {
 		return reason
 	}
 	for _, f := range r.Features {
+		if f == "ref_audios" && recipeAudioInput[r.ID] {
+			continue
+		}
 		if what := recipeNeedsInput[f]; what != "" {
 			return "needs " + what + " input, which llama-toolchest does not send"
 		}

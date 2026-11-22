@@ -35,6 +35,7 @@ var recipeLabels = map[string]map[string]string{
 	"wan21-t2v":            {"t5xxl": "UMT5-XXL text encoder", "vae": "Wan2.1 VAE"},
 	"wan21-i2v":            {"t5xxl": "UMT5-XXL text encoder", "vae": "Wan2.1 VAE", "clip_vision": "CLIP Vision H"},
 	"wan21-flf2v":          {"t5xxl": "UMT5-XXL text encoder", "vae": "Wan2.1 VAE", "clip_vision": "CLIP Vision H"},
+	"wan22-s2v":            {"t5xxl": "UMT5-XXL text encoder", "vae": "Wan2.1 VAE", "audio_encoder": "wav2vec2 audio encoder (Large English)"},
 	"ltx23-distilled":      ltx23Labels,
 	"ltx23-dev":            ltx23Labels,
 	"ltx25-dev":            {"llm": "LTX-2.5 Gemma 4 12B text model (with projection)", "vae": "LTX-2.5 video VAE", "audio_vae": "LTX-2.5 audio VAE"},
@@ -82,8 +83,12 @@ var RecipeMaxEditImages = map[string]int{
 // reason shown in the custom set form.
 var recipeLeftOut = map[string]string{
 	"wan21-vace": "needs control video frames, which llama-toolchest does not send",
-	"wan22-s2v":  "needs an audio input, which llama-toolchest does not send",
 }
+
+// recipeAudioInput are the recipes whose ref_audios toolchest sends: one
+// track, the video job's audio. Other recipes with that feature stay
+// unavailable (recipeNeedsInput).
+var recipeAudioInput = map[string]bool{"wan22-s2v": true}
 
 // recipeNeedsInput are recipe features that need an input toolchest does
 // not send, with the words for the reason ("needs <what> input").

@@ -44,6 +44,7 @@ var sdSlotFlags = map[string]string{
 	"embeddings_connectors":      "--embeddings-connectors",
 	"audio_vae":                  "--audio-vae",
 	"clip_vision":                "--clip_vision",
+	"audio_encoder":              "--audio-encoder",
 }
 
 // BuildBackend returns the profile backend ("rocm", "cuda", "vulkan") a

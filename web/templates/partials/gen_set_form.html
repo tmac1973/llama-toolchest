@@ -134,6 +134,7 @@
     </label>
     <label title="Frames per second of the test video, and of requests without fps.">Frame rate
         <input type="number" name="fps" min="1" max="240" value="{{.FPS}}" placeholder="24">
+        {{- if .FixedFPS}}<small>This model always makes {{.FixedFPS}} fps.</small>{{end}}
     </label>
     {{- end}}
 </div>

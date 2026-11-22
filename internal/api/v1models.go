@@ -192,6 +192,11 @@ func (s *Server) genV1Model(inst generation.Instance) map[string]any {
 			"default_frames": set.DefaultFrames,
 			"default_fps":    set.DefaultFPS,
 		}
+		// fixed_fps is the only frame rate the model makes; a request's
+		// fps is replaced by it.
+		if f := set.FixedFPS(); f > 0 {
+			video["fixed_fps"] = f
+		}
 		if set.MaxFrames > 0 {
 			video["max_frames"] = set.MaxFrames
 		}

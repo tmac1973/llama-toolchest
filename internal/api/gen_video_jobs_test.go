@@ -136,9 +136,11 @@ func TestVideoJobSucceeds(t *testing.T) {
 
 func TestVideoInputs(t *testing.T) {
 	for want, vid := range map[string]vidGenRequest{
-		"text":                 {},
-		"a start image":        {InitImage: "x"},
-		"start and end images": {InitImage: "x", EndImage: "y"},
+		"text":                    {},
+		"a start image":           {InitImage: "x"},
+		"start and end images":    {InitImage: "x", EndImage: "y"},
+		"a start image and audio": {InitImage: "x", RefAudios: []string{"w"}},
+		"audio":                   {RefAudios: []string{"w"}},
 	} {
 		if got := videoInputs(vid); got != want {
 			t.Errorf("videoInputs(%+v) = %q, want %q", vid, got, want)

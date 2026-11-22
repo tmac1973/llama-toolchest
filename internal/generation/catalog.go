@@ -88,6 +88,8 @@ var (
 	// 20-step set and the Lightning set.
 	a14bLow  = Component{Slot: "diffusion_model", Repo: "QuantStack/Wan2.2-I2V-A14B-GGUF", File: "LowNoise/Wan2.2-I2V-A14B-LowNoise-Q4_K_M.gguf", Bytes: 9651728896}
 	a14bHigh = Component{Slot: "high_noise_diffusion_model", Repo: "QuantStack/Wan2.2-I2V-A14B-GGUF", File: "HighNoise/Wan2.2-I2V-A14B-HighNoise-Q4_K_M.gguf", Bytes: 9651728896}
+	// wav2vec2Large is the audio encoder of Wan2.2 S2V (speech-to-video).
+	wav2vec2Large = Component{Slot: "audio_encoder", Repo: "Comfy-Org/Wan_2.2_ComfyUI_Repackaged", File: "split_files/audio_encoders/wav2vec2_large_english_fp16.safetensors", Bytes: 630997322}
 	// umt5Q8 is the text encoder of the Wan video sets.
 	umt5Q8 = Component{Slot: "t5xxl", Repo: "city96/umt5-xxl-encoder-gguf", File: "umt5-xxl-encoder-Q8_0.gguf", Bytes: 6043068256}
 	// flux2SmallDecoder is a FLUX.2 VAE, used by FLUX.2 klein and FLUX.3
@@ -576,6 +578,54 @@ func Catalog() []CatalogEntry {
 			SizeMultiple: 16,
 		},
 		{
+			ID:     "wan22-s2v-14b",
+			Name:   "Wan2.2 S2V 14B (Q4)",
+			Kind:   KindVideo,
+			Recipe: "wan22-s2v",
+			Components: []Component{
+				{Slot: "diffusion_model", Repo: "QuantStack/Wan2.2-S2V-14B-GGUF", File: "Wan2.2-S2V-14B-Q4_K_M.gguf", Bytes: 13861697120},
+				umt5Q8,
+				wav2vec2Large,
+				wan21VAE,
+			},
+			// The wan22-s2v recipe's defaults, plus the A14B sets' tiling and
+			// text model placement: S2V uses the same Wan2.1 VAE.
+			LaunchArgs: []string{"--steps", "20", "--cfg-scale", "4.5", "--flow-shift", "3", "--sampling-method", "euler",
+				"--diffusion-fa", "--temporal-tiling", "--backend", "te=cpu"},
+			FlagNotes: map[string]string{
+				"--temporal-tiling": "With --vae-tiling, the Wan2.1 VAE hung while it read the start image on ROCm (Wan2.2 I2V A14B, the same VAE). This flag tiles only the decode.",
+				"--backend te=cpu":  "Runs the text model on the CPU, as on the other Wan sets.",
+			},
+			Capabilities: []string{CapStartImage, CapAudio},
+			License:      "Apache-2.0",
+			Notes: "Speech-to-video: makes the person in a start image speak or sing along with an audio track (WAV, MP3 or FLAC). Needs both. " +
+				"With no length given, the video is as long as the audio, up to 5 seconds at 1280×720 and 16 fps. " +
+				"Newer sd-server builds put the audio in the WebM; older ones make a silent video. Shares its text model and VAE with Wan2.2 I2V A14B. " +
+				"A 3-second 832×480 video takes about 11 minutes on a Radeon AI PRO R9700 and about 18 on an RTX A4000.",
+			// 81 frames is 5 s at 16 fps, the model's only rate.
+			DefaultWidth:  832,
+			DefaultHeight: 480,
+			DefaultFrames: 33,
+			DefaultFPS:    16,
+			MaxFrames:     81,
+			MaxWidth:      1280,
+			MaxHeight:     720,
+			VideoSizes: []VideoSize{
+				{Label: "Short", Frames: 33, Width: 832, Height: 480},
+				{Label: "Medium", Frames: 49, Width: 1280, Height: 720},
+				{Label: "Full", Frames: 81, Width: 1280, Height: 720},
+			},
+			// Field test, 2026-11-22, sd.cpp master-1116-bf31b9c (PR #686):
+			// R9700 Short peaked at 27.6 GiB (whole decode), Medium 17.6 GiB
+			// and Full 22.0 GiB (both decoded in pieces). A4000 Short 14.1
+			// GiB (in pieces) and 49 frames at 832x480 12.6 GiB. Real videos:
+			// 49 frames 832x480 in 11 min (R9700) and 18 min (A4000), 81
+			// frames 832x480 in 20 min (R9700).
+			FullMeasureTime: "On a Radeon AI PRO R9700, measuring Short took about 2 minutes, and Full a few minutes more.",
+			// The Wan2.1 VAE scales by 8 and the model patches by 2.
+			SizeMultiple: 16,
+		},
+		{
 			ID:     "ltx23-distilled",
 			Name:   "LTX-2.3 distilled 1.1 (Q4)",
 			Kind:   KindVideo,
@@ -765,6 +815,16 @@ func (m ModelSet) CurrentCapabilities() []string {
 		}
 	}
 	return e.Capabilities
+}
+
+// FixedFPS is the only frame rate the set's model makes, from its recipe
+// (the active build's recipe book), or 0 when it makes any. Worked out at
+// run time, so it holds for catalog and custom sets alike.
+func (m ModelSet) FixedFPS() int {
+	if r, ok := ActiveRecipes().Get(m.Recipe); ok {
+		return r.FixedFPS
+	}
+	return 0
 }
 
 // MaxEditImages is how many reference images one edit can take: the

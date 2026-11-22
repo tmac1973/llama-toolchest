@@ -50,6 +50,7 @@ func TestVideoRecipeCapabilities(t *testing.T) {
 		"wan22-ti2v-5b":   {CapText, CapStartImage},
 		"wan22-i2v":       {CapStartImage, CapEndImage},
 		"ltx23-distilled": {CapText, CapStartImage, CapEndImage},
+		"wan22-s2v":       {CapStartImage, CapAudio},
 	} {
 		if got := RecipeCapabilities(recipe, nil); !slices.Equal(got, want) {
 			t.Errorf("%s = %v, want %v", recipe, got, want)
@@ -166,6 +167,7 @@ func TestCatalogReposAllowed(t *testing.T) {
 		"city96/umt5-xxl-encoder-gguf",
 		"Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
 		"QuantStack/Wan2.2-I2V-A14B-GGUF",
+		"QuantStack/Wan2.2-S2V-14B-GGUF",
 		"Comfy-Org/Wan_2.1_ComfyUI_repackaged",
 		"Kijai/WanVideo_comfy",
 		"unsloth/LTX-2.3-GGUF",

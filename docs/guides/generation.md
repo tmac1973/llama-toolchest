@@ -27,6 +27,16 @@ stable-diffusion.cpp master-1116 removed the separate settings for the high-nois
 
 Older builds still need these flags, because without them the high-noise expert uses its own default of CFG 7. So the Wan2.2 I2V A14B sets keep them. When an instance starts, toolchest reads the build's `sd-server --help`. If the build does not list one of these flags, toolchest leaves the flag and its value out. *Details* still shows the flags. In the catalog sets, each one has the same value as the flag that replaces it, so the video does not change. If a custom set or an instance gives the high-noise expert a different value, llama-toolchest's log has a warning, and the high-noise expert uses the low-noise value.
 
+## Speech-to-video { #speech-to-video }
+
+Wan2.2 S2V (the `wan22-s2v` recipe) makes the person in a picture speak or sing along with an audio track. A set for it needs one more file than the other Wan sets, the *Audio encoder* (wav2vec2 Large English), and it has the `start_image` and `audio` capabilities.
+
+- **Both inputs are needed:** a `start_image` with the face, and an `audio` track as a WAV, MP3 or FLAC file. A job without one of them is refused.
+- **Length:** with no `frames` or `seconds`, the video is as long as the audio. Audio that is longer than the set's limit is then refused. Send a length to cut it instead.
+- **Frame rate:** the model always makes 16 fps. A different `fps` in a request is replaced, and the custom set form saves 16.
+- **Sound:** sd-server builds from stable-diffusion.cpp 6cd0ef1 (2026-11-22) put the audio in the WebM. Older builds make a silent video; add the track yourself, as the [API page](../api.md#generation-api) shows.
+- **Measure** sends a test picture and a test tone as long as the test video.
+
 ## Download files for a custom set { #custom-set-downloads }
 
 A file field of the custom set form takes a path in the models folder, or a link to one file on Hugging Face. One set can have both local files and links. LoRA files must be local files.
