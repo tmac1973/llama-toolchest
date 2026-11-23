@@ -241,13 +241,51 @@ func TestSplitLeftAloneOnEqualCards(t *testing.T) {
 }
 
 // A split with weights of its own is followed when working out each
-// card's load.
+// card's load: GPU 0 gets twice the layers of GPUs 1 and 2, and every
+// card its own compute buffer.
 func TestCardLoadsFollowExplicitSplit(t *testing.T) {
 	m := dense20()
 	cfg := &ModelConfig{GPUAssign: "custom", TensorSplit: "2,1,1", SplitMode: "layer", GPULayers: 999, ContextSize: 32768}
 	loads := CardLoadsMiB(m, cfg, a4000s(3))
-	if loads[0] < loads[1]*19/10 || loads[1] != loads[2] {
-		t.Errorf("loads %v, want GPU 0 twice GPUs 1 and 2", loads)
+	if loads[0] <= loads[1]*3/2 || loads[0] >= loads[1]*2 || loads[1] <= 0 {
+		t.Errorf("loads %v, want GPU 0 well above GPUs 1 and 2, but less than twice (the compute buffers are the same)", loads)
+	}
+	if d := loads[1] - loads[2]; d > 1024 || d < -1024 {
+		t.Errorf("loads %v, want GPUs 1 and 2 within 1 GiB", loads)
+	}
+}
+
+// inklingMini is Inkling 2 Mini IQ4_NL as compute2 read it (b12600).
+func inklingMini() *Model {
+	experts := make([]int64, 24)
+	for i := range experts {
+		experts[i] = 573308928
+		if i >= 20 {
+			experts[i] = 1082916864
+		}
+	}
+	return &Model{Arch: "inkling2_loop", NLayers: 24, NEmbd: 2304, NKVHead: 8, RelAttnHeads: 24,
+		KVFullPerTok: 16384, KVSWAPerTok: 81920, SlidingWindow: 1024, AttnLayers: 48,
+		LoopStart: 6, LoopEnd: 18, LoopSlots: 24, ContextLength: 1048576,
+		SizeBytes: 17627940768, TokenEmbdBytes: 492106752, OutputBytes: 492106752,
+		ExpertCount: 128, ExpertUsedCount: 8, ExpertBytes: 15797846016, ExpertLayers: 24, ExpertLayerBytes: experts}
+}
+
+// Autoconfigure's split of Inkling 2 Mini over three A4000s, 9,10,29,
+// held 13.5 / 13.4 / 13.0 GiB on 2026-11-23: 24 of the last card's 29
+// layers are cache slots with no weights. Shared out by the numbers, the
+// GPU map showed the last card with 60% of the model.
+func TestCardLoadsCountACustomSplitByLayer(t *testing.T) {
+	m := inklingMini()
+	cfg := &ModelConfig{GPUAssign: "custom", TensorSplit: "9,10,29", SplitMode: "layer", GPULayers: 999,
+		ContextSize: 131072, UBatchSize: 256, BatchSize: 2048, KVCacheQuant: "q8_0", FlashAttention: true}
+	loads := CardLoadsMiB(m, cfg, a4000s(3))
+	lo, hi := loads[0], loads[0]
+	for _, g := range []int{1, 2} {
+		lo, hi = min(lo, loads[g]), max(hi, loads[g])
+	}
+	if hi-lo > 2048 {
+		t.Errorf("loads %v MiB; the cards held 13.5 / 13.4 / 13.0 GiB", loads)
 	}
 }
 
