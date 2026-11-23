@@ -103,7 +103,7 @@
         {{$cs := .Config.ContextSize}}
         {{$mc := .MaxContext}}
         {{$dc := or .DefaultContext .MaxContext}}
-        {{$isCustom := and (ne $cs 0) (ne $cs 2048) (ne $cs 4096) (ne $cs 8192) (ne $cs 16384) (ne $cs 32768) (ne $cs 65536) (ne $cs 131072) (ne $cs 262144)}}
+        {{$isCustom := and (ne $cs 0) (ne $cs 2048) (ne $cs 4096) (ne $cs 8192) (ne $cs 16384) (ne $cs 32768) (ne $cs 65536) (ne $cs 131072) (ne $cs 262144) (ne $cs 524288) (ne $cs 1048576)}}
         <label title="{{if .IsEmbedding}}The longest input of one embedding request, in tokens. Longer inputs are refused. VRAM use grows fast with this value.{{else if .IsEncoder}}The longest query plus document of one rerank pair, in tokens. Longer pairs are refused. VRAM use grows fast with this value.{{else}}Maximum context, in tokens. More context uses more VRAM.{{end}}{{if gt $mc 0}} Model maximum: {{$mc}}.{{end}}">
             Context Size{{if gt $mc 0}} <small>(max {{$mc}})</small>{{end}}
             {{/* Choosing Custom... must not autosave: the empty number box
@@ -122,6 +122,8 @@
                     <option value="65536" {{if eq $cs 65536}}selected{{end}} {{if and (gt $mc 0) (lt $mc 65536)}}disabled{{end}}>64K</option>
                     <option value="131072" {{if eq $cs 131072}}selected{{end}} {{if and (gt $mc 0) (lt $mc 131072)}}disabled{{end}}>128K</option>
                     <option value="262144" {{if eq $cs 262144}}selected{{end}} {{if and (gt $mc 0) (lt $mc 262144)}}disabled{{end}}>256K</option>
+                    <option value="524288" {{if eq $cs 524288}}selected{{end}} {{if and (gt $mc 0) (lt $mc 524288)}}disabled{{end}}>512K</option>
+                    <option value="1048576" {{if eq $cs 1048576}}selected{{end}} {{if and (gt $mc 0) (lt $mc 1048576)}}disabled{{end}}>1M</option>
                     <option value="custom" {{if $isCustom}}selected{{end}}>Custom...</option>
                 </select>
                 <div style="display:flex;gap:0.5rem;align-items:center;{{if not $isCustom}}display:none;{{end}}"

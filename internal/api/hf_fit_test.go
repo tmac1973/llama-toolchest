@@ -42,7 +42,7 @@ func TestPlanFileFit(t *testing.T) {
 		{"dense model too large for the card", denseModel(40, 80), fitHardware(24), "partial", "Partly on CPU", "layers on the GPU"},
 		{"MoE model larger than the card", moe, fitHardware(16), "experts", "Experts in RAM · up to 64K", "128K: experts of 32 layers in system memory, 8-bit KV cache, only 64K fits"},
 		{"larger than the whole machine", denseModel(400, 120), fitHardware(24), "none", "Too large", "does not fit"},
-		{"two cards hold what one cannot", denseModel(30, 64), fitHardware(24, 24), "gpu", "Up to 64K", "32K: all on the GPU, full-precision KV cache"},
+		{"two cards hold what one cannot", denseModel(30, 64), fitHardware(24, 24), "gpu", "Up to 72K", "32K: all on the GPU, full-precision KV cache"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			fit := planFileFit(tt.m, tt.hw)

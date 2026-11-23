@@ -32,7 +32,7 @@ Mixture-of-experts models only. **CPU Expert Layers** (`--n-cpu-moe`) keeps the 
 
 ### Context Size { #context-size }
 
-Larger needs more memory for the KV cache. For an embedding model, Context Size is the longest input of one request; for a reranking model, the longest query plus document. Most embedding models, and all reranking models, read an input in one micro-batch, so toolchest raises the micro-batch to the same size. VRAM use grows fast: about 1 GiB at 8K and 7 GiB at 32K for EmbeddingGemma 2. The default is 8192, or the model's limit if it is lower.
+Larger needs more memory for the KV cache. The list has sizes from 2K to 1M; sizes above the model's own limit are greyed out. Choose *Custom…* for any other number, such as the 96K that Autoconfigure may suggest. For an embedding model, Context Size is the longest input of one request; for a reranking model, the longest query plus document. Most embedding models, and all reranking models, read an input in one micro-batch, so toolchest raises the micro-batch to the same size. VRAM use grows fast: about 1 GiB at 8K and 7 GiB at 32K for EmbeddingGemma 2. The default is 8192, or the model's limit if it is lower.
 
 ### Embedding models and GPUs { #embedding-models-and-gpus }
 

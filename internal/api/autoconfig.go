@@ -275,12 +275,17 @@ func contextClassOptions(maxCtx int) []contextClassOption {
 	if maxCtx > 0 {
 		maxLabel = fmt.Sprintf("Maximum — up to %s tokens, as much as fits", models.GroupDigits(maxCtx))
 	}
-	return []contextClassOption{
+	out := []contextClassOption{
 		{Value: "short", Label: "Short — about 8,000 tokens", Help: "A few pages of text. Uses the least memory, leaving the most for speed."},
 		{Value: "medium", Label: "Medium — about 32,000 tokens", Help: "A long document or a long conversation. A good default.", Checked: true},
 		{Value: "long", Label: "Long — about 128,000 tokens", Help: "A small codebase or a book chapter. Needs much more memory."},
-		{Value: "max", Label: maxLabel, Help: "The model's own limit, reduced only as far as needed to fit."},
 	}
+	// Very long only where the model goes past it: up to 256K, Maximum
+	// asks for the same or less.
+	if maxCtx <= 0 || maxCtx > models.ContextClassTokens[models.ContextHuge] {
+		out = append(out, contextClassOption{Value: "huge", Label: "Very long — about 256,000 tokens", Help: "A whole book or a larger codebase. Needs a lot of memory, and leaves less for speed than a shorter context."})
+	}
+	return append(out, contextClassOption{Value: "max", Label: maxLabel, Help: "The model's own limit, reduced only as far as needed to fit."})
 }
 
 // autoconfigHardware is the machine Autoconfigure plans for: the cards as
@@ -346,7 +351,7 @@ func (s *Server) handleAutoconfigStart(w http.ResponseWriter, r *http.Request) {
 	}
 	class := models.ContextClass(r.FormValue("context_class"))
 	switch class {
-	case models.ContextShort, models.ContextMedium, models.ContextLong, models.ContextMax:
+	case models.ContextShort, models.ContextMedium, models.ContextLong, models.ContextHuge, models.ContextMax:
 	default:
 		class = models.ContextMedium
 	}

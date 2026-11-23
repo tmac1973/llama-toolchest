@@ -139,7 +139,7 @@ func TestVerifyStepsDownInOrderOfCostAndGivesUp(t *testing.T) {
 	v := &verifier{runs: func(models.ModelConfig) Check { return outOfMemoryOn(2) }}
 	res := runWith(t, threeCards(), v)
 
-	// Six loads: at 4,096 tokens there is nothing smaller left to try.
+	// Six loads, the most one run makes.
 	if res.Check.Status != VerifyFailed || res.Check.Attempts != 6 {
 		t.Fatalf("check = %+v, want failed after 6 loads", res.Check)
 	}
@@ -168,7 +168,7 @@ func TestVerifyStepsDownInOrderOfCostAndGivesUp(t *testing.T) {
 		{"20,20,14", 0, "", 8192},       // and again
 		{"20,20,14", 256, "", 8192},     // then a smaller prompt batch
 		{"20,20,14", 256, "q8_0", 8192}, // then an 8-bit KV cache
-		{"20,20,14", 256, "q8_0", 4096}, // then half the context
+		{"20,20,14", 256, "q8_0", 7680}, // then the next smaller context
 	}
 	for i, w := range want {
 		if got[i] != w {
@@ -202,7 +202,7 @@ func TestVerifyStopsAtTheLimitOnLoads(t *testing.T) {
 // the fit's note for the size it no longer has is dropped.
 func TestVerifyReplacesTheFitsNoteForASizeItReduced(t *testing.T) {
 	v := &verifier{runs: func(cfg models.ModelConfig) Check {
-		if cfg.ContextSize > 4096 {
+		if cfg.ContextSize > 7168 {
 			return outOfMemoryOn(0)
 		}
 		return Check{OK: true}
@@ -213,14 +213,14 @@ func TestVerifyReplacesTheFitsNoteForASizeItReduced(t *testing.T) {
 	if res.Check.Status != VerifyPassed {
 		t.Fatalf("check = %+v", res.Check)
 	}
-	if res.Proposed.ContextSize != 4096 || res.Proposed.UBatchSize != 256 {
-		t.Errorf("context / prompt batch = %d / %d, want 4096 / 256", res.Proposed.ContextSize, res.Proposed.UBatchSize)
+	if res.Proposed.ContextSize != 7168 || res.Proposed.UBatchSize != 256 {
+		t.Errorf("context / prompt batch = %d / %d, want 7168 / 256", res.Proposed.ContextSize, res.Proposed.UBatchSize)
 	}
 	if res.Proposed.GPUAssign == "custom" {
 		t.Error("layers were moved on a machine with one card")
 	}
 	note := noteFor(res, "context_size")
-	if !strings.Contains(note, "test load") || !strings.Contains(note, "4,096") {
+	if !strings.Contains(note, "test load") || !strings.Contains(note, "7,168") {
 		t.Errorf("context note = %q, want the test load's explanation", note)
 	}
 	if strings.Contains(note, "hardware fit") {
