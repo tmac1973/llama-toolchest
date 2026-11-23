@@ -50,6 +50,11 @@ func pinWholeSplit(m *models.Model, cfg models.ModelConfig, hw models.Hardware) 
 	if len(models.AssignedModelGPUs(&cfg, n)) != n || models.SplitDeviceIndices(cfg.TensorSplit) != nil {
 		return cfg, models.ProfileNote{}, false
 	}
+	// The loop-core layout is fixed by the model, not by the room on the
+	// cards, and a custom split would turn it off.
+	if models.LoopLayoutApplies(m, &cfg, n) {
+		return cfg, models.ProfileNote{}, false
+	}
 	split := strings.Repeat("1,", n-1) + "1"
 	if launch := models.MoESplitConfig(&cfg, m, models.GPUMiB(hw)); launch != &cfg {
 		split = launch.TensorSplit

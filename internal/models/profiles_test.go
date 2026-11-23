@@ -231,7 +231,7 @@ func setNonZero(t *testing.T, v reflect.Value) {
 // difference between profiles — a field added later is covered without
 // anyone remembering this test.
 func TestProfileEqualSeesEveryField(t *testing.T) {
-	ignored := map[string]bool{"Enabled": true, "Aliases": true, "ActiveProfile": true}
+	ignored := map[string]bool{"Enabled": true, "Aliases": true, "ActiveProfile": true, "LoopBlocks": true}
 	typ := reflect.TypeOf(ModelConfig{})
 	for i := 0; i < typ.NumField(); i++ {
 		f := typ.Field(i)

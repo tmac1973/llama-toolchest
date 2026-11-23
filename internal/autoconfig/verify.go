@@ -157,6 +157,12 @@ func verifyProposal(ctx context.Context, d Deps, m *models.Model, proposed model
 			v.Status = VerifyFailed
 			return proposed, nil, v
 		}
+		if models.LoopLayoutApplies(m, &cfg, len(d.Hardware.GPUs)) {
+			// The loop-core layout places the layers by the model's
+			// structure; moving some would write a custom split, which
+			// turns the layout off. The smaller steps below still apply.
+			splitMoves = maxSplitMoves
+		}
 		next, note, ok := stepDown(cfg, chk, len(d.Hardware.GPUs), launchSplit(m, cfg, d.Hardware), &splitMoves)
 		if !ok {
 			break

@@ -230,6 +230,14 @@ type ModelConfig struct {
 	SplitMode   string `json:"split_mode,omitempty"` // "layer", "tensor", or ""
 	MainGPU     int    `json:"main_gpu,omitempty"`
 	GPUAssign   string `json:"gpu_assign,omitempty"` // "all", "0", "0-1", "custom", etc.
+	// LoopCoreOneGPU keeps a looped model's loop core and its cache slots
+	// on one card when it runs on several (see LoopLayoutApplies):
+	// faster, but the loop card holds the most, so less context fits.
+	LoopCoreOneGPU bool `json:"loop_core_one_gpu,omitempty"`
+	// LoopBlocks is what the launch moves for that layout, block:GPU
+	// ("18:2,19:2"). Worked out each time the flags are written
+	// (MoESplitConfig); never saved, and not part of a profile.
+	LoopBlocks  string `json:"-"`
 	ContextSize int    `json:"context_size"`
 	Parallel    int    `json:"parallel,omitempty"` // conversations served at once; 0 = llama-server's default (4 sharing the context), see ContextLayoutFor
 	// SharedContext puts the Parallel slots (2 or more) in one context

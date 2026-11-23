@@ -16,6 +16,14 @@ Your own `--tensor-split` string, passed through unchanged. A GPU with a share o
 
 GPUs that are left out are hidden from the model with `--device`, so they stay free. Integrated GPUs show *(iGPU)*, and toolchest never chooses them for you. They need the *Include iGPU Build Target* build option.
 
+### Loop core on one GPU { #loop-core }
+
+Shown for looped models, such as Inkling 2, on a machine with two or more GPUs. A looped model runs a group of its layers, the *loop core*, several times for each token. llama.cpp keeps the cache of each extra pass with the last layers, so with the usual layer split those passes read their weights on one GPU and their cache on another. Each token then moves between the GPUs hundreds of times.
+
+With the switch on, toolchest keeps the loop core and the cache of all its passes on one GPU. The layers before the loop core go to the GPUs before it. The weights of the layers after it move to the other GPUs with `--override-tensor`; you can see the flags in Effective Flags. On three RTX A4000s, Inkling 2 Mini generated 29 tokens per second this way, against 16 with the usual split. The GPU with the loop core holds the most, so less context fits: 96K against 128K on the same cards.
+
+The switch does nothing with experts in system memory, fewer GPU layers than the model has, a Custom split, Tensor Parallelism or an `--override-tensor` in Extra Flags; the form says so. [Autoconfigure](autoconfigure.md) asks which you prefer.
+
 ## Key settings { #key-settings }
 
 ### GPU Layers { #gpu-layers }

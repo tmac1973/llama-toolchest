@@ -320,6 +320,17 @@ func BackendDeviceIndex(backend string, gpu int) int {
 // nothing ("0,14,32") leaves that card out the same way. Backends without
 // device names keep the padded-split emission.
 func gpuPlacementParams(c *ModelConfig, backend string) []specParam {
+	out := placementParams(c, backend)
+	// The loop-core layout's moved blocks (see LoopLayoutApplies).
+	if ot := loopOverride(c.LoopBlocks, backend); ot != "" {
+		out = append(out, specParam{"override-tensor", ot})
+	}
+	return out
+}
+
+// placementParams is gpuPlacementParams without the loop-core layout's
+// tensor overrides.
+func placementParams(c *ModelConfig, backend string) []specParam {
 	if c.GPUAssign != "" {
 		if gpus := SplitDeviceIndices(c.TensorSplit); gpus != nil {
 			if devices := DeviceList(backend, gpus); devices != "" {

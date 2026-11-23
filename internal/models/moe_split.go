@@ -292,6 +292,9 @@ func outputGiB(m *Model) float64 {
 // keeps cfg's GPU assignment, so the saved config, and the form, are
 // untouched: the split is worked out each time the flags are written.
 func MoESplitConfig(cfg *ModelConfig, m *Model, gpuMiB []int) *ModelConfig {
+	if out, _ := loopLayoutConfig(cfg, m, gpuMiB); out != nil {
+		return out
+	}
 	if len(gpuMiB) < 2 || !moeSplitApplies(cfg, m, gpuMiB) {
 		return cfg
 	}
@@ -328,6 +331,9 @@ func MoESplitConfig(cfg *ModelConfig, m *Model, gpuMiB []int) *ModelConfig {
 // size-balanced split (no expert offload, or a single card), in which case
 // the pooled estimate stands.
 func PlanCardLoads(m *Model, cfg *ModelConfig, gpuMiB []int) (loads, budgets []float64, ok bool) {
+	if out, lay := loopLayoutConfig(cfg, m, gpuMiB); out != nil {
+		return lay.loads, lay.budgets, true
+	}
 	split := MoESplitConfig(cfg, m, gpuMiB)
 	if split == cfg {
 		return nil, nil, false

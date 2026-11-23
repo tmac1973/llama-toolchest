@@ -37,6 +37,11 @@ type Deps struct {
 	// keeps the model's own setting. It is applied before the fit, so a
 	// projector kept in RAM leaves its GPU memory to the model.
 	ProjectorInRAM *bool
+	// LoopCoreOneGPU, when set, is the user's choice for a looped model
+	// on several GPUs: the loop core on one GPU, faster (true), or the
+	// usual split, more context (false). Nil keeps the model's own
+	// setting. See models.LoopLayoutApplies.
+	LoopCoreOneGPU *bool
 }
 
 // Result is a proposed starting profile and everything the review screen
@@ -118,6 +123,9 @@ func Run(ctx context.Context, d Deps, id string, class models.ContextClass) (*Re
 	start := base
 	if d.ProjectorInRAM != nil && models.ProjectorLoaded(&base) {
 		start.MmprojInRAM = *d.ProjectorInRAM
+	}
+	if d.LoopCoreOneGPU != nil {
+		start.LoopCoreOneGPU = *d.LoopCoreOneGPU
 	}
 	badDraft := unusableDraftFile(d.Registry, id, &base)
 	if badDraft != "" {

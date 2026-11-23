@@ -154,11 +154,13 @@ func profileFields(c ModelConfig) ModelConfig {
 	out.Enabled = false
 	out.Aliases = nil
 	out.ActiveProfile = ""
+	out.LoopBlocks = ""
 	return out
 }
 
 // ProfileEqual reports whether two configs hold the same profile settings,
-// ignoring Enabled, Aliases and the ActiveProfile label. ModelConfig has
+// ignoring Enabled, Aliases, the ActiveProfile label and the launch's
+// LoopBlocks. ModelConfig has
 // pointer and slice fields, so == would compare addresses; DeepEqual
 // compares what they point to.
 func ProfileEqual(a, b ModelConfig) bool {
