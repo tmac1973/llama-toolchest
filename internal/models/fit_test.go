@@ -577,3 +577,53 @@ func TestPlanFitNotesOnUnifiedMemory(t *testing.T) {
 		t.Errorf("notes on a PC:\n%s", all)
 	}
 }
+
+// The planner's steps between two powers of two are eighths.
+func TestFitContexts(t *testing.T) {
+	got := FitContexts(131072)
+	want := []int{131072, 122880, 114688, 106496, 98304, 90112, 81920, 73728, 65536, 61440}
+	if !reflect.DeepEqual(got[:len(want)], want) {
+		t.Errorf("FitContexts(131072) starts %v, want %v", got[:len(want)], want)
+	}
+	if last := got[len(got)-1]; last != minFitContext {
+		t.Errorf("FitContexts ends at %d, want %d", last, minFitContext)
+	}
+	for _, c := range got {
+		if c%512 != 0 {
+			t.Errorf("%d is not a multiple of 512", c)
+		}
+	}
+	// A trained limit that is not a power of two steps to the eighth
+	// below it.
+	if n := NextFitContext(40960); n != 36864 {
+		t.Errorf("NextFitContext(40960) = %d, want 36864", n)
+	}
+	if n := NextFitContext(1048576); n != 983040 {
+		t.Errorf("NextFitContext(1048576) = %d, want 983040", n)
+	}
+	if got := FitContexts(minFitContext); !reflect.DeepEqual(got, []int{minFitContext}) {
+		t.Errorf("FitContexts(%d) = %v, want just itself", minFitContext, got)
+	}
+}
+
+// A model that fits between two halving steps gets the room up to the
+// step it missed, with the settings of the step that fitted: the 8B
+// model asked for its full 131,072 tokens on a 12 GiB card used to get
+// 65,536 tokens; it fits more than that.
+func TestPlanFitGrowsIntoTheRoomBetweenSteps(t *testing.T) {
+	r := PlanFit(dense8B, defaultBase(), oneGPU(12*1024), ContextMax)
+	if !r.Fits {
+		t.Fatalf("does not fit: %+v", r)
+	}
+	if c := r.Config.ContextSize; c <= 65536 || c >= 131072 || c%8192 != 0 {
+		t.Errorf("context %d, want an eighth step between 65,536 and 131,072", c)
+	}
+	// One step more does not fit.
+	more := r.Config
+	more.ContextSize += 8192
+	budget, ram := FitBudgets(oneGPU(12 * 1024))
+	if _, ok := fitsOn(dense8B, &more, 1, budget, ram, false, GPUMiB(oneGPU(12*1024))); ok && more.ContextSize < 131072 {
+		t.Errorf("%d tokens fit too, but the plan stopped at %d", more.ContextSize, r.Config.ContextSize)
+	}
+	assertOneNotePerChange(t, defaultBase(), r)
+}

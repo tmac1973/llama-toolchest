@@ -192,7 +192,8 @@ func replaceNote(notes []models.ProfileNote, n models.ProfileNote) []models.Prof
 //     effect on answers is very small, and it frees about half the cache,
 //     far more than a smaller batch: on asmodean the 35B-A3B at 262,144
 //     tokens was otherwise halved to 131,072.
-//  4. Half the context. Costs what the model can hold at once, so it is
+//  4. A smaller context, by the planner's next step (an eighth of the
+//     way to half). Costs what the model can hold at once, so it is
 //     last.
 func stepDown(cfg models.ModelConfig, chk Check, numGPUs int, launch string, splitMoves *int) (models.ModelConfig, models.ProfileNote, bool) {
 	if *splitMoves < maxSplitMoves {
@@ -228,13 +229,13 @@ func stepDown(cfg models.ModelConfig, chk Check, numGPUs int, launch string, spl
 			Reason: fmt.Sprintf("A test load %s with the conversation memory (KV cache) at full precision. At 8 bits it needs about half the memory, so the context is kept. The effect on answer quality is very small.", chk.problem()),
 		}, true
 	}
-	if half := cfg.ContextSize / 2; half >= minCheckedContext {
+	if smaller := models.NextFitContext(cfg.ContextSize); smaller >= minCheckedContext {
 		next := cfg
-		next.ContextSize = half
+		next.ContextSize = smaller
 		return next, models.ProfileNote{
 			Field:  "context_size",
 			Origin: originTestLoad,
-			Reason: fmt.Sprintf("A test load %s at a larger context; reduced to %s tokens, the largest that loaded and ran.", chk.problem(), models.GroupDigits(half)),
+			Reason: fmt.Sprintf("A test load %s at a larger context; reduced to %s tokens, the largest that loaded and ran.", chk.problem(), models.GroupDigits(smaller)),
 		}, true
 	}
 	return cfg, models.ProfileNote{}, false

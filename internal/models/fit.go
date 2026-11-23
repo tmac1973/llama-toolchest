@@ -14,6 +14,7 @@ const (
 	ContextShort  ContextClass = "short"  // about 8,000 tokens
 	ContextMedium ContextClass = "medium" // about 32,000 tokens
 	ContextLong   ContextClass = "long"   // about 128,000 tokens
+	ContextHuge   ContextClass = "huge"   // about 256,000 tokens
 	ContextMax    ContextClass = "max"    // the model's trained limit
 )
 
@@ -23,6 +24,7 @@ var ContextClassTokens = map[ContextClass]int{
 	ContextShort:  8192,
 	ContextMedium: 32768,
 	ContextLong:   131072,
+	ContextHuge:   262144,
 }
 
 // minFitContext is the smallest context the planner reduces to. Below it a
@@ -412,23 +414,46 @@ func planFit(m *Model, base ModelConfig, hw Hardware, class ContextClass) FitRes
 	if len(contexts) == 0 {
 		contexts = []int{ctx}
 	}
+	// grow takes the plan that fitted at contexts[i] up into the room left
+	// below the step before it, in eighths (FitContexts), keeping every
+	// other setting. The halving steps choose what the plan gives up (an
+	// 8-bit cache, experts in system memory); growing in eighths before
+	// that choice would trade a lot of speed for a little context.
+	grow := func(i int) bool {
+		if i == 0 {
+			return true
+		}
+		fitted := last
+		for _, c := range FitContexts(contexts[i-1])[1:] {
+			if c <= fitted.ContextSize {
+				break
+			}
+			cand := fitted
+			cand.ContextSize = c
+			if b, ok := fits(&cand); ok {
+				last, lastB = cand, b
+				return true
+			}
+		}
+		return true
+	}
 
 	// Every layer on the GPU, at the largest context that allows it.
 	// Expert offload belongs here: each token reads only a few experts,
 	// so keeping some in system memory costs far less speed than halving
 	// the context costs usefulness.
-	for _, c := range contexts {
+	for i, c := range contexts {
 		ub = 0
 		for _, ub = range ubatches {
 			if try(c, "", 999, 0) || try(c, "q8_0", 999, 0) {
-				return done(true)
+				return done(grow(i))
 			}
 		}
 		if m.ExpertCount > 0 && m.ExpertLayers > 0 {
 			// The smallest number that fits: each layer moved costs speed.
 			for n := m.ExpertLayerFirst + 1; n <= m.ExpertLayerFirst+m.ExpertLayers; n++ {
 				if try(c, "q8_0", 999, n) {
-					return done(true)
+					return done(grow(i))
 				}
 			}
 		}
@@ -440,10 +465,10 @@ func planFit(m *Model, base ModelConfig, hw Hardware, class ContextClass) FitRes
 	// largest number of layers that fits. Zero is left out: the estimate
 	// reads it as "not set" (see CPUWeightBytes).
 	if m.ExpertCount == 0 && m.NLayers > 1 {
-		for _, c := range contexts {
+		for i, c := range contexts {
 			for n := m.NLayers - 1; n >= 1; n-- {
 				if try(c, "q8_0", n, 0) {
-					return done(true)
+					return done(grow(i))
 				}
 			}
 		}
@@ -788,6 +813,43 @@ func finishFit(m *Model, base, cfg ModelConfig, b VRAMBreakdown, budget float64,
 		CPURAMGiB:   b.CPURAM,
 		Fits:        fits,
 	}
+}
+
+// fitStepsPerDoubling is how finely the planner tries contexts between
+// two powers of two: in eighths, so between 65,536 and 131,072 it tries
+// 73,728, 81,920 and so on. Halving alone left a lot unused: Inkling 2
+// Mini fits 98,304 tokens on three A4000s with its loop core on one card,
+// and halving from 131,072 gave it 65,536.
+const fitStepsPerDoubling = 8
+
+// FitContexts are ctx and the contexts below it in eighths, largest
+// first: each power of two below ctx and the eighths between them, down
+// to the smallest the planner offers (minFitContext). Each is a multiple
+// of 512. Just ctx when it is below that smallest. The planner grows a
+// plan into these after a halving step has fitted.
+func FitContexts(ctx int) []int {
+	out := []int{ctx}
+	for c := NextFitContext(ctx); c >= minFitContext; c = NextFitContext(c) {
+		out = append(out, c)
+	}
+	return out
+}
+
+// NextFitContext is the next context FitContexts tries after ctx: the
+// largest eighth step between two powers of two below ctx. 0 below the
+// smallest power of two the steps start from.
+func NextFitContext(ctx int) int {
+	p := minFitContext
+	for p*2 < ctx {
+		p *= 2
+	}
+	// p < ctx <= 2p, or ctx <= minFitContext.
+	if ctx <= p {
+		return 0
+	}
+	step := p / fitStepsPerDoubling
+	next := (ctx - 1) / step * step
+	return max(next, p)
 }
 
 // GroupDigits writes n with thousands separators: 131072 → "131,072".
