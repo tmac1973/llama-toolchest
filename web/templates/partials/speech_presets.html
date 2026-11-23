@@ -5,7 +5,7 @@
 <header class="rec-head">
     <div>
         <strong>Speech models</strong><br>
-        <small class="rec-muted">Text-to-speech models for <code>/tts</code> and <code>/v1/audio/speech</code>. Download gets the model and its projector. The projector holds the voice encoder and the audio decoder, and the model needs it to speak. A speech model only speaks. It does not chat.</small>
+        <small class="rec-muted">Text-to-speech models for <code>/tts</code> and <code>/v1/audio/speech</code>. Download gets the model and its projector. The projector holds the audio decoder, and the model needs it to speak. A speech model only speaks. It does not chat.</small>
     </div>
     <div class="rec-actions">
         <button type="button" class="outline secondary" onclick="toggleDownloadCard('speech', false)"
@@ -16,9 +16,9 @@
     <thead>
         <tr>
             <th>Model</th>
-            <th title="Languages the model speaks. Send the language as lang.">Languages</th>
+            <th title="Languages the model speaks. Some models take the language as lang. Others read it from the text.">Languages</th>
             <th title="GPU memory used with the model loaded at its default settings (8192 context, 4 slots) and one speech request answered. Measured, not estimated.">VRAM</th>
-            <th title="License of the weights. Apache-2.0 allows any use.">Licence</th>
+            <th title="License of the weights. Apache-2.0 and MIT allow any use. Fish Audio Research allows only research and non-commercial use.">Licence</th>
             <th title="The download size of the model and its projector together.">Size</th>
             <th></th>
         </tr>

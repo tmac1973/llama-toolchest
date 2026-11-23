@@ -1540,13 +1540,14 @@ components:
             speaker_ref_text:
               type: string
               description: |
-                What is said in the reference recording. Qwen3-TTS then
-                continues from the recording, which copies the voice more
-                closely. Needs llama.cpp b12491 or newer, a clip of 30 s or
-                less, and a projector with the reference encoder (the one
-                from Download Models → Get speech models has it). Without
-                these, llama-server logs a warning and copies the voice from
-                the recording alone.
+                What is said in the reference recording, which copies the
+                voice more closely. Qwen3-TTS and Fish S2 Pro use it.
+                Qwen3-TTS then continues from the recording; it needs
+                llama.cpp b12491 or newer, a clip of 30 s or less, and a
+                projector with the reference encoder (the one from Download
+                Models → Get speech models has it). Without these,
+                llama-server logs a warning and copies the voice from the
+                recording alone.
             seed:
               type: integer
               description: |
@@ -1581,6 +1582,12 @@ components:
               type: number
               description: Target loudness in LUFS, below 0. `0`, the default, keeps the model's own. Only some models take it; the others answer 400.
               default: 0
+            flow_steps:
+              type: integer
+              description: Steps of the audio generator of a flow-matching model (VoxCPM2, 2 to 32, default 10). Fewer steps are faster. The other models answer 400.
+            cfg_scale:
+              type: number
+              description: How closely a model with guidance follows the text (VoxCPM2, default 2.0). The other models answer 400.
             n_predict:
               type: integer
               description: The most audio frames to make. The model's own limit when left out.

@@ -1575,8 +1575,10 @@ func (m *Model) RerankHeadMissing() bool {
 // CallsTools reports whether the model is offered for tool calls: its chat
 // template handles them, and it is not a reranker, which keeps the
 // template of the chat model it was trained from but only scores pairs.
-func (m *Model) CallsTools() bool {
-	return m.SupportsTools && m.Kind() != KindRerank
+// Nor is it a model that only speaks: Fish S2 Pro keeps Qwen3's template,
+// tools and all (see SpeechOnly).
+func (m *Model) CallsTools(cfg *ModelConfig) bool {
+	return m.SupportsTools && m.Kind() != KindRerank && (m.Kind() != KindChat || m.CanChat(cfg))
 }
 
 // Capabilities returns the capability list for a model: "chat",
@@ -1596,7 +1598,7 @@ func (m *Model) Capabilities(cfg *ModelConfig) []string {
 			caps = append(caps, "chat")
 		}
 	}
-	if m.CallsTools() {
+	if m.CallsTools(cfg) {
 		caps = append(caps, "tools")
 	}
 	if m.HasVision(cfg) {
