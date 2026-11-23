@@ -428,11 +428,27 @@ func planFit(m *Model, base ModelConfig, hw Hardware, class ContextClass) FitRes
 			if c <= fitted.ContextSize {
 				break
 			}
-			cand := fitted
-			cand.ContextSize = c
-			if b, ok := fits(&cand); ok {
-				last, lastB = cand, b
-				return true
+			// An 8-bit cache costs less than context, as at the halving
+			// steps: a plan that fitted at full precision may grow
+			// further with it. The drafter's small micro-batch only
+			// where the plan needs it.
+			kvs := []string{fitted.KVCacheQuant}
+			if fitted.KVCacheQuant == "" {
+				kvs = append(kvs, "q8_0")
+			}
+			dubs := []int{fitted.DraftUBatchSize}
+			if fitted.DraftUBatchSize > 0 {
+				dubs = []int{0, fitted.DraftUBatchSize}
+			}
+			for _, kv := range kvs {
+				for _, dub := range dubs {
+					cand := fitted
+					cand.ContextSize, cand.KVCacheQuant, cand.DraftUBatchSize = c, kv, dub
+					if b, ok := fits(&cand); ok {
+						last, lastB = cand, b
+						return true
+					}
+				}
 			}
 		}
 		return true
