@@ -184,6 +184,14 @@
                    min="1" placeholder="8">
         </label>
     </div>
+    {{if .Looped}}
+    <input type="hidden" name="loop_core_choice" value="1">
+    <label title="This model runs its loop core several times for each token. On one GPU it runs much faster. That GPU holds the most, so less context fits.">
+        <input type="checkbox" name="loop_core_one_gpu" role="switch" {{if .Config.LoopCoreOneGPU}}checked{{end}}>
+        Loop core on one GPU
+        {{if .LoopLayoutOff}}<small><mark>&#9888; {{.LoopLayoutOff}}</mark></small>{{end}}
+    </label>
+    {{end}}
     {{/* The launch flags carry a split balanced by each card's room
          (models.BalancedSplit) that the saved GPU assignment does not
          show, so it is listed here. */}}

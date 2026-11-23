@@ -236,12 +236,12 @@ func ramMarginGiB(totalGiB float64) float64 {
 // in system memory, the whole-card plan is taken instead, and loading the
 // model stops the backends in its way.
 func PlanFit(m *Model, base ModelConfig, hw Hardware, class ContextClass) FitResult {
-	shared := planFit(m, base, hw, class)
+	shared := planFitLoop(m, base, hw, class)
 	whole, ok := WholeCards(hw)
 	if !ok {
 		return shared
 	}
-	w := planFit(m, base, whole, class)
+	w := planFitLoop(m, base, whole, class)
 	if !wholeCardsBetter(shared, w) {
 		return shared
 	}
@@ -298,6 +298,43 @@ func EvictableGiB(hw Hardware) float64 {
 		n += min(g.EvictableMiB, g.ReservedMiB)
 	}
 	return float64(n) / 1024
+}
+
+// planFitLoop is planFit with the loop-core layout (LoopLayoutApplies)
+// when base asks for it: that plan if it fits at some context, and
+// otherwise the plain split, with a note saying why.
+func planFitLoop(m *Model, base ModelConfig, hw Hardware, class ContextClass) FitResult {
+	r := planFit(m, base, hw, class)
+	if !base.LoopCoreOneGPU || !m.IsLooped() {
+		return r
+	}
+	if r.Fits {
+		if note := loopLayoutNote(m, &r.Config, GPUMiB(hw)); note != "" {
+			r.Notes = append(r.Notes, ProfileNote{Field: "loop_core_one_gpu", Origin: "hardware fit", Reason: note})
+		}
+		return r
+	}
+	off := base
+	off.LoopCoreOneGPU = false
+	plain := planFit(m, off, hw, class)
+	if plain.Fits {
+		plain.Notes = append(plain.Notes, ProfileNote{Field: "loop_core_one_gpu", Origin: "hardware fit",
+			Reason: "The loop core does not fit on one GPU at any context, so the layers are split over the GPUs the usual way. This is slower: each token moves between the GPUs many times."})
+	}
+	return plain
+}
+
+// loopLayoutNote explains the loop-core layout cfg runs with, or "" when
+// it does not apply.
+func loopLayoutNote(m *Model, cfg *ModelConfig, gpuMiB []int) string {
+	out, lay := loopLayoutConfig(cfg, m, gpuMiB)
+	if out == nil {
+		return ""
+	}
+	// The loop card has the most positions: every cache slot.
+	loop := activeGPUs(out, len(gpuMiB))[slices.Index(lay.shares, slices.Max(lay.shares))]
+	return fmt.Sprintf("Keeps the loop core (blocks %d-%d) and the cache of all its passes on GPU %d (split %s); the other blocks run on the other GPUs. Each token then stays on one GPU for most of its work, which is much faster than the usual split. GPU %d holds the most, so less context fits.",
+		m.LoopStart, m.LoopEnd-1, loop, out.TensorSplit, loop)
 }
 
 // planFit is PlanFit on hw as given.
@@ -465,7 +502,11 @@ func planFit(m *Model, base ModelConfig, hw Hardware, class ContextClass) FitRes
 				return done(grow(i))
 			}
 		}
-		if m.ExpertCount > 0 && m.ExpertLayers > 0 {
+		// Experts in system memory end the loop-core layout, which is
+		// faster than anything they gain, and in the loop core they
+		// save nothing (loopCPUExpertBytes). PlanFit tries the plain
+		// split when the layout fits at no context.
+		if m.ExpertCount > 0 && m.ExpertLayers > 0 && !LoopLayoutApplies(m, &cfg, len(hw.GPUs)) {
 			// The smallest number that fits: each layer moved costs speed.
 			for n := m.ExpertLayerFirst + 1; n <= m.ExpertLayerFirst+m.ExpertLayers; n++ {
 				if try(c, "q8_0", 999, n) {

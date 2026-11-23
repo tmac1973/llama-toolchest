@@ -207,6 +207,11 @@ type autoconfigDialogData struct {
 	// projector_choice=1), starting from ProjectorInRAM, its setting now.
 	HasProjector   bool
 	ProjectorInRAM bool
+	// Looped is true for a looped model (Inkling 2) on two or more GPUs:
+	// the dialog then asks whether to keep the loop core on one GPU
+	// (form: loop_layout=fast) or split the layers the usual way for
+	// more context (loop_layout=context), with loop_choice=1.
+	Looped bool
 	// SharedMemory says the GPU's memory is the machine's RAM (Apple
 	// Silicon), which changes the words: nothing moves to system memory,
 	// the CPU runs it.
@@ -317,6 +322,7 @@ func (s *Server) handleAutoconfigDialog(w http.ResponseWriter, r *http.Request) 
 	if cfg, err := s.registry.GetConfig(id); err == nil && models.ProjectorLoaded(cfg) {
 		d.HasProjector, d.ProjectorInRAM = true, cfg.MmprojInRAM
 	}
+	d.Looped = m.IsLooped() && len(models.PlanCards(hw)) >= 2
 	links := gpuLinks(s.gpuReadings())
 	for i := range d.GPUs {
 		d.GPUs[i].Link = links[d.GPUs[i].Index]
@@ -409,6 +415,10 @@ func (s *Server) handleAutoconfigStart(w http.ResponseWriter, r *http.Request) {
 	if r.FormValue("projector_choice") == "1" {
 		inRAM := r.FormValue("projector_in_ram") == "1"
 		deps.ProjectorInRAM = &inRAM
+	}
+	if r.FormValue("loop_choice") == "1" {
+		fast := r.FormValue("loop_layout") != "context"
+		deps.LoopCoreOneGPU = &fast
 	}
 	helper := s.helperModel()
 	if helper != nil {
@@ -780,8 +790,15 @@ func (s *Server) autoconfigReviewData(id, name string, run autoconfigRun) autoco
 			origin[key] = n.Origin
 		}
 	}
+	looped := false
+	if m, err := s.registry.Get(id); err == nil {
+		looped = m.IsLooped()
+	}
 	for _, f := range reviewFields {
 		if f.key == "mmproj_in_ram" && !models.ProjectorLoaded(&res.Base) {
+			continue
+		}
+		if f.key == "loop_core_one_gpu" && !looped {
 			continue
 		}
 		cur, prop := f.show(&res.Base), f.show(&res.Proposed)
@@ -867,6 +884,12 @@ var reviewFields = []reviewField{
 			return "a custom split (" + c.TensorSplit + ")"
 		}
 		return gpuAssignText(c.GPUAssign)
+	}},
+	{"loop_core_one_gpu", "Loop core", func(c *models.ModelConfig) string {
+		if c.LoopCoreOneGPU {
+			return "on one GPU"
+		}
+		return "split with the other layers"
 	}},
 	{"mmproj_in_ram", "Vision projector", func(c *models.ModelConfig) string {
 		if c.MmprojInRAM {

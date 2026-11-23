@@ -810,6 +810,11 @@ type modelConfigPanelData struct {
 	// models only); NLayers bounds it.
 	HasExperts bool
 	NLayers    int
+	// Looped shows the "Loop core on one GPU" switch (looped models on a
+	// machine with two or more GPUs); LoopLayoutOff says why the switch,
+	// though on, does nothing with the settings as they are.
+	Looped        bool
+	LoopLayoutOff string
 	// MoECacheNote says why the MoE cache setting is not used: a build
 	// too old for it. Empty when it is.
 	MoECacheNote string
@@ -1017,6 +1022,10 @@ func (s *Server) configPanelData(id string) (modelConfigPanelData, error) {
 		}
 		data.HasExperts = model.ExpertCount > 0
 		data.NLayers = model.NLayers
+		data.Looped = model.IsLooped() && data.NumGPUs >= 2
+		if data.Looped && cfg.LoopCoreOneGPU && !models.LoopLayoutApplies(model, cfg, data.NumGPUs) {
+			data.LoopLayoutOff = "Not used with these settings: it needs two or more GPUs, a GPU Assignment other than Custom and Tensor Parallelism, no CPU Expert Layers, all layers on the GPU, and no --override-tensor in Extra Flags."
+		}
 		data.HasReasoning = model.EffectiveReasoning(cfg).Supported
 		data.NgramCache = s.ngramCacheView(model.ID, cfg)
 		data.EffortLevels = model.EffortLevels()
@@ -1136,6 +1145,9 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		cfg.Jinja = r.FormValue("jinja") == "on"
 		cfg.KVCacheQuant = r.FormValue("kv_cache_quant")
 		cfg.DirectIO = r.FormValue("direct_io") == "on"
+		if r.Form.Has("loop_core_choice") {
+			cfg.LoopCoreOneGPU = r.FormValue("loop_core_one_gpu") == "on"
+		}
 		// Anything other than the two explicit modes means auto, which is
 		// stored as empty so the preset omits the flag entirely.
 		switch v := r.FormValue("ple_mode"); v {

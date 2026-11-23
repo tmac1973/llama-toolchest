@@ -39,6 +39,20 @@
             </label>
         </fieldset>
         {{end}}
+        {{if .Looped}}
+        <fieldset>
+            <input type="hidden" name="loop_choice" value="1">
+            <legend title="This model runs its loop core several times for each token. On one GPU it is much faster. That GPU holds the most, so less context fits.">Faster, or more context?</legend>
+            <label class="autoconfig-option">
+                <input type="radio" name="loop_layout" value="fast" checked>
+                <span>Faster: keep the loop core on one GPU<small>Much faster. Less context fits.</small></span>
+            </label>
+            <label class="autoconfig-option">
+                <input type="radio" name="loop_layout" value="context">
+                <span>More context: split the layers the usual way<small>More context fits. Much slower.</small></span>
+            </label>
+        </fieldset>
+        {{end}}
         {{if .HasProjector}}
         <fieldset>
             <input type="hidden" name="projector_choice" value="1">

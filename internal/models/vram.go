@@ -239,9 +239,12 @@ func maskContext(cfg *ModelConfig, ctx int) int {
 // which --n-cpu-moe is made of, and no MoE cache (llama_context, the
 // pipeline_parallel condition). On compute2 every such load logged
 // "sched copies = 1".
+//
+// The loop-core layout moves blocks with --override-tensor, so it too
+// runs with one copy.
 func pipelineOff(m *Model, cfg *ModelConfig) bool {
 	return cfg.CPUMoE > 0 || cfg.MoECacheMiB > 0 || (cfg.GPULayers > 0 && cfg.GPULayers <= m.NLayers) ||
-		extraFlagsTurnPipelineOff(m, cfg.ExtraFlags)
+		extraFlagsTurnPipelineOff(m, cfg.ExtraFlags) || LoopLayoutApplies(m, cfg, 2)
 }
 
 // extraFlagsTurnPipelineOff reports whether Extra Flags do what
