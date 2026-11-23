@@ -135,15 +135,25 @@ func layerGPUBytes(m *Model, cfg *ModelConfig, b VRAMBreakdown) []float64 {
 // output layer last), and layer il goes to the first card whose share of
 // the cumulative split exceeds il/(n_layer+1).
 func layerDevices(split []int, nLayers int) []int {
-	total := 0
+	w := make([]float64, len(split))
+	for i, s := range split {
+		w[i] = float64(s)
+	}
+	return layerDevicesW(w, nLayers)
+}
+
+// layerDevicesW is layerDevices for a split of any weights, such as a
+// hand-written --tensor-split ("0.4,0.6").
+func layerDevicesW(split []float64, nLayers int) []int {
+	total := 0.0
 	for _, s := range split {
 		total += s
 	}
 	cum := make([]float64, len(split))
-	acc := 0
+	acc := 0.0
 	for i, s := range split {
 		acc += s
-		cum[i] = float64(acc) / float64(total)
+		cum[i] = acc / total
 	}
 	act := float64(nLayers + 1)
 	out := make([]int, nLayers)
@@ -158,8 +168,14 @@ func layerDevices(split []int, nLayers int) []int {
 // cardLoads sums the layer bytes each card receives under split, in GiB,
 // adding each card's fixed costs.
 func cardLoads(layers []float64, split []int, fixed []float64) []float64 {
+	return addLayerLoads(fixed, layers, layerDevices(split, len(layers)))
+}
+
+// addLayerLoads adds each layer's bytes, in GiB, to the card devices
+// gives it, on top of fixed.
+func addLayerLoads(fixed, layers []float64, devices []int) []float64 {
 	loads := append([]float64(nil), fixed...)
-	for il, d := range layerDevices(split, len(layers)) {
+	for il, d := range devices {
 		loads[d] += layers[il] / (1 << 30)
 	}
 	return loads
@@ -366,6 +382,9 @@ func CardLoadsMiB(m *Model, cfg *ModelConfig, gpuMiB []int) map[int]int {
 		}
 		return out
 	}
+	if loads := customSplitLoads(m, cfg, gpuMiB); loads != nil {
+		return loads
+	}
 	total := VRAMEstimateForConfig(m, cfg) * 1024
 	// A layer split with weights of its own (a hand-written one, or the
 	// one Autoconfigure writes when it moves layers off a card) is split
@@ -387,6 +406,45 @@ func CardLoadsMiB(m *Model, cfg *ModelConfig, gpuMiB []int) map[int]int {
 	gpus := AssignedModelGPUs(cfg, len(gpuMiB))
 	for _, g := range gpus {
 		out[g] += int(total / float64(len(gpus)))
+	}
+	return out
+}
+
+// customSplitLoads is CardLoadsMiB for a layer split written out in cfg
+// (a hand-written one, or the one Autoconfigure pins), counted layer by
+// layer as llama.cpp places them. Its numbers are shares of the layers,
+// not of the memory: Autoconfigure's 9,10,29 for Inkling 2 Mini on three
+// cards holds about 13 GiB on each, because 24 of the last card's 29
+// layers are cache slots with no weights. Shared out by the numbers, the
+// last card was shown with 60% of the model. nil when cfg has no such
+// split, or keeps layers in system memory, where the count does not
+// follow the split.
+func customSplitLoads(m *Model, cfg *ModelConfig, gpuMiB []int) map[int]int {
+	if m == nil || m.NLayers <= 0 || cfg.SplitMode == "tensor" || cfg.SplitMode == "row" {
+		return nil
+	}
+	if cfg.GPULayers > 0 && cfg.GPULayers < m.NLayers {
+		return nil
+	}
+	w := splitWeights(cfg.TensorSplit, len(gpuMiB))
+	if w == nil {
+		return nil
+	}
+	var active []int
+	var shares []float64
+	for g, x := range w {
+		if x > 0 {
+			active = append(active, g)
+			shares = append(shares, x)
+		}
+	}
+	layers, _, fixed := moeSplitInputs(m, cfg, gpuMiB, active)
+	if len(active) == 1 {
+		shares = []float64{1}
+	}
+	out := map[int]int{}
+	for i, gib := range addLayerLoads(fixed, layers, layerDevicesW(shares, len(layers))) {
+		out[active[i]] += int(gib * 1024)
 	}
 	return out
 }
