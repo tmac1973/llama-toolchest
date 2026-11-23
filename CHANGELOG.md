@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.65.0](https://github.com/tmac1973/llama-toolchest/compare/v2.64.0...v2.65.0) (2026-11-23)
+
+
+### Features
+
+* **autoconfig:** fit the context in eighths and offer 256K, 512K and 1M ([#692](https://github.com/tmac1973/llama-toolchest/issues/692)) ([7aa4092](https://github.com/tmac1973/llama-toolchest/commit/7aa4092631c4262fa18f38f28995ad37a88984bd))
+* **models:** keep a looped model's loop core on one GPU ([#693](https://github.com/tmac1973/llama-toolchest/issues/693)) ([cb62021](https://github.com/tmac1973/llama-toolchest/commit/cb62021c1bcc7591be0dda675e53f64dd6d95e89)), closes [#690](https://github.com/tmac1973/llama-toolchest/issues/690)
+
+
+### Bug Fixes
+
+* **models:** count a custom layer split by layer on the GPU map ([#691](https://github.com/tmac1973/llama-toolchest/issues/691)) ([1eb6c36](https://github.com/tmac1973/llama-toolchest/commit/1eb6c36bb4356f852b74d74b4bc4f8bc191e80c0)), closes [#690](https://github.com/tmac1973/llama-toolchest/issues/690)
+
 ## [2.64.0](https://github.com/tmac1973/llama-toolchest/compare/v2.63.0...v2.64.0) (2026-11-22)
 
 
