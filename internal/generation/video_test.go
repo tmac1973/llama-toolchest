@@ -179,6 +179,9 @@ func TestCatalogReposAllowed(t *testing.T) {
 		"jayn7/HunyuanVideo-1.5_T2V_720p-GGUF",
 		// Upscaler sets.
 		"Comfy-Org/Real-ESRGAN",
+		// Video upscaler sets (Apache-2.0, not gated; checked 2026-11-24).
+		"Comfy-Org/RelayVSR",
+		"Comfy-Org/SeedVR2",
 	}
 	for _, e := range Catalog() {
 		for _, c := range e.Components {

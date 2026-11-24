@@ -24,6 +24,11 @@ const (
 	// ESRGAN upscaler, for /v1/images/upscale. It needs about 1 GiB of
 	// VRAM, so it is a set of its own rather than part of an image set.
 	KindUpscale BackendKind = "upscale"
+	// KindVUpscale also runs sd-server, with no diffusion model at start: a
+	// DGL script loads a video upscaler (RelayVSR or SeedVR2) for each job,
+	// for /v1/videos/upscale/jobs. The set's Recipe names the script (see
+	// VUpscaleScripts); its Scale is how many times larger it makes a clip.
+	KindVUpscale BackendKind = "vupscale"
 )
 
 // Component is one file of a model set.
@@ -93,7 +98,8 @@ type ModelSet struct {
 	// VideoSizes are the sizes Measure offers a video set, smallest (the
 	// test size) first. See VideoPresets.
 	VideoSizes []VideoSize `json:"video_sizes,omitempty"`
-	// Scale is how many times larger a custom upscaler set makes an image;
+	// Scale is how many times larger a custom upscaler set makes an image,
+	// or a custom video upscaler set a clip;
 	// 0 when not known (custom sets saved before it existed). Catalog sets
 	// take their entry's value. See UpscaleScale.
 	Scale int `json:"scale,omitempty"`

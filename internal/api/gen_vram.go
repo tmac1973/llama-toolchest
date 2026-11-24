@@ -566,6 +566,10 @@ func (s *Server) handleGenMeasure(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if set.Kind == generation.KindVUpscale {
+		http.Error(w, "Measure for video upscaler sets is not supported yet; set a reservation by hand", http.StatusBadRequest)
+		return
+	}
 	var size generation.VideoSize
 	if set.Kind == generation.KindVideo {
 		if size, err = videoMeasureSize(r, set); err != nil {

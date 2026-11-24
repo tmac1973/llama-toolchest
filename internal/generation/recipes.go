@@ -93,6 +93,9 @@ var SlotLabels = map[string]string{
 // SlotLabel returns a slot's name for people: toolchest's label for the
 // recipe, else upstream's, else the shared one, else the slot ID.
 func SlotLabel(recipe, slot string) string {
+	if l := vupscaleSlotLabel(recipe, slot); l != "" {
+		return l
+	}
 	if r, ok := ActiveRecipes().Get(recipe); ok {
 		return r.slotLabel(slot)
 	}
@@ -166,6 +169,59 @@ var AceSlots = []string{"lm", "dit", "embedding", "vae"}
 // (.pth or .safetensors).
 const UpscalerSlot = "upscaler"
 
+// VUpscaleScripts are the DGL scripts a video upscaler set can run, kept
+// in the set's Recipe.
+var VUpscaleScripts = []string{"relayvsr", "seedvr2"}
+
+// VUpscaleSlots are the two files every video upscaler set needs.
+var VUpscaleSlots = []string{"dit", "vae"}
+
+// VUpscaleScales are the scales a video upscaler script can make: RelayVSR
+// files are made for ×2 or ×4; SeedVR2's scale is a script setting.
+func VUpscaleScales(script string) []int {
+	switch script {
+	case "relayvsr":
+		return []int{2, 4}
+	case "seedvr2":
+		return []int{2, 3, 4}
+	}
+	return nil
+}
+
+// relayvsrScaleName finds the scale in a RelayVSR file name: "x2" or "x4"
+// between separators, as in relayvsr_x2_lightx2v_int8_convrot.safetensors
+// (which matches _x2_, not lightx2v).
+var relayvsrScaleName = regexp.MustCompile(`(^|[_.-])x([24])([_.-]|$)`)
+
+// RelayVSRFileScale returns the scale a RelayVSR file name says it is for,
+// or 0 when the name does not say.
+func RelayVSRFileScale(name string) int {
+	m := relayvsrScaleName.FindStringSubmatch(strings.ToLower(filepath.Base(name)))
+	if m == nil {
+		return 0
+	}
+	return int(m[2][0] - '0')
+}
+
+// vupscaleSlotLabel names a video upscaler set's slots for people.
+func vupscaleSlotLabel(script, slot string) string {
+	names := map[string][2]string{
+		"relayvsr": {"RelayVSR diffusion model", "RelayVSR VAE (same scale)"},
+		"seedvr2":  {"SeedVR2 diffusion model", "SeedVR2 VAE"},
+	}
+	n, ok := names[script]
+	if !ok {
+		return ""
+	}
+	switch slot {
+	case "dit":
+		return n[0]
+	case "vae":
+		return n[1]
+	}
+	return ""
+}
+
 // CapEdit is an image set that can edit images.
 const CapEdit = "edit"
 
@@ -236,6 +292,11 @@ func ValidateComponents(kind BackendKind, recipe string, comps []Component) erro
 		slots = RecipeSlotSet{Required: AceSlots}
 	case KindUpscale:
 		slots = RecipeSlotSet{Required: []string{UpscalerSlot}}
+	case KindVUpscale:
+		if !slices.Contains(VUpscaleScripts, recipe) {
+			return fmt.Errorf("unknown video upscaler script %q: use relayvsr or seedvr2", recipe)
+		}
+		slots = RecipeSlotSet{Required: VUpscaleSlots}
 	default:
 		return fmt.Errorf("unknown backend kind %q", kind)
 	}
@@ -268,6 +329,8 @@ func describeSet(kind BackendKind, recipe string) string {
 		return "an ACE-Step set"
 	case KindUpscale:
 		return "an upscaler set"
+	case KindVUpscale:
+		return "a video upscaler set"
 	case KindVideo:
 		return "video recipe " + recipe
 	}

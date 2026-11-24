@@ -88,6 +88,8 @@
                 {{- if or (eq .Status.State "running") (eq .Status.State "starting")}}
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/stop" hx-target="#gen-instances" data-error-label="Not stopped">Stop</button>
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/restart" hx-target="#gen-instances" data-error-label="Not restarted">Restart</button>
+                {{- else if and .Enabled (eq .Kind "vupscale")}}
+                    <button type="button" class="outline" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/start" hx-target="#gen-instances" data-error-label="Not started"{{if not .ReservedMiB}} title="No VRAM reservation yet. Set one by hand with Edit."{{end}}>Start</button>
                 {{- else if and .Enabled (not .ReservedMiB) (not .Measuring) (eq .Kind "video")}}
                     <button type="button" class="outline" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" data-id="{{$id}}" data-name="{{.Name}}" data-gpu="{{.GPU}}" data-video="{{.VideoJSON}}" data-start="1" onclick="openGenMeasureVideo(this)" title="No VRAM reservation yet. Toolchest measures first, at a video size you choose. It asks before it starts.">Start</button>
                 {{- else if and .Enabled (not .ReservedMiB) (not .Measuring) .EditImagesDefault}}
@@ -98,7 +100,9 @@
                     <button type="button" class="outline" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" hx-post="/api/gen/instances/{{$id}}/start" hx-target="#gen-instances" data-error-label="Not started">Start</button>
                 {{- end}}
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" onclick="openGenLog('{{$id}}', '{{.Name}}')">Logs</button>
-                {{- if and (not .Measuring) (eq .Kind "video")}}
+                {{- if eq .Kind "vupscale"}}
+                {{- /* Measure for video upscaler sets comes later; set a reservation by hand. */}}
+                {{- else if and (not .Measuring) (eq .Kind "video")}}
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" data-id="{{$id}}" data-name="{{.Name}}" data-gpu="{{.GPU}}" data-video="{{.VideoJSON}}" onclick="openGenMeasureVideo(this)" title="Makes one test video at a size you choose, alone on this GPU, and reserves its peak VRAM. Videos up to that size are then allowed.">Measure</button>
                 {{- else if and (not .Measuring) .EditImagesDefault}}
                     <button type="button" class="outline secondary" style="margin:0;padding:0.15rem 0.55rem;font-size:0.8rem;" data-id="{{$id}}" data-name="{{.Name}}" data-gpu="{{.GPU}}" data-edit-default="{{.EditImagesDefault}}" data-edit-max="{{.EditImagesMax}}" onclick="openGenMeasureEdit(this)" title="Makes one test image and one test edit alone on this GPU, and reserves the peak VRAM. You choose how many images the edit has. Edits with more are then refused.">Measure</button>

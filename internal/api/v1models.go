@@ -132,6 +132,10 @@ func (s *Server) genV1Model(inst generation.Instance) map[string]any {
 	if err != nil {
 		return nil
 	}
+	// Video upscaler sets have no API route yet.
+	if set.Kind == generation.KindVUpscale {
+		return nil
+	}
 	caps := set.CurrentCapabilities()
 	if caps == nil {
 		caps = []string{}
@@ -321,6 +325,15 @@ func (s *Server) modelFromBody(body []byte) (*models.Model, *models.ModelConfig)
 	return s.findModelByAny(req.Model)
 }
 
+// genKindText names a set's kind for people: genKindLabel, but "video
+// upscale" for a video upscaler set, whose API name is "vupscale".
+func genKindText(k generation.BackendKind) string {
+	if k == generation.KindVUpscale {
+		return "video upscale"
+	}
+	return genKindLabel(k)
+}
+
 // genKindLabel names a set's kind as /v1/models and the UI show it.
 func genKindLabel(k generation.BackendKind) string {
 	switch k {
@@ -330,6 +343,8 @@ func genKindLabel(k generation.BackendKind) string {
 		return "video"
 	case generation.KindUpscale:
 		return "upscale"
+	case generation.KindVUpscale:
+		return "vupscale"
 	}
 	return "image"
 }

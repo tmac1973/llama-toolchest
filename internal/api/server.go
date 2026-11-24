@@ -637,10 +637,11 @@ func (s *Server) templateFuncs() template.FuncMap {
 		// sizeText writes a file size in GiB, or MiB below 1 GiB.
 		"sizeText": sizeText,
 		// kindLabel and kindTitle name a generation set's kind: "image",
-		// "video", "music" or "upscale", and the same with a capital letter.
-		"kindLabel": genKindLabel,
+		// "video", "music", "upscale" or "video upscale", and the same with
+		// a capital letter.
+		"kindLabel": genKindText,
 		"kindTitle": func(k generation.BackendKind) string {
-			l := genKindLabel(k)
+			l := genKindText(k)
 			return strings.ToUpper(l[:1]) + l[1:]
 		},
 		// kindProject names the build project that runs a generation kind,
