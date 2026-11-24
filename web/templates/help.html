@@ -153,14 +153,15 @@
     <p>The recipe list of a custom set comes from the newest stable-diffusion.cpp build. An instance starts only on a build that knows its set's recipe. A new set's launch arguments start from the recipe's defaults. <a class="help-more" href="{{docsURL "guides/generation#recipes"}}" target="_blank" rel="noopener">More in the docs</a></p>
     <p>A speech-to-video set (Wan2.2 S2V) makes the person in a start image speak along with an audio track (WAV, MP3 or FLAC). With no length given, the video is as long as the audio. <a class="help-more" href="{{docsURL "guides/generation#speech-to-video"}}" target="_blank" rel="noopener">More in the docs</a></p>
     <p>A file field of a custom set also takes a Hugging Face file. Press Browse to choose one, or paste its link. Toolchest downloads the file when you add the set, and checks it when it is done. <a class="help-more" href="{{docsURL "guides/generation#custom-set-downloads"}}" target="_blank" rel="noopener">More in the docs</a></p>
-    <h3 id="generation-vram">Measured reservations</h3>
+        <p>A video upscaler set (RelayVSR or SeedVR2) makes a clip larger and keeps it steady from frame to frame. It needs stable-diffusion.cpp master-1116 or newer. It takes AVI, WebM (VP8) or animated WebP, not MP4. <a class="help-more" href="{{docsURL "guides/generation#video-upscaling"}}" target="_blank" rel="noopener">More in the docs</a></p>
+<h3 id="generation-vram">Measured reservations</h3>
     <p>Measure records the peak VRAM of one test job; the reservation is that plus 10%, and the planner keeps it free. The docs list what each catalog set needed on two test cards. <a class="help-more" href="{{docsURL "gpu/reservations#what"}}" target="_blank" rel="noopener">More in the docs</a> · <a href="{{docsURL "reference/measured-reservations"}}" target="_blank" rel="noopener">Measured reservations</a></p>
     <h3 id="generation-sharing">Sharing a GPU</h3>
     <p>One job runs on each GPU, and up to 16 wait; more get HTTP 429. <a class="help-more" href="{{docsURL "gpu/taking-turns#sharing"}}" target="_blank" rel="noopener">More in the docs</a></p>
     <h3 id="generation-evict">Taking turns when both do not fit</h3>
     <p>With take turns on, chat and jobs on one GPU swap it, with a reload each time; lock an instance to keep it running. <a class="help-more" href="{{docsURL "gpu/taking-turns#take-turns"}}" target="_blank" rel="noopener">More in the docs</a></p>
     <h3 id="generation-api">Image, video and music API</h3>
-    <p>Instances show in <code>/v1/models</code> with <code>meta.kind</code>. Send image, video and music requests to the OpenAI-style routes, or as jobs that answer at once with an ID. The <a href="/docs/api">API reference</a> has every field. <a class="help-more" href="{{docsURL "api#generation-api"}}" target="_blank" rel="noopener">More in the docs</a></p>
+    <p>Instances show in <code>/v1/models</code> with <code>meta.kind</code>. Send image, video and music requests to the OpenAI-style routes, or as jobs that answer at once with an ID. Video upscaling has jobs only. The <a href="/docs/api">API reference</a> has every field. <a class="help-more" href="{{docsURL "api#generation-api"}}" target="_blank" rel="noopener">More in the docs</a></p>
 
     <h2 id="forks">llama.cpp forks (experimental)</h2>
     <p>Build and run hand-picked forks of llama.cpp, each for the one model it is tuned for, next to the normal router. Turn them on in <a href="/settings">Settings</a>.</p>
