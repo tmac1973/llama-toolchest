@@ -110,8 +110,8 @@ paths:
       description: |
         Lists every model you can send as `model`: the LLMs for chat, and
         the image, video, music and upscaler generation models. Each
-        entry's `meta.kind` is `text`, `image`, `video`, `music` or
-        `upscale`.
+        entry's `meta.kind` is `text`, `image`, `video`, `music`,
+        `upscale` or `vupscale` (video upscale).
 
         Only enabled models are listed. The default model name comes
         first (`meta.virtual` set), when it is on and has a model to go to.
@@ -137,7 +137,7 @@ paths:
             is listed.
           schema:
             type: string
-            enum: [text, image, video, music, upscale]
+            enum: [text, image, video, music, upscale, vupscale]
       responses:
         "200":
           description: The model list.
@@ -973,6 +973,129 @@ paths:
         "409":
           $ref: "#/components/responses/NotReady"
 
+  /v1/videos/upscale/jobs:
+    post:
+      tags: [Video]
+      operationId: createVideoUpscaleJob
+      summary: Create a video upscale job
+      description: |
+        Makes a clip larger with a video upscaler instance (`meta.kind`
+        `vupscale`): RelayVSR or SeedVR2, run by sd-server as a DGL script.
+        Answers at once with a job ID. Check the job until it has finished,
+        then download the video from `video.url`. The clip is checked
+        before any GPU work: AVI (RGB or MJPEG, PCM or float audio), WebM
+        with independent VP8 frames (as toolchest's video jobs write) or
+        animated WebP. MP4 is refused.
+      requestBody:
+        $ref: "#/components/requestBodies/VUpscaleRequest"
+      responses:
+        "202":
+          $ref: "#/components/responses/JobAccepted"
+        "400":
+          $ref: "#/components/responses/VUpscaleBadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/GenNotFound"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "429":
+          $ref: "#/components/responses/QueueFull"
+        "500":
+          $ref: "#/components/responses/ServerError"
+        "503":
+          $ref: "#/components/responses/BackendUnavailable"
+    get:
+      tags: [Video]
+      operationId: listVideoUpscaleJobs
+      summary: List video upscale jobs
+      description: Newest first. At most 50 finished jobs are kept.
+      parameters:
+        - $ref: "#/components/parameters/StatusFilter"
+      responses:
+        "200":
+          description: The jobs.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [object, data]
+                properties:
+                  object:
+                    const: list
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/VUpscaleJob"
+        "400":
+          $ref: "#/components/responses/BadStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/GenNotFound"
+
+  /v1/videos/upscale/jobs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/JobID"
+    get:
+      tags: [Video]
+      operationId: getVideoUpscaleJob
+      summary: Get a video upscale job
+      responses:
+        "200":
+          description: The job.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VUpscaleJob"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/JobNotFound"
+    delete:
+      tags: [Video]
+      operationId: deleteVideoUpscaleJob
+      summary: Cancel or delete a video upscale job
+      description: |
+        A job that has not finished is cancelled: a waiting job leaves the
+        queue. sd-server cannot cancel a running upscale, so toolchest
+        stops the instance to free the GPU; the next job starts it again.
+        The cancelled job stays listed; a second DELETE removes it. A
+        finished job is deleted with its video.
+      responses:
+        "204":
+          description: Cancelled, or deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/JobNotFound"
+
+  /v1/videos/upscale/jobs/{id}/video:
+    get:
+      tags: [Video]
+      operationId: getVideoUpscaleJobVideo
+      summary: Download an upscaled video
+      parameters:
+        - $ref: "#/components/parameters/JobID"
+      responses:
+        "200":
+          description: The video, with the job's `video.mime_type`. Range requests are supported.
+          content:
+            video/webm:
+              schema:
+                type: string
+                format: binary
+            video/x-msvideo:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/JobNotFound"
+        "409":
+          $ref: "#/components/responses/NotReady"
+
   /v1/music/jobs:
     post:
       tags: [Music]
@@ -1315,6 +1438,49 @@ components:
         examples: ["queued,running"]
 
   requestBodies:
+    VUpscaleRequest:
+      required: true
+      description: A multipart form with the clip as the `video` file (up to 512 MiB), or JSON with `video` as base64 or a data URL (up to 128 MiB).
+      content:
+        multipart/form-data:
+          schema:
+            type: object
+            required: [video]
+            properties:
+              video:
+                type: string
+                format: binary
+              model:
+                type: string
+                description: A video upscaler instance or set. Optional when only one can take the request. `GET /v1/models?kind=vupscale` lists the choices.
+              output_format:
+                type: string
+                enum: [webm, avi]
+                default: webm
+                description: "`webm` has no sound (`audio_dropped` tells when the clip had some). `avi` is MJPEG and keeps the clip's sound."
+              seed:
+                type: integer
+                description: Left out, a random seed (shown in the job).
+              window_size:
+                type: integer
+                description: "Frames per window: more is smoother and uses more VRAM. RelayVSR 2–32 (default 16); SeedVR2 1 or 4n+1 up to 33 (default 1). See `meta.vupscale.window_sizes`."
+        application/json:
+          schema:
+            type: object
+            required: [video]
+            properties:
+              video:
+                type: string
+                description: The clip as base64 or a data URL.
+              model:
+                type: string
+              output_format:
+                type: string
+                enum: [webm, avi]
+              seed:
+                type: integer
+              window_size:
+                type: integer
     VideoRequest:
       required: true
       description: JSON, or a multipart form with the same field names (then `start_image`, `end_image` and `audio` are files and `extra` is JSON text).
@@ -1360,6 +1526,21 @@ components:
                     const: auth_error
     BadRequest:
       description: "`bad_request` (the body cannot be read) or `model_required` (several instances could take the job; the message lists them)."
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    VUpscaleBadRequest:
+      description: |
+        The request is not valid. `code` says why: `bad_request`,
+        `missing_video`, `unknown_field`, `invalid_json`,
+        `unsupported_video` (not a format or codec sd.cpp reads; the
+        message says which and what to send), `invalid_output_format`,
+        `invalid_window_size`, `invalid_seed`, `clip_too_large` (over
+        sd.cpp's 256 MiB decoded input or 4 GiB output; the message gives
+        the most frames that fit), `window_too_large` (one window is over
+        sd.cpp's tensor limit; the message gives a size that fits),
+        `too_few_frames` (RelayVSR needs 2), `wrong_model_kind`.
       content:
         application/json:
           schema:
@@ -1795,13 +1976,13 @@ components:
       properties:
         kind:
           type: string
-          enum: [image, video, music, upscale]
+          enum: [image, video, music, upscale, vupscale]
         model_set:
           type: string
           description: The model set's ID, which also works as `model`.
         recipe:
           type: string
-          description: The sd-server recipe; empty for music and upscale.
+          description: The sd-server recipe; empty for music and upscale. For vupscale, the script (`relayvsr` or `seedvr2`).
         capabilities:
           type: array
           items:
@@ -1827,6 +2008,44 @@ components:
             True while the instance is being measured. Requests to it are
             refused with `backend_unavailable` until the measurement ends,
             so pick another instance meanwhile.
+        vupscale:
+          type: object
+          description: Video upscaler instances only. What a request may send and the limits it is checked against.
+          properties:
+            scale:
+              type: integer
+              description: How many times wider and higher the result is.
+            script:
+              type: string
+              enum: [relayvsr, seedvr2]
+            default_window_size:
+              type: integer
+              description: The `window_size` a request without one gets.
+            window_sizes:
+              description: "RelayVSR: `{min, max}`. SeedVR2: the list of allowed sizes (1 and 4n+1)."
+              oneOf:
+                - type: object
+                  properties:
+                    min:
+                      type: integer
+                    max:
+                      type: integer
+                - type: array
+                  items:
+                    type: integer
+            input_formats:
+              type: array
+              items:
+                type: string
+              examples: [[avi, webm, webp]]
+            output_formats:
+              type: array
+              items:
+                type: string
+              examples: [[webm, avi]]
+            max_decoded_bytes:
+              type: integer
+              description: sd.cpp's limit on the decoded clip, 3 × width × height × frames.
         max_edit_images:
           type: integer
           description: |
@@ -2105,6 +2324,86 @@ components:
             such as `sample_params` (steps, guidance). It cannot set the
             fields above, nor `lora` on sets that have their own LoRAs.
 
+    VUpscaleJob:
+      allOf:
+        - $ref: "#/components/schemas/JobBase"
+        - type: object
+          required: [request, input]
+          properties:
+            phase:
+              type: string
+              enum: [queued, starting, generating, saving]
+              description: Left out once the job has finished.
+            progress:
+              type: object
+              description: While sd-server runs the upscale. It runs as one step, so `stage` is mostly `executing`, and `completed`/`total` are often left out.
+              properties:
+                stage:
+                  type: string
+                detail:
+                  type: string
+                completed:
+                  type: integer
+                total:
+                  type: integer
+                elapsed_ms:
+                  type: integer
+            cancel_requested:
+              type: boolean
+              description: True after a DELETE.
+            request:
+              type: object
+              description: The request with defaults filled in.
+              properties:
+                model:
+                  type: string
+                output_format:
+                  type: string
+                seed:
+                  type: integer
+                window_size:
+                  type: integer
+            input:
+              type: object
+              description: The clip as toolchest read it.
+              properties:
+                format:
+                  type: string
+                  enum: [avi, webm, webp]
+                width:
+                  type: integer
+                height:
+                  type: integer
+                frames:
+                  type: integer
+                fps:
+                  type: [number, "null"]
+                  description: Null when the file gives no frame rate (a still WebP).
+                has_audio:
+                  type: boolean
+            audio_dropped:
+              type: boolean
+              description: True when the clip had sound and the output is webm, which has none.
+            video:
+              type: object
+              description: Only on `succeeded` jobs.
+              properties:
+                url:
+                  type: string
+                  examples: [/v1/videos/upscale/jobs/9b1e0a12b4d5e6f7/video]
+                mime_type:
+                  type: string
+                  enum: [video/webm, video/x-msvideo]
+                format:
+                  type: string
+                frames:
+                  type: integer
+                width:
+                  type: integer
+                height:
+                  type: integer
+                bytes:
+                  type: integer
     VideoJob:
       allOf:
         - $ref: "#/components/schemas/JobBase"

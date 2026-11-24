@@ -65,7 +65,7 @@ func (s *Server) openAIModel(m *models.Model, cfg *models.ModelConfig) map[strin
 }
 
 // v1ModelKinds are the meta.kind values /v1/models?kind= accepts.
-var v1ModelKinds = []string{"text", "image", "video", "music", "upscale"}
+var v1ModelKinds = []string{"text", "image", "video", "music", "upscale", "vupscale"}
 
 // handleV1Models returns an OpenAI-compatible model list with meta extensions.
 // ?kind= keeps only the models of one meta.kind.
@@ -73,7 +73,7 @@ func (s *Server) handleV1Models(w http.ResponseWriter, r *http.Request) {
 	kind := r.URL.Query().Get("kind")
 	if kind != "" && !slices.Contains(v1ModelKinds, kind) {
 		writeOpenAIError(w, http.StatusBadRequest, "invalid_kind",
-			fmt.Sprintf("unknown kind %q: use text, image, video, music or upscale", kind))
+			fmt.Sprintf("unknown kind %q: use text, image, video, music, upscale or vupscale", kind))
 		return
 	}
 
@@ -107,7 +107,8 @@ func (s *Server) handleV1Models(w http.ResponseWriter, r *http.Request) {
 }
 
 // genV1Models lists the generation instances that can take requests as
-// models, with meta.kind "image", "video", "music" or "upscale": enabled,
+// models, with meta.kind "image", "video", "music", "upscale" or
+// "vupscale": enabled,
 // with a VRAM reservation (pickInstance refuses any other). Clients that
 // only chat should skip kinds other than "text". Empty while generation
 // backends are off.
@@ -132,10 +133,6 @@ func (s *Server) genV1Model(inst generation.Instance) map[string]any {
 	if err != nil {
 		return nil
 	}
-	// Video upscaler sets have no API route yet.
-	if set.Kind == generation.KindVUpscale {
-		return nil
-	}
 	caps := set.CurrentCapabilities()
 	if caps == nil {
 		caps = []string{}
@@ -155,6 +152,8 @@ func (s *Server) genV1Model(inst generation.Instance) map[string]any {
 		api = []string{"video.jobs", "video.sync"}
 	case generation.KindUpscale:
 		api = []string{"images.upscale"}
+	case generation.KindVUpscale:
+		api = []string{"video.upscale.jobs"}
 	}
 	meta := map[string]any{
 		"kind":         kind,
@@ -187,6 +186,9 @@ func (s *Server) genV1Model(inst generation.Instance) map[string]any {
 		if slices.Contains(tasks, taskLego) {
 			meta["tracks"] = musicTracks
 		}
+	}
+	if set.Kind == generation.KindVUpscale {
+		meta["vupscale"] = vupscaleMeta(inst, set)
 	}
 	if set.Kind == generation.KindVideo {
 		// video gives the defaults a request gets and the largest video it
@@ -347,4 +349,23 @@ func genKindLabel(k generation.BackendKind) string {
 		return "vupscale"
 	}
 	return "image"
+}
+
+// vupscaleMeta is a video upscaler instance's meta.vupscale: what a
+// request may send and the limits it is checked against.
+func vupscaleMeta(inst generation.Instance, set generation.ModelSet) map[string]any {
+	m := map[string]any{
+		"scale":               set.UpscaleScale(),
+		"script":              set.Recipe,
+		"default_window_size": vupscaleDefaultWindow(set, inst),
+		"input_formats":       []string{"avi", "webm", "webp"},
+		"output_formats":      []string{"webm", "avi"},
+		"max_decoded_bytes":   vupscaleMaxDecoded,
+	}
+	if set.Recipe == "seedvr2" {
+		m["window_sizes"] = []int{1, 5, 9, 13, 17, 21, 25, 29, 33}
+	} else {
+		m["window_sizes"] = map[string]int{"min": 2, "max": 32}
+	}
+	return m
 }

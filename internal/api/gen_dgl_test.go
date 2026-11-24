@@ -83,6 +83,8 @@ func (f *fakeDGL) serve(w http.ResponseWriter, r *http.Request) {
 			}
 			_, _ = w.Write([]byte(`{"id":"job1","status":"completed","error":null,"result":` + f.result + `}`))
 		}
+	case r.Method == "GET" && r.URL.Path == "/v1/models":
+		_, _ = w.Write([]byte(`{"data":[]}`))
 	default:
 		f.requests++
 		http.NotFound(w, r)

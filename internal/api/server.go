@@ -163,6 +163,9 @@ type Server struct {
 	// genVideoJobs holds the video jobs, kept on disk across restarts,
 	// at most videoJobMax finished ones.
 	genVideoJobs jobStore[videoJob]
+	// genVUpscaleJobs holds the video upscale jobs, kept on disk across
+	// restarts, at most videoJobMax finished ones.
+	genVUpscaleJobs jobStore[vupscaleJob]
 
 	// probeCache memoizes remote GGUF header probes, keyed by source,
 	// repo and file. A published file's layout does not change, so the
@@ -460,6 +463,7 @@ func (s *Server) Shutdown() {
 	s.genMusic.close()
 	s.genImageJobs.close()
 	s.genVideoJobs.close()
+	s.genVUpscaleJobs.close()
 	s.genMgr.StopAll()
 	s.forkMgr.StopAll()
 	if err := s.process.Stop(); err != nil {
@@ -505,6 +509,7 @@ func NewServer(cfg *config.Config, configPath string) *Server {
 	s.genMgr = generation.NewManager()
 	s.forkMgr = forks.NewManager()
 	s.genVideoJobs.max = videoJobMax
+	s.genVUpscaleJobs.max = videoJobMax
 	s.genQueue = generation.NewQueue()
 	if s.gen, s.genErr = generation.Load(cfg.DataDir); s.genErr != nil {
 		slog.Error("generation backends store not loaded", "error", s.genErr)
@@ -1145,6 +1150,11 @@ func (s *Server) buildRouter() chi.Router {
 		r.Get("/videos/jobs/{id}/video", s.handleVideoJobVideo)
 		r.Delete("/videos/jobs/{id}", s.handleVideoJobDelete)
 		r.Post("/videos/generations", s.handleVideoGenerate)
+		r.Post("/videos/upscale/jobs", s.handleVUpscaleJobCreate)
+		r.Get("/videos/upscale/jobs", s.handleVUpscaleJobList)
+		r.Get("/videos/upscale/jobs/{id}", s.handleVUpscaleJobGet)
+		r.Get("/videos/upscale/jobs/{id}/video", s.handleVUpscaleJobVideo)
+		r.Delete("/videos/upscale/jobs/{id}", s.handleVUpscaleJobDelete)
 		r.Post("/music/jobs", s.handleMusicCreate)
 		r.Get("/music/jobs", s.handleMusicList)
 		r.Get("/music/jobs/{id}", s.handleMusicGet)
