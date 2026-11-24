@@ -53,6 +53,8 @@ type genInstanceRow struct {
 	Limit         generation.VideoSize `json:"video_limit,omitzero"`
 	LimitMeasured bool                 `json:"video_limit_measured,omitempty"`
 	VideoJSON     string               `json:"-"`
+	// VUpscaleJSON is what a video upscaler's Measure dialog offers.
+	VUpscaleJSON string `json:"-"`
 	// MeasuredStale is true when the last measurement ran with other
 	// backend flags than the instance has now (see measuredStale).
 	MeasuredStale bool `json:"measured_stale,omitempty"`
@@ -285,6 +287,9 @@ func (s *Server) genInstanceRows(store *generation.Store) []genInstanceRow {
 			row.Limit, row.LimitMeasured = generation.VideoLimit(inst, set)
 			room, haveRoom := s.genRoomMiB(inst)
 			row.VideoJSON = videoMeasureJSON(set, inst, room, haveRoom)
+		}
+		if set := sets[inst.ModelSetID]; set.Kind == generation.KindVUpscale {
+			row.VUpscaleJSON = vupscaleMeasureJSON(set, inst)
 		}
 		if b := s.resolveBackendBuild(string(row.Kind), inst.BuildID); b != nil {
 			row.BuildLabel = b.ID
@@ -570,6 +575,7 @@ func (s *Server) genInstanceFromForm(r *http.Request, store *generation.Store, i
 	if inst.ModelSetID != set.ID || !slicesEqual(inst.ExtraArgs, args) || inst.BuildID != buildID || inst.GPU != gpu {
 		inst.ReservedMiB, inst.MeasuredPeakMiB, inst.MeasuredAt, inst.MeasureEstimated = 0, 0, time.Time{}, false
 		inst.MeasuredSuggestedMiB, inst.MeasuredFrames, inst.MeasuredWidth, inst.MeasuredHeight = 0, 0, 0, 0
+		inst.MeasuredWindow = 0
 		inst.MeasuredDecodeFallback, inst.LastVideo = false, generation.LastVideo{}
 		inst.MeasuredArgs, inst.MeasuredRAMMiB, inst.MeasuredFiles = nil, 0, nil
 		inst.BudgetMiB, inst.MeasurePoints = 0, nil

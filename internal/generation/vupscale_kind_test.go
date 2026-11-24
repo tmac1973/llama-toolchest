@@ -149,7 +149,7 @@ func TestLaunchSpecVUpscale(t *testing.T) {
 func TestBuildHasDGL(t *testing.T) {
 	for help, want := range map[string]bool{
 		"--steps N\n  --dgl-dir DIR\n": true,
-		"--steps N\n":                   false,
+		"--steps N\n":                  false,
 	} {
 		build := builder.BuildResult{ID: "b", BinaryPath: fakeSDServer(t, help)}
 		if got := BuildHasDGL(build); got != want {

@@ -62,6 +62,8 @@ type VideoSize struct {
 	Frames int    `json:"frames"`
 	Width  int    `json:"width"`
 	Height int    `json:"height"`
+	// Window is a video upscaler measurement's window size; 0 otherwise.
+	Window int `json:"window,omitempty"`
 }
 
 // ModelSet is a named group of component files that a backend loads
@@ -167,6 +169,10 @@ type Instance struct {
 	// MeasuredFrames, MeasuredWidth and MeasuredHeight are the video size
 	// the last measurement made (video instances only). See VideoLimit.
 	MeasuredFrames int `json:"measured_frames,omitempty"`
+	// MeasuredWindow is the window size a video upscaler instance was
+	// measured with; with MeasuredFrames, MeasuredWidth and MeasuredHeight
+	// (the input clip's size) it is the largest job the instance takes.
+	MeasuredWindow int `json:"measured_window,omitempty"`
 	MeasuredWidth  int `json:"measured_width,omitempty"`
 	MeasuredHeight int `json:"measured_height,omitempty"`
 	// MeasuredDecodeFallback is true when the measured decode did not fit
