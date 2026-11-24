@@ -63,6 +63,12 @@ func recipeOptionText(r *generation.Recipe) string {
 // the catalog's recipes, the other usable ones, and the ones toolchest
 // cannot run (disabled, with the reason). Empty groups are left out.
 func genRecipeGroups(kind generation.BackendKind) []genRecipeGroup {
+	if kind == generation.KindVUpscale {
+		return []genRecipeGroup{{Label: "Scripts", Options: []genRecipeOption{
+			{ID: "relayvsr", Text: "RelayVSR (×2 or ×4 files)"},
+			{ID: "seedvr2", Text: "SeedVR2 (3B or 7B)"},
+		}}}
+	}
 	book := generation.ActiveRecipes()
 	usable := func(label string, ids []string) genRecipeGroup {
 		g := genRecipeGroup{Label: label}
@@ -106,8 +112,10 @@ type genSetForm struct {
 	Width, Height, Frames, FPS     string
 	MaxFrames, MaxWidth, MaxHeight string
 	Scale                          string
-	StemTasks                      bool
-	ModelsDir                      string
+	// ScaleOptions are the scales a video upscaler set's script can make.
+	ScaleOptions []int
+	StemTasks    bool
+	ModelsDir    string
 	// Tab is the tab the form's dialog is on: "models", or "catalog"
 	// (Download Models), where a save answers with a note, not the set
 	// list.
@@ -211,6 +219,8 @@ func (s *Server) genSetFormFrom(get func(string) string) genSetForm {
 		f.Recipes = generation.Recipes()
 	case generation.KindVideo:
 		f.Recipes = generation.VideoRecipeIDs()
+	case generation.KindVUpscale:
+		f.Recipes = generation.VUpscaleScripts
 	case generation.KindAce, generation.KindUpscale:
 	default:
 		f.Kind, f.Recipes = generation.KindSD, generation.Recipes()
@@ -233,6 +243,12 @@ func (s *Server) genSetFormFrom(get func(string) string) genSetForm {
 
 	if len(f.Recipes) > 0 {
 		f.RecipeGroups = genRecipeGroups(f.Kind)
+	}
+	if f.Kind == generation.KindVUpscale {
+		f.ScaleOptions = generation.VUpscaleScales(f.Recipe)
+		if n, err := strconv.Atoi(f.Scale); err != nil || !slices.Contains(f.ScaleOptions, n) {
+			f.Scale = strconv.Itoa(f.ScaleOptions[0])
+		}
 	}
 	if !f.FromSet && f.EditID == "" {
 		f.prefill()
@@ -558,6 +574,11 @@ func (s *Server) setFromForm(r *http.Request, existing *generation.ModelSet) (ge
 		if set.Scale > 8 {
 			return bad(errors.New("the upscale factor must be between 1 and 8"))
 		}
+	case generation.KindVUpscale:
+		set.Scale = formInt(r, "scale", 0)
+		if scales := generation.VUpscaleScales(recipe); !slices.Contains(scales, set.Scale) {
+			return bad(fmt.Errorf("the scale of a %s set must be one of %v", recipe, scales))
+		}
 	}
 
 	comps, err := formComponents(r)
@@ -566,6 +587,11 @@ func (s *Server) setFromForm(r *http.Request, existing *generation.ModelSet) (ge
 	}
 	if err := generation.ValidateComponents(kind, recipe, comps); err != nil {
 		return bad(err)
+	}
+	if kind == generation.KindVUpscale && recipe == "relayvsr" {
+		if err := checkRelayVSRScale(comps, set.Scale); err != nil {
+			return bad(err)
+		}
 	}
 	// Local files are checked now. Linked files are pinned and sized, and
 	// one already at its download path is taken; the rest download after
@@ -770,4 +796,23 @@ func formComponents(r *http.Request) ([]generation.Component, error) {
 	}
 	slices.SortFunc(comps, func(a, b generation.Component) int { return strings.Compare(a.Slot, b.Slot) })
 	return comps, nil
+}
+
+// checkRelayVSRScale refuses a RelayVSR set whose DiT file name says it is
+// for another scale than the one chosen: ×2 and ×4 files are different
+// models. A name that does not say passes.
+func checkRelayVSRScale(comps []generation.Component, scale int) error {
+	for _, c := range comps {
+		if c.Slot != "dit" {
+			continue
+		}
+		name := c.Path
+		if c.File != "" {
+			name = c.File
+		}
+		if n := generation.RelayVSRFileScale(name); n != 0 && n != scale {
+			return fmt.Errorf("the RelayVSR files are for ×%d; set the scale to %d", n, n)
+		}
+	}
+	return nil
 }

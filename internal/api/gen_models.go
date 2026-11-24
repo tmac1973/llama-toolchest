@@ -108,7 +108,7 @@ type genTag struct {
 // the inputs first, then the extras. Every image and music set takes a
 // prompt, but only video sets store CapText (it drives job refusals and
 // Measure), so the text tag comes from the kind here. The upscaler takes
-// an image and no prompt.
+// an image and no prompt, the video upscaler a video.
 func catalogTags(kind generation.BackendKind, caps []string) []genTag {
 	var tags []genTag
 	add := func(label, title string) { tags = append(tags, genTag{label, title}) }
@@ -124,6 +124,8 @@ func catalogTags(kind generation.BackendKind, caps []string) []genTag {
 		}
 	case generation.KindUpscale:
 		add("image", "Makes an image you send larger. It takes no prompt.")
+	case generation.KindVUpscale:
+		add("video", "Makes a video you send larger. It takes no prompt.")
 	}
 	if has(generation.CapStartImage) {
 		add("start image", "Can start from an image you give.")

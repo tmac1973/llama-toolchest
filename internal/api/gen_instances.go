@@ -483,7 +483,7 @@ func (s *Server) genFormChoicesFor(data genFormData, set generation.ModelSet) ge
 	data.ForSet = &set
 	data.Sets, data.Missing = []generation.ModelSet{set}, nil
 	kind := set.Kind
-	if kind == generation.KindVideo || kind == generation.KindUpscale {
+	if kind == generation.KindVideo || kind == generation.KindUpscale || kind == generation.KindVUpscale {
 		kind = generation.KindSD
 	}
 	data.Builds = map[generation.BackendKind][]builder.BuildResult{kind: data.Builds[kind]}

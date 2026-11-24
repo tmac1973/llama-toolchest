@@ -80,10 +80,15 @@
             <option value="video"{{if eq .Kind "video"}} selected{{end}}>Video (stable-diffusion.cpp)</option>
             <option value="ace"{{if eq .Kind "ace"}} selected{{end}}>Music (acestep.cpp)</option>
             <option value="upscale"{{if eq .Kind "upscale"}} selected{{end}}>Upscaler (stable-diffusion.cpp)</option>
+            <option value="vupscale"{{if eq .Kind "vupscale"}} selected{{end}}>Video upscaler (stable-diffusion.cpp)</option>
         </select>
     </label>
     {{- if .Recipes}}
+    {{- if eq .Kind "vupscale"}}
+    <label title="The script that runs the files. It must match the model of the files.{{if .EditID}} An edit keeps the script. To use another, copy the set.{{end}}">Script
+    {{- else}}
     <label title="The stable-diffusion.cpp recipe of the files. It sets which files the set needs. Greyed recipes need something llama-toolchest cannot send or pass.{{if .EditID}} An edit keeps the recipe. To use another, copy the set.{{end}}">Recipe
+    {{- end}}
         {{- if .EditID}}<input type="hidden" name="recipe" value="{{.Recipe}}">{{end}}
         <select name="recipe" hx-get="/api/gen/models/sets/form/fields" hx-include="closest form"
                 hx-target="#gen-set-form-fields" hx-swap="innerHTML" data-error-label="Form not updated"{{if .EditID}} disabled{{end}}>
@@ -155,6 +160,15 @@
 {{- if eq .Kind "upscale"}}
 <label title="How many times larger the upscaler makes an image. Most ESRGAN models make it 4 times larger.">Upscale factor
     <input type="number" name="scale" min="1" max="8" value="{{.Scale}}" placeholder="4">
+</label>
+{{- end}}
+{{- if eq .Kind "vupscale"}}
+<label title="How many times larger the set makes a video.">Scale
+    <select name="scale">
+        {{- $s := .Scale}}
+        {{- range .ScaleOptions}}<option value="{{.}}"{{if eq (printf "%d" .) $s}} selected{{end}}>×{{.}}</option>{{end}}
+    </select>
+    {{- if eq .Recipe "relayvsr"}}<small>Must match the RelayVSR files: ×2 files give 2, ×4 files give 4.</small>{{end}}
 </label>
 {{- end}}
 {{- if eq .Kind "ace"}}

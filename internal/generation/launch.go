@@ -131,6 +131,8 @@ func LaunchSpec(inst Instance, set ModelSet, build builder.BuildResult, host, da
 			return cfg, err
 		}
 		cfg.Name, cfg.HealthURL = "ace-server:"+inst.ID, base+"/health"
+	case KindVUpscale:
+		return cfg, fmt.Errorf("video upscaler sets are not supported yet")
 	}
 	args, _, err := buildArgs(set, inst.ExtraArgs, p)
 	if err != nil {

@@ -183,10 +183,11 @@ func (p Project) IsFork() bool { return p.Kind == ForkKind }
 func Projects() []Project { return projects() }
 
 // ProjectForKind returns the project that builds a generation backend
-// kind. Video and upscaler sets ("video", "upscale") run
+// kind. Video, upscaler and video upscaler sets ("video", "upscale",
+// "vupscale") run
 // stable-diffusion.cpp's sd-server, so they use its project.
 func ProjectForKind(kind string) (Project, bool) {
-	if kind == "video" || kind == "upscale" {
+	if kind == "video" || kind == "upscale" || kind == "vupscale" {
 		kind = "sd"
 	}
 	for _, p := range projects() {

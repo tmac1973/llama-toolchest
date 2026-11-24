@@ -155,13 +155,15 @@ func (d *SetDetails) fill(set ModelSet, entry CatalogEntry) error {
 // KindSlots returns the slots a set of a kind and recipe takes: the
 // recipe's for image and video sets (from the active recipe book; none
 // when the book does not have the recipe for that kind), the fixed ones
-// for music and upscaler sets.
+// for music, upscaler and video upscaler sets.
 func KindSlots(kind BackendKind, recipe string) RecipeSlotSet {
 	switch kind {
 	case KindAce:
 		return RecipeSlotSet{Required: AceSlots}
 	case KindUpscale:
 		return RecipeSlotSet{Required: []string{UpscalerSlot}}
+	case KindVUpscale:
+		return RecipeSlotSet{Required: VUpscaleSlots}
 	}
 	if r, ok := ActiveRecipes().Get(recipe); ok && r.Kind == kind {
 		return r.Slots

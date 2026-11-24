@@ -6,6 +6,9 @@ import (
 	"strings"
 )
 
+// vupscaleNote ends every video upscaler set's notes.
+const vupscaleNote = "Needs stable-diffusion.cpp master-1116 or newer. Takes AVI, WebM (VP8) or animated WebP; no MP4."
+
 // CatalogEntry is a known-good model set that downloads in one click.
 type CatalogEntry struct {
 	ID   string      `json:"id"`
@@ -44,8 +47,8 @@ type CatalogEntry struct {
 	// to: the VAE's scale factor times the diffusion model's down factor
 	// (sd.cpp master-1015, request.cpp). Zero when not known.
 	SizeMultiple int `json:"size_multiple,omitempty"`
-	// Scale is how many times larger an upscaler set makes an image.
-	// Upscaler sets only.
+	// Scale is how many times larger an upscaler set makes an image, or a
+	// video upscaler set a clip. Upscaler and video upscaler sets only.
 	Scale int `json:"scale,omitempty"`
 	// StemTasks is true for an ACE-Step set with a base DiT, which can
 	// run lego, extract and complete. Music sets only.
@@ -769,6 +772,45 @@ func Catalog() []CatalogEntry {
 			License: "BSD-3-Clause",
 			Notes:   "Makes an image 4 times larger and sharper, for /v1/images/upscale; no prompt. 768×768 to 3072×3072 in about 13 s on a Radeon AI PRO R9700, with about 1 GiB of VRAM. The result has no transparency.",
 		},
+		{
+			ID:     "relayvsr-x2",
+			Name:   "RelayVSR ×2",
+			Kind:   KindVUpscale,
+			Recipe: "relayvsr",
+			Components: []Component{
+				{Slot: "dit", Repo: "Comfy-Org/RelayVSR", File: "diffusion_models/relayvsr_x2_lightx2v_int8_convrot.safetensors", Bytes: 5163295248},
+				{Slot: "vae", Repo: "Comfy-Org/RelayVSR", File: "vae/relayvsr_flash_vae_x2_fp32.safetensors", Bytes: 127759464},
+			},
+			Scale:   2,
+			License: "Apache-2.0",
+			Notes:   "Makes a video 2 times larger and sharper, and keeps it steady from frame to frame. Works on windows of 16 frames by default. Fastest on NVIDIA cards (fused CUDA kernel); other cards use a slower tiled path. " + vupscaleNote,
+		},
+		{
+			ID:     "relayvsr-x4",
+			Name:   "RelayVSR ×4",
+			Kind:   KindVUpscale,
+			Recipe: "relayvsr",
+			Components: []Component{
+				{Slot: "dit", Repo: "Comfy-Org/RelayVSR", File: "diffusion_models/relayvsr_x4_int8_convrot.safetensors", Bytes: 5164179952},
+				{Slot: "vae", Repo: "Comfy-Org/RelayVSR", File: "vae/relayvsr_flash_vae_x4_fp32.safetensors", Bytes: 127759784},
+			},
+			Scale:   4,
+			License: "Apache-2.0",
+			Notes:   "Makes a video 4 times larger and sharper, and keeps it steady from frame to frame. Works on windows of 16 frames by default. Fastest on NVIDIA cards (fused CUDA kernel); other cards use a slower tiled path. " + vupscaleNote,
+		},
+		{
+			ID:     "seedvr2-3b",
+			Name:   "SeedVR2 3B",
+			Kind:   KindVUpscale,
+			Recipe: "seedvr2",
+			Components: []Component{
+				{Slot: "dit", Repo: "Comfy-Org/SeedVR2", File: "diffusion_models/seedvr2_3b_int8_convrot.safetensors", Bytes: 3458259704},
+				{Slot: "vae", Repo: "Comfy-Org/SeedVR2", File: "vae/seedvr2_ema_vae_fp16.safetensors", Bytes: 501324814},
+			},
+			Scale:   2,
+			License: "Apache-2.0",
+			Notes:   "Makes a video 2 times larger and restores detail. Each frame is treated on its own by default; a larger window gives smoother motion but needs more VRAM. " + vupscaleNote,
+		},
 	}
 }
 
@@ -885,7 +927,8 @@ func EditImageLimit(inst Instance, set ModelSet) int {
 	return min(model, measured)
 }
 
-// UpscaleScale is how many times larger an upscaler set makes an image:
+// UpscaleScale is how many times larger an upscaler set makes an image,
+// or a video upscaler set a clip:
 // the catalog's value, or a custom set's own Scale; 0 when not known.
 func (m ModelSet) UpscaleScale() int {
 	if e, ok := m.catalogEntry(); ok {
@@ -948,7 +991,7 @@ func SlotSuggestions(kind BackendKind, recipe, slot string) []SlotSuggestion {
 	var out []SlotSuggestion
 	seen := map[string]bool{}
 	for _, e := range Catalog() {
-		if e.Kind != kind || ((kind == KindSD || kind == KindVideo) && e.Recipe != recipe) {
+		if e.Kind != kind || ((kind == KindSD || kind == KindVideo || kind == KindVUpscale) && e.Recipe != recipe) {
 			continue
 		}
 		for _, c := range e.Components {
