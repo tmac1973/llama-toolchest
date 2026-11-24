@@ -75,6 +75,8 @@ type genInstanceRow struct {
 	// and how to get one, when that is not simply that it is stopped.
 	WebUIURL  string `json:"web_ui_url,omitempty"`
 	WebUINote string `json:"web_ui_note,omitempty"`
+	// BuildNote says why the instance's build cannot run its set.
+	BuildNote string `json:"build_note,omitempty"`
 	// GPUJobsRunning and GPUJobsWaiting are the image and music jobs on
 	// the instance's GPU, whichever instance they are for.
 	GPUJobsRunning int `json:"gpu_jobs_running"`
@@ -287,6 +289,9 @@ func (s *Server) genInstanceRows(store *generation.Store) []genInstanceRow {
 		if b := s.resolveBackendBuild(string(row.Kind), inst.BuildID); b != nil {
 			row.BuildLabel = b.ID
 			row.WebUIURL, row.WebUINote = s.genWebUILink(b, inst, row.Status.State == process.StateRunning)
+			if row.Kind == generation.KindVUpscale && !generation.BuildHasDGL(*b) {
+				row.BuildNote = "Build " + b.ID + " has no DGL. Video upscaler sets need stable-diffusion.cpp " + generation.VUpscaleMinBuild + " or newer."
+			}
 		}
 		snap := s.genQueue.Snapshot(inst.GPU)
 		if snap.Running != nil {

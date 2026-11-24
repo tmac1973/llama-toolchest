@@ -130,6 +130,9 @@ func (d *SetDetails) fill(set ModelSet, entry CatalogEntry) error {
 	}
 
 	p := argPaths{Host: markerHost, Port: markerPort, UpscalerDir: upscalersFolder, AceModelsDir: aceModelsFolder}
+	if set.Kind == KindVUpscale {
+		p.MaxVRAM, p.ModelDirs = markerVRAM, vupscaleModelDirs(set)
+	}
 	if set.Kind == KindSD || set.Kind == KindVideo {
 		p.MaxVRAM = markerVRAM
 		var err error

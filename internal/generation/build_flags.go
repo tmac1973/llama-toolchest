@@ -109,6 +109,20 @@ func adaptArgsForBuild(setID string, build builder.BuildResult, args []string) [
 	return out
 }
 
+// BuildHasDGL reports whether the build's sd-server has DGL (it lists
+// --dgl-dir), which video upscaler sets need. When --help cannot be read,
+// it answers true and logs a warning: the instance then tries to start,
+// and sd.cpp's own error shows if DGL is missing, as adaptArgsForBuild
+// does for its flags.
+func BuildHasDGL(build builder.BuildResult) bool {
+	help := buildHelp(build)
+	if help == "" {
+		slog.Warn("could not read the sd-server build's --help; assuming it has DGL", "build", build.ID)
+		return true
+	}
+	return helpLists(help, "--dgl-dir")
+}
+
 // helpCache keeps each sd-server binary's --help text, by path, size and
 // modification time, so a rebuild in place is asked again.
 var helpCache sync.Map // helpKey -> string

@@ -38,12 +38,13 @@ var FlagReasons = map[string]string{
 	"--hires-upscalers-dir": "A folder with a link to the set's ESRGAN file. sd-server loads it for each upscale.",
 	"--models":              "A folder with links to the set's four files. ace-server loads the models it finds there.",
 	"--max-batch":           "ace-server makes one song at a time. Toolchest queues the others.",
+	"--model-dir":           "The folder of one of the video upscaler set's files. The upscale script loads the files by path, and sd-server lets it load models only from these folders.",
 }
 
 // ToolchestFlags are the flags toolchest adds to every instance of a kind
 // of set, beside the set's own flags and its file flags.
 var ToolchestFlags = []string{"--listen-ip", "--listen-port", "--host", "--port", "--max-vram",
-	"--lora-model-dir", "--hires-upscalers-dir", "--models", "--max-batch"}
+	"--lora-model-dir", "--hires-upscalers-dir", "--models", "--max-batch", "--model-dir"}
 
 // FlagReason returns why a set runs with a flag: the entry's FlagNotes for
 // "flag value", then for the flag, then the same two keys in FlagReasons;
