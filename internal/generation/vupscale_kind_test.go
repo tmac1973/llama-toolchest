@@ -1,6 +1,9 @@
 package generation
 
 import (
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/tmac1973/llama-toolchest/internal/builder"
@@ -88,10 +91,72 @@ func TestVUpscaleCatalog(t *testing.T) {
 	}
 }
 
-func TestLaunchSpecVUpscaleNotYet(t *testing.T) {
-	set := ModelSet{ID: "v", Kind: KindVUpscale, Recipe: "relayvsr", Complete: true}
-	build := builder.BuildResult{ID: "b", Profile: "rocm", BinaryPath: "/b/sd-server"}
-	if _, err := LaunchSpec(Instance{ID: "i", ModelSetID: "v", Port: 8081}, set, build, "", t.TempDir(), LaunchOptions{}); err == nil || !strings.Contains(err.Error(), "not supported yet") {
-		t.Errorf("err = %v", err)
+func vupscaleTestSet(t *testing.T, sameDir bool) ModelSet {
+	t.Helper()
+	d1, d2 := t.TempDir(), t.TempDir()
+	if sameDir {
+		d2 = d1
+	}
+	return ModelSet{ID: "v", Kind: KindVUpscale, Recipe: "relayvsr", Scale: 2, Complete: true, Components: []Component{
+		{Slot: "vae", Path: filepath.Join(d2, "vae.safetensors")},
+		{Slot: "dit", Path: filepath.Join(d1, "dit.safetensors")},
+	}}
+}
+
+func TestLaunchSpecVUpscale(t *testing.T) {
+	set := vupscaleTestSet(t, false)
+	build := builder.BuildResult{ID: "sd-new-rocm", Profile: "rocm", BinaryPath: fakeSDServer(t, "--steps N\n  --dgl-dir DIR  Web UI script directory\n")}
+	data := t.TempDir()
+	inst := Instance{ID: "i", ModelSetID: "v", Port: 8081, ReservedMiB: 6 << 10, ExtraArgs: []string{"--threads", "4"}}
+	cfg, err := LaunchSpec(inst, set, build, "", data, LaunchOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"--listen-ip", "0.0.0.0", "--listen-port", "8081",
+		"--model-dir", filepath.Dir(set.Components[1].Path), "--model-dir", filepath.Dir(set.Components[0].Path),
+		"--max-vram", "6.0", "--threads", "4"}
+	if !slices.Equal(cfg.Args, want) {
+		t.Errorf("args =\n%q\nwant\n%q", cfg.Args, want)
+	}
+	if cfg.HealthURL != "http://127.0.0.1:8081/v1/models" || cfg.WorkDir != InstanceDir(data, "i") {
+		t.Errorf("health %s, work dir %s", cfg.HealthURL, cfg.WorkDir)
+	}
+	for _, d := range []string{"input", "output"} {
+		if st, err := os.Stat(filepath.Join(cfg.WorkDir, d)); err != nil || !st.IsDir() {
+			t.Errorf("%s folder: %v", d, err)
+		}
+	}
+	if !slices.Contains(cfg.Env, "GGML_CUDA_REUSE_BUFFERS=0") {
+		t.Errorf("env lacks GGML_CUDA_REUSE_BUFFERS=0: %v", cfg.Env)
+	}
+
+	// One folder for both files gives one --model-dir.
+	cfg, err = LaunchSpec(inst, vupscaleTestSet(t, true), build, "", data, LaunchOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(strings.Join(cfg.Args, " "), "--model-dir"); n != 1 {
+		t.Errorf("%d --model-dir flags: %v", n, cfg.Args)
+	}
+
+	// A build without DGL is refused.
+	old := builder.BuildResult{ID: "sd-1106-rocm", Profile: "rocm", BinaryPath: fakeSDServer(t, "--steps N\n")}
+	if _, err := LaunchSpec(inst, set, old, "", data, LaunchOptions{}); err == nil || !strings.Contains(err.Error(), "need stable-diffusion.cpp master-1116 or newer (DGL); build sd-1106-rocm is older") {
+		t.Errorf("old build: err = %v", err)
+	}
+}
+
+func TestBuildHasDGL(t *testing.T) {
+	for help, want := range map[string]bool{
+		"--steps N\n  --dgl-dir DIR\n": true,
+		"--steps N\n":                   false,
+	} {
+		build := builder.BuildResult{ID: "b", BinaryPath: fakeSDServer(t, help)}
+		if got := BuildHasDGL(build); got != want {
+			t.Errorf("help %q: %v, want %v", help, got, want)
+		}
+	}
+	if !BuildHasDGL(builder.BuildResult{ID: "gone", BinaryPath: "/nonexistent/sd-server"}) {
+		t.Error("an unreadable --help must count as DGL")
 	}
 }

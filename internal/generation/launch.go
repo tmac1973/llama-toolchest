@@ -132,7 +132,22 @@ func LaunchSpec(inst Instance, set ModelSet, build builder.BuildResult, host, da
 		}
 		cfg.Name, cfg.HealthURL = "ace-server:"+inst.ID, base+"/health"
 	case KindVUpscale:
-		return cfg, fmt.Errorf("video upscaler sets are not supported yet")
+		if !BuildHasDGL(build) {
+			return cfg, fmt.Errorf("video upscaler sets need stable-diffusion.cpp %s or newer (DGL); build %s is older. Build a newer stable-diffusion.cpp on the Builds page, or pick a newer build for this instance", VUpscaleMinBuild, build.ID)
+		}
+		if _, _, err := VUpscaleWorkDirs(dataDir, inst.ID); err != nil {
+			return cfg, err
+		}
+		p.ModelDirs = vupscaleModelDirs(set)
+		switch {
+		case opts.MaxVRAMMiB > 0:
+			p.MaxVRAM = maxVRAMGiB(opts.MaxVRAMMiB)
+		case inst.BudgetMiB > 0:
+			p.MaxVRAM = maxVRAMGiB(inst.BudgetMiB)
+		case inst.ReservedMiB > 0:
+			p.MaxVRAM = maxVRAMGiB(inst.ReservedMiB)
+		}
+		cfg.Name, cfg.HealthURL = "sd-server:"+inst.ID, base+"/v1/models"
 	}
 	args, _, err := buildArgs(set, inst.ExtraArgs, p)
 	if err != nil {
@@ -190,6 +205,8 @@ type argPaths struct {
 	// UpscalerDir and AceModelsDir are the instance's folders of links for
 	// an upscaler or an ace set.
 	UpscalerDir, AceModelsDir string
+	// ModelDirs are a video upscaler set's --model-dir folders.
+	ModelDirs []string
 }
 
 // buildArgs returns a set's backend arguments: the flags toolchest adds,
@@ -234,6 +251,22 @@ func buildArgs(set ModelSet, extra []string, p argPaths) (args []string, fixed [
 		add("--listen-ip", p.Host)
 		add("--listen-port", p.Port)
 		add("--hires-upscalers-dir", p.UpscalerDir)
+		args = append(args, set.RunArgs()...)
+		args = append(args, extra...)
+	case KindVUpscale:
+		// sd-server starts with no model. Each job sends a DGL script
+		// that loads the set's two files by path (Phase 04); DGL loads
+		// models only from under a --model-dir, so the folders of the
+		// files are given. No --dgl-dir: toolchest never saves scripts on
+		// the server. DGL keeps within --max-vram.
+		add("--listen-ip", p.Host)
+		add("--listen-port", p.Port)
+		for _, d := range p.ModelDirs {
+			add("--model-dir", d)
+		}
+		if p.MaxVRAM != "" {
+			add("--max-vram", p.MaxVRAM)
+		}
 		args = append(args, set.RunArgs()...)
 		args = append(args, extra...)
 	case KindAce:

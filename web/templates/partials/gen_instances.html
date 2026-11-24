@@ -80,6 +80,9 @@
                 <a href="{{.}}" target="_blank" rel="noopener" style="font-size:0.85rem;" title="The backend web page. Its jobs skip the toolchest queue, so they can run with API jobs on the same GPU.">Open web UI →</a>
                 <small style="display:block;color:var(--pico-muted-color);">Jobs started from the web UI skip the llama-toolchest queue.</small>
                 {{- end}}
+                {{- with .BuildNote}}
+                <small style="display:block;color:var(--pico-del-color);max-width:22rem;">{{.}}</small>
+                {{- end}}
                 {{- with .WebUINote}}
                 <small style="display:block;color:var(--pico-muted-color);max-width:22rem;">{{.}}</small>
                 {{- end}}
