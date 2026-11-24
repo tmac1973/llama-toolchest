@@ -58,10 +58,17 @@ func TestSDMapFlags(t *testing.T) {
 	if _, ok := flags["LLAMA_OPENSSL"]; ok {
 		t.Error("LLAMA_OPENSSL kept for sd.cpp")
 	}
+	// A ROCm build never gets LTO from the profile: ROCm's lld cannot read
+	// GCC's LTO objects.
+	hipLTO := map[string]string{"GGML_HIP": "ON", "GGML_LTO": "ON"}
+	sd.MapFlags(hipLTO)
+	if _, ok := hipLTO["GGML_LTO"]; ok {
+		t.Error("GGML_LTO kept for a ROCm sd.cpp build")
+	}
 
-	cuda := map[string]string{"GGML_CUDA": "ON"}
+	cuda := map[string]string{"GGML_CUDA": "ON", "GGML_LTO": "ON"}
 	sd.MapFlags(cuda)
-	if cuda["SD_CUDA"] != "ON" || cuda["SD_HIPBLAS"] != "" {
+	if cuda["SD_CUDA"] != "ON" || cuda["SD_HIPBLAS"] != "" || cuda["GGML_LTO"] != "ON" {
 		t.Errorf("cuda flags = %v", cuda)
 	}
 
@@ -99,6 +106,12 @@ func TestProjectOptions(t *testing.T) {
 				}
 			}
 			for _, flag := range []string{"GGML_NATIVE", "GGML_LTO", "GGML_CUDA_FORCE_MMQ"} {
+				if project == ProjectSDCpp && profile == "rocm" && flag == "GGML_LTO" {
+					if has(opts, flag) {
+						t.Error("sd.cpp rocm offers GGML_LTO, which breaks its link")
+					}
+					continue
+				}
 				if !has(opts, flag) {
 					t.Errorf("%s %s lost %s, which its ggml uses", project, profile, flag)
 				}

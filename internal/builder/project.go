@@ -269,7 +269,19 @@ func sdMapFlags(flags map[string]string) {
 	}
 	// llama.cpp's own option; sd.cpp has no such switch.
 	delete(flags, "LLAMA_OPENSSL")
+	if flags["GGML_HIP"] == "ON" {
+		delete(flags, sdNoLTOFlag)
+	}
 }
+
+// sdNoLTOFlag is the profile option ROCm builds of stable-diffusion.cpp
+// leave out. ggml is compiled with the system GCC, and with LTO its
+// objects are GCC LTO objects. Since about master-1122 (2026-11-24) sd.cpp
+// links sd-cli and sd-server with ROCm's clang++ and lld, which cannot
+// read them, so every ggml symbol was undefined at the link ("undefined
+// symbol: ggml_abort"). An explicit -DGGML_LTO=ON in the extra cmake
+// flags still applies.
+const sdNoLTOFlag = "GGML_LTO"
 
 // aceSafeCUDAArchs is acestep.cpp's own CUDA architecture list without
 // sm_121a. Upstream picks sm_121a whenever CUDA is 12.8 or newer, but
@@ -425,6 +437,9 @@ func ProjectOptions(project, profile string) []BuildOption {
 	// "llama.cpp only"): built without them, sd-server crashes in the Wan
 	// VAE decode on RTX A4000s with an illegal memory access in CONCAT.
 	if project == ProjectSDCpp {
+		if profile == "rocm" {
+			opts = slices.DeleteFunc(opts, func(o BuildOption) bool { return o.Flag == sdNoLTOFlag })
+		}
 		_, err := exec.LookPath("pnpm")
 		opts = append(opts, BuildOption{
 			Flag:        sdFrontendFlag,

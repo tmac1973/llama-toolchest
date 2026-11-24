@@ -117,6 +117,16 @@ var qwen21TurboArgs = []string{"--sigmas", "qwen-image-2.1-turbo", "--cfg-scale"
 // named Comfy-Org/HunyuanVideo_1.5_repackaged, which now redirects here).
 const hunyuanRepo = "Comfy-Org/Hunyuan-Video-1.5"
 
+// hunyuan720MaxFrames is the longest 720p HunyuanVideo 1.5 video
+// stable-diffusion.cpp can make. 1280×720 is 80×45 latent pixels and every
+// 4 frames are one latent frame, so 69 frames are 18 × 3,600 = 64,800
+// video tokens. At 73 frames (68,400 tokens) ggml's CONCAT kernel asks for
+// more than 65,535 GPU thread blocks in one direction and the backend
+// crashes ("CONCAT failed", "invalid configuration argument"); seen on
+// sd.cpp master-1006 and master-1116 on an R9700, 2026-11-24. The 480p
+// versions stay far below the limit at 121 frames (49,290 tokens).
+const hunyuan720MaxFrames = 69
+
 // hunyuanLicense is the HunyuanVideo 1.5 sets' licence.
 const hunyuanLicense = "Tencent Hunyuan Community License (does not apply in the EU, the UK or South Korea)"
 
@@ -124,13 +134,14 @@ const hunyuanLicense = "Tencent Hunyuan Community License (does not apply in the
 // its own video model with the shared text models and VAE. hd says the
 // model is a 720p one (1280×720); otherwise 480p (848×480). steps, cfg and
 // shift are Tencent's settings for that version (the model card's table).
-// Every version makes up to 121 frames, 5 s at 24 fps; frames go in steps
-// of 4 plus 1 (the recipe's video_constraints). measureTime is the Measure
-// dialog's sentence on how long measuring Full takes.
+// The 480p versions make up to 121 frames, 5 s at 24 fps; the 720p ones up
+// to hunyuan720MaxFrames. Frames go in steps of 4 plus 1 (the recipe's
+// video_constraints). measureTime is the Measure dialog's sentence on how
+// long measuring Full takes.
 func hunyuanEntry(id, name, recipe string, model Component, hd bool, steps, cfg, shift, notes, measureTime string) CatalogEntry {
-	w, h := 848, 480
+	w, h, maxFrames := 848, 480, 121
 	if hd {
-		w, h = 1280, 720
+		w, h, maxFrames = 1280, 720, hunyuan720MaxFrames
 	}
 	caps := []string{CapText}
 	if recipe == "hunyuan-video-15-i2v" {
@@ -156,13 +167,13 @@ func hunyuanEntry(id, name, recipe string, model Component, hd bool, steps, cfg,
 		DefaultHeight: h,
 		DefaultFrames: 33,
 		DefaultFPS:    24,
-		MaxFrames:     121,
+		MaxFrames:     maxFrames,
 		MaxWidth:      w,
 		MaxHeight:     h,
 		VideoSizes: []VideoSize{
 			{Label: "Short", Frames: 33, Width: w, Height: h},
 			{Label: "Medium", Frames: 65, Width: w, Height: h},
-			{Label: "Full", Frames: 121, Width: w, Height: h},
+			{Label: "Full", Frames: maxFrames, Width: w, Height: h},
 		},
 		FullMeasureTime: measureTime,
 		// The HunyuanVideo 1.5 VAE scales by 16 (the recipe's size_multiple).
@@ -189,11 +200,12 @@ const hunyuan480Fit = "On a Radeon AI PRO R9700 (32 GB), all sizes up to 5 s fit
 // the text model on the CPU. The untiled decode at 1280x720 needs 31.4 GB,
 // so sd.cpp falls back to decoding in smaller pieces (225 s for 33 frames,
 // no seams). Short reserves 13-14.5 GiB; at 65 frames that decode ran out
-// of memory, and at 121 frames stable-diffusion.cpp master-1015 crashed
-// during sampling with "CONCAT failed".
+// of memory. Full was 121 frames until 2026-11-24, which crashed during
+// sampling with "CONCAT failed" (see hunyuan720MaxFrames); at 69 frames
+// sampling passed and the decode failed as at 65.
 const (
-	hunyuan720Fit     = "On a Radeon AI PRO R9700 (32 GB), only Short (33 frames) works, with a reservation of about 14.5 GiB and the decode in parts. Longer videos ran out of memory or crashed in stable-diffusion.cpp."
-	hunyuan720Measure = "On a Radeon AI PRO R9700, measuring Short took about 5 minutes. Medium ran out of memory in the decode. Full crashed in stable-diffusion.cpp."
+	hunyuan720Fit     = "On a Radeon AI PRO R9700 (32 GB), only Short (33 frames) works, with a reservation of about 14.5 GiB and the decode in parts. Longer videos ran out of memory. stable-diffusion.cpp makes at most 69 frames at 1280×720 (almost 3 s); longer videos crash it."
+	hunyuan720Measure = "On a Radeon AI PRO R9700, measuring Short took about 5 minutes. Medium and Full ran out of memory in the decode."
 )
 
 // hunyuanGGUF is a HunyuanVideo 1.5 video model from jayn7's GGUF repos,

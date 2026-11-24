@@ -185,3 +185,34 @@ func TestStoreHandsOutCopies(t *testing.T) {
 		t.Errorf("stored extra args = %q, changed through a copy", again.ExtraArgs)
 	}
 }
+
+// A catalog set saved with a larger max frames than its entry has now is
+// lowered on load; custom sets and smaller values stay.
+func TestLoadCapsMaxFrames(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := ModelSet{ID: "hy720", Name: "hy720", Kind: KindVideo, CatalogID: "hunyuan15-i2v-720p", MaxFrames: 121}
+	short := ModelSet{ID: "hy720-short", Name: "short", Kind: KindVideo, CatalogID: "hunyuan15-i2v-720p", MaxFrames: 33}
+	custom := ModelSet{ID: "mine", Name: "mine", Kind: KindVideo, MaxFrames: 121}
+	for _, m := range []ModelSet{old, short, custom} {
+		if err := s.AddModelSet(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	again, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]int{"hy720": hunyuan720MaxFrames, "hy720-short": 33, "mine": 121} {
+		got, err := again.ModelSet(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.MaxFrames != want {
+			t.Errorf("%s max frames = %d, want %d", id, got.MaxFrames, want)
+		}
+	}
+}
