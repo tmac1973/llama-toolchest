@@ -51,7 +51,25 @@ func Load(dataDir string) (*Store, error) {
 	if err := jsonstore.Load(s.path, SchemaVersion, &s.data); err != nil {
 		return nil, err
 	}
+	for i := range s.data.ModelSets {
+		capMaxFrames(&s.data.ModelSets[i])
+	}
 	return s, nil
+}
+
+// capMaxFrames lowers a catalog set's stored max frames to its catalog
+// entry's when the entry's is lower now. A set keeps the copy it got at
+// download, so without this a set downloaded before a limit was lowered
+// (720p HunyuanVideo 1.5: 121, now 69) would still accept requests that
+// crash its backend. It only lowers, never raises. Custom sets have no
+// catalog entry and keep their own value.
+func capMaxFrames(m *ModelSet) {
+	if m.CatalogID == "" || m.MaxFrames == 0 {
+		return
+	}
+	if e, ok := LookupCatalog(m.CatalogID); ok && e.MaxFrames > 0 && e.MaxFrames < m.MaxFrames {
+		m.MaxFrames = e.MaxFrames
+	}
 }
 
 // saveLocked writes the store. Callers must hold mu for writing.

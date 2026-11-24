@@ -14,6 +14,8 @@ A release tag (`b*`) or `latest`. rocWMMA FlashAttention was removed at `b10332`
 
 Each toggle says when to use it. Extra CMake Flags takes anything else that CMake accepts; the preview shows the final flags. Vulkan tuning is in the runtime environment in Settings.
 
+ROCm builds of stable-diffusion.cpp have no *Link-Time Optimization* toggle. Newer stable-diffusion.cpp versions link with ROCm's own compiler, which cannot read the LTO files that GCC makes for ggml, so the build failed with "undefined symbol" errors.
+
 ## Saved flag sets { #saved-flag-sets }
 
 Enter a *Build Tag* and press *Save Flags* to keep toggles and extra flags under that name, then replay them on any ref.
