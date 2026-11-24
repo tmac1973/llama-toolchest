@@ -744,7 +744,7 @@ func vramBreakdownOn(co *vramCoefficients, m *Model, cfg *ModelConfig, cards int
 	}
 
 	b.MoECache = BytesToGiB(MoECacheBytes(m, cfg))
-	b.Aux = AuxFilesVRAMGB(cfg)
+	b.Aux = AuxFilesVRAMGB(cfg) + SpeechGenScratchGiB(cfg)
 	b.CPURAM += ProjectorRAMGB(cfg)
 	b.Overhead = co.overheadFirst + float64(cards-1)*co.overheadExtra
 	if co.pipelineFallback && layerSplit {

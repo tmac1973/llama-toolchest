@@ -30,7 +30,7 @@ func (s *Server) buildCapabilities(m *models.Model, cfg *models.ModelConfig) map
 
 		// modalities / tools
 		"vision":    m.HasVision(cfg),
-		"tools":     m.CallsTools(),
+		"tools":     m.CallsTools(cfg),
 		"embedding": m.Kind() == models.KindEmbedding,
 		"rerank":    m.Kind() == models.KindRerank,
 		// audio: understands speech (transcription, voice chat); speech:

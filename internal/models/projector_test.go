@@ -33,6 +33,20 @@ func writeProjector(t *testing.T, vision, audio, genAudio *bool) string {
 
 func yes() *bool { b := true; return &b }
 
+// writeSpeechProjector writes the projector of a model that speaks and
+// takes a voice sample, with its generator type.
+func writeSpeechProjector(t *testing.T, genType string) string {
+	t.Helper()
+	return writeTestGGUF(t, []testKV{
+		{"general.architecture", ggufTypeString, "clip"},
+		{"general.type", ggufTypeString, "mmproj"},
+		{"clip.has_gen_audio_encoder", ggufTypeBool, uint8(1)},
+		{"clip.gen.audio.projector_type", ggufTypeString, genType},
+		{"clip.has_audio_encoder", ggufTypeBool, uint8(1)},
+		{"clip.audio.projector_type", ggufTypeString, genType + "_spkenc"},
+	})
+}
+
 // What each kind of model reports, against what llama-server says for
 // the same files (Qwen3-TTS, LFM3-Audio, Gemma 4, a vision model).
 func TestProjectorCapabilities(t *testing.T) {
@@ -47,6 +61,15 @@ func TestProjectorCapabilities(t *testing.T) {
 			[]string{"speech"}, []string{"text", "audio"}, []string{"audio"}},
 		{"voice chat (LFM3-Audio)", writeProjector(t, nil, yes(), yes()), true,
 			[]string{"chat", "audio", "speech"}, []string{"text", "audio"}, []string{"text", "audio"}},
+		{"voice chat with its generator type (LFM3-Audio)", writeSpeechProjector(t, "lfm3a_gen"), true,
+			[]string{"chat", "audio", "speech"}, []string{"text", "audio"}, []string{"text", "audio"}},
+		// VoxCPM2 and Fish S2 Pro keep the chat template of the text model
+		// they are built on. llama-server reports them as chat models;
+		// toolchest does not.
+		{"text-to-speech only with a chat template (VoxCPM2)", writeSpeechProjector(t, "voxcpm2_gen"), true,
+			[]string{"speech"}, []string{"text", "audio"}, []string{"audio"}},
+		{"text-to-speech only with a chat template (Fish S2 Pro)", writeSpeechProjector(t, "fish_s2_gen"), true,
+			[]string{"speech"}, []string{"text", "audio"}, []string{"audio"}},
 		{"images and audio in (Gemma 4)", writeProjector(t, yes(), yes(), nil), true,
 			[]string{"chat", "vision", "audio"}, []string{"text", "image", "audio"}, []string{"text"}},
 		{"images in", writeProjector(t, yes(), nil, nil), true,
@@ -130,5 +153,51 @@ func TestParseGGUFChatTemplate(t *testing.T) {
 		if m.HasChatTemplate != want {
 			t.Errorf("%s: HasChatTemplate = %v, want %v", meta.Architecture, m.HasChatTemplate, want)
 		}
+	}
+}
+
+// Fish S2 Pro keeps Qwen3's chat template, tools and all, but it only
+// speaks, so it is not offered for tool calls. The same template on a
+// chat model is.
+func TestSpeechOnlyModelCallsNoTools(t *testing.T) {
+	m := &Model{ID: "s2", Arch: "qwen3", HasChatTemplate: true, SupportsTools: true}
+	s2 := &ModelConfig{MmprojPath: writeSpeechProjector(t, "fish_s2_gen")}
+	if m.CallsTools(s2) || slices.Contains(m.Capabilities(s2), "tools") {
+		t.Error("a speech-only model is offered for tool calls")
+	}
+	if !m.CallsTools(nil) || !slices.Contains(m.Capabilities(nil), "tools") {
+		t.Error("the chat model with the same template is not offered for tool calls")
+	}
+}
+
+// A speech generator takes more GPU memory than its projector file; the
+// estimate adds the measured difference for the generators it knows, and
+// nothing when the projector is off, kept in system memory, or unknown.
+func TestSpeechGenScratchInEstimate(t *testing.T) {
+	qwen := writeSpeechProjector(t, "qwen3tts_gen")
+	cases := []struct {
+		name string
+		cfg  *ModelConfig
+		want float64
+	}{
+		{"Qwen3-TTS", &ModelConfig{MmprojPath: qwen}, 1.7},
+		{"S2 Pro", &ModelConfig{MmprojPath: writeSpeechProjector(t, "fish_s2_gen")}, 1.5},
+		{"a generator not measured", &ModelConfig{MmprojPath: writeSpeechProjector(t, "kokoro")}, 0},
+		{"a voice chat model", &ModelConfig{MmprojPath: writeSpeechProjector(t, "lfm3a_gen")}, 0},
+		{"an image projector", &ModelConfig{MmprojPath: writeProjector(t, yes(), nil, nil)}, 0},
+		{"projector off", &ModelConfig{MmprojPath: qwen, MmprojDisabled: true}, 0},
+		{"projector in system memory", &ModelConfig{MmprojPath: qwen, MmprojInRAM: true}, 0},
+	}
+	m := &Model{ID: "m", SizeBytes: 1 << 30}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := SpeechGenScratchGiB(c.cfg); got != c.want {
+				t.Errorf("scratch = %v, want %v", got, c.want)
+			}
+			b := VRAMBreakdownForConfigOn(m, c.cfg, 1)
+			if got, want := b.Aux, AuxFilesVRAMGB(c.cfg)+c.want; got != want {
+				t.Errorf("Aux = %v, want %v", got, want)
+			}
+		})
 	}
 }

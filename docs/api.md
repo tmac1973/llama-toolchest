@@ -49,18 +49,30 @@ curl $BASE/tts -o line.wav \
   -F speaker_ref=@voice.wav -F speaker_ref_text="What is said in voice.wav." -F seed=7
 ```
 
+With a model that has voices of its own, name one instead of sending a recording:
+
+```bash
+curl $BASE/tts -o line.wav -H 'Content-Type: application/json' \
+  -d '{"model": "ggml-org-Kokoro-82M.F32", "input": "The ship left at dawn.", "voice": "am_michael", "speed": 1.1}'
+```
+
 The fields are llama-server's. Which ones a model uses depends on the model:
 
-| Field | What it does | Qwen3-TTS |
+| Field | What it does | Models that use it |
 | --- | --- | --- |
-| `seed` | `-1` (the default) is random. Another seed gives another take. The same seed gives the same audio on the CPU, but on a GPU it can give a slightly different take. | Yes |
-| `temperature`, `top_k`, `top_p` | Sampling. Leave them out for the server's and the model's own values. | Yes |
-| `speaker_ref`, `speaker_ref_b64` | A recording of the voice to copy. | Yes |
-| `speaker_ref_text` | What is said in that recording. The copy is closer. Needs llama.cpp b12491 or newer, a recording of 30 s or less, and a projector with the reference encoder. | Yes |
-| `speed` | Pace as a factor of the model's own (`1.0`). Needs b12238 or newer. | No: any value other than `1.0` gets a `400` |
-| `lang`, `voice`, `response_format`, `stream` | Language, a voice of the model's own, `wav`/`pcm`/`pcm16`, and audio sent as it is made. | `lang` yes, `voice` no |
+| `seed` | `-1` (the default) is random. Another seed gives another take. The same seed gives the same audio on the CPU, but on a GPU it can give a slightly different take. | All |
+| `temperature`, `top_k`, `top_p` | Sampling. Leave them out for the server's and the model's own values. | Qwen3-TTS. ZONOS3 and VoxCPM2 take only `temperature`. Kokoro and S2 Pro use their own values. |
+| `voice` | One of the model's own voices. llama-server's `GET /props` lists them. Not with `speaker_ref`. | Kokoro (54), ZONOS3 (27), Chatterbox (`default`) |
+| `speaker_ref`, `speaker_ref_b64` | A recording of the voice to copy. | Qwen3-TTS, Chatterbox, ZONOS3, VoxCPM2, S2 Pro. Kokoro answers `400`. |
+| `speaker_ref_text` | What is said in that recording. The copy is closer. Qwen3-TTS needs a recording of 30 s or less, llama.cpp b12491 or newer, and a projector with the reference encoder. S2 Pro uses the first 30 s. | Qwen3-TTS, S2 Pro |
+| `speed` | Pace as a factor of the model's own (`1.0`). Needs b12238 or newer. | Kokoro, ZONOS3. The others answer `400` for any value other than `1.0`. |
+| `loudness` | Target loudness in LUFS, below `0`. | ZONOS3 |
+| `flow_steps`, `cfg_scale` | Steps of the audio generator (2 to 32, default 10), and how closely it follows the text (default 2.0). Fewer steps are faster. | VoxCPM2 |
+| `raw_prompt` | Give `input` to the model as it is, without its own text preparation. With Kokoro, use it to send phonemes. | Kokoro, ZONOS3 |
+| `lang` | Language of the text. | Qwen3-TTS, Kokoro (`en-us`, `en-gb`), ZONOS3 (numbers and times only). The others read the language from the text. |
+| `response_format`, `stream` | `wav`/`pcm`/`pcm16`, and audio sent as it is made. | All |
 
-A model that cannot change its pace answers `400` for `speed`, so a client that needs another pace has to time-stretch the audio itself. The API reference (`/docs/api`) has every field. llama-server also answers the OpenAI-style `POST /v1/audio/speech` with the same models.
+A model that cannot change its pace answers `400` for `speed`, so a client that needs another pace has to time-stretch the audio itself. Some models read tags in the text: VoxCPM2 a voice description in brackets at the start, S2 Pro tags such as `[laughing]` and speaker tags such as `<|speaker:0|>`. The API reference (`/docs/api`) has every field. llama-server also answers the OpenAI-style `POST /v1/audio/speech` with the same models.
 
 ## Image, video and music API { #generation-api }
 

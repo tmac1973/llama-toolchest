@@ -22,6 +22,11 @@ import (
 // says so when the active llama.cpp build is older than one needs.
 func TestSpeechPresetsCard(t *testing.T) {
 	p := models.CuratedSpeechModels()[0]
+	// The newest build any card needs: below it, at least one card warns.
+	newest := 0
+	for _, q := range models.CuratedSpeechModels() {
+		newest = max(newest, q.MinBuild)
+	}
 	render := func(t *testing.T, s *Server) string {
 		req := httptest.NewRequest(http.MethodGet, "/api/models/speech-presets", nil)
 		req.Header.Set("HX-Request", "true")
@@ -50,8 +55,8 @@ func TestSpeechPresetsCard(t *testing.T) {
 		build int
 		warn  bool
 	}{
-		{"older build", p.MinBuild - 1, true},
-		{"same build", p.MinBuild, false},
+		{"older build", newest - 1, true},
+		{"same build", newest, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s := stampServer(t, "", []builder.BuildResult{{ID: "b", Profile: "cpu", GitRef: fmt.Sprintf("b%d", c.build),
@@ -107,6 +112,11 @@ func TestDownloadSpeechPreset(t *testing.T) {
 	}
 
 	p := models.CuratedSpeechModels()[0]
+	// The newest build any card needs: below it, at least one card warns.
+	newest := 0
+	for _, q := range models.CuratedSpeechModels() {
+		newest = max(newest, q.MinBuild)
+	}
 	rec := post(p.Repo)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "mmproj_download_id") {
 		t.Fatalf("curated %s: status %d: %s", p.Name, rec.Code, rec.Body)

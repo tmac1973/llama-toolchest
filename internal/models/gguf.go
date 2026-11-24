@@ -564,6 +564,12 @@ keys:
 				continue
 			}
 
+		case key == "clip.gen.audio.projector_type" && valueType == ggufTypeString:
+			if v, err := readGGUFString(f); err == nil {
+				meta.Projector.GenAudioType = v
+			}
+			continue
+
 		case key == "tokenizer.chat_template" && valueType == ggufTypeString:
 			if v, err := readGGUFString(f); err == nil {
 				meta.HasChatTemplate = true

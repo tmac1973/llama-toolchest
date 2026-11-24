@@ -575,7 +575,7 @@ func (s *Server) renderModelCard(w http.ResponseWriter, m *models.Model, routerK
 		PendingDisable:    pendingDisable,
 		NeedsReload:       configChanged,
 		HasVision:         m.HasVision(cfg),
-		CallsTools:        m.CallsTools(),
+		CallsTools:        m.CallsTools(cfg),
 		HasAudio:          m.UnderstandsAudio(cfg),
 		Speaks:            m.Speaks(cfg),
 		GPULabel:          gpuLabel,
