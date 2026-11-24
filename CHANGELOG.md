@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.66.0](https://github.com/tmac1973/llama-toolchest/compare/v2.65.0...v2.66.0) (2026-11-24)
+
+
+### Features
+
+* **models:** add five speech model cards and fix speech-only detection ([#696](https://github.com/tmac1973/llama-toolchest/issues/696)) ([6d2ddf1](https://github.com/tmac1973/llama-toolchest/commit/6d2ddf1854d024be0168205945603b484da2e2cc))
+
 ## [2.65.0](https://github.com/tmac1973/llama-toolchest/compare/v2.64.0...v2.65.0) (2026-11-23)
 
 
