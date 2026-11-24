@@ -150,11 +150,7 @@ Both Docker and Podman (including rootless) are supported.
 
 ### First run
 
-1. Open `http://localhost:3000`
-2. Go to **Builds** and compile llama.cpp for your backend
-3. Go to **Browse** to download a GGUF model from HuggingFace
-4. Go to **Models**, click **Configure** to set GPU layers / context / sampling, then enable the model and restart
-5. The OpenAI API is at `http://localhost:3000/v1`; the proxy routes by the `model` field
+Open `http://localhost:3000`. [Getting started](https://tmac1973.github.io/llama-toolchest/getting-started/#first-steps) in the docs walks you from the first llama.cpp build to the first API request: build, download a model, enable it, Autoconfigure, start the server, and send a request to `http://localhost:3000/v1`.
 
 ## Configuration
 
