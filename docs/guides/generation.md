@@ -47,6 +47,17 @@ A video upscaler set makes a clip larger and sharper. Unlike an image upscaler r
 
 Clients send clips to [`/v1/videos/upscale/jobs`](../api.md#generation-api). There is no page in the app for it.
 
+What it takes, for an 81-frame 832×480 clip (more in [Measured reservations](../reference/measured-reservations.md#table)):
+
+| Set | Radeon AI PRO R9700 (32 GB, ROCm) | RTX A4000 (16 GB, CUDA) |
+| --- | --- | --- |
+| RelayVSR ×2 | ~11 GiB, ~70 s | ~10 GiB, ~30 s |
+| RelayVSR ×4 | ~27 GiB, ~5 min | Does not fit; 512×288 does (~12 GiB) |
+| SeedVR2 3B, window 1 | ~11 GiB, ~4 min | ~11 GiB, ~5 min |
+| SeedVR2 3B, window 5 | ~26 GiB, ~12 min | Does not fit |
+
+RelayVSR is fast on NVIDIA cards (a fused CUDA kernel) and slower, but working, on Radeon.
+
 ### What you need { #video-upscaling-build }
 
 Both models run as DGL scripts (stable-diffusion.cpp's graph language), which came in stable-diffusion.cpp master-1116. An instance on an older build does not start; it says *video upscaler sets need stable-diffusion.cpp master-1116 or newer (DGL)*, and the Server page shows the same note under the instance. Build a newer stable-diffusion.cpp on Builds, or pick a newer build for the instance.
@@ -110,6 +121,10 @@ For SeedVR2 7B Sharp, use `diffusion_models/seedvr2_7b_sharp_int8_convrot.safete
 ### Measure { #video-upscaling-measure }
 
 *Measure* asks for a test clip: its width and height before scaling (multiples of 16), its frame count, and the window size. Toolchest writes a clip of that size, upscales it once with nothing else on the GPU, and reserves the peak plus 10%. Clips up to that size are then allowed. The default is 832×480 with 81 frames, five seconds of Wan video, with the script's default window.
+
+The frame count matters as well as the size: RelayVSR ×2 at 832×480 needed 6.8 GiB for 33 frames and 8.6 GiB for 81 on an RTX A4000. Measure the longest clip you plan to send.
+
+Video upscaler instances run without stable-diffusion.cpp's `--max-vram` limit. Under that limit, its DGL engine plans for far more memory than the run uses and fails (*diffusion output shape [] does not match input*), even at a limit above the measured peak. So, as for the ESRGAN upscaler and ace-server, the reservation is for planning only. When a clip does not fit, the job fails with *sd.cpp ran out of GPU memory for this clip size or window*.
 
 ### Cancelling { #video-upscaling-cancel }
 

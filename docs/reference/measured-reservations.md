@@ -28,6 +28,9 @@ October 2026, sd.cpp `master-1015`, acestep.cpp `de858d8`. Video figures are for
 | ACE-Step 1.5 XL SFT | Music | 8.0 GiB | – |  |  |  |
 | ACE-Step 1.5 turbo | Music | – | 7.5 GiB |  | ~13 s per 60 s song (A4000) |  |
 | Real-ESRGAN x4plus | Upscales images 4× | 1.0 GiB | – | 1024² test image | ~13 s for 768² to 3072² | No prompt. The result has no transparency |
+| RelayVSR ×2 | Upscales video 2× | 10.5–12.0 GiB | 9.5–10.5 GiB | 81 frames, 832×480, window 16 | 81 frames: ~70 s (R9700), ~30 s (A4000) | 33 frames at 832×480 peaked at 6.8 GiB on the A4000: longer clips need more |
+| RelayVSR ×4 | Upscales video 4× | 27.3 GiB (capped) | 12.0 GiB at 512×288 | 81 frames, 832×480, window 16 | 81 frames: ~5 min (R9700); 33 frames at 512×288: ~25 s (A4000) | 832×480 does not fit a 16 GiB card: measure at 512×288 there |
+| SeedVR2 3B | Upscales video 2×, restores detail | 11.0 GiB; 26.5 GiB at window 5 | 11.0 GiB | 81 frames, 832×480, window 1 | 81 frames: ~4 min (R9700), ~5 min (A4000); ~12 min at window 5 (R9700) | Window 5 does not fit a 16 GiB card, even at 512×288 |
 
 ## Notes { #notes }
 
@@ -35,5 +38,6 @@ October 2026, sd.cpp `master-1015`, acestep.cpp `de858d8`. Video figures are for
 - **Which HunyuanVideo 1.5 set.** The I2V 480p step-distilled set is the fastest: about 2 minutes for a short video. A 480p CFG-distilled set gives 50-step quality in half the time of the base set. A 720p set gives more detail when a short clip is enough. I2V sets need a start image; T2V sets need only text. Their licence, the Tencent Hunyuan Community License, is not valid in the EU, the UK or South Korea. They do not work on NVIDIA cards yet: stable-diffusion.cpp crashed ("CONCAT failed") at the start of every video on an RTX A4000.
 - **System RAM.** An instance row on the Models page shows the system RAM that the backend used in its measurement: the text encoder, and weights that sd.cpp kept in RAM. Other programs need that RAM too.
 - **GPU buffer cache.** From sd.cpp `master-1116` on, ggml can keep up to 4 GiB of freed GPU memory for reuse while a model runs. That memory is outside the reservation, so on ROCm and CUDA toolchest starts sd-server with `GGML_CUDA_REUSE_BUFFERS=0`, which turns the cache off. With the cache on, Measure stopped the Wan2.2 I2V A14B Lightning set in its decode on the R9700. To keep the cache on, set `GGML_CUDA_REUSE_BUFFERS=1` in toolchest's own environment and measure again.
+- **Video upscalers** were measured in November 2026 on sd.cpp `master-1122` (R9700) and `master-1116` (A4000), with a Wan clip as input. They run without a memory limit (sd.cpp's limit breaks them; see [Video upscaling](../guides/generation.md#video-upscaling-measure)), so their reservation is for planning only, like ace-server's. The figures vary by about 1 GiB from run to run.
 - **sd-server and ace-server.** sd-server stays within its reservation. The ace-server figure is for planning only. On a smaller card, sd-server keeps part of a set in system RAM, so measure on the card you will use.
 

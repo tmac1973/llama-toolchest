@@ -783,7 +783,7 @@ func Catalog() []CatalogEntry {
 			},
 			Scale:   2,
 			License: "Apache-2.0",
-			Notes:   "Makes a video 2 times larger and sharper, and keeps it steady from frame to frame. Works on windows of 16 frames by default. Fastest on NVIDIA cards (fused CUDA kernel); other cards use a slower tiled path. " + vupscaleNote,
+			Notes:   "Makes a video 2 times larger and sharper, and keeps it steady from frame to frame. Works on windows of 16 frames by default. 81 frames at 832×480 took about 30 s and 10 GiB on an RTX A4000, and about 70 s and 11 GiB on a Radeon AI PRO R9700. " + vupscaleNote,
 		},
 		{
 			ID:     "relayvsr-x4",
@@ -796,7 +796,7 @@ func Catalog() []CatalogEntry {
 			},
 			Scale:   4,
 			License: "Apache-2.0",
-			Notes:   "Makes a video 4 times larger and sharper, and keeps it steady from frame to frame. Works on windows of 16 frames by default. Fastest on NVIDIA cards (fused CUDA kernel); other cards use a slower tiled path. " + vupscaleNote,
+			Notes:   "Makes a video 4 times larger and sharper, and keeps it steady from frame to frame. Works on windows of 16 frames by default. 81 frames at 832×480 took about 5 min and 27 GiB on a Radeon AI PRO R9700; on a 16 GiB card only smaller clips fit (512×288: 12 GiB). " + vupscaleNote,
 		},
 		{
 			ID:     "seedvr2-3b",
@@ -809,7 +809,7 @@ func Catalog() []CatalogEntry {
 			},
 			Scale:   2,
 			License: "Apache-2.0",
-			Notes:   "Makes a video 2 times larger and restores detail. Each frame is treated on its own by default; a larger window gives smoother motion but needs more VRAM. " + vupscaleNote,
+			Notes:   "Makes a video 2 times larger and restores detail. Each frame is treated on its own by default (about 11 GiB; 81 frames at 832×480 in 4–5 min); a larger window gives smoother motion but needs much more VRAM (window 5: 24 GiB). " + vupscaleNote,
 		},
 	}
 }
