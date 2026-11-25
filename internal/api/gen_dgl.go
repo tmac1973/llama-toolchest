@@ -118,36 +118,46 @@ func (e dglMemoryError) Is(target error) bool { return target == errDGLMemory }
 // set, hears each change of progress. When ctx ends first, runDGLJob
 // returns ctx's error at once and sends nothing more to sd-server.
 func runDGLJob(ctx context.Context, base, source string, onProgress func(dglProgress)) (dglResult, error) {
-	id, err := submitDGL(ctx, base, source)
+	st, err := runDGLScript(ctx, base, source, onProgress)
 	if err != nil {
 		return dglResult{}, err
+	}
+	return st.result()
+}
+
+// runDGLScript is runDGLJob for a script that returns something else: it
+// returns the completed job's status as sd-server reported it.
+func runDGLScript(ctx context.Context, base, source string, onProgress func(dglProgress)) (dglJobStatus, error) {
+	id, err := submitDGL(ctx, base, source)
+	if err != nil {
+		return dglJobStatus{}, err
 	}
 	jobURL := base + "/sdcpp/v1/dgl/jobs/" + id
 	var last dglProgress
 	for {
 		select {
 		case <-ctx.Done():
-			return dglResult{}, cancelDGL(base, id, ctx.Err())
+			return dglJobStatus{}, cancelDGL(base, id, ctx.Err())
 		case <-time.After(vidGenPoll):
 		}
 		out, _, err := getBody(ctx, jobURL)
 		if err != nil {
 			if ctx.Err() != nil {
-				return dglResult{}, cancelDGL(base, id, ctx.Err())
+				return dglJobStatus{}, cancelDGL(base, id, ctx.Err())
 			}
-			return dglResult{}, err
+			return dglJobStatus{}, err
 		}
 		var st dglJobStatus
 		if err := json.Unmarshal(out, &st); err != nil {
-			return dglResult{}, fmt.Errorf("reading the DGL job status: %w", err)
+			return dglJobStatus{}, fmt.Errorf("reading the DGL job status: %w", err)
 		}
 		switch st.Status {
 		case "completed":
-			return st.result()
+			return st, nil
 		case "failed":
-			return dglResult{}, dglError(st.Error)
+			return dglJobStatus{}, dglError(st.Error)
 		case "cancelled":
-			return dglResult{}, errors.New("sd-server cancelled the upscale job")
+			return dglJobStatus{}, errors.New("sd-server cancelled the upscale job")
 		}
 		if st.Progress != nil && onProgress != nil && !sameProgress(*st.Progress, last) {
 			last = *st.Progress

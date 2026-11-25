@@ -465,7 +465,7 @@ func (s *Server) createVUpscaleJob(w http.ResponseWriter, r *http.Request) (*vup
 		req.Seed = *in.Seed
 	}
 
-	inDir, outDir, err := generation.VUpscaleWorkDirs(s.cfg.DataDir, inst.ID)
+	inDir, outDir, err := generation.DGLWorkDirs(s.cfg.DataDir, inst.ID)
 	if err != nil {
 		return fail(&requestError{http.StatusInternalServerError, "server_error", err.Error()})
 	}

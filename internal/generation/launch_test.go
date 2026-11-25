@@ -174,32 +174,51 @@ func TestLaunchSpecAceLinksItsFiles(t *testing.T) {
 	}
 }
 
-// An upscaler set runs sd-server with no model flags: its file is linked
-// into the folder sd-server scans for upscalers, and there is no
-// --max-vram, as sd-server loads the upscaler for each request.
+// An upscaler set runs sd-server with no model flags and no --max-vram, as
+// sd-server loads the upscaler for each request. A build without DGL scans
+// a folder with a link to the file (/sdcpp/v1/upscale). A build with DGL
+// gets the file's own folder as --model-dir and the input and output
+// folders of the DGL script (UpscaleUsesDGL).
 func TestLaunchSpecUpscaler(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "RealESRGAN_x4plus.safetensors")
 	if err := os.WriteFile(file, []byte("esrgan"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	set := ModelSet{ID: "esrgan", Kind: KindUpscale, Complete: true, Components: []Component{{Slot: UpscalerSlot, Path: file}}}
-	data := t.TempDir()
 
-	cfg, err := LaunchSpec(Instance{ID: "up", Port: 8085, ReservedMiB: 1024}, set,
-		builder.BuildResult{ID: "sd-b", Profile: "rocm", BinaryPath: "/b/sd-server"}, "0.0.0.0", data, LaunchOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir := filepath.Join(InstanceDir(data, "up"), "upscalers")
-	want := []string{"--listen-ip", "0.0.0.0", "--listen-port", "8085", "--hires-upscalers-dir", dir}
-	if !slices.Equal(cfg.Args, want) {
-		t.Errorf("args = %q, want %q", cfg.Args, want)
-	}
-	if got, _ := os.ReadFile(filepath.Join(dir, "RealESRGAN_x4plus.safetensors")); string(got) != "esrgan" {
-		t.Errorf("upscaler link reads %q", got)
-	}
-	if cfg.HealthURL != "http://127.0.0.1:8085/v1/models" {
-		t.Errorf("health = %q", cfg.HealthURL)
+	for _, tc := range []struct {
+		name, help string
+		dgl        bool
+	}{
+		{"old build", "--steps N\n  --hires-upscalers-dir DIR\n", false},
+		{"DGL build", "--steps N\n  --dgl-dir DIR  Web UI script directory\n", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := t.TempDir()
+			build := builder.BuildResult{ID: "sd-b", Profile: "rocm", BinaryPath: fakeSDServer(t, tc.help)}
+			cfg, err := LaunchSpec(Instance{ID: "up", Port: 8085, ReservedMiB: 1024}, set, build, "0.0.0.0", data, LaunchOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := filepath.Join(InstanceDir(data, "up"), "upscalers")
+			want := []string{"--listen-ip", "0.0.0.0", "--listen-port", "8085", "--hires-upscalers-dir", dir}
+			if tc.dgl {
+				want = []string{"--listen-ip", "0.0.0.0", "--listen-port", "8085", "--model-dir", filepath.Dir(file)}
+			}
+			if !slices.Equal(cfg.Args, want) {
+				t.Errorf("args = %q, want %q", cfg.Args, want)
+			}
+			if got, _ := os.ReadFile(filepath.Join(dir, "RealESRGAN_x4plus.safetensors")); string(got) != "esrgan" {
+				t.Errorf("upscaler link reads %q", got)
+			}
+			_, err = os.Stat(filepath.Join(InstanceDir(data, "up"), "output"))
+			if tc.dgl != (err == nil) {
+				t.Errorf("output folder made = %v, want %v", err == nil, tc.dgl)
+			}
+			if cfg.HealthURL != "http://127.0.0.1:8085/v1/models" {
+				t.Errorf("health = %q", cfg.HealthURL)
+			}
+		})
 	}
 }
 

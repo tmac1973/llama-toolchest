@@ -8,8 +8,9 @@ import (
 	"text/template"
 )
 
-// The DGL scripts video upscaler sets run, one per script (Recipe). See
-// the header of each file for its upstream source.
+// The DGL scripts video upscaler sets run, one per script (Recipe), and
+// esrgan.dgl.tmpl, which image upscaler sets run on builds with DGL (see
+// UpscaleUsesDGL). See the header of each file for its upstream source.
 //
 //go:embed dgl/*.dgl.tmpl
 var dglFiles embed.FS
@@ -133,4 +134,77 @@ func RenderVUpscale(set ModelSet, job VUpscaleJob) (string, error) {
 		return "", err
 	}
 	return strings.TrimLeft(b.String(), "\n"), nil
+}
+
+// UpscaleJob is what one image upscale fills into the ESRGAN script.
+type UpscaleJob struct {
+	// InputPath and OutputPath are relative to the instance folder,
+	// sd-server's working folder: "input/<id>.png" and "output/<id>.png".
+	// DGL saves only PNG.
+	InputPath, OutputPath string
+	// TileSize is the tile ESRGAN works on, 32 or more; 0 is sd.cpp's
+	// default of 128.
+	TileSize int
+	// Repeats is how many times the image is upscaled, 1 to 4.
+	Repeats int
+}
+
+// DefaultUpscaleTileSize is sd.cpp's default ESRGAN tile.
+const DefaultUpscaleTileSize = 128
+
+// RenderUpscale fills in the ESRGAN script for one image upscale with an
+// upscaler set.
+func RenderUpscale(set ModelSet, job UpscaleJob) (string, error) {
+	if set.Kind != KindUpscale {
+		return "", fmt.Errorf("set %s is not an upscaler set", set.ID)
+	}
+	if job.Repeats < 1 || job.Repeats > 4 {
+		return "", fmt.Errorf("repeats must be between 1 and 4, not %d", job.Repeats)
+	}
+	if job.TileSize == 0 {
+		job.TileSize = DefaultUpscaleTileSize
+	}
+	if job.TileSize < 32 || job.TileSize > 16384 {
+		return "", fmt.Errorf("tile_size must be between 32 and 16384, not %d", job.TileSize)
+	}
+	if !strings.HasSuffix(job.OutputPath, ".png") {
+		return "", fmt.Errorf("the output must be a .png file, not %q", job.OutputPath)
+	}
+	data := struct {
+		Upscaler, Input, Output string
+		TileSize, Repeats       int
+	}{TileSize: job.TileSize, Repeats: job.Repeats}
+	for _, f := range []struct {
+		dst   *string
+		value string
+		name  string
+	}{
+		{&data.Upscaler, UpscalerPath(set), "the upscaler"},
+		{&data.Input, job.InputPath, "the input"},
+		{&data.Output, job.OutputPath, "the output"},
+	} {
+		if f.value == "" {
+			return "", fmt.Errorf("the script needs %s's path", f.name)
+		}
+		q, err := dglString(f.value)
+		if err != nil {
+			return "", err
+		}
+		*f.dst = q
+	}
+	var b bytes.Buffer
+	if err := dglTemplates.Lookup("esrgan.dgl.tmpl").Execute(&b, data); err != nil {
+		return "", err
+	}
+	return strings.TrimLeft(b.String(), "\n"), nil
+}
+
+// UpscalerPath is the path of an upscaler set's ESRGAN file, or "".
+func UpscalerPath(set ModelSet) string {
+	for _, c := range set.Components {
+		if c.Slot == UpscalerSlot {
+			return c.Path
+		}
+	}
+	return ""
 }

@@ -97,3 +97,58 @@ func TestWindowSizes(t *testing.T) {
 		}
 	}
 }
+
+func esrganTestSet() ModelSet {
+	return ModelSet{ID: "esrgan", Kind: KindUpscale, Components: []Component{
+		{Slot: UpscalerSlot, Path: "/models/gen-models/Comfy-Org--Real-ESRGAN/RealESRGAN_x4plus.safetensors"},
+	}}
+}
+
+func TestRenderUpscaleGolden(t *testing.T) {
+	got, err := RenderUpscale(esrganTestSet(), UpscaleJob{InputPath: "input/job1.png", OutputPath: "output/job1.png", Repeats: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join("testdata", "dgl", "esrgan.golden.dgl")
+	if *updateGolden {
+		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("%v (run go test -run TestRenderUpscaleGolden -update-dgl)", err)
+	}
+	if got != string(want) {
+		t.Errorf("script differs from %s (run with -update-dgl after checking)", path)
+	}
+}
+
+func TestRenderUpscaleRefuses(t *testing.T) {
+	ok := UpscaleJob{InputPath: "input/a.png", OutputPath: "output/a.png", Repeats: 1}
+	cases := []struct {
+		name string
+		set  ModelSet
+		job  func(UpscaleJob) UpscaleJob
+		want string
+	}{
+		{"wrong kind", ModelSet{ID: "v", Kind: KindVUpscale}, func(j UpscaleJob) UpscaleJob { return j }, "not an upscaler set"},
+		{"no file", ModelSet{ID: "e", Kind: KindUpscale}, func(j UpscaleJob) UpscaleJob { return j }, "the upscaler's path"},
+		{"repeats 0", esrganTestSet(), func(j UpscaleJob) UpscaleJob { j.Repeats = 0; return j }, "repeats"},
+		{"repeats 5", esrganTestSet(), func(j UpscaleJob) UpscaleJob { j.Repeats = 5; return j }, "repeats"},
+		{"small tile", esrganTestSet(), func(j UpscaleJob) UpscaleJob { j.TileSize = 16; return j }, "tile_size"},
+		{"not png", esrganTestSet(), func(j UpscaleJob) UpscaleJob { j.OutputPath = "output/a.jpg"; return j }, ".png"},
+		{"quote", esrganTestSet(), func(j UpscaleJob) UpscaleJob { j.InputPath = `input/a".png`; return j }, "double quote"},
+	}
+	for _, c := range cases {
+		_, err := RenderUpscale(c.set, c.job(ok))
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: err = %v, want one with %q", c.name, err, c.want)
+		}
+	}
+	src, err := RenderUpscale(esrganTestSet(), UpscaleJob{InputPath: "input/a.png", OutputPath: "output/a.png", Repeats: 1, TileSize: 256})
+	if err != nil || !strings.Contains(src, "tile_size = 256") {
+		t.Errorf("tile 256: err %v, script:\n%s", err, src)
+	}
+}

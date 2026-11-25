@@ -68,7 +68,7 @@ func TestGenSetDetailsCustom(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("HTTP %d %s", rec.Code, body)
 	}
-	for _, want := range []string{"Custom set, made from your own files.", "ESRGAN upscaler", "/m/x4.pth", "--hires-upscalers-dir", "No settings of its own."} {
+	for _, want := range []string{"Custom set, made from your own files.", "ESRGAN upscaler", "/m/x4.pth", "--model-dir /m", "No settings of its own."} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dialog lacks %q", want)
 		}

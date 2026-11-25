@@ -574,9 +574,15 @@ paths:
       description: |
         Makes an image larger and sharper with an upscaler instance
         (`meta.kind` `upscale`), such as the Real-ESRGAN x4plus set: four
-        times wider and higher per run. There is no prompt. The JSON body
-        goes to sd-server's `/sdcpp/v1/upscale` unchanged, and its answer
-        comes back unchanged. The result has no transparency.
+        times wider and higher per run. There is no prompt. The result has
+        no transparency.
+
+        stable-diffusion.cpp master-1119 removed sd-server's own upscale
+        route. On a build with DGL (master-1116 and newer), toolchest runs
+        the upscale as a DGL script and answers in the same form. The
+        image must then be PNG, JPEG or GIF, and the result PNG or JPEG.
+        On older builds, the JSON body goes to sd-server's
+        `/sdcpp/v1/upscale` unchanged, and its answer comes back unchanged.
       requestBody:
         required: true
         content:
@@ -593,7 +599,11 @@ paths:
                   description: The image, base64-encoded or as a data URL.
                 upscaler:
                   type: string
-                  description: Which of the instance's upscalers to use. Left out, its first one.
+                  description: Ignored on builds with DGL; an instance has one upscaler.
+                tile_size:
+                  type: integer
+                  minimum: 32
+                  description: The tile the upscaler works on (default 128). A smaller tile uses less GPU memory.
                 repeats:
                   type: integer
                   minimum: 1
@@ -602,6 +612,7 @@ paths:
                 output_format:
                   type: string
                   enum: [png, jpeg, webp]
+                  description: "`webp` only on builds without DGL (before master-1116)."
                 output_compression:
                   type: integer
                   minimum: 0
@@ -611,7 +622,7 @@ paths:
               image: iVBORw0KGgo…
       responses:
         "200":
-          description: sd-server's answer, passed on unchanged.
+          description: The upscaled image, in the form of sd-server's old upscale route.
           content:
             application/json:
               schema:
