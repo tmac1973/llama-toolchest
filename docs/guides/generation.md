@@ -24,9 +24,11 @@ An instance starts only on a build that knows its set's recipe. If you run a set
 
 ### Flags that newer builds removed { #removed-flags }
 
-stable-diffusion.cpp master-1116 removed the separate settings for the high-noise expert of a Wan2.2 A14B pair, such as `--high-noise-cfg-scale` and `--high-noise-sampling-method`. On those builds, both experts use `--cfg-scale` and `--sampling-method`. `--high-noise-steps` and `--moe-boundary` are still there.
+stable-diffusion.cpp master-1116 removed the launch flags for the high-noise expert of a Wan2.2 A14B pair, such as `--high-noise-cfg-scale` and `--high-noise-sampling-method`. `--high-noise-steps` and `--moe-boundary` are still there. sd-server still takes the same settings in each request, under `high_noise_sample_params`.
 
-Older builds still need these flags, because without them the high-noise expert uses its own default of CFG 7. So the Wan2.2 I2V A14B sets keep them. When an instance starts, toolchest reads the build's `sd-server --help`. If the build does not list one of these flags, toolchest leaves the flag and its value out. *Details* still shows the flags. In the catalog sets, each one has the same value as the flag that replaces it, so the video does not change. If a custom set or an instance gives the high-noise expert a different value, llama-toolchest's log has a warning, and the high-noise expert uses the low-noise value.
+Older builds still need these flags, because without them the high-noise expert uses its own default of CFG 7. So the Wan2.2 A14B sets keep them, and toolchest also sends their values with every video request. When an instance starts, toolchest reads the build's `sd-server --help`. If the build does not list one of these flags, toolchest leaves the flag out of the launch, and the value in the request still reaches the high-noise expert. This matters for Wan2.2 T2V A14B, which uses CFG 4 on the high-noise expert and CFG 3 on the low-noise one. *Details* still shows the flags, and llama-toolchest's log says which ones went with the requests instead.
+
+This covers `--high-noise-cfg-scale`, `--high-noise-img-cfg-scale`, `--high-noise-guidance`, `--high-noise-slg-scale`, `--high-noise-skip-layer-start`, `--high-noise-skip-layer-end`, `--high-noise-eta` and `--high-noise-sampling-method`, from a set's flags or an instance's extra flags. `--high-noise-skip-layers` is a list and is not sent; on a newer build it is left out, with a warning in the log. A request's own `extra.high_noise_sample_params` wins over the set's values, field by field.
 
 ## LTX-2.5 { #ltx-2-5 }
 

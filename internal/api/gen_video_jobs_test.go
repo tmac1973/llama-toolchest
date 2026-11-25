@@ -450,3 +450,46 @@ func TestBuildVideoRequestLoras(t *testing.T) {
 		t.Errorf("a set without LoRAs: lora = %v, want the request's own empty list", plain["lora"])
 	}
 }
+
+// A Wan2.2 A14B set's high-noise settings go with every request as
+// high_noise_sample_params, with the instance's extra flags on top, and
+// a request's extra settings win field by field.
+func TestBuildVideoRequestHighNoiseParams(t *testing.T) {
+	inst := generation.Instance{ID: "t2v", MeasuredSuggestedMiB: 1, MeasuredFrames: 81, MeasuredWidth: 1280, MeasuredHeight: 720,
+		ExtraArgs: []string{"--high-noise-sampling-method", "dpm++2m"}}
+	set := generation.ModelSet{ID: "t2v", Name: "T2V", Kind: generation.KindVideo, Recipe: "wan22-t2v",
+		Capabilities: []string{generation.CapText}, DefaultWidth: 832, DefaultHeight: 480, DefaultFrames: 33, DefaultFPS: 16,
+		LaunchArgs: []string{"--cfg-scale", "3", "--high-noise-cfg-scale", "4", "--high-noise-sampling-method", "euler"},
+		Components: []generation.Component{{Slot: "diffusion_model", Path: "/m/low.gguf"}, {Slot: "high_noise_diffusion_model", Path: "/m/high.gguf"}}}
+	params := func(in videoInput) map[string]any {
+		t.Helper()
+		_, vid, verr := buildVideoRequest(in, inst, set)
+		if verr != nil {
+			t.Fatal(verr)
+		}
+		raw, _ := vid.body()
+		var m map[string]any
+		json.Unmarshal(raw, &m)
+		p, _ := m["high_noise_sample_params"].(map[string]any)
+		return p
+	}
+	p := params(videoInput{Prompt: "p"})
+	if g, _ := p["guidance"].(map[string]any); g["txt_cfg"] != float64(4) || p["sample_method"] != "dpm++2m" {
+		t.Errorf("high_noise_sample_params = %v, want CFG 4 and the instance's sampler", p)
+	}
+	p = params(videoInput{Prompt: "p", Extra: map[string]any{"high_noise_sample_params": map[string]any{
+		"guidance": map[string]any{"img_cfg": 2.0}, "flow_shift": 8.0}}})
+	g, _ := p["guidance"].(map[string]any)
+	if g["txt_cfg"] != float64(4) || g["img_cfg"] != float64(2) || p["flow_shift"] != float64(8) || p["sample_method"] != "dpm++2m" {
+		t.Errorf("with extra: high_noise_sample_params = %v, want the set's and the extra's fields together", p)
+	}
+	p = params(videoInput{Prompt: "p", Extra: map[string]any{"high_noise_sample_params": map[string]any{"guidance": map[string]any{"txt_cfg": 5.0}}}})
+	if g, _ := p["guidance"].(map[string]any); g["txt_cfg"] != float64(5) {
+		t.Errorf("extra txt_cfg did not win: %v", p)
+	}
+	set.LaunchArgs = []string{"--cfg-scale", "3"}
+	inst.ExtraArgs = nil
+	if p := params(videoInput{Prompt: "p"}); p != nil {
+		t.Errorf("a set without high-noise flags sent %v", p)
+	}
+}

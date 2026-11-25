@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +36,62 @@ var highNoiseFlags = map[string]string{
 	"--high-noise-skip-layers":      "--skip-layers",
 	"--high-noise-eta":              "--eta",
 	"--high-noise-sampling-method":  "--sampling-method",
+}
+
+// highNoiseRequestKeys says where sd-server takes each highNoiseFlags
+// value in a request: the path of the field under
+// high_noise_sample_params. sd-server has these fields on every build, so
+// HighNoiseRequestParams puts the set's values in each request, and a
+// build without the launch flag still gives the high-noise expert its own
+// value (Wan2.2 T2V A14B: CFG 4 there, 3 on the low-noise expert).
+// --high-noise-skip-layers has no entry: its value is a list, and no
+// catalog set uses it.
+var highNoiseRequestKeys = map[string][]string{
+	"--high-noise-cfg-scale":        {"guidance", "txt_cfg"},
+	"--high-noise-img-cfg-scale":    {"guidance", "img_cfg"},
+	"--high-noise-guidance":         {"guidance", "distilled_guidance"},
+	"--high-noise-slg-scale":        {"guidance", "slg", "scale"},
+	"--high-noise-skip-layer-start": {"guidance", "slg", "layer_start"},
+	"--high-noise-skip-layer-end":   {"guidance", "slg", "layer_end"},
+	"--high-noise-eta":              {"eta"},
+	"--high-noise-sampling-method":  {"sample_method"},
+}
+
+// HighNoiseRequestParams returns the high-noise settings in args (a set's
+// launch flags and an instance's extra flags) as sd-server's
+// high_noise_sample_params request object, or nil when there are none.
+// Numbers go as numbers; a value that is not a number, except the
+// sampling method, is left out.
+func HighNoiseRequestParams(args []string) map[string]any {
+	var out map[string]any
+	for flag, path := range highNoiseRequestKeys {
+		v, ok := argValue(args, flag)
+		if !ok || v == "" {
+			continue
+		}
+		var value any = v
+		if flag != "--high-noise-sampling-method" {
+			f, err := strconv.ParseFloat(v, 64)
+			if err != nil {
+				continue
+			}
+			value = f
+		}
+		if out == nil {
+			out = map[string]any{}
+		}
+		node := out
+		for _, key := range path[:len(path)-1] {
+			next, _ := node[key].(map[string]any)
+			if next == nil {
+				next = map[string]any{}
+				node[key] = next
+			}
+			node = next
+		}
+		node[path[len(path)-1]] = value
+	}
+	return out
 }
 
 // droppedFlag is a flag adaptArgs left out, with its value.
@@ -93,6 +150,11 @@ func argValue(args []string, flag string) (string, bool) {
 func adaptArgsForBuild(setID string, build builder.BuildResult, args []string) []string {
 	out, dropped := adaptArgs(args, buildHelp(build))
 	for _, d := range dropped {
+		if _, ok := highNoiseRequestKeys[d.flag]; ok {
+			slog.Info("leaving out a flag this sd-server build does not have; its value goes with each request instead",
+				"set", setID, "build", build.ID, "flag", d.flag, "value", d.value)
+			continue
+		}
 		main := highNoiseFlags[d.flag]
 		mainValue, ok := argValue(out, main)
 		if ok && mainValue == d.value {

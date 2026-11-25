@@ -250,7 +250,8 @@ func TestGenSetFormRecipeGroups(t *testing.T) {
 	vid := form("kind=video&recipe=wan22-i2v")
 	for _, c := range []struct{ id, group, reason string }{
 		{"wan22-i2v", "Used by the catalog", ""},
-		{"wan22-t2v", "Other recipes", ""},
+		{"wan22-t2v", "Used by the catalog", ""},
+		{"wan21-t2v", "Other recipes", ""},
 		{"animatediff-sd15", "Not available in llama-toolchest", "motion module"},
 		{"wan21-vace", "Not available in llama-toolchest", "control video frames"},
 	} {

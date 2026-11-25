@@ -1434,6 +1434,10 @@ func runMeasureVideo(ctx context.Context, base string, set generation.ModelSet, 
 	}
 	if set.HasHighNoiseModel() {
 		req.HighNoiseSteps = 1
+		// The set's own high-noise settings, as a video job sends them.
+		// An instance's extra flags are left out: they change the
+		// guidance, not the memory the test needs.
+		req.HighNoise = generation.HighNoiseRequestParams(set.RunArgs())
 	}
 	if canStart {
 		req.InitImage = base64.StdEncoding.EncodeToString(measurePicture(w, h, false))
