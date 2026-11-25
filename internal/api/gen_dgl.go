@@ -58,6 +58,17 @@ type dglJobStatus struct {
 // errDGLBusy is sd-server's full job queue (HTTP 429).
 var errDGLBusy = errors.New("the upscaler is busy; try again later")
 
+// errDGLMemory marks a DGL job that failed for lack of GPU memory.
+var errDGLMemory = errors.New("sd.cpp ran out of GPU memory for this clip size or window; send a smaller clip or window, or measure the instance to see what fits. Its log on the Server page says more")
+
+// dglMemoryMarkers are what a DGL job's error says when sd.cpp's engine
+// could not make room for a step. It logs "cannot make enough memory
+// available", but the job's own error is only the empty result
+// ("diffusion output shape [] does not match input") or "VAE encode
+// failed" (master-1116, RTX A4000: RelayVSR ×4 and SeedVR2 window 5 at
+// 832x480, 2026-11-24).
+var dglMemoryMarkers = []string{"output shape [] does not match", "vae encode failed", "vae decode failed", "out of memory", "failed to allocate", "cannot make enough memory"}
+
 // runDGLJob runs one DGL script on the instance at base
 // (http://127.0.0.1:port) and returns what it returned. onProgress, when
 // set, hears each change of progress. When ctx ends first, runDGLJob
@@ -190,6 +201,12 @@ func jsonInt(raw json.RawMessage) (int, error) {
 func dglError(msg string) error {
 	if msg == "" {
 		msg = "no reason given"
+	}
+	lower := strings.ToLower(msg)
+	for _, m := range dglMemoryMarkers {
+		if strings.Contains(lower, m) {
+			return fmt.Errorf("%w (sd.cpp: %s)", errDGLMemory, msg)
+		}
 	}
 	switch {
 	case strings.Contains(msg, "exceeds") && strings.Contains(msg, "MiB"),

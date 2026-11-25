@@ -126,6 +126,10 @@ func TestRunDGLJobErrors(t *testing.T) {
 	}{
 		{"failed", func(f *fakeDGL) { f.fail = "load_dit: file not found" }, "sd.cpp: load_dit: file not found", nil},
 		{"too large", func(f *fakeDGL) { f.fail = "decoded video exceeds 256 MiB; set max_frames" }, "too large for sd.cpp's DGL limits", nil},
+		{"no memory", func(f *fakeDGL) {
+			f.fail = "line 47, column 16: line 36, column 14: diffusion output shape [] does not match input [208, 120, 2, 48, 1]"
+		}, "ran out of GPU memory", errDGLMemory},
+		{"vae memory", func(f *fakeDGL) { f.fail = "line 64, column 16: line 40, column 15: VAE encode failed" }, "ran out of GPU memory", errDGLMemory},
 		{"no binding", func(f *fakeDGL) { f.fail = "line 37, column 12: unknown function 'relayvsr::decode'" }, "no RelayVSR support", nil},
 		{"busy", func(f *fakeDGL) { f.submitSC = http.StatusTooManyRequests }, "busy", errDGLBusy},
 		{"forbidden", func(f *fakeDGL) { f.submitSC = http.StatusForbidden }, "local-only check", nil},

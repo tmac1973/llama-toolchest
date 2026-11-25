@@ -123,8 +123,7 @@ func (s *Server) runMeasureVUpscale(ctx context.Context, inst generation.Instanc
 		return err
 	}
 	if _, err := runDGLJob(ctx, inst.BaseURL(), src, nil); err != nil {
-		lower := strings.ToLower(err.Error())
-		if strings.Contains(lower, "out of memory") || strings.Contains(lower, "failed to allocate") {
+		if errors.Is(err, errDGLMemory) {
 			return fmt.Errorf("the test upscale ran out of GPU memory at this size; try a smaller clip or window: %w", err)
 		}
 		return err

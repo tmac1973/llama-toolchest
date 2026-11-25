@@ -114,7 +114,7 @@ func TestLaunchSpecVUpscale(t *testing.T) {
 	}
 	want := []string{"--listen-ip", "0.0.0.0", "--listen-port", "8081",
 		"--model-dir", filepath.Dir(set.Components[1].Path), "--model-dir", filepath.Dir(set.Components[0].Path),
-		"--max-vram", "6.0", "--threads", "4"}
+		"--threads", "4"}
 	if !slices.Equal(cfg.Args, want) {
 		t.Errorf("args =\n%q\nwant\n%q", cfg.Args, want)
 	}

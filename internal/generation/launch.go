@@ -138,15 +138,8 @@ func LaunchSpec(inst Instance, set ModelSet, build builder.BuildResult, host, da
 		if _, _, err := VUpscaleWorkDirs(dataDir, inst.ID); err != nil {
 			return cfg, err
 		}
+		// No --max-vram (see buildArgs).
 		p.ModelDirs = vupscaleModelDirs(set)
-		switch {
-		case opts.MaxVRAMMiB > 0:
-			p.MaxVRAM = maxVRAMGiB(opts.MaxVRAMMiB)
-		case inst.BudgetMiB > 0:
-			p.MaxVRAM = maxVRAMGiB(inst.BudgetMiB)
-		case inst.ReservedMiB > 0:
-			p.MaxVRAM = maxVRAMGiB(inst.ReservedMiB)
-		}
 		cfg.Name, cfg.HealthURL = "sd-server:"+inst.ID, base+"/v1/models"
 	}
 	args, _, err := buildArgs(set, inst.ExtraArgs, p)
@@ -258,14 +251,19 @@ func buildArgs(set ModelSet, extra []string, p argPaths) (args []string, fixed [
 		// that loads the set's two files by path (Phase 04); DGL loads
 		// models only from under a --model-dir, so the folders of the
 		// files are given. No --dgl-dir: toolchest never saves scripts on
-		// the server. DGL keeps within --max-vram.
+		// the server.
+		//
+		// No --max-vram: under a budget, sd.cpp's DGL engine plans for far
+		// more than the run uses, fails to prepare the weights, and returns
+		// an empty tensor ("diffusion output shape [] does not match
+		// input"). RelayVSR ×2 at 832x480 peaked at 9.3 GiB with no limit
+		// and failed inside --max-vram 10.5 (master-1116, RTX A4000,
+		// 2026-11-24). The reservation is the measured peak plus a margin,
+		// as for the ESRGAN upscaler.
 		add("--listen-ip", p.Host)
 		add("--listen-port", p.Port)
 		for _, d := range p.ModelDirs {
 			add("--model-dir", d)
-		}
-		if p.MaxVRAM != "" {
-			add("--max-vram", p.MaxVRAM)
 		}
 		args = append(args, set.RunArgs()...)
 		args = append(args, extra...)
