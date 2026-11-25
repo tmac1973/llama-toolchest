@@ -3,7 +3,6 @@ package generation
 import (
 	"os"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"slices"
 	"testing"
@@ -74,18 +73,14 @@ func TestAdaptArgs(t *testing.T) {
 	}
 }
 
-// In the catalog sets, each high-noise flag either goes with each
-// request on new builds (highNoiseRequestKeys) or has the same value as
-// the flag the high-noise expert uses there, so leaving it out changes
-// nothing.
+// In both catalog sets, each high-noise flag has the same value as the
+// flag the high-noise expert uses on new builds, so leaving it out
+// changes nothing.
 func TestCatalogHighNoiseFlagsMatchMain(t *testing.T) {
 	for _, e := range Catalog() {
 		for flag, main := range highNoiseFlags {
 			v, ok := argValue(e.LaunchArgs, flag)
 			if !ok {
-				continue
-			}
-			if _, sent := highNoiseRequestKeys[flag]; sent {
 				continue
 			}
 			if mv, _ := argValue(e.LaunchArgs, main); mv != v {
@@ -173,28 +168,5 @@ func TestBuildHelpCachePerBinary(t *testing.T) {
 	}
 	if helpLists(buildHelp(build), "--high-noise-cfg-scale") {
 		t.Error("the rebuilt binary's help was not read again")
-	}
-}
-
-func TestHighNoiseRequestParams(t *testing.T) {
-	got := HighNoiseRequestParams(catalogArgs(t, "wan22-t2v-a14b"))
-	want := map[string]any{"guidance": map[string]any{"txt_cfg": 4.0}, "sample_method": "euler"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("T2V A14B = %v, want %v", got, want)
-	}
-	// Every flag with a request field, in both forms; a value that is
-	// not a number is left out; the last value wins.
-	got = HighNoiseRequestParams([]string{"--high-noise-slg-scale=2.5", "--high-noise-skip-layer-start", "0.01",
-		"--high-noise-skip-layer-end", "0.2", "--high-noise-eta", "x", "--high-noise-img-cfg-scale", "1.5",
-		"--high-noise-guidance", "3.5", "--high-noise-cfg-scale", "2", "--high-noise-cfg-scale", "6"})
-	want = map[string]any{"guidance": map[string]any{
-		"txt_cfg": 6.0, "img_cfg": 1.5, "distilled_guidance": 3.5,
-		"slg": map[string]any{"scale": 2.5, "layer_start": 0.01, "layer_end": 0.2},
-	}}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("all flags = %v, want %v", got, want)
-	}
-	if got := HighNoiseRequestParams([]string{"--steps", "20", "--high-noise-skip-layers", "[7,8]"}); got != nil {
-		t.Errorf("no request fields = %v, want nil", got)
 	}
 }

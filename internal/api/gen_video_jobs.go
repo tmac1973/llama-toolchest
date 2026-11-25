@@ -347,7 +347,6 @@ func buildVideoRequest(in videoInput, inst generation.Instance, set generation.M
 	vid := vidGenRequest{
 		Prompt: in.Prompt, NegativePrompt: in.NegativePrompt, Width: w, Height: h, Seed: seed,
 		Frames: frames, FPS: fps, InitImage: in.StartImage, EndImage: in.EndImage, OutputFormat: format, Lora: loras, Extra: in.Extra,
-		HighNoise: generation.HighNoiseRequestParams(slices.Concat(generation.InstanceRunArgs(set, inst), inst.ExtraArgs)),
 	}
 	if in.Audio != "" {
 		shown.Audio, shown.AudioSeconds = true, math.Round(audio.Seconds*10)/10

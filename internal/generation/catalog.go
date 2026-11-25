@@ -607,19 +607,21 @@ func Catalog() []CatalogEntry {
 				umt5Q8,
 				wan21VAE,
 			},
-			// The wan22-t2v recipe's defaults: CFG 4 on the high-noise
-			// expert and 3 on the low-noise one, shift 12, boundary 0.875.
-			// Builds from master-1116 have no --high-noise-cfg-scale or
-			// --high-noise-sampling-method; toolchest then sends the values
-			// with each request (HighNoiseRequestParams), so the high-noise
-			// expert still gets CFG 4. --temporal-tiling and the text model
-			// on the CPU as for Wan2.2 I2V A14B.
-			LaunchArgs: []string{"--steps", "20", "--cfg-scale", "3", "--flow-shift", "12", "--moe-boundary", "0.875",
-				"--high-noise-cfg-scale", "4", "--high-noise-sampling-method", "euler",
+			// The wan22-t2v recipe's defaults (shift 12, boundary 0.875),
+			// except CFG: Wan uses 4 on the high-noise expert and 3 on the
+			// low-noise one, but builds from master-1116 have no
+			// --high-noise-cfg-scale, and sd-server refuses a separate
+			// high-noise CFG in a request too ("requires an explicit DGL
+			// workflow", master-1132, 2026-11-25). Both experts get 3.5,
+			// between Wan's two values and the same as Wan2.2 I2V A14B, so
+			// old and new builds make the same video. --temporal-tiling and
+			// the text model on the CPU as for Wan2.2 I2V A14B.
+			LaunchArgs: []string{"--steps", "20", "--cfg-scale", "3.5", "--flow-shift", "12", "--moe-boundary", "0.875",
+				"--high-noise-cfg-scale", "3.5", "--high-noise-sampling-method", "euler",
 				"--sampling-method", "euler", "--diffusion-fa", "--temporal-tiling", "--backend", "te=cpu"},
 			FlagNotes: map[string]string{
-				"--cfg-scale":            "Wan's own guidance for the low-noise expert of the T2V pair.",
-				"--high-noise-cfg-scale": "Wan's own guidance for the high-noise expert, which sets the layout and motion. stable-diffusion.cpp master-1116 and later builds do not have this flag. On those builds, toolchest sends the value with each video request instead.",
+				"--cfg-scale":            "Guidance for both experts. Wan uses 4 on the high-noise expert and 3 on the low-noise one, but newer stable-diffusion.cpp builds take only one value for both, so this set uses 3.5.",
+				"--high-noise-cfg-scale": "The same 3.5 for the high-noise expert, for builds before master-1116. Newer builds do not have this flag; toolchest leaves it out there, and the high-noise expert uses --cfg-scale.",
 				"--flow-shift":           "Wan's own shift for the T2V pair. sd-server has no separate flow shift for the high-noise expert, and the recipe gives both experts 12.",
 				"--moe-boundary":         "Where the high-noise expert hands over to the low-noise expert: 0.875 is Wan's value for the T2V pair.",
 				"--temporal-tiling":      "Decodes the video a few frames at a time, as the Wan2.2 I2V A14B sets do, to lower the decode's peak VRAM use.",
@@ -673,7 +675,7 @@ func Catalog() []CatalogEntry {
 				"--steps":                "4 steps on each expert. Lightning's own workflow uses 2 + 2; for the I2V pair that was faster but smeared faces in the last frames.",
 				"--high-noise-steps":     "4 steps on the high-noise expert, before the low-noise expert takes over. --moe-boundary is not needed.",
 				"--cfg-scale 1":          "The Lightning LoRAs are made for CFG 1: one pass per step.",
-				"--high-noise-cfg-scale": "The Lightning LoRAs are made for CFG 1: one pass per step. stable-diffusion.cpp master-1116 and later builds do not have this flag. On those builds, toolchest sends the value with each video request instead.",
+				"--high-noise-cfg-scale": "The Lightning LoRAs are made for CFG 1: one pass per step. stable-diffusion.cpp master-1116 and later builds do not have this flag. On those builds, toolchest leaves it out, and the high-noise expert uses --cfg-scale 1.",
 				"--flow-shift":           "The shift of lightx2v's own Lightning workflow.",
 				"--temporal-tiling":      "Decodes the video a few frames at a time, as the Wan2.2 I2V A14B sets do, to lower the decode's peak VRAM use.",
 				"--backend te=cpu":       "Runs the text model on the CPU. stable-diffusion.cpp already takes it off the GPU before it samples, so this saves little VRAM here.",

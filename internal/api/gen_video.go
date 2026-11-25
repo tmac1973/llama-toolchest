@@ -52,10 +52,6 @@ type vidGenRequest struct {
 	// high_noise_sample_params.sample_steps, sd.cpp master-1015).
 	Steps          int `json:"-"`
 	HighNoiseSteps int `json:"-"`
-	// HighNoise is the set's high-noise expert settings as
-	// high_noise_sample_params (generation.HighNoiseRequestParams): newer
-	// sd-server builds take them only per request.
-	HighNoise map[string]any `json:"-"`
 	// Extra is merged into the body last, at the top level.
 	Extra map[string]any `json:"-"`
 }
@@ -91,46 +87,12 @@ func (r vidGenRequest) body() ([]byte, error) {
 		return nil, err
 	}
 	m["preview"], m["preview_interval"] = "proj", 1
-	if r.HighNoise != nil {
-		m["high_noise_sample_params"] = mergeJSON(nil, r.HighNoise)
-	}
 	for k, v := range r.Extra {
-		// The extra settings' own high-noise fields win, field by field,
-		// over the set's.
-		if base, ok := m[k].(map[string]any); ok {
-			if over, ok := v.(map[string]any); ok {
-				m[k] = mergeJSON(base, over)
-				continue
-			}
-		}
 		m[k] = v
 	}
 	setSampleSteps(m, "sample_params", r.Steps)
 	setSampleSteps(m, "high_noise_sample_params", r.HighNoiseSteps)
 	return json.Marshal(m)
-}
-
-// mergeJSON returns a copy of base with over's fields on top; objects in
-// both are merged the same way, at every depth.
-func mergeJSON(base, over map[string]any) map[string]any {
-	out := make(map[string]any, len(base)+len(over))
-	for k, v := range base {
-		if sub, ok := v.(map[string]any); ok {
-			v = mergeJSON(nil, sub)
-		}
-		out[k] = v
-	}
-	for k, v := range over {
-		if sub, ok := v.(map[string]any); ok {
-			if have, ok := out[k].(map[string]any); ok {
-				out[k] = mergeJSON(have, sub)
-				continue
-			}
-			v = mergeJSON(nil, sub)
-		}
-		out[k] = v
-	}
-	return out
 }
 
 // setSampleSteps sets m[key].sample_steps when steps is above zero,
