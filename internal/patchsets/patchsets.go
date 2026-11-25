@@ -103,14 +103,14 @@ func rdnaBoosts() PatchSet {
 		Name:      "RDNA boosts",
 		ShortName: "rdna",
 		Repo:      "https://github.com/stew675/llama-cpp-rdna-boosts",
-		// From the release.json of the tag, read on 2026-11-02. The base
-		// is upstream b11887.
+		// From the release.json of the tag, read on 2026-11-25. The base
+		// is upstream b12597.
 		Pinned: Release{
-			Tag:     "v16-6050b467c-r206",
-			Base:    "6050b467c07a95c7b87debd4ddac2f8ba8d9b807",
-			Tree:    "1bac1001f1780a5907fbce256ceeeaac8b8561ec",
-			NBlocks: 16,
-			Date:    "2026-11-02",
+			Tag:     "v18-919794500-r360",
+			Base:    "919794500475862f6768c353255469dc661cb734",
+			Tree:    "4674dd9f2e83894895d71b7e987a06d80fa70813",
+			NBlocks: 18,
+			Date:    "2026-11-25",
 		},
 		Backends:  []string{"rocm"},
 		ROCmArchs: []string{"gfx1030", "gfx1100", "gfx1150", "gfx1151", "gfx1200", "gfx1201"},
