@@ -1154,7 +1154,7 @@ func measureAbort(st measureRunState) error {
 // runArgs are the backend flags an instance runs with: its set's, then
 // its own extra ones.
 func runArgs(set generation.ModelSet, inst generation.Instance) []string {
-	return append(slices.Clone(set.RunArgs()), inst.ExtraArgs...)
+	return append(slices.Clone(generation.InstanceRunArgs(set, inst)), inst.ExtraArgs...)
 }
 
 // latestTime is the latest of ts.

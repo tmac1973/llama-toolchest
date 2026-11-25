@@ -140,7 +140,7 @@ func (d *SetDetails) fill(set ModelSet, entry CatalogEntry) error {
 			return err
 		}
 	}
-	args, fixed, err := buildArgs(set, nil, p)
+	args, fixed, err := buildArgs(set, set.RunArgs(), nil, p)
 	if err != nil {
 		return err
 	}

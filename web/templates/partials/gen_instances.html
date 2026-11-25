@@ -24,7 +24,7 @@
             <td>{{.Name}}{{if .AutoStart}} <small title="Starts when llama-toolchest starts.">auto-start</small>{{end}}{{if and $.EvictOn .KeepRunning}} <small title="Locked: never stopped for an LLM or another instance. Its VRAM reservation counts also when it is stopped.">locked</small>{{end}}</td>
             <td>{{.SetName}} <small>({{kindLabel .Kind}})</small></td>
             <td>{{with .BuildLabel}}<kbd>{{.}}</kbd>{{else}}<small title="Build one on the Builds page.">no build</small>{{end}}</td>
-            <td>{{.GPU}}{{with .GPUName}} <small>{{.}}</small>{{end}}</td>
+            <td>{{.GPU}}{{with .GPUName}} <small>{{.}}</small>{{end}}{{if .TextModelGPU}}<br><small title="The text model runs on this GPU, not on the CPU.">text model on GPU</small>{{end}}</td>
             <td>{{.Port}}</td>
             <td>
                 {{- if .ReservedMiB}}<span title="{{if .MeasuredPeakMiB}}Measured peak {{printf "%.1f" .PeakGiB}} GiB on {{.MeasuredAt.Format "2006-01-02 15:04"}}{{if .MeasureEstimated}}, estimated from the use of the whole GPU{{end}}. {{end}}{{if eq .Kind "ace"}}ace-server has no limit. This is the measured peak plus a margin.{{else if eq .Kind "upscale"}}The upscaler has no limit. This is the measured peak plus a margin.{{else if eq .Kind "vupscale"}}The video upscaler has no limit. This is the measured peak plus a margin. Clips up to the measured size are allowed.{{else}}sd-server stays within this amount.{{end}}" style="cursor:help;">{{printf "%.1f" .ReservedGiB}} GiB</span>
@@ -167,8 +167,8 @@
         </label>
         {{- else}}
         <label>Model set
-            <select name="model_set" required>
-                {{- range .Sets}}<option value="{{.ID}}"{{if and $.Editing (eq .ID $.EditSet)}} selected{{end}}>{{.Name}} ({{kindLabel .Kind}})</option>{{end}}
+            <select name="model_set" required onchange="this.form.querySelector('[data-text-model]').hidden = !this.selectedOptions[0].hasAttribute('data-text-cpu')">
+                {{- range .Sets}}<option value="{{.ID}}"{{if .TextModelOnCPU}} data-text-cpu{{end}}{{if and $.Editing (eq .ID $.EditSet)}} selected{{end}}>{{.Name}} ({{kindLabel .Kind}})</option>{{end}}
             </select>
         </label>
         {{- end}}
@@ -189,6 +189,12 @@
             <input type="number" name="port" placeholder="automatic"{{if .Editing}} value="{{.EditPort}}"{{end}}>
         </label>
     </div>
+    <label data-text-model title="Where the text model runs. CPU: less VRAM. GPU: faster, mostly for edits with more than one image. GPU needs about 5 GiB more VRAM."{{if not .TextModelShown}} hidden{{end}}>Text model
+        <select name="text_model">
+            <option value="cpu">CPU (less VRAM)</option>
+            <option value="gpu"{{if and .Editing .EditTextGPU}} selected{{end}}>GPU (faster)</option>
+        </select>
+    </label>
     <label title="Extra backend flags, after the model set flags. Toolchest sets the address, port, VRAM limit and model folder.">Extra launch arguments
         <input type="text" name="extra_args" placeholder="e.g. --offload-to-cpu"{{if .Editing}} value="{{.EditArgs}}"{{end}}>
     </label>
@@ -197,7 +203,7 @@
         Start this instance when llama-toolchest starts
     </label>
     {{- if .Editing}}
-    <p><small>Changing the model set, build, GPU or extra launch arguments clears the instance's VRAM reservation, because it was measured for the old setup. Measure it again before starting it.</small></p>
+    <p><small>Changing the model set, build, GPU, text model or extra launch arguments clears the instance's VRAM reservation, because it was measured for the old setup. Measure it again before starting it.</small></p>
     <button type="submit">Save changes</button>
     {{- else}}
     <button type="submit">Create instance</button>
