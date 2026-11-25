@@ -533,6 +533,102 @@ document.getElementById('fork-log-dialog').addEventListener('close', function() 
         </footer>
     </article>
 </dialog>
+<dialog id="gen-measure-vupscale-dialog" style="max-width:600px;">
+    <article>
+        <header>
+            <button type="button" aria-label="Close" rel="prev" onclick="this.closest('dialog').close();"></button>
+            Measure <span id="gen-measure-vupscale-name"></span>
+        </header>
+        <p>Measuring upscales one test clip with nothing else on GPU <span id="gen-measure-vupscale-gpu"></span>, records the most memory it used, and reserves that plus 10% (no more than the card can give it). The instance then takes clips up to the size you choose here; larger ones are refused.</p>
+        <div class="grid">
+            <label title="Width of the clip you send, before it is made larger. A multiple of 16.">Clip width
+                <input type="number" id="gen-measure-vupscale-width" min="64" max="2048" step="16">
+            </label>
+            <label title="Height of the clip you send, before it is made larger. A multiple of 16.">Clip height
+                <input type="number" id="gen-measure-vupscale-height" min="64" max="2048" step="16">
+            </label>
+            <label title="Number of frames in the clip.">Frames
+                <input type="number" id="gen-measure-vupscale-frames" min="2" max="1024" step="1">
+            </label>
+            <label title="Frames the model looks at together.">Window size
+                <input type="number" id="gen-measure-vupscale-window" min="1" max="33" step="1">
+            </label>
+        </div>
+        <p><small id="gen-measure-vupscale-hint"></small></p>
+        <p><small id="gen-measure-vupscale-error" style="color:var(--pico-del-color);"></small></p>
+        <p><small id="gen-measure-vupscale-note"></small></p>
+        <footer>
+            <button type="button" class="secondary" onclick="this.closest('dialog').close();">Cancel</button>
+            <button type="button" id="gen-measure-vupscale-ok" data-error-label="Not measured">Measure</button>
+        </footer>
+    </article>
+</dialog>
+<script>
+// vupscaleClipLimitText says why a clip does not fit sd.cpp's limits for a
+// video upscaler, or '' when it fits. It is the same check as
+// checkVUpscaleClip in gen_vupscale_jobs.go.
+function vupscaleClipLimitText(script, scale, w, h, frames, win) {
+    var MiB = 1024 * 1024;
+    var decoded = 3 * w * h * frames;
+    if (decoded > 256 * MiB) {
+        return 'The clip decodes to ' + Math.ceil(decoded / MiB) + ' MiB; sd.cpp reads at most 256 MiB. It fits at most ' + Math.floor(256 * MiB / (3 * w * h)) + ' frames at ' + w + 'x' + h + '.';
+    }
+    var ow = w * scale, oh = h * scale;
+    if (3 * ow * oh * frames > 4096 * MiB) {
+        return 'The upscaled clip would be over 4096 MiB. It fits at most ' + Math.floor(4096 * MiB / (3 * ow * oh)) + ' frames.';
+    }
+    if (script === 'seedvr2') {
+        var padded = win === 1 ? 1 : Math.floor((win - 1 + 3) / 4) * 4 + 1;
+        if (4 * 3 * ow * oh * padded > 256 * MiB) {
+            return 'The window is too large for sd.cpp\'s 256 MiB tensor limit at ' + ow + 'x' + oh + '.';
+        }
+    } else {
+        if (3 * ow * oh * win > 1024 * MiB) {
+            return 'The window is too large for sd.cpp\'s 1024 MiB tensor limit at ' + ow + 'x' + oh + '.';
+        }
+        if (frames < 2) return 'RelayVSR needs at least 2 frames.';
+    }
+    return '';
+}
+// Measure on a video upscaler instance: choose the test clip's size and
+// window. The instance will then take clips up to that size.
+function openGenMeasureVUpscale(btn) {
+    var info = JSON.parse(btn.dataset.vupscale || '{}');
+    var start = btn.dataset.start === '1';
+    var dlg = document.getElementById('gen-measure-vupscale-dialog');
+    var w = document.getElementById('gen-measure-vupscale-width');
+    var h = document.getElementById('gen-measure-vupscale-height');
+    var f = document.getElementById('gen-measure-vupscale-frames');
+    var win = document.getElementById('gen-measure-vupscale-window');
+    var err = document.getElementById('gen-measure-vupscale-error');
+    document.getElementById('gen-measure-vupscale-name').textContent = btn.dataset.name;
+    document.getElementById('gen-measure-vupscale-gpu').textContent = btn.dataset.gpu;
+    w.value = info.width; h.value = info.height; f.value = info.frames; win.value = info.window;
+    document.getElementById('gen-measure-vupscale-hint').textContent = info.script === 'seedvr2'
+        ? 'Window size: 1 treats each frame alone. 5, 9, 13 … give smoother motion and use more VRAM.'
+        : 'Window size: frames per window (2–32). More frames use more VRAM.';
+    var note = 'The clip is made ' + info.scale + ' times wider and higher. Larger clips, longer clips and larger windows need more GPU memory. Other instances on that GPU must be stopped first.';
+    if (start) note += ' The instance starts by itself afterwards.';
+    document.getElementById('gen-measure-vupscale-note').textContent = note;
+    var ok = document.getElementById('gen-measure-vupscale-ok');
+    var check = function() {
+        var t = vupscaleClipLimitText(info.script, info.scale, +w.value, +h.value, +f.value, +win.value);
+        err.textContent = t;
+        ok.disabled = t !== '';
+    };
+    [w, h, f, win].forEach(function(el) { el.oninput = check; });
+    check();
+    ok.textContent = start ? 'Measure, then start' : 'Measure';
+    ok.onclick = function() {
+        var vals = {width: w.value, height: h.value, frames: f.value, window_size: win.value};
+        if (start) vals.start = '1';
+        dlg.close();
+        htmx.ajax('POST', '/api/gen/instances/' + encodeURIComponent(btn.dataset.id) + '/measure',
+            {source: this, target: '#gen-instances', values: vals});
+    };
+    dlg.showModal();
+}
+</script>
 <dialog id="gen-measure-video-dialog" style="max-width:600px;">
     <article>
         <header>

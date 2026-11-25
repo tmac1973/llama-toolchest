@@ -494,15 +494,30 @@ func (s *Server) createVUpscaleJob(w http.ResponseWriter, r *http.Request) (*vup
 	return job, true
 }
 
-// vupscaleDefaultWindow is the window a request without window_size gets.
+// vupscaleDefaultWindow is the window a request without window_size gets:
+// the script's default, or the measured window when that is smaller.
 func vupscaleDefaultWindow(set generation.ModelSet, inst generation.Instance) int {
-	return generation.DefaultWindowSize(set.Recipe)
+	n := generation.DefaultWindowSize(set.Recipe)
+	if inst.MeasuredWindow > 0 && inst.MeasuredWindow < n {
+		n = inst.MeasuredWindow
+	}
+	return n
 }
 
 // checkVUpscaleCeiling refuses a clip larger than the instance was
-// measured with. Without a measurement there is no ceiling.
+// measured with: each side, the frame count and the window on its own.
+// Without a measurement there is no ceiling, as for video sets.
 func checkVUpscaleCeiling(inst generation.Instance, info videofile.Info, window int) *requestError {
-	return nil
+	if inst.MeasuredWindow == 0 || inst.MeasuredFrames == 0 {
+		return nil
+	}
+	if info.Width <= inst.MeasuredWidth && info.Height <= inst.MeasuredHeight && info.Frames <= inst.MeasuredFrames && window <= inst.MeasuredWindow {
+		return nil
+	}
+	return badRequest("over_measured_size",
+		"this instance was measured with %dx%d, %d frames and window %d; this clip is %dx%d, %d frames, window %d. "+
+			"Measure it again at the larger size on the Server page, or send a smaller clip",
+		inst.MeasuredWidth, inst.MeasuredHeight, inst.MeasuredFrames, inst.MeasuredWindow, info.Width, info.Height, info.Frames, window)
 }
 
 // genModelKind names the kind of the set or instance model is, or "" when

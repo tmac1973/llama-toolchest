@@ -566,13 +566,15 @@ func (s *Server) handleGenMeasure(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if set.Kind == generation.KindVUpscale {
-		http.Error(w, "Measure for video upscaler sets is not supported yet; set a reservation by hand", http.StatusBadRequest)
-		return
-	}
 	var size generation.VideoSize
-	if set.Kind == generation.KindVideo {
+	switch set.Kind {
+	case generation.KindVideo:
 		if size, err = videoMeasureSize(r, set); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	case generation.KindVUpscale:
+		if size, err = vupscaleMeasureSize(r, set); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -606,6 +608,9 @@ func (s *Server) handleGenMeasure(w http.ResponseWriter, r *http.Request) {
 		if set.Kind == generation.KindVideo {
 			label := generation.PresetLabel(generation.VideoPresets(set), size)
 			note = fmt.Sprintf("Measured for %d frames at %dx%d (%s): ", size.Frames, size.Width, size.Height, label) + note
+		}
+		if set.Kind == generation.KindVUpscale {
+			note = fmt.Sprintf("Measured for %d frames at %dx%d, window %d: ", size.Frames, size.Width, size.Height, size.Window) + note
 		}
 		s.genMeasure.set(inst.ID, measureOutcome{Note: note, At: time.Now()})
 	}()
@@ -706,7 +711,7 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 	// sd-server runs inside the room the card can give the instance, so
 	// it does not fill a smaller card and the suggestion always fits.
 	// ace-server takes no memory limit and is measured as it is.
-	sdKind := set.Kind == generation.KindSD || set.Kind == generation.KindVideo
+	sdKind := set.Kind == generation.KindSD || set.Kind == generation.KindVideo || set.Kind == generation.KindVUpscale
 	room, haveRoom := s.genRoomMiB(inst)
 	opts := generation.LaunchOptions{}
 	if sdKind && haveRoom {
@@ -768,6 +773,10 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 		}()
 	}
 	video := set.Kind == generation.KindVideo
+	// A video upscale is stopped early the same way: a stuck run, or a
+	// peak past the room. Stopping the backend is also the only way to
+	// end a DGL job.
+	abortable := video || set.Kind == generation.KindVUpscale
 	stop := make(chan struct{})
 	sampled := make(chan struct{})
 	go func() {
@@ -787,7 +796,7 @@ func (s *Server) measureInstance(id string, startAfter bool, size generation.Vid
 			if busy, ok := s.gpuBusyPercent(inst.GPU); ok && busy >= measureBusyPercent {
 				busyAt, sawBusy = time.Now(), true
 			}
-			if video && abortErr == nil {
+			if abortable && abortErr == nil {
 				peak := gpuPeak
 				if procOK {
 					peak = procPeak
@@ -911,7 +920,7 @@ func (s *Server) applyMeasurement(inst generation.Instance, set generation.Model
 	// sd-server can go past --max-vram decoding a video (tiled decoding
 	// crashes for the Wan2.2 VAE, so the decode cannot shrink): a video
 	// size whose peak is over the room is not granted.
-	if set.Kind == generation.KindVideo && haveRoom && inst.MeasuredPeakMiB > room+measureOverheadMiB {
+	if (set.Kind == generation.KindVideo || set.Kind == generation.KindVUpscale) && haveRoom && inst.MeasuredPeakMiB > room+measureOverheadMiB {
 		err := fmt.Errorf("%d frames at %dx%d needs about %s, but this card can give the instance %s; measure a smaller size",
 			size.Frames, size.Width, size.Height, mibText(inst.MeasuredPeakMiB), mibText(room))
 		if inst.ReservedMiB == 0 {
@@ -924,11 +933,11 @@ func (s *Server) applyMeasurement(inst generation.Instance, set generation.Model
 	// 5B at 81 frames peaked at 10.6 GiB inside 14 GiB; R9700,
 	// 2026-10-29).
 	suggest := max(generation.SuggestReservation(inst.MeasuredPeakMiB), budget)
-	sdKind := set.Kind == generation.KindSD || set.Kind == generation.KindVideo
+	sdKind := set.Kind == generation.KindSD || set.Kind == generation.KindVideo || set.Kind == generation.KindVUpscale
 	if sdKind && haveRoom {
 		suggest = capReservation(suggest, inst.MeasuredPeakMiB, room)
 	}
-	apply := inst.ReservedMiB == 0 || set.Kind == generation.KindVideo
+	apply := inst.ReservedMiB == 0 || set.Kind == generation.KindVideo || set.Kind == generation.KindVUpscale
 	if apply {
 		if err := s.genFitCheck(inst, suggest); err != nil {
 			// A video instance keeps the size it was last measured for:
@@ -939,8 +948,12 @@ func (s *Server) applyMeasurement(inst generation.Instance, set generation.Model
 			return inst, err
 		}
 		inst.ReservedMiB = suggest
-		if set.Kind == generation.KindVideo {
+		switch set.Kind {
+		case generation.KindVideo:
 			inst.MeasuredFrames, inst.MeasuredWidth, inst.MeasuredHeight = size.Frames, size.Width, size.Height
+		case generation.KindVUpscale:
+			inst.MeasuredFrames, inst.MeasuredWidth, inst.MeasuredHeight = size.Frames, size.Width, size.Height
+			inst.MeasuredWindow = size.Window
 		}
 	}
 	// Kept for "Use suggested" (image re-measurements) and for VideoLimit.
@@ -1205,6 +1218,9 @@ func (s *Server) runMeasureGeneration(ctx context.Context, inst generation.Insta
 	if set.Kind == generation.KindVideo {
 		return runMeasureVideo(ctx, base, set, size)
 	}
+	if set.Kind == generation.KindVUpscale {
+		return s.runMeasureVUpscale(ctx, inst, set, size)
+	}
 	if set.Kind == generation.KindUpscale {
 		img, err := measureUpscaleImage()
 		if err != nil {
@@ -1285,7 +1301,7 @@ func measureUpscaleImage() ([]byte, error) {
 // largest size: that took 21 minutes on an R9700, and a slower card held
 // to a smaller budget can take several times as long.
 func measureTimeout(kind generation.BackendKind, editImages int) time.Duration {
-	if kind == generation.KindVideo {
+	if kind == generation.KindVideo || kind == generation.KindVUpscale {
 		return 2 * time.Hour
 	}
 	// Each reference image makes the test edit slower.

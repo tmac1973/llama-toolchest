@@ -362,6 +362,13 @@ func vupscaleMeta(inst generation.Instance, set generation.ModelSet) map[string]
 		"output_formats":      []string{"webm", "avi"},
 		"max_decoded_bytes":   vupscaleMaxDecoded,
 	}
+	// measured_* is the largest clip the instance takes: the one it was
+	// measured with; larger ones are refused.
+	if inst.MeasuredWindow > 0 {
+		m["measured_size"] = fmt.Sprintf("%dx%d", inst.MeasuredWidth, inst.MeasuredHeight)
+		m["measured_frames"] = inst.MeasuredFrames
+		m["measured_window"] = inst.MeasuredWindow
+	}
 	if set.Recipe == "seedvr2" {
 		m["window_sizes"] = []int{1, 5, 9, 13, 17, 21, 25, 29, 33}
 	} else {
