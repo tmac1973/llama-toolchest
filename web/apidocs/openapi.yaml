@@ -1058,8 +1058,10 @@ paths:
       summary: Cancel or delete a video upscale job
       description: |
         A job that has not finished is cancelled: a waiting job leaves the
-        queue. sd-server cannot cancel a running upscale, so toolchest
-        stops the instance to free the GPU; the next job starts it again.
+        queue. A running upscale is cancelled in sd-server
+        (stable-diffusion.cpp master-1132 and newer). On older builds, or
+        when it has not stopped after 30 seconds, toolchest stops the
+        instance to free the GPU; the next job starts it again.
         The cancelled job stays listed; a second DELETE removes it. A
         finished job is deleted with its video.
       responses:

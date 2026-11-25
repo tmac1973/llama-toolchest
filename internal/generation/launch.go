@@ -20,6 +20,20 @@ type LaunchOptions struct {
 	MaxVRAMMiB int
 }
 
+// sdMaxVRAM is sd-server's --max-vram for an instance: the test run's room,
+// else the instance's budget, else its reservation; empty for none.
+func sdMaxVRAM(inst Instance, opts LaunchOptions) string {
+	switch {
+	case opts.MaxVRAMMiB > 0:
+		return maxVRAMGiB(opts.MaxVRAMMiB)
+	case inst.BudgetMiB > 0:
+		return maxVRAMGiB(inst.BudgetMiB)
+	case inst.ReservedMiB > 0:
+		return maxVRAMGiB(inst.ReservedMiB)
+	}
+	return ""
+}
+
 // deviceEnvVar is the variable that limits a backend process to one GPU,
 // by build profile backend.
 var deviceEnvVar = map[string]string{
@@ -110,14 +124,7 @@ func LaunchSpec(inst Instance, set ModelSet, build builder.BuildResult, host, da
 		if p.LoraDir, err = LoraDir(set); err != nil {
 			return cfg, fmt.Errorf("model set %s: %w", set.ID, err)
 		}
-		switch {
-		case opts.MaxVRAMMiB > 0:
-			p.MaxVRAM = maxVRAMGiB(opts.MaxVRAMMiB)
-		case inst.BudgetMiB > 0:
-			p.MaxVRAM = maxVRAMGiB(inst.BudgetMiB)
-		case inst.ReservedMiB > 0:
-			p.MaxVRAM = maxVRAMGiB(inst.ReservedMiB)
-		}
+		p.MaxVRAM = sdMaxVRAM(inst, opts)
 		cfg.Name, cfg.HealthURL = "sd-server:"+inst.ID, base+"/v1/models"
 	case KindUpscale:
 		p.UpscalerDir = filepath.Join(InstanceDir(dataDir, inst.ID), "upscalers")
@@ -138,7 +145,10 @@ func LaunchSpec(inst Instance, set ModelSet, build builder.BuildResult, host, da
 		if _, _, err := VUpscaleWorkDirs(dataDir, inst.ID); err != nil {
 			return cfg, err
 		}
-		// No --max-vram (see buildArgs).
+		// --max-vram only from master-1129 (see VUpscaleTakesMaxVRAM).
+		if VUpscaleTakesMaxVRAM(build) {
+			p.MaxVRAM = sdMaxVRAM(inst, opts)
+		}
 		p.ModelDirs = vupscaleModelDirs(set)
 		cfg.Name, cfg.HealthURL = "sd-server:"+inst.ID, base+"/v1/models"
 	}
@@ -253,13 +263,10 @@ func buildArgs(set ModelSet, extra []string, p argPaths) (args []string, fixed [
 		// files are given. No --dgl-dir: toolchest never saves scripts on
 		// the server.
 		//
-		// No --max-vram: under a budget, sd.cpp's DGL engine plans for far
-		// more than the run uses, fails to prepare the weights, and returns
-		// an empty tensor ("diffusion output shape [] does not match
-		// input"). RelayVSR ×2 at 832x480 peaked at 9.3 GiB with no limit
-		// and failed inside --max-vram 10.5 (master-1116, RTX A4000,
-		// 2026-11-24). The reservation is the measured peak plus a margin,
-		// as for the ESRGAN upscaler.
+		// --max-vram only on builds that run DGL inside it
+		// (VUpscaleTakesMaxVRAM). Older ones run with no limit, and the
+		// reservation is the measured peak plus a margin, as for the
+		// ESRGAN upscaler.
 		add("--listen-ip", p.Host)
 		add("--listen-port", p.Port)
 		for _, d := range p.ModelDirs {
@@ -267,6 +274,9 @@ func buildArgs(set ModelSet, extra []string, p argPaths) (args []string, fixed [
 		}
 		args = append(args, set.RunArgs()...)
 		args = append(args, extra...)
+		if p.MaxVRAM != "" {
+			add("--max-vram", p.MaxVRAM)
+		}
 	case KindAce:
 		// No --keep-loaded: loading one part at a time peaked at about
 		// 7.2 GB of VRAM and idled at 0.3 GB on the R9700, against about

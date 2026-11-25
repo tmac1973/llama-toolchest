@@ -27,11 +27,16 @@ type fakeDGL struct {
 	sources  []string
 	polls    int
 	fail     string
-	submitSC int // HTTP status for submits; 0 = 202
+	failCode string // the failed job's error code; "" = generation_failed
+	submitSC int    // HTTP status for submits; 0 = 202
 	result   string
 	workDir  string
 	requests int // requests after the submit
 	seen     map[string]int
+	// cancelable makes POST .../cancel work, as from master-1132; without
+	// it the route answers 404, as before. cancelled counts those posts.
+	cancelable bool
+	cancelled  int
 }
 
 func newFakeDGL(t *testing.T) *fakeDGL {
@@ -62,16 +67,25 @@ func (f *fakeDGL) serve(w http.ResponseWriter, r *http.Request) {
 		f.sources = append(f.sources, body.Source)
 		w.WriteHeader(http.StatusAccepted)
 		_, _ = w.Write([]byte(`{"id":"job1","kind":"dgl","status":"queued"}`))
+	case r.Method == "POST" && f.cancelable && strings.HasSuffix(r.URL.Path, "/cancel"):
+		f.cancelled++
+		_, _ = w.Write([]byte(`{"id":"job1","status":"running","cancel_requested":true}`))
 	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/sdcpp/v1/dgl/jobs/"):
 		f.requests++
 		id := strings.TrimPrefix(r.URL.Path, "/sdcpp/v1/dgl/jobs/")
 		f.seen[id]++
 		n := f.seen[id]
 		switch {
+		case f.cancelled > 0:
+			_, _ = w.Write([]byte(`{"id":"job1","status":"cancelled","error":null,"result":null}`))
 		case n <= f.polls:
 			_, _ = w.Write([]byte(`{"id":"job1","status":"running","progress":{"stage":"executing","detail":"dgl","completed":null,"total":null,"stage_elapsed_ms":` + strconv.Itoa(n) + `}}`))
 		case f.fail != "":
-			b, _ := json.Marshal(map[string]any{"id": "job1", "status": "failed", "result": nil, "error": map[string]string{"code": "generation_failed", "message": f.fail}})
+			code := f.failCode
+			if code == "" {
+				code = "generation_failed"
+			}
+			b, _ := json.Marshal(map[string]any{"id": "job1", "status": "failed", "result": nil, "error": map[string]string{"code": code, "message": f.fail}})
 			_, _ = w.Write(b)
 		default:
 			if f.workDir != "" && len(f.sources) > 0 {
@@ -129,6 +143,9 @@ func TestRunDGLJobErrors(t *testing.T) {
 		{"no memory", func(f *fakeDGL) {
 			f.fail = "line 47, column 16: line 36, column 14: diffusion output shape [] does not match input [208, 120, 2, 48, 1]"
 		}, "ran out of GPU memory", errDGLMemory},
+		{"oom code", func(f *fakeDGL) {
+			f.fail, f.failCode = "line 47, column 16: CUDA0: need 2747.07 MB device, available 1269.56 MB device", "out_of_memory"
+		}, "ran out of GPU memory", errDGLMemory},
 		{"vae memory", func(f *fakeDGL) { f.fail = "line 64, column 16: line 40, column 15: VAE encode failed" }, "ran out of GPU memory", errDGLMemory},
 		{"no binding", func(f *fakeDGL) { f.fail = "line 37, column 12: unknown function 'relayvsr::decode'" }, "no RelayVSR support", nil},
 		{"busy", func(f *fakeDGL) { f.submitSC = http.StatusTooManyRequests }, "busy", errDGLBusy},
@@ -158,7 +175,8 @@ func TestRunDGLJobStopsWaiting(t *testing.T) {
 	cancel()
 	select {
 	case err := <-done:
-		if !errors.Is(err, context.Canceled) {
+		// The fake has no cancel route, like sd.cpp before master-1132.
+		if !errors.Is(err, context.Canceled) || !errors.Is(err, errDGLStillRunning) {
 			t.Errorf("err = %v", err)
 		}
 	case <-time.After(time.Second):
@@ -172,5 +190,67 @@ func TestRunDGLJobStopsWaiting(t *testing.T) {
 	defer f.mu.Unlock()
 	if f.requests != n {
 		t.Errorf("requests went on after cancel: %d then %d", n, f.requests)
+	}
+}
+
+// From master-1132 runDGLJob cancels the job in sd-server and waits until
+// it reports cancelled.
+func TestRunDGLJobCancels(t *testing.T) {
+	fastPoll(t)
+	f := newFakeDGL(t)
+	f.polls, f.cancelable = 1<<30, true
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := runDGLJob(ctx, f.srv.URL, "x", nil)
+		done <- err
+	}()
+	time.Sleep(30 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) || errors.Is(err, errDGLStillRunning) {
+			t.Errorf("err = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("runDGLJob did not return after the context ended")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.cancelled != 1 {
+		t.Errorf("cancel posts = %d, want 1", f.cancelled)
+	}
+}
+
+// A job that does not stop within dglCancelWait counts as still running.
+func TestRunDGLJobCancelTimesOut(t *testing.T) {
+	fastPoll(t)
+	old := dglCancelWait
+	dglCancelWait = 50 * time.Millisecond
+	t.Cleanup(func() { dglCancelWait = old })
+	f := newFakeDGL(t)
+	f.polls = 1 << 30
+	f.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/cancel") {
+			_, _ = w.Write([]byte(`{"id":"job1","status":"running","cancel_requested":true}`))
+			return
+		}
+		f.serve(w, r)
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := runDGLJob(ctx, f.srv.URL, "x", nil)
+		done <- err
+	}()
+	time.Sleep(30 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, errDGLStillRunning) {
+			t.Errorf("err = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("runDGLJob did not give up waiting for the cancel")
 	}
 }

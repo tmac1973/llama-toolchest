@@ -62,3 +62,54 @@ SeedVR2 7B Sharp on compute2: the set was built in the custom set form (the DiT 
 
 - compute2: test build 2.66.0-vupscale-test2; instances `relayvsr-x2`, `relayvsr-x4`, `seedvr2-3b` and `seedvr2-7b-sharp` on GPU 2, stopped. The 2.66.0 release is `/usr/bin/llama-toolchest.2.66.0`.
 - asmodean: test build 2.66.0-vupscale-test2; instances `relayvsr-x2`, `relayvsr-x4`, `seedvr2-3b` on GPU 0, stopped; all 16 generation ports are now in use. The 2.66.0 release is `/usr/bin/llama-toolchest.2.66.0`.
+
+## Upstream fixes: out-of-memory code and DGL cancel (PR #715)
+
+2026-11-25, compute2 (RTX A4000, GPU 2). Test build 2.67.0-dgl715-test; the 2.67.0 release is kept as `/usr/bin/llama-toolchest.2.67.0`. stable-diffusion.cpp `sd-master-1132-5fa203c-cuda`, which has leejet/stable-diffusion.cpp#2419 (`out_of_memory` error code) and #2420 (DGL cancel route). The clip was the 512×288, 33-frame WebM (clip C), so outputs are 1024×576.
+
+| Check | Build | Result |
+| --- | --- | --- |
+| Cancel a running SeedVR2 3B job, 20 s in | 1116 | 204; sd-server answered 404 to the cancel route; toolchest logged "before master-1132" and stopped the instance; GPU 2 back to 4 MiB |
+| Measure RelayVSR ×4 at 832×480, 33 frames (does not fit 16 GiB) | 1132 | Measure error: "the test upscale ran out of GPU memory at this size; try a smaller clip or window (sd.cpp: … RelayVSR Wan segment 26/31 (relayvsr.blocks.25) failed during weight preparation: execution engine cannot make enough memory available on CUDA0: need 1016.03 MB device / 13636.72 MB budget, available 993.56 MB device / unlimited budget)" |
+| Measure SeedVR2 3B, 832×480, 33 frames, window 1 | 1132 | peak 9,813 MiB, reservation 11,264 MiB (same as on 1116) |
+| Measure RelayVSR ×2, 832×480, 33 frames, window 16 | 1132 | peak 9,489 MiB, reservation 10,752 MiB (about the same as on 1116) |
+| Cancel a running SeedVR2 3B job, 20 s and 15 s in (twice) | 1132 | 204; the job showed `cancelled` 2 s later; the instance kept running with its weights loaded (4.5 GiB on GPU 2) |
+| A job right after each cancel | 1132 | succeeded in 45–46 s, 1024×576, 33 frames |
+
+The out-of-memory message now says which step ran short and by how much. The old text markers would have matched this message too ("cannot make enough memory"), so this run does not show which check caught it; the unit test covers the `out_of_memory` code.
+
+One submit right after the first 1132 cancel returned no job ID; the test script dropped the reply, so its text is lost. The same sequence, repeated, worked; it could not be reproduced.
+
+Not tested: `--max-vram` for upscaler instances (still off), and RelayVSR cancel (a job on this clip takes about 5 s).
+
+### `--max-vram` on master-1132
+
+The same day, by hand: sd-server `sd-master-1132-5fa203c-cuda` started in the container on GPU 2 with the instance's `--model-dir` folders and `GGML_CUDA_REUSE_BUFFERS=0`, one DGL job posted to `/sdcpp/v1/dgl/jobs` with toolchest's own rendered script (default window, seed 1) on the Measure clip (832×480, 33 frames). Peak is nvidia-smi's whole-card figure, sampled every 0.5 s, so it includes the CUDA context.
+
+| Set | `--max-vram` | Result | Time | Peak |
+| --- | --- | --- | --- | --- |
+| RelayVSR ×2 | none | completed | 14 s | 10,753 MiB |
+| RelayVSR ×2 | 10.5 | completed | 14 s | 10,863 MiB |
+| RelayVSR ×2 | 9 | completed | 14 s | 9,355 MiB |
+| RelayVSR ×2 | 7 | completed | 17 s | 7,801 MiB |
+| RelayVSR ×2 | 5 | completed | 18 s | 5,681 MiB |
+| SeedVR2 3B | none | completed | 125 s | 9,817 MiB |
+| SeedVR2 3B | 10.5 | completed | 126 s | 9,817 MiB |
+| SeedVR2 3B | 8 | completed | 144 s | 9,471 MiB |
+| SeedVR2 3B | 6 | completed | 136 s | 6,655 MiB |
+| RelayVSR ×4 | 14 | `out_of_memory` (segment 26/31) | 7 s | 14,275 MiB |
+| RelayVSR ×4 | 10 | `out_of_memory` (segment 14/31) | 6 s | 10,701 MiB |
+
+Finding 1 above is fixed upstream: under a limit, master-1132 keeps part of the weights in RAM and the job completes, a little slower. The peak can still go past the limit (SeedVR2 at 8 GiB peaked 1.3 GiB over it), so a limit needs a measured peak, as for other kinds. A limit does not help when the runtime memory alone is too large: RelayVSR ×4 at 832×480 held about 13 GB of runtime memory and failed under both limits. sd-server's own job error was `{"code": "out_of_memory", ...}`, which is what PR #715 reads.
+
+### `--max-vram` turned back on for master-1129 and newer
+
+Test build 2.67.0-dgl715b-test (this PR with the change), same machine and build. Measure ran with `start=1`; the clip for the jobs is clip C unless noted.
+
+| Instance | Measure | Instance after start | Job |
+| --- | --- | --- | --- |
+| relayvsr-x2 (832×480, 33 frames, window 16) | inside `--max-vram 13.9` (the room); peak 8,083 MiB, reservation 9,216 MiB | `--max-vram 9.0` | succeeded, 9 s; the 832×480 Measure clip: succeeded, 18 s, 1664×960, card peak 9,415 MiB |
+| seedvr2-3b (832×480, 33 frames, window 1) | inside `--max-vram 13.9`; peak 9,701 MiB, reservation 10,752 MiB | `--max-vram 10.5` | succeeded, 49 s |
+| relayvsr-x4 (512×288, 33 frames, window 16) | peak 11,077 MiB, reservation 12,288 MiB | – | – |
+
+The Server page's reservation tooltip says "sd-server stays within this amount" for the two instances on master-1132 and "The video upscaler has no limit" for seedvr2-7b-sharp, still on master-1116. As for image and video instances, the card's peak can pass `--max-vram` by a few hundred MiB (9,415 MiB under a 9.0 GiB limit), since the limit leaves out the CUDA context.

@@ -7,9 +7,11 @@ package api
 // routes only from 127.0.0.1 or ::1 with a local Host and no foreign
 // Origin, which toolchest's own calls to http://127.0.0.1:<port> are.
 //
-// A DGL job cannot be cancelled: sd-server's /sdcpp/v1/jobs/{id}/cancel
-// answers 404 for DGL jobs. runDGLJob only stops waiting when its context
-// ends; to free the GPU, the caller stops the instance.
+// When its context ends, runDGLJob asks sd-server to cancel the job
+// (POST /sdcpp/v1/dgl/jobs/{id}/cancel, master-1132 on) and waits a short
+// time for it to stop. Builds before master-1132 answer 404 and cannot stop
+// a DGL job; then runDGLJob returns errDGLStillRunning as well, and the
+// caller stops the instance to free the GPU.
 
 import (
 	"bytes"
@@ -46,7 +48,7 @@ type dglJobStatus struct {
 	ID       string       `json:"id"`
 	Status   string       `json:"status"`
 	Progress *dglProgress `json:"progress"`
-	Error    vidJobError  `json:"error"`
+	Error    dglJobError  `json:"error"`
 	Result   *struct {
 		Outputs []struct {
 			Name  string          `json:"name"`
@@ -61,12 +63,44 @@ var errDGLBusy = errors.New("the upscaler is busy; try again later")
 // errDGLMemory marks a DGL job that failed for lack of GPU memory.
 var errDGLMemory = errors.New("sd.cpp ran out of GPU memory for this clip size or window; send a smaller clip or window, or measure the instance to see what fits. Its log on the Server page says more")
 
+// errDGLStillRunning marks a DGL job that sd-server did not stop when
+// runDGLJob's context ended: the build has no DGL cancel route, or the job
+// did not stop within dglCancelWait.
+var errDGLStillRunning = errors.New("sd-server is still running the upscale job")
+
+// dglCancelWait is how long runDGLJob waits for a cancelled job to stop.
+// sd-server stops at its next DGL cancellation check, so the operation
+// that is running may finish first.
+var dglCancelWait = 30 * time.Second
+
+// dglJobError is a failed DGL job's error: an object with code and message
+// (master-1116 on), or a bare string.
+type dglJobError struct{ Code, Message string }
+
+func (e *dglJobError) UnmarshalJSON(b []byte) error {
+	var text string
+	if json.Unmarshal(b, &text) == nil {
+		e.Message = text
+		return nil
+	}
+	var obj struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(b, &obj); err != nil {
+		return err
+	}
+	e.Code, e.Message = obj.Code, obj.Message
+	return nil
+}
+
 // dglMemoryMarkers are what a DGL job's error says when sd.cpp's engine
-// could not make room for a step. It logs "cannot make enough memory
-// available", but the job's own error is only the empty result
-// ("diffusion output shape [] does not match input") or "VAE encode
-// failed" (master-1116, RTX A4000: RelayVSR ×4 and SeedVR2 window 5 at
-// 832x480, 2026-11-24).
+// could not make room for a step. From master-1129 the job's error code is
+// "out_of_memory" and the message gives the memory details. Before that,
+// the engine logged "cannot make enough memory available", but the job's
+// own error was only the empty result ("diffusion output shape [] does
+// not match input") or "VAE encode failed" (master-1116, RTX A4000:
+// RelayVSR ×4 and SeedVR2 window 5 at 832x480, 2026-11-24).
 var dglMemoryMarkers = []string{"output shape [] does not match", "vae encode failed", "vae decode failed", "out of memory", "failed to allocate", "cannot make enough memory"}
 
 // dglMemoryError is errDGLMemory with sd.cpp's own words, kept apart so
@@ -93,13 +127,13 @@ func runDGLJob(ctx context.Context, base, source string, onProgress func(dglProg
 	for {
 		select {
 		case <-ctx.Done():
-			return dglResult{}, ctx.Err()
+			return dglResult{}, cancelDGL(base, id, ctx.Err())
 		case <-time.After(vidGenPoll):
 		}
 		out, _, err := getBody(ctx, jobURL)
 		if err != nil {
 			if ctx.Err() != nil {
-				return dglResult{}, ctx.Err()
+				return dglResult{}, cancelDGL(base, id, ctx.Err())
 			}
 			return dglResult{}, err
 		}
@@ -111,7 +145,7 @@ func runDGLJob(ctx context.Context, base, source string, onProgress func(dglProg
 		case "completed":
 			return st.result()
 		case "failed":
-			return dglResult{}, dglError(string(st.Error))
+			return dglResult{}, dglError(st.Error)
 		case "cancelled":
 			return dglResult{}, errors.New("sd-server cancelled the upscale job")
 		}
@@ -125,6 +159,51 @@ func runDGLJob(ctx context.Context, base, source string, onProgress func(dglProg
 func sameProgress(a, b dglProgress) bool {
 	eq := func(x, y *int) bool { return (x == nil && y == nil) || (x != nil && y != nil && *x == *y) }
 	return a.Stage == b.Stage && a.Detail == b.Detail && eq(a.Completed, b.Completed) && eq(a.Total, b.Total)
+}
+
+// cancelDGL asks sd-server to cancel job id after runDGLJob's context
+// ended with cause, and waits up to dglCancelWait for the job to stop. It
+// returns cause, joined with errDGLStillRunning when the job may still run.
+func cancelDGL(base, id string, cause error) error {
+	ctx, done := context.WithTimeout(context.Background(), dglCancelWait)
+	defer done()
+	jobURL := base + "/sdcpp/v1/dgl/jobs/" + id
+	still := fmt.Errorf("%w (%w)", cause, errDGLStillRunning)
+	req, err := http.NewRequestWithContext(ctx, "POST", jobURL+"/cancel", strings.NewReader("{}"))
+	if err != nil {
+		return still
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := genHTTPClient.Do(req)
+	if err != nil {
+		slog.Warn("could not ask sd-server to cancel a DGL job", "job", id, "error", err)
+		return still
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		// 404 before master-1132: no DGL cancel route.
+		slog.Info("sd-server cannot cancel DGL jobs (stable-diffusion.cpp before master-1132)", "job", id, "status", resp.StatusCode)
+		return still
+	}
+	for {
+		out, _, err := getBody(ctx, jobURL)
+		if err == nil {
+			var st dglJobStatus
+			if json.Unmarshal(out, &st) == nil {
+				switch st.Status {
+				case "cancelled", "failed", "completed":
+					return cause
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+			slog.Warn("sd-server did not stop a cancelled DGL job in time", "job", id, "wait", dglCancelWait)
+			return still
+		case <-time.After(vidGenPoll):
+		}
+	}
 }
 
 func submitDGL(ctx context.Context, base, source string) (string, error) {
@@ -208,9 +287,13 @@ func jsonInt(raw json.RawMessage) (int, error) {
 
 // dglError turns a failed DGL job's message into the job's error, with
 // clearer words for the errors a user can act on.
-func dglError(msg string) error {
+func dglError(e dglJobError) error {
+	msg := firstNonEmpty(e.Message, e.Code)
 	if msg == "" {
 		msg = "no reason given"
+	}
+	if e.Code == "out_of_memory" {
+		return dglMemoryError{sdcpp: msg}
 	}
 	lower := strings.ToLower(msg)
 	for _, m := range dglMemoryMarkers {
