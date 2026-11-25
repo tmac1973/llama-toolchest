@@ -156,6 +156,7 @@
         <p>A video upscaler set (RelayVSR or SeedVR2) makes a clip larger and keeps it steady from frame to frame. It needs stable-diffusion.cpp master-1116 or newer. It takes AVI, WebM (VP8) or animated WebP, not MP4. <a class="help-more" href="{{docsURL "guides/generation#video-upscaling"}}" target="_blank" rel="noopener">More in the docs</a></p>
 <h3 id="generation-vram">Measured reservations</h3>
     <p>Measure records the peak VRAM of one test job; the reservation is that plus 10%, and the planner keeps it free. The docs list what each catalog set needed on two test cards. <a class="help-more" href="{{docsURL "gpu/reservations#what"}}" target="_blank" rel="noopener">More in the docs</a> · <a href="{{docsURL "reference/measured-reservations"}}" target="_blank" rel="noopener">Measured reservations</a></p>
+    <p>Most sets run the text model on the CPU to save VRAM. In an instance's Edit dialog, set <em>Text model</em> to GPU to make it faster. This helps most for edits with more than one image. It needs about 5 GiB more VRAM, so measure the instance again. <a class="help-more" href="{{docsURL "gpu/reservations#te-gpu"}}" target="_blank" rel="noopener">More in the docs</a></p>
     <h3 id="generation-sharing">Sharing a GPU</h3>
     <p>One job runs on each GPU, and up to 16 wait; more get HTTP 429. <a class="help-more" href="{{docsURL "gpu/taking-turns#sharing"}}" target="_blank" rel="noopener">More in the docs</a></p>
     <h3 id="generation-evict">Taking turns when both do not fit</h3>

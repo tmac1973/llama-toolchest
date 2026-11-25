@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -336,5 +337,62 @@ func TestGenModelSetsNewInstanceButton(t *testing.T) {
 	}
 	if body := render(); strings.Contains(body, `form?set=ming-image`) || !strings.Contains(body, "already has an instance") {
 		t.Errorf("want the button greyed out once ming-image has an instance:\n%s", body)
+	}
+}
+
+// An instance of a set whose text model runs on the CPU can run it on the
+// GPU instead. Changing the choice clears the measurement; the choice is
+// not kept for a set that does not put its text model on the CPU.
+func TestGenEditInstanceTextModel(t *testing.T) {
+	s := instanceServer(t)
+	if err := s.gen.AddModelSet(generation.ModelSet{ID: "edit", Name: "Edit", Kind: generation.KindSD, Complete: true,
+		Components: []generation.Component{{Slot: "diffusion_model", Path: "/m/edit.gguf"}},
+		LaunchArgs: []string{"--steps", "20", "--backend", "te=cpu"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.gen.AddInstance(generation.Instance{ID: "e", Name: "e", ModelSetID: "edit", Port: 8081, Enabled: true, ReservedMiB: 18944, MeasuredPeakMiB: 16591}); err != nil {
+		t.Fatal(err)
+	}
+	edit := func(set, text string) generation.Instance {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		s.handleGenEditInstance(rec, instanceReq("PUT", "/", "e", "", url.Values{"model_set": {set}, "gpu": {"0"}, "text_model": {text}}))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("edit: %d %s", rec.Code, rec.Body.String())
+		}
+		inst, _ := s.gen.Instance("e")
+		return inst
+	}
+	if inst := edit("edit", "cpu"); inst.TextModelGPU || inst.ReservedMiB != 18944 {
+		t.Errorf("keeping CPU: %+v, want no change", inst)
+	}
+	inst := edit("edit", "gpu")
+	if !inst.TextModelGPU || inst.ReservedMiB != 0 || inst.MeasuredPeakMiB != 0 {
+		t.Errorf("choosing GPU: %+v, want it stored and the measurement cleared", inst)
+	}
+	set, _ := s.gen.ModelSet("edit")
+	if args := runArgs(set, inst); !slices.Equal(args, []string{"--steps", "20"}) {
+		t.Errorf("run args with the GPU choice: %q", args)
+	}
+
+	// The edit form shows the choice for this set, with GPU selected.
+	rec := httptest.NewRecorder()
+	s.handleGenInstanceEditForm(rec, instanceReq("GET", "/", "e", "", nil))
+	body := rec.Body.String()
+	if !strings.Contains(body, "data-text-model title") || strings.Contains(body, "hidden>Text model") {
+		t.Errorf("text model choice hidden for a te=cpu set:\n%s", body)
+	}
+	if !strings.Contains(body, `<option value="gpu" selected>`) {
+		t.Errorf("edit form does not select GPU:\n%s", body)
+	}
+
+	// ming-image (in this test) has no te=cpu: the choice is dropped.
+	if inst := edit("ming-image", "gpu"); inst.TextModelGPU {
+		t.Error("text model choice kept for a set without te=cpu")
+	}
+	rec = httptest.NewRecorder()
+	s.handleGenInstanceEditForm(rec, instanceReq("GET", "/", "e", "", nil))
+	if !strings.Contains(rec.Body.String(), "hidden>Text model") {
+		t.Errorf("text model choice shown for a set without te=cpu:\n%s", rec.Body.String())
 	}
 }

@@ -51,6 +51,12 @@ The chat page of llama-server (port 8080) loads models without toolchest. So too
 
 All catalog image and video sets except SDXL run their text encoder on the CPU (`--backend te=cpu`). This makes the reservations smaller: on the R9700 it saved 4–5.5 GiB per image set at no real cost. The [reference page](../reference/measured-reservations.md#notes) has the figures for video sets.
 
+### Text model on the GPU { #te-gpu }
+
+The CPU is a good trade for plain images, where the encoder runs for a second or two. Edits are different: sd.cpp runs the picture reader together with the text model, so every reference image is read on the CPU, and with a CFG scale above 1 it happens twice per edit. A Qwen-Image-Edit 2511 edit with three reference images spent 197 s twice on a Ryzen 9 5950X before diffusion even started. On the R9700 the same step took about 8 s, and the whole edit went from about 890 s to 511 s. The peak went from 16.2 GiB to about 21.7 GiB.
+
+If you have the VRAM to spare, open an instance's *Edit* dialog and set *Text model* to *GPU (faster)*. The choice only shows for sets whose launch arguments put the text model on the CPU. It drops `te=cpu` from the instance's `--backend` flag and leaves the set itself alone, so other instances of the same set keep their own choice. Like any change that alters how the instance runs, it clears the reservation, so measure the instance again before you start it. The instance row then shows *text model on GPU* under its GPU.
+
 ## Measure again { #remeasure }
 
 An instance measured before its set settings or files changed shows *Measured with other files or settings*. Measure it again: it can need more or less memory now. Changes made with *Edit*, other than auto-start, clear the reservation.

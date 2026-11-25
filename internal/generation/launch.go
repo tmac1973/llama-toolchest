@@ -152,7 +152,7 @@ func LaunchSpec(inst Instance, set ModelSet, build builder.BuildResult, host, da
 		p.ModelDirs = vupscaleModelDirs(set)
 		cfg.Name, cfg.HealthURL = "sd-server:"+inst.ID, base+"/v1/models"
 	}
-	args, _, err := buildArgs(set, inst.ExtraArgs, p)
+	args, _, err := buildArgs(set, InstanceRunArgs(set, inst), inst.ExtraArgs, p)
 	if err != nil {
 		return cfg, err
 	}
@@ -213,11 +213,12 @@ type argPaths struct {
 }
 
 // buildArgs returns a set's backend arguments: the flags toolchest adds,
-// the set's file flags, its RunArgs and extra (an instance's own flags).
+// the set's file flags, setArgs (its RunArgs as the instance runs them,
+// see InstanceRunArgs) and extra (an instance's own flags).
 // fixed lists the flags toolchest added and their values, in order; file
 // flags are not in it. It has no side effects, so the Details dialog can
 // show the command without making an instance's folders.
-func buildArgs(set ModelSet, extra []string, p argPaths) (args []string, fixed [][2]string, err error) {
+func buildArgs(set ModelSet, setArgs, extra []string, p argPaths) (args []string, fixed [][2]string, err error) {
 	add := func(flag, value string) {
 		args = append(args, flag, value)
 		fixed = append(fixed, [2]string{flag, value})
@@ -239,10 +240,10 @@ func buildArgs(set ModelSet, extra []string, p argPaths) (args []string, fixed [
 		if p.LoraDir != "" {
 			add("--lora-model-dir", p.LoraDir)
 		}
-		if err := CheckLoraArgs(set, append(slices.Clone(set.RunArgs()), extra...)); err != nil {
+		if err := CheckLoraArgs(set, append(slices.Clone(setArgs), extra...)); err != nil {
 			return nil, nil, err
 		}
-		args = append(args, set.RunArgs()...)
+		args = append(args, setArgs...)
 		args = append(args, extra...)
 		if p.MaxVRAM != "" {
 			add("--max-vram", p.MaxVRAM)
@@ -254,7 +255,7 @@ func buildArgs(set ModelSet, extra []string, p argPaths) (args []string, fixed [
 		add("--listen-ip", p.Host)
 		add("--listen-port", p.Port)
 		add("--hires-upscalers-dir", p.UpscalerDir)
-		args = append(args, set.RunArgs()...)
+		args = append(args, setArgs...)
 		args = append(args, extra...)
 	case KindVUpscale:
 		// sd-server starts with no model. Each job sends a DGL script
@@ -272,7 +273,7 @@ func buildArgs(set ModelSet, extra []string, p argPaths) (args []string, fixed [
 		for _, d := range p.ModelDirs {
 			add("--model-dir", d)
 		}
-		args = append(args, set.RunArgs()...)
+		args = append(args, setArgs...)
 		args = append(args, extra...)
 		if p.MaxVRAM != "" {
 			add("--max-vram", p.MaxVRAM)

@@ -213,6 +213,11 @@ type Instance struct {
 	// ExtraArgs are backend flags for this instance, added after the
 	// set's LaunchArgs.
 	ExtraArgs []string `json:"extra_args,omitempty"`
+	// TextModelGPU runs the text model on the instance's GPU when the
+	// set's flags put it on the CPU (see InstanceRunArgs): faster
+	// conditioning, above all for edits with several reference images,
+	// for more VRAM.
+	TextModelGPU bool `json:"text_model_gpu,omitempty"`
 	// Enabled instances hold their reservation even while stopped, so
 	// starting one later never fails for lack of VRAM. A disabled
 	// instance cannot run and holds nothing.

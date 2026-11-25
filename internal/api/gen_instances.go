@@ -239,6 +239,12 @@ type genFormData struct {
 	EditArgs      string
 	EditAutoStart bool
 	EditPort      int
+	// EditTextGPU is the instance's text model choice (TextModelGPU).
+	// TextModelShown shows that choice at first: the set the form opens
+	// with puts its text model on the CPU. Picking another set in the form
+	// shows or hides it.
+	EditTextGPU    bool
+	TextModelShown bool
 	// PortStart and PortEnd are the generation port range, which a chosen
 	// port must be in.
 	PortStart, PortEnd int
@@ -456,7 +462,10 @@ func (s *Server) handleGenInstanceEditForm(w http.ResponseWriter, r *http.Reques
 	data.Editing, data.EditID, data.EditName = true, inst.ID, inst.Name
 	data.EditSet, data.EditBuild, data.EditGPU = inst.ModelSetID, inst.BuildID, inst.GPU
 	data.EditArgs, data.EditAutoStart = strings.Join(inst.ExtraArgs, " "), inst.AutoStart
-	data.EditPort = inst.Port
+	data.EditPort, data.EditTextGPU = inst.Port, inst.TextModelGPU
+	if set, err := store.ModelSet(inst.ModelSetID); err == nil {
+		data.TextModelShown = set.TextModelOnCPU()
+	}
 	respondHTML(w)
 	s.renderPartial(w, "gen_instance_form", data)
 }
@@ -482,6 +491,8 @@ func (s *Server) genFormChoices(store *generation.Store) genFormData {
 	for _, g := range s.monitor.Current().GPU {
 		data.GPUs = append(data.GPUs, genGPUChoice{Index: g.Index, Name: g.Name, Link: g.PCIe})
 	}
+	// The create form opens with the first set selected.
+	data.TextModelShown = len(data.Sets) > 0 && data.Sets[0].TextModelOnCPU()
 	if len(data.Sets) == 0 {
 		data.Missing = append(data.Missing, "a fully downloaded model set (Models page, Generation models)")
 	}
@@ -496,6 +507,7 @@ func (s *Server) genFormChoices(store *generation.Store) genFormData {
 func (s *Server) genFormChoicesFor(data genFormData, set generation.ModelSet) genFormData {
 	data.ForSet = &set
 	data.Sets, data.Missing = []generation.ModelSet{set}, nil
+	data.TextModelShown = set.TextModelOnCPU()
 	kind := set.Kind
 	if kind == generation.KindVideo || kind == generation.KindUpscale || kind == generation.KindVUpscale {
 		kind = generation.KindSD
@@ -574,9 +586,12 @@ func (s *Server) genInstanceFromForm(r *http.Request, store *generation.Store, i
 	if err := generation.CheckLoraArgs(set, args); err != nil {
 		return err
 	}
+	// The text model choice only means something when the set puts the
+	// text model on the CPU.
+	textGPU := r.FormValue("text_model") == "gpu" && set.TextModelOnCPU()
 	// Running it differently invalidates any VRAM measurement, and the
 	// last measurement's note or error with it.
-	if inst.ModelSetID != set.ID || !slicesEqual(inst.ExtraArgs, args) || inst.BuildID != buildID || inst.GPU != gpu {
+	if inst.ModelSetID != set.ID || !slicesEqual(inst.ExtraArgs, args) || inst.BuildID != buildID || inst.GPU != gpu || inst.TextModelGPU != textGPU {
 		inst.ReservedMiB, inst.MeasuredPeakMiB, inst.MeasuredAt, inst.MeasureEstimated = 0, 0, time.Time{}, false
 		inst.MeasuredSuggestedMiB, inst.MeasuredFrames, inst.MeasuredWidth, inst.MeasuredHeight = 0, 0, 0, 0
 		inst.MeasuredWindow = 0
@@ -586,6 +601,7 @@ func (s *Server) genInstanceFromForm(r *http.Request, store *generation.Store, i
 		s.genMeasure.clear(inst.ID)
 	}
 	inst.ModelSetID, inst.BuildID, inst.GPU, inst.ExtraArgs = set.ID, buildID, gpu, args
+	inst.TextModelGPU = textGPU
 	inst.AutoStart = r.FormValue("auto_start") == "on"
 	return nil
 }
