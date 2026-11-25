@@ -629,7 +629,7 @@ func Catalog() []CatalogEntry {
 			},
 			Capabilities: []string{CapText},
 			License:      "Apache-2.0",
-			Notes:        "Text-to-video from the two 14B experts (high and low noise), 20 steps: the most cinematic of the silent text-to-video sets. Up to 5 seconds at 1280×720, 16 fps. Shares its text model and VAE with the other Wan2.2 sets. On a Radeon AI PRO R9700: about 6.5 minutes for a 2-second 832×480 video (Measure for that size: peak 27.5 GiB). CFG 3.5 on both experts, as newer stable-diffusion.cpp builds cannot give them different values. For faster videos, use Wan2.2 T2V A14B Lightning (about 1 minute).",
+			Notes:        "Text-to-video from the two 14B experts (high and low noise), 20 steps: the most cinematic of the silent text-to-video sets. Up to 5 seconds at 1280×720, 16 fps. Shares its text model and VAE with the other Wan2.2 sets. On a Radeon AI PRO R9700: about 6.5 minutes for a 2-second 832×480 video. Every size up to Full fits that 32 GB card: Full reserves 30.3 GiB, and its decode runs in smaller pieces. CFG 3.5 on both experts, as newer stable-diffusion.cpp builds cannot give them different values. For faster videos, use Wan2.2 T2V A14B Lightning (about 1 minute).",
 			// 81 frames is 5 s at 16 fps.
 			DefaultWidth:  832,
 			DefaultHeight: 480,
@@ -643,10 +643,12 @@ func Catalog() []CatalogEntry {
 				{Label: "Medium", Frames: 49, Width: 1280, Height: 720},
 				{Label: "Full", Frames: 81, Width: 1280, Height: 720},
 			},
-			// Short measured 2026-11-25 in about 1.5 minutes: peak 27.5 GiB,
-			// reservation 30.3 GiB (capped to the card). Medium and Full
-			// not measured yet.
-			FullMeasureTime: "On a Radeon AI PRO R9700, measuring Short took about 1.5 minutes; larger sizes have more video to decode and take longer.",
+			// Measured 2026-11-25 (R9700, sd.cpp master-1132, one step on
+			// each expert): Short 27.5 GiB in 1.5 min; Medium 25.3 GiB
+			// (reservation 28.0 GiB) in 5.5 min; Full 29.7 GiB (reservation
+			// 30.3 GiB, capped to the card) in 9.5 min. Medium and Full
+			// decode in pieces, so they peak lower than Short would scale.
+			FullMeasureTime: "On a Radeon AI PRO R9700, measuring Full took about 9.5 minutes (Short about 1.5).",
 			// The Wan2.1 VAE scales by 8 and the model patches by 2.
 			SizeMultiple: 16,
 		},
@@ -688,7 +690,7 @@ func Catalog() []CatalogEntry {
 			},
 			Capabilities:  []string{CapText},
 			License:       "Apache-2.0",
-			Notes:         "Wan2.2 T2V A14B with lightx2v's Lightning LoRAs (250928): text-to-video with 2 steps per expert, much faster than the 20-step set. About 1 minute for a 2-second 832×480 video on a Radeon AI PRO R9700 (Measure for that size: peak 27.4 GiB). Up to 5 seconds at 1280×720, 16 fps. Shares its experts, text model and VAE with Wan2.2 T2V A14B.",
+			Notes:         "Wan2.2 T2V A14B with lightx2v's Lightning LoRAs (250928): text-to-video with 2 steps per expert, much faster than the 20-step set. About 1 minute for a 2-second 832×480 video on a Radeon AI PRO R9700. Every size up to Full fits that 32 GB card, just: Medium and Full reserve 30.8 GiB, all it can give, and decode in smaller pieces. Up to 5 seconds at 1280×720, 16 fps. Shares its experts, text model and VAE with Wan2.2 T2V A14B.",
 			DefaultWidth:  832,
 			DefaultHeight: 480,
 			DefaultFrames: 33,
@@ -701,10 +703,13 @@ func Catalog() []CatalogEntry {
 				{Label: "Medium", Frames: 49, Width: 1280, Height: 720},
 				{Label: "Full", Frames: 81, Width: 1280, Height: 720},
 			},
-			// Short measured 2026-11-25 in about 1.5 minutes: peak 27.4 GiB,
-			// reservation 30.3 GiB (capped to the card). Medium and Full
-			// not measured yet.
-			FullMeasureTime: "On a Radeon AI PRO R9700, measuring Short took about 1.5 minutes; larger sizes have more video to decode and take longer.",
+			// Measured 2026-11-25 (R9700, sd.cpp master-1132, one step on
+			// each expert): Short 27.4 GiB in 1.5 min; Medium 31.2 GiB in 4
+			// min; Full 31.1 GiB in 7 min. Medium and Full reserve 30.8 GiB,
+			// all the card can give, with the peak within the 1 GiB the
+			// backend's own limit does not count. The two LoRAs (1.8 GB)
+			// make it need more than the 20-step set.
+			FullMeasureTime: "On a Radeon AI PRO R9700, measuring Full took about 7 minutes (Short about 1.5).",
 			// The Wan2.1 VAE scales by 8 and the model patches by 2.
 			SizeMultiple: 16,
 		},
