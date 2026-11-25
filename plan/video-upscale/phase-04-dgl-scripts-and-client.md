@@ -30,6 +30,7 @@ Embed two DGL script templates in the app, one for RelayVSR and one for SeedVR2,
        OutputFormat string // "webm" or "avi"
        Seed         int64
        WindowSize   int
+       FPS          int    // only for a clip with no rate (still WebP): 24; else 0
    }
    ```
 2. **Window sizes.**
@@ -39,7 +40,7 @@ Embed two DGL script templates in the app, one for RelayVSR and one for SeedVR2,
 3. **`dglString`.** Wrap the value in double quotes. Refuse a value that holds `"`, `\`, a newline or a control character, with "path cannot be used in a DGL script: <reason>". Model paths come from the set (users choose file names), so this check matters.
 4. **RelayVSR template.**
    - Start from upstream `docs/dgl/relay_vsr/relayvsr-x2-video-upscale.dgl`. Its text is the same in master-1116 and master-1122 (blob `c678a13`).
-   - Change only the `var` block, which takes the template values: `dit_path` and `vae_path` (the set's absolute file paths), `input_path`, `output_path`, `seed`, `window_size`. Keep `fps = 24` as a constant: `video::load` uses it only for frame folders, which the app never sends. A file's own rate is used for files, and the save lines copy `clip.video.fps_num`/`fps_den`.
+   - Change only the `var` block, which takes the template values: `dit_path` and `vae_path` (the set's absolute file paths), `input_path`, `output_path`, `seed`, `window_size`. Drop upstream's `fps = 24`: passing `fps_num` to `video::load` resamples the clip to that rate (sd.cpp `plan_video_sampling`), which would change the frame count. The script calls `video::load(input_path)` and keeps the file's own rate. Only a clip with no rate (a still WebP, which `video::load` cannot read without one) gets `fps_num = 24`, through the job's `FPS` field. The save lines copy `clip.video.fps_num`/`fps_den`. (Changed during implementation.)
    - Change the end of `main` to:
      - for `avi`: `video::save(output_path, {frames = pixels, fps_num = clip.video.fps_num, fps_den = clip.video.fps_den}, audio = clip.audio)`. `video::save` writes MJPEG video with PCM16 audio.
      - for `webm`: `media::save(output_path, video::encode({frames = pixels, fps_num = clip.video.fps_num, fps_den = clip.video.fps_den}, format = "webm"))`
