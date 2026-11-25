@@ -629,7 +629,7 @@ func Catalog() []CatalogEntry {
 			},
 			Capabilities: []string{CapText},
 			License:      "Apache-2.0",
-			Notes:        "Text-to-video from the two 14B experts (high and low noise), 20 steps; probably the best detail of the silent text-to-video sets. Up to 5 seconds at 1280×720, 16 fps. Shares its text model and VAE with the other Wan2.2 sets. Slow: expect about as long as Wan2.2 I2V A14B (about 27 minutes for 2 s at 832×480 on a Radeon AI PRO R9700). For faster videos, use Wan2.2 T2V A14B Lightning.",
+			Notes:        "Text-to-video from the two 14B experts (high and low noise), 20 steps: the most cinematic of the silent text-to-video sets. Up to 5 seconds at 1280×720, 16 fps. Shares its text model and VAE with the other Wan2.2 sets. On a Radeon AI PRO R9700: about 6.5 minutes for a 2-second 832×480 video (Measure for that size: peak 27.5 GiB). CFG 3.5 on both experts, as newer stable-diffusion.cpp builds cannot give them different values. For faster videos, use Wan2.2 T2V A14B Lightning (about 1 minute).",
 			// 81 frames is 5 s at 16 fps.
 			DefaultWidth:  832,
 			DefaultHeight: 480,
@@ -643,7 +643,10 @@ func Catalog() []CatalogEntry {
 				{Label: "Medium", Frames: 49, Width: 1280, Height: 720},
 				{Label: "Full", Frames: 81, Width: 1280, Height: 720},
 			},
-			FullMeasureTime: "Not measured yet. On a Radeon AI PRO R9700, measuring Short for Wan2.2 I2V A14B took about 2 minutes; larger sizes take longer.",
+			// Short measured 2026-11-25 in about 1.5 minutes: peak 27.5 GiB,
+			// reservation 30.3 GiB (capped to the card). Medium and Full
+			// not measured yet.
+			FullMeasureTime: "On a Radeon AI PRO R9700, measuring Short took about 1.5 minutes; larger sizes have more video to decode and take longer.",
 			// The Wan2.1 VAE scales by 8 and the model patches by 2.
 			SizeMultiple: 16,
 		},
@@ -665,15 +668,18 @@ func Catalog() []CatalogEntry {
 				{Slot: "high_noise_lora", Repo: "Kijai/WanVideo_comfy", File: "LoRAs/Wan22-Lightning/Wan22_A14B_T2V_HIGH_Lightning_4steps_lora_250928_rank128_fp16.safetensors", Bytes: 1226980192},
 				{Slot: "lora", Repo: "Kijai/WanVideo_comfy", File: "LoRAs/Wan22-Lightning/Wan22_A14B_T2V_LOW_Lightning_4steps_lora_250928_rank64_fp16.safetensors", Bytes: 613561776},
 			},
-			// lightx2v's workflow: CFG 1, shift 5, euler, 2 + 2 steps. 4 + 4,
-			// as for Wan2.2 I2V A14B Lightning, where 2 + 2 smeared faces
-			// in the last frames.
-			LaunchArgs: []string{"--steps", "4", "--high-noise-steps", "4", "--cfg-scale", "1", "--high-noise-cfg-scale", "1",
+			// lightx2v's workflow: CFG 1, shift 5, euler, 2 + 2 steps. On a
+			// Radeon AI PRO R9700 (2026-11-25, 33 frames at 832×480, seed
+			// 42) 2 + 2 took 60 s and 4 + 4 took 125 s, and 2 + 2 kept the
+			// face sharp to the last frame, unlike the I2V pair. The 250928
+			// pair gave richer light and detail than v1.1, which moved a
+			// little more and was a little faster (105 s at 4 + 4).
+			LaunchArgs: []string{"--steps", "2", "--high-noise-steps", "2", "--cfg-scale", "1", "--high-noise-cfg-scale", "1",
 				"--flow-shift", "5", "--sampling-method", "euler", "--high-noise-sampling-method", "euler",
 				"--diffusion-fa", "--temporal-tiling", "--backend", "te=cpu"},
 			FlagNotes: map[string]string{
-				"--steps":                "4 steps on each expert. Lightning's own workflow uses 2 + 2; for the I2V pair that was faster but smeared faces in the last frames.",
-				"--high-noise-steps":     "4 steps on the high-noise expert, before the low-noise expert takes over. --moe-boundary is not needed.",
+				"--steps":                "2 steps on each expert, as in Lightning's own workflow. On a Radeon AI PRO R9700, 2 + 2 took 60 s for a 2-second 832×480 video and kept faces sharp; 4 + 4 took twice as long and looked about the same.",
+				"--high-noise-steps":     "2 steps on the high-noise expert, before the low-noise expert takes over. --moe-boundary is not needed.",
 				"--cfg-scale 1":          "The Lightning LoRAs are made for CFG 1: one pass per step.",
 				"--high-noise-cfg-scale": "The Lightning LoRAs are made for CFG 1: one pass per step. stable-diffusion.cpp master-1116 and later builds do not have this flag. On those builds, toolchest leaves it out, and the high-noise expert uses --cfg-scale 1.",
 				"--flow-shift":           "The shift of lightx2v's own Lightning workflow.",
@@ -682,7 +688,7 @@ func Catalog() []CatalogEntry {
 			},
 			Capabilities:  []string{CapText},
 			License:       "Apache-2.0",
-			Notes:         "Wan2.2 T2V A14B with lightx2v's Lightning 4-step LoRAs (250928): text-to-video with 4 steps per expert, much faster than the 20-step set, with a little less detail. Up to 5 seconds at 1280×720, 16 fps. Shares its experts, text model and VAE with Wan2.2 T2V A14B.",
+			Notes:         "Wan2.2 T2V A14B with lightx2v's Lightning LoRAs (250928): text-to-video with 2 steps per expert, much faster than the 20-step set. About 1 minute for a 2-second 832×480 video on a Radeon AI PRO R9700 (Measure for that size: peak 27.4 GiB). Up to 5 seconds at 1280×720, 16 fps. Shares its experts, text model and VAE with Wan2.2 T2V A14B.",
 			DefaultWidth:  832,
 			DefaultHeight: 480,
 			DefaultFrames: 33,
@@ -695,7 +701,10 @@ func Catalog() []CatalogEntry {
 				{Label: "Medium", Frames: 49, Width: 1280, Height: 720},
 				{Label: "Full", Frames: 81, Width: 1280, Height: 720},
 			},
-			FullMeasureTime: "Not measured yet. On a Radeon AI PRO R9700, measuring Short for Wan2.2 I2V A14B Lightning took under 1.5 minutes; Medium needed more memory than that 32 GB card could give.",
+			// Short measured 2026-11-25 in about 1.5 minutes: peak 27.4 GiB,
+			// reservation 30.3 GiB (capped to the card). Medium and Full
+			// not measured yet.
+			FullMeasureTime: "On a Radeon AI PRO R9700, measuring Short took about 1.5 minutes; larger sizes have more video to decode and take longer.",
 			// The Wan2.1 VAE scales by 8 and the model patches by 2.
 			SizeMultiple: 16,
 		},
