@@ -56,7 +56,7 @@ Every output had the input's frame count, its size times the scale, and its fram
 
 ## Custom set
 
-SeedVR2 7B Sharp on compute2: the set was built in the custom set form (the DiT as a Hugging Face link, which the form downloaded; the VAE reused from the 3B set). Its 8.3 GB download was still running when this was written; the result follows in a later commit.
+SeedVR2 7B Sharp on compute2: the set was built in the custom set form (the DiT as a Hugging Face link, which the form downloaded; the VAE reused from the 3B set). Measured at 832×480, 33 frames, window 1: peak 14.0 GiB, so the reservation is capped at 14.0 GiB, all the 16 GiB card can give the instance. Clip A (33 frames) went to 1664×960 in 155 s. That is 4.7 s per frame against the 3B set's 3.9 s. 81 frames was not tried: with no room left at 33 frames, it would most likely not fit this card.
 
 ## State left behind
 
