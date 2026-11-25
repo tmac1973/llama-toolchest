@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.67.0](https://github.com/tmac1973/llama-toolchest/compare/v2.66.0...v2.67.0) (2026-11-25)
+
+
+### Features
+
+* **api:** video upscale jobs at /v1/videos/upscale/jobs ([#708](https://github.com/tmac1973/llama-toolchest/issues/708)) ([585fa39](https://github.com/tmac1973/llama-toolchest/commit/585fa396b451f6e5132e0b82e2bafc4ee109f969))
+* **generation:** add the vupscale set kind with RelayVSR and SeedVR2 catalog sets ([#704](https://github.com/tmac1973/llama-toolchest/issues/704)) ([2872b70](https://github.com/tmac1973/llama-toolchest/commit/2872b703e3b4dec0374b0f0a0968588bce07cd3f))
+* **generation:** DGL scripts and client for video upscaling ([#706](https://github.com/tmac1973/llama-toolchest/issues/706)) ([bd1970c](https://github.com/tmac1973/llama-toolchest/commit/bd1970c64cca551e747b25546c76085f475a4726))
+* **generation:** measure video upscaler instances and refuse clips above the measured size ([#709](https://github.com/tmac1973/llama-toolchest/issues/709)) ([6fdb0e7](https://github.com/tmac1973/llama-toolchest/commit/6fdb0e70b76a608bcb628be2a148fe5b062cdec5))
+* **generation:** read clip size and frame count for video upscaling ([#702](https://github.com/tmac1973/llama-toolchest/issues/702)) ([d0bfb45](https://github.com/tmac1973/llama-toolchest/commit/d0bfb454217821ecf5b6d36fae4f783bb5c3d189))
+* **generation:** start video upscaler instances and refuse builds without DGL ([#705](https://github.com/tmac1973/llama-toolchest/issues/705)) ([8d9b4ed](https://github.com/tmac1973/llama-toolchest/commit/8d9b4ed80c49a7042202da0ae922be3401fc50da))
+
+
+### Bug Fixes
+
+* **generation:** video upscaler field test: no --max-vram, clear out-of-memory errors ([#711](https://github.com/tmac1973/llama-toolchest/issues/711)) ([5c4da5b](https://github.com/tmac1973/llama-toolchest/commit/5c4da5bda879bfa20da239ecac85e68c86ac5abb))
+* **gen:** limit 720p HunyuanVideo to 69 frames and drop LTO from sd.cpp ROCm builds ([#699](https://github.com/tmac1973/llama-toolchest/issues/699)) ([8b1237c](https://github.com/tmac1973/llama-toolchest/commit/8b1237c36e219ed154f9892691516f03fa02c958))
+
 ## [2.66.0](https://github.com/tmac1973/llama-toolchest/compare/v2.65.0...v2.66.0) (2026-11-24)
 
 
