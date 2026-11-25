@@ -493,6 +493,7 @@ func TestGenCatalogTags(t *testing.T) {
 		"ace-step-turbo":     {"text"},
 		"real-esrgan-x4plus": {"image"},
 		"wan22-i2v-a14b":     {"start image", "end image"},
+		"wan22-t2v-a14b":     {"text"},
 		"wan22-s2v-14b":      {"start image", "audio"},
 		"ltx23-distilled":    {"text", "start image", "end image"},
 		"ltx25-distilled":    {"text", "start image", "end image"},

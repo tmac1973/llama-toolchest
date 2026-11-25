@@ -49,6 +49,7 @@ func TestVideoRecipeCapabilities(t *testing.T) {
 	for recipe, want := range map[string][]string{
 		"wan22-ti2v-5b":   {CapText, CapStartImage},
 		"wan22-i2v":       {CapStartImage, CapEndImage},
+		"wan22-t2v":       {CapText},
 		"ltx23-distilled": {CapText, CapStartImage, CapEndImage},
 		"ltx25-dev":       {CapText, CapStartImage, CapEndImage},
 		"wan22-s2v":       {CapStartImage, CapAudio},
@@ -168,6 +169,8 @@ func TestCatalogReposAllowed(t *testing.T) {
 		"city96/umt5-xxl-encoder-gguf",
 		"Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
 		"QuantStack/Wan2.2-I2V-A14B-GGUF",
+		// Apache-2.0, not gated; checked 2026-11-25.
+		"QuantStack/Wan2.2-T2V-A14B-GGUF",
 		"QuantStack/Wan2.2-S2V-14B-GGUF",
 		"Comfy-Org/Wan_2.1_ComfyUI_repackaged",
 		"Kijai/WanVideo_comfy",
@@ -298,7 +301,7 @@ func TestMadeSize(t *testing.T) {
 func TestHasHighNoiseModel(t *testing.T) {
 	for _, e := range Catalog() {
 		set := ModelSet{Components: e.Components}
-		want := e.ID == "wan22-i2v-a14b" || e.ID == "wan22-i2v-a14b-lightning"
+		want := strings.HasPrefix(e.ID, "wan22-i2v-a14b") || strings.HasPrefix(e.ID, "wan22-t2v-a14b")
 		if set.HasHighNoiseModel() != want {
 			t.Errorf("%s: HasHighNoiseModel = %v, want %v", e.ID, !want, want)
 		}

@@ -91,6 +91,10 @@ var (
 	// 20-step set and the Lightning set.
 	a14bLow  = Component{Slot: "diffusion_model", Repo: "QuantStack/Wan2.2-I2V-A14B-GGUF", File: "LowNoise/Wan2.2-I2V-A14B-LowNoise-Q4_K_M.gguf", Bytes: 9651728896}
 	a14bHigh = Component{Slot: "high_noise_diffusion_model", Repo: "QuantStack/Wan2.2-I2V-A14B-GGUF", File: "HighNoise/Wan2.2-I2V-A14B-HighNoise-Q4_K_M.gguf", Bytes: 9651728896}
+	// t2vLow and t2vHigh are the Wan2.2 T2V A14B experts, used by the
+	// 20-step set and the Lightning set.
+	t2vLow  = Component{Slot: "diffusion_model", Repo: "QuantStack/Wan2.2-T2V-A14B-GGUF", File: "LowNoise/Wan2.2-T2V-A14B-LowNoise-Q4_K_M.gguf", Bytes: 9650090496}
+	t2vHigh = Component{Slot: "high_noise_diffusion_model", Repo: "QuantStack/Wan2.2-T2V-A14B-GGUF", File: "HighNoise/Wan2.2-T2V-A14B-HighNoise-Q4_K_M.gguf", Bytes: 9650090496}
 	// wav2vec2Large is the audio encoder of Wan2.2 S2V (speech-to-video).
 	wav2vec2Large = Component{Slot: "audio_encoder", Repo: "Comfy-Org/Wan_2.2_ComfyUI_Repackaged", File: "split_files/audio_encoders/wav2vec2_large_english_fp16.safetensors", Bytes: 630997322}
 	// umt5Q8 is the text encoder of the Wan video sets.
@@ -589,6 +593,118 @@ func Catalog() []CatalogEntry {
 			// Short video with start and end images took 200 s.
 			FullMeasureTime: "On a Radeon AI PRO R9700, measuring Short took under 1.5 minutes; " +
 				"Medium needed more memory than that 32 GB card could give.",
+			// The Wan2.1 VAE scales by 8 and the model patches by 2.
+			SizeMultiple: 16,
+		},
+		{
+			ID:     "wan22-t2v-a14b",
+			Name:   "Wan2.2 T2V A14B (Q4)",
+			Kind:   KindVideo,
+			Recipe: "wan22-t2v",
+			Components: []Component{
+				t2vLow,
+				t2vHigh,
+				umt5Q8,
+				wan21VAE,
+			},
+			// The wan22-t2v recipe's defaults (shift 12, boundary 0.875),
+			// except CFG: Wan uses 4 on the high-noise expert and 3 on the
+			// low-noise one, but builds from master-1116 have no
+			// --high-noise-cfg-scale, and sd-server refuses a separate
+			// high-noise CFG in a request too ("requires an explicit DGL
+			// workflow", master-1132, 2026-11-25). Both experts get 3.5,
+			// between Wan's two values and the same as Wan2.2 I2V A14B, so
+			// old and new builds make the same video. --temporal-tiling and
+			// the text model on the CPU as for Wan2.2 I2V A14B.
+			LaunchArgs: []string{"--steps", "20", "--cfg-scale", "3.5", "--flow-shift", "12", "--moe-boundary", "0.875",
+				"--high-noise-cfg-scale", "3.5", "--high-noise-sampling-method", "euler",
+				"--sampling-method", "euler", "--diffusion-fa", "--temporal-tiling", "--backend", "te=cpu"},
+			FlagNotes: map[string]string{
+				"--cfg-scale":            "Guidance for both experts. Wan uses 4 on the high-noise expert and 3 on the low-noise one, but newer stable-diffusion.cpp builds take only one value for both, so this set uses 3.5.",
+				"--high-noise-cfg-scale": "The same 3.5 for the high-noise expert, for builds before master-1116. Newer builds do not have this flag; toolchest leaves it out there, and the high-noise expert uses --cfg-scale.",
+				"--flow-shift":           "Wan's own shift for the T2V pair. sd-server has no separate flow shift for the high-noise expert, and the recipe gives both experts 12.",
+				"--moe-boundary":         "Where the high-noise expert hands over to the low-noise expert: 0.875 is Wan's value for the T2V pair.",
+				"--temporal-tiling":      "Decodes the video a few frames at a time, as the Wan2.2 I2V A14B sets do, to lower the decode's peak VRAM use.",
+				"--backend te=cpu":       "Runs the text model on the CPU. stable-diffusion.cpp already takes it off the GPU before it samples, so this saves little VRAM here.",
+			},
+			Capabilities: []string{CapText},
+			License:      "Apache-2.0",
+			Notes:        "Text-to-video from the two 14B experts (high and low noise), 20 steps: the most cinematic of the silent text-to-video sets. Up to 5 seconds at 1280×720, 16 fps. Shares its text model and VAE with the other Wan2.2 sets. On a Radeon AI PRO R9700: about 6.5 minutes for a 2-second 832×480 video (Measure for that size: peak 27.5 GiB). CFG 3.5 on both experts, as newer stable-diffusion.cpp builds cannot give them different values. For faster videos, use Wan2.2 T2V A14B Lightning (about 1 minute).",
+			// 81 frames is 5 s at 16 fps.
+			DefaultWidth:  832,
+			DefaultHeight: 480,
+			DefaultFrames: 33,
+			DefaultFPS:    16,
+			MaxFrames:     81,
+			MaxWidth:      1280,
+			MaxHeight:     720,
+			VideoSizes: []VideoSize{
+				{Label: "Short", Frames: 33, Width: 832, Height: 480},
+				{Label: "Medium", Frames: 49, Width: 1280, Height: 720},
+				{Label: "Full", Frames: 81, Width: 1280, Height: 720},
+			},
+			// Short measured 2026-11-25 in about 1.5 minutes: peak 27.5 GiB,
+			// reservation 30.3 GiB (capped to the card). Medium and Full
+			// not measured yet.
+			FullMeasureTime: "On a Radeon AI PRO R9700, measuring Short took about 1.5 minutes; larger sizes have more video to decode and take longer.",
+			// The Wan2.1 VAE scales by 8 and the model patches by 2.
+			SizeMultiple: 16,
+		},
+		{
+			ID:     "wan22-t2v-a14b-lightning",
+			Name:   "Wan2.2 T2V A14B Lightning (Q4, 4 steps)",
+			Kind:   KindVideo,
+			Recipe: "wan22-t2v",
+			// lightx2v's Wan2.2-Lightning T2V 250928 LoRAs (Apache-2.0), the
+			// newest T2V pair, as Kijai's fp16 copies: lightx2v's own F32
+			// files made sd-server abort for the I2V pair (sd.cpp
+			// master-1015, 2026-10-26). The high-noise LoRA is rank 128,
+			// the low-noise one rank 64.
+			Components: []Component{
+				t2vLow,
+				t2vHigh,
+				umt5Q8,
+				wan21VAE,
+				{Slot: "high_noise_lora", Repo: "Kijai/WanVideo_comfy", File: "LoRAs/Wan22-Lightning/Wan22_A14B_T2V_HIGH_Lightning_4steps_lora_250928_rank128_fp16.safetensors", Bytes: 1226980192},
+				{Slot: "lora", Repo: "Kijai/WanVideo_comfy", File: "LoRAs/Wan22-Lightning/Wan22_A14B_T2V_LOW_Lightning_4steps_lora_250928_rank64_fp16.safetensors", Bytes: 613561776},
+			},
+			// lightx2v's workflow: CFG 1, shift 5, euler, 2 + 2 steps. On a
+			// Radeon AI PRO R9700 (2026-11-25, 33 frames at 832×480, seed
+			// 42) 2 + 2 took 60 s and 4 + 4 took 125 s, and 2 + 2 kept the
+			// face sharp to the last frame, unlike the I2V pair. The 250928
+			// pair gave richer light and detail than v1.1, which moved a
+			// little more and was a little faster (105 s at 4 + 4).
+			LaunchArgs: []string{"--steps", "2", "--high-noise-steps", "2", "--cfg-scale", "1", "--high-noise-cfg-scale", "1",
+				"--flow-shift", "5", "--sampling-method", "euler", "--high-noise-sampling-method", "euler",
+				"--diffusion-fa", "--temporal-tiling", "--backend", "te=cpu"},
+			FlagNotes: map[string]string{
+				"--steps":                "2 steps on each expert, as in Lightning's own workflow. On a Radeon AI PRO R9700, 2 + 2 took 60 s for a 2-second 832×480 video and kept faces sharp; 4 + 4 took twice as long and looked about the same.",
+				"--high-noise-steps":     "2 steps on the high-noise expert, before the low-noise expert takes over. --moe-boundary is not needed.",
+				"--cfg-scale 1":          "The Lightning LoRAs are made for CFG 1: one pass per step.",
+				"--high-noise-cfg-scale": "The Lightning LoRAs are made for CFG 1: one pass per step. stable-diffusion.cpp master-1116 and later builds do not have this flag. On those builds, toolchest leaves it out, and the high-noise expert uses --cfg-scale 1.",
+				"--flow-shift":           "The shift of lightx2v's own Lightning workflow.",
+				"--temporal-tiling":      "Decodes the video a few frames at a time, as the Wan2.2 I2V A14B sets do, to lower the decode's peak VRAM use.",
+				"--backend te=cpu":       "Runs the text model on the CPU. stable-diffusion.cpp already takes it off the GPU before it samples, so this saves little VRAM here.",
+			},
+			Capabilities:  []string{CapText},
+			License:       "Apache-2.0",
+			Notes:         "Wan2.2 T2V A14B with lightx2v's Lightning LoRAs (250928): text-to-video with 2 steps per expert, much faster than the 20-step set. About 1 minute for a 2-second 832×480 video on a Radeon AI PRO R9700 (Measure for that size: peak 27.4 GiB). Up to 5 seconds at 1280×720, 16 fps. Shares its experts, text model and VAE with Wan2.2 T2V A14B.",
+			DefaultWidth:  832,
+			DefaultHeight: 480,
+			DefaultFrames: 33,
+			DefaultFPS:    16,
+			MaxFrames:     81,
+			MaxWidth:      1280,
+			MaxHeight:     720,
+			VideoSizes: []VideoSize{
+				{Label: "Short", Frames: 33, Width: 832, Height: 480},
+				{Label: "Medium", Frames: 49, Width: 1280, Height: 720},
+				{Label: "Full", Frames: 81, Width: 1280, Height: 720},
+			},
+			// Short measured 2026-11-25 in about 1.5 minutes: peak 27.4 GiB,
+			// reservation 30.3 GiB (capped to the card). Medium and Full
+			// not measured yet.
+			FullMeasureTime: "On a Radeon AI PRO R9700, measuring Short took about 1.5 minutes; larger sizes have more video to decode and take longer.",
 			// The Wan2.1 VAE scales by 8 and the model patches by 2.
 			SizeMultiple: 16,
 		},
