@@ -5,11 +5,11 @@ Image and video generation (`sd-server` of stable-diffusion.cpp) and music (`ace
 1. **Turn on** *Generation backends* in Settings (`/settings`).
 2. **Build** stable-diffusion.cpp and/or acestep.cpp on Builds (`/builds`) (ROCm, CUDA, Vulkan in host installs, or Metal on a Mac).
 3. **Get a model set.** A set is the files one model needs, and the settings it runs with.
-    - **Download one** with *Get generation models* on Download Models (`/models/browse?open=generation`). Files go in the `gen-models` folder of the models folder.
+    - **Download one** with *Get generation models* on Download Models (`/models/browse?open=generation`). Files go in the `gen-models` folder of the models folder. Video upscaler sets (RelayVSR, SeedVR2) carry the *video* tag.
     - **See how a set runs:** press *Details* on a catalog set or on a set on Models (`/models`). It shows each file, each setting with the reason for it, and the command that toolchest starts. Values in angle brackets, such as `<port>`, are set for each instance.
     - **Use your own files:** press *Add a custom set* on Models (`/models`). Choose the backend and the recipe. The recipe list comes from stable-diffusion.cpp's own recipe files (see [Where recipes come from](#recipes)). It has three groups: the recipes the catalog uses, the other recipes, and the recipes llama-toolchest cannot run. These last ones are greyed, and each shows why, for example a file or an input that llama-toolchest cannot pass to sd-server. Under the list, the form shows the chosen recipe's description from stable-diffusion.cpp, when it has one. The form then shows one field for each file the recipe needs. Type part of a file name to see matching files in the models folder, or paste a Hugging Face file link to download the file (see [Download files for a custom set](#custom-set-downloads)). Toolchest checks that each file exists and is a model file. It never deletes the files you give as paths. A new set's extra launch arguments and test size start from the recipe's own defaults, such as its steps, CFG scale and sampler. sd-server uses a recipe's defaults only when it loads the recipe itself, and llama-toolchest gives it the files one by one, so the form writes them out as flags. Change or clear them as you need. When you choose another recipe, the fields you did not change take that recipe's defaults, and the ones you changed stay. A copy keeps the settings of the set it was copied from.
     - **Start from a known set:** in *Details*, press *Copy as custom set*. The form opens with the recipe, settings and sizes of that set. Files that are on this machine are filled in with their paths. A file that is not gets its Hugging Face link, so *Add set* downloads it. A LoRA file must be local, so for a missing LoRA the field shows the file name. Change what you need, then save. Use this for a different quantization, a fine-tune, or files you already have from ComfyUI.
-    - **Video upscaler sets** (backend *Video upscaler*) take two files, a diffusion model and its VAE, and a *Script* in place of the recipe: RelayVSR or SeedVR2. The scale must match the files. RelayVSR ×2 files make a video 2 times larger and ×4 files make it 4 times larger, while SeedVR2 can make it 2, 3 or 4 times larger. They need stable-diffusion.cpp master-1116 or newer, because they run as DGL scripts. On an older build the start is refused with *video upscaler sets need stable-diffusion.cpp master-1116 or newer (DGL)*, and the instance list says so. *Measure* on such an instance asks for a test clip size (width and height before scaling, and frames) and a window size. Clips up to that size are then allowed, and larger ones are refused.
+    - **Video upscaler sets** (backend *Video upscaler*) take two files, a diffusion model and its VAE, and a *Script* in place of the recipe: RelayVSR or SeedVR2. See [Video upscaling](#video-upscaling).
     - **Change a custom set:** press *Edit*. Its name, backend and recipe stay; to change them, copy the set. Stop its instance first. After you change its files or settings, measure the instance again.
     - **Files in a container:** the models folder is `/data/models` inside the container. Toolchest cannot see other host folders. Put the files under the models folder, or mount their folder under it.
 4. **Create an instance**: on Models (`/models`), under *Generation models*, press *New instance* and choose a build and GPU. It shows on Server (`/server`).
@@ -37,6 +37,83 @@ Wan2.2 S2V (the `wan22-s2v` recipe) makes the person in a picture speak or sing 
 - **Frame rate:** the model always makes 16 fps. A different `fps` in a request is replaced, and the custom set form saves 16.
 - **Sound:** sd-server builds from stable-diffusion.cpp 6cd0ef1 (2026-11-22) put the audio in the WebM. Older builds make a silent video; add the track yourself, as the [API page](../api.md#generation-api) shows.
 - **Measure** sends a test picture and a test tone as long as the test video.
+
+## Video upscaling { #video-upscaling }
+
+A video upscaler set makes a clip larger and sharper. Unlike an image upscaler run on each frame, it looks at several frames at once, so the result stays steady from one frame to the next instead of flickering. Two models are supported, both from stable-diffusion.cpp:
+
+- **RelayVSR**, as ×2 and ×4 catalog sets. It works on windows of frames that share one frame with the next window, so the joins are smooth. It has a fast CUDA path on NVIDIA cards; ROCm and Vulkan use a slower tiled path.
+- **SeedVR2**, as the 3B catalog set. It restores detail well. By default it works on one frame at a time to save memory; a larger window gives smoother motion. The 7B Sharp model works as a custom set (see [Custom sets](#video-upscaling-custom)).
+
+Clients send clips to [`/v1/videos/upscale/jobs`](../api.md#generation-api). There is no page in the app for it.
+
+### What you need { #video-upscaling-build }
+
+Both models run as DGL scripts (stable-diffusion.cpp's graph language), which came in stable-diffusion.cpp master-1116. An instance on an older build does not start; it says *video upscaler sets need stable-diffusion.cpp master-1116 or newer (DGL)*, and the Server page shows the same note under the instance. Build a newer stable-diffusion.cpp on Builds, or pick a newer build for the instance.
+
+Toolchest sends its own two scripts to sd-server with each job. You do not need to set up anything else.
+
+### Clip formats { #video-upscaling-formats }
+
+The upscaler reads what stable-diffusion.cpp reads, and toolchest checks a clip before it gives it to the GPU:
+
+- **AVI** with 24-bit RGB or MJPEG video, and PCM or 32-bit float audio (or none).
+- **WebM** with VP8 video where every frame is a keyframe, and PCM16 audio or none. This is what toolchest's own video jobs write, so their videos can go straight into the upscaler.
+- **WebP**, animated (all frames the same length) or still.
+
+MP4 is not accepted, and neither are VP9, ordinary VP8 WebM with in-between frames, or AAC and Opus audio. The error says what was wrong. To convert a clip on the client, MJPEG AVI is the simplest target:
+
+```bash
+ffmpeg -i in.mp4 -c:v mjpeg -q:v 3 -c:a pcm_s16le out.avi
+```
+
+The result comes back as `webm` (the default; it has no sound) or `avi` (MJPEG with the clip's sound). When a clip with sound is sent for webm output, the job says `audio_dropped`.
+
+### Limits { #video-upscaling-limits }
+
+stable-diffusion.cpp holds the whole decoded clip in memory, and refuses more than 256 MiB of it: 3 bytes × width × height × frames. That is about:
+
+| Clip size | Most frames |
+| --- | --- |
+| 832×480 | 224 |
+| 1280×720 | 97 |
+| 1920×1080 | 43 |
+
+Split longer clips on the client and upscale the parts. The joined result may be up to 4 GiB, and one window has its own limit (1 GiB for RelayVSR, 256 MiB of float data for SeedVR2). The error gives a window size that fits.
+
+After [Measure](#video-upscaling-measure), the instance also refuses clips larger than the one it was measured with. Width, height, frame count and window are each checked on their own, so a portrait clip needs a portrait measurement.
+
+### Window size { #video-upscaling-window }
+
+`window_size` is how many frames the model looks at together. More frames give smoother motion and use more GPU memory.
+
+- **RelayVSR:** 2 to 32, default 16. Each window shares its last frame with the next one:
+
+```mermaid
+flowchart LR
+    A["Clip<br/>frames 1–31"] --> B["Window 1<br/>frames 1–16"]
+    A --> C["Window 2<br/>frames 16–31"]
+    B --> D["Upscale"]
+    C --> E["Upscale"]
+    D --> F["Join, frame 16 once"]
+    E --> F
+```
+
+- **SeedVR2:** 1, or 5, 9, 13 and so on up to 33 (the model pads windows to 4n+1 frames, so other sizes would waste work). The default, 1, treats each frame on its own. Larger windows smooth the motion, but the joins between windows can show.
+
+### Custom sets { #video-upscaling-custom }
+
+In *Add a custom set*, choose the *Video upscaler* backend, then the *Script*, the two files and the scale. The files must match the script, and for RelayVSR the scale must match the files: the ×2 and ×4 files are different models, and the form refuses a mismatch when the file name says which one it is. SeedVR2 can make a clip 2, 3 or 4 times larger with the same files.
+
+For SeedVR2 7B Sharp, use `diffusion_models/seedvr2_7b_sharp_int8_convrot.safetensors` (8.3 GB) and `vae/seedvr2_ema_vae_fp16.safetensors` from [Comfy-Org/SeedVR2](https://huggingface.co/Comfy-Org/SeedVR2). That repository also has fp16, fp8, mxfp8 and nvfp4 variants, but stable-diffusion.cpp's guide names only the int8_convrot files.
+
+### Measure { #video-upscaling-measure }
+
+*Measure* asks for a test clip: its width and height before scaling (multiples of 16), its frame count, and the window size. Toolchest writes a clip of that size, upscales it once with nothing else on the GPU, and reserves the peak plus 10%. Clips up to that size are then allowed. The default is 832×480 with 81 frames, five seconds of Wan video, with the script's default window.
+
+### Cancelling { #video-upscaling-cancel }
+
+stable-diffusion.cpp cannot stop a running upscale. When a running job is cancelled, toolchest stops the instance to free the GPU, and the next job starts it again, which loads the weights again. A job still waiting in the queue is simply taken out of it.
 
 ## Download files for a custom set { #custom-set-downloads }
 
