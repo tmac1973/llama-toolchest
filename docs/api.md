@@ -76,13 +76,14 @@ A model that cannot change its pace answers `400` for `speed`, so a client that 
 
 ## Image, video and music API { #generation-api }
 
-Instances show in `/v1/models` with `meta.kind` `image`, `video`, `music` or `upscale`. Use the instance or set ID as `model`. `meta.api` lists the routes of each instance, `meta.video` the limits of a video instance, and `meta.tasks` the tasks of a music instance. `meta.max_edit_images` gives the most reference images of an edit, and `meta.scale` the factor of an upscaler. `meta.measuring` is true while an instance is being measured. It refuses requests until the measurement ends. The API reference (`/docs/api`) has every field and error.
+Instances show in `/v1/models` with `meta.kind` `image`, `video`, `music`, `upscale` or `vupscale`. Use the instance or set ID as `model`. `meta.api` lists the routes of each instance, `meta.video` the limits of a video instance, and `meta.tasks` the tasks of a music instance. `meta.max_edit_images` gives the most reference images of an edit, and `meta.scale` the factor of an upscaler. `meta.measuring` is true while an instance is being measured. It refuses requests until the measurement ends. The API reference (`/docs/api`) has every field and error.
 
 | Kind | Wait for the result | Job (answers at once with an ID) | Download |
 | --- | --- | --- | --- |
 | Image | `POST /v1/images/generations`, `/v1/images/edits` | `POST /v1/images/jobs` | `…/jobs/{id}/image/0` |
 | Upscale | `POST /v1/images/upscale` | – | In the answer |
 | Video | `POST /v1/videos/generations` | `POST /v1/videos/jobs` | `…/jobs/{id}/video` |
+| Video upscale | – | `POST /v1/videos/upscale/jobs` | `…/jobs/{id}/video` |
 | Music | – | `POST /v1/music/jobs`, or the ACE-Step routes `/release_task`, `/query_result`, `/v1/audio` | `…/jobs/{id}/audio` |
 
 - **Jobs:** `GET` a job until `status` is `succeeded`, `failed` or `cancelled`. `phase` shows progress (`starting`, `queued`, `generating` or `composing`/`synthesizing`, `saving`) and `queue_position` the jobs ahead. `GET /v1/{images,videos,music}/jobs?status=…` lists jobs.

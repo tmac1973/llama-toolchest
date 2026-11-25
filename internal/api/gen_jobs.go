@@ -472,9 +472,38 @@ func (s *Server) openGenJobs() {
 		{"music", s.genMusic.open, s.musicDir()},
 		{"images", s.genImageJobs.open, s.imageDir()},
 		{"videos", s.genVideoJobs.open, s.videoDir()},
+		{"vupscale", s.genVUpscaleJobs.open, s.vupscaleDir()},
 	} {
 		if err := st.open(filepath.Join(dir, st.name), st.outDir, now); err != nil {
 			slog.Error("generation jobs not loaded", "kind", st.name, "error", err)
+		}
+	}
+	s.clearVUpscaleWork()
+}
+
+// clearVUpscaleWork empties the video upscale folders that only hold
+// files while a job runs: uploads not yet checked, and each video
+// upscaler instance's input and output folders. At start no job runs, so
+// what is there was left by a stop in the middle of a job.
+func (s *Server) clearVUpscaleWork() {
+	dirs := []string{s.vupscaleIncomingDir()}
+	if s.gen != nil {
+		for _, inst := range s.gen.Instances() {
+			if set, err := s.gen.ModelSet(inst.ModelSetID); err == nil && set.Kind == generation.KindVUpscale {
+				base := generation.InstanceDir(s.cfg.DataDir, inst.ID)
+				dirs = append(dirs, filepath.Join(base, "input"), filepath.Join(base, "output"))
+			}
+		}
+	}
+	for _, d := range dirs {
+		entries, err := os.ReadDir(d)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				os.Remove(filepath.Join(d, e.Name()))
+			}
 		}
 	}
 }
@@ -486,6 +515,7 @@ func (s *Server) watchGenJobs() {
 		s.genMusic.prune(now)
 		s.genImageJobs.prune(now)
 		s.genVideoJobs.prune(now)
+		s.genVUpscaleJobs.prune(now)
 	}
 	prune(time.Now())
 	for now := range time.Tick(jobPruneEvery) {
