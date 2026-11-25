@@ -62,3 +62,22 @@ SeedVR2 7B Sharp on compute2: the set was built in the custom set form (the DiT 
 
 - compute2: test build 2.66.0-vupscale-test2; instances `relayvsr-x2`, `relayvsr-x4`, `seedvr2-3b` and `seedvr2-7b-sharp` on GPU 2, stopped. The 2.66.0 release is `/usr/bin/llama-toolchest.2.66.0`.
 - asmodean: test build 2.66.0-vupscale-test2; instances `relayvsr-x2`, `relayvsr-x4`, `seedvr2-3b` on GPU 0, stopped; all 16 generation ports are now in use. The 2.66.0 release is `/usr/bin/llama-toolchest.2.66.0`.
+
+## Upstream fixes: out-of-memory code and DGL cancel (PR #715)
+
+2026-11-25, compute2 (RTX A4000, GPU 2). Test build 2.67.0-dgl715-test; the 2.67.0 release is kept as `/usr/bin/llama-toolchest.2.67.0`. stable-diffusion.cpp `sd-master-1132-5fa203c-cuda`, which has leejet/stable-diffusion.cpp#2419 (`out_of_memory` error code) and #2420 (DGL cancel route). The clip was the 512×288, 33-frame WebM (clip C), so outputs are 1024×576.
+
+| Check | Build | Result |
+| --- | --- | --- |
+| Cancel a running SeedVR2 3B job, 20 s in | 1116 | 204; sd-server answered 404 to the cancel route; toolchest logged "before master-1132" and stopped the instance; GPU 2 back to 4 MiB |
+| Measure RelayVSR ×4 at 832×480, 33 frames (does not fit 16 GiB) | 1132 | Measure error: "the test upscale ran out of GPU memory at this size; try a smaller clip or window (sd.cpp: … RelayVSR Wan segment 26/31 (relayvsr.blocks.25) failed during weight preparation: execution engine cannot make enough memory available on CUDA0: need 1016.03 MB device / 13636.72 MB budget, available 993.56 MB device / unlimited budget)" |
+| Measure SeedVR2 3B, 832×480, 33 frames, window 1 | 1132 | peak 9,813 MiB, reservation 11,264 MiB (same as on 1116) |
+| Measure RelayVSR ×2, 832×480, 33 frames, window 16 | 1132 | peak 9,489 MiB, reservation 10,752 MiB (about the same as on 1116) |
+| Cancel a running SeedVR2 3B job, 20 s and 15 s in (twice) | 1132 | 204; the job showed `cancelled` 2 s later; the instance kept running with its weights loaded (4.5 GiB on GPU 2) |
+| A job right after each cancel | 1132 | succeeded in 45–46 s, 1024×576, 33 frames |
+
+The out-of-memory message now says which step ran short and by how much. The old text markers would have matched this message too ("cannot make enough memory"), so this run does not show which check caught it; the unit test covers the `out_of_memory` code.
+
+One submit right after the first 1132 cancel returned no job ID; the test script dropped the reply, so its text is lost. The same sequence, repeated, worked; it could not be reproduced.
+
+Not tested: `--max-vram` for upscaler instances (still off), and RelayVSR cancel (a job on this clip takes about 5 s).
