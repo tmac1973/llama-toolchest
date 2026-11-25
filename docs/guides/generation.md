@@ -124,11 +124,13 @@ For SeedVR2 7B Sharp, use `diffusion_models/seedvr2_7b_sharp_int8_convrot.safete
 
 The frame count matters as well as the size: RelayVSR ×2 at 832×480 needed 6.8 GiB for 33 frames and 8.6 GiB for 81 on an RTX A4000. Measure the longest clip you plan to send.
 
-Video upscaler instances run without stable-diffusion.cpp's `--max-vram` limit. Under that limit, its DGL engine plans for far more memory than the run uses and fails (*diffusion output shape [] does not match input*), even at a limit above the measured peak. So, as for the ESRGAN upscaler and ace-server, the reservation is for planning only. When a clip does not fit, the job fails with *sd.cpp ran out of GPU memory for this clip size or window*.
+Video upscaler instances run without stable-diffusion.cpp's `--max-vram` limit. Under that limit, its DGL engine plans for far more memory than the run uses and fails (*diffusion output shape [] does not match input*), even at a limit above the measured peak. So, as for the ESRGAN upscaler and ace-server, the reservation is for planning only. When a clip does not fit, the job fails with *sd.cpp ran out of GPU memory for this clip size or window*. From master-1129, sd.cpp's part of that message also says which step ran short and how much memory it needed and had.
 
 ### Cancelling { #video-upscaling-cancel }
 
-stable-diffusion.cpp cannot stop a running upscale. When a running job is cancelled, toolchest stops the instance to free the GPU, and the next job starts it again, which loads the weights again. A job still waiting in the queue is simply taken out of it.
+A job still waiting in the queue is simply taken out of it. For a running job, toolchest asks stable-diffusion.cpp to cancel it, which works from master-1132. sd.cpp stops at its next cancellation check, so the step it is on may finish first; toolchest waits up to 30 seconds for that, and the instance stays loaded for the next job.
+
+Older builds cannot stop a running upscale, and a job that is still running after 30 seconds is treated the same way: toolchest stops the instance to free the GPU. The next job starts it again, which means loading the weights again.
 
 ## Download files for a custom set { #custom-set-downloads }
 

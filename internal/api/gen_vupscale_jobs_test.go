@@ -301,6 +301,35 @@ func TestVUpscaleJobCancelStopsInstance(t *testing.T) {
 	}
 }
 
+// From master-1132 sd-server cancels the DGL job itself, so the instance
+// keeps running.
+func TestVUpscaleJobCancelKeepsInstance(t *testing.T) {
+	f := newFakeDGL(t)
+	f.polls, f.cancelable = 1<<30, true
+	s := vupscaleServer(t, f)
+	id := createVUpscaleJobID(t, s, multipartReq(t, map[string]string{"model": "vup"}, fixture(t, "vp8-key-64x48-9f.webm")))
+	testutil.Eventually(t, func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return len(f.sources) == 1
+	}, "the job did not reach sd-server")
+	if rec := serve(s, httptest.NewRequest("DELETE", "/v1/videos/upscale/jobs/"+id, nil)); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete: HTTP %d %s", rec.Code, rec.Body)
+	}
+	if j := waitVUpscaleJob(t, s, id); j.Status != jobCancelled {
+		t.Errorf("job = %+v", j)
+	}
+	f.mu.Lock()
+	n := f.cancelled
+	f.mu.Unlock()
+	if n != 1 {
+		t.Errorf("cancel posts = %d, want 1", n)
+	}
+	if !s.genMgr.IsRunning("vup") {
+		t.Error("the instance was stopped although sd-server cancelled the job")
+	}
+}
+
 func TestVUpscaleRestore(t *testing.T) {
 	dir, out := t.TempDir(), t.TempDir()
 	clip := filepath.Join(t.TempDir(), "job.webm")

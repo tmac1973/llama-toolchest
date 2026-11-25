@@ -5,8 +5,9 @@ package api
 // any GPU work, queues it on a video upscaler instance's GPU and answers at
 // once with a job ID. The job runs a DGL script (RelayVSR or SeedVR2) on
 // the instance's sd-server. Clients poll the job, then download the
-// video. sd-server cannot cancel a DGL job, so cancelling a running job
-// stops the instance.
+// video. Cancelling a running job asks sd-server to cancel the DGL job;
+// when the build cannot (before master-1132) or the job does not stop in
+// time, toolchest stops the instance.
 
 import (
 	"context"
@@ -632,11 +633,13 @@ func (s *Server) runVUpscaleJob(ctx context.Context, id string, inst generation.
 	if err != nil {
 		switch {
 		case ctx.Err() != nil:
-			// sd-server is still running the script. Stop it before the
-			// ticket frees the GPU for the next job.
-			slog.Info("stopping the instance to cancel a video upscale job; sd-server cannot cancel DGL jobs", "instance", inst.ID, "job", id)
-			if err := s.genMgr.Stop(inst.ID); err != nil {
-				slog.Warn("could not stop the instance after a cancelled video upscale job", "instance", inst.ID, "error", err)
+			if errors.Is(err, errDGLStillRunning) {
+				// sd-server may still run the script. Stop it before the
+				// ticket frees the GPU for the next job.
+				slog.Info("stopping the instance to cancel a video upscale job; sd-server did not stop it", "instance", inst.ID, "job", id)
+				if err := s.genMgr.Stop(inst.ID); err != nil {
+					slog.Warn("could not stop the instance after a cancelled video upscale job", "instance", inst.ID, "error", err)
+				}
 			}
 			finish(jobCancelled, "", nil, "")
 		case !s.genMgr.IsRunning(inst.ID) || backendGone(err):
@@ -680,7 +683,8 @@ func (s *Server) runVUpscaleJob(ctx context.Context, id string, inst generation.
 }
 
 // cancelVUpscaleJob asks a job to stop: a queued one leaves the queue at
-// once; a running one stops waiting, and its runner stops the instance.
+// once; a running one is cancelled in sd-server, or its runner stops the
+// instance when sd-server cannot cancel it.
 // The job shows cancelled from now on.
 func (s *Server) cancelVUpscaleJob(id string) bool {
 	var cancel context.CancelFunc
