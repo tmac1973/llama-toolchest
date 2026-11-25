@@ -1226,6 +1226,14 @@ func (s *Server) runMeasureGeneration(ctx context.Context, inst generation.Insta
 		if err != nil {
 			return err
 		}
+		if s.upscaleUsesDGL(inst) {
+			decoded, err := png.Decode(bytes.NewReader(img))
+			if err != nil {
+				return err
+			}
+			_, err = s.runUpscaleDGL(ctx, inst, set, upscaleRequest{image: decoded, repeats: 1, format: "png"})
+			return err
+		}
 		_, _, err = postJSON(ctx, base+"/sdcpp/v1/upscale", map[string]any{
 			"image": base64.StdEncoding.EncodeToString(img),
 		})

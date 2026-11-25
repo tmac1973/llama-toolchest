@@ -130,8 +130,13 @@ func (d *SetDetails) fill(set ModelSet, entry CatalogEntry) error {
 	}
 
 	p := argPaths{Host: markerHost, Port: markerPort, UpscalerDir: upscalersFolder, AceModelsDir: aceModelsFolder}
-	if set.Kind == KindVUpscale {
+	switch set.Kind {
+	case KindVUpscale:
 		p.ModelDirs = vupscaleModelDirs(set)
+	case KindUpscale:
+		// The command of a build with DGL (UpscaleUsesDGL), as every
+		// stable-diffusion.cpp build from master-1116 has.
+		p.ModelDirs = modelDirs(set, []string{UpscalerSlot})
 	}
 	if set.Kind == KindSD || set.Kind == KindVideo {
 		p.MaxVRAM = markerVRAM

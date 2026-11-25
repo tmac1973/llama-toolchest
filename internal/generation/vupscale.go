@@ -30,11 +30,23 @@ func VUpscaleTakesMaxVRAM(build builder.BuildResult) bool {
 	return build.CommitCount >= vupscaleMaxVRAMBuild
 }
 
-// VUpscaleWorkDirs creates and returns a video upscaler instance's input
-// and output folders. sd-server runs in the instance folder, so a DGL
+// UpscaleUsesDGL reports whether an image upscaler instance on build runs
+// its upscales as a DGL script. stable-diffusion.cpp master-1119 removed
+// sd-server's /sdcpp/v1/upscale route (5b80e1f, "use one context with
+// on-demand model loading", leejet/stable-diffusion.cpp#2404); from then
+// on ESRGAN runs only through DGL, which came in master-1116. Every build
+// with DGL takes the script, so a branch or SHA build with no commit count
+// works too.
+func UpscaleUsesDGL(build builder.BuildResult) bool {
+	return BuildHasDGL(build)
+}
+
+// DGLWorkDirs creates and returns the input and output folders of an
+// instance that runs DGL scripts (a video upscaler, or an image upscaler
+// on a build with DGL). sd-server runs in the instance folder, so a DGL
 // script reads input/<job>.<ext> and writes output/<job>.<ext>: sd-server
 // lets DGL write only under output/ of its working folder.
-func VUpscaleWorkDirs(dataDir, instID string) (in, out string, err error) {
+func DGLWorkDirs(dataDir, instID string) (in, out string, err error) {
 	dir := InstanceDir(dataDir, instID)
 	in, out = filepath.Join(dir, "input"), filepath.Join(dir, "output")
 	for _, d := range []string{in, out} {
@@ -48,8 +60,15 @@ func VUpscaleWorkDirs(dataDir, instID string) (in, out string, err error) {
 // vupscaleModelDirs are the folders of a video upscaler set's files, in
 // slot order (dit, then vae), each once.
 func vupscaleModelDirs(set ModelSet) []string {
+	return modelDirs(set, VUpscaleSlots)
+}
+
+// modelDirs are the folders of a set's files in the given slots, in slot
+// order, each once: the --model-dir folders a DGL script loads them from.
+// They are the folders of the files themselves, not of links to them.
+func modelDirs(set ModelSet, slots []string) []string {
 	var dirs []string
-	for _, slot := range VUpscaleSlots {
+	for _, slot := range slots {
 		for _, c := range set.Components {
 			if c.Slot != slot || c.Path == "" {
 				continue

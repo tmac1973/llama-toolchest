@@ -131,6 +131,14 @@ func LaunchSpec(inst Instance, set ModelSet, build builder.BuildResult, host, da
 		if err := linkModelFiles(p.UpscalerDir, set); err != nil {
 			return cfg, err
 		}
+		// Builds with DGL upscale through a DGL script (UpscaleUsesDGL),
+		// which loads the ESRGAN file from under a --model-dir.
+		if UpscaleUsesDGL(build) {
+			if _, _, err := DGLWorkDirs(dataDir, inst.ID); err != nil {
+				return cfg, err
+			}
+			p.ModelDirs = modelDirs(set, []string{UpscalerSlot})
+		}
 		cfg.Name, cfg.HealthURL = "sd-server:"+inst.ID, base+"/v1/models"
 	case KindAce:
 		p.AceModelsDir = filepath.Join(InstanceDir(dataDir, inst.ID), "models")
@@ -142,7 +150,7 @@ func LaunchSpec(inst Instance, set ModelSet, build builder.BuildResult, host, da
 		if !BuildHasDGL(build) {
 			return cfg, fmt.Errorf("video upscaler sets need stable-diffusion.cpp %s or newer (DGL); build %s is older. Build a newer stable-diffusion.cpp on the Builds page, or pick a newer build for this instance", VUpscaleMinBuild, build.ID)
 		}
-		if _, _, err := VUpscaleWorkDirs(dataDir, inst.ID); err != nil {
+		if _, _, err := DGLWorkDirs(dataDir, inst.ID); err != nil {
 			return cfg, err
 		}
 		// --max-vram only from master-1129 (see VUpscaleTakesMaxVRAM).
@@ -208,7 +216,8 @@ type argPaths struct {
 	// UpscalerDir and AceModelsDir are the instance's folders of links for
 	// an upscaler or an ace set.
 	UpscalerDir, AceModelsDir string
-	// ModelDirs are a video upscaler set's --model-dir folders.
+	// ModelDirs are the --model-dir folders of a video upscaler set, or
+	// of an upscaler set on a build with DGL.
 	ModelDirs []string
 }
 
@@ -252,9 +261,17 @@ func buildArgs(set ModelSet, setArgs, extra []string, p argPaths) (args []string
 		// sd-server starts without a diffusion model and offers every
 		// ESRGAN file in --hires-upscalers-dir on /sdcpp/v1/upscale. It
 		// loads the upscaler for each request, so it takes no --max-vram.
+		// Builds with DGL get the file's folder as --model-dir instead,
+		// for the DGL script that replaced that route (UpscaleUsesDGL).
 		add("--listen-ip", p.Host)
 		add("--listen-port", p.Port)
-		add("--hires-upscalers-dir", p.UpscalerDir)
+		if len(p.ModelDirs) > 0 {
+			for _, d := range p.ModelDirs {
+				add("--model-dir", d)
+			}
+		} else {
+			add("--hires-upscalers-dir", p.UpscalerDir)
+		}
 		args = append(args, setArgs...)
 		args = append(args, extra...)
 	case KindVUpscale:

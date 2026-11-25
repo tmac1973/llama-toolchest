@@ -1,0 +1,28 @@
+# version: 0.0.0
+# llama-toolchest image upscale script for ESRGAN upscaler sets. Based on
+# stable-diffusion.cpp src/api/templates/upscale.dgl (master-1132), which
+# replaced sd-server's /sdcpp/v1/upscale route in master-1119. Toolchest
+# fills in the var block. The result is always a PNG; toolchest reads its
+# size from the file.
+
+var {
+    upscaler_path = {{.Upscaler}}
+
+    input_path = {{.Input}}
+    output_path = {{.Output}}
+
+    tile_size = {{.TileSize}}
+    repeats = {{.Repeats}}
+}
+
+fn enlarge(image, index, model) {
+    return upscale(model, image)
+}
+
+fn main() {
+    model = load_upscaler(upscaler_path, tile_size = tile_size)
+    input = image::load(input_path)
+    image = fold(tensor::to_list(tensor::arange(0, repeats)), input, process = enlarge, model = model)
+    image::save(output_path, image)
+    return { done = 1 }
+}

@@ -31,7 +31,8 @@ type fakeDGL struct {
 	submitSC int    // HTTP status for submits; 0 = 202
 	result   string
 	workDir  string
-	requests int // requests after the submit
+	output   []byte // what a completed job writes; nil = "upscaled video"
+	requests int    // requests after the submit
 	seen     map[string]int
 	// cancelable makes POST .../cancel work, as from master-1132; without
 	// it the route answers 404, as before. cancelled counts those posts.
@@ -92,7 +93,11 @@ func (f *fakeDGL) serve(w http.ResponseWriter, r *http.Request) {
 				if m := outputPathRE.FindStringSubmatch(f.sources[len(f.sources)-1]); m != nil {
 					p := filepath.Join(f.workDir, m[1])
 					_ = os.MkdirAll(filepath.Dir(p), 0o755)
-					_ = os.WriteFile(p, []byte("upscaled video"), 0o644)
+					out := f.output
+					if out == nil {
+						out = []byte("upscaled video")
+					}
+					_ = os.WriteFile(p, out, 0o644)
 				}
 			}
 			_, _ = w.Write([]byte(`{"id":"job1","status":"completed","error":null,"result":` + f.result + `}`))

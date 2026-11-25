@@ -35,10 +35,10 @@ var FlagReasons = map[string]string{
 	"--port":                "The instance's own port, from the generation port range.",
 	"--max-vram":            "The instance's VRAM reservation, so stable-diffusion.cpp plans its memory inside it. Measure sets the reservation.",
 	"--lora-model-dir":      "The folder with the set's LoRA files. Each request names the LoRAs to apply.",
-	"--hires-upscalers-dir": "A folder with a link to the set's ESRGAN file. sd-server loads it for each upscale.",
+	"--hires-upscalers-dir": "A folder with a link to the set's ESRGAN file. sd-server loads it for each upscale. Only builds before master-1119 (no DGL) get it.",
 	"--models":              "A folder with links to the set's four files. ace-server loads the models it finds there.",
 	"--max-batch":           "ace-server makes one song at a time. Toolchest queues the others.",
-	"--model-dir":           "The folder of one of the video upscaler set's files. The upscale script loads the files by path, and sd-server lets it load models only from these folders.",
+	"--model-dir":           "The folder of one of the upscaler set's files. The upscale script loads the files by path, and sd-server lets it load models only from these folders.",
 }
 
 // ToolchestFlags are the flags toolchest adds to every instance of a kind

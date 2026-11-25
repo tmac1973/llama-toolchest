@@ -203,6 +203,15 @@ func (s *Server) handleGenImages(w http.ResponseWriter, r *http.Request) {
 // nil) says so, waits for the GPU and forwards the body unchanged to path.
 // check gets the request's content type and body.
 func (s *Server) serveGenSync(w http.ResponseWriter, r *http.Request, kind generation.BackendKind, path string, check func(generation.Instance, string, []byte) *requestError) {
+	s.serveGenSyncWith(w, r, kind, check, func(w http.ResponseWriter, r *http.Request, inst generation.Instance, body []byte) {
+		s.forwardToInstance(w, r, inst, path, body)
+	})
+}
+
+// serveGenSyncWith is serveGenSync with its own last step: serve answers
+// the request once the instance is ready and holds the GPU.
+func (s *Server) serveGenSyncWith(w http.ResponseWriter, r *http.Request, kind generation.BackendKind, check func(generation.Instance, string, []byte) *requestError,
+	serve func(http.ResponseWriter, *http.Request, generation.Instance, []byte)) {
 	if !s.generationOn() || s.gen == nil {
 		writeNotEnabled(w, "image")
 		return
@@ -239,7 +248,7 @@ func (s *Server) serveGenSync(w http.ResponseWriter, r *http.Request, kind gener
 		openAIError(w, http.StatusServiceUnavailable, "server_error", "backend_unavailable", err.Error())
 		return
 	}
-	s.forwardToInstance(w, r, inst, path, body)
+	serve(w, r, inst, body)
 }
 
 // forwardToInstance sends a request to an instance at path and copies the

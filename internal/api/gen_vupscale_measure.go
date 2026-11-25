@@ -101,7 +101,7 @@ func measureClip(w, h, frames int) ([]byte, error) {
 // runMeasureVUpscale upscales a test clip of the chosen size on the
 // instance, which Measure has started without its reservation.
 func (s *Server) runMeasureVUpscale(ctx context.Context, inst generation.Instance, set generation.ModelSet, size generation.VideoSize) error {
-	inDir, outDir, err := generation.VUpscaleWorkDirs(s.cfg.DataDir, inst.ID)
+	inDir, outDir, err := generation.DGLWorkDirs(s.cfg.DataDir, inst.ID)
 	if err != nil {
 		return err
 	}
