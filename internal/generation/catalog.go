@@ -120,11 +120,6 @@ var qwen21TurboArgs = []string{"--sigmas", "qwen-image-2.1-turbo", "--cfg-scale"
 // named Comfy-Org/HunyuanVideo_1.5_repackaged, which now redirects here).
 const hunyuanRepo = "Comfy-Org/Hunyuan-Video-1.5"
 
-// ltx25DistilledSigmas is Lightricks' noise schedule for the distilled LTX
-// pipeline (DISTILLED_SIGMA_VALUES in ltx_pipelines/utils/constants.py,
-// read 2026-11-25): 8 steps.
-const ltx25DistilledSigmas = "1.0,0.99375,0.9875,0.98125,0.975,0.909375,0.725,0.421875,0.0"
-
 // hunyuan720MaxFrames is the longest 720p HunyuanVideo 1.5 video
 // stable-diffusion.cpp can make. 1280×720 is 80×45 latent pixels and every
 // 4 frames are one latent frame, so 69 frames are 18 × 3,600 = 64,800
@@ -720,22 +715,23 @@ func Catalog() []CatalogEntry {
 				{Slot: "vae", Repo: "unsloth/LTX-2.5-GGUF", File: "vae/ltx-2.5-video-vae-conv-bf16.safetensors", Bytes: 1452269922},
 				{Slot: "audio_vae", Repo: "unsloth/LTX-2.5-GGUF", File: "vae/ltx-2.5-audio-vae-bf16.safetensors", Bytes: 364866540},
 			},
-			// --sigmas is Lightricks' DISTILLED_SIGMA_VALUES
-			// (ltx_pipelines/utils/constants.py): 8 steps. The LTX-2.3
-			// set's --temporal-tiling and text model on the CPU, for the
-			// same reasons.
+			// Plain 8-step euler, as the LTX-2.3 set. Lightricks' distilled
+			// schedule (--sigmas with DISTILLED_SIGMA_VALUES) was tried on an
+			// RTX A4000 (2026-11-25, two prompts, seed 42): just as fast,
+			// but softer, with less detail in skin, rock and cloth, so the
+			// user chose plain euler. The LTX-2.3 set's --temporal-tiling
+			// and text model on the CPU, for the same reasons.
 			LaunchArgs: []string{"--steps", "8", "--cfg-scale", "1", "--sampling-method", "euler",
-				"--sigmas", ltx25DistilledSigmas, "--diffusion-fa", "--temporal-tiling",
+				"--diffusion-fa", "--temporal-tiling",
 				"--backend", "te=cpu", "--tensor-type-rules", `^text_encoders\.llm\.=q8_0`},
 			FlagNotes: map[string]string{
-				"--sigmas":            "The noise schedule Lightricks' distilled LTX pipeline uses: 8 steps.",
 				"--temporal-tiling":   "The tiled LTX video decode (--vae-tiling) stopped making progress on ROCm with LTX-2.3. Tiled only in time, the decode needs less VRAM and has no seams.",
-				"--backend te=cpu":    "Runs the 12B Gemma 4 text model on the CPU, which leaves the card's VRAM to the video model.",
+				"--backend te=cpu":    "Runs the 12B Gemma 4 text model on the CPU, which leaves the card's VRAM to the video model. It adds about 65 s to each video (on a Ryzen 9 3950X).",
 				"--tensor-type-rules": "Converts the bf16 Gemma 4 text model to Q8_0 as it loads, so it uses about 13 GB of system RAM, not 26 GB. Lightricks publishes it only as bf16.",
 			},
 			Capabilities: []string{CapText, CapStartImage, CapEndImage},
 			License:      "LTX-2.x Community Licence (free under US$10M yearly revenue); text model: Gemma Terms of Use",
-			Notes:        "The newest LTX model: text-to-video, image-to-video and start-and-end videos with sound, 8 steps. Lightricks says its Gemma 4 text model follows long prompts (several people, camera moves, lighting) better than LTX-2.3's. WebM has a sound track; animated WebP is silent. Up to 5 seconds at 1280×720 (sd-server makes it 1280×736). The text model is a 26 GB download and uses about 13 GB of system RAM. stable-diffusion.cpp has no multishot scenes and no automatic length for LTX-2.5. Licence: free unless the organisation makes US$10 million a year or more; terms at https://huggingface.co/Lightricks/LTX-2.5. Its Gemma 4 text model is under the Gemma Terms of Use.",
+			Notes:        "The newest LTX model: text-to-video, image-to-video and start-and-end videos with sound, 8 steps. Lightricks says its Gemma 4 text model follows long prompts (several people, camera moves, lighting) better than LTX-2.3's. WebM has a sound track; animated WebP is silent. Up to 5 seconds at 1280×720 (sd-server makes it 1280×736). The text model is a 26 GB download and uses about 13 GB of system RAM; on the CPU it takes about 65 s per video. On a 16 GB RTX A4000 (CUDA, stable-diffusion.cpp master-1132): about 110 s for Short and 4 minutes for Medium (65 frames at 1280×720), with 31 GB of system RAM in use. Full (121 frames at 1280×720) came out all white there, with and without flash attention: stable-diffusion.cpp produced no picture. 121 frames at 768×512 and 33 frames at 1280×720 worked. stable-diffusion.cpp has no multishot scenes and no automatic length for LTX-2.5. Licence: free unless the organisation makes US$10 million a year or more; terms at https://huggingface.co/Lightricks/LTX-2.5. Its Gemma 4 text model is under the Gemma Terms of Use.",
 			// 121 frames is 5 s at 24 fps.
 			DefaultWidth:  768,
 			DefaultHeight: 512,
