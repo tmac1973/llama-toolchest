@@ -69,6 +69,16 @@ var errDGLMemory = errors.New("sd.cpp ran out of GPU memory for this clip size o
 // 832x480, 2026-11-24).
 var dglMemoryMarkers = []string{"output shape [] does not match", "vae encode failed", "vae decode failed", "out of memory", "failed to allocate", "cannot make enough memory"}
 
+// dglMemoryError is errDGLMemory with sd.cpp's own words, kept apart so
+// Measure can give them with its own advice.
+type dglMemoryError struct{ sdcpp string }
+
+func (e dglMemoryError) Error() string {
+	return fmt.Sprintf("%s (sd.cpp: %s)", errDGLMemory, e.sdcpp)
+}
+
+func (e dglMemoryError) Is(target error) bool { return target == errDGLMemory }
+
 // runDGLJob runs one DGL script on the instance at base
 // (http://127.0.0.1:port) and returns what it returned. onProgress, when
 // set, hears each change of progress. When ctx ends first, runDGLJob
@@ -205,7 +215,7 @@ func dglError(msg string) error {
 	lower := strings.ToLower(msg)
 	for _, m := range dglMemoryMarkers {
 		if strings.Contains(lower, m) {
-			return fmt.Errorf("%w (sd.cpp: %s)", errDGLMemory, msg)
+			return dglMemoryError{sdcpp: msg}
 		}
 	}
 	switch {

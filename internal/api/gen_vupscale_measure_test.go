@@ -91,7 +91,11 @@ func TestRunMeasureVUpscale(t *testing.T) {
 	inst.Port = atoiPort(t, u.Port())
 	err := s.runMeasureVUpscale(context.Background(), inst, relaySet(), size)
 	if err == nil || !strings.Contains(err.Error(), "ran out of GPU memory at this size") {
-		t.Errorf("OOM: err = %v", err)
+		t.Fatalf("OOM: err = %v", err)
+	}
+	// The advice is Measure's own: said once, and not "measure the instance".
+	if msg := err.Error(); strings.Count(msg, "out of GPU memory") != 1 || strings.Contains(msg, "measure the instance") || !strings.Contains(msg, "cudaMalloc failed") {
+		t.Errorf("OOM text: %s", msg)
 	}
 }
 
