@@ -50,6 +50,7 @@ func TestVideoRecipeCapabilities(t *testing.T) {
 		"wan22-ti2v-5b":   {CapText, CapStartImage},
 		"wan22-i2v":       {CapStartImage, CapEndImage},
 		"ltx23-distilled": {CapText, CapStartImage, CapEndImage},
+		"ltx25-dev":       {CapText, CapStartImage, CapEndImage},
 		"wan22-s2v":       {CapStartImage, CapAudio},
 	} {
 		if got := RecipeCapabilities(recipe, nil); !slices.Equal(got, want) {
@@ -172,6 +173,8 @@ func TestCatalogReposAllowed(t *testing.T) {
 		"Kijai/WanVideo_comfy",
 		"unsloth/LTX-2.3-GGUF",
 		"unsloth/gemma-3-12b-it-GGUF",
+		// Not gated; checked 2026-11-25 (Lightricks/LTX-2.5 is).
+		"unsloth/LTX-2.5-GGUF",
 		"Comfy-Org/Hunyuan-Video-1.5",
 		"jayn7/HunyuanVideo-1.5_I2V_480p-GGUF",
 		"jayn7/HunyuanVideo-1.5_I2V_720p-GGUF",

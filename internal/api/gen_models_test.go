@@ -495,6 +495,7 @@ func TestGenCatalogTags(t *testing.T) {
 		"wan22-i2v-a14b":     {"start image", "end image"},
 		"wan22-s2v-14b":      {"start image", "audio"},
 		"ltx23-distilled":    {"text", "start image", "end image"},
+		"ltx25-distilled":    {"text", "start image", "end image"},
 		"hunyuan15-t2v-480p": {"text"},
 		"hunyuan15-i2v-480p": {"start image"},
 	} {

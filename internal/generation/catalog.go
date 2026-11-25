@@ -690,6 +690,66 @@ func Catalog() []CatalogEntry {
 			// The LTX VAE scales by 32.
 			SizeMultiple: 32,
 		},
+		{
+			// LTX-2.5 (Lightricks, August 2026): the distilled weights with
+			// sd.cpp's ltx25-dev recipe, which is the only LTX-2.5 recipe
+			// (sd.cpp master-833 and later). The recipe's defaults are the
+			// dev model's (20 steps, CFG 3); the flags below are the
+			// distilled pipeline's.
+			ID:     "ltx25-distilled",
+			Name:   "LTX-2.5 distilled (Q4)",
+			Kind:   KindVideo,
+			Recipe: "ltx25-dev",
+			Components: []Component{
+				// Unsloth's dynamic Q4: 0.4 GB more than Q4_K_M, with less
+				// error against bf16 (19.4 against 18.1 dB PSNR, Unsloth's
+				// table). The GGUF holds the embeddings connectors.
+				{Slot: "diffusion_model", Repo: "unsloth/LTX-2.5-GGUF", File: "distilled/ltx-2.5-22b-distilled-UD-Q4_K_XL.gguf", Bytes: 14000234880},
+				// LTX's own Gemma 4 12B with the text projection; stock Gemma
+				// 4 does not work. There is no GGUF of it that sd.cpp is
+				// known to read, so the bf16 file is converted to Q8_0 as
+				// it loads (--tensor-type-rules).
+				{Slot: "llm", Repo: "unsloth/LTX-2.5-GGUF", File: "text_encoders/gemma4-12b-with-proj-ltx-2.5-bf16.safetensors", Bytes: 26263858182},
+				// The conv VAE: sd.cpp does not implement the default
+				// ltx-2.5-video-vae-bf16 file, a diffusion decoder.
+				{Slot: "vae", Repo: "unsloth/LTX-2.5-GGUF", File: "vae/ltx-2.5-video-vae-conv-bf16.safetensors", Bytes: 1452269922},
+				{Slot: "audio_vae", Repo: "unsloth/LTX-2.5-GGUF", File: "vae/ltx-2.5-audio-vae-bf16.safetensors", Bytes: 364866540},
+			},
+			// Plain 8-step euler, as the LTX-2.3 set. Lightricks' distilled
+			// schedule (--sigmas with DISTILLED_SIGMA_VALUES) was tried on an
+			// RTX A4000 (2026-11-25, two prompts, seed 42): just as fast,
+			// but softer, with less detail in skin, rock and cloth, so the
+			// user chose plain euler. The LTX-2.3 set's --temporal-tiling
+			// and text model on the CPU, for the same reasons.
+			LaunchArgs: []string{"--steps", "8", "--cfg-scale", "1", "--sampling-method", "euler",
+				"--diffusion-fa", "--temporal-tiling",
+				"--backend", "te=cpu", "--tensor-type-rules", `^text_encoders\.llm\.=q8_0`},
+			FlagNotes: map[string]string{
+				"--temporal-tiling":   "The tiled LTX video decode (--vae-tiling) stopped making progress on ROCm with LTX-2.3. Tiled only in time, the decode needs less VRAM and has no seams.",
+				"--backend te=cpu":    "Runs the 12B Gemma 4 text model on the CPU, which leaves the card's VRAM to the video model. It adds about 65 s to each video (on a Ryzen 9 3950X).",
+				"--tensor-type-rules": "Converts the bf16 Gemma 4 text model to Q8_0 as it loads, so it uses about 13 GB of system RAM, not 26 GB. Lightricks publishes it only as bf16.",
+			},
+			Capabilities: []string{CapText, CapStartImage, CapEndImage},
+			License:      "LTX-2.x Community Licence (free under US$10M yearly revenue); text model: Gemma Terms of Use",
+			Notes:        "The newest LTX model: text-to-video, image-to-video and start-and-end videos with sound, 8 steps. Lightricks says its Gemma 4 text model follows long prompts (several people, camera moves, lighting) better than LTX-2.3's. WebM has a sound track; animated WebP is silent. Up to 5 seconds at 1280×720 (sd-server makes it 1280×736). The text model is a 26 GB download and uses about 13 GB of system RAM; on the CPU it takes about 60 s per video. On a Radeon AI PRO R9700 (32 GB, ROCm, stable-diffusion.cpp master-1132): about 3 minutes 45 seconds for 5 s at 1280×720 (sampling 110 s, decode 40 s), with about 22 GiB of VRAM and 20 GB of system RAM in use. On a 16 GB RTX A4000 (CUDA, stable-diffusion.cpp master-1132): about 110 s for Short and 4 minutes for Medium (65 frames at 1280×720), with 31 GB of system RAM in use. Full (121 frames at 1280×720) came out all white there, with and without flash attention: stable-diffusion.cpp produced no picture. 121 frames at 768×512 and 33 frames at 1280×720 worked. On the R9700, Full works. stable-diffusion.cpp has no multishot scenes and no automatic length for LTX-2.5. Licence: free unless the organisation makes US$10 million a year or more; terms at https://huggingface.co/Lightricks/LTX-2.5. Its Gemma 4 text model is under the Gemma Terms of Use.",
+			// 121 frames is 5 s at 24 fps.
+			DefaultWidth:  768,
+			DefaultHeight: 512,
+			DefaultFrames: 33,
+			DefaultFPS:    24,
+			MaxFrames:     121,
+			MaxWidth:      1280,
+			MaxHeight:     720,
+			VideoSizes: []VideoSize{
+				{Label: "Short", Frames: 33, Width: 768, Height: 512},
+				{Label: "Medium", Frames: 65, Width: 1280, Height: 720},
+				{Label: "Full", Frames: 121, Width: 1280, Height: 720},
+			},
+			// Not measured yet; LTX-2.3's figure until the field test.
+			FullMeasureTime: "Not measured yet. On a Radeon AI PRO R9700, measuring Full for LTX-2.3 took about 2 minutes; the first load of LTX-2.5 takes longer, as the text model is converted.",
+			// The LTX VAE scales by 32.
+			SizeMultiple: 32,
+		},
 		hunyuanEntry("hunyuan15-i2v-480p-step-distilled", "HunyuanVideo 1.5 I2V 480p step-distilled", "hunyuan-video-15-i2v",
 			// No GGUF of the step-distilled model exists. The scaled fp8 file
 			// (8.3 GB) made the same video as the fp16 one (16.7 GB) and as

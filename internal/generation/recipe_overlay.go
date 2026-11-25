@@ -38,7 +38,7 @@ var recipeLabels = map[string]map[string]string{
 	"wan22-s2v":            {"t5xxl": "UMT5-XXL text encoder", "vae": "Wan2.1 VAE", "audio_encoder": "wav2vec2 audio encoder (Large English)"},
 	"ltx23-distilled":      ltx23Labels,
 	"ltx23-dev":            ltx23Labels,
-	"ltx25-dev":            {"llm": "LTX-2.5 Gemma 4 12B text model (with projection)", "vae": "LTX-2.5 video VAE", "audio_vae": "LTX-2.5 audio VAE"},
+	"ltx25-dev":            {"llm": "LTX-2.5 Gemma 4 12B text model (with projection)", "vae": "LTX-2.5 conv video VAE", "audio_vae": "LTX-2.5 audio VAE"},
 	"hunyuan-video-15-t2v": hunyuanLabels,
 	"hunyuan-video-15-i2v": hunyuanLabels,
 	"lingbot-video-dense":  {"llm": "Qwen3-VL 4B text model", "vae": "Wan2.1 VAE"},

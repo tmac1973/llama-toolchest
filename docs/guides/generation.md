@@ -28,6 +28,14 @@ stable-diffusion.cpp master-1116 removed the separate settings for the high-nois
 
 Older builds still need these flags, because without them the high-noise expert uses its own default of CFG 7. So the Wan2.2 I2V A14B sets keep them. When an instance starts, toolchest reads the build's `sd-server --help`. If the build does not list one of these flags, toolchest leaves the flag and its value out. *Details* still shows the flags. In the catalog sets, each one has the same value as the flag that replaces it, so the video does not change. If a custom set or an instance gives the high-noise expert a different value, llama-toolchest's log has a warning, and the high-noise expert uses the low-noise value.
 
+## LTX-2.5 { #ltx-2-5 }
+
+The LTX-2.5 distilled set is the newest LTX model from Lightricks. Like LTX-2.3, it makes video from text, a start image, or a start and an end image, with a sound track in WebM. Its text model is a version of Gemma 4 12B made for LTX, and Lightricks says it keeps hold of long prompts with several people, camera moves and lighting better than LTX-2.3 did.
+
+That text model is only published as a 26 GB bf16 file. The set converts it to Q8_0 while it loads (`--tensor-type-rules`) and runs it on the CPU, so it needs about 13 GB of system RAM and the first load takes longer. Plan for about 42 GB of downloads in all.
+
+LTX-2.5 needs stable-diffusion.cpp master-833 or newer. stable-diffusion.cpp does not support two LTX-2.5 features: multishot scenes, and choosing the length from the prompt. Always send `frames` or `seconds`, or the set's default length is used.
+
 ## Speech-to-video { #speech-to-video }
 
 Wan2.2 S2V (the `wan22-s2v` recipe) makes the person in a picture speak or sing along with an audio track. A set for it needs one more file than the other Wan sets, the *Audio encoder* (wav2vec2 Large English), and it has the `start_image` and `audio` capabilities.
