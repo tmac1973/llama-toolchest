@@ -116,7 +116,7 @@ flowchart LR
 
 In *Add a custom set*, choose the *Video upscaler* backend, then the *Script*, the two files and the scale. The files must match the script, and for RelayVSR the scale must match the files: the ×2 and ×4 files are different models, and the form refuses a mismatch when the file name says which one it is. SeedVR2 can make a clip 2, 3 or 4 times larger with the same files.
 
-For SeedVR2 7B Sharp, use `diffusion_models/seedvr2_7b_sharp_int8_convrot.safetensors` (8.3 GB) and `vae/seedvr2_ema_vae_fp16.safetensors` from [Comfy-Org/SeedVR2](https://huggingface.co/Comfy-Org/SeedVR2). That repository also has fp16, fp8, mxfp8 and nvfp4 variants, but stable-diffusion.cpp's guide names only the int8_convrot files.
+For SeedVR2 7B Sharp, use `diffusion_models/seedvr2_7b_sharp_int8_convrot.safetensors` (8.3 GB) and `vae/seedvr2_ema_vae_fp16.safetensors` from [Comfy-Org/SeedVR2](https://huggingface.co/Comfy-Org/SeedVR2). That repository also has fp16, fp8, mxfp8 and nvfp4 variants, but stable-diffusion.cpp's guide names only the int8_convrot files. On a 16 GiB RTX A4000 the 7B model peaked at 14.0 GiB for 33 frames at 832×480 and took 155 s for that clip, about 1.2 times as long per frame as the 3B set. Memory grows with the frame count, so on a 16 GiB card measure it at the clip length you need.
 
 ### Measure { #video-upscaling-measure }
 
