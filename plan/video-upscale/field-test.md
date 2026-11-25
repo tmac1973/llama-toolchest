@@ -102,4 +102,14 @@ The same day, by hand: sd-server `sd-master-1132-5fa203c-cuda` started in the co
 
 Finding 1 above is fixed upstream: under a limit, master-1132 keeps part of the weights in RAM and the job completes, a little slower. The peak can still go past the limit (SeedVR2 at 8 GiB peaked 1.3 GiB over it), so a limit needs a measured peak, as for other kinds. A limit does not help when the runtime memory alone is too large: RelayVSR ×4 at 832×480 held about 13 GB of runtime memory and failed under both limits. sd-server's own job error was `{"code": "out_of_memory", ...}`, which is what PR #715 reads.
 
-Toolchest still starts upscaler instances without `--max-vram`. Turning it back on for builds from master-1129 is a separate change.
+### `--max-vram` turned back on for master-1129 and newer
+
+Test build 2.67.0-dgl715b-test (this PR with the change), same machine and build. Measure ran with `start=1`; the clip for the jobs is clip C unless noted.
+
+| Instance | Measure | Instance after start | Job |
+| --- | --- | --- | --- |
+| relayvsr-x2 (832×480, 33 frames, window 16) | inside `--max-vram 13.9` (the room); peak 8,083 MiB, reservation 9,216 MiB | `--max-vram 9.0` | succeeded, 9 s; the 832×480 Measure clip: succeeded, 18 s, 1664×960, card peak 9,415 MiB |
+| seedvr2-3b (832×480, 33 frames, window 1) | inside `--max-vram 13.9`; peak 9,701 MiB, reservation 10,752 MiB | `--max-vram 10.5` | succeeded, 49 s |
+| relayvsr-x4 (512×288, 33 frames, window 16) | peak 11,077 MiB, reservation 12,288 MiB | – | – |
+
+The Server page's reservation tooltip says "sd-server stays within this amount" for the two instances on master-1132 and "The video upscaler has no limit" for seedvr2-7b-sharp, still on master-1116. As for image and video instances, the card's peak can pass `--max-vram` by a few hundred MiB (9,415 MiB under a 9.0 GiB limit), since the limit leaves out the CUDA context.

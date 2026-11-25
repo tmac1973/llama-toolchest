@@ -139,6 +139,28 @@ func TestLaunchSpecVUpscale(t *testing.T) {
 		t.Errorf("%d --model-dir flags: %v", n, cfg.Args)
 	}
 
+	// From master-1129 the instance runs inside its reservation, and a
+	// test run inside the room it is given.
+	build.CommitCount = 1129
+	cfg, err = LaunchSpec(inst, set, build, "", data, LaunchOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Args[len(cfg.Args)-2:]; !slices.Equal(got, []string{"--max-vram", "6.0"}) {
+		t.Errorf("master-1129 args end %q, want --max-vram 6.0", got)
+	}
+	cfg, err = LaunchSpec(inst, set, build, "", data, LaunchOptions{MaxVRAMMiB: 15 << 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Args[len(cfg.Args)-2:]; !slices.Equal(got, []string{"--max-vram", "15.0"}) {
+		t.Errorf("test run args end %q, want --max-vram 15.0", got)
+	}
+	build.CommitCount = 1128
+	if cfg, _ = LaunchSpec(inst, set, build, "", data, LaunchOptions{MaxVRAMMiB: 15 << 10}); slices.Contains(cfg.Args, "--max-vram") {
+		t.Errorf("master-1128 args have --max-vram: %q", cfg.Args)
+	}
+
 	// A build without DGL is refused.
 	old := builder.BuildResult{ID: "sd-1106-rocm", Profile: "rocm", BinaryPath: fakeSDServer(t, "--steps N\n")}
 	if _, err := LaunchSpec(inst, set, old, "", data, LaunchOptions{}); err == nil || !strings.Contains(err.Error(), "need stable-diffusion.cpp master-1116 or newer (DGL); build sd-1106-rocm is older") {

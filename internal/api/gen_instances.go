@@ -55,6 +55,9 @@ type genInstanceRow struct {
 	VideoJSON     string               `json:"-"`
 	// VUpscaleJSON is what a video upscaler's Measure dialog offers.
 	VUpscaleJSON string `json:"-"`
+	// VUpscaleLimited is true when a video upscaler's build runs it
+	// inside --max-vram (stable-diffusion.cpp master-1129 and newer).
+	VUpscaleLimited bool `json:"-"`
 	// MeasuredStale is true when the last measurement ran with other
 	// backend flags than the instance has now (see measuredStale).
 	MeasuredStale bool `json:"measured_stale,omitempty"`
@@ -294,6 +297,7 @@ func (s *Server) genInstanceRows(store *generation.Store) []genInstanceRow {
 		if b := s.resolveBackendBuild(string(row.Kind), inst.BuildID); b != nil {
 			row.BuildLabel = b.ID
 			row.WebUIURL, row.WebUINote = s.genWebUILink(b, inst, row.Status.State == process.StateRunning)
+			row.VUpscaleLimited = row.Kind == generation.KindVUpscale && generation.VUpscaleTakesMaxVRAM(*b)
 			if row.Kind == generation.KindVUpscale && !generation.BuildHasDGL(*b) {
 				row.BuildNote = "Build " + b.ID + " has no DGL. Video upscaler sets need stable-diffusion.cpp " + generation.VUpscaleMinBuild + " or newer."
 			}
