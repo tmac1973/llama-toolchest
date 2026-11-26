@@ -25,6 +25,7 @@ flowchart LR
 - **Video test:** a video test runs one sampling step (one per expert for Wan2.2 A14B) and the whole decode. The peak is in the decode; the other steps only add time. After the instance makes a real video, its row shows how long it took.
 - **Predicted sizes:** after two sizes are measured, the Measure dialog shows for each other size what it should need, and if it fits the card. The prediction is a line through the two measurements: memory grows with frames × width × height. Near the card limit, sd.cpp can decode in parts, which bends the line. So only Measure grants a size.
 - **Measure inside a budget:** *Measure inside* sets a budget smaller than the whole room, to leave space for other models. sd.cpp then keeps weights in system RAM and decodes in parts, so videos are slower. The instance keeps that budget after.
+- **Space for scratch memory:** a video instance runs sd-server with a `--max-vram` 2 GiB below its room, budget or reservation (at most half of it). ggml takes the scratch memory of single steps from outside `--max-vram`, and when that runs out, sd-server stops at once instead of decoding in parts. The reservation still counts the whole peak.
 - **When Measure stops:** when the size needs more than the card has, or when the test stops making progress: the GPU idle and the backend silent for 5 minutes, as a stuck tiled decode on a Radeon card does. It says how far it got.
 
 ## Planned, not held { #planned }

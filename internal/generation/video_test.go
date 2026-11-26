@@ -95,7 +95,7 @@ func TestLaunchSpecVideo(t *testing.T) {
 		t.Fatal(err)
 	}
 	args := strings.Join(cfg.Args, " ")
-	for _, want := range []string{"--diffusion-model /m/low.gguf", "--high-noise-diffusion-model /m/high.gguf", "--t5xxl /m/umt5.gguf", "--max-vram 20.0"} {
+	for _, want := range []string{"--diffusion-model /m/low.gguf", "--high-noise-diffusion-model /m/high.gguf", "--t5xxl /m/umt5.gguf", "--max-vram 18.0"} {
 		if !strings.Contains(args, want) {
 			t.Errorf("args %q lack %q", args, want)
 		}
