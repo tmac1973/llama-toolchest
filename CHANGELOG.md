@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.68.0](https://github.com/tmac1973/llama-toolchest/compare/v2.67.0...v2.68.0) (2026-11-26)
+
+
+### Features
+
+* **generation:** add an LTX-2.5 distilled catalog set ([#718](https://github.com/tmac1973/llama-toolchest/issues/718)) ([50a5def](https://github.com/tmac1973/llama-toolchest/commit/50a5defdef669f0d0fc3624ebac92ba53c39356a)), closes [#716](https://github.com/tmac1973/llama-toolchest/issues/716)
+* **generation:** per-instance choice to run the text model on the GPU ([#720](https://github.com/tmac1973/llama-toolchest/issues/720)) ([e00d914](https://github.com/tmac1973/llama-toolchest/commit/e00d914b2055a20c1e99c2833a7c449f50bac15f)), closes [#719](https://github.com/tmac1973/llama-toolchest/issues/719)
+* **generation:** Wan2.2 T2V A14B catalog sets, high-noise settings per request ([#724](https://github.com/tmac1973/llama-toolchest/issues/724)) ([d02dbab](https://github.com/tmac1973/llama-toolchest/commit/d02dbabdb5ff0c5e74d315a054e131bd92da54e1)), closes [#717](https://github.com/tmac1973/llama-toolchest/issues/717)
+
+
+### Bug Fixes
+
+* **api:** say a video upscaler Measure ran out of GPU memory once ([#713](https://github.com/tmac1973/llama-toolchest/issues/713)) ([c526b97](https://github.com/tmac1973/llama-toolchest/commit/c526b97b837b661532e62b9179a89010c67c4371))
+* **generation:** adapt video upscalers to sd.cpp master-1129/1132 (OOM code, DGL cancel, --max-vram) ([#715](https://github.com/tmac1973/llama-toolchest/issues/715)) ([3f831e6](https://github.com/tmac1973/llama-toolchest/commit/3f831e61ddeb59c3160c175ae3c06b0f669b19d7))
+* **generation:** leave 2 GiB of a video instance's limit free under --max-vram ([#730](https://github.com/tmac1973/llama-toolchest/issues/730)) ([eb5acae](https://github.com/tmac1973/llama-toolchest/commit/eb5acaef70a2854f0b32e5745b62794052d50730))
+* **generation:** run ESRGAN upscales as a DGL script on sd.cpp builds with DGL ([#721](https://github.com/tmac1973/llama-toolchest/issues/721)) ([#722](https://github.com/tmac1973/llama-toolchest/issues/722)) ([0a98a58](https://github.com/tmac1973/llama-toolchest/commit/0a98a5875b7003ab5e7f98e16fe6cc97255a125f))
+
 ## [2.67.0](https://github.com/tmac1973/llama-toolchest/compare/v2.66.0...v2.67.0) (2026-11-25)
 
 
