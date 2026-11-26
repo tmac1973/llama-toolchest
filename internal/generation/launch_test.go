@@ -367,3 +367,28 @@ func TestCheckLoraArgs(t *testing.T) {
 		t.Errorf("a set without LoRAs: %v", err)
 	}
 }
+
+// A video instance's --max-vram leaves videoScratchMiB free for ggml's
+// scratch memory, which --max-vram does not count; a small limit keeps at
+// least half. Image instances keep the whole limit.
+func TestSDMaxVRAMVideoScratch(t *testing.T) {
+	room := 31539 // 30.8 GiB, the R9700 room of 2026-11-26
+	cases := []struct {
+		kind BackendKind
+		inst Instance
+		opts LaunchOptions
+		want string
+	}{
+		{KindVideo, Instance{}, LaunchOptions{MaxVRAMMiB: room}, "28.7"},
+		{KindVideo, Instance{BudgetMiB: 24 << 10}, LaunchOptions{}, "22.0"},
+		{KindVideo, Instance{ReservedMiB: 3 << 10}, LaunchOptions{}, "1.5"},
+		{KindVideo, Instance{}, LaunchOptions{}, ""},
+		{KindSD, Instance{}, LaunchOptions{MaxVRAMMiB: room}, "30.7"},
+		{KindSD, Instance{ReservedMiB: 3 << 10}, LaunchOptions{}, "3.0"},
+	}
+	for _, c := range cases {
+		if got := sdMaxVRAM(c.kind, c.inst, c.opts); got != c.want {
+			t.Errorf("%s %+v %+v: --max-vram %q, want %q", c.kind, c.inst, c.opts, got, c.want)
+		}
+	}
+}

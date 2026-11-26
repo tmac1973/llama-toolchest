@@ -21,17 +21,42 @@ type LaunchOptions struct {
 }
 
 // sdMaxVRAM is sd-server's --max-vram for an instance: the test run's room,
-// else the instance's budget, else its reservation; empty for none.
-func sdMaxVRAM(inst Instance, opts LaunchOptions) string {
+// else the instance's budget, else its reservation; empty for none. A
+// video set's limit leaves videoScratchMiB of it free (see
+// videoMaxVRAMMiB).
+func sdMaxVRAM(kind BackendKind, inst Instance, opts LaunchOptions) string {
+	limit := 0
 	switch {
 	case opts.MaxVRAMMiB > 0:
-		return maxVRAMGiB(opts.MaxVRAMMiB)
+		limit = opts.MaxVRAMMiB
 	case inst.BudgetMiB > 0:
-		return maxVRAMGiB(inst.BudgetMiB)
+		limit = inst.BudgetMiB
 	case inst.ReservedMiB > 0:
-		return maxVRAMGiB(inst.ReservedMiB)
+		limit = inst.ReservedMiB
+	default:
+		return ""
 	}
-	return ""
+	if kind == KindVideo {
+		limit = videoMaxVRAMMiB(limit)
+	}
+	return maxVRAMGiB(limit)
+}
+
+// videoScratchMiB is the part of a video instance's limit that sd-server's
+// --max-vram leaves free. ggml takes the scratch memory of single
+// operations from a separate pool that --max-vram does not count, and when
+// that allocation fails, sd-server aborts: sd.cpp's fallback to a tiled
+// decode runs only when the planned graph does not fit. HunyuanVideo 1.5
+// at 1280x720 on sd.cpp master-1132 filled a 30.8 GiB --max-vram in the
+// decode, then failed to get 1.4 GiB of scratch with 0.7 GiB left on the
+// card, and aborted at 31.2 GiB (R9700, 2026-11-26). On master-1006 the
+// same decode failed in the planned graph and fell back to tiles.
+const videoScratchMiB = 2048
+
+// videoMaxVRAMMiB is the --max-vram, in MiB, for a video instance held to
+// limit: videoScratchMiB less, but never below half of limit.
+func videoMaxVRAMMiB(limit int) int {
+	return max(limit-videoScratchMiB, limit/2)
 }
 
 // deviceEnvVar is the variable that limits a backend process to one GPU,
@@ -124,7 +149,7 @@ func LaunchSpec(inst Instance, set ModelSet, build builder.BuildResult, host, da
 		if p.LoraDir, err = LoraDir(set); err != nil {
 			return cfg, fmt.Errorf("model set %s: %w", set.ID, err)
 		}
-		p.MaxVRAM = sdMaxVRAM(inst, opts)
+		p.MaxVRAM = sdMaxVRAM(set.Kind, inst, opts)
 		cfg.Name, cfg.HealthURL = "sd-server:"+inst.ID, base+"/v1/models"
 	case KindUpscale:
 		p.UpscalerDir = filepath.Join(InstanceDir(dataDir, inst.ID), "upscalers")
@@ -155,7 +180,7 @@ func LaunchSpec(inst Instance, set ModelSet, build builder.BuildResult, host, da
 		}
 		// --max-vram only from master-1129 (see VUpscaleTakesMaxVRAM).
 		if VUpscaleTakesMaxVRAM(build) {
-			p.MaxVRAM = sdMaxVRAM(inst, opts)
+			p.MaxVRAM = sdMaxVRAM(set.Kind, inst, opts)
 		}
 		p.ModelDirs = vupscaleModelDirs(set)
 		cfg.Name, cfg.HealthURL = "sd-server:"+inst.ID, base+"/v1/models"

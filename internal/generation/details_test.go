@@ -41,7 +41,13 @@ func TestDetailsCommandMatchesLaunchSpec(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", set.ID, err)
 		}
-		got := strings.NewReplacer(markerHost, "0.0.0.0", markerPort, "8091", markerVRAM, "10.0",
+		// A video set's --max-vram leaves videoScratchMiB of the
+		// reservation free.
+		vram := "10.0"
+		if set.Kind == KindVideo {
+			vram = "8.0"
+		}
+		got := strings.NewReplacer(markerHost, "0.0.0.0", markerPort, "8091", markerVRAM, vram,
 			markerInstance, InstanceDir(data, "i")).Replace(d.Command)
 		want := d.Program + " " + strings.Join(cfg.Args, " ")
 		if got != want {
