@@ -33,21 +33,26 @@ func TestCatalogEntriesAreValid(t *testing.T) {
 }
 
 // Ming-Image is the one freely licensed model with an alpha channel, and
-// Haruspex uses it, so it leads the image sets.
+// Haruspex uses it, so its two versions lead the image sets, the newer
+// one first.
 func TestCatalogMingImageFirst(t *testing.T) {
+	var got []string
 	for _, e := range Catalog() {
 		if e.Kind != KindSD {
 			continue
 		}
-		if e.ID != "ming-image" || !slices.Contains(e.Capabilities, "alpha") {
-			t.Fatalf("first image set = %s %v, want ming-image with alpha", e.ID, e.Capabilities)
+		if len(got) == 2 {
+			break
 		}
-		if e.Components[0].Repo != "voltaire321/Ming-Image-0.1-Design-GGUF" {
-			t.Errorf("Ming-Image DiT comes from %s", e.Components[0].Repo)
+		if !slices.Contains(e.Capabilities, "alpha") {
+			t.Fatalf("image set %s has no alpha", e.ID)
 		}
-		return
+		got = append(got, e.ID+" "+e.Components[0].Repo)
 	}
-	t.Fatal("no image sets in the catalog")
+	want := []string{"ming-image-0.2 voltaire321/Ming-Image-0.2-Design-GGUF", "ming-image voltaire321/Ming-Image-0.1-Design-GGUF"}
+	if !slices.Equal(got, want) {
+		t.Errorf("first image sets = %v, want %v", got, want)
+	}
 }
 
 // The ACE-Step sets differ only in their DiT, so a second download fetches

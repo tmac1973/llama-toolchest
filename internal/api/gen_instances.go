@@ -307,6 +307,9 @@ func (s *Server) genInstanceRows(store *generation.Store) []genInstanceRow {
 			if row.Kind == generation.KindVUpscale && !generation.BuildHasDGL(*b) {
 				row.BuildNote = "Build " + b.ID + " has no DGL. Video upscaler sets need stable-diffusion.cpp " + generation.VUpscaleMinBuild + " or newer."
 			}
+			if p := generation.MingBuildProblem(sets[inst.ModelSetID].Recipe, *b); p != "" {
+				row.BuildNote = p + "."
+			}
 		}
 		snap := s.genQueue.Snapshot(inst.GPU)
 		if snap.Running != nil {

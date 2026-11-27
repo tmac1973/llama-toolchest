@@ -117,7 +117,7 @@ jq -n --rawfile img <(base64 -w0 fox.png) '{model: "real-esrgan-x4plus", image: 
 curl $BASE/v1/videos/generations -F prompt="the waves start to roll" -F start_image=@photo.png
 ```
 
-**Transparent backgrounds with Ming-Image** need both: a prompt that starts with `RGBA, 4-channel, transparent background.`, and a fully transparent start image of the output size at strength 0.9, in an `<sd_cpp_extra_args>` block (84–89% of pixels came back clear):
+**Transparent backgrounds with Ming-Image**{ #ming-transparent } need both: a prompt that starts with `RGBA, 4-channel, transparent background.`, and a fully transparent start image of the output size at strength 0.9, in an `<sd_cpp_extra_args>` block. With 0.1 (`ming-image`), 84–89% of pixels came back clear; with 0.2 (`ming-image-0.2`), about 94%, with cleaner edges:
 
 ```json
 {"model": "ming-image", "size": "1024x1024", "response_format": "b64_json",

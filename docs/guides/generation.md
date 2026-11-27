@@ -28,6 +28,21 @@ stable-diffusion.cpp master-1116 removed the separate settings for the high-nois
 
 Older builds still need these flags, because without them the high-noise expert uses its own default of CFG 7. So the Wan2.2 A14B sets keep them. When an instance starts, toolchest reads the build's `sd-server --help`. If the build does not list one of these flags, toolchest leaves the flag and its value out. *Details* still shows the flags. In the catalog sets, each one has the same value as the flag that replaces it, so the video does not change. If a custom set or an instance gives the high-noise expert a different value, llama-toolchest's log has a warning, and the high-noise expert uses the low-noise value. A request cannot set them either: newer builds refuse high-noise settings other than the step count in a request (*requires an explicit DGL workflow*). That is why Wan2.2 T2V A14B uses CFG 3.5 on both experts, where Wan itself uses 4 and 3.
 
+## Ming-Image { #ming-image }
+
+Ming-Image from inclusionAI makes images for design work: posters, UI drafts, product shots and pictures with a lot of text. It is also the one freely licensed image model in the catalog that makes PNGs with transparent backgrounds. The catalog has two versions:
+
+- **Ming-Image 0.2 Design** (`ming-image-0.2`) is the newer one. inclusionAI retrained the image model and the part that connects it to the text model; the text model itself, the tokenizer and the VAE did not change. In our side-by-side tests it spelled text more cleanly, kept pixel art crisper, and gave transparent images clean edges where 0.1 left a white outline.
+- **Ming-Image 0.1 Design** (`ming-image`) is the version Haruspex uses. It stays in the catalog, so existing instances and API calls keep working.
+
+Both use the same settings and about the same memory: the 10 GB text model runs on the CPU, so a set needs about 10.5 GiB of VRAM. They share the VAE, so the second version downloads only its own image model, text model and tokenizer (about 17 GB).
+
+For transparent backgrounds, see [the API page](../api.md#ming-transparent).
+
+### Builds that cannot run Ming-Image { #ming-image-builds }
+
+stable-diffusion.cpp master-1116 to master-1141 take Ming-Image for Z-Image and stop with *cap_pad_token not in model metadata*. master-1142 fixed this. On one of those builds, a Ming-Image instance does not start: the start is refused with a message that names the builds that work, and the Server page shows the same note under the instance. Build master-1142 or newer on Builds, or pick another build for the instance. Builds from before master-1116 still work.
+
 ## LTX-2.5 { #ltx-2-5 }
 
 The LTX-2.5 distilled set is the newest LTX model from Lightricks. Like LTX-2.3, it makes video from text, a start image, or a start and an end image, with a sound track in WebM. Its text model is a version of Gemma 4 12B made for LTX, and Lightricks says it keeps hold of long prompts with several people, camera moves and lighting better than LTX-2.3 did.
