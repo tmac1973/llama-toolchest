@@ -22,7 +22,7 @@ import (
 // poll_url, as before. The other form answers 404. Each job runs for polls
 // status polls, then ends with fail (when set) or completes with result.
 // When workDir is set, a completed job writes its script's output_path
-// there, as sd-server would.
+// there, as sd-server would, and inputs keeps each script's input file.
 type fakeDGL struct {
 	t        *testing.T
 	srv      *httptest.Server
@@ -34,8 +34,9 @@ type fakeDGL struct {
 	submitSC int    // HTTP status for submits; 0 = 202
 	result   string
 	workDir  string
-	output   []byte // what a completed job writes; nil = "upscaled video"
-	requests int    // requests after the submit
+	output   []byte   // what a completed job writes; nil = "upscaled video"
+	inputs   [][]byte // with workDir: each script's input_path file at submit
+	requests int      // requests after the submit
 	seen     map[string]int
 	// cancelable makes POST .../cancel work, as from master-1132; without
 	// it the route answers 404, as before. cancelled counts those posts.
@@ -60,7 +61,10 @@ func newFakeDGL(t *testing.T) *fakeDGL {
 	return f
 }
 
-var outputPathRE = regexp.MustCompile(`output_path = "([^"]+)"`)
+var (
+	outputPathRE = regexp.MustCompile(`output_path = "([^"]+)"`)
+	inputPathRE  = regexp.MustCompile(`input_path = "([^"]+)"`)
+)
 
 func (f *fakeDGL) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
@@ -78,6 +82,10 @@ func (f *fakeDGL) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		f.sources = append(f.sources, body.Source)
+		if m := inputPathRE.FindStringSubmatch(body.Source); m != nil && f.workDir != "" {
+			in, _ := os.ReadFile(filepath.Join(f.workDir, m[1]))
+			f.inputs = append(f.inputs, in)
+		}
 		w.WriteHeader(http.StatusAccepted)
 		if f.legacy {
 			_, _ = w.Write([]byte(`{"id":"job1","kind":"dgl","status":"queued"}`))

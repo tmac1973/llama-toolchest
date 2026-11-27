@@ -193,8 +193,10 @@ func (s *Server) runUpscaleDGL(ctx context.Context, inst generation.Instance, se
 	name := "upscale-" + hex.EncodeToString(idb[:]) + ".png"
 	in, out := filepath.Join(inDir, name), filepath.Join(outDir, name)
 	defer removeFiles(in, out)
+	// The upscale op takes only RGB (#737); the alpha goes back on after.
+	rgb, alpha := splitAlpha(req.image)
 	var buf bytes.Buffer
-	if err := png.Encode(&buf, req.image); err != nil {
+	if err := png.Encode(&buf, rgb); err != nil {
 		return upscaleAnswer{}, fmt.Errorf("preparing the image: %w", err)
 	}
 	if err := os.WriteFile(in, buf.Bytes(), 0o644); err != nil {
@@ -224,7 +226,8 @@ func (s *Server) runUpscaleDGL(ctx context.Context, inst generation.Instance, se
 	if err != nil {
 		return upscaleAnswer{}, fmt.Errorf("reading sd-server's output: %w", err)
 	}
-	if req.format == "jpeg" {
+	switch {
+	case req.format == "jpeg": // JPEG has no alpha
 		img, err := png.Decode(bytes.NewReader(result))
 		if err != nil {
 			return upscaleAnswer{}, fmt.Errorf("reading sd-server's output: %w", err)
@@ -234,6 +237,16 @@ func (s *Server) runUpscaleDGL(ctx context.Context, inst generation.Instance, se
 			return upscaleAnswer{}, fmt.Errorf("making the JPEG: %w", err)
 		}
 		result = j.Bytes()
+	case alpha != nil:
+		img, err := png.Decode(bytes.NewReader(result))
+		if err != nil {
+			return upscaleAnswer{}, fmt.Errorf("reading sd-server's output: %w", err)
+		}
+		var p bytes.Buffer
+		if err := png.Encode(&p, withAlpha(img, alpha)); err != nil {
+			return upscaleAnswer{}, fmt.Errorf("putting the alpha back: %w", err)
+		}
+		result = p.Bytes()
 	}
 	path := generation.UpscalerPath(set)
 	return upscaleAnswer{

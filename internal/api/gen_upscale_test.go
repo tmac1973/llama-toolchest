@@ -246,3 +246,131 @@ func TestMeasureUpscalerDGL(t *testing.T) {
 		t.Errorf("scripts sent: %q", f.sources)
 	}
 }
+
+// pngColorType is the color type byte of a PNG's IHDR: 0 gray, 2 RGB,
+// 3 palette, 4 gray with alpha, 6 RGBA.
+func pngColorType(t *testing.T, b []byte) byte {
+	t.Helper()
+	if len(b) < 26 || string(b[12:16]) != "IHDR" {
+		t.Fatalf("not a PNG: %q", b[:min(len(b), 16)])
+	}
+	return b[25]
+}
+
+func encodePNG(t *testing.T, img image.Image) []byte {
+	t.Helper()
+	var b bytes.Buffer
+	if err := png.Encode(&b, img); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
+}
+
+// sd.cpp's upscale op takes only RGB (#737), so the DGL path writes every
+// input as an RGB PNG: a gray one, and one whose alpha is not 255
+// everywhere, as from an image edit. A PNG answer gets the input's alpha
+// back at the result's size; a JPEG answer has none.
+func TestImageUpscaleDGLNotRGB(t *testing.T) {
+	f := newFakeDGL(t)
+	f.output = testPNG(t, 64, 48)
+	s := dglUpscaleServer(t, f)
+
+	clear := image.NewNRGBA(image.Rect(0, 0, 16, 12))
+	for y := range 12 {
+		for x := range 16 {
+			a := uint8(200)
+			if x < 8 {
+				a = 0 // a clear left half
+			}
+			clear.SetNRGBA(x, y, color.NRGBA{200, 100, 50, a})
+		}
+	}
+	gray := image.NewGray(image.Rect(0, 0, 16, 12))
+	for i := range gray.Pix {
+		gray.Pix[i] = uint8(i)
+	}
+	for _, c := range []struct {
+		name   string
+		img    image.Image
+		format string
+		alpha  bool
+	}{
+		{"alpha", clear, "png", true},
+		{"alpha to jpeg", clear, "jpeg", false},
+		{"gray", gray, "png", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			raw := encodePNG(t, c.img)
+			n := len(f.inputs)
+			rec := httptest.NewRecorder()
+			s.handleGenUpscale(rec, upscaleReq(`{"image":"`+base64.StdEncoding.EncodeToString(raw)+`","output_format":"`+c.format+`"}`))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("upscale: %d %s", rec.Code, rec.Body.String())
+			}
+			if len(f.inputs) != n+1 {
+				t.Fatalf("%d inputs seen, want %d", len(f.inputs), n+1)
+			}
+			in := f.inputs[n]
+			if ct := pngColorType(t, in); ct != 2 {
+				t.Errorf("input color type %d, want 2 (RGB)", ct)
+			}
+			if c.name == "alpha" {
+				img, _ := png.Decode(bytes.NewReader(in))
+				if got := color.NRGBAModel.Convert(img.At(1, 1)).(color.NRGBA); got != (color.NRGBA{200, 100, 50, 255}) {
+					t.Errorf("a clear input pixel = %v; want its own color, opaque", got)
+				}
+			}
+			var out upscaleAnswer
+			json.Unmarshal(rec.Body.Bytes(), &out)
+			res, _ := base64.StdEncoding.DecodeString(out.Images[0].B64JSON)
+			if c.format == "jpeg" {
+				if _, err := jpeg.DecodeConfig(bytes.NewReader(res)); err != nil {
+					t.Fatalf("not a JPEG: %v", err)
+				}
+				return
+			}
+			if !c.alpha {
+				if !bytes.Equal(res, f.output) {
+					t.Error("an opaque input's answer is not sd-server's output")
+				}
+				return
+			}
+			img, err := png.Decode(bytes.NewReader(res))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if b := img.Bounds(); b.Dx() != 64 || b.Dy() != 48 || out.Width != 64 || out.Height != 48 {
+				t.Errorf("result %v, answer %dx%d; want 64x48", b, out.Width, out.Height)
+			}
+			want := color.NRGBAModel.Convert(func() image.Image { i, _ := png.Decode(bytes.NewReader(f.output)); return i }().At(50, 20)).(color.NRGBA)
+			want.A = 200
+			for _, p := range []struct {
+				x, y int
+				want color.NRGBA
+			}{{5, 5, color.NRGBA{}}, {50, 20, want}} {
+				got := color.NRGBAModel.Convert(img.At(p.x, p.y)).(color.NRGBA)
+				if got.A != p.want.A || (p.want.A != 0 && got != p.want) {
+					t.Errorf("result at %d,%d = %v, want %v", p.x, p.y, got, p.want)
+				}
+			}
+		})
+	}
+}
+
+func TestScaleGray(t *testing.T) {
+	g := image.NewGray(image.Rect(0, 0, 2, 1))
+	g.Pix[0], g.Pix[1] = 0, 200
+	out := scaleGray(g, 8, 2)
+	// Edges keep the source values; the middle blends them.
+	want := []uint8{0, 0, 25, 75, 125, 175, 200, 200}
+	for y := range 2 {
+		for x, w := range want {
+			if got := out.Pix[y*out.Stride+x]; got != w {
+				t.Errorf("(%d,%d) = %d, want %d", x, y, got, w)
+			}
+		}
+	}
+	if _, a := splitAlpha(image.NewGray(image.Rect(0, 0, 3, 3))); a != nil {
+		t.Error("a gray picture has no alpha, but splitAlpha gave one")
+	}
+}
