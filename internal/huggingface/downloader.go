@@ -3,6 +3,7 @@ package huggingface
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -752,8 +753,7 @@ func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, model
 		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", existingSize))
 	}
 
-	client := &http.Client{Timeout: 0}
-	resp, err := client.Do(req)
+	resp, err := fileClient.Do(req)
 	if err != nil {
 		// After a redirect the URL can be a CDN's presigned one, whose
 		// signature must not reach the log or the page.
@@ -873,6 +873,36 @@ func (d *Downloader) downloadFile(ctx context.Context, source, downloadID, model
 
 	f.Close()
 	return downloaded, d.finishPart(partPath, finalPath, filename, hex.EncodeToString(hasher.Sum(nil)), downloaded, wantSize)
+}
+
+// fileClient fetches file contents. It has no timeout, because a large
+// file can take hours.
+//
+// It uses HTTP/1.1 only. Over HTTP/2, Go puts all downloads from one
+// host on a single connection, and from Hugging Face's CDN that is slow
+// and uneven: one file at a time got 3 to 80 MB/s, and of two files at
+// once, one often got about 1 MB/s. With HTTP/1.1 each file has its own
+// connection, and each got 90 to 180 MB/s on the same link.
+var fileClient = &http.Client{Transport: http1Transport()}
+
+// http1Transport returns a copy of http.DefaultTransport (proxy settings
+// and timeouts included) that does not use HTTP/2.
+//
+// Setting Protocols alone is not enough: Clone first sets up HTTP/2 on
+// the default transport, so the copy's TLS config still offers "h2" to
+// the server. The server then answers in HTTP/2, which this transport
+// cannot read. So the TLS config offers only HTTP/1.1.
+func http1Transport() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	var protos http.Protocols
+	protos.SetHTTP1(true)
+	t.Protocols = &protos
+	if t.TLSClientConfig == nil {
+		t.TLSClientConfig = &tls.Config{}
+	}
+	t.TLSClientConfig.NextProtos = []string{"http/1.1"}
+	t.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
+	return t
 }
 
 // finishPart checks a complete .part file against the expected hash and
