@@ -240,31 +240,21 @@ func hunyuanGGUF(repo, file string) Component {
 // ones measured on asmodean on 2026-10-24.
 func Catalog() []CatalogEntry {
 	return []CatalogEntry{
-		{
-			ID:     "ming-image",
-			Name:   "Ming-Image 0.1 Design",
-			Kind:   KindSD,
-			Recipe: "ming-image",
-			Components: []Component{
-				{Slot: "diffusion_model", Repo: "voltaire321/Ming-Image-0.1-Design-GGUF", File: "ming_image_0.1_design-Q8_0.gguf", Bytes: 6541979808},
-				{Slot: "llm", Repo: "voltaire321/Ming-Image-0.1-Design-GGUF", File: "ming_ling_mini_2.0-Q4_K.gguf", Bytes: 10518620096},
-				{Slot: "vae", Repo: "Comfy-Org/Ming-Image", File: "vae/ming_image_vae_bf16.safetensors", Bytes: 253816696},
-				{Slot: "tokenizer", Repo: "inclusionAI/Ming-Image-0.1-Design", File: "mllm/tokenizer.json", Bytes: 12210709},
-			},
-			// --backend te=cpu runs the 10 GB text model on the CPU, as
-			// Haruspex does. Measured on a Radeon AI PRO R9700 on
-			// 2026-10-25: peak 9.4 GiB instead of 18.6 GiB, and the same
-			// 20.7 s per transparent 1024x1024 image.
-			LaunchArgs: []string{"--steps", "12", "--cfg-scale", "1", "--sampling-method", "euler", "--diffusion-fa", "--vae-tiling", "--backend", "te=cpu"},
-			FlagNotes: map[string]string{
-				"--backend te=cpu": "Runs the 10 GB text model on the CPU, as Haruspex does. On a Radeon AI PRO R9700 the peak went from 18.6 to 9.4 GiB, and each transparent image still took 20.7 s.",
-			},
-			Capabilities:  []string{"alpha"},
-			License:       "MIT",
-			Notes:         "Used by Haruspex. Makes PNG images with transparent backgrounds: the prompt must start with \"RGBA, 4-channel, transparent background.\", and the image must start from a fully transparent canvas at strength 0.9 (init_image and strength in the <sd_cpp_extra_args> block). Without both, images are opaque. Its 10 GB text model runs on the CPU, so it needs about 10.5 GiB of VRAM and fits a 16 GB card.",
-			DefaultWidth:  2048,
-			DefaultHeight: 2048,
-		},
+		// Ming-Image 0.2 is a retrain of 0.1: new DiT, connector and mlp
+		// weights; the same architecture, Ling text model, tokenizer and
+		// VAE. Its text-model GGUF is 0.1's bf16 file with the 0.2
+		// connector and mlp put in (the voltaire321 README says how).
+		// File sizes read from the Hugging Face tree API on 2026-11-27.
+		mingEntry("ming-image-0.2", "Ming-Image 0.2 Design",
+			Component{Slot: "diffusion_model", Repo: "voltaire321/Ming-Image-0.2-Design-GGUF", File: "ming_image_0.2_design-Q8_0.gguf", Bytes: 6541979936},
+			Component{Slot: "llm", Repo: "voltaire321/Ming-Image-0.2-Design-GGUF", File: "ming_image_0.2_ling_mini_2.0-Q4_K.gguf", Bytes: 10518620224},
+			Component{Slot: "tokenizer", Repo: "inclusionAI/Ming-Image-0.2-Design", File: "mllm/tokenizer.json", Bytes: 12210709},
+			"Better than 0.1 at text, composition and lighting, and its transparent images have clean edges. "),
+		mingEntry("ming-image", "Ming-Image 0.1 Design",
+			Component{Slot: "diffusion_model", Repo: "voltaire321/Ming-Image-0.1-Design-GGUF", File: "ming_image_0.1_design-Q8_0.gguf", Bytes: 6541979808},
+			Component{Slot: "llm", Repo: "voltaire321/Ming-Image-0.1-Design-GGUF", File: "ming_ling_mini_2.0-Q4_K.gguf", Bytes: 10518620096},
+			Component{Slot: "tokenizer", Repo: "inclusionAI/Ming-Image-0.1-Design", File: "mllm/tokenizer.json", Bytes: 12210709},
+			"Used by Haruspex. "),
 		{
 			ID:         "qwen-image-2.1-turbo",
 			Name:       "Qwen-Image 2.1 Turbo (Q4)",

@@ -149,6 +149,8 @@ func TestCatalogReposAllowed(t *testing.T) {
 		"Comfy-Org/Qwen-Image_ComfyUI",
 		"Comfy-Org/z_image_turbo",
 		"inclusionAI/Ming-Image-0.1-Design",
+		// MIT, not gated; checked 2026-11-27.
+		"inclusionAI/Ming-Image-0.2-Design",
 		"leejet/FLUX.2-klein-4B-GGUF",
 		"leejet/flux-3-image-klein-GGUF",
 		"leejet/Z-Image-Turbo-GGUF",
@@ -164,6 +166,8 @@ func TestCatalogReposAllowed(t *testing.T) {
 		"unsloth/Qwen-Image-2.1-Turbo-GGUF",
 		"unsloth/Qwen-Image-Edit-2511-GGUF",
 		"voltaire321/Ming-Image-0.1-Design-GGUF",
+		// MIT, not gated; checked 2026-11-27.
+		"voltaire321/Ming-Image-0.2-Design-GGUF",
 		// Video sets.
 		"QuantStack/Wan2.2-TI2V-5B-GGUF",
 		"city96/umt5-xxl-encoder-gguf",

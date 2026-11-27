@@ -8,6 +8,7 @@ October 2026, sd.cpp `master-1015`, acestep.cpp `de858d8`. Video figures are for
 
 | Model set | Makes | R9700 32 GB | A4000 16 GB | Size measured | Time per job | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
+| Ming-Image 0.2 Design | Images, transparent backgrounds | 10.0 GiB (peak 9.1) | Not measured |  | ~25 s at 1024² | Text model runs on the CPU (about 10.6 GB of system RAM). sd.cpp master-1142, ROCm 10.2, November 2026; builds master-1116 to master-1141 cannot run Ming-Image |
 | Ming-Image 0.1 Design | Images, transparent backgrounds | 10.5 GiB | 10.5 GiB |  |  | Text model runs on the CPU: half the memory, same speed |
 | Qwen-Image 2.1 Turbo | Images | 6.5 GiB | – |  |  |  |
 | Qwen-Image 2.1 Turbo Edit | Images, edits | 13.5 GiB | – |  | ~34 s image, ~88 s edit at 1024² | Edits need about twice the memory of images. Its picture reader runs on the CPU with the text model |

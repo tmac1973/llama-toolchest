@@ -377,6 +377,9 @@ func CheckRecipeForBuild(set ModelSet, build builder.BuildResult) error {
 	case r.Kind != set.Kind:
 		return fmt.Errorf("recipe %s is an image recipe; make the set an image set", set.Recipe)
 	}
+	if p := MingBuildProblem(set.Recipe, build); p != "" {
+		return fmt.Errorf("%s", p)
+	}
 	return nil
 }
 
