@@ -16,7 +16,10 @@ import (
 	"time"
 )
 
-// fakeDGL acts like sd-server's DGL job routes. Each job runs for polls
+// fakeDGL acts like sd-server's DGL job routes. By default it serves a job
+// at the general /sdcpp/v1/jobs/{id} route and gives it as poll_url, as
+// from master-1133; legacy serves it at /sdcpp/v1/dgl/jobs/{id} with no
+// poll_url, as before. The other form answers 404. Each job runs for polls
 // status polls, then ends with fail (when set) or completes with result.
 // When workDir is set, a completed job writes its script's output_path
 // there, as sd-server would.
@@ -38,6 +41,15 @@ type fakeDGL struct {
 	// it the route answers 404, as before. cancelled counts those posts.
 	cancelable bool
 	cancelled  int
+	legacy     bool
+}
+
+// jobPrefix is where the fake serves a job's status and cancel routes.
+func (f *fakeDGL) jobPrefix() string {
+	if f.legacy {
+		return "/sdcpp/v1/dgl/jobs/"
+	}
+	return "/sdcpp/v1/jobs/"
 }
 
 func newFakeDGL(t *testing.T) *fakeDGL {
@@ -67,13 +79,17 @@ func (f *fakeDGL) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		f.sources = append(f.sources, body.Source)
 		w.WriteHeader(http.StatusAccepted)
-		_, _ = w.Write([]byte(`{"id":"job1","kind":"dgl","status":"queued"}`))
-	case r.Method == "POST" && f.cancelable && strings.HasSuffix(r.URL.Path, "/cancel"):
+		if f.legacy {
+			_, _ = w.Write([]byte(`{"id":"job1","kind":"dgl","status":"queued"}`))
+		} else {
+			_, _ = w.Write([]byte(`{"id":"job1","kind":"dgl","status":"queued","poll_url":"/sdcpp/v1/jobs/job1"}`))
+		}
+	case r.Method == "POST" && f.cancelable && r.URL.Path == f.jobPrefix()+"job1/cancel":
 		f.cancelled++
 		_, _ = w.Write([]byte(`{"id":"job1","status":"running","cancel_requested":true}`))
-	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/sdcpp/v1/dgl/jobs/"):
+	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, f.jobPrefix()):
 		f.requests++
-		id := strings.TrimPrefix(r.URL.Path, "/sdcpp/v1/dgl/jobs/")
+		id := strings.TrimPrefix(r.URL.Path, f.jobPrefix())
 		f.seen[id]++
 		n := f.seen[id]
 		switch {
@@ -116,22 +132,46 @@ func fastPoll(t *testing.T) {
 	t.Cleanup(func() { vidGenPoll = old })
 }
 
+// routeForms runs a test against both job route forms: master-1133 on
+// (poll_url, /sdcpp/v1/jobs/{id}) and before (/sdcpp/v1/dgl/jobs/{id}).
+func routeForms(t *testing.T, test func(t *testing.T, legacy bool)) {
+	t.Run("poll_url", func(t *testing.T) { test(t, false) })
+	t.Run("legacy", func(t *testing.T) { test(t, true) })
+}
+
 func TestRunDGLJob(t *testing.T) {
 	fastPoll(t)
-	f := newFakeDGL(t)
-	var stages []string
-	res, err := runDGLJob(context.Background(), f.srv.URL, "fn main() { return 1 }", func(p dglProgress) { stages = append(stages, p.Stage) })
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res != (dglResult{Width: 1664, Height: 960, Frames: 17}) {
-		t.Errorf("result = %+v", res)
-	}
-	if len(f.sources) != 1 || f.sources[0] != "fn main() { return 1 }" {
-		t.Errorf("sources = %q", f.sources)
-	}
-	if len(stages) != 1 || stages[0] != "executing" {
-		t.Errorf("progress = %v (want one change)", stages)
+	routeForms(t, func(t *testing.T, legacy bool) {
+		f := newFakeDGL(t)
+		f.legacy = legacy
+		var stages []string
+		res, err := runDGLJob(context.Background(), f.srv.URL, "fn main() { return 1 }", func(p dglProgress) { stages = append(stages, p.Stage) })
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res != (dglResult{Width: 1664, Height: 960, Frames: 17}) {
+			t.Errorf("result = %+v", res)
+		}
+		if len(f.sources) != 1 || f.sources[0] != "fn main() { return 1 }" {
+			t.Errorf("sources = %q", f.sources)
+		}
+		if len(stages) != 1 || stages[0] != "executing" {
+			t.Errorf("progress = %v (want one change)", stages)
+		}
+	})
+}
+
+func TestDGLJobURL(t *testing.T) {
+	const base = "http://127.0.0.1:9"
+	for _, tt := range []struct{ poll, want string }{
+		{"/sdcpp/v1/jobs/j1", base + "/sdcpp/v1/jobs/j1"},
+		{"", base + "/sdcpp/v1/dgl/jobs/j1"},
+		{"//evil.example/x", base + "/sdcpp/v1/dgl/jobs/j1"},
+		{"http://evil.example/x", base + "/sdcpp/v1/dgl/jobs/j1"},
+	} {
+		if got := dglJobURL(base, "j1", tt.poll); got != tt.want {
+			t.Errorf("dglJobURL(%q) = %q, want %q", tt.poll, got, tt.want)
+		}
 	}
 }
 
@@ -202,29 +242,31 @@ func TestRunDGLJobStopsWaiting(t *testing.T) {
 // it reports cancelled.
 func TestRunDGLJobCancels(t *testing.T) {
 	fastPoll(t)
-	f := newFakeDGL(t)
-	f.polls, f.cancelable = 1<<30, true
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() {
-		_, err := runDGLJob(ctx, f.srv.URL, "x", nil)
-		done <- err
-	}()
-	time.Sleep(30 * time.Millisecond)
-	cancel()
-	select {
-	case err := <-done:
-		if !errors.Is(err, context.Canceled) || errors.Is(err, errDGLStillRunning) {
-			t.Errorf("err = %v", err)
+	routeForms(t, func(t *testing.T, legacy bool) {
+		f := newFakeDGL(t)
+		f.polls, f.cancelable, f.legacy = 1<<30, true, legacy
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() {
+			_, err := runDGLJob(ctx, f.srv.URL, "x", nil)
+			done <- err
+		}()
+		time.Sleep(30 * time.Millisecond)
+		cancel()
+		select {
+		case err := <-done:
+			if !errors.Is(err, context.Canceled) || errors.Is(err, errDGLStillRunning) {
+				t.Errorf("err = %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("runDGLJob did not return after the context ended")
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("runDGLJob did not return after the context ended")
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.cancelled != 1 {
-		t.Errorf("cancel posts = %d, want 1", f.cancelled)
-	}
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if f.cancelled != 1 {
+			t.Errorf("cancel posts = %d, want 1", f.cancelled)
+		}
+	})
 }
 
 // A job that does not stop within dglCancelWait counts as still running.
