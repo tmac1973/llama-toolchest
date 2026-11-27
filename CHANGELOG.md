@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.69.0](https://github.com/tmac1973/llama-toolchest/compare/v2.68.0...v2.69.0) (2026-11-27)
+
+
+### Features
+
+* **generation:** add a Ming-Image 0.2 Design catalog set ([#734](https://github.com/tmac1973/llama-toolchest/issues/734)) ([43ecc8f](https://github.com/tmac1973/llama-toolchest/commit/43ecc8fadf07c6f8fae32049ff9864f7587bbbe6))
+
+
+### Bug Fixes
+
+* **download:** fetch model files over HTTP/1.1 ([#735](https://github.com/tmac1973/llama-toolchest/issues/735)) ([4f9d7a7](https://github.com/tmac1973/llama-toolchest/commit/4f9d7a70a7c8027045d8dee8be964d4b1f805a16))
+* **generation:** give the DGL upscale an RGB picture and keep its alpha ([#737](https://github.com/tmac1973/llama-toolchest/issues/737)) ([#738](https://github.com/tmac1973/llama-toolchest/issues/738)) ([46dd3e8](https://github.com/tmac1973/llama-toolchest/commit/46dd3e8433b2e32f72b0f98ffa3f8866249bfb2b))
+* **generation:** poll DGL jobs at the poll_url from sd.cpp master-1133 ([#733](https://github.com/tmac1973/llama-toolchest/issues/733)) ([#736](https://github.com/tmac1973/llama-toolchest/issues/736)) ([f3858e5](https://github.com/tmac1973/llama-toolchest/commit/f3858e52380f527ad011395a84862e23f5df0320))
+* **ui:** keep the loop-core note from covering its switch ([#731](https://github.com/tmac1973/llama-toolchest/issues/731)) ([dfb3bc7](https://github.com/tmac1973/llama-toolchest/commit/dfb3bc7fa18dacc5468fae165289775da18a77b1))
+
 ## [2.68.0](https://github.com/tmac1973/llama-toolchest/compare/v2.67.0...v2.68.0) (2026-11-26)
 
 
