@@ -1,0 +1,8 @@
+{
+  "pre_tool_use": [
+    { "matcher": "*", "hooks": [ { "command": ".openhands/hooks/guard_git.sh", "timeout": 10 } ] }
+  ],
+  "stop": [
+    { "matcher": "*", "hooks": [ { "command": ".openhands/hooks/quality_gate.sh", "timeout": 1800 } ] }
+  ]
+}
