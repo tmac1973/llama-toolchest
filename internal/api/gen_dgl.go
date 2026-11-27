@@ -2,16 +2,18 @@ package api
 
 // The client for sd-server's DGL job API (stable-diffusion.cpp master-1116
 // on, examples/server/routes_dgl.cpp), which video upscaler sets use:
-// POST /sdcpp/v1/dgl/jobs {"source": <script>} answers 202 {id}, and
-// GET /sdcpp/v1/dgl/jobs/{id} reports the job. sd-server takes these
-// routes only from 127.0.0.1 or ::1 with a local Host and no foreign
+// POST /sdcpp/v1/dgl/jobs {"source": <script>} answers 202 {id}, and the
+// job's own route reports it. From master-1133 that route is the general
+// GET /sdcpp/v1/jobs/{id}, which the 202 gives as poll_url; before, it was
+// GET /sdcpp/v1/dgl/jobs/{id}, and the 202 had no poll_url. sd-server takes
+// these routes only from 127.0.0.1 or ::1 with a local Host and no foreign
 // Origin, which toolchest's own calls to http://127.0.0.1:<port> are.
 //
-// When its context ends, runDGLJob asks sd-server to cancel the job
-// (POST /sdcpp/v1/dgl/jobs/{id}/cancel, master-1132 on) and waits a short
-// time for it to stop. Builds before master-1132 answer 404 and cannot stop
-// a DGL job; then runDGLJob returns errDGLStillRunning as well, and the
-// caller stops the instance to free the GPU.
+// When its context ends, runDGLJob asks sd-server to cancel the job (POST
+// <job route>/cancel, master-1132 on) and waits a short time for it to
+// stop. Builds before master-1132 answer 404 and cannot stop a DGL job;
+// then runDGLJob returns errDGLStillRunning as well, and the caller stops
+// the instance to free the GPU.
 
 import (
 	"bytes"
@@ -128,22 +130,21 @@ func runDGLJob(ctx context.Context, base, source string, onProgress func(dglProg
 // runDGLScript is runDGLJob for a script that returns something else: it
 // returns the completed job's status as sd-server reported it.
 func runDGLScript(ctx context.Context, base, source string, onProgress func(dglProgress)) (dglJobStatus, error) {
-	id, err := submitDGL(ctx, base, source)
+	id, jobURL, err := submitDGL(ctx, base, source)
 	if err != nil {
 		return dglJobStatus{}, err
 	}
-	jobURL := base + "/sdcpp/v1/dgl/jobs/" + id
 	var last dglProgress
 	for {
 		select {
 		case <-ctx.Done():
-			return dglJobStatus{}, cancelDGL(base, id, ctx.Err())
+			return dglJobStatus{}, cancelDGL(jobURL, id, ctx.Err())
 		case <-time.After(vidGenPoll):
 		}
 		out, _, err := getBody(ctx, jobURL)
 		if err != nil {
 			if ctx.Err() != nil {
-				return dglJobStatus{}, cancelDGL(base, id, ctx.Err())
+				return dglJobStatus{}, cancelDGL(jobURL, id, ctx.Err())
 			}
 			return dglJobStatus{}, err
 		}
@@ -171,13 +172,13 @@ func sameProgress(a, b dglProgress) bool {
 	return a.Stage == b.Stage && a.Detail == b.Detail && eq(a.Completed, b.Completed) && eq(a.Total, b.Total)
 }
 
-// cancelDGL asks sd-server to cancel job id after runDGLJob's context
-// ended with cause, and waits up to dglCancelWait for the job to stop. It
-// returns cause, joined with errDGLStillRunning when the job may still run.
-func cancelDGL(base, id string, cause error) error {
+// cancelDGL asks sd-server to cancel job id, whose route is jobURL, after
+// runDGLJob's context ended with cause, and waits up to dglCancelWait for
+// the job to stop. It returns cause, joined with errDGLStillRunning when
+// the job may still run.
+func cancelDGL(jobURL, id string, cause error) error {
 	ctx, done := context.WithTimeout(context.Background(), dglCancelWait)
 	defer done()
-	jobURL := base + "/sdcpp/v1/dgl/jobs/" + id
 	still := fmt.Errorf("%w (%w)", cause, errDGLStillRunning)
 	req, err := http.NewRequestWithContext(ctx, "POST", jobURL+"/cancel", strings.NewReader("{}"))
 	if err != nil {
@@ -216,38 +217,53 @@ func cancelDGL(base, id string, cause error) error {
 	}
 }
 
-func submitDGL(ctx context.Context, base, source string) (string, error) {
+// submitDGL posts a DGL job and returns its ID and the URL of its status
+// route: base plus the 202's poll_url (master-1133 on), or the DGL-only
+// route of older builds.
+func submitDGL(ctx context.Context, base, source string) (id, jobURL string, err error) {
 	body, err := json.Marshal(map[string]string{"source": source})
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	req, err := http.NewRequestWithContext(ctx, "POST", base+"/sdcpp/v1/dgl/jobs", bytes.NewReader(body))
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := genHTTPClient.Do(req)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer resp.Body.Close()
 	out, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	switch {
 	case resp.StatusCode == http.StatusTooManyRequests:
-		return "", errDGLBusy
+		return "", "", errDGLBusy
 	case resp.StatusCode == http.StatusForbidden:
 		slog.Error("sd-server refused a DGL request as not local; toolchest sends it to 127.0.0.1", "url", req.URL.String(), "host", req.Host, "body", string(out))
-		return "", errors.New("sd-server refused the DGL request (local-only check); this is a toolchest bug")
+		return "", "", errors.New("sd-server refused the DGL request (local-only check); this is a toolchest bug")
 	case resp.StatusCode >= 300:
-		return "", fmt.Errorf("sd-server answered HTTP %d to the upscale job: %.200s", resp.StatusCode, out)
+		return "", "", fmt.Errorf("sd-server answered HTTP %d to the upscale job: %.200s", resp.StatusCode, out)
 	}
 	var job struct {
-		ID string `json:"id"`
+		ID      string `json:"id"`
+		PollURL string `json:"poll_url"`
 	}
 	if err := json.Unmarshal(out, &job); err != nil || job.ID == "" {
-		return "", errors.New("sd-server returned no upscale job ID")
+		return "", "", errors.New("sd-server returned no upscale job ID")
 	}
-	return job.ID, nil
+	return job.ID, dglJobURL(base, job.ID, job.PollURL), nil
+}
+
+// dglJobURL is the status route of DGL job id on the instance at base.
+// pollURL is what the submit's 202 gave: a path such as /sdcpp/v1/jobs/<id>
+// from master-1133, or "" before. Anything but a plain path falls back to
+// the DGL-only route, so a request never leaves base.
+func dglJobURL(base, id, pollURL string) string {
+	if strings.HasPrefix(pollURL, "/") && !strings.HasPrefix(pollURL, "//") {
+		return base + pollURL
+	}
+	return base + "/sdcpp/v1/dgl/jobs/" + id
 }
 
 // result reads the width, height and frames the script returned. sd-server
